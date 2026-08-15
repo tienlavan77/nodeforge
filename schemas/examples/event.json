@@ -1,0 +1,14 @@
+{
+  "event_id": "EVT-1042",
+  "type": "test.finished",
+  "project_id": "wp-static-commerce",
+  "session_id": "SESSION-001",
+  "task_id": "TASK-001",
+  "request_id": "REQ-901",
+  "timestamp": "2026-08-15T14:06:04Z",
+  "sequence": 17,
+  "payload": {
+    "result_id": "TEST-001",
+    "status": "passed"
+  }
+}

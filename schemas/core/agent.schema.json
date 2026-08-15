@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/core/agent.schema.json",
+  "title": "Forge Agent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "type",
+    "role",
+    "project_id",
+    "status"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "system",
+        "ai"
+      ]
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "orchestrator",
+        "builder",
+        "reviewer",
+        "planner",
+        "tester",
+        "custom"
+      ]
+    },
+    "project_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "session_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "task_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "model": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "starting",
+        "idle",
+        "running",
+        "waiting",
+        "completed",
+        "failed",
+        "cancelled",
+        "timeout"
+      ]
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Flat capability/tool names, e.g. 'filesystem.read'. Kept for simple declaration and backward compatibility."
+    },
+    "capability_scopes": {
+      "$ref": "common.schema.json#/$defs/capability_scope",
+      "description": "Optional structured, grouped form of the same information (mirrors node/node-capability.schema.json's shape), for when Node or UI needs to reason about capability groups rather than a flat list."
+    },
+    "pid": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "workspace": {
+      "$ref": "common.schema.json#/$defs/path"
+    },
+    "started_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "finished_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "metadata": {
+      "$ref": "common.schema.json#/$defs/metadata"
+    }
+  }
+}

@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/core/common.schema.json",
+  "title": "Forge Common Types",
+  "type": "object",
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-fA-F0-9]{64}$"
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "info",
+        "warning",
+        "error",
+        "critical"
+      ]
+    },
+    "capability_scope": {
+      "type": "object",
+      "description": "Generic, extensible capability declaration shared by system and AI agents. Group names are free-form (e.g. 'filesystem', 'shell', 'context') so any agent role can declare fine-grained toggles without being constrained to Node's fixed category list.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "boolean"
+        }
+      }
+    },
+    "diff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "files"
+      ],
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "hunks"
+            ],
+            "properties": {
+              "path": {
+                "$ref": "#/$defs/path"
+              },
+              "old_path": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "change_type": {
+                "type": "string",
+                "enum": [
+                  "add",
+                  "modify",
+                  "delete",
+                  "rename"
+                ]
+              },
+              "hunks": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "old_start",
+                    "old_lines",
+                    "new_start",
+                    "new_lines",
+                    "lines"
+                  ],
+                  "properties": {
+                    "old_start": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "old_lines": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "new_start": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "new_lines": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "lines": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Unified-diff style lines, each prefixed with '+', '-' or ' '."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

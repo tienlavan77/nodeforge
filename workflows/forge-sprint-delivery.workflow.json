@@ -1,0 +1,23 @@
+{
+  "$schema": "../schemas/project/workflow.schema.json",
+  "id": "forge-sprint-delivery",
+  "name": "Forge Sprint Delivery",
+  "version": "1.0.0",
+  "initial_state": "PLANNED",
+  "states": ["PLANNED", "IN_PROGRESS", "READY_FOR_REVIEW", "REQUEST_CHANGES", "APPROVED", "BLOCKED", "OWNER_ACCEPTED_RISK"],
+  "terminal_states": ["APPROVED", "OWNER_ACCEPTED_RISK"],
+  "transitions": [
+    { "from": "PLANNED", "event": "builder.start", "to": "IN_PROGRESS", "condition": "WF-002" },
+    { "from": "IN_PROGRESS", "event": "builder.handoff", "to": "READY_FOR_REVIEW", "condition": "WF-003" },
+    { "from": "READY_FOR_REVIEW", "event": "reviewer.approve", "to": "APPROVED", "condition": "WF-006" },
+    { "from": "READY_FOR_REVIEW", "event": "reviewer.request_changes", "to": "REQUEST_CHANGES" },
+    { "from": "REQUEST_CHANGES", "event": "builder.resume", "to": "IN_PROGRESS", "condition": "WF-002" },
+    { "from": "PLANNED", "event": "work.blocked", "to": "BLOCKED", "condition": "WF-008" },
+    { "from": "IN_PROGRESS", "event": "work.blocked", "to": "BLOCKED", "condition": "WF-008" },
+    { "from": "READY_FOR_REVIEW", "event": "work.blocked", "to": "BLOCKED", "condition": "WF-008" },
+    { "from": "BLOCKED", "event": "sprint_lead.resume", "to": "IN_PROGRESS", "condition": "blocker_resolved_within_approved_contract" },
+    { "from": "REQUEST_CHANGES", "event": "owner.accept_risk", "to": "OWNER_ACCEPTED_RISK", "condition": "WF-008" },
+    { "from": "BLOCKED", "event": "owner.accept_risk", "to": "OWNER_ACCEPTED_RISK", "condition": "WF-008" }
+  ],
+  "metadata": { "ruleset": "rules/forge-sprint-delivery.rules.json", "status_authority": "status.json" }
+}

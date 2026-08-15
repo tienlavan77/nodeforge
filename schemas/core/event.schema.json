@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/core/event.schema.json",
+  "title": "Forge Event",
+  "description": "Canonical event envelope for the whole system. This is the single source of truth for the `type` enum — Node-internal events (schemas/node/node-event.schema.json) are a validated profile of this schema, not a separate contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "type",
+    "project_id",
+    "timestamp",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "node.started",
+        "node.ready",
+        "node.degraded",
+        "node.recovered",
+        "node.stopping",
+        "node.stopped",
+        "project.opened",
+        "project.closed",
+        "session.started",
+        "session.finished",
+        "session.failed",
+        "agent.spawned",
+        "agent.started",
+        "agent.output",
+        "agent.error",
+        "agent.stopped",
+        "agent.failed",
+        "agent.finished",
+        "task.created",
+        "task.started",
+        "task.completed",
+        "task.failed",
+        "task.cancelled",
+        "file.changed",
+        "index.started",
+        "index.updated",
+        "index.rebuilt",
+        "context.requested",
+        "context.created",
+        "context.ready",
+        "verification.started",
+        "verification.finished",
+        "test.started",
+        "test.finished",
+        "build.finished",
+        "lint.finished",
+        "typecheck.finished",
+        "review.started",
+        "review.finished",
+        "workflow.started",
+        "workflow.changed",
+        "workflow.completed",
+        "process.timeout",
+        "process.cancelled",
+        "error"
+      ]
+    },
+    "project_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "session_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "task_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "agent_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "request_id": {
+      "$ref": "common.schema.json#/$defs/id",
+      "description": "The request_id of the Command that directly caused this event, if any. Enables tracing a command through to every event it produced."
+    },
+    "causation_id": {
+      "$ref": "common.schema.json#/$defs/id",
+      "description": "The event_id of the event that caused this event, when one event triggers another (event chaining, as opposed to originating from a direct command)."
+    },
+    "timestamp": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "metadata": {
+      "$ref": "common.schema.json#/$defs/metadata"
+    }
+  }
+}

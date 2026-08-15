@@ -1,0 +1,23 @@
+{
+  "id": "CHECK-001",
+  "project_id": "wp-static-commerce",
+  "task_id": "TASK-001",
+  "kind": "lint",
+  "status": "failed",
+  "exit_code": 1,
+  "command": "eslint src/session.js",
+  "started_at": "2026-08-15T14:05:40Z",
+  "duration_ms": 640,
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "message": "Unexpected console statement.",
+      "file": "src/session.js",
+      "line": 431,
+      "column": 3,
+      "rule_id": "no-console"
+    }
+  ],
+  "stdout": "",
+  "stderr": ""
+}

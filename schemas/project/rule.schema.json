@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/project/rule.schema.json",
+  "title": "Forge Rule",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "scope",
+    "type",
+    "severity",
+    "rule",
+    "enabled"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "../core/common.schema.json#/$defs/id"
+    },
+    "scope": {
+      "type": "string",
+      "enum": [
+        "global",
+        "project",
+        "task"
+      ]
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "architecture",
+        "coding",
+        "testing",
+        "security",
+        "review",
+        "workflow",
+        "filesystem",
+        "context",
+        "custom"
+      ]
+    },
+    "severity": {
+      "$ref": "../core/common.schema.json#/$defs/severity"
+    },
+    "rule": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable statement of the rule, always required. This is what a Reviewer (AI) reads and judges against; it is not guaranteed to be machine-evaluable on its own."
+    },
+    "condition": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": true,
+      "description": "Optional machine-evaluable form of the same rule (e.g. JSONLogic, a glob/regex match spec, or an AST query), so Node can enforce it deterministically without an AI reviewer in the loop. If omitted, enforcement of this rule requires 'enforcement: review' — Node cannot auto-check free text."
+    },
+    "condition_language": {
+      "type": "string",
+      "enum": [
+        "jsonlogic",
+        "regex",
+        "glob",
+        "ast_query",
+        "custom"
+      ],
+      "description": "Required when `condition` is present, so Node knows which evaluator to use."
+    },
+    "description": {
+      "type": "string"
+    },
+    "applies_to": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "node",
+          "builder",
+          "reviewer",
+          "tester",
+          "ui",
+          "all"
+        ]
+      }
+    },
+    "enforcement": {
+      "type": "string",
+      "enum": [
+        "advisory",
+        "agent",
+        "orchestrator",
+        "review",
+        "blocking"
+      ],
+      "description": "'orchestrator'/'blocking' require `condition` to be set — Node cannot deterministically enforce free-text `rule` alone."
+    },
+    "paths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "exceptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000
+    },
+    "source": {
+      "type": "string",
+      "description": "Provenance of this rule, e.g. 'user', 'template:security-baseline', a task_id it was scoped from."
+    },
+    "created_at": {
+      "$ref": "../core/common.schema.json#/$defs/timestamp"
+    },
+    "updated_at": {
+      "$ref": "../core/common.schema.json#/$defs/timestamp"
+    },
+    "metadata": {
+      "$ref": "../core/common.schema.json#/$defs/metadata"
+    }
+  }
+}

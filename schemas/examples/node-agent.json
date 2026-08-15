@@ -1,0 +1,19 @@
+{
+  "id": "NODE-001",
+  "type": "system",
+  "role": "orchestrator",
+  "project_id": "wp-static-commerce",
+  "status": "running",
+  "capabilities": [
+    "filesystem.watch",
+    "code_index.update",
+    "test.run",
+    "context.build",
+    "workflow.execute",
+    "agent.spawn",
+    "event.emit"
+  ],
+  "pid": 4812,
+  "version": "1.0.0",
+  "started_at": "2026-08-15T14:00:00Z"
+}

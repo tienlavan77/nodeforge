@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/node/node-capability.schema.json",
+  "title": "Forge Node Capabilities",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "agent_id",
+    "capabilities"
+  ],
+  "properties": {
+    "agent_id": {
+      "$ref": "../core/common.schema.json#/$defs/id"
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "filesystem": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "watch": {
+              "type": "boolean"
+            },
+            "read": {
+              "type": "boolean"
+            },
+            "write": {
+              "type": "boolean"
+            }
+          }
+        },
+        "index": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "read": {
+              "type": "boolean"
+            },
+            "write": {
+              "type": "boolean"
+            },
+            "rebuild": {
+              "type": "boolean"
+            }
+          }
+        },
+        "verification": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "test": {
+              "type": "boolean"
+            },
+            "build": {
+              "type": "boolean"
+            },
+            "lint": {
+              "type": "boolean"
+            },
+            "typecheck": {
+              "type": "boolean"
+            }
+          }
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "build": {
+              "type": "boolean"
+            },
+            "cache": {
+              "type": "boolean"
+            },
+            "redact": {
+              "type": "boolean"
+            }
+          }
+        },
+        "workflow": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "execute": {
+              "type": "boolean"
+            },
+            "pause": {
+              "type": "boolean"
+            },
+            "resume": {
+              "type": "boolean"
+            },
+            "cancel": {
+              "type": "boolean"
+            }
+          }
+        },
+        "agents": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "spawn": {
+              "type": "boolean"
+            },
+            "stop": {
+              "type": "boolean"
+            },
+            "observe": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    }
+  }
+}

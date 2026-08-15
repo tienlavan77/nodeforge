@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/core/command.schema.json",
+  "title": "Forge Command",
+  "description": "Canonical command envelope for the whole system. This is the single source of truth for the `type` enum — Node-internal commands (schemas/node/node-command.schema.json) are a validated profile of this schema, not a separate contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "request_id",
+    "project_id",
+    "payload"
+  ],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": [
+        "project.open",
+        "project.close",
+        "session.start",
+        "session.stop",
+        "session.query",
+        "context.request",
+        "context.build",
+        "task.start",
+        "task.cancel",
+        "test.request",
+        "test.run",
+        "build.run",
+        "lint.run",
+        "typecheck.run",
+        "review.request",
+        "index.scan",
+        "index.rebuild",
+        "index.update",
+        "workflow.start",
+        "workflow.advance",
+        "workflow.pause",
+        "workflow.resume",
+        "workflow.cancel",
+        "agent.spawn",
+        "agent.stop",
+        "agent.cancel",
+        "history.query",
+        "state.query",
+        "status.request"
+      ]
+    },
+    "request_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "project_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "session_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "task_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "agent_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "timestamp": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    }
+  }
+}

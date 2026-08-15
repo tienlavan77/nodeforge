@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/node/node-event.schema.json",
+  "title": "Forge Node Event",
+  "description": "Node-internal event stream. This is a constrained profile of the canonical core/event.schema.json: same envelope and `type` enum, restricted to the subset of event types that Node's own subsystems (watcher, index, workflow engine, agent supervisor) are allowed to emit directly.",
+  "allOf": [
+    {
+      "$ref": "../core/event.schema.json"
+    },
+    {
+      "properties": {
+        "type": {
+          "enum": [
+            "node.started",
+            "node.ready",
+            "node.degraded",
+            "node.recovered",
+            "node.stopping",
+            "node.stopped",
+            "project.opened",
+            "project.closed",
+            "file.changed",
+            "index.started",
+            "index.updated",
+            "index.rebuilt",
+            "context.requested",
+            "context.created",
+            "context.ready",
+            "verification.started",
+            "verification.finished",
+            "workflow.started",
+            "workflow.changed",
+            "workflow.completed",
+            "agent.spawned",
+            "agent.stopped",
+            "agent.failed",
+            "error"
+          ]
+        }
+      }
+    }
+  ]
+}

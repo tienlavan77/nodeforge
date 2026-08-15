@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/node/node-command.schema.json",
+  "title": "Forge Node Command",
+  "description": "Node-internal command channel. This is a constrained profile of the canonical core/command.schema.json: same envelope and `type` enum, restricted to the subset of command types Node dispatches to its own subsystems (as opposed to the Agent<->Node protocol commands like task.start or review.request).",
+  "allOf": [
+    {
+      "$ref": "../core/command.schema.json"
+    },
+    {
+      "properties": {
+        "type": {
+          "enum": [
+            "project.open",
+            "project.close",
+            "index.scan",
+            "index.rebuild",
+            "index.update",
+            "context.build",
+            "test.run",
+            "build.run",
+            "lint.run",
+            "typecheck.run",
+            "agent.spawn",
+            "agent.stop",
+            "agent.cancel",
+            "workflow.start",
+            "workflow.advance",
+            "workflow.pause",
+            "workflow.resume",
+            "workflow.cancel",
+            "history.query",
+            "session.query",
+            "state.query"
+          ]
+        }
+      }
+    }
+  ]
+}

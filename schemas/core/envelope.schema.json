@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/core/envelope.schema.json",
+  "title": "Forge Agent Envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol_version",
+    "message_id",
+    "sender",
+    "message"
+  ],
+  "properties": {
+    "protocol_version": {
+      "$ref": "common.schema.json#/$defs/version"
+    },
+    "message_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "sender": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "role"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "system",
+            "ai",
+            "ui"
+          ]
+        },
+        "role": {
+          "type": "string"
+        }
+      }
+    },
+    "receiver": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "system",
+            "ai",
+            "ui"
+          ]
+        },
+        "role": {
+          "type": "string"
+        }
+      }
+    },
+    "message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "payload"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "request_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "timestamp": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "metadata": {
+      "$ref": "common.schema.json#/$defs/metadata"
+    }
+  }
+}

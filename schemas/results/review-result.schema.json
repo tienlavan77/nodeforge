@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/results/review-result.schema.json",
+  "title": "Forge Review Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "project_id",
+    "task_id",
+    "status",
+    "findings"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "../core/common.schema.json#/$defs/id"
+    },
+    "project_id": {
+      "$ref": "../core/common.schema.json#/$defs/id"
+    },
+    "task_id": {
+      "$ref": "../core/common.schema.json#/$defs/id"
+    },
+    "session_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "approved",
+        "changes_requested",
+        "blocked",
+        "failed"
+      ]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "severity",
+          "title",
+          "message"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "../core/common.schema.json#/$defs/id"
+          },
+          "severity": {
+            "$ref": "../core/common.schema.json#/$defs/severity"
+          },
+          "title": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "file": {
+            "type": "string"
+          },
+          "start_line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "end_line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "rule_id": {
+            "type": "string"
+          },
+          "suggested_fix": {
+            "type": "string"
+          },
+          "blocking": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tests_passed": {
+          "type": "boolean"
+        },
+        "build_passed": {
+          "type": "boolean"
+        },
+        "lint_passed": {
+          "type": "boolean"
+        },
+        "typecheck_passed": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,104 @@
+{
+  "$schema": "../schemas/project/workflow-ruleset.schema.json",
+  "ruleset_id": "forge-sprint-delivery-v1",
+  "version": "1.0.0",
+  "source": "Forge Constitution v1.0 + Forge Sprint Delivery Workflow",
+  "rules": [
+    {
+      "id": "WF-001",
+      "description": "Only the approved next eligible commit may be created or handed to a Builder.",
+      "severity": "critical",
+      "enforcement": "blocking",
+      "applies_to": ["sprint_lead", "node"],
+      "trigger": "commit.create",
+      "condition": { "kind": "dependency_gate", "required_status": "APPROVED" },
+      "enabled": true,
+      "priority": 1000,
+      "source": "WORKFLOW.md §5, §11"
+    },
+    {
+      "id": "WF-002",
+      "description": "Commit lifecycle transitions are valid only for their designated actor and required handoff artifacts.",
+      "severity": "critical",
+      "enforcement": "blocking",
+      "applies_to": ["sprint_lead", "builder", "reviewer", "node"],
+      "trigger": "commit.transition",
+      "condition": { "kind": "status_transition", "from": "PLANNED", "to": "IN_PROGRESS", "allowed_actors": ["builder", "sprint_lead"], "requires": ["status.json", "COMMIT.md"] },
+      "enabled": true,
+      "priority": 1000,
+      "source": "WORKFLOW.md §6, §7"
+    },
+    {
+      "id": "WF-003",
+      "description": "A Builder may hand off work only with complete implementation evidence.",
+      "severity": "high",
+      "enforcement": "blocking",
+      "applies_to": ["builder", "node"],
+      "trigger": "commit.handoff",
+      "condition": { "kind": "artifact_requirement", "when": "transition to READY_FOR_REVIEW", "artifacts": ["COMMIT.md", "status.json", "builder-report.md"] },
+      "enabled": true,
+      "priority": 950,
+      "source": "WORKFLOW.md §7"
+    },
+    {
+      "id": "WF-004",
+      "description": "Reviewer must be independent and must not modify implementation code under review.",
+      "severity": "critical",
+      "enforcement": "blocking",
+      "applies_to": ["reviewer", "node"],
+      "trigger": "file.change",
+      "condition": { "kind": "role_action", "actor": "reviewer", "action": "write_implementation_code", "effect": "deny" },
+      "enabled": true,
+      "priority": 1000,
+      "source": "CONSTITUTION.md art. 10, 18; WORKFLOW.md §8"
+    },
+    {
+      "id": "WF-005",
+      "description": "Changed files must be contained by the active commit allowlist.",
+      "severity": "critical",
+      "enforcement": "blocking",
+      "applies_to": ["builder", "reviewer", "node"],
+      "trigger": "file.change",
+      "condition": { "kind": "change_area", "allowlist_field": "status.json.allowed_change_areas", "on_violation": "REQUEST_CHANGES" },
+      "enabled": true,
+      "priority": 1000,
+      "source": "WORKFLOW.md §5, §8"
+    },
+    {
+      "id": "WF-006",
+      "description": "Approval is a Reviewer-only verdict and requires recorded passing test evidence.",
+      "severity": "critical",
+      "enforcement": "blocking",
+      "applies_to": ["reviewer", "node"],
+      "trigger": "review.complete",
+      "condition": { "kind": "status_transition", "from": "READY_FOR_REVIEW", "to": "APPROVED", "allowed_actors": ["reviewer"], "requires": ["review.md", "status.json.reviewed_at", "status.json.findings", "status.json.tests"] },
+      "enabled": true,
+      "priority": 1000,
+      "source": "CONSTITUTION.md art. 10–11; WORKFLOW.md §8"
+    },
+    {
+      "id": "WF-007",
+      "description": "Test evidence must state scope, outcome, commands, and result; broader changes require a full suite.",
+      "severity": "high",
+      "enforcement": "blocking",
+      "applies_to": ["builder", "reviewer", "node"],
+      "trigger": "review.complete",
+      "condition": { "kind": "test_evidence", "required_fields": ["tests.level", "tests.status", "tests.commands", "tests.result"], "full_test_triggers": ["final_commit", "sprint_integration", "release_or_merge", "shared_contract", "public_api", "dependency", "core_architecture"] },
+      "enabled": true,
+      "priority": 900,
+      "source": "WORKFLOW.md §10.1"
+    },
+    {
+      "id": "WF-008",
+      "description": "Scope, architecture, API, dependency, and acceptance-criteria changes require a Project Owner decision.",
+      "severity": "critical",
+      "enforcement": "blocking",
+      "applies_to": ["project_owner", "sprint_lead", "builder", "reviewer", "node"],
+      "trigger": "workflow.transition",
+      "condition": { "kind": "owner_gate", "requires_owner_approval_for": ["scope_change", "architecture_change", "api_change", "dependency_change", "acceptance_criteria_change", "owner_accepted_risk"] },
+      "enabled": true,
+      "priority": 1000,
+      "source": "CONSTITUTION.md art. 1–8, 16, 20; WORKFLOW.md §6–7.1"
+    }
+  ]
+}

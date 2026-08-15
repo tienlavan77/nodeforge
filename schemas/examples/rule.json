@@ -1,0 +1,20 @@
+{
+  "id": "RULE-002",
+  "scope": "global",
+  "type": "security",
+  "severity": "critical",
+  "rule": "Never send .env, credentials, or private keys to the LLM as context.",
+  "condition": {
+    "deny_paths": [
+      "**/.env",
+      "**/*.pem",
+      "**/id_rsa*"
+    ]
+  },
+  "condition_language": "glob",
+  "applies_to": ["node"],
+  "enforcement": "blocking",
+  "enabled": true,
+  "priority": 1000,
+  "source": "template:security-baseline"
+}

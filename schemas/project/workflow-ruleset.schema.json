@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/project/workflow-ruleset.schema.json",
+  "title": "Forge Workflow Ruleset",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ruleset_id", "version", "source", "rules"],
+  "properties": {
+    "ruleset_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "version": { "$ref": "../core/common.schema.json#/$defs/version" },
+    "source": { "type": "string", "minLength": 1 },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "workflow-rule.schema.json" }
+    }
+  }
+}

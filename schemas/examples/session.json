@@ -1,0 +1,15 @@
+{
+  "id": "SESSION-001",
+  "project_id": "wp-static-commerce",
+  "task_id": "TASK-001",
+  "workflow_run_id": "WFRUN-001",
+  "started_by": {
+    "type": "human",
+    "id": "tien"
+  },
+  "agents": [
+    "AGENT-BUILDER-001"
+  ],
+  "status": "active",
+  "started_at": "2026-08-15T14:00:00Z"
+}

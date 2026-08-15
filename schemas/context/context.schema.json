@@ -1,0 +1,257 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/context/context.schema.json",
+  "title": "Forge Context Pack",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "project_id",
+    "task_id",
+    "purpose",
+    "compression",
+    "budget"
+  ],
+  "properties": {
+    "schema_version": {
+      "$ref": "../core/common.schema.json#/$defs/version"
+    },
+    "project_id": {
+      "$ref": "../core/common.schema.json#/$defs/id"
+    },
+    "task_id": {
+      "$ref": "../core/common.schema.json#/$defs/id"
+    },
+    "session_id": {
+      "$ref": "../core/common.schema.json#/$defs/id"
+    },
+    "purpose": {
+      "type": "string",
+      "enum": [
+        "build",
+        "review",
+        "plan",
+        "debug",
+        "test",
+        "custom"
+      ]
+    },
+    "task": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "reason"
+        ],
+        "properties": {
+          "path": {
+            "$ref": "../core/common.schema.json#/$defs/path"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "start_line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "end_line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sha256": {
+            "$ref": "../core/common.schema.json#/$defs/sha256"
+          },
+          "content_mode": {
+            "type": "string",
+            "enum": [
+              "exact",
+              "excerpt",
+              "summary",
+              "signature"
+            ]
+          }
+        }
+      }
+    },
+    "symbols": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "file",
+          "name"
+        ],
+        "properties": {
+          "file": {
+            "$ref": "../core/common.schema.json#/$defs/path"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "start_line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "end_line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "signature": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "symbol",
+          "signature"
+        ],
+        "properties": {
+          "symbol": {
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
+          },
+          "file": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "diff": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "../core/common.schema.json#/$defs/diff"
+        },
+        {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Fallback opaque form for diff data that hasn't been normalized into the structured shape yet."
+        }
+      ]
+    },
+    "index_version": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Identifies the Code Index snapshot this pack was built from, so a Builder/Reviewer can detect a stale pack if the index has moved on."
+    },
+    "generated_at": {
+      "$ref": "../core/common.schema.json#/$defs/timestamp"
+    },
+    "tests": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": true
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "project_summary": {
+      "type": "string"
+    },
+    "history_summary": {
+      "type": "string"
+    },
+    "compression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "strategy",
+        "source_preservation"
+      ],
+      "properties": {
+        "strategy": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "symbol_selection",
+              "dependency_selection",
+              "line_range_selection",
+              "deduplication",
+              "structural_summary",
+              "history_summary",
+              "test_selection"
+            ]
+          }
+        },
+        "source_preservation": {
+          "type": "boolean"
+        },
+        "minify_source": {
+          "type": "boolean",
+          "const": false
+        }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_tokens"
+      ],
+      "properties": {
+        "max_tokens": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "estimated_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_files": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "redactions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "metadata": {
+      "$ref": "../core/common.schema.json#/$defs/metadata"
+    }
+  }
+}

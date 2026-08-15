@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/project/project.schema.json",
+  "title": "Forge Project",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "name",
+    "root",
+    "schema_version"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "../core/common.schema.json#/$defs/id"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "root": {
+      "$ref": "../core/common.schema.json#/$defs/path"
+    },
+    "forge_dir": {
+      "type": "string",
+      "default": ".forge"
+    },
+    "schema_version": {
+      "$ref": "../core/common.schema.json#/$defs/version"
+    },
+    "default_branch": {
+      "type": "string"
+    },
+    "default_workflow_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "workflow.schema.json id used for new tasks unless a task specifies its own workflow_id."
+    },
+    "created_at": {
+      "$ref": "../core/common.schema.json#/$defs/timestamp"
+    },
+    "language": {
+      "type": "string"
+    },
+    "package_manager": {
+      "type": "string"
+    },
+    "watch": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "metadata": {
+      "$ref": "../core/common.schema.json#/$defs/metadata"
+    }
+  }
+}

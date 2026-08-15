@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/node/node-agent.schema.json",
+  "title": "Forge Node Agent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "type",
+    "role",
+    "project_id",
+    "status",
+    "capabilities"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "../core/common.schema.json#/$defs/id"
+    },
+    "type": {
+      "const": "system"
+    },
+    "role": {
+      "const": "orchestrator"
+    },
+    "project_id": {
+      "$ref": "../core/common.schema.json#/$defs/id"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "starting",
+        "initializing",
+        "watching",
+        "running",
+        "degraded",
+        "recovering",
+        "draining",
+        "stopped",
+        "failed"
+      ]
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "pid": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "version": {
+      "$ref": "../core/common.schema.json#/$defs/version"
+    },
+    "started_at": {
+      "$ref": "../core/common.schema.json#/$defs/timestamp"
+    },
+    "metadata": {
+      "$ref": "../core/common.schema.json#/$defs/metadata"
+    }
+  }
+}

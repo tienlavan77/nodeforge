@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/node/node-state.schema.json",
+  "title": "Forge Node State",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "node_id",
+    "status",
+    "updated_at"
+  ],
+  "properties": {
+    "node_id": {
+      "$ref": "../core/common.schema.json#/$defs/id"
+    },
+    "project_id": {
+      "$ref": "../core/common.schema.json#/$defs/id"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "starting",
+        "initializing",
+        "watching",
+        "running",
+        "degraded",
+        "recovering",
+        "draining",
+        "stopped",
+        "failed"
+      ]
+    },
+    "active_agents": {
+      "type": "array",
+      "items": {
+        "$ref": "../core/common.schema.json#/$defs/id"
+      }
+    },
+    "active_sessions": {
+      "type": "array",
+      "items": {
+        "$ref": "../core/common.schema.json#/$defs/id"
+      }
+    },
+    "active_tasks": {
+      "type": "array",
+      "items": {
+        "$ref": "../core/common.schema.json#/$defs/id"
+      }
+    },
+    "watcher": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "running": {
+          "type": "boolean"
+        },
+        "watched_root": {
+          "type": "string"
+        },
+        "last_event_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    },
+    "index": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "unknown",
+            "building",
+            "ready",
+            "stale",
+            "failed"
+          ]
+        },
+        "last_updated_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    },
+    "updated_at": {
+      "$ref": "../core/common.schema.json#/$defs/timestamp"
+    }
+  }
+}

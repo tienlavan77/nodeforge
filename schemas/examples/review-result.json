@@ -1,0 +1,25 @@
+{
+  "id": "REVIEW-001",
+  "project_id": "wp-static-commerce",
+  "task_id": "TASK-001",
+  "status": "changes_requested",
+  "summary": "Logic is correct but an expiry boundary case needs explicit coverage.",
+  "findings": [
+    {
+      "id": "FINDING-001",
+      "severity": "warning",
+      "title": "Missing expiry boundary test",
+      "message": "Add a test where expiresAt equals the current timestamp.",
+      "file": "tests/session.test.js",
+      "start_line": 55,
+      "end_line": 70,
+      "blocking": false
+    }
+  ],
+  "verification": {
+    "tests_passed": true,
+    "build_passed": true,
+    "lint_passed": true,
+    "typecheck_passed": true
+  }
+}

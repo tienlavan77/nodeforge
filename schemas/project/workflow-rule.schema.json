@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/project/workflow-rule.schema.json",
+  "title": "Forge Workflow Rule",
+  "description": "Deterministic policy rule evaluated by Node while it executes the Forge sprint delivery workflow. This complements project/rule.schema.json: a workflow rule always has a machine-readable trigger and condition.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "description", "severity", "enforcement", "trigger", "condition", "enabled", "priority"],
+  "properties": {
+    "id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "description": { "type": "string", "minLength": 1 },
+    "severity": { "$ref": "../core/common.schema.json#/$defs/severity" },
+    "enforcement": {
+      "type": "string",
+      "enum": ["blocking", "orchestrator", "advisory"]
+    },
+    "applies_to": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": ["project_owner", "sprint_lead", "builder", "reviewer", "node"]
+      }
+    },
+    "trigger": {
+      "type": "string",
+      "enum": [
+        "sprint.create", "sprint.start", "commit.create", "commit.transition",
+        "commit.handoff", "file.change", "review.start", "review.complete",
+        "workflow.transition", "sprint.close"
+      ]
+    },
+    "condition": {
+      "oneOf": [
+        { "$ref": "#/$defs/status_transition" },
+        { "$ref": "#/$defs/role_action" },
+        { "$ref": "#/$defs/artifact_requirement" },
+        { "$ref": "#/$defs/change_area" },
+        { "$ref": "#/$defs/dependency_gate" },
+        { "$ref": "#/$defs/test_evidence" },
+        { "$ref": "#/$defs/owner_gate" }
+      ]
+    },
+    "enabled": { "type": "boolean" },
+    "priority": { "type": "integer", "minimum": 0, "maximum": 1000 },
+    "source": { "type": "string" },
+    "metadata": { "$ref": "../core/common.schema.json#/$defs/metadata" }
+  },
+  "$defs": {
+    "status": {
+      "type": "string",
+      "enum": ["PLANNED", "IN_PROGRESS", "READY_FOR_REVIEW", "REQUEST_CHANGES", "APPROVED", "BLOCKED", "OWNER_ACCEPTED_RISK"]
+    },
+    "status_transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "from", "to", "allowed_actors"],
+      "properties": {
+        "kind": { "const": "status_transition" },
+        "from": { "anyOf": [{ "$ref": "#/$defs/status" }, { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/status" } }] },
+        "to": { "$ref": "#/$defs/status" },
+        "allowed_actors": { "type": "array", "minItems": 1, "items": { "type": "string", "enum": ["project_owner", "sprint_lead", "builder", "reviewer"] } },
+        "requires": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "role_action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "actor", "action", "effect"],
+      "properties": {
+        "kind": { "const": "role_action" },
+        "actor": { "type": "string", "enum": ["project_owner", "sprint_lead", "builder", "reviewer"] },
+        "action": { "type": "string" },
+        "effect": { "type": "string", "enum": ["allow", "deny"] }
+      }
+    },
+    "artifact_requirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "when", "artifacts"],
+      "properties": {
+        "kind": { "const": "artifact_requirement" },
+        "when": { "type": "string" },
+        "artifacts": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } }
+      }
+    },
+    "change_area": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "allowlist_field", "on_violation"],
+      "properties": {
+        "kind": { "const": "change_area" },
+        "allowlist_field": { "const": "status.json.allowed_change_areas" },
+        "on_violation": { "type": "string", "enum": ["REQUEST_CHANGES", "BLOCKED"] }
+      }
+    },
+    "dependency_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "required_status"],
+      "properties": {
+        "kind": { "const": "dependency_gate" },
+        "required_status": { "const": "APPROVED" }
+      }
+    },
+    "test_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "required_fields", "full_test_triggers"],
+      "properties": {
+        "kind": { "const": "test_evidence" },
+        "required_fields": { "const": ["tests.level", "tests.status", "tests.commands", "tests.result"] },
+        "full_test_triggers": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+      }
+    },
+    "owner_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "requires_owner_approval_for"],
+      "properties": {
+        "kind": { "const": "owner_gate" },
+        "requires_owner_approval_for": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+      }
+    }
+  }
+}

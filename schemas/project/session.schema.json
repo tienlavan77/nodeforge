@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/project/session.schema.json",
+  "title": "Forge Session",
+  "description": "A bounded unit of work: one or more agents collaborating on one task. session_id is referenced everywhere (Agent, Event, Command, Context Pack, Result) but this is the object that actually defines what a session is.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "project_id",
+    "status",
+    "started_at"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "../core/common.schema.json#/$defs/id"
+    },
+    "project_id": {
+      "$ref": "../core/common.schema.json#/$defs/id"
+    },
+    "task_id": {
+      "$ref": "../core/common.schema.json#/$defs/id"
+    },
+    "workflow_run_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Correlates this session to a specific run of a workflow.schema.json state machine, if the session was started as part of one."
+    },
+    "started_by": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "human",
+            "system",
+            "schedule"
+          ]
+        },
+        "id": {
+          "type": "string"
+        }
+      }
+    },
+    "agents": {
+      "type": "array",
+      "items": {
+        "$ref": "../core/common.schema.json#/$defs/id"
+      },
+      "description": "IDs of every agent (builder, reviewer, tester...) that participated in this session."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "completed",
+        "failed",
+        "cancelled",
+        "timeout"
+      ]
+    },
+    "started_at": {
+      "$ref": "../core/common.schema.json#/$defs/timestamp"
+    },
+    "finished_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "summary": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Short natural-language summary produced at session end, feeding Project Memory. Kept separate from Raw Log/Events, which stay queryable but are never sent as AI context wholesale."
+    },
+    "metadata": {
+      "$ref": "../core/common.schema.json#/$defs/metadata"
+    }
+  }
+}

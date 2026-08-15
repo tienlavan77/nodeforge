@@ -1,0 +1,16 @@
+{
+  "id": "AGENT-BUILDER-001",
+  "type": "ai",
+  "role": "builder",
+  "project_id": "wp-static-commerce",
+  "session_id": "SESSION-001",
+  "task_id": "TASK-001",
+  "provider": "codex",
+  "model": "gpt-5.6",
+  "status": "running",
+  "capabilities": [
+    "filesystem.read",
+    "filesystem.write",
+    "shell.execute"
+  ]
+}
