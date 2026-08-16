@@ -12,7 +12,8 @@
     "typecheck": "tsc --project jsconfig.json",
     "test": "node --test",
     "bootstrap:smoke": "node scripts/bootstrap-smoke.mjs",
-    "validate:schemas": "node scripts/validate-schemas.mjs"
+    "validate:schemas": "node scripts/validate-schemas.mjs",
+    "postinstall": "node scripts/repair-npm-bin-links.mjs"
   },
   "engines": {
     "node": ">=22.5.0"
