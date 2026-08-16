@@ -90,6 +90,7 @@ Mỗi mục dưới đây tương ứng với một điểm thiếu/mâu thuẫn
 - `schemas/results/test-result.schema.json` giữ nguyên cấu trúc riêng (không gộp vào
   `check-result`) vì test cần `tests.{total,passed,failed,skipped}` và `failures[]` — hình dạng
   khác hẳn build/lint/typecheck.
-- `schemas/core/envelope.schema.json`, `schemas/node/node-capability.schema.json`,
-  `schemas/node/node-state.schema.json`, `schemas/project/workflow.schema.json` không đổi — đã
-  đủ tốt từ v1.1.
+- `schemas/core/envelope.schema.json`, `schemas/node/node-state.schema.json`,
+  `schemas/project/workflow.schema.json` không đổi — đã đủ tốt từ v1.1.
+- `schemas/node/node-capability.schema.json` đã deprecated và delegate về canonical contract
+  `core/agent.schema.json`; không còn boolean capability model riêng.

@@ -8,6 +8,7 @@
       "$ref": "../core/event.schema.json"
     },
     {
+      "type": "object",
       "properties": {
         "type": {
           "enum": [
@@ -17,24 +18,35 @@
             "node.recovered",
             "node.stopping",
             "node.stopped",
-            "project.opened",
-            "project.closed",
-            "file.changed",
-            "index.started",
-            "index.updated",
+            "node.error",
+            "projects.opened",
+            "projects.closed",
+            "watcher.file_created",
+            "watcher.file_modified",
+            "watcher.file_deleted",
+            "watcher.file_renamed",
+            "index.file_indexed",
+            "index.file_removed",
             "index.rebuilt",
-            "context.requested",
-            "context.created",
-            "context.ready",
-            "verification.started",
-            "verification.finished",
+            "index.inconsistent",
+            "git.diff_generated",
+            "git.changeset_created",
+            "verification.test_completed",
+            "verification.check_completed",
+            "context.pack_generated",
+            "context.cache_invalidated",
+            "rules.rule_violated",
+            "rules.permission_denied",
+            "workflow.state_transitioned",
             "workflow.started",
-            "workflow.changed",
             "workflow.completed",
-            "agent.spawned",
-            "agent.stopped",
-            "agent.failed",
-            "error"
+            "agents.started",
+            "agents.stopped",
+            "agents.message_received",
+            "agents.error",
+            "history.summary_created",
+            "process.timed_out",
+            "process.cancelled"
           ]
         }
       }

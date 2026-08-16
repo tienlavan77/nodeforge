@@ -1,0 +1,6 @@
+{
+  "focused": { "required": true, "stop_on_failure": true },
+  "related": { "required": true, "stop_on_failure": true },
+  "full": { "required": false, "stop_on_failure": false },
+  "max_retries": 1
+}

@@ -1,0 +1,32 @@
+{
+  "name": "nodeforge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Protocol-driven multi-agent orchestration system.",
+  "type": "module",
+  "bin": {
+    "forge": "src/transport/cli/index.js"
+  },
+  "scripts": {
+    "lint": "eslint \"src/**/*.js\" \"tests/**/*.js\" --no-error-on-unmatched-pattern --max-warnings=0",
+    "typecheck": "tsc --project jsconfig.json",
+    "test": "node --test",
+    "bootstrap:smoke": "node scripts/bootstrap-smoke.mjs",
+    "validate:schemas": "node scripts/validate-schemas.mjs"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.1",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@babel/parser": "^7.29.8",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "chokidar": "^4.0.3",
+    "php-parser": "^3.7.0",
+    "picomatch": "^4.0.5"
+  }
+}

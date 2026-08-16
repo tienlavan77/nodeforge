@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0",
+  "roadmap_id": "NODEFORGE-ROADMAP",
+  "project_id": "nodeforge",
+  "version": "1.0.0",
+  "goals": ["Build a protocol-driven orchestration system."],
+  "sprints": [
+    {
+      "id": "SPRINT-1",
+      "objective": "Planning contracts.",
+      "commits": [
+        {
+          "id": "NF-015",
+          "order": 1,
+          "objective": "Add roadmap planning contracts.",
+          "acceptance_criteria": ["Roadmap fixtures validate."],
+          "verification": { "levels": ["focused"] }
+        }
+      ]
+    }
+  ]
+}

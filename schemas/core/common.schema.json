@@ -42,11 +42,33 @@
     },
     "capability_scope": {
       "type": "object",
-      "description": "Generic, extensible capability declaration shared by system and AI agents. Group names are free-form (e.g. 'filesystem', 'shell', 'context') so any agent role can declare fine-grained toggles without being constrained to Node's fixed category list.",
+      "minProperties": 1,
+      "description": "Generic, extensible capability declaration shared by system and AI agents. Each free-form capability group (for example 'filesystem', 'shell' or 'context') maps to one or more grants. A grant declares only a resource and permitted actions; path- and ACL-level authorization belongs exclusively to project/permission.schema.json.",
       "additionalProperties": {
-        "type": "object",
-        "additionalProperties": {
-          "type": "boolean"
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "resource",
+            "actions"
+          ],
+          "properties": {
+            "resource": {
+              "type": "string",
+              "minLength": 1
+            },
+            "actions": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
         }
       }
     },

@@ -8,7 +8,8 @@
     "protocol_version",
     "message_id",
     "sender",
-    "message"
+    "message",
+    "timestamp"
   ],
   "properties": {
     "protocol_version": {
@@ -66,25 +67,15 @@
       }
     },
     "message": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "type",
-        "payload"
-      ],
-      "properties": {
-        "type": {
-          "type": "string",
-          "minLength": 1
+      "description": "A canonical Event emitted by a component or a canonical Command addressed to one. The referenced schemas own message type and payload validation.",
+      "oneOf": [
+        {
+          "$ref": "event.schema.json"
         },
-        "request_id": {
-          "$ref": "common.schema.json#/$defs/id"
-        },
-        "payload": {
-          "type": "object",
-          "additionalProperties": true
+        {
+          "$ref": "command.schema.json"
         }
-      }
+      ]
     },
     "timestamp": {
       "$ref": "common.schema.json#/$defs/timestamp"

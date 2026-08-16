@@ -7,7 +7,7 @@
   "required": [
     "code",
     "message",
-    "severity"
+    "details"
   ],
   "properties": {
     "code": {

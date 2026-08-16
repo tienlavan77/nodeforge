@@ -8,30 +8,31 @@
       "$ref": "../core/command.schema.json"
     },
     {
+      "type": "object",
       "properties": {
         "type": {
           "enum": [
-            "project.open",
-            "project.close",
-            "index.scan",
+            "projects.open",
+            "projects.close",
+            "projects.get_state",
+            "index.scan_project",
             "index.rebuild",
-            "index.update",
-            "context.build",
-            "test.run",
-            "build.run",
-            "lint.run",
-            "typecheck.run",
-            "agent.spawn",
-            "agent.stop",
-            "agent.cancel",
+            "index.update_file",
+            "context.build_pack",
+            "verification.run_test",
+            "verification.run_check",
+            "agents.spawn",
+            "agents.stop",
+            "agents.cancel",
             "workflow.start",
-            "workflow.advance",
+            "workflow.transition_state",
+            "workflow.assign_task",
             "workflow.pause",
             "workflow.resume",
             "workflow.cancel",
             "history.query",
-            "session.query",
-            "state.query"
+            "sessions.query",
+            "node.get_status"
           ]
         }
       }

@@ -9,7 +9,8 @@
     "type",
     "role",
     "project_id",
-    "status"
+    "status",
+    "capability_scopes"
   ],
   "properties": {
     "id": {
@@ -52,25 +53,24 @@
       "type": "string",
       "enum": [
         "starting",
+        "initializing",
+        "watching",
         "idle",
         "running",
         "waiting",
         "completed",
         "failed",
         "cancelled",
-        "timeout"
+        "timeout",
+        "degraded",
+        "recovering",
+        "draining",
+        "stopped"
       ]
-    },
-    "capabilities": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      },
-      "description": "Flat capability/tool names, e.g. 'filesystem.read'. Kept for simple declaration and backward compatibility."
     },
     "capability_scopes": {
       "$ref": "common.schema.json#/$defs/capability_scope",
-      "description": "Optional structured, grouped form of the same information (mirrors node/node-capability.schema.json's shape), for when Node or UI needs to reason about capability groups rather than a flat list."
+      "description": "The sole capability declaration for every Node and AI agent. The common shape is defined in common.schema.json; this schema applies the Node or AI vocabulary by agent type. Filesystem path ACLs remain the responsibility of project/permission.schema.json."
     },
     "pid": {
       "type": [
@@ -81,6 +81,9 @@
     },
     "workspace": {
       "$ref": "common.schema.json#/$defs/path"
+    },
+    "version": {
+      "$ref": "common.schema.json#/$defs/version"
     },
     "started_at": {
       "type": [
@@ -98,6 +101,75 @@
     },
     "metadata": {
       "$ref": "common.schema.json#/$defs/metadata"
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "const": "system" } }, "required": ["type"] },
+      "then": { "properties": { "role": { "const": "orchestrator" }, "capability_scopes": { "$ref": "#/$defs/node_capability_scopes" } } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "ai" } }, "required": ["type"] },
+      "then": { "properties": { "capability_scopes": { "$ref": "#/$defs/ai_capability_scopes" } } }
+    }
+  ],
+  "$defs": {
+    "actions": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
+    "node_project_filesystem_grant": {
+      "type": "object", "additionalProperties": false, "required": ["resource", "actions"],
+      "properties": {
+        "resource": { "enum": ["project_source", "project_tests", "project_config"] },
+        "actions": { "allOf": [{ "$ref": "#/$defs/actions" }, { "type": "array", "items": { "enum": ["read", "watch", "write", "create", "delete", "rename"] } }] }
+      }
+    },
+    "node_runtime_filesystem_grant": {
+      "type": "object", "additionalProperties": false, "required": ["resource", "actions"],
+      "properties": {
+        "resource": { "const": "forge_runtime" },
+        "actions": { "allOf": [{ "$ref": "#/$defs/actions" }, { "type": "array", "items": { "enum": ["read", "write", "create", "delete", "rename"] } }] }
+      }
+    },
+    "ai_project_filesystem_grant": {
+      "type": "object", "additionalProperties": false, "required": ["resource", "actions"],
+      "properties": {
+        "resource": { "enum": ["project_source", "project_tests", "project_config"] },
+        "actions": { "allOf": [{ "$ref": "#/$defs/actions" }, { "type": "array", "items": { "enum": ["read", "write", "create", "delete", "rename"] } }] }
+      }
+    },
+    "ai_runtime_filesystem_grant": {
+      "type": "object", "additionalProperties": false, "required": ["resource", "actions"],
+      "properties": { "resource": { "const": "forge_runtime" }, "actions": { "const": ["read"] } }
+    },
+    "node_capability_scopes": {
+      "type": "object", "additionalProperties": false, "minProperties": 1,
+      "properties": {
+        "filesystem": { "type": "array", "minItems": 1, "items": { "oneOf": [{ "$ref": "#/$defs/node_project_filesystem_grant" }, { "$ref": "#/$defs/node_runtime_filesystem_grant" }] } },
+        "shell": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["resource", "actions"], "properties": { "resource": { "enum": ["workspace", "verification"] }, "actions": { "allOf": [{ "$ref": "#/$defs/actions" }, { "type": "array", "items": { "enum": ["execute", "terminate"] } }] } } } },
+        "context": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["resource", "actions"], "properties": { "resource": { "const": "broker" }, "actions": { "allOf": [{ "$ref": "#/$defs/actions" }, { "type": "array", "items": { "enum": ["build", "read_cache", "invalidate_cache", "redact"] } }] } } } },
+        "index": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["resource", "actions"], "properties": { "resource": { "const": "codebase" }, "actions": { "allOf": [{ "$ref": "#/$defs/actions" }, { "type": "array", "items": { "enum": ["read", "update", "rebuild"] } }] } } } },
+        "verification": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["resource", "actions"], "properties": { "resource": { "const": "project" }, "actions": { "allOf": [{ "$ref": "#/$defs/actions" }, { "type": "array", "items": { "enum": ["run_test", "run_check"] } }] } } } },
+        "workflow": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["resource", "actions"], "properties": { "resource": { "const": "project" }, "actions": { "allOf": [{ "$ref": "#/$defs/actions" }, { "type": "array", "items": { "enum": ["execute", "transition", "assign_task", "pause", "resume", "cancel"] } }] } } } },
+        "agents": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["resource", "actions"], "properties": { "resource": { "const": "project" }, "actions": { "allOf": [{ "$ref": "#/$defs/actions" }, { "type": "array", "items": { "enum": ["spawn", "stop", "cancel", "observe"] } }] } } } },
+        "events": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["resource", "actions"], "properties": { "resource": { "const": "system" }, "actions": { "allOf": [{ "$ref": "#/$defs/actions" }, { "type": "array", "items": { "enum": ["publish", "subscribe"] } }] } } } }
+      }
+    },
+    "ai_capability_scopes": {
+      "type": "object", "additionalProperties": false, "minProperties": 1,
+      "properties": {
+        "filesystem": { "type": "array", "minItems": 1, "items": { "oneOf": [{ "$ref": "#/$defs/ai_project_filesystem_grant" }, { "$ref": "#/$defs/ai_runtime_filesystem_grant" }] } },
+        "shell": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["resource", "actions"], "properties": { "resource": { "const": "workspace" }, "actions": { "const": ["execute"] } } } },
+        "context": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["resource", "actions"], "properties": { "resource": { "const": "broker" }, "actions": { "const": ["request"] } } } },
+        "agent_events": {
+          "type": "array", "minItems": 1,
+          "description": "AI agents may emit only lifecycle and log events for themselves, and may subscribe only to that same Agent Protocol stream. System events (watcher.*, index.*, workflow.*) are emitted exclusively by the Node orchestrator.",
+          "items": {
+            "oneOf": [
+              { "type": "object", "additionalProperties": false, "required": ["resource", "actions"], "properties": { "resource": { "const": "self" }, "actions": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["publish_lifecycle", "publish_log"] } } } },
+              { "type": "object", "additionalProperties": false, "required": ["resource", "actions"], "properties": { "resource": { "const": "self" }, "actions": { "const": ["subscribe"] } } }
+            ]
+          }
+        }
+      }
     }
   }
 }

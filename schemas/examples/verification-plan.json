@@ -1,0 +1,9 @@
+{
+  "schema_version": "1.0",
+  "commit_id": "NF-014",
+  "levels": ["focused", "related"],
+  "checks": [
+    { "type": "test", "command": "npm test", "timeout_ms": 60000 },
+    { "type": "lint", "command": "npm run lint", "timeout_ms": 30000 }
+  ]
+}

@@ -4,15 +4,54 @@
   "role": "orchestrator",
   "project_id": "wp-static-commerce",
   "status": "running",
-  "capabilities": [
-    "filesystem.watch",
-    "code_index.update",
-    "test.run",
-    "context.build",
-    "workflow.execute",
-    "agent.spawn",
-    "event.emit"
-  ],
+  "capability_scopes": {
+    "filesystem": [
+      {
+        "resource": "project_source",
+        "actions": ["watch", "read", "write", "create", "delete", "rename"]
+      },
+      {
+        "resource": "forge_runtime",
+        "actions": ["read", "write", "create", "delete", "rename"]
+      }
+    ],
+    "index": [
+      {
+        "resource": "codebase",
+        "actions": ["read", "update", "rebuild"]
+      }
+    ],
+    "verification": [
+      {
+        "resource": "project",
+        "actions": ["run_test", "run_check"]
+      }
+    ],
+    "context": [
+      {
+        "resource": "broker",
+        "actions": ["build", "read_cache", "invalidate_cache", "redact"]
+      }
+    ],
+    "workflow": [
+      {
+        "resource": "project",
+        "actions": ["execute"]
+      }
+    ],
+    "agents": [
+      {
+        "resource": "project",
+        "actions": ["spawn", "stop", "cancel"]
+      }
+    ],
+    "events": [
+      {
+        "resource": "system",
+        "actions": ["publish", "subscribe"]
+      }
+    ]
+  },
   "pid": 4812,
   "version": "1.0.0",
   "started_at": "2026-08-15T14:00:00Z"

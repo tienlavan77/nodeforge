@@ -1,0 +1,13 @@
+{
+  "request_id": "REQ-QUERY-001",
+  "project_id": "wp-static-commerce",
+  "kind": "state",
+  "items": [
+    {
+      "node_id": "NODE-001",
+      "status": "running"
+    }
+  ],
+  "total": 1,
+  "next_cursor": null
+}

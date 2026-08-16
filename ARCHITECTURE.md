@@ -1883,10 +1883,13 @@ project/
     ├── workflows/
     │   └── build-review.json
     │
-    └── runtime/
+    ├── roadmap/                  # PLAN — xem mục 63
+    │   └── roadmap.json
+    │
+    └── runtime/                  # STATE — xem mục 63
         ├── index.db
         ├── history.db
-        ├── state.json
+        ├── state.json             # gồm cả sprint-state/commit-state, không tách folder riêng
         ├── events/
         └── cache/
 ```
@@ -1897,7 +1900,9 @@ Runtime data can be gitignored:
 .forge/runtime/
 ```
 
-Rules/Workflow may be committed because they are project configuration.
+Rules/Workflow/Roadmap may be committed because they are project configuration/plan —
+runtime là phần duy nhất chứa state, không tách thêm thư mục `state/` riêng (xem mục 63 vì
+sao `state.json` trong `runtime/` đã đủ).
 
 ---
 
@@ -2209,3 +2214,573 @@ FORGE
 > **Node chạy verification chính thức.**
 >
 > **AI chỉ nhận context cần thiết, không nhận toàn bộ project/history.**
+
+---
+
+# 62. Verification Engine — schema hoá pipeline verification
+
+Bổ sung vào mục 55 (nguyên tắc source of truth): kết quả verification không được để
+Builder tự claim. Nếu Node đảm nhiệm verification để tiết kiệm token (mục 47), quy trình
+đó phải là một **contract có schema**, không phải logic rải rác trong code.
+
+## 62.1. Quan hệ với `results/` đã có (README v1.2) — không phá nguyên tắc "gộp thay vì tách"
+
+README v1.2 cố tình gộp build/lint/typecheck vào **1 file**
+`results/check-result.schema.json` (field `kind` phân biệt), tách riêng
+`results/test-result.schema.json` cho test. Đây vẫn là schema mô tả **hình dạng của 1 lần
+chạy check** — không đổi.
+
+5 schema verification mới ở dưới là một **tầng khác**: tầng *orchestration/gate*, trả lời
+"phải chạy gì, đã chạy gì, kết quả tổng hợp có đủ điều kiện review chưa" — không mô tả lại
+hình dạng của check. Để không lặp field, `verification-run.schema.json` **không** nhúng lại
+toàn bộ nội dung `test-result`/`check-result`; nó chỉ giữ `result_ref` (id) trỏ tới record
+`test-result`/`check-result` đã có sẵn trong `results/`. Vậy nguyên tắc "một enum/một shape,
+không nhân đôi" của README vẫn giữ nguyên.
+
+```
+schemas/
+├── results/                          # hình dạng 1 lần chạy check (đã có, README v1.2)
+│   ├── test-result.schema.json
+│   ├── check-result.schema.json
+│   └── review-result.schema.json
+│
+└── verification/                     # tầng orchestration/gate (mới)
+    ├── verification-plan.schema.json
+    ├── verification-run.schema.json   # $ref tới results/ qua result_ref, không nhúng lại
+    ├── verification-result.schema.json
+    ├── test-failure.schema.json
+    └── verification-policy.schema.json
+```
+
+## 62.2. `verification/verification-plan.schema.json`
+
+Mô tả 1 commit cần kiểm tra những gì. Node đọc để biết phải chạy gì.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.dev/schemas/verification/verification-plan.schema.json",
+  "title": "VerificationPlan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["commit_id", "levels", "checks"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0" },
+    "commit_id": { "type": "string" },
+    "levels": {
+      "type": "array",
+      "items": { "enum": ["focused", "related", "full"] },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "command"],
+        "properties": {
+          "type": { "enum": ["test", "lint", "typecheck", "build"] },
+          "command": { "type": "string", "minLength": 1 },
+          "timeout_ms": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}
+```
+
+## 62.3. `verification/verification-run.schema.json`
+
+Mỗi lần Node thực sự chạy verification. Hữu ích cho history/audit; mỗi phần tử `checks`
+chỉ giữ `result_ref` trỏ tới `test-result`/`check-result` thật, không nhúng lại nội dung.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.dev/schemas/verification/verification-run.schema.json",
+  "title": "VerificationRun",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "commit_id", "level", "started_at", "checks", "status"],
+  "properties": {
+    "run_id": { "type": "string" },
+    "commit_id": { "type": "string" },
+    "level": { "enum": ["focused", "related", "full"] },
+    "started_at": { "type": "string", "format": "date-time" },
+    "completed_at": { "type": "string", "format": "date-time" },
+    "status": { "enum": ["passed", "failed", "error", "running"] },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "command", "status"],
+        "properties": {
+          "type": { "enum": ["test", "lint", "typecheck", "build"] },
+          "command": { "type": "string" },
+          "status": { "enum": ["passed", "failed", "error", "skipped"] },
+          "exit_code": { "type": "integer" },
+          "duration_ms": { "type": "integer", "minimum": 0 },
+          "result_ref": {
+            "type": "string",
+            "description": "ID của record trong results/test-result.schema.json hoặc results/check-result.schema.json — KHÔNG nhúng lại nội dung ở đây."
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+## 62.4. `verification/verification-result.schema.json`
+
+Kết quả chính thức Node đưa vào Workflow Engine — đây là schema duy nhất mà Workflow Engine
+cần đọc, không cần biết chi tiết từng check.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.dev/schemas/verification/verification-result.schema.json",
+  "title": "VerificationResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["commit_id", "run_id", "status", "ready_for_review"],
+  "$defs": {
+    "gate_status": { "enum": ["passed", "failed", "skipped", "not_applicable"] }
+  },
+  "properties": {
+    "commit_id": { "type": "string" },
+    "run_id": { "type": "string" },
+    "evaluated_at": { "type": "string", "format": "date-time" },
+    "status": { "$ref": "#/$defs/gate_status" },
+    "scope": { "$ref": "#/$defs/gate_status" },
+    "rules": { "$ref": "#/$defs/gate_status" },
+    "tests": { "$ref": "#/$defs/gate_status" },
+    "lint": { "$ref": "#/$defs/gate_status" },
+    "typecheck": { "$ref": "#/$defs/gate_status" },
+    "build": { "$ref": "#/$defs/gate_status" },
+    "ready_for_review": { "type": "boolean" }
+  }
+}
+```
+
+```text
+verification.status == passed
+             +
+        rules == passed
+             +
+        scope == passed
+             ↓
+      READY_FOR_REVIEW
+```
+
+## 62.5. `verification/test-failure.schema.json`
+
+Cơ chế giảm token quan trọng nhất của tầng này: Node không gửi log thô cho Builder, chỉ
+gửi bằng chứng tối thiểu đã chuẩn hoá.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.dev/schemas/verification/test-failure.schema.json",
+  "title": "TestFailure",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["test_result_id", "test", "file", "message"],
+  "properties": {
+    "test_result_id": {
+      "type": "string",
+      "description": "ID record test-result mà failure này trích ra."
+    },
+    "test": { "type": "string" },
+    "file": { "type": "string" },
+    "line": { "type": "integer", "minimum": 1 },
+    "column": { "type": "integer", "minimum": 1 },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "enum": ["assertion", "exception", "timeout", "other"] },
+        "expected": {},
+        "actual": {}
+      }
+    },
+    "message": { "type": "string", "maxLength": 500 },
+    "stack_excerpt": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "Tối đa vài dòng đầu của stack trace, không phải log đầy đủ."
+    }
+  }
+}
+```
+
+```text
+10,000 lines raw log
+        ↓
+       Node
+        ↓
+   normalize (test-failure.schema.json)
+        ↓
+    ~200 bytes / failure
+        ↓
+     Builder
+```
+
+`message` và `stack_excerpt` giới hạn cứng độ dài (`maxLength`) ngay ở tầng schema — đây là
+cách ép nguyên tắc "context nhỏ nhất nhưng đủ suy luận" (README, mục Context compression)
+không phụ thuộc vào việc Context Engine có nhớ cắt bớt hay không.
+
+## 62.6. `verification/verification-policy.schema.json`
+
+Rule cho chính Verification Engine — Node không tự quyết định tuỳ tiện `stop_on_failure`
+hay số lần retry.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.dev/schemas/verification/verification-policy.schema.json",
+  "title": "VerificationPolicy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["focused", "related", "full", "max_retries"],
+  "$defs": {
+    "level_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "stop_on_failure"],
+      "properties": {
+        "required": { "type": "boolean" },
+        "stop_on_failure": { "type": "boolean" }
+      }
+    }
+  },
+  "properties": {
+    "focused": { "$ref": "#/$defs/level_policy" },
+    "related": { "$ref": "#/$defs/level_policy" },
+    "full": { "$ref": "#/$defs/level_policy" },
+    "max_retries": { "type": "integer", "minimum": 0 }
+  }
+}
+```
+
+**Vì sao không dùng `project/rule.schema.json` sẵn có cho việc này:** Rule (README) trả lời
+*"thay đổi này có tốt/tuân thủ không"* — đối tượng đánh giá là **code**. Verification Policy
+trả lời *"chính Verification Engine phải hành xử thế nào khi 1 check fail"* — đối tượng
+cấu hình là **hành vi của Node**, không phải code. Hai schema có đối tượng áp dụng khác
+nhau nên tách riêng; nếu sau này cần logic phức tạp hơn (`condition`/`condition_language`),
+có thể tái dùng cơ chế đó từ `rule.schema.json` thay vì phát minh lại — nhưng ở v1,
+`verification-policy` giữ dạng cấu hình đơn giản.
+
+## 62.7. Pipeline tổng thể
+
+```text
+                 COMMIT TASK
+                     │
+                     ▼
+             Verification Plan
+                     │
+                     ▼
+              ┌──────────────┐
+              │ NODE RUNNER  │
+              └──────┬───────┘
+                     │
+              ┌──────┴──────┐
+              ▼             ▼
+           command        scope/rule
+              │             │
+              ▼             ▼
+          raw output     check result (results/*)
+              │
+              ▼
+        Result Normalizer
+              │
+        ┌─────┴─────┐
+        ▼           ▼
+      PASS         FAIL
+        │           │
+        │           ▼
+        │      Failure Extractor (test-failure.schema.json)
+        │           │
+        │           ▼
+        │        BUILDER
+        │
+        ▼
+ verification-result.schema.json
+        │
+        ▼
+ READY_FOR_REVIEW
+        │
+        ▼
+    REVIEWER
+```
+
+**Nguyên tắc bổ sung vào mục 55/60:**
+
+> Node là nguồn sự thật cho verification result. Builder có thể chạy test để hỗ trợ quá
+> trình phát triển, nhưng "Builder nói tests pass" không có nghĩa Forge ghi nhận PASS —
+> phải là Node executed → exit code → normalized result → `verification-result` →
+> workflow gate.
+
+---
+
+# 63. Roadmap → Sprint → Commit — schema hoá kế hoạch cấp cao
+
+Roadmap là tầng **cao hơn** Task: `Roadmap → Sprint → Commit → Builder → Verify → Reviewer`.
+Mỗi tầng cần contract riêng, tương tự cách Task/Workflow đã có schema ở README v1.2.
+
+## 63.1. Quan hệ Commit ↔ Task — quyết định thiết kế bắt buộc phải chốt
+
+`project/task.schema.json` (README, Sprint 2) đã là entity **runtime** Node quản lý trong
+lúc thực thi. Roadmap/Sprint/Commit ở đây là **PLAN** — nếu để cả hai khái niệm tồn tại độc
+lập, dễ chồng chéo ("Commit" và "Task" cùng mô tả 1 đơn vị công việc nhưng 2 schema khác
+nhau, dữ liệu dễ lệch nhau).
+
+**Quyết định:** Commit thuộc tầng PLAN (định nghĩa *"phải làm gì"*, viết trước khi chạy).
+Task là tầng RUNTIME (định nghĩa *"đang làm đến đâu"*, Node tự sinh ra khi Commit Dispatcher
+giao việc cho Builder). Một Commit khi được dispatch sẽ tạo **đúng 1** Task runtime tương
+ứng; Task đó giữ thêm field tham chiếu ngược `commit_id` (optional trong
+`project/task.schema.json`, bổ sung khi Builder code Sprint 2 — không thuộc phạm vi 3 schema
+mới ở mục 63.3, không tạo schema Commit-runtime riêng để tránh nhân đôi khái niệm).
+
+```text
+ROADMAP (PLAN)                          RUNTIME
+─────────────────                       ─────────────────
+roadmap.json
+  └── sprint
+        └── commit ──── dispatch ────▶ task (project/task.schema.json)
+                                           │ commit_id ──▶ trỏ ngược về commit
+                                           ▼
+                                       task.status / task.workflow_state
+                                       (README — không đổi)
+```
+
+Commit **không** có `status` runtime riêng (không lặp lại `pending/active/...` như Task) —
+tiến độ luôn đọc qua Task đã dispatch từ Commit đó. Điều này giữ đúng nguyên tắc "tách PLAN
+khỏi STATE" ở mục 63.2 bên dưới: nếu Commit tự có `status`, `roadmap.json` sẽ lại lẫn state
+vào plan — đúng lỗi mà README v1.2 và mục 12 (file_id) đã tránh cho các trường hợp khác.
+
+## 63.2. Tách PLAN khỏi STATE
+
+Không để `roadmap.json` chứa runtime state kiểu:
+
+```json
+{
+  "status": "building",
+  "attempt": 3,
+  "review_status": "pending"
+}
+```
+
+Layout `.forge/` (đã cập nhật ở mục 53):
+
+```text
+.forge/
+├── roadmap/
+│   └── roadmap.json        ← PLAN, có thể commit
+│
+└── runtime/
+    └── state.json          ← RUNTIME (sprint-state, commit-state gộp chung file này,
+                                không tạo thư mục state/ riêng — runtime/ đã tồn tại
+                                sẵn từ mục 6/53, tránh nhân đôi khái niệm "vùng runtime")
+```
+
+- **Roadmap** nói: "phải làm gì".
+- **State** (`runtime/state.json`) nói: "đang làm đến đâu".
+- **Node** nói: "bây giờ phải làm gì" (suy ra từ 2 cái trên + Commit Dependency Resolver).
+
+Phân tách này quan trọng để Forge resume sau crash, retry Builder, chạy lại verification,
+hoặc chuyển project mà không sợ lẫn dữ liệu kế hoạch với dữ liệu tiến độ.
+
+## 63.3. `roadmap/commit.schema.json`
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.dev/schemas/roadmap/commit.schema.json",
+  "title": "Commit",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "order", "objective", "acceptance_criteria"],
+  "properties": {
+    "id": { "type": "string" },
+    "order": { "type": "integer", "minimum": 1 },
+    "objective": { "type": "string", "minLength": 1 },
+    "allowed_change_areas": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Glob path — khớp cơ chế role × path glob của project/permission.schema.json (README, mục Filesystem/Permission/Rule), không định nghĩa lại ACL riêng ở đây."
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["levels"],
+      "properties": {
+        "levels": {
+          "type": "array",
+          "items": { "enum": ["focused", "related", "full"] },
+          "minItems": 1
+        }
+      }
+    },
+    "dependencies": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Danh sách commit_id phải hoàn tất trước."
+    }
+  }
+}
+```
+
+Ghi chú: `verification.levels` ở đây chỉ là **khai báo cấp kế hoạch** ("commit này cần verify
+tới mức nào") — khi Commit Dispatcher giao việc, Node dùng giá trị này để sinh
+`verification-plan.schema.json` thật (mục 62.2) cho Task tương ứng, không phải bản thân
+`verification-plan`.
+
+## 63.4. `roadmap/sprint.schema.json`
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.dev/schemas/roadmap/sprint.schema.json",
+  "title": "Sprint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "objective", "commits"],
+  "properties": {
+    "id": { "type": "string" },
+    "objective": { "type": "string", "minLength": 1 },
+    "dependencies": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Danh sách sprint_id phải hoàn tất trước."
+    },
+    "commits": {
+      "type": "array",
+      "items": { "$ref": "https://forge.dev/schemas/roadmap/commit.schema.json" },
+      "minItems": 1
+    }
+  }
+}
+```
+
+## 63.5. `roadmap/roadmap.schema.json`
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.dev/schemas/roadmap/roadmap.schema.json",
+  "title": "Roadmap",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "roadmap_id", "project_id", "version", "sprints"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0" },
+    "roadmap_id": { "type": "string" },
+    "project_id": { "type": "string" },
+    "version": { "type": "string" },
+    "goals": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "sprints": {
+      "type": "array",
+      "items": { "$ref": "https://forge.dev/schemas/roadmap/sprint.schema.json" },
+      "minItems": 1
+    },
+    "constraints": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}
+```
+
+## 63.6. Flow thực thi
+
+```text
+roadmap.json
+      │
+      ▼
+roadmap.schema validation
+      │
+      ▼
+Sprint Engine
+      │
+      ▼
+Commit Dependency Resolver
+      │
+      ▼
+Commit Dispatcher ──▶ tạo Task runtime (project/task.schema.json, commit_id trỏ ngược)
+      │
+      ▼
+Builder
+```
+
+---
+
+# 64. Cây `schemas/` tổng thể sau khi thêm Verification + Roadmap
+
+Cập nhật lại cây `schemas/` ở README v1.2 (`core/ node/ project/ context/ results/`) với 2
+nhóm mới ở mục 62–63:
+
+```text
+schemas/
+├── core/                  # Envelope, Agent, Event, Command, Error, Common (README v1.2)
+├── node/                  # Node profile — allOf tham chiếu core (README v1.2)
+├── project/                # Project, Task, Rule, Permission, Workflow, Session (README v1.2)
+├── context/                 # Context Pack — Token Firewall (README v1.2)
+├── results/                 # test-result, check-result, review-result (README v1.2)
+├── verification/             # MỚI — mục 62: plan/run/result/test-failure/policy
+│   ├── verification-plan.schema.json
+│   ├── verification-run.schema.json
+│   ├── verification-result.schema.json
+│   ├── test-failure.schema.json
+│   └── verification-policy.schema.json
+└── roadmap/                  # MỚI — mục 63: roadmap/sprint/commit
+    ├── roadmap.schema.json
+    ├── sprint.schema.json
+    └── commit.schema.json
+```
+
+`verification/` và `roadmap/` không đụng tới field hay enum đã chốt trong `core/` (nguyên
+tắc "một enum, không nhân đôi" README v1.2 vẫn giữ nguyên) — chúng chỉ tham chiếu qua ID
+(`result_ref`, `commit_id`) tới các record đã có schema riêng, không tự định nghĩa lại.
+
+> Lưu ý: cây `schemas/` này cần được phản ánh song song vào `README.md` (nguồn mô tả chính
+> thức của bộ schema) khi Builder thực sự tạo các file trên — nằm ngoài phạm vi cập nhật
+> lần này (chỉ `ARCHITECTURE.md`).
+
+---
+
+# 65. Kiến trúc tổng thể — Verification Engine + Roadmap là 2 subsystem chính, không phải tiện ích phụ
+
+Cập nhật mô hình ở mục 2:
+
+```text
+ROADMAP (PLAN)
+   │
+   ▼
+NODE ORCHESTRATOR
+   │
+   ├── Roadmap / Sprint Engine   ← mới, mục 63
+   ├── Task Dispatcher
+   ├── Context Builder
+   ├── Rule Engine
+   ├── File Watcher
+   ├── Code Indexer
+   ├── Verification Engine       ← mới, mục 62 — không còn là "test runner" đơn giản
+   ├── Workflow Engine
+   └── Event/Stream Server
+           │
+           ├────────► BUILDER
+           │
+           └────────► REVIEWER
+```

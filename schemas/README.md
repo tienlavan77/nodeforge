@@ -12,7 +12,9 @@ schemas/
 ├── node/         # Profile của core dành riêng cho Node (subset enum + capability + state)
 ├── project/      # Project, Task, Rule, Permission, Workflow, Workflow Rule, Session
 ├── context/      # Context Pack (Token Firewall)
-└── results/      # Test Result, Check Result (build/lint/typecheck), Review Result, File Change
+├── results/      # Test Result, Check Result (build/lint/typecheck), Review Result, File Change
+├── verification/ # Node verification orchestration: plan, run, result, failure, policy
+└── roadmap/      # Commit-able PLAN: roadmap, sprint, commit; no runtime state
 ```
 
 ## Nguyên tắc quan trọng nhất của bản v1.2: một enum, không nhân đôi
@@ -87,7 +89,18 @@ Node là system agent: deterministic, orchestration/verification, không phải 
 
 Cả hai loại agent giờ có thể khai báo capability theo cấu trúc nhóm (`capability_scopes`,
 `common.schema.json#/$defs/capability_scope`) — trước đây chỉ Node có, AI agent chỉ có mảng
-string phẳng (`capabilities`), gây lệch mức chi tiết giữa hai loại.
+string phẳng (`capabilities`), gây lệch mức chi tiết giữa hai loại. Mỗi group chứa các grant có
+shape `{ "resource": "…", "actions": ["…"] }`; `actions` không rỗng và không được trùng,
+grant không nhận thêm field nào. Đây chỉ là capability declaration: quyền path/ACL vẫn thuộc
+duy nhất về `project/permission.schema.json`. Vocabulary cụ thể cho Node profile và AI agent
+được chốt ở tầng profile, không hard-code trong common schema.
+
+`core/agent.schema.json` là nguồn sự thật duy nhất của capability. `node/node-agent.schema.json`
+là profile `allOf` của contract đó; `node/node-capability.schema.json` chỉ còn là schema deprecated
+trỏ về profile này và không còn chứa các boolean capability riêng. Với AI, group `agent_events`
+chỉ cho phép publish lifecycle/log của `self` và subscribe stream Agent Protocol của chính nó.
+Các system event như `watcher.*`, `index.*`, và `workflow.*` là trạng thái tất định do Node phát,
+không thể được AI khai báo hoặc phát qua capability này.
 
 ## Filesystem, Permission và Rule — hai lớp khác nhau
 
@@ -127,6 +140,24 @@ schema nào định nghĩa bản thân Session là gì.
   gộp một schema với field `kind` phân biệt, thay vì tạo 3 file gần như trùng nhau.
 - `results/review-result.schema.json`: kết quả Reviewer, `findings[].severity` giờ dùng chung
   `common.schema.json#/$defs/severity`.
+
+## Verification Orchestration
+
+`verification/` chuẩn hóa pipeline verification do Node sở hữu. `verification-plan` nói Node
+phải chạy gì; `verification-run` ghi lịch sử lần chạy và chỉ tham chiếu `results/*` qua
+`result_ref`; `verification-result` là gate tổng hợp duy nhất Workflow Engine đọc.
+`test-failure` giới hạn `message` và `stack_excerpt` ở 500 ký tự để Builder nhận bằng chứng cần
+thiết thay vì raw log. `verification-policy` quy định hành vi retry/dừng của Node. Builder có thể
+chạy test hỗ trợ phát triển, nhưng chỉ kết quả Node chạy, chuẩn hóa và ghi theo các contract này
+mới được coi là verification chính thức.
+
+## Roadmap Planning
+
+`roadmap/` là tầng PLAN cao hơn runtime Task: `Roadmap -> Sprint -> Commit`. Commit xác định
+mục tiêu, phạm vi thay đổi, acceptance criteria và level verification; nó không có `status`, retry
+hay review state. Khi dispatcher thực thi một Commit, Node mới tạo đúng một Task runtime, còn
+trạng thái lưu dưới `.forge/runtime/`. `verification.levels` dùng chung vocabulary với
+`verification-plan`, để plan cấp cao chỉ khai báo mức cần chạy chứ không thay thế run/result.
 
 ## `.forge/`
 

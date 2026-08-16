@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.dev/schemas/roadmap/commit.schema.json",
+  "title": "Forge Roadmap Commit",
+  "description": "A planned unit of work. Runtime progress belongs to the Task created after dispatch, never to this plan record.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "order", "objective", "acceptance_criteria"],
+  "properties": {
+    "id": { "type": "string" },
+    "order": { "type": "integer", "minimum": 1 },
+    "objective": { "type": "string", "minLength": 1 },
+    "allowed_change_areas": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Project-relative glob paths. ACL authorization remains exclusively in project/permission.schema.json."
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["levels"],
+      "properties": {
+        "levels": {
+          "type": "array",
+          "items": { "$ref": "https://forge.dev/schemas/verification/verification-plan.schema.json#/$defs/verification_level" },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    },
+    "dependencies": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true,
+      "description": "Commit IDs that must be completed before this plan item is dispatched."
+    }
+  }
+}

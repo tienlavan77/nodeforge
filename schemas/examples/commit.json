@@ -1,0 +1,8 @@
+{
+  "id": "NF-015",
+  "order": 1,
+  "objective": "Add roadmap planning contracts.",
+  "allowed_change_areas": ["schemas/roadmap/**", "schemas/examples/**"],
+  "acceptance_criteria": ["Roadmap fixtures validate."],
+  "verification": { "levels": ["focused"] }
+}

@@ -1,0 +1,18 @@
+{
+  "node_id": "NODE-001",
+  "project_id": "wp-static-commerce",
+  "status": "running",
+  "active_agents": ["AGENT-BUILDER-001"],
+  "active_sessions": ["SESSION-001"],
+  "active_tasks": ["TASK-001"],
+  "watcher": {
+    "running": true,
+    "watched_root": "/workspace/wp-static-commerce",
+    "last_event_at": "2026-08-16T09:00:00Z"
+  },
+  "index": {
+    "status": "ready",
+    "last_updated_at": "2026-08-16T09:00:00Z"
+  },
+  "updated_at": "2026-08-16T09:00:00Z"
+}

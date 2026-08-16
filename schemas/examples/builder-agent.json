@@ -8,9 +8,28 @@
   "provider": "codex",
   "model": "gpt-5.6",
   "status": "running",
-  "capabilities": [
-    "filesystem.read",
-    "filesystem.write",
-    "shell.execute"
-  ]
+  "capability_scopes": {
+    "filesystem": [
+      {
+        "resource": "project_source",
+        "actions": ["read", "write"]
+      }
+    ],
+    "shell": [
+      {
+        "resource": "workspace",
+        "actions": ["execute"]
+      }
+    ],
+    "agent_events": [
+      {
+        "resource": "self",
+        "actions": ["publish_lifecycle", "publish_log"]
+      },
+      {
+        "resource": "self",
+        "actions": ["subscribe"]
+      }
+    ]
+  }
 }

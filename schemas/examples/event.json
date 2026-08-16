@@ -1,6 +1,6 @@
 {
   "event_id": "EVT-1042",
-  "type": "test.finished",
+  "type": "verification.test_completed",
   "project_id": "wp-static-commerce",
   "session_id": "SESSION-001",
   "task_id": "TASK-001",
