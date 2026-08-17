@@ -1,0 +1,12 @@
+{
+  "event_id": "EVT-REVIEW-REQUESTED-001",
+  "type": "review.requested",
+  "project_id": "PROJECT-001",
+  "session_id": "SESSION-001",
+  "task_id": "TASK-001",
+  "request_id": "REQ-REVIEW-001",
+  "timestamp": "2026-08-17T09:00:02Z",
+  "payload": {
+    "scope": "changed_files"
+  }
+}

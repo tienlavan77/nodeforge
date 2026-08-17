@@ -1,0 +1,9 @@
+{
+  "type": "agents.report_touch",
+  "request_id": "REQ-AGENT-TOUCH-001",
+  "project_id": "PROJECT-001",
+  "payload": {
+    "path": "src/shared.js"
+  },
+  "timestamp": "2026-08-17T17:30:00Z"
+}

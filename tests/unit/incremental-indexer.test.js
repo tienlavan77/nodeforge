@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rename, rm, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { dirname, join } from "node:path";
@@ -38,6 +39,38 @@ test("MODIFY replaces the indexed symbols for exactly one file", async () => {
 
     assert.deepEqual(database.all("SELECT name FROM symbols ORDER BY name"), [{ name: "NewType" }, { name: "newName" }]);
     assert.deepEqual(database.all("SELECT name FROM symbols WHERE name = 'oldName'"), []);
+  });
+});
+
+test("stores the SHA-256 of new and modified file content without changing file_id", async () => {
+  await withIndexer(async ({ projectRoot, database, indexer }) => {
+    const first = "export function beforeHash() {}\n";
+    const second = "export function afterHash() {}\n";
+    await writeProjectFile(projectRoot, "src/example.js", first);
+    await indexer.handle(event("watcher.file_created", "src/example.js"));
+    const created = database.all("SELECT file_id, sha256 FROM files WHERE path = ?", ["src/example.js"])[0];
+    assert.equal(created.sha256, sha256(first));
+
+    await writeProjectFile(projectRoot, "src/example.js", second);
+    await indexer.handle(event("watcher.file_modified", "src/example.js"));
+    const modified = database.all("SELECT file_id, sha256 FROM files WHERE path = ?", ["src/example.js"])[0];
+    assert.equal(modified.file_id, created.file_id);
+    assert.equal(modified.sha256, sha256(second));
+  });
+});
+
+test("stores valid SHA-256 values for empty and binary files", async () => {
+  await withIndexer(async ({ projectRoot, database, indexer }) => {
+    const binary = Buffer.from([0, 255, 1, 2]);
+    await writeProjectFile(projectRoot, "src/empty.txt", "");
+    await writeProjectFile(projectRoot, "src/data.bin", binary);
+    await indexer.handle(event("watcher.file_created", "src/empty.txt"));
+    await indexer.handle(event("watcher.file_created", "src/data.bin"));
+
+    assert.deepEqual(database.all("SELECT path, sha256 FROM files ORDER BY path"), [
+      { path: "src/data.bin", sha256: sha256(binary) },
+      { path: "src/empty.txt", sha256: sha256("") }
+    ]);
   });
 });
 
@@ -280,6 +313,10 @@ async function writeProjectFile(projectRoot, path, content) {
   const filePath = join(projectRoot, path);
   await mkdir(dirname(filePath), { recursive: true });
   await writeFile(filePath, content);
+}
+
+function sha256(content) {
+  return createHash("sha256").update(content).digest("hex");
 }
 
 async function withIndexer(options, callback) {

@@ -184,7 +184,7 @@ rename file → quan hệ (imports/tests/history) không bị đứt.
 
 | Việc | Thư mục | Ghi chú |
 |---|---|---|
-| `project/session.schema.json` | `schemas/project/` | mới trong v1.2 — chính thức hóa `session_id` vốn được tham chiếu khắp Agent/Event/Command/Context/Result nhưng chưa có schema |
+| Session persistence + `project/session.schema.json` | `src/modules/projects/`, `schemas/project/` | tạo/đóng Session trong SQLite, validate schema và gắn `project_id`; chỉ lưu `agents` như ID string, không theo dõi Agent↔File hay History (để Sprint 3/7) |
 | `project/project.schema.json`, `task.schema.json` | `schemas/project/` | `task.status` = enum cố định (pending/active/blocked/completed/failed/cancelled), tách biệt `task.workflow_state` (string tự do khớp `workflow.states`) |
 | Registry, project isolation, project state | `src/modules/projects/` | multi-project: mỗi project state độc lập (mục 57) |
 | Tạo `.forge/` khi mở project lần đầu | `src/infrastructure/` | cấu trúc đề xuất ở mục 53: `schemas/ rules/ workflows/ runtime/` |

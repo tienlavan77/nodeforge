@@ -5,13 +5,13 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "id",
+    "project_id",
     "name",
     "root",
     "schema_version"
   ],
   "properties": {
-    "id": {
+    "project_id": {
       "$ref": "../core/common.schema.json#/$defs/id"
     },
     "name": {

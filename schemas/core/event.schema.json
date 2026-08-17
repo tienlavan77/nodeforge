@@ -48,6 +48,7 @@
         "index.inconsistent",
         "git.diff_generated",
         "git.changeset_created",
+        "verification.test_started",
         "verification.test_completed",
         "verification.check_completed",
         "context.pack_generated",
@@ -55,6 +56,7 @@
         "rules.rule_violated",
         "rules.permission_denied",
         "workflow.state_transitioned",
+        "review.requested",
         "review.started",
         "review.completed",
         "workflow.started",
@@ -63,6 +65,7 @@
         "agents.stopped",
         "agents.message_received",
         "agents.error",
+        "agents.concurrent_modification_detected",
         "history.summary_created",
         "process.timed_out",
         "process.cancelled"

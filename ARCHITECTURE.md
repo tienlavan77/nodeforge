@@ -2256,20 +2256,40 @@ schemas/
 
 Mô tả 1 commit cần kiểm tra những gì. Node đọc để biết phải chạy gì.
 
+> **Cập nhật sau review NF-028:** bản đầu để `levels`/`checks[].type` là enum inline. Builder
+> chỉ ra lỗ hổng khi `roadmap/commit.schema.json` (mục 63.3) cần tái dùng enum `levels` ở
+> **cấp item** (mỗi phần tử trong mảng `verification.levels` của Commit) — nếu `$ref` thẳng
+> tới `#/properties/levels` (nguyên cả field, vốn đã là 1 mảng), item sẽ bị ép phải là mảng
+> lồng mảng, sai. Sửa bằng cách tách 2 giá trị dùng lại thành `$defs` cấp-giá-trị-đơn
+> (`verification_level`, `check_type`), đúng nguyên tắc "một enum, không nhân đôi" (README
+> v1.2) — các nơi khác `$ref` tới `$defs` này ở cấp item, không tới `properties.levels` nguyên
+> field nữa.
+
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://forge.dev/schemas/verification/verification-plan.schema.json",
   "title": "VerificationPlan",
+  "description": "The checks Node must run for a commit. This is orchestration metadata, not an individual check result.",
   "type": "object",
   "additionalProperties": false,
   "required": ["commit_id", "levels", "checks"],
+  "$defs": {
+    "verification_level": {
+      "type": "string",
+      "enum": ["focused", "related", "full"]
+    },
+    "check_type": {
+      "type": "string",
+      "enum": ["test", "lint", "typecheck", "build"]
+    }
+  },
   "properties": {
     "schema_version": { "type": "string", "const": "1.0" },
     "commit_id": { "type": "string" },
     "levels": {
       "type": "array",
-      "items": { "enum": ["focused", "related", "full"] },
+      "items": { "$ref": "#/$defs/verification_level" },
       "minItems": 1,
       "uniqueItems": true
     },
@@ -2281,7 +2301,7 @@ Mô tả 1 commit cần kiểm tra những gì. Node đọc để biết phải 
         "additionalProperties": false,
         "required": ["type", "command"],
         "properties": {
-          "type": { "enum": ["test", "lint", "typecheck", "build"] },
+          "type": { "$ref": "#/$defs/check_type" },
           "command": { "type": "string", "minLength": 1 },
           "timeout_ms": { "type": "integer", "minimum": 0 }
         }
@@ -2290,6 +2310,10 @@ Mô tả 1 commit cần kiểm tra những gì. Node đọc để biết phải 
   }
 }
 ```
+
+> `title` giữ nguyên `"VerificationPlan"` (PascalCase, không prefix) để nhất quán với 7 schema
+> còn lại trong `verification/`+`roadmap/` — nếu Builder cần đổi convention đặt tên, áp dụng
+> đồng loạt cho cả 8 file trong 1 ticket riêng, không đổi lẻ tẻ từng file.
 
 ## 62.3. `verification/verification-run.schema.json`
 
@@ -2596,6 +2620,13 @@ hoặc chuyển project mà không sợ lẫn dữ liệu kế hoạch với d�
 
 ## 63.3. `roadmap/commit.schema.json`
 
+> **Cập nhật sau review NF-028/033:** bản đầu để `verification.levels` inline enum trực tiếp
+> — trùng lặp enum với `verification-plan.schema.json` (vi phạm "một enum, không nhân đôi").
+> Sửa: `items` của `verification.levels` giờ `$ref` tới `$defs/verification_level` đã tách ra
+> ở `verification-plan.schema.json` (mục 62.2) — tái dùng ở **cấp item**, không phải `$ref`
+> nguyên field `#/properties/levels` (sẽ gây lỗi mảng lồng mảng). `uniqueItems: true` áp dụng
+> đồng nhất cho cả `verification.levels` và `dependencies` (không chỉ 1 trong 2).
+
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2625,14 +2656,16 @@ hoặc chuyển project mà không sợ lẫn dữ liệu kế hoạch với d�
       "properties": {
         "levels": {
           "type": "array",
-          "items": { "enum": ["focused", "related", "full"] },
-          "minItems": 1
+          "items": { "$ref": "https://forge.dev/schemas/verification/verification-plan.schema.json#/$defs/verification_level" },
+          "minItems": 1,
+          "uniqueItems": true
         }
       }
     },
     "dependencies": {
       "type": "array",
       "items": { "type": "string" },
+      "uniqueItems": true,
       "description": "Danh sách commit_id phải hoàn tất trước."
     }
   }

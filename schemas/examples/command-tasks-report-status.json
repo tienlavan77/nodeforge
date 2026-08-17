@@ -1,0 +1,12 @@
+{
+  "type": "tasks.report_status",
+  "request_id": "REQ-TASK-STATUS-001",
+  "project_id": "PROJECT-001",
+  "session_id": "SESSION-001",
+  "task_id": "TASK-001",
+  "payload": {
+    "status": "in_progress",
+    "message": "Implementing the requested change."
+  },
+  "timestamp": "2026-08-17T09:00:00Z"
+}
