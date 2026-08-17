@@ -1,0 +1,14 @@
+{
+  "id": "SESSION-INVALID-CAPABILITY-001",
+  "project_id": "wp-static-commerce",
+  "capability_scopes": {
+    "unrecognized": [
+      {
+        "resource": "anything",
+        "actions": ["anything"]
+      }
+    ]
+  },
+  "status": "active",
+  "started_at": "2026-08-17T15:00:00Z"
+}

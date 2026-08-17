@@ -8,8 +8,8 @@
     "forge": "src/transport/cli/index.js"
   },
   "scripts": {
-    "lint": "eslint \"src/**/*.js\" \"tests/**/*.js\" --no-error-on-unmatched-pattern --max-warnings=0",
-    "typecheck": "tsc --project jsconfig.json",
+    "lint": "node node_modules/eslint/bin/eslint.js \"src/**/*.js\" \"tests/**/*.js\" --no-error-on-unmatched-pattern --max-warnings=0",
+    "typecheck": "node node_modules/typescript/bin/tsc --project jsconfig.json",
     "test": "node --test",
     "bootstrap:smoke": "node scripts/bootstrap-smoke.mjs",
     "validate:schemas": "node scripts/validate-schemas.mjs",

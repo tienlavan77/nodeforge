@@ -2,11 +2,13 @@ import { readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 
 import { createProjectIgnoreMatcher } from "../../infrastructure/filesystem/watcher.js";
+import { ensureForgeLayout } from "../../infrastructure/filesystem/forge-layout.js";
 import { openIndexDatabase } from "../../infrastructure/sqlite/index-database.js";
 import { createIncrementalIndexer } from "./incremental-indexer.js";
 import { extractorRegistry } from "./parser/index.js";
 
 export async function rebuildIndex({ projectRoot, database, ignore = [], registry = extractorRegistry, indexer } = {}) {
+  await ensureForgeLayout(projectRoot);
   const ownsDatabase = !database;
   const indexDatabase = database ?? await openIndexDatabase(projectRoot);
   const incrementalIndexer = indexer ?? createIncrementalIndexer({ database: indexDatabase, projectRoot, registry });

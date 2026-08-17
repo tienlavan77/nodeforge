@@ -171,7 +171,7 @@ export function createDebouncedWatcher({ rawWatcher, projectId, root, debounceMs
   });
 }
 
-async function readContentHash(path) {
+export async function readContentHash(path) {
   try {
     return createHash("sha256").update(await readFile(path)).digest("hex");
   } catch (error) {

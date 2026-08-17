@@ -19,6 +19,10 @@
     "project_id": {
       "$ref": "../core/common.schema.json#/$defs/id"
     },
+    "commit_id": {
+      "$ref": "../core/common.schema.json#/$defs/id",
+      "description": "ID of the roadmap commit that dispatched this task, when the task was created by the Commit Dispatcher. Tasks created outside that flow may omit this field."
+    },
     "parent_task_id": {
       "type": [
         "string",

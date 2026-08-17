@@ -21,6 +21,7 @@
         "sessions.start",
         "sessions.stop",
         "sessions.query",
+        "context.request",
         "context.read_file",
         "context.read_symbol",
         "context.read_range",
@@ -33,6 +34,7 @@
         "context.build_pack",
         "tasks.start",
         "tasks.cancel",
+        "tasks.report_status",
         "verification.run_test",
         "verification.run_check",
         "review.request",
@@ -48,6 +50,7 @@
         "agents.spawn",
         "agents.stop",
         "agents.cancel",
+        "agents.report_touch",
         "history.query",
         "node.get_status"
       ]
@@ -74,5 +77,32 @@
     "timestamp": {
       "$ref": "common.schema.json#/$defs/timestamp"
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "agents.report_touch"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "path"
+            ],
+            "properties": {
+              "path": {
+                "$ref": "common.schema.json#/$defs/path"
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      }
+    }
+  ]
 }

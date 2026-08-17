@@ -52,6 +52,17 @@
       },
       "description": "IDs of every agent (builder, reviewer, tester...) that participated in this session."
     },
+    "capability_scopes": {
+      "description": "Declared agent capabilities retained with the Session. Declared capabilities are not enforced until the Rule Engine.",
+      "oneOf": [
+        {
+          "$ref": "../core/agent.schema.json#/$defs/ai_capability_scopes"
+        },
+        {
+          "$ref": "../core/agent.schema.json#/$defs/node_capability_scopes"
+        }
+      ]
+    },
     "status": {
       "type": "string",
       "enum": [

@@ -8,6 +8,10 @@ const fixtures = [
   ["https://forge.local/schemas/core/agent.schema.json", "schemas/examples/builder-agent.json"],
   ["https://forge.local/schemas/core/agent.schema.json", "schemas/examples/node-agent.json"],
   ["https://forge.local/schemas/core/command.schema.json", "schemas/examples/envelope-command.json", "/message"],
+  ["https://forge.local/schemas/core/command.schema.json", "schemas/examples/command-context-request.json"],
+  ["https://forge.local/schemas/core/command.schema.json", "schemas/examples/command-tasks-report-status.json"],
+  ["https://forge.local/schemas/core/command.schema.json", "schemas/examples/command-agents-report-touch.json"],
+  ["https://forge.local/schemas/core/command.schema.json", "schemas/examples/command-agents-report-touch-invalid.json", undefined, false],
   ["https://forge.local/schemas/core/envelope.schema.json", "schemas/examples/envelope-command.json"],
   ["https://forge.local/schemas/core/envelope.schema.json", "schemas/examples/envelope-event.json"],
   ["https://forge.local/schemas/core/error.schema.json", "schemas/examples/error.json"],
@@ -17,14 +21,22 @@ const fixtures = [
   ["https://forge.local/schemas/node/node-capability.schema.json", "schemas/examples/node-agent.json"],
   ["https://forge.local/schemas/node/node-command.schema.json", "schemas/examples/node-command.json"],
   ["https://forge.local/schemas/node/node-event.schema.json", "schemas/examples/envelope-event.json", "/message"],
+  ["https://forge.local/schemas/node/node-event.schema.json", "schemas/examples/event-review-requested.json"],
+  ["https://forge.local/schemas/node/node-event.schema.json", "schemas/examples/event-verification-test-started.json"],
+  ["https://forge.local/schemas/node/node-event.schema.json", "schemas/examples/event-concurrent-modification.json"],
   ["https://forge.local/schemas/node/node-query-result.schema.json", "schemas/examples/node-query-result.json"],
   ["https://forge.local/schemas/node/node-state.schema.json", "schemas/examples/node-state.json"],
   ["https://forge.local/schemas/context/context.schema.json", "schemas/examples/context-pack.json"],
   ["https://forge.local/schemas/project/permission.schema.json", "schemas/examples/permission.json", "/0"],
   ["https://forge.local/schemas/project/permission.schema.json", "schemas/examples/permission.json", "/1"],
   ["https://forge.local/schemas/project/rule.schema.json", "schemas/examples/rule.json"],
+  ["https://forge.local/schemas/project/project.schema.json", "schemas/examples/project.json"],
   ["https://forge.local/schemas/project/session.schema.json", "schemas/examples/session.json"],
+  ["https://forge.local/schemas/project/session.schema.json", "schemas/examples/session-ai-capability.json"],
+  ["https://forge.local/schemas/project/session.schema.json", "schemas/examples/session-node-capability.json"],
+  ["https://forge.local/schemas/project/session.schema.json", "schemas/examples/session-invalid-capability.json", undefined, false],
   ["https://forge.local/schemas/project/task.schema.json", "schemas/examples/task.json"],
+  ["https://forge.local/schemas/project/task.schema.json", "schemas/examples/task-with-commit.json"],
   ["https://forge.local/schemas/results/check-result.schema.json", "schemas/examples/check-result.json"],
   ["https://forge.local/schemas/results/file-change.schema.json", "schemas/examples/file-change.json"],
   ["https://forge.local/schemas/results/review-result.schema.json", "schemas/examples/review-result.json"],
@@ -79,15 +91,17 @@ try {
     }
   }
 
-  for (const [schemaId, fixturePath, pointer] of fixtures) {
+  for (const [schemaId, fixturePath, pointer, expectedValid = true] of fixtures) {
     const validate = validators.get(schemaId);
     if (!validate) continue;
 
     try {
       const fixture = atPointer(await readJson(fixturePath), pointer);
       if (fixture === undefined) throw new Error("value not found");
-      if (!validate(fixture)) {
-        throw new Error(ajv.errorsText(validate.errors, { separator: "; " }));
+      const isValid = validate(fixture);
+      if (isValid !== expectedValid) {
+        const result = expectedValid ? ajv.errorsText(validate.errors, { separator: "; " }) : "expected schema to reject fixture";
+        throw new Error(result);
       }
     } catch (error) {
       errors.push(`${fixturePath}${pointer ?? ""} against ${schemaId}: ${error.message}`);

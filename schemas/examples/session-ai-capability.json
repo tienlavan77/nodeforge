@@ -1,0 +1,23 @@
+{
+  "id": "SESSION-AI-CAPABILITY-001",
+  "project_id": "wp-static-commerce",
+  "agents": [
+    "AGENT-BUILDER-001"
+  ],
+  "capability_scopes": {
+    "filesystem": [
+      {
+        "resource": "project_source",
+        "actions": ["read", "write"]
+      }
+    ],
+    "context": [
+      {
+        "resource": "broker",
+        "actions": ["request"]
+      }
+    ]
+  },
+  "status": "active",
+  "started_at": "2026-08-17T15:00:00Z"
+}

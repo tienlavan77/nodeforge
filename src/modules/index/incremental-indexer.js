@@ -5,8 +5,9 @@ import { resolve } from "node:path";
 import { createDependencyGraph } from "./dependency-graph.js";
 import { createFileRepository } from "./file-repository.js";
 import { extractorRegistry } from "./parser/index.js";
+import { readContentHash } from "../watcher/debounced-watcher.js";
 
-export function createIncrementalIndexer({ database, projectRoot, registry = extractorRegistry, files = createFileRepository(database), graph = createDependencyGraph({ database, files, projectRoot }), logger = console } = {}) {
+export function createIncrementalIndexer({ database, projectRoot, registry = extractorRegistry, files = createFileRepository(database), graph = createDependencyGraph({ database, files, projectRoot }), getContentHash = readContentHash, logger = console } = {}) {
   return Object.freeze({
     async handle(event) {
       const path = event.payload?.path;
@@ -23,7 +24,9 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
   async function indexNewFile(path) {
     const extraction = await extract(path);
     if (!extraction) return false;
-    const fileId = files.insert(path);
+    const sha256 = await hash(path);
+    if (!sha256) return false;
+    const fileId = files.insert(path, { sha256 });
     writeExtraction(fileId, path, extraction);
     graph.replaceForFile(fileId, path, extraction.imports);
     writeCalls(fileId, path, extraction);
@@ -36,9 +39,12 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
 
     const extraction = await extract(path);
     if (!extraction) return false;
+    const sha256 = await hash(path);
+    if (!sha256) return false;
     database.run("DELETE FROM symbols WHERE file_id = ?", [file.file_id]);
     database.run("DELETE FROM imports_exports WHERE file_id = ?", [file.file_id]);
     database.run("DELETE FROM calls WHERE source_file_id = ?", [file.file_id]);
+    files.updateHash(file.file_id, sha256);
     writeExtraction(file.file_id, path, extraction);
     graph.replaceForFile(file.file_id, path, extraction.imports);
     writeCalls(file.file_id, path, extraction);
@@ -68,6 +74,10 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
       logger.warning?.("Index extraction failed; retaining the prior index entry.", { path, error: error.message });
       return null;
     }
+  }
+
+  function hash(path) {
+    return getContentHash(resolve(projectRoot, path));
   }
 
   function writeExtraction(fileId, path, extraction) {

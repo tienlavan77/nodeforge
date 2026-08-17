@@ -23,8 +23,12 @@ for (const entry of await directoryEntries(binDirectory)) {
 
   const relativeTarget = relative(binDirectory, targetPath).split(sep).join("/");
   const wrapper = `#!/bin/sh\nexec "\$(dirname "\$0")/${relativeTarget}" "\$@"\n`;
-  await writeFile(launcherPath, wrapper, { mode: 0o775 });
-  await chmod(launcherPath, 0o775);
+  try {
+    await writeFile(launcherPath, wrapper, { mode: 0o775 });
+    await chmod(launcherPath, 0o775);
+  } catch (error) {
+    console.warn(`Warning: repaired ${entry.name} content, but could not set executable mode (${error.code}).`);
+  }
   repaired += 1;
 }
 
