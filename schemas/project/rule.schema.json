@@ -12,6 +12,42 @@
     "rule",
     "enabled"
   ],
+  "allOf": [
+    {
+      "if": {
+        "required": ["enforcement"],
+        "properties": {
+          "enforcement": {
+            "enum": ["blocking", "orchestrator"]
+          }
+        }
+      },
+      "then": {
+        "required": ["condition"],
+        "properties": {
+          "condition": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["condition"],
+        "properties": {
+          "condition": {
+            "type": "object"
+          }
+        }
+      },
+      "then": {
+        "required": ["condition_language"],
+        "properties": {
+          "condition_language": {}
+        }
+      }
+    }
+  ],
   "properties": {
     "id": {
       "$ref": "../core/common.schema.json#/$defs/id"
