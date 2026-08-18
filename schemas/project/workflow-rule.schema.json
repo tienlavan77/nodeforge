@@ -91,9 +91,15 @@
       "required": ["kind", "allowlist_field", "on_violation"],
       "properties": {
         "kind": { "const": "change_area" },
-        "allowlist_field": { "const": "status.json.allowed_change_areas" },
+        "allowlist_field": { "$ref": "#/$defs/field_reference" },
         "on_violation": { "type": "string", "enum": ["REQUEST_CHANGES", "BLOCKED"] }
       }
+    },
+    "field_reference": {
+      "type": "string",
+      "minLength": 3,
+      "pattern": "^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z0-9_*.-]+)+$",
+      "description": "Qualified Nodeforge record field, such as roadmap.commit.allowed_change_areas."
     },
     "dependency_gate": {
       "type": "object",
@@ -110,7 +116,7 @@
       "required": ["kind", "required_fields", "full_test_triggers"],
       "properties": {
         "kind": { "const": "test_evidence" },
-        "required_fields": { "const": ["tests.level", "tests.status", "tests.commands", "tests.result"] },
+        "required_fields": { "const": ["verification-run.level", "verification-run.status", "verification-run.checks[].command", "verification-run.checks[].result_ref"] },
         "full_test_triggers": { "type": "array", "minItems": 1, "items": { "type": "string" } }
       }
     },
