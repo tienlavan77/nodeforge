@@ -6,6 +6,7 @@
   "additionalProperties": false,
   "required": ["ruleset_id", "version", "source", "rules"],
   "properties": {
+    "$schema": { "type": "string", "minLength": 1 },
     "ruleset_id": { "$ref": "../core/common.schema.json#/$defs/id" },
     "version": { "$ref": "../core/common.schema.json#/$defs/version" },
     "source": { "type": "string", "minLength": 1 },
