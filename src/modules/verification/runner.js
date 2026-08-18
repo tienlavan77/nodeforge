@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 
@@ -6,6 +5,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 
 import { ConfigurationError } from "../../shared/errors.js";
+import { createProjectCommandExecutor } from "./command-executor.js";
 
 const require = createRequire(import.meta.url);
 const commonSchema = require("../../../schemas/core/common.schema.json");
@@ -39,13 +39,14 @@ export function createVerificationPlanValidator() {
   };
 }
 
-export function createTestRunner({ projectRoot, projectId, spawnProcess = spawn, createId = () => `TEST-${randomUUID()}`, clock = () => new Date(), validatePlan = createVerificationPlanValidator(), validateResult = createTestResultValidator() } = {}) {
+export function createTestRunner({ projectRoot, projectId, spawnProcess, createId = () => `TEST-${randomUUID()}`, clock = () => new Date(), validatePlan = createVerificationPlanValidator(), validateResult = createTestResultValidator() } = {}) {
   if (typeof projectRoot !== "string" || projectRoot.length === 0 || typeof projectId !== "string" || projectId.length === 0) {
     throw new ConfigurationError("A project root and project_id are required for test execution.");
   }
-  if (typeof spawnProcess !== "function" || typeof createId !== "function" || typeof clock !== "function") {
+  if (typeof createId !== "function" || typeof clock !== "function") {
     throw new ConfigurationError("Test runner dependencies must be functions.");
   }
+  const execute = createProjectCommandExecutor({ projectRoot, spawnProcess });
 
   return Object.freeze({
     async run(plan, { taskId, sessionId, scope = scopeFor(plan) } = {}) {
@@ -91,27 +92,6 @@ export function createTestRunner({ projectRoot, projectId, spawnProcess = spawn,
     return Object.freeze(result);
   }
 
-  function execute(command) {
-    return new Promise((resolve, reject) => {
-      const environment = { ...process.env };
-      // Node's own test-worker marker would make a child `node --test` skip project tests.
-      delete environment.NODE_TEST_CONTEXT;
-      const child = spawnProcess(command, { cwd: projectRoot, env: environment, shell: true, stdio: ["ignore", "pipe", "pipe"] });
-      if (!child?.stdout || !child?.stderr) {
-        reject(new ConfigurationError("Test command must expose stdout and stderr streams."));
-        return;
-      }
-      let stdout = "";
-      let stderr = "";
-      child.stdout.setEncoding("utf8");
-      child.stderr.setEncoding("utf8");
-      child.stdout.on("data", (chunk) => { stdout += chunk; });
-      child.stderr.on("data", (chunk) => { stderr += chunk; });
-      child.once("error", reject);
-      // `close` runs only after stdout/stderr close, so TAP summaries are complete.
-      child.once("close", (exitCode) => resolve({ exitCode, stdout, stderr }));
-    });
-  }
 }
 
 function scopeFor(plan) {
