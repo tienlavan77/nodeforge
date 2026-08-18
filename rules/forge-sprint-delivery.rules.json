@@ -35,7 +35,7 @@
       "enforcement": "blocking",
       "applies_to": ["builder", "node"],
       "trigger": "commit.handoff",
-      "condition": { "kind": "artifact_requirement", "when": "transition to READY_FOR_REVIEW", "artifacts": ["COMMIT.md", "status.json", "builder-report.md"] },
+      "condition": { "kind": "artifact_requirement", "when": "transition to READY_FOR_REVIEW", "artifacts": ["roadmap.commit", "project.task", "project.builder_evidence"] },
       "enabled": true,
       "priority": 950,
       "source": "WORKFLOW.md §7"
