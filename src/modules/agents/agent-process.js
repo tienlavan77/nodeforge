@@ -140,20 +140,35 @@ export function createAgentProcess({ command, args = [], projectId, agentId, tim
       if (!isCommand(envelope.message)) {
         throw new ConfigurationError("Node-to-Agent messages must contain a Command.");
       }
-      if (child.stdin.destroyed || !child.stdin.writable) {
-        throw new LifecycleError("Agent stdin is not writable.");
+      await sendLine(envelope);
+    },
+    async sendEvent(envelope) {
+      validateEnvelope(envelope);
+      if (!isEvent(envelope.message)) {
+        throw new ConfigurationError("Node-to-Agent event responses must contain an Event.");
       }
-      await writeLine(child.stdin, `${JSON.stringify(envelope)}\n`);
+      await sendLine(envelope);
     },
     close() {
       clearTimeouts();
       child.stdin.end();
     }
   });
+
+  async function sendLine(envelope) {
+    if (child.stdin.destroyed || !child.stdin.writable) {
+      throw new LifecycleError("Agent stdin is not writable.");
+    }
+    await writeLine(child.stdin, `${JSON.stringify(envelope)}\n`);
+  }
 }
 
 function isCommand(message) {
   return typeof message?.request_id === "string" && !("event_id" in message);
+}
+
+function isEvent(message) {
+  return typeof message?.event_id === "string";
 }
 
 function writeLine(stream, line) {
