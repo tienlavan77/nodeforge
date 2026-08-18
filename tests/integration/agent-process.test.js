@@ -31,6 +31,27 @@ test("sends a schema-valid NDJSON Command to an agent and receives a buffered Ev
   }
 });
 
+test("sends a schema-valid NDJSON Event response from Node to an agent", async () => {
+  const validateEnvelope = createEnvelopeValidator();
+  const agent = createAgentProcess({ command: process.execPath, args: [fixture] });
+  const event = contextPackEnvelope();
+
+  try {
+    const messagePromise = once(agent, "message").then(([envelope]) => envelope);
+    const childExit = once(agent.child, "exit");
+    await agent.sendEvent(event);
+    const response = await messagePromise;
+
+    assert.equal(validateEnvelope(event), true);
+    assert.equal(validateEnvelope(response), true);
+    assert.equal(response.message.type, "context.pack_generated");
+    await childExit;
+  } finally {
+    agent.close();
+    if (!agent.child.killed && agent.child.exitCode === null) agent.child.kill();
+  }
+});
+
 function commandEnvelope() {
   return {
     protocol_version: "1.2.0",
@@ -45,6 +66,24 @@ function commandEnvelope() {
       session_id: "SESSION-001",
       timestamp: "2026-08-17T10:00:00Z",
       payload: { query: "Explain the current task." }
+    }
+  };
+}
+
+function contextPackEnvelope() {
+  return {
+    protocol_version: "1.2.0",
+    message_id: "MSG-NODE-CONTEXT-PACK-001",
+    sender: { id: "NODE-001", type: "system", role: "context-engine" },
+    receiver: { id: "AGENT-FIXTURE-001", type: "ai", role: "builder" },
+    timestamp: "2026-08-18T09:00:00Z",
+    message: {
+      event_id: "EVT-NODE-CONTEXT-PACK-001",
+      type: "context.pack_generated",
+      project_id: "PROJECT-001",
+      request_id: "REQ-CONTEXT-READ-001",
+      timestamp: "2026-08-18T09:00:00Z",
+      payload: { path: "src/auth.js", content: "export function login() {}\n", symbols: [] }
     }
   };
 }
