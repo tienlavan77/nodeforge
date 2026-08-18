@@ -29,6 +29,8 @@ const fixtures = [
   ["https://forge.local/schemas/context/context.schema.json", "schemas/examples/context-pack.json"],
   ["https://forge.local/schemas/project/permission.schema.json", "schemas/examples/permission.json", "/0"],
   ["https://forge.local/schemas/project/permission.schema.json", "schemas/examples/permission.json", "/1"],
+  ["https://forge.local/schemas/project/builder-evidence.schema.json", "schemas/examples/builder-evidence.json"],
+  ["https://forge.local/schemas/project/builder-evidence.schema.json", "schemas/examples/builder-evidence-invalid.json", undefined, false],
   ["https://forge.local/schemas/project/rule.schema.json", "schemas/examples/rule.json"],
   ["https://forge.local/schemas/project/rule.schema.json", "schemas/examples/rule-invalid-blocking-no-condition.json", undefined, false],
   ["https://forge.local/schemas/project/rule.schema.json", "schemas/examples/rule-invalid-orchestrator-no-condition.json", undefined, false],
