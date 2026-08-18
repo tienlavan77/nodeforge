@@ -23,7 +23,7 @@
       "enforcement": "blocking",
       "applies_to": ["sprint_lead", "builder", "reviewer", "node"],
       "trigger": "commit.transition",
-      "condition": { "kind": "status_transition", "from": "PLANNED", "to": "IN_PROGRESS", "allowed_actors": ["builder", "sprint_lead"], "requires": ["status.json", "COMMIT.md"] },
+      "condition": { "kind": "status_transition", "from": "PLANNED", "to": "IN_PROGRESS", "allowed_actors": ["builder", "sprint_lead"], "requires": ["task.workflow_state", "roadmap.commit"] },
       "enabled": true,
       "priority": 1000,
       "source": "WORKFLOW.md §6, §7"
@@ -59,7 +59,7 @@
       "enforcement": "blocking",
       "applies_to": ["builder", "reviewer", "node"],
       "trigger": "file.change",
-      "condition": { "kind": "change_area", "allowlist_field": "status.json.allowed_change_areas", "on_violation": "REQUEST_CHANGES" },
+      "condition": { "kind": "change_area", "allowlist_field": "roadmap.commit.allowed_change_areas", "on_violation": "REQUEST_CHANGES" },
       "enabled": true,
       "priority": 1000,
       "source": "WORKFLOW.md §5, §8"
@@ -71,7 +71,7 @@
       "enforcement": "blocking",
       "applies_to": ["reviewer", "node"],
       "trigger": "review.complete",
-      "condition": { "kind": "status_transition", "from": "READY_FOR_REVIEW", "to": "APPROVED", "allowed_actors": ["reviewer"], "requires": ["review.md", "status.json.reviewed_at", "status.json.findings", "status.json.tests"] },
+      "condition": { "kind": "status_transition", "from": "READY_FOR_REVIEW", "to": "APPROVED", "allowed_actors": ["reviewer"], "requires": ["results.review-result", "results.review-result.findings", "verification-result.ready_for_review"] },
       "enabled": true,
       "priority": 1000,
       "source": "CONSTITUTION.md art. 10–11; WORKFLOW.md §8"
@@ -83,7 +83,7 @@
       "enforcement": "blocking",
       "applies_to": ["builder", "reviewer", "node"],
       "trigger": "review.complete",
-      "condition": { "kind": "test_evidence", "required_fields": ["tests.level", "tests.status", "tests.commands", "tests.result"], "full_test_triggers": ["final_commit", "sprint_integration", "release_or_merge", "shared_contract", "public_api", "dependency", "core_architecture"] },
+      "condition": { "kind": "test_evidence", "required_fields": ["verification-run.level", "verification-run.status", "verification-run.checks[].command", "verification-run.checks[].result_ref"], "full_test_triggers": ["final_commit", "sprint_integration", "release_or_merge", "shared_contract", "public_api", "dependency", "core_architecture"] },
       "enabled": true,
       "priority": 900,
       "source": "WORKFLOW.md §10.1"
