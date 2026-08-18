@@ -1,0 +1,9 @@
+{
+  "id": "RULE-INVALID-BLOCKING",
+  "scope": "project",
+  "type": "security",
+  "severity": "error",
+  "rule": "A blocking rule must be machine evaluable.",
+  "enforcement": "blocking",
+  "enabled": true
+}
