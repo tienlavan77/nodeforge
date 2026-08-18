@@ -42,6 +42,7 @@ const fixtures = [
   ["https://forge.local/schemas/project/session.schema.json", "schemas/examples/session-invalid-capability.json", undefined, false],
   ["https://forge.local/schemas/project/task.schema.json", "schemas/examples/task.json"],
   ["https://forge.local/schemas/project/task.schema.json", "schemas/examples/task-with-commit.json"],
+  ["https://forge.local/schemas/project/workflow-ruleset.schema.json", "rules/forge-sprint-delivery.rules.json"],
   ["https://forge.local/schemas/results/check-result.schema.json", "schemas/examples/check-result.json"],
   ["https://forge.local/schemas/results/file-change.schema.json", "schemas/examples/file-change.json"],
   ["https://forge.local/schemas/results/review-result.schema.json", "schemas/examples/review-result.json"],
