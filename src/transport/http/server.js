@@ -36,7 +36,9 @@ export function createHttpApi({ runtimeService } = {}) {
     }
     if (method === "GET" && parts.length === 3 && parts[0] === "projects" && parts[2] === "memory") {
       const taskId = url.searchParams.get("taskId") ?? parts[1];
-      return { status: 200, body: runtimeService.getProjectMemory({ projectId: parts[1], taskId }) };
+      const query = url.searchParams.get("query") ?? "";
+      const domain = url.searchParams.get("domain") ?? undefined;
+      return { status: 200, body: runtimeService.getProjectMemory({ projectId: parts[1], taskId, query, domain }) };
     }
     const error = new ConfigurationError("Route not found.");
     error.statusCode = 404;
