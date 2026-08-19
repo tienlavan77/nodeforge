@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/governance/ticket-completion.schema.json",
+  "title": "Forge Ticket Completion",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "ticket_id", "project_id", "session_id", "agent_id", "status", "completed_at"],
+  "properties": {
+    "id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "ticket_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "project_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "session_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "agent_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "status": { "type": "string", "enum": ["completed", "failed", "blocked"] },
+    "result_ref": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "evidence_refs": { "type": "array", "items": { "$ref": "../core/common.schema.json#/$defs/id" }, "uniqueItems": true },
+    "completed_at": { "$ref": "../core/common.schema.json#/$defs/timestamp" }
+  }
+}

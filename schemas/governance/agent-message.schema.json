@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/governance/agent-message.schema.json",
+  "title": "Forge Agent Message",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "project_id", "sender", "recipient", "message_type", "payload", "timestamp"],
+  "properties": {
+    "id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "project_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "sender": { "$ref": "#/$defs/party" },
+    "recipient": { "$ref": "#/$defs/party" },
+    "message_type": { "type": "string", "minLength": 1 },
+    "payload": { "type": "object", "additionalProperties": true },
+    "correlation_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "timestamp": { "$ref": "../core/common.schema.json#/$defs/timestamp" }
+  },
+  "$defs": { "party": { "type": "object", "additionalProperties": false, "required": ["id", "role"], "properties": {
+    "id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "role": { "type": "string", "enum": ["architecture_manager", "node", "sprint_lead", "runtime", "builder", "reviewer"] }
+  } } }
+}

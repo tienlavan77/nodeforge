@@ -1,0 +1,10 @@
+{
+  "id": "COMPLETION-114A-001",
+  "ticket_id": "NF-114A",
+  "project_id": "PROJECT-114A",
+  "session_id": "SESSION-114A",
+  "agent_id": "AGENT-builder",
+  "status": "completed",
+  "evidence_refs": ["EVIDENCE-114A-001"],
+  "completed_at": "2026-08-20T06:00:00Z"
+}

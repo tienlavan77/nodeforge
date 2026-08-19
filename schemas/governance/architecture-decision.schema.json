@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/governance/architecture-decision.schema.json",
+  "title": "Forge Architecture Decision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "project_id", "title", "decision", "status", "created_at"],
+  "properties": {
+    "id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "project_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "title": { "type": "string", "minLength": 1 },
+    "decision": { "type": "string", "minLength": 1 },
+    "rationale": { "type": "string" },
+    "alternatives": { "type": "array", "items": { "type": "string" } },
+    "consequences": { "type": "array", "items": { "type": "string" } },
+    "owner_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "status": { "type": "string", "enum": ["proposed", "accepted", "superseded", "rejected"] },
+    "created_at": { "$ref": "../core/common.schema.json#/$defs/timestamp" },
+    "updated_at": { "$ref": "../core/common.schema.json#/$defs/timestamp" }
+  }
+}
