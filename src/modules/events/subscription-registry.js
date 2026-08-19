@@ -34,9 +34,9 @@ export function createSubscriptionRegistry() {
 }
 
 function isPattern(eventType) {
-  return typeof eventType === "string" && /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*|\.\*)*$/.test(eventType);
+  return eventType === "*" || typeof eventType === "string" && /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*|\.\*)*$/.test(eventType);
 }
 
 function matches(pattern, eventType) {
-  return pattern.endsWith(".*") ? eventType.startsWith(pattern.slice(0, -1)) : pattern === eventType;
+  return pattern === "*" || pattern.endsWith(".*") ? eventType.startsWith(pattern === "*" ? "" : pattern.slice(0, -1)) : pattern === eventType;
 }
