@@ -1,0 +1,34 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { createEventPublisher } from "../../src/modules/events/event-publisher.js";
+import { createEventStore } from "../../src/modules/events/event-store.js";
+import { ConfigurationError } from "../../src/shared/errors.js";
+
+test("publishes validated events into an ordered, readable audit store", () => {
+  const store = createEventStore();
+  const publisher = createEventPublisher({ store, source: "workflow-engine" });
+  const first = publisher.publish(event("EVT-078-001", "workflow.started", { workflow_id: "WF-078" }));
+  const second = publisher.publish(event("EVT-078-002", "workflow.completed", { workflow_id: "WF-078" }));
+
+  assert.deepEqual(first, { event_id: "EVT-078-001", event_type: "workflow.started", timestamp: "2026-08-19T14:00:00Z", source: "workflow-engine", payload: { workflow_id: "WF-078" }, metadata: {} });
+  assert.deepEqual(store.getById("EVT-078-002"), second);
+  assert.deepEqual(store.getAll().map(({ event_id }) => event_id), ["EVT-078-001", "EVT-078-002"]);
+  assert.deepEqual(store.getByType("workflow.started"), [first]);
+});
+
+test("preserves event source metadata and rejects invalid publication", () => {
+  const store = createEventStore();
+  const publisher = createEventPublisher({ store, source: "node" });
+  const published = publisher.publish({ ...event("EVT-078-003", "agents.error", { reason: "timeout" }), metadata: { source: "agent-supervisor", trace: "TRACE-078" } });
+
+  assert.equal(published.source, "agent-supervisor");
+  published.payload.reason = "changed-by-caller";
+  assert.equal(store.getById("EVT-078-003").payload.reason, "timeout");
+  assert.throws(() => publisher.publish({ event_id: "EVT-invalid" }), ConfigurationError);
+  assert.equal(store.getAll().length, 1);
+});
+
+function event(eventId, type, payload) {
+  return { event_id: eventId, type, project_id: "PROJECT-078", timestamp: "2026-08-19T14:00:00Z", payload };
+}
