@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/governance/ticket.schema.json",
+  "title": "Forge Governance Ticket",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "project_id", "roadmap_id", "sprint_id", "title", "objective", "acceptance_criteria", "provenance"],
+  "properties": {
+    "id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "project_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "roadmap_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "sprint_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "title": { "type": "string", "minLength": 1 },
+    "objective": { "type": "string", "minLength": 1 },
+    "acceptance_criteria": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "priority": { "type": "string", "enum": ["low", "normal", "high", "critical"] },
+    "dependencies": { "type": "array", "items": { "$ref": "../core/common.schema.json#/$defs/id" }, "uniqueItems": true },
+    "provenance": { "type": "object", "additionalProperties": false, "required": ["source", "source_id", "created_at"], "properties": {
+      "source": { "type": "string", "enum": ["sprint_plan", "architecture_decision", "project_owner"] },
+      "source_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+      "created_at": { "$ref": "../core/common.schema.json#/$defs/timestamp" }
+    } }
+  }
+}

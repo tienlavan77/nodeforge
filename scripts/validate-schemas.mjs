@@ -59,6 +59,13 @@ const fixtures = [
   ["https://forge.dev/schemas/roadmap/commit.schema.json", "schemas/examples/commit.json"],
   ["https://forge.dev/schemas/roadmap/sprint.schema.json", "schemas/examples/sprint.json"],
   ["https://forge.dev/schemas/roadmap/roadmap.schema.json", "schemas/examples/roadmap.json"]
+  , ["https://forge.local/schemas/governance/architecture-decision.schema.json", "schemas/examples/governance-architecture-decision.json"]
+  , ["https://forge.local/schemas/governance/roadmap.schema.json", "schemas/examples/governance-roadmap.json"]
+  , ["https://forge.local/schemas/governance/sprint-plan.schema.json", "schemas/examples/governance-sprint-plan.json"]
+  , ["https://forge.local/schemas/governance/ticket.schema.json", "schemas/examples/governance-ticket.json"]
+  , ["https://forge.local/schemas/governance/agent-message.schema.json", "schemas/examples/governance-agent-message.json"]
+  , ["https://forge.local/schemas/governance/ticket-completion.schema.json", "schemas/examples/governance-ticket-completion.json"]
+  , ["https://forge.local/schemas/governance/governance-rule.schema.json", "schemas/examples/governance-rule.json"]
 ];
 
 async function readJson(file) {
