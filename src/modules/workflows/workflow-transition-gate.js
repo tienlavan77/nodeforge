@@ -1,17 +1,20 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { ConfigurationError } from "../../shared/errors.js";
 import { createWorkflowRuleEvaluator } from "../rules/workflow-rule-evaluator.js";
+import { createNodeEventValidator } from "../watcher/debounced-watcher.js";
 import { createStateMachineExecutor } from "./state-machine-executor.js";
 
 const STATE_FILE = ".forge/runtime/state.json";
+const OWNER_APPROVAL_SCOPES = ["scope_change", "architecture_change", "api_change", "dependency_change", "acceptance_criteria_change", "owner_accepted_risk"];
 
-export function createWorkflowTransitionGate({ workflow, projectId, projectRoot, internalBus, executor = createStateMachineExecutor({ workflow }), ruleEvaluator = createWorkflowRuleEvaluator({ projectId, internalBus }), clock = () => new Date(), stateStore } = {}) {
+export function createWorkflowTransitionGate({ workflow, projectId, projectRoot, internalBus, executor = createStateMachineExecutor({ workflow }), ruleEvaluator = createWorkflowRuleEvaluator({ projectId, internalBus }), clock = () => new Date(), createEventId = () => `EVT-${randomUUID()}`, validateEvent = createNodeEventValidator(), stateStore } = {}) {
   if (typeof projectId !== "string" || projectId.length === 0 || typeof projectRoot !== "string" || projectRoot.length === 0) {
     throw new ConfigurationError("A project_id and project root are required for workflow transitions.");
   }
-  if (typeof executor?.transition !== "function" || typeof ruleEvaluator?.execute !== "function" || typeof clock !== "function") {
+  if (typeof executor?.transition !== "function" || typeof ruleEvaluator?.execute !== "function" || typeof clock !== "function" || typeof createEventId !== "function" || typeof validateEvent !== "function" || !internalBus?.emit) {
     throw new ConfigurationError("Workflow transition dependencies are invalid.");
   }
   const store = stateStore ?? createRuntimeStateStore({ projectRoot });
@@ -19,7 +22,9 @@ export function createWorkflowTransitionGate({ workflow, projectId, projectRoot,
     throw new ConfigurationError("Workflow state storage must read and write task state.");
   }
 
-  return Object.freeze({ transition, statePath: store.path });
+  const pendingOwnerDecisions = new Map();
+
+  return Object.freeze({ transition, respondOwner, statePath: store.path });
 
   async function transition({ taskId, currentState, event, trigger = "workflow.transition", context = {} } = {}) {
     if (typeof taskId !== "string" || taskId.length === 0 || typeof currentState !== "string" || currentState.length === 0 || typeof event !== "string" || event.length === 0) {
@@ -45,6 +50,27 @@ export function createWorkflowTransitionGate({ workflow, projectId, projectRoot,
     const decisive = evaluation.outcomes.find(({ passed, enforcement }) => !passed && enforcement === "blocking")
       ?? evaluation.outcomes.find(({ passed }) => !passed);
 
+    const ownerFailure = evaluation.outcomes.find(({ rule_id, passed }) => rule_id === "WF-008" && !passed);
+    if (ownerFailure) {
+      const requestId = createEventId();
+      pendingOwnerDecisions.set(requestId, { taskId, currentState, event, trigger, context });
+      emitOwnerRequest(requestId, definition, taskId);
+      return Object.freeze({
+        allowed: false,
+        transitioned: false,
+        status: "pending_owner_decision",
+        request_id: requestId,
+        from: definition.from,
+        event: definition.event,
+        to: definition.to,
+        state_before: stateBefore,
+        state_after: stateBefore,
+        outcomes: evaluation.outcomes,
+        rule_id: ownerFailure.rule_id,
+        reason: "Project Owner decision required."
+      });
+    }
+
     return Object.freeze({
       allowed: evaluation.allowed,
       transitioned: evaluation.executed,
@@ -56,6 +82,42 @@ export function createWorkflowTransitionGate({ workflow, projectId, projectRoot,
       outcomes: evaluation.outcomes,
       ...(decisive ? { rule_id: decisive.rule_id, reason: decisive.reason } : {})
     });
+  }
+
+  async function respondOwner({ requestId, approved, ownerId = "project_owner" } = {}) {
+    if (typeof requestId !== "string" || !pendingOwnerDecisions.has(requestId)) throw new ConfigurationError(`Unknown owner decision request: ${requestId}.`);
+    if (typeof approved !== "boolean") throw new ConfigurationError("Owner decision requires approved=true or false.");
+    const pending = pendingOwnerDecisions.get(requestId);
+    pendingOwnerDecisions.delete(requestId);
+    if (!approved) return Object.freeze({ request_id: requestId, approved: false, continued: false, status: "owner_rejected" });
+    const ownerApprovals = approved
+      ? [...new Set([...(pending.context.owner_approvals ?? []), ...OWNER_APPROVAL_SCOPES])]
+      : pending.context.owner_approvals ?? [];
+    const result = await transition({
+      ...pending,
+      context: { ...pending.context, owner_approvals: ownerApprovals, owner_id: ownerId }
+    });
+    return Object.freeze({ request_id: requestId, approved: true, continued: result.allowed, status: result.allowed ? "owner_approved" : result.status ?? "owner_approval_denied", transition: result });
+  }
+
+  function emitOwnerRequest(requestId, definition, taskId) {
+    const event = {
+      event_id: createEventId(),
+      type: "workflow.state_transitioned",
+      project_id: projectId,
+      task_id: taskId,
+      timestamp: clock().toISOString(),
+      payload: {
+        status: "pending_owner_decision",
+        request_id: requestId,
+        from: definition.from,
+        event: definition.event,
+        to: definition.to,
+        reason: "WF-008 owner approval required."
+      }
+    };
+    validateEvent(event);
+    internalBus.emit("event", Object.freeze(event));
   }
 }
 
