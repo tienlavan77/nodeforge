@@ -18,10 +18,10 @@ test("routes REST requests exclusively through Runtime Service", async () => {
   assert.deepEqual(await request(api, "POST", "/sessions/SESSION-105/pause"), [200, { id: "SESSION-105", state: "PAUSED" }]);
   assert.deepEqual(await request(api, "POST", "/sessions/SESSION-105/resume"), [200, { id: "SESSION-105", state: "RUNNING" }]);
   assert.deepEqual(await request(api, "GET", "/sessions/SESSION-105"), [200, { id: "SESSION-105", state: "RUNNING" }]);
-  assert.deepEqual(await request(api, "GET", "/projects/PROJECT-105/memory?taskId=TASK-105"), [200, { relevant_facts: ["Auth migrated to v2."] }]);
+  assert.deepEqual(await request(api, "GET", "/projects/PROJECT-105/memory?taskId=TASK-105&query=auth&domain=security"), [200, { relevant_facts: ["Auth migrated to v2."] }]);
   assert.deepEqual(calls, [
     ["startTask", { projectId: "PROJECT-105", taskId: "TASK-105" }], ["pauseSession", "SESSION-105"], ["resumeSession", "SESSION-105"],
-    ["getSession", "SESSION-105"], ["getProjectMemory", { projectId: "PROJECT-105", taskId: "TASK-105" }]
+    ["getSession", "SESSION-105"], ["getProjectMemory", { projectId: "PROJECT-105", taskId: "TASK-105", query: "auth", domain: "security" }]
   ]);
 });
 
