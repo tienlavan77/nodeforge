@@ -7,8 +7,20 @@ import test from "node:test";
 
 import { createDebouncedWatcher, createNodeEventValidator } from "../../src/modules/watcher/debounced-watcher.js";
 
-function wait(milliseconds) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+function waitForEvent(watcher, predicate = () => true, timeoutMs = 2000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      watcher.off("event", onEvent);
+      reject(new Error("Timed out waiting for watcher event."));
+    }, timeoutMs);
+    const onEvent = (event) => {
+      if (!predicate(event)) return;
+      clearTimeout(timer);
+      watcher.off("event", onEvent);
+      resolve(event);
+    };
+    watcher.on("event", onEvent);
+  });
 }
 
 test("coalesces five consecutive file changes into one schema-valid watcher event", async () => {
@@ -23,8 +35,9 @@ test("coalesces five consecutive file changes into one schema-valid watcher even
   const events = [];
   watcher.on("event", (event) => events.push(event));
 
+  const eventPromise = waitForEvent(watcher);
   for (let count = 0; count < 5; count += 1) rawWatcher.emit("change", "/project/src/session.js");
-  await wait(150);
+  await eventPromise;
 
   assert.deepEqual(events, [{
     event_id: "EVT-WATCHER-001",
@@ -51,14 +64,16 @@ test("merges an unlink and same-content add into one file renamed event", async 
     const events = [];
     watcher.on("event", (event) => events.push(event));
 
+    const baselinePromise = waitForEvent(watcher, ({ type }) => type === "watcher.file_created");
     rawWatcher.emit("add", oldPath);
-    await wait(150);
+    await baselinePromise;
     events.length = 0;
 
     await rename(oldPath, newPath);
+    const renamePromise = waitForEvent(watcher, ({ type }) => type === "watcher.file_renamed");
     rawWatcher.emit("unlink", oldPath);
     rawWatcher.emit("add", newPath);
-    await wait(150);
+    await renamePromise;
 
     assert.deepEqual(events.map(({ type, payload }) => ({ type, payload })), [{
       type: "watcher.file_renamed",
@@ -84,14 +99,16 @@ test("merges a same-content add followed by unlink into one file renamed event",
     const events = [];
     watcher.on("event", (event) => events.push(event));
 
+    const baselinePromise = waitForEvent(watcher, ({ type }) => type === "watcher.file_modified");
     rawWatcher.emit("change", oldPath);
-    await wait(150);
+    await baselinePromise;
     events.length = 0;
 
     await rename(oldPath, newPath);
+    const renamePromise = waitForEvent(watcher, ({ type }) => type === "watcher.file_renamed");
     rawWatcher.emit("add", newPath);
     rawWatcher.emit("unlink", oldPath);
-    await wait(150);
+    await renamePromise;
 
     assert.deepEqual(events.map(({ type, payload }) => ({ type, payload })), [{
       type: "watcher.file_renamed",
@@ -117,15 +134,27 @@ test("does not merge a move when the file content changes", async () => {
     const events = [];
     watcher.on("event", (event) => events.push(event));
 
+    const baselinePromise = waitForEvent(watcher, ({ type }) => type === "watcher.file_created");
     rawWatcher.emit("add", oldPath);
-    await wait(150);
+    await baselinePromise;
     events.length = 0;
 
     await rename(oldPath, newPath);
     await writeFile(newPath, "export const auth = false;\n");
+    const changesPromise = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("Timed out waiting for move events.")), 2000);
+      const onEvent = (event) => {
+        if (!event.type.startsWith("watcher.file_")) return;
+        if (events.length < 2) return;
+        clearTimeout(timer);
+        watcher.off("event", onEvent);
+        resolve();
+      };
+      watcher.on("event", onEvent);
+    });
     rawWatcher.emit("unlink", oldPath);
     rawWatcher.emit("add", newPath);
-    await wait(450);
+    await changesPromise;
 
     assert.deepEqual(events.map(({ type }) => type).sort(), ["watcher.file_created", "watcher.file_deleted"]);
   } finally {
