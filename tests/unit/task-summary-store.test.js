@@ -16,13 +16,15 @@ test("reduces raw task history into concise, useful facts", () => {
         record("review.completed", "approved"),
         record("workflow.completed", "approved")
       ];
-    }
+    },
+    getByProject() { return []; }
   };
   const summaries = createTaskSummaryStore({ history });
   const summary = summaries.build("TASK-082");
 
   assert.deepEqual(summary, {
     task_id: "TASK-082",
+    project_id: "PROJECT-082",
     facts: ["Builder started work.", "Builder changed project files.", "Tests failed.", "Builder changed project files.", "Tests passed.", "Reviewer approved.", "Task completed."]
   });
   assert.equal(JSON.stringify(summary).includes("event_id"), false);
@@ -33,7 +35,7 @@ test("reduces raw task history into concise, useful facts", () => {
 test("does not copy unsupported raw history into a Task Summary", () => {
   const summaries = createTaskSummaryStore({ history: { getByTask: () => [record("agents.message_received", "recorded"), record("agents.message_received", "recorded")] } });
 
-  assert.deepEqual(summaries.build("TASK-082-empty"), { task_id: "TASK-082-empty", facts: [] });
+  assert.deepEqual(summaries.build("TASK-082-empty"), { task_id: "TASK-082-empty", project_id: "PROJECT-082", facts: [] });
 });
 
 function record(action, result) {
