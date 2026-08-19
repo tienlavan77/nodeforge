@@ -47,7 +47,10 @@ export function createStateMachineExecutor({ workflow, validateWorkflow = create
 export async function loadWorkflowDefinition(workflowPath) {
   if (typeof workflowPath !== "string" || workflowPath.length === 0) throw new ConfigurationError("A workflow JSON path is required.");
   try {
-    return JSON.parse(await readFile(workflowPath, "utf8"));
+    const workflow = JSON.parse(await readFile(workflowPath, "utf8"));
+    // $schema identifies the external JSON Schema; it is not workflow state-machine data.
+    delete workflow.$schema;
+    return workflow;
   } catch (error) {
     throw new ConfigurationError(`Unable to load workflow definition: ${error.message}`, { cause: error });
   }
