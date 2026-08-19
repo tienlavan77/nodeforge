@@ -2,10 +2,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createRuntimeService } from "../../src/application/runtime-service.js";
+import { createEventStore } from "../../src/modules/events/event-store.js";
+
+function sessionStore() {
+  const sessions = new Map();
+  return { save(session) { const snapshot = session.getSnapshot(); sessions.set(snapshot.id, { ...snapshot }); return { ...snapshot }; }, load(id) { const session = sessions.get(id); return session ? { ...session } : undefined; }, loadAll() { return [...sessions.values()].map((session) => ({ ...session })); } };
+}
 
 test("starts, pauses, resumes, reads a session, and retrieves project memory", () => {
   const service = createRuntimeService({
     createSessionId: () => "SESSION-104",
+    sessionStore: sessionStore(),
+    eventStore: createEventStore(),
     memoryRetriever: {
       retrieve(input) {
         assert.deepEqual(input, { projectId: "PROJECT-104", taskId: "TASK-104", query: "auth", domain: "security" });
@@ -22,7 +30,7 @@ test("starts, pauses, resumes, reads a session, and retrieves project memory", (
 });
 
 test("rejects unknown sessions and duplicate session IDs", () => {
-  const service = createRuntimeService({ createSessionId: () => "SESSION-104", memoryRetriever: { retrieve: () => ({ relevant_facts: [] }) } });
+  const service = createRuntimeService({ createSessionId: () => "SESSION-104", sessionStore: sessionStore(), eventStore: createEventStore(), memoryRetriever: { retrieve: () => ({ relevant_facts: [] }) } });
   assert.throws(() => service.getSession("SESSION-missing"), /Unknown Agent Session/);
   service.startTask({ projectId: "PROJECT-104", taskId: "TASK-104" });
   assert.throws(() => service.startTask({ projectId: "PROJECT-104", taskId: "TASK-104" }), /Session already exists/);

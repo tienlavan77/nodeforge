@@ -19,6 +19,11 @@ import { runCli } from "../../src/transport/cli/index.js";
 import { createHttpApi } from "../../src/transport/http/server.js";
 import { createRuntimeSse } from "../../src/transport/sse/runtime-stream.js";
 
+function sessionStore() {
+  const sessions = new Map();
+  return { save(session) { const snapshot = session.getSnapshot(); sessions.set(snapshot.id, { ...snapshot }); return { ...snapshot }; }, load(id) { const session = sessions.get(id); return session ? { ...session } : undefined; }, loadAll() { return [...sessions.values()].map((session) => ({ ...session })); } };
+}
+
 test("verifies Sprint 10 end-to-end across CLI, HTTP, Runtime, Agents, Memory, and SSE", async () => {
   const projectId = "PROJECT-112";
   const taskId = "TASK-112";
@@ -31,6 +36,8 @@ test("verifies Sprint 10 end-to-end across CLI, HTTP, Runtime, Agents, Memory, a
   const memoryRetriever = createMemoryRetriever({ memory });
   const runtimeService = createRuntimeService({
     createSessionId: () => "SESSION-112",
+    sessionStore: sessionStore(),
+    eventStore,
     memoryRetriever
   });
   const builderCalls = [];
