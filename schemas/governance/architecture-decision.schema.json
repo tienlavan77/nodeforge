@@ -4,10 +4,11 @@
   "title": "Forge Architecture Decision",
   "type": "object",
   "additionalProperties": false,
-  "required": ["id", "project_id", "title", "decision", "status", "created_at"],
+  "required": ["id", "project_id", "type", "title", "decision", "status", "created_at"],
   "properties": {
     "id": { "$ref": "../core/common.schema.json#/$defs/id" },
     "project_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "type": { "type": "string", "minLength": 1 },
     "title": { "type": "string", "minLength": 1 },
     "decision": { "type": "string", "minLength": 1 },
     "rationale": { "type": "string" },
