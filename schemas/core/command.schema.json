@@ -47,6 +47,7 @@
         "workflow.pause",
         "workflow.resume",
         "workflow.cancel",
+        "sprints.request_plan",
         "agents.spawn",
         "agents.stop",
         "agents.cancel",
