@@ -1,0 +1,12 @@
+{
+  "event_id": "EVT-AGENT-091-001",
+  "type": "agent.started",
+  "project_id": "PROJECT-091",
+  "session_id": "SESSION-091",
+  "task_id": "TASK-091",
+  "agent_id": "AGENT-091",
+  "timestamp": "2026-08-19T20:00:00Z",
+  "payload": {
+    "state": "RUNNING"
+  }
+}

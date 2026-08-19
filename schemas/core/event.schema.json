@@ -67,6 +67,12 @@
         "agents.message_received",
         "agents.error",
         "agents.concurrent_modification_detected",
+        "agent.started",
+        "agent.plan.created",
+        "agent.step.started",
+        "agent.step.completed",
+        "agent.failed",
+        "agent.completed",
         "history.summary_created",
         "process.timed_out",
         "process.cancelled"
