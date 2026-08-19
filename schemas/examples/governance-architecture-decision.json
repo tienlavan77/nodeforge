@@ -1,6 +1,7 @@
 {
   "id": "DECISION-114A-001",
   "project_id": "PROJECT-114A",
+  "type": "architecture",
   "title": "Node owns governance state",
   "decision": "Persist governance records through Node.",
   "rationale": "Agents communicate through Node for auditability.",
