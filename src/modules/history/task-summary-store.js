@@ -33,7 +33,8 @@ export function createTaskSummaryStore({ history } = {}) {
   }
 }
 
-function factFromRecord({ action, result }) {
+function factFromRecord({ action, result, long_term_fact: longTermFact }) {
+  if (longTermFact) return longTermFact;
   const known = {
     "workflow.started": "Builder started work.",
     "verification.test_completed": result === "passed" ? "Tests passed." : result === "failed" ? "Tests failed." : undefined,
