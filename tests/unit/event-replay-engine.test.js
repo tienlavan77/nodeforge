@@ -5,7 +5,7 @@ import { createEventReplayEngine } from "../../src/modules/recovery/event-replay
 
 const events = [
   event("agent.started", { state: "RUNNING" }),
-  event("agent.plan.created", { step_count: 2 }),
+  event("agent.plan.created", { step_count: 2, step_ids: ["STEP-1", "STEP-2"] }),
   event("agent.step.completed", { step_id: "STEP-1" }),
   event("agent.step.completed", { step_id: "STEP-2" }),
   event("agent.completed", { state: "COMPLETED" })
@@ -15,8 +15,8 @@ test("rebuilds task, session, and agent state from ordered events", () => {
   const result = createEventReplayEngine().replay(events);
   assert.deepEqual(result, {
     state: {
-      tasks: { "TASK-100": { status: "completed", completed_steps: 2, plan_steps: 2 } },
-      sessions: { "SESSION-100": { state: "COMPLETED" } },
+      tasks: { "TASK-100": { status: "completed", completed_steps: 2, plan_steps: 2, step_ids: ["STEP-1", "STEP-2"], completed_step_ids: ["STEP-1", "STEP-2"] } },
+      sessions: { "SESSION-100": { state: "COMPLETED", task_id: "TASK-100" } },
       agents: { "AGENT-100": { status: "completed", completed_steps: 2 } }
     }
   });

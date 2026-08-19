@@ -53,7 +53,7 @@ export function createAgentRuntime({
 
     session.start();
     emit("started", { state: session.getState() });
-    emit("planCreated", { step_count: plan.steps.length });
+    emit("planCreated", { step_count: plan.steps.length, step_ids: plan.steps.map(({ id }) => id) });
 
     const executor = createActionExecutor({
       executeStep: async (step) => {
