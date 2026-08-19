@@ -9,8 +9,8 @@ const require = createRequire(import.meta.url);
 const commonSchema = require("../../../schemas/core/common.schema.json");
 const eventSchema = require("../../../schemas/core/event.schema.json");
 
-export function createEventPublisher({ store, source = "node", validateEvent = createEventValidator() } = {}) {
-  if (typeof store?.append !== "function" || typeof source !== "string" || source.length === 0 || typeof validateEvent !== "function") {
+export function createEventPublisher({ store, subscriptions, source = "node", validateEvent = createEventValidator() } = {}) {
+  if (typeof store?.append !== "function" || (subscriptions !== undefined && typeof subscriptions?.publish !== "function") || typeof source !== "string" || source.length === 0 || typeof validateEvent !== "function") {
     throw new ConfigurationError("Event Publisher requires an Event Store, source, and validator.");
   }
 
@@ -18,7 +18,7 @@ export function createEventPublisher({ store, source = "node", validateEvent = c
 
   function publish(event) {
     validateEvent(event);
-    return store.append({
+    const result = store.append({
       event_id: event.event_id,
       event_type: event.type,
       timestamp: event.timestamp,
@@ -26,6 +26,8 @@ export function createEventPublisher({ store, source = "node", validateEvent = c
       payload: event.payload,
       metadata: event.metadata ?? {}
     });
+    const delivered = result.accepted ? subscriptions?.publish(result.event) ?? 0 : 0;
+    return Object.freeze({ ...result, delivered });
   }
 }
 
