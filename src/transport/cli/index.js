@@ -5,7 +5,14 @@ import { resolve } from "node:path";
 import { rebuildIndex } from "../../modules/index/index-rebuild.js";
 import { startProjectWatch } from "../../modules/watcher/watch-project.js";
 
-export async function runCli(args, { cwd = process.cwd(), stdout = process.stdout, stderr = process.stderr, signalEmitter = process, watchProject = startProjectWatch } = {}) {
+export async function runCli(args, { cwd = process.cwd(), stdout = process.stdout, stderr = process.stderr, signalEmitter = process, watchProject = startProjectWatch, runtimeService } = {}) {
+  if (["run", "pause", "resume", "session"].includes(args[0])) {
+    if (!runtimeService) {
+      stderr.write("Runtime Service is required for Agent commands.\n");
+      return 1;
+    }
+    return runAgentCommand(args, runtimeService, stdout, stderr);
+  }
   if (args[0] === "index" && args[1] === "rebuild" && args.length === 2) {
     const { indexedFiles } = await rebuildIndex({ projectRoot: cwd });
     stdout.write(`Rebuilt index for ${indexedFiles} files.\n`);
@@ -23,8 +30,27 @@ export async function runCli(args, { cwd = process.cwd(), stdout = process.stdou
     await watch.close();
     return 0;
   }
-  stderr.write("Usage: forge index rebuild | forge watch [path]\n");
+  stderr.write("Usage: forge run <projectId> <taskId> | forge pause <sessionId> | forge resume <sessionId> | forge session <sessionId> | forge index rebuild | forge watch [path]\n");
   return 1;
+}
+
+function runAgentCommand(args, runtimeService, stdout, stderr) {
+  try {
+    let result;
+    if (args[0] === "run" && args.length === 3) result = runtimeService.startTask({ projectId: args[1], taskId: args[2] });
+    else if (args[0] === "pause" && args.length === 2) result = runtimeService.pauseSession(args[1]);
+    else if (args[0] === "resume" && args.length === 2) result = runtimeService.resumeSession(args[1]);
+    else if (args[0] === "session" && args.length === 2) result = runtimeService.getSession(args[1]);
+    else {
+      stderr.write("Usage: forge run <projectId> <taskId> | forge pause <sessionId> | forge resume <sessionId> | forge session <sessionId>\n");
+      return 1;
+    }
+    stdout.write(`${JSON.stringify(result)}\n`);
+    return 0;
+  } catch (error) {
+    stderr.write(`${error.message}\n`);
+    return 1;
+  }
 }
 
 function onceSignal(emitter, signal) {
