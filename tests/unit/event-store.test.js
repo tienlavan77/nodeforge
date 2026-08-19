@@ -11,10 +11,10 @@ test("publishes validated events into an ordered, readable audit store", () => {
   const first = publisher.publish(event("EVT-078-001", "workflow.started", { workflow_id: "WF-078" }));
   const second = publisher.publish(event("EVT-078-002", "workflow.completed", { workflow_id: "WF-078" }));
 
-  assert.deepEqual(first, { event_id: "EVT-078-001", event_type: "workflow.started", timestamp: "2026-08-19T14:00:00Z", source: "workflow-engine", payload: { workflow_id: "WF-078" }, metadata: {} });
-  assert.deepEqual(store.getById("EVT-078-002"), second);
+  assert.deepEqual(first, { accepted: true, event: { event_id: "EVT-078-001", event_type: "workflow.started", timestamp: "2026-08-19T14:00:00Z", source: "workflow-engine", payload: { workflow_id: "WF-078" }, metadata: {} } });
+  assert.deepEqual(store.getById("EVT-078-002"), second.event);
   assert.deepEqual(store.getAll().map(({ event_id }) => event_id), ["EVT-078-001", "EVT-078-002"]);
-  assert.deepEqual(store.getByType("workflow.started"), [first]);
+  assert.deepEqual(store.getByType("workflow.started"), [first.event]);
 });
 
 test("preserves event source metadata and rejects invalid publication", () => {
@@ -22,10 +22,30 @@ test("preserves event source metadata and rejects invalid publication", () => {
   const publisher = createEventPublisher({ store, source: "node" });
   const published = publisher.publish({ ...event("EVT-078-003", "agents.error", { reason: "timeout" }), metadata: { source: "agent-supervisor", trace: "TRACE-078" } });
 
-  assert.equal(published.source, "agent-supervisor");
-  published.payload.reason = "changed-by-caller";
+  assert.equal(published.event.source, "agent-supervisor");
+  published.event.payload.reason = "changed-by-caller";
   assert.equal(store.getById("EVT-078-003").payload.reason, "timeout");
   assert.throws(() => publisher.publish({ event_id: "EVT-invalid" }), ConfigurationError);
+  assert.equal(store.getAll().length, 1);
+});
+
+test("accepts one Event identity and ignores exact duplicate publication", () => {
+  const store = createEventStore();
+  const publisher = createEventPublisher({ store });
+  const duplicate = event("EVT-079-001", "workflow.completed", { workflow_id: "WF-079" });
+
+  assert.equal(publisher.publish(duplicate).accepted, true);
+  assert.deepEqual(publisher.publish(duplicate), { accepted: false, reason: "duplicate_event_id", event: store.getById("EVT-079-001") });
+  assert.equal(publisher.publish(duplicate).accepted, false);
+  assert.equal(store.getAll().length, 1);
+});
+
+test("rejects a reused Event identity with different content", () => {
+  const store = createEventStore();
+  const publisher = createEventPublisher({ store });
+  publisher.publish(event("EVT-079-conflict", "workflow.started", { workflow_id: "WF-079" }));
+
+  assert.throws(() => publisher.publish(event("EVT-079-conflict", "workflow.completed", { workflow_id: "WF-079" })), { code: "EVENT_ID_CONFLICT" });
   assert.equal(store.getAll().length, 1);
 });
 

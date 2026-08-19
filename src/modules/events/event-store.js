@@ -1,20 +1,37 @@
 import { ConfigurationError } from "../../shared/errors.js";
 
+export class EventIdConflictError extends ConfigurationError {
+  constructor(eventId) {
+    super(`Event ID conflict: ${eventId} already belongs to different event content.`);
+    this.name = "EventIdConflictError";
+    this.code = "EVENT_ID_CONFLICT";
+  }
+}
+
 export function createEventStore() {
   const events = [];
+  const eventsById = new Map();
 
   return Object.freeze({ append, getById, getAll, getByType });
 
   function append(event) {
     assertEventRecord(event);
     const stored = freezeRecord(event);
+    const existing = eventsById.get(stored.event_id);
+    if (existing) {
+      if (!sameRecord(existing, stored)) {
+        throw new EventIdConflictError(stored.event_id);
+      }
+      return Object.freeze({ accepted: false, reason: "duplicate_event_id", event: cloneRecord(existing) });
+    }
     events.push(stored);
-    return cloneRecord(stored);
+    eventsById.set(stored.event_id, stored);
+    return Object.freeze({ accepted: true, event: cloneRecord(stored) });
   }
 
   function getById(eventId) {
     if (typeof eventId !== "string" || eventId.length === 0) throw new ConfigurationError("An event_id is required.");
-    const event = events.find((candidate) => candidate.event_id === eventId);
+    const event = eventsById.get(eventId);
     return event ? cloneRecord(event) : undefined;
   }
 
@@ -57,4 +74,8 @@ function cloneRecord(event) {
     payload: { ...event.payload },
     metadata: { ...event.metadata }
   };
+}
+
+function sameRecord(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
