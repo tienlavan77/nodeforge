@@ -40,6 +40,7 @@ function factFromRecord({ action, result, long_term_fact: longTermFact }) {
     "verification.test_completed": result === "passed" ? "Tests passed." : result === "failed" ? "Tests failed." : undefined,
     "review.requested": "Reviewer received the task.",
     "review.completed": result === "approved" ? "Reviewer approved." : result === "changes_requested" ? "Reviewer requested changes." : undefined,
+    "agent.completed": result === "completed" ? "Agent completed the task." : undefined,
     "workflow.completed": "Task completed."
   };
   return known[action] ?? (action === "watcher.file_modified" ? "Builder changed project files." : undefined);
