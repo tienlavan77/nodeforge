@@ -61,6 +61,7 @@
         "review.completed",
         "workflow.started",
         "workflow.completed",
+        "sprints.plan_proposed",
         "agents.started",
         "agents.stopped",
         "agents.message_received",
