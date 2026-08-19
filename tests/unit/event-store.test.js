@@ -12,7 +12,7 @@ test("publishes validated events into an ordered, readable audit store", () => {
   const first = publisher.publish(event("EVT-078-001", "workflow.started", { workflow_id: "WF-078" }));
   const second = publisher.publish(event("EVT-078-002", "workflow.completed", { workflow_id: "WF-078" }));
 
-  assert.deepEqual(first, { accepted: true, delivered: 0, event: { event_id: "EVT-078-001", event_type: "workflow.started", timestamp: "2026-08-19T14:00:00Z", source: "workflow-engine", payload: { workflow_id: "WF-078" }, metadata: {} } });
+  assert.deepEqual(first, { accepted: true, delivered: 0, event: { event_id: "EVT-078-001", event_type: "workflow.started", timestamp: "2026-08-19T14:00:00Z", source: "workflow-engine", payload: { workflow_id: "WF-078" }, metadata: { project_id: "PROJECT-078" } } });
   assert.deepEqual(store.getById("EVT-078-002"), second.event);
   assert.deepEqual(store.getAll().map(({ event_id }) => event_id), ["EVT-078-001", "EVT-078-002"]);
   assert.deepEqual(store.getByType("workflow.started"), [first.event]);
