@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { ConfigurationError } from "../../shared/errors.js";
 
 export const AGENT_SESSION_STATES = Object.freeze({
@@ -16,10 +18,13 @@ const transitions = Object.freeze({
   FAILED: Object.freeze({})
 });
 
-export function createAgentSession() {
+export function createAgentSession({ id = `AGENT-SESSION-${randomUUID()}`, clock = () => new Date() } = {}) {
+  if (typeof id !== "string" || id.length === 0 || typeof clock !== "function") throw new ConfigurationError("Agent Session requires an id and clock.");
   let state = AGENT_SESSION_STATES.CREATED;
+  const createdAt = clock().toISOString();
+  let updatedAt = createdAt;
 
-  return Object.freeze({ start, pause, resume, complete, fail, getState });
+  return Object.freeze({ id, start, pause, resume, complete, fail, getState, getSnapshot });
 
   function start() {
     return transition("start");
@@ -46,10 +51,15 @@ export function createAgentSession() {
     return state;
   }
 
+  function getSnapshot() {
+    return Object.freeze({ id, state, created_at: createdAt, updated_at: updatedAt });
+  }
+
   function transition(action) {
     const next = transitions[state][action];
     if (!next) throw new ConfigurationError(`Invalid Agent Session transition: ${state}.${action}.`);
     state = next;
+    updatedAt = clock().toISOString();
     return state;
   }
 }
