@@ -13,7 +13,7 @@ const workflowPath = fileURLToPath(new URL("../../workflows/forge-sprint-deliver
 const projectId = "PROJECT-workflow-integration";
 const taskId = "TASK-073";
 
-test("runs the configured workflow through rule-gated handoff, approval, and restart", async () => {
+test("runs the configured workflow through rule-gated test pass, approval, and restart", async () => {
   const projectRoot = await mkdtemp(join(os.tmpdir(), "nodeforge-workflow-integration-"));
   try {
     const workflow = await loadWorkflowDefinition(workflowPath);
@@ -21,7 +21,7 @@ test("runs the configured workflow through rule-gated handoff, approval, and res
 
     const started = await firstGate.transition({
       taskId, currentState: workflow.initial_state, event: "builder.start", trigger: "commit.transition",
-      context: startContext()
+      context: startContext(taskId)
     });
     assertTransition(started, true, "PLANNED", "builder.start", "IN_PROGRESS");
 
@@ -37,9 +37,15 @@ test("runs the configured workflow through rule-gated handoff, approval, and res
 
     const handedOff = await firstGate.transition({
       taskId, currentState: "IN_PROGRESS", event: "builder.handoff", trigger: "commit.handoff",
-      context: handoffContext()
+      context: handoffContext(taskId)
     });
-    assertTransition(handedOff, true, "IN_PROGRESS", "builder.handoff", "READY_FOR_REVIEW");
+    assertTransition(handedOff, true, "IN_PROGRESS", "builder.handoff", "TESTING");
+
+    const passed = await firstGate.transition({
+      taskId, currentState: "TESTING", event: "test.pass", trigger: "test.pass",
+      context: { actor: "node", task: { id: taskId, workflow_state: "TESTING" } }
+    });
+    assertTransition(passed, true, "TESTING", "test.pass", "READY_FOR_REVIEW");
 
     // A fresh gate reads state.json and continues the same workflow after a Node restart.
     const restartedGate = createGate(workflow, projectRoot);
@@ -58,6 +64,25 @@ test("runs the configured workflow through rule-gated handoff, approval, and res
   }
 });
 
+test("returns a failed test to IN_PROGRESS without changing the workflow definition", async () => {
+  const projectRoot = await mkdtemp(join(os.tmpdir(), "nodeforge-workflow-test-fail-"));
+  try {
+    const workflow = await loadWorkflowDefinition(workflowPath);
+    const gate = createGate(workflow, projectRoot);
+    await gate.transition({ taskId: "TASK-073-fail", currentState: "PLANNED", event: "builder.start", trigger: "commit.transition", context: startContext("TASK-073-fail") });
+    await gate.transition({ taskId: "TASK-073-fail", currentState: "IN_PROGRESS", event: "builder.handoff", trigger: "commit.handoff", context: handoffContext("TASK-073-fail") });
+    const failed = await gate.transition({
+      taskId: "TASK-073-fail", currentState: "TESTING", event: "test.fail", trigger: "test.fail",
+      context: { actor: "node", task: { id: "TASK-073-fail", workflow_state: "TESTING" } }
+    });
+    assertTransition(failed, true, "TESTING", "test.fail", "IN_PROGRESS");
+    assert.equal((await readRuntimeState(projectRoot)).tasks["TASK-073-fail"].workflow_state, "IN_PROGRESS");
+    assert.equal(workflow.states.includes("TESTING"), true);
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
 function createGate(workflow, projectRoot) {
   return createWorkflowTransitionGate({
     workflow,
@@ -68,16 +93,16 @@ function createGate(workflow, projectRoot) {
   });
 }
 
-function startContext() {
-  return { actor: "builder", task: { id: taskId, workflow_state: "PLANNED" }, roadmap: { commit: { id: "NF-073" } } };
+function startContext(id) {
+  return { actor: "builder", task: { id, workflow_state: "PLANNED" }, roadmap: { commit: { id: "NF-073" } } };
 }
 
-function handoffContext() {
+function handoffContext(id) {
   return {
     roadmap: { commit: { id: "NF-073" } },
-    task: { id: taskId },
+    task: { id },
     builder_evidence: [{
-      id: "EVIDENCE-073", project_id: projectId, task_id: taskId, session_id: "SESSION-073", builder_id: "AGENT-BUILDER-073",
+      id: "EVIDENCE-073", project_id: projectId, task_id: id, session_id: "SESSION-073", builder_id: "AGENT-BUILDER-073",
       evidence_type: "implementation_summary", payload: { summary: "Implemented the configured workflow handoff." }, created_at: "2026-08-19T10:00:00Z"
     }]
   };
