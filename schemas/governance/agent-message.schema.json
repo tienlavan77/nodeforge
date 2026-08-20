@@ -12,11 +12,12 @@
     "recipient": { "$ref": "#/$defs/party" },
     "message_type": { "type": "string", "minLength": 1 },
     "payload": { "type": "object", "additionalProperties": true },
+    "conversation_id": { "$ref": "../core/common.schema.json#/$defs/id" },
     "correlation_id": { "$ref": "../core/common.schema.json#/$defs/id" },
     "timestamp": { "$ref": "../core/common.schema.json#/$defs/timestamp" }
   },
   "$defs": { "party": { "type": "object", "additionalProperties": false, "required": ["id", "role"], "properties": {
     "id": { "$ref": "../core/common.schema.json#/$defs/id" },
-    "role": { "type": "string", "enum": ["architecture_manager", "node", "sprint_lead", "runtime", "builder", "reviewer"] }
+    "role": { "type": "string", "enum": ["project_owner", "architecture_manager", "node", "sprint_lead", "runtime", "builder", "reviewer"] }
   } } }
 }

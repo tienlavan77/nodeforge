@@ -18,6 +18,7 @@ export function createArchitectureManagerAdapter({ manager, bus, agentId = "arch
     if (handled.has(key)) return results.get(key) ? structuredClone(results.get(key)) : undefined;
     handled.add(key);
     try {
+      if (message.message_type === "owner.message") return handleOwnerMessage(message, requestId, key);
       const input = structuredClone(message.payload?.request ?? message.payload);
       const plan = manager.createArchitecturePlan(input);
       const roadmapInput = {
@@ -49,10 +50,39 @@ export function createArchitectureManagerAdapter({ manager, bus, agentId = "arch
   function getResult(requestId, correlationId = "") {
     return structuredClone(results.get(`${requestId}:${correlationId}`));
   }
+
+  function handleOwnerMessage(message, requestId, key) {
+    const plan = manager.createArchitecturePlan({
+      project_id: message.project_id,
+      created_at: message.timestamp,
+      timestamp: message.timestamp,
+      decisions: [{
+        id: `DECISION-${requestId}`,
+        type: "architecture",
+        title: `Owner message ${requestId}`,
+        decision: message.payload.text,
+        status: "proposed"
+      }]
+    });
+    const result = Object.freeze({ request_id: requestId, conversation_id: message.conversation_id, correlation_id: message.correlation_id, architecture_plan: plan });
+    results.set(key, result);
+    bus.send({
+      id: `MSG-ARCHITECTURE-MESSAGE-${requestId}`,
+      project_id: message.project_id,
+      sender: { id: agentId, role: "architecture_manager" },
+      recipient: { id: nodeId, role: "node" },
+      message_type: "architecture.message.received",
+      conversation_id: message.conversation_id,
+      correlation_id: message.correlation_id,
+      payload: structuredClone(result),
+      timestamp: message.timestamp
+    });
+    return structuredClone(result);
+  }
 }
 
 function assertMessage(message) {
-  if (!message || typeof message !== "object" || message.message_type !== "architecture.request" || typeof message.id !== "string" || typeof message.project_id !== "string" || typeof message.timestamp !== "string" || !message.payload || typeof message.payload !== "object") {
+  if (!message || typeof message !== "object" || !["architecture.request", "owner.message"].includes(message.message_type) || typeof message.id !== "string" || typeof message.project_id !== "string" || typeof message.timestamp !== "string" || !message.payload || typeof message.payload !== "object") {
     throw new ConfigurationError("Architecture request message is invalid.");
   }
 }
