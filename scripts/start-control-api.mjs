@@ -10,6 +10,7 @@ import { createAgentSettingsService } from "../src/application/agent-settings-se
 import { createNodeAgentConfiguration } from "../src/modules/agent/node-agent-configuration.js";
 import { createAgentGateway } from "../src/modules/agent/agent-gateway.js";
 import { createAgentProfileStore } from "../src/modules/agent/agent-profile-store.js";
+import { createPersistentSecretBackend } from "../src/modules/agent/persistent-secret-backend.js";
 import { createOwnerChatService } from "../src/application/owner-chat-service.js";
 import { openIndexDatabase } from "../src/infrastructure/sqlite/index-database.js";
 import { createAgentSessionStore } from "../src/modules/agent/session-store.js";
@@ -31,10 +32,10 @@ const database = await openIndexDatabase(process.env.NODE_CONTROL_DATA_DIR ?? jo
 const communications = createAgentCommunicationStore({ database });
 const profiles = createAgentProfileStore({ database });
 const agentConfiguration = createNodeAgentConfiguration({ profiles, configurationPath: join(process.cwd(), ".node-control", "agent-config.json") });
-const secrets = new Map();
+const secrets = createPersistentSecretBackend({ filePath: join(process.cwd(), ".node-control", "secrets.vault"), encryptionKey: process.env.NODE_SECRET_ENCRYPTION_KEY });
 const codexBaseUrl = process.env.OPENAI_BASE_URL?.replace(/\/$/, "");
 const codexCredential = process.env.OPENAI_API_KEY;
-if (codexCredential) secrets.set("env:OPENAI_API_KEY", codexCredential);
+if (codexCredential && !secrets.get("env:OPENAI_API_KEY")) secrets.set("env:OPENAI_API_KEY", codexCredential);
 if (codexBaseUrl && codexCredential) {
   const current = profiles.getById("architecture-manager");
   const gatewayUrl = codexBaseUrl.endsWith("/responses") ? codexBaseUrl : `${codexBaseUrl}/responses`;
