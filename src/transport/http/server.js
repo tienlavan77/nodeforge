@@ -2,11 +2,12 @@ import { createServer } from "node:http";
 
 import { ConfigurationError } from "../../shared/errors.js";
 
-export function createHttpApi({ runtimeService } = {}) {
+export function createHttpApi({ runtimeService, ownerChatService } = {}) {
   if (!runtimeService || typeof runtimeService.startTask !== "function" || typeof runtimeService.pauseSession !== "function"
     || typeof runtimeService.resumeSession !== "function" || typeof runtimeService.getSession !== "function" || typeof runtimeService.getProjectMemory !== "function") {
     throw new ConfigurationError("HTTP API requires a Runtime Service.");
   }
+  if (ownerChatService !== undefined && typeof ownerChatService?.submit !== "function") throw new ConfigurationError("HTTP API Owner Chat Service must provide submit().");
 
   return Object.freeze({ handler, createServer: () => createServer(handler) });
 
@@ -22,6 +23,11 @@ export function createHttpApi({ runtimeService } = {}) {
 
   async function route(method, url, request) {
     const parts = url.pathname.split("/").filter(Boolean);
+    if (method === "POST" && parts.length === 5 && parts[0] === "projects" && parts[2] === "conversations" && parts[4] === "messages") {
+      if (!ownerChatService) throw new ConfigurationError("Owner Chat API is not configured.");
+      const body = await readJson(request);
+      return { status: 202, body: ownerChatService.submit({ ...body, project_id: parts[1], conversation_id: parts[3] }) };
+    }
     if (method === "POST" && parts.length === 1 && parts[0] === "tasks") {
       return { status: 201, body: runtimeService.startTask(await readJson(request)) };
     }
