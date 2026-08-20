@@ -1,22 +1,53 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://forge.local/schemas/governance/architecture-decision.schema.json",
-  "title": "Forge Architecture Decision",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["id", "project_id", "type", "title", "decision", "status", "created_at"],
-  "properties": {
-    "id": { "$ref": "../core/common.schema.json#/$defs/id" },
-    "project_id": { "$ref": "../core/common.schema.json#/$defs/id" },
-    "type": { "type": "string", "minLength": 1 },
-    "title": { "type": "string", "minLength": 1 },
-    "decision": { "type": "string", "minLength": 1 },
-    "rationale": { "type": "string" },
-    "alternatives": { "type": "array", "items": { "type": "string" } },
-    "consequences": { "type": "array", "items": { "type": "string" } },
-    "owner_id": { "$ref": "../core/common.schema.json#/$defs/id" },
-    "status": { "type": "string", "enum": ["proposed", "accepted", "superseded", "rejected"] },
-    "created_at": { "$ref": "../core/common.schema.json#/$defs/timestamp" },
-    "updated_at": { "$ref": "../core/common.schema.json#/$defs/timestamp" }
+  "title": "Forge Governance Decision",
+  "oneOf": [
+    { "$ref": "#/$defs/architectureDecision" },
+    { "$ref": "#/$defs/humanGovernanceDecision" }
+  ],
+  "$defs": {
+    "architectureDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "project_id", "type", "title", "decision", "status", "created_at"],
+      "properties": {
+        "id": { "$ref": "../core/common.schema.json#/$defs/id" },
+        "project_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+        "type": { "type": "string", "minLength": 1, "not": { "const": "human_governance" } },
+        "title": { "type": "string", "minLength": 1 },
+        "decision": { "type": "string", "minLength": 1 },
+        "rationale": { "type": "string" },
+        "alternatives": { "type": "array", "items": { "type": "string" } },
+        "consequences": { "type": "array", "items": { "type": "string" } },
+        "owner_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+        "status": { "type": "string", "enum": ["proposed", "accepted", "superseded", "rejected"] },
+        "created_at": { "$ref": "../core/common.schema.json#/$defs/timestamp" },
+        "updated_at": { "$ref": "../core/common.schema.json#/$defs/timestamp" }
+      }
+    },
+    "humanGovernanceDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision_id", "project_id", "type", "actor", "actor_role", "proposal_id", "decision", "correlation_id", "timestamp"],
+      "properties": {
+        "decision_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+        "project_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+        "type": { "const": "human_governance" },
+        "actor": { "$ref": "../core/common.schema.json#/$defs/id" },
+        "actor_role": { "const": "project_owner" },
+        "proposal_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+        "decision": { "enum": ["APPROVE", "REJECT", "CHANGE_REQUEST"] },
+        "reason": { "type": "string", "minLength": 1 },
+        "correlation_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+        "timestamp": { "$ref": "../core/common.schema.json#/$defs/timestamp" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "decision": { "enum": ["REJECT", "CHANGE_REQUEST"] } }, "required": ["decision"] },
+          "then": { "properties": { "reason": {} }, "required": ["reason"] }
+        }
+      ]
+    }
   }
 }
