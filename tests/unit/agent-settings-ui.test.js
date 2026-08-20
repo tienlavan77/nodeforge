@@ -17,6 +17,12 @@ test("Agent Settings UI presents a masked, Node-only settings flow for every pan
   assert.match(ui, /function mergeStreamMessage/);
   assert.match(ui, /correlation_id === message\.correlation_id/);
   assert.match(ui, /current\.text\}\$\{message\.payload\?\.text/);
+  assert.match(ui, /natural-conversation/);
+  assert.match(ui, /Architecture Manager is working…/);
+  assert.match(ui, /<textarea/);
+  assert.match(ui, /event\.key === "Enter" && !event\.shiftKey/);
+  assert.doesNotMatch(ui, /<HumanDecisionActions client=\{client\} onWorkspaceChanged=\{onWorkspaceChanged\}/);
+  assert.match(ui, /natural-message/);
   assert.match(ui, /AGENTS\.slice\(2\).*onSettings=/s);
   assert.match(client, /fetch\("\/agents\/settings"\)/);
   assert.match(client, /fetch\(`\/agents\/\$\{agentId\}\/settings`/);
