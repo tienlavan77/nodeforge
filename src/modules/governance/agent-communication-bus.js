@@ -1,12 +1,14 @@
 import { ConfigurationError } from "../../shared/errors.js";
 import { createAgentCommunicationStore } from "./agent-communication-store.js";
 
-export function createAgentCommunicationBus({ store = createAgentCommunicationStore() } = {}) {
+export function createAgentCommunicationBus({ store = createAgentCommunicationStore(), onAsyncPersistenceError } = {}) {
   if (typeof store?.append !== "function") throw new ConfigurationError("Agent Communication Bus requires a communication store.");
   const subscribers = new Map();
   const observers = [];
+  const fastIds = new Set();
+  const pending = new Set();
 
-  return Object.freeze({ send, subscribe, unsubscribe, subscribeAll, unsubscribeAll });
+  return Object.freeze({ send, sendFast, flush, subscribe, unsubscribe, subscribeAll, unsubscribeAll });
 
   function send(message) {
     // Persist first so a handler can never observe an unaudited message.
@@ -17,6 +19,19 @@ export function createAgentCommunicationBus({ store = createAgentCommunicationSt
     for (const handler of handlers) handler(structuredClone(persisted));
     return structuredClone(persisted);
   }
+
+  // Stream deltas are delivered to SSE observers immediately; persistence follows asynchronously.
+  function sendFast(message) {
+    if (message?.message_type !== "architecture.message.delta") throw new ConfigurationError("Fast communication is limited to Architecture stream deltas.");
+    if (!message?.id || fastIds.has(message.id)) return structuredClone(message);
+    fastIds.add(message.id);
+    for (const handler of observers) handler(structuredClone(message));
+    const task = Promise.resolve().then(() => store.append(message)).catch((error) => onAsyncPersistenceError?.(error, structuredClone(message))).finally(() => pending.delete(task));
+    pending.add(task);
+    return structuredClone(message);
+  }
+
+  async function flush() { await Promise.all([...pending]); }
 
   function subscribe(receiver, handler) {
     assertReceiver(receiver);
