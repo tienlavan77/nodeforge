@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 
 import { ConfigurationError } from "../../shared/errors.js";
 
-export function createHttpApi({ runtimeService, ownerChatService, conversationStream, architectureWorkspaceService, projectDashboardService } = {}) {
+export function createHttpApi({ runtimeService, ownerChatService, conversationStream, architectureWorkspaceService, projectDashboardService, conversationAuditHistoryService } = {}) {
   if (!runtimeService || typeof runtimeService.startTask !== "function" || typeof runtimeService.pauseSession !== "function"
     || typeof runtimeService.resumeSession !== "function" || typeof runtimeService.getSession !== "function" || typeof runtimeService.getProjectMemory !== "function") {
     throw new ConfigurationError("HTTP API requires a Runtime Service.");
@@ -11,6 +11,7 @@ export function createHttpApi({ runtimeService, ownerChatService, conversationSt
   if (conversationStream !== undefined && typeof conversationStream?.connect !== "function") throw new ConfigurationError("HTTP API Conversation Stream must provide connect().");
   if (architectureWorkspaceService !== undefined && typeof architectureWorkspaceService?.getWorkspace !== "function") throw new ConfigurationError("HTTP API Architecture Workspace Service must provide getWorkspace().");
   if (projectDashboardService !== undefined && typeof projectDashboardService?.getDashboard !== "function") throw new ConfigurationError("HTTP API Project Dashboard Service must provide getDashboard().");
+  if (conversationAuditHistoryService !== undefined && typeof conversationAuditHistoryService?.query !== "function") throw new ConfigurationError("HTTP API Conversation Audit History Service must provide query().");
 
   return Object.freeze({ handler, createServer: () => createServer(handler) });
 
@@ -45,6 +46,15 @@ export function createHttpApi({ runtimeService, ownerChatService, conversationSt
     if (method === "GET" && parts.length === 3 && parts[0] === "projects" && parts[2] === "dashboard") {
       if (!projectDashboardService) throw new ConfigurationError("Project Dashboard API is not configured.");
       return { status: 200, body: projectDashboardService.getDashboard(parts[1]) };
+    }
+    if (method === "GET" && parts.length === 3 && parts[0] === "projects" && parts[2] === "history") {
+      if (!conversationAuditHistoryService) throw new ConfigurationError("Conversation Audit History API is not configured.");
+      return { status: 200, body: conversationAuditHistoryService.query({
+        projectId: parts[1], agentId: url.searchParams.get("agent") ?? undefined,
+        conversationId: url.searchParams.get("conversationId") ?? undefined, correlationId: url.searchParams.get("correlationId") ?? undefined,
+        type: url.searchParams.get("type") ?? undefined, cursor: url.searchParams.get("cursor") ?? undefined,
+        limit: url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : undefined
+      }) };
     }
     if (method === "POST" && parts.length === 1 && parts[0] === "tasks") {
       return { status: 201, body: runtimeService.startTask(await readJson(request)) };

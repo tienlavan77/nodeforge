@@ -21,6 +21,7 @@ function App() {
   const [workspaceStatus, setWorkspaceStatus] = useState("READY");
   const [dashboard, setDashboard] = useState(null);
   const [dashboardState, setDashboardState] = useState("loading");
+  const [historyOpen, setHistoryOpen] = useState(false);
   const lastMessageId = useRef();
   const active = AGENTS.find((agent) => agent.id === activeAgent);
   const loadWorkspace = useCallback(async () => {
@@ -86,7 +87,7 @@ function App() {
   return <div className="app-shell">
     <header className="topbar">
       <div className="brand"><div className="brand-mark">N</div><div><div className="brand-name">NODE CONTROL ROOM</div><div className="brand-sub">Human governance surface</div></div></div>
-      <div className="topbar-meta"><span className="connection"><span className="live-dot" /> NODE ONLINE</span><span className="divider" /><span className="project-label">PROJECT <strong>NODEFORGE</strong></span><button className="icon-button" title="Open settings" aria-label="Open settings">&#9881;</button></div>
+      <div className="topbar-meta"><span className="connection"><span className="live-dot" /> NODE ONLINE</span><span className="divider" /><span className="project-label">PROJECT <strong>NODEFORGE</strong></span><button className="history-button" onClick={() => setHistoryOpen(true)}>History</button><button className="icon-button" title="Open settings" aria-label="Open settings">&#9881;</button></div>
     </header>
     <main className="workspace">
       <section className="architecture-panel panel" aria-label="Architecture Manager conversation">
@@ -98,7 +99,28 @@ function App() {
       </section>
     </main>
     <footer className="statusbar"><div><span className="status-key">ACTIVE CHANNEL</span><span className="status-value">{active.label}</span></div><div className="event-status"><span className="pulse" /> Event stream ready <span className="muted">/</span> session <strong>SPRINT-13</strong></div><div className="status-right">NODE v0.1.0</div></footer>
+    {historyOpen && <HistoryOverlay client={client} onClose={() => setHistoryOpen(false)} />}
   </div>;
+}
+
+function HistoryOverlay({ client, onClose }) {
+  const [agentId, setAgentId] = useState("");
+  const [conversationId, setConversationId] = useState("");
+  const [type, setType] = useState("");
+  const [state, setState] = useState("loading");
+  const [items, setItems] = useState([]);
+  const [nextCursor, setNextCursor] = useState(null);
+  const load = useCallback(async (cursor) => {
+    setState("loading");
+    try {
+      const result = await client.getConversationAuditHistory({ projectId: PROJECT_ID, agentId: agentId || undefined, conversationId: conversationId || undefined, type: type || undefined, cursor });
+      setItems((current) => cursor ? [...current, ...result.items] : result.items);
+      setNextCursor(result.next_cursor);
+      setState("ready");
+    } catch { setState("error"); }
+  }, [agentId, client, conversationId, type]);
+  useEffect(() => { setItems([]); load(); }, [load]);
+  return <div className="history-overlay" role="dialog" aria-modal="true" aria-label="Conversation and Audit History"><section className="history-modal"><header><div><h2>Conversation &amp; Audit History</h2><p>Read-only Node audit trail</p></div><button onClick={onClose} aria-label="Close history">&#215;</button></header><div className="history-filters"><select value={agentId} onChange={(event) => setAgentId(event.target.value)}><option value="">All agents</option>{AGENTS.map((agent) => <option key={agent.id} value={agent.id}>{agent.label}</option>)}</select><input value={conversationId} onChange={(event) => setConversationId(event.target.value)} placeholder="conversation_id" /><input value={type} onChange={(event) => setType(event.target.value)} placeholder="message/event type" /></div><div className="history-list">{state === "loading" && <p>Loading persisted history from Node…</p>}{state === "error" && <p className="error">Node could not load history.</p>}{state === "ready" && !items.length && <p>No persisted conversation or audit records match this filter.</p>}{items.map((item) => <article key={`${item.kind}-${item.id}`} className={`history-item ${item.kind}`}><div><strong>{item.kind}</strong><span>{item.type}</span></div><p>{JSON.stringify(item.content)}</p><small>{item.timestamp} · {item.sender} → {item.receiver}{item.conversation_id ? ` · ${item.conversation_id}` : ""}{item.correlation_id ? ` · ${item.correlation_id}` : ""}</small></article>)}{nextCursor && <button className="history-more" onClick={() => load(nextCursor)}>Load more</button>}</div></section></div>;
 }
 
 function toDisplayMessage(message) {
