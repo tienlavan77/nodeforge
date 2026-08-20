@@ -52,8 +52,20 @@ export function createArchitectureManagerAdapter({ manager, bus, agentId = "arch
   }
 
   function handleOwnerMessage(message, requestId, key) {
+    bus.send({
+      id: `MSG-ARCHITECTURE-WORKING-${requestId}`,
+      project_id: message.project_id,
+      sender: { id: agentId, role: "architecture_manager" },
+      recipient: { id: nodeId, role: "node" },
+      message_type: "architecture.working",
+      conversation_id: message.conversation_id,
+      correlation_id: message.correlation_id,
+      payload: { request_id: requestId, status: "working" },
+      timestamp: message.timestamp
+    });
     const plan = manager.createArchitecturePlan({
       project_id: message.project_id,
+      request_id: requestId,
       created_at: message.timestamp,
       timestamp: message.timestamp,
       decisions: [{

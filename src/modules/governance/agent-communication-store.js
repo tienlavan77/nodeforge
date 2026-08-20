@@ -14,7 +14,7 @@ export function createAgentCommunicationStore({ validateMessage = createAgentMes
   const messages = [];
   const messagesById = new Map();
 
-  return Object.freeze({ append, getById, getAll, getBySender, getByReceiver, getByCorrelationId });
+  return Object.freeze({ append, getById, getAll, getBySender, getByReceiver, getByCorrelationId, getByConversationId });
 
   function append(message) {
     validateMessage(message);
@@ -46,6 +46,11 @@ export function createAgentCommunicationStore({ validateMessage = createAgentMes
   function getByCorrelationId(id) {
     assertId(id, "correlation");
     return messages.filter((message) => message.correlation_id === id).map((message) => structuredClone(message));
+  }
+
+  function getByConversationId(id) {
+    assertId(id, "conversation");
+    return messages.filter((message) => message.conversation_id === id).map((message) => structuredClone(message));
   }
 
   function getByParty(field, party) {
