@@ -6,6 +6,10 @@ import { createArchitectureWorkspaceService } from "../src/application/architect
 import { createProjectDashboardService } from "../src/application/project-dashboard-service.js";
 import { createConversationAuditHistoryService } from "../src/application/conversation-audit-history-service.js";
 import { createHumanDecisionService } from "../src/application/human-decision-service.js";
+import { createAgentSettingsService } from "../src/application/agent-settings-service.js";
+import { createNodeAgentConfiguration } from "../src/modules/agent/node-agent-configuration.js";
+import { createAgentGateway } from "../src/modules/agent/agent-gateway.js";
+import { createAgentProfileStore } from "../src/modules/agent/agent-profile-store.js";
 import { createOwnerChatService } from "../src/application/owner-chat-service.js";
 import { openIndexDatabase } from "../src/infrastructure/sqlite/index-database.js";
 import { createAgentSessionStore } from "../src/modules/agent/session-store.js";
@@ -27,6 +31,11 @@ const port = Number(process.env.NODE_CONTROL_PORT ?? 3100);
 // Keep UI-control persistence isolated from the repository index database.
 const database = await openIndexDatabase(process.env.NODE_CONTROL_DATA_DIR ?? join(process.cwd(), ".node-control"));
 const communications = createAgentCommunicationStore({ database });
+const profiles = createAgentProfileStore({ database });
+const agentConfiguration = createNodeAgentConfiguration({ profiles, configurationPath: join(process.cwd(), ".node-control", "agent-config.json") });
+const secrets = new Map();
+const agentGateway = createAgentGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference) });
+const agentSettings = createAgentSettingsService({ profiles, configuration: agentConfiguration, gateway: agentGateway, secretStore: secrets });
 const bus = createAgentCommunicationBus({ store: communications });
 const decisions = createArchitectureDecisionStore({ database });
 const roadmaps = createRoadmapStore({ database });
@@ -55,7 +64,8 @@ const api = createHttpApi({
   architectureWorkspaceService: createArchitectureWorkspaceService({ knowledge, roadmaps, sprintPlans }),
   projectDashboardService: createProjectDashboardService({ roadmaps, sprintPlans, provenance }),
   conversationAuditHistoryService: createConversationAuditHistoryService({ communications, eventStore }),
-  humanDecisionService: createHumanDecisionService({ decisions, bus })
+  humanDecisionService: createHumanDecisionService({ decisions, bus }),
+  agentSettingsService: agentSettings
 });
 const server = api.createServer().listen(port, "127.0.0.1", () => {
   process.stdout.write(`Node Control API listening on http://127.0.0.1:${port}\n`);

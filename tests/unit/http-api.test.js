@@ -55,6 +55,22 @@ test("routes Human Decisions through the Node intake service", async () => {
   assert.equal(received.project_id, "PROJECT-139B");
 });
 
+test("routes Agent Settings exclusively through the Node application service", async () => {
+  const calls = [];
+  const service = {
+    list: () => [{ agent_id: "builder", api_key_masked: "********" }],
+    save: (input) => { calls.push(["save", input]); return { ...input, api_key_masked: "********" }; },
+    testConnection: async (agentId) => { calls.push(["test", agentId]); return { agent_id: agentId, status: "CONNECTED" }; }
+  };
+  const api = createHttpApi({ runtimeService: runtimeStub(), agentSettingsService: service });
+  assert.deepEqual(await request(api, "GET", "/agents/settings"), [200, [{ agent_id: "builder", api_key_masked: "********" }]]);
+  const [saveStatus, saved] = await request(api, "PUT", "/agents/builder/settings", { gateway_url: "https://gateway.example.test/builder", enabled: true });
+  assert.equal(saveStatus, 200);
+  assert.equal(saved.agent_id, "builder");
+  assert.deepEqual(await request(api, "POST", "/agents/builder/settings/test"), [200, { agent_id: "builder", status: "CONNECTED" }]);
+  assert.deepEqual(calls, [["save", { agent_id: "builder", gateway_url: "https://gateway.example.test/builder", enabled: true }], ["test", "builder"]]);
+});
+
 function runtimeStub() {
   return { startTask: () => ({}), pauseSession: () => ({}), resumeSession: () => ({}), getSession: () => ({}), getProjectMemory: () => ({}) };
 }
