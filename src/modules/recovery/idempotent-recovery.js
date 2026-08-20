@@ -8,14 +8,18 @@ export function createIdempotentRecovery() {
   function shouldExecute({ session, stepId, state } = {}) {
     const task = taskForSession(session, state);
     if (typeof stepId !== "string" || stepId.length === 0) throw new ConfigurationError("Idempotent Recovery requires a stepId.");
-    if (TERMINAL_STATES.has(session.state) || TERMINAL_STATES.has(task.status)) return false;
+    if (isTerminal(session.state) || isTerminal(task.status)) return false;
     return !(task.completed_step_ids ?? []).includes(stepId);
   }
 
   function shouldComplete({ session, state } = {}) {
     const task = taskForSession(session, state);
-    return !TERMINAL_STATES.has(session.state) && !TERMINAL_STATES.has(task.status);
+    return !isTerminal(session.state) && !isTerminal(task.status);
   }
+}
+
+function isTerminal(value) {
+  return typeof value === "string" && TERMINAL_STATES.has(value.toUpperCase());
 }
 
 function taskForSession(session, state) {
