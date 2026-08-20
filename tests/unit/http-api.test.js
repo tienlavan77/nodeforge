@@ -45,6 +45,16 @@ test("routes read-only Conversation and Audit History filters through Node", asy
   assert.deepEqual(received, { projectId: "PROJECT-141", agentId: "architecture-manager", conversationId: "CONV-141", correlationId: "CORR-141", type: "owner.message", cursor: "5", limit: 10 });
 });
 
+test("routes Human Decisions through the Node intake service", async () => {
+  let received;
+  const api = createHttpApi({ runtimeService: runtimeStub(), humanDecisionService: { submit: (input) => { received = input; return { decision: input }; } } });
+  const body = { decision_id: "HUMAN-139B", actor: "OWNER", proposal_id: "PROPOSAL", decision: "APPROVE", correlation_id: "CORR", timestamp: "2026-08-21T15:00:00Z" };
+  const [status, result] = await request(api, "POST", "/projects/PROJECT-139B/decisions", body);
+  assert.equal(status, 201);
+  assert.equal(result.decision.project_id, "PROJECT-139B");
+  assert.equal(received.project_id, "PROJECT-139B");
+});
+
 function runtimeStub() {
   return { startTask: () => ({}), pauseSession: () => ({}), resumeSession: () => ({}), getSession: () => ({}), getProjectMemory: () => ({}) };
 }
