@@ -35,6 +35,26 @@ button, input { font: inherit; }
 .workspace-card span, .roadmap-card span { color: #777f8d; font-family: 'DM Mono', monospace; font-size: 14px; }
 .workspace-empty, .workspace-loading { margin: 0; color: #6f7785; font-family: 'DM Mono', monospace; font-size: 14px; line-height: 1.5; }
 .workspace-loading { padding: 20px 2px; }
+.dashboard-content { min-height: 0; flex: 1; overflow: auto; padding: 13px 18px 17px; scrollbar-width: thin; scrollbar-color: #353a45 transparent; }
+.dashboard-state { margin: 2px 0; color: #7d8592; font-family: 'DM Mono', monospace; font-size: 14px; line-height: 1.45; }
+.dashboard-state.error { color: #d48b8b; }
+.dashboard-overview { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-bottom: 12px; color: #8f96a3; font-family: 'DM Mono', monospace; font-size: 14px; }
+.dashboard-overview strong { color: #d5d8df; font-weight: 500; }
+.dashboard-overview span:last-child { color: #85cba4; }
+.dashboard-section { margin: 0 0 14px; }
+.dashboard-section h3 { margin: 0 0 5px; color: #c6c2f5; font-size: 14px; font-weight: 600; }
+.dashboard-section p { margin: 0 0 5px; color: #aeb4c0; font-size: 14px; line-height: 1.35; }
+.dashboard-section small { color: #737b89; font-family: 'DM Mono', monospace; font-size: 14px; }
+.dashboard-tickets { display: grid; gap: 6px; }
+.dashboard-ticket { border: 1px solid #303540; background: #1a1d24; padding: 8px 9px; }
+.dashboard-ticket > div { display: flex; justify-content: space-between; gap: 8px; }
+.dashboard-ticket strong { color: #d7d9e0; font-family: 'DM Mono', monospace; font-size: 14px; font-weight: 500; }
+.dashboard-ticket p { margin: 4px 0; }
+.priority { color: #e0b979; font-family: 'DM Mono', monospace; font-size: 14px; text-transform: uppercase; }
+.provenance { display: block; margin-top: 5px; color: #8580b8 !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.roadmap-list { display: grid; gap: 5px; }
+.roadmap-list h3 { margin-bottom: 0; }
+.roadmap-list div { display: flex; justify-content: space-between; gap: 8px; color: #aeb4c0; font-size: 14px; }
 .agent-stack { min-height: 0; display: grid; grid-template-rows: repeat(3, 1fr); gap: 1px; background: #282c34; }
 .agent-panel { min-height: 0; display: flex; flex-direction: column; cursor: default; transition: background .15s ease; }
 .agent-panel.is-active { background: #171a21; }

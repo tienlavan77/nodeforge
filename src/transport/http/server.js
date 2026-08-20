@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 
 import { ConfigurationError } from "../../shared/errors.js";
 
-export function createHttpApi({ runtimeService, ownerChatService, conversationStream, architectureWorkspaceService } = {}) {
+export function createHttpApi({ runtimeService, ownerChatService, conversationStream, architectureWorkspaceService, projectDashboardService } = {}) {
   if (!runtimeService || typeof runtimeService.startTask !== "function" || typeof runtimeService.pauseSession !== "function"
     || typeof runtimeService.resumeSession !== "function" || typeof runtimeService.getSession !== "function" || typeof runtimeService.getProjectMemory !== "function") {
     throw new ConfigurationError("HTTP API requires a Runtime Service.");
@@ -10,6 +10,7 @@ export function createHttpApi({ runtimeService, ownerChatService, conversationSt
   if (ownerChatService !== undefined && typeof ownerChatService?.submit !== "function") throw new ConfigurationError("HTTP API Owner Chat Service must provide submit().");
   if (conversationStream !== undefined && typeof conversationStream?.connect !== "function") throw new ConfigurationError("HTTP API Conversation Stream must provide connect().");
   if (architectureWorkspaceService !== undefined && typeof architectureWorkspaceService?.getWorkspace !== "function") throw new ConfigurationError("HTTP API Architecture Workspace Service must provide getWorkspace().");
+  if (projectDashboardService !== undefined && typeof projectDashboardService?.getDashboard !== "function") throw new ConfigurationError("HTTP API Project Dashboard Service must provide getDashboard().");
 
   return Object.freeze({ handler, createServer: () => createServer(handler) });
 
@@ -40,6 +41,10 @@ export function createHttpApi({ runtimeService, ownerChatService, conversationSt
     if (method === "GET" && parts.length === 3 && parts[0] === "projects" && parts[2] === "architecture-workspace") {
       if (!architectureWorkspaceService) throw new ConfigurationError("Architecture Workspace API is not configured.");
       return { status: 200, body: architectureWorkspaceService.getWorkspace(parts[1]) };
+    }
+    if (method === "GET" && parts.length === 3 && parts[0] === "projects" && parts[2] === "dashboard") {
+      if (!projectDashboardService) throw new ConfigurationError("Project Dashboard API is not configured.");
+      return { status: 200, body: projectDashboardService.getDashboard(parts[1]) };
     }
     if (method === "POST" && parts.length === 1 && parts[0] === "tasks") {
       return { status: 201, body: runtimeService.startTask(await readJson(request)) };
