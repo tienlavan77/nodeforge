@@ -24,8 +24,6 @@ function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [settingsAgent, setSettingsAgent] = useState(null);
   const lastMessageId = useRef();
-  const pendingDeltas = useRef([]);
-  const deltaFrame = useRef();
   const active = AGENTS.find((agent) => agent.id === activeAgent);
   const loadWorkspace = useCallback(async () => {
     try {
@@ -56,21 +54,11 @@ function App() {
         lastMessageId.current = message.message_id;
         if (message.message_type === "architecture.working") setWorkspaceStatus("WORKING");
         if (["architecture.message.received", "architecture.error"].includes(message.message_type)) setWorkspaceStatus(message.payload?.agent_status ?? (message.message_type === "architecture.error" ? "FAILED" : "COMPLETED"));
-        if (message.message_type === "architecture.message.delta") {
-          pendingDeltas.current.push(message);
-          if (!deltaFrame.current) deltaFrame.current = requestAnimationFrame(() => {
-            const deltas = pendingDeltas.current.splice(0); deltaFrame.current = undefined;
-            setMessages((current) => ({ ...current, "architecture-manager": deltas.reduce((items, delta) => mergeStreamMessage(items, delta), current["architecture-manager"]) }));
-          });
-        } else {
-          if (deltaFrame.current) { cancelAnimationFrame(deltaFrame.current); deltaFrame.current = undefined; }
-          const queued = pendingDeltas.current.splice(0);
-          setMessages((current) => ({ ...current, "architecture-manager": [...queued, message].reduce((items, item) => mergeStreamMessage(items, item), current["architecture-manager"]) }));
-        }
+        setMessages((current) => ({ ...current, "architecture-manager": mergeStreamMessage(current["architecture-manager"], message) }));
         if (message.message_type === "architecture.message.received") loadWorkspace();
       }
     });
-    return () => { if (deltaFrame.current) cancelAnimationFrame(deltaFrame.current); stream.close(); };
+    return () => stream.close();
   }, [client, loadWorkspace, loadDashboard]);
 
   async function send(agentId) {
