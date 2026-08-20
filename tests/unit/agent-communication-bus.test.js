@@ -55,34 +55,28 @@ test("rejects invalid messages before persistence or dispatch", () => {
   assert.equal(deliveries, 0);
 });
 
-test("forwards stream deltas before asynchronous persistence completes", async () => {
-  let release;
-  const store = { append: () => new Promise((resolve) => { release = resolve; }) };
+test("forwards stream deltas without persisting delta records", async () => {
+  const appended = [];
+  const store = { append: (item) => appended.push(item) };
   const bus = createAgentCommunicationBus({ store });
   const observed = [];
   bus.subscribeAll((item) => observed.push(item.id));
   const delta = { ...message("MSG-FAST-123", "BUILDER-123", "NODE-123"), message_type: "architecture.message.delta", payload: { text: "live" } };
   bus.sendFast(delta);
   assert.deepEqual(observed, ["MSG-FAST-123"]);
-  let finished = false;
-  const flushed = bus.flush().then(() => { finished = true; });
-  await Promise.resolve();
-  assert.equal(finished, false);
-  release(delta);
-  await flushed;
-  assert.equal(finished, true);
+  await bus.flush();
+  assert.deepEqual(appended, []);
 });
 
-test("does not block stream delivery when asynchronous persistence fails", async () => {
-  const failures = [];
-  const bus = createAgentCommunicationBus({ store: { append: () => { throw new Error("storage unavailable"); } }, onAsyncPersistenceError: (error, item) => failures.push([error.message, item.id]) });
+test("deduplicates realtime stream deltas without writing to storage", async () => {
+  const bus = createAgentCommunicationBus({ store: { append: () => { throw new Error("delta must not persist"); } } });
   const observed = [];
   bus.subscribeAll((item) => observed.push(item.id));
   const delta = { ...message("MSG-FAST-FAIL", "BUILDER-123", "NODE-123"), message_type: "architecture.message.delta", payload: { text: "live" } };
   bus.sendFast(delta);
+  bus.sendFast(delta);
   assert.deepEqual(observed, ["MSG-FAST-FAIL"]);
   await bus.flush();
-  assert.deepEqual(failures, [["storage unavailable", "MSG-FAST-FAIL"]]);
 });
 
 function message(id, senderId, recipientId) {
