@@ -55,7 +55,7 @@ function App() {
         if (message.payload?.agent_status) setWorkspaceStatus(message.payload.agent_status);
         setMessages((current) => ({
           ...current,
-          "architecture-manager": [...current["architecture-manager"], toDisplayMessage(message)]
+          "architecture-manager": mergeStreamMessage(current["architecture-manager"], message)
         }));
         if (message.message_type === "architecture.message.received") loadWorkspace();
       }
@@ -137,7 +137,20 @@ function toDisplayMessage(message) {
   const isOwner = message.sender?.role === "project_owner";
   const text = message.payload?.text
     ?? (message.message_type === "architecture.working" ? "Architecture Manager is working…" : message.message_type === "architecture.message.received" ? "Architecture plan recorded in Node." : message.message_type);
-  return { id: message.message_id, from: isOwner ? "owner" : message.message_type.includes("error") ? "system" : "agent", text, time: new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
+  return { id: message.message_id, correlation_id: message.correlation_id, message_type: message.message_type, from: isOwner ? "owner" : message.message_type.includes("error") ? "system" : "agent", text, time: new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
+}
+
+function mergeStreamMessage(messages, message) {
+  if (messages.some((item) => item.id === message.message_id)) return messages;
+  const isDelta = message.message_type === "architecture.message.delta";
+  const isCompletion = message.message_type === "architecture.message.received";
+  if (!isDelta && !isCompletion) return [...messages, toDisplayMessage(message)];
+  const index = messages.findIndex((item) => item.from === "agent" && item.correlation_id === message.correlation_id && item.stream === true);
+  if (index < 0) return [...messages, { ...toDisplayMessage(message), stream: true, text: message.payload?.text ?? "" }];
+  const next = [...messages];
+  const current = next[index];
+  next[index] = { ...current, id: message.message_id, message_type: message.message_type, text: isDelta ? `${current.text}${message.payload?.text ?? ""}` : (message.payload?.text ?? current.text), stream: !isCompletion };
+  return next;
 }
 
 function ArchitecturePanel({ client, onWorkspaceChanged, onSettings, agent, workspace, messages, draft, onDraft, onSend, onActivate, active }) {
