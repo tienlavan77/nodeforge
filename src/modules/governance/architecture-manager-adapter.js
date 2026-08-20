@@ -60,7 +60,7 @@ export function createArchitectureManagerAdapter({ manager, bus, agentId = "arch
       message_type: "architecture.working",
       conversation_id: message.conversation_id,
       correlation_id: message.correlation_id,
-      payload: { request_id: requestId, status: "working" },
+      payload: { request_id: requestId, status: "working", agent_status: "WORKING" },
       timestamp: message.timestamp
     });
     const plan = manager.createArchitecturePlan({
@@ -76,7 +76,7 @@ export function createArchitectureManagerAdapter({ manager, bus, agentId = "arch
         status: "proposed"
       }]
     });
-    const result = Object.freeze({ request_id: requestId, conversation_id: message.conversation_id, correlation_id: message.correlation_id, architecture_plan: plan });
+    const result = Object.freeze({ request_id: requestId, conversation_id: message.conversation_id, correlation_id: message.correlation_id, agent_status: "COMPLETED", architecture_plan: plan });
     results.set(key, result);
     bus.send({
       id: `MSG-ARCHITECTURE-MESSAGE-${requestId}`,

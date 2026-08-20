@@ -2,6 +2,7 @@ import process from "node:process";
 import { join } from "node:path";
 
 import { createRuntimeService } from "../src/application/runtime-service.js";
+import { createArchitectureWorkspaceService } from "../src/application/architecture-workspace-service.js";
 import { createOwnerChatService } from "../src/application/owner-chat-service.js";
 import { openIndexDatabase } from "../src/infrastructure/sqlite/index-database.js";
 import { createAgentSessionStore } from "../src/modules/agent/session-store.js";
@@ -14,6 +15,7 @@ import { createArchitectureKnowledgeModel } from "../src/modules/governance/arch
 import { createArchitectureManager } from "../src/modules/governance/architecture-manager.js";
 import { createArchitectureManagerAdapter } from "../src/modules/governance/architecture-manager-adapter.js";
 import { createRoadmapStore } from "../src/modules/governance/roadmap-store.js";
+import { createSprintPlanProjection } from "../src/modules/governance/sprint-plan-projection.js";
 import { createHttpApi } from "../src/transport/http/server.js";
 import { createConversationStream } from "../src/transport/sse/conversation-stream.js";
 
@@ -23,10 +25,12 @@ const database = await openIndexDatabase(process.env.NODE_CONTROL_DATA_DIR ?? jo
 const communications = createAgentCommunicationStore();
 const bus = createAgentCommunicationBus({ store: communications });
 const decisions = createArchitectureDecisionStore();
+const roadmaps = createRoadmapStore();
+const knowledge = createArchitectureKnowledgeModel({ decisions });
 const manager = createArchitectureManager({
   decisions,
-  knowledge: createArchitectureKnowledgeModel({ decisions }),
-  roadmaps: createRoadmapStore(),
+  knowledge,
+  roadmaps,
   bus,
   nodeId: "NODE"
 });
@@ -40,7 +44,8 @@ const runtimeService = createRuntimeService({
 const api = createHttpApi({
   runtimeService,
   ownerChatService: createOwnerChatService({ bus }),
-  conversationStream: createConversationStream({ bus, communicationStore: communications })
+  conversationStream: createConversationStream({ bus, communicationStore: communications }),
+  architectureWorkspaceService: createArchitectureWorkspaceService({ knowledge, roadmaps, sprintPlans: createSprintPlanProjection({ roadmaps }) })
 });
 const server = api.createServer().listen(port, "127.0.0.1", () => {
   process.stdout.write(`Node Control API listening on http://127.0.0.1:${port}\n`);

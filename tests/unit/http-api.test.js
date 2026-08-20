@@ -25,6 +25,18 @@ test("routes REST requests exclusively through Runtime Service", async () => {
   ]);
 });
 
+test("routes the Architecture Workspace through its Node application service", async () => {
+  const api = createHttpApi({
+    runtimeService: runtimeStub(),
+    architectureWorkspaceService: { getWorkspace: (projectId) => ({ project_id: projectId, agent: { status: "READY" } }) }
+  });
+  assert.deepEqual(await request(api, "GET", "/projects/PROJECT-138/architecture-workspace"), [200, { project_id: "PROJECT-138", agent: { status: "READY" } }]);
+});
+
+function runtimeStub() {
+  return { startTask: () => ({}), pauseSession: () => ({}), resumeSession: () => ({}), getSession: () => ({}), getProjectMemory: () => ({}) };
+}
+
 async function request(api, method, url, body) {
   const request = Readable.from(body === undefined ? [] : [JSON.stringify(body)]);
   request.method = method;

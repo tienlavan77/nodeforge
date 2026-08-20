@@ -22,6 +22,19 @@ button, input { font: inherit; }
 .panel { background: #15171d; min-width: 0; }
 .architecture-panel { min-height: 0; }
 .architecture-panel > .agent-panel { height: 100%; }
+.architecture-workspace { height: 100%; }
+.architecture-columns { min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); }
+.architecture-conversation { border-right: 1px solid #282c34; }
+.architecture-artifacts { min-height: 0; overflow: auto; padding: 17px 18px 26px; scrollbar-width: thin; scrollbar-color: #353a45 transparent; }
+.workspace-section { margin: 0 0 22px; }
+.workspace-section h3 { margin: 0 0 9px; color: #aaa5e8; font-family: 'DM Mono', monospace; font-size: 14px; font-weight: 500; letter-spacing: .07em; text-transform: uppercase; }
+.workspace-items { display: grid; gap: 7px; }
+.workspace-card, .roadmap-card { display: grid; gap: 5px; border: 1px solid #303540; background: #1a1d24; padding: 10px 11px; }
+.workspace-card strong, .roadmap-card strong { color: #d8dbe3; font-size: 14px; font-weight: 600; }
+.workspace-card p { margin: 0; color: #aeb4c0; font-size: 14px; line-height: 1.45; }
+.workspace-card span, .roadmap-card span { color: #777f8d; font-family: 'DM Mono', monospace; font-size: 14px; }
+.workspace-empty, .workspace-loading { margin: 0; color: #6f7785; font-family: 'DM Mono', monospace; font-size: 14px; line-height: 1.5; }
+.workspace-loading { padding: 20px 2px; }
 .agent-stack { min-height: 0; display: grid; grid-template-rows: repeat(3, 1fr); gap: 1px; background: #282c34; }
 .agent-panel { min-height: 0; display: flex; flex-direction: column; cursor: default; transition: background .15s ease; }
 .agent-panel.is-active { background: #171a21; }
