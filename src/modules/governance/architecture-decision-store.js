@@ -18,10 +18,11 @@ export function createArchitectureDecisionStore({ validateDecision = createDecis
 
   function append(decision) {
     validateDecision(decision);
-    if (decisionsById.has(decision.id)) throw new ConfigurationError(`Architecture Decision already exists: ${decision.id}.`);
+    const id = decisionIdentity(decision);
+    if (decisionsById.has(id)) throw new ConfigurationError(`Architecture Decision already exists: ${id}.`);
     const stored = freezeDecision(decision);
     decisions.push(stored);
-    decisionsById.set(stored.id, stored);
+    decisionsById.set(id, stored);
     return cloneDecision(stored);
   }
 
@@ -39,6 +40,10 @@ export function createArchitectureDecisionStore({ validateDecision = createDecis
     if (typeof type !== "string" || type.length === 0) throw new ConfigurationError("An Architecture Decision type is required.");
     return decisions.filter((decision) => decision.type === type).map(cloneDecision);
   }
+}
+
+function decisionIdentity(decision) {
+  return decision.id ?? decision.decision_id;
 }
 
 function createDecisionValidator() {

@@ -66,6 +66,7 @@ const fixtures = [
   , ["https://forge.local/schemas/governance/agent-message.schema.json", "schemas/examples/governance-agent-message.json"]
   , ["https://forge.local/schemas/governance/ticket-completion.schema.json", "schemas/examples/governance-ticket-completion.json"]
   , ["https://forge.local/schemas/governance/governance-rule.schema.json", "schemas/examples/governance-rule.json"]
+  , ["https://forge.local/schemas/governance/architecture-decision.schema.json", "schemas/examples/governance-human-decision.json"]
 ];
 
 async function readJson(file) {
