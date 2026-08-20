@@ -1,30 +1,20 @@
 export function createNodeClient() {
   return Object.freeze({
     async getAgentSettings() {
-      const response = await fetch("/agents/settings");
-      if (!response.ok) throw new Error("Node could not load Agent Settings.");
-      return response.json();
+      return requestJson("/agents/settings", { fallbackError: "Node could not load Agent Settings." });
     },
     async saveAgentSettings(agentId, settings) {
-      const response = await fetch(`/agents/${agentId}/settings`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(settings) });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? "Node rejected Agent Settings.");
-      return body;
+      return requestJson(`/agents/${agentId}/settings`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(settings), fallbackError: "Node rejected Agent Settings." });
     },
     async testAgentConnection(agentId) {
-      const response = await fetch(`/agents/${agentId}/settings/test`, { method: "POST" });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? "Agent connection failed.");
-      return body;
+      return requestJson(`/agents/${agentId}/settings/test`, { method: "POST", fallbackError: "Agent connection failed." });
     },
     async postHumanDecision({ projectId, decisionId, actor, proposalId, decision, reason, correlationId }) {
-      const response = await fetch(`/projects/${projectId}/decisions`, {
+      return requestJson(`/projects/${projectId}/decisions`, {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ decision_id: decisionId, type: "human_governance", actor, actor_role: "project_owner", proposal_id: proposalId, decision, ...(reason ? { reason } : {}), correlation_id: correlationId, timestamp: new Date().toISOString() })
+        body: JSON.stringify({ decision_id: decisionId, type: "human_governance", actor, actor_role: "project_owner", proposal_id: proposalId, decision, ...(reason ? { reason } : {}), correlation_id: correlationId, timestamp: new Date().toISOString() }),
+        fallbackError: "Node rejected the Human Decision."
       });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? "Node rejected the Human Decision.");
-      return body;
     },
     async getConversationAuditHistory({ projectId, agentId, conversationId, correlationId, type, cursor, limit = 25 }) {
       const params = new URLSearchParams({ limit: String(limit) });
@@ -33,28 +23,21 @@ export function createNodeClient() {
       if (correlationId) params.set("correlationId", correlationId);
       if (type) params.set("type", type);
       if (cursor) params.set("cursor", cursor);
-      const response = await fetch(`/projects/${projectId}/history?${params}`);
-      if (!response.ok) throw new Error("Node could not load the Conversation and Audit History.");
-      return response.json();
+      return requestJson(`/projects/${projectId}/history?${params}`, { fallbackError: "Node could not load the Conversation and Audit History." });
     },
     async getProjectDashboard(projectId) {
-      const response = await fetch(`/projects/${projectId}/dashboard`);
-      if (!response.ok) throw new Error("Node could not load the Project Dashboard.");
-      return response.json();
+      return requestJson(`/projects/${projectId}/dashboard`, { fallbackError: "Node could not load the Project Dashboard." });
     },
     async getArchitectureWorkspace(projectId) {
-      const response = await fetch(`/projects/${projectId}/architecture-workspace`);
-      if (!response.ok) throw new Error("Node could not load the Architecture Workspace.");
-      return response.json();
+      return requestJson(`/projects/${projectId}/architecture-workspace`, { fallbackError: "Node could not load the Architecture Workspace." });
     },
     async postOwnerMessage({ projectId, conversationId, messageId, correlationId, text }) {
-      const response = await fetch(`/projects/${projectId}/conversations/${conversationId}/messages`, {
+      return requestJson(`/projects/${projectId}/conversations/${conversationId}/messages`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message_id: messageId, correlation_id: correlationId, timestamp: new Date().toISOString(), payload: { text } })
+        body: JSON.stringify({ message_id: messageId, correlation_id: correlationId, timestamp: new Date().toISOString(), payload: { text } }),
+        fallbackError: "Node rejected the owner message."
       });
-      if (!response.ok) throw new Error("Node rejected the owner message.");
-      return response.json();
     },
     connectConversationStream({ projectId, conversationId, afterMessageId, onMessage, onError }) {
       if (typeof onMessage !== "function") throw new Error("Conversation stream requires an onMessage handler.");
@@ -75,4 +58,25 @@ export function createNodeClient() {
     },
     stream: null
   });
+}
+
+async function requestJson(url, { fallbackError, ...init } = {}) {
+  let response;
+  try {
+    response = await fetch(url, init);
+  } catch {
+    throw new Error("Node is unavailable. Check that the Node service is running.");
+  }
+  const text = response.status === 204 ? "" : await response.text();
+  let body = null;
+  if (text.trim()) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      if (response.ok) throw new Error("Node returned an invalid response.");
+      throw new Error(fallbackError ?? `Node request failed with HTTP ${response.status}.`);
+    }
+  }
+  if (!response.ok) throw new Error(body?.error ?? fallbackError ?? `Node request failed with HTTP ${response.status}.`);
+  return body;
 }

@@ -24,6 +24,26 @@ const PROVIDER_OPTIONS = [
   { value: "anthropic", label: "Anthropic" },
   { value: "custom", label: "Custom / OpenAI-compatible" }
 ];
+const MODEL_CATALOG = {
+  codex: [
+    { value: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
+    { value: "gpt-5.6", label: "GPT-5.6" },
+    { value: "gpt-5.6-mini", label: "GPT-5.6 Mini" }
+  ],
+  openai: [
+    { value: "gpt-5.6", label: "GPT-5.6" },
+    { value: "gpt-5.6-mini", label: "GPT-5.6 Mini" },
+    { value: "gpt-5.1", label: "GPT-5.1" }
+  ],
+  anthropic: [
+    { value: "claude-sonnet-4.5", label: "Claude Sonnet 4.5" },
+    { value: "claude-haiku-4.5", label: "Claude Haiku 4.5" }
+  ],
+  claude: [
+    { value: "claude-sonnet-4.5", label: "Claude Sonnet 4.5" },
+    { value: "claude-haiku-4.5", label: "Claude Haiku 4.5" }
+  ]
+};
 
 function App() {
   const client = useMemo(() => createNodeClient(), []);
@@ -32,8 +52,6 @@ function App() {
   const [messages, setMessages] = useState(() => Object.fromEntries(AGENTS.map((agent) => [agent.id, agent.messages])));
   const [workspace, setWorkspace] = useState(null);
   const [workingByAgent, setWorkingByAgent] = useState(() => Object.fromEntries(AGENTS.map((agent) => [agent.id, "READY"])));
-  const [dashboard, setDashboard] = useState(null);
-  const [dashboardState, setDashboardState] = useState("loading");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [settingsAgent, setSettingsAgent] = useState(null);
   const lastMessageId = useRef({});
@@ -47,19 +65,9 @@ function App() {
       setWorkingByAgent((prev) => ({ ...prev, "architecture-manager": "FAILED" }));
     }
   }, [client]);
-  const loadDashboard = useCallback(async () => {
-    setDashboardState("loading");
-    try {
-      setDashboard(await client.getProjectDashboard(PROJECT_ID));
-      setDashboardState("ready");
-    } catch {
-      setDashboardState("error");
-    }
-  }, [client]);
 
   useEffect(() => {
     loadWorkspace();
-    loadDashboard();
     const streams = AGENTS.map((agent) => {
       const conversationId = CONVERSATIONS[agent.id];
       return client.connectConversationStream({
@@ -76,7 +84,7 @@ function App() {
       });
     });
     return () => streams.forEach((s) => s.close());
-  }, [client, loadWorkspace, loadDashboard]);
+  }, [client, loadWorkspace]);
 
   async function send(agentId) {
     const text = drafts[agentId]?.trim();
@@ -123,11 +131,7 @@ function App() {
             {/* Architecture Manager is working… for streaming regression */}
             {messages[activeAgent].map((message, index) => <Message key={message.id ?? `${message.time}-${index}`} message={message} />)}
           </div>
-          {activeAgent === "architecture-manager" && (
-            <div className="architecture-decision-inline">
-              <InlineDecisionControls client={client} onWorkspaceChanged={loadWorkspace} workspace={workspace} />
-            </div>
-          )}
+          {activeAgent === "architecture-manager" && <InlineDecisionControls client={client} onWorkspaceChanged={loadWorkspace} workspace={workspace} />}
           <form className="composer" onSubmit={(event) => { event.preventDefault(); send(activeAgent); }}>
             <textarea value={drafts[activeAgent] ?? ""} onChange={(event) => setDrafts((current) => ({ ...current, [activeAgent]: event.target.value }))} onInput={(event) => { event.currentTarget.style.height = "auto"; event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`; }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(activeAgent); } }} rows="2" placeholder={`Message ${activeAgentObj.label}...`} aria-label={`Message ${activeAgentObj.label}`} disabled={isWorking} />
             <button type="submit" title="Send message" aria-label="Send message" disabled={isWorking}>&#8593;</button>
@@ -135,7 +139,6 @@ function App() {
         </div>
       </section>
       <section className="info-panel panel" aria-label="Project info">
-        <ProjectDashboardPanel onSettings={() => setSettingsAgent(AGENTS[1])} agent={AGENTS[1]} dashboard={dashboard} state={dashboardState} onActivate={() => setActiveAgent(AGENTS[1].id)} active={activeAgent === AGENTS[1].id} />
         <div className="info-artifacts">
           <ArchitectureArtifacts client={client} onWorkspaceChanged={loadWorkspace} workspace={workspace} />
         </div>
@@ -150,17 +153,37 @@ function App() {
 function InlineDecisionControls({ client, onWorkspaceChanged, workspace }) {
   const [reason, setReason] = useState("");
   const [result, setResult] = useState("");
-  const proposal = workspace?.architecture_plan ?? workspace?.proposal ?? null;
+  const pending = getPendingArchitectureProposal(workspace);
+  const completed = getLatestCompletedDecision(workspace);
   async function submit(decision) {
-    if (!proposal) { setResult("No architecture proposal is available."); return; }
-    const proposalId = proposal.id ?? proposal.proposal_id ?? "proposal";
+    if (!pending) return;
+    const proposalId = pending.id;
     if (["REJECT", "CHANGE_REQUEST"].includes(decision) && !reason.trim()) { setResult("Reason is required."); return; }
     try {
       await client.postHumanDecision({ projectId: PROJECT_ID, decisionId: `HUMAN-${Date.now()}`, actor: "project-owner", proposalId, decision, reason: reason.trim(), correlationId: `CORR-DECISION-${Date.now()}` });
-      setReason(""); setResult(`${decision} recorded by Node.`); onWorkspaceChanged();
+      setReason(""); setResult(labelForDecision(decision)); onWorkspaceChanged();
     } catch (error) { setResult(error.message); }
   }
-  return <section className="decision-actions" aria-label="Human Decision"><h3>Human Decision</h3><p>{proposal ? `Proposal: ${proposal.id ?? proposal.proposal_id}` : "Waiting for an architecture proposal."}</p><input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Reason for reject/change request" aria-label="Decision reason" /><div><button onClick={() => submit("APPROVE")}>Approve</button><button onClick={() => submit("REJECT")}>Reject</button><button onClick={() => submit("CHANGE_REQUEST")}>Request Changes</button></div>{result && <small>{result}</small>}</section>;
+  if (!pending) return completed ? <div className="decision-result" aria-label="Human Decision result">{labelForDecision(completed.decision)}</div> : null;
+  return <section className="decision-actions" aria-label="Human Decision"><h3>Human Decision</h3><p>{pending.title ?? pending.id}</p><input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Reason for reject/change request" aria-label="Decision reason" /><div><button onClick={() => submit("APPROVE")}>Approve</button><button onClick={() => submit("CHANGE_REQUEST")}>Request Changes</button><button onClick={() => submit("REJECT")}>Reject</button></div>{result && <small>{result}</small>}</section>;
+}
+
+function getPendingArchitectureProposal(workspace) {
+  const decisions = workspace?.decisions ?? [];
+  const completed = new Set(decisions.filter((item) => item.type === "human_governance").map((item) => item.proposal_id));
+  return decisions.find((item) => item.type !== "human_governance" && item.status === "proposed" && !completed.has(item.id)) ?? null;
+}
+
+function getLatestCompletedDecision(workspace) {
+  const decisions = (workspace?.decisions ?? []).filter((item) => item.type === "human_governance");
+  return decisions.at(-1) ?? null;
+}
+
+function labelForDecision(decision) {
+  if (decision === "APPROVE") return "✓ Approved";
+  if (decision === "CHANGE_REQUEST") return "↻ Change Requested";
+  if (decision === "REJECT") return "✕ Rejected";
+  return "Decision recorded";
 }
 
 function HistoryOverlay({ client, onClose }) {
@@ -185,10 +208,16 @@ function HistoryOverlay({ client, onClose }) {
 
 function AgentSettingsOverlay({ client, agent, onClose }) {
   const [profile, setProfile] = useState(null); const [url, setUrl] = useState(""); const [key, setKey] = useState(""); const [provider, setProvider] = useState("codex"); const [model, setModel] = useState(""); const [enabled, setEnabled] = useState(false); const [message, setMessage] = useState("");
+  const models = MODEL_CATALOG[provider] ?? [];
   useEffect(() => { client.getAgentSettings().then((items) => { const item = items.find(({ agent_id: id }) => id === agent.id); if (item) { setProfile(item); setUrl(item.gateway_url ?? ""); setEnabled(Boolean(item.enabled)); setProvider(item.provider ?? "codex"); setModel(item.model ?? ""); } }).catch((error) => setMessage(`Error: ${error.message}`)); }, [agent.id, client]);
-  async function save() { try { const item = await client.saveAgentSettings(agent.id, { agent_name: profile?.agent_name ?? agent.label, gateway_url: url, provider, model, enabled, ...(key ? { api_key: key } : {}) }); setProfile(item); setKey(""); setMessage("Saved. API key remains masked in Node."); } catch (error) { setMessage(`Error: ${error.message}`); } }
+  function changeProvider(value) {
+    const nextModels = MODEL_CATALOG[value] ?? [];
+    setProvider(value);
+    setModel(nextModels.some((item) => item.value === model) ? model : "");
+  }
+  async function save() { try { const item = await client.saveAgentSettings(agent.id, { agent_name: profile?.agent_name ?? agent.label, gateway_url: url, provider, model: models.length ? model : "", enabled, ...(key ? { api_key: key } : {}) }); setProfile(item); setKey(""); setMessage("Saved. API key remains masked in Node."); } catch (error) { setMessage(`Error: ${error.message}`); } }
   async function testConnection() { try { const result = await client.testAgentConnection(agent.id); setMessage(`Connected: ${result.status}`); } catch (error) { setMessage(`Failed: ${error.message}`); } }
-  return <div className="settings-overlay" role="dialog" aria-modal="true"><section className="settings-modal"><header><h2>{agent.label} Settings</h2><button onClick={onClose} aria-label="Close Agent Settings">&#215;</button></header><label>Provider<select value={provider} onChange={(event) => setProvider(event.target.value)} aria-label="Provider">{PROVIDER_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</select></label><label>Gateway URL<input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://..." /></label><label>API Key<input type="password" value={key} onChange={(event) => setKey(event.target.value)} placeholder="********" autoComplete="new-password" /></label><label>Model<input value={model} onChange={(event) => setModel(event.target.value)} placeholder="gpt-5.6-terra / claude-sonnet-..." /></label><label className="settings-check"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> Enabled</label><div className="settings-actions"><button onClick={save}>Save Profile</button><button onClick={testConnection}>Test Connection</button></div>{message && <p aria-live="polite">{message}</p>}</section></div>;
+  return <div className="settings-overlay" role="dialog" aria-modal="true"><section className="settings-modal"><header><h2>{agent.label} Settings</h2><button onClick={onClose} aria-label="Close Agent Settings">&#215;</button></header><label>Provider<select value={provider} onChange={(event) => changeProvider(event.target.value)} aria-label="Provider">{PROVIDER_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</select></label><label>Model<select value={model} onChange={(event) => setModel(event.target.value)} aria-label="Model" disabled={!models.length}><option value="">{models.length ? "Select model" : "No model catalog for this provider"}</option>{models.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</select></label><label>Gateway URL<input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://..." /></label><label>API Key<input type="password" value={key} onChange={(event) => setKey(event.target.value)} placeholder="********" autoComplete="new-password" /></label><label className="settings-check"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> Enabled</label><div className="settings-actions"><button onClick={save}>Save Profile</button><button onClick={testConnection}>Test Connection</button></div>{profile?.api_key_masked && <small className="settings-mask">API key masked: {profile.api_key_masked}</small>}{message && <p aria-live="polite">{message}</p>}</section></div>;
 }
 
 function toDisplayMessage(message) {

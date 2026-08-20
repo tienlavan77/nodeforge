@@ -131,3 +131,5 @@ button, input { font: inherit; }
 .composer textarea:disabled, .composer input:disabled { opacity: .45; cursor: not-allowed; }
 .composer button:disabled { opacity: .45; cursor: not-allowed; }
 .settings-modal label select { display: block; width: 100%; margin-top: 6px; border: 1px solid #343947; background: #1d2028; color: #d5d9e0; padding: 9px; font-size: 14px; }
+.decision-result { margin: 12px 0; padding: 10px 12px; border: 1px solid #3a3d4a; background: #1a1d24; color: #c8d0a8; font-family: 'DM Mono', monospace; font-size: 14px; text-align: center; }
+.settings-mask { display: block; margin-top: 8px; color: #7a8290; font-family: 'DM Mono', monospace; font-size: 12px; }
