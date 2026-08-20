@@ -27,12 +27,13 @@ import { createHttpApi } from "../src/transport/http/server.js";
 import { createConversationStream } from "../src/transport/sse/conversation-stream.js";
 
 const port = Number(process.env.NODE_CONTROL_PORT ?? 3100);
+const dataDir = process.env.NODE_CONTROL_DATA_DIR ?? join(process.cwd(), ".node-control");
 // Keep UI-control persistence isolated from the repository index database.
-const database = await openIndexDatabase(process.env.NODE_CONTROL_DATA_DIR ?? join(process.cwd(), ".node-control"));
+const database = await openIndexDatabase(dataDir);
 const communications = createAgentCommunicationStore({ database });
 const profiles = createAgentProfileStore({ database });
-const agentConfiguration = createNodeAgentConfiguration({ profiles, configurationPath: join(process.cwd(), ".node-control", "agent-config.json") });
-const secrets = createPersistentSecretBackend({ filePath: join(process.cwd(), ".node-control", "secrets.vault"), encryptionKey: process.env.NODE_SECRET_ENCRYPTION_KEY });
+const agentConfiguration = createNodeAgentConfiguration({ profiles, configurationPath: join(dataDir, "agent-config.json") });
+const secrets = createPersistentSecretBackend({ filePath: join(dataDir, "secrets.vault"), encryptionKey: process.env.NODE_SECRET_ENCRYPTION_KEY });
 const codexBaseUrl = process.env.OPENAI_BASE_URL?.replace(/\/$/, "");
 const codexCredential = process.env.OPENAI_API_KEY;
 if (codexCredential && !secrets.get("env:OPENAI_API_KEY")) secrets.set("env:OPENAI_API_KEY", codexCredential);
