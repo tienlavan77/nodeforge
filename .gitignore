@@ -3,4 +3,5 @@ dist/
 coverage/
 .forge/runtime/
 .forge/*.db
+.node-control/
 .DS_Store
