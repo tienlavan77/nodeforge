@@ -37,8 +37,9 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       for await (const chunk of agentStream({ agentId: architectureManagerId, payload: { text: message.payload.text }, correlationId: message.correlation_id })) {
         if (chunk.completed) continue;
         text += chunk.text;
-        bus.send(responseMessage(message, "architecture.message.delta", { text: chunk.text, accumulated_text: text, chunk_index: index++ }, `DELTA-${index}`));
+        bus.sendFast(responseMessage(message, "architecture.message.delta", { text: chunk.text, accumulated_text: text, chunk_index: index++ }, `DELTA-${index}`));
       }
+      await bus.flush();
       bus.send(responseMessage(message, "architecture.message.received", { text, agent_status: "COMPLETED" }, "COMPLETED"));
     } catch (error) {
       bus.send(responseMessage(message, "architecture.error", { error: error.message, agent_status: "FAILED" }, "ERROR"));
