@@ -36,6 +36,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     let batchText = "";
     let batchStart = 0;
     let timer;
+    let emittedFirstDelta = false;
     const flush = () => {
       if (!batchText) return;
       const payload = { text: batchText, accumulated_text: text, chunk_index: index++, batch_start: batchStart, batch_end: index - 1 };
@@ -48,6 +49,11 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       for await (const chunk of agentStream({ agentId: architectureManagerId, payload: { text: message.payload.text }, correlationId: message.correlation_id })) {
         if (chunk.completed) continue;
         text += chunk.text;
+        if (!emittedFirstDelta) {
+          emittedFirstDelta = true;
+          bus.sendFast(responseMessage(message, "architecture.message.delta", { text: chunk.text, accumulated_text: text, chunk_index: index++, batch_start: 0, batch_end: 0 }, `DELTA-${index}`));
+          continue;
+        }
         batchText += chunk.text;
         if (!timer) timer = setTimeout(() => { timer = undefined; flush(); }, streamBatchMs);
       }
