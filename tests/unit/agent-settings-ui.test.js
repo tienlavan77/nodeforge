@@ -14,6 +14,9 @@ test("Agent Settings UI presents a masked, Node-only settings flow for every pan
   assert.match(ui, /setKey\(""\)/);
   assert.match(ui, /Connected: \$\{result\.status\}/);
   assert.match(ui, /Failed: \$\{error\.message\}/);
+  assert.match(ui, /function mergeStreamMessage/);
+  assert.match(ui, /correlation_id === message\.correlation_id/);
+  assert.match(ui, /current\.text\}\$\{message\.payload\?\.text/);
   assert.match(ui, /AGENTS\.slice\(2\).*onSettings=/s);
   assert.match(client, /fetch\("\/agents\/settings"\)/);
   assert.match(client, /fetch\(`\/agents\/\$\{agentId\}\/settings`/);
