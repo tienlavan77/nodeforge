@@ -1,12 +1,17 @@
 import { ConfigurationError } from "../../shared/errors.js";
+import { getAdapter } from "./provider-adapters/index.js";
 
 const SAFE_URL = /^https:\/\//;
 
-export function createAgentGateway({ configuration, credentialResolver, transport = defaultTransport, streamTransport = defaultStreamTransport, timeoutMs = 10000 } = {}) {
+export function createAgentGateway({ configuration, credentialResolver, transport = defaultTransport, streamTransport = defaultStreamTransport, timeoutMs = 10000, adapterRegistry = getAdapter } = {}) {
   if (typeof configuration?.getById !== "function") throw new ConfigurationError("Agent Gateway requires Node Agent Configuration.");
   if (typeof credentialResolver !== "function") throw new ConfigurationError("Agent Gateway requires a credential resolver.");
   if (typeof transport !== "function" || typeof streamTransport !== "function") throw new ConfigurationError("Agent Gateway transport must be a function.");
+  if (typeof adapterRegistry !== "function") throw new ConfigurationError("Agent Gateway adapter registry must be a function.");
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1) throw new ConfigurationError("Agent Gateway timeout must be a positive integer.");
+
+  const isDefaultTransport = transport === defaultTransport;
+  const isDefaultStreamTransport = streamTransport === defaultStreamTransport;
 
   return Object.freeze({ request, stream, testConnection });
 
@@ -15,7 +20,22 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
     assertCorrelation(correlationId);
     if (!payload || typeof payload !== "object") throw new ConfigurationError("Agent Gateway payload is required.");
     const credential = await resolveCredential(config.credential_ref);
-    return callTransport({ config, credential, payload: structuredClone(payload), correlationId, operation: "request" });
+    if (!isDefaultTransport) {
+      return callTransport({ config, credential, payload: structuredClone(payload), correlationId, operation: "request" });
+    }
+    const adapter = adapterRegistry(config.provider);
+    const model = config.model || undefined;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await adapter.request({ url: config.gateway_url, credential, payload: structuredClone(payload), model, correlationId, signal: controller.signal });
+      validateResponse(response);
+      return { agent_id: config.agent_id, correlation_id: correlationId, status: response.status ?? "completed", payload: structuredClone(response.payload ?? response.data ?? response) };
+    } catch (error) {
+      if (error?.name === "AbortError") throw new ConfigurationError(`Agent Gateway request timed out for ${config.agent_id}.`);
+      if (error instanceof ConfigurationError) throw error;
+      throw new ConfigurationError(`Agent Gateway request failed for ${config.agent_id}.`);
+    } finally { clearTimeout(timeout); }
   }
 
   async function* stream({ agentId, payload, correlationId } = {}) {
@@ -23,10 +43,27 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
     assertCorrelation(correlationId);
     if (!payload || typeof payload !== "object") throw new ConfigurationError("Agent Gateway payload is required.");
     const credential = await resolveCredential(config.credential_ref);
+    if (!isDefaultStreamTransport) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        for await (const event of streamTransport({ url: config.gateway_url, credential, payload: structuredClone(payload), correlation_id: correlationId, signal: controller.signal })) {
+          if (typeof event?.text === "string" && event.text) yield { agent_id: config.agent_id, correlation_id: correlationId, text: event.text };
+          if (event?.response_id) yield { agent_id: config.agent_id, correlation_id: correlationId, completed: true, response_id: event.response_id };
+        }
+      } catch (error) {
+        if (error?.name === "AbortError") throw new ConfigurationError(`Agent Gateway request timed out for ${config.agent_id}.`);
+        if (error instanceof ConfigurationError) throw error;
+        throw new ConfigurationError(`Agent Gateway request failed for ${config.agent_id}.`);
+      } finally { clearTimeout(timeout); }
+      return;
+    }
+    const adapter = adapterRegistry(config.provider);
+    const model = config.model || undefined;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      for await (const event of streamTransport({ url: config.gateway_url, credential, payload: structuredClone(payload), correlation_id: correlationId, signal: controller.signal })) {
+      for await (const event of adapter.stream({ url: config.gateway_url, credential, payload: structuredClone(payload), model, correlationId, signal: controller.signal })) {
         if (typeof event?.text === "string" && event.text) yield { agent_id: config.agent_id, correlation_id: correlationId, text: event.text };
         if (event?.response_id) yield { agent_id: config.agent_id, correlation_id: correlationId, completed: true, response_id: event.response_id };
       }
@@ -40,7 +77,22 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
   async function testConnection(agentId) {
     const config = getEnabledConfig(agentId);
     const credential = await resolveCredential(config.credential_ref);
-    await callTransport({ config, credential, payload: { text: "Health check. Respond with OK." }, correlationId: `CONNECTION-${agentId}`, operation: "health" });
+    if (!isDefaultTransport) {
+      await callTransport({ config, credential, payload: { text: "Health check. Respond with OK." }, correlationId: `CONNECTION-${agentId}`, operation: "health" });
+      return { agent_id: agentId, status: "CONNECTED", gateway_url: config.gateway_url };
+    }
+    const adapter = adapterRegistry(config.provider);
+    const model = config.model || undefined;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await adapter.request({ url: config.gateway_url, credential, payload: { text: "Health check. Respond with OK." }, model, correlationId: `CONNECTION-${agentId}`, signal: controller.signal });
+      validateResponse(response);
+    } catch (error) {
+      if (error?.name === "AbortError") throw new ConfigurationError(`Agent Gateway request timed out for ${config.agent_id}.`);
+      if (error instanceof ConfigurationError) throw error;
+      throw new ConfigurationError(`Agent Gateway request failed for ${config.agent_id}.`);
+    } finally { clearTimeout(timeout); }
     return { agent_id: agentId, status: "CONNECTED", gateway_url: config.gateway_url };
   }
 
