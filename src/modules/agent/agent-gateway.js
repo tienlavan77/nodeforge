@@ -2,13 +2,13 @@ import { ConfigurationError } from "../../shared/errors.js";
 
 const SAFE_URL = /^https:\/\//;
 
-export function createAgentGateway({ configuration, credentialResolver, transport = defaultTransport, timeoutMs = 10000 } = {}) {
+export function createAgentGateway({ configuration, credentialResolver, transport = defaultTransport, streamTransport = defaultStreamTransport, timeoutMs = 10000 } = {}) {
   if (typeof configuration?.getById !== "function") throw new ConfigurationError("Agent Gateway requires Node Agent Configuration.");
   if (typeof credentialResolver !== "function") throw new ConfigurationError("Agent Gateway requires a credential resolver.");
-  if (typeof transport !== "function") throw new ConfigurationError("Agent Gateway transport must be a function.");
+  if (typeof transport !== "function" || typeof streamTransport !== "function") throw new ConfigurationError("Agent Gateway transport must be a function.");
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1) throw new ConfigurationError("Agent Gateway timeout must be a positive integer.");
 
-  return Object.freeze({ request, testConnection });
+  return Object.freeze({ request, stream, testConnection });
 
   async function request({ agentId, payload, correlationId } = {}) {
     const config = getEnabledConfig(agentId);
@@ -16,6 +16,25 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
     if (!payload || typeof payload !== "object") throw new ConfigurationError("Agent Gateway payload is required.");
     const credential = await resolveCredential(config.credential_ref);
     return callTransport({ config, credential, payload: structuredClone(payload), correlationId, operation: "request" });
+  }
+
+  async function* stream({ agentId, payload, correlationId } = {}) {
+    const config = getEnabledConfig(agentId);
+    assertCorrelation(correlationId);
+    if (!payload || typeof payload !== "object") throw new ConfigurationError("Agent Gateway payload is required.");
+    const credential = await resolveCredential(config.credential_ref);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      for await (const event of streamTransport({ url: config.gateway_url, credential, payload: structuredClone(payload), correlation_id: correlationId, signal: controller.signal })) {
+        if (typeof event?.text === "string" && event.text) yield { agent_id: config.agent_id, correlation_id: correlationId, text: event.text };
+        if (event?.response_id) yield { agent_id: config.agent_id, correlation_id: correlationId, completed: true, response_id: event.response_id };
+      }
+    } catch (error) {
+      if (error?.name === "AbortError") throw new ConfigurationError(`Agent Gateway request timed out for ${config.agent_id}.`);
+      if (error instanceof ConfigurationError) throw error;
+      throw new ConfigurationError(`Agent Gateway request failed for ${config.agent_id}.`);
+    } finally { clearTimeout(timeout); }
   }
 
   async function testConnection(agentId) {
@@ -81,4 +100,25 @@ function extractResponseText(body) {
   const text = parts.filter((item) => typeof item?.text === "string").map((item) => item.text).join("\n");
   if (!text) throw new ConfigurationError("Agent Gateway response is invalid.");
   return text;
+}
+
+async function* defaultStreamTransport({ url, credential, payload, correlation_id: correlationId, signal }) {
+  if (!url.replace(/\/$/, "").endsWith("/responses")) throw new ConfigurationError("Agent Gateway streaming requires a Responses API endpoint.");
+  const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${credential}`, "x-correlation-id": correlationId }, body: JSON.stringify({ model: process.env.NODE_AGENT_MODEL ?? "gpt-5.6-terra", input: payload.text ?? JSON.stringify(payload), stream: true }), signal });
+  if (!response.ok || !response.body) throw new ConfigurationError("Agent Gateway response is invalid.");
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for await (const chunk of response.body) {
+    buffer += decoder.decode(chunk, { stream: true });
+    const frames = buffer.split("\n\n"); buffer = frames.pop();
+    for (const frame of frames) {
+      const data = frame.split("\n").find((line) => line.startsWith("data:"))?.slice(5).trim();
+      if (!data || data === "[DONE]") continue;
+      let event;
+      try { event = JSON.parse(data); } catch { throw new ConfigurationError("Agent Gateway stream is invalid."); }
+      if (event.type === "response.output_text.delta" && typeof event.delta === "string") yield { text: event.delta };
+      if (event.type === "response.completed") yield { response_id: event.response?.id ?? event.response?.response_id };
+      if (event.type === "error") throw new ConfigurationError("Agent Gateway stream failed.");
+    }
+  }
 }

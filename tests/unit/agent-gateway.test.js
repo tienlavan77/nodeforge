@@ -51,4 +51,14 @@ test("maps an OpenAI-compatible Responses API payload to a safe Agent response",
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test("forwards ordered Responses API stream deltas without credential leakage", async () => {
+  const gateway = createAgentGateway({ configuration: { getById: () => ({ ...config(), gateway_url: "https://gateway.example.test/v1/responses" }) }, credentialResolver: () => "secret", streamTransport: async function* () { yield { text: "Hello " }; yield { text: "stream", response_id: "resp_stream" }; } });
+  const chunks = [];
+  for await (const chunk of gateway.stream({ agentId: "architecture-manager", correlationId: "CORR-149", payload: { text: "hello" } })) chunks.push(chunk);
+  assert.deepEqual(chunks.map(({ text }) => text).filter(Boolean), ["Hello ", "stream"]);
+  assert.equal(chunks.at(-1).response_id, "resp_stream");
+  assert(chunks.every((chunk) => chunk.correlation_id === "CORR-149"));
+  assert(!JSON.stringify(chunks).includes("secret"));
+});
+
 function config() { return { agent_id: "architecture-manager", agent_name: "Architecture Manager", gateway_url: "https://gateway.example.test/architecture", credential_ref: "env:ARCH_KEY", enabled: true, status: "configured", created_at: "2026-08-22T10:00:00Z", updated_at: "2026-08-22T10:00:00Z" }; }
