@@ -42,6 +42,7 @@ import { createFilesystemWatcher, DEFAULT_WATCHER_IGNORE } from "../src/infrastr
 import { createDebouncedWatcher } from "../src/modules/watcher/debounced-watcher.js";
 import { createIncrementalIndexer } from "../src/modules/index/incremental-indexer.js";
 import { createVerificationOrchestrator } from "../src/modules/verification/orchestrator.js";
+import { createProjectFileTool } from "../src/modules/agent/project-file-tool.js";
 
 const port = Number(process.env.NODE_CONTROL_PORT ?? 3100);
 const dataDir = process.env.NODE_CONTROL_DATA_DIR ?? join(process.cwd(), ".node-control");
@@ -89,9 +90,15 @@ const memoryRetriever = createMemoryRetriever({ memory });
 const contextEngine = createContextEngine({ database, projectRoot: process.cwd(), projectId });
 const baseContext = createAgentContextService({ memoryRetriever, taskSummaries: summaries, taskStore });
 const contextService = createFilesystemAwareContextService({ baseContextService: baseContext, contextEngine, budgetManager: createContextBudgetManager(), maxFacts: Number(process.env.NODE_AGENT_MAX_FACTS ?? 200), debug: (detail) => process.env.NODE_DEBUG_CONTEXT && console.debug(detail) });
-const agentRuntime = createAgentRuntime({ contextService, budgetManager: createContextBudgetManager(), planningEngine: createPlanningEngine(), publisher: eventPublisher, summaries, memory, maxFacts: Number(process.env.NODE_AGENT_MAX_FACTS ?? 200) });
+const fileTool = createProjectFileTool({ projectRoot: process.cwd() });
+const agentRuntime = createAgentRuntime({ contextService, budgetManager: createContextBudgetManager(), planningEngine: createPlanningEngine(), publisher: eventPublisher, summaries, memory, maxFacts: Number(process.env.NODE_AGENT_MAX_FACTS ?? 200), executeStep: (step, { task }) => step.type === "implementation" ? fileTool.writeFromQuery(task.title) : undefined });
 // Filesystem changes are indexed first, then verified and persisted as events.
-const rawWatcher = createFilesystemWatcher({ root: process.cwd(), ignore: DEFAULT_WATCHER_IGNORE, chokidarOptions: { ignoreInitial: true } });
+const rawWatcher = createFilesystemWatcher({
+  root: process.cwd(),
+  ignore: DEFAULT_WATCHER_IGNORE,
+  // Polling avoids exhausting native watcher descriptors in large worktrees.
+  chokidarOptions: { ignoreInitial: true, usePolling: true, interval: 250 }
+});
 const watcher = createDebouncedWatcher({ rawWatcher, projectId, root: process.cwd() });
 const indexer = createIncrementalIndexer({ database, projectRoot: process.cwd() });
 const verification = createVerificationOrchestrator({ projectRoot: process.cwd(), projectId });
