@@ -3,6 +3,10 @@ import { Readable } from "node:stream";
 import test from "node:test";
 
 import { createOwnerChatService } from "../../src/application/owner-chat-service.js";
+import { createAgentBootstrap } from "../../src/modules/agent/agent-bootstrap.js";
+import { createAgentRegistry } from "../../src/modules/agent/agent-registry.js";
+import { createBuilderAdapter } from "../../src/agents/builder-adapter.js";
+import { createReviewerAdapter } from "../../src/agents/reviewer-adapter.js";
 import { createHttpApi } from "../../src/transport/http/server.js";
 import { createAgentCommunicationBus } from "../../src/modules/governance/agent-communication-bus.js";
 import { createAgentCommunicationStore } from "../../src/modules/governance/agent-communication-store.js";
@@ -17,7 +21,12 @@ test("accepts Owner chat over HTTP, persists it before Architecture Manager disp
   const bus = createAgentCommunicationBus({ store: communication });
   const decisions = createArchitectureDecisionStore();
   const manager = createArchitectureManager({ decisions, knowledge: createArchitectureKnowledgeModel({ decisions }), roadmaps: createRoadmapStore(), bus, nodeId: "NODE-136" });
-  createArchitectureManagerAdapter({ manager, bus, nodeId: "NODE-136" });
+  const adapter = createArchitectureManagerAdapter({ manager, bus, nodeId: "NODE-136" });
+  const bootstrap = createAgentBootstrap({
+    registry: createAgentRegistry(), bus, architectureManager: manager, architectureManagerAdapter: adapter,
+    sprintLeader: { generateTickets: () => [] }, runtime: { startTask: () => ({}) },
+    builder: createBuilderAdapter({ id: "builder-136" }), reviewer: createReviewerAdapter({ id: "reviewer-136" })
+  });
   let persistedBeforeDispatch = false;
   bus.subscribe("architecture-manager", (message) => { persistedBeforeDispatch = communication.getById(message.id) !== undefined; });
   const chat = createOwnerChatService({ bus });
@@ -32,6 +41,7 @@ test("accepts Owner chat over HTTP, persists it before Architecture Manager disp
   assert.equal(accepted.correlation_id, "CORR-136");
   assert.equal(accepted.sender.role, "project_owner");
   assert.equal(accepted.recipient.role, "architecture_manager");
+  assert.equal(bootstrap.registry.get("architecture-manager").runtimeAdapter, adapter);
   assert.equal(persistedBeforeDispatch, true);
   assert.equal(decisions.getById("DECISION-MSG-136").decision, body.payload.text);
   assert.deepEqual(communication.getByCorrelationId("CORR-136").map(({ message_type }) => message_type), ["owner.message", "architecture.message.received"]);

@@ -2,13 +2,14 @@ import { createAgentContract } from "../../agents/agent-contract.js";
 import { ConfigurationError } from "../../shared/errors.js";
 import { createAgentRegistry } from "./agent-registry.js";
 
-export function createAgentBootstrap({ registry = createAgentRegistry(), bus, architectureManager, sprintLeader, runtime, builder, reviewer, sessionStore, recovery, replayEngine, eventStore } = {}) {
+export function createAgentBootstrap({ registry = createAgentRegistry(), bus, architectureManager, architectureManagerAdapter, sprintLeader, runtime, builder, reviewer, sessionStore, recovery, replayEngine, eventStore } = {}) {
   if (typeof bus?.send !== "function") throw new ConfigurationError("Agent Bootstrap requires the shared Communication Bus.");
   if (!architectureManager || typeof architectureManager.createArchitecturePlan !== "function") throw new ConfigurationError("Agent Bootstrap requires an Architecture Manager.");
+  if (architectureManagerAdapter !== undefined && typeof architectureManagerAdapter?.handle !== "function") throw new ConfigurationError("Architecture Manager Adapter must provide handle().");
   if (!sprintLeader || typeof sprintLeader.generateTickets !== "function") throw new ConfigurationError("Agent Bootstrap requires a Sprint Leader Planner.");
   if (!runtime || typeof runtime.startTask !== "function") throw new ConfigurationError("Agent Bootstrap requires a Runtime Service.");
   const agents = [
-    managerAgent(architectureManager),
+    managerAgent(architectureManager, architectureManagerAdapter),
     leaderAgent(sprintLeader),
     runtimeAgent(runtime),
     requireContract(builder, "Builder"),
@@ -32,7 +33,7 @@ export function createAgentBootstrap({ registry = createAgentRegistry(), bus, ar
   }
 }
 
-function managerAgent(manager) {
+function managerAgent(manager, adapter) {
   return withRole(createAgentContract({
     id: "architecture-manager",
     name: "Architecture Manager",
@@ -42,7 +43,7 @@ function managerAgent(manager) {
       if (typeof manager[operation] !== "function") throw new ConfigurationError(`Unknown Architecture Manager operation: ${operation}.`);
       return { status: "completed", result: manager[operation](input) };
     }
-  }), "architecture-manager");
+  }), "architecture-manager", adapter);
 }
 
 function leaderAgent(leader) {
@@ -79,6 +80,6 @@ function requireContract(agent, label) {
   return Object.freeze({ ...agent, role: label.toLowerCase() });
 }
 
-function withRole(agent, role) {
-  return Object.freeze({ ...agent, role });
+function withRole(agent, role, runtimeAdapter) {
+  return Object.freeze({ ...agent, role, ...(runtimeAdapter ? { runtimeAdapter } : {}) });
 }
