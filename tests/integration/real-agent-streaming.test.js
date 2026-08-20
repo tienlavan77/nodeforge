@@ -11,8 +11,18 @@ test("persists ordered real Agent stream deltas and completion for SSE replay", 
   chat.submit({ message_id: "MSG-149", project_id: "PROJECT-149", conversation_id: "CONV-149", correlation_id: "CORR-149", timestamp: "2026-08-20T00:00:00Z", payload: { text: "stream" } });
   await new Promise((resolve) => setImmediate(resolve));
   const messages = store.getByConversationId("CONV-149");
-  assert.deepEqual(messages.map(({ message_type }) => message_type), ["owner.message", "architecture.working", "architecture.message.delta", "architecture.message.delta", "architecture.message.received"]);
-  assert.deepEqual(messages.slice(2, 4).map(({ payload }) => payload.text), ["one", " two"]);
+  assert.deepEqual(messages.map(({ message_type }) => message_type), ["owner.message", "architecture.working", "architecture.message.delta", "architecture.message.received"]);
+  assert.equal(messages[2].payload.text, "one two");
   assert.equal(messages.at(-1).payload.text, "one two");
   assert(messages.every(({ correlation_id }) => correlation_id === "CORR-149"));
+});
+
+test("flushes buffered stream batches on interval and flushes final remainder at completion", async () => {
+  const store = createAgentCommunicationStore();
+  const bus = createAgentCommunicationBus({ store });
+  const chat = createOwnerChatService({ bus, streamBatchMs: 10, agentStream: async function* () { yield { text: "one" }; await new Promise((resolve) => setTimeout(resolve, 20)); yield { text: " two" }; } });
+  chat.submit({ message_id: "MSG-149-BATCH", project_id: "PROJECT-149", conversation_id: "CONV-149-BATCH", correlation_id: "CORR-149-BATCH", timestamp: "2026-08-20T00:00:00Z", payload: { text: "stream" } });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const deltas = store.getByConversationId("CONV-149-BATCH").filter(({ message_type }) => message_type === "architecture.message.delta");
+  assert.deepEqual(deltas.map(({ payload }) => payload.text), ["one", " two"]);
 });

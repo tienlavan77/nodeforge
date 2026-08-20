@@ -1,7 +1,8 @@
 import { ConfigurationError } from "../shared/errors.js";
 
-export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream } = {}) {
+export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, streamBatchMs = 3000 } = {}) {
   if (typeof bus?.send !== "function") throw new ConfigurationError("Owner Chat Service requires the shared Communication Bus.");
+  if (!Number.isInteger(streamBatchMs) || streamBatchMs < 1) throw new ConfigurationError("Owner Chat stream batch interval must be positive.");
   const messages = new Map();
 
   return Object.freeze({ submit });
@@ -32,13 +33,26 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
   async function streamRealAgent(message) {
     let index = 0;
     let text = "";
+    let batchText = "";
+    let batchStart = 0;
+    let timer;
+    const flush = () => {
+      if (!batchText) return;
+      const payload = { text: batchText, accumulated_text: text, chunk_index: index++, batch_start: batchStart, batch_end: index - 1 };
+      batchText = "";
+      batchStart = index;
+      bus.sendFast(responseMessage(message, "architecture.message.delta", payload, `DELTA-${index}`));
+    };
     try {
       bus.send(responseMessage(message, "architecture.working", { agent_status: "WORKING" }, "WORKING"));
       for await (const chunk of agentStream({ agentId: architectureManagerId, payload: { text: message.payload.text }, correlationId: message.correlation_id })) {
         if (chunk.completed) continue;
         text += chunk.text;
-        bus.sendFast(responseMessage(message, "architecture.message.delta", { text: chunk.text, accumulated_text: text, chunk_index: index++ }, `DELTA-${index}`));
+        batchText += chunk.text;
+        if (!timer) timer = setTimeout(() => { timer = undefined; flush(); }, streamBatchMs);
       }
+      if (timer) { clearTimeout(timer); timer = undefined; }
+      flush();
       await bus.flush();
       bus.send(responseMessage(message, "architecture.message.received", { text, agent_status: "COMPLETED" }, "COMPLETED"));
     } catch (error) {
