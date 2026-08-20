@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/governance/agent-profile.schema.json",
+  "title": "Forge Agent Profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["agent_id", "agent_name", "gateway_url", "credential_ref", "enabled", "created_at", "updated_at"],
+  "properties": {
+    "agent_id": { "type": "string", "enum": ["architecture-manager", "sprint-leader", "builder", "reviewer"] },
+    "agent_name": { "type": "string", "minLength": 1 },
+    "gateway_url": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "credential_ref": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9_.:/-]+$" },
+    "enabled": { "type": "boolean" },
+    "status": { "type": "string", "enum": ["configured", "disabled", "error"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  }
+}
