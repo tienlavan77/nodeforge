@@ -24,6 +24,8 @@ function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [settingsAgent, setSettingsAgent] = useState(null);
   const lastMessageId = useRef();
+  const pendingDeltas = useRef([]);
+  const deltaFrame = useRef();
   const active = AGENTS.find((agent) => agent.id === activeAgent);
   const loadWorkspace = useCallback(async () => {
     try {
@@ -52,15 +54,23 @@ function App() {
       conversationId: ARCHITECTURE_CONVERSATION_ID,
       onMessage: (message) => {
         lastMessageId.current = message.message_id;
-        if (message.payload?.agent_status) setWorkspaceStatus(message.payload.agent_status);
-        setMessages((current) => ({
-          ...current,
-          "architecture-manager": mergeStreamMessage(current["architecture-manager"], message)
-        }));
+        if (message.message_type === "architecture.working") setWorkspaceStatus("WORKING");
+        if (["architecture.message.received", "architecture.error"].includes(message.message_type)) setWorkspaceStatus(message.payload?.agent_status ?? (message.message_type === "architecture.error" ? "FAILED" : "COMPLETED"));
+        if (message.message_type === "architecture.message.delta") {
+          pendingDeltas.current.push(message);
+          if (!deltaFrame.current) deltaFrame.current = requestAnimationFrame(() => {
+            const deltas = pendingDeltas.current.splice(0); deltaFrame.current = undefined;
+            setMessages((current) => ({ ...current, "architecture-manager": deltas.reduce((items, delta) => mergeStreamMessage(items, delta), current["architecture-manager"]) }));
+          });
+        } else {
+          if (deltaFrame.current) { cancelAnimationFrame(deltaFrame.current); deltaFrame.current = undefined; }
+          const queued = pendingDeltas.current.splice(0);
+          setMessages((current) => ({ ...current, "architecture-manager": [...queued, message].reduce((items, item) => mergeStreamMessage(items, item), current["architecture-manager"]) }));
+        }
         if (message.message_type === "architecture.message.received") loadWorkspace();
       }
     });
-    return () => stream.close();
+    return () => { if (deltaFrame.current) cancelAnimationFrame(deltaFrame.current); stream.close(); };
   }, [client, loadWorkspace, loadDashboard]);
 
   async function send(agentId) {
@@ -142,6 +152,7 @@ function toDisplayMessage(message) {
 
 function mergeStreamMessage(messages, message) {
   if (messages.some((item) => item.id === message.message_id)) return messages;
+  if (message.message_type === "architecture.working") return messages;
   const isDelta = message.message_type === "architecture.message.delta";
   const isCompletion = message.message_type === "architecture.message.received";
   if (!isDelta && !isCompletion) return [...messages, toDisplayMessage(message)];
@@ -163,13 +174,14 @@ function ArchitecturePanel({ client, onWorkspaceChanged, onSettings, agent, work
   return <article className={`agent-panel architecture-workspace ${active ? "is-active" : ""}`} onClick={onActivate}>
     <PanelHeader agent={agent} onSettings={onSettings} />
     <div className="architecture-columns">
-      <div className="architecture-conversation conversation" ref={conversationRef} onScroll={(event) => { const element = event.currentTarget; wasAtBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 56; }} role="log" aria-label="Architecture Manager messages">
+      <div className="architecture-conversation conversation natural-conversation" ref={conversationRef} onScroll={(event) => { const element = event.currentTarget; wasAtBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 56; }} role="log" aria-label="Architecture Manager messages">
         <div className="date-rule"><span>Conversation</span></div>
+        {agent.status === "WORKING" && <div className="working-status" role="status">Architecture Manager is working…</div>}
         {messages.map((message, index) => <Message key={message.id ?? `${message.time}-${index}`} message={message} />)}
       </div>
       <ArchitectureArtifacts client={client} onWorkspaceChanged={onWorkspaceChanged} workspace={workspace} />
     </div>
-    <form className="composer" onSubmit={(event) => { event.preventDefault(); onSend(); }}><input value={draft} onChange={(event) => onDraft(event.target.value)} placeholder="Message Architecture Manager..." aria-label="Message Architecture Manager" /><button type="submit" title="Send message" aria-label="Send message">&#8593;</button></form>
+    <form className="composer" onSubmit={(event) => { event.preventDefault(); onSend(); }}><textarea value={draft} onChange={(event) => onDraft(event.target.value)} onInput={(event) => { event.currentTarget.style.height = "auto"; event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`; }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); onSend(); } }} rows="2" placeholder="Message Architecture Manager..." aria-label="Message Architecture Manager" /><button type="submit" title="Send message" aria-label="Send message">&#8593;</button></form>
   </article>;
 }
 
@@ -177,7 +189,6 @@ function ArchitectureArtifacts({ client, onWorkspaceChanged, workspace }) {
   if (!workspace) return <div className="architecture-artifacts"><div className="workspace-loading">Loading Architecture Workspace from Node…</div></div>;
   const plan = workspace.architecture_plan;
   return <aside className="architecture-artifacts" aria-label="Architecture Workspace data">
-    <HumanDecisionActions client={client} onWorkspaceChanged={onWorkspaceChanged} proposal={workspace.decisions.find((item) => item.type === "architecture")} />
     <WorkspaceSection title="Architecture Plan" items={plan.architecture} empty="No architecture plan published yet." />
     <WorkspaceSection title="Architecture Decisions" items={workspace.decisions} empty="No decisions published yet." />
     <WorkspaceSection title="Standards" items={workspace.standards} empty="No standards published yet." />
@@ -232,7 +243,7 @@ function PanelHeader({ agent, onSettings }) {
 }
 
 function Message({ message }) {
-  return <div className={`message-row ${message.from === "owner" ? "owner" : "agent"}`}><div className="message-bubble"><p>{message.text}</p><time>{message.time}</time></div></div>;
+  return <div className={`message-row natural-message ${message.from === "owner" ? "owner" : "agent"}`}><p>{message.text}</p><time>{message.time}</time></div>;
 }
 
 function AgentPanel({ agent, messages, draft, onDraft, onSend, onActivate, active, expanded, onSettings }) {
