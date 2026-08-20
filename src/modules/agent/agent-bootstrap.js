@@ -2,7 +2,7 @@ import { createAgentContract } from "../../agents/agent-contract.js";
 import { ConfigurationError } from "../../shared/errors.js";
 import { createAgentRegistry } from "./agent-registry.js";
 
-export function createAgentBootstrap({ registry = createAgentRegistry(), bus, architectureManager, sprintLeader, runtime, builder, reviewer } = {}) {
+export function createAgentBootstrap({ registry = createAgentRegistry(), bus, architectureManager, sprintLeader, runtime, builder, reviewer, sessionStore, recovery, replayEngine, eventStore } = {}) {
   if (typeof bus?.send !== "function") throw new ConfigurationError("Agent Bootstrap requires the shared Communication Bus.");
   if (!architectureManager || typeof architectureManager.createArchitecturePlan !== "function") throw new ConfigurationError("Agent Bootstrap requires an Architecture Manager.");
   if (!sprintLeader || typeof sprintLeader.generateTickets !== "function") throw new ConfigurationError("Agent Bootstrap requires a Sprint Leader Planner.");
@@ -21,7 +21,15 @@ export function createAgentBootstrap({ registry = createAgentRegistry(), bus, ar
     else registered.push(registry.get(agent.id));
   }
 
-  return Object.freeze({ registry, bus, agents: Object.freeze(registered) });
+  const recoveredSessions = sessionStore && recovery?.recover ? recovery.recover().recoveredSessions : [];
+  const replayed = sessionStore && replayEngine?.replay && eventStore?.getAll ? replayEngine.replay(eventStore.getAll()) : undefined;
+  return Object.freeze({ registry, bus, agents: Object.freeze(registered), recoveredSessions: Object.freeze(recoveredSessions.map((session) => structuredClone(session))), ...(replayed ? { replayedState: structuredClone(replayed.state) } : {}), persistSession });
+
+  function persistSession(agentId, session, metadata = {}) {
+    if (typeof sessionStore?.save !== "function") throw new ConfigurationError("Persistent Agent Session Store is required.");
+    if (!registry.has(agentId)) throw new ConfigurationError(`Unknown Agent: ${agentId}.`);
+    return sessionStore.save(session, { ...metadata, agent_id: agentId });
+  }
 }
 
 function managerAgent(manager) {
