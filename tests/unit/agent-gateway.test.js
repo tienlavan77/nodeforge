@@ -33,4 +33,22 @@ test("enforces timeout and unavailable credential without leaking details", asyn
   await assert.rejects(() => missing.request({ agentId: "architecture-manager", correlationId: "CORR", payload: {} }), /unavailable/);
 });
 
+test("maps an OpenAI-compatible Responses API payload to a safe Agent response", async () => {
+  const originalFetch = globalThis.fetch;
+  let request;
+  globalThis.fetch = async (url, options) => {
+    request = { url, options };
+    return new Response(JSON.stringify({ id: "resp_1", status: "completed", output: [{ content: [{ type: "output_text", text: "Real architecture response" }] }] }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const gateway = createAgentGateway({ configuration: { getById: () => ({ ...config(), gateway_url: "https://gateway.example.test/v1/responses" }) }, credentialResolver: () => "secret" });
+    const result = await gateway.request({ agentId: "architecture-manager", correlationId: "CORR-148", payload: { text: "Design the service" } });
+    assert.equal(request.url, "https://gateway.example.test/v1/responses");
+    assert.deepEqual(JSON.parse(request.options.body), { model: "gpt-5.6-terra", input: "Design the service" });
+    assert.equal(result.payload.text, "Real architecture response");
+    assert.equal(result.correlation_id, "CORR-148");
+    assert(!JSON.stringify(result).includes("secret"));
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 function config() { return { agent_id: "architecture-manager", agent_name: "Architecture Manager", gateway_url: "https://gateway.example.test/architecture", credential_ref: "env:ARCH_KEY", enabled: true, status: "configured", created_at: "2026-08-22T10:00:00Z", updated_at: "2026-08-22T10:00:00Z" }; }

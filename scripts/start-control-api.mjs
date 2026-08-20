@@ -19,8 +19,6 @@ import { createAgentCommunicationBus } from "../src/modules/governance/agent-com
 import { createAgentCommunicationStore } from "../src/modules/governance/agent-communication-store.js";
 import { createArchitectureDecisionStore } from "../src/modules/governance/architecture-decision-store.js";
 import { createArchitectureKnowledgeModel } from "../src/modules/governance/architecture-knowledge-model.js";
-import { createArchitectureManager } from "../src/modules/governance/architecture-manager.js";
-import { createArchitectureManagerAdapter } from "../src/modules/governance/architecture-manager-adapter.js";
 import { createRoadmapStore } from "../src/modules/governance/roadmap-store.js";
 import { createSprintPlanProjection } from "../src/modules/governance/sprint-plan-projection.js";
 import { createTicketProvenanceTracker } from "../src/modules/governance/ticket-provenance-tracker.js";
@@ -34,6 +32,16 @@ const communications = createAgentCommunicationStore({ database });
 const profiles = createAgentProfileStore({ database });
 const agentConfiguration = createNodeAgentConfiguration({ profiles, configurationPath: join(process.cwd(), ".node-control", "agent-config.json") });
 const secrets = new Map();
+const codexBaseUrl = process.env.OPENAI_BASE_URL?.replace(/\/$/, "");
+const codexCredential = process.env.OPENAI_API_KEY;
+if (codexCredential) secrets.set("env:OPENAI_API_KEY", codexCredential);
+if (codexBaseUrl && codexCredential) {
+  const current = profiles.getById("architecture-manager");
+  const gatewayUrl = codexBaseUrl.endsWith("/responses") ? codexBaseUrl : `${codexBaseUrl}/responses`;
+  if (!current) profiles.create({ agent_id: "architecture-manager", agent_name: "Architecture Manager", gateway_url: gatewayUrl, credential_ref: "env:OPENAI_API_KEY", enabled: true, status: "configured", created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+  else if (current.gateway_url.includes("gateway.example.test") || current.credential_ref.startsWith("runtime:")) profiles.update({ ...current, gateway_url: gatewayUrl, credential_ref: "env:OPENAI_API_KEY", enabled: true, status: "configured", updated_at: new Date().toISOString() });
+}
+agentConfiguration.sync();
 const agentGateway = createAgentGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference) });
 const agentSettings = createAgentSettingsService({ profiles, configuration: agentConfiguration, gateway: agentGateway, secretStore: secrets });
 const bus = createAgentCommunicationBus({ store: communications });
@@ -42,15 +50,6 @@ const roadmaps = createRoadmapStore({ database });
 const knowledge = createArchitectureKnowledgeModel({ decisions });
 const sprintPlans = createSprintPlanProjection({ roadmaps });
 const provenance = createTicketProvenanceTracker({ roadmaps, decisions });
-const manager = createArchitectureManager({
-  decisions,
-  knowledge,
-  roadmaps,
-  bus,
-  nodeId: "NODE"
-});
-createArchitectureManagerAdapter({ manager, bus, nodeId: "NODE" });
-
 const eventStore = createPersistentEventStore({ database });
 const runtimeService = createRuntimeService({
   sessionStore: createAgentSessionStore({ database }),
@@ -59,7 +58,7 @@ const runtimeService = createRuntimeService({
 });
 const api = createHttpApi({
   runtimeService,
-  ownerChatService: createOwnerChatService({ bus }),
+  ownerChatService: createOwnerChatService({ bus, agentRequest: ({ agentId, payload, correlationId }) => agentGateway.request({ agentId, payload, correlationId }) }),
   conversationStream: createConversationStream({ bus, communicationStore: communications }),
   architectureWorkspaceService: createArchitectureWorkspaceService({ knowledge, roadmaps, sprintPlans }),
   projectDashboardService: createProjectDashboardService({ roadmaps, sprintPlans, provenance }),
