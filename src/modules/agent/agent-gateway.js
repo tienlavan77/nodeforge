@@ -21,7 +21,7 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
   async function testConnection(agentId) {
     const config = getEnabledConfig(agentId);
     const credential = await resolveCredential(config.credential_ref);
-    await callTransport({ config, credential, payload: {}, correlationId: `CONNECTION-${agentId}`, operation: "health" });
+    await callTransport({ config, credential, payload: { text: "Health check. Respond with OK." }, correlationId: `CONNECTION-${agentId}`, operation: "health" });
     return { agent_id: agentId, status: "CONNECTED", gateway_url: config.gateway_url };
   }
 
@@ -64,7 +64,21 @@ function assertCorrelation(value) {
 }
 
 async function defaultTransport({ url, credential, payload, correlation_id: correlationId, signal }) {
-  const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${credential}`, "x-correlation-id": correlationId }, body: JSON.stringify(payload), signal });
+  const isResponses = url.replace(/\/$/, "").endsWith("/responses");
+  const requestBody = isResponses
+    ? { model: process.env.NODE_AGENT_MODEL ?? "gpt-5.6-terra", input: payload.text ?? JSON.stringify(payload) }
+    : payload;
+  const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${credential}`, "x-correlation-id": correlationId }, body: JSON.stringify(requestBody), signal });
   if (!response.ok) throw new ConfigurationError("Agent Gateway response is invalid.");
-  return { status: "completed", payload: await response.json() };
+  const body = await response.json();
+  if (isResponses) return { status: body.status ?? "completed", payload: { text: extractResponseText(body), response_id: body.id } };
+  return { status: "completed", payload: body };
+}
+
+function extractResponseText(body) {
+  if (typeof body?.output_text === "string") return body.output_text;
+  const parts = body?.output?.flatMap((item) => item.content ?? []) ?? [];
+  const text = parts.filter((item) => typeof item?.text === "string").map((item) => item.text).join("\n");
+  if (!text) throw new ConfigurationError("Agent Gateway response is invalid.");
+  return text;
 }
