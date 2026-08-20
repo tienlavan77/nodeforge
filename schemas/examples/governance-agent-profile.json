@@ -1,0 +1,10 @@
+{
+  "agent_id": "architecture-manager",
+  "agent_name": "Architecture Manager",
+  "gateway_url": "https://gateway.example.test/architecture",
+  "credential_ref": "env:ARCHITECTURE_MANAGER_API_KEY",
+  "enabled": false,
+  "status": "disabled",
+  "created_at": "2026-08-22T10:00:00Z",
+  "updated_at": "2026-08-22T10:00:00Z"
+}
