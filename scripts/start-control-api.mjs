@@ -58,7 +58,7 @@ const runtimeService = createRuntimeService({
 });
 const api = createHttpApi({
   runtimeService,
-  ownerChatService: createOwnerChatService({ bus, agentRequest: ({ agentId, payload, correlationId }) => agentGateway.request({ agentId, payload, correlationId }) }),
+  ownerChatService: createOwnerChatService({ bus, agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId }) }),
   conversationStream: createConversationStream({ bus, communicationStore: communications }),
   architectureWorkspaceService: createArchitectureWorkspaceService({ knowledge, roadmaps, sprintPlans }),
   projectDashboardService: createProjectDashboardService({ roadmaps, sprintPlans, provenance }),

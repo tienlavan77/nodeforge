@@ -1,6 +1,6 @@
 import { ConfigurationError } from "../shared/errors.js";
 
-export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest } = {}) {
+export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream } = {}) {
   if (typeof bus?.send !== "function") throw new ConfigurationError("Owner Chat Service requires the shared Communication Bus.");
   const messages = new Map();
 
@@ -24,8 +24,25 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     // Bus persists via the canonical Communication Store before dispatching.
     const persisted = bus.send(message);
     messages.set(persisted.id, Object.freeze(structuredClone(persisted)));
-    if (typeof agentRequest === "function") void requestRealAgent(persisted);
+    if (typeof agentStream === "function") void streamRealAgent(persisted);
+    else if (typeof agentRequest === "function") void requestRealAgent(persisted);
     return structuredClone(persisted);
+  }
+
+  async function streamRealAgent(message) {
+    let index = 0;
+    let text = "";
+    try {
+      bus.send(responseMessage(message, "architecture.working", { agent_status: "WORKING" }, "WORKING"));
+      for await (const chunk of agentStream({ agentId: architectureManagerId, payload: { text: message.payload.text }, correlationId: message.correlation_id })) {
+        if (chunk.completed) continue;
+        text += chunk.text;
+        bus.send(responseMessage(message, "architecture.message.delta", { text: chunk.text, accumulated_text: text, chunk_index: index++ }, `DELTA-${index}`));
+      }
+      bus.send(responseMessage(message, "architecture.message.received", { text, agent_status: "COMPLETED" }, "COMPLETED"));
+    } catch (error) {
+      bus.send(responseMessage(message, "architecture.error", { error: error.message, agent_status: "FAILED" }, "ERROR"));
+    }
   }
 
   async function requestRealAgent(message) {
@@ -37,8 +54,8 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     }
   }
 
-  function responseMessage(message, type, payload) {
-    return { id: `MSG-ARCHITECTURE-${type === "architecture.error" ? "ERROR" : "REAL"}-${message.id}`, project_id: message.project_id,
+  function responseMessage(message, type, payload, suffix = type === "architecture.error" ? "ERROR" : "REAL") {
+    return { id: `MSG-ARCHITECTURE-${suffix}-${message.id}`, project_id: message.project_id,
       sender: { id: architectureManagerId, role: "architecture_manager" }, recipient: { id: "NODE", role: "node" }, message_type: type,
       conversation_id: message.conversation_id, correlation_id: message.correlation_id, payload, timestamp: new Date().toISOString() };
   }
