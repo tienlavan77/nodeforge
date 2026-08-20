@@ -1,5 +1,10 @@
 export function createNodeClient() {
   return Object.freeze({
+    async getArchitectureWorkspace(projectId) {
+      const response = await fetch(`/projects/${projectId}/architecture-workspace`);
+      if (!response.ok) throw new Error("Node could not load the Architecture Workspace.");
+      return response.json();
+    },
     async postOwnerMessage({ projectId, conversationId, messageId, correlationId, text }) {
       const response = await fetch(`/projects/${projectId}/conversations/${conversationId}/messages`, {
         method: "POST",
