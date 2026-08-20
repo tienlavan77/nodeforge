@@ -9,6 +9,20 @@ export function createNodeClient() {
       if (!response.ok) throw new Error("Node rejected the owner message.");
       return response.json();
     },
+    connectConversationStream({ projectId, conversationId, afterMessageId, onMessage, onError }) {
+      if (typeof onMessage !== "function") throw new Error("Conversation stream requires an onMessage handler.");
+      const query = afterMessageId ? `?after=${encodeURIComponent(afterMessageId)}` : "";
+      const source = new EventSource(`/projects/${projectId}/conversations/${conversationId}/stream${query}`);
+      const delivered = new Set();
+      source.addEventListener("conversation.message", (event) => {
+        const message = JSON.parse(event.data);
+        if (delivered.has(message.message_id)) return;
+        delivered.add(message.message_id);
+        onMessage(message);
+      });
+      source.onerror = () => onError?.();
+      return Object.freeze({ close: () => source.close() });
+    },
     sendOwnerMessage(agentId, text) {
       return { id: `local-${Date.now()}`, agentId, text, timestamp: new Date().toISOString() };
     },

@@ -44,7 +44,7 @@ test("accepts Owner chat over HTTP, persists it before Architecture Manager disp
   assert.equal(bootstrap.registry.get("architecture-manager").runtimeAdapter, adapter);
   assert.equal(persistedBeforeDispatch, true);
   assert.equal(decisions.getById("DECISION-MSG-136").decision, body.payload.text);
-  assert.deepEqual(communication.getByCorrelationId("CORR-136").map(({ message_type }) => message_type), ["owner.message", "architecture.message.received"]);
+  assert.deepEqual(communication.getByCorrelationId("CORR-136").map(({ message_type }) => message_type), ["owner.message", "architecture.working", "architecture.message.received"]);
   assert.equal(communication.getById("MSG-136").conversation_id, "CONV-136");
 });
 

@@ -2,18 +2,26 @@ import { createServer } from "node:http";
 
 import { ConfigurationError } from "../../shared/errors.js";
 
-export function createHttpApi({ runtimeService, ownerChatService } = {}) {
+export function createHttpApi({ runtimeService, ownerChatService, conversationStream } = {}) {
   if (!runtimeService || typeof runtimeService.startTask !== "function" || typeof runtimeService.pauseSession !== "function"
     || typeof runtimeService.resumeSession !== "function" || typeof runtimeService.getSession !== "function" || typeof runtimeService.getProjectMemory !== "function") {
     throw new ConfigurationError("HTTP API requires a Runtime Service.");
   }
   if (ownerChatService !== undefined && typeof ownerChatService?.submit !== "function") throw new ConfigurationError("HTTP API Owner Chat Service must provide submit().");
+  if (conversationStream !== undefined && typeof conversationStream?.connect !== "function") throw new ConfigurationError("HTTP API Conversation Stream must provide connect().");
 
   return Object.freeze({ handler, createServer: () => createServer(handler) });
 
   async function handler(request, response) {
     try {
       const url = new URL(request.url ?? "/", "http://localhost");
+      const parts = url.pathname.split("/").filter(Boolean);
+      if (request.method === "GET" && parts.length === 5 && parts[0] === "projects" && parts[2] === "conversations" && parts[4] === "stream") {
+        if (!conversationStream) throw new ConfigurationError("Conversation SSE is not configured.");
+        const connection = conversationStream.connect({ projectId: parts[1], conversationId: parts[3], response, afterMessageId: request.headers?.["last-event-id"] ?? url.searchParams.get("after") ?? undefined });
+        request.once?.("close", () => connection.close());
+        return;
+      }
       const result = await route(request.method ?? "GET", url, request);
       writeJson(response, result.status, result.body);
     } catch (error) {

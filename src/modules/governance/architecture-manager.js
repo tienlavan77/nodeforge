@@ -18,7 +18,7 @@ export function createArchitectureManager({ decisions, knowledge, roadmaps, bus,
       standards: knowledge.getStandards(),
       constraints: knowledge.getConstraints()
     };
-    publish(request.project_id, "governance.architecture_plan.created", plan, input.timestamp);
+    publish(request.project_id, "governance.architecture_plan.created", plan, input.timestamp, input.request_id);
     return structuredClone(plan);
   }
 
@@ -26,7 +26,7 @@ export function createArchitectureManager({ decisions, knowledge, roadmaps, bus,
     const request = assertInput(input);
     const roadmap = normalizeRoadmap(input, request);
     const saved = roadmaps.save(roadmap);
-    publish(request.project_id, "governance.roadmap.created", saved, input.timestamp);
+    publish(request.project_id, "governance.roadmap.created", saved, input.timestamp, input.request_id);
     return structuredClone(saved);
   }
 
@@ -36,13 +36,13 @@ export function createArchitectureManager({ decisions, knowledge, roadmaps, bus,
     const sprints = (input.sprints ?? input.sprint_breakdown ?? []).map((sprint, index) => normalizeSprint(sprint, request, roadmapId, index));
     if (sprints.length === 0) throw new ConfigurationError("Sprint breakdown requires at least one sprint.");
     const breakdown = { project_id: request.project_id, roadmap_id: roadmapId, sprints };
-    publish(request.project_id, "governance.sprint_breakdown.created", breakdown, input.timestamp);
+    publish(request.project_id, "governance.sprint_breakdown.created", breakdown, input.timestamp, input.request_id);
     return structuredClone(breakdown);
   }
 
-  function publish(projectId, messageType, payload, timestamp) {
+  function publish(projectId, messageType, payload, timestamp, requestId) {
     bus.send({
-      id: `MSG-${messageType}-${projectId}`,
+      id: `MSG-${messageType}-${projectId}${requestId ? `-${requestId}` : ""}`,
       project_id: projectId,
       sender: { id: managerId, role: "architecture_manager" },
       recipient: { id: nodeId, role: "node" },
