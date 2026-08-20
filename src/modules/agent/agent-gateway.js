@@ -1,0 +1,70 @@
+import { ConfigurationError } from "../../shared/errors.js";
+
+const SAFE_URL = /^https:\/\//;
+
+export function createAgentGateway({ configuration, credentialResolver, transport = defaultTransport, timeoutMs = 10000 } = {}) {
+  if (typeof configuration?.getById !== "function") throw new ConfigurationError("Agent Gateway requires Node Agent Configuration.");
+  if (typeof credentialResolver !== "function") throw new ConfigurationError("Agent Gateway requires a credential resolver.");
+  if (typeof transport !== "function") throw new ConfigurationError("Agent Gateway transport must be a function.");
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1) throw new ConfigurationError("Agent Gateway timeout must be a positive integer.");
+
+  return Object.freeze({ request, testConnection });
+
+  async function request({ agentId, payload, correlationId } = {}) {
+    const config = getEnabledConfig(agentId);
+    assertCorrelation(correlationId);
+    if (!payload || typeof payload !== "object") throw new ConfigurationError("Agent Gateway payload is required.");
+    const credential = await resolveCredential(config.credential_ref);
+    return callTransport({ config, credential, payload: structuredClone(payload), correlationId, operation: "request" });
+  }
+
+  async function testConnection(agentId) {
+    const config = getEnabledConfig(agentId);
+    const credential = await resolveCredential(config.credential_ref);
+    await callTransport({ config, credential, payload: {}, correlationId: `CONNECTION-${agentId}`, operation: "health" });
+    return { agent_id: agentId, status: "CONNECTED", gateway_url: config.gateway_url };
+  }
+
+  function getEnabledConfig(agentId) {
+    if (typeof agentId !== "string" || agentId.length === 0) throw new ConfigurationError("Agent Gateway agent_id is required.");
+    const config = configuration.getById(agentId);
+    if (!config) throw new ConfigurationError(`Unknown Agent Gateway profile: ${agentId}.`);
+    if (!config.enabled) throw new ConfigurationError(`Agent Gateway is disabled: ${agentId}.`);
+    if (!SAFE_URL.test(config.gateway_url)) throw new ConfigurationError(`Agent Gateway URL is invalid for ${agentId}.`);
+    return config;
+  }
+
+  async function resolveCredential(reference) {
+    const value = await credentialResolver(reference);
+    if (typeof value !== "string" || value.length === 0) throw new ConfigurationError("Agent Gateway credential is unavailable.");
+    return value;
+  }
+
+  async function callTransport({ config, credential, payload, correlationId, operation }) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await transport({ url: config.gateway_url, credential, payload, correlation_id: correlationId, operation, signal: controller.signal });
+      validateResponse(response);
+      return { agent_id: config.agent_id, correlation_id: correlationId, status: response.status ?? "completed", payload: structuredClone(response.payload ?? response.data ?? response) };
+    } catch (error) {
+      if (error?.name === "AbortError") throw new ConfigurationError(`Agent Gateway request timed out for ${config.agent_id}.`);
+      if (error instanceof ConfigurationError) throw error;
+      throw new ConfigurationError(`Agent Gateway request failed for ${config.agent_id}.`);
+    } finally { clearTimeout(timeout); }
+  }
+}
+
+function validateResponse(response) {
+  if (!response || typeof response !== "object" || response.ok === false || (response.statusCode !== undefined && response.statusCode >= 400)) throw new ConfigurationError("Agent Gateway response is invalid.");
+}
+
+function assertCorrelation(value) {
+  if (typeof value !== "string" || value.length === 0) throw new ConfigurationError("Agent Gateway correlation_id is required.");
+}
+
+async function defaultTransport({ url, credential, payload, correlation_id: correlationId, signal }) {
+  const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${credential}`, "x-correlation-id": correlationId }, body: JSON.stringify(payload), signal });
+  if (!response.ok) throw new ConfigurationError("Agent Gateway response is invalid.");
+  return { status: "completed", payload: await response.json() };
+}
