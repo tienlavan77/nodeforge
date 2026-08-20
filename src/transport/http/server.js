@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 
 import { ConfigurationError } from "../../shared/errors.js";
 
-export function createHttpApi({ runtimeService, ownerChatService, conversationStream, architectureWorkspaceService, projectDashboardService, conversationAuditHistoryService, humanDecisionService } = {}) {
+export function createHttpApi({ runtimeService, ownerChatService, conversationStream, architectureWorkspaceService, projectDashboardService, conversationAuditHistoryService, humanDecisionService, agentSettingsService } = {}) {
   if (!runtimeService || typeof runtimeService.startTask !== "function" || typeof runtimeService.pauseSession !== "function"
     || typeof runtimeService.resumeSession !== "function" || typeof runtimeService.getSession !== "function" || typeof runtimeService.getProjectMemory !== "function") {
     throw new ConfigurationError("HTTP API requires a Runtime Service.");
@@ -13,6 +13,7 @@ export function createHttpApi({ runtimeService, ownerChatService, conversationSt
   if (projectDashboardService !== undefined && typeof projectDashboardService?.getDashboard !== "function") throw new ConfigurationError("HTTP API Project Dashboard Service must provide getDashboard().");
   if (conversationAuditHistoryService !== undefined && typeof conversationAuditHistoryService?.query !== "function") throw new ConfigurationError("HTTP API Conversation Audit History Service must provide query().");
   if (humanDecisionService !== undefined && typeof humanDecisionService?.submit !== "function") throw new ConfigurationError("HTTP API Human Decision Service must provide submit().");
+  if (agentSettingsService !== undefined && (typeof agentSettingsService?.list !== "function" || typeof agentSettingsService?.save !== "function" || typeof agentSettingsService?.testConnection !== "function")) throw new ConfigurationError("HTTP API Agent Settings Service must provide list(), save(), and testConnection().");
 
   return Object.freeze({ handler, createServer: () => createServer(handler) });
 
@@ -43,6 +44,18 @@ export function createHttpApi({ runtimeService, ownerChatService, conversationSt
     if (method === "POST" && parts.length === 3 && parts[0] === "projects" && parts[2] === "decisions") {
       if (!humanDecisionService) throw new ConfigurationError("Human Decision API is not configured.");
       return { status: 201, body: humanDecisionService.submit({ ...await readJson(request), project_id: parts[1] }) };
+    }
+    if (method === "GET" && parts.length === 2 && parts[0] === "agents" && parts[1] === "settings") {
+      if (!agentSettingsService) throw new ConfigurationError("Agent Settings API is not configured.");
+      return { status: 200, body: agentSettingsService.list() };
+    }
+    if (method === "PUT" && parts.length === 3 && parts[0] === "agents" && parts[2] === "settings") {
+      if (!agentSettingsService) throw new ConfigurationError("Agent Settings API is not configured.");
+      return { status: 200, body: agentSettingsService.save({ ...await readJson(request), agent_id: parts[1] }) };
+    }
+    if (method === "POST" && parts.length === 4 && parts[0] === "agents" && parts[2] === "settings" && parts[3] === "test") {
+      if (!agentSettingsService) throw new ConfigurationError("Agent Settings API is not configured.");
+      return { status: 200, body: await agentSettingsService.testConnection(parts[1]) };
     }
     if (method === "GET" && parts.length === 3 && parts[0] === "projects" && parts[2] === "architecture-workspace") {
       if (!architectureWorkspaceService) throw new ConfigurationError("Architecture Workspace API is not configured.");

@@ -22,6 +22,7 @@ function App() {
   const [dashboard, setDashboard] = useState(null);
   const [dashboardState, setDashboardState] = useState("loading");
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [settingsAgent, setSettingsAgent] = useState(null);
   const lastMessageId = useRef();
   const active = AGENTS.find((agent) => agent.id === activeAgent);
   const loadWorkspace = useCallback(async () => {
@@ -91,15 +92,16 @@ function App() {
     </header>
     <main className="workspace">
       <section className="architecture-panel panel" aria-label="Architecture Manager conversation">
-        <ArchitecturePanel client={client} onWorkspaceChanged={loadWorkspace} agent={{ ...AGENTS[0], status: workspaceStatus }} workspace={workspace} messages={messages[AGENTS[0].id]} draft={drafts[AGENTS[0].id] ?? ""} onDraft={(value) => setDrafts((current) => ({ ...current, [AGENTS[0].id]: value }))} onSend={() => send(AGENTS[0].id)} onActivate={() => setActiveAgent(AGENTS[0].id)} active={activeAgent === AGENTS[0].id} />
+        <ArchitecturePanel onSettings={() => setSettingsAgent(AGENTS[0])} client={client} onWorkspaceChanged={loadWorkspace} agent={{ ...AGENTS[0], status: workspaceStatus }} workspace={workspace} messages={messages[AGENTS[0].id]} draft={drafts[AGENTS[0].id] ?? ""} onDraft={(value) => setDrafts((current) => ({ ...current, [AGENTS[0].id]: value }))} onSend={() => send(AGENTS[0].id)} onActivate={() => setActiveAgent(AGENTS[0].id)} active={activeAgent === AGENTS[0].id} />
       </section>
       <section className="agent-stack">
-        <ProjectDashboardPanel agent={AGENTS[1]} dashboard={dashboard} state={dashboardState} onActivate={() => setActiveAgent(AGENTS[1].id)} active={activeAgent === AGENTS[1].id} />
-        {AGENTS.slice(2).map((agent) => <AgentPanel key={agent.id} agent={agent} messages={messages[agent.id]} draft={drafts[agent.id] ?? ""} onDraft={(value) => setDrafts((current) => ({ ...current, [agent.id]: value }))} onSend={() => send(agent.id)} onActivate={() => setActiveAgent(agent.id)} active={activeAgent === agent.id} />)}
+        <ProjectDashboardPanel onSettings={() => setSettingsAgent(AGENTS[1])} agent={AGENTS[1]} dashboard={dashboard} state={dashboardState} onActivate={() => setActiveAgent(AGENTS[1].id)} active={activeAgent === AGENTS[1].id} />
+        {AGENTS.slice(2).map((agent) => <AgentPanel onSettings={() => setSettingsAgent(agent)} key={agent.id} agent={agent} messages={messages[agent.id]} draft={drafts[agent.id] ?? ""} onDraft={(value) => setDrafts((current) => ({ ...current, [agent.id]: value }))} onSend={() => send(agent.id)} onActivate={() => setActiveAgent(agent.id)} active={activeAgent === agent.id} />)}
       </section>
     </main>
     <footer className="statusbar"><div><span className="status-key">ACTIVE CHANNEL</span><span className="status-value">{active.label}</span></div><div className="event-status"><span className="pulse" /> Event stream ready <span className="muted">/</span> session <strong>SPRINT-13</strong></div><div className="status-right">NODE v0.1.0</div></footer>
     {historyOpen && <HistoryOverlay client={client} onClose={() => setHistoryOpen(false)} />}
+    {settingsAgent && <AgentSettingsOverlay client={client} agent={settingsAgent} onClose={() => setSettingsAgent(null)} />}
   </div>;
 }
 
@@ -123,6 +125,14 @@ function HistoryOverlay({ client, onClose }) {
   return <div className="history-overlay" role="dialog" aria-modal="true" aria-label="Conversation and Audit History"><section className="history-modal"><header><div><h2>Conversation &amp; Audit History</h2><p>Read-only Node audit trail</p></div><button onClick={onClose} aria-label="Close history">&#215;</button></header><div className="history-filters"><select value={agentId} onChange={(event) => setAgentId(event.target.value)}><option value="">All agents</option>{AGENTS.map((agent) => <option key={agent.id} value={agent.id}>{agent.label}</option>)}</select><input value={conversationId} onChange={(event) => setConversationId(event.target.value)} placeholder="conversation_id" /><input value={type} onChange={(event) => setType(event.target.value)} placeholder="message/event type" /></div><div className="history-list">{state === "loading" && <p>Loading persisted history from Node…</p>}{state === "error" && <p className="error">Node could not load history.</p>}{state === "ready" && !items.length && <p>No persisted conversation or audit records match this filter.</p>}{items.map((item) => <article key={`${item.kind}-${item.id}`} className={`history-item ${item.kind}`}><div><strong>{item.kind}</strong><span>{item.type}</span></div><p>{JSON.stringify(item.content)}</p><small>{item.timestamp} · {item.sender} → {item.receiver}{item.conversation_id ? ` · ${item.conversation_id}` : ""}{item.correlation_id ? ` · ${item.correlation_id}` : ""}</small></article>)}{nextCursor && <button className="history-more" onClick={() => load(nextCursor)}>Load more</button>}</div></section></div>;
 }
 
+function AgentSettingsOverlay({ client, agent, onClose }) {
+  const [profile, setProfile] = useState(null); const [url, setUrl] = useState(""); const [key, setKey] = useState(""); const [enabled, setEnabled] = useState(false); const [message, setMessage] = useState("");
+  useEffect(() => { client.getAgentSettings().then((items) => { const item = items.find(({ agent_id: id }) => id === agent.id); if (item) { setProfile(item); setUrl(item.gateway_url); setEnabled(item.enabled); } }).catch((error) => setMessage(`Error: ${error.message}`)); }, [agent.id, client]);
+  async function save() { try { const item = await client.saveAgentSettings(agent.id, { agent_name: profile?.agent_name ?? agent.label, gateway_url: url, enabled, ...(key ? { api_key: key } : {}) }); setProfile(item); setKey(""); setMessage("Saved. API key remains masked in Node."); } catch (error) { setMessage(`Error: ${error.message}`); } }
+  async function testConnection() { try { const result = await client.testAgentConnection(agent.id); setMessage(`Connected: ${result.status}`); } catch (error) { setMessage(`Failed: ${error.message}`); } }
+  return <div className="settings-overlay" role="dialog" aria-modal="true"><section className="settings-modal"><header><h2>{agent.label} Settings</h2><button onClick={onClose} aria-label="Close Agent Settings">&#215;</button></header><label>Gateway URL<input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://..." /></label><label>API Key<input type="password" value={key} onChange={(event) => setKey(event.target.value)} placeholder="********" autoComplete="new-password" /></label><label className="settings-check"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> Enabled</label><div className="settings-actions"><button onClick={save}>Save Profile</button><button onClick={testConnection}>Test Connection</button></div>{message && <p aria-live="polite">{message}</p>}</section></div>;
+}
+
 function toDisplayMessage(message) {
   const isOwner = message.sender?.role === "project_owner";
   const text = message.payload?.text
@@ -130,7 +140,7 @@ function toDisplayMessage(message) {
   return { id: message.message_id, from: isOwner ? "owner" : message.message_type.includes("error") ? "system" : "agent", text, time: new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
 }
 
-function ArchitecturePanel({ client, onWorkspaceChanged, agent, workspace, messages, draft, onDraft, onSend, onActivate, active }) {
+function ArchitecturePanel({ client, onWorkspaceChanged, onSettings, agent, workspace, messages, draft, onDraft, onSend, onActivate, active }) {
   const conversationRef = useRef(null);
   const wasAtBottom = useRef(true);
   useEffect(() => {
@@ -138,7 +148,7 @@ function ArchitecturePanel({ client, onWorkspaceChanged, agent, workspace, messa
     if (element && wasAtBottom.current) element.scrollTop = element.scrollHeight;
   }, [messages]);
   return <article className={`agent-panel architecture-workspace ${active ? "is-active" : ""}`} onClick={onActivate}>
-    <PanelHeader agent={agent} />
+    <PanelHeader agent={agent} onSettings={onSettings} />
     <div className="architecture-columns">
       <div className="architecture-conversation conversation" ref={conversationRef} onScroll={(event) => { const element = event.currentTarget; wasAtBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 56; }} role="log" aria-label="Architecture Manager messages">
         <div className="date-rule"><span>Conversation</span></div>
@@ -178,9 +188,9 @@ function HumanDecisionActions({ client, onWorkspaceChanged, proposal }) {
   return <section className="decision-actions"><h3>Human Decision</h3><p>{proposal ? `Proposal: ${proposal.id}` : "Waiting for an architecture proposal."}</p><input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Reason for reject/change request" aria-label="Decision reason" /><div><button onClick={() => submit("APPROVE")}>Approve</button><button onClick={() => submit("REJECT")}>Reject</button><button onClick={() => submit("CHANGE_REQUEST")}>Change request</button></div>{result && <small>{result}</small>}</section>;
 }
 
-function ProjectDashboardPanel({ agent, dashboard, state, onActivate, active }) {
+function ProjectDashboardPanel({ agent, dashboard, state, onActivate, active, onSettings }) {
   return <article className={`agent-panel dashboard-panel ${active ? "is-active" : ""}`} onClick={onActivate}>
-    <PanelHeader agent={agent} />
+    <PanelHeader agent={agent} onSettings={onSettings} />
     <div className="dashboard-content" aria-label="Project and Sprint Dashboard">
       {state === "loading" && <p className="dashboard-state">Loading dashboard from Node…</p>}
       {state === "error" && <p className="dashboard-state error">Node could not load the Project Dashboard.</p>}
@@ -204,15 +214,15 @@ function WorkspaceSection({ title, items, empty }) {
   return <section className="workspace-section"><h3>{title}</h3>{items.length ? <div className="workspace-items">{items.map((item) => <div className="workspace-card" key={item.id}><strong>{item.title ?? item.id}</strong>{item.decision && <p>{item.decision}</p>}{item.objective && <p>{item.objective}</p>}{item.status && <span>{item.status}</span>}{item.tickets && <span>{item.tickets.length} ticket{item.tickets.length === 1 ? "" : "s"}</span>}</div>)}</div> : <p className="workspace-empty">{empty}</p>}</section>;
 }
 
-function PanelHeader({ agent }) {
-  return <header className="agent-header"><div className={`agent-avatar ${agent.tone}`}>{agent.short}</div><div className="agent-heading"><h2>{agent.label}</h2><div className="agent-status"><span className="status-dot" /> {agent.status}</div></div><button className="panel-menu" title="Panel actions" aria-label={`${agent.label} panel actions`}>&#8942;</button></header>;
+function PanelHeader({ agent, onSettings }) {
+  return <header className="agent-header"><div className={`agent-avatar ${agent.tone}`}>{agent.short}</div><div className="agent-heading"><h2>{agent.label}</h2><div className="agent-status"><span className="status-dot" /> {agent.status}</div></div><button className="panel-menu" onClick={onSettings} title="Agent Settings" aria-label={`${agent.label} Agent Settings`}>&#9881;</button></header>;
 }
 
 function Message({ message }) {
   return <div className={`message-row ${message.from === "owner" ? "owner" : "agent"}`}><div className="message-bubble"><p>{message.text}</p><time>{message.time}</time></div></div>;
 }
 
-function AgentPanel({ agent, messages, draft, onDraft, onSend, onActivate, active, expanded }) {
+function AgentPanel({ agent, messages, draft, onDraft, onSend, onActivate, active, expanded, onSettings }) {
   const conversationRef = useRef(null);
   const wasAtBottom = useRef(true);
   useEffect(() => {
@@ -221,7 +231,7 @@ function AgentPanel({ agent, messages, draft, onDraft, onSend, onActivate, activ
     if (wasAtBottom.current) element.scrollTop = element.scrollHeight;
   }, [messages]);
   return <article className={`agent-panel panel ${expanded ? "expanded" : ""} ${active ? "is-active" : ""}`} onClick={onActivate}>
-    <PanelHeader agent={agent} />
+    <PanelHeader agent={agent} onSettings={onSettings} />
     <div className="conversation" ref={conversationRef} onScroll={(event) => { const element = event.currentTarget; wasAtBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 56; }} role="log" aria-label={`${agent.label} messages`}>
       <div className="date-rule"><span>Today</span></div>
       {messages.map((message, index) => <Message key={message.id ?? `${message.time}-${index}`} message={message} />)}

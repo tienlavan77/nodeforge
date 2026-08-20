@@ -1,5 +1,22 @@
 export function createNodeClient() {
   return Object.freeze({
+    async getAgentSettings() {
+      const response = await fetch("/agents/settings");
+      if (!response.ok) throw new Error("Node could not load Agent Settings.");
+      return response.json();
+    },
+    async saveAgentSettings(agentId, settings) {
+      const response = await fetch(`/agents/${agentId}/settings`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(settings) });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "Node rejected Agent Settings.");
+      return body;
+    },
+    async testAgentConnection(agentId) {
+      const response = await fetch(`/agents/${agentId}/settings/test`, { method: "POST" });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "Agent connection failed.");
+      return body;
+    },
     async postHumanDecision({ projectId, decisionId, actor, proposalId, decision, reason, correlationId }) {
       const response = await fetch(`/projects/${projectId}/decisions`, {
         method: "POST", headers: { "content-type": "application/json" },
