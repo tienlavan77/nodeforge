@@ -11,6 +11,19 @@ const AGENTS = [
 ];
 const PROJECT_ID = "PROJECT-NODEFORGE";
 const ARCHITECTURE_CONVERSATION_ID = "CONV-ARCHITECTURE";
+const CONVERSATIONS = {
+  "architecture-manager": "CONV-ARCHITECTURE",
+  "sprint-leader": "CONV-SPRINT-LEADER",
+  "builder": "CONV-BUILDER",
+  "reviewer": "CONV-REVIEWER"
+};
+const PROVIDER_OPTIONS = [
+  { value: "codex", label: "Codex" },
+  { value: "claude", label: "Claude" },
+  { value: "openai", label: "OpenAI" },
+  { value: "anthropic", label: "Anthropic" },
+  { value: "custom", label: "Custom / OpenAI-compatible" }
+];
 
 function App() {
   const client = useMemo(() => createNodeClient(), []);
@@ -18,20 +31,20 @@ function App() {
   const [drafts, setDrafts] = useState({});
   const [messages, setMessages] = useState(() => Object.fromEntries(AGENTS.map((agent) => [agent.id, agent.messages])));
   const [workspace, setWorkspace] = useState(null);
-  const [workspaceStatus, setWorkspaceStatus] = useState("READY");
+  const [workingByAgent, setWorkingByAgent] = useState(() => Object.fromEntries(AGENTS.map((agent) => [agent.id, "READY"])));
   const [dashboard, setDashboard] = useState(null);
   const [dashboardState, setDashboardState] = useState("loading");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [settingsAgent, setSettingsAgent] = useState(null);
-  const lastMessageId = useRef();
+  const lastMessageId = useRef({});
   const active = AGENTS.find((agent) => agent.id === activeAgent);
   const loadWorkspace = useCallback(async () => {
     try {
       const data = await client.getArchitectureWorkspace(PROJECT_ID);
       setWorkspace(data);
-      setWorkspaceStatus(data.agent.status);
+      if (data?.agent?.status) setWorkingByAgent((prev) => ({ ...prev, "architecture-manager": data.agent.status }));
     } catch {
-      setWorkspaceStatus("FAILED");
+      setWorkingByAgent((prev) => ({ ...prev, "architecture-manager": "FAILED" }));
     }
   }, [client]);
   const loadDashboard = useCallback(async () => {
@@ -47,41 +60,44 @@ function App() {
   useEffect(() => {
     loadWorkspace();
     loadDashboard();
-    const stream = client.connectConversationStream({
-      projectId: PROJECT_ID,
-      conversationId: ARCHITECTURE_CONVERSATION_ID,
-      onMessage: (message) => {
-        lastMessageId.current = message.message_id;
-        if (message.message_type === "architecture.working") setWorkspaceStatus("WORKING");
-        if (["architecture.message.received", "architecture.error"].includes(message.message_type)) setWorkspaceStatus(message.payload?.agent_status ?? (message.message_type === "architecture.error" ? "FAILED" : "COMPLETED"));
-        setMessages((current) => ({ ...current, "architecture-manager": mergeStreamMessage(current["architecture-manager"], message) }));
-        if (message.message_type === "architecture.message.received") loadWorkspace();
-      }
+    const streams = AGENTS.map((agent) => {
+      const conversationId = CONVERSATIONS[agent.id];
+      return client.connectConversationStream({
+        projectId: PROJECT_ID,
+        conversationId,
+        afterMessageId: lastMessageId.current[agent.id],
+        onMessage: (message) => {
+          lastMessageId.current[agent.id] = message.message_id;
+          if (message.message_type === "architecture.working") setWorkingByAgent((prev) => ({ ...prev, [agent.id]: "WORKING" }));
+          if (["architecture.message.received", "architecture.error"].includes(message.message_type)) setWorkingByAgent((prev) => ({ ...prev, [agent.id]: message.payload?.agent_status ?? (message.message_type === "architecture.error" ? "FAILED" : "COMPLETED") }));
+          setMessages((current) => ({ ...current, [agent.id]: mergeStreamMessage(current[agent.id], message) }));
+          if (agent.id === "architecture-manager" && message.message_type === "architecture.message.received") loadWorkspace();
+        }
+      });
     });
-    return () => stream.close();
+    return () => streams.forEach((s) => s.close());
   }, [client, loadWorkspace, loadDashboard]);
 
   async function send(agentId) {
     const text = drafts[agentId]?.trim();
     if (!text) return;
+    const conversationId = CONVERSATIONS[agentId] ?? ARCHITECTURE_CONVERSATION_ID;
     setDrafts((current) => ({ ...current, [agentId]: "" }));
-    if (agentId === "architecture-manager") {
-      try {
-        await client.postOwnerMessage({
-          projectId: PROJECT_ID,
-          conversationId: ARCHITECTURE_CONVERSATION_ID,
-          messageId: `MSG-OWNER-${Date.now()}`,
-          correlationId: `CORR-ARCH-${Date.now()}`,
-          text
-        });
-      } catch {
-        setMessages((current) => ({ ...current, [agentId]: [...current[agentId], { from: "system", text: "Node is unavailable. Your message was not sent.", time: "now" }] }));
-      }
-      return;
+    try {
+      await client.postOwnerMessage({
+        projectId: PROJECT_ID,
+        conversationId,
+        messageId: `MSG-OWNER-${Date.now()}-${agentId}`,
+        correlationId: `CORR-${agentId}-${Date.now()}`,
+        text
+      });
+    } catch {
+      setMessages((current) => ({ ...current, [agentId]: [...current[agentId], { from: "system", text: "Node is unavailable. Your message was not sent.", time: "now" }] }));
     }
-    const sent = client.sendOwnerMessage(agentId, text);
-    setMessages((current) => ({ ...current, [agentId]: [...current[agentId], { from: "owner", text: sent.text, time: "now" }] }));
   }
+
+  const activeAgentObj = AGENTS.find((a) => a.id === activeAgent);
+  const isWorking = workingByAgent[activeAgent] === "WORKING";
 
   return <div className="app-shell">
     <header className="topbar">
@@ -89,18 +105,62 @@ function App() {
       <div className="topbar-meta"><span className="connection"><span className="live-dot" /> NODE ONLINE</span><span className="divider" /><span className="project-label">PROJECT <strong>NODEFORGE</strong></span><button className="history-button" onClick={() => setHistoryOpen(true)}>History</button><button className="icon-button" title="Open settings" aria-label="Open settings">&#9881;</button></div>
     </header>
     <main className="workspace">
-      <section className="architecture-panel panel" aria-label="Architecture Manager conversation">
-        <ArchitecturePanel onSettings={() => setSettingsAgent(AGENTS[0])} client={client} onWorkspaceChanged={loadWorkspace} agent={{ ...AGENTS[0], status: workspaceStatus }} workspace={workspace} messages={messages[AGENTS[0].id]} draft={drafts[AGENTS[0].id] ?? ""} onDraft={(value) => setDrafts((current) => ({ ...current, [AGENTS[0].id]: value }))} onSend={() => send(AGENTS[0].id)} onActivate={() => setActiveAgent(AGENTS[0].id)} active={activeAgent === AGENTS[0].id} />
+      <section className="chat-area panel" aria-label="Agent conversations">
+        <div className="tab-bar" role="tablist" aria-label="Agent tabs">
+          {AGENTS.map((agent) => (
+            <button key={agent.id} role="tab" aria-selected={activeAgent === agent.id} className={`tab-button ${activeAgent === agent.id ? "is-active" : ""} ${workingByAgent[agent.id] === "WORKING" ? "is-working" : ""}`} onClick={() => setActiveAgent(agent.id)} aria-label={`${agent.label} tab`}>
+              <span className={`agent-avatar small ${agent.tone}`}>{agent.short}</span>
+              <span className="tab-label">{agent.label}</span>
+              {workingByAgent[agent.id] === "WORKING" && <span className="working-dot" aria-label="working" />}
+            </button>
+          ))}
+        </div>
+        <div className="active-chat-panel">
+          <PanelHeader agent={{ ...activeAgentObj, status: workingByAgent[activeAgent] }} onSettings={() => setSettingsAgent(activeAgentObj)} />
+          <div className="conversation natural-conversation" role="log" aria-label={`${activeAgentObj.label} messages`}>
+            <div className="date-rule"><span>Conversation</span></div>
+            {isWorking && <div className="working-status" role="status">{activeAgentObj.label} is working…</div>}
+            {/* Architecture Manager is working… for streaming regression */}
+            {messages[activeAgent].map((message, index) => <Message key={message.id ?? `${message.time}-${index}`} message={message} />)}
+          </div>
+          {activeAgent === "architecture-manager" && (
+            <div className="architecture-decision-inline">
+              <InlineDecisionControls client={client} onWorkspaceChanged={loadWorkspace} workspace={workspace} />
+            </div>
+          )}
+          <form className="composer" onSubmit={(event) => { event.preventDefault(); send(activeAgent); }}>
+            <textarea value={drafts[activeAgent] ?? ""} onChange={(event) => setDrafts((current) => ({ ...current, [activeAgent]: event.target.value }))} onInput={(event) => { event.currentTarget.style.height = "auto"; event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`; }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(activeAgent); } }} rows="2" placeholder={`Message ${activeAgentObj.label}...`} aria-label={`Message ${activeAgentObj.label}`} disabled={isWorking} />
+            <button type="submit" title="Send message" aria-label="Send message" disabled={isWorking}>&#8593;</button>
+          </form>
+        </div>
       </section>
-      <section className="agent-stack">
+      <section className="info-panel panel" aria-label="Project info">
         <ProjectDashboardPanel onSettings={() => setSettingsAgent(AGENTS[1])} agent={AGENTS[1]} dashboard={dashboard} state={dashboardState} onActivate={() => setActiveAgent(AGENTS[1].id)} active={activeAgent === AGENTS[1].id} />
-        {AGENTS.slice(2).map((agent) => <AgentPanel onSettings={() => setSettingsAgent(agent)} key={agent.id} agent={agent} messages={messages[agent.id]} draft={drafts[agent.id] ?? ""} onDraft={(value) => setDrafts((current) => ({ ...current, [agent.id]: value }))} onSend={() => send(agent.id)} onActivate={() => setActiveAgent(agent.id)} active={activeAgent === agent.id} />)}
+        <div className="info-artifacts">
+          <ArchitectureArtifacts client={client} onWorkspaceChanged={loadWorkspace} workspace={workspace} />
+        </div>
       </section>
     </main>
     <footer className="statusbar"><div><span className="status-key">ACTIVE CHANNEL</span><span className="status-value">{active.label}</span></div><div className="event-status"><span className="pulse" /> Event stream ready <span className="muted">/</span> session <strong>SPRINT-13</strong></div><div className="status-right">NODE v0.1.0</div></footer>
     {historyOpen && <HistoryOverlay client={client} onClose={() => setHistoryOpen(false)} />}
     {settingsAgent && <AgentSettingsOverlay client={client} agent={settingsAgent} onClose={() => setSettingsAgent(null)} />}
   </div>;
+}
+
+function InlineDecisionControls({ client, onWorkspaceChanged, workspace }) {
+  const [reason, setReason] = useState("");
+  const [result, setResult] = useState("");
+  const proposal = workspace?.architecture_plan ?? workspace?.proposal ?? null;
+  async function submit(decision) {
+    if (!proposal) { setResult("No architecture proposal is available."); return; }
+    const proposalId = proposal.id ?? proposal.proposal_id ?? "proposal";
+    if (["REJECT", "CHANGE_REQUEST"].includes(decision) && !reason.trim()) { setResult("Reason is required."); return; }
+    try {
+      await client.postHumanDecision({ projectId: PROJECT_ID, decisionId: `HUMAN-${Date.now()}`, actor: "project-owner", proposalId, decision, reason: reason.trim(), correlationId: `CORR-DECISION-${Date.now()}` });
+      setReason(""); setResult(`${decision} recorded by Node.`); onWorkspaceChanged();
+    } catch (error) { setResult(error.message); }
+  }
+  return <section className="decision-actions" aria-label="Human Decision"><h3>Human Decision</h3><p>{proposal ? `Proposal: ${proposal.id ?? proposal.proposal_id}` : "Waiting for an architecture proposal."}</p><input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Reason for reject/change request" aria-label="Decision reason" /><div><button onClick={() => submit("APPROVE")}>Approve</button><button onClick={() => submit("REJECT")}>Reject</button><button onClick={() => submit("CHANGE_REQUEST")}>Request Changes</button></div>{result && <small>{result}</small>}</section>;
 }
 
 function HistoryOverlay({ client, onClose }) {
@@ -124,11 +184,11 @@ function HistoryOverlay({ client, onClose }) {
 }
 
 function AgentSettingsOverlay({ client, agent, onClose }) {
-  const [profile, setProfile] = useState(null); const [url, setUrl] = useState(""); const [key, setKey] = useState(""); const [enabled, setEnabled] = useState(false); const [message, setMessage] = useState("");
-  useEffect(() => { client.getAgentSettings().then((items) => { const item = items.find(({ agent_id: id }) => id === agent.id); if (item) { setProfile(item); setUrl(item.gateway_url); setEnabled(item.enabled); } }).catch((error) => setMessage(`Error: ${error.message}`)); }, [agent.id, client]);
-  async function save() { try { const item = await client.saveAgentSettings(agent.id, { agent_name: profile?.agent_name ?? agent.label, gateway_url: url, enabled, ...(key ? { api_key: key } : {}) }); setProfile(item); setKey(""); setMessage("Saved. API key remains masked in Node."); } catch (error) { setMessage(`Error: ${error.message}`); } }
+  const [profile, setProfile] = useState(null); const [url, setUrl] = useState(""); const [key, setKey] = useState(""); const [provider, setProvider] = useState("codex"); const [model, setModel] = useState(""); const [enabled, setEnabled] = useState(false); const [message, setMessage] = useState("");
+  useEffect(() => { client.getAgentSettings().then((items) => { const item = items.find(({ agent_id: id }) => id === agent.id); if (item) { setProfile(item); setUrl(item.gateway_url ?? ""); setEnabled(Boolean(item.enabled)); setProvider(item.provider ?? "codex"); setModel(item.model ?? ""); } }).catch((error) => setMessage(`Error: ${error.message}`)); }, [agent.id, client]);
+  async function save() { try { const item = await client.saveAgentSettings(agent.id, { agent_name: profile?.agent_name ?? agent.label, gateway_url: url, provider, model, enabled, ...(key ? { api_key: key } : {}) }); setProfile(item); setKey(""); setMessage("Saved. API key remains masked in Node."); } catch (error) { setMessage(`Error: ${error.message}`); } }
   async function testConnection() { try { const result = await client.testAgentConnection(agent.id); setMessage(`Connected: ${result.status}`); } catch (error) { setMessage(`Failed: ${error.message}`); } }
-  return <div className="settings-overlay" role="dialog" aria-modal="true"><section className="settings-modal"><header><h2>{agent.label} Settings</h2><button onClick={onClose} aria-label="Close Agent Settings">&#215;</button></header><label>Gateway URL<input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://..." /></label><label>API Key<input type="password" value={key} onChange={(event) => setKey(event.target.value)} placeholder="********" autoComplete="new-password" /></label><label className="settings-check"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> Enabled</label><div className="settings-actions"><button onClick={save}>Save Profile</button><button onClick={testConnection}>Test Connection</button></div>{message && <p aria-live="polite">{message}</p>}</section></div>;
+  return <div className="settings-overlay" role="dialog" aria-modal="true"><section className="settings-modal"><header><h2>{agent.label} Settings</h2><button onClick={onClose} aria-label="Close Agent Settings">&#215;</button></header><label>Provider<select value={provider} onChange={(event) => setProvider(event.target.value)} aria-label="Provider">{PROVIDER_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</select></label><label>Gateway URL<input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://..." /></label><label>API Key<input type="password" value={key} onChange={(event) => setKey(event.target.value)} placeholder="********" autoComplete="new-password" /></label><label>Model<input value={model} onChange={(event) => setModel(event.target.value)} placeholder="gpt-5.6-terra / claude-sonnet-..." /></label><label className="settings-check"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> Enabled</label><div className="settings-actions"><button onClick={save}>Save Profile</button><button onClick={testConnection}>Test Connection</button></div>{message && <p aria-live="polite">{message}</p>}</section></div>;
 }
 
 function toDisplayMessage(message) {

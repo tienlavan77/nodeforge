@@ -13,6 +13,8 @@
     "enabled": { "type": "boolean" },
     "status": { "type": "string", "enum": ["configured", "disabled", "error"] },
     "created_at": { "type": "string", "format": "date-time" },
-    "updated_at": { "type": "string", "format": "date-time" }
+    "updated_at": { "type": "string", "format": "date-time" },
+    "provider": { "type": "string", "enum": ["codex", "claude", "openai", "anthropic", "custom"] },
+    "model": { "type": "string" }
   }
 }
