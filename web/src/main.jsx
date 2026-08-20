@@ -91,7 +91,7 @@ function App() {
     </header>
     <main className="workspace">
       <section className="architecture-panel panel" aria-label="Architecture Manager conversation">
-        <ArchitecturePanel agent={{ ...AGENTS[0], status: workspaceStatus }} workspace={workspace} messages={messages[AGENTS[0].id]} draft={drafts[AGENTS[0].id] ?? ""} onDraft={(value) => setDrafts((current) => ({ ...current, [AGENTS[0].id]: value }))} onSend={() => send(AGENTS[0].id)} onActivate={() => setActiveAgent(AGENTS[0].id)} active={activeAgent === AGENTS[0].id} />
+        <ArchitecturePanel client={client} onWorkspaceChanged={loadWorkspace} agent={{ ...AGENTS[0], status: workspaceStatus }} workspace={workspace} messages={messages[AGENTS[0].id]} draft={drafts[AGENTS[0].id] ?? ""} onDraft={(value) => setDrafts((current) => ({ ...current, [AGENTS[0].id]: value }))} onSend={() => send(AGENTS[0].id)} onActivate={() => setActiveAgent(AGENTS[0].id)} active={activeAgent === AGENTS[0].id} />
       </section>
       <section className="agent-stack">
         <ProjectDashboardPanel agent={AGENTS[1]} dashboard={dashboard} state={dashboardState} onActivate={() => setActiveAgent(AGENTS[1].id)} active={activeAgent === AGENTS[1].id} />
@@ -130,7 +130,7 @@ function toDisplayMessage(message) {
   return { id: message.message_id, from: isOwner ? "owner" : message.message_type.includes("error") ? "system" : "agent", text, time: new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
 }
 
-function ArchitecturePanel({ agent, workspace, messages, draft, onDraft, onSend, onActivate, active }) {
+function ArchitecturePanel({ client, onWorkspaceChanged, agent, workspace, messages, draft, onDraft, onSend, onActivate, active }) {
   const conversationRef = useRef(null);
   const wasAtBottom = useRef(true);
   useEffect(() => {
@@ -144,16 +144,17 @@ function ArchitecturePanel({ agent, workspace, messages, draft, onDraft, onSend,
         <div className="date-rule"><span>Conversation</span></div>
         {messages.map((message, index) => <Message key={message.id ?? `${message.time}-${index}`} message={message} />)}
       </div>
-      <ArchitectureArtifacts workspace={workspace} />
+      <ArchitectureArtifacts client={client} onWorkspaceChanged={onWorkspaceChanged} workspace={workspace} />
     </div>
     <form className="composer" onSubmit={(event) => { event.preventDefault(); onSend(); }}><input value={draft} onChange={(event) => onDraft(event.target.value)} placeholder="Message Architecture Manager..." aria-label="Message Architecture Manager" /><button type="submit" title="Send message" aria-label="Send message">&#8593;</button></form>
   </article>;
 }
 
-function ArchitectureArtifacts({ workspace }) {
+function ArchitectureArtifacts({ client, onWorkspaceChanged, workspace }) {
   if (!workspace) return <div className="architecture-artifacts"><div className="workspace-loading">Loading Architecture Workspace from Node…</div></div>;
   const plan = workspace.architecture_plan;
   return <aside className="architecture-artifacts" aria-label="Architecture Workspace data">
+    <HumanDecisionActions client={client} onWorkspaceChanged={onWorkspaceChanged} proposal={workspace.decisions.find((item) => item.type === "architecture")} />
     <WorkspaceSection title="Architecture Plan" items={plan.architecture} empty="No architecture plan published yet." />
     <WorkspaceSection title="Architecture Decisions" items={workspace.decisions} empty="No decisions published yet." />
     <WorkspaceSection title="Standards" items={workspace.standards} empty="No standards published yet." />
@@ -161,6 +162,20 @@ function ArchitectureArtifacts({ workspace }) {
     <section className="workspace-section"><h3>Current Roadmap</h3>{workspace.roadmap ? <div className="roadmap-card"><strong>{workspace.roadmap.id}</strong><span>Version {workspace.roadmap.version}</span></div> : <p className="workspace-empty">No roadmap published yet.</p>}</section>
     <WorkspaceSection title="Sprint Breakdown" items={workspace.sprint_breakdown} empty="No sprint breakdown published yet." />
   </aside>;
+}
+
+function HumanDecisionActions({ client, onWorkspaceChanged, proposal }) {
+  const [reason, setReason] = useState("");
+  const [result, setResult] = useState("");
+  async function submit(decision) {
+    if (!proposal) { setResult("No architecture proposal is available."); return; }
+    if (["REJECT", "CHANGE_REQUEST"].includes(decision) && !reason.trim()) { setResult("Reason is required."); return; }
+    try {
+      await client.postHumanDecision({ projectId: PROJECT_ID, decisionId: `HUMAN-${Date.now()}`, actor: "project-owner", proposalId: proposal.id, decision, reason: reason.trim(), correlationId: `CORR-DECISION-${Date.now()}` });
+      setReason(""); setResult(`${decision} recorded by Node.`); onWorkspaceChanged();
+    } catch (error) { setResult(error.message); }
+  }
+  return <section className="decision-actions"><h3>Human Decision</h3><p>{proposal ? `Proposal: ${proposal.id}` : "Waiting for an architecture proposal."}</p><input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Reason for reject/change request" aria-label="Decision reason" /><div><button onClick={() => submit("APPROVE")}>Approve</button><button onClick={() => submit("REJECT")}>Reject</button><button onClick={() => submit("CHANGE_REQUEST")}>Change request</button></div>{result && <small>{result}</small>}</section>;
 }
 
 function ProjectDashboardPanel({ agent, dashboard, state, onActivate, active }) {

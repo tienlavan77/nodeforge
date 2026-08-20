@@ -1,5 +1,14 @@
 export function createNodeClient() {
   return Object.freeze({
+    async postHumanDecision({ projectId, decisionId, actor, proposalId, decision, reason, correlationId }) {
+      const response = await fetch(`/projects/${projectId}/decisions`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ decision_id: decisionId, type: "human_governance", actor, actor_role: "project_owner", proposal_id: proposalId, decision, ...(reason ? { reason } : {}), correlation_id: correlationId, timestamp: new Date().toISOString() })
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "Node rejected the Human Decision.");
+      return body;
+    },
     async getConversationAuditHistory({ projectId, agentId, conversationId, correlationId, type, cursor, limit = 25 }) {
       const params = new URLSearchParams({ limit: String(limit) });
       if (agentId) params.set("agent", agentId);

@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 
 import { ConfigurationError } from "../../shared/errors.js";
 
-export function createHttpApi({ runtimeService, ownerChatService, conversationStream, architectureWorkspaceService, projectDashboardService, conversationAuditHistoryService } = {}) {
+export function createHttpApi({ runtimeService, ownerChatService, conversationStream, architectureWorkspaceService, projectDashboardService, conversationAuditHistoryService, humanDecisionService } = {}) {
   if (!runtimeService || typeof runtimeService.startTask !== "function" || typeof runtimeService.pauseSession !== "function"
     || typeof runtimeService.resumeSession !== "function" || typeof runtimeService.getSession !== "function" || typeof runtimeService.getProjectMemory !== "function") {
     throw new ConfigurationError("HTTP API requires a Runtime Service.");
@@ -12,6 +12,7 @@ export function createHttpApi({ runtimeService, ownerChatService, conversationSt
   if (architectureWorkspaceService !== undefined && typeof architectureWorkspaceService?.getWorkspace !== "function") throw new ConfigurationError("HTTP API Architecture Workspace Service must provide getWorkspace().");
   if (projectDashboardService !== undefined && typeof projectDashboardService?.getDashboard !== "function") throw new ConfigurationError("HTTP API Project Dashboard Service must provide getDashboard().");
   if (conversationAuditHistoryService !== undefined && typeof conversationAuditHistoryService?.query !== "function") throw new ConfigurationError("HTTP API Conversation Audit History Service must provide query().");
+  if (humanDecisionService !== undefined && typeof humanDecisionService?.submit !== "function") throw new ConfigurationError("HTTP API Human Decision Service must provide submit().");
 
   return Object.freeze({ handler, createServer: () => createServer(handler) });
 
@@ -38,6 +39,10 @@ export function createHttpApi({ runtimeService, ownerChatService, conversationSt
       if (!ownerChatService) throw new ConfigurationError("Owner Chat API is not configured.");
       const body = await readJson(request);
       return { status: 202, body: ownerChatService.submit({ ...body, project_id: parts[1], conversation_id: parts[3] }) };
+    }
+    if (method === "POST" && parts.length === 3 && parts[0] === "projects" && parts[2] === "decisions") {
+      if (!humanDecisionService) throw new ConfigurationError("Human Decision API is not configured.");
+      return { status: 201, body: humanDecisionService.submit({ ...await readJson(request), project_id: parts[1] }) };
     }
     if (method === "GET" && parts.length === 3 && parts[0] === "projects" && parts[2] === "architecture-workspace") {
       if (!architectureWorkspaceService) throw new ConfigurationError("Architecture Workspace API is not configured.");

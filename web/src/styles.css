@@ -36,6 +36,7 @@ button, input { font: inherit; }
 .workspace-card span, .roadmap-card span { color: #777f8d; font-family: 'DM Mono', monospace; font-size: 14px; }
 .workspace-empty, .workspace-loading { margin: 0; color: #6f7785; font-family: 'DM Mono', monospace; font-size: 14px; line-height: 1.5; }
 .workspace-loading { padding: 20px 2px; }
+.decision-actions { margin: 0 0 22px; padding: 11px; border: 1px solid #474176; background: #211f33; }.decision-actions h3 { margin: 0 0 6px; color: #d0cafc; font-family: 'DM Mono', monospace; font-size: 14px; text-transform: uppercase; }.decision-actions p, .decision-actions small { margin: 0 0 8px; color: #969eb0; font-size: 14px; }.decision-actions input { width: 100%; border: 1px solid #3d4052; background: #181a22; color: #d7d9e2; padding: 8px; font-size: 14px; }.decision-actions div { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }.decision-actions button { border: 1px solid #5b539b; background: #302c51; color: #d2cff4; padding: 6px 8px; cursor: pointer; font-size: 14px; }.decision-actions small { display: block; margin-top: 8px; color: #b5c9a9; }
 .dashboard-content { min-height: 0; flex: 1; overflow: auto; padding: 13px 18px 17px; scrollbar-width: thin; scrollbar-color: #353a45 transparent; }
 .dashboard-state { margin: 2px 0; color: #7d8592; font-family: 'DM Mono', monospace; font-size: 14px; line-height: 1.45; }
 .dashboard-state.error { color: #d48b8b; }

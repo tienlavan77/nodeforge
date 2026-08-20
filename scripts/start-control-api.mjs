@@ -5,6 +5,7 @@ import { createRuntimeService } from "../src/application/runtime-service.js";
 import { createArchitectureWorkspaceService } from "../src/application/architecture-workspace-service.js";
 import { createProjectDashboardService } from "../src/application/project-dashboard-service.js";
 import { createConversationAuditHistoryService } from "../src/application/conversation-audit-history-service.js";
+import { createHumanDecisionService } from "../src/application/human-decision-service.js";
 import { createOwnerChatService } from "../src/application/owner-chat-service.js";
 import { openIndexDatabase } from "../src/infrastructure/sqlite/index-database.js";
 import { createAgentSessionStore } from "../src/modules/agent/session-store.js";
@@ -53,7 +54,8 @@ const api = createHttpApi({
   conversationStream: createConversationStream({ bus, communicationStore: communications }),
   architectureWorkspaceService: createArchitectureWorkspaceService({ knowledge, roadmaps, sprintPlans }),
   projectDashboardService: createProjectDashboardService({ roadmaps, sprintPlans, provenance }),
-  conversationAuditHistoryService: createConversationAuditHistoryService({ communications, eventStore })
+  conversationAuditHistoryService: createConversationAuditHistoryService({ communications, eventStore }),
+  humanDecisionService: createHumanDecisionService({ decisions, bus })
 });
 const server = api.createServer().listen(port, "127.0.0.1", () => {
   process.stdout.write(`Node Control API listening on http://127.0.0.1:${port}\n`);
