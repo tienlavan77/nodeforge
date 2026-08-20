@@ -23,6 +23,8 @@ test("Agent Settings UI presents a masked, Node-only settings flow for every pan
   assert.match(ui, /event\.key === "Enter" && !event\.shiftKey/);
   assert.doesNotMatch(ui, /<HumanDecisionActions client=\{client\} onWorkspaceChanged=\{onWorkspaceChanged\}/);
   assert.match(ui, /natural-message/);
+  assert.match(ui, /Architecture Manager messages/);
+  assert.doesNotMatch(ui, /<ArchitectureArtifacts client=\{client\}/);
   assert.match(ui, /AGENTS\.slice\(2\).*onSettings=/s);
   assert.match(client, /fetch\("\/agents\/settings"\)/);
   assert.match(client, /fetch\(`\/agents\/\$\{agentId\}\/settings`/);

@@ -173,13 +173,10 @@ function ArchitecturePanel({ client, onWorkspaceChanged, onSettings, agent, work
   }, [messages]);
   return <article className={`agent-panel architecture-workspace ${active ? "is-active" : ""}`} onClick={onActivate}>
     <PanelHeader agent={agent} onSettings={onSettings} />
-    <div className="architecture-columns">
-      <div className="architecture-conversation conversation natural-conversation" ref={conversationRef} onScroll={(event) => { const element = event.currentTarget; wasAtBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 56; }} role="log" aria-label="Architecture Manager messages">
-        <div className="date-rule"><span>Conversation</span></div>
-        {agent.status === "WORKING" && <div className="working-status" role="status">Architecture Manager is working…</div>}
-        {messages.map((message, index) => <Message key={message.id ?? `${message.time}-${index}`} message={message} />)}
-      </div>
-      <ArchitectureArtifacts client={client} onWorkspaceChanged={onWorkspaceChanged} workspace={workspace} />
+    <div className="architecture-conversation conversation natural-conversation" ref={conversationRef} onScroll={(event) => { const element = event.currentTarget; wasAtBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 56; }} role="log" aria-label="Architecture Manager messages">
+      <div className="date-rule"><span>Conversation</span></div>
+      {agent.status === "WORKING" && <div className="working-status" role="status">Architecture Manager is working…</div>}
+      {messages.map((message, index) => <Message key={message.id ?? `${message.time}-${index}`} message={message} />)}
     </div>
     <form className="composer" onSubmit={(event) => { event.preventDefault(); onSend(); }}><textarea value={draft} onChange={(event) => onDraft(event.target.value)} onInput={(event) => { event.currentTarget.style.height = "auto"; event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`; }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); onSend(); } }} rows="2" placeholder="Message Architecture Manager..." aria-label="Message Architecture Manager" /><button type="submit" title="Send message" aria-label="Send message">&#8593;</button></form>
   </article>;
