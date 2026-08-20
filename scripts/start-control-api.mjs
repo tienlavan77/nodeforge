@@ -136,7 +136,7 @@ const runtimeService = createRuntimeService({
 const api = createHttpApi({
   runtimeService,
   ownerChatService: createOwnerChatService({ bus, agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId }) }),
-  conversationStream: createConversationStream({ bus, communicationStore: communications }),
+  conversationStream: createConversationStream({ bus, communicationStore: communications, eventStore, subscriptions }),
   architectureWorkspaceService: createArchitectureWorkspaceService({ knowledge, roadmaps, sprintPlans }),
   projectDashboardService: createProjectDashboardService({ roadmaps, sprintPlans, provenance }),
   conversationAuditHistoryService: createConversationAuditHistoryService({ communications, eventStore }),
