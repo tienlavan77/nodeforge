@@ -38,6 +38,13 @@ test("routes the Project Dashboard through its Node application service", async 
   assert.deepEqual(await request(api, "GET", "/projects/PROJECT-140/dashboard"), [200, { project_id: "PROJECT-140", backlog: [] }]);
 });
 
+test("routes read-only Conversation and Audit History filters through Node", async () => {
+  let received;
+  const api = createHttpApi({ runtimeService: runtimeStub(), conversationAuditHistoryService: { query: (input) => { received = input; return { items: [], next_cursor: null }; } } });
+  assert.deepEqual(await request(api, "GET", "/projects/PROJECT-141/history?agent=architecture-manager&conversationId=CONV-141&correlationId=CORR-141&type=owner.message&cursor=5&limit=10"), [200, { items: [], next_cursor: null }]);
+  assert.deepEqual(received, { projectId: "PROJECT-141", agentId: "architecture-manager", conversationId: "CONV-141", correlationId: "CORR-141", type: "owner.message", cursor: "5", limit: 10 });
+});
+
 function runtimeStub() {
   return { startTask: () => ({}), pauseSession: () => ({}), resumeSession: () => ({}), getSession: () => ({}), getProjectMemory: () => ({}) };
 }

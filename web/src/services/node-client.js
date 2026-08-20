@@ -1,5 +1,16 @@
 export function createNodeClient() {
   return Object.freeze({
+    async getConversationAuditHistory({ projectId, agentId, conversationId, correlationId, type, cursor, limit = 25 }) {
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (agentId) params.set("agent", agentId);
+      if (conversationId) params.set("conversationId", conversationId);
+      if (correlationId) params.set("correlationId", correlationId);
+      if (type) params.set("type", type);
+      if (cursor) params.set("cursor", cursor);
+      const response = await fetch(`/projects/${projectId}/history?${params}`);
+      if (!response.ok) throw new Error("Node could not load the Conversation and Audit History.");
+      return response.json();
+    },
     async getProjectDashboard(projectId) {
       const response = await fetch(`/projects/${projectId}/dashboard`);
       if (!response.ok) throw new Error("Node could not load the Project Dashboard.");
