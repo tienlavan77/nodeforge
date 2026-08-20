@@ -73,6 +73,7 @@
         "agent.step.completed",
         "agent.failed",
         "agent.completed",
+        "verification.result",
         "history.summary_created",
         "process.timed_out",
         "process.cancelled"
