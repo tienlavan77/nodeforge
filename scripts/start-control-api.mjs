@@ -25,7 +25,7 @@ import { createConversationStream } from "../src/transport/sse/conversation-stre
 const port = Number(process.env.NODE_CONTROL_PORT ?? 3100);
 // Keep UI-control persistence isolated from the repository index database.
 const database = await openIndexDatabase(process.env.NODE_CONTROL_DATA_DIR ?? join(process.cwd(), ".node-control"));
-const communications = createAgentCommunicationStore();
+const communications = createAgentCommunicationStore({ database });
 const bus = createAgentCommunicationBus({ store: communications });
 const decisions = createArchitectureDecisionStore();
 const roadmaps = createRoadmapStore();
