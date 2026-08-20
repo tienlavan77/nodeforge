@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { createRuntimeService } from "../src/application/runtime-service.js";
 import { createArchitectureWorkspaceService } from "../src/application/architecture-workspace-service.js";
+import { createProjectDashboardService } from "../src/application/project-dashboard-service.js";
 import { createOwnerChatService } from "../src/application/owner-chat-service.js";
 import { openIndexDatabase } from "../src/infrastructure/sqlite/index-database.js";
 import { createAgentSessionStore } from "../src/modules/agent/session-store.js";
@@ -16,6 +17,7 @@ import { createArchitectureManager } from "../src/modules/governance/architectur
 import { createArchitectureManagerAdapter } from "../src/modules/governance/architecture-manager-adapter.js";
 import { createRoadmapStore } from "../src/modules/governance/roadmap-store.js";
 import { createSprintPlanProjection } from "../src/modules/governance/sprint-plan-projection.js";
+import { createTicketProvenanceTracker } from "../src/modules/governance/ticket-provenance-tracker.js";
 import { createHttpApi } from "../src/transport/http/server.js";
 import { createConversationStream } from "../src/transport/sse/conversation-stream.js";
 
@@ -27,6 +29,8 @@ const bus = createAgentCommunicationBus({ store: communications });
 const decisions = createArchitectureDecisionStore();
 const roadmaps = createRoadmapStore();
 const knowledge = createArchitectureKnowledgeModel({ decisions });
+const sprintPlans = createSprintPlanProjection({ roadmaps });
+const provenance = createTicketProvenanceTracker({ roadmaps, decisions });
 const manager = createArchitectureManager({
   decisions,
   knowledge,
@@ -45,7 +49,8 @@ const api = createHttpApi({
   runtimeService,
   ownerChatService: createOwnerChatService({ bus }),
   conversationStream: createConversationStream({ bus, communicationStore: communications }),
-  architectureWorkspaceService: createArchitectureWorkspaceService({ knowledge, roadmaps, sprintPlans: createSprintPlanProjection({ roadmaps }) })
+  architectureWorkspaceService: createArchitectureWorkspaceService({ knowledge, roadmaps, sprintPlans }),
+  projectDashboardService: createProjectDashboardService({ roadmaps, sprintPlans, provenance })
 });
 const server = api.createServer().listen(port, "127.0.0.1", () => {
   process.stdout.write(`Node Control API listening on http://127.0.0.1:${port}\n`);

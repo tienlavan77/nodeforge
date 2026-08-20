@@ -1,5 +1,10 @@
 export function createNodeClient() {
   return Object.freeze({
+    async getProjectDashboard(projectId) {
+      const response = await fetch(`/projects/${projectId}/dashboard`);
+      if (!response.ok) throw new Error("Node could not load the Project Dashboard.");
+      return response.json();
+    },
     async getArchitectureWorkspace(projectId) {
       const response = await fetch(`/projects/${projectId}/architecture-workspace`);
       if (!response.ok) throw new Error("Node could not load the Architecture Workspace.");

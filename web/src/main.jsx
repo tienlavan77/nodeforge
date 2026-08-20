@@ -19,6 +19,8 @@ function App() {
   const [messages, setMessages] = useState(() => Object.fromEntries(AGENTS.map((agent) => [agent.id, agent.messages])));
   const [workspace, setWorkspace] = useState(null);
   const [workspaceStatus, setWorkspaceStatus] = useState("READY");
+  const [dashboard, setDashboard] = useState(null);
+  const [dashboardState, setDashboardState] = useState("loading");
   const lastMessageId = useRef();
   const active = AGENTS.find((agent) => agent.id === activeAgent);
   const loadWorkspace = useCallback(async () => {
@@ -30,9 +32,19 @@ function App() {
       setWorkspaceStatus("FAILED");
     }
   }, [client]);
+  const loadDashboard = useCallback(async () => {
+    setDashboardState("loading");
+    try {
+      setDashboard(await client.getProjectDashboard(PROJECT_ID));
+      setDashboardState("ready");
+    } catch {
+      setDashboardState("error");
+    }
+  }, [client]);
 
   useEffect(() => {
     loadWorkspace();
+    loadDashboard();
     const stream = client.connectConversationStream({
       projectId: PROJECT_ID,
       conversationId: ARCHITECTURE_CONVERSATION_ID,
@@ -47,7 +59,7 @@ function App() {
       }
     });
     return () => stream.close();
-  }, [client, loadWorkspace]);
+  }, [client, loadWorkspace, loadDashboard]);
 
   async function send(agentId) {
     const text = drafts[agentId]?.trim();
@@ -81,7 +93,8 @@ function App() {
         <ArchitecturePanel agent={{ ...AGENTS[0], status: workspaceStatus }} workspace={workspace} messages={messages[AGENTS[0].id]} draft={drafts[AGENTS[0].id] ?? ""} onDraft={(value) => setDrafts((current) => ({ ...current, [AGENTS[0].id]: value }))} onSend={() => send(AGENTS[0].id)} onActivate={() => setActiveAgent(AGENTS[0].id)} active={activeAgent === AGENTS[0].id} />
       </section>
       <section className="agent-stack">
-        {AGENTS.slice(1).map((agent) => <AgentPanel key={agent.id} agent={agent} messages={messages[agent.id]} draft={drafts[agent.id] ?? ""} onDraft={(value) => setDrafts((current) => ({ ...current, [agent.id]: value }))} onSend={() => send(agent.id)} onActivate={() => setActiveAgent(agent.id)} active={activeAgent === agent.id} />)}
+        <ProjectDashboardPanel agent={AGENTS[1]} dashboard={dashboard} state={dashboardState} onActivate={() => setActiveAgent(AGENTS[1].id)} active={activeAgent === AGENTS[1].id} />
+        {AGENTS.slice(2).map((agent) => <AgentPanel key={agent.id} agent={agent} messages={messages[agent.id]} draft={drafts[agent.id] ?? ""} onDraft={(value) => setDrafts((current) => ({ ...current, [agent.id]: value }))} onSend={() => send(agent.id)} onActivate={() => setActiveAgent(agent.id)} active={activeAgent === agent.id} />)}
       </section>
     </main>
     <footer className="statusbar"><div><span className="status-key">ACTIVE CHANNEL</span><span className="status-value">{active.label}</span></div><div className="event-status"><span className="pulse" /> Event stream ready <span className="muted">/</span> session <strong>SPRINT-13</strong></div><div className="status-right">NODE v0.1.0</div></footer>
@@ -126,6 +139,28 @@ function ArchitectureArtifacts({ workspace }) {
     <section className="workspace-section"><h3>Current Roadmap</h3>{workspace.roadmap ? <div className="roadmap-card"><strong>{workspace.roadmap.id}</strong><span>Version {workspace.roadmap.version}</span></div> : <p className="workspace-empty">No roadmap published yet.</p>}</section>
     <WorkspaceSection title="Sprint Breakdown" items={workspace.sprint_breakdown} empty="No sprint breakdown published yet." />
   </aside>;
+}
+
+function ProjectDashboardPanel({ agent, dashboard, state, onActivate, active }) {
+  return <article className={`agent-panel dashboard-panel ${active ? "is-active" : ""}`} onClick={onActivate}>
+    <PanelHeader agent={agent} />
+    <div className="dashboard-content" aria-label="Project and Sprint Dashboard">
+      {state === "loading" && <p className="dashboard-state">Loading dashboard from Node…</p>}
+      {state === "error" && <p className="dashboard-state error">Node could not load the Project Dashboard.</p>}
+      {state === "ready" && <DashboardData dashboard={dashboard} />}
+    </div>
+  </article>;
+}
+
+function DashboardData({ dashboard }) {
+  if (!dashboard?.roadmap || !dashboard.current_sprint) return <p className="dashboard-state">No roadmap or current sprint has been published yet.</p>;
+  const sprint = dashboard.current_sprint;
+  return <>
+    <div className="dashboard-overview"><span>ROADMAP <strong>{dashboard.roadmap.id}</strong></span><span>v{dashboard.roadmap.version}</span><span>{sprint.status.toUpperCase()}</span></div>
+    <section className="dashboard-section"><h3>{sprint.id}</h3><p>{sprint.objective}</p><small>{sprint.completed_ticket_count}/{sprint.ticket_count} tickets completed</small></section>
+    <section className="dashboard-section"><h3>Sprint Backlog</h3>{dashboard.backlog.length ? <div className="dashboard-tickets">{dashboard.backlog.map((ticket) => <article className="dashboard-ticket" key={ticket.id}><div><strong>{ticket.id}</strong><span className="priority">{ticket.priority}</span></div><p>{ticket.title}</p><small>{ticket.status} · {ticket.progress}%</small>{ticket.provenance && <small className="provenance">{ticket.provenance.architecture_decision_ids.join(", ")} → {ticket.provenance.roadmap_id} → {ticket.provenance.sprint_id}</small>}</article>)}</div> : <p className="dashboard-state">No tickets in the current sprint.</p>}</section>
+    <section className="dashboard-section roadmap-list"><h3>Roadmap Sprints</h3>{dashboard.roadmap.sprints.map((item) => <div key={item.id}><span>{item.order}. {item.id}</span><small>{item.status}</small></div>)}</section>
+  </>;
 }
 
 function WorkspaceSection({ title, items, empty }) {
