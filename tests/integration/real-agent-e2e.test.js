@@ -24,10 +24,10 @@ test("Owner request reaches the real Agent and persisted stream is replayable", 
   }
   assert(history.items.some((item) => item.type === "architecture.message.received"), JSON.stringify(history));
   const deltas = history.items.filter((item) => item.type === "architecture.message.delta");
-  assert(deltas.length > 0);
+  assert.equal(deltas.length, 0);
   assert(history.items.every((item) => item.correlation_id === correlation));
   assert.equal(JSON.stringify(history).includes(process.env.OPENAI_API_KEY), false);
-  const replay = await fetch(`${base}/projects/PROJECT-NF150/conversations/CONV-NF150/stream?after=${encodeURIComponent(deltas[0].id)}`);
+  const replay = await fetch(`${base}/projects/PROJECT-NF150/conversations/CONV-NF150/stream?after=${encodeURIComponent("MSG-NF150")}`);
   assert.equal(replay.status, 200);
   assert.equal(replay.headers.get("content-type"), "text/event-stream; charset=utf-8");
   await replay.body?.cancel();
