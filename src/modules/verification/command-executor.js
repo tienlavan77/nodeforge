@@ -7,7 +7,7 @@ export function createProjectCommandExecutor({ projectRoot, spawnProcess = spawn
     throw new ConfigurationError("A project root and spawn function are required for verification commands.");
   }
 
-  return (command) => new Promise((resolve, reject) => {
+  return (command, { timeoutMs } = {}) => new Promise((resolve, reject) => {
     const environment = { ...process.env };
     // Node's test-worker marker would make a child `node --test` skip project tests.
     delete environment.NODE_TEST_CONTEXT;
@@ -20,12 +20,14 @@ export function createProjectCommandExecutor({ projectRoot, spawnProcess = spawn
     }
     let stdout = "";
     let stderr = "";
+    let timedOut = false;
+    const timer = Number.isFinite(timeoutMs) && timeoutMs > 0 ? setTimeout(() => { timedOut = true; child.kill("SIGTERM"); }, timeoutMs) : undefined;
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk) => { stdout += chunk; });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
-    child.once("error", reject);
+    child.once("error", (error) => { if (timer) clearTimeout(timer); reject(error); });
     // `close` runs only after stdout and stderr close, so diagnostic output is complete.
-    child.once("close", (exitCode) => resolve({ exitCode, stdout, stderr }));
+    child.once("close", (exitCode, signal) => { if (timer) clearTimeout(timer); resolve({ exitCode: timedOut ? null : exitCode, signal, timedOut, stdout, stderr }); });
   });
 }

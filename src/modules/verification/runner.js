@@ -39,7 +39,7 @@ export function createVerificationPlanValidator() {
   };
 }
 
-export function createTestRunner({ projectRoot, projectId, spawnProcess, createId = () => `TEST-${randomUUID()}`, clock = () => new Date(), validatePlan = createVerificationPlanValidator(), validateResult = createTestResultValidator() } = {}) {
+export function createTestRunner({ projectRoot, projectId, spawnProcess, createId = () => `TEST-${randomUUID()}`, clock = () => new Date(), validatePlan = createVerificationPlanValidator(), validateResult = createTestResultValidator(), emitEvent = () => {} } = {}) {
   if (typeof projectRoot !== "string" || projectRoot.length === 0 || typeof projectId !== "string" || projectId.length === 0) {
     throw new ConfigurationError("A project root and project_id are required for test execution.");
   }
@@ -49,25 +49,26 @@ export function createTestRunner({ projectRoot, projectId, spawnProcess, createI
   const execute = createProjectCommandExecutor({ projectRoot, spawnProcess });
 
   return Object.freeze({
-    async run(plan, { taskId, sessionId, scope = scopeFor(plan) } = {}) {
+    async run(plan, { taskId, sessionId, scope = scopeFor(plan), timeoutMs } = {}) {
       validatePlan(plan);
       if (!isScope(scope)) throw new ConfigurationError("Test result scope must be targeted, integration, full, or custom.");
 
       const checks = plan.checks.filter(({ type }) => type === "test");
       const results = [];
       for (const check of checks) {
-        results.push(await runCheck(check, { taskId, sessionId, scope }));
+        results.push(await runCheck(check, { taskId, sessionId, scope, timeoutMs }));
       }
       return Object.freeze(results);
     }
   });
 
-  async function runCheck(check, { taskId, sessionId, scope }) {
+  async function runCheck(check, { taskId, sessionId, scope, timeoutMs }) {
     const startedAt = clock();
-    const execution = await execute(check.command);
+    const execution = await execute(check.command, { timeoutMs: timeoutMs ?? defaultTimeout("unit_test") });
     const finishedAt = clock();
     const summary = parseTapSummary(execution.stdout);
-    const status = execution.exitCode === 0 ? "passed" : "failed";
+    const status = execution.timedOut ? "timeout" : execution.exitCode === 0 ? "passed" : "failed";
+    if (execution.timedOut) emitEvent({ type: "TEST_TIMEOUT", task_id: taskId, session_id: sessionId, command: check.command, timeout_ms: timeoutMs ?? defaultTimeout("unit_test") });
     const parsedFailures = status === "failed" ? parseFailures(execution.stdout, execution.stderr) : [];
     const result = {
       id: createId(),
@@ -92,6 +93,10 @@ export function createTestRunner({ projectRoot, projectId, spawnProcess, createI
     return Object.freeze(result);
   }
 
+}
+
+function defaultTimeout(type) {
+  return { build: 60000, lint: 30000, unit_test: 120000, integration: 300000 }[type] ?? 120000;
 }
 
 function scopeFor(plan) {
