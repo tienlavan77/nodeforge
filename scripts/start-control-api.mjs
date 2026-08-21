@@ -133,8 +133,16 @@ const buildBuilderContext = async ({ message }) => {
 };
 const executeAgentTool = async (tool, { message }) => {
   if (tool.kind === "request_info") {
-    if (tool.tool === "read_file") return { status: "context_ready", context_available: true, next_step: "submit_code", content: await fileService.readFile({ path: tool.target_path }) };
-    if (tool.tool === "list_files") return { status: "context_ready", context_available: true, next_step: "submit_code", content: (await fileService.listFiles({ glob: !tool.target_path || tool.target_path === "." ? "**/*" : tool.target_path })).slice(0, 500).join("\n") };
+    if (tool.tool === "read_file") {
+      assertAgentSourcePath(tool.target_path);
+      return { status: "context_ready", context_available: true, next_step: "submit_code", content: await fileService.readFile({ path: tool.target_path }) };
+    }
+    if (tool.tool === "list_files") {
+      const requested = tool.target_path && tool.target_path !== "." ? tool.target_path : null;
+      if (requested) assertAgentSourcePath(requested, { directory: true });
+      const paths = requested ? await fileService.listFiles({ glob: requested }) : [...await fileService.listFiles({ glob: "src/**/*" }), ...await fileService.listFiles({ glob: "tests/**/*" })];
+      return { status: "context_ready", context_available: true, next_step: "submit_code", content: paths.slice(0, 500).join("\n") };
+    }
     if (tool.target_path) {
       const pack = await contextEngine.build({ task_id: message.payload.task?.id ?? message.id, paths: [tool.target_path], include_dependencies: true, agent_role: message.recipient.id });
       return { status: "context_ready", context_available: true, next_step: "submit_code", content: JSON.stringify(pack), token_usage: { input_tokens: 0, output_tokens: Math.ceil(JSON.stringify(pack).length / 4) } };
@@ -144,12 +152,14 @@ const executeAgentTool = async (tool, { message }) => {
     if (!content) {
       const task = message.payload.task;
       const taskSummary = task ? `Task ${task.id}: ${task.title}\nObjective: ${task.objective}\nAcceptance criteria:\n${(task.acceptance_criteria ?? []).map((item) => `- ${item}`).join("\n")}` : message.payload.text;
-      const files = (await fileService.listFiles({ glob: "**/*" })).slice(0, 200).join("\n");
+      const files = [...await fileService.listFiles({ glob: "src/**/*" }), ...await fileService.listFiles({ glob: "tests/**/*" })].slice(0, 200).join("\n");
       content = `${taskSummary}\n\nRepository files:\n${files}`;
     }
     return { status: "context_ready", context_available: true, next_step: "submit_code", content, token_usage: { input_tokens: 0, output_tokens: Math.ceil(content.length / 4) } };
   }
   if (tool.kind === "submit_code") {
+    assertAgentSourcePath(tool.target_path);
+    if ((tool.code_kind === "main" && !tool.target_path.startsWith("src/")) || (tool.code_kind === "test" && !tool.target_path.startsWith("tests/"))) throw new Error(`Agent ${tool.code_kind} code must stay under ${tool.code_kind === "main" ? "src/" : "tests/"}.`);
     console.log(`[agent-loop] file.write.request ${JSON.stringify({ path: tool.target_path, target_dir: tool.target_dir, file_operation: tool.file_operation, code_kind: tool.code_kind, chars: tool.content.length })}`);
     try {
       const result = await fileService.writeFile({ path: tool.target_path, content: tool.content, commit: { target_path: tool.target_path, target_dir: tool.target_dir, file_operation: tool.file_operation, allowed_change_areas: tool.allowed_change_areas } });
@@ -162,6 +172,10 @@ const executeAgentTool = async (tool, { message }) => {
   }
   throw new Error("Unsupported agent tool request.");
 };
+function assertAgentSourcePath(path, { directory = false } = {}) {
+  if (typeof path !== "string" || !/^(src|tests)(\/|$)/.test(path) || path.includes("..")) throw new Error(`Agent path must stay under src/ or tests/: ${path ?? "<missing>"}`);
+  if (directory && path.endsWith("/")) return;
+}
 const api = createHttpApi({
   runtimeService,
   ownerChatService: createOwnerChatService({ bus, buildAgentContext: buildBuilderContext, executeAgentTool, debug: (detail) => console.log(`[agent-loop] ${JSON.stringify(detail)}`), agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId }), onAgentCompleted: sprintOrchestration.ingestAgentCompletion }),
