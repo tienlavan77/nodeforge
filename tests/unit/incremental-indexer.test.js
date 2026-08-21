@@ -305,6 +305,29 @@ test("a parse failure logs a warning and retains the previous index", async () =
   });
 });
 
+test("rolls back a multi-statement index write when a database operation fails", async () => {
+  const calls = [];
+  const projectRoot = await mkdtemp(join(os.tmpdir(), "nodeforge-index-rollback-"));
+  await writeProjectFile(projectRoot, "src/new.js", "export function x() {}\n");
+  const database = {
+    transaction(operation) { calls.push("BEGIN"); try { const result = operation(); calls.push("COMMIT"); return result; } catch (error) { calls.push("ROLLBACK"); throw error; } },
+    run() { throw new Error("simulated write failure"); },
+    all() { return []; }
+  };
+  const indexer = createIncrementalIndexer({
+    database,
+    projectRoot,
+    files: { findByPath: () => undefined, insert: () => "FILE-1" },
+    graph: { replaceForFile() {} },
+    registry: { extract: () => ({ symbols: [{ name: "x", kind: "function", start_line: 1, end_line: 1 }], imports: [], exports: [], calls: [] }) },
+    getContentHash: async () => "hash",
+    logger: { warning() {} }
+  });
+  await assert.rejects(() => indexer.handle({ type: "watcher.file_created", payload: { path: "src/new.js" } }), /simulated write failure/);
+  assert.deepEqual(calls, ["BEGIN", "ROLLBACK"]);
+  await rm(projectRoot, { recursive: true, force: true });
+});
+
 function event(type, path, oldPath) {
   return { type, payload: oldPath ? { path, old_path: oldPath } : { path } };
 }

@@ -12,7 +12,7 @@ import { createDebouncedWatcher } from "./debounced-watcher.js";
 
 const INDEX_DATABASE_PATH = [".forge", "runtime", "index.db"];
 
-export async function startProjectWatch({ projectRoot, loggerOptions, chokidarOptions, projectId, projectRegistry = new ProjectRegistry() } = {}) {
+export async function startProjectWatch({ projectRoot, loggerOptions, chokidarOptions, projectId, projectRegistry = new ProjectRegistry(), logger = console } = {}) {
   const root = resolve(projectRoot ?? process.cwd());
   const config = loadConfig({ cwd: root });
   const resolvedProjectId = projectId ?? await projectRegistry.getOrCreate(root);
@@ -21,7 +21,13 @@ export async function startProjectWatch({ projectRoot, loggerOptions, chokidarOp
   // Explicitly create the runtime directory before the first baseline rebuild.
   if (!databaseExisted) await ensureRuntimeDir(root);
 
-  const database = await openIndexDatabase(root);
+  let database;
+  try {
+    database = await openIndexDatabase(root);
+  } catch (error) {
+    logger.error?.("Unable to open project index database", { error: error.message, projectRoot: root });
+    throw error;
+  }
   let bootstrap;
   try {
     const existingFiles = database.all("SELECT COUNT(*) AS count FROM files")[0].count;
@@ -63,7 +69,7 @@ export async function startProjectWatch({ projectRoot, loggerOptions, chokidarOp
     });
   } catch (error) {
     await bootstrap?.stop();
-    await database.close();
+    await database?.close();
     throw error;
   }
 }
