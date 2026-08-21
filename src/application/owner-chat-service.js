@@ -7,6 +7,7 @@ const require = createRequire(import.meta.url);
 const commonSchema = require("../../schemas/core/common.schema.json");
 const ticketSchema = require("../../schemas/governance/ticket.schema.json");
 const agentToolSchema = require("../../schemas/agent/agent-tool.schema.json");
+const AGENT_TOOL_PROTOCOL = `\n\nAgent tool loop protocol:\n- Use request_info only when context is missing.\n- After receiving enough context, you MUST return submit_code.\n- submit_code requires target_path, target_dir, file_operation, code_kind (main or test), content, round, max_rounds, next_action, and is_final.\n- Do not finish with prose or an empty response. If you cannot write code, return an error reason.\n- Stop within 5 rounds.`;
 
 export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, executeAgentTool, streamBatchMs = 500 } = {}) {
   if (typeof bus?.send !== "function") throw new ConfigurationError("Owner Chat Service requires the shared Communication Bus.");
@@ -46,6 +47,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     let batchStart = 0;
     let timer;
     let emittedFirstDelta = false;
+    let submittedCode = false;
     const flush = () => {
       if (!batchText) return;
       const payload = { text: batchText, accumulated_text: text, chunk_index: index++, batch_start: batchStart, batch_end: index - 1 };
@@ -55,7 +57,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     };
     try {
       bus.send(responseMessage(message, "architecture.working", { agent_status: "WORKING" }, "WORKING"));
-      let requestPayload = { text: await enrichAgentText(message, agentId), ...(message.payload.task ? { task: message.payload.task } : {}) };
+      let requestPayload = { text: `${await enrichAgentText(message, agentId)}${AGENT_TOOL_PROTOCOL}`, ...(message.payload.task ? { task: message.payload.task } : {}) };
       for (let round = 1; round <= 5; round += 1) {
        let requestedNextRound = false;
        for await (const chunk of agentStream({ agentId, payload: requestPayload, correlationId: message.correlation_id })) {
@@ -73,6 +75,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
               requestPayload = { ...requestPayload, text: `${requestPayload.text}\n\nTool result (round ${tool.round}):\n${result.content ?? JSON.stringify(result)}` };
               requestedNextRound = true;
             }
+            if (tool.kind === "submit_code") submittedCode = true;
             continue;
           }
           if (typeof chunk.text !== "string") continue;
@@ -90,6 +93,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       }
       if (timer) { clearTimeout(timer); timer = undefined; }
       flush();
+      if (!submittedCode && !text.trim()) throw new ConfigurationError("Agent ended without submit_code or a non-empty response.");
       await bus.flush();
       bus.send(responseMessage(message, streamEventType(agentId, "message.received"), { text, agent_status: "COMPLETED" }, "COMPLETED"));
       await onAgentCompleted?.({ message, agentId, text });

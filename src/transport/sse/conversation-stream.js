@@ -55,7 +55,8 @@ export function createConversationStream({ bus, communicationStore, eventStore, 
       if (seen.has(message.id)) return;
       seen.add(message.id);
       const event = normalize(message);
-      response.write(`id: ${event.message_id}\nevent: conversation.message\ndata: ${JSON.stringify(event)}\n\n`);
+      const eventName = event.message_type?.endsWith(".tool.result") ? "conversation.tool" : "conversation.message";
+      response.write(`id: ${event.message_id}\nevent: ${eventName}\ndata: ${JSON.stringify(event)}\n\n`);
     }
   }
 }
