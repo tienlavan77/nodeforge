@@ -144,8 +144,15 @@ const executeAgentTool = async (tool, { message }) => {
     return { content, token_usage: { input_tokens: 0, output_tokens: Math.ceil(content.length / 4) } };
   }
   if (tool.kind === "submit_code") {
-    const result = await fileService.writeFile({ path: tool.target_path, content: tool.content, commit: { target_path: tool.target_path, target_dir: tool.target_dir, file_operation: tool.file_operation, allowed_change_areas: tool.allowed_change_areas } });
-    return { content: `Wrote ${result.path}`, token_usage: { input_tokens: 0, output_tokens: Math.ceil(tool.content.length / 4) } };
+    console.log(`[agent-loop] file.write.request ${JSON.stringify({ path: tool.target_path, target_dir: tool.target_dir, file_operation: tool.file_operation, code_kind: tool.code_kind, chars: tool.content.length })}`);
+    try {
+      const result = await fileService.writeFile({ path: tool.target_path, content: tool.content, commit: { target_path: tool.target_path, target_dir: tool.target_dir, file_operation: tool.file_operation, allowed_change_areas: tool.allowed_change_areas } });
+      console.log(`[agent-loop] file.write.success ${JSON.stringify(result)}`);
+      return { content: `Wrote ${result.path}`, token_usage: { input_tokens: 0, output_tokens: Math.ceil(tool.content.length / 4) } };
+    } catch (error) {
+      console.error(`[agent-loop] file.write.error ${JSON.stringify({ path: tool.target_path, error: error.message })}`);
+      throw error;
+    }
   }
   throw new Error("Unsupported agent tool request.");
 };
