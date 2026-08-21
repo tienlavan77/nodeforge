@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import { randomUUID } from "node:crypto";
 
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
@@ -16,7 +17,7 @@ const verificationPlanSchema = require("../../../schemas/verification/verificati
 const REQUEST_TYPE = "sprints.request_plan";
 const PROPOSAL_TYPE = "sprints.plan_proposed";
 
-export function createSprintLeaderLoop({ projectId, createRequestId = () => "REQ-sprint-plan", createEventId = () => "EVT-sprint-plan", clock = () => new Date() } = {}) {
+export function createSprintLeaderLoop({ projectId, createRequestId = () => `REQ-${randomUUID()}`, createEventId = () => `EVT-${randomUUID()}`, clock = () => new Date() } = {}) {
   if (typeof projectId !== "string" || projectId.length === 0 || typeof createRequestId !== "function" || typeof createEventId !== "function" || typeof clock !== "function") {
     throw new ConfigurationError("Sprint Leader loop requires project_id and ID/time factories.");
   }
