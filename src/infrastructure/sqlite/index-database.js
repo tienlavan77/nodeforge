@@ -109,6 +109,10 @@ export async function openIndexDatabase(projectRoot) {
   let closed = false;
 
   database.exec("PRAGMA foreign_keys = ON");
+  // Multiple Node processes (API + project watcher) share this runtime DB.
+  // WAL plus a busy timeout lets short writes queue instead of crashing streams.
+  database.exec("PRAGMA journal_mode = WAL");
+  database.exec("PRAGMA busy_timeout = 10000");
   runMigrations(database);
 
   return Object.freeze({
@@ -121,6 +125,18 @@ export async function openIndexDatabase(projectRoot) {
     run(sql, parameters = []) {
       if (closed) throw new ConfigurationError("Cannot write to a closed index database.");
       return database.prepare(sql).run(...parameters);
+    },
+    transaction(callback) {
+      if (closed) throw new ConfigurationError("Cannot transact on a closed index database.");
+      database.exec("BEGIN");
+      try {
+        const result = callback();
+        database.exec("COMMIT");
+        return result;
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
     },
     async close() {
       if (closed) return;

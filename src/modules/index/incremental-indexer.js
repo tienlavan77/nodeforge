@@ -22,14 +22,17 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
   });
 
   async function indexNewFile(path) {
-    const extraction = await extract(path);
-    if (!extraction) return false;
     const sha256 = await hash(path);
     if (!sha256) return false;
-    const fileId = files.insert(path, { sha256 });
-    writeExtraction(fileId, path, extraction);
-    graph.replaceForFile(fileId, path, extraction.imports);
-    writeCalls(fileId, path, extraction);
+    const extraction = await extract(path);
+    if (!extraction) return false;
+    let fileId;
+    withTransaction(() => {
+      fileId = files.insert(path, { sha256 });
+      writeExtraction(fileId, path, extraction);
+      graph.replaceForFile(fileId, path, extraction.imports);
+      writeCalls(fileId, path, extraction);
+    });
     return true;
   }
 
@@ -37,17 +40,23 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
     const file = files.findByPath(path);
     if (!file) return indexNewFile(path);
 
-    const extraction = await extract(path);
-    if (!extraction) return false;
     const sha256 = await hash(path);
     if (!sha256) return false;
-    database.run("DELETE FROM symbols WHERE file_id = ?", [file.file_id]);
-    database.run("DELETE FROM imports_exports WHERE file_id = ?", [file.file_id]);
-    database.run("DELETE FROM calls WHERE source_file_id = ?", [file.file_id]);
-    files.updateHash(file.file_id, sha256);
-    writeExtraction(file.file_id, path, extraction);
-    graph.replaceForFile(file.file_id, path, extraction.imports);
-    writeCalls(file.file_id, path, extraction);
+    const extraction = await extract(path);
+    if (!extraction) {
+      // Keep the index content marked with the latest hash even when parsing fails.
+      files.updateHash(file.file_id, sha256);
+      return false;
+    }
+    withTransaction(() => {
+      database.run("DELETE FROM symbols WHERE file_id = ?", [file.file_id]);
+      database.run("DELETE FROM imports_exports WHERE file_id = ?", [file.file_id]);
+      database.run("DELETE FROM calls WHERE source_file_id = ?", [file.file_id]);
+      files.updateHash(file.file_id, sha256);
+      writeExtraction(file.file_id, path, extraction);
+      graph.replaceForFile(file.file_id, path, extraction.imports);
+      writeCalls(file.file_id, path, extraction);
+    });
     return true;
   }
 
@@ -64,6 +73,12 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
     if (!oldPath) return false;
     const file = files.findByPath(oldPath);
     return file ? files.rename(file.file_id, newPath) : false;
+  }
+
+  function withTransaction(operation) {
+    if (typeof database.transaction === "function") return database.transaction(operation);
+    database.run("BEGIN");
+    try { const result = operation(); database.run("COMMIT"); return result; } catch (error) { database.run("ROLLBACK"); throw error; }
   }
 
   async function extract(path) {
