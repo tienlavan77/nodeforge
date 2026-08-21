@@ -64,12 +64,14 @@ export function createNodeClient() {
       const query = afterMessageId ? `?after=${encodeURIComponent(afterMessageId)}` : "";
       const source = new EventSource(`/projects/${projectId}/conversations/${conversationId}/stream${query}`);
       const delivered = new Set();
-      source.addEventListener("conversation.message", (event) => {
+      const onConversationEvent = (event) => {
         const message = JSON.parse(event.data);
         if (delivered.has(message.message_id)) return;
         delivered.add(message.message_id);
         onMessage(message);
-      });
+      };
+      source.addEventListener("conversation.message", onConversationEvent);
+      source.addEventListener("conversation.tool", onConversationEvent);
       source.addEventListener("conversation.replay.complete", () => onReplayComplete?.());
       source.onerror = () => onError?.();
       return Object.freeze({ close: () => source.close() });
