@@ -80,7 +80,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
               || (tool.kind === "submit_code" && tool.next_action === "submit_test" && tool.round < 5)) {
               const taskSummary = message.payload.task ? `${message.payload.task.title}: ${message.payload.task.objective}` : message.payload.text;
               const stateSummary = `Task ${taskId}: ${taskSummary}; completed round ${tool.round}; next_action=${tool.next_action}; continue only if more information or code is required.`;
-              requestPayload = { text: `task_id: ${taskId}\nstate_summary: ${stateSummary}\n\ntool_result_${tool.round}:\n${result.content ?? JSON.stringify(result)}` };
+              requestPayload = { text: `task_id: ${taskId}\nstate_summary: ${stateSummary}\ncontext_status: ${result.status ?? "context_ready"}\ncontext_available: ${result.context_available !== false}\nnext_step: submit_code\n\ntool_result_${tool.round}:\n${result.content ?? JSON.stringify(result)}\n\nNode has provided the requested context. Do not request the same context again; return submit_code now.` };
               requestedNextRound = true;
             }
             if (tool.kind === "submit_code") submittedCode = true;
