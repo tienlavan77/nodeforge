@@ -57,7 +57,9 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     };
     try {
       bus.send(responseMessage(message, "architecture.working", { agent_status: "WORKING" }, "WORKING"));
-      let requestPayload = { text: `${await enrichAgentText(message, agentId)}${AGENT_TOOL_PROTOCOL}`, ...(message.payload.task ? { task: message.payload.task } : {}) };
+      const taskId = message.payload.task?.id ?? message.id;
+      const initialText = `${await enrichAgentText(message, agentId)}${AGENT_TOOL_PROTOCOL}`;
+      let requestPayload = { text: initialText, ...(message.payload.task ? { task: message.payload.task } : {}) };
       for (let round = 1; round <= 5; round += 1) {
        let requestedNextRound = false;
        for await (const chunk of agentStream({ agentId, payload: requestPayload, correlationId: message.correlation_id })) {
@@ -72,7 +74,8 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
             }
             if ((tool.kind === "request_info" && tool.round < 5)
               || (tool.kind === "submit_code" && tool.next_action === "submit_test" && tool.round < 5)) {
-              requestPayload = { ...requestPayload, text: `${requestPayload.text}\n\nTool result (round ${tool.round}):\n${result.content ?? JSON.stringify(result)}` };
+              const stateSummary = `Task ${taskId}; completed round ${tool.round}; next_action=${tool.next_action}; continue only if more information or code is required.`;
+              requestPayload = { text: `task_id: ${taskId}\nstate_summary: ${stateSummary}\n\ntool_result_${tool.round}:\n${result.content ?? JSON.stringify(result)}` };
               requestedNextRound = true;
             }
             if (tool.kind === "submit_code") submittedCode = true;
