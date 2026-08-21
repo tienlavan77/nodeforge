@@ -39,3 +39,11 @@ test("supports a per-operation attempt limit", async () => {
   );
   assert.equal(attempts, 2);
 });
+
+test("routes exhausted retries to the dead-letter queue", async () => {
+  const records = [];
+  const deadLetterQueue = { enqueue(item, reason) { records.push({ item, reason }); return { id: "DLQ-1" }; } };
+  const result = await createRetryPolicy({ maxAttempts: 2, deadLetterQueue }).execute(() => { throw new Error("permanent"); }, { type: "agent.step", payload: { step: 1 } });
+  assert.deepEqual(result, { id: "DLQ-1" });
+  assert.deepEqual(records[0], { item: { type: "agent.step", payload: { step: 1 } }, reason: "max_attempts_exceeded" });
+});

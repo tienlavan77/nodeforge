@@ -32,3 +32,15 @@ test("rejects records without type or reason", () => {
   assert.throws(() => queue.enqueue({ payload: {} }, "failed"), /require a type/);
   assert.throws(() => queue.enqueue({ type: "agent.operation", payload: {} }, ""), /require a reason/);
 });
+
+test("dequeues, drains, and purges records", () => {
+  const queue = createDeadLetterQueue({ createId: (() => { let i = 0; return () => `DLQ-${++i}`; })(), clock: (() => { let i = 0; return () => new Date(`2026-08-20T0${i++}:00:00Z`); })() });
+  queue.enqueue({ type: "a", payload: {} }, "failed");
+  queue.enqueue({ type: "b", payload: {} }, "failed");
+  assert.equal(queue.dequeue("DLQ-1").id, "DLQ-1");
+  assert.equal(queue.size(), 1);
+  assert.equal(queue.drain().length, 1);
+  assert.equal(queue.size(), 0);
+  queue.enqueue({ type: "c", payload: {} }, "failed");
+  assert.equal(queue.purge("2026-08-21T00:00:00Z").length, 1);
+});

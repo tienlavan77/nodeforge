@@ -15,8 +15,8 @@ test("projects accepted events into an audit trail queryable by project and task
   publisher.publish(event("EVT-081-003", "workflow.completed", "PROJECT-other", "TASK-other", { outcome: "approved" }));
 
   assert.deepEqual(history.getByProject("PROJECT-081"), [
-    { event_id: "EVT-081-001", actor: "workflow-engine", action: "workflow.started", timestamp: "2026-08-19T16:00:00Z", project_id: "PROJECT-081", task_id: "TASK-081", result: "started" },
-    { event_id: "EVT-081-002", actor: "workflow-engine", action: "verification.test_completed", timestamp: "2026-08-19T16:00:00Z", project_id: "PROJECT-081", task_id: "TASK-081", result: "passed" }
+    { event_id: "EVT-081-001", actor: "workflow-engine", action: "workflow.started", timestamp: "2026-08-19T16:00:00Z", project_id: "PROJECT-081", task_id: "TASK-081", result: "started", tier: "hot" },
+    { event_id: "EVT-081-002", actor: "workflow-engine", action: "verification.test_completed", timestamp: "2026-08-19T16:00:00Z", project_id: "PROJECT-081", task_id: "TASK-081", result: "passed", tier: "hot" }
   ]);
   assert.equal(history.getByTask("TASK-081").length, 2);
 });

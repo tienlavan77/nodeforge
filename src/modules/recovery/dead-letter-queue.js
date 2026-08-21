@@ -6,7 +6,7 @@ export function createDeadLetterQueue({ createId = () => `DLQ-${randomUUID()}`, 
   if (typeof createId !== "function" || typeof clock !== "function") throw new ConfigurationError("Dead Letter Queue dependencies must be functions.");
   const records = [];
 
-  return Object.freeze({ enqueue, getAll, getByType, size });
+  return Object.freeze({ enqueue, getAll, getByType, size, dequeue, drain, purge });
 
   function enqueue(item, reason) {
     if (!item || typeof item !== "object" || typeof item.type !== "string" || item.type.length === 0) {
@@ -35,6 +35,26 @@ export function createDeadLetterQueue({ createId = () => `DLQ-${randomUUID()}`, 
 
   function size() {
     return records.length;
+  }
+
+  function dequeue(id) {
+    const index = records.findIndex((record) => record.id === id);
+    if (index < 0) return undefined;
+    return cloneRecord(records.splice(index, 1)[0]);
+  }
+
+  function drain() {
+    const drained = records.splice(0, records.length);
+    return drained.map(cloneRecord);
+  }
+
+  function purge(beforeTimestamp) {
+    if (typeof beforeTimestamp !== "string" || Number.isNaN(Date.parse(beforeTimestamp))) throw new ConfigurationError("DLQ purge requires a valid timestamp.");
+    const retained = [];
+    const removed = [];
+    for (const record of records) (record.timestamp < beforeTimestamp ? removed : retained).push(record);
+    records.splice(0, records.length, ...retained);
+    return removed.map(cloneRecord);
   }
 }
 
