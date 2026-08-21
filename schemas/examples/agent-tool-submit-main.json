@@ -1,0 +1,1 @@
+{"kind":"submit_code","target_path":"src/example.js","target_dir":"src","file_operation":"create","code_kind":"main","content":"export const value = 1;","round":3,"max_rounds":5,"next_action":"submit_main","is_final":false}

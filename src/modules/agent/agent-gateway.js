@@ -1,5 +1,6 @@
 import { ConfigurationError } from "../../shared/errors.js";
 import { getAdapter } from "./provider-adapters/index.js";
+import { agentToolDefinition } from "./agent-tool-definition.js";
 
 const SAFE_URL = /^https:\/\//;
 
@@ -21,14 +22,14 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
     if (!payload || typeof payload !== "object") throw new ConfigurationError("Agent Gateway payload is required.");
     const credential = await resolveCredential(config.credential_ref);
     if (!isDefaultTransport) {
-      return callTransport({ config, credential, payload: structuredClone(payload), correlationId, operation: "request" });
+      return callTransport({ config, credential, payload: withAgentTools(payload), correlationId, operation: "request" });
     }
     const adapter = adapterRegistry(config.provider);
     const model = config.model || undefined;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const response = await adapter.request({ url: config.gateway_url, credential, payload: structuredClone(payload), model, correlationId, signal: controller.signal });
+      const response = await adapter.request({ url: config.gateway_url, credential, payload: withAgentTools(payload), model, correlationId, signal: controller.signal });
       validateResponse(response);
       return { agent_id: config.agent_id, correlation_id: correlationId, status: response.status ?? "completed", payload: structuredClone(response.payload ?? response.data ?? response) };
     } catch (error) {
@@ -47,7 +48,7 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        for await (const event of streamTransport({ url: config.gateway_url, credential, payload: structuredClone(payload), correlation_id: correlationId, signal: controller.signal })) {
+        for await (const event of streamTransport({ url: config.gateway_url, credential, payload: withAgentTools(payload), correlation_id: correlationId, signal: controller.signal })) {
           if (typeof event?.text === "string" && event.text) yield { agent_id: config.agent_id, correlation_id: correlationId, text: event.text };
           if (event?.tool_use) yield { agent_id: config.agent_id, correlation_id: correlationId, tool_use: event.tool_use };
           if (event?.response_id) yield { agent_id: config.agent_id, correlation_id: correlationId, completed: true, response_id: event.response_id };
@@ -64,7 +65,7 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      for await (const event of adapter.stream({ url: config.gateway_url, credential, payload: structuredClone(payload), model, correlationId, signal: controller.signal })) {
+      for await (const event of adapter.stream({ url: config.gateway_url, credential, payload: withAgentTools(payload), model, correlationId, signal: controller.signal })) {
         if (typeof event?.text === "string" && event.text) yield { agent_id: config.agent_id, correlation_id: correlationId, text: event.text };
         if (event?.tool_use) yield { agent_id: config.agent_id, correlation_id: correlationId, tool_use: event.tool_use };
         if (event?.response_id) yield { agent_id: config.agent_id, correlation_id: correlationId, completed: true, response_id: event.response_id };
@@ -74,6 +75,10 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
       if (error instanceof ConfigurationError) throw error;
       throw new ConfigurationError(`Agent Gateway request failed for ${config.agent_id}.`);
     } finally { clearTimeout(timeout); }
+  }
+
+  function withAgentTools(payload) {
+    return { ...structuredClone(payload), tools: payload.tools ?? [agentToolDefinition] };
   }
 
   async function testConnection(agentId) {

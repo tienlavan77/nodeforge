@@ -28,6 +28,7 @@ export async function request({ url, credential, payload, model, correlationId, 
     model: model || process.env.DEVQUOTE_MODEL || process.env.NODE_AGENT_MODEL || "claude-haiku-4-5",
     max_tokens: 8192,
     messages: [{ role: "user", content: payload.text ?? JSON.stringify(payload) }],
+    tools: toAnthropicTools(payload.tools),
   };
 
   const response = await fetch(endpoint, {
@@ -66,6 +67,7 @@ export async function* stream({ url, credential, payload, model, correlationId, 
     model: model || process.env.DEVQUOTE_MODEL || process.env.NODE_AGENT_MODEL || "claude-haiku-4-5",
     max_tokens: 8192,
     messages: [{ role: "user", content: payload.text ?? JSON.stringify(payload) }],
+    tools: toAnthropicTools(payload.tools),
     stream: true
   };
 
@@ -157,4 +159,8 @@ function extractText(data) {
   }
 
   return "";
+}
+
+function toAnthropicTools(tools = []) {
+  return tools?.length ? tools.map((tool) => ({ name: tool.name, description: tool.description, input_schema: tool.input_schema })) : undefined;
 }

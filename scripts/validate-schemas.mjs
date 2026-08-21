@@ -68,6 +68,10 @@ const fixtures = [
   , ["https://forge.local/schemas/governance/governance-rule.schema.json", "schemas/examples/governance-rule.json"]
   , ["https://forge.local/schemas/governance/architecture-decision.schema.json", "schemas/examples/governance-human-decision.json"]
   , ["https://forge.local/schemas/governance/agent-profile.schema.json", "schemas/examples/governance-agent-profile.json"]
+  , ["https://forge.local/schemas/agent/agent-tool.schema.json", "schemas/examples/agent-tool-request-info.json"]
+  , ["https://forge.local/schemas/agent/agent-tool.schema.json", "schemas/examples/agent-tool-submit-main.json"]
+  , ["https://forge.local/schemas/agent/agent-tool.schema.json", "schemas/examples/agent-tool-submit-test.json"]
+  , ["https://forge.local/schemas/agent/agent-tool.schema.json", "schemas/examples/agent-tool-invalid.json", undefined, false]
 ];
 
 async function readJson(file) {
