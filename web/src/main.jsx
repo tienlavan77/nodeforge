@@ -436,6 +436,8 @@ function toDisplayMessage(message) {
 
 function mergeStreamMessage(messages, message) {
   if (messages.some((item) => item.id === message.message_id)) return messages;
+  // Tool results are private Node<->agent traffic; keep them in history/SSE replay but do not render raw context in chat.
+  if (message.message_type.endsWith(".tool.result")) return messages;
   if (message.message_type.endsWith(".working")) return messages;
   const isDelta = message.message_type.endsWith(".message.delta");
   const isCompletion = message.message_type.endsWith(".message.received");
