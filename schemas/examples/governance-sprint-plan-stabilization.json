@@ -1,0 +1,463 @@
+{
+  "id": "SPRINT-NF-STAB-001",
+  "roadmap_id": "ROADMAP-114A",
+  "project_id": "PROJECT-114A",
+  "objective": "Resolve all CRITICAL issues from code review to reach production readiness. Three phases: (1) Security & Stability — secrets redaction, error isolation, crash recovery fix; (2) Data Integrity — persistent event store, history archive persistence, DLQ drain, optimistic concurrency; (3) Architecture Compliance — context budget enforcement, test runner timeout, idempotency fix, event type deduplication.",
+  "dependencies": [
+    "AD-NF-STABILIZE-001"
+  ],
+  "tickets": [
+    {
+      "id": "NF-STAB-T01",
+      "project_id": "PROJECT-114A",
+      "roadmap_id": "ROADMAP-114A",
+      "sprint_id": "SPRINT-NF-STAB-001",
+      "title": "Implement Secrets Redaction in Context Engine",
+      "objective": "Prevent .env files, credentials, and private keys from being sent to LLM via context builder or file read handler, enforcing ARCHITECTURE ch.46–47 token firewall policy.",
+      "acceptance_criteria": [
+        "context-read-handler.js filters .env, *.key, *.pem, *.crt, *.pfx paths before reading",
+        "context-engine.js excludes sensitive paths during index record selection",
+        "agent-stream-bridge.js applies PII/redaction filter on stderr output",
+        "Unit tests verify secret patterns are blocked",
+        "Configuration-based exclusion list supported via config.secretsPatterns"
+      ],
+      "priority": "critical",
+      "dependencies": [],
+      "provenance": {
+        "source": "architecture_decision",
+        "source_id": "AD-NF-STABILIZE-001",
+        "created_at": "2026-08-20T10:00:00+07:00"
+      }
+    },
+    {
+      "id": "NF-STAB-T02",
+      "project_id": "PROJECT-114A",
+      "roadmap_id": "ROADMAP-114A",
+      "sprint_id": "SPRINT-NF-STAB-001",
+      "title": "Fix Event Store Persistence and Crash Recovery",
+      "objective": "Make persistent-event-store the default event storage, add project_id to DDL and INSERT, return sequence numbers from SQLite AUTOINCREMENT, fix DB-vs-memory inconsistency race on insert.",
+      "acceptance_criteria": [
+        "createEventStore() uses persistent variant by default",
+        "persistent-event-store DDL includes project_id column",
+        "INSERT statement stores project_id",
+        "stored event records include assigned sequence number from lastInsertRowid",
+        "In-memory insertion happens before DB write, or both wrapped in single transaction",
+        "event-publisher.js stops duplicating project_id into metadata object",
+        "assertEventRecord validates project_id presence"
+      ],
+      "priority": "critical",
+      "dependencies": [],
+      "provenance": {
+        "source": "architecture_decision",
+        "source_id": "AD-NF-STABILIZE-001",
+        "created_at": "2026-08-20T10:00:00+07:00"
+      }
+    },
+    {
+      "id": "NF-STAB-T03",
+      "project_id": "PROJECT-114A",
+      "roadmap_id": "ROADMAP-114A",
+      "sprint_id": "SPRINT-NF-STAB-001",
+      "title": "Implement Error Isolation in Event Subscription System",
+      "objective": "Prevent a single subscription handler throw from killing the entire event delivery pipeline per ARCHITECTURE ch.40 agent protocol guarantees.",
+      "acceptance_criteria": [
+        "subscription-registry.js wraps each handler call in try/catch",
+        "Errors are accumulated and reported without halting delivery to remaining subscribers",
+        "At least one failed handler does not affect other handlers",
+        "Error log includes subscription event_type pattern and handler reference",
+        "Optional: configurable max failures before disabling a subscription"
+      ],
+      "priority": "critical",
+      "dependencies": [],
+      "provenance": {
+        "source": "architecture_decision",
+        "source_id": "AD-NF-STABILIZE-001",
+        "created_at": "2026-08-20T10:00:00+07:00"
+      }
+    },
+    {
+      "id": "NF-STAB-T04",
+      "project_id": "PROJECT-114A",
+      "roadmap_id": "ROADMAP-114A",
+      "sprint_id": "SPRINT-NF-STAB-001",
+      "title": "Fix Database Write Transaction Wrapping and Startup Crash",
+      "objective": "Eliminate partial writes in incremental-indexer.js, fix database.close() crash on watch-project.js startup failure.",
+      "acceptance_criteria": [
+        "All multi-statement DB operations in incremental-indexer.js wrapped in BEGIN/COMMIT/ROLLBACK transactions",
+        "Parse errors update sha256 hash even when extraction fails (fix B4)",
+        "watch-project.js line 66 uses optional chaining: database?.close()",
+        "SQLite connection errors caught and logged before process exit",
+        "Unit tests verify transaction rollback on simulated DB failure"
+      ],
+      "priority": "critical",
+      "dependencies": [],
+      "provenance": {
+        "source": "architecture_decision",
+        "source_id": "AD-NF-STABILIZE-001",
+        "created_at": "2026-08-20T10:00:00+07:00"
+      }
+    },
+    {
+      "id": "NF-STAB-T05",
+      "project_id": "PROJECT-114A",
+      "roadmap_id": "ROADMAP-114A",
+      "sprint_id": "SPRINT-NF-STAB-001",
+      "title": "Implement History Archive Persistence and DLQ Drain Mechanism",
+      "objective": "Persist archived history records to SQLite so they survive Node restart (arch ch.34), add dequeue/drain mechanism to dead-letter queue.",
+      "acceptance_criteria": [
+        "history-store.js persists archive records to SQLite table",
+        "Archive compaction result counts only records compacted in current call",
+        "dead-letter-queue.js gains dequeue(id), drain(), purge(beforeTimestamp) methods",
+        "retry-policy.js routes exhausted retries to DLQ instead of throwing",
+        "Hot/warm/cold tiering tracks archival timestamps automatically"
+      ],
+      "priority": "critical",
+      "dependencies": [],
+      "provenance": {
+        "source": "architecture_decision",
+        "source_id": "AD-NF-STABILIZE-001",
+        "created_at": "2026-08-20T10:00:00+07:00"
+      }
+    },
+    {
+      "id": "NF-STAB-T06",
+      "project_id": "PROJECT-114A",
+      "roadmap_id": "ROADMAP-114A",
+      "sprint_id": "SPRINT-NF-STAB-001",
+      "title": "Add Optimistic Concurrency Control to Workflow State Machine",
+      "objective": "Prevent concurrent workflow transitions from silently overwriting state (arch ch.51). Add version counter or ETag to state store for optimistic locking.",
+      "acceptance_criteria": [
+        "workflow-transition-gate.js state objects carry _version field",
+        "writeState checks version matches before applying transition",
+        "Conflicting transitions detected and rejected with conflict error",
+        "File-based tmp+rename write remains atomic",
+        "State machine documentation clarifies state_before vs state_after semantics for denied vs pending_owner"
+      ],
+      "priority": "critical",
+      "dependencies": [],
+      "provenance": {
+        "source": "architecture_decision",
+        "source_id": "AD-NF-STABILIZE-001",
+        "created_at": "2026-08-20T10:00:00+07:00"
+      }
+    },
+    {
+      "id": "NF-STAB-T07",
+      "project_id": "PROJECT-114A",
+      "roadmap_id": "ROADMAP-114A",
+      "sprint_id": "SPRINT-NF-STAB-001",
+      "title": "Enforce Context Budget Limits in Context Engine",
+      "objective": "Transform context budget from advisory-only to enforced limit (arch ch.49). Builder cap: 40k tokens, Reviewer cap: 30k tokens.",
+      "acceptance_criteria": [
+        "context-engine.js compares estimated_tokens against budget.max_tokens",
+        "When budget exceeded: either truncate selection (smallest units first) or throw error with guidance",
+        "Token estimation documented as approximate (byte/4 heuristic)",
+        "Context Pack response includes actual_token_count vs limit",
+        "Index version check optimized to use single counter instead of full-table scan"
+      ],
+      "priority": "critical",
+      "dependencies": [],
+      "provenance": {
+        "source": "architecture_decision",
+        "source_id": "AD-NF-STABILIZE-001",
+        "created_at": "2026-08-20T10:00:00+07:00"
+      }
+    },
+    {
+      "id": "NF-STAB-T08",
+      "project_id": "PROJECT-114A",
+      "roadmap_id": "ROADMAP-114A",
+      "sprint_id": "SPRINT-NF-STAB-001",
+      "title": "Fix Idempotency Cache Race Condition and Static UUID Issue",
+      "objective": "Fix command-idempotency.js cache race condition under error paths, replace static UUID defaults in sprint-leader-loop.js with proper random ID generation.",
+      "acceptance_criteria": [
+        "command-idempotency.js holds cache entry until awaited result resolves or rejects (use in-flight sentinel)",
+        "Non-idempotent commands either removed from cache immediately or capped with TTL",
+        "IDEMPOTENT_COMMAND_TYPES expanded to include context.read_file and workflow.transition",
+        "sprint-leader-loop.js defaults to randomUUID()-based generators, not hardcoded strings",
+        "Idempotency unit tests cover race window scenario"
+      ],
+      "priority": "critical",
+      "dependencies": [],
+      "provenance": {
+        "source": "architecture_decision",
+        "source_id": "AD-NF-STABILIZE-001",
+        "created_at": "2026-08-20T10:00:00+07:00"
+      }
+    },
+    {
+      "id": "NF-STAB-T09",
+      "project_id": "PROJECT-114A",
+      "roadmap_id": "ROADMAP-114A",
+      "sprint_id": "SPRINT-NF-STAB-001",
+      "title": "Add Test Runner Timeout and Fix Sequential Verification Execution",
+      "objective": "Add timeout parameter to verification pipeline (arch ch.44), change parallel test+check execution to sequential check-then-test ordering.",
+      "acceptance_criteria": [
+        "verification/orchestrator.js runs check runners before test runners (not parallel)",
+        "command-executor.js accepts timeoutMs parameter",
+        "runner.js passes timeoutMs through to command executor",
+        "Timeout events emit proper TEST_TIMEOUT event and signal Builder (arch ch.44)",
+        "Default timeout configurable: build=60s, lint=30s, unit_test=120s, integration=300s"
+      ],
+      "priority": "high",
+      "dependencies": [],
+      "provenance": {
+        "source": "architecture_decision",
+        "source_id": "AD-NF-STABILIZE-001",
+        "created_at": "2026-08-20T10:00:00+07:00"
+      }
+    },
+    {
+      "id": "NF-STAB-T10",
+      "project_id": "PROJECT-114A",
+      "roadmap_id": "ROADMAP-114A",
+      "sprint_id": "SPRINT-NF-STAB-001",
+      "title": "Consolidate Event Type Names and Fix Schema Inconsistencies",
+      "objective": "Deduplicate event type names (agents.started vs agent.started), align envelope $ref paths with project convention, merge duplicated status enums across schemas.",
+      "acceptance_criteria": [
+        "event.schema.json consolidates singular event types: agent.started, agent.failed, agent.completed",
+        "envelope.schema.json bare $refs replaced with ../core/common.schema.json#/$defs/... pattern",
+        "common.schema.json defines shared $defs/result_status and $defs/lifecycle_status referenced everywhere",
+        "error.schema.json gets title and description fields added",
+        "JSON Schema validator passes all consolidated schemas end-to-end"
+      ],
+      "priority": "high",
+      "dependencies": [],
+      "provenance": {
+        "source": "architecture_decision",
+        "source_id": "AD-NF-STABILIZE-001",
+        "created_at": "2026-08-20T10:00:00+07:00"
+      }
+    },
+    {
+      "id": "NF-STAB-T10-HOTFIX",
+      "project_id": "PROJECT-114A",
+      "roadmap_id": "ROADMAP-114A",
+      "sprint_id": "SPRINT-NF-STAB-001",
+      "title": "Fix Ajv missingRef result_status after T10 schema consolidation — register common.schema before compiling dependent schemas",
+      "objective": "Fix regression from 10a5052 where shared $defs/result_status and $defs/lifecycle_status cause Ajv missingRef at startup, blocking EventStore/history persistence and making agent chat stuck at architecture.working.",
+      "acceptance_criteria": [
+        "common.schema.json contains $defs/result_status and $defs/lifecycle_status as defined in T10, with $id https://forge.local/schemas/core/common.schema.json",
+        "Every Ajv instance that compiles envelope/event/verification/task schemas calls ajv.addSchema(commonSchema) BEFORE ajv.compile/addSchema of dependent schemas — no missingRef on startup",
+        "npm run validate:schemas passes 42 schemas / 63 fixtures without missingRef",
+        "Node Control API starts clean: tail .node-control/logs/node.log shows no Ajv missingRef stack, only 'Node Control API listening on http://127.0.0.1:3100'",
+        "After restart: POST /projects/:id/history returns items (not [] for project with prior events), and POST /projects/:id/conversations/:id/messages -> SSE receives architecture.message.delta then architecture.message.received instead of stuck working",
+        "Existing tests green: schema validation, lint, typecheck, git diff --check"
+      ],
+      "priority": "critical",
+      "dependencies": [
+        "NF-STAB-T10"
+      ],
+      "provenance": {
+        "source": "architecture_decision",
+        "source_id": "AD-NF-STABILIZE-001",
+        "created_at": "2026-08-20T14:00:00+07:00"
+      }
+    },
+    {
+      "id": "NF-STAB-T11",
+      "project_id": "PROJECT-114A",
+      "roadmap_id": "ROADMAP-114A",
+      "sprint_id": "SPRINT-NF-STAB-001",
+      "title": "Wrap ContextService with ContextEngine — buildContext() merges memory facts + indexed symbols via ContextBudgetManager",
+      "objective": "Make agent context filesystem-aware: buildContext() must merge logical facts (memoryRetriever + taskSummaries + taskStore) with Code Index facts (ContextEngine), then enforce token budget via ContextBudgetManager. Preserves ARCHITECTURE.md invariants: token firewall, secrets redaction, .forge ignored, agent free to write.",
+      "acceptance_criteria": [
+        "New wrapper createFilesystemAwareContextService({ baseContextService, contextEngine, budgetManager, database, projectRoot, projectId }) exists OR base createAgentContextService extended with optional contextEngine param",
+        "buildContext({ projectId, taskId, query, domain }) returns { projectFacts, taskFacts, currentTask, contextPack } where projectFacts = memoryFacts + indexFacts (symbols/files/dependencies mapped to fact strings)",
+        "Index facts sourced via contextEngine.build({ task_id, query, domain, include_dependencies: true }) — query/domain forwarded as symbol search; when query empty, skip index call and return logical facts only",
+        "Merged facts passed through budgetManager.selectFacts({ facts, maxFacts }) — budget enforced, not advisory",
+        "On ContextEngine error/empty index: fallback to logical facts only, no throw; error logged at debug level",
+        "Secrets paths (.env, *.key, *.pem, *.crt, *.pfx, *.keystore) filtered BEFORE merging — reuse secret patterns from NF-STAB-T01",
+        "Unit test: query='refreshSession' returns projectFacts containing 'symbol refreshSession in src/session.js' + memory facts, total capped by maxFacts",
+        "Unit test: empty query returns only memory facts, contextPack === null",
+        "Unit test: ContextEngine throws -> buildContext still returns logical facts, no crash",
+        "Integration: bootstrap wires the wrapper so agentRuntime.run() receives enriched context (verified by re-running node scripts/test-e2e-flow.mjs: 'ContextEngine -> Agent' moves from MISSING to WIRED)"
+      ],
+      "priority": "critical",
+      "dependencies": [
+        "NF-STAB-T01",
+        "NF-STAB-T07"
+      ],
+      "provenance": {
+        "source": "architecture_decision",
+        "source_id": "AD-NF-STABILIZE-001",
+        "created_at": "2026-08-20T14:00:00+07:00"
+      }
+    },
+    {
+      "id": "NF-STAB-T12",
+      "project_id": "PROJECT-114A",
+      "roadmap_id": "ROADMAP-114A",
+      "sprint_id": "SPRINT-NF-STAB-001",
+      "title": "Wire RuntimeService.startTask() -> AgentRuntime.run() — async agent execution with session sync return and event publishing",
+      "objective": "Close the broken edge HTTP POST /tasks -> RuntimeService -> AgentRuntime: startTask() must persist session synchronously and return session snapshot immediately, then fire-and-forget agentRuntime.run({ projectId, taskId, query, domain }) asynchronously with proper agent.failed / agent.completed event publishing via publisher. Agent must receive filesystem-aware context from NF-STAB-T11 wrapper. Preserves ARCHITECTURE.md invariants: Node verification authoritative, watcher observes filesystem writes, no API proxy for file writes.",
+      "acceptance_criteria": [
+        "runtime-service.js (or new src/application/agent-task-orchestrator.js) accepts injected agentRuntime and publisher in factory — createRuntimeService({ ..., agentRuntime, publisher }) or orchestrator wrapper; missing agentRuntime does not break existing unit tests (optional injection with no-op fallback)",
+        "startTask({ projectId, taskId, sessionId, query, domain }) still returns session snapshot synchronously — HTTP 201 response unchanged, no await on agent execution",
+        "After sessionStore.save(), calls agentRuntime.run({ projectId, taskId, query, domain }) asynchronously (fire-and-forget) — not awaited, errors caught and published as publisher.publish({ type: 'agent.failed', project_id, task_id, session_id, error })",
+        "On agent success publishes publisher.publish({ type: 'agent.completed', project_id, task_id, session_id, result }) — both paths increment eventsPublished and are observable via EventStore",
+        "Uses filesystem-aware contextService from NF-STAB-T11 — contextService.buildContext receives query/domain forwarded from startTask args",
+        "Duplicate startTask with same sessionId still throws 'Session already exists' before agent launch — idempotency preserved",
+        "No unhandled rejection leaks to HTTP handler — agent promise has .catch() that logs via logger and publishes failed event",
+        "Unit test: mock agentRuntime.run resolves -> startTask returns session immediately, publisher receives agent.completed after tick",
+        "Unit test: mock agentRuntime.run rejects -> startTask still returns session, publisher receives agent.failed, HTTP does not 500",
+        "Integration: POST /tasks triggers agent that writes src/e2e-smoke.txt -> watcher emits watcher.file_created -> verifiable via eventStore.getAll() + file exists on disk",
+        "Re-running node scripts/test-e2e-flow.mjs shows 'RuntimeService -> AgentRuntime' moves from MISSING to WIRED"
+      ],
+      "priority": "critical",
+      "dependencies": [
+        "NF-STAB-T11"
+      ],
+      "provenance": {
+        "source": "architecture_decision",
+        "source_id": "AD-NF-STABILIZE-001",
+        "created_at": "2026-08-20T14:00:00+07:00"
+      }
+    },
+    {
+      "id": "NF-STAB-T13",
+      "project_id": "PROJECT-114A",
+      "roadmap_id": "ROADMAP-114A",
+      "sprint_id": "SPRINT-NF-STAB-001",
+      "title": "Wire Bootstrap Composition Root — Assemble filesystem-aware AgentRuntime and close watcher -> verification -> SSE event loop",
+      "objective": "Assemble the full dependency graph in bootstrap/index.js (or scripts/start-control-api.mjs): create ContextEngine, filesystem-aware ContextService (T11), AgentRuntime, VerificationOrchestrator, inject AgentRuntime into RuntimeService (T12), and wire internalBus watcher file events -> indexer done -> verification run -> publish verification.result -> SSE/dashboard fan-out. Preserves ARCHITECTURE.md invariants: token firewall, secrets redaction by T01, .forge ignored, agent direct filesystem write, Node authoritative verification.",
+      "acceptance_criteria": [
+        "bootstrap/start-control-api creates in order: chokidar rawWatcher -> DebouncedWatcher -> IncrementalIndexer (indexDb, projectRoot) -> ContextEngine (database, projectRoot, projectId) -> base ContextService (memoryRetriever, taskSummaries, taskStore) -> filesystem-aware wrapper (T11) with budgetManager -> AgentRuntime (contextService, budgetManager, planningEngine, publisher, summaries, memory) -> VerificationOrchestrator (projectRoot, projectId) -> RuntimeService injected with agentRuntime and publisher (T12) — shared internalBus, database, projectId, projectRoot throughout",
+        "Production path uses real AgentRuntime, no mock/no-op fallback; test path still works when agentRuntime omitted (optional injection preserved) — existing runtime-service unit tests remain green",
+        "internalBus listener: on watcher.file_created / file_modified / file_deleted / file_renamed -> wait indexer.handle() completion -> trigger verificationOrchestrator.run() with minimal plan (one test check initially, 3-tier pipeline later) -> publish verification.result to EventStore/internalBus",
+        "SSE stream (conversationStream) and dashboard/projectDashboardService subscribe to verification.result and agent.* events (agent.completed / agent.failed) so UI updates in real time; no event dropped when publisher missing",
+        "Startup respects forge-layout.js: ensures .forge/runtime/index.db and ignores .forge/**, node_modules/**, .git/**, dist/**, coverage/** via watcher DEFAULT_WATCHER_IGNORE + debounced-watcher validation",
+        "Secrets filtering (T01) and context budget enforcement (T07) active on the merged context path — verification via contextService.buildContext before agent run",
+        "Manual smoke test passes without mocks: POST /tasks { projectId:\"PROJECT-114A\", taskId:\"TASK-E2E-SMOKE\", query:\"create src/e2e-smoke.txt\" } -> agentRuntime writes src/e2e-smoke.txt -> watcher emits watcher.file_created -> indexer indexes file -> verifier runs -> verification.result observable via GET /projects/PROJECT-114A/history and GET /projects/PROJECT-114A/dashboard",
+        "Re-running node scripts/test-e2e-flow.mjs shows WIRED for: RuntimeService -> AgentRuntime, ContextEngine -> Agent, Indexer -> Verification, Verification -> UI; section 8 import probe still all green",
+        "No circular dependency or double-publish: runtime recovery/replay (bootstrap recovery + replayEngine) still runs once at startup before wiring verification listener"
+      ],
+      "priority": "critical",
+      "dependencies": [
+        "NF-STAB-T11",
+        "NF-STAB-T12"
+      ],
+      "provenance": {
+        "source": "architecture_decision",
+        "source_id": "AD-NF-STABILIZE-001",
+        "created_at": "2026-08-20T14:00:00+07:00"
+      }
+    },
+    {
+      "id": "NF-STAB-T13B",
+      "project_id": "PROJECT-114A",
+      "roadmap_id": "ROADMAP-114A",
+      "sprint_id": "SPRINT-NF-STAB-001",
+      "title": "Wire Watcher/Indexer/Verification -> SSE fan-out — close filesystem -> verification -> UI event loop",
+      "objective": "Complete the remaining 40% of T13 by wiring DebouncedWatcher, IncrementalIndexer, and VerificationOrchestrator in the control API composition root (scripts/start-control-api.mjs / src/bootstrap/index.js) and connecting internalBus watcher file events -> indexer completion -> verification run -> publish verification.result -> SSE/dashboard fan-out. Preserves ARCHITECTURE.md invariants: watcher observes direct filesystem writes, .forge ignored, Node authoritative verification, token firewall via T01/T07.",
+      "acceptance_criteria": [
+        "scripts/start-control-api.mjs (or src/bootstrap/index.js) creates DebouncedWatcher via chokidar.watch(projectRoot) sharing internalBus, respecting DEFAULT_WATCHER_IGNORE (.forge/**, node_modules/**, .git/**, dist/**, coverage/**) and debounced-watcher debounce/rename validation; watcher lifecycle tied to bootstrap start/stop",
+        "IncrementalIndexer created with { database: indexDb, projectRoot } and subscribed via bootstrap startIndexPipeline to internalBus event for watcher.file_created / file_modified / file_deleted / file_renamed; watcher -> indexer pipeline verified by writing a temp file and observing indexDb update",
+        "VerificationOrchestrator created with { projectRoot, projectId } and triggered AFTER indexer.handle() completes for each watcher file event, using minimal verification plan (single test check) initially — 3-tier pipeline deferred; verification failure does not crash watcher/indexer loop",
+        "verification.result published to EventStore/internalBus and fanned out to conversationStream SSE (GET /projects/:projectId/conversations/:conversationId/stream) and projectDashboardService dashboard (GET /projects/:projectId/dashboard), observable via GET /projects/:projectId/history",
+        "Startup respects src/infrastructure/filesystem/forge-layout.js: ensures .forge/runtime/index.db exists before watcher/indexer start; no watcher event emitted for .forge/** writes",
+        "Secrets filtering (T01) and context budget enforcement (T07) remain active on the context path feeding verification — no .env/*.key/*.pem content reaches verification payload",
+        "Smoke test without mocks: POST /tasks { projectId:\"PROJECT-114A\", taskId:\"TASK-E2E-SMOKE-2\", query:\"create src/e2e-smoke2.txt\" } OR direct fs write src/e2e-smoke2.txt -> watcher emits watcher.file_created -> indexer indexes -> verifier runs -> verification.result visible via GET /history and SSE stream",
+        "Re-running node scripts/test-e2e-flow.mjs shows WIRED for Indexer -> Verification and Verification -> UI; section 8 import probe still all green, no circular dependency or double-publish with bootstrap recovery/replay",
+        "Existing tests remain green: node --test src/application/runtime-service.test.js, T11 context tests, lint, typecheck, git diff --check"
+      ],
+      "priority": "critical",
+      "dependencies": [
+        "NF-STAB-T13"
+      ],
+      "provenance": {
+        "source": "architecture_decision",
+        "source_id": "AD-NF-STABILIZE-001",
+        "created_at": "2026-08-20T14:00:00+07:00"
+      }
+    },
+    {
+      "id": "NF-STAB-T13C",
+      "project_id": "PROJECT-114A",
+      "roadmap_id": "ROADMAP-114A",
+      "sprint_id": "SPRINT-NF-STAB-001",
+      "title": "Wire Agent stream -> UI SSE — bridge AgentRuntime events to conversationStream/EventStore for realtime UI",
+      "objective": "Close final STUB in E2E diagnostic: make agentRuntime publisher events (agent.started, agent.plan.created, agent.step.completed, agent.completed, agent.failed) visible via SSE endpoint GET /projects/:projectId/conversations/:conversationId/stream and persisted in EventStore/history for GET /history and GET /dashboard. Preserves invariants: Node authoritative verification, watcher observes filesystem, no filesystem API proxy.",
+      "acceptance_criteria": [
+        "AgentRuntime publisher events fanned out via bridgeAgentStream / internalBus to conversationStream — shared publisher/EventStore/internalBus from T13 composition root, no new bus created",
+        "conversationStream.connect({ projectId, conversationId, response, afterMessageId }) emits stored + live agent.* events as SSE text/event-stream (verify via EventSource client, Last-Event-ID / ?after replay works)",
+        "History/dashboard reflect agent events: GET /projects/PROJECT-114A/history?type=agent.* and GET /projects/PROJECT-114A/dashboard show agent lifecycle after POST /tasks",
+        "Failure path also streams: agent.failed published on agentRuntime.run() reject and visible via SSE without crashing Node (no unhandled rejection)",
+        "E2E smoke without mocks: POST /tasks {PROJECT-114A, TASK-E2E-STREAM, query} -> SSE client receives agent.started then agent.completed (or agent.failed) within timeout, and verification.result still appears via same stream",
+        "Diagnostic updated: node scripts/test-e2e-flow.mjs reports Agent stream -> UI SSE = WIRED (not STUB), and section 4/5 static MISSING/PARTIAL text refreshed to match actual wiring; section 8 import probe still all green",
+        "Existing tests green: runtime-service.test.js, T11 context tests, lint, typecheck, git diff --check"
+      ],
+      "priority": "high",
+      "dependencies": [
+        "NF-STAB-T13",
+        "NF-STAB-T13B"
+      ],
+      "provenance": {
+        "source": "architecture_decision",
+        "source_id": "AD-NF-STABILIZE-001",
+        "created_at": "2026-08-20T14:00:00+07:00"
+      }
+    },
+    {
+      "id": "NF-STAB-T14",
+      "project_id": "PROJECT-114A",
+      "roadmap_id": "ROADMAP-114A",
+      "sprint_id": "SPRINT-NF-STAB-001",
+      "title": "Implement real filesystem write in Agent execution — replace simulated plan with tool-capable Builder",
+      "objective": "Replace simulated 3-step executor with real Builder that writes to project filesystem via project-scoped tools (writeFile with projectRoot guard + secrets redaction T01), so POST /tasks with query actually creates src/e2e-smoke2.txt and triggers watcher -> indexer -> verification loop. Preserves ARCHITECTURE.md ch.52: agent free to write directly, watcher observes, .forge ignored, no API proxy.",
+      "acceptance_criteria": [
+        "AgentRuntime executeStep replaced/wrapped to invoke Builder tool: project-scoped writeFile({ path, content }) constrained to projectRoot (no path traversal, respect DEFAULT_WATCHER_IGNORE), with secrets redaction check from T01 before write",
+        "Integration uses existing devquote adapter (provider=devquote) OR local tool executor — choice documented, no hardcoded provider; model from agent profile (claude-haiku-4-5)",
+        "Smoke test without mocks passes: POST /tasks {PROJECT-114A, TASK-E2E-SMOKE-2, query:\"create src/e2e-smoke2.txt with hello\"} -> src/e2e-smoke2.txt exists on disk with expected content within 10s",
+        "Watcher emits watcher.file_created for the new file and IncrementalIndexer indexes it (verify via indexDb files table and GET /history)",
+        "VerificationOrchestrator triggered after indexing (from T13B) still runs and publishes verification.result; failure does not crash agent",
+        "Dashboard empty is not regressed, but file write is independent of roadmap/sprint seeding",
+        "Polling watcher fix in scripts/start-control-api.mjs committed with test guard for EMFILE fallback (usePolling option documented)",
+        "Tests green: runtime-service, T11 context, lint, typecheck, git diff --check; node scripts/test-e2e-flow.mjs section 4/5 static text updated to reflect real write capability"
+      ],
+      "priority": "critical",
+      "dependencies": [
+        "NF-STAB-T01",
+        "NF-STAB-T11",
+        "NF-STAB-T13",
+        "NF-STAB-T13B"
+      ],
+      "provenance": {
+        "source": "architecture_decision",
+        "source_id": "AD-NF-STABILIZE-001",
+        "created_at": "2026-08-20T14:00:00+07:00"
+      }
+    },
+    {
+      "id": "NF-STAB-T17",
+      "project_id": "PROJECT-114A",
+      "roadmap_id": "ROADMAP-114A",
+      "sprint_id": "SPRINT-NF-STAB-001",
+      "title": "Create queued DatabaseService for SQLite writes — single writer with ordered queue",
+      "objective": "Replace direct openIndexDatabase concurrent writes from Node Control API and Filesystem/Index Watcher with a single DatabaseService that queues all SQLite writes in order with BEGIN IMMEDIATE transaction, eliminating UNIQUE constraint failed: files.path and database access denied errors. Reads remain parallel via WAL.",
+      "acceptance_criteria": [
+        "Create src/infrastructure/sqlite/database-service.js exposing createDatabaseService({ dataDir, busyTimeoutMs, journalMode }) with methods write(sql, params), read(sql, params), transaction(fn), close() — write queue is FIFO with BEGIN IMMEDIATE -> COMMIT/ROLLBACK, busy_timeout and journal_mode=WAL set on open",
+        "Refactor eventStore, historyStore, sessionStore, roadmapStore, sprintPlanProjection, ticketProvenanceTracker, incrementalIndexer, indexMetadata to accept databaseService instead of raw database, and use service.write/read; no direct openIndexDatabase write outside service",
+        "Writes from Node server (agent profiles, secrets metadata, communication/history, event store, sessions, roadmap) and Watcher (files, symbols, imports/exports, calls/dependency edges, index metadata, watcher/verification events) all go through service queue; concurrent writes no longer cause UNIQUE constraint failed: files.path",
+        "Duplicate file path handled via INSERT OR REPLACE / ON CONFLICT upsert in service layer, verified by concurrent write test",
+        "Service survives restart: after npm run dev:forge:stop/start, GET /projects/PROJECT-114A/history still shows events and database not locked",
+        "Tests PASS: node --test tests/unit/index-database.test.js tests/unit/event-store.test.js tests/integration/persistent-event-store.test.js, npm run lint, npm run typecheck, npm run validate:schemas, git diff --check; manual smoke: parallel POST /tasks triggers concurrent file writes without UNIQUE error and tail .node-control/logs/node.log shows no database access denied"
+      ],
+      "priority": "critical",
+      "dependencies": [],
+      "provenance": {
+        "source": "architecture_decision",
+        "source_id": "AD-NF-STABILIZE-001",
+        "created_at": "2026-08-21T08:00:00Z"
+      }
+    }
+  ],
+  "exit_criteria": [
+    "All 16 tickets (T01-T14 incl. T13B+T13C) pass acceptance criteria with passing unit + integration tests",
+    "No CRITICAL or HIGH severity findings remain from re-run code review",
+    "Architecture compliance score increases from ~73% to >90%",
+    "Full integration test: save file → watcher → index → test → review → approve completes without data loss",
+    "Stress test: 100 concurrent event subscriptions, none crashes the pipeline",
+    "Recovery test: kill Node mid-operation, restart restores all persisted events and history"
+  ]
+}

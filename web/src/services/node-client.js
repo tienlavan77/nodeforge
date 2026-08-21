@@ -28,18 +28,38 @@ export function createNodeClient() {
     async getProjectDashboard(projectId) {
       return requestJson(`/projects/${projectId}/dashboard`, { fallbackError: "Node could not load the Project Dashboard." });
     },
+    async uploadSprintPlan(projectId, sprintPlan) {
+      return requestJson(`/projects/${projectId}/sprint-plans`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sprint_plan: sprintPlan }), fallbackError: "Node rejected the Sprint Plan."
+      });
+    },
+    async getSprintPlan(projectId, sprintId) {
+      return requestJson(`/projects/${projectId}/sprint-plans/${sprintId}`, { fallbackError: "Node could not load the Sprint Plan." });
+    },
+    async deleteSprintPlan(projectId, sprintId) {
+      return requestJson(`/projects/${projectId}/sprint-plans/${sprintId}`, { method: "DELETE", fallbackError: "Node could not delete the Sprint Plan." });
+    },
+    async runSprint(projectId, sprintId) {
+      return requestJson(`/projects/${projectId}/sprint-plans/${sprintId}/run`, { method: "POST", fallbackError: "Node could not start the sprint." });
+    },
+    async runSprintPlan(projectId, sprintId) {
+      return requestJson(`/projects/${projectId}/sprint-plans/${sprintId}/run`, {
+        method: "POST", fallbackError: `Node rejected Sprint Run: ${sprintId}.`
+      });
+    },
     async getArchitectureWorkspace(projectId) {
       return requestJson(`/projects/${projectId}/architecture-workspace`, { fallbackError: "Node could not load the Architecture Workspace." });
     },
-    async postOwnerMessage({ projectId, conversationId, messageId, correlationId, text }) {
+    async postOwnerMessage({ projectId, conversationId, agentId, messageId, correlationId, text, task }) {
       return requestJson(`/projects/${projectId}/conversations/${conversationId}/messages`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message_id: messageId, correlation_id: correlationId, timestamp: new Date().toISOString(), payload: { text } }),
+        body: JSON.stringify({ agent_id: agentId, message_id: messageId, correlation_id: correlationId, timestamp: new Date().toISOString(), payload: { text, ...(task ? { task } : {}) } }),
         fallbackError: "Node rejected the owner message."
       });
     },
-    connectConversationStream({ projectId, conversationId, afterMessageId, onMessage, onError }) {
+    connectConversationStream({ projectId, conversationId, afterMessageId, onMessage, onReplayComplete, onError }) {
       if (typeof onMessage !== "function") throw new Error("Conversation stream requires an onMessage handler.");
       const query = afterMessageId ? `?after=${encodeURIComponent(afterMessageId)}` : "";
       const source = new EventSource(`/projects/${projectId}/conversations/${conversationId}/stream${query}`);
@@ -50,6 +70,7 @@ export function createNodeClient() {
         delivered.add(message.message_id);
         onMessage(message);
       });
+      source.addEventListener("conversation.replay.complete", () => onReplayComplete?.());
       source.onerror = () => onError?.();
       return Object.freeze({ close: () => source.close() });
     },

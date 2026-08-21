@@ -4,4 +4,8 @@ coverage/
 .forge/runtime/
 .forge/*.db
 .node-control/
+.nodeforge/
+!.nodeforge/
+!.nodeforge/env.example
+.nodeforge/env
 .DS_Store

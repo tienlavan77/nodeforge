@@ -25,18 +25,19 @@ export function createConversationStream({ bus, communicationStore, eventStore, 
     const replay = communicationStore.getByConversationId(conversationId)
       .filter((message) => message.project_id === projectId);
     const eventReplay = (eventStore?.getAll?.() ?? [])
-      .filter((event) => event.metadata?.project_id === projectId && (event.metadata?.conversation_id ?? event.metadata?.task_id) === conversationId)
+      .filter((event) => (event.project_id ?? event.metadata?.project_id) === projectId && (event.metadata?.conversation_id ?? event.metadata?.task_id) === conversationId)
       .map(eventMessage);
     const replayMessages = [...replay.map(messageEnvelope), ...eventReplay].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
     const replayStart = afterMessageId ? Math.max(0, replayMessages.findIndex((message) => message.id === afterMessageId) + 1) : 0;
     for (const message of replayMessages.slice(replayStart)) write(message);
+    response.write("event: conversation.replay.complete\ndata: {}\n\n");
 
     const observer = (message) => {
       if (message.project_id === projectId && message.conversation_id === conversationId) write(message);
     };
     bus.subscribeAll(observer);
-    const eventSubscriptions = ["agent.*", "verification.result"].map((eventType) => subscriptions?.subscribe?.(eventType, (event) => {
-      if (event.metadata?.project_id === projectId && (event.metadata?.conversation_id ?? event.metadata?.task_id) === conversationId) write(eventMessage(event));
+    const eventSubscriptions = ["agent.*", "verification.result", "governance.sprint_plan.created"].map((eventType) => subscriptions?.subscribe?.(eventType, (event) => {
+      if ((event.project_id ?? event.metadata?.project_id) === projectId && (event.metadata?.conversation_id ?? event.metadata?.task_id) === conversationId) write(eventMessage(event));
     })).filter(Boolean);
     let closed = false;
     return Object.freeze({
@@ -61,7 +62,7 @@ export function createConversationStream({ bus, communicationStore, eventStore, 
 
 function messageEnvelope(message) { return { ...message, _kind: "message" }; }
 function eventMessage(event) {
-  return { id: event.event_id, project_id: event.metadata?.project_id, conversation_id: event.metadata?.conversation_id ?? event.metadata?.task_id, correlation_id: event.metadata?.correlation_id ?? null, message_type: event.event_type, timestamp: event.timestamp, sender: { id: event.metadata?.agent_id ?? event.source, role: "node" }, recipient: { id: "NODE", role: "node" }, payload: event.payload, _kind: "event" };
+  return { id: event.event_id, project_id: event.project_id ?? event.metadata?.project_id, conversation_id: event.metadata?.conversation_id ?? event.metadata?.task_id, correlation_id: event.metadata?.correlation_id ?? null, message_type: event.event_type, timestamp: event.timestamp, sender: { id: event.metadata?.agent_id ?? event.source, role: "node" }, recipient: { id: "NODE", role: "node" }, payload: event.payload, _kind: "event" };
 }
 
 function normalize(message) {

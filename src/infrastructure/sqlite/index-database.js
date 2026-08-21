@@ -109,7 +109,7 @@ export async function ensureRuntimeDir(projectRoot) {
   return runtimeDir;
 }
 
-export async function openIndexDatabase(projectRoot) {
+export async function openIndexDatabase(projectRoot, { busyTimeoutMs = 10000, journalMode = "WAL" } = {}) {
   const runtimeDir = await ensureRuntimeDir(projectRoot);
   const databasePath = join(runtimeDir, DATABASE_FILE);
   const database = new DatabaseSync(databasePath);
@@ -118,8 +118,8 @@ export async function openIndexDatabase(projectRoot) {
   database.exec("PRAGMA foreign_keys = ON");
   // Multiple Node processes (API + project watcher) share this runtime DB.
   // WAL plus a busy timeout lets short writes queue instead of crashing streams.
-  database.exec("PRAGMA journal_mode = WAL");
-  database.exec("PRAGMA busy_timeout = 10000");
+  database.exec(`PRAGMA journal_mode = ${journalMode}`);
+  database.exec(`PRAGMA busy_timeout = ${Number(busyTimeoutMs)}`);
   runMigrations(database);
 
   return Object.freeze({
@@ -135,7 +135,7 @@ export async function openIndexDatabase(projectRoot) {
     },
     transaction(callback) {
       if (closed) throw new ConfigurationError("Cannot transact on a closed index database.");
-      database.exec("BEGIN");
+      database.exec("BEGIN IMMEDIATE");
       try {
         const result = callback();
         database.exec("COMMIT");

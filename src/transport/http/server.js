@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 
 import { ConfigurationError } from "../../shared/errors.js";
 
-export function createHttpApi({ runtimeService, ownerChatService, conversationStream, architectureWorkspaceService, projectDashboardService, conversationAuditHistoryService, humanDecisionService, agentSettingsService } = {}) {
+export function createHttpApi({ runtimeService, ownerChatService, conversationStream, architectureWorkspaceService, projectDashboardService, conversationAuditHistoryService, humanDecisionService, agentSettingsService, sprintPlanUploadService, sprintOrchestrationService } = {}) {
   if (!runtimeService || typeof runtimeService.startTask !== "function" || typeof runtimeService.pauseSession !== "function"
     || typeof runtimeService.resumeSession !== "function" || typeof runtimeService.getSession !== "function" || typeof runtimeService.getProjectMemory !== "function") {
     throw new ConfigurationError("HTTP API requires a Runtime Service.");
@@ -14,6 +14,8 @@ export function createHttpApi({ runtimeService, ownerChatService, conversationSt
   if (conversationAuditHistoryService !== undefined && typeof conversationAuditHistoryService?.query !== "function") throw new ConfigurationError("HTTP API Conversation Audit History Service must provide query().");
   if (humanDecisionService !== undefined && typeof humanDecisionService?.submit !== "function") throw new ConfigurationError("HTTP API Human Decision Service must provide submit().");
   if (agentSettingsService !== undefined && (typeof agentSettingsService?.list !== "function" || typeof agentSettingsService?.save !== "function" || typeof agentSettingsService?.testConnection !== "function")) throw new ConfigurationError("HTTP API Agent Settings Service must provide list(), save(), and testConnection().");
+  if (sprintPlanUploadService !== undefined && typeof sprintPlanUploadService?.upload !== "function") throw new ConfigurationError("HTTP API Sprint Plan Upload Service must provide upload().");
+  if (sprintOrchestrationService !== undefined && typeof sprintOrchestrationService?.run !== "function") throw new ConfigurationError("HTTP API Sprint Orchestration Service must provide run().");
 
   return Object.freeze({ handler, createServer: () => createServer(handler) });
 
@@ -30,7 +32,10 @@ export function createHttpApi({ runtimeService, ownerChatService, conversationSt
       const result = await route(request.method ?? "GET", url, request);
       writeJson(response, result.status, result.body);
     } catch (error) {
-      writeJson(response, error.statusCode ?? 400, { error: error.message });
+      // SSE may have already sent headers before a disconnect/error; never
+      // attempt a second response that would crash the Control API process.
+      if (!response.headersSent && !response.writableEnded) writeJson(response, error.statusCode ?? 400, { error: error.message });
+      else response.destroy?.();
     }
   }
 
@@ -39,7 +44,7 @@ export function createHttpApi({ runtimeService, ownerChatService, conversationSt
     if (method === "POST" && parts.length === 5 && parts[0] === "projects" && parts[2] === "conversations" && parts[4] === "messages") {
       if (!ownerChatService) throw new ConfigurationError("Owner Chat API is not configured.");
       const body = await readJson(request);
-      return { status: 202, body: ownerChatService.submit({ ...body, project_id: parts[1], conversation_id: parts[3] }) };
+      return { status: 202, body: ownerChatService.submit({ ...body, project_id: parts[1], conversation_id: parts[3], agent_id: body.agent_id ?? body.recipient?.id }) };
     }
     if (method === "POST" && parts.length === 3 && parts[0] === "projects" && parts[2] === "decisions") {
       if (!humanDecisionService) throw new ConfigurationError("Human Decision API is not configured.");
@@ -64,6 +69,23 @@ export function createHttpApi({ runtimeService, ownerChatService, conversationSt
     if (method === "GET" && parts.length === 3 && parts[0] === "projects" && parts[2] === "dashboard") {
       if (!projectDashboardService) throw new ConfigurationError("Project Dashboard API is not configured.");
       return { status: 200, body: projectDashboardService.getDashboard(parts[1]) };
+    }
+    if (method === "POST" && parts.length === 3 && parts[0] === "projects" && parts[2] === "sprint-plans") {
+      if (!sprintPlanUploadService) throw new ConfigurationError("Sprint Plan Upload API is not configured.");
+      const body = await readJson(request, { maxBytes: 5 * 1024 * 1024 });
+      return { status: 201, body: sprintPlanUploadService.upload({ projectId: parts[1], sprintPlan: body.sprint_plan ?? body }) };
+    }
+    if (method === "GET" && parts.length === 4 && parts[0] === "projects" && parts[2] === "sprint-plans") {
+      if (!sprintPlanUploadService || typeof sprintPlanUploadService.get !== "function") throw new ConfigurationError("Sprint Plan View API is not configured.");
+      return { status: 200, body: sprintPlanUploadService.get({ projectId: parts[1], sprintId: parts[3] }) };
+    }
+    if (method === "DELETE" && parts.length === 4 && parts[0] === "projects" && parts[2] === "sprint-plans") {
+      if (!sprintPlanUploadService?.remove) throw new ConfigurationError("Sprint Plan Delete API is not configured.");
+      return { status: 200, body: sprintPlanUploadService.remove({ projectId: parts[1], sprintId: parts[3] }) };
+    }
+    if (method === "POST" && parts.length === 5 && parts[0] === "projects" && parts[2] === "sprint-plans" && parts[4] === "run") {
+      if (!sprintOrchestrationService) throw new ConfigurationError("Sprint Orchestration API is not configured.");
+      return { status: 202, body: sprintOrchestrationService.run({ projectId: parts[1], sprintId: parts[3] }) };
     }
     if (method === "GET" && parts.length === 3 && parts[0] === "projects" && parts[2] === "history") {
       if (!conversationAuditHistoryService) throw new ConfigurationError("Conversation Audit History API is not configured.");
@@ -103,9 +125,18 @@ function writeJson(response, status, body) {
   response.end(JSON.stringify(body));
 }
 
-async function readJson(request) {
+async function readJson(request, { maxBytes = 1024 * 1024 } = {}) {
   let body = "";
-  for await (const chunk of request) body += chunk;
+  let size = 0;
+  for await (const chunk of request) {
+    size += Buffer.byteLength(chunk);
+    if (size > maxBytes) {
+      const error = new ConfigurationError(`Request body exceeds the ${Math.round(maxBytes / 1024 / 1024)} MB limit.`);
+      error.statusCode = 413;
+      throw error;
+    }
+    body += chunk;
+  }
   if (!body) return {};
   try {
     return JSON.parse(body);

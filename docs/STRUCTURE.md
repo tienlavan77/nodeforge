@@ -1,5 +1,7 @@
 # Nodeforge project structure
 
+Roadmap commits that write files must declare `target_path`, derived `target_dir`, and `file_operation` (`create`, `modify`, or `delete`). FileService rejects writes that do not match the commit target or its `allowed_change_areas`.
+
 ```text
 nodeforge/
 ├── src/

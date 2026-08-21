@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createNodeClient } from "./services/node-client.js";
+import { validateSprintPlan } from "./services/sprint-plan-validator.js";
 import "./styles.css";
 
 const AGENTS = [
@@ -26,9 +27,11 @@ const PROVIDER_OPTIONS = [
 ];
 const MODEL_CATALOG = {
   codex: [
+    { value: "gpt-5.6-sol", label: "GPT-5.6 Sol (default)" },
     { value: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
-    { value: "gpt-5.6", label: "GPT-5.6" },
-    { value: "gpt-5.6-mini", label: "GPT-5.6 Mini" }
+    { value: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
+    { value: "gpt-5.5", label: "GPT-5.5" },
+    { value: "gpt-5.2", label: "GPT-5.2" }
   ],
   openai: [
     { value: "gpt-5.6", label: "GPT-5.6" },
@@ -40,8 +43,16 @@ const MODEL_CATALOG = {
     { value: "claude-haiku-4.5", label: "Claude Haiku 4.5" }
   ],
   claude: [
-    { value: "claude-sonnet-4.5", label: "Claude Sonnet 4.5" },
-    { value: "claude-haiku-4.5", label: "Claude Haiku 4.5" }
+    { value: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+    { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+    { value: "claude-opus-4-7", label: "Claude Opus 4.7" },
+    { value: "claude-opus-5", label: "Claude Opus 5" },
+    { value: "claude-opus-4-8[1m]", label: "Claude Opus 4.8 [1m]" },
+    { value: "claude-sonnet-4-5", label: "Claude Sonnet 4.5" },
+    { value: "claude-sonnet-4-0", label: "Claude Sonnet 4.0" },
+    { value: "claude-opus-4-5", label: "Claude Opus 4.5" },
+    { value: "claude-haiku-4-3", label: "Claude Haiku 4.3" },
+    { value: "claude-3-5-sonnet-20241022", label: "Claude 3.5 Sonnet (2024-10-22)" }
   ]
 };
 
@@ -54,20 +65,39 @@ function App() {
   const [workingByAgent, setWorkingByAgent] = useState(() => Object.fromEntries(AGENTS.map((agent) => [agent.id, "READY"])));
   const [historyOpen, setHistoryOpen] = useState(false);
   const [settingsAgent, setSettingsAgent] = useState(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [dashboard, setDashboard] = useState(null);
   const lastMessageId = useRef({});
+  const conversationRef = useRef(null);
+  const composerRef = useRef(null);
+  const streamQueues = useRef({});
   const active = AGENTS.find((agent) => agent.id === activeAgent);
   const loadWorkspace = useCallback(async () => {
     try {
       const data = await client.getArchitectureWorkspace(PROJECT_ID);
       setWorkspace(data);
-      if (data?.agent?.status) setWorkingByAgent((prev) => ({ ...prev, "architecture-manager": data.agent.status }));
+      // A persisted WORKING flag can be stale after a Node restart. Live SSE
+      // events are the authority for an active run, so do not restore it here.
+      if (data?.agent?.status && data.agent.status !== "WORKING") {
+        setWorkingByAgent((prev) => ({ ...prev, "architecture-manager": data.agent.status }));
+      }
     } catch {
       setWorkingByAgent((prev) => ({ ...prev, "architecture-manager": "FAILED" }));
+    }
+  }, [client]);
+  const loadDashboard = useCallback(async () => {
+    try {
+      const primary = await client.getProjectDashboard(PROJECT_ID);
+      if (primary?.roadmap || PROJECT_ID === "PROJECT-114A") { setDashboard(primary); return; }
+      setDashboard(await client.getProjectDashboard("PROJECT-114A"));
+    } catch {
+      try { setDashboard(await client.getProjectDashboard("PROJECT-114A")); } catch { setDashboard(null); }
     }
   }, [client]);
 
   useEffect(() => {
     loadWorkspace();
+    loadDashboard();
     const streams = AGENTS.map((agent) => {
       const conversationId = CONVERSATIONS[agent.id];
       return client.connectConversationStream({
@@ -76,41 +106,73 @@ function App() {
         afterMessageId: lastMessageId.current[agent.id],
         onMessage: (message) => {
           lastMessageId.current[agent.id] = message.message_id;
-          if (message.message_type === "architecture.working") setWorkingByAgent((prev) => ({ ...prev, [agent.id]: "WORKING" }));
-          if (["architecture.message.received", "architecture.error"].includes(message.message_type)) setWorkingByAgent((prev) => ({ ...prev, [agent.id]: message.payload?.agent_status ?? (message.message_type === "architecture.error" ? "FAILED" : "COMPLETED") }));
-          setMessages((current) => ({ ...current, [agent.id]: mergeStreamMessage(current[agent.id], message) }));
+          if (message.message_type === "architecture.working" || message.message_type === `${agent.id}.working`) setWorkingByAgent((prev) => ({ ...prev, [agent.id]: "WORKING" }));
+          if (message.message_type.endsWith(".message.received") || message.message_type.endsWith(".error")) setWorkingByAgent((prev) => ({ ...prev, [agent.id]: message.payload?.agent_status ?? (message.message_type.endsWith(".error") ? "FAILED" : "COMPLETED") }));
+          if (message.message_type.endsWith(".message.delta") || message.message_type.endsWith(".message.received")) queueDelta(agent.id, message);
+          else setMessages((current) => ({ ...current, [agent.id]: mergeStreamMessage(current[agent.id], message) }));
+          if (message.message_type === "governance.sprint_plan.created") loadDashboard();
           if (agent.id === "architecture-manager" && message.message_type === "architecture.message.received") loadWorkspace();
-        }
+        },
+        onReplayComplete: () => setWorkingByAgent((prev) => ({ ...prev, [agent.id]: prev[agent.id] === "WORKING" ? "READY" : prev[agent.id] }))
       });
     });
     return () => streams.forEach((s) => s.close());
-  }, [client, loadWorkspace]);
+  }, [client, loadDashboard, loadWorkspace]);
+
+  function queueDelta(agentId, message) {
+    const queue = streamQueues.current[agentId] ?? (streamQueues.current[agentId] = []);
+    queue.push(message);
+    if (queue.timer) return;
+    const tick = () => {
+      const next = queue.shift();
+      if (!next) { queue.timer = undefined; return; }
+      setMessages((current) => ({ ...current, [agentId]: mergeStreamMessage(current[agentId], next) }));
+      queue.timer = setTimeout(tick, 45);
+    };
+    tick();
+  }
 
   async function send(agentId) {
     const text = drafts[agentId]?.trim();
     if (!text) return;
     const conversationId = CONVERSATIONS[agentId] ?? ARCHITECTURE_CONVERSATION_ID;
+    const messageId = `MSG-OWNER-${Date.now()}-${agentId}`;
+    const task = agentId === "architecture-manager" ? undefined : buildDirectTask(agentId, text);
     setDrafts((current) => ({ ...current, [agentId]: "" }));
+    setWorkingByAgent((current) => ({ ...current, [agentId]: "WORKING" }));
+    setMessages((current) => ({ ...current, [agentId]: [...current[agentId], { id: messageId, from: "owner", text, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }] }));
     try {
       await client.postOwnerMessage({
         projectId: PROJECT_ID,
         conversationId,
-        messageId: `MSG-OWNER-${Date.now()}-${agentId}`,
+        agentId,
+        messageId,
         correlationId: `CORR-${agentId}-${Date.now()}`,
-        text
+        text,
+        task
       });
-    } catch {
-      setMessages((current) => ({ ...current, [agentId]: [...current[agentId], { from: "system", text: "Node is unavailable. Your message was not sent.", time: "now" }] }));
+    } catch (error) {
+      setWorkingByAgent((current) => ({ ...current, [agentId]: "FAILED" }));
+      setMessages((current) => ({ ...current, [agentId]: [...current[agentId], { from: "system", text: error?.message ?? "Node request failed. Your message was not sent.", time: "now" }] }));
     }
   }
 
   const activeAgentObj = AGENTS.find((a) => a.id === activeAgent);
   const isWorking = workingByAgent[activeAgent] === "WORKING";
 
+  useEffect(() => {
+    const element = conversationRef.current;
+    if (element) element.scrollTop = element.scrollHeight;
+  }, [messages, activeAgent]);
+
+  useEffect(() => {
+    if (!isWorking) composerRef.current?.focus();
+  }, [activeAgent, isWorking]);
+
   return <div className="app-shell">
     <header className="topbar">
       <div className="brand"><div className="brand-mark">N</div><div><div className="brand-name">NODE CONTROL ROOM</div><div className="brand-sub">Human governance surface</div></div></div>
-      <div className="topbar-meta"><span className="connection"><span className="live-dot" /> NODE ONLINE</span><span className="divider" /><span className="project-label">PROJECT <strong>NODEFORGE</strong></span><button className="history-button" onClick={() => setHistoryOpen(true)}>History</button><button className="icon-button" title="Open settings" aria-label="Open settings">&#9881;</button></div>
+      <div className="topbar-meta"><span className="connection"><span className="live-dot" /> NODE ONLINE</span><span className="divider" /><span className="project-label">PROJECT <strong>NODEFORGE</strong></span><button className="history-button" onClick={() => setUploadOpen(true)}>Upload Sprint Plan</button><button className="history-button" onClick={() => setHistoryOpen(true)}>History</button><button className="icon-button" title="Open settings" aria-label="Open settings">&#9881;</button></div>
     </header>
     <main className="workspace">
       <section className="chat-area panel" aria-label="Agent conversations">
@@ -125,36 +187,184 @@ function App() {
         </div>
         <div className="active-chat-panel">
           <PanelHeader agent={{ ...activeAgentObj, status: workingByAgent[activeAgent] }} onSettings={() => setSettingsAgent(activeAgentObj)} />
-          <div className="conversation natural-conversation" role="log" aria-label={`${activeAgentObj.label} messages`}>
+          <div className="conversation natural-conversation" ref={conversationRef} role="log" aria-label={`${activeAgentObj.label} messages`}>
             <div className="date-rule"><span>Conversation</span></div>
-            {isWorking && <div className="working-status" role="status">{activeAgentObj.label} is working…</div>}
             {/* Architecture Manager is working… for streaming regression */}
             {messages[activeAgent].map((message, index) => <Message key={message.id ?? `${message.time}-${index}`} message={message} />)}
+            {isWorking && <div className="working-status" role="status">{activeAgentObj.label} is working…</div>}
           </div>
           {activeAgent === "architecture-manager" && <InlineDecisionControls client={client} onWorkspaceChanged={loadWorkspace} workspace={workspace} />}
           <form className="composer" onSubmit={(event) => { event.preventDefault(); send(activeAgent); }}>
-            <textarea value={drafts[activeAgent] ?? ""} onChange={(event) => setDrafts((current) => ({ ...current, [activeAgent]: event.target.value }))} onInput={(event) => { event.currentTarget.style.height = "auto"; event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`; }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(activeAgent); } }} rows="2" placeholder={`Message ${activeAgentObj.label}...`} aria-label={`Message ${activeAgentObj.label}`} disabled={isWorking} />
+            <textarea ref={composerRef} value={drafts[activeAgent] ?? ""} onChange={(event) => setDrafts((current) => ({ ...current, [activeAgent]: event.target.value }))} onInput={(event) => { event.currentTarget.style.height = "auto"; event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`; }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(activeAgent); } }} rows="2" placeholder={`Message ${activeAgentObj.label}...`} aria-label={`Message ${activeAgentObj.label}`} disabled={isWorking} />
             <button type="submit" title="Send message" aria-label="Send message" disabled={isWorking}>&#8593;</button>
           </form>
         </div>
       </section>
       <section className="info-panel panel" aria-label="Project info">
         <div className="info-artifacts">
-          <ArchitectureArtifacts client={client} onWorkspaceChanged={loadWorkspace} workspace={workspace} />
+          {getPendingArchitectureProposal(workspace) && <ArchitectureArtifacts workspace={workspace} />}
+          <SprintPlanDashboard dashboard={dashboard} client={client} onRefresh={loadDashboard} />
         </div>
       </section>
     </main>
     <footer className="statusbar"><div><span className="status-key">ACTIVE CHANNEL</span><span className="status-value">{active.label}</span></div><div className="event-status"><span className="pulse" /> Event stream ready <span className="muted">/</span> session <strong>SPRINT-13</strong></div><div className="status-right">NODE v0.1.0</div></footer>
     {historyOpen && <HistoryOverlay client={client} onClose={() => setHistoryOpen(false)} />}
     {settingsAgent && <AgentSettingsOverlay client={client} agent={settingsAgent} onClose={() => setSettingsAgent(null)} />}
+    {uploadOpen && <UploadSprintPlanDialog client={client} onClose={() => setUploadOpen(false)} onUploaded={loadDashboard} />}
   </div>;
+}
+
+function buildDirectTask(agentId, objective) {
+  return { id: `TASK-${agentId.toUpperCase()}-${Date.now()}`, title: objective.slice(0, 80), objective, acceptance_criteria: ["Complete the requested task and report the result."] };
+}
+
+function SprintPlanDashboard({ dashboard, client, onRefresh }) {
+  const [runningId, setRunningId] = useState(null);
+  const [runMessage, setRunMessage] = useState("");
+  const [viewSprint, setViewSprint] = useState(null);
+  const [viewState, setViewState] = useState("idle");
+  const [deleteMessage, setDeleteMessage] = useState("");
+  const [createdSprint, setCreatedSprint] = useState(null);
+  const [highlightSprint, setHighlightSprint] = useState(null);
+  const knownSprintIds = useRef(null);
+  const currentId = dashboard?.current_sprint?.id ?? null;
+  const sprints = dashboard?.roadmap?.sprints ?? [];
+  useEffect(() => {
+    const timer = setInterval(() => onRefresh?.(), 3000);
+    return () => clearInterval(timer);
+  }, [onRefresh]);
+  useEffect(() => {
+    const ids = new Set(sprints.map((sprint) => sprint.id));
+    if (knownSprintIds.current) {
+      const created = sprints.find((sprint) => !knownSprintIds.current.has(sprint.id));
+      if (created) {
+        setCreatedSprint(created);
+        setHighlightSprint(created.id);
+        const toastTimer = setTimeout(() => setCreatedSprint(null), 5000);
+        const highlightTimer = setTimeout(() => setHighlightSprint(null), 3000);
+        knownSprintIds.current = ids;
+        return () => { clearTimeout(toastTimer); clearTimeout(highlightTimer); };
+      }
+    }
+    knownSprintIds.current = ids;
+  }, [sprints]);
+  if (!sprints.length && !currentId) return null;
+
+  async function handleRun(sprintId) {
+    if (runningId) return;
+    setRunningId(sprintId);
+    setRunMessage("");
+    try {
+      const projectId = dashboard.project_id ?? PROJECT_ID;
+      const result = await client.runSprintPlan(projectId, sprintId);
+      setRunMessage(`Started ${result.sprint_id} — session ${result.session_id}`);
+      await onRefresh?.();
+    } catch (error) {
+      const msg = String(error?.message ?? "");
+      if (msg.includes("409") || msg.toLowerCase().includes("already running")) {
+        setRunMessage(`Sprint ${sprintId} is already running (409).`);
+      } else {
+        setRunMessage(`Run failed: ${msg}`);
+      }
+      setRunningId(null);
+    }
+  }
+
+  async function handleView(sprintId) {
+    setViewState("loading");
+    setViewSprint(null);
+    try { setViewSprint(await client.getSprintPlan(dashboard.project_id ?? PROJECT_ID, sprintId)); setViewState("ready"); }
+    catch (error) { setViewState(error.message); }
+  }
+  async function handleDelete(sprintId) {
+    if (!window.confirm(`Delete ${sprintId}? This removes file and database records.`)) return;
+    try { await client.deleteSprintPlan(dashboard.project_id ?? PROJECT_ID, sprintId); setDeleteMessage(`Deleted ${sprintId}.`); await onRefresh?.(); }
+    catch (error) { setDeleteMessage(`Delete failed: ${error.message}`); }
+  }
+
+  return <section className="sprint-plan-dashboard" aria-label="Uploaded sprint plans">
+    <h2>Roadmap Sprints</h2>
+    {createdSprint && <div className="sprint-created-toast" role="status" aria-live="polite">Sprint {createdSprint.id} created by Sprint Leader</div>}
+    {dashboard?.current_sprint && <article className={`sprint-current ${highlightSprint === dashboard.current_sprint.id ? "is-new" : ""}`} aria-label={`Current sprint ${dashboard.current_sprint.id}`}>
+      <div className="sprint-row">
+        <div>
+          <strong>{dashboard.current_sprint.id}</strong>
+          <span className="sprint-badge">current</span>{highlightSprint === dashboard.current_sprint.id && <span className="sprint-new-badge">NEW</span>}
+        </div>
+          <span><button className="sprint-view-button" onClick={() => handleView(dashboard.current_sprint.id)}>View</button><button className="sprint-delete-button" onClick={() => handleDelete(dashboard.current_sprint.id)} disabled={Boolean(runningId)}>Delete</button><button className={`sprint-run-button ${runningId === dashboard.current_sprint.id ? "is-running" : ""}`} onClick={() => handleRun(dashboard.current_sprint.id)} disabled={Boolean(runningId)} aria-label={`Run ${dashboard.current_sprint.id}`}>
+          {runningId === dashboard.current_sprint.id ? "Running…" : "Run"}
+        </button>
+          </span>
+      </div>
+      <p>{dashboard.current_sprint.objective}</p>
+      <small>{dashboard.current_sprint.ticket_count ?? dashboard.current_sprint.tickets?.length ?? 0} tickets · {dashboard.current_sprint.status ?? "planned"}</small>
+    </article>}
+    {sprints.map((sprint) => {
+      const isCurrent = sprint.id === currentId;
+      if (isCurrent) return null;
+      return <article key={sprint.id} className={`sprint-item ${highlightSprint === sprint.id ? "is-new" : ""}`}>
+        <div className="sprint-row">
+          <strong>{sprint.id}</strong>{highlightSprint === sprint.id && <span className="sprint-new-badge">NEW</span>}
+        <span><button className="sprint-view-button small" onClick={() => handleView(sprint.id)}>View</button><button className="sprint-delete-button small" onClick={() => handleDelete(sprint.id)} disabled={Boolean(runningId)}>Delete</button><button className={`sprint-run-button small ${runningId === sprint.id ? "is-running" : ""}`} onClick={() => handleRun(sprint.id)} disabled={Boolean(runningId)} aria-label={`Run ${sprint.id}`}>
+          {runningId === sprint.id ? "Running…" : "Run"}
+          </button></span>
+        </div>
+        <p>{sprint.objective}</p>
+        <small>{sprint.tickets?.length ?? 0} tickets · {sprint.status ?? "planned"}</small>
+      </article>;
+    })}
+    {runMessage && <p className="sprint-run-message" role="status" aria-live="polite">{runMessage}</p>}
+    {deleteMessage && <p className="sprint-run-message" role="status">{deleteMessage}</p>}
+    {viewState !== "idle" && <SprintPlanModal sprint={viewSprint} state={viewState} onClose={() => { setViewState("idle"); setViewSprint(null); }} />}
+  </section>;
+}
+
+function UploadSprintPlanDialog({ client, onClose, onUploaded }) {
+  const [fileName, setFileName] = useState("");
+  const [plan, setPlan] = useState(null);
+  const [errors, setErrors] = useState([]);
+  const [state, setState] = useState("");
+  async function choose(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name); setPlan(null); setState("");
+    try {
+      const parsed = JSON.parse(await file.text());
+      const nextErrors = validateSprintPlan(parsed);
+      setErrors(nextErrors);
+      if (!nextErrors.length) setPlan(parsed);
+    } catch { setErrors(["File must contain valid JSON."]); }
+  }
+  function drop(event) {
+    event.preventDefault();
+    const file = event.dataTransfer.files?.[0];
+    if (!file) return;
+    choose({ target: { files: [file] } });
+  }
+  async function submit() {
+    if (!plan) return;
+    setState("Uploading…");
+    try { await client.uploadSprintPlan(plan.project_id, plan); await onUploaded?.(); setState("Uploaded successfully."); }
+    catch (error) { setState(`Error: ${error.message}`); }
+  }
+  return <div className="settings-overlay" role="dialog" aria-modal="true" aria-label="Upload Sprint Plan"><section className="settings-modal upload-modal"><header><div><h2>Upload Sprint Plan</h2><p>Select a sprint-plan JSON file and preview it before submitting.</p></div><button onClick={onClose} aria-label="Close upload dialog">&#215;</button></header><label className="upload-dropzone" onDragOver={(event) => event.preventDefault()} onDrop={drop}><input type="file" accept=".json,application/json" onChange={choose} aria-label="Sprint plan JSON file" /><strong>Drop sprint plan JSON here</strong><span>or click to browse</span></label>{fileName && <small className="upload-file">{fileName}</small>}{errors.length > 0 && <div className="upload-errors" role="alert">{errors.map((error) => <p key={error}>{error}</p>)}</div>}{plan && <div className="upload-preview"><strong>{plan.id}</strong><p>{plan.objective}</p><span>Roadmap: {plan.roadmap_id} · Project: {plan.project_id}</span><span>{plan.tickets.length} tickets · {plan.exit_criteria.length} exit criteria</span></div>}<div className="settings-actions"><button onClick={submit} disabled={!plan || state === "Uploading…"}>Upload</button><button onClick={onClose}>Cancel</button></div>{state && <p aria-live="polite">{state}</p>}</section></div>;
+}
+
+function SprintPlanModal({ sprint, state, onClose }) {
+  const closeButtonRef = useRef(null);
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+    const onKeyDown = (event) => { if (event.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+  return <div className="sprint-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="sprint-modal" role="dialog" aria-modal="true" aria-labelledby="sprint-modal-title"><header><h2 id="sprint-modal-title">{sprint?.id ?? "Sprint Plan"}</h2><button ref={closeButtonRef} onClick={onClose} aria-label="Close sprint plan">&#215;</button></header>{state === "loading" && <p className="dashboard-state">Loading sprint plan…</p>}{state !== "loading" && !sprint && <p className="dashboard-state error">{state}</p>}{sprint && <div className="sprint-modal-content"><p className="sprint-objective">{sprint.objective}</p><h3>Tickets ({sprint.tickets.length})</h3><div className="sprint-ticket-table">{sprint.tickets.map((ticket) => <article key={ticket.id}><strong>{ticket.id}</strong><span>{ticket.title}</span><small>{ticket.priority ?? "normal"}</small></article>)}</div><h3>Exit Criteria</h3><ul>{sprint.exit_criteria.map((item) => <li key={item}>{item}</li>)}</ul></div>}</section></div>;
 }
 
 function InlineDecisionControls({ client, onWorkspaceChanged, workspace }) {
   const [reason, setReason] = useState("");
   const [result, setResult] = useState("");
   const pending = getPendingArchitectureProposal(workspace);
-  const completed = getLatestCompletedDecision(workspace);
   async function submit(decision) {
     if (!pending) return;
     const proposalId = pending.id;
@@ -164,7 +374,8 @@ function InlineDecisionControls({ client, onWorkspaceChanged, workspace }) {
       setReason(""); setResult(labelForDecision(decision)); onWorkspaceChanged();
     } catch (error) { setResult(error.message); }
   }
-  if (!pending) return completed ? <div className="decision-result" aria-label="Human Decision result">{labelForDecision(completed.decision)}</div> : null;
+  // Once a proposal is decided, keep the result in History rather than the chat composer.
+  if (!pending) return null;
   return <section className="decision-actions" aria-label="Human Decision"><h3>Human Decision</h3><p>{pending.title ?? pending.id}</p><input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Reason for reject/change request" aria-label="Decision reason" /><div><button onClick={() => submit("APPROVE")}>Approve</button><button onClick={() => submit("CHANGE_REQUEST")}>Request Changes</button><button onClick={() => submit("REJECT")}>Reject</button></div>{result && <small>{result}</small>}</section>;
 }
 
@@ -172,11 +383,6 @@ function getPendingArchitectureProposal(workspace) {
   const decisions = workspace?.decisions ?? [];
   const completed = new Set(decisions.filter((item) => item.type === "human_governance").map((item) => item.proposal_id));
   return decisions.find((item) => item.type !== "human_governance" && item.status === "proposed" && !completed.has(item.id)) ?? null;
-}
-
-function getLatestCompletedDecision(workspace) {
-  const decisions = (workspace?.decisions ?? []).filter((item) => item.type === "human_governance");
-  return decisions.at(-1) ?? null;
 }
 
 function labelForDecision(decision) {
@@ -229,9 +435,9 @@ function toDisplayMessage(message) {
 
 function mergeStreamMessage(messages, message) {
   if (messages.some((item) => item.id === message.message_id)) return messages;
-  if (message.message_type === "architecture.working") return messages;
-  const isDelta = message.message_type === "architecture.message.delta";
-  const isCompletion = message.message_type === "architecture.message.received";
+  if (message.message_type.endsWith(".working")) return messages;
+  const isDelta = message.message_type.endsWith(".message.delta");
+  const isCompletion = message.message_type.endsWith(".message.received");
   if (!isDelta && !isCompletion) return [...messages, toDisplayMessage(message)];
   const index = messages.findIndex((item) => item.from === "agent" && item.correlation_id === message.correlation_id && item.stream === true);
   if (index < 0) return [...messages, { ...toDisplayMessage(message), stream: true, text: message.payload?.text ?? "" }];
@@ -252,23 +458,18 @@ function ArchitecturePanel({ client, onWorkspaceChanged, onSettings, agent, work
     <PanelHeader agent={agent} onSettings={onSettings} />
     <div className="architecture-conversation conversation natural-conversation" ref={conversationRef} onScroll={(event) => { const element = event.currentTarget; wasAtBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 56; }} role="log" aria-label="Architecture Manager messages">
       <div className="date-rule"><span>Conversation</span></div>
-      {agent.status === "WORKING" && <div className="working-status" role="status">Architecture Manager is working…</div>}
       {messages.map((message, index) => <Message key={message.id ?? `${message.time}-${index}`} message={message} />)}
+      {agent.status === "WORKING" && <div className="working-status" role="status">Architecture Manager is working…</div>}
     </div>
     <form className="composer" onSubmit={(event) => { event.preventDefault(); onSend(); }}><textarea value={draft} onChange={(event) => onDraft(event.target.value)} onInput={(event) => { event.currentTarget.style.height = "auto"; event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`; }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); onSend(); } }} rows="2" placeholder="Message Architecture Manager..." aria-label="Message Architecture Manager" /><button type="submit" title="Send message" aria-label="Send message">&#8593;</button></form>
   </article>;
 }
 
-function ArchitectureArtifacts({ client, onWorkspaceChanged, workspace }) {
-  if (!workspace) return <div className="architecture-artifacts"><div className="workspace-loading">Loading Architecture Workspace from Node…</div></div>;
-  const plan = workspace.architecture_plan;
-  return <aside className="architecture-artifacts" aria-label="Architecture Workspace data">
-    <WorkspaceSection title="Architecture Plan" items={plan.architecture} empty="No architecture plan published yet." />
-    <WorkspaceSection title="Architecture Decisions" items={workspace.decisions} empty="No decisions published yet." />
-    <WorkspaceSection title="Standards" items={workspace.standards} empty="No standards published yet." />
-    <WorkspaceSection title="Constraints" items={workspace.constraints} empty="No constraints published yet." />
-    <section className="workspace-section"><h3>Current Roadmap</h3>{workspace.roadmap ? <div className="roadmap-card"><strong>{workspace.roadmap.id}</strong><span>Version {workspace.roadmap.version}</span></div> : <p className="workspace-empty">No roadmap published yet.</p>}</section>
-    <WorkspaceSection title="Sprint Breakdown" items={workspace.sprint_breakdown} empty="No sprint breakdown published yet." />
+function ArchitectureArtifacts({ workspace }) {
+  const proposal = getPendingArchitectureProposal(workspace);
+  if (!proposal) return null;
+  return <aside className="architecture-artifacts pending-proposal" aria-label="Proposal awaiting human decision">
+    <div className="workspace-section"><h3>Proposal Awaiting Decision</h3><div className="workspace-card"><strong>{proposal.title ?? proposal.id}</strong><p>{proposal.decision}</p><span>Architecture Manager proposal</span></div></div>
   </aside>;
 }
 
@@ -317,7 +518,77 @@ function PanelHeader({ agent, onSettings }) {
 }
 
 function Message({ message }) {
-  return <div className={`message-row natural-message ${message.from === "owner" ? "owner" : "agent"}`}><p>{message.text}</p><time>{message.time}</time></div>;
+  return <div className={`message-row natural-message ${message.from === "owner" ? "owner" : "agent"}`}><MessageContent text={message.text} /><time>{message.time}</time></div>;
+}
+
+function MessageContent({ text }) {
+  const parts = parseCodeBlocks(text);
+  return <div className="message-content">{parts.map((part, index) => part.code
+    ? <CodeBlock key={`code-${index}`} language={part.language} code={part.code} />
+    : <TextWithInline key={`text-${index}`} text={part.text} />)}</div>;
+}
+
+function TextWithInline({ text }) {
+  const value = String(text ?? "");
+  if (!value) return null;
+  const segments = [];
+  const pattern = /`([^`]+)`/g;
+  let last = 0;
+  let match;
+  while ((match = pattern.exec(value))) {
+    const start = match.index;
+    if (start > last) segments.push({ text: value.slice(last, start) });
+    segments.push({ inlineCode: match[1] });
+    last = start + match[0].length;
+  }
+  if (last < value.length) segments.push({ text: value.slice(last) });
+  if (segments.length === 0) return <p>{value}</p>;
+  const hasInline = segments.some((s) => s.inlineCode);
+  if (!hasInline) return <p>{value}</p>;
+  return <p>{segments.map((seg, i) => seg.inlineCode ? <InlineCode key={i} code={seg.inlineCode} /> : <span key={i}>{seg.text}</span>)}</p>;
+}
+
+function InlineCode({ code }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(code);
+      else { const t = document.createElement("textarea"); t.value = code; document.body.appendChild(t); t.select(); document.execCommand("copy"); t.remove(); }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch { setCopied(false); }
+  }
+  return <span className="inline-code-wrap"><code className="inline-code">{code}</code><button type="button" className="inline-copy" onClick={copy} aria-label="Copy command">{copied ? "Copied" : "Copy"}</button></span>;
+}
+
+function CodeBlock({ language, code }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(code);
+      else { const t = document.createElement("textarea"); t.value = code; document.body.appendChild(t); t.select(); document.execCommand("copy"); t.remove(); }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch {
+      setCopied(false);
+    }
+  }
+  return <div className="code-block"><div className="code-block-header"><span>{language || "code"}</span><button type="button" className={copied ? "is-copied" : ""} onClick={copy}>{copied ? "Copied" : "Copy"}</button></div><pre><code>{code}</code></pre></div>;
+}
+
+function parseCodeBlocks(text) {
+  const value = String(text ?? "");
+  const parts = [];
+  const pattern = /```([^\n`]*)\n([\s\S]*?)```/g;
+  let cursor = 0;
+  for (const match of value.matchAll(pattern)) {
+    const start = match.index ?? 0;
+    if (start > cursor) parts.push({ text: value.slice(cursor, start) });
+    parts.push({ code: match[2].replace(/\n$/, ""), language: match[1].trim() });
+    cursor = start + match[0].length;
+  }
+  if (cursor < value.length || parts.length === 0) parts.push({ text: value.slice(cursor) });
+  return parts;
 }
 
 function AgentPanel({ agent, messages, draft, onDraft, onSend, onActivate, active, expanded, onSettings }) {

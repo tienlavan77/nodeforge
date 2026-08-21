@@ -1,6 +1,10 @@
 import process from "node:process";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
+import { loadNodeforgeEnv } from "./nodeforge-env.mjs";
+import { acquireProcessLock } from "./nodeforge-process-lock.mjs";
+
+loadNodeforgeEnv();
 
 import { createRuntimeService } from "../src/application/runtime-service.js";
 import { createArchitectureWorkspaceService } from "../src/application/architecture-workspace-service.js";
@@ -13,7 +17,7 @@ import { createAgentGateway } from "../src/modules/agent/agent-gateway.js";
 import { createAgentProfileStore } from "../src/modules/agent/agent-profile-store.js";
 import { createPersistentSecretBackend } from "../src/modules/agent/persistent-secret-backend.js";
 import { createOwnerChatService } from "../src/application/owner-chat-service.js";
-import { openIndexDatabase } from "../src/infrastructure/sqlite/index-database.js";
+import { createDatabaseService } from "../src/infrastructure/sqlite/database-service.js";
 import { createAgentSessionStore } from "../src/modules/agent/session-store.js";
 import { createPersistentEventStore } from "../src/modules/events/persistent-event-store.js";
 import { createMemoryRetriever } from "../src/modules/history/memory-retriever.js";
@@ -38,16 +42,19 @@ import { createEventPublisher } from "../src/modules/events/event-publisher.js";
 import { createHistoryStore } from "../src/modules/history/history-store.js";
 import { createTaskSummaryStore } from "../src/modules/history/task-summary-store.js";
 import { createProjectMemoryStore } from "../src/modules/history/project-memory-store.js";
-import { createFilesystemWatcher, DEFAULT_WATCHER_IGNORE } from "../src/infrastructure/filesystem/watcher.js";
-import { createDebouncedWatcher } from "../src/modules/watcher/debounced-watcher.js";
-import { createIncrementalIndexer } from "../src/modules/index/incremental-indexer.js";
-import { createVerificationOrchestrator } from "../src/modules/verification/orchestrator.js";
 import { createProjectFileTool } from "../src/modules/agent/project-file-tool.js";
+import { createSprintPlanUploadService } from "../src/application/sprint-plan-upload-service.js";
+import { createSprintOrchestrationService } from "../src/application/sprint-orchestration-service.js";
+import { createVerificationOrchestrator } from "../src/modules/verification/orchestrator.js";
+import { createTestService } from "../src/application/test-service.js";
+import { createFileService } from "../src/infrastructure/filesystem/file-service.js";
 
 const port = Number(process.env.NODE_CONTROL_PORT ?? 3100);
+const host = process.env.NODE_CONTROL_HOST ?? "127.0.0.1";
 const dataDir = process.env.NODE_CONTROL_DATA_DIR ?? join(process.cwd(), ".node-control");
 // Keep UI-control persistence isolated from the repository index database.
-const database = await openIndexDatabase(dataDir);
+const processLock = acquireProcessLock(dataDir, "control");
+const database = await createDatabaseService({ dataDir });
 const communications = createAgentCommunicationStore({ database });
 const profiles = createAgentProfileStore({ database });
 const agentConfiguration = createNodeAgentConfiguration({ profiles, configurationPath: join(dataDir, "agent-config.json") });
@@ -83,6 +90,10 @@ const taskStore = createTaskStore({ database, projectId });
 const subscriptions = createSubscriptionRegistry();
 const internalBus = new EventEmitter();
 const eventPublisher = createEventPublisher({ store: eventStore, subscriptions });
+const verificationOrchestrator = createVerificationOrchestrator({ projectRoot: process.cwd(), projectId });
+let testService;
+const fileService = createFileService({ projectRoot: process.cwd(), databaseService: database, onWrite: ({ path }) => testService?.runTests({ commitId: `FILE-${path}-${Date.now()}`, levels: ["unit_test"], taskId: path }).catch((error) => console.error("File write verification failed", { path, error: error.message })) });
+testService = createTestService({ verificationOrchestrator, fileService, projectRoot: process.cwd(), publisher: eventPublisher, internalBus });
 const history = createHistoryStore({ subscriptions });
 const summaries = createTaskSummaryStore({ history });
 const memory = createProjectMemoryStore({ summaries });
@@ -90,41 +101,8 @@ const memoryRetriever = createMemoryRetriever({ memory });
 const contextEngine = createContextEngine({ database, projectRoot: process.cwd(), projectId });
 const baseContext = createAgentContextService({ memoryRetriever, taskSummaries: summaries, taskStore });
 const contextService = createFilesystemAwareContextService({ baseContextService: baseContext, contextEngine, budgetManager: createContextBudgetManager(), maxFacts: Number(process.env.NODE_AGENT_MAX_FACTS ?? 200), debug: (detail) => process.env.NODE_DEBUG_CONTEXT && console.debug(detail) });
-const fileTool = createProjectFileTool({ projectRoot: process.cwd() });
+const fileTool = createProjectFileTool({ projectRoot: process.cwd(), fileService });
 const agentRuntime = createAgentRuntime({ contextService, budgetManager: createContextBudgetManager(), planningEngine: createPlanningEngine(), publisher: eventPublisher, summaries, memory, maxFacts: Number(process.env.NODE_AGENT_MAX_FACTS ?? 200), executeStep: (step, { task }) => step.type === "implementation" ? fileTool.writeFromQuery(task.title) : undefined });
-// Filesystem changes are indexed first, then verified and persisted as events.
-const rawWatcher = createFilesystemWatcher({
-  root: process.cwd(),
-  ignore: DEFAULT_WATCHER_IGNORE,
-  // Polling avoids exhausting native watcher descriptors in large worktrees.
-  chokidarOptions: { ignoreInitial: true, usePolling: true, interval: 250 }
-});
-const watcher = createDebouncedWatcher({ rawWatcher, projectId, root: process.cwd() });
-const indexer = createIncrementalIndexer({ database, projectRoot: process.cwd() });
-const verification = createVerificationOrchestrator({ projectRoot: process.cwd(), projectId });
-const onWatcherEvent = (event) => {
-  void indexer.handle(event)
-    .then((indexed) => indexed ? verification.run({
-      schema_version: "1.0",
-      commit_id: event.event_id,
-      levels: ["focused"],
-      checks: [{ type: "test", command: "node -e \"process.exit(0)\"", timeout_ms: 1000 }]
-    }) : null)
-    .then((result) => {
-      if (!result) return;
-      const verificationEvent = {
-        event_id: `VERIFY-EVENT-${event.event_id}`,
-        type: "verification.result",
-        project_id: projectId,
-        timestamp: new Date().toISOString(),
-        payload: { watcher_event_id: event.event_id, path: event.payload?.path, result }
-      };
-      eventPublisher.publish(verificationEvent);
-      internalBus.emit("verification.result", verificationEvent);
-    })
-    .catch((error) => console.error("Watcher verification failed", { error: error.message, event_id: event.event_id }));
-};
-watcher.on("event", onWatcherEvent);
 const runtimeService = createRuntimeService({
   sessionStore: createAgentSessionStore({ database }),
   eventStore,
@@ -133,25 +111,46 @@ const runtimeService = createRuntimeService({
   agentRuntime,
   publisher: eventPublisher
 });
+const sprintOrchestration = createSprintOrchestrationService({ runtimeService, sprintPlans, sprintPlanStore: roadmaps, ticketProvenanceTracker: provenance, agentGateway, publisher: eventPublisher });
+const sprintPlanUpload = createSprintPlanUploadService({ roadmaps, projectRoot: process.cwd(), isRunning: (sprintId) => sprintOrchestration.isRunning(sprintId) });
+const buildBuilderContext = async ({ message }) => {
+  const ticketId = message.payload.text.match(/\b[A-Z][A-Z0-9]+-[A-Z0-9]+-T\d+\b/i)?.[0];
+  if (!ticketId) return "";
+  const ticket = roadmaps.getCurrent()?.sprints?.flatMap((sprint) => sprint.tickets ?? []).find((item) => item.id.toLowerCase() === ticketId.toLowerCase());
+  if (!ticket) return "";
+  const targetPath = ticket.commit?.target_path ?? ticket.target_path ?? ticket.commit_target_path;
+  const sections = [`Ticket ${ticket.id}: ${ticket.title ?? ""}`, ticket.objective ? `Objective: ${ticket.objective}` : ""];
+  if (targetPath) {
+    try {
+      const pack = await contextEngine.build({ task_id: ticket.id, paths: [targetPath], include_dependencies: true, agent_role: "builder" });
+      for (const file of pack.files ?? []) if (file.content) sections.push(`File ${file.path}:\n${file.content}`);
+    } catch {
+      // The index can lag behind a newly uploaded ticket; read the guarded path directly.
+      try { sections.push(`File ${targetPath}:\n${await fileService.readFile({ path: targetPath })}`); } catch { /* guarded best effort */ }
+    }
+  }
+  return sections.filter(Boolean).join("\n\n");
+};
 const api = createHttpApi({
   runtimeService,
-  ownerChatService: createOwnerChatService({ bus, agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId }) }),
+  ownerChatService: createOwnerChatService({ bus, buildAgentContext: buildBuilderContext, agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId }), onAgentCompleted: sprintOrchestration.ingestAgentCompletion }),
   conversationStream: createConversationStream({ bus, communicationStore: communications, eventStore, subscriptions }),
   architectureWorkspaceService: createArchitectureWorkspaceService({ knowledge, roadmaps, sprintPlans }),
   projectDashboardService: createProjectDashboardService({ roadmaps, sprintPlans, provenance }),
   conversationAuditHistoryService: createConversationAuditHistoryService({ communications, eventStore }),
   humanDecisionService: createHumanDecisionService({ decisions, bus }),
-  agentSettingsService: agentSettings
+  agentSettingsService: agentSettings,
+  sprintPlanUploadService: sprintPlanUpload,
+  sprintOrchestrationService: sprintOrchestration
 });
-const server = api.createServer().listen(port, "127.0.0.1", () => {
-  process.stdout.write(`Node Control API listening on http://127.0.0.1:${port}\n`);
+const server = api.createServer().listen(port, host, () => {
+  process.stdout.write(`Node Control API listening on http://${host}:${port}\n`);
 });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.once(signal, () => server.close(async () => {
-    watcher.off?.("event", onWatcherEvent);
-    await watcher.close?.();
     database.close();
+    processLock.release();
     process.exit(0);
   }));
 }

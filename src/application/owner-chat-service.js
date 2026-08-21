@@ -1,6 +1,13 @@
 import { ConfigurationError } from "../shared/errors.js";
+import { createRequire } from "node:module";
+import Ajv2020 from "ajv/dist/2020.js";
+import addFormats from "ajv-formats";
 
-export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, streamBatchMs = 3000 } = {}) {
+const require = createRequire(import.meta.url);
+const commonSchema = require("../../schemas/core/common.schema.json");
+const ticketSchema = require("../../schemas/governance/ticket.schema.json");
+
+export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, streamBatchMs = 500 } = {}) {
   if (typeof bus?.send !== "function") throw new ConfigurationError("Owner Chat Service requires the shared Communication Bus.");
   if (!Number.isInteger(streamBatchMs) || streamBatchMs < 1) throw new ConfigurationError("Owner Chat stream batch interval must be positive.");
   const messages = new Map();
@@ -9,28 +16,29 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
 
   function submit(input) {
     assertMessage(input);
+    const agentId = input.agent_id ?? architectureManagerId;
     const existing = messages.get(input.message_id);
     if (existing) return { ...structuredClone(existing), duplicate: true };
     const message = {
       id: input.message_id,
       project_id: input.project_id,
       sender: { id: input.sender_id ?? "project-owner", role: "project_owner" },
-      recipient: { id: architectureManagerId, role: "architecture_manager" },
+      recipient: { id: agentId, role: roleForAgent(agentId) },
       message_type: "owner.message",
       conversation_id: input.conversation_id,
       correlation_id: input.correlation_id,
-      payload: { text: input.payload.text },
+      payload: { text: input.payload.text, ...(input.payload.task ? { task: normalizeTask(input.payload.task, input) } : {}) },
       timestamp: input.timestamp
     };
     // Bus persists via the canonical Communication Store before dispatching.
     const persisted = bus.send(message);
     messages.set(persisted.id, Object.freeze(structuredClone(persisted)));
-    if (typeof agentStream === "function") void streamRealAgent(persisted);
-    else if (typeof agentRequest === "function") void requestRealAgent(persisted);
+    if (typeof agentStream === "function") void streamRealAgent(persisted, agentId);
+    else if (typeof agentRequest === "function") void requestRealAgent(persisted, agentId);
     return structuredClone(persisted);
   }
 
-  async function streamRealAgent(message) {
+  async function streamRealAgent(message, agentId) {
     let index = 0;
     let text = "";
     let batchText = "";
@@ -42,42 +50,58 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       const payload = { text: batchText, accumulated_text: text, chunk_index: index++, batch_start: batchStart, batch_end: index - 1 };
       batchText = "";
       batchStart = index;
-      bus.sendFast(responseMessage(message, "architecture.message.delta", payload, `DELTA-${index}`));
+      bus.sendFast(responseMessage(message, streamEventType(agentId, "message.delta"), payload, `DELTA-${index}`));
     };
     try {
       bus.send(responseMessage(message, "architecture.working", { agent_status: "WORKING" }, "WORKING"));
-      for await (const chunk of agentStream({ agentId: architectureManagerId, payload: { text: message.payload.text }, correlationId: message.correlation_id })) {
-        if (chunk.completed) continue;
-        text += chunk.text;
-        if (!emittedFirstDelta) {
-          emittedFirstDelta = true;
-          bus.sendFast(responseMessage(message, "architecture.message.delta", { text: chunk.text, accumulated_text: text, chunk_index: index++, batch_start: 0, batch_end: 0 }, `DELTA-${index}`));
-          continue;
-        }
-        batchText += chunk.text;
-        if (!timer) timer = setTimeout(() => { timer = undefined; flush(); }, streamBatchMs);
+      const requestPayload = { text: await enrichAgentText(message, agentId), ...(message.payload.task ? { task: message.payload.task } : {}) };
+      for await (const chunk of agentStream({ agentId, payload: requestPayload, correlationId: message.correlation_id })) {
+          if (chunk.completed) continue;
+          if (chunk.tool_use || typeof chunk.text !== "string") continue;
+          text += chunk.text;
+          if (!chunk.text) continue;
+          if (!emittedFirstDelta) {
+            emittedFirstDelta = true;
+            bus.sendFast(responseMessage(message, streamEventType(agentId, "message.delta"), { text: chunk.text, accumulated_text: text, chunk_index: index++, batch_start: 0, batch_end: 0 }, `DELTA-${index}`));
+            continue;
+          }
+          batchText += chunk.text;
+          if (!timer) timer = setTimeout(() => { timer = undefined; flush(); }, streamBatchMs);
       }
       if (timer) { clearTimeout(timer); timer = undefined; }
       flush();
       await bus.flush();
-      bus.send(responseMessage(message, "architecture.message.received", { text, agent_status: "COMPLETED" }, "COMPLETED"));
+      bus.send(responseMessage(message, streamEventType(agentId, "message.received"), { text, agent_status: "COMPLETED" }, "COMPLETED"));
+      await onAgentCompleted?.({ message, agentId, text });
     } catch (error) {
-      bus.send(responseMessage(message, "architecture.error", { error: error.message, agent_status: "FAILED" }, "ERROR"));
+      bus.send(responseMessage(message, streamEventType(agentId, "error"), { error: error.message, agent_status: "FAILED" }, "ERROR"));
     }
   }
 
-  async function requestRealAgent(message) {
+  async function requestRealAgent(message, agentId) {
     try {
-      const result = await agentRequest({ agentId: architectureManagerId, payload: { text: message.payload.text }, correlationId: message.correlation_id });
-      bus.send(responseMessage(message, "architecture.message.received", { text: result.payload?.text, response_id: result.payload?.response_id, agent_status: "COMPLETED" }));
+      const result = await agentRequest({ agentId, payload: { text: await enrichAgentText(message, agentId), ...(message.payload.task ? { task: message.payload.task } : {}) }, correlationId: message.correlation_id });
+      bus.send(responseMessage(message, streamEventType(agentId, "message.received"), { text: result.payload?.text, response_id: result.payload?.response_id, agent_status: "COMPLETED" }));
+      await onAgentCompleted?.({ message, agentId, text: result.payload?.text ?? "" });
     } catch (error) {
-      bus.send(responseMessage(message, "architecture.error", { error: error.message, agent_status: "FAILED" }));
+      bus.send(responseMessage(message, streamEventType(agentId, "error"), { error: error.message, agent_status: "FAILED" }));
+    }
+  }
+
+  async function enrichAgentText(message, agentId) {
+    if (agentId !== "builder" || typeof buildAgentContext !== "function") return message.payload.text;
+    try {
+      const context = await buildAgentContext({ message, agentId });
+      return context ? `${message.payload.text}\n\nContext:\n${context}` : message.payload.text;
+    } catch (error) {
+      // Context lookup is best-effort; the Builder can still receive the task.
+      return message.payload.text;
     }
   }
 
   function responseMessage(message, type, payload, suffix = type === "architecture.error" ? "ERROR" : "REAL") {
     return { id: `MSG-ARCHITECTURE-${suffix}-${message.id}`, project_id: message.project_id,
-      sender: { id: architectureManagerId, role: "architecture_manager" }, recipient: { id: "NODE", role: "node" }, message_type: type,
+      sender: { id: message.recipient.id, role: message.recipient.role }, recipient: { id: "NODE", role: "node" }, message_type: type,
       conversation_id: message.conversation_id, correlation_id: message.correlation_id, payload, timestamp: new Date().toISOString() };
   }
 }
@@ -89,4 +113,31 @@ function assertMessage(input) {
     || typeof input.payload?.text !== "string" || input.payload.text.trim().length === 0) {
     throw new ConfigurationError("Owner message requires message_id, project_id, conversation_id, correlation_id, timestamp, and text.");
   }
+  if (input.payload.task !== undefined) {
+    const task = input.payload.task;
+    if (!task || typeof task !== "object" || typeof task.id !== "string" || typeof task.title !== "string" || typeof task.objective !== "string" || !Array.isArray(task.acceptance_criteria) || task.acceptance_criteria.length === 0) {
+      throw new ConfigurationError("Direct agent task requires id, title, objective, and acceptance_criteria.");
+    }
+    if (!createTicketValidator()(normalizeTask(task, input)).valid) throw new ConfigurationError("Direct agent task does not match ticket schema.");
+  }
+}
+
+function normalizeTask(task, input) {
+  return { ...task, project_id: task.project_id ?? input.project_id, roadmap_id: task.roadmap_id ?? "ROADMAP-DIRECT", sprint_id: task.sprint_id ?? `SPRINT-DIRECT-${task.id}`, priority: task.priority ?? "normal", provenance: task.provenance ?? { source: "project_owner", source_id: task.id, created_at: input.timestamp } };
+}
+
+function createTicketValidator() {
+  const ajv = new Ajv2020({ allErrors: true, strict: true });
+  addFormats(ajv);
+  ajv.addSchema(commonSchema).addSchema(ticketSchema);
+  const validate = ajv.getSchema(ticketSchema.$id);
+  return (task) => ({ valid: Boolean(validate(task)), errors: validate.errors });
+}
+
+function roleForAgent(agentId) {
+  return { "architecture-manager": "architecture_manager", "sprint-leader": "sprint_lead", builder: "builder", reviewer: "reviewer" }[agentId] ?? "runtime";
+}
+
+function streamEventType(agentId, suffix) {
+  return agentId === "architecture-manager" ? `architecture.${suffix}` : `${agentId}.${suffix}`;
 }

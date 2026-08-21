@@ -23,6 +23,11 @@ test("Agent Settings UI presents a masked, Node-only settings flow for every pan
   assert.match(ui, /event\.key === "Enter" && !event\.shiftKey/);
   assert.doesNotMatch(ui, /<HumanDecisionActions client=\{client\} onWorkspaceChanged=\{onWorkspaceChanged\}/);
   assert.match(ui, /natural-message/);
+  assert.match(ui, /getPendingArchitectureProposal\(workspace\) && <ArchitectureArtifacts workspace=\{workspace\} \/>/);
+  assert.match(ui, /Proposal Awaiting Decision/);
+  for (const section of ["Architecture Plan", "Architecture Decisions", "Standards", "Constraints", "Current Roadmap", "Sprint Breakdown"]) {
+    assert.doesNotMatch(ui, new RegExp(`title=\\"${section}\\"`));
+  }
   assert.doesNotMatch(ui, /requestAnimationFrame|pendingDeltas/);
   assert.match(ui, /Architecture Manager messages/);
   assert.match(ui, /role="tablist"/);
@@ -50,6 +55,7 @@ test("Agent Settings UI presents a masked, Node-only settings flow for every pan
   assert.match(ui, /setModel/);
   assert.match(ui, /workingByAgent/);
   assert.match(ui, /isWorking/);
+  assert.match(ui, /setWorkingByAgent\(\(current\) => \(\{ \.\.\.current, \[agentId\]: "WORKING" \}\)\)/);
   assert.match(ui, /disabled=\{isWorking\}/);
   assert.match(ui, /working-dot/);
   assert.match(ui, /is-working/);
@@ -60,10 +66,17 @@ test("Agent Settings UI presents a masked, Node-only settings flow for every pan
   assert.match(ui, /Request Changes/);
   assert.match(ui, /connectConversationStream/);
   assert.match(ui, /MODEL_CATALOG/);
+  assert.match(ui, /gpt-5\.6-sol/);
+  assert.match(ui, /gpt-5\.6-terra/);
+  assert.match(ui, /gpt-5\.6-luna/);
+  assert.match(ui, /gpt-5\.5/);
+  assert.match(ui, /gpt-5\.2/);
+  for (const model of ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-7", "claude-opus-5", "claude-opus-4-8\\[1m\\]", "claude-sonnet-4-5", "claude-sonnet-4-0", "claude-opus-4-5", "claude-haiku-4-3", "claude-3-5-sonnet-20241022"]) {
+    assert.match(ui, new RegExp(model));
+  }
   assert.match(ui, /getPendingArchitectureProposal/);
-  assert.match(ui, /getLatestCompletedDecision/);
   assert.match(ui, /labelForDecision/);
-  assert.match(ui, /decision-result/);
+  assert.doesNotMatch(ui, /decision-result/);
   assert.match(ui, /changeProvider/);
   assert.match(ui, /No model catalog/);
   assert.match(ui, /Select model/);

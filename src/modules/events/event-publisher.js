@@ -20,11 +20,12 @@ export function createEventPublisher({ store, subscriptions, source = "node", va
     validateEvent(event);
     const result = store.append({
       event_id: event.event_id,
+      project_id: event.project_id,
       event_type: event.type,
       timestamp: event.timestamp,
       source: event.metadata?.source ?? source,
       payload: event.payload,
-      metadata: { ...event.metadata ?? {}, project_id: event.project_id, ...(event.task_id ? { task_id: event.task_id } : {}) }
+      metadata: { ...event.metadata ?? {}, ...(event.task_id ? { task_id: event.task_id } : {}) }
     });
     const delivered = result.accepted ? subscriptions?.publish(result.event) ?? 0 : 0;
     return Object.freeze({ ...result, delivered });

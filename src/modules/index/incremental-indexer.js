@@ -29,6 +29,11 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
     let fileId;
     withTransaction(() => {
       fileId = files.insert(path, { sha256 });
+      // Created events can be delivered by more than one watcher process.
+      // Replace derived rows so replay remains idempotent after the upsert.
+      database.run("DELETE FROM symbols WHERE file_id = ?", [fileId]);
+      database.run("DELETE FROM imports_exports WHERE file_id = ?", [fileId]);
+      database.run("DELETE FROM calls WHERE source_file_id = ?", [fileId]);
       writeExtraction(fileId, path, extraction);
       graph.replaceForFile(fileId, path, extraction.imports);
       writeCalls(fileId, path, extraction);

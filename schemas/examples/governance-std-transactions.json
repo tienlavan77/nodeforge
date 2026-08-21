@@ -1,0 +1,12 @@
+{
+  "id": "GR-STAB-STD-02",
+  "name": "All database writes must use transactions",
+  "description": "Every multi-statement database write must be wrapped in BEGIN/COMMIT/ROLLBACK to prevent partial writes on failure.",
+  "trigger": "database_run | database_all",
+  "condition": {
+    "transaction_wrapped": true
+  },
+  "enforcement": "orchestrator",
+  "severity": "high",
+  "enabled": true
+}

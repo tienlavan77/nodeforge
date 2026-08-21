@@ -4,6 +4,7 @@ import test from "node:test";
 import * as codex from "../../src/modules/agent/provider-adapters/codex-adapter.js";
 import * as anthropic from "../../src/modules/agent/provider-adapters/anthropic-adapter.js";
 import * as custom from "../../src/modules/agent/provider-adapters/custom-adapter.js";
+import * as claude from "../../src/modules/agent/provider-adapters/claude-adapter.js";
 import * as openai from "../../src/modules/agent/provider-adapters/openai-adapter.js";
 import { getAdapter } from "../../src/modules/agent/provider-adapters/index.js";
 import { createAgentGateway } from "../../src/modules/agent/agent-gateway.js";
@@ -15,11 +16,29 @@ test("provider adapters expose request and stream contract", () => {
   }
   assert.equal(getAdapter("codex"), codex);
   assert.equal(getAdapter("openai"), openai);
-  assert.equal(getAdapter("claude"), anthropic);
+  assert.equal(getAdapter("claude"), claude);
   assert.equal(getAdapter("anthropic"), anthropic);
   assert.equal(getAdapter("custom"), custom);
+  assert.equal(getAdapter("claude"), claude);
   assert.equal(getAdapter(undefined), codex);
   assert.equal(getAdapter("unknown"), codex);
+});
+
+test("claude provider uses the Devquote Messages gateway contract", async () => {
+  const originalFetch = globalThis.fetch;
+  let captured;
+  globalThis.fetch = async (url, options) => {
+    captured = { url, headers: options.headers, body: JSON.parse(options.body) };
+    return new Response(JSON.stringify({ id: "claude_1", content: [{ type: "text", text: "Claude reply" }] }), { status: 200 });
+  };
+  try {
+    const result = await claude.request({ url: "https://sv.devquote.shop", credential: "secret", payload: { text: "hello" }, model: "claude-haiku-4-5", correlationId: "CORR-CLAUDE" });
+    assert.equal(captured.url, "https://sv.devquote.shop/v1/messages");
+    assert.equal(captured.headers.authorization, "Bearer secret");
+    assert.equal(captured.body.model, "claude-haiku-4-5");
+    assert.equal(result.payload.text, "Claude reply");
+    assert(!JSON.stringify(result).includes("secret"));
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test("codex adapter maps Responses API request to normalized response with model and correlation", async () => {
@@ -38,6 +57,32 @@ test("codex adapter maps Responses API request to normalized response with model
     assert.equal(result.payload.text, "Codex reply");
     assert.equal(result.payload.response_id, "resp_codex_1");
     assert(!JSON.stringify(result).includes("sk-codex-secret"));
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("codex adapter normalizes legacy singular response endpoint", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl;
+  globalThis.fetch = async (url) => {
+    requestedUrl = url;
+    return new Response(JSON.stringify({ id: "resp_legacy", output_text: "ok" }), { status: 200 });
+  };
+  try {
+    await codex.request({ url: "https://gateway.example.test/v1/response", credential: "secret", payload: { text: "ping" }, model: "gpt-5.6-sol", correlationId: "CORR-LEGACY" });
+    assert.equal(requestedUrl, "https://gateway.example.test/v1/responses");
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("codex adapter expands a base gateway URL to the Responses endpoint", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl;
+  globalThis.fetch = async (url) => {
+    requestedUrl = url;
+    return new Response(JSON.stringify({ id: "resp_base", output_text: "ok" }), { status: 200 });
+  };
+  try {
+    await codex.request({ url: "https://sv.devquote.shop", credential: "secret", payload: { text: "ping" }, model: "gpt-5.6-sol", correlationId: "CORR-BASE" });
+    assert.equal(requestedUrl, "https://sv.devquote.shop/v1/responses");
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -153,7 +198,7 @@ test("gateway dispatches to correct adapter per provider and preserves correlati
     const gateway = createAgentGateway({
       configuration: { getById: (id) => {
         if (id === "architecture-manager") return cfg("codex", "https://gateway.example.test/v1/responses", "gpt-5.6-terra");
-        if (id === "builder") return cfg("claude", "https://api.anthropic.com/v1/messages", "claude-sonnet-4-5-20251001");
+        if (id === "builder") return cfg("anthropic", "https://api.anthropic.com/v1/messages", "claude-sonnet-4-5-20251001");
         if (id === "reviewer") return cfg("custom", "https://custom.example.test/v1/chat/completions", "custom-model");
         return cfg("codex", "https://gateway.example.test/v1/responses", "");
       } },

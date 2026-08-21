@@ -35,3 +35,26 @@ test("rejects unknown sessions and duplicate session IDs", () => {
   service.startTask({ projectId: "PROJECT-104", taskId: "TASK-104" });
   assert.throws(() => service.startTask({ projectId: "PROJECT-104", taskId: "TASK-104" }), /Session already exists/);
 });
+
+test("starts Agent execution asynchronously and publishes completion or failure", async () => {
+  const events = [];
+  let resolveRun;
+  const service = createRuntimeService({ createSessionId: () => "SESSION-ASYNC", sessionStore: sessionStore(), eventStore: createEventStore(), memoryRetriever: { retrieve: () => ({ relevant_facts: [] }) }, agentRuntime: { run: (input) => { assert.deepEqual(input, { projectId: "PROJECT-ASYNC", taskId: "TASK-ASYNC", query: "refresh", domain: "runtime" }); return new Promise((resolve) => { resolveRun = resolve; }); } }, publisher: { publish: (event) => events.push(event) } });
+  const snapshot = service.startTask({ projectId: "PROJECT-ASYNC", taskId: "TASK-ASYNC", query: "refresh", domain: "runtime" });
+  assert.equal(snapshot.state, "RUNNING");
+  assert.equal(events.length, 0);
+  await new Promise((resolve) => setImmediate(resolve));
+  resolveRun({ status: "completed" });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(events[0].type, "agent.completed");
+  assert.equal(events[0].metadata.session_id, "SESSION-ASYNC");
+});
+
+test("Agent failure is published without rejecting startTask", async () => {
+  const events = [];
+  const service = createRuntimeService({ createSessionId: () => "SESSION-FAILED", sessionStore: sessionStore(), eventStore: createEventStore(), memoryRetriever: { retrieve: () => ({ relevant_facts: [] }) }, agentRuntime: { run: async () => { throw new Error("agent unavailable"); } }, publisher: { publish: (event) => events.push(event) }, logger: { error() {} } });
+  assert.equal(service.startTask({ projectId: "PROJECT-FAILED", taskId: "TASK-FAILED" }).state, "RUNNING");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(events[0].type, "agent.failed");
+  assert.equal(events[0].payload.error, "agent unavailable");
+});

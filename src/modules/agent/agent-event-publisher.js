@@ -33,7 +33,7 @@ export function createAgentEventPublisher({ publisher, projectId, taskId, sessio
       agent_id: agentId,
       timestamp: clock().toISOString(),
       payload,
-      metadata: { source: "agent-runtime", session_id: sessionId, agent_id: agentId }
+      metadata: { source: "agent-runtime", session_id: sessionId, agent_id: agentId, conversation_id: `CONV-${taskId}` }
     });
   }
 

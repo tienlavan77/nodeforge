@@ -64,5 +64,10 @@ function extractText(data) {
     if (t) return t;
   }
   if (Array.isArray(data?.choices) && typeof data.choices[0]?.message?.content === "string") return data.choices[0].message.content;
+  if (Array.isArray(data?.output)) {
+    const outputText = data.output.flatMap((item) => item?.content ?? []).filter((item) => typeof item?.text === "string").map((item) => item.text).join("\n");
+    if (outputText) return outputText;
+  }
+  if (typeof data?.text === "string") return data.text;
   return "";
 }
