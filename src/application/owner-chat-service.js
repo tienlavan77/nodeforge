@@ -65,6 +65,9 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
             if (!validateAgentTool(tool)) throw new ConfigurationError("Invalid agent tool request.");
             const result = await executeAgentTool?.(tool, { message, agentId }) ?? { content: "Tool execution is unavailable." };
             bus.send(responseMessage(message, streamEventType(agentId, "tool.result"), { round: tool.round, content: result.content ?? result, token_usage: result.token_usage ?? null }, `TOOL-${tool.round}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`));
+            if (tool.round >= 5 && (tool.kind === "request_info" || (tool.kind === "submit_code" && !tool.is_final && tool.next_action !== "done"))) {
+              throw new ConfigurationError("Agent tool loop exceeded max_rounds (5).");
+            }
             if ((tool.kind === "request_info" && tool.round < 5)
               || (tool.kind === "submit_code" && tool.next_action === "submit_test" && tool.round < 5)) {
               requestPayload = { ...requestPayload, text: `${requestPayload.text}\n\nTool result (round ${tool.round}):\n${result.content ?? JSON.stringify(result)}` };

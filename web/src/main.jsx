@@ -429,6 +429,7 @@ function AgentSettingsOverlay({ client, agent, onClose }) {
 function toDisplayMessage(message) {
   const isOwner = message.sender?.role === "project_owner";
   const text = message.payload?.text
+    ?? message.payload?.content
     ?? (message.message_type === "architecture.working" ? "Architecture Manager is working…" : message.message_type === "architecture.message.received" ? "Architecture plan recorded in Node." : message.message_type);
   return { id: message.message_id, correlation_id: message.correlation_id, message_type: message.message_type, from: isOwner ? "owner" : message.message_type.includes("error") ? "system" : "agent", text, time: new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
 }
