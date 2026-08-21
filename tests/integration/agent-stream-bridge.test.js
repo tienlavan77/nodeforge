@@ -47,6 +47,20 @@ test("publishes five ordered Agent stdout messages and raw stderr on the bootstr
   }
 });
 
+test("redacts credentials from stderr before publishing the stream", async () => {
+  const internalBus = new EventEmitter();
+  const agent = new EventEmitter();
+  agent.sendEvent = async () => {};
+  const stop = (await import("../../src/modules/agents/agent-stream-bridge.js")).bridgeAgentStream({ agent, internalBus });
+  const streams = [];
+  internalBus.on("agent.stream", (message) => streams.push(message));
+  agent.emit("stderr", "authorization: Bearer sk-test-secret-value\napi_key=do-not-leak\n");
+  assert.equal(streams.length, 1);
+  assert.equal(streams[0].text.includes("sk-test-secret-value"), false);
+  assert.equal(streams[0].text.includes("do-not-leak"), false);
+  stop();
+});
+
 function watcherEvent() {
   return {
     event_id: "EVT-WATCHER-STREAM-001",
