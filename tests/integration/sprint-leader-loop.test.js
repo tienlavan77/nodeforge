@@ -37,3 +37,9 @@ test("rejects malformed or cross-project Sprint Leader proposals", () => {
   assert.throws(() => loop.acceptPlan({ ...base, project_id: "PROJECT-other" }), /different project/);
   assert.throws(() => loop.acceptPlan(base), /Invalid sprint/);
 });
+
+test("generates unique request and event IDs by default", () => {
+  const first = createSprintLeaderLoop({ projectId: "PROJECT-sprint-loop" }).requestPlan({ completedSprintId: "SPRINT-1" });
+  const second = createSprintLeaderLoop({ projectId: "PROJECT-sprint-loop" }).requestPlan({ completedSprintId: "SPRINT-1" });
+  assert.notEqual(first.request_id, second.request_id);
+});

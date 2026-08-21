@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 
 import { ConfigurationError } from "../../shared/errors.js";
 
-const IDEMPOTENT_COMMAND_TYPES = new Set(["verification.run_test"]);
+const IDEMPOTENT_COMMAND_TYPES = new Set(["verification.run_test", "context.read_file", "workflow.transition"]);
 
 export function createSessionCommandDispatcher({ executeCommand, getSessionId = (envelope) => envelope.message.session_id } = {}) {
   if (typeof executeCommand !== "function" || typeof getSessionId !== "function") {
@@ -35,7 +35,6 @@ export function createSessionCommandDispatcher({ executeCommand, getSessionId = 
       if (isIdempotent(command)) processed.set(command.request_id, { result });
       try {
         const value = await result;
-        if (!isIdempotent(command)) processed.set(command.request_id, { result: Promise.resolve(value) });
         return Object.freeze({ result: value, cached: false });
       } catch (error) {
         if (isIdempotent(command) && processed.get(command.request_id)?.result === result) {

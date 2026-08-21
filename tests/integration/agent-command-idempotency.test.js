@@ -41,6 +41,19 @@ test("caches duplicate verification.run_test request_ids within one running sess
   }
 });
 
+test("shares one in-flight result across the idempotency race window", async () => {
+  let calls = 0;
+  let release;
+  const dispatcher = createSessionCommandDispatcher({ executeCommand: async () => { calls += 1; await new Promise((resolve) => { release = resolve; }); return "done"; } });
+  const envelope = { message: { type: "context.read_file", request_id: "REQ-RACE", session_id: "SESSION-RACE" } };
+  const first = dispatcher.handle(envelope);
+  const second = dispatcher.handle(envelope);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls, 1);
+  release();
+  assert.deepEqual(await Promise.all([first, second]), [{ result: "done", cached: false }, { result: "done", cached: true }]);
+});
+
 async function waitFor(predicate, timeoutMs = 1000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
