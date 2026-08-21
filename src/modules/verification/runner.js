@@ -29,6 +29,7 @@ export function createTestResultValidator() {
 export function createVerificationPlanValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);
+  ajv.addSchema(commonSchema);
   const validate = ajv.compile(verificationPlanSchema);
 
   return (plan) => {
