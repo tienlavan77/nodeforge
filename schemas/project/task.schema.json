@@ -101,14 +101,7 @@
     "status": {
       "type": "string",
       "description": "Coarse, workflow-agnostic lifecycle bucket. Any workflow (whatever states it defines) maps onto exactly one of these at a time. Use workflow_state for pipeline-specific detail.",
-      "enum": [
-        "pending",
-        "active",
-        "blocked",
-        "completed",
-        "failed",
-        "cancelled"
-      ]
+      "$ref": "../core/common.schema.json#/$defs/lifecycle_status"
     },
     "blocked_reason": {
       "type": [

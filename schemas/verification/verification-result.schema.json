@@ -7,7 +7,7 @@
   "additionalProperties": false,
   "required": ["commit_id", "run_id", "status", "ready_for_review"],
   "$defs": {
-    "gate_status": { "enum": ["passed", "failed", "skipped", "not_applicable"] }
+    "gate_status": { "$ref": "https://forge.local/schemas/core/common.schema.json#/$defs/result_status" }
   },
   "properties": {
     "commit_id": { "type": "string" },
