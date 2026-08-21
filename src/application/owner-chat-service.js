@@ -1,4 +1,5 @@
 import { ConfigurationError } from "../shared/errors.js";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
@@ -9,7 +10,7 @@ const ticketSchema = require("../../schemas/governance/ticket.schema.json");
 const agentToolSchema = require("../../schemas/agent/agent-tool.schema.json");
 const AGENT_TOOL_PROTOCOL = `\n\nAgent tool loop protocol:\n- Use request_info only when context is missing.\n- After receiving enough context, you MUST return submit_code.\n- submit_code requires target_path, target_dir, file_operation, code_kind (main or test), content, round, max_rounds, next_action, and is_final.\n- Do not finish with prose or an empty response. If you cannot write code, return an error reason.\n- Stop within 5 rounds.`;
 
-export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, executeAgentTool, streamBatchMs = 500 } = {}) {
+export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, executeAgentTool, debug = () => {}, streamBatchMs = 500 } = {}) {
   if (typeof bus?.send !== "function") throw new ConfigurationError("Owner Chat Service requires the shared Communication Bus.");
   if (!Number.isInteger(streamBatchMs) || streamBatchMs < 1) throw new ConfigurationError("Owner Chat stream batch interval must be positive.");
   const messages = new Map();
@@ -62,12 +63,15 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       let requestPayload = { text: initialText, ...(message.payload.task ? { task: message.payload.task } : {}) };
       for (let round = 1; round <= 5; round += 1) {
        let requestedNextRound = false;
+       debug({ event: "agent.loop.request", agent_id: agentId, task_id: taskId, round, payload: summarizePayload(requestPayload) });
        for await (const chunk of agentStream({ agentId, payload: requestPayload, correlationId: message.correlation_id })) {
           if (chunk.completed) continue;
           if (chunk.tool_use) {
             const tool = chunk.tool_use.input ?? chunk.tool_use;
+            debug({ event: "agent.loop.tool_use", agent_id: agentId, task_id: taskId, round, tool: summarizeValue(tool) });
             if (!validateAgentTool(tool)) throw new ConfigurationError("Invalid agent tool request.");
             const result = await executeAgentTool?.(tool, { message, agentId }) ?? { content: "Tool execution is unavailable." };
+            debug({ event: "agent.loop.tool_result", agent_id: agentId, task_id: taskId, round: tool.round, result: summarizeValue(result) });
             bus.send(responseMessage(message, streamEventType(agentId, "tool.result"), { round: tool.round, content: result.content ?? result, token_usage: result.token_usage ?? null }, `TOOL-${tool.round}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`));
             if (tool.round >= 5 && (tool.kind === "request_info" || (tool.kind === "submit_code" && !tool.is_final && tool.next_action !== "done"))) {
               throw new ConfigurationError("Agent tool loop exceeded max_rounds (5).");
@@ -83,6 +87,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
           }
           if (typeof chunk.text !== "string") continue;
           text += chunk.text;
+          debug({ event: "agent.loop.delta", agent_id: agentId, task_id: taskId, round, text: redactPreview(chunk.text) });
           if (!chunk.text) continue;
           if (!emittedFirstDelta) {
             emittedFirstDelta = true;
@@ -170,6 +175,20 @@ function createTicketValidator() {
 
 function roleForAgent(agentId) {
   return { "architecture-manager": "architecture_manager", "sprint-leader": "sprint_lead", builder: "builder", reviewer: "reviewer" }[agentId] ?? "runtime";
+}
+
+function summarizePayload(payload) {
+  const text = String(payload?.text ?? "");
+  return { chars: text.length, sha256: createHash("sha256").update(text).digest("hex"), preview: redactPreview(text, 2000), has_tools: Array.isArray(payload?.tools) && payload.tools.length > 0 };
+}
+
+function summarizeValue(value) {
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  return { chars: text.length, preview: redactPreview(text, 2000) };
+}
+
+function redactPreview(value, limit = 500) {
+  return String(value ?? "").replace(/(?:api[_-]?key|credential|secret|password|token|authorization)\s*[:=]\s*[^\s,}]+/gi, "$1=[REDACTED]").slice(0, limit);
 }
 
 function streamEventType(agentId, suffix) {
