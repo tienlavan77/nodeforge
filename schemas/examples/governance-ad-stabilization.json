@@ -1,0 +1,23 @@
+{
+  "id": "AD-NF-STABILIZE-001",
+  "project_id": "PROJECT-114A",
+  "type": "architecture_decision",
+  "title": "Production Stabilization — Fix CRITICAL Issues from Code Review",
+  "decision": "Execute a dedicated stabilization sprint (SPRINT-NF-STAB-001) addressing all CRITICAL and HIGH severity findings from the 2026-08-20 code review. Work is organized into three sequential phases: Phase 1 (Security & Stability), Phase 2 (Data Integrity), Phase 3 (Architecture Compliance). No new features accepted during this sprint.",
+  "rationale": "Code review identified 14 CRITICAL issues blocking production deployment:\n\n1. Secrets (.env, keys) sent to LLM without redaction — direct credential leak (arch ch.46)\n2. Event store is in-memory — complete event loss on Node restart (arch ch.43)\n3. Dead-letter queue never drains — unbounded memory growth\n4. Subscription handler crash kills entire event pipeline (single point of failure)\n5. History archive is in-memory — archived records lost on restart\n6. Persistent event store has DB-vs-memory inconsistency race\n7. Concurrent workflow transitions silently overwrite state\n8. Context budget is advisory only — token firewall broken (arch ch.49)\n9. Test runner has no timeout — hangs indefinitely (arch ch.44)\n10. Idempotency cache has race condition under error paths (arch ch.42)\n11. Database writes have no transaction wrapping — partial writes possible\n12. database.close() crashes on startup failure\n13. project_id lost during event persistence — breaks multi-project\n14. Replay engine covers <10% of event types\n\nArchitecture compliance is ~73%. These issues represent data loss, security vulnerability, and reliability risks that must be resolved before any feature work continues.",
+  "alternatives": [
+    "Defer all fixes — ship current code and patch reactively as bugs surface. Risk: unrecoverable data loss, credential leaks, cascading failures under load.",
+    "Fix everything in one sprint — too many interdependent changes creates high merge conflict risk and makes individual verification difficult.",
+    "Phase by module instead of severity — slower time-to-security-fix exposes credentials longer, harder to measure aggregate progress."
+  ],
+  "consequences": [
+    "Positive: Eliminates credential leak vector via secrets redaction. All stores survive Node restarts. Error isolation prevents single-handler failures from taking down the system. Architecture compliance rises above 95%.",
+    "Negative: Blocks all new feature development for the duration of the stabilization sprint (~15–20 engineering days). Introduces migration complexity for existing event and history tables.",
+    "Trade-off: Team capacity is fully consumed by stability work. Short-term velocity drops to zero for features.",
+    "Long-term: Establishes foundation for reliable multi-project operation, advanced memory features, and dashboard UI work."
+  ],
+  "owner_id": "MSG-SMOKE-139B",
+  "status": "proposed",
+  "created_at": "2026-08-20T10:00:00+07:00",
+  "updated_at": "2026-08-20T10:00:00+07:00"
+}

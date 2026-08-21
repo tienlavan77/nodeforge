@@ -35,7 +35,7 @@ export function createAgentRuntime({
     if (typeof projectId !== "string" || projectId.length === 0 || typeof taskId !== "string" || taskId.length === 0) {
       throw new ConfigurationError("Agent Runtime requires projectId and taskId.");
     }
-    const context = contextService.buildContext({ projectId, taskId, query, domain });
+    const context = await contextService.buildContext({ projectId, taskId, query, domain });
     const allFacts = [...context.projectFacts, ...context.taskFacts];
     const selectedFacts = budgetManager.selectFacts({ facts: allFacts, maxFacts });
     const task = context.currentTask;

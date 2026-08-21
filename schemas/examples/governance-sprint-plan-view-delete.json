@@ -1,0 +1,51 @@
+{
+  "id": "SPRINT-NF-OPS-001",
+  "roadmap_id": "ROADMAP-114A",
+  "project_id": "PROJECT-114A",
+  "objective": "Add sprint View modal and Delete API to remove sprint file and database records from UI.",
+  "dependencies": ["SPRINT-NF-UPLOAD-RUN-001"],
+  "tickets": [
+    {
+      "id": "NF-OPS-T01",
+      "project_id": "PROJECT-114A",
+      "roadmap_id": "ROADMAP-114A",
+      "sprint_id": "SPRINT-NF-OPS-001",
+      "title": "UI — View sprint plan in modal",
+      "objective": "Allow owner to view full sprint plan details in a modal without leaving dashboard.",
+      "acceptance_criteria": [
+        "Dashboard sprint list adds View button per sprint; on click calls GET /projects/:projectId/sprint-plans/:sprintId and opens modal showing id, objective, roadmap_id, project_id, tickets count, tickets table (id, title, priority), and exit_criteria",
+        "Modal handles loading, error (404), and close via Esc, backdrop click, and Close button; focus trapped inside modal",
+        "View does not mutate state; multiple opens show consistent data from database",
+        "Success: View SPRINT-NF-BRIDGE-001 shows 4 tickets correctly",
+        "Tests PASS: node --test tests/unit/http-api.test.js related view, npm run lint, npm run typecheck, npm run validate:schemas, npm run build:web, git diff --check"
+      ],
+      "priority": "high",
+      "dependencies": [],
+      "provenance": {"source": "sprint_plan", "source_id": "SPRINT-NF-OPS-001", "created_at": "2026-08-21T08:30:00Z"}
+    },
+    {
+      "id": "NF-OPS-T02",
+      "project_id": "PROJECT-114A",
+      "roadmap_id": "ROADMAP-114A",
+      "sprint_id": "SPRINT-NF-OPS-001",
+      "title": "API + UI — Delete sprint plan file and database records",
+      "objective": "Allow owner to delete a sprint plan, removing both the uploaded JSON file and persisted database records, with confirmation.",
+      "acceptance_criteria": [
+        "HTTP API adds DELETE /projects/:projectId/sprint-plans/:sprintId; validates projectId and sprintId, returns 404 if not found, 409 if sprint is currently running (orchestration active), 200 { deleted: true, sprint_id } on success",
+        "Delete removes: file schemas/examples/governance-sprint-plan-*.json if it matches sprint id, plus rows in .node-control SQLite via roadmapStore/sprintPlanProjection/ticketProvenanceTracker; orphan tickets removed; dashboard no longer lists sprint",
+        "Storage check: after DELETE, GET /projects/:projectId/sprint-plans/:sprintId returns 404 and GET /projects/:projectId/dashboard no longer contains sprint",
+        "UI dashboard adds Delete button per sprint with confirmation dialog 'Delete SPRINT-xxx? This removes file and database records.'; on confirm calls DELETE, shows success/error toast, refreshes dashboard; delete disabled while sprint is RUNNING",
+        "Idempotent: second DELETE for same sprint returns 404",
+        "Tests PASS: node --test tests/integration/sprint-plan*.test.js and tests/unit/roadmap-store.test.js for delete, npm run lint, npm run typecheck, npm run validate:schemas, git diff --check; manual smoke: upload then delete SPRINT-NF-BRIDGE-001 verified via curl GET/DELETE and dashboard"
+      ],
+      "priority": "critical",
+      "dependencies": ["NF-OPS-T01"],
+      "provenance": {"source": "sprint_plan", "source_id": "SPRINT-NF-OPS-001", "created_at": "2026-08-21T08:30:00Z"}
+    }
+  ],
+  "exit_criteria": [
+    "View modal shows correct sprint details via GET and handles 404",
+    "Delete removes file and database records, survives Node restart, dashboard updated, and 404 on second delete",
+    "All 2 tickets pass with node --test relevant tests, npm run lint, npm run typecheck, npm run validate:schemas, npm run build:web, git diff --check"
+  ]
+}

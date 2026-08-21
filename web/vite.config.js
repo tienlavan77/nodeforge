@@ -1,14 +1,18 @@
 import { defineConfig } from "vite";
 import { fileURLToPath, URL } from "node:url";
 
+const nodeApiUrl = process.env.VITE_NODE_API_URL ?? "http://127.0.0.1:3100";
+
 export default defineConfig({
   root: fileURLToPath(new URL(".", import.meta.url)),
   server: {
-    port: 4173,
+    port: 4174,
     strictPort: false,
     proxy: {
-      "/projects": { target: "http://127.0.0.1:3100", changeOrigin: true },
-      "/agents": { target: "http://127.0.0.1:3100", changeOrigin: true }
+      "/projects": { target: nodeApiUrl, changeOrigin: true },
+      "/agents": { target: nodeApiUrl, changeOrigin: true },
+      "/tasks": { target: nodeApiUrl, changeOrigin: true },
+      "/sessions": { target: nodeApiUrl, changeOrigin: true }
     }
   },
   build: { outDir: "dist", emptyOutDir: true }

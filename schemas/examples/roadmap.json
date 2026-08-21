@@ -13,6 +13,9 @@
           "id": "NF-015",
           "order": 1,
           "objective": "Add roadmap planning contracts.",
+          "target_path": "schemas/roadmap/commit.schema.json",
+          "target_dir": "schemas/roadmap",
+          "file_operation": "modify",
           "acceptance_criteria": ["Roadmap fixtures validate."],
           "verification": { "levels": ["focused"] }
         }

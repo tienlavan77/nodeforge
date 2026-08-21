@@ -1,9 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { createAgentSession } from "../modules/agent/session.js";
 import { createEventReplayEngine } from "../modules/recovery/event-replay-engine.js";
 import { createRuntimeRecovery } from "../modules/recovery/runtime-recovery.js";
 import { ConfigurationError } from "../shared/errors.js";
 
-export function createRuntimeService({ sessionFactory = createAgentSession, memoryRetriever, createSessionId, sessionStore, eventStore, recovery, replayEngine = createEventReplayEngine() } = {}) {
+export function createRuntimeService({ sessionFactory = createAgentSession, memoryRetriever, createSessionId, sessionStore, eventStore, recovery, replayEngine = createEventReplayEngine(), agentRuntime, publisher, logger = console, taskStore, now = () => new Date().toISOString() } = {}) {
   if (typeof sessionFactory !== "function") throw new ConfigurationError("Runtime Service requires a session factory.");
   if (typeof memoryRetriever?.retrieve !== "function") throw new ConfigurationError("Runtime Service requires a Memory Retriever.");
   if (createSessionId !== undefined && typeof createSessionId !== "function") throw new ConfigurationError("Runtime Service session ID factory must be a function.");
@@ -17,15 +18,56 @@ export function createRuntimeService({ sessionFactory = createAgentSession, memo
     replay: replayEngine.replay(eventStore.getAll())
   });
 
-  return Object.freeze({ startTask, pauseSession, resumeSession, getSession, getProjectMemory, getBootstrap });
+  return Object.freeze({ startTask, finishTask, pauseSession, resumeSession, getSession, getProjectMemory, getBootstrap });
 
-  function startTask({ projectId, taskId, sessionId } = {}) {
+  function startTask({ projectId, taskId, sessionId, query = "", domain, runAgent = true } = {}) {
     assertIdentity(projectId, taskId);
     const id = sessionId ?? createSessionId?.() ?? `SESSION-${taskId}`;
     if (sessionStore.load(id)) throw new ConfigurationError(`Session already exists: ${id}.`);
+    if (typeof taskStore?.get === "function" && typeof taskStore?.create === "function" && !taskStore.get(taskId)) {
+      taskStore.create({ id: taskId, type: "custom", title: query.trim() || taskId, status: "pending", created_at: now() });
+    }
     const session = sessionFactory({ id });
     session.start();
+    const snapshot = sessionStore.save(session);
+    if (runAgent && typeof agentRuntime?.run === "function") {
+      void Promise.resolve().then(() => agentRuntime.run({ projectId, taskId, query, domain }))
+        .then((result) => {
+          session.complete();
+          sessionStore.save(session);
+          publishAgentEvent("agent.completed", { project_id: projectId, task_id: taskId, session_id: snapshot.id, result });
+        })
+        .catch((error) => {
+          try { session.fail(error); sessionStore.save(session); } catch (stateError) { logger.error?.("Agent session state update failed", { error: stateError.message }); }
+          try { logger.error?.("Agent runtime execution failed", { project_id: projectId, task_id: taskId, session_id: snapshot.id, error: error.message }); } catch { /* logging must not affect the HTTP response */ }
+          publishAgentEvent("agent.failed", { project_id: projectId, task_id: taskId, session_id: snapshot.id, error: error.message });
+        });
+    }
+    return snapshot;
+  }
+
+  function finishTask(sessionId, { failed = false } = {}) {
+    const snapshot = getStoredSession(sessionId);
+    const session = restoreSession(snapshot);
+    if (failed) session.fail(new Error("Real Agent orchestration failed.")); else session.complete();
     return sessionStore.save(session);
+  }
+
+  function publishAgentEvent(type, payload) {
+    const { project_id: projectId, task_id: taskId, session_id: sessionId, error, result } = payload;
+    try {
+      publisher?.publish?.({
+        event_id: `EVT-${randomUUID()}`,
+        type,
+        project_id: projectId,
+        task_id: taskId,
+        timestamp: new Date().toISOString(),
+        payload: { ...(result !== undefined ? { result } : {}), ...(error !== undefined ? { error } : {}) },
+        metadata: { source: "runtime-service", session_id: sessionId, conversation_id: `CONV-${taskId}` }
+      });
+    } catch (publishError) {
+      try { logger.error?.("Agent event publishing failed", { type, error: publishError.message }); } catch { /* best effort */ }
+    }
   }
 
   function pauseSession(sessionId) {

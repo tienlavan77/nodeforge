@@ -21,7 +21,9 @@ export function createAgentCommunicationStore({ validateMessage = createAgentMes
   const messages = [];
   const messagesById = new Map();
   const storageRoot = database ? dirname(database.databasePath ?? "") : undefined;
-  if (database) load();
+  // load() is now resilient to ENOENT raw files, so startup won't crash.
+  if (database) try { load(); } catch (error) { if (error?.code !== "ENOENT") throw error; }
+
 
   return Object.freeze({ append, getById, getAll, getBySender, getByReceiver, getByCorrelationId, getByConversationId, load });
 
@@ -82,7 +84,12 @@ export function createAgentCommunicationStore({ validateMessage = createAgentMes
     messages.splice(0, messages.length);
     messagesById.clear();
     for (const { message_id } of database.all("SELECT message_id FROM agent_communications ORDER BY sequence")) messagesById.set(message_id, true);
-    return getAll();
+    // Do not fail startup if a raw file is missing — readIndexed already tolerates ENOENT.
+    try { return getAll(); }
+    catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+      return [];
+    }
   }
 
   function getByParty(field, party) {
@@ -93,8 +100,15 @@ export function createAgentCommunicationStore({ validateMessage = createAgentMes
 
   function readIndexed(where = "", parameters = []) {
     return database.all(`SELECT raw_file, byte_offset, byte_length FROM agent_communications ${where} ORDER BY sequence`, parameters)
-      .map((row) => structuredClone(readRawMessage(storageRoot, row)));
+      .flatMap((row) => {
+        try { return [structuredClone(readRawMessage(storageRoot, row))]; }
+        catch (error) {
+          if (error?.code !== "ENOENT") throw error;
+          return [];
+        }
+      });
   }
+
 }
 
 function ensureTable(database) {

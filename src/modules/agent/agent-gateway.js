@@ -49,6 +49,7 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
       try {
         for await (const event of streamTransport({ url: config.gateway_url, credential, payload: structuredClone(payload), correlation_id: correlationId, signal: controller.signal })) {
           if (typeof event?.text === "string" && event.text) yield { agent_id: config.agent_id, correlation_id: correlationId, text: event.text };
+          if (event?.tool_use) yield { agent_id: config.agent_id, correlation_id: correlationId, tool_use: event.tool_use };
           if (event?.response_id) yield { agent_id: config.agent_id, correlation_id: correlationId, completed: true, response_id: event.response_id };
         }
       } catch (error) {
@@ -65,6 +66,7 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
     try {
       for await (const event of adapter.stream({ url: config.gateway_url, credential, payload: structuredClone(payload), model, correlationId, signal: controller.signal })) {
         if (typeof event?.text === "string" && event.text) yield { agent_id: config.agent_id, correlation_id: correlationId, text: event.text };
+        if (event?.tool_use) yield { agent_id: config.agent_id, correlation_id: correlationId, tool_use: event.tool_use };
         if (event?.response_id) yield { agent_id: config.agent_id, correlation_id: correlationId, completed: true, response_id: event.response_id };
       }
     } catch (error) {
@@ -102,7 +104,7 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
     if (!config) throw new ConfigurationError(`Unknown Agent Gateway profile: ${agentId}.`);
     if (!config.enabled) throw new ConfigurationError(`Agent Gateway is disabled: ${agentId}.`);
     if (!SAFE_URL.test(config.gateway_url)) throw new ConfigurationError(`Agent Gateway URL is invalid for ${agentId}.`);
-    return config;
+    return { ...config, gateway_url: normalizeGatewayUrl(config.gateway_url) };
   }
 
   async function resolveCredential(reference) {
@@ -124,6 +126,11 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
       throw new ConfigurationError(`Agent Gateway request failed for ${config.agent_id}.`);
     } finally { clearTimeout(timeout); }
   }
+}
+
+function normalizeGatewayUrl(value) {
+  const normalized = value.replace(/\/+$/, "");
+  return normalized.endsWith("/response") ? `${normalized}s` : normalized;
 }
 
 function validateResponse(response) {

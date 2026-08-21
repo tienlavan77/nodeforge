@@ -22,7 +22,7 @@ test("persists ordered events and reloads them after a database restart", async 
     database = await openIndexDatabase(projectRoot);
     const restartedStore = createPersistentEventStore({ database });
     assert.deepEqual(restartedStore.load().map(({ event_id }) => event_id), ["EVT-095-1", "EVT-095-2", "EVT-095-3"]);
-    assert.deepEqual(restartedStore.getById("EVT-095-2"), event("EVT-095-2", "agent.completed"));
+    assert.deepEqual(restartedStore.getById("EVT-095-2"), { ...event("EVT-095-2", "agent.completed"), project_id: "PROJECT-095", sequence: 2 });
     assert.equal(restartedStore.append(event("EVT-095-2", "agent.completed")).accepted, false);
     assert.throws(() => restartedStore.append(event("EVT-095-2", "agent.failed")), { code: "EVENT_ID_CONFLICT" });
   } finally {

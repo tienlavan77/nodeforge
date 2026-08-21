@@ -19,7 +19,7 @@ export function createConversationAuditHistoryService({ communications, eventSto
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new ConfigurationError("History limit must be between 1 and 100.");
     const records = [
       ...communications.getAll().filter((message) => message.project_id === projectId).map(messageRecord),
-      ...(eventStore?.getAll() ?? []).filter((event) => event.metadata.project_id === projectId).map(eventRecord),
+    ...(eventStore?.getAll() ?? []).filter((event) => (event.project_id ?? event.metadata?.project_id) === projectId).map(eventRecord),
       ...(history?.getByProject(projectId) ?? []).map(historyRecord)
     ].filter((record) => matches(record, { agentId, conversationId, correlationId, type }))
       .sort((left, right) => left.timestamp.localeCompare(right.timestamp) || left.sequence - right.sequence);

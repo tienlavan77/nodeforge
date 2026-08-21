@@ -20,7 +20,24 @@ export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(),
   const byVersion = new Map();
   if (database) load();
 
-  return Object.freeze({ save, getCurrent, getVersion, getAllVersions, load });
+  return Object.freeze({ save, removeSprint, getCurrent, getVersion, getAllVersions, load });
+
+  function removeSprint(projectId, sprintId) {
+    let removed = false;
+    for (let index = versions.length - 1; index >= 0; index -= 1) {
+      const roadmap = versions[index];
+      if (roadmap.project_id !== projectId || !roadmap.sprints?.some((sprint) => sprint.id === sprintId)) continue;
+      const remaining = roadmap.sprints.filter((sprint) => sprint.id !== sprintId);
+      if (remaining.length === roadmap.sprints.length) continue;
+      if (database) database.run("DELETE FROM governance_roadmaps WHERE version = ?", [roadmap.version]);
+      versions.splice(index, 1); byVersion.delete(roadmap.version); removed = true;
+      if (remaining.length) {
+        const updated = { ...roadmap, sprints: remaining, updated_at: new Date().toISOString(), version: `${roadmap.version}-updated` };
+        save(updated);
+      }
+    }
+    return removed;
+  }
 
   function save(roadmap) {
     validateRoadmap(roadmap);

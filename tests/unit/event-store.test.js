@@ -12,7 +12,7 @@ test("publishes validated events into an ordered, readable audit store", () => {
   const first = publisher.publish(event("EVT-078-001", "workflow.started", { workflow_id: "WF-078" }));
   const second = publisher.publish(event("EVT-078-002", "workflow.completed", { workflow_id: "WF-078" }));
 
-  assert.deepEqual(first, { accepted: true, delivered: 0, event: { event_id: "EVT-078-001", event_type: "workflow.started", timestamp: "2026-08-19T14:00:00Z", source: "workflow-engine", payload: { workflow_id: "WF-078" }, metadata: { project_id: "PROJECT-078" } } });
+  assert.deepEqual(first, { accepted: true, delivered: 0, event: { event_id: "EVT-078-001", project_id: "PROJECT-078", event_type: "workflow.started", timestamp: "2026-08-19T14:00:00Z", source: "workflow-engine", payload: { workflow_id: "WF-078" }, metadata: {} } });
   assert.deepEqual(store.getById("EVT-078-002"), second.event);
   assert.deepEqual(store.getAll().map(({ event_id }) => event_id), ["EVT-078-001", "EVT-078-002"]);
   assert.deepEqual(store.getByType("workflow.started"), [first.event]);
@@ -59,11 +59,11 @@ test("delivers published events only to matching subscriptions and stops after u
   const authSubscription = subscriptions.subscribe("auth.*", (event) => authEvents.push(event));
   subscriptions.subscribe("workflow.*", (event) => workflowEvents.push(event));
 
-  assert.equal(publisher.publish({ event_id: "EVT-080-001", type: "auth.login", timestamp: "2026-08-19T15:00:00Z", payload: { user: "builder" } }).delivered, 1);
+  assert.equal(publisher.publish({ event_id: "EVT-080-001", type: "auth.login", project_id: "PROJECT-078", timestamp: "2026-08-19T15:00:00Z", payload: { user: "builder" } }).delivered, 1);
   assert.equal(authEvents.length, 1);
   assert.equal(workflowEvents.length, 0);
   assert.equal(subscriptions.unsubscribe(authSubscription), true);
-  assert.equal(publisher.publish({ event_id: "EVT-080-002", type: "auth.login", timestamp: "2026-08-19T15:00:01Z", payload: { user: "builder" } }).delivered, 0);
+  assert.equal(publisher.publish({ event_id: "EVT-080-002", type: "auth.login", project_id: "PROJECT-078", timestamp: "2026-08-19T15:00:01Z", payload: { user: "builder" } }).delivered, 0);
   assert.equal(authEvents.length, 1);
 });
 

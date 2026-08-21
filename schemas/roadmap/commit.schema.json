@@ -5,11 +5,14 @@
   "description": "A planned unit of work. Runtime progress belongs to the Task created after dispatch, never to this plan record.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["id", "order", "objective", "acceptance_criteria"],
+  "required": ["id", "order", "objective", "acceptance_criteria", "target_path", "target_dir", "file_operation"],
   "properties": {
     "id": { "type": "string" },
     "order": { "type": "integer", "minimum": 1 },
     "objective": { "type": "string", "minLength": 1 },
+    "target_path": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*\\.\\./)(?!\\.\\.?$).+" },
+    "target_dir": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*\\.\\./)(?!\\.\\.?$).+" },
+    "file_operation": { "type": "string", "enum": ["create", "modify", "delete"] },
     "allowed_change_areas": {
       "type": "array",
       "items": { "type": "string" },
