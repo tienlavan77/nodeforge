@@ -96,6 +96,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       }
       if (timer) { clearTimeout(timer); timer = undefined; }
       flush();
+      if (agentId === "builder" && !submittedCode) throw new ConfigurationError("Builder must return submit_code before completing a coding task.");
       if (!submittedCode && !text.trim()) throw new ConfigurationError("Agent ended without submit_code or a non-empty response.");
       await bus.flush();
       bus.send(responseMessage(message, streamEventType(agentId, "message.received"), { text, agent_status: "COMPLETED" }, "COMPLETED"));
