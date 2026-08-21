@@ -1,6 +1,6 @@
 import { ConfigurationError } from "../../shared/errors.js";
 
-export function createRetryPolicy({ maxAttempts = 3 } = {}) {
+export function createRetryPolicy({ maxAttempts = 3, deadLetterQueue } = {}) {
   validateAttempts(maxAttempts);
 
   return Object.freeze({ execute });
@@ -17,6 +17,7 @@ export function createRetryPolicy({ maxAttempts = 3 } = {}) {
         lastError = error;
       }
     }
+    if (deadLetterQueue?.enqueue) return deadLetterQueue.enqueue({ type: options.type ?? "retry.operation", payload: options.payload ?? {} }, options.reason ?? "max_attempts_exceeded");
     throw lastError;
   }
 }
