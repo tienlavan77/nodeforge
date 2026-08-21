@@ -37,13 +37,11 @@ async function startChildren() {
   });
   children.push(control);
   await new Promise((resolve, reject) => {
+  let listening = false;
   const onData = (chunk) => {
     const text = chunk.toString();
     process.stdout.write(text);
-    if (text.includes("Node Control API listening")) {
-      control.stdout.off("data", onData);
-      resolve();
-    }
+    if (!listening && text.includes("Node Control API listening")) { listening = true; resolve(); }
   };
   control.stdout.on("data", onData);
   control.once("error", reject);
