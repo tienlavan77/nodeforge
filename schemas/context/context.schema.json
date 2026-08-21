@@ -234,6 +234,10 @@
           "type": "integer",
           "minimum": 0
         },
+        "actual_token_count": {
+          "type": "integer",
+          "minimum": 0
+        },
         "max_files": {
           "type": "integer",
           "minimum": 0

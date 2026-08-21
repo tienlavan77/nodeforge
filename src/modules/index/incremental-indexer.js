@@ -32,6 +32,7 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
       writeExtraction(fileId, path, extraction);
       graph.replaceForFile(fileId, path, extraction.imports);
       writeCalls(fileId, path, extraction);
+      database.run("UPDATE index_metadata SET version = version + 1");
     });
     return true;
   }
@@ -56,6 +57,7 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
       writeExtraction(file.file_id, path, extraction);
       graph.replaceForFile(file.file_id, path, extraction.imports);
       writeCalls(file.file_id, path, extraction);
+      database.run("UPDATE index_metadata SET version = version + 1");
     });
     return true;
   }
@@ -66,13 +68,17 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
 
     database.run("UPDATE imports_exports SET is_broken = 1 WHERE related_file_id = ?", [file.file_id]);
     graph.markTargetBroken(file.file_id);
-    return files.remove(file.file_id);
+    const removed = files.remove(file.file_id);
+    if (removed) database.run("UPDATE index_metadata SET version = version + 1");
+    return removed;
   }
 
   function renameFile(oldPath, newPath) {
     if (!oldPath) return false;
     const file = files.findByPath(oldPath);
-    return file ? files.rename(file.file_id, newPath) : false;
+    const renamed = file ? files.rename(file.file_id, newPath) : false;
+    if (renamed) database.run("UPDATE index_metadata SET version = version + 1");
+    return renamed;
   }
 
   function withTransaction(operation) {

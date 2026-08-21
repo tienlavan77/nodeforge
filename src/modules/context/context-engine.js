@@ -44,6 +44,10 @@ export function createContextEngine({ database, projectRoot, projectId, clock = 
     if (finalVersion !== initialVersion) throw new ContextStaleError();
 
     const dependencies = deduplicateDependencies(selected.dependencies);
+    const actualTokenCount = estimateTokens(files, dependencies);
+    if (actualTokenCount > normalized.maxTokens) {
+      throw new ConfigurationError(`Context budget exceeded: approximately ${actualTokenCount} tokens requested, limit is ${normalized.maxTokens}. Narrow the symbol, path, or line-range selection.`);
+    }
     const pack = {
       schema_version: "1.2.0",
       project_id: projectId,
@@ -62,7 +66,8 @@ export function createContextEngine({ database, projectRoot, projectId, clock = 
       },
       budget: {
         max_tokens: normalized.maxTokens,
-        estimated_tokens: estimateTokens(files, dependencies)
+        estimated_tokens: actualTokenCount,
+        actual_token_count: actualTokenCount
       }
     };
     if (normalized.sessionId !== undefined) pack.session_id = normalized.sessionId;
@@ -169,8 +174,8 @@ export function createContextEngine({ database, projectRoot, projectId, clock = 
   }
 
   function getIndexVersion() {
-    const rows = database.all("SELECT file_id, path, sha256, indexed_at FROM files ORDER BY path, file_id");
-    return `IDX-${createHash("sha256").update(JSON.stringify(rows)).digest("hex").slice(0, 16)}`;
+    const row = database.all("SELECT version FROM index_metadata LIMIT 1")[0];
+    return `IDX-${row?.version ?? 0}`;
   }
 }
 
@@ -206,8 +211,15 @@ function normalizeRequest(request) {
     paths,
     includeDependencies: request.include_dependencies ?? request.includeDependencies ?? true,
     expectedIndexVersion: request.index_version ?? request.indexVersion,
-    maxTokens: request.budget?.max_tokens ?? request.max_tokens ?? 12000
+    maxTokens: request.budget?.max_tokens ?? request.max_tokens ?? defaultBudget(request)
   };
+}
+
+function defaultBudget(request) {
+  const role = String(request.agent_role ?? request.agentRole ?? request.domain ?? "").toLowerCase();
+  if (role.includes("reviewer")) return 30000;
+  if (role.includes("builder")) return 40000;
+  return 12000;
 }
 
 function deduplicateSymbols(symbols) {
@@ -230,6 +242,7 @@ function deduplicateDependencies(dependencies) {
   });
 }
 
+// Approximation only: source bytes and dependency signatures divided by four.
 function estimateTokens(files, dependencies) {
   const contentLength = files.reduce((total, file) => total + (file.content?.length ?? 0), 0);
   const dependencyLength = dependencies.reduce((total, dependency) => total + dependency.signature.length, 0);

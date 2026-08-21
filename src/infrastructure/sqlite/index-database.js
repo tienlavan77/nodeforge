@@ -92,6 +92,13 @@ const MIGRATIONS = [
     statements: [
       "ALTER TABLE calls ADD COLUMN caller_symbol_id TEXT REFERENCES symbols(symbol_id) ON DELETE SET NULL"
     ]
+  },
+  {
+    version: 4,
+    statements: [
+      "CREATE TABLE index_metadata (version INTEGER NOT NULL)",
+      "INSERT INTO index_metadata (version) VALUES (0)"
+    ]
   }
 ];
 
