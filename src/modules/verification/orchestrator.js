@@ -18,6 +18,10 @@ export function createVerificationResultValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);
   ajv.addSchema(commonSchema);
+  // Keep compatibility with schema bundles that still use the forge.dev base ID.
+  for (const alias of ["https://forge.local/schemas/core/common.schema.json", "https://forge.dev/schemas/core/common.schema.json"]) {
+    if (commonSchema.$id !== alias) ajv.addSchema(commonSchema, alias);
+  }
   const validate = ajv.compile(verificationResultSchema);
 
   return (result) => {
