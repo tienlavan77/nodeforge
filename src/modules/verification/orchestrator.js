@@ -10,12 +10,14 @@ import { createTestRunner, createVerificationPlanValidator } from "./runner.js";
 
 const require = createRequire(import.meta.url);
 const verificationResultSchema = require("../../../schemas/verification/verification-result.schema.json");
+const commonSchema = require("../../../schemas/core/common.schema.json");
 const CHECK_TYPES = ["test", "build", "lint", "typecheck"];
 const RESULT_KEYS = { test: "tests", build: "build", lint: "lint", typecheck: "typecheck" };
 
 export function createVerificationResultValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);
+  ajv.addSchema(commonSchema);
   const validate = ajv.compile(verificationResultSchema);
 
   return (result) => {
