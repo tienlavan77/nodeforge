@@ -28,7 +28,7 @@ export function createCheckResultValidator() {
   };
 }
 
-export function createCheckRunner({ projectRoot, projectId, spawnProcess, createId = () => `CHECK-${randomUUID()}`, clock = () => new Date(), validatePlan = createVerificationPlanValidator(), validateResult = createCheckResultValidator() } = {}) {
+export function createCheckRunner({ projectRoot, projectId, spawnProcess, createId = () => `CHECK-${randomUUID()}`, clock = () => new Date(), validatePlan = createVerificationPlanValidator(), validateResult = createCheckResultValidator(), emitEvent = () => {} } = {}) {
   if (typeof projectRoot !== "string" || projectRoot.length === 0 || typeof projectId !== "string" || projectId.length === 0) {
     throw new ConfigurationError("A project root and project_id are required for check execution.");
   }
@@ -38,21 +38,23 @@ export function createCheckRunner({ projectRoot, projectId, spawnProcess, create
   const execute = createProjectCommandExecutor({ projectRoot, spawnProcess });
 
   return Object.freeze({
-    async run(plan, { taskId, sessionId } = {}) {
+    async run(plan, { taskId, sessionId, timeoutMs } = {}) {
       validatePlan(plan);
       const results = [];
       for (const check of plan.checks.filter(({ type }) => CHECK_TYPES.has(type))) {
-        results.push(await runCheck(check, { taskId, sessionId }));
+        results.push(await runCheck(check, { taskId, sessionId, timeoutMs }));
       }
       return Object.freeze(results);
     }
   });
 
-  async function runCheck(check, { taskId, sessionId }) {
+  async function runCheck(check, { taskId, sessionId, timeoutMs }) {
     const startedAt = clock();
-    const execution = await execute(check.command);
+    const effectiveTimeout = timeoutMs ?? defaultTimeout(check.type);
+    const execution = await execute(check.command, { timeoutMs: effectiveTimeout });
     const finishedAt = clock();
-    const status = execution.exitCode === 0 ? "passed" : "failed";
+    const status = execution.timedOut ? "timeout" : execution.exitCode === 0 ? "passed" : "failed";
+    if (execution.timedOut) emitEvent({ type: "TEST_TIMEOUT", task_id: taskId, session_id: sessionId, command: check.command, timeout_ms: effectiveTimeout });
     const result = {
       id: createId(),
       project_id: projectId,
@@ -126,6 +128,10 @@ export function createCheckRunner({ projectRoot, projectId, spawnProcess, create
       rule_id: ruleId
     }));
   }
+}
+
+function defaultTimeout(type) {
+  return { build: 60000, lint: 30000, typecheck: 30000, integration: 300000 }[type] ?? 30000;
 }
 
 function firstNonEmptyLine(output) {

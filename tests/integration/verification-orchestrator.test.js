@@ -73,6 +73,18 @@ test("aggregates multiple results for the same check type", async () => {
   assert.equal(result.typecheck, "not_applicable");
 });
 
+test("runs checks before tests", async () => {
+  const order = [];
+  const orchestrator = createVerificationOrchestrator({
+    testRunner: { run: async () => { order.push("test"); return []; } },
+    checkRunner: { run: async () => { order.push("check"); return []; } },
+    validatePlan: () => {},
+    validateResult: () => {}
+  });
+  await orchestrator.run({ commit_id: "NF-order", levels: ["focused"], checks: [] });
+  assert.deepEqual(order, ["check", "test"]);
+});
+
 function fullPlan(testCommand) {
   return { commit_id: "NF-063", levels: ["focused"], checks: [
     { type: "test", command: testCommand },

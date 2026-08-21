@@ -53,10 +53,8 @@ export function createVerificationOrchestrator({
     async run(plan, options = {}) {
       validatePlan(plan);
       const runId = options.runId ?? createRunId();
-      const [testResults, checkResults] = await Promise.all([
-        resolvedTestRunner.run(plan, options),
-        resolvedCheckRunner.run(plan, options)
-      ]);
+      const checkResults = await resolvedCheckRunner.run(plan, options);
+      const testResults = await resolvedTestRunner.run(plan, options);
       const results = [...testResults, ...checkResults];
       const result = {
         commit_id: plan.commit_id,
