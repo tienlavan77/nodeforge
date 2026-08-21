@@ -57,7 +57,8 @@ test("runs the configured workflow through rule-gated test pass, approval, and r
     assert.deepEqual((await readRuntimeState(projectRoot)).tasks[taskId], {
       workflow_id: "forge-sprint-delivery",
       workflow_state: "APPROVED",
-      updated_at: "2026-08-19T10:00:00.000Z"
+      updated_at: "2026-08-19T10:00:00.000Z",
+      _version: 4
     });
   } finally {
     await rm(projectRoot, { recursive: true, force: true });
