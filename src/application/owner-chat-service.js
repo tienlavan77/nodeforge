@@ -64,7 +64,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
             const tool = chunk.tool_use.input ?? chunk.tool_use;
             if (!validateAgentTool(tool)) throw new ConfigurationError("Invalid agent tool request.");
             const result = await executeAgentTool?.(tool, { message, agentId }) ?? { content: "Tool execution is unavailable." };
-            bus.send(responseMessage(message, streamEventType(agentId, "tool.result"), { round: tool.round, content: result.content ?? result, token_usage: result.token_usage ?? null }, `TOOL-${tool.round}`));
+            bus.send(responseMessage(message, streamEventType(agentId, "tool.result"), { round: tool.round, content: result.content ?? result, token_usage: result.token_usage ?? null }, `TOOL-${tool.round}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`));
             if ((tool.kind === "request_info" && tool.round < 5)
               || (tool.kind === "submit_code" && tool.next_action === "submit_test" && tool.round < 5)) {
               requestPayload = { ...requestPayload, text: `${requestPayload.text}\n\nTool result (round ${tool.round}):\n${result.content ?? JSON.stringify(result)}` };
