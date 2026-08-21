@@ -30,6 +30,9 @@ export function createVerificationPlanValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);
   ajv.addSchema(commonSchema);
+  for (const alias of ["https://forge.local/schemas/core/common.schema.json", "https://forge.dev/schemas/core/common.schema.json"]) {
+    if (commonSchema.$id !== alias) ajv.addSchema(commonSchema, alias);
+  }
   const validate = ajv.compile(verificationPlanSchema);
 
   return (plan) => {
