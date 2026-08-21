@@ -9,7 +9,7 @@ export async function request({ url, credential, payload, model, correlationId, 
   const response = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${credential}`, "x-correlation-id": correlationId },
-    body: JSON.stringify(requestBody),
+    body: JSON.stringify({ ...requestBody, tools: toResponsesTools(payload.tools) }),
     signal
   });
   if (!response.ok) throw await gatewayError(response, "Codex Responses");
@@ -23,7 +23,7 @@ export async function* stream({ url, credential, payload, model, correlationId, 
   const response = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${credential}`, "x-correlation-id": correlationId },
-    body: JSON.stringify({ model: model || process.env.NODE_AGENT_MODEL || "gpt-5.6-terra", input: payload.text ?? JSON.stringify(payload), stream: true }),
+    body: JSON.stringify({ model: model || process.env.NODE_AGENT_MODEL || "gpt-5.6-terra", input: payload.text ?? JSON.stringify(payload), tools: toResponsesTools(payload.tools), stream: true }),
     signal
   });
   if (!response.ok) throw await gatewayError(response, "Codex Responses stream");
@@ -51,6 +51,10 @@ export async function* stream({ url, credential, payload, model, correlationId, 
       if (event.type === "error") throw new ConfigurationError("Agent Gateway stream failed.");
     }
   }
+}
+
+function toResponsesTools(tools = []) {
+  return tools?.length ? tools.map((tool) => ({ type: "function", name: tool.name, description: tool.description, parameters: tool.input_schema })) : undefined;
 }
 
 function responsesUrl(value) {

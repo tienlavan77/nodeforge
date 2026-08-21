@@ -4,7 +4,8 @@ export async function request({ url, credential, payload, model, correlationId, 
   const body = {
     model: model || process.env.CLAUDE_MODEL || process.env.NODE_AGENT_MODEL || "claude-sonnet-4-5-20251001",
     max_tokens: 8192,
-    messages: [{ role: "user", content: payload.text ?? JSON.stringify(payload) }]
+    messages: [{ role: "user", content: payload.text ?? JSON.stringify(payload) }],
+    tools: toAnthropicTools(payload.tools),
   };
   const response = await fetch(url, {
     method: "POST",
@@ -24,6 +25,7 @@ export async function* stream({ url, credential, payload, model, correlationId, 
     model: model || process.env.CLAUDE_MODEL || process.env.NODE_AGENT_MODEL || "claude-sonnet-4-5-20251001",
     max_tokens: 8192,
     messages: [{ role: "user", content: payload.text ?? JSON.stringify(payload) }],
+    tools: toAnthropicTools(payload.tools),
     stream: true
   };
   const response = await fetch(url, {
@@ -70,4 +72,8 @@ function extractText(data) {
   }
   if (typeof data?.text === "string") return data.text;
   return "";
+}
+
+function toAnthropicTools(tools = []) {
+  return tools?.length ? tools.map((tool) => ({ name: tool.name, description: tool.description, input_schema: tool.input_schema })) : undefined;
 }

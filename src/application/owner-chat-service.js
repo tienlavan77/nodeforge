@@ -6,8 +6,9 @@ import addFormats from "ajv-formats";
 const require = createRequire(import.meta.url);
 const commonSchema = require("../../schemas/core/common.schema.json");
 const ticketSchema = require("../../schemas/governance/ticket.schema.json");
+const agentToolSchema = require("../../schemas/agent/agent-tool.schema.json");
 
-export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, streamBatchMs = 500 } = {}) {
+export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, executeAgentTool, streamBatchMs = 500 } = {}) {
   if (typeof bus?.send !== "function") throw new ConfigurationError("Owner Chat Service requires the shared Communication Bus.");
   if (!Number.isInteger(streamBatchMs) || streamBatchMs < 1) throw new ConfigurationError("Owner Chat stream batch interval must be positive.");
   const messages = new Map();
@@ -54,10 +55,24 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     };
     try {
       bus.send(responseMessage(message, "architecture.working", { agent_status: "WORKING" }, "WORKING"));
-      const requestPayload = { text: await enrichAgentText(message, agentId), ...(message.payload.task ? { task: message.payload.task } : {}) };
-      for await (const chunk of agentStream({ agentId, payload: requestPayload, correlationId: message.correlation_id })) {
+      let requestPayload = { text: await enrichAgentText(message, agentId), ...(message.payload.task ? { task: message.payload.task } : {}) };
+      for (let round = 1; round <= 5; round += 1) {
+       let requestedNextRound = false;
+       for await (const chunk of agentStream({ agentId, payload: requestPayload, correlationId: message.correlation_id })) {
           if (chunk.completed) continue;
-          if (chunk.tool_use || typeof chunk.text !== "string") continue;
+          if (chunk.tool_use) {
+            const tool = chunk.tool_use.input ?? chunk.tool_use;
+            if (!validateAgentTool(tool)) throw new ConfigurationError("Invalid agent tool request.");
+            const result = await executeAgentTool?.(tool, { message, agentId }) ?? { content: "Tool execution is unavailable." };
+            bus.send(responseMessage(message, streamEventType(agentId, "tool.result"), { round: tool.round, content: result.content ?? result, token_usage: result.token_usage ?? null }, `TOOL-${tool.round}`));
+            if ((tool.kind === "request_info" && tool.round < 5)
+              || (tool.kind === "submit_code" && tool.next_action === "submit_test" && tool.round < 5)) {
+              requestPayload = { ...requestPayload, text: `${requestPayload.text}\n\nTool result (round ${tool.round}):\n${result.content ?? JSON.stringify(result)}` };
+              requestedNextRound = true;
+            }
+            continue;
+          }
+          if (typeof chunk.text !== "string") continue;
           text += chunk.text;
           if (!chunk.text) continue;
           if (!emittedFirstDelta) {
@@ -67,6 +82,8 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
           }
           batchText += chunk.text;
           if (!timer) timer = setTimeout(() => { timer = undefined; flush(); }, streamBatchMs);
+       }
+       if (!requestedNextRound) break;
       }
       if (timer) { clearTimeout(timer); timer = undefined; }
       flush();
@@ -103,6 +120,12 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     return { id: `MSG-ARCHITECTURE-${suffix}-${message.id}`, project_id: message.project_id,
       sender: { id: message.recipient.id, role: message.recipient.role }, recipient: { id: "NODE", role: "node" }, message_type: type,
       conversation_id: message.conversation_id, correlation_id: message.correlation_id, payload, timestamp: new Date().toISOString() };
+  }
+
+  function validateAgentTool(value) {
+    const ajv = new Ajv2020({ allErrors: true, strict: true });
+    const validate = ajv.compile(agentToolSchema);
+    return Boolean(validate(value));
   }
 }
 

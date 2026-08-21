@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/agent-tool.schema.json",
+  "title": "Forge Agent Tool Request",
+  "description": "Bounded multi-round request or code submission returned by an agent.",
+  "oneOf": [
+    { "$ref": "#/$defs/request_info" },
+    { "$ref": "#/$defs/submit_code" }
+  ],
+  "$defs": {
+    "loop": {
+      "type": "object",
+      "required": ["round", "max_rounds", "next_action"],
+      "properties": {
+        "round": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "max_rounds": { "type": "integer", "const": 5 },
+        "next_action": { "type": "string", "enum": ["need_more_info", "submit_main", "submit_test", "done"] }
+      }
+    },
+    "request_info": {
+      "allOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "tool", "reason", "round", "max_rounds", "next_action"],
+          "properties": {
+            "kind": { "const": "request_info" },
+            "tool": { "type": "string", "enum": ["read_context", "read_file", "list_files"] },
+            "target_path": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+" },
+            "query": { "type": "string", "minLength": 1 },
+            "reason": { "type": "string", "minLength": 1 },
+            "round": { "type": "integer", "minimum": 1, "maximum": 5 },
+            "max_rounds": { "type": "integer", "const": 5 },
+            "next_action": { "type": "string", "enum": ["need_more_info", "submit_main", "submit_test", "done"] }
+          },
+          "anyOf": [
+            { "required": ["target_path"], "properties": { "target_path": { "type": "string" } } },
+            { "required": ["query"], "properties": { "query": { "type": "string" } } }
+          ]
+        }
+      ]
+    },
+    "submit_code": {
+      "allOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "target_path", "target_dir", "file_operation", "code_kind", "content", "round", "max_rounds", "next_action", "is_final"],
+          "properties": {
+            "kind": { "const": "submit_code" },
+            "target_path": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+" },
+            "target_dir": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+" },
+            "file_operation": { "type": "string", "enum": ["create", "modify", "delete"] },
+            "code_kind": { "type": "string", "enum": ["main", "test"] },
+            "content": { "type": "string" },
+            "round": { "type": "integer", "minimum": 1, "maximum": 5 },
+            "max_rounds": { "type": "integer", "const": 5 },
+            "next_action": { "type": "string", "enum": ["need_more_info", "submit_main", "submit_test", "done"] },
+            "is_final": { "type": "boolean" },
+            "checksum": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" },
+            "allowed_change_areas": { "type": "array", "items": { "type": "string" } }
+          },
+          "allOf": [
+            { "if": { "properties": { "code_kind": { "const": "test" } } }, "then": { "properties": { "target_path": { "type": "string", "pattern": "^(tests/|.*(?:^|/)tests/).+" } } } }
+          ]
+        }
+      ]
+    }
+  }
+}
