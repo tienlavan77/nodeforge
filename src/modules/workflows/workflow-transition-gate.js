@@ -36,6 +36,7 @@ export function createWorkflowTransitionGate({ workflow, projectId, projectRoot,
       throw new ConfigurationError(`Persisted state for ${taskId} is ${persisted.workflow_state}, not ${currentState}.`);
     }
     const stateBefore = persisted?.workflow_state ?? currentState;
+    const versionBefore = persisted?._version ?? 0;
     const evaluation = await ruleEvaluator.execute({
       trigger,
       context: {
@@ -46,7 +47,7 @@ export function createWorkflowTransitionGate({ workflow, projectId, projectRoot,
       workflow_id: workflow.id,
       workflow_state: definition.to,
       updated_at: clock().toISOString()
-    }));
+    }, versionBefore));
     const decisive = evaluation.outcomes.find(({ passed, enforcement }) => !passed && enforcement === "blocking")
       ?? evaluation.outcomes.find(({ passed }) => !passed);
 
@@ -65,6 +66,7 @@ export function createWorkflowTransitionGate({ workflow, projectId, projectRoot,
         to: definition.to,
         state_before: stateBefore,
         state_after: stateBefore,
+        _version: versionBefore,
         outcomes: evaluation.outcomes,
         rule_id: ownerFailure.rule_id,
         reason: "Project Owner decision required."
@@ -79,6 +81,7 @@ export function createWorkflowTransitionGate({ workflow, projectId, projectRoot,
       to: definition.to,
       state_before: stateBefore,
       state_after: evaluation.allowed ? definition.to : stateBefore,
+      _version: evaluation.executed ? versionBefore + 1 : versionBefore,
       outcomes: evaluation.outcomes,
       ...(decisive ? { rule_id: decisive.rule_id, reason: decisive.reason } : {})
     });
@@ -124,20 +127,37 @@ export function createWorkflowTransitionGate({ workflow, projectId, projectRoot,
 export function createRuntimeStateStore({ projectRoot } = {}) {
   if (typeof projectRoot !== "string" || projectRoot.length === 0) throw new ConfigurationError("A project root is required for runtime state.");
   const path = join(projectRoot, STATE_FILE);
+  let writeQueue = Promise.resolve();
 
   return Object.freeze({
     path,
     async readTask(taskId) {
       const state = await readState(path);
-      return state.tasks[taskId] ? Object.freeze({ ...state.tasks[taskId] }) : undefined;
+      return state.tasks[taskId] ? Object.freeze({ _version: state.tasks[taskId]._version ?? 0, ...state.tasks[taskId] }) : undefined;
     },
-    async writeTask(taskId, taskState) {
-      const state = await readState(path);
-      state.tasks[taskId] = { ...taskState };
-      await writeState(path, state);
-      return Object.freeze({ ...taskState });
+    async writeTask(taskId, taskState, expectedVersion = 0) {
+      const operation = writeQueue.then(async () => {
+        const state = await readState(path);
+        const current = state.tasks[taskId];
+        const currentVersion = current?._version ?? 0;
+        if (currentVersion !== expectedVersion) throw new WorkflowStateConflictError(taskId, expectedVersion, currentVersion);
+        const next = { ...taskState, _version: currentVersion + 1 };
+        state.tasks[taskId] = next;
+        await writeState(path, state);
+        return Object.freeze({ ...next });
+      });
+      writeQueue = operation.catch(() => {});
+      return operation;
     }
   });
+}
+
+export class WorkflowStateConflictError extends ConfigurationError {
+  constructor(taskId, expectedVersion, actualVersion) {
+    super(`Workflow state conflict for ${taskId}: expected version ${expectedVersion}, found ${actualVersion}.`);
+    this.name = "WorkflowStateConflictError";
+    this.code = "WORKFLOW_STATE_CONFLICT";
+  }
 }
 
 async function readState(path) {

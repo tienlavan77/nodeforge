@@ -5,7 +5,7 @@ import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { createWorkflowTransitionGate } from "../../src/modules/workflows/workflow-transition-gate.js";
+import { createRuntimeStateStore, createWorkflowTransitionGate } from "../../src/modules/workflows/workflow-transition-gate.js";
 
 const workflow = {
   id: "WORKFLOW-gated", name: "Gated workflow", version: "1.0.0", initial_state: "PLANNED",
@@ -44,7 +44,7 @@ test("persists an allowed transition only after WF-002 passes", async () => {
     assert.deepEqual(pickTransition(result), { from: "PLANNED", event: "start", to: "IN_PROGRESS", state_before: "PLANNED", state_after: "IN_PROGRESS" });
     const persisted = JSON.parse(await readFile(join(state.projectRoot, ".forge/runtime/state.json"), "utf8"));
     assert.deepEqual(persisted.tasks["TASK-072-allow"], {
-      workflow_id: "WORKFLOW-gated", workflow_state: "IN_PROGRESS", updated_at: "2026-08-19T09:00:00.000Z"
+      workflow_id: "WORKFLOW-gated", workflow_state: "IN_PROGRESS", updated_at: "2026-08-19T09:00:00.000Z", _version: 1
     });
   } finally {
     await rm(state.projectRoot, { recursive: true, force: true });
@@ -67,6 +67,17 @@ test("denies a failed WF-002 transition without writing a new state", async () =
     assert.equal(state.events[0].payload.rule_id, "WF-002");
   } finally {
     await rm(state.projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("rejects a stale workflow state write with an optimistic concurrency conflict", async () => {
+  const projectRoot = await mkdtemp(join(os.tmpdir(), "nodeforge-workflow-conflict-"));
+  try {
+    const store = createRuntimeStateStore({ projectRoot });
+    await store.writeTask("TASK-CONFLICT", { workflow_id: "WORKFLOW", workflow_state: "PLANNED" }, 0);
+    await assert.rejects(() => store.writeTask("TASK-CONFLICT", { workflow_id: "WORKFLOW", workflow_state: "RUNNING" }, 0), { code: "WORKFLOW_STATE_CONFLICT" });
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true });
   }
 });
 
