@@ -4,6 +4,14 @@
   "title": "Forge Common Types",
   "type": "object",
   "$defs": {
+    "result_status": {
+      "type": "string",
+      "enum": ["passed", "failed", "skipped", "not_applicable", "error"]
+    },
+    "lifecycle_status": {
+      "type": "string",
+      "enum": ["pending", "active", "completed", "failed", "cancelled", "timeout", "running"]
+    },
     "id": {
       "type": "string",
       "minLength": 1,

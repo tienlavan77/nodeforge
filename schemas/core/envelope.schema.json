@@ -13,10 +13,10 @@
   ],
   "properties": {
     "protocol_version": {
-      "$ref": "common.schema.json#/$defs/version"
+      "$ref": "../core/common.schema.json#/$defs/version"
     },
     "message_id": {
-      "$ref": "common.schema.json#/$defs/id"
+      "$ref": "../core/common.schema.json#/$defs/id"
     },
     "sender": {
       "type": "object",
@@ -28,7 +28,7 @@
       ],
       "properties": {
         "id": {
-          "$ref": "common.schema.json#/$defs/id"
+          "$ref": "../core/common.schema.json#/$defs/id"
         },
         "type": {
           "type": "string",
@@ -51,7 +51,7 @@
       "additionalProperties": false,
       "properties": {
         "id": {
-          "$ref": "common.schema.json#/$defs/id"
+          "$ref": "../core/common.schema.json#/$defs/id"
         },
         "type": {
           "type": "string",
@@ -70,18 +70,18 @@
       "description": "A canonical Event emitted by a component or a canonical Command addressed to one. The referenced schemas own message type and payload validation.",
       "oneOf": [
         {
-          "$ref": "event.schema.json"
+          "$ref": "../core/event.schema.json"
         },
         {
-          "$ref": "command.schema.json"
+          "$ref": "../core/command.schema.json"
         }
       ]
     },
     "timestamp": {
-      "$ref": "common.schema.json#/$defs/timestamp"
+      "$ref": "../core/common.schema.json#/$defs/timestamp"
     },
     "metadata": {
-      "$ref": "common.schema.json#/$defs/metadata"
+      "$ref": "../core/common.schema.json#/$defs/metadata"
     }
   }
 }
