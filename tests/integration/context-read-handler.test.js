@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { cp, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -59,6 +59,29 @@ test("routes context.read_file through Node's Code Index and returns a context p
     assert.match(response.message.payload.content, /export function login/);
     assert.deepEqual(response.message.payload.symbols.map(({ name }) => name), ["login"]);
     assert.equal(response.message.payload.file.file_id, database.all("SELECT file_id FROM files WHERE path = ?", ["src/auth.js"])[0].file_id);
+  } finally {
+    handler?.close();
+    await database?.close();
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("rejects indexed secret paths before reading their contents", async () => {
+  const projectRoot = await mkdtemp(join(os.tmpdir(), "nodeforge-context-secret-"));
+  let database;
+  let handler;
+  try {
+    await cp(sampleProject, projectRoot, { recursive: true });
+    await writeFile(join(projectRoot, ".env"), "API_KEY=do-not-read\n");
+    database = await openIndexDatabase(projectRoot);
+    const agent = new EventEmitter();
+    agent.sendEvent = async () => {};
+    handler = createContextReadHandler({ agent, database, projectId: "PROJECT-secret", projectRoot, files: { findByPath: () => ({ file_id: "FILE-SECRET", path: ".env" }) }});
+    const errors = [];
+    handler.on("protocol_error", (error) => errors.push(error));
+    agent.emit("message", { protocol_version: "1.2.0", sender: { id: "AGENT", type: "ai", role: "builder" }, message: { type: "context.read_file", project_id: "PROJECT-secret", payload: { path: ".env" } } });
+    await waitFor(() => errors.length === 1);
+    assert.match(errors[0].message, /secret paths/);
   } finally {
     handler?.close();
     await database?.close();

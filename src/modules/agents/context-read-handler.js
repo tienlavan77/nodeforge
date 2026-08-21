@@ -5,8 +5,9 @@ import { relative, resolve } from "node:path";
 
 import { ConfigurationError } from "../../shared/errors.js";
 import { createFileRepository } from "../index/file-repository.js";
+import { createSecretPathMatcher } from "../context/secret-paths.js";
 
-export function createContextReadHandler({ agent, database, projectId, projectRoot, files = createFileRepository(database), createEventId = () => `EVT-${randomUUID()}`, clock = () => new Date(), nodeId = "NODE-001" } = {}) {
+export function createContextReadHandler({ agent, database, projectId, projectRoot, files = createFileRepository(database), createEventId = () => `EVT-${randomUUID()}`, clock = () => new Date(), nodeId = "NODE-001", config = {} } = {}) {
   if (!agent?.on || !agent?.off || typeof agent.sendEvent !== "function" || !database?.all || !files?.findByPath) {
     throw new ConfigurationError("An agent process, SQLite database, and file repository are required for context reads.");
   }
@@ -19,6 +20,7 @@ export function createContextReadHandler({ agent, database, projectId, projectRo
     void handle(envelope).catch((error) => events.emit("protocol_error", error));
   };
   const events = new EventEmitter();
+  const isSecretPath = createSecretPathMatcher(config.secretsPatterns);
   agent.on("message", onMessage);
 
   async function handle(envelope) {
@@ -27,6 +29,7 @@ export function createContextReadHandler({ agent, database, projectId, projectRo
       throw new ConfigurationError("context.read_file project_id does not match this Node project.");
     }
     const path = assertIndexedProjectPath(command.payload?.path);
+    if (isSecretPath(path)) throw new ConfigurationError("Context reads of secret paths are not permitted.");
     const file = files.findByPath(path);
     if (!file) throw new ConfigurationError(`context.read_file requested an unindexed path: ${path}`);
 

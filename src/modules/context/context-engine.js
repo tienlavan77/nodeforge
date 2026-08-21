@@ -7,6 +7,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 
 import { ConfigurationError } from "../../shared/errors.js";
+import { createSecretPathMatcher } from "./secret-paths.js";
 
 const require = createRequire(import.meta.url);
 const commonSchema = require("../../../schemas/core/common.schema.json");
@@ -20,11 +21,12 @@ export class ContextStaleError extends ConfigurationError {
   }
 }
 
-export function createContextEngine({ database, projectRoot, projectId, clock = () => new Date(), validatePack = createContextPackValidator() } = {}) {
+export function createContextEngine({ database, projectRoot, projectId, clock = () => new Date(), validatePack = createContextPackValidator(), config = {} } = {}) {
   if (!database?.all || typeof projectRoot !== "string" || projectRoot.length === 0 || typeof projectId !== "string" || projectId.length === 0) {
     throw new ConfigurationError("A Code Index database, project root, and project_id are required for Context Engine.");
   }
   if (typeof clock !== "function" || typeof validatePack !== "function") throw new ConfigurationError("Context Engine dependencies must be functions.");
+  const isSecretPath = createSecretPathMatcher(config.secretsPatterns);
 
   return Object.freeze({ build });
 
@@ -75,6 +77,7 @@ export function createContextEngine({ database, projectRoot, projectId, clock = 
     const rangesByPath = new Map();
     const addFile = (file, reason, range) => {
       if (!file) return;
+      if (isSecretPath(file.path)) return;
       const entry = rangesByPath.get(file.path) ?? { file, reasons: new Set(), ranges: [] };
       entry.reasons.add(reason);
       if (range) entry.ranges.push(range);
@@ -87,6 +90,7 @@ export function createContextEngine({ database, projectRoot, projectId, clock = 
         : database.all("SELECT s.symbol_id, s.name, s.kind, s.start_line, s.end_line, f.file_id, f.path, f.sha256 FROM symbols s JOIN files f ON f.file_id = s.file_id WHERE s.name = ? ORDER BY f.path, s.start_line", [selector.name]);
       if (matches.length === 0) throw new ConfigurationError(`Indexed symbol not found: ${selector.name}${selector.file ? ` in ${selector.file}` : ""}`);
       for (const match of matches) {
+        if (isSecretPath(match.path)) continue;
         const file = { file_id: match.file_id, path: match.path, sha256: match.sha256 };
         symbols.push({ file: match.path, name: match.name, kind: match.kind, start_line: match.start_line, end_line: match.end_line });
         addFile(file, "selected symbol", { start: match.start_line, end: match.end_line });
@@ -94,12 +98,14 @@ export function createContextEngine({ database, projectRoot, projectId, clock = 
       }
     }
     for (const lineRange of request.lineRanges) {
+      if (isSecretPath(lineRange.path)) continue;
       const file = database.all("SELECT file_id, path, sha256 FROM files WHERE path = ?", [lineRange.path])[0];
       if (!file) throw new ConfigurationError(`Indexed file not found: ${lineRange.path}`);
       addFile(file, "requested line range", { start: lineRange.start, end: lineRange.end });
       if (request.includeDependencies) collectDependencies(file.file_id, file.path, addFile, dependencies);
     }
     for (const path of request.paths) {
+      if (isSecretPath(path)) continue;
       const file = database.all("SELECT file_id, path, sha256 FROM files WHERE path = ?", [path])[0];
       if (!file) throw new ConfigurationError(`Indexed file not found: ${path}`);
       addFile(file, "selected file");
@@ -120,6 +126,7 @@ export function createContextEngine({ database, projectRoot, projectId, clock = 
       [fileId]
     );
     for (const row of rows) {
+      if (isSecretPath(row.path)) continue;
       addFile({ file_id: row.file_id, path: row.path, sha256: row.sha256 }, "dependency signature");
       const symbol = row.name ?? row.path;
       dependencies.push({ symbol, signature: row.name ? `${row.kind ?? "symbol"} ${row.name}` : row.path, file: row.path });
