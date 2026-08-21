@@ -93,7 +93,7 @@ test("accepts the current index version and rejects a stale requested version", 
       () => state.engine.build({ task_id: "TASK-context-003", path: "src/auth.js", index_version: "IDX-stale", include_dependencies: false }),
       (error) => error instanceof ContextStaleError && error.code === "CONTEXT_STALE"
     );
-    state.database.run("UPDATE files SET indexed_at = ? WHERE path = ?", ["2026-08-18T09:01:00.000Z", "src/auth.js"]);
+    state.database.run("UPDATE index_metadata SET version = version + 1");
     await assert.rejects(
       () => state.engine.build({ task_id: "TASK-context-003", path: "src/auth.js", index_version: current.index_version, include_dependencies: false }),
       (error) => error instanceof ContextStaleError && error.code === "CONTEXT_STALE"
@@ -115,6 +115,20 @@ test("rejects missing symbols, files, and task identity", async () => {
     await assert.rejects(() => state.engine.build({ task_id: "TASK-context-004", symbol: "missing" }), ConfigurationError);
     await assert.rejects(() => state.engine.build({ task_id: "TASK-context-004", path: "src/missing.js" }), ConfigurationError);
     await assert.rejects(() => state.engine.build({ path: "src/auth.js" }), /requires task_id/);
+  } finally {
+    await teardown(state);
+  }
+});
+
+test("enforces the requested context token budget and reports actual usage", async () => {
+  const state = await setup();
+  try {
+    const pack = await state.engine.build({ task_id: "TASK-context-budget", path: "src/auth.js", include_dependencies: false, max_tokens: 5000 });
+    assert.equal(pack.budget.actual_token_count, pack.budget.estimated_tokens);
+    await assert.rejects(
+      () => state.engine.build({ task_id: "TASK-context-budget", path: "src/auth.js", include_dependencies: false, max_tokens: 1 }),
+      /Context budget exceeded/
+    );
   } finally {
     await teardown(state);
   }
