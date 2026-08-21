@@ -134,13 +134,14 @@ const buildBuilderContext = async ({ message }) => {
 const executeAgentTool = async (tool, { message }) => {
   if (tool.kind === "request_info") {
     if (tool.tool === "read_file") return { content: await fileService.readFile({ path: tool.target_path }) };
-    if (tool.tool === "list_files") return { content: (await fileService.listFiles({ glob: tool.target_path ?? "**/*" })).join("\n") };
+    if (tool.tool === "list_files") return { content: (await fileService.listFiles({ glob: !tool.target_path || tool.target_path === "." ? "**/*" : tool.target_path })).slice(0, 500).join("\n") };
     if (tool.target_path) {
       const pack = await contextEngine.build({ task_id: message.payload.task?.id ?? message.id, paths: [tool.target_path], include_dependencies: true, agent_role: message.recipient.id });
       return { content: JSON.stringify(pack), token_usage: { input_tokens: 0, output_tokens: Math.ceil(JSON.stringify(pack).length / 4) } };
     }
     const context = await contextService.buildContext({ projectId: message.project_id, taskId: message.payload.task?.id ?? message.id, query: tool.query ?? "" });
-    const content = (context.projectFacts ?? []).join("\n");
+    let content = (context.projectFacts ?? []).join("\n");
+    if (!content) content = (await fileService.listFiles({ glob: "**/*" })).slice(0, 200).join("\n");
     return { content, token_usage: { input_tokens: 0, output_tokens: Math.ceil(content.length / 4) } };
   }
   if (tool.kind === "submit_code") {
