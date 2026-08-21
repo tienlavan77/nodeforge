@@ -151,7 +151,7 @@ const executeAgentTool = async (tool, { message }) => {
 };
 const api = createHttpApi({
   runtimeService,
-  ownerChatService: createOwnerChatService({ bus, buildAgentContext: buildBuilderContext, executeAgentTool, debug: (detail) => console.debug("Agent loop", detail), agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId }), onAgentCompleted: sprintOrchestration.ingestAgentCompletion }),
+  ownerChatService: createOwnerChatService({ bus, buildAgentContext: buildBuilderContext, executeAgentTool, debug: (detail) => console.log(`[agent-loop] ${JSON.stringify(detail)}`), agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId }), onAgentCompleted: sprintOrchestration.ingestAgentCompletion }),
   conversationStream: createConversationStream({ bus, communicationStore: communications, eventStore, subscriptions }),
   architectureWorkspaceService: createArchitectureWorkspaceService({ knowledge, roadmaps, sprintPlans }),
   projectDashboardService: createProjectDashboardService({ roadmaps, sprintPlans, provenance }),
