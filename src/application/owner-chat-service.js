@@ -78,7 +78,8 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
             }
             if ((tool.kind === "request_info" && tool.round < 5)
               || (tool.kind === "submit_code" && tool.next_action === "submit_test" && tool.round < 5)) {
-              const stateSummary = `Task ${taskId}; completed round ${tool.round}; next_action=${tool.next_action}; continue only if more information or code is required.`;
+              const taskSummary = message.payload.task ? `${message.payload.task.title}: ${message.payload.task.objective}` : message.payload.text;
+              const stateSummary = `Task ${taskId}: ${taskSummary}; completed round ${tool.round}; next_action=${tool.next_action}; continue only if more information or code is required.`;
               requestPayload = { text: `task_id: ${taskId}\nstate_summary: ${stateSummary}\n\ntool_result_${tool.round}:\n${result.content ?? JSON.stringify(result)}` };
               requestedNextRound = true;
             }

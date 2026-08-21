@@ -141,7 +141,12 @@ const executeAgentTool = async (tool, { message }) => {
     }
     const context = await contextService.buildContext({ projectId: message.project_id, taskId: message.payload.task?.id ?? message.id, query: tool.query ?? "" });
     let content = (context.projectFacts ?? []).join("\n");
-    if (!content) content = (await fileService.listFiles({ glob: "**/*" })).slice(0, 200).join("\n");
+    if (!content) {
+      const task = message.payload.task;
+      const taskSummary = task ? `Task ${task.id}: ${task.title}\nObjective: ${task.objective}\nAcceptance criteria:\n${(task.acceptance_criteria ?? []).map((item) => `- ${item}`).join("\n")}` : message.payload.text;
+      const files = (await fileService.listFiles({ glob: "**/*" })).slice(0, 200).join("\n");
+      content = `${taskSummary}\n\nRepository files:\n${files}`;
+    }
     return { content, token_usage: { input_tokens: 0, output_tokens: Math.ceil(content.length / 4) } };
   }
   if (tool.kind === "submit_code") {
