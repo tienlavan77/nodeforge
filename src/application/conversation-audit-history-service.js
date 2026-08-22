@@ -10,22 +10,24 @@ export function createConversationAuditHistoryService({ communications, eventSto
 
   return Object.freeze({ query });
 
-  function query({ projectId, agentId, conversationId, correlationId, type, cursor, limit = 25 } = {}) {
+  function query({ projectId, agentId, conversationId, correlationId, type, cursor, limit = 25, order = "asc" } = {}) {
     assertId(projectId, "project");
     for (const [value, label] of [[agentId, "agent"], [conversationId, "conversation"], [correlationId, "correlation"], [type, "type"]]) {
       if (value !== undefined) assertId(value, label);
     }
     if (cursor !== undefined && (!Number.isInteger(Number(cursor)) || Number(cursor) < 0)) throw new ConfigurationError("History cursor must be a non-negative integer.");
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new ConfigurationError("History limit must be between 1 and 100.");
+    if (order !== "asc" && order !== "desc") throw new ConfigurationError("History order must be asc or desc.");
     const records = [
       ...communications.getAll().filter((message) => message.project_id === projectId).map(messageRecord),
     ...(eventStore?.getAll() ?? []).filter((event) => (event.project_id ?? event.metadata?.project_id) === projectId).map(eventRecord),
       ...(history?.getByProject(projectId) ?? []).map(historyRecord)
     ].filter((record) => matches(record, { agentId, conversationId, correlationId, type }))
       .sort((left, right) => left.timestamp.localeCompare(right.timestamp) || left.sequence - right.sequence);
+    const ordered = order === "desc" ? [...records].reverse() : records;
     const start = cursor === undefined ? 0 : Number(cursor);
-    const items = records.slice(start, start + limit).map((record) => structuredClone(record));
-    return { items, next_cursor: start + items.length < records.length ? String(start + items.length) : null };
+    const items = ordered.slice(start, start + limit).map((record) => structuredClone(record));
+    return { items, next_cursor: start + items.length < ordered.length ? String(start + items.length) : null };
   }
 }
 

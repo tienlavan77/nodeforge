@@ -93,7 +93,8 @@ export function createHttpApi({ runtimeService, ownerChatService, conversationSt
         projectId: parts[1], agentId: url.searchParams.get("agent") ?? undefined,
         conversationId: url.searchParams.get("conversationId") ?? undefined, correlationId: url.searchParams.get("correlationId") ?? undefined,
         type: url.searchParams.get("type") ?? undefined, cursor: url.searchParams.get("cursor") ?? undefined,
-        limit: url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : undefined
+        limit: url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : undefined,
+        order: url.searchParams.get("order") ?? undefined
       }) };
     }
     if (method === "POST" && parts.length === 1 && parts[0] === "tasks") {

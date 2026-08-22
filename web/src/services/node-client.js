@@ -16,13 +16,14 @@ export function createNodeClient() {
         fallbackError: "Node rejected the Human Decision."
       });
     },
-    async getConversationAuditHistory({ projectId, agentId, conversationId, correlationId, type, cursor, limit = 25 }) {
+    async getConversationAuditHistory({ projectId, agentId, conversationId, correlationId, type, cursor, limit = 25, order } = {}) {
       const params = new URLSearchParams({ limit: String(limit) });
       if (agentId) params.set("agent", agentId);
       if (conversationId) params.set("conversationId", conversationId);
       if (correlationId) params.set("correlationId", correlationId);
       if (type) params.set("type", type);
       if (cursor) params.set("cursor", cursor);
+      if (order) params.set("order", order);
       return requestJson(`/projects/${projectId}/history?${params}`, { fallbackError: "Node could not load the Conversation and Audit History." });
     },
     async getProjectDashboard(projectId) {
