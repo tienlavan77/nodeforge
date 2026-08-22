@@ -100,6 +100,6 @@ async function requestJson(url, { fallbackError, ...init } = {}) {
       throw new Error(fallbackError ?? `Node request failed with HTTP ${response.status}.`);
     }
   }
-  if (!response.ok) throw new Error(body?.error ?? fallbackError ?? `Node request failed with HTTP ${response.status}.`);
+  if (!response.ok) { const error = new Error(body?.error ?? fallbackError ?? `Node request failed with HTTP ${response.status}.`); error.status = response.status; throw error; }
   return body;
 }
