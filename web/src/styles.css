@@ -117,9 +117,11 @@ button, input { font: inherit; }
 .natural-conversation { padding: 18px 22px; }
 .natural-message { display: block; padding: 8px 0; border: 0; background: transparent; }
 .natural-message.owner { text-align: right; }
-.natural-message p { margin: 0; color: #d9dce3; line-height: 1.55; white-space: pre-wrap; font-size: 15px; }
+.natural-message p { margin: 0; color: #d9dce3; line-height: 1.55; white-space: pre-wrap; font-size: 15px; word-break: break-word; overflow-wrap: anywhere; }
 .natural-message.owner p { color: #b8b3ff; }
 .natural-message time { display: block; margin-top: 4px; color: #626a76; font-size: 11px; }
+.natural-message.agent.streaming p::after { content: "▊"; display: inline-block; margin-left: 2px; color: #8f83fa; animation: caret-blink 0.9s step-end infinite; font-weight: 300; }
+@keyframes caret-blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
 .working-status { padding: 6px 0 14px; color: #9fc6ab; font-size: 12px; font-style: italic; animation: working-pulse 1.8s ease-in-out infinite; }
 .composer textarea { display: block; width: 100%; min-width: 0; flex: 1 1 auto; resize: none; min-height: 58px; max-height: 180px; overflow-y: auto; border: 1px solid #2b3039; outline: none; color: #d9dce3; background: #1a1d23; padding: 10px 12px; font: inherit; line-height: 1.4; }
 .composer textarea:focus { border-color: #5b54a0; box-shadow: 0 0 0 2px rgba(91,84,160,.15); }
