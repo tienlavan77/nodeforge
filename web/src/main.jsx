@@ -120,14 +120,20 @@ function App() {
   }, [client, loadDashboard, loadWorkspace]);
 
   function queueDelta(agentId, message) {
+    const text = String(message.payload?.text ?? "");
+    const tokens = text.match(/\S+|\s+/g) ?? [text];
     const queue = streamQueues.current[agentId] ?? (streamQueues.current[agentId] = []);
-    queue.push(message);
+    const baseId = message.message_id;
+    const now = Date.now();
+    tokens.forEach((token, i) => {
+      queue.push({ ...message, message_id: `${baseId}:tok:${now}:${i}:${Math.random().toString(36).slice(2, 6)}`, payload: { ...message.payload, text: token } });
+    });
     if (queue.timer) return;
     const tick = () => {
       const next = queue.shift();
       if (!next) { queue.timer = undefined; return; }
       setMessages((current) => ({ ...current, [agentId]: mergeStreamMessage(current[agentId], next) }));
-      queue.timer = setTimeout(tick, 45);
+      queue.timer = setTimeout(tick, 18);
     };
     tick();
   }
@@ -450,8 +456,9 @@ function toDisplayMessage(message) {
 
 function mergeStreamMessage(messages, message) {
   if (messages.some((item) => item.id === message.message_id)) return messages;
-  // Tool results are private Node<->agent traffic; keep them in history/SSE replay but do not render raw context in chat.
+  // Tool results and synthetic progress are private Node<->agent traffic; keep them in history/SSE replay but do not render in chat bubbles.
   if (message.message_type.endsWith(".tool.result")) return messages;
+  if (message.message_type.endsWith(".message.progress") || message.message_type.endsWith(".progress")) return messages;
   if (message.message_type.endsWith(".working")) return messages;
   const isDelta = message.message_type.endsWith(".message.delta");
   const isCompletion = message.message_type.endsWith(".message.received");
@@ -535,7 +542,9 @@ function PanelHeader({ agent, onSettings }) {
 }
 
 function Message({ message }) {
-  return <div className={`message-row natural-message ${message.from === "owner" ? "owner" : "agent"}`}><MessageContent text={message.text} /><time>{message.time}</time></div>;
+  const streaming = message.stream === true;
+  const rowClass = `message-row natural-message ${message.from === "owner" ? "owner" : `agent${streaming ? " streaming" : ""}`}`;
+  return <div className={rowClass}><MessageContent text={message.text} /><time>{message.time}</time></div>;
 }
 
 function MessageContent({ text }) {
