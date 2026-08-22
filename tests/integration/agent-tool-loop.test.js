@@ -20,7 +20,7 @@ const input = { message_id: "MSG-LOOP-1", project_id: "PROJECT-114A", conversati
 test("agent tool loop executes request_info then submit_code", async () => {
   const h = harness([
     [{ tool_use: { input: { kind: "request_info", tool: "read_context", query: "NF-SVC-T01", reason: "need context", round: 1, max_rounds: 5, next_action: "need_more_info" } } }],
-    [{ tool_use: { input: { kind: "submit_code", target_path: "src/example.js", target_dir: "src", file_operation: "create", code_kind: "main", content: "export const x = 1;", round: 2, max_rounds: 5, next_action: "done", is_final: true } } }]
+    [{ tool_use: { input: { kind: "submit_code", target_path: "src/example.js", target_dir: "src", file_operation: "create", code_kind: "main", content: "export const x = 1;", files: [{ target_path: "tests/example.test.js", target_dir: "tests", file_operation: "create", code_kind: "test", content: "assert.equal(1, 1);" }], round: 2, max_rounds: 5, next_action: "done", is_final: true } } }]
   ]);
   h.chat.submit(input);
   await new Promise((resolve) => setTimeout(resolve, 20));
@@ -34,4 +34,16 @@ test("invalid tool request terminates with agent error", async () => {
   h.chat.submit({ ...input, message_id: "MSG-LOOP-2", correlation_id: "CORR-LOOP-2" });
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(h.messages.at(-1).message_type, "builder.error");
+});
+
+test("duplicate context request reuses cached result and still reaches submit_code", async () => {
+  const h = harness([
+    [{ tool_use: { input: { kind: "request_info", tool: "read_context", query: "NF-SVC-T01", reason: "need context", next_action: "need_more_info" } } }],
+    [{ tool_use: { input: { kind: "request_info", tool: "read_context", query: "NF-SVC-T01", reason: "still need context", next_action: "need_more_info" } } }],
+    [{ tool_use: { input: { kind: "submit_code", target_path: "src/example.js", target_dir: "src", file_operation: "create", code_kind: "main", content: "export const x = 1;", files: [{ target_path: "tests/example.test.js", target_dir: "tests", file_operation: "create", code_kind: "test", content: "assert.equal(1, 1);" }], next_action: "done", is_final: true } } }]
+  ]);
+  h.chat.submit({ ...input, message_id: "MSG-LOOP-DUP", correlation_id: "CORR-LOOP-DUP" });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(h.calls(), 3);
+  assert.equal(h.messages.at(-1).message_type, "builder.message.received");
 });

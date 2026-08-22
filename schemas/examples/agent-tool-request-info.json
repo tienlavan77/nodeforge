@@ -1,1 +1,1 @@
-{"kind":"request_info","tool":"read_context","query":"NF-SVC-T01","reason":"Need current implementation context.","round":1,"max_rounds":5,"next_action":"need_more_info"}
+{"kind":"request_info","tool":"read_context","query":"NF-SVC-T01","reason":"Need current implementation context.","round":1,"next_action":"need_more_info"}
