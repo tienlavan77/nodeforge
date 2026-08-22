@@ -71,10 +71,16 @@ function startIndexPipeline({ watcher, indexer, internalBus, validateEvent, logg
       logger.error("Rejected invalid watcher event before indexing", { error: error.message });
     }
   };
+  // Indexer handles every watcher event; on success emit indexed + verification hooks.
   const onIndexEvent = (event) => {
     void indexer.handle(event)
       .then((indexed) => {
-        if (indexed) logger.info("Indexed watcher event", { event_type: event.type, path: event.payload.path });
+        if (indexed) {
+          logger.info("Indexed watcher event", { event_type: event.type, path: event.payload.path });
+          internalBus.emit("indexer.indexed", { ...event, indexed: true, indexed_at: new Date().toISOString() });
+        }
+        // Always emit completion so verification can decide (even when indexer skips binary files).
+        internalBus.emit("watcher.indexed", { ...event, indexed: Boolean(indexed) });
       })
       .catch((error) => logger.error("Indexing watcher event failed", { error: error.message, event_type: event.type }));
   };

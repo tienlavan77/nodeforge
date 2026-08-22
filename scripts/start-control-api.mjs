@@ -92,7 +92,21 @@ const internalBus = new EventEmitter();
 const eventPublisher = createEventPublisher({ store: eventStore, subscriptions });
 const verificationOrchestrator = createVerificationOrchestrator({ projectRoot: process.cwd(), projectId });
 let testService;
-const fileService = createFileService({ projectRoot: process.cwd(), databaseService: database, onWrite: ({ path }) => testService?.runTests({ commitId: `FILE-${path}-${Date.now()}`, levels: ["unit_test"], taskId: path }).catch((error) => console.error("File write verification failed", { path, error: error.message })) });
+const fileService = createFileService({
+  projectRoot: process.cwd(),
+  databaseService: database,
+  onWrite: async ({ path }) => {
+    // The watcher owns the complete write -> index -> verification pipeline.
+    // Run a focused test immediately only when the submitted path is itself a test;
+    // source writes are verified after watcher/indexer processing.
+    if (!testService || !path.startsWith("tests/")) return;
+    const result = await testService.runTests({ commitId: `FILE-${path}-${Date.now()}`, levels: ["unit_test"], taskId: path });
+    if (result.status !== "passed" || result.ready_for_review !== true) {
+      throw new Error(`Verification failed for ${path}: ${result.status}`);
+    }
+    return result;
+  }
+});
 testService = createTestService({ verificationOrchestrator, fileService, projectRoot: process.cwd(), publisher: eventPublisher, internalBus });
 const history = createHistoryStore({ subscriptions });
 const summaries = createTaskSummaryStore({ history });
