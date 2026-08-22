@@ -86,6 +86,7 @@ button, input { font: inherit; }
 .agent-status .status-dot { width: 5px; height: 5px; box-shadow: none; }
 .panel-menu { margin-left: auto; font-size: 19px; line-height: 1; }
 .conversation { min-height: 0; flex: 1; overflow: auto; padding: 17px 18px 12px; scrollbar-width: thin; scrollbar-color: #353a45 transparent; }
+.chat-load-more { width: auto; align-self: center; margin: 6px auto 8px; }
 .date-rule { display: flex; align-items: center; gap: 10px; color: #656c78; font-family: 'DM Mono', monospace; font-size: 15px; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 15px; }
 .date-rule::before, .date-rule::after { content: ''; height: 1px; background: #292e38; flex: 1; }
 .message-row { display: flex; margin: 9px 0; }

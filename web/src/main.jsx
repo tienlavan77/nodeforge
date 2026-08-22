@@ -5,10 +5,10 @@ import { validateSprintPlan } from "./services/sprint-plan-validator.js";
 import "./styles.css";
 
 const AGENTS = [
-  { id: "architecture-manager", label: "Architecture Manager", short: "AM", tone: "violet", status: "Reviewing roadmap", messages: [{ from: "agent", text: "Architecture baseline is aligned with the current project constraints.", time: "09:41" }, { from: "agent", text: "I have queued the next decision set for owner review.", time: "09:44" }] },
-  { id: "sprint-leader", label: "Sprint Leader", short: "SL", tone: "cyan", status: "Planning Sprint 13", messages: [{ from: "agent", text: "Sprint 13 has 8 tickets ready for prioritization.", time: "09:38" }, { from: "owner", text: "Keep the UI work focused on the Node control surface.", time: "09:39" }] },
-  { id: "builder", label: "Builder", short: "BU", tone: "amber", status: "Implementing NF-135", messages: [{ from: "agent", text: "Web Control Shell scaffold is in progress.", time: "09:35" }, { from: "agent", text: "No backend integrations have been changed.", time: "09:40" }] },
-  { id: "reviewer", label: "Reviewer", short: "RV", tone: "green", status: "Waiting for changes", messages: [{ from: "agent", text: "I am waiting for the Builder handoff before review.", time: "09:31" }] }
+  { id: "architecture-manager", label: "Architecture Manager", short: "AM", tone: "violet" },
+  { id: "sprint-leader", label: "Sprint Leader", short: "SL", tone: "cyan" },
+  { id: "builder", label: "Builder", short: "BU", tone: "amber" },
+  { id: "reviewer", label: "Reviewer", short: "RV", tone: "green" }
 ];
 const PROJECT_ID = "PROJECT-NODEFORGE";
 const ARCHITECTURE_CONVERSATION_ID = "CONV-ARCHITECTURE";
@@ -18,6 +18,7 @@ const CONVERSATIONS = {
   "builder": "CONV-BUILDER",
   "reviewer": "CONV-REVIEWER"
 };
+const CHAT_PAGE_SIZE = 10;
 const PROVIDER_OPTIONS = [
   { value: "codex", label: "Codex" },
   { value: "claude", label: "Claude" },
@@ -25,6 +26,15 @@ const PROVIDER_OPTIONS = [
   { value: "anthropic", label: "Anthropic" },
   { value: "custom", label: "Custom / OpenAI-compatible" }
 ];
+
+function historyRecordToMessage(record) {
+  if (record.type?.endsWith(".tool.result") || record.type?.endsWith(".message.progress") || record.type?.endsWith(".progress") || record.type?.endsWith(".working")) return null;
+  const isOwner = record.kind === "owner";
+  const raw = record.content;
+  const text = raw?.text ?? raw?.content ?? (typeof raw === "string" ? raw : JSON.stringify(raw ?? ""));
+  const from = isOwner ? "owner" : record.kind === "failure" ? "system" : record.kind === "agent" || record.kind === "completion" ? "agent" : isOwner ? "owner" : "agent";
+  return { id: record.id, correlation_id: record.correlation_id, message_type: record.type, from, text: String(text ?? record.type), time: new Date(record.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
+}
 const MODEL_CATALOG = {
   codex: [
     { value: "gpt-5.6-sol", label: "GPT-5.6 Sol (default)" },
@@ -60,17 +70,26 @@ function App() {
   const client = useMemo(() => createNodeClient(), []);
   const [activeAgent, setActiveAgent] = useState("architecture-manager");
   const [drafts, setDrafts] = useState({});
-  const [messages, setMessages] = useState(() => Object.fromEntries(AGENTS.map((agent) => [agent.id, agent.messages])));
   const [workspace, setWorkspace] = useState(null);
   const [workingByAgent, setWorkingByAgent] = useState(() => Object.fromEntries(AGENTS.map((agent) => [agent.id, "READY"])));
   const [historyOpen, setHistoryOpen] = useState(false);
   const [settingsAgent, setSettingsAgent] = useState(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [dashboard, setDashboard] = useState(null);
+  const [historyChat, setHistoryChat] = useState(() => Object.fromEntries(AGENTS.map((a) => [a.id, []])));
+  const [historyCursor, setHistoryCursor] = useState(() => Object.fromEntries(AGENTS.map((a) => [a.id, null])));
+  const [historyHasMore, setHistoryHasMore] = useState(() => Object.fromEntries(AGENTS.map((a) => [a.id, true])));
+  const [historyLoading, setHistoryLoading] = useState(() => Object.fromEntries(AGENTS.map((a) => [a.id, false])));
+  const historyCursorRef = useRef(Object.fromEntries(AGENTS.map((a) => [a.id, null])));
+  const historyHasMoreRef = useRef(Object.fromEntries(AGENTS.map((a) => [a.id, true])));
+  const historyLoadingRef = useRef(Object.fromEntries(AGENTS.map((a) => [a.id, false])));
+  const pendingLive = useRef(Object.fromEntries(AGENTS.map((a) => [a.id, []])));
   const lastMessageId = useRef({});
-  const conversationRef = useRef(null);
+  const conversationRefs = useRef({});
   const composerRef = useRef(null);
   const streamQueues = useRef({});
+  const wasAtBottomRef = useRef(Object.fromEntries(AGENTS.map((a) => [a.id, true])));
+  const streamingIdsRef = useRef(Object.fromEntries(AGENTS.map((a) => [a.id, null])));
   const active = AGENTS.find((agent) => agent.id === activeAgent);
   const loadWorkspace = useCallback(async () => {
     try {
@@ -95,6 +114,55 @@ function App() {
     }
   }, [client]);
 
+  const loadHistoryPage = useCallback(async (agentId, direction = "initial") => {
+    if (historyLoadingRef.current[agentId]) return;
+    if (direction === "older" && !historyHasMoreRef.current[agentId]) return;
+    historyLoadingRef.current[agentId] = true;
+    setHistoryLoading((m) => ({ ...m, [agentId]: true }));
+    try {
+      const cursor = direction === "older" ? historyCursorRef.current[agentId] : null;
+      const conversationId = CONVERSATIONS[agentId];
+      const result = await client.getConversationAuditHistory({ projectId: PROJECT_ID, agentId, conversationId, limit: CHAT_PAGE_SIZE, order: "desc", cursor: cursor ?? undefined });
+      const page = result.items.map(historyRecordToMessage).filter(Boolean).reverse();
+      const nextCursor = result.next_cursor;
+      const hasMore = Boolean(nextCursor);
+      historyCursorRef.current[agentId] = nextCursor;
+      historyHasMoreRef.current[agentId] = hasMore;
+      setHistoryChat((m) => {
+        const existing = m[agentId] ?? [];
+        if (direction === "older") {
+          const ids = new Set(existing.map((x) => x.id));
+          const fresh = page.filter((x) => !ids.has(x.id));
+          return { ...m, [agentId]: [...fresh, ...existing] };
+        }
+        const stash = pendingLive.current[agentId] ?? [];
+        const merged = [...page];
+        const ids = new Set(page.map((x) => x.id));
+        for (const live of stash) if (!ids.has(live.id)) merged.push(live);
+        // drop stale fallback seeds if history now has real data
+        if (merged.length > CHAT_PAGE_SIZE && page.length > 0) {
+          const realIds = new Set(page.map((x) => x.id));
+          if (![...stash].some((s) => realIds.has(s.id))) {
+            // keep only history + live that arrived after page
+          }
+        }
+        return { ...m, [agentId]: merged };
+      });
+      setHistoryCursor((m) => ({ ...m, [agentId]: nextCursor }));
+      setHistoryHasMore((m) => ({ ...m, [agentId]: hasMore }));
+      if (direction === "initial" && page.length) {
+        lastMessageId.current[agentId] = page[page.length - 1]?.id ?? lastMessageId.current[agentId];
+      }
+    } catch {
+      // best-effort history; live SSE remains the source of truth for new messages
+    } finally {
+      historyLoadingRef.current[agentId] = false;
+      setHistoryLoading((m) => ({ ...m, [agentId]: false }));
+    }
+  }, [client]);
+
+  useEffect(() => { for (const a of AGENTS) loadHistoryPage(a.id, "initial"); }, [loadHistoryPage]);
+
   useEffect(() => {
     loadWorkspace();
     loadDashboard();
@@ -108,8 +176,14 @@ function App() {
           lastMessageId.current[agent.id] = message.message_id;
           if (message.message_type === "architecture.working" || message.message_type === `${agent.id}.working`) setWorkingByAgent((prev) => ({ ...prev, [agent.id]: "WORKING" }));
           if (message.message_type.endsWith(".message.received") || message.message_type.endsWith(".error")) setWorkingByAgent((prev) => ({ ...prev, [agent.id]: message.payload?.agent_status ?? (message.message_type.endsWith(".error") ? "FAILED" : "COMPLETED") }));
-          if (message.message_type.endsWith(".message.delta") || message.message_type.endsWith(".message.received")) queueDelta(agent.id, message);
-          else setMessages((current) => ({ ...current, [agent.id]: mergeStreamMessage(current[agent.id], message) }));
+          if (message.message_type.endsWith(".message.delta")) {
+            queueHistoryDelta(agent.id, message);
+          } else if (message.message_type.endsWith(".message.received")) {
+            finalizeHistoryDelta(agent.id, message);
+            pushLiveHistory(agent.id, message);
+          } else if (!message.message_type.endsWith(".tool.result") && !message.message_type.endsWith(".message.progress") && !message.message_type.endsWith(".progress") && !message.message_type.endsWith(".working")) {
+            pushLiveHistory(agent.id, message);
+          }
           if (message.message_type === "governance.sprint_plan.created") loadDashboard();
           if (agent.id === "architecture-manager" && message.message_type === "architecture.message.received") loadWorkspace();
         },
@@ -119,23 +193,93 @@ function App() {
     return () => streams.forEach((s) => s.close());
   }, [client, loadDashboard, loadWorkspace]);
 
-  function queueDelta(agentId, message) {
+  function pushLiveHistory(agentId, message) {
+    const mapped = toDisplayMessage(message);
+    if (!mapped?.text || mapped.message_type?.endsWith(".tool.result") || mapped.message_type?.endsWith(".message.progress") || mapped.message_type?.endsWith(".progress") || mapped.message_type?.endsWith(".working")) return;
+    if (mapped.message_type?.endsWith(".message.delta")) return;
+    const entry = historyRecordToMessage({ id: message.message_id, kind: mapped.from, type: message.message_type, content: { text: mapped.text }, timestamp: message.timestamp, correlation_id: message.correlation_id });
+    if (!entry) return;
+    if ((historyChat[agentId] ?? []).some((m) => m.id === entry.id)) return;
+    pendingLive.current[agentId] = [...(pendingLive.current[agentId] ?? []), entry];
+    setHistoryChat((m) => {
+      const cur = m[agentId] ?? [];
+      if (cur.some((x) => x.id === entry.id || (x.correlation_id && x.correlation_id === entry.correlation_id && x.text === entry.text))) return m;
+      const streamingIdx = cur.findIndex((x) => x.correlation_id === entry.correlation_id && x.stream === true);
+      if (streamingIdx >= 0) {
+        const next = [...cur];
+        next[streamingIdx] = { ...entry, stream: false };
+        return { ...m, [agentId]: next };
+      }
+      return { ...m, [agentId]: [...cur, entry] };
+    });
+  }
+
+  function isAtBottom(agentId) {
+    const el = conversationRefs.current[agentId];
+    if (!el) return wasAtBottomRef.current[agentId] ?? true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 72;
+  }
+
+  function queueHistoryDelta(agentId, message) {
     const text = String(message.payload?.text ?? "");
+    if (!text) return;
     const tokens = text.match(/\S+|\s+/g) ?? [text];
     const queue = streamQueues.current[agentId] ?? (streamQueues.current[agentId] = []);
     const baseId = message.message_id;
+    const correlationId = message.correlation_id;
+    const timestamp = message.timestamp;
     const now = Date.now();
     tokens.forEach((token, i) => {
-      queue.push({ ...message, message_id: `${baseId}:tok:${now}:${i}:${Math.random().toString(36).slice(2, 6)}`, payload: { ...message.payload, text: token } });
+      queue.push({ token, correlationId, timestamp, messageId: `${baseId}:tok:${now}:${i}:${Math.random().toString(36).slice(2, 6)}` });
     });
     if (queue.timer) return;
     const tick = () => {
       const next = queue.shift();
       if (!next) { queue.timer = undefined; return; }
-      setMessages((current) => ({ ...current, [agentId]: mergeStreamMessage(current[agentId], next) }));
+      const atBottom = isAtBottom(agentId) || wasAtBottomRef.current[agentId];
+      setHistoryChat((prev) => {
+        const chat = prev[agentId] ?? [];
+        let idx = chat.findIndex((m) => m.correlation_id === next.correlationId && m.stream === true);
+        if (idx < 0) {
+          const recentStream = chat.length && chat[chat.length - 1]?.stream === true && chat[chat.length - 1]?.correlation_id === next.correlationId;
+          if (!recentStream) {
+            const entry = { id: next.messageId, correlation_id: next.correlationId, message_type: "agent.message.delta", from: "agent", text: next.token, time: new Date(next.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), stream: true };
+            streamingIdsRef.current[agentId] = entry.correlation_id;
+            return { ...prev, [agentId]: [...chat, entry] };
+          }
+          idx = chat.length - 1;
+        }
+        const nextChat = [...chat];
+        const cur = nextChat[idx];
+        nextChat[idx] = { ...cur, text: cur.text + next.token, id: next.messageId, time: cur.time };
+        return { ...prev, [agentId]: nextChat };
+      });
+      if (atBottom) requestAnimationFrame(() => scrollToBottom(agentId));
       queue.timer = setTimeout(tick, 18);
     };
     tick();
+  }
+
+  function finalizeHistoryDelta(agentId, message) {
+    const queue = streamQueues.current[agentId];
+    if (queue?.timer) { clearTimeout(queue.timer); queue.timer = undefined; queue.length = 0; }
+    const text = String(message.payload?.text ?? "");
+    const corr = message.correlation_id;
+    setHistoryChat((prev) => {
+      const chat = prev[agentId] ?? [];
+      const idx = chat.findIndex((m) => m.correlation_id === corr && m.stream === true);
+      if (idx >= 0) {
+        const next = [...chat];
+        next[idx] = { ...next[idx], text: text || next[idx].text, id: message.message_id, stream: false, message_type: message.message_type, time: new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
+        return { ...prev, [agentId]: next };
+      }
+      if (text && !chat.some((m) => m.id === message.message_id)) {
+        const entry = historyRecordToMessage({ id: message.message_id, kind: "agent", type: message.message_type, content: { text }, timestamp: message.timestamp, correlation_id: corr });
+        if (entry) return { ...prev, [agentId]: [...chat, entry] };
+      }
+      return prev;
+    });
+    requestAnimationFrame(() => { if (isAtBottom(agentId)) scrollToBottom(agentId); });
   }
 
   async function send(agentId) {
@@ -144,36 +288,58 @@ function App() {
     const conversationId = CONVERSATIONS[agentId] ?? ARCHITECTURE_CONVERSATION_ID;
     const messageId = `MSG-OWNER-${Date.now()}-${agentId}`;
     const task = agentId === "architecture-manager" ? undefined : buildDirectTask(agentId, text);
+    const optimistic = { id: messageId, correlation_id: `CORR-${agentId}-${Date.now()}`, message_type: "owner.message", from: "owner", text, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
     setDrafts((current) => ({ ...current, [agentId]: "" }));
     setWorkingByAgent((current) => ({ ...current, [agentId]: "WORKING" }));
-    setMessages((current) => ({ ...current, [agentId]: [...current[agentId], { id: messageId, from: "owner", text, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }] }));
+    setHistoryChat((m) => ({ ...m, [agentId]: [...(m[agentId] ?? []), optimistic] }));
+    pendingLive.current[agentId] = [...(pendingLive.current[agentId] ?? []), optimistic];
+    requestAnimationFrame(() => scrollToBottom(agentId));
     try {
       await client.postOwnerMessage({
         projectId: PROJECT_ID,
         conversationId,
         agentId,
         messageId,
-        correlationId: `CORR-${agentId}-${Date.now()}`,
+        correlationId: optimistic.correlation_id,
         text,
         task
       });
     } catch (error) {
       setWorkingByAgent((current) => ({ ...current, [agentId]: "FAILED" }));
-      setMessages((current) => ({ ...current, [agentId]: [...current[agentId], { from: "system", text: error?.message ?? "Node request failed. Your message was not sent.", time: "now" }] }));
+      setHistoryChat((m) => ({ ...m, [agentId]: [...(m[agentId] ?? []), { id: `ERR-${Date.now()}`, from: "system", text: error?.message ?? "Node request failed. Your message was not sent.", time: "now", message_type: "system.error" }] }));
     }
   }
 
   const activeAgentObj = AGENTS.find((a) => a.id === activeAgent);
   const isWorking = workingByAgent[activeAgent] === "WORKING";
 
+  function scrollToBottom(agentId) {
+    const el = conversationRefs.current[agentId];
+    if (el) el.scrollTop = el.scrollHeight;
+  }
+
   useEffect(() => {
-    const element = conversationRef.current;
-    if (element) element.scrollTop = element.scrollHeight;
-  }, [messages, activeAgent]);
+    requestAnimationFrame(() => scrollToBottom(activeAgent));
+  }, [historyChat, activeAgent]);
 
   useEffect(() => {
     if (!isWorking) composerRef.current?.focus();
   }, [activeAgent, isWorking]);
+
+  function handleScroll(agentId) {
+    const el = conversationRefs.current[agentId];
+    if (!el || historyLoading[agentId] || !historyHasMore[agentId]) return;
+    if (el.scrollTop > 24) return;
+    const prevHeight = el.scrollHeight;
+    const prevTop = el.scrollTop;
+    loadHistoryPage(agentId, "older").then(() => {
+      requestAnimationFrame(() => {
+        const cur = conversationRefs.current[agentId];
+        if (!cur) return;
+        cur.scrollTop = cur.scrollHeight - prevHeight + prevTop;
+      });
+    });
+  }
 
   return <div className="app-shell">
     <header className="topbar">
@@ -191,19 +357,30 @@ function App() {
             </button>
           ))}
         </div>
-        <div className="active-chat-panel">
-          <PanelHeader agent={{ ...activeAgentObj, status: workingByAgent[activeAgent] }} onSettings={() => setSettingsAgent(activeAgentObj)} />
-          <div className="conversation natural-conversation" ref={conversationRef} role="log" aria-label={`${activeAgentObj.label} messages`}>
-            <div className="date-rule"><span>Conversation</span></div>
-            {/* Architecture Manager is working… for streaming regression */}
-            {messages[activeAgent].map((message, index) => <Message key={message.id ?? `${message.time}-${index}`} message={message} />)}
-            {isWorking && <div className="working-status" role="status">{activeAgentObj.label} is working…</div>}
-          </div>
-          {activeAgent === "architecture-manager" && <InlineDecisionControls client={client} onWorkspaceChanged={loadWorkspace} workspace={workspace} />}
-          <form className="composer" onSubmit={(event) => { event.preventDefault(); send(activeAgent); }}>
-            <textarea ref={composerRef} value={drafts[activeAgent] ?? ""} onChange={(event) => setDrafts((current) => ({ ...current, [activeAgent]: event.target.value }))} onInput={(event) => { event.currentTarget.style.height = "auto"; event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`; }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(activeAgent); } }} rows="2" placeholder={`Message ${activeAgentObj.label}...`} aria-label={`Message ${activeAgentObj.label}`} disabled={isWorking} />
-            <button type="submit" title="Send message" aria-label="Send message" disabled={isWorking}>&#8593;</button>
-          </form>
+        <div style={{ display: "contents" }}>
+          {AGENTS.map((agent) => {
+            const isActive = activeAgent === agent.id;
+            const working = workingByAgent[agent.id] === "WORKING";
+            const chat = historyChat[agent.id] ?? [];
+            const hasMore = historyHasMore[agent.id];
+            const loading = historyLoading[agent.id];
+            return <div key={agent.id} className="active-chat-panel" style={{ display: isActive ? "flex" : "none" }}>
+              <PanelHeader agent={{ ...agent, status: workingByAgent[agent.id] }} onSettings={() => setSettingsAgent(agent)} />
+              <div className="conversation natural-conversation" ref={(el) => { if (el) conversationRefs.current[agent.id] = el; }} onScroll={(e) => { const el = e.currentTarget; wasAtBottomRef.current[agent.id] = el.scrollHeight - el.scrollTop - el.clientHeight < 72; if (el.scrollTop <= 20) handleScroll(agent.id); }} role="log" aria-label={`${agent.label} messages`}>
+                <div className="date-rule"><span>Conversation</span></div>
+                {loading && !chat.length && <p className="dashboard-state">Loading conversation…</p>}
+                {hasMore && chat.length > 0 && <button className="history-more chat-load-more" onClick={() => handleScroll(agent.id)} disabled={loading}>{loading ? "Loading…" : "Load earlier messages"}</button>}
+                {!hasMore && chat.length > 0 && <p className="dashboard-state" style={{ textAlign: "center" }}>Beginning of conversation</p>}
+                {chat.map((message, index) => <Message key={message.id ?? `${agent.id}-${index}`} message={message} />)}
+                {working && <div className="working-status" role="status">{agent.label} is working…</div>}
+              </div>
+              {agent.id === "architecture-manager" && isActive && <InlineDecisionControls client={client} onWorkspaceChanged={loadWorkspace} workspace={workspace} />}
+              <form className="composer" onSubmit={(event) => { event.preventDefault(); send(agent.id); }}>
+                <textarea ref={isActive ? composerRef : undefined} value={drafts[agent.id] ?? ""} onChange={(event) => setDrafts((current) => ({ ...current, [agent.id]: event.target.value }))} onInput={(event) => { event.currentTarget.style.height = "auto"; event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`; }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(agent.id); } }} rows="2" placeholder={`Message ${agent.label}...`} aria-label={`Message ${agent.label}`} disabled={working} />
+                <button type="submit" title="Send message" aria-label="Send message" disabled={working}>&#8593;</button>
+              </form>
+            </div>;
+          })}
         </div>
       </section>
       <section className="info-panel panel" aria-label="Project info">
