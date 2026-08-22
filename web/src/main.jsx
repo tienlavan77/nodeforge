@@ -221,12 +221,15 @@ function buildDirectTask(agentId, objective) {
 function SprintPlanDashboard({ dashboard, client, onRefresh }) {
   const [runningId, setRunningId] = useState(null);
   const [runMessage, setRunMessage] = useState("");
+  const [runEvents, setRunEvents] = useState([]);
+  const runStreamRef = useRef(null);
   const [viewSprint, setViewSprint] = useState(null);
   const [viewState, setViewState] = useState("idle");
   const [deleteMessage, setDeleteMessage] = useState("");
   const [createdSprint, setCreatedSprint] = useState(null);
   const [highlightSprint, setHighlightSprint] = useState(null);
   const knownSprintIds = useRef(null);
+  useEffect(() => () => runStreamRef.current?.close?.(), []);
   const currentId = dashboard?.current_sprint?.id ?? null;
   const sprints = dashboard?.roadmap?.sprints ?? [];
   useEffect(() => {
@@ -258,10 +261,20 @@ function SprintPlanDashboard({ dashboard, client, onRefresh }) {
       const projectId = dashboard.project_id ?? PROJECT_ID;
       const result = await client.runSprintPlan(projectId, sprintId);
       setRunMessage(`Started ${result.sprint_id} — session ${result.session_id}`);
+      setRunEvents(["Run accepted; waiting for agent events…"]);
+      runStreamRef.current?.close?.();
+      const conversationId = `CONV-BUILDER-${sprintId}`;
+      runStreamRef.current = client.connectConversationStream({ projectId, conversationId, onMessage: (message) => {
+        const type = message.message_type ?? "";
+        const value = message.payload?.text ?? message.payload?.error ?? type;
+        setRunEvents((events) => [...events.slice(-19), value]);
+        if (type.endsWith(".message.received") || type.endsWith(".error") || type === "agent.completed" || type === "agent.failed" || type === "verification.result") setRunningId(null);
+        if (type.endsWith(".error")) setRunMessage(`Run failed: ${value}`);
+      }, onError: () => setRunMessage("Run stream disconnected; refresh history for final result.") });
       await onRefresh?.();
     } catch (error) {
       const msg = String(error?.message ?? "");
-      if (msg.includes("409") || msg.toLowerCase().includes("already running")) {
+      if (error.status === 409 || msg.includes("409") || msg.toLowerCase().includes("already running")) {
         setRunMessage(`Sprint ${sprintId} is already running (409).`);
       } else {
         setRunMessage(`Run failed: ${msg}`);
@@ -314,6 +327,7 @@ function SprintPlanDashboard({ dashboard, client, onRefresh }) {
       </article>;
     })}
     {runMessage && <p className="sprint-run-message" role="status" aria-live="polite">{runMessage}</p>}
+    {runEvents.length > 0 && <div className="sprint-run-events" role="log" aria-label="Sprint run events">{runEvents.map((event, index) => <div key={`${index}-${event}`}><strong>Run</strong> {event}</div>)}</div>}
     {deleteMessage && <p className="sprint-run-message" role="status">{deleteMessage}</p>}
     {viewState !== "idle" && <SprintPlanModal sprint={viewSprint} state={viewState} onClose={() => { setViewState("idle"); setViewSprint(null); }} />}
   </section>;
