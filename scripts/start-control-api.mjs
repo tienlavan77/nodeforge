@@ -158,17 +158,23 @@ const executeAgentTool = async (tool, { message }) => {
     return { status: "context_ready", context_available: true, next_step: "submit_code", content, token_usage: { input_tokens: 0, output_tokens: Math.ceil(content.length / 4) } };
   }
   if (tool.kind === "submit_code") {
-    assertAgentSourcePath(tool.target_path);
-    if ((tool.code_kind === "main" && !tool.target_path.startsWith("src/")) || (tool.code_kind === "test" && !tool.target_path.startsWith("tests/"))) throw new Error(`Agent ${tool.code_kind} code must stay under ${tool.code_kind === "main" ? "src/" : "tests/"}.`);
-    console.log(`[agent-loop] file.write.request ${JSON.stringify({ path: tool.target_path, target_dir: tool.target_dir, file_operation: tool.file_operation, code_kind: tool.code_kind, chars: tool.content.length })}`);
-    try {
-      const result = await fileService.writeFile({ path: tool.target_path, content: tool.content, commit: { target_path: tool.target_path, target_dir: tool.target_dir, file_operation: tool.file_operation, allowed_change_areas: tool.allowed_change_areas } });
-      console.log(`[agent-loop] file.write.success ${JSON.stringify(result)}`);
-      return { content: `Wrote ${result.path}`, token_usage: { input_tokens: 0, output_tokens: Math.ceil(tool.content.length / 4) } };
-    } catch (error) {
-      console.error(`[agent-loop] file.write.error ${JSON.stringify({ path: tool.target_path, error: error.message })}`);
-      throw error;
+    const files = [{ target_path: tool.target_path, target_dir: tool.target_dir, file_operation: tool.file_operation, code_kind: tool.code_kind, content: tool.content, allowed_change_areas: tool.allowed_change_areas }, ...(tool.files ?? [])];
+    const written = [];
+    for (const file of files) {
+      assertAgentSourcePath(file.target_path);
+      if ((file.code_kind === "main" && !file.target_path.startsWith("src/")) || (file.code_kind === "test" && !file.target_path.startsWith("tests/"))) throw new Error(`Agent ${file.code_kind} code must stay under ${file.code_kind === "main" ? "src/" : "tests/"}.`);
+      console.log(`[agent-loop] file.write.request ${JSON.stringify({ path: file.target_path, target_dir: file.target_dir, file_operation: file.file_operation, code_kind: file.code_kind, chars: file.content.length })}`);
+      try {
+        const result = await fileService.writeFile({ path: file.target_path, content: file.content, commit: { target_path: file.target_path, target_dir: file.target_dir, file_operation: file.file_operation, allowed_change_areas: file.allowed_change_areas } });
+        console.log(`[agent-loop] file.write.success ${JSON.stringify({ ...result, code_kind: file.code_kind })}`);
+        written.push(result.path);
+      } catch (error) {
+        console.error(`[agent-loop] file.write.error ${JSON.stringify({ path: file.target_path, error: error.message })}`);
+        throw error;
+      }
     }
+    const chars = files.reduce((sum, file) => sum + file.content.length, 0);
+    return { content: `Wrote ${written.join(", ")}`, token_usage: { input_tokens: 0, output_tokens: Math.ceil(chars / 4) } };
   }
   throw new Error("Unsupported agent tool request.");
 };

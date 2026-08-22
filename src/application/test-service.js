@@ -13,7 +13,7 @@ export function createTestService({ verificationOrchestrator, fileService, timeo
   async function runTypecheck({ commitId, taskId, sessionId } = {}) { return run({ commitId, levels: ["typecheck"], taskId, sessionId }); }
 
   async function run({ commitId = `WORKTREE-${Date.now()}`, levels, taskId, sessionId }) {
-    const plan = { commit_id: commitId, levels: ["focused"], checks: levels.map((type) => ({ type: type === "unit_test" ? "test" : type, command: commandFor(type), timeout_ms: timeoutMs })) };
+    const plan = { commit_id: commitId, levels: ["focused"], checks: levels.map((type) => ({ type: type === "unit_test" ? "test" : type, command: commandFor(type, taskId), timeout_ms: timeoutMs })) };
     publish("verification.test_started", { commit_id: commitId, task_id: taskId, session_id: sessionId, levels });
     try {
       let timer;
@@ -27,6 +27,9 @@ export function createTestService({ verificationOrchestrator, fileService, timeo
       throw error;
     }
   }
-  function commandFor(type) { return { lint: "npm run lint", typecheck: "npm run typecheck", unit_test: "npm test" }[type] ?? "npm test"; }
+  function commandFor(type, taskId) {
+    if (type === "unit_test" && typeof taskId === "string" && /^(tests|test)\//.test(taskId)) return `node --test ${taskId}`;
+    return { lint: "npm run lint", typecheck: "npm run typecheck", unit_test: "npm test" }[type] ?? "npm test";
+  }
   function publish(type, payload) { const event = { type, project_root: projectRoot, payload }; publisher?.publish?.({ event_id: `EVT-${Date.now()}`, type, project_id: payload.project_id ?? "PROJECT-NODEFORGE", timestamp: new Date().toISOString(), payload, metadata: { source: "test-service", task_id: payload.task_id, session_id: payload.session_id } }); internalBus?.emit?.(type, event); }
 }
