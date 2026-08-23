@@ -1,1 +1,1 @@
-{"kind":"submit_code","target_path":"tests/example.test.js","target_dir":"tests","file_operation":"create","code_kind":"test","content":"test(\"value\", () => {});","round":4,"next_action":"submit_test","is_final":true}
+{"kind":"submit_code","target_path":"tests/example.test.js","target_dir":"tests","file_operation":"create","code_kind":"test","content":"test(\"value\", () => {});","module_system":"esm","round":4,"next_action":"submit_test","is_final":true}

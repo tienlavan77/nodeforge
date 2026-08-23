@@ -186,10 +186,11 @@ const executeAgentTool = async (tool, { message }) => {
     return { status: "context_ready", context_available: true, next_step: "submit_code", content, token_usage: { input_tokens: 0, output_tokens: Math.ceil(content.length / 4) } };
   }
   if (tool.kind === "submit_code") {
-    const files = [{ target_path: tool.target_path, target_dir: tool.target_dir, file_operation: tool.file_operation, code_kind: tool.code_kind, content: tool.content, allowed_change_areas: tool.allowed_change_areas }, ...(tool.files ?? [])];
+    const files = [{ target_path: tool.target_path, target_dir: tool.target_dir, file_operation: tool.file_operation, code_kind: tool.code_kind, content: tool.content, module_system: tool.module_system, allowed_change_areas: tool.allowed_change_areas }, ...(tool.files ?? [])];
     const written = [];
     for (const file of files) {
       assertAgentSourcePath(file.target_path);
+      if (file.module_system !== "esm") throw new Error(`Builder ${file.target_path} must declare module_system: esm; use import/export, not require/module.exports.`);
       if ((file.code_kind === "main" && !file.target_path.startsWith("src/")) || (file.code_kind === "test" && !file.target_path.startsWith("tests/"))) throw new Error(`Agent ${file.code_kind} code must stay under ${file.code_kind === "main" ? "src/" : "tests/"}.`);
       console.log(`[agent-loop] file.write.request ${JSON.stringify({ path: file.target_path, target_dir: file.target_dir, file_operation: file.file_operation, code_kind: file.code_kind, chars: file.content.length })}`);
       try {
@@ -285,7 +286,11 @@ async function streamTicket({ taskId, ticket, message }) {
     roadmaps.updateTicketStatus({ projectId: message.project_id, ticketId: ticket.id, status: "failed", error: detail });
     publishUnifiedStreamEvent({ event_type: "node.command_result", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, command: "agent.stream", status: "failed", exit_code: null, reason, error_code: errorCode, error: errorMessage, message: detail } });
     publishUnifiedStreamEvent({ event_type: "node.status_change", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, from: "running", to: "failed", ticket_id: ticket.id, reason, error_code: errorCode, error: errorMessage, message: detail } });
-    bus.send({ id: `MSG-BUILDER-FAILED-${taskId}`, project_id: message.project_id, sender: { id: "builder", role: "builder" }, recipient: { id: "NODE", role: "node" }, message_type: "builder.error", conversation_id: message.conversation_id, correlation_id: message.correlation_id, payload: { task_id: taskId, reason, error_code: errorCode, error: errorMessage, message: detail }, timestamp: new Date().toISOString() });
+    try {
+      bus.send({ id: `MSG-BUILDER-FAILED-${taskId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, project_id: message.project_id, sender: { id: "builder", role: "builder" }, recipient: { id: "NODE", role: "node" }, message_type: "builder.error", conversation_id: message.conversation_id, correlation_id: message.correlation_id, payload: { task_id: taskId, reason, error_code: errorCode, error: errorMessage, message: detail }, timestamp: new Date().toISOString() });
+    } catch (deliveryError) {
+      console.error(`[builder-error] failed to persist error event: ${deliveryError.message}`);
+    }
     return { task_id: taskId, status: "failed", reason };
   }
   publishUnifiedStreamEvent({ event_type: "node.status_change", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, from: "running", to: "done", ticket_id: ticket.id } });
