@@ -77,6 +77,11 @@ const fixtures = [
   , ["https://forge.local/schemas/agent/agent-request-oai.schema.json", "schemas/examples/agent-request-oai-v1.3.json"]
   , ["https://forge.local/schemas/agent/agent-response-oai.schema.json", "schemas/examples/agent-response-oai-v1.3.json"]
   , ["https://forge.local/schemas/execution/execution-context.schema.json", "schemas/examples/execution-context.json"]
+  , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-node-status-change.json"]
+  , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-node-execution-step.json"]
+  , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-node-command.json"]
+  , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-node-command-result.json"]
+  , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-agent-text-stream.json"]
 ];
 
 async function readJson(file) {

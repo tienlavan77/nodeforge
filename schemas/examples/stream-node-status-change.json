@@ -1,0 +1,1 @@
+{"event_type":"node.status_change","task_id":"TASK-STREAM-001","timestamp":"2026-08-23T10:00:00Z","payload":{"from":"pending","to":"running","ticket_id":"NF-STREAM-001"}}
