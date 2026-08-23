@@ -251,6 +251,7 @@ function publishUnifiedStreamEvent(event) {
 }
 async function streamTicket({ taskId, ticket, message }) {
   try {
+    roadmaps.updateTicketStatus({ projectId: message.project_id, ticketId: ticket.id, status: "running" });
     publishUnifiedStreamEvent({ event_type: "node.status_change", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, from: "pending", to: "running", ticket_id: ticket.id } });
     let requestPayload = { task_id: taskId, conversation_id: message.conversation_id, text: `${ticket.title}: ${ticket.objective}` };
     let submitted = false;
@@ -259,6 +260,8 @@ async function streamTicket({ taskId, ticket, message }) {
       for await (const chunk of agentGateway.stream({ agentId: "builder", correlationId: message.correlation_id, payload: requestPayload, eventSink: publishUnifiedStreamEvent })) {
         if (!chunk?.tool_use) continue;
         const tool = chunk.tool_use.input ?? chunk.tool_use;
+        if (tool.kind === "submit_code" && tool.module_system !== "esm") throw new Error("Builder code must declare module_system: esm; use import/export, not require/module.exports.");
+        for (const file of tool.files ?? []) if (file.module_system !== "esm") throw new Error("Every submitted file must declare module_system: esm.");
         const result = await executeAgentTool(tool, { message: { ...message, payload: { ...message.payload, task: ticket } }, agentId: "builder" });
         if (tool.kind === "submit_code") {
           submitted = true;
@@ -273,11 +276,13 @@ async function streamTicket({ taskId, ticket, message }) {
       if (!requestedContext && !submitted) break;
     }
     if (!submitted) throw new Error("Builder stream ended without submit_code.");
+    roadmaps.updateTicketStatus({ projectId: message.project_id, ticketId: ticket.id, status: "done" });
   } catch (error) {
     const reason = error?.code === "RATE_LIMITED" || error?.statusCode === 429 ? "rate_limited" : "provider_error";
     const errorMessage = String(error?.message ?? error);
     const errorCode = error?.code ?? (error?.statusCode === 429 ? "HTTP_429" : "UPSTREAM_ERROR");
     const detail = `${reason} (${errorCode}): ${errorMessage}`;
+    roadmaps.updateTicketStatus({ projectId: message.project_id, ticketId: ticket.id, status: "failed", error: detail });
     publishUnifiedStreamEvent({ event_type: "node.command_result", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, command: "agent.stream", status: "failed", exit_code: null, reason, error_code: errorCode, error: errorMessage, message: detail } });
     publishUnifiedStreamEvent({ event_type: "node.status_change", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, from: "running", to: "failed", ticket_id: ticket.id, reason, error_code: errorCode, error: errorMessage, message: detail } });
     bus.send({ id: `MSG-BUILDER-FAILED-${taskId}`, project_id: message.project_id, sender: { id: "builder", role: "builder" }, recipient: { id: "NODE", role: "node" }, message_type: "builder.error", conversation_id: message.conversation_id, correlation_id: message.correlation_id, payload: { task_id: taskId, reason, error_code: errorCode, error: errorMessage, message: detail }, timestamp: new Date().toISOString() });

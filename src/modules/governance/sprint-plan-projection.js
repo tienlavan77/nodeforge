@@ -21,11 +21,12 @@ export function createSprintPlanProjection({ roadmaps } = {}) {
 
   function getSprintStatus(id) {
     const sprint = getRequiredSprint(id);
+    const completed = sprint.tickets.filter((ticket) => ticket.status === "done").length;
     return Object.freeze({
       sprint_id: sprint.id,
-      status: "planned",
+      status: completed === sprint.tickets.length && sprint.tickets.length > 0 ? "done" : sprint.tickets.some((ticket) => ticket.status === "running") ? "running" : "planned",
       ticket_count: sprint.tickets.length,
-      completed_ticket_count: 0
+      completed_ticket_count: completed
     });
   }
 
