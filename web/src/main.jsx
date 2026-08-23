@@ -391,15 +391,17 @@ function App() {
             const working = workingByAgent[agent.id] === "WORKING";
             const rawChat = historyChat[agent.id] ?? [];
             const groups = [];
-            let current = null;
+            const groupsByKey = new Map();
             for (const msg of rawChat) {
               const key = msg.dateKey ?? "";
               const label = msg.dateLabel ?? formatDateLabel(msg.timestamp);
-              if (!current || current.key !== key) {
-                current = { key, label, messages: [] };
-                groups.push(current);
+              let group = groupsByKey.get(key);
+              if (!group) {
+                group = { key, label, messages: [] };
+                groupsByKey.set(key, group);
+                groups.push(group);
               }
-              current.messages.push(msg);
+              group.messages.push(msg);
             }
             const hasMore = historyHasMore[agent.id];
             const loading = historyLoading[agent.id];
