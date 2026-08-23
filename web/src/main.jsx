@@ -27,13 +27,27 @@ const PROVIDER_OPTIONS = [
   { value: "custom", label: "Custom / OpenAI-compatible" }
 ];
 
+function formatDateLabel(timestamp) {
+  const d = new Date(timestamp);
+  if (Number.isNaN(d.getTime())) return timestamp;
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  if (sameDay) return "Today";
+  const yest = new Date(now);
+  yest.setDate(now.getDate() - 1);
+  if (d.toDateString() === yest.toDateString()) return "Yesterday";
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
 function historyRecordToMessage(record) {
   if (record.type?.endsWith(".tool.result") || record.type?.endsWith(".message.progress") || record.type?.endsWith(".progress") || record.type?.endsWith(".working")) return null;
   const isOwner = record.kind === "owner";
   const raw = record.content;
   const text = raw?.text ?? raw?.content ?? (typeof raw === "string" ? raw : JSON.stringify(raw ?? ""));
   const from = isOwner ? "owner" : record.kind === "failure" ? "system" : record.kind === "agent" || record.kind === "completion" ? "agent" : isOwner ? "owner" : "agent";
-  return { id: record.id, correlation_id: record.correlation_id, message_type: record.type, from, text: String(text ?? record.type), time: new Date(record.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
+  const ts = record.timestamp;
+  const d = ts ? new Date(ts) : new Date();
+  return { id: record.id, correlation_id: record.correlation_id, message_type: record.type, from, text: String(text ?? record.type), time: d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), timestamp: ts, dateKey: Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10), dateLabel: ts ? formatDateLabel(ts) : "" };
 }
 const MODEL_CATALOG = {
   codex: [
@@ -228,6 +242,7 @@ function App() {
     const baseId = message.message_id;
     const correlationId = message.correlation_id;
     const timestamp = message.timestamp;
+    const tsDate = timestamp ? new Date(timestamp) : new Date();
     const now = Date.now();
     tokens.forEach((token, i) => {
       queue.push({ token, correlationId, timestamp, messageId: `${baseId}:tok:${now}:${i}:${Math.random().toString(36).slice(2, 6)}` });
@@ -243,7 +258,8 @@ function App() {
         if (idx < 0) {
           const recentStream = chat.length && chat[chat.length - 1]?.stream === true && chat[chat.length - 1]?.correlation_id === next.correlationId;
           if (!recentStream) {
-            const entry = { id: next.messageId, correlation_id: next.correlationId, message_type: "agent.message.delta", from: "agent", text: next.token, time: new Date(next.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), stream: true };
+            const d = next.timestamp ? new Date(next.timestamp) : tsDate;
+            const entry = { id: next.messageId, correlation_id: next.correlationId, message_type: "agent.message.delta", from: "agent", text: next.token, time: d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), timestamp: next.timestamp, dateKey: Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10), dateLabel: next.timestamp ? formatDateLabel(next.timestamp) : formatDateLabel(tsDate.toISOString()), stream: true };
             streamingIdsRef.current[agentId] = entry.correlation_id;
             return { ...prev, [agentId]: [...chat, entry] };
           }
@@ -265,16 +281,18 @@ function App() {
     if (queue?.timer) { clearTimeout(queue.timer); queue.timer = undefined; queue.length = 0; }
     const text = String(message.payload?.text ?? "");
     const corr = message.correlation_id;
+    const ts = message.timestamp;
+    const d = ts ? new Date(ts) : new Date();
     setHistoryChat((prev) => {
       const chat = prev[agentId] ?? [];
       const idx = chat.findIndex((m) => m.correlation_id === corr && m.stream === true);
       if (idx >= 0) {
         const next = [...chat];
-        next[idx] = { ...next[idx], text: text || next[idx].text, id: message.message_id, stream: false, message_type: message.message_type, time: new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
+        next[idx] = { ...next[idx], text: text || next[idx].text, id: message.message_id, stream: false, message_type: message.message_type, time: d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), timestamp: ts, dateKey: Number.isNaN(d.getTime()) ? next[idx].dateKey : d.toISOString().slice(0, 10), dateLabel: ts ? formatDateLabel(ts) : next[idx].dateLabel };
         return { ...prev, [agentId]: next };
       }
       if (text && !chat.some((m) => m.id === message.message_id)) {
-        const entry = historyRecordToMessage({ id: message.message_id, kind: "agent", type: message.message_type, content: { text }, timestamp: message.timestamp, correlation_id: corr });
+        const entry = historyRecordToMessage({ id: message.message_id, kind: "agent", type: message.message_type, content: { text }, timestamp: ts, correlation_id: corr });
         if (entry) return { ...prev, [agentId]: [...chat, entry] };
       }
       return prev;
@@ -288,7 +306,9 @@ function App() {
     const conversationId = CONVERSATIONS[agentId] ?? ARCHITECTURE_CONVERSATION_ID;
     const messageId = `MSG-OWNER-${Date.now()}-${agentId}`;
     const task = agentId === "architecture-manager" ? undefined : buildDirectTask(agentId, text);
-    const optimistic = { id: messageId, correlation_id: `CORR-${agentId}-${Date.now()}`, message_type: "owner.message", from: "owner", text, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
+    const nowIso = new Date().toISOString();
+    const nowDate = new Date(nowIso);
+    const optimistic = { id: messageId, correlation_id: `CORR-${agentId}-${Date.now()}`, message_type: "owner.message", from: "owner", text, time: nowDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), timestamp: nowIso, dateKey: nowIso.slice(0, 10), dateLabel: formatDateLabel(nowIso) };
     setDrafts((current) => ({ ...current, [agentId]: "" }));
     setWorkingByAgent((current) => ({ ...current, [agentId]: "WORKING" }));
     setHistoryChat((m) => ({ ...m, [agentId]: [...(m[agentId] ?? []), optimistic] }));
@@ -306,7 +326,8 @@ function App() {
       });
     } catch (error) {
       setWorkingByAgent((current) => ({ ...current, [agentId]: "FAILED" }));
-      setHistoryChat((m) => ({ ...m, [agentId]: [...(m[agentId] ?? []), { id: `ERR-${Date.now()}`, from: "system", text: error?.message ?? "Node request failed. Your message was not sent.", time: "now", message_type: "system.error" }] }));
+      const errTs = new Date().toISOString();
+      setHistoryChat((m) => ({ ...m, [agentId]: [...(m[agentId] ?? []), { id: `ERR-${Date.now()}`, from: "system", text: error?.message ?? "Node request failed. Your message was not sent.", time: new Date(errTs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), timestamp: errTs, dateKey: errTs.slice(0, 10), dateLabel: formatDateLabel(errTs), message_type: "system.error" }] }));
     }
   }
 
@@ -320,6 +341,11 @@ function App() {
 
   useEffect(() => {
     requestAnimationFrame(() => scrollToBottom(activeAgent));
+  }, [activeAgent]);
+
+  useEffect(() => {
+    const el = conversationRefs.current[activeAgent];
+    if (el && !el.dataset.loadingOlder) scrollToBottom(activeAgent);
   }, [historyChat, activeAgent]);
 
   useEffect(() => {
@@ -328,8 +354,9 @@ function App() {
 
   function handleScroll(agentId) {
     const el = conversationRefs.current[agentId];
-    if (!el || historyLoading[agentId] || !historyHasMore[agentId]) return;
+    if (!el || historyLoadingRef.current[agentId] || !historyHasMoreRef.current[agentId]) return;
     if (el.scrollTop > 24) return;
+    el.dataset.loadingOlder = "1";
     const prevHeight = el.scrollHeight;
     const prevTop = el.scrollTop;
     loadHistoryPage(agentId, "older").then(() => {
@@ -337,6 +364,7 @@ function App() {
         const cur = conversationRefs.current[agentId];
         if (!cur) return;
         cur.scrollTop = cur.scrollHeight - prevHeight + prevTop;
+        requestAnimationFrame(() => { delete cur.dataset.loadingOlder; });
       });
     });
   }
@@ -361,17 +389,31 @@ function App() {
           {AGENTS.map((agent) => {
             const isActive = activeAgent === agent.id;
             const working = workingByAgent[agent.id] === "WORKING";
-            const chat = historyChat[agent.id] ?? [];
+            const rawChat = historyChat[agent.id] ?? [];
+            const groups = [];
+            let current = null;
+            for (const msg of rawChat) {
+              const key = msg.dateKey ?? "";
+              const label = msg.dateLabel ?? formatDateLabel(msg.timestamp);
+              if (!current || current.key !== key) {
+                current = { key, label, messages: [] };
+                groups.push(current);
+              }
+              current.messages.push(msg);
+            }
             const hasMore = historyHasMore[agent.id];
             const loading = historyLoading[agent.id];
             return <div key={agent.id} className="active-chat-panel" style={{ display: isActive ? "flex" : "none" }}>
               <PanelHeader agent={{ ...agent, status: workingByAgent[agent.id] }} onSettings={() => setSettingsAgent(agent)} />
               <div className="conversation natural-conversation" ref={(el) => { if (el) conversationRefs.current[agent.id] = el; }} onScroll={(e) => { const el = e.currentTarget; wasAtBottomRef.current[agent.id] = el.scrollHeight - el.scrollTop - el.clientHeight < 72; if (el.scrollTop <= 20) handleScroll(agent.id); }} role="log" aria-label={`${agent.label} messages`}>
-                <div className="date-rule"><span>Conversation</span></div>
-                {loading && !chat.length && <p className="dashboard-state">Loading conversation…</p>}
-                {hasMore && chat.length > 0 && <button className="history-more chat-load-more" onClick={() => handleScroll(agent.id)} disabled={loading}>{loading ? "Loading…" : "Load earlier messages"}</button>}
-                {!hasMore && chat.length > 0 && <p className="dashboard-state" style={{ textAlign: "center" }}>Beginning of conversation</p>}
-                {chat.map((message, index) => <Message key={message.id ?? `${agent.id}-${index}`} message={message} />)}
+                {groups.length === 0 && <div className="date-rule"><span>Conversation</span></div>}
+                {loading && !rawChat.length && <p className="dashboard-state">Loading conversation…</p>}
+                {hasMore && rawChat.length > 0 && <button className="history-more chat-load-more" onClick={() => handleScroll(agent.id)} disabled={loading}>{loading ? "Loading…" : "Load earlier messages"}</button>}
+                {!hasMore && rawChat.length > 0 && <p className="dashboard-state" style={{ textAlign: "center" }}>Beginning of conversation</p>}
+                {groups.map((group) => <div key={group.key || group.label} className="chat-date-group" data-date={group.key}>
+                  <div className="date-rule"><span>{group.label || "Conversation"}</span></div>
+                  {group.messages.map((message, index) => <Message key={message.id ?? `${agent.id}-${group.key}-${index}`} message={message} />)}
+                </div>)}
                 {working && <div className="working-status" role="status">{agent.label} is working…</div>}
               </div>
               {agent.id === "architecture-manager" && isActive && <InlineDecisionControls client={client} onWorkspaceChanged={loadWorkspace} workspace={workspace} />}
@@ -721,7 +763,7 @@ function PanelHeader({ agent, onSettings }) {
 function Message({ message }) {
   const streaming = message.stream === true;
   const rowClass = `message-row natural-message ${message.from === "owner" ? "owner" : `agent${streaming ? " streaming" : ""}`}`;
-  return <div className={rowClass}><MessageContent text={message.text} /><time>{message.time}</time></div>;
+  return <div id={`msg-${message.id}`} className={rowClass} data-message-id={message.id} data-correlation-id={message.correlation_id ?? ""} data-message-type={message.message_type ?? ""} data-role={message.from} data-timestamp={message.timestamp ?? ""}><MessageContent text={message.text} /><time dateTime={message.timestamp ?? ""} title={message.timestamp ?? ""}>{message.time}</time></div>;
 }
 
 function MessageContent({ text }) {

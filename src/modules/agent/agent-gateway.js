@@ -51,7 +51,8 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
         for await (const event of streamTransport({ url: config.gateway_url, credential, payload: withAgentTools(payload), correlation_id: correlationId, signal: controller.signal })) {
           if (typeof event?.text === "string" && event.text) yield { agent_id: config.agent_id, correlation_id: correlationId, text: event.text };
           if (event?.tool_use) yield { agent_id: config.agent_id, correlation_id: correlationId, tool_use: event.tool_use };
-          if (event?.response_id) yield { agent_id: config.agent_id, correlation_id: correlationId, completed: true, response_id: event.response_id };
+          if (event?.usage) yield { agent_id: config.agent_id, correlation_id: correlationId, usage: event.usage };
+          if (event?.response_id) yield { agent_id: config.agent_id, correlation_id: correlationId, completed: true, response_id: event.response_id, usage: event.usage };
         }
       } catch (error) {
         if (error?.name === "AbortError") throw new ConfigurationError(`Agent Gateway request timed out for ${config.agent_id}.`);
@@ -68,7 +69,8 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
       for await (const event of adapter.stream({ url: config.gateway_url, credential, payload: withAgentTools(payload), model, correlationId, signal: controller.signal })) {
         if (typeof event?.text === "string" && event.text) yield { agent_id: config.agent_id, correlation_id: correlationId, text: event.text };
         if (event?.tool_use) yield { agent_id: config.agent_id, correlation_id: correlationId, tool_use: event.tool_use };
-        if (event?.response_id) yield { agent_id: config.agent_id, correlation_id: correlationId, completed: true, response_id: event.response_id };
+        if (event?.usage) yield { agent_id: config.agent_id, correlation_id: correlationId, usage: event.usage };
+        if (event?.response_id) yield { agent_id: config.agent_id, correlation_id: correlationId, completed: true, response_id: event.response_id, usage: event.usage };
       }
     } catch (error) {
       if (error?.name === "AbortError") throw new ConfigurationError(`Agent Gateway request timed out for ${config.agent_id}.`);

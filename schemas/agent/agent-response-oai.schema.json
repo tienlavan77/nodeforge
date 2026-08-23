@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/agent-response-oai.schema.json",
+  "title": "Forge ChatGPT Responses Response v1.4",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "task_id", "step_id", "provider", "status", "changes", "explanation", "next_step_suggestion", "questions", "confidence", "usage"],
+  "properties": {
+    "schema_version": { "const": "1.4-oai" }, "task_id": { "type": "string" }, "step_id": { "type": "integer", "minimum": 1 }, "provider": { "const": "chatgpt" },
+    "status": { "enum": ["success", "failed", "partial"] }, "changes": { "type": "array" }, "explanation": { "type": "string" }, "next_step_suggestion": { "type": "string" }, "questions": { "type": "array" }, "confidence": { "enum": ["low", "medium", "high"] },
+    "usage": { "type": "object", "additionalProperties": false, "required": ["cached_tokens", "input_tokens", "output_tokens"], "properties": { "cached_tokens": { "type": "integer", "minimum": 0 }, "input_tokens": { "type": "integer", "minimum": 0 }, "output_tokens": { "type": "integer", "minimum": 0 } } }
+  }
+}

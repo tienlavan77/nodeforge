@@ -4,7 +4,7 @@ import picomatch from "picomatch";
 import { ConfigurationError } from "../../shared/errors.js";
 
 const DEFAULT_SECRETS = ["**/.env", "**/.env.*", "**/*.key", "**/*.pem", "**/*.crt", "**/*.pfx", "**/*.keystore"];
-const DEFAULT_IGNORE = [".forge/**", "node_modules/**", ".git/**", "dist/**", "coverage/**"];
+const DEFAULT_IGNORE = [".forge/**", ".node-control/**", "node_modules/**", ".git/**", "dist/**", "coverage/**"];
 
 export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRETS, watcherIgnore = DEFAULT_IGNORE, databaseService, internalBus, onWrite } = {}) {
   if (typeof projectRoot !== "string" || !projectRoot) throw new ConfigurationError("FileService requires a project root.");

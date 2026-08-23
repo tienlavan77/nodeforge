@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.4",
+  "task_id": "TASK-CACHE-001",
+  "step_id": 3,
+  "conversation_mode": "hybrid",
+  "hybrid_window": 2,
+  "transcript": [{ "round": 1, "instruction": "Start", "response_summary": "Done", "full_request_ref": "task/TASK-CACHE-001/round_1/request", "full_response_ref": "task/TASK-CACHE-001/round_1/response" }],
+  "cache_enabled": true,
+  "stable_context": {
+    "objective": "Implement the cache-aware request envelope",
+    "constraints": ["Do not change the public API"],
+    "project_structure": "src/ and tests/",
+    "_cache_control": "ephemeral"
+  },
+  "dynamic_context": {
+    "instruction": "Implement step 3",
+    "files": [],
+    "history_summary": "Steps 1 and 2 completed",
+    "metadata": { "role": "builder" }
+  }
+}

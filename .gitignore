@@ -4,6 +4,8 @@ coverage/
 .forge/runtime/
 .forge/*.db
 .node-control/
+config/.env
+.env
 .nodeforge/
 !.nodeforge/
 !.nodeforge/env.example

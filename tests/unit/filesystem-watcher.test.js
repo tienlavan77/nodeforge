@@ -30,16 +30,19 @@ test("emits raw change for project files and ignores Node-owned directories", as
   const root = await mkdtemp(join(os.tmpdir(), "nodeforge-watcher-"));
   const sourcePath = join(root, "src", "index.js");
   const forgePath = join(root, ".forge", "state.json");
+  const controlPath = join(root, ".node-control", "logs", "node.log");
   const dependencyPath = join(root, "node_modules", "dependency", "index.js");
   let watcher;
 
   try {
     await mkdir(join(root, "src"), { recursive: true });
     await mkdir(join(root, ".forge"), { recursive: true });
+    await mkdir(join(root, ".node-control", "logs"), { recursive: true });
     await mkdir(join(root, "node_modules", "dependency"), { recursive: true });
     await Promise.all([
       writeFile(sourcePath, "export const value = 1;"),
       writeFile(forgePath, "{}"),
+      writeFile(controlPath, "started\n"),
       writeFile(dependencyPath, "module.exports = {};" )
     ]);
 
@@ -50,6 +53,7 @@ test("emits raw change for project files and ignores Node-owned directories", as
     await Promise.all([
       writeFile(sourcePath, "export const value = 2;"),
       writeFile(forgePath, '{"changed":true}'),
+      writeFile(controlPath, "changed\n"),
       writeFile(dependencyPath, "module.exports = { changed: true };" )
     ]);
 
@@ -95,11 +99,14 @@ test("adds watcherIgnore patterns without hiding normal source files", async () 
 test("keeps mandatory ignores when watcherIgnore is empty", async () => {
   const root = await mkdtemp(join(os.tmpdir(), "nodeforge-watcher-"));
   const forgePath = join(root, ".forge", "state.json");
+  const controlPath = join(root, ".node-control", "runtime", "index.db-wal");
   let watcher;
 
   try {
     await mkdir(join(root, ".forge"), { recursive: true });
+    await mkdir(join(root, ".node-control", "runtime"), { recursive: true });
     await writeFile(forgePath, "{}\n");
+    await writeFile(controlPath, "wal\n");
     const config = loadConfig({ overrides: { watcherIgnore: [] } });
     watcher = createFilesystemWatcher({
       root,
@@ -111,9 +118,11 @@ test("keeps mandatory ignores when watcherIgnore is empty", async () => {
     const changes = [];
     watcher.on("change", (path) => changes.push(path));
     await writeFile(forgePath, '{"changed":true}\n');
+    await writeFile(controlPath, "wal changed\n");
     await wait(200);
 
     assert.equal(changes.includes(forgePath), false);
+    assert.equal(changes.includes(controlPath), false);
   } finally {
     await watcher?.close();
     await rm(root, { recursive: true, force: true });

@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.3",
+  "task_id": "TASK-CACHE-001",
+  "step_id": 3,
+  "status": "success",
+  "usage": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 842,
+    "input_tokens": 156,
+    "output_tokens": 320
+  },
+  "changes": [],
+  "explanation": "Implemented the requested step.",
+  "confidence": "high"
+}

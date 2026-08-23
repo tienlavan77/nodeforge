@@ -7,6 +7,10 @@ import { ConfigurationError } from "../../shared/errors.js";
 
 export const DEFAULT_WATCHER_IGNORE = Object.freeze([
   ".forge/**",
+  // Node Control keeps SQLite, logs, and conversation state outside the source tree.
+  // Watching it creates a feedback loop: indexing the WAL writes verification events,
+  // which grow the WAL and trigger another verification run.
+  ".node-control/**",
   "node_modules/**",
   ".git/**",
   "dist/**",

@@ -13,11 +13,15 @@ import { createIncrementalIndexer } from "../src/modules/index/incremental-index
 import { createVerificationOrchestrator } from "../src/modules/verification/orchestrator.js";
 
 loadNodeforgeEnv();
-const dataDir = process.env.NODE_CONTROL_DATA_DIR ?? join(process.cwd(), ".node-control");
+const runtimeRoot = join(process.cwd(), ".forge", "runtime");
+const dataDir = process.env.NODE_CONTROL_DATA_DIR ?? join(runtimeRoot, "nf");
 const projectId = process.env.NODE_CONTROL_PROJECT_ID ?? "PROJECT-NODEFORGE";
 const processLock = acquireProcessLock(dataDir, "watcher");
-const database = await createDatabaseService({ dataDir });
-const eventStore = createPersistentEventStore({ database });
+// Control DB stores events; the project index also uses DatabaseService so all
+// watcher/indexer mutations are serialized through the SQLite write queue.
+const controlDb = await createDatabaseService({ dataDir, runtimeDir: "." });
+const indexDb = await createDatabaseService({ dataDir: process.cwd(), runtimeDir: join(".forge", "runtime", "wc") });
+const eventStore = createPersistentEventStore({ database: controlDb });
 const subscriptions = createSubscriptionRegistry();
 const publisher = createEventPublisher({ store: eventStore, subscriptions });
 const rawWatcher = createFilesystemWatcher({
@@ -25,19 +29,27 @@ const rawWatcher = createFilesystemWatcher({
   ignore: DEFAULT_WATCHER_IGNORE,
   chokidarOptions: { ignoreInitial: true, usePolling: true, interval: 250 }
 });
+for (const rawType of ["add", "change", "unlink"]) {
+  rawWatcher.on(rawType, (path) => process.stdout.write(`Filesystem ${rawType}: ${path}\n`));
+}
 const watcher = createDebouncedWatcher({ rawWatcher, projectId, root: process.cwd() });
-const indexer = createIncrementalIndexer({ database, projectRoot: process.cwd() });
+const indexer = createIncrementalIndexer({ database: indexDb, projectRoot: process.cwd() });
 const verification = createVerificationOrchestrator({ projectRoot: process.cwd(), projectId });
 
 rawWatcher.once("ready", () => process.stdout.write("Project filesystem watcher ready (polling)\n"));
+rawWatcher.once("ready", () => process.stdout.write(`Project root watched: ${process.cwd()}\nIndex database: ${indexDb.databasePath}\n`));
 watcher.on("event", (event) => {
+  process.stdout.write(`Watcher event: ${event.type} ${event.payload?.path ?? ""}\n`);
   void indexer.handle(event)
-    .then((indexed) => indexed ? verification.run({
+    .then((indexed) => {
+      process.stdout.write(`Indexer ${indexed ? "updated" : "skipped"}: ${event.payload?.path ?? ""}\n`);
+      return indexed ? verification.run({
       schema_version: "1.0",
       commit_id: event.event_id,
       levels: ["focused"],
       checks: [{ type: "test", command: "node -e \"process.exit(0)\"", timeout_ms: 1000 }]
-    }) : null)
+      }) : null;
+    })
     .then((result) => {
       if (!result) return;
       publisher.publish({
@@ -54,7 +66,8 @@ watcher.on("event", (event) => {
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.once(signal, async () => {
     await watcher.close?.();
-    await database.close();
+    await indexDb.close();
+    await controlDb.close();
     processLock.release();
     process.exit(0);
   });

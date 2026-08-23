@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/agent-request-oai.schema.json",
+  "title": "Forge ChatGPT Responses Request v1.4",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "task_id", "step_id", "provider", "model", "cache_config", "conversation_mode", "developer_blocks", "transcript_blocks", "user_blocks", "expected_output", "metadata"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.4-oai" },
+    "task_id": { "type": "string", "minLength": 1 },
+    "step_id": { "type": "integer", "minimum": 1 },
+    "conversation_mode": { "type": "string", "enum": ["full_transcript", "rolling_summary", "hybrid"] },
+    "hybrid_window": { "type": "integer", "minimum": 1 },
+    "provider": { "const": "chatgpt" },
+    "model": { "type": "string", "minLength": 1 },
+    "cache_config": {
+      "type": "object", "additionalProperties": false,
+      "required": ["prompt_cache_key", "mode", "ttl"],
+      "properties": {
+        "prompt_cache_key": { "type": "string", "minLength": 1 },
+        "mode": { "const": "explicit" },
+        "ttl": { "type": "string", "pattern": "^[0-9]+m$" }
+      }
+    },
+    "developer_blocks": { "$ref": "#/$defs/blocks" },
+    "transcript_blocks": { "$ref": "#/$defs/transcript_blocks" },
+    "user_blocks": { "$ref": "#/$defs/blocks" },
+    "expected_output": { "type": "object", "additionalProperties": false, "required": ["type", "format"], "properties": { "type": { "const": "diff" }, "format": { "const": "json" } } },
+    "metadata": { "type": "object", "additionalProperties": false, "required": ["retry_of_step", "previous_error"], "properties": { "retry_of_step": { "type": ["integer", "null"], "minimum": 1 }, "previous_error": { "type": ["string", "null"] } } }
+  },
+  "$defs": {
+    "blocks": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["block_id", "content", "cacheable"], "properties": { "block_id": { "type": "string", "minLength": 1 }, "content": { "type": "string" }, "cacheable": { "type": "boolean" } } } },
+    "transcript_blocks": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["block_id", "round", "instruction", "response_summary", "full_request_ref", "full_response_ref", "cacheable"], "properties": { "block_id": { "type": "string", "minLength": 1 }, "round": { "type": "integer", "minimum": 1 }, "instruction": { "type": "string" }, "response_summary": { "type": "string" }, "full_request_ref": { "type": "string", "minLength": 1 }, "full_response_ref": { "type": "string", "minLength": 1 }, "cacheable": { "const": false } } } }
+  }
+}

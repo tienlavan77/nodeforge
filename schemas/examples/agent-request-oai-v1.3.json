@@ -1,0 +1,9 @@
+{
+  "schema_version": "1.4-oai", "task_id": "task_8f3a2b", "step_id": 3, "provider": "chatgpt", "model": "gpt-5.6",
+  "conversation_mode": "hybrid", "hybrid_window": 2,
+  "cache_config": { "prompt_cache_key": "nodeforge-builder", "mode": "explicit", "ttl": "30m" },
+  "developer_blocks": [{ "block_id": "builder_rules", "content": "Use Forge conventions.", "cacheable": true }, { "block_id": "project_tree", "content": "src/ and tests/", "cacheable": true }],
+  "transcript_blocks": [{ "block_id": "round_1", "round": 1, "instruction": "Start", "response_summary": "Done", "full_request_ref": "task/task_8f3a2b/round_1/request", "full_response_ref": "task/task_8f3a2b/round_1/response", "cacheable": false }],
+  "user_blocks": [{ "block_id": "task_context", "content": "Implement the task.", "cacheable": false }, { "block_id": "current_request", "content": "Implement step 3.", "cacheable": false }],
+  "expected_output": { "type": "diff", "format": "json" }, "metadata": { "retry_of_step": null, "previous_error": null }
+}

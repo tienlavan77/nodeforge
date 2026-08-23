@@ -72,6 +72,9 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
        debug({ event: "agent.loop.request", agent_id: agentId, task_id: taskId, round, payload: summarizePayload(requestPayload) });
        emitProgress(message, agentId, `Đang xử lý yêu cầu (vòng ${round})…`, `PROGRESS-${round}-START`);
        for await (const chunk of agentStream({ agentId, payload: requestPayload, correlationId: message.correlation_id })) {
+          if (chunk.usage) {
+            debug({ event: "agent.loop.usage", agent_id: agentId, task_id: taskId, round, usage: chunk.usage, cache_read_input_tokens: chunk.usage.cache_read_input_tokens ?? 0 });
+          }
           if (chunk.completed) continue;
           if (chunk.tool_use) {
             const tool = chunk.tool_use.input ?? chunk.tool_use;

@@ -1,5 +1,5 @@
 import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { ConfigurationError } from "../../shared/errors.js";
@@ -102,15 +102,15 @@ const MIGRATIONS = [
   }
 ];
 
-export async function ensureRuntimeDir(projectRoot) {
+export async function ensureRuntimeDir(projectRoot, runtimeDir) {
   assertProjectRoot(projectRoot);
-  const runtimeDir = join(projectRoot, ".forge", "runtime");
-  await mkdir(runtimeDir, { recursive: true });
-  return runtimeDir;
+  const resolvedRuntimeDir = runtimeDir ? resolveRuntimeDir(projectRoot, runtimeDir) : join(projectRoot, ".forge", "runtime");
+  await mkdir(resolvedRuntimeDir, { recursive: true });
+  return resolvedRuntimeDir;
 }
 
-export async function openIndexDatabase(projectRoot, { busyTimeoutMs = 10000, journalMode = "WAL" } = {}) {
-  const runtimeDir = await ensureRuntimeDir(projectRoot);
+export async function openIndexDatabase(projectRoot, { busyTimeoutMs = 10000, journalMode = "WAL", runtimeDir: configuredRuntimeDir } = {}) {
+  const runtimeDir = await ensureRuntimeDir(projectRoot, configuredRuntimeDir);
   const databasePath = join(runtimeDir, DATABASE_FILE);
   const database = new DatabaseSync(databasePath);
   let closed = false;
@@ -157,6 +157,11 @@ function assertProjectRoot(projectRoot) {
   if (typeof projectRoot !== "string" || projectRoot.length === 0) {
     throw new ConfigurationError("A project root is required for the index database.");
   }
+}
+
+function resolveRuntimeDir(projectRoot, runtimeDir) {
+  if (typeof runtimeDir !== "string" || runtimeDir.length === 0) throw new ConfigurationError("Runtime directory must be a non-empty path.");
+  return resolve(projectRoot, runtimeDir);
 }
 
 function runMigrations(database) {

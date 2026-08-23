@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/agent-request.schema.json",
+  "title": "Forge Agent Request v1.4",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "task_id", "step_id", "cache_enabled", "stable_context", "dynamic_context", "conversation_mode", "transcript"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.4" },
+    "task_id": { "type": "string", "minLength": 1 },
+    "step_id": { "type": "integer", "minimum": 1 },
+    "conversation_mode": { "type": "string", "enum": ["full_transcript", "rolling_summary", "hybrid"] },
+    "hybrid_window": { "type": "integer", "minimum": 1 },
+    "transcript": {
+      "type": "array", "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["round", "instruction", "response_summary", "full_request_ref", "full_response_ref"],
+        "properties": {
+          "round": { "type": "integer", "minimum": 1 }, "instruction": { "type": "string" },
+          "response_summary": { "type": "string" }, "full_request_ref": { "type": "string", "minLength": 1 }, "full_response_ref": { "type": "string", "minLength": 1 },
+          "full_request": { "type": "string" }, "full_response": { "type": "string" }
+        }
+      }
+    },
+    "cache_enabled": { "type": "boolean" },
+    "stable_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["objective", "constraints", "project_structure", "_cache_control"],
+      "properties": {
+        "objective": { "type": "string" },
+        "constraints": { "type": "array" },
+        "project_structure": { "type": "string" },
+        "_cache_control": { "type": "string", "const": "ephemeral" }
+      }
+    },
+    "dynamic_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["instruction", "files", "history_summary", "metadata"],
+      "properties": {
+        "instruction": { "type": "string" },
+        "files": { "type": "array", "items": { "type": "object" } },
+        "history_summary": { "type": "string" },
+        "metadata": { "type": "object" }
+      }
+    }
+  }
+}
