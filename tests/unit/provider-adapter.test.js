@@ -118,6 +118,31 @@ test("codex adapter streams ordered deltas via Responses SSE", async () => {
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test("codex stream retries rate limits and surfaces bounded upstream failures", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    if (calls < 3) return new Response("busy", { status: 429 });
+    const sse = 'data: {"type":"response.output_text.delta","delta":"ok"}\n\ndata: [DONE]\n\n';
+    return new Response(new TextEncoder().encode(sse), { status: 200 });
+  };
+  try {
+    const chunks = [];
+    for await (const chunk of codex.stream({ url: "https://gateway.example.test/v1/responses", credential: "secret", payload: { text: "hi" }, correlationId: "CORR-RETRY" })) chunks.push(chunk);
+    assert.equal(calls, 3);
+    assert.equal(chunks[0].text, "ok");
+  } finally { globalThis.fetch = originalFetch; }
+
+  calls = 0;
+  globalThis.fetch = async () => { calls += 1; return new Response("down", { status: 500 }); };
+  try {
+    const iterator = codex.stream({ url: "https://gateway.example.test/v1/responses", credential: "secret", payload: { text: "hi" }, correlationId: "CORR-500" });
+    await assert.rejects(() => iterator.next(), (error) => error.statusCode === 500 && error.code === "UPSTREAM_500");
+    assert.equal(calls, 1);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test("anthropic adapter sends x-api-key and anthropic-version headers with model and messages", async () => {
   const originalFetch = globalThis.fetch;
   let captured;
