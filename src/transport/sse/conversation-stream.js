@@ -27,7 +27,7 @@ export function createConversationStream({ bus, communicationStore, eventStore, 
     const eventReplay = (eventStore?.getAll?.() ?? [])
       .filter((event) => (event.project_id ?? event.metadata?.project_id) === projectId && (event.metadata?.conversation_id ?? event.metadata?.task_id) === conversationId)
       .map(eventMessage);
-    const replayMessages = [...replay.map(messageEnvelope), ...eventReplay].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+    const replayMessages = [...replay.map(messageEnvelope), ...eventReplay].sort(compareStreamEvents);
     const replayStart = afterMessageId ? Math.max(0, replayMessages.findIndex((message) => message.id === afterMessageId) + 1) : 0;
     for (const message of replayMessages.slice(replayStart)) write(message);
     response.write("event: conversation.replay.complete\ndata: {}\n\n");
@@ -59,6 +59,12 @@ export function createConversationStream({ bus, communicationStore, eventStore, 
       response.write(`id: ${event.message_id}\nevent: ${eventName}\ndata: ${JSON.stringify(event)}\n\n`);
     }
   }
+}
+
+function compareStreamEvents(left, right) {
+  const timestamp = String(left.timestamp ?? "").localeCompare(String(right.timestamp ?? ""));
+  if (timestamp !== 0) return timestamp;
+  return (left.sequence ?? left.payload?.sequence ?? Number.MAX_SAFE_INTEGER) - (right.sequence ?? right.payload?.sequence ?? Number.MAX_SAFE_INTEGER);
 }
 
 function messageEnvelope(message) { return { ...message, _kind: "message" }; }

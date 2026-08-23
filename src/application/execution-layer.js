@@ -29,7 +29,7 @@ export function withExecutionResult(context, result) {
     detail: result?.detail,
     durationMs: result?.duration_ms ?? result?.durationMs
   });
-  context.event_sink?.({ event_type: "node.execution_step", task_id: context.task_id, timestamp: new Date().toISOString(), payload: { result: normalized, step_id: context.step_id } });
+  context.event_sink?.({ event_type: "node.execution_step", task_id: context.task_id, timestamp: new Date().toISOString(), sequence: context.trace.length + 1, payload: { result: normalized, step_id: context.step_id } });
   return createExecutionContext({ taskId: context.task_id, stepId: context.step_id, change: context.change, trace: [...context.trace, normalized], eventSink: context.event_sink });
 }
 

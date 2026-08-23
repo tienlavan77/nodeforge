@@ -1,1 +1,1 @@
-{"event_type":"agent.text_stream","task_id":"TASK-STREAM-001","timestamp":"2026-08-23T10:00:04Z","payload":{"chunk":"I can implement this.","message_id":"MSG-1","agent_id":"builder","conversation_id":"CONV-BUILDER-TASK-STREAM-001","sequence":1,"done":false}}
+{"event_type":"agent.text_stream","task_id":"TASK-STREAM-001","timestamp":"2026-08-23T10:00:04Z","sequence":5,"payload":{"chunk":"I can implement this.","message_id":"MSG-1","agent_id":"builder","conversation_id":"CONV-BUILDER-TASK-STREAM-001","sequence":1,"done":false}}

@@ -146,7 +146,7 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
 function emitText(eventSink, payload, correlationId, agentId, text, sequence) {
   if (typeof eventSink !== "function") return;
   const taskId = payload?.task_id ?? payload?.task?.id ?? correlationId;
-  eventSink({ event_type: "agent.text_stream", task_id: taskId, timestamp: new Date().toISOString(), payload: { chunk: text, agent_id: agentId, ...(payload?.conversation_id ? { conversation_id: payload.conversation_id } : {}), sequence, done: false } });
+  eventSink({ event_type: "agent.text_stream", task_id: taskId, timestamp: new Date().toISOString(), sequence: sequence + 1, payload: { chunk: text, agent_id: agentId, ...(payload?.conversation_id ? { conversation_id: payload.conversation_id } : {}), sequence, done: false } });
 }
 
 function normalizeGatewayUrl(value) {

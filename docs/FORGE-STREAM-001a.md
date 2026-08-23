@@ -9,3 +9,7 @@
 - `agent.text_stream`: forwards a text chunk with optional message/conversation/agent correlation and sequence metadata.
 
 Five validating examples live in `schemas/examples/stream-*.json`. This ticket only defines and validates the contract; no runtime event emitters are wired yet.
+
+## Ordering contract
+
+Consumers sort by normalized ISO-8601 `timestamp`, then by `sequence` (a 1-based counter scoped to `task_id`). If both fields tie, the consumer preserves arrival order as the final stable fallback. Producers normalize timestamps to UTC milliseconds (`toISOString()`), so all event sources use the same precision.
