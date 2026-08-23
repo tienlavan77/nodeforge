@@ -28,7 +28,15 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
     await fsWriteFile(resolve(root, rel), content, { encoding: "utf8", mode: 0o600 });
     if (databaseService?.transaction) databaseService.transaction(() => {});
     internalBus?.emit?.("file.written", { path: rel, bytes: Buffer.byteLength(content) });
-    await onWrite?.({ path: rel, bytes: Buffer.byteLength(content) });
+    try {
+      await onWrite?.({ path: rel, bytes: Buffer.byteLength(content) });
+    } catch (error) {
+      // Keep the aggregate status while exposing the concrete failing step.
+      if (error?.verificationResult?.breakdown) {
+        error.message = `${error.message} (${formatVerificationBreakdown(error.verificationResult.breakdown)})`;
+      }
+      throw error;
+    }
     return Object.freeze({ path: rel, bytes: Buffer.byteLength(content) });
   }
   async function readFile({ path } = {}) { const rel = safePath(path); return fsReadFile(resolve(root, rel), "utf8"); }
@@ -38,4 +46,8 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
   }
   function safePath(path, { write = false } = {}) { if (typeof path !== "string" || !path) throw new ConfigurationError("FileService path is required."); const absolute = resolve(root, path); const rel = relative(root, absolute).split(sep).join("/"); if (isAbsolute(path) || !rel || rel.startsWith("..") || secretMatch(rel) || ignoreMatch(rel)) throw new ConfigurationError("Refusing unsafe, ignored, or secret project path."); if (write && basename(rel).startsWith(".")) throw new ConfigurationError("Hidden project paths are not writable."); return rel; }
   function validateCommitTarget(commit, rel) { if (!commit || commit.target_path !== rel) throw new ConfigurationError("File write path does not match commit.target_path."); const expectedDir = dirname(rel).split(sep).join("/"); if (commit.target_dir !== expectedDir) throw new ConfigurationError("Commit target_dir does not match target_path."); if (Array.isArray(commit.allowed_change_areas) && !commit.allowed_change_areas.some((pattern) => picomatch.isMatch(rel, pattern, { dot: true }))) throw new ConfigurationError("File path is outside commit allowed_change_areas."); }
+}
+
+function formatVerificationBreakdown(breakdown) {
+  return breakdown.map((step) => `${step.kind}:${step.status}${step.exit_code !== undefined ? ` (exit ${step.exit_code})` : ""}`).join(", ");
 }

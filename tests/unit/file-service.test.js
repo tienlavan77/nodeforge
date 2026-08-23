@@ -16,3 +16,20 @@ test("FileService guards paths and serializes writes", async () => {
   assert.equal((await files.listFiles({ glob: "src/*.txt" })).length, 2);
   assert.equal(events.length, 2);
 });
+
+test("FileService includes verification step details when a write is rejected", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forge-files-"));
+  const files = createFileService({
+    projectRoot: root,
+    onWrite: async () => {
+      const error = new Error("Verification failed for tests/example.test.js: failed");
+      error.verificationResult = { breakdown: [{ kind: "test", status: "failed", exit_code: 1 }] };
+      throw error;
+    }
+  });
+
+  await assert.rejects(
+    () => files.writeFile({ path: "tests/example.test.js", content: "test(\"x\", () => {});" }),
+    /Verification failed.*test:failed \(exit 1\)/
+  );
+});

@@ -20,6 +20,22 @@
     "lint": { "$ref": "#/$defs/gate_status" },
     "typecheck": { "$ref": "#/$defs/gate_status" },
     "build": { "$ref": "#/$defs/gate_status" },
-    "ready_for_review": { "type": "boolean" }
+    "ready_for_review": { "type": "boolean" },
+    "breakdown": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "status"],
+        "properties": {
+          "kind": { "type": "string" },
+          "status": { "type": "string" },
+          "command": { "type": "string" },
+          "exit_code": { "type": ["integer", "null"] },
+          "failures": { "type": "array" },
+          "diagnostics": { "type": "array" }
+        }
+      }
+    }
   }
 }
