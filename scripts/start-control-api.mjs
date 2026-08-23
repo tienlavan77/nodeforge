@@ -231,10 +231,18 @@ function publishUnifiedStreamEvent(event) {
 }
 async function streamTicket({ taskId, ticket, message }) {
   publishUnifiedStreamEvent({ event_type: "node.status_change", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, from: "pending", to: "running", ticket_id: ticket.id } });
-  for await (const chunk of agentGateway.stream({ agentId: "builder", correlationId: message.correlation_id, payload: { task_id: taskId, text: `${ticket.title}: ${ticket.objective}` }, eventSink: publishUnifiedStreamEvent })) {
-    if (chunk.text) bus.sendFast({ id: `STREAM-${Date.now()}`, project_id: message.project_id, sender: { id: "NODE", role: "node" }, recipient: message.sender, message_type: "agent.text_stream", conversation_id: message.conversation_id, correlation_id: message.correlation_id, payload: { text: chunk.text, task_id: taskId }, timestamp: new Date().toISOString() });
+  try {
+    for await (const chunk of agentGateway.stream({ agentId: "builder", correlationId: message.correlation_id, payload: { task_id: taskId, text: `${ticket.title}: ${ticket.objective}` }, eventSink: publishUnifiedStreamEvent })) {
+      if (chunk.text) bus.sendFast({ id: `STREAM-${Date.now()}`, project_id: message.project_id, sender: { id: "NODE", role: "node" }, recipient: message.sender, message_type: "agent.text_stream", conversation_id: message.conversation_id, correlation_id: message.correlation_id, payload: { text: chunk.text, task_id: taskId }, timestamp: new Date().toISOString() });
+    }
+  } catch (error) {
+    const reason = error?.code === "RATE_LIMITED" || error?.statusCode === 429 ? "rate_limited" : "provider_error";
+    publishUnifiedStreamEvent({ event_type: "node.status_change", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, from: "running", to: "failed", ticket_id: ticket.id, reason, error: error.message } });
+    bus.send({ id: `MSG-BUILDER-FAILED-${taskId}`, project_id: message.project_id, sender: { id: "builder", role: "builder" }, recipient: { id: "NODE", role: "node" }, message_type: "builder.error", conversation_id: message.conversation_id, correlation_id: message.correlation_id, payload: { task_id: taskId, reason, error: error.message }, timestamp: new Date().toISOString() });
+    return { task_id: taskId, status: "failed", reason };
   }
   publishUnifiedStreamEvent({ event_type: "node.status_change", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, from: "running", to: "done", ticket_id: ticket.id } });
+  return { task_id: taskId, status: "done" };
 }
 const server = api.createServer().listen(port, host, () => {
   process.stdout.write(`Node Control API listening on http://${host}:${port}\n`);

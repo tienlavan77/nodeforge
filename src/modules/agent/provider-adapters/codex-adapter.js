@@ -7,12 +7,12 @@ export async function request({ url, credential, payload, model, correlationId, 
   const requestBody = isResponses
     ? { model: model || process.env.NODE_AGENT_MODEL || "gpt-5.6-terra", input: buildResponsesInput(payload), ...buildCacheOptions(payload) }
     : payload;
-  const response = await fetch(url, {
+  const response = await fetchWithRetry(url, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${credential}`, "x-correlation-id": correlationId },
     body: JSON.stringify({ ...requestBody, tools: toResponsesTools(payload.tools) }),
     signal
-  });
+  }, "Codex Responses");
   if (!response.ok) throw await gatewayError(response, "Codex Responses");
   const body = await response.json();
   if (isResponses) return { status: body.status ?? "completed", payload: { text: extractResponseText(body), response_id: body.id, tool_use: extractToolUse(body), usage: mapOpenAIUsage(body.usage) } };
@@ -21,12 +21,12 @@ export async function request({ url, credential, payload, model, correlationId, 
 
 export async function* stream({ url, credential, payload, model, correlationId, signal }) {
   url = responsesUrl(url);
-  const response = await fetch(url, {
+  const response = await fetchWithRetry(url, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${credential}`, "x-correlation-id": correlationId },
     body: JSON.stringify({ model: model || process.env.NODE_AGENT_MODEL || "gpt-5.6-terra", input: buildResponsesInput(payload), ...buildCacheOptions(payload), tools: toResponsesTools(payload.tools), stream: true }),
     signal
-  });
+  }, "Codex Responses stream");
   if (!response.ok) throw await gatewayError(response, "Codex Responses stream");
   if (!response.body) throw new ConfigurationError("Codex Responses stream returned no body.");
   const decoder = new TextDecoder();
@@ -91,5 +91,25 @@ function extractToolUse(body) {
 async function gatewayError(response, label) {
   let body = "";
   try { body = (await response.text()).slice(0, 1000); } catch { body = "<unreadable body>"; }
-  return new ConfigurationError(`${label} gateway returned HTTP ${response.status}: ${body || "<empty body>"}`);
+  const error = new ConfigurationError(`${label} gateway returned HTTP ${response.status}: ${body || "<empty body>"}`);
+  error.statusCode = response.status;
+  error.code = response.status === 429 ? "RATE_LIMITED" : `UPSTREAM_${response.status}`;
+  return error;
+}
+
+async function fetchWithRetry(url, options, label, { maxRetries = 2, baseDelayMs = 100 } = {}) {
+  for (let attempt = 0; ; attempt += 1) {
+    const response = await fetch(url, options);
+    if (response.ok || response.status !== 429 || attempt >= maxRetries) return response;
+    try { await response.body?.cancel(); } catch { /* response already closed */ }
+    await delay(baseDelayMs * (2 ** attempt), options.signal);
+  }
+}
+
+function delay(milliseconds, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(Object.assign(new Error("The operation was aborted."), { name: "AbortError" }));
+    const timer = setTimeout(resolve, milliseconds);
+    signal?.addEventListener("abort", () => { clearTimeout(timer); reject(Object.assign(new Error("The operation was aborted."), { name: "AbortError" })); }, { once: true });
+  });
 }
