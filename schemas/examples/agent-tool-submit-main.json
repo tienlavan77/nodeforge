@@ -1,1 +1,1 @@
-{"kind":"submit_code","target_path":"src/example.js","target_dir":"src","file_operation":"create","code_kind":"main","content":"export const value = 1;","round":3,"next_action":"submit_main","is_final":false}
+{"kind":"submit_code","target_path":"src/example.js","target_dir":"src","file_operation":"create","code_kind":"main","content":"export const value = 1;","module_system":"esm","round":3,"next_action":"submit_main","is_final":false}
