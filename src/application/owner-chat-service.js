@@ -46,6 +46,11 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       return structuredClone(notice);
     }
     const commandResult = isBuilder && ticketCommandParser?.parse?.(input.payload.text);
+    if (isBuilder && /^\/ticket(?:\s|$)/i.test(String(input.payload.text ?? "")) && !commandResult?.command) {
+      const notice = bus.send(responseMessage({ id: input.message_id, project_id: input.project_id, conversation_id: input.conversation_id, correlation_id: input.correlation_id, timestamp: input.timestamp, sender: { id: "NODE", role: "node" }, recipient: { id: agentId, role: roleForAgent(agentId) } }, "ticket.status", { command: true, status: "syntax_error", error: "Không nhận diện được ticket id, vui lòng kiểm tra lại cú pháp /ticket <id>." }, `TICKET-SYNTAX-${input.message_id}`));
+      messages.set(input.message_id, Object.freeze(structuredClone(notice)));
+      return structuredClone(notice);
+    }
     if (commandResult?.command && commandResult.status !== "ready") {
       const notice = bus.send(responseMessage({ id: input.message_id, project_id: input.project_id, conversation_id: input.conversation_id, correlation_id: input.correlation_id, timestamp: input.timestamp, sender: { id: "NODE", role: "node" }, recipient: { id: "builder", role: "builder" } }, "ticket.status", commandResult, `TICKET-${input.message_id}`));
       messages.set(input.message_id, Object.freeze(structuredClone(notice)));

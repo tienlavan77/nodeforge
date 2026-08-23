@@ -1,4 +1,4 @@
-const COMMAND_PATTERN = /^\/ticket\s+([^\s]+)\s*$/i;
+const COMMAND_PATTERN = /^\/ticket\s+([\s\S]+?)\s*$/i;
 const TERMINAL_OR_ACTIVE = new Set(["running", "reviewing", "done"]);
 
 /** Parses an owner chat ticket command and checks its dependency gate only. */
@@ -7,9 +7,12 @@ export function createTicketCommandParser({ roadmapStore } = {}) {
   return Object.freeze({ parse });
 
   function parse(text) {
-    const match = String(text ?? "").match(COMMAND_PATTERN);
-    if (!match) return { command: false };
-    const ticketId = match[1];
+    const raw = String(text ?? "").trim();
+    if (!/^\/ticket(?:\s|$)/i.test(raw)) return { command: false };
+    const match = raw.match(COMMAND_PATTERN);
+    if (!match) return { command: true, status: "syntax_error", error: "Không nhận diện được ticket id, vui lòng kiểm tra lại cú pháp /ticket <id>." };
+    const ticketId = match[1].replace(/\s+/g, "");
+    if (!ticketId) return { command: true, status: "syntax_error", error: "Không nhận diện được ticket id, vui lòng kiểm tra lại cú pháp /ticket <id>." };
     const ticket = findTicket(roadmapStore.getCurrent(), ticketId);
     if (!ticket) return { command: true, ticket_id: ticketId, status: "not_found", error: `Ticket not found: ${ticketId}.` };
     const currentStatus = String(ticket.status ?? "pending").toLowerCase();
@@ -26,8 +29,12 @@ export function createTicketCommandParser({ roadmapStore } = {}) {
 }
 
 export function parseTicketCommand(text) {
-  const match = String(text ?? "").match(COMMAND_PATTERN);
-  return match ? { command: true, ticket_id: match[1] } : { command: false };
+  const raw = String(text ?? "").trim();
+  if (!/^\/ticket(?:\s|$)/i.test(raw)) return { command: false };
+  const match = raw.match(COMMAND_PATTERN);
+  if (!match) return { command: true, status: "syntax_error", error: "Không nhận diện được ticket id, vui lòng kiểm tra lại cú pháp /ticket <id>." };
+  const ticketId = match[1].replace(/\s+/g, "");
+  return ticketId ? { command: true, ticket_id: ticketId } : { command: true, status: "syntax_error", error: "Không nhận diện được ticket id, vui lòng kiểm tra lại cú pháp /ticket <id>." };
 }
 
 function summarize(ticket) {
