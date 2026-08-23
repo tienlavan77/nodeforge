@@ -11,3 +11,5 @@ config/.env
 !.nodeforge/env.example
 .nodeforge/env
 .DS_Store
+# macOS AppleDouble metadata files created on mounted folders.
+._*
