@@ -574,7 +574,7 @@ function SprintPlanDashboard({ dashboard, client, onRefresh }) {
           </button></span>
         </div>
         <p>{sprint.objective}</p>
-        <small>{sprint.tickets?.length ?? 0} tickets · {sprint.status ?? "planned"}</small>
+        <small>{sprint.completed_ticket_count ?? 0}/{sprint.ticket_count ?? sprint.tickets?.length ?? 0} tickets completed · {sprint.status ?? "planned"}</small>
       </article>;
     })}
     {runMessage && <p className="sprint-run-message" role="status" aria-live="polite">{runMessage}</p>}
@@ -762,20 +762,37 @@ function ProjectDashboardPanel({ agent, dashboard, state, onActivate, active, on
     <div className="dashboard-content" aria-label="Project and Sprint Dashboard">
       {state === "loading" && <p className="dashboard-state">Loading dashboard from Node…</p>}
       {state === "error" && <p className="dashboard-state error">Node could not load the Project Dashboard.</p>}
-      {state === "ready" && <DashboardData dashboard={dashboard} />}
+      {state === "ready" && <DashboardData dashboard={dashboard} client={client} onRefresh={loadDashboard} />}
     </div>
   </article>;
 }
 
-function DashboardData({ dashboard }) {
+function DashboardData({ dashboard, client, onRefresh }) {
   if (!dashboard?.roadmap || !dashboard.current_sprint) return <p className="dashboard-state">No roadmap or current sprint has been published yet.</p>;
   const sprint = dashboard.current_sprint;
   return <>
     <div className="dashboard-overview"><span>ROADMAP <strong>{dashboard.roadmap.id}</strong></span><span>v{dashboard.roadmap.version}</span><span>{sprint.status.toUpperCase()}</span></div>
     <section className="dashboard-section"><h3>{sprint.id}</h3><p>{sprint.objective}</p><small>{sprint.completed_ticket_count}/{sprint.ticket_count} tickets completed</small></section>
-    <section className="dashboard-section"><h3>Sprint Backlog</h3>{dashboard.backlog.length ? <div className="dashboard-tickets">{dashboard.backlog.map((ticket) => <article className="dashboard-ticket" key={ticket.id}><div><strong>{ticket.id}</strong><span className="priority">{ticket.priority}</span></div><p>{ticket.title}</p><small>{ticket.status} · {ticket.progress}%</small>{ticket.provenance && <small className="provenance">{ticket.provenance.architecture_decision_ids.join(", ")} → {ticket.provenance.roadmap_id} → {ticket.provenance.sprint_id}</small>}</article>)}</div> : <p className="dashboard-state">No tickets in the current sprint.</p>}</section>
+    <section className="dashboard-section"><h3>Sprint Backlog</h3>{dashboard.backlog.length ? <div className="dashboard-tickets">{dashboard.backlog.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} client={client} projectId={dashboard.project_id} onRefresh={onRefresh} />)}</div> : <p className="dashboard-state">No tickets in the current sprint.</p>}</section>
     <section className="dashboard-section roadmap-list"><h3>Roadmap Sprints</h3>{dashboard.roadmap.sprints.map((item) => <div key={item.id}><span>{item.order}. {item.id}</span><small>{item.status}</small></div>)}</section>
   </>;
+}
+
+function TicketCard({ ticket, client, projectId, onRefresh }) {
+  const [message, setMessage] = useState("");
+  async function run() {
+    try {
+      await client.postOwnerMessage({ projectId, conversationId: "CONV-BUILDER", agentId: "builder", messageId: `MSG-UI-RUN-${ticket.id}-${Date.now()}`, correlationId: `CORR-UI-RUN-${ticket.id}-${Date.now()}`, text: `/ticket ${ticket.id}` });
+      setMessage("Run requested");
+      await onRefresh?.();
+    } catch (error) { setMessage(error.message); }
+  }
+  async function remove() {
+    if (!window.confirm(`Delete ticket ${ticket.id}?`)) return;
+    try { await client.deleteTicket(projectId, ticket.id); setMessage("Deleted"); await onRefresh?.(); }
+    catch (error) { setMessage(error.message); }
+  }
+  return <article className="dashboard-ticket"><div><strong>{ticket.id}</strong><span className="priority">{ticket.priority}</span></div><p>{ticket.title}</p><small>{ticket.status} · {ticket.progress}%</small><div><button onClick={run} disabled={ticket.status === "done" || ticket.status === "running"}>Run</button><button onClick={remove} disabled={ticket.status === "done" || ticket.status === "running"}>Delete</button></div>{message && <small>{message}</small>}{ticket.provenance && <small className="provenance">{ticket.provenance.architecture_decision_ids.join(", ")} → {ticket.provenance.roadmap_id} → {ticket.provenance.sprint_id}</small>}</article>;
 }
 
 function WorkspaceSection({ title, items, empty }) {

@@ -16,7 +16,7 @@ export function createSprintPlanUploadService({ roadmaps, projectRoot = process.
   if (typeof roadmaps?.save !== "function") throw new ConfigurationError("Sprint Plan Upload requires a Roadmap Store.");
   const validate = createValidator();
 
-  return Object.freeze({ upload, get, remove });
+  return Object.freeze({ upload, get, remove, removeTicket });
 
   function remove({ projectId, sprintId } = {}) {
     get({ projectId, sprintId });
@@ -37,6 +37,16 @@ export function createSprintPlanUploadService({ roadmaps, projectRoot = process.
       throw error;
     }
     return structuredClone(sprint);
+  }
+
+  function removeTicket({ projectId, ticketId } = {}) {
+    const ticket = roadmaps.getCurrent()?.sprints?.flatMap((sprint) => sprint.tickets ?? []).find((item) => item.id === ticketId && item.project_id === projectId);
+    if (!ticket) { const error = new ConfigurationError(`Unknown ticket: ${ticketId}.`); error.statusCode = 404; throw error; }
+    if (roadmaps.getCurrent()?.sprints?.find((sprint) => sprint.id === ticket.sprint_id)?.tickets?.length === 1) {
+      const error = new ConfigurationError("Cannot delete the last ticket in a sprint; delete the sprint instead."); error.statusCode = 409; throw error;
+    }
+    if (!roadmaps.removeTicket(projectId, ticketId)) { const error = new ConfigurationError(`Unknown ticket: ${ticketId}.`); error.statusCode = 404; throw error; }
+    return { deleted: true, ticket_id: ticketId };
   }
 
   function upload({ projectId, sprintPlan } = {}) {

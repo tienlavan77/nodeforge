@@ -41,6 +41,9 @@ export function createNodeClient() {
     async deleteSprintPlan(projectId, sprintId) {
       return requestJson(`/projects/${projectId}/sprint-plans/${sprintId}`, { method: "DELETE", fallbackError: "Node could not delete the Sprint Plan." });
     },
+    async deleteTicket(projectId, ticketId) {
+      return requestJson(`/projects/${projectId}/tickets/${ticketId}`, { method: "DELETE", fallbackError: "Node could not delete the ticket." });
+    },
     async runSprint(projectId, sprintId) {
       return requestJson(`/projects/${projectId}/sprint-plans/${sprintId}/run`, { method: "POST", fallbackError: "Node could not start the sprint." });
     },

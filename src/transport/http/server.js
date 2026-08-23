@@ -83,6 +83,10 @@ export function createHttpApi({ runtimeService, ownerChatService, conversationSt
       if (!sprintPlanUploadService?.remove) throw new ConfigurationError("Sprint Plan Delete API is not configured.");
       return { status: 200, body: sprintPlanUploadService.remove({ projectId: parts[1], sprintId: parts[3] }) };
     }
+    if (method === "DELETE" && parts.length === 4 && parts[0] === "projects" && parts[2] === "tickets") {
+      if (!sprintPlanUploadService?.removeTicket) throw new ConfigurationError("Ticket Delete API is not configured.");
+      return { status: 200, body: sprintPlanUploadService.removeTicket({ projectId: parts[1], ticketId: parts[3] }) };
+    }
     if (method === "POST" && parts.length === 5 && parts[0] === "projects" && parts[2] === "sprint-plans" && parts[4] === "run") {
       if (!sprintOrchestrationService) throw new ConfigurationError("Sprint Orchestration API is not configured.");
       return { status: 202, body: sprintOrchestrationService.run({ projectId: parts[1], sprintId: parts[3] }) };
