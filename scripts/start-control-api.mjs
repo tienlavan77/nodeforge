@@ -252,9 +252,27 @@ function publishUnifiedStreamEvent(event) {
 async function streamTicket({ taskId, ticket, message }) {
   try {
     publishUnifiedStreamEvent({ event_type: "node.status_change", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, from: "pending", to: "running", ticket_id: ticket.id } });
-    for await (const chunk of agentGateway.stream({ agentId: "builder", correlationId: message.correlation_id, payload: { task_id: taskId, conversation_id: message.conversation_id, text: `${ticket.title}: ${ticket.objective}` }, eventSink: publishUnifiedStreamEvent })) {
-      if (!chunk) continue;
+    let requestPayload = { task_id: taskId, conversation_id: message.conversation_id, text: `${ticket.title}: ${ticket.objective}` };
+    let submitted = false;
+    for (let round = 1; round <= 10 && !submitted; round += 1) {
+      let requestedContext = false;
+      for await (const chunk of agentGateway.stream({ agentId: "builder", correlationId: message.correlation_id, payload: requestPayload, eventSink: publishUnifiedStreamEvent })) {
+        if (!chunk?.tool_use) continue;
+        const tool = chunk.tool_use.input ?? chunk.tool_use;
+        const result = await executeAgentTool(tool, { message: { ...message, payload: { ...message.payload, task: ticket } }, agentId: "builder" });
+        if (tool.kind === "submit_code") {
+          submitted = true;
+          break;
+        }
+        if (tool.kind === "request_info") {
+          requestPayload = { task_id: taskId, conversation_id: message.conversation_id, text: `task_id: ${taskId}\ncontext_status: context_ready\ntool_result: ${String(result.content ?? result).slice(0, 12000)}\nnext_step: submit_code\nReturn submit_code now.` };
+          requestedContext = true;
+          break;
+        }
+      }
+      if (!requestedContext && !submitted) break;
     }
+    if (!submitted) throw new Error("Builder stream ended without submit_code.");
   } catch (error) {
     const reason = error?.code === "RATE_LIMITED" || error?.statusCode === 429 ? "rate_limited" : "provider_error";
     const errorMessage = String(error?.message ?? error);
