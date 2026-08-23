@@ -256,7 +256,14 @@ async function streamTicket({ taskId, ticket, message }) {
   try {
     roadmaps.updateTicketStatus({ projectId: message.project_id, ticketId: ticket.id, status: "running" });
     publishUnifiedStreamEvent({ event_type: "node.status_change", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, from: "pending", to: "running", ticket_id: ticket.id } });
-    let requestPayload = { task_id: taskId, conversation_id: message.conversation_id, text: `${ticket.title}: ${ticket.objective}` };
+    const acceptance = (ticket.acceptance_criteria ?? []).map((item) => `- ${item}`).join("\n");
+    const dependencies = (ticket.dependencies ?? []).join(", ") || "none";
+    let requestPayload = {
+      task_id: taskId,
+      conversation_id: message.conversation_id,
+      text: `Ticket ${ticket.id}: ${ticket.title}\nObjective: ${ticket.objective}\nAcceptance criteria:\n${acceptance || "- Follow the objective."}\nDependencies: ${dependencies}`,
+      task: ticket
+    };
     let submitted = false;
     for (let round = 1; round <= 10 && !submitted; round += 1) {
       let requestedContext = false;

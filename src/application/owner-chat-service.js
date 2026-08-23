@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url);
 const commonSchema = require("../../schemas/core/common.schema.json");
 const ticketSchema = require("../../schemas/governance/ticket.schema.json");
 const agentToolSchema = require("../../schemas/agent/agent-tool.schema.json");
-const AGENT_TOOL_PROTOCOL_UNLIMITED = "\n\nAgent tool loop protocol:\n- Use request_info whenever more context is needed.\n- Node continues returning context until submit_code; there is no round limit.\n- submit_code must include the main file and any test file in files[].";
+const AGENT_TOOL_PROTOCOL_UNLIMITED = "\n\nAgent tool loop protocol:\n- Use request_info whenever more context is needed.\n- Node continues returning context until submit_code; there is no round limit.\n- submit_code must include the requested code; add test files only when the task acceptance criteria require tests.";
 
 export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, executeAgentTool, ticketCommandParser, proseTicketService, dispatchAgentTicket, internalBus, debug = () => {}, streamBatchMs = 500 } = {}) {
   if (typeof bus?.send !== "function") throw new ConfigurationError("Owner Chat Service requires the shared Communication Bus.");

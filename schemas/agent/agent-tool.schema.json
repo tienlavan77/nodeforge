@@ -82,31 +82,7 @@
             }
           },
           "allOf": [
-            { "if": { "properties": { "code_kind": { "const": "test" } } }, "then": { "properties": { "target_path": { "type": "string", "pattern": "^(tests/|.*(?:^|/)tests/).+" } } } },
-            {
-              "if": { "properties": { "is_final": { "const": true } } },
-              "then": {
-                "anyOf": [
-                  { "properties": { "code_kind": { "const": "test" } } },
-                  {
-                    "properties": {
-                      "files": {
-                        "type": "array",
-                        "contains": {
-                          "type": "object",
-                          "required": ["code_kind", "target_path"],
-                          "properties": {
-                            "code_kind": { "const": "test" },
-                            "target_path": { "type": "string", "pattern": "^(tests/|.*(?:^|/)tests/).+" }
-                          }
-                        }
-                      }
-                    },
-                    "required": ["files"]
-                  }
-                ]
-              }
-            }
+            { "if": { "properties": { "code_kind": { "const": "test" } } }, "then": { "properties": { "target_path": { "type": "string", "pattern": "^(tests/|.*(?:^|/)tests/).+" } } } }
           ]
         }
       ]
