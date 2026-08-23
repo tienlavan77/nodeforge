@@ -43,7 +43,7 @@ function historyRecordToMessage(record) {
   if (record.type?.endsWith(".tool.result") || record.type?.endsWith(".message.progress") || record.type?.endsWith(".progress") || record.type?.endsWith(".working")) return null;
   const isOwner = record.kind === "owner";
   const raw = record.content;
-  const text = raw?.text ?? raw?.content ?? (typeof raw === "string" ? raw : JSON.stringify(raw ?? ""));
+  const text = raw?.text ?? raw?.content ?? formatTicketResponse({ message_type: record.type, payload: raw }) ?? (typeof raw === "string" ? raw : JSON.stringify(raw ?? ""));
   const from = isOwner ? "owner" : record.kind === "failure" ? "system" : record.kind === "agent" || record.kind === "completion" ? "agent" : isOwner ? "owner" : "agent";
   const ts = record.timestamp;
   const d = ts ? new Date(ts) : new Date();
@@ -336,7 +336,7 @@ function App() {
     pendingLive.current[agentId] = [...(pendingLive.current[agentId] ?? []), optimistic];
     requestAnimationFrame(() => scrollToBottom(agentId));
     try {
-      await client.postOwnerMessage({
+      const response = await client.postOwnerMessage({
         projectId: PROJECT_ID,
         conversationId,
         agentId,
@@ -344,6 +344,12 @@ function App() {
         correlationId: optimistic.correlation_id,
         text
       });
+      // Some immediate Node responses (ticket.creation/status) can arrive
+      // before the SSE subscription observes the persisted message. Render
+      // the POST response as a fallback; SSE deduplication prevents doubles.
+      if (response?.message_type && (response.message_id || response.id)) {
+        pushLiveHistory(agentId, { ...response, message_id: response.message_id ?? response.id });
+      }
       dispatchTimersRef.current[agentId] = setTimeout(() => {
         if (pendingDispatchRef.current[agentId] !== optimistic.correlation_id) return;
         delete pendingDispatchRef.current[agentId];
@@ -687,8 +693,24 @@ function toDisplayMessage(message) {
   const isOwner = message.sender?.role === "project_owner";
   const text = message.payload?.text
     ?? message.payload?.content
+    ?? formatTicketResponse(message)
     ?? (message.message_type === "architecture.working" ? "Architecture Manager is working…" : message.message_type === "architecture.message.received" ? "Architecture plan recorded in Node." : message.message_type);
   return { id: message.message_id, correlation_id: message.correlation_id, message_type: message.message_type, from: isOwner ? "owner" : message.message_type.includes("error") ? "system" : "agent", text, time: new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
+}
+
+function formatTicketResponse(message) {
+  const payload = message.payload ?? {};
+  if (message.message_type === "ticket.creation" || message.message_type === "ticket.status") {
+    if (payload.error) return payload.error;
+    if (payload.status === "syntax_error") return payload.error ?? "Không nhận diện được ticket id.";
+    if (payload.status === "created" || payload.create_ticket) {
+      const ticket = payload.ticket ?? payload;
+      return `Ticket ${ticket.id ?? "mới"} đã được tạo và lưu vào roadmap.`;
+    }
+    if (payload.status) return `Ticket ${payload.ticket_id ?? ""}: ${payload.status}`.trim();
+  }
+  if (message.message_type?.includes("error")) return payload.error ?? payload.message ?? "Node báo lỗi khi xử lý yêu cầu.";
+  return null;
 }
 
 function mergeStreamMessage(messages, message) {
