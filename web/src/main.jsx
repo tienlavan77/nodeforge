@@ -477,8 +477,8 @@ function SprintPlanDashboard({ dashboard, client, onRefresh }) {
   const [viewSprint, setViewSprint] = useState(null);
   const [viewState, setViewState] = useState("idle");
   const [deleteMessage, setDeleteMessage] = useState("");
-  const [createdSprint, setCreatedSprint] = useState(null);
   const [highlightSprint, setHighlightSprint] = useState(null);
+  const [collapsedSprints, setCollapsedSprints] = useState({});
   const knownSprintIds = useRef(null);
   useEffect(() => () => runStreamRef.current?.close?.(), []);
   const currentId = dashboard?.current_sprint?.id ?? null;
@@ -492,12 +492,10 @@ function SprintPlanDashboard({ dashboard, client, onRefresh }) {
     if (knownSprintIds.current) {
       const created = sprints.find((sprint) => !knownSprintIds.current.has(sprint.id));
       if (created) {
-        setCreatedSprint(created);
         setHighlightSprint(created.id);
-        const toastTimer = setTimeout(() => setCreatedSprint(null), 5000);
         const highlightTimer = setTimeout(() => setHighlightSprint(null), 3000);
         knownSprintIds.current = ids;
-        return () => { clearTimeout(toastTimer); clearTimeout(highlightTimer); };
+        return () => clearTimeout(highlightTimer);
       }
     }
     knownSprintIds.current = ids;
@@ -548,22 +546,19 @@ function SprintPlanDashboard({ dashboard, client, onRefresh }) {
 
   return <section className="sprint-plan-dashboard" aria-label="Uploaded sprint plans">
     <h2>Roadmap Sprints</h2>
-    {createdSprint && <div className="sprint-created-toast" role="status" aria-live="polite">Sprint {createdSprint.id} created by Sprint Leader</div>}
     {dashboard?.current_sprint && <article className={`sprint-current ${highlightSprint === dashboard.current_sprint.id ? "is-new" : ""}`} aria-label={`Current sprint ${dashboard.current_sprint.id}`}>
       <div className="sprint-row">
         <div>
           <strong>{dashboard.current_sprint.id}</strong>
           <span className="sprint-badge">current</span>{highlightSprint === dashboard.current_sprint.id && <span className="sprint-new-badge">NEW</span>}
         </div>
-          <span><button className="sprint-view-button" onClick={() => handleView(dashboard.current_sprint.id)}>View</button><button className="sprint-delete-button" onClick={() => handleDelete(dashboard.current_sprint.id)} disabled={Boolean(runningId) || dashboard.current_sprint.status === "done"}>Delete</button><button className={`sprint-run-button ${runningId === dashboard.current_sprint.id ? "is-running" : ""}`} onClick={() => handleRun(dashboard.current_sprint.id)} disabled={Boolean(runningId) || dashboard.current_sprint.status === "done"} aria-label={`Run ${dashboard.current_sprint.id}`}>
+          <span><button className="sprint-collapse-button" onClick={() => setCollapsedSprints((state) => ({ ...state, [dashboard.current_sprint.id]: !state[dashboard.current_sprint.id] }))} aria-label="Toggle sprint details">{collapsedSprints[dashboard.current_sprint.id] ? "+" : "−"}</button><button className="sprint-view-button" onClick={() => handleView(dashboard.current_sprint.id)}>View</button><button className="sprint-delete-button" onClick={() => handleDelete(dashboard.current_sprint.id)} disabled={Boolean(runningId) || dashboard.current_sprint.status === "done"}>Delete</button><button className={`sprint-run-button ${runningId === dashboard.current_sprint.id ? "is-running" : ""}`} onClick={() => handleRun(dashboard.current_sprint.id)} disabled={Boolean(runningId) || dashboard.current_sprint.status === "done"} aria-label={`Run ${dashboard.current_sprint.id}`}>
           {runningId === dashboard.current_sprint.id ? "Running…" : "Run"}
         </button>
           </span>
       </div>
-      <p>{dashboard.current_sprint.objective}</p>
-      <small>{dashboard.current_sprint.ticket_count ?? dashboard.current_sprint.tickets?.length ?? 0} tickets · {dashboard.current_sprint.status ?? "planned"}</small>
+      {!collapsedSprints[dashboard.current_sprint.id] && <><p>{dashboard.current_sprint.objective}</p><small>{dashboard.current_sprint.ticket_count ?? dashboard.current_sprint.tickets?.length ?? 0} tickets · {dashboard.current_sprint.status ?? "planned"}</small>{dashboard?.backlog?.length > 0 && <div className="sprint-ticket-list" aria-label="Tickets in current sprint">{dashboard.backlog.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} client={client} projectId={dashboard.project_id} onRefresh={onRefresh} />)}</div>}</>}
     </article>}
-    {dashboard?.backlog?.length > 0 && <section className="sprint-ticket-list" aria-label="Tickets in current sprint"><h3>Tickets</h3>{dashboard.backlog.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} client={client} projectId={dashboard.project_id} onRefresh={onRefresh} />)}</section>}
     {sprints.map((sprint) => {
       const isCurrent = sprint.id === currentId;
       if (isCurrent) return null;
