@@ -39,7 +39,7 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
     } finally { clearTimeout(timeout); }
   }
 
-  async function* stream({ agentId, payload, correlationId } = {}) {
+  async function* stream({ agentId, payload, correlationId, eventSink } = {}) {
     const config = getEnabledConfig(agentId);
     assertCorrelation(correlationId);
     if (!payload || typeof payload !== "object") throw new ConfigurationError("Agent Gateway payload is required.");
@@ -48,8 +48,12 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
       try {
+        let sequence = 0;
         for await (const event of streamTransport({ url: config.gateway_url, credential, payload: withAgentTools(payload), correlation_id: correlationId, signal: controller.signal })) {
-          if (typeof event?.text === "string" && event.text) yield { agent_id: config.agent_id, correlation_id: correlationId, text: event.text };
+          if (typeof event?.text === "string" && event.text) {
+            emitText(eventSink, payload, correlationId, config.agent_id, event.text, sequence++);
+            yield { agent_id: config.agent_id, correlation_id: correlationId, text: event.text };
+          }
           if (event?.tool_use) yield { agent_id: config.agent_id, correlation_id: correlationId, tool_use: event.tool_use };
           if (event?.usage) yield { agent_id: config.agent_id, correlation_id: correlationId, usage: event.usage };
           if (event?.response_id) yield { agent_id: config.agent_id, correlation_id: correlationId, completed: true, response_id: event.response_id, usage: event.usage };
@@ -66,8 +70,12 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
+      let sequence = 0;
       for await (const event of adapter.stream({ url: config.gateway_url, credential, payload: withAgentTools(payload), model, correlationId, signal: controller.signal })) {
-        if (typeof event?.text === "string" && event.text) yield { agent_id: config.agent_id, correlation_id: correlationId, text: event.text };
+        if (typeof event?.text === "string" && event.text) {
+          emitText(eventSink, payload, correlationId, config.agent_id, event.text, sequence++);
+          yield { agent_id: config.agent_id, correlation_id: correlationId, text: event.text };
+        }
         if (event?.tool_use) yield { agent_id: config.agent_id, correlation_id: correlationId, tool_use: event.tool_use };
         if (event?.usage) yield { agent_id: config.agent_id, correlation_id: correlationId, usage: event.usage };
         if (event?.response_id) yield { agent_id: config.agent_id, correlation_id: correlationId, completed: true, response_id: event.response_id, usage: event.usage };
@@ -133,6 +141,12 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
       throw new ConfigurationError(`Agent Gateway request failed for ${config.agent_id}.`);
     } finally { clearTimeout(timeout); }
   }
+}
+
+function emitText(eventSink, payload, correlationId, agentId, text, sequence) {
+  if (typeof eventSink !== "function") return;
+  const taskId = payload?.task_id ?? payload?.task?.id ?? correlationId;
+  eventSink({ event_type: "agent.text_stream", task_id: taskId, timestamp: new Date().toISOString(), payload: { chunk: text, agent_id: agentId, ...(payload?.conversation_id ? { conversation_id: payload.conversation_id } : {}), sequence, done: false } });
 }
 
 function normalizeGatewayUrl(value) {

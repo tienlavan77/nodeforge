@@ -44,7 +44,10 @@ test("maps an OpenAI-compatible Responses API payload to a safe Agent response",
     const gateway = createAgentGateway({ configuration: { getById: () => ({ ...config(), gateway_url: "https://gateway.example.test/v1/responses" }) }, credentialResolver: () => "secret" });
     const result = await gateway.request({ agentId: "architecture-manager", correlationId: "CORR-148", payload: { text: "Design the service" } });
     assert.equal(request.url, "https://gateway.example.test/v1/responses");
-    assert.deepEqual(JSON.parse(request.options.body), { model: "gpt-5.6-terra", input: "Design the service" });
+    const requestBody = JSON.parse(request.options.body);
+    assert.equal(requestBody.model, "gpt-5.6-terra");
+    assert.equal(requestBody.input, "Design the service");
+    assert.equal(Array.isArray(requestBody.tools), true);
     assert.equal(result.payload.text, "Real architecture response");
     assert.equal(result.correlation_id, "CORR-148");
     assert(!JSON.stringify(result).includes("secret"));
@@ -59,6 +62,17 @@ test("forwards ordered Responses API stream deltas without credential leakage", 
   assert.equal(chunks.at(-1).response_id, "resp_stream");
   assert(chunks.every((chunk) => chunk.correlation_id === "CORR-149"));
   assert(!JSON.stringify(chunks).includes("secret"));
+});
+
+test("forwards normalized text events with task correlation", async () => {
+  const events = [];
+  const gateway = createAgentGateway({ configuration: { getById: () => config() }, credentialResolver: () => "secret", streamTransport: async function* () { yield { text: "one" }; yield { text: "two" }; } });
+  const chunks = [];
+  for await (const chunk of gateway.stream({ agentId: "architecture-manager", correlationId: "CORR-EVENT", payload: { task_id: "TASK-EVENT", text: "hello" }, eventSink: (event) => events.push(event) })) chunks.push(chunk);
+  assert.deepEqual(chunks.map(({ text }) => text).filter(Boolean), ["one", "two"]);
+  assert.deepEqual(events.map((event) => event.event_type), ["agent.text_stream", "agent.text_stream"]);
+  assert.deepEqual(events.map((event) => event.payload.chunk), ["one", "two"]);
+  assert.deepEqual(events.map((event) => event.task_id), ["TASK-EVENT", "TASK-EVENT"]);
 });
 
 function config() { return { agent_id: "architecture-manager", agent_name: "Architecture Manager", gateway_url: "https://gateway.example.test/architecture", credential_ref: "env:ARCH_KEY", enabled: true, status: "configured", created_at: "2026-08-22T10:00:00Z", updated_at: "2026-08-22T10:00:00Z" }; }
