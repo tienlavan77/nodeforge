@@ -20,7 +20,22 @@ export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(),
   const byVersion = new Map();
   if (database) load();
 
-  return Object.freeze({ save, removeSprint, getCurrent, getVersion, getAllVersions, load });
+  return Object.freeze({ save, updateTicketStatus, removeSprint, getCurrent, getVersion, getAllVersions, load });
+
+  function updateTicketStatus({ projectId, ticketId, status, error } = {}) {
+    if (!projectId || !ticketId || !["pending", "running", "reviewing", "done", "failed"].includes(status)) throw new ConfigurationError("A valid project, ticket, and status are required.");
+    const current = getCurrent();
+    if (!current || current.project_id !== projectId) return undefined;
+    let found = false;
+    const sprints = current.sprints.map((sprint) => ({ ...sprint, tickets: (sprint.tickets ?? []).map((ticket) => {
+      if (ticket.id !== ticketId) return ticket;
+      found = true;
+      return { ...ticket, status, ...(error ? { last_error: error } : {}) };
+    }) }));
+    if (!found) return undefined;
+    const version = `${current.version}-status-${Date.now()}`;
+    return save({ ...current, version, updated_at: new Date().toISOString(), sprints });
+  }
 
   function removeSprint(projectId, sprintId) {
     let removed = false;
