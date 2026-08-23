@@ -22,7 +22,16 @@ export function createProjectDashboardService({ roadmaps, sprintPlans, provenanc
     const tickets = sprintPlans.getSprintBacklog(sprint.id).map((ticket) => ticketView(ticket));
     return structuredClone({
       project_id: projectId,
-      roadmap: { id: roadmap.id, version: roadmap.version, sprints: roadmap.sprints.map((item, index) => ({ id: item.id, objective: item.objective, order: index + 1, status: item.id === sprint.id ? status.status : "planned" })) },
+      roadmap: {
+        id: roadmap.id,
+        version: roadmap.version,
+        sprints: roadmap.sprints.map((item, index) => ({
+          id: item.id,
+          objective: item.objective,
+          order: index + 1,
+          status: sprintPlans.getSprintStatus(item.id).status
+        }))
+      },
       current_sprint: { id: sprint.id, objective: sprint.objective, ...status },
       backlog: tickets
     });
