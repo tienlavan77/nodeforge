@@ -237,6 +237,7 @@ async function streamTicket({ taskId, ticket, message }) {
     }
   } catch (error) {
     const reason = error?.code === "RATE_LIMITED" || error?.statusCode === 429 ? "rate_limited" : "provider_error";
+    publishUnifiedStreamEvent({ event_type: "node.command_result", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, command: "agent.stream", status: "failed", exit_code: null, reason, error: error.message } });
     publishUnifiedStreamEvent({ event_type: "node.status_change", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, from: "running", to: "failed", ticket_id: ticket.id, reason, error: error.message } });
     bus.send({ id: `MSG-BUILDER-FAILED-${taskId}`, project_id: message.project_id, sender: { id: "builder", role: "builder" }, recipient: { id: "NODE", role: "node" }, message_type: "builder.error", conversation_id: message.conversation_id, correlation_id: message.correlation_id, payload: { task_id: taskId, reason, error: error.message }, timestamp: new Date().toISOString() });
     return { task_id: taskId, status: "failed", reason };
