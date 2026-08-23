@@ -25,12 +25,17 @@ export function createProjectDashboardService({ roadmaps, sprintPlans, provenanc
       roadmap: {
         id: roadmap.id,
         version: roadmap.version,
-        sprints: roadmap.sprints.map((item, index) => ({
-          id: item.id,
-          objective: item.objective,
-          order: index + 1,
-          status: sprintPlans.getSprintStatus(item.id).status
-        }))
+        sprints: roadmap.sprints.map((item, index) => {
+          const sprintStatus = sprintPlans.getSprintStatus(item.id);
+          return {
+            id: item.id,
+            objective: item.objective,
+            order: index + 1,
+            status: sprintStatus.status,
+            ticket_count: sprintStatus.ticket_count,
+            completed_ticket_count: sprintStatus.completed_ticket_count
+          };
+        })
       },
       current_sprint: { id: sprint.id, objective: sprint.objective, ...status },
       backlog: tickets

@@ -20,7 +20,7 @@ export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(),
   const byVersion = new Map();
   if (database) load();
 
-  return Object.freeze({ save, updateTicketStatus, removeSprint, getCurrent, getVersion, getAllVersions, load });
+  return Object.freeze({ save, updateTicketStatus, removeSprint, removeTicket, getCurrent, getVersion, getAllVersions, load });
 
   function updateTicketStatus({ projectId, ticketId, status, error } = {}) {
     if (!projectId || !ticketId || !["pending", "running", "reviewing", "done", "failed"].includes(status)) throw new ConfigurationError("A valid project, ticket, and status are required.");
@@ -52,6 +52,20 @@ export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(),
       }
     }
     return removed;
+  }
+
+  function removeTicket(projectId, ticketId) {
+    const current = getCurrent();
+    if (!current || current.project_id !== projectId) return false;
+    let removed = false;
+    const sprints = current.sprints.map((sprint) => ({ ...sprint, tickets: (sprint.tickets ?? []).filter((ticket) => {
+      if (ticket.id !== ticketId) return true;
+      removed = true;
+      return false;
+    }) }));
+    if (!removed) return false;
+    save({ ...current, version: `${current.version}-ticket-${Date.now()}`, updated_at: new Date().toISOString(), sprints });
+    return true;
   }
 
   function save(roadmap) {
