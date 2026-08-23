@@ -104,6 +104,8 @@ function App() {
   const streamQueues = useRef({});
   const wasAtBottomRef = useRef(Object.fromEntries(AGENTS.map((a) => [a.id, true])));
   const streamingIdsRef = useRef(Object.fromEntries(AGENTS.map((a) => [a.id, null])));
+  const dispatchTimersRef = useRef({});
+  const pendingDispatchRef = useRef({});
   const active = AGENTS.find((agent) => agent.id === activeAgent);
   const loadWorkspace = useCallback(async () => {
     try {
@@ -188,7 +190,18 @@ function App() {
         afterMessageId: lastMessageId.current[agent.id],
         onMessage: (message) => {
           lastMessageId.current[agent.id] = message.message_id;
-          if (message.message_type === "architecture.working" || message.message_type === `${agent.id}.working`) setWorkingByAgent((prev) => ({ ...prev, [agent.id]: "WORKING" }));
+          const pendingCorrelation = pendingDispatchRef.current[agent.id];
+          const isRunningEvent = message.correlation_id === pendingCorrelation && (
+            message.message_type === "architecture.working" || message.message_type === `${agent.id}.working`
+            || message.message_type === "agent.text_stream" || message.message_type?.endsWith(".message.delta")
+            || (message.message_type === "node.status_change" && message.payload?.to === "running")
+          );
+          if (isRunningEvent) {
+            clearTimeout(dispatchTimersRef.current[agent.id]);
+            delete dispatchTimersRef.current[agent.id];
+            delete pendingDispatchRef.current[agent.id];
+            setWorkingByAgent((prev) => ({ ...prev, [agent.id]: "WORKING" }));
+          }
           if (message.message_type.endsWith(".message.received") || message.message_type.endsWith(".error")) setWorkingByAgent((prev) => ({ ...prev, [agent.id]: message.payload?.agent_status ?? (message.message_type.endsWith(".error") ? "FAILED" : "COMPLETED") }));
           if (message.message_type.endsWith(".message.delta")) {
             queueHistoryDelta(agent.id, message);
@@ -201,7 +214,15 @@ function App() {
           if (message.message_type === "governance.sprint_plan.created") loadDashboard();
           if (agent.id === "architecture-manager" && message.message_type === "architecture.message.received") loadWorkspace();
         },
-        onReplayComplete: () => setWorkingByAgent((prev) => ({ ...prev, [agent.id]: prev[agent.id] === "WORKING" ? "READY" : prev[agent.id] }))
+        onReplayComplete: () => setWorkingByAgent((prev) => ({ ...prev, [agent.id]: prev[agent.id] === "WORKING" ? "READY" : prev[agent.id] })),
+        onError: () => {
+          if (pendingDispatchRef.current[agent.id]) {
+            clearTimeout(dispatchTimersRef.current[agent.id]);
+            delete dispatchTimersRef.current[agent.id];
+            delete pendingDispatchRef.current[agent.id];
+            setWorkingByAgent((prev) => ({ ...prev, [agent.id]: "FAILED" }));
+          }
+        }
       });
     });
     return () => streams.forEach((s) => s.close());
@@ -305,12 +326,11 @@ function App() {
     if (!text) return;
     const conversationId = CONVERSATIONS[agentId] ?? ARCHITECTURE_CONVERSATION_ID;
     const messageId = `MSG-OWNER-${Date.now()}-${agentId}`;
-    const task = agentId === "architecture-manager" ? undefined : buildDirectTask(agentId, text);
     const nowIso = new Date().toISOString();
     const nowDate = new Date(nowIso);
     const optimistic = { id: messageId, correlation_id: `CORR-${agentId}-${Date.now()}`, message_type: "owner.message", from: "owner", text, time: nowDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), timestamp: nowIso, dateKey: nowIso.slice(0, 10), dateLabel: formatDateLabel(nowIso) };
     setDrafts((current) => ({ ...current, [agentId]: "" }));
-    setWorkingByAgent((current) => ({ ...current, [agentId]: "WORKING" }));
+    pendingDispatchRef.current[agentId] = optimistic.correlation_id;
     setHistoryChat((m) => ({ ...m, [agentId]: [...(m[agentId] ?? []), optimistic] }));
     pendingLive.current[agentId] = [...(pendingLive.current[agentId] ?? []), optimistic];
     requestAnimationFrame(() => scrollToBottom(agentId));
@@ -321,10 +341,17 @@ function App() {
         agentId,
         messageId,
         correlationId: optimistic.correlation_id,
-        text,
-        task
+        text
       });
+      dispatchTimersRef.current[agentId] = setTimeout(() => {
+        if (pendingDispatchRef.current[agentId] !== optimistic.correlation_id) return;
+        delete pendingDispatchRef.current[agentId];
+        setWorkingByAgent((current) => ({ ...current, [agentId]: "FAILED" }));
+        const errTs = new Date().toISOString();
+        setHistoryChat((m) => ({ ...m, [agentId]: [...(m[agentId] ?? []), { id: `ERR-${Date.now()}`, from: "system", text: "Builder did not start the ticket within the expected time.", time: new Date(errTs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), timestamp: errTs, dateKey: errTs.slice(0, 10), dateLabel: formatDateLabel(errTs), message_type: "system.timeout" }] }));
+      }, 15000);
     } catch (error) {
+      delete pendingDispatchRef.current[agentId];
       setWorkingByAgent((current) => ({ ...current, [agentId]: "FAILED" }));
       const errTs = new Date().toISOString();
       setHistoryChat((m) => ({ ...m, [agentId]: [...(m[agentId] ?? []), { id: `ERR-${Date.now()}`, from: "system", text: error?.message ?? "Node request failed. Your message was not sent.", time: new Date(errTs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), timestamp: errTs, dateKey: errTs.slice(0, 10), dateLabel: formatDateLabel(errTs), message_type: "system.error" }] }));
@@ -439,10 +466,6 @@ function App() {
     {settingsAgent && <AgentSettingsOverlay client={client} agent={settingsAgent} onClose={() => setSettingsAgent(null)} />}
     {uploadOpen && <UploadSprintPlanDialog client={client} onClose={() => setUploadOpen(false)} onUploaded={loadDashboard} />}
   </div>;
-}
-
-function buildDirectTask(agentId, objective) {
-  return { id: `TASK-${agentId.toUpperCase()}-${Date.now()}`, title: objective.slice(0, 80), objective, acceptance_criteria: ["Complete the requested task and report the result."] };
 }
 
 function SprintPlanDashboard({ dashboard, client, onRefresh }) {

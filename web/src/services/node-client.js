@@ -52,11 +52,11 @@ export function createNodeClient() {
     async getArchitectureWorkspace(projectId) {
       return requestJson(`/projects/${projectId}/architecture-workspace`, { fallbackError: "Node could not load the Architecture Workspace." });
     },
-    async postOwnerMessage({ projectId, conversationId, agentId, messageId, correlationId, text, task }) {
+    async postOwnerMessage({ projectId, conversationId, agentId, messageId, correlationId, text }) {
       return requestJson(`/projects/${projectId}/conversations/${conversationId}/messages`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ agent_id: agentId, message_id: messageId, correlation_id: correlationId, timestamp: new Date().toISOString(), payload: { text, ...(task ? { task } : {}) } }),
+        body: JSON.stringify({ agent_id: agentId, message_id: messageId, correlation_id: correlationId, timestamp: new Date().toISOString(), payload: { text } }),
         fallbackError: "Node rejected the owner message."
       });
     },
