@@ -25,6 +25,7 @@
             "from": { "type": "string", "minLength": 1 },
             "to": { "type": "string", "enum": ["pending", "running", "reviewing", "done", "failed"] },
             "ticket_id": { "type": "string", "minLength": 1 },
+            "conversation_id": { "type": "string", "minLength": 1 },
             "reason": { "type": "string" }
           }
         }

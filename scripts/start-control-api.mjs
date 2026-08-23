@@ -209,7 +209,7 @@ function assertAgentSourcePath(path, { directory = false } = {}) {
 }
 const api = createHttpApi({
   runtimeService,
-  ownerChatService: createOwnerChatService({ bus, ticketCommandParser, buildAgentContext: buildBuilderContext, executeAgentTool, debug: (detail) => console.log(`[agent-loop] ${JSON.stringify(detail)}`), dispatchAgentTicket: ({ task_id: taskId, ticket, message }) => streamTicket({ taskId, ticket, message }), agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId, eventSink: publishUnifiedStreamEvent }), onAgentCompleted: sprintOrchestration.ingestAgentCompletion }),
+  ownerChatService: createOwnerChatService({ bus, internalBus, ticketCommandParser, buildAgentContext: buildBuilderContext, executeAgentTool, debug: (detail) => console.log(`[agent-loop] ${JSON.stringify(detail)}`), dispatchAgentTicket: ({ task_id: taskId, ticket, message }) => streamTicket({ taskId, ticket, message }), agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId, eventSink: publishUnifiedStreamEvent }), onAgentCompleted: sprintOrchestration.ingestAgentCompletion }),
   conversationStream: createConversationStream({ bus, communicationStore: communications, eventStore, subscriptions }),
   architectureWorkspaceService: createArchitectureWorkspaceService({ knowledge, roadmaps, sprintPlans }),
   projectDashboardService: createProjectDashboardService({ roadmaps, sprintPlans, provenance }),
@@ -228,9 +228,11 @@ function publishUnifiedStreamEvent(event) {
   internalBus.emit("event", ordered);
 }
 async function streamTicket({ taskId, ticket, message }) {
+  publishUnifiedStreamEvent({ event_type: "node.status_change", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, from: "pending", to: "running", ticket_id: ticket.id } });
   for await (const chunk of agentGateway.stream({ agentId: "builder", correlationId: message.correlation_id, payload: { task_id: taskId, text: `${ticket.title}: ${ticket.objective}` }, eventSink: publishUnifiedStreamEvent })) {
     if (chunk.text) bus.sendFast({ id: `STREAM-${Date.now()}`, project_id: message.project_id, sender: { id: "NODE", role: "node" }, recipient: message.sender, message_type: "agent.text_stream", conversation_id: message.conversation_id, correlation_id: message.correlation_id, payload: { text: chunk.text, task_id: taskId }, timestamp: new Date().toISOString() });
   }
+  publishUnifiedStreamEvent({ event_type: "node.status_change", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, from: "running", to: "done", ticket_id: ticket.id } });
 }
 const server = api.createServer().listen(port, host, () => {
   process.stdout.write(`Node Control API listening on http://${host}:${port}\n`);

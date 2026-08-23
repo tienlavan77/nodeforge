@@ -10,16 +10,32 @@ const ticketSchema = require("../../schemas/governance/ticket.schema.json");
 const agentToolSchema = require("../../schemas/agent/agent-tool.schema.json");
 const AGENT_TOOL_PROTOCOL_UNLIMITED = "\n\nAgent tool loop protocol:\n- Use request_info whenever more context is needed.\n- Node continues returning context until submit_code; there is no round limit.\n- submit_code must include the main file and any test file in files[].";
 
-export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, executeAgentTool, ticketCommandParser, dispatchAgentTicket, debug = () => {}, streamBatchMs = 500 } = {}) {
+export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, executeAgentTool, ticketCommandParser, dispatchAgentTicket, internalBus, debug = () => {}, streamBatchMs = 500 } = {}) {
   if (typeof bus?.send !== "function") throw new ConfigurationError("Owner Chat Service requires the shared Communication Bus.");
   if (!Number.isInteger(streamBatchMs) || streamBatchMs < 1) throw new ConfigurationError("Owner Chat stream batch interval must be positive.");
   const messages = new Map();
+  const conversationRounds = new Map();
+  const lockedConversations = new Map();
+  const statusListener = (event) => {
+    const conversationId = event?.payload?.conversation_id ?? event?.metadata?.conversation_id;
+    const status = event?.payload?.to ?? event?.payload?.status;
+    if (!conversationId || !status) return;
+    if (status === "running") lockedConversations.set(conversationId, event?.task_id ?? event?.payload?.task_id ?? true);
+    if (["reviewing", "done", "failed"].includes(status)) lockedConversations.delete(conversationId);
+  };
+  internalBus?.on?.("node.status_change", statusListener);
 
   return Object.freeze({ submit });
 
   function submit(input) {
     assertMessage(input);
     const agentId = input.agent_id ?? architectureManagerId;
+    const lockedTask = lockedConversations.get(input.conversation_id);
+    if (lockedTask) {
+      const rejected = responseMessage({ id: input.message_id, project_id: input.project_id, conversation_id: input.conversation_id, correlation_id: input.correlation_id, timestamp: input.timestamp, sender: { id: "NODE", role: "node" }, recipient: { id: agentId, role: roleForAgent(agentId) } }, "ticket.input_rejected", { status: "running", task_id: lockedTask, error: "Ticket is still running; input is locked until reviewing, done, or failed." }, `REJECTED-${input.message_id}`);
+      bus.send(rejected);
+      return structuredClone(rejected);
+    }
     const existing = messages.get(input.message_id);
     if (existing) return { ...structuredClone(existing), duplicate: true };
     const commandResult = agentId === "builder" && ticketCommandParser?.parse?.(input.payload.text);
@@ -28,6 +44,8 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       messages.set(input.message_id, Object.freeze(structuredClone(notice)));
       return structuredClone(notice);
     }
+    const round = (conversationRounds.get(input.conversation_id) ?? 0) + 1;
+    conversationRounds.set(input.conversation_id, round);
     const message = {
       id: input.message_id,
       project_id: input.project_id,
@@ -36,7 +54,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       message_type: "owner.message",
       conversation_id: input.conversation_id,
       correlation_id: input.correlation_id,
-      payload: { text: input.payload.text, ...(commandResult?.ticket ? { task: normalizeTask({ id: commandResult.ticket_id, title: commandResult.ticket.title ?? commandResult.ticket_id, objective: commandResult.ticket.objective ?? input.payload.text, acceptance_criteria: [] }, input) } : {}), ...(input.payload.task ? { task: normalizeTask(input.payload.task, input) } : {}) },
+      payload: { text: input.payload.text, round, ...(commandResult?.ticket ? { task: normalizeTask({ id: commandResult.ticket_id, title: commandResult.ticket.title ?? commandResult.ticket_id, objective: commandResult.ticket.objective ?? input.payload.text, acceptance_criteria: ["Owner chat dispatch"] }, input) } : {}), ...(input.payload.task ? { task: normalizeTask(input.payload.task, input) } : {}) },
       timestamp: input.timestamp
     };
     // Bus persists via the canonical Communication Store before dispatching.
