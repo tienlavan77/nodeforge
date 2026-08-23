@@ -41,3 +41,14 @@ test("owner chat dispatches only ready commands with the ticket id as task id", 
   assert.equal(dispatched[0].task_id, "NF-1");
   assert.equal(sent[0].payload.task.id, "NF-1");
 });
+
+test("normalizes whitespace inside ticket ids", () => {
+  const result = parser([{ id: "FORGE-VALIDATE-001", status: "pending" }]).parse("/ticket FORGE-\n  VALIDATE-001");
+  assert.equal(result.status, "ready");
+  assert.equal(result.ticket_id, "FORGE-VALIDATE-001");
+});
+
+test("malformed ticket commands return syntax errors instead of falling back", () => {
+  assert.equal(parseTicketCommand("/ticket" ).status, "syntax_error");
+  assert.equal(parser([]).parse("/ticket ???").status, "not_found");
+});
