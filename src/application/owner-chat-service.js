@@ -10,7 +10,7 @@ const ticketSchema = require("../../schemas/governance/ticket.schema.json");
 const agentToolSchema = require("../../schemas/agent/agent-tool.schema.json");
 const AGENT_TOOL_PROTOCOL_UNLIMITED = "\n\nAgent tool loop protocol:\n- Use request_info whenever more context is needed.\n- Node continues returning context until submit_code; there is no round limit.\n- submit_code must include the main file and any test file in files[].";
 
-export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, executeAgentTool, debug = () => {}, streamBatchMs = 500 } = {}) {
+export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, executeAgentTool, ticketCommandParser, dispatchAgentTicket, debug = () => {}, streamBatchMs = 500 } = {}) {
   if (typeof bus?.send !== "function") throw new ConfigurationError("Owner Chat Service requires the shared Communication Bus.");
   if (!Number.isInteger(streamBatchMs) || streamBatchMs < 1) throw new ConfigurationError("Owner Chat stream batch interval must be positive.");
   const messages = new Map();
@@ -22,6 +22,12 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     const agentId = input.agent_id ?? architectureManagerId;
     const existing = messages.get(input.message_id);
     if (existing) return { ...structuredClone(existing), duplicate: true };
+    const commandResult = agentId === "builder" && ticketCommandParser?.parse?.(input.payload.text);
+    if (commandResult?.command && commandResult.status !== "ready") {
+      const notice = bus.send(responseMessage({ id: input.message_id, project_id: input.project_id, conversation_id: input.conversation_id, correlation_id: input.correlation_id, timestamp: input.timestamp, sender: { id: "NODE", role: "node" }, recipient: { id: "builder", role: "builder" } }, "ticket.status", commandResult, `TICKET-${input.message_id}`));
+      messages.set(input.message_id, Object.freeze(structuredClone(notice)));
+      return structuredClone(notice);
+    }
     const message = {
       id: input.message_id,
       project_id: input.project_id,
@@ -30,13 +36,14 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       message_type: "owner.message",
       conversation_id: input.conversation_id,
       correlation_id: input.correlation_id,
-      payload: { text: input.payload.text, ...(input.payload.task ? { task: normalizeTask(input.payload.task, input) } : {}) },
+      payload: { text: input.payload.text, ...(commandResult?.ticket ? { task: normalizeTask({ id: commandResult.ticket_id, title: commandResult.ticket.title ?? commandResult.ticket_id, objective: commandResult.ticket.objective ?? input.payload.text, acceptance_criteria: [] }, input) } : {}), ...(input.payload.task ? { task: normalizeTask(input.payload.task, input) } : {}) },
       timestamp: input.timestamp
     };
     // Bus persists via the canonical Communication Store before dispatching.
     const persisted = bus.send(message);
     messages.set(persisted.id, Object.freeze(structuredClone(persisted)));
-    if (typeof agentStream === "function") void streamRealAgent(persisted, agentId);
+    if (commandResult?.command && commandResult.status === "ready" && typeof dispatchAgentTicket === "function") void dispatchAgentTicket({ task_id: commandResult.ticket_id, ticket: commandResult.ticket, message: persisted, agent_id: agentId, eventSink: input.eventSink });
+    else if (typeof agentStream === "function") void streamRealAgent(persisted, agentId);
     else if (typeof agentRequest === "function") void requestRealAgent(persisted, agentId);
     return structuredClone(persisted);
   }
