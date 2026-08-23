@@ -563,6 +563,7 @@ function SprintPlanDashboard({ dashboard, client, onRefresh }) {
       <p>{dashboard.current_sprint.objective}</p>
       <small>{dashboard.current_sprint.ticket_count ?? dashboard.current_sprint.tickets?.length ?? 0} tickets · {dashboard.current_sprint.status ?? "planned"}</small>
     </article>}
+    {dashboard?.backlog?.length > 0 && <section className="sprint-ticket-list" aria-label="Tickets in current sprint"><h3>Tickets</h3>{dashboard.backlog.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} client={client} projectId={dashboard.project_id} onRefresh={onRefresh} />)}</section>}
     {sprints.map((sprint) => {
       const isCurrent = sprint.id === currentId;
       if (isCurrent) return null;
