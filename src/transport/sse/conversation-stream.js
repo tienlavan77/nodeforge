@@ -11,7 +11,7 @@ export function createConversationStream({ bus, communicationStore, eventStore, 
 
   return Object.freeze({ connect });
 
-  function connect({ projectId, conversationId, response, afterMessageId } = {}) {
+  function connect({ projectId, conversationId, response, afterMessageId, replayLimit = 100 } = {}) {
     assertId(projectId, "project");
     assertId(conversationId, "conversation");
     if (!response?.write || typeof response.end !== "function") throw new ConfigurationError("Conversation SSE requires a writable response.");
@@ -22,24 +22,35 @@ export function createConversationStream({ bus, communicationStore, eventStore, 
       "x-accel-buffering": "no"
     });
     const seen = new Set();
+    const pending = [];
+    let replaying = true;
+    let closed = false;
+    const observer = (message) => {
+      if (message.project_id === projectId && message.conversation_id === conversationId) {
+        if (replaying) pending.push(message);
+        else write(message);
+      }
+    };
+    bus.subscribeAll(observer);
+    const eventSubscriptions = ["agent.*", "verification.result", "governance.sprint_plan.created"].map((eventType) => subscriptions?.subscribe?.(eventType, (event) => {
+      if ((event.project_id ?? event.metadata?.project_id) === projectId && (event.metadata?.conversation_id ?? event.metadata?.task_id) === conversationId) {
+        const message = eventMessage(event);
+        if (replaying) pending.push(message);
+        else write(message);
+      }
+    })).filter(Boolean);
     const replay = communicationStore.getByConversationId(conversationId)
       .filter((message) => message.project_id === projectId);
     const eventReplay = (eventStore?.getAll?.() ?? [])
       .filter((event) => (event.project_id ?? event.metadata?.project_id) === projectId && (event.metadata?.conversation_id ?? event.metadata?.task_id) === conversationId)
       .map(eventMessage);
     const replayMessages = [...replay.map(messageEnvelope), ...eventReplay].sort(compareStreamEvents);
-    const replayStart = afterMessageId ? Math.max(0, replayMessages.findIndex((message) => message.id === afterMessageId) + 1) : 0;
+    const cursorIndex = afterMessageId ? replayMessages.findIndex((message) => message.id === afterMessageId) : -1;
+    const replayStart = afterMessageId && cursorIndex >= 0 ? cursorIndex + 1 : Math.max(0, replayMessages.length - normalizeLimit(replayLimit));
     for (const message of replayMessages.slice(replayStart)) write(message);
     response.write("event: conversation.replay.complete\ndata: {}\n\n");
-
-    const observer = (message) => {
-      if (message.project_id === projectId && message.conversation_id === conversationId) write(message);
-    };
-    bus.subscribeAll(observer);
-    const eventSubscriptions = ["agent.*", "verification.result", "governance.sprint_plan.created"].map((eventType) => subscriptions?.subscribe?.(eventType, (event) => {
-      if ((event.project_id ?? event.metadata?.project_id) === projectId && (event.metadata?.conversation_id ?? event.metadata?.task_id) === conversationId) write(eventMessage(event));
-    })).filter(Boolean);
-    let closed = false;
+    replaying = false;
+    for (const message of pending.splice(0).sort(compareStreamEvents)) write(message);
     return Object.freeze({
       close() {
         if (closed) return false;
@@ -59,6 +70,11 @@ export function createConversationStream({ bus, communicationStore, eventStore, 
       response.write(`id: ${event.message_id}\nevent: ${eventName}\ndata: ${JSON.stringify(event)}\n\n`);
     }
   }
+}
+
+function normalizeLimit(value) {
+  const limit = Number(value);
+  return Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 100;
 }
 
 function compareStreamEvents(left, right) {
