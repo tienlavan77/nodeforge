@@ -781,6 +781,7 @@ function DashboardData({ dashboard, client, onRefresh }) {
 
 function TicketCard({ ticket, client, projectId, onRefresh }) {
   const [message, setMessage] = useState("");
+  const [viewOpen, setViewOpen] = useState(false);
   async function run() {
     try {
       await client.postOwnerMessage({ projectId, conversationId: "CONV-BUILDER", agentId: "builder", messageId: `MSG-UI-RUN-${ticket.id}-${Date.now()}`, correlationId: `CORR-UI-RUN-${ticket.id}-${Date.now()}`, text: `/ticket ${ticket.id}` });
@@ -793,7 +794,11 @@ function TicketCard({ ticket, client, projectId, onRefresh }) {
     try { await client.deleteTicket(projectId, ticket.id); setMessage("Deleted"); await onRefresh?.(); }
     catch (error) { setMessage(error.message); }
   }
-  return <article className="dashboard-ticket"><div><strong>{ticket.id}</strong><span className="priority">{ticket.priority}</span></div><p>{ticket.title}</p><small>{ticket.status} · {ticket.progress}%</small><div><button onClick={run} disabled={ticket.status === "done" || ticket.status === "running"}>Run</button><button onClick={remove} disabled={ticket.status === "done" || ticket.status === "running"}>Delete</button></div>{message && <small>{message}</small>}{ticket.provenance && <small className="provenance">{ticket.provenance.architecture_decision_ids.join(", ")} → {ticket.provenance.roadmap_id} → {ticket.provenance.sprint_id}</small>}</article>;
+  return <><article className="dashboard-ticket"><div><strong>{ticket.id}</strong><span className="priority">{ticket.priority}</span></div><p>{ticket.title}</p><small>{ticket.status} · {ticket.progress}%</small><div className="ticket-actions"><button className="sprint-view-button small" onClick={() => setViewOpen(true)}>View</button><button className="sprint-run-button small" onClick={run} disabled={ticket.status === "done" || ticket.status === "running"}>Run</button><button className="sprint-delete-button small" onClick={remove} disabled={ticket.status === "done" || ticket.status === "running"}>Delete</button></div>{message && <small>{message}</small>}{ticket.provenance && <small className="provenance">{ticket.provenance.architecture_decision_ids.join(", ")} → {ticket.provenance.roadmap_id} → {ticket.provenance.sprint_id}</small>}</article>{viewOpen && <TicketModal ticket={ticket} onClose={() => setViewOpen(false)} />}</>;
+}
+
+function TicketModal({ ticket, onClose }) {
+  return <div className="sprint-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="sprint-modal" role="dialog" aria-modal="true" aria-label={`Ticket ${ticket.id}`}><header><h2>{ticket.id}</h2><button onClick={onClose} aria-label="Close ticket">&#215;</button></header><div className="sprint-modal-content"><p className="sprint-objective">{ticket.title}</p><p>{ticket.objective ?? "No objective provided."}</p><p><strong>Status:</strong> {ticket.status} · {ticket.progress}%</p><h3>Acceptance Criteria</h3><ul>{(ticket.acceptance_criteria ?? []).map((item) => <li key={item}>{item}</li>)}</ul></div></section></div>;
 }
 
 function WorkspaceSection({ title, items, empty }) {
