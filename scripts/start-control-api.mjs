@@ -50,6 +50,7 @@ import { createTestService } from "../src/application/test-service.js";
 import { createFileService } from "../src/infrastructure/filesystem/file-service.js";
 import { createUnifiedStreamOrderer } from "../src/modules/events/unified-stream-order.js";
 import { createTicketCommandParser } from "../src/application/ticket-command-parser.js";
+import { createProseTicketService } from "../src/application/prose-ticket-service.js";
 
 const port = Number(process.env.NODE_CONTROL_PORT ?? 3100);
 const host = process.env.NODE_CONTROL_HOST ?? "127.0.0.1";
@@ -137,6 +138,7 @@ const runtimeService = createRuntimeService({
 });
 const sprintOrchestration = createSprintOrchestrationService({ runtimeService, sprintPlans, sprintPlanStore: roadmaps, ticketProvenanceTracker: provenance, agentGateway, publisher: eventPublisher });
 const ticketCommandParser = createTicketCommandParser({ roadmapStore: roadmaps });
+const proseTicketService = createProseTicketService({ roadmapStore: roadmaps });
 const sprintPlanUpload = createSprintPlanUploadService({ roadmaps, projectRoot: process.cwd(), isRunning: (sprintId) => sprintOrchestration.isRunning(sprintId) });
 const buildBuilderContext = async ({ message }) => {
   const ticketId = message.payload.text.match(/\b[A-Z][A-Z0-9]+-[A-Z0-9]+-T\d+\b/i)?.[0];
@@ -209,7 +211,7 @@ function assertAgentSourcePath(path, { directory = false } = {}) {
 }
 const api = createHttpApi({
   runtimeService,
-  ownerChatService: createOwnerChatService({ bus, internalBus, ticketCommandParser, buildAgentContext: buildBuilderContext, executeAgentTool, debug: (detail) => console.log(`[agent-loop] ${JSON.stringify(detail)}`), dispatchAgentTicket: ({ task_id: taskId, ticket, message }) => streamTicket({ taskId, ticket, message }), agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId, eventSink: publishUnifiedStreamEvent }), onAgentCompleted: sprintOrchestration.ingestAgentCompletion }),
+  ownerChatService: createOwnerChatService({ bus, internalBus, ticketCommandParser, proseTicketService, buildAgentContext: buildBuilderContext, executeAgentTool, debug: (detail) => console.log(`[agent-loop] ${JSON.stringify(detail)}`), dispatchAgentTicket: ({ task_id: taskId, ticket, message }) => streamTicket({ taskId, ticket, message }), agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId, eventSink: publishUnifiedStreamEvent }), onAgentCompleted: sprintOrchestration.ingestAgentCompletion }),
   conversationStream: createConversationStream({ bus, communicationStore: communications, eventStore, subscriptions }),
   architectureWorkspaceService: createArchitectureWorkspaceService({ knowledge, roadmaps, sprintPlans }),
   projectDashboardService: createProjectDashboardService({ roadmaps, sprintPlans, provenance }),

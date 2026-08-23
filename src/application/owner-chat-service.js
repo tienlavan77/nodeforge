@@ -10,7 +10,7 @@ const ticketSchema = require("../../schemas/governance/ticket.schema.json");
 const agentToolSchema = require("../../schemas/agent/agent-tool.schema.json");
 const AGENT_TOOL_PROTOCOL_UNLIMITED = "\n\nAgent tool loop protocol:\n- Use request_info whenever more context is needed.\n- Node continues returning context until submit_code; there is no round limit.\n- submit_code must include the main file and any test file in files[].";
 
-export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, executeAgentTool, ticketCommandParser, dispatchAgentTicket, internalBus, debug = () => {}, streamBatchMs = 500 } = {}) {
+export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, executeAgentTool, ticketCommandParser, proseTicketService, dispatchAgentTicket, internalBus, debug = () => {}, streamBatchMs = 500 } = {}) {
   if (typeof bus?.send !== "function") throw new ConfigurationError("Owner Chat Service requires the shared Communication Bus.");
   if (!Number.isInteger(streamBatchMs) || streamBatchMs < 1) throw new ConfigurationError("Owner Chat stream batch interval must be positive.");
   const messages = new Map();
@@ -38,7 +38,14 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     }
     const existing = messages.get(input.message_id);
     if (existing) return { ...structuredClone(existing), duplicate: true };
-    const commandResult = agentId === "builder" && ticketCommandParser?.parse?.(input.payload.text);
+    const isBuilder = agentId === "builder" || agentId === "builder-ex";
+    const proseResult = isBuilder && proseTicketService?.parse?.(input.payload.text, { projectId: input.project_id, timestamp: input.timestamp, sourceId: input.message_id });
+    if (proseResult?.create_ticket) {
+      const notice = bus.send(responseMessage({ id: input.message_id, project_id: input.project_id, conversation_id: input.conversation_id, correlation_id: input.correlation_id, timestamp: input.timestamp, sender: { id: "NODE", role: "node" }, recipient: { id: "builder-ex", role: "builder" } }, "ticket.creation", proseResult, `TICKET-CREATE-${input.message_id}`));
+      messages.set(input.message_id, Object.freeze(structuredClone(notice)));
+      return structuredClone(notice);
+    }
+    const commandResult = isBuilder && ticketCommandParser?.parse?.(input.payload.text);
     if (commandResult?.command && commandResult.status !== "ready") {
       const notice = bus.send(responseMessage({ id: input.message_id, project_id: input.project_id, conversation_id: input.conversation_id, correlation_id: input.correlation_id, timestamp: input.timestamp, sender: { id: "NODE", role: "node" }, recipient: { id: "builder", role: "builder" } }, "ticket.status", commandResult, `TICKET-${input.message_id}`));
       messages.set(input.message_id, Object.freeze(structuredClone(notice)));
