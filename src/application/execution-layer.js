@@ -1,3 +1,7 @@
+// validated by FORGE-VALIDATE-002
+// validated by FORGE-VALIDATE-003
+// validated by FORGE-VALIDATE-002
+// validated by FORGE-VALIDATE-001G
 import { ConfigurationError } from "../shared/errors.js";
 
 export const EXECUTION_ERROR_CODES = Object.freeze(["CHECKSUM_MISMATCH", "PATCH_NOT_APPLICABLE", "AMBIGUOUS_MATCH", "NO_MATCH", "SYNTAX_ERROR", "LINT_FAILED", "TEST_FAILED", "BUILD_FAILED", "IO_ERROR"]);
