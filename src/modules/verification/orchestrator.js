@@ -70,6 +70,16 @@ export function createVerificationOrchestrator({
         ready_for_review: results.length > 0 && results.every(({ status }) => status === "passed")
       };
 
+      // Preserve each executed step so callers can explain a failed aggregate.
+      result.breakdown = results.map((entry) => ({
+        kind: entry.kind ?? "test",
+        status: entry.status,
+        command: entry.command,
+        exit_code: entry.exit_code,
+        ...(entry.failures?.length ? { failures: entry.failures } : {}),
+        ...(entry.diagnostics?.length ? { diagnostics: entry.diagnostics } : {})
+      }));
+
       for (const type of CHECK_TYPES) {
         const typeResults = results.filter((entry) => entry.kind === type || (type === "test" && entry.tests !== undefined));
         result[RESULT_KEYS[type]] = gateStatus(typeResults);

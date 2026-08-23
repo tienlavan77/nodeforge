@@ -114,7 +114,9 @@ const fileService = createFileService({
     if (!testService || !path.startsWith("tests/")) return;
     const result = await testService.runTests({ commitId: `FILE-${path}-${Date.now()}`, levels: ["unit_test"], taskId: path });
     if (result.status !== "passed" || result.ready_for_review !== true) {
-      throw new Error(`Verification failed for ${path}: ${result.status}`);
+      const error = new Error(`Verification failed for ${path}: ${result.status}`);
+      error.verificationResult = result;
+      throw error;
     }
     return result;
   }

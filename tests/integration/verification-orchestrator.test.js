@@ -21,6 +21,13 @@ test("orchestrates test and build/lint/typecheck passes into a review-ready gate
   assert.equal(result.run_id, "VERIFY-RUN-PASS");
   assert.equal(result.status, "passed");
   assert.equal(result.ready_for_review, true);
+  assert.equal(result.breakdown.length, 4);
+  assert.deepEqual(result.breakdown.map(({ kind, status }) => ({ kind, status })), [
+    { kind: "test", status: "passed" },
+    { kind: "build", status: "passed" },
+    { kind: "lint", status: "passed" },
+    { kind: "typecheck", status: "passed" }
+  ]);
   assert.deepEqual(result, {
     commit_id: "NF-063",
     run_id: "VERIFY-RUN-PASS",
