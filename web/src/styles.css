@@ -48,7 +48,7 @@ button, input { font: inherit; }
 .dashboard-section p { margin: 0 0 5px; color: #aeb4c0; font-size: 15px; line-height: 1.35; }
 .dashboard-section small { color: #737b89; font-family: 'DM Mono', monospace; font-size: 15px; }
 .dashboard-tickets { display: grid; gap: 6px; }
-.dashboard-ticket { border: 0; background: transparent; padding: 8px 0; }
+.dashboard-ticket { border: 0; background: transparent; padding: 10px 12px; }
 .dashboard-ticket > div { display: flex; justify-content: space-between; gap: 8px; }
 .dashboard-ticket strong { color: #d7d9e0; font-family: 'DM Mono', monospace; font-size: 15px; font-weight: 500; }
 .dashboard-ticket p { margin: 4px 0; }
