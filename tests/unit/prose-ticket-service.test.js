@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createProseTicketService } from "../../src/application/prose-ticket-service.js";
+import { createProseTicketService, nextVersion } from "../../src/application/prose-ticket-service.js";
 import { createRoadmapStore } from "../../src/modules/governance/roadmap-store.js";
 
 test("creates and persists a valid ticket from structured owner prose", () => {
@@ -49,3 +49,24 @@ test("structured JSON with missing fields reports exact omissions and does not p
   assert.ok(result.missing.includes("acceptance_criteria"));
   assert.equal(store.getCurrent(), undefined);
 });
+
+test("increments semantic versions after status suffixes", () => {
+  assert.equal(nextVersion("1.0.1"), "1.0.2");
+  assert.equal(nextVersion("1.0.1-status-123-status-456"), "1.0.2");
+});
+
+test("persists a new ticket after a status-versioned roadmap", () => {
+  const store = createRoadmapStore();
+  const service = createProseTicketService({ roadmapStore: store });
+  service.parse(JSON.stringify(ticket("TICKET-VERSION-1")));
+  const base = store.getCurrent();
+  store.save({ ...base, version: "1.0.1" });
+  store.save({ ...store.getCurrent(), version: "1.0.1-status-123-status-456" });
+  const result = service.parse(JSON.stringify(ticket("TICKET-VERSION-2")));
+  assert.equal(result.status, "created");
+  assert.equal(result.roadmap.version, "1.0.2");
+});
+
+function ticket(id) {
+  return { id, project_id: "PROJECT-CHAT", roadmap_id: "ROADMAP-PROJECT-CHAT", sprint_id: "SPRINT-PROJECT-CHAT", title: id, objective: "Use structured input", acceptance_criteria: ["Persist ticket"], priority: "normal", provenance: { source: "project_owner", source_id: id, created_at: "2026-08-23T00:00:00Z" } };
+}

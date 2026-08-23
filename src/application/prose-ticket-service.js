@@ -48,7 +48,7 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
   function persist(ticket) {
     const current = roadmapStore.getCurrent();
     const next = current
-      ? { ...current, version: nextVersion(current.version), updated_at: ticket.provenance.created_at, sprints: current.sprints.map((item, index) => index === current.sprints.length - 1 ? { ...item, tickets: [...(item.tickets ?? []), ticket] } : item) }
+      ? { ...current, version: nextAvailableVersion(current.version, roadmapStore), updated_at: ticket.provenance.created_at, sprints: current.sprints.map((item, index) => index === current.sprints.length - 1 ? { ...item, tickets: [...(item.tickets ?? []), ticket] } : item) }
       : { id: ticket.roadmap_id, project_id: ticket.project_id, version: "1.0.0", created_at: ticket.provenance.created_at, sprints: [{ id: ticket.sprint_id, roadmap_id: ticket.roadmap_id, project_id: ticket.project_id, objective: ticket.objective, tickets: [ticket], exit_criteria: ["All planned tickets are complete."] }] };
     const roadmap = roadmapStore.save(next);
     return { create_ticket: true, status: "created", ticket, roadmap };
@@ -81,9 +81,17 @@ function extract(text) {
   };
 }
 
-function nextVersion(version = "1.0.0") {
-  const parts = String(version).split(".").map(Number);
-  return `${parts[0] || 1}.${parts[1] || 0}.${(parts[2] || 0) + 1}`;
+function nextAvailableVersion(version, roadmapStore) {
+  const existing = new Set(roadmapStore.getAllVersions?.().map(({ version: item }) => item) ?? []);
+  let candidate = nextVersion(version);
+  while (existing.has(candidate)) candidate = nextVersion(candidate);
+  return candidate;
+}
+
+export function nextVersion(version = "1.0.0") {
+  const match = String(version).match(/^(\d+)\.(\d+)\.(\d+)/);
+  if (!match) return "1.0.1";
+  return `${Number(match[1])}.${Number(match[2])}.${Number(match[3]) + 1}`;
 }
 
 function createValidator() {
