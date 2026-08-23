@@ -21,3 +21,13 @@ test("trace logger receives only the normalized trace", () => {
   logExecutionTrace(context, { info: (_message, payload) => logs.push(payload) });
   assert.equal(logs[0].trace[0].error_code, "IO_ERROR");
 });
+
+test("emits each execution step immediately in trace order", () => {
+  const events = [];
+  let context = createExecutionContext({ taskId: "TASK-STREAM", stepId: 4, change: {}, eventSink: (event) => events.push(event) });
+  context = withExecutionResult(context, { stepName: "verifyChecksum", success: true });
+  context = withExecutionResult(context, { stepName: "applySearchReplaceBlock", success: false, errorCode: "NO_MATCH" });
+  assert.deepEqual(events.map((event) => event.event_type), ["node.execution_step", "node.execution_step"]);
+  assert.deepEqual(events.map((event) => event.payload.result.step_name), ["verifyChecksum", "applySearchReplaceBlock"]);
+  assert.deepEqual(events.map((event) => event.task_id), ["TASK-STREAM", "TASK-STREAM"]);
+});
