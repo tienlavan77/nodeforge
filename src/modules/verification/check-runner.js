@@ -38,19 +38,21 @@ export function createCheckRunner({ projectRoot, projectId, spawnProcess, create
   const execute = createProjectCommandExecutor({ projectRoot, spawnProcess });
 
   return Object.freeze({
-    async run(plan, { taskId, sessionId, timeoutMs } = {}) {
+    async run(plan, { taskId, sessionId, timeoutMs, eventSink } = {}) {
       validatePlan(plan);
       const results = [];
       for (const check of plan.checks.filter(({ type }) => CHECK_TYPES.has(type))) {
-        results.push(await runCheck(check, { taskId, sessionId, timeoutMs }));
+        results.push(await runCheck(check, { taskId, sessionId, timeoutMs, eventSink }));
       }
       return Object.freeze(results);
     }
   });
 
-  async function runCheck(check, { taskId, sessionId, timeoutMs }) {
+  async function runCheck(check, { taskId, sessionId, timeoutMs, eventSink }) {
     const startedAt = clock();
     const effectiveTimeout = timeoutMs ?? defaultTimeout(check.type);
+    const commandId = createId();
+    emitCommand(eventSink, taskId, commandId, check.command, check.type, startedAt);
     const execution = await execute(check.command, { timeoutMs: effectiveTimeout });
     const finishedAt = clock();
     const status = execution.timedOut ? "timeout" : execution.exitCode === 0 ? "passed" : "failed";
@@ -72,8 +74,23 @@ export function createCheckRunner({ projectRoot, projectId, spawnProcess, create
     if (taskId !== undefined) result.task_id = taskId;
     if (sessionId !== undefined) result.session_id = sessionId;
     validateResult(result);
+    emitCommandResult(eventSink, taskId, commandId, execution, result, finishedAt);
     return Object.freeze(result);
   }
+
+  function emitCommand(sink, taskId, commandId, command, phase, startedAt) {
+    if (typeof sink !== "function" || typeof taskId !== "string") return;
+    const phaseName = phase === "lint" ? "runLint" : phase === "build" ? "runBuildCheck" : phase === "test" ? "runTests" : undefined;
+    sink({ event_type: "node.command", task_id: taskId, timestamp: startedAt.toISOString(), payload: { command_id: commandId, command, ...(phaseName ? { phase: phaseName } : {}) } });
+  }
+
+  function emitCommandResult(sink, taskId, commandId, execution, result, finishedAt) {
+    if (typeof sink !== "function" || typeof taskId !== "string") return;
+    const errorCode = result.status === "passed" ? null : result.status === "timeout" ? "IO_ERROR" : result.kind === "lint" ? "LINT_FAILED" : result.kind === "build" ? "BUILD_FAILED" : "TEST_FAILED";
+    sink({ event_type: "node.command_result", task_id: taskId, timestamp: finishedAt.toISOString(), payload: { command_id: commandId, success: result.status === "passed", result: { step_name: result.kind === "lint" ? "runLint" : result.kind === "build" ? "runBuildCheck" : "runTests", success: result.status === "passed", error_code: errorCode, duration_ms: result.duration_ms }, exit_code: execution.exitCode, stdout: summarize(execution.stdout), stderr: summarize(execution.stderr) } });
+  }
+
+  function summarize(value) { return value.length > 4000 ? `${value.slice(0, 4000)}\n[output truncated]` : value; }
 
   function parseDiagnostics(kind, stdout, stderr) {
     const output = `${stdout}\n${stderr}`;
