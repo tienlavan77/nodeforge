@@ -208,6 +208,7 @@ const executeAgentTool = async (tool, { message, eventSink }) => {
         const execution = await dispatchChange(createExecutionContext({ taskId: message.payload.task?.id ?? message.id, stepId: written.length + 1, change, eventSink }));
         const finalResult = execution.trace.at(-1);
         if (!finalResult?.success) throw new Error(finalResult?.error_message ?? "Execution apply failed.");
+        eventSink?.({ event_type: "node.command_result", task_id: message.payload.task?.id ?? message.id, timestamp: new Date().toISOString(), payload: { command: "dispatchChange", status: "passed", success: true, step_name: finalResult.step_name, error_code: null } });
         console.log(`[agent-loop] file.write.success ${JSON.stringify({ path: file.target_path, code_kind: file.code_kind, execution: finalResult })}`);
         written.push(file.target_path);
       } catch (error) {
