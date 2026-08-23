@@ -555,7 +555,7 @@ function SprintPlanDashboard({ dashboard, client, onRefresh }) {
           <strong>{dashboard.current_sprint.id}</strong>
           <span className="sprint-badge">current</span>{highlightSprint === dashboard.current_sprint.id && <span className="sprint-new-badge">NEW</span>}
         </div>
-          <span><button className="sprint-view-button" onClick={() => handleView(dashboard.current_sprint.id)}>View</button><button className="sprint-delete-button" onClick={() => handleDelete(dashboard.current_sprint.id)} disabled={Boolean(runningId)}>Delete</button><button className={`sprint-run-button ${runningId === dashboard.current_sprint.id ? "is-running" : ""}`} onClick={() => handleRun(dashboard.current_sprint.id)} disabled={Boolean(runningId)} aria-label={`Run ${dashboard.current_sprint.id}`}>
+          <span><button className="sprint-view-button" onClick={() => handleView(dashboard.current_sprint.id)}>View</button><button className="sprint-delete-button" onClick={() => handleDelete(dashboard.current_sprint.id)} disabled={Boolean(runningId) || dashboard.current_sprint.status === "done"}>Delete</button><button className={`sprint-run-button ${runningId === dashboard.current_sprint.id ? "is-running" : ""}`} onClick={() => handleRun(dashboard.current_sprint.id)} disabled={Boolean(runningId) || dashboard.current_sprint.status === "done"} aria-label={`Run ${dashboard.current_sprint.id}`}>
           {runningId === dashboard.current_sprint.id ? "Running…" : "Run"}
         </button>
           </span>
@@ -569,7 +569,7 @@ function SprintPlanDashboard({ dashboard, client, onRefresh }) {
       return <article key={sprint.id} className={`sprint-item ${highlightSprint === sprint.id ? "is-new" : ""}`}>
         <div className="sprint-row">
           <strong>{sprint.id}</strong>{highlightSprint === sprint.id && <span className="sprint-new-badge">NEW</span>}
-        <span><button className="sprint-view-button small" onClick={() => handleView(sprint.id)}>View</button><button className="sprint-delete-button small" onClick={() => handleDelete(sprint.id)} disabled={Boolean(runningId)}>Delete</button><button className={`sprint-run-button small ${runningId === sprint.id ? "is-running" : ""}`} onClick={() => handleRun(sprint.id)} disabled={Boolean(runningId)} aria-label={`Run ${sprint.id}`}>
+        <span><button className="sprint-view-button small" onClick={() => handleView(sprint.id)}>View</button><button className="sprint-delete-button small" onClick={() => handleDelete(sprint.id)} disabled={Boolean(runningId) || sprint.status === "done"}>Delete</button><button className={`sprint-run-button small ${runningId === sprint.id ? "is-running" : ""}`} onClick={() => handleRun(sprint.id)} disabled={Boolean(runningId) || sprint.status === "done"} aria-label={`Run ${sprint.id}`}>
           {runningId === sprint.id ? "Running…" : "Run"}
           </button></span>
         </div>
