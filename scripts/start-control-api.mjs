@@ -205,7 +205,7 @@ function assertAgentSourcePath(path, { directory = false } = {}) {
 }
 const api = createHttpApi({
   runtimeService,
-  ownerChatService: createOwnerChatService({ bus, buildAgentContext: buildBuilderContext, executeAgentTool, debug: (detail) => console.log(`[agent-loop] ${JSON.stringify(detail)}`), agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId }), onAgentCompleted: sprintOrchestration.ingestAgentCompletion }),
+  ownerChatService: createOwnerChatService({ bus, buildAgentContext: buildBuilderContext, executeAgentTool, debug: (detail) => console.log(`[agent-loop] ${JSON.stringify(detail)}`), agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId, eventSink: publishUnifiedStreamEvent }), onAgentCompleted: sprintOrchestration.ingestAgentCompletion }),
   conversationStream: createConversationStream({ bus, communicationStore: communications, eventStore, subscriptions }),
   architectureWorkspaceService: createArchitectureWorkspaceService({ knowledge, roadmaps, sprintPlans }),
   projectDashboardService: createProjectDashboardService({ roadmaps, sprintPlans, provenance }),
@@ -215,6 +215,13 @@ const api = createHttpApi({
   sprintPlanUploadService: sprintPlanUpload,
   sprintOrchestrationService: sprintOrchestration
 });
+
+function publishUnifiedStreamEvent(event) {
+  // Unified stream events are forwarded on the internal bus; persistence and SSE
+  // fan-out are owned by the streaming ticket that follows this adapter wiring.
+  internalBus.emit(event.event_type, event);
+  internalBus.emit("event", event);
+}
 const server = api.createServer().listen(port, host, () => {
   process.stdout.write(`Node Control API listening on http://${host}:${port}\n`);
 });
