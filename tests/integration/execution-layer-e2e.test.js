@@ -6,6 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createExecutionContext } from "../../src/application/execution-layer.js";
 import { dispatchChange } from "../../src/application/dispatch-change.js";
+import { rollbackFile } from "../../src/application/execution-handlers/backup.js";
 
 const digest = (text) => `sha256:${createHash("sha256").update(text).digest("hex")}`;
 async function fixture(content) {
@@ -26,6 +27,13 @@ test("dispatchChange applies search/replace, preserves backup, and records order
     const backupRef = result.trace[1].detail.backup_ref;
     await access(backupRef);
     assert.equal(await readFile(backupRef, "utf8"), original);
+
+    // Simulate a later verification failure and restore through the real rollback path.
+    await writeFile(fixtureData.filePath, "verification failure\n");
+    const rollback = await rollbackFile(fixtureData.filePath, backupRef);
+    assert.equal(rollback.success, true);
+    assert.equal(rollback.step_name, "rollbackFile");
+    assert.equal(await readFile(fixtureData.filePath, "utf8"), original);
   } finally { await rm(fixtureData.directory, { recursive: true, force: true }); }
 });
 
