@@ -42,6 +42,18 @@ test("owner chat dispatches only ready commands with the ticket id as task id", 
   assert.equal(sent[0].payload.task.id, "NF-1");
 });
 
+test("owner chat preserves canonical roadmap metadata for /ticket dispatch", async () => {
+  const { createOwnerChatService } = await import("../../src/application/owner-chat-service.js");
+  const sent = [];
+  const bus = { send: (message) => { sent.push(message); return message; }, sendFast: () => {}, flush: async () => {} };
+  const ticket = { id: "NF-ROADMAP-1", title: "Roadmap ticket", objective: "Run it", status: "pending", project_id: "P", roadmap_id: "ROADMAP-P", sprint_id: "SPRINT-P" };
+  const chat = createOwnerChatService({ bus, ticketCommandParser: parser([ticket]), dispatchAgentTicket: () => {} });
+  chat.submit({ message_id: "MSG-ROADMAP-1", project_id: "P", conversation_id: "CONV-BU", correlation_id: "CORR-ROADMAP-1", timestamp: "2026-08-23T10:00:00Z", agent_id: "builder", payload: { text: "/ticket NF-ROADMAP-1" } });
+  assert.equal(sent[0].payload.task.roadmap_id, "ROADMAP-P");
+  assert.equal(sent[0].payload.task.sprint_id, "SPRINT-P");
+  assert.notEqual(sent[0].payload.task.roadmap_id, "ROADMAP-DIRECT");
+});
+
 test("normalizes whitespace inside ticket ids", () => {
   const result = parser([{ id: "FORGE-VALIDATE-001", status: "pending" }]).parse("/ticket FORGE-\n  VALIDATE-001");
   assert.equal(result.status, "ready");
