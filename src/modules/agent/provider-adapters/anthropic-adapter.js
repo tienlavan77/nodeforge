@@ -1,10 +1,11 @@
 import { ConfigurationError } from "../../../shared/errors.js";
+import { buildMessages, mapUsage } from "./request-builder.js";
 
 export async function request({ url, credential, payload, model, correlationId, signal }) {
   const body = {
     model: model || process.env.CLAUDE_MODEL || process.env.NODE_AGENT_MODEL || "claude-sonnet-4-5-20251001",
     max_tokens: 8192,
-    messages: [{ role: "user", content: payload.text ?? JSON.stringify(payload) }],
+    messages: buildMessages(payload),
     tools: toAnthropicTools(payload.tools),
   };
   const response = await fetch(url, {
@@ -17,14 +18,14 @@ export async function request({ url, credential, payload, model, correlationId, 
   const data = await response.json();
   const text = data?.content?.find((c) => typeof c?.text === "string")?.text ?? data?.output_text ?? extractText(data);
   if (!text) throw new ConfigurationError("Agent Gateway response is invalid.");
-  return { status: data.status ?? "completed", payload: { text, response_id: data.id ?? data.response_id } };
+  return { status: data.status ?? "completed", payload: { text, response_id: data.id ?? data.response_id, usage: mapUsage(data.usage) } };
 }
 
 export async function* stream({ url, credential, payload, model, correlationId, signal }) {
   const body = {
     model: model || process.env.CLAUDE_MODEL || process.env.NODE_AGENT_MODEL || "claude-sonnet-4-5-20251001",
     max_tokens: 8192,
-    messages: [{ role: "user", content: payload.text ?? JSON.stringify(payload) }],
+    messages: buildMessages(payload),
     tools: toAnthropicTools(payload.tools),
     stream: true
   };
@@ -50,6 +51,7 @@ export async function* stream({ url, credential, payload, model, correlationId, 
       if (event.type === "content_block_delta" && typeof event.delta?.text === "string") yield { text: event.delta.text };
       else if (event.type === "response.output_text.delta" && typeof event.delta === "string") yield { text: event.delta };
       else if (event.type === "error") throw new ConfigurationError("Agent Gateway stream failed.");
+      else if (event.type === "message_delta" && event.usage) yield { usage: mapUsage(event.usage) };
       if (event.type === "message_stop" || event.type === "response.completed") {
         const rid = event.message?.id ?? event.response?.id ?? event.id;
         if (rid) yield { response_id: rid };

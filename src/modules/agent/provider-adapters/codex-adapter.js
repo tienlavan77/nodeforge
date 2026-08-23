@@ -1,10 +1,11 @@
 import { ConfigurationError } from "../../../shared/errors.js";
+import { buildCacheOptions, buildResponsesInput, mapOpenAIUsage } from "./openai-request-builder.js";
 
 export async function request({ url, credential, payload, model, correlationId, signal }) {
   url = responsesUrl(url);
   const isResponses = true;
   const requestBody = isResponses
-    ? { model: model || process.env.NODE_AGENT_MODEL || "gpt-5.6-terra", input: payload.text ?? JSON.stringify(payload) }
+    ? { model: model || process.env.NODE_AGENT_MODEL || "gpt-5.6-terra", input: buildResponsesInput(payload), ...buildCacheOptions(payload) }
     : payload;
   const response = await fetch(url, {
     method: "POST",
@@ -14,7 +15,7 @@ export async function request({ url, credential, payload, model, correlationId, 
   });
   if (!response.ok) throw await gatewayError(response, "Codex Responses");
   const body = await response.json();
-  if (isResponses) return { status: body.status ?? "completed", payload: { text: extractResponseText(body), response_id: body.id, tool_use: extractToolUse(body) } };
+  if (isResponses) return { status: body.status ?? "completed", payload: { text: extractResponseText(body), response_id: body.id, tool_use: extractToolUse(body), usage: mapOpenAIUsage(body.usage) } };
   return { status: body.status ?? "completed", payload: { text: extractResponseText(body), response_id: body.id ?? body.response_id } };
 }
 
@@ -23,7 +24,7 @@ export async function* stream({ url, credential, payload, model, correlationId, 
   const response = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${credential}`, "x-correlation-id": correlationId },
-    body: JSON.stringify({ model: model || process.env.NODE_AGENT_MODEL || "gpt-5.6-terra", input: payload.text ?? JSON.stringify(payload), tools: toResponsesTools(payload.tools), stream: true }),
+    body: JSON.stringify({ model: model || process.env.NODE_AGENT_MODEL || "gpt-5.6-terra", input: buildResponsesInput(payload), ...buildCacheOptions(payload), tools: toResponsesTools(payload.tools), stream: true }),
     signal
   });
   if (!response.ok) throw await gatewayError(response, "Codex Responses stream");
@@ -47,7 +48,7 @@ export async function* stream({ url, credential, payload, model, correlationId, 
         try { input = JSON.parse(event.arguments ?? "{}"); } catch { throw new ConfigurationError("Codex tool input is invalid."); }
         yield { tool_use: { id: event.call_id ?? event.item_id, name: event.name ?? "terminal.run", input } };
       }
-      if (event.type === "response.completed") yield { response_id: event.response?.id ?? event.response?.response_id };
+      if (event.type === "response.completed") yield { response_id: event.response?.id ?? event.response?.response_id, usage: mapOpenAIUsage(event.response?.usage ?? event.usage) };
       if (event.type === "error") throw new ConfigurationError("Agent Gateway stream failed.");
     }
   }

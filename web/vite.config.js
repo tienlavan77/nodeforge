@@ -1,7 +1,10 @@
 import { defineConfig } from "vite";
 import { fileURLToPath, URL } from "node:url";
+import { loadNodeforgeEnv } from "../scripts/nodeforge-env.mjs";
 
-const nodeApiUrl = process.env.VITE_NODE_API_URL ?? "http://127.0.0.1:3100";
+loadNodeforgeEnv();
+
+const nodeApiUrl = process.env.VITE_NODE_API_URL ?? "http://192.168.1.181:3100";
 
 export default defineConfig({
   root: fileURLToPath(new URL(".", import.meta.url)),

@@ -11,6 +11,7 @@
  */
 
 import { ConfigurationError } from "../../../shared/errors.js";
+import { buildMessages, mapUsage } from "./request-builder.js";
 
 /**
  * Normalize URL to ensure /v1/messages endpoint
@@ -27,7 +28,7 @@ export async function request({ url, credential, payload, model, correlationId, 
   const requestBody = {
     model: model || process.env.DEVQUOTE_MODEL || process.env.NODE_AGENT_MODEL || "claude-haiku-4-5",
     max_tokens: 8192,
-    messages: [{ role: "user", content: payload.text ?? JSON.stringify(payload) }],
+    messages: buildMessages(payload),
     tools: toAnthropicTools(payload.tools),
   };
 
@@ -56,7 +57,8 @@ export async function request({ url, credential, payload, model, correlationId, 
     status: data.status ?? "completed",
     payload: {
       text,
-      response_id: data.id ?? data.message?.id ?? data.response_id
+      response_id: data.id ?? data.message?.id ?? data.response_id,
+      usage: mapUsage(data.usage)
     }
   };
 }
@@ -66,7 +68,7 @@ export async function* stream({ url, credential, payload, model, correlationId, 
   const requestBody = {
     model: model || process.env.DEVQUOTE_MODEL || process.env.NODE_AGENT_MODEL || "claude-haiku-4-5",
     max_tokens: 8192,
-    messages: [{ role: "user", content: payload.text ?? JSON.stringify(payload) }],
+    messages: buildMessages(payload),
     tools: toAnthropicTools(payload.tools),
     stream: true
   };
@@ -130,6 +132,8 @@ export async function* stream({ url, credential, payload, model, correlationId, 
         const rid = event.message?.id ?? event.id;
         if (rid) yield { response_id: rid };
         else yield { response_id: "devquote-stream-complete" };
+      } else if (event.type === "message_delta" && event.usage) {
+        yield { usage: mapUsage(event.usage) };
       } else if (event.type === "error") {
         throw new ConfigurationError("Devquote Gateway stream failed.");
       }

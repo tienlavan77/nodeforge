@@ -51,10 +51,17 @@ import { createFileService } from "../src/infrastructure/filesystem/file-service
 
 const port = Number(process.env.NODE_CONTROL_PORT ?? 3100);
 const host = process.env.NODE_CONTROL_HOST ?? "127.0.0.1";
-const dataDir = process.env.NODE_CONTROL_DATA_DIR ?? join(process.cwd(), ".node-control");
+const runtimeRoot = join(process.cwd(), ".forge", "runtime");
+const dataDir = process.env.NODE_CONTROL_DATA_DIR ?? join(runtimeRoot, "nf");
 // Keep UI-control persistence isolated from the repository index database.
 const processLock = acquireProcessLock(dataDir, "control");
-const database = await createDatabaseService({ dataDir });
+// Control DB (.forge/runtime/nf) — chats, agents, sessions, events
+const controlDb = await createDatabaseService({ dataDir, runtimeDir: "." });
+// Index DB (.forge/runtime/wc/index.db) — watcher/indexer/context sharing
+// Project index uses the same queued DatabaseService as the watcher. Reads stay
+// parallel under WAL, while all index mutations are serialized through `write`.
+const indexDb = await createDatabaseService({ dataDir: process.cwd(), runtimeDir: join(".forge", "runtime", "wc") });
+const database = controlDb;
 const communications = createAgentCommunicationStore({ database });
 const profiles = createAgentProfileStore({ database });
 const agentConfiguration = createNodeAgentConfiguration({ profiles, configurationPath: join(dataDir, "agent-config.json") });
@@ -112,7 +119,7 @@ const history = createHistoryStore({ subscriptions });
 const summaries = createTaskSummaryStore({ history });
 const memory = createProjectMemoryStore({ summaries });
 const memoryRetriever = createMemoryRetriever({ memory });
-const contextEngine = createContextEngine({ database, projectRoot: process.cwd(), projectId });
+const contextEngine = createContextEngine({ database: indexDb, projectRoot: process.cwd(), projectId });
 const baseContext = createAgentContextService({ memoryRetriever, taskSummaries: summaries, taskStore });
 const contextService = createFilesystemAwareContextService({ baseContextService: baseContext, contextEngine, budgetManager: createContextBudgetManager(), maxFacts: Number(process.env.NODE_AGENT_MAX_FACTS ?? 200), debug: (detail) => process.env.NODE_DEBUG_CONTEXT && console.debug(detail) });
 const fileTool = createProjectFileTool({ projectRoot: process.cwd(), fileService });
@@ -214,7 +221,8 @@ const server = api.createServer().listen(port, host, () => {
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.once(signal, () => server.close(async () => {
-    database.close();
+    await indexDb.close();
+    await controlDb.close();
     processLock.release();
     process.exit(0);
   }));

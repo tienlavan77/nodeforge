@@ -6,7 +6,7 @@ import { loadNodeforgeEnv } from "./nodeforge-env.mjs";
 
 loadNodeforgeEnv();
 
-const stateDir = process.env.NODE_CONTROL_DATA_DIR ?? join(process.cwd(), ".node-control");
+const stateDir = process.env.NODE_CONTROL_DATA_DIR ?? join(process.cwd(), ".forge", "runtime", "nf");
 const stateFile = join(stateDir, "dev-forge.pids.json");
 const command = process.argv[2];
 
@@ -28,12 +28,11 @@ async function start() {
   mkdirSync(logDir, { recursive: true });
   const nodePid = launch(process.execPath, ["scripts/start-dev.mjs"], join(logDir, "node.log"));
   writeFileSync(stateFile, JSON.stringify({ nodePid, startedAt: new Date().toISOString() }, null, 2));
-  console.log("Forge development started:");
+  console.log("Forge development started (VPS):");
   console.log(`  [RUNNING] Control API + source restart supervisor (pid ${nodePid})`);
-  console.log("            http://127.0.0.1:3100");
-  console.log(`  [RUNNING] Filesystem/index watcher (managed by supervisor ${nodePid})`);
-  console.log("            project files -> indexer -> verification");
-  console.log("  [NOT RUNNING] Vite Web UI (start separately with npm run dev:web)");
+  console.log("            http://127.0.0.1:3100  (scripts/start-dev.mjs -> scripts/start-control-api.mjs)");
+  console.log("  [SEPARATE] Filesystem/index watcher — run separately: npm run dev:watcher");
+  console.log("  [CLIENT]  Vite Web UI — runs on macOS: npm run dev:web (vite --host 0.0.0.0 --config web/vite.config.js)");
 }
 
 function launch(file, args, logPath) {
@@ -49,12 +48,13 @@ async function stop() {
   if (!state) {
     console.log("Forge development processes are not running:");
     console.log("  [STOPPED] Control API + source restart supervisor (not found)");
-    console.log("  [STOPPED] Vite Web UI (not managed by forge:start)");
+    console.log("  [SEPARATE] Filesystem/index watcher (not managed: pkill -f start-project-watcher)");
+    console.log("  [CLIENT]  Vite Web UI (runs on macOS, not managed)");
     return;
   }
   console.log("Stopping Forge development processes:");
   console.log(`  [STOPPING] Control API + source restart supervisor (pid ${state.nodePid})`);
-  console.log("  [STOPPING] Filesystem/index watcher (managed by supervisor)");
+  console.log("  [LEAVING]  Filesystem/index watcher — stop separately: pkill -f start-project-watcher");
   for (const pid of [state.nodePid]) {
     if (!Number.isInteger(pid)) continue;
     try {
@@ -70,9 +70,9 @@ async function stop() {
     }
   }
   try { unlinkSync(stateFile); } catch (error) { if (error.code !== "ENOENT") throw error; }
-  console.log("  [STOPPED] Control API");
-  console.log("  [STOPPED] Filesystem/index watcher");
-  console.log("  [NOT STOPPED] Vite Web UI (not managed by forge:start)");
+  console.log("  [STOPPED] Control API supervisor");
+  console.log("  [NOT TOUCHED] Filesystem/index watcher (separate process)");
+  console.log("  [NOT TOUCHED] Vite Web UI (client macOS)");
   console.log("Forge development processes stopped.");
   await new Promise((resolve) => setTimeout(resolve, 500));
 }

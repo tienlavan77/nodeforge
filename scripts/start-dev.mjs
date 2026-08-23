@@ -5,6 +5,10 @@ import { loadNodeforgeEnv } from "./nodeforge-env.mjs";
 
 loadNodeforgeEnv();
 
+// Control API supervisor only — Vite runs on client macOS (npm run dev:web),
+// watcher runs separately on VPS via `npm run dev:watcher`.
+// This file supervises only the Control API and restarts it on src changes.
+
 const controlPort = Number(process.env.NODE_CONTROL_PORT ?? 3100);
 
 function freePort(port) {
@@ -14,47 +18,45 @@ function freePort(port) {
   } catch {
     return;
   }
-
   for (const value of output.split(/\s+/).filter(Boolean)) {
     const pid = Number(value);
     if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) continue;
-    try {
-      process.kill(pid, "SIGTERM");
-    } catch (error) {
-      if (error.code !== "ESRCH") throw error;
-    }
+    try { process.kill(pid, "SIGTERM"); } catch (error) { if (error.code !== "ESRCH") throw error; }
   }
 }
 
 let control;
-let projectWatcher;
 const children = [];
+
 async function startChildren() {
   freePort(controlPort);
+  await new Promise((r) => setTimeout(r, 300));
   control = spawn(process.execPath, ["scripts/start-control-api.mjs"], {
     stdio: ["ignore", "pipe", "inherit"],
     env: { ...process.env, NODE_DISABLE_PROJECT_WATCHER: "1" },
   });
   children.push(control);
   await new Promise((resolve, reject) => {
-  let listening = false;
-  const onData = (chunk) => {
-    const text = chunk.toString();
-    process.stdout.write(text);
-    if (!listening && text.includes("Node Control API listening")) { listening = true; resolve(); }
-  };
-  control.stdout.on("data", onData);
-  control.once("error", reject);
-  control.once("exit", (code) => reject(new Error(`Node Control API exited before listening (${code ?? "signal"})`)));
+    let listening = false;
+    const onData = (chunk) => {
+      const text = chunk.toString();
+      process.stdout.write(text);
+      if (!listening && text.includes("Node Control API listening")) { listening = true; resolve(); }
+    };
+    control.stdout.on("data", onData);
+    control.once("error", reject);
+    control.once("exit", (code) => reject(new Error(`Node Control API exited before listening (${code ?? "signal"})`)));
+  });
+  control.once("exit", (code) => {
+    if (!stopping && (code ?? 0) !== 0) {
+      process.stderr.write(`Control API exited (code=${code}).\n`);
+      stop();
+      process.exitCode = code ?? 1;
+    }
   });
 }
 
 await startChildren();
-projectWatcher = spawn(process.execPath, ["scripts/start-project-watcher.mjs"], {
-  stdio: "inherit",
-  env: process.env,
-});
-process.stdout.write(`Filesystem/index watcher started (pid ${projectWatcher.pid})\n`);
 
 const sourceWatcher = chokidar.watch(["src/**/*.js", "src/**/*.mjs"], {
   ignoreInitial: true,
@@ -74,8 +76,8 @@ async function restartChildren() {
   if (restarting || stopping) return;
   restarting = true;
   control?.kill("SIGTERM");
-  process.stdout.write("Control API restarting; filesystem/index watcher remains running\n");
-  await new Promise((resolve) => setTimeout(resolve, 300));
+  process.stdout.write("Control API restarting...\n");
+  await new Promise((resolve) => setTimeout(resolve, 500));
   children.splice(0, children.length);
   try { await startChildren(); } finally { restarting = false; }
 }
@@ -85,15 +87,8 @@ function stop() {
   if (stopping) return;
   stopping = true;
   sourceWatcher.close().catch(() => {});
-  projectWatcher?.kill("SIGTERM");
   for (const child of children) child.kill("SIGTERM");
 }
 
 process.once("SIGINT", stop);
 process.once("SIGTERM", stop);
-for (const child of children) child.once("exit", (code, signal) => {
-  if (!stopping && (code ?? 0) !== 0) {
-    stop();
-    process.exitCode = code ?? 1;
-  }
-});
