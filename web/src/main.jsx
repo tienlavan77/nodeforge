@@ -552,25 +552,21 @@ function SprintPlanDashboard({ dashboard, client, onRefresh }) {
           <strong>{dashboard.current_sprint.id}</strong>
           <span className="sprint-badge">current</span>{highlightSprint === dashboard.current_sprint.id && <span className="sprint-new-badge">NEW</span>}
         </div>
-          <span><button className="sprint-collapse-button" onClick={() => setCollapsedSprints((state) => ({ ...state, [dashboard.current_sprint.id]: !state[dashboard.current_sprint.id] }))} aria-label="Toggle sprint details">{collapsedSprints[dashboard.current_sprint.id] ? "+" : "−"}</button><button className="sprint-view-button" onClick={() => handleView(dashboard.current_sprint.id)}>View</button><button className="sprint-delete-button" onClick={() => handleDelete(dashboard.current_sprint.id)} disabled={Boolean(runningId) || dashboard.current_sprint.status === "done"}>Delete</button><button className={`sprint-run-button ${runningId === dashboard.current_sprint.id ? "is-running" : ""}`} onClick={() => handleRun(dashboard.current_sprint.id)} disabled={Boolean(runningId) || dashboard.current_sprint.status === "done"} aria-label={`Run ${dashboard.current_sprint.id}`}>
-          {runningId === dashboard.current_sprint.id ? "Running…" : "Run"}
-        </button>
-          </span>
+          <button className="sprint-collapse-button" onClick={() => setCollapsedSprints((state) => ({ ...state, [dashboard.current_sprint.id]: !state[dashboard.current_sprint.id] }))} aria-label="Toggle sprint details">{collapsedSprints[dashboard.current_sprint.id] ? "+" : "−"}</button>
       </div>
-      {!collapsedSprints[dashboard.current_sprint.id] && <><p>{dashboard.current_sprint.objective}</p><small>{dashboard.current_sprint.ticket_count ?? dashboard.current_sprint.tickets?.length ?? 0} tickets · {dashboard.current_sprint.status ?? "planned"}</small>{dashboard?.backlog?.length > 0 && <div className="sprint-ticket-list" aria-label="Tickets in current sprint">{dashboard.backlog.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} client={client} projectId={dashboard.project_id} onRefresh={onRefresh} />)}</div>}</>}
+      <p>{dashboard.current_sprint.objective}</p>
+      <small>{dashboard.current_sprint.ticket_count ?? dashboard.current_sprint.tickets?.length ?? 0} tickets · {dashboard.current_sprint.status ?? "planned"}</small>
+      {!collapsedSprints[dashboard.current_sprint.id] && dashboard?.backlog?.length > 0 && <div className="sprint-ticket-list" aria-label="Tickets in current sprint">{dashboard.backlog.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} client={client} projectId={dashboard.project_id} onRefresh={onRefresh} />)}</div>}
+      <div className="sprint-actions"><button className="sprint-view-button" onClick={() => handleView(dashboard.current_sprint.id)}>View</button><button className="sprint-delete-button" onClick={() => handleDelete(dashboard.current_sprint.id)} disabled={Boolean(runningId) || dashboard.current_sprint.status === "done"}>Delete</button><button className={`sprint-run-button ${runningId === dashboard.current_sprint.id ? "is-running" : ""}`} onClick={() => handleRun(dashboard.current_sprint.id)} disabled={Boolean(runningId) || dashboard.current_sprint.status === "done"}>{runningId === dashboard.current_sprint.id ? "Running…" : "Run"}</button></div>
     </article>}
     {sprints.map((sprint) => {
       const isCurrent = sprint.id === currentId;
       if (isCurrent) return null;
       return <article key={sprint.id} className={`sprint-item ${highlightSprint === sprint.id ? "is-new" : ""}`}>
-        <div className="sprint-row">
-          <strong>{sprint.id}</strong>{highlightSprint === sprint.id && <span className="sprint-new-badge">NEW</span>}
-        <span><button className="sprint-view-button small" onClick={() => handleView(sprint.id)}>View</button><button className="sprint-delete-button small" onClick={() => handleDelete(sprint.id)} disabled={Boolean(runningId) || sprint.status === "done"}>Delete</button><button className={`sprint-run-button small ${runningId === sprint.id ? "is-running" : ""}`} onClick={() => handleRun(sprint.id)} disabled={Boolean(runningId) || sprint.status === "done"} aria-label={`Run ${sprint.id}`}>
-          {runningId === sprint.id ? "Running…" : "Run"}
-          </button></span>
-        </div>
+        <div className="sprint-row"><strong>{sprint.id}</strong>{highlightSprint === sprint.id && <span className="sprint-new-badge">NEW</span>}</div>
         <p>{sprint.objective}</p>
         <small>{sprint.completed_ticket_count ?? 0}/{sprint.ticket_count ?? sprint.tickets?.length ?? 0} tickets completed · {sprint.status ?? "planned"}</small>
+        <div className="sprint-actions"><button className="sprint-view-button small" onClick={() => handleView(sprint.id)}>View</button><button className="sprint-delete-button small" onClick={() => handleDelete(sprint.id)} disabled={Boolean(runningId) || sprint.status === "done"}>Delete</button><button className={`sprint-run-button small ${runningId === sprint.id ? "is-running" : ""}`} onClick={() => handleRun(sprint.id)} disabled={Boolean(runningId) || sprint.status === "done"}>{runningId === sprint.id ? "Running…" : "Run"}</button></div>
       </article>;
     })}
     {runMessage && <p className="sprint-run-message" role="status" aria-live="polite">{runMessage}</p>}
