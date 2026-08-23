@@ -52,6 +52,7 @@ button, input { font: inherit; }
 .dashboard-ticket > div { display: flex; justify-content: space-between; gap: 8px; }
 .dashboard-ticket strong { color: #d7d9e0; font-family: 'DM Mono', monospace; font-size: 15px; font-weight: 500; }
 .dashboard-ticket p { margin: 4px 0; }
+.ticket-actions { display: flex; justify-content: flex-end; gap: 4px; margin-top: 8px; }
 .priority { color: #e0b979; font-family: 'DM Mono', monospace; font-size: 15px; text-transform: uppercase; }
 .provenance { display: block; margin-top: 5px; color: #8580b8 !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .roadmap-list { display: grid; gap: 5px; }
