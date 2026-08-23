@@ -48,11 +48,11 @@ button, input { font: inherit; }
 .dashboard-section p { margin: 0 0 5px; color: #aeb4c0; font-size: 15px; line-height: 1.35; }
 .dashboard-section small { color: #737b89; font-family: 'DM Mono', monospace; font-size: 15px; }
 .dashboard-tickets { display: grid; gap: 6px; }
-.dashboard-ticket { border: 1px solid #303540; background: #1a1d24; padding: 8px 9px; }
+.dashboard-ticket { border: 0; background: transparent; padding: 8px 0; }
 .dashboard-ticket > div { display: flex; justify-content: space-between; gap: 8px; }
 .dashboard-ticket strong { color: #d7d9e0; font-family: 'DM Mono', monospace; font-size: 15px; font-weight: 500; }
 .dashboard-ticket p { margin: 4px 0; }
-.ticket-actions { display: flex; justify-content: flex-end; gap: 4px; margin-top: 8px; }
+.ticket-actions { display: flex; justify-content: flex-end; gap: 2px; margin-top: 8px; }
 .priority { color: #e0b979; font-family: 'DM Mono', monospace; font-size: 15px; text-transform: uppercase; }
 .provenance { display: block; margin-top: 5px; color: #8580b8 !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .roadmap-list { display: grid; gap: 5px; }
@@ -190,6 +190,9 @@ button, input { font: inherit; }
 .sprint-collapse-button { width: 24px; height: 24px; border: 1px solid #465064; background: #1c222b; color: #cbd5e6; cursor: pointer; font: 700 16px/1 'DM Mono', monospace; }
 .sprint-ticket-list { display: grid; gap: 6px; margin-top: 12px; padding-top: 10px; border-top: 1px solid #303540; }
 .sprint-ticket-list .dashboard-ticket { background: #171a21; }
+.sprint-ticket-list .dashboard-ticket + .dashboard-ticket { border-top: 1px dashed #3a3f4b; }
+.sprint-actions { display: flex; justify-content: flex-end; gap: 2px; margin-top: 10px; padding-top: 8px; border-top: 1px solid #303540; }
+.sprint-collapse-button { margin-left: auto; }
 .sprint-view-button { margin-right: 2px; border: 1px solid #465064; background: #1c222b; color: #cbd5e6; padding: 6px 10px; cursor: pointer; font-size: 15px; }
 .sprint-view-button.small { padding: 4px 9px; font-size: 13px; }
 .sprint-delete-button { margin-right: 2px; border: 1px solid #824a53; background: #2a1d23; color: #eea6ae; padding: 6px 10px; cursor: pointer; font-size: 15px; }
