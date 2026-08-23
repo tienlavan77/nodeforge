@@ -1,0 +1,1 @@
+{"event_type":"node.command_result","task_id":"TASK-STREAM-001","timestamp":"2026-08-23T10:00:03Z","payload":{"command_id":"CMD-1","success":true,"result":{"step_name":"runTests","success":true,"error_code":null,"duration_ms":120},"exit_code":0,"stdout":"ok\n","stderr":""}}

@@ -1,0 +1,1 @@
+{"event_type":"node.execution_step","task_id":"TASK-STREAM-001","timestamp":"2026-08-23T10:00:01Z","payload":{"result":{"step_name":"verifyChecksum","success":true,"error_code":null,"duration_ms":3},"step_id":1}}

@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/stream/unified-event.schema.json",
+  "title": "Forge Unified Stream Event",
+  "description": "Common event envelope for task-scoped node and agent streaming.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event_type", "task_id", "timestamp", "payload"],
+  "properties": {
+    "event_type": { "type": "string", "enum": ["node.status_change", "node.execution_step", "node.command", "node.command_result", "agent.text_stream"] },
+    "task_id": { "type": "string", "minLength": 1 },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "payload": { "type": "object" }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "event_type": { "const": "node.status_change" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["from", "to"],
+          "properties": {
+            "from": { "type": "string", "minLength": 1 },
+            "to": { "type": "string", "enum": ["pending", "running", "reviewing", "done", "failed"] },
+            "ticket_id": { "type": "string", "minLength": 1 },
+            "reason": { "type": "string" }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "event_type": { "const": "node.execution_step" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["result"],
+          "properties": {
+            "result": { "$ref": "../execution/execution-result.schema.json" },
+            "step_id": { "type": "number" }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "event_type": { "const": "node.command" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["command", "command_id"],
+          "properties": {
+            "command": { "type": "string", "minLength": 1 },
+            "command_id": { "type": "string", "minLength": 1 },
+            "phase": { "type": "string", "enum": ["runLint", "runTests", "runBuildCheck"] }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "event_type": { "const": "node.command_result" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["command_id", "success"],
+          "properties": {
+            "command_id": { "type": "string", "minLength": 1 },
+            "success": { "type": "boolean" },
+            "result": { "$ref": "../execution/execution-result.schema.json" },
+            "exit_code": { "type": ["integer", "null"] },
+            "stdout": { "type": "string" },
+            "stderr": { "type": "string" }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "event_type": { "const": "agent.text_stream" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["chunk"],
+          "properties": {
+            "chunk": { "type": "string" },
+            "message_id": { "type": "string", "minLength": 1 },
+            "agent_id": { "type": "string", "minLength": 1 },
+            "conversation_id": { "type": "string", "minLength": 1 },
+            "sequence": { "type": "integer", "minimum": 0 },
+            "done": { "type": "boolean" }
+          }
+        }
+      }
+    }
+  ]
+}
