@@ -100,6 +100,7 @@ const taskStore = createTaskStore({ database, projectId });
 const subscriptions = createSubscriptionRegistry();
 const internalBus = new EventEmitter();
 const unifiedStreamOrder = createUnifiedStreamOrderer();
+let unifiedMessageSequence = 0;
 const eventPublisher = createEventPublisher({ store: eventStore, subscriptions });
 const verificationOrchestrator = createVerificationOrchestrator({ projectRoot: process.cwd(), projectId });
 let testService;
@@ -223,23 +224,45 @@ const api = createHttpApi({
 });
 
 function publishUnifiedStreamEvent(event) {
-  // Unified stream events are forwarded on the internal bus; persistence and SSE
-  // fan-out are owned by the streaming ticket that follows this adapter wiring.
   const ordered = unifiedStreamOrder.assign(event);
   internalBus.emit(ordered.event_type, ordered);
   internalBus.emit("event", ordered);
+  const conversationId = ordered.payload?.conversation_id;
+  if (!conversationId) return ordered;
+  // Persist the same unified event on the communication bus so the conversation
+  // SSE delivers successes and failures alike, including provider errors.
+  try {
+    bus.send({
+      id: `MSG-UNIFIED-${ordered.task_id ?? "EVENT"}-${Date.now()}-${++unifiedMessageSequence}`,
+      project_id: projectId,
+      sender: { id: "NODE", role: "node" },
+      recipient: { id: "project-owner", role: "project_owner" },
+      message_type: ordered.event_type,
+      conversation_id: conversationId,
+      correlation_id: String(ordered.payload?.correlation_id ?? ordered.task_id ?? `UNIFIED-${unifiedMessageSequence}`),
+      payload: { ...ordered.payload, task_id: ordered.task_id, sequence: ordered.sequence },
+      timestamp: ordered.timestamp
+    });
+  } catch (error) {
+    // A malformed side-channel event must never terminate the Control API.
+    console.error(`[unified-stream] delivery failed: ${error.message}`);
+  }
+  return ordered;
 }
 async function streamTicket({ taskId, ticket, message }) {
-  publishUnifiedStreamEvent({ event_type: "node.status_change", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, from: "pending", to: "running", ticket_id: ticket.id } });
   try {
-    for await (const chunk of agentGateway.stream({ agentId: "builder", correlationId: message.correlation_id, payload: { task_id: taskId, text: `${ticket.title}: ${ticket.objective}` }, eventSink: publishUnifiedStreamEvent })) {
-      if (chunk.text) bus.sendFast({ id: `STREAM-${Date.now()}`, project_id: message.project_id, sender: { id: "NODE", role: "node" }, recipient: message.sender, message_type: "agent.text_stream", conversation_id: message.conversation_id, correlation_id: message.correlation_id, payload: { text: chunk.text, task_id: taskId }, timestamp: new Date().toISOString() });
+    publishUnifiedStreamEvent({ event_type: "node.status_change", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, from: "pending", to: "running", ticket_id: ticket.id } });
+    for await (const chunk of agentGateway.stream({ agentId: "builder", correlationId: message.correlation_id, payload: { task_id: taskId, conversation_id: message.conversation_id, text: `${ticket.title}: ${ticket.objective}` }, eventSink: publishUnifiedStreamEvent })) {
+      if (!chunk) continue;
     }
   } catch (error) {
     const reason = error?.code === "RATE_LIMITED" || error?.statusCode === 429 ? "rate_limited" : "provider_error";
-    publishUnifiedStreamEvent({ event_type: "node.command_result", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, command: "agent.stream", status: "failed", exit_code: null, reason, error: error.message } });
-    publishUnifiedStreamEvent({ event_type: "node.status_change", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, from: "running", to: "failed", ticket_id: ticket.id, reason, error: error.message } });
-    bus.send({ id: `MSG-BUILDER-FAILED-${taskId}`, project_id: message.project_id, sender: { id: "builder", role: "builder" }, recipient: { id: "NODE", role: "node" }, message_type: "builder.error", conversation_id: message.conversation_id, correlation_id: message.correlation_id, payload: { task_id: taskId, reason, error: error.message }, timestamp: new Date().toISOString() });
+    const errorMessage = String(error?.message ?? error);
+    const errorCode = error?.code ?? (error?.statusCode === 429 ? "HTTP_429" : "UPSTREAM_ERROR");
+    const detail = `${reason} (${errorCode}): ${errorMessage}`;
+    publishUnifiedStreamEvent({ event_type: "node.command_result", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, command: "agent.stream", status: "failed", exit_code: null, reason, error_code: errorCode, error: errorMessage, message: detail } });
+    publishUnifiedStreamEvent({ event_type: "node.status_change", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, from: "running", to: "failed", ticket_id: ticket.id, reason, error_code: errorCode, error: errorMessage, message: detail } });
+    bus.send({ id: `MSG-BUILDER-FAILED-${taskId}`, project_id: message.project_id, sender: { id: "builder", role: "builder" }, recipient: { id: "NODE", role: "node" }, message_type: "builder.error", conversation_id: message.conversation_id, correlation_id: message.correlation_id, payload: { task_id: taskId, reason, error_code: errorCode, error: errorMessage, message: detail }, timestamp: new Date().toISOString() });
     return { task_id: taskId, status: "failed", reason };
   }
   publishUnifiedStreamEvent({ event_type: "node.status_change", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, from: "running", to: "done", ticket_id: ticket.id } });

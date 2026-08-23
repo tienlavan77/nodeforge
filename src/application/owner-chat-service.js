@@ -66,7 +66,10 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       message_type: "owner.message",
       conversation_id: input.conversation_id,
       correlation_id: input.correlation_id,
-      payload: { text: input.payload.text, round, ...(commandResult?.ticket ? { task: normalizeTask({ id: commandResult.ticket_id, title: commandResult.ticket.title ?? commandResult.ticket_id, objective: commandResult.ticket.objective ?? input.payload.text, acceptance_criteria: ["Owner chat dispatch"] }, input) } : {}), ...(input.payload.task ? { task: normalizeTask(input.payload.task, input) } : {}) },
+      // Preserve the canonical roadmap ticket for /ticket commands. The old
+      // reduced shape triggered the generic direct-task fallback and replaced
+      // roadmap/sprint metadata with ROADMAP-DIRECT values.
+      payload: { text: input.payload.text, round, ...(commandResult?.ticket ? { task: normalizeTask(commandResult.ticket, input) } : {}), ...(input.payload.task ? { task: normalizeTask(input.payload.task, input) } : {}) },
       timestamp: input.timestamp
     };
     // Bus persists via the canonical Communication Store before dispatching.

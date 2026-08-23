@@ -38,5 +38,17 @@ export function parseTicketCommand(text) {
 }
 
 function summarize(ticket) {
-  return { id: ticket.id, title: ticket.title, objective: ticket.objective, status: ticket.status ?? "pending", dependencies: ticket.depends_on ?? ticket.dependencies ?? [] };
+  return {
+    id: ticket.id,
+    title: ticket.title,
+    objective: ticket.objective,
+    acceptance_criteria: ticket.acceptance_criteria ?? [],
+    status: ticket.status ?? "pending",
+    dependencies: ticket.depends_on ?? ticket.dependencies ?? [],
+    ...(ticket.project_id ? { project_id: ticket.project_id } : {}),
+    ...(ticket.roadmap_id ? { roadmap_id: ticket.roadmap_id } : {}),
+    ...(ticket.sprint_id ? { sprint_id: ticket.sprint_id } : {}),
+    ...(ticket.priority ? { priority: ticket.priority } : {}),
+    ...(ticket.provenance ? { provenance: ticket.provenance } : {})
+  };
 }
