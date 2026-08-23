@@ -212,6 +212,7 @@ function App() {
             pushLiveHistory(agent.id, message);
           }
           if (message.message_type === "governance.sprint_plan.created") loadDashboard();
+          if (message.message_type === "node.status_change" && message.payload?.ticket_id) loadDashboard();
           if (agent.id === "architecture-manager" && message.message_type === "architecture.message.received") loadWorkspace();
         },
         onReplayComplete: () => setWorkingByAgent((prev) => ({ ...prev, [agent.id]: prev[agent.id] === "WORKING" ? "READY" : prev[agent.id] })),
