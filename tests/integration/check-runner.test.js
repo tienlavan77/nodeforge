@@ -49,3 +49,17 @@ function scenarios() {
 function plan(type, command) {
   return { commit_id: "NF-062", levels: ["focused"], checks: [{ type, command }] };
 }
+
+test("emits command and command_result around a real check", async () => {
+  const events = [];
+  const projectRoot = await mkdtemp(join(os.tmpdir(), "nodeforge-check-events-"));
+  try {
+    const runner = createCheckRunner({ projectRoot, projectId: "PROJECT-events" });
+    const [result] = await runner.run(plan("build", `${nodeCommand} -e "process.exit(0)"`), { taskId: "TASK-events", eventSink: (event) => events.push(event) });
+    assert.equal(result.status, "passed");
+    assert.deepEqual(events.map(({ event_type }) => event_type), ["node.command", "node.command_result"]);
+    assert.equal(events[0].task_id, "TASK-events");
+    assert.equal(events[1].payload.command_id, events[0].payload.command_id);
+    assert.equal(events[1].payload.success, true);
+  } finally { await rm(projectRoot, { recursive: true, force: true }); }
+});

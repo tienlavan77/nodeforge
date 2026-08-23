@@ -39,6 +39,17 @@ test("runs a failing project test command and captures normalized failure eviden
   }]);
 });
 
+test("emits command and command_result around a project test", async () => {
+  const events = [];
+  const runner = createTestRunner({ projectRoot, projectId: "PROJECT-verification-events" });
+  const [result] = await runner.run(plan(`${nodeCommand} --test cases/pass-case.js`), { taskId: "TASK-verification-events", eventSink: (event) => events.push(event) });
+  assert.equal(result.status, "passed");
+  assert.deepEqual(events.map(({ event_type }) => event_type), ["node.command", "node.command_result"]);
+  assert.equal(events[0].payload.phase, "runTests");
+  assert.equal(events[0].task_id, "TASK-verification-events");
+  assert.equal(events[1].payload.command_id, events[0].payload.command_id);
+});
+
 function plan(command) {
   return {
     commit_id: "NF-061",
