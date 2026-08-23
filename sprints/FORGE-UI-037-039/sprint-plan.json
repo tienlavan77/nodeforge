@@ -1,0 +1,76 @@
+{
+  "id": "SPRINT-FORGE-UI-037-039",
+  "roadmap_id": "ROADMAP-NODEFORGE",
+  "project_id": "PROJECT-NODEFORGE",
+  "objective": "Cải thiện UI ticket: responsive trên thiết bị nhỏ, xem chi tiết ticket bằng ngôn ngữ dễ đọc, và hiển thị đúng JSON/code block trong chat.",
+  "tickets": [
+    {
+      "id": "FORGE-UI-037",
+      "project_id": "PROJECT-NODEFORGE",
+      "roadmap_id": "ROADMAP-NODEFORGE",
+      "sprint_id": "SPRINT-FORGE-UI-037-039",
+      "title": "Làm giao diện NodeForge responsive trên desktop và mobile",
+      "objective": "Điều chỉnh layout và style của UI để các tab chat, roadmap, sprint và nút thao tác vẫn dễ sử dụng trên màn hình hẹp mà không tràn ngang hoặc che mất nội dung.",
+      "acceptance_criteria": [
+        "UI hiển thị đầy đủ và không tạo thanh cuộn ngang ở viewport desktop, tablet và mobile.",
+        "Các tab chat, ô nhập, nút Run/View và danh sách roadmap co giãn hoặc chuyển bố cục hợp lý trên màn hình hẹp.",
+        "Không làm thay đổi endpoint, payload hoặc hành vi dispatch hiện tại.",
+        "Có test hoặc kiểm tra build chứng minh frontend build thành công sau thay đổi."
+      ],
+      "priority": "high",
+      "dependencies": [],
+      "provenance": {
+        "source": "project_owner",
+        "source_id": "FORGE-UI-037",
+        "created_at": "2026-08-23T10:30:00Z"
+      }
+    },
+    {
+      "id": "FORGE-UI-038",
+      "project_id": "PROJECT-NODEFORGE",
+      "roadmap_id": "ROADMAP-NODEFORGE",
+      "sprint_id": "SPRINT-FORGE-UI-037-039",
+      "title": "Hiển thị chi tiết ticket bằng nội dung dễ đọc",
+      "objective": "Khi owner bấm View trên ticket hoặc sprint, UI hiển thị thông tin ticket theo dạng trình bày dễ đọc thay vì đổ nguyên object JSON lên màn hình.",
+      "acceptance_criteria": [
+        "Màn hình chi tiết có các nhãn rõ ràng cho mã ticket, tiêu đề, mục tiêu, ưu tiên, trạng thái và sprint.",
+        "Acceptance criteria và dependencies hiển thị thành danh sách dễ đọc; dependency rỗng có thông báo rõ ràng.",
+        "Provenance và metadata kỹ thuật được đặt trong khu vực phụ, không lấn át nội dung chính.",
+        "Dữ liệu lấy từ ticket hiện tại, không tự bịa hoặc làm mất field; View không dispatch ticket."
+      ],
+      "priority": "high",
+      "dependencies": [],
+      "provenance": {
+        "source": "project_owner",
+        "source_id": "FORGE-UI-038",
+        "created_at": "2026-08-23T10:30:00Z"
+      }
+    },
+    {
+      "id": "FORGE-UI-039",
+      "project_id": "PROJECT-NODEFORGE",
+      "roadmap_id": "ROADMAP-NODEFORGE",
+      "sprint_id": "SPRINT-FORGE-UI-037-039",
+      "title": "Hiển thị JSON ticket trong chat dưới dạng code block",
+      "objective": "Khi owner gửi ticket bằng JSON structured, chat phải giữ và hiển thị lại nội dung trong code block dễ đọc; không được làm mất JSON hoặc biến nó thành tin nhắn trống.",
+      "acceptance_criteria": [
+        "Tin nhắn JSON structured hợp lệ được render nguyên nội dung trong code block với định dạng JSON dễ đọc.",
+        "JSON nhiều dòng, dấu ngoặc, chuỗi tiếng Việt và field acceptance_criteria không bị cắt hoặc biến mất.",
+        "Tin nhắn prose thường vẫn render như prose, không bị bọc nhầm vào code block.",
+        "Code block chỉ là cách hiển thị; không tự dispatch lại và không làm thay đổi payload lưu trữ gốc.",
+        "Có test UI hoặc test formatter cho cả JSON hợp lệ, JSON lỗi và prose thường."
+      ],
+      "priority": "high",
+      "dependencies": [],
+      "provenance": {
+        "source": "project_owner",
+        "source_id": "FORGE-UI-039",
+        "created_at": "2026-08-23T10:30:00Z"
+      }
+    }
+  ],
+  "exit_criteria": [
+    "Ba ticket được validate theo ticket.schema.json và lưu vào roadmap trước khi dispatch.",
+    "validate:schemas, lint, typecheck, build:web và git diff --check pass."
+  ]
+}
