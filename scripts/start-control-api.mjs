@@ -217,7 +217,7 @@ const executeAgentTool = async (tool, { message, eventSink }) => {
       }
     }
     const chars = files.reduce((sum, file) => sum + file.content.length, 0);
-    return { content: `Wrote ${written.join(", ")}`, token_usage: { input_tokens: 0, output_tokens: Math.ceil(chars / 4) } };
+    return { content: `Wrote ${written.join(", ")}`, paths: written, token_usage: { input_tokens: 0, output_tokens: Math.ceil(chars / 4) } };
   }
   throw new Error("Unsupported agent tool request.");
 };
@@ -272,6 +272,7 @@ async function streamTicket({ taskId, ticket, message }) {
     const dependencies = (ticket.dependencies ?? []).join(", ") || "none";
     let requestPayload = ticketRequestPayload({ taskId, conversationId: message.conversation_id, ticket, text: ticketPrompt(ticket, acceptance, dependencies) });
     let submitted = false;
+    let appliedPaths = [];
     for (let round = 1; round <= 10 && !submitted; round += 1) {
       let requestedContext = false;
       for await (const chunk of agentGateway.stream({ agentId: "builder", correlationId: message.correlation_id, payload: requestPayload, eventSink: publishUnifiedStreamEvent })) {
@@ -281,6 +282,7 @@ async function streamTicket({ taskId, ticket, message }) {
         for (const file of tool.files ?? []) if (file.module_system !== "esm") throw new Error("Every submitted file must declare module_system: esm.");
         const result = await executeAgentTool(tool, { message: { ...message, payload: { ...message.payload, task: ticket } }, eventSink: publishUnifiedStreamEvent, agentId: "builder" });
         if (tool.kind === "submit_code") {
+          appliedPaths = result.paths ?? [];
           submitted = true;
           break;
         }
@@ -298,9 +300,9 @@ async function streamTicket({ taskId, ticket, message }) {
       if (!requestedContext && !submitted) break;
     }
     if (!submitted) throw new Error("Builder stream ended without submit_code.");
-    const { stdout } = await runGit("git", ["status", "--porcelain", "--", ...written], { cwd: process.cwd() });
+    const { stdout } = await runGit("git", ["status", "--porcelain", "--", ...appliedPaths], { cwd: process.cwd() });
     if (!stdout.trim()) throw new Error("No applied changes to commit.");
-    await runGit("git", ["add", "--", ...written], { cwd: process.cwd() });
+    await runGit("git", ["add", "--", ...appliedPaths], { cwd: process.cwd() });
     await runGit("git", ["commit", "-m", `chore: apply ${ticket.id}`], { cwd: process.cwd() });
     roadmaps.updateTicketStatus({ projectId: message.project_id, ticketId: ticket.id, status: "done" });
   } catch (error) {
