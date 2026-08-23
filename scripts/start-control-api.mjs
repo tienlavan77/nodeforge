@@ -258,12 +258,7 @@ async function streamTicket({ taskId, ticket, message }) {
     publishUnifiedStreamEvent({ event_type: "node.status_change", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, from: "pending", to: "running", ticket_id: ticket.id } });
     const acceptance = (ticket.acceptance_criteria ?? []).map((item) => `- ${item}`).join("\n");
     const dependencies = (ticket.dependencies ?? []).join(", ") || "none";
-    let requestPayload = {
-      task_id: taskId,
-      conversation_id: message.conversation_id,
-      text: `Ticket ${ticket.id}: ${ticket.title}\nObjective: ${ticket.objective}\nAcceptance criteria:\n${acceptance || "- Follow the objective."}\nDependencies: ${dependencies}`,
-      task: ticket
-    };
+    let requestPayload = ticketRequestPayload({ taskId, conversationId: message.conversation_id, ticket, text: ticketPrompt(ticket, acceptance, dependencies) });
     let submitted = false;
     for (let round = 1; round <= 10 && !submitted; round += 1) {
       let requestedContext = false;
@@ -278,7 +273,12 @@ async function streamTicket({ taskId, ticket, message }) {
           break;
         }
         if (tool.kind === "request_info") {
-          requestPayload = { task_id: taskId, conversation_id: message.conversation_id, text: `task_id: ${taskId}\ncontext_status: context_ready\ntool_result: ${String(result.content ?? result).slice(0, 12000)}\nnext_step: submit_code\nReturn submit_code now.` };
+          requestPayload = ticketRequestPayload({
+            taskId,
+            conversationId: message.conversation_id,
+            ticket,
+            text: `${ticketPrompt(ticket, acceptance, dependencies)}\n\nContext status: context_ready\nTool result:\n${String(result.content ?? result).slice(0, 12000)}\n\nNext step: submit_code. Return submit_code now.`
+          });
           requestedContext = true;
           break;
         }
@@ -304,6 +304,14 @@ async function streamTicket({ taskId, ticket, message }) {
   }
   publishUnifiedStreamEvent({ event_type: "node.status_change", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, from: "running", to: "done", ticket_id: ticket.id } });
   return { task_id: taskId, status: "done" };
+}
+
+function ticketPrompt(ticket, acceptance, dependencies) {
+  return `Ticket ${ticket.id}: ${ticket.title}\nObjective: ${ticket.objective}\nAcceptance criteria:\n${acceptance || "- Follow the objective."}\nDependencies: ${dependencies}`;
+}
+
+function ticketRequestPayload({ taskId, conversationId, ticket, text }) {
+  return { task_id: taskId, conversation_id: conversationId, text, task: ticket };
 }
 const server = api.createServer().listen(port, host, () => {
   process.stdout.write(`Node Control API listening on http://${host}:${port}\n`);
