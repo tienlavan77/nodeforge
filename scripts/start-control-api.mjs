@@ -1,4 +1,7 @@
 import process from "node:process";
+import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
 import { loadNodeforgeEnv } from "./nodeforge-env.mjs";
@@ -48,6 +51,8 @@ import { createSprintOrchestrationService } from "../src/application/sprint-orch
 import { createVerificationOrchestrator } from "../src/modules/verification/orchestrator.js";
 import { createTestService } from "../src/application/test-service.js";
 import { createFileService } from "../src/infrastructure/filesystem/file-service.js";
+import { dispatchChange } from "../src/application/dispatch-change.js";
+import { createExecutionContext } from "../src/application/execution-layer.js";
 import { createUnifiedStreamOrderer } from "../src/modules/events/unified-stream-order.js";
 import { createTicketCommandParser } from "../src/application/ticket-command-parser.js";
 import { createProseTicketService } from "../src/application/prose-ticket-service.js";
@@ -161,7 +166,8 @@ const buildBuilderContext = async ({ message }) => {
   }
   return sections.filter(Boolean).join("\n\n");
 };
-const executeAgentTool = async (tool, { message }) => {
+const runGit = promisify(execFile);
+const executeAgentTool = async (tool, { message, eventSink }) => {
   if (tool.kind === "request_info") {
     if (tool.tool === "read_file") {
       assertAgentSourcePath(tool.target_path);
@@ -196,9 +202,14 @@ const executeAgentTool = async (tool, { message }) => {
       if ((file.code_kind === "main" && !file.target_path.startsWith("src/")) || (file.code_kind === "test" && !file.target_path.startsWith("tests/"))) throw new Error(`Agent ${file.code_kind} code must stay under ${file.code_kind === "main" ? "src/" : "tests/"}.`);
       console.log(`[agent-loop] file.write.request ${JSON.stringify({ path: file.target_path, target_dir: file.target_dir, file_operation: file.file_operation, code_kind: file.code_kind, chars: file.content.length })}`);
       try {
-        const result = await fileService.writeFile({ path: file.target_path, content: file.content, commit: { target_path: file.target_path, target_dir: file.target_dir, file_operation: file.file_operation, allowed_change_areas: file.allowed_change_areas } });
-        console.log(`[agent-loop] file.write.success ${JSON.stringify({ ...result, code_kind: file.code_kind })}`);
-        written.push(result.path);
+        const current = await fileService.readFile({ path: file.target_path }).catch(() => "");
+        const checksum = `sha256:${createHash("sha256").update(current).digest("hex")}`;
+        const change = { file_path: file.target_path, checksum_before: checksum, ...(file.content.includes("@@") ? { diff: file.content } : { content: file.content }) };
+        const execution = await dispatchChange(createExecutionContext({ taskId: message.payload.task?.id ?? message.id, stepId: written.length + 1, change, eventSink }));
+        const finalResult = execution.trace.at(-1);
+        if (!finalResult?.success) throw new Error(finalResult?.error_message ?? "Execution apply failed.");
+        console.log(`[agent-loop] file.write.success ${JSON.stringify({ path: file.target_path, code_kind: file.code_kind, execution: finalResult })}`);
+        written.push(file.target_path);
       } catch (error) {
         console.error(`[agent-loop] file.write.error ${JSON.stringify({ path: file.target_path, error: error.message })}`);
         throw error;
@@ -267,7 +278,7 @@ async function streamTicket({ taskId, ticket, message }) {
         const tool = chunk.tool_use.input ?? chunk.tool_use;
         if (tool.kind === "submit_code" && tool.module_system !== "esm") throw new Error("Builder code must declare module_system: esm; use import/export, not require/module.exports.");
         for (const file of tool.files ?? []) if (file.module_system !== "esm") throw new Error("Every submitted file must declare module_system: esm.");
-        const result = await executeAgentTool(tool, { message: { ...message, payload: { ...message.payload, task: ticket } }, agentId: "builder" });
+        const result = await executeAgentTool(tool, { message: { ...message, payload: { ...message.payload, task: ticket } }, eventSink: publishUnifiedStreamEvent, agentId: "builder" });
         if (tool.kind === "submit_code") {
           submitted = true;
           break;
@@ -286,6 +297,10 @@ async function streamTicket({ taskId, ticket, message }) {
       if (!requestedContext && !submitted) break;
     }
     if (!submitted) throw new Error("Builder stream ended without submit_code.");
+    const { stdout } = await runGit("git", ["status", "--porcelain", "--", ...written], { cwd: process.cwd() });
+    if (!stdout.trim()) throw new Error("No applied changes to commit.");
+    await runGit("git", ["add", "--", ...written], { cwd: process.cwd() });
+    await runGit("git", ["commit", "-m", `chore: apply ${ticket.id}`], { cwd: process.cwd() });
     roadmaps.updateTicketStatus({ projectId: message.project_id, ticketId: ticket.id, status: "done" });
   } catch (error) {
     const reason = error?.code === "RATE_LIMITED" || error?.statusCode === 429 ? "rate_limited" : "provider_error";
