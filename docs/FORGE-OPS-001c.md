@@ -30,6 +30,29 @@ The repository supervisor restarts Control API only:
 npm run dev:forge -- --restart
 ```
 
+`npm run dev:forge` uses the `node` executable resolved from the current shell
+`PATH`; it does not guarantee the required Node version. An SSH session can
+still resolve Node 18, which cannot load the built-in `node:sqlite` module and
+will crash before the API starts. On the VPS, use the pinned Node 26.3.1
+binary explicitly for every restart:
+
+```sh
+NODE26=/home/tienlavan/.nvm/versions/node/v26.3.1/bin
+"$NODE26/node" scripts/dev-forge.mjs --restart
+```
+
+Verify before starting:
+
+```sh
+"$NODE26/node" --version   # v26.3.1
+```
+
+The supervisor should eventually grow a startup guard that checks
+`process.versions.node` and exits with an explicit diagnostic when the major
+version is unsupported, rather than allowing a later `node:sqlite` crash. That
+guard is a separate runtime ticket; the pinned command above is the current
+safe procedure.
+
 Restart the separate watcher using the VPS process manager, or manually when appropriate:
 
 ```sh
