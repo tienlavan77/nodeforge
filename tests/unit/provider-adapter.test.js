@@ -246,6 +246,23 @@ test("gateway preserves correlation_id through adapter stream and normalizes del
   assert(!JSON.stringify(chunks).includes("secret"));
 });
 
+test("gateway forwards Anthropic and OpenAI adapter deltas to one event shape", async () => {
+  for (const provider of ["anthropic", "codex"]) {
+    const events = [];
+    const gateway = createAgentGateway({
+      configuration: { getById: () => ({ agent_id: "architecture-manager", agent_name: "AM", gateway_url: "https://gateway.example.test/v1/responses", credential_ref: "env:K", enabled: true, status: "configured", created_at: "2026-08-22T10:00:00Z", updated_at: "2026-08-22T10:00:00Z", provider }) },
+      credentialResolver: () => "secret",
+      adapterRegistry: () => ({ request: async () => ({ status: "completed", payload: { text: "ok" } }), stream: async function* () { yield { text: "delta-1" }; yield { text: "delta-2" }; } })
+    });
+    const chunks = [];
+    for await (const chunk of gateway.stream({ agentId: "architecture-manager", correlationId: `CORR-${provider}`, payload: { task_id: `TASK-${provider}`, text: "hi" }, eventSink: (event) => events.push(event) })) chunks.push(chunk);
+    assert.deepEqual(chunks.filter((chunk) => chunk.text).map((chunk) => chunk.text), ["delta-1", "delta-2"]);
+    assert.deepEqual(events.map((event) => event.event_type), ["agent.text_stream", "agent.text_stream"]);
+    assert.deepEqual(events.map((event) => event.task_id), [`TASK-${provider}`, `TASK-${provider}`]);
+    assert(events.every((event) => Object.keys(event.payload).every((key) => ["chunk", "agent_id", "sequence", "done"].includes(key))));
+  }
+});
+
 test("gateway maps provider-specific errors and timeouts without leaking credential", async () => {
   const secret = "leak-secret-xyz";
   const failingAdapter = { request: async () => { throw new Error(`upstream failed with ${secret}`); }, stream: async function* () { yield* []; throw new Error(`stream failed ${secret}`); } };
