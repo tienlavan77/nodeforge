@@ -28,3 +28,16 @@ test("distinguishes missing and already active tickets", () => {
   assert.equal(service.parse("/ticket NF-1").status, "running");
   assert.equal(service.parse("/ticket NF-2").status, "done");
 });
+
+test("owner chat dispatches only ready commands with the ticket id as task id", async () => {
+  const { createOwnerChatService } = await import("../../src/application/owner-chat-service.js");
+  const sent = [];
+  const dispatched = [];
+  const bus = { send: (message) => { sent.push(message); return message; }, sendFast: () => {}, flush: async () => {} };
+  const chat = createOwnerChatService({ bus, ticketCommandParser: parser([{ id: "NF-1", status: "pending" }]), dispatchAgentTicket: (value) => dispatched.push(value) });
+  const input = { message_id: "MSG-1", project_id: "P", conversation_id: "CONV-BU", correlation_id: "CORR-1", timestamp: "2026-08-23T10:00:00Z", agent_id: "builder", payload: { text: "/ticket NF-1" } };
+  chat.submit(input);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(dispatched[0].task_id, "NF-1");
+  assert.equal(sent[0].payload.task.id, "NF-1");
+});
