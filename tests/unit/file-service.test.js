@@ -33,3 +33,13 @@ test("FileService includes verification step details when a write is rejected", 
     /Verification failed.*test:failed \(exit 1\)/
   );
 });
+
+test("FileService accepts a normalized target directory with a trailing slash", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forge-files-"));
+  const files = createFileService({ projectRoot: root });
+  await files.writeFile({
+    path: "src/example.js",
+    content: "export const value = 1;\n",
+    commit: { target_path: "src/example.js", target_dir: "src/", file_operation: "create" }
+  });
+});
