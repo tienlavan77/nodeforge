@@ -5,11 +5,12 @@
   "description": "Common event envelope for task-scoped node and agent streaming.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["event_type", "task_id", "timestamp", "payload"],
+  "required": ["event_type", "task_id", "timestamp", "payload", "sequence"],
   "properties": {
     "event_type": { "type": "string", "enum": ["node.status_change", "node.execution_step", "node.command", "node.command_result", "agent.text_stream"] },
     "task_id": { "type": "string", "minLength": 1 },
     "timestamp": { "type": "string", "format": "date-time" },
+    "sequence": { "type": "integer", "minimum": 1 },
     "payload": { "type": "object" }
   },
   "oneOf": [

@@ -48,6 +48,7 @@ import { createSprintOrchestrationService } from "../src/application/sprint-orch
 import { createVerificationOrchestrator } from "../src/modules/verification/orchestrator.js";
 import { createTestService } from "../src/application/test-service.js";
 import { createFileService } from "../src/infrastructure/filesystem/file-service.js";
+import { createUnifiedStreamOrderer } from "../src/modules/events/unified-stream-order.js";
 
 const port = Number(process.env.NODE_CONTROL_PORT ?? 3100);
 const host = process.env.NODE_CONTROL_HOST ?? "127.0.0.1";
@@ -96,6 +97,7 @@ const projectId = process.env.NODE_CONTROL_PROJECT_ID ?? "PROJECT-NODEFORGE";
 const taskStore = createTaskStore({ database, projectId });
 const subscriptions = createSubscriptionRegistry();
 const internalBus = new EventEmitter();
+const unifiedStreamOrder = createUnifiedStreamOrderer();
 const eventPublisher = createEventPublisher({ store: eventStore, subscriptions });
 const verificationOrchestrator = createVerificationOrchestrator({ projectRoot: process.cwd(), projectId });
 let testService;
@@ -219,8 +221,9 @@ const api = createHttpApi({
 function publishUnifiedStreamEvent(event) {
   // Unified stream events are forwarded on the internal bus; persistence and SSE
   // fan-out are owned by the streaming ticket that follows this adapter wiring.
-  internalBus.emit(event.event_type, event);
-  internalBus.emit("event", event);
+  const ordered = unifiedStreamOrder.assign(event);
+  internalBus.emit(ordered.event_type, ordered);
+  internalBus.emit("event", ordered);
 }
 const server = api.createServer().listen(port, host, () => {
   process.stdout.write(`Node Control API listening on http://${host}:${port}\n`);

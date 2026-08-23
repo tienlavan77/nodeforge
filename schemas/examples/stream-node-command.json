@@ -1,1 +1,1 @@
-{"event_type":"node.command","task_id":"TASK-STREAM-001","timestamp":"2026-08-23T10:00:02Z","payload":{"command_id":"CMD-1","command":"npm test","phase":"runTests"}}
+{"event_type":"node.command","task_id":"TASK-STREAM-001","timestamp":"2026-08-23T10:00:02Z","sequence":3,"payload":{"command_id":"CMD-1","command":"npm test","phase":"runTests"}}

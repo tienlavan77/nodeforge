@@ -103,12 +103,12 @@ export function createTestRunner({ projectRoot, projectId, spawnProcess, createI
 
   function emitCommand(sink, taskId, commandId, command, startedAt) {
     if (typeof sink !== "function" || typeof taskId !== "string") return;
-    sink({ event_type: "node.command", task_id: taskId, timestamp: startedAt.toISOString(), payload: { command_id: commandId, command, phase: "runTests" } });
+    sink({ event_type: "node.command", task_id: taskId, timestamp: startedAt.toISOString(), sequence: 1, payload: { command_id: commandId, command, phase: "runTests" } });
   }
 
   function emitCommandResult(sink, taskId, commandId, execution, result, finishedAt) {
     if (typeof sink !== "function" || typeof taskId !== "string") return;
-    sink({ event_type: "node.command_result", task_id: taskId, timestamp: finishedAt.toISOString(), payload: { command_id: commandId, success: result.status === "passed", result: { step_name: "runTests", success: result.status === "passed", error_code: result.status === "passed" ? null : result.status === "timeout" ? "IO_ERROR" : "TEST_FAILED", duration_ms: result.duration_ms }, exit_code: execution.exitCode, stdout: summarize(execution.stdout), stderr: summarize(execution.stderr) } });
+    sink({ event_type: "node.command_result", task_id: taskId, timestamp: finishedAt.toISOString(), sequence: 2, payload: { command_id: commandId, success: result.status === "passed", result: { step_name: "runTests", success: result.status === "passed", error_code: result.status === "passed" ? null : result.status === "timeout" ? "IO_ERROR" : "TEST_FAILED", duration_ms: result.duration_ms }, exit_code: execution.exitCode, stdout: summarize(execution.stdout), stderr: summarize(execution.stderr) } });
   }
 
   function summarize(value) { return value.length > 4000 ? `${value.slice(0, 4000)}\n[output truncated]` : value; }
