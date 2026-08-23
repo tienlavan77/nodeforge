@@ -25,6 +25,14 @@ test("rejects invalid roadmaps before storing them", () => {
   assert.equal(store.getAllVersions().length, 0);
 });
 
+test("persists ticket status transitions in a new roadmap version", () => {
+  const store = createRoadmapStore();
+  store.save(roadmap("1.0.0"));
+  const updated = store.updateTicketStatus({ projectId: "PROJECT-115", ticketId: "NF-115", status: "done" });
+  assert.equal(updated.sprints[0].tickets[0].status, "done");
+  assert.equal(store.getCurrent().sprints[0].tickets[0].status, "done");
+});
+
 function roadmap(version) {
   return {
     id: "ROADMAP-115",
