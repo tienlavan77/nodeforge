@@ -187,6 +187,9 @@ button, input { font: inherit; }
 .sprint-run-events { margin-top: 8px; padding: 8px 10px; border-left: 2px solid #56ca91; background: #171f1b; color: #9fc6ab; font-family: 'DM Mono', monospace; font-size: 12px; line-height: 1.55; }
 .sprint-run-events strong { color: #c8e8d0; font-weight: 500; }
 .sprint-row > span { display: inline-flex; align-items: center; gap: 2px; }
+.sprint-collapse-button { width: 24px; height: 24px; border: 1px solid #465064; background: #1c222b; color: #cbd5e6; cursor: pointer; font: 700 16px/1 'DM Mono', monospace; }
+.sprint-ticket-list { display: grid; gap: 6px; margin-top: 12px; padding-top: 10px; border-top: 1px solid #303540; }
+.sprint-ticket-list .dashboard-ticket { background: #171a21; }
 .sprint-view-button { margin-right: 2px; border: 1px solid #465064; background: #1c222b; color: #cbd5e6; padding: 6px 10px; cursor: pointer; font-size: 15px; }
 .sprint-view-button.small { padding: 4px 9px; font-size: 13px; }
 .sprint-delete-button { margin-right: 2px; border: 1px solid #824a53; background: #2a1d23; color: #eea6ae; padding: 6px 10px; cursor: pointer; font-size: 15px; }
