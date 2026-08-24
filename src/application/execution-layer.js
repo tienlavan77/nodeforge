@@ -1,9 +1,11 @@
+// validated by FORGE-VALIDATE-005
 // validated by FORGE-VALIDATE-003
 // validated by FORGE-VALIDATE-002
 // validated by FORGE-VALIDATE-003
 // validated by FORGE-VALIDATE-002
 // validated by FORGE-VALIDATE-001G
 import { ConfigurationError } from "../shared/errors.js";
+import { logEvent } from "../core/project-log-service.js";
 
 export const EXECUTION_ERROR_CODES = Object.freeze(["CHECKSUM_MISMATCH", "PATCH_NOT_APPLICABLE", "AMBIGUOUS_MATCH", "NO_MATCH", "SYNTAX_ERROR", "LINT_FAILED", "TEST_FAILED", "BUILD_FAILED", "IO_ERROR"]);
 
@@ -15,9 +17,9 @@ export function createExecutionResult({ stepName, success, errorCode = null, err
   return Object.freeze({ step_name: stepName, success, error_code: errorCode, ...(errorMessage !== null ? { error_message: errorMessage } : {}), ...(detail ? { detail: structuredClone(detail) } : {}), ...(durationMs !== undefined ? { duration_ms: durationMs } : {}) });
 }
 
-export function createExecutionContext({ taskId, stepId, change, trace = [], eventSink } = {}) {
+export function createExecutionContext({ taskId, ticketId, conversationId, stepId, change, trace = [], eventSink } = {}) {
   if (typeof taskId !== "string" || !taskId || !Number.isFinite(stepId) || !change || typeof change !== "object") throw new ConfigurationError("ExecutionContext requires task_id, step_id, and change.");
-  const context = { task_id: taskId, step_id: stepId, change: structuredClone(change), trace: trace.map((result) => createExecutionResult({ stepName: result.step_name, success: result.success, errorCode: result.error_code, errorMessage: result.error_message ?? null, detail: result.detail, durationMs: result.duration_ms })) };
+  const context = { task_id: taskId, ticket_id: ticketId ?? taskId, conversation_id: conversationId ?? `CONV-${taskId}`, step_id: stepId, change: structuredClone(change), trace: trace.map((result) => createExecutionResult({ stepName: result.step_name, success: result.success, errorCode: result.error_code, errorMessage: result.error_message ?? null, detail: result.detail, durationMs: result.duration_ms })) };
   if (eventSink !== undefined) {
     if (typeof eventSink !== "function") throw new ConfigurationError("ExecutionContext event_sink must be a function.");
     Object.defineProperty(context, "event_sink", { value: eventSink, enumerable: false });
@@ -34,8 +36,11 @@ export function withExecutionResult(context, result) {
     detail: result?.detail,
     durationMs: result?.duration_ms ?? result?.durationMs
   });
-  context.event_sink?.({ event_type: "node.execution_step", task_id: context.task_id, timestamp: new Date().toISOString(), sequence: context.trace.length + 1, payload: { result: normalized, step_id: context.step_id } });
-  return createExecutionContext({ taskId: context.task_id, stepId: context.step_id, change: context.change, trace: [...context.trace, normalized], eventSink: context.event_sink });
+  const timestamp = new Date().toISOString();
+  const event = { event_type: "node.execution_step", task_id: context.task_id, timestamp, sequence: context.trace.length + 1, payload: { result: normalized, step_id: context.step_id } };
+  context.event_sink?.(event);
+  logEvent({ timestamp, event_name: "execution.step", level: normalized.success ? "info" : "error", status: normalized.success ? "success" : "failed", message: `${normalized.step_name} ${normalized.success ? "completed" : "failed"}.`, task_id: context.task_id, ticket_id: context.ticket_id, conversation_id: context.conversation_id, source: "execution-layer" });
+  return createExecutionContext({ taskId: context.task_id, ticketId: context.ticket_id, conversationId: context.conversation_id, stepId: context.step_id, change: context.change, trace: [...context.trace, normalized], eventSink: context.event_sink });
 }
 
 export function evaluateApplyResult(result) {
