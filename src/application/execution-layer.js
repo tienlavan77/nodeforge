@@ -1,3 +1,4 @@
+// validated by FORGE-STREAM-003-TEST4
 // validated by FORGE-STREAM-003-TEST2
 // Execution-layer result and trace helpers.
 // validated by FORGE-VALIDATE-005
