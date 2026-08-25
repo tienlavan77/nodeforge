@@ -1,3 +1,4 @@
+// Execution-layer result and trace helpers.
 // validated by FORGE-VALIDATE-005
 // validated by FORGE-VALIDATE-003
 // validated by FORGE-VALIDATE-002
@@ -37,7 +38,7 @@ export function withExecutionResult(context, result) {
     durationMs: result?.duration_ms ?? result?.durationMs
   });
   const timestamp = new Date().toISOString();
-  const event = { event_type: "node.execution_step", task_id: context.task_id, timestamp, sequence: context.trace.length + 1, payload: { result: normalized, step_id: context.step_id } };
+  const event = { event_type: "node.execution_step", task_id: context.task_id, timestamp, sequence: context.trace.length + 1, payload: { result: normalized, step_id: context.step_id, conversation_id: context.conversation_id } };
   context.event_sink?.(event);
   logEvent({ timestamp, event_name: "execution.step", level: normalized.success ? "info" : "error", status: normalized.success ? "success" : "failed", message: `${normalized.step_name} ${normalized.success ? "completed" : "failed"}.`, task_id: context.task_id, ticket_id: context.ticket_id, conversation_id: context.conversation_id, source: "execution-layer" });
   return createExecutionContext({ taskId: context.task_id, ticketId: context.ticket_id, conversationId: context.conversation_id, stepId: context.step_id, change: context.change, trace: [...context.trace, normalized], eventSink: context.event_sink });
