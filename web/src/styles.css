@@ -230,3 +230,26 @@ button, input { font: inherit; }
 .upload-preview { display: grid; gap: 6px; margin-top: 14px; padding: 11px; border: 1px solid #3e7656; background: #1c2a24; }
 .upload-preview strong { color: #bde2c7; font-family: 'DM Mono', monospace; }
 .upload-preview p { margin: 0; color: #d0d7d2; font-size: 13px; }
+
+
+/* Responsive overrides kept separate from the verified desktop baseline. */
+@media (max-width: 767px) {
+  body { min-width: 0; }
+  .topbar { height: 60px; flex-basis: 60px; padding: 0 12px; }
+  .topbar-meta { gap: 8px; min-width: 0; }
+  .topbar-meta .project-label, .topbar-meta .divider, .status-right { display: none; }
+  .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(360px, 52vh) minmax(420px, 1fr); overflow: auto; }
+  .architecture-columns { grid-template-columns: minmax(0, 1fr); }
+  .architecture-artifacts { padding: 14px 12px 20px; }
+  .agent-header { padding: 12px 14px; }
+  .conversation { padding: 14px 12px 10px; }
+  .message-bubble { max-width: 100%; overflow-wrap: anywhere; }
+  .composer { gap: 6px; padding: 8px 10px; }
+  .composer button { flex: 0 0 auto; }
+  .tab-button { gap: 5px; padding: 9px 8px; font-size: 12px; }
+  .history-overlay, .sprint-modal-backdrop { padding: 12px; }
+  .history-filters { grid-template-columns: minmax(0, 1fr); padding: 10px 12px; }
+  .sprint-ticket-table article { grid-template-columns: minmax(0, 1fr); }
+  .statusbar { padding: 0 10px; }
+  .statusbar .status-right { display: none; }
+}
