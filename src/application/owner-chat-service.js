@@ -1,4 +1,5 @@
 import { ConfigurationError } from "../shared/errors.js";
+import { logEvent } from "../core/project-log-service.js";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import Ajv2020 from "ajv/dist/2020.js";
@@ -10,7 +11,7 @@ const ticketSchema = require("../../schemas/governance/ticket.schema.json");
 const agentToolSchema = require("../../schemas/agent/agent-tool.schema.json");
 const AGENT_TOOL_PROTOCOL_UNLIMITED = "\n\nAgent tool loop protocol:\n- Use request_info whenever more context is needed.\n- Node continues returning context until submit_code; there is no round limit.\n- submit_code must include the requested code; add test files only when the task acceptance criteria require tests.";
 
-export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, executeAgentTool, ticketCommandParser, proseTicketService, dispatchAgentTicket, internalBus, debug = () => {}, streamBatchMs = 500 } = {}) {
+export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, executeAgentTool, ticketCommandParser, proseTicketService, dispatchAgentTicket, internalBus, debug = () => {}, streamBatchMs = 500, projectLogger = logEvent } = {}) {
   if (typeof bus?.send !== "function") throw new ConfigurationError("Owner Chat Service requires the shared Communication Bus.");
   if (!Number.isInteger(streamBatchMs) || streamBatchMs < 1) throw new ConfigurationError("Owner Chat stream batch interval must be positive.");
   const messages = new Map();
@@ -27,6 +28,8 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
 
   return Object.freeze({ submit });
 
+  function safeLog(logger, entry) { try { logger?.({ timestamp: new Date().toISOString(), ...entry }); } catch (error) { debug({ event: "project-log.error", error: error.message }); } }
+
   function submit(input) {
     assertMessage(input);
     const agentId = input.agent_id ?? architectureManagerId;
@@ -39,13 +42,24 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     const existing = messages.get(input.message_id);
     if (existing) return { ...structuredClone(existing), duplicate: true };
     const isBuilder = agentId === "builder" || agentId === "builder-ex";
-    const proseResult = isBuilder && proseTicketService?.parse?.(input.payload.text, { projectId: input.project_id, timestamp: input.timestamp, sourceId: input.message_id });
+    const intent = input.payload.intent;
+    if (intent !== undefined && !["normal_chat", "ticket_create", "ticket_dispatch"].includes(intent)) throw new ConfigurationError("Invalid owner message intent.");
+    const resolvedIntent = intent ?? inferLegacyIntent(input.payload.text);
+    if (isBuilder && resolvedIntent === "ticket_create" && !input.payload.ticket && hasJsonCandidate(input.payload.text) && !isParsableJsonCandidate(input.payload.text)) {
+      const invalidJson = { create_ticket: true, status: "needs_input", error_code: "invalid_ticket_json", question: "Ticket JSON không hợp lệ; vui lòng kiểm tra dấu ngoặc kép và xuống dòng trong chuỗi." };
+      const notice = bus.send(responseMessage({ id: input.message_id, project_id: input.project_id, conversation_id: input.conversation_id, correlation_id: input.correlation_id, timestamp: input.timestamp, sender: { id: "NODE", role: "node" }, recipient: { id: "builder-ex", role: "builder" } }, "ticket.creation", invalidJson, `TICKET-CREATE-${input.message_id}`));
+      messages.set(input.message_id, Object.freeze(structuredClone(notice)));
+      return structuredClone(notice);
+    }
+    const proseResult = isBuilder && resolvedIntent === "ticket_create" && (input.payload.ticket && typeof proseTicketService?.createFromObject === "function"
+      ? proseTicketService.createFromObject(input.payload.ticket, { projectId: input.project_id, timestamp: input.timestamp, sourceId: input.message_id })
+      : proseTicketService?.parse?.(input.payload.text, { projectId: input.project_id, timestamp: input.timestamp, sourceId: input.message_id }));
     if (proseResult?.create_ticket) {
       const notice = bus.send(responseMessage({ id: input.message_id, project_id: input.project_id, conversation_id: input.conversation_id, correlation_id: input.correlation_id, timestamp: input.timestamp, sender: { id: "NODE", role: "node" }, recipient: { id: "builder-ex", role: "builder" } }, "ticket.creation", proseResult, `TICKET-CREATE-${input.message_id}`));
       messages.set(input.message_id, Object.freeze(structuredClone(notice)));
       return structuredClone(notice);
     }
-    const commandResult = isBuilder && ticketCommandParser?.parse?.(input.payload.text);
+    const commandResult = isBuilder && resolvedIntent === "ticket_dispatch" && ticketCommandParser?.parse?.(input.payload.text);
     if (isBuilder && /^\/ticket(?:\s|$)/i.test(String(input.payload.text ?? "")) && !commandResult?.command) {
       const notice = bus.send(responseMessage({ id: input.message_id, project_id: input.project_id, conversation_id: input.conversation_id, correlation_id: input.correlation_id, timestamp: input.timestamp, sender: { id: "NODE", role: "node" }, recipient: { id: agentId, role: roleForAgent(agentId) } }, "ticket.status", { command: true, status: "syntax_error", error: "Không nhận diện được ticket id, vui lòng kiểm tra lại cú pháp /ticket <id>." }, `TICKET-SYNTAX-${input.message_id}`));
       messages.set(input.message_id, Object.freeze(structuredClone(notice)));
@@ -69,11 +83,12 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       // Preserve the canonical roadmap ticket for /ticket commands. The old
       // reduced shape triggered the generic direct-task fallback and replaced
       // roadmap/sprint metadata with ROADMAP-DIRECT values.
-      payload: { text: input.payload.text, round, ...(commandResult?.ticket ? { task: normalizeTask(commandResult.ticket, input) } : {}), ...(input.payload.task ? { task: normalizeTask(input.payload.task, input) } : {}) },
+      payload: { text: input.payload.text, intent: resolvedIntent, round, ...(commandResult?.ticket ? { task: normalizeTask(commandResult.ticket, input) } : {}), ...(input.payload.task ? { task: normalizeTask(input.payload.task, input) } : {}) },
       timestamp: input.timestamp
     };
     // Bus persists via the canonical Communication Store before dispatching.
     const persisted = bus.send(message);
+    safeLog(projectLogger, { event_name: "owner.message", level: "info", status: "info", message: "Owner message received.", task_id: message.payload.task?.id ?? message.id, ticket_id: message.payload.task?.id, conversation_id: message.conversation_id, source: "owner-chat-service" });
     messages.set(persisted.id, Object.freeze(structuredClone(persisted)));
     if (commandResult?.command && commandResult.status === "ready" && typeof dispatchAgentTicket === "function") void dispatchAgentTicket({ task_id: commandResult.ticket_id, ticket: commandResult.ticket, message: persisted, agent_id: agentId, eventSink: input.eventSink });
     else if (typeof agentStream === "function") void streamRealAgent(persisted, agentId);
@@ -134,6 +149,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
             if (fingerprint) contextResults.set(fingerprint, result);
             emitProgress(message, agentId, tool.kind === "request_info" ? "Context đã sẵn sàng, đang gửi lại cho agent…" : "Đã xử lý tool…", `PROGRESS-${round}-RESULT`);
             debug({ event: "agent.loop.tool_result", agent_id: agentId, task_id: taskId, round: tool.round, result: summarizeValue(result) });
+            safeLog(projectLogger, { event_name: tool.kind === "request_info" ? "context.request" : "agent.tool_result", level: "info", status: "success", message: `Agent ${tool.kind} completed.`, task_id: taskId, ticket_id: message.payload.task?.id, conversation_id: message.conversation_id, source: "owner-chat-service" });
             bus.send(responseMessage(message, streamEventType(agentId, "tool.result"), { content: result.content ?? result, token_usage: result.token_usage ?? null }, `TOOL-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`));
             const needsAnotherRound = tool.kind === "request_info";
             if (needsAnotherRound) {
@@ -229,6 +245,25 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     const validate = ajv.compile(agentToolSchema);
     return Boolean(validate(value));
   }
+}
+
+function hasJsonCandidate(text) { return /[{[]/.test(String(text ?? "")); }
+function isParsableJsonCandidate(text) {
+  const value = String(text ?? ""); const start = value.search(/[{[]/); if (start < 0) return false;
+  try { JSON.parse(value.slice(start)); return true; } catch { return false; }
+}
+
+function inferLegacyIntent(text) {
+  const value = String(text ?? "");
+  if (/^\/ticket(?:\s|$)/i.test(value)) return "ticket_dispatch";
+  if (/^\s*(?:[-*+]\s+)?(?:\*\*)?\s*(?:title|objective|acceptance[_ ]criteria|criteria|tiêu đề|mục tiêu|tiêu chí)\s*(?:\*\*)?\s*:/im.test(value)) return "ticket_create";
+  try {
+    const parsed = JSON.parse(value);
+    if (parsed && !Array.isArray(parsed) && ["id", "title", "objective", "acceptance_criteria"].some((field) => Object.hasOwn(parsed, field))) return "ticket_create";
+  } catch {
+    // Legacy prose remains normal chat unless it exposes explicit ticket labels.
+  }
+  return "normal_chat";
 }
 
 function assertMessage(input) {

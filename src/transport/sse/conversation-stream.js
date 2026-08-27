@@ -1,7 +1,7 @@
 import { ConfigurationError } from "../../shared/errors.js";
 
 // This is a transport projection: communications remain canonical in the Node store.
-export function createConversationStream({ bus, communicationStore, eventStore, subscriptions } = {}) {
+export function createConversationStream({ bus, communicationStore, eventStore, subscriptions, logReader } = {}) {
   if (typeof bus?.subscribeAll !== "function" || typeof bus?.unsubscribeAll !== "function") {
     throw new ConfigurationError("Conversation SSE requires the shared Communication Bus.");
   }
@@ -11,7 +11,19 @@ export function createConversationStream({ bus, communicationStore, eventStore, 
 
   return Object.freeze({ connect });
 
-  function connect({ projectId, conversationId, response, afterMessageId, replayLimit = 100 } = {}) {
+  function connect(options = {}) {
+    if (logReader) return connectWithLog(options);
+    return connectBase(options);
+  }
+
+  async function connectWithLog(options = {}) {
+    const replayEvents = (await logReader({ project_id: options.projectId, conversation_id: options.conversationId })).events
+      .filter((event) => shouldStream(event.event_name, event.conversation_id) && event.conversation_id === options.conversationId)
+      .map(logEventMessage);
+    return connectBase({ ...options, replayEvents });
+  }
+
+  function connectBase({ projectId, conversationId, response, afterMessageId, replayLimit = 100, replayEvents = [] } = {}) {
     assertId(projectId, "project");
     assertId(conversationId, "conversation");
     if (!response?.write || typeof response.end !== "function") throw new ConfigurationError("Conversation SSE requires a writable response.");
@@ -26,25 +38,25 @@ export function createConversationStream({ bus, communicationStore, eventStore, 
     let replaying = true;
     let closed = false;
     const observer = (message) => {
-      if (message.project_id === projectId && message.conversation_id === conversationId) {
+      if (message.project_id === projectId && message.conversation_id === conversationId && shouldStream(message.message_type, message.conversation_id)) {
         if (replaying) pending.push(message);
         else write(message);
       }
     };
     bus.subscribeAll(observer);
-    const eventSubscriptions = ["agent.*", "verification.result", "governance.sprint_plan.created"].map((eventType) => subscriptions?.subscribe?.(eventType, (event) => {
-      if ((event.project_id ?? event.metadata?.project_id) === projectId && (event.metadata?.conversation_id ?? event.metadata?.task_id) === conversationId) {
+    const eventSubscriptions = ["agent.*", "execution.*", "verification.*", "git.*", "index.*", "governance.sprint_plan.created"].map((eventType) => subscriptions?.subscribe?.(eventType, (event) => {
+      if ((event.project_id ?? event.metadata?.project_id) === projectId && conversationIdForEvent(event) === conversationId && shouldStream(event.event_type, conversationIdForEvent(event))) {
         const message = eventMessage(event);
         if (replaying) pending.push(message);
         else write(message);
       }
     })).filter(Boolean);
     const replay = communicationStore.getByConversationId(conversationId)
-      .filter((message) => message.project_id === projectId);
+      .filter((message) => message.project_id === projectId && shouldStream(message.message_type, message.conversation_id));
     const eventReplay = (eventStore?.getAll?.() ?? [])
-      .filter((event) => (event.project_id ?? event.metadata?.project_id) === projectId && (event.metadata?.conversation_id ?? event.metadata?.task_id) === conversationId)
+      .filter((event) => (event.project_id ?? event.metadata?.project_id) === projectId && conversationIdForEvent(event) === conversationId && shouldStream(event.event_type, conversationIdForEvent(event)))
       .map(eventMessage);
-    const replayMessages = [...replay.map(messageEnvelope), ...eventReplay].sort(compareStreamEvents);
+    const replayMessages = [...replay.map(messageEnvelope), ...eventReplay, ...replayEvents].sort(compareStreamEvents);
     const cursorIndex = afterMessageId ? replayMessages.findIndex((message) => message.id === afterMessageId) : -1;
     const replayStart = afterMessageId && cursorIndex >= 0 ? cursorIndex + 1 : Math.max(0, replayMessages.length - normalizeLimit(replayLimit));
     for (const message of replayMessages.slice(replayStart)) write(message);
@@ -83,9 +95,15 @@ function compareStreamEvents(left, right) {
   return (left.sequence ?? left.payload?.sequence ?? Number.MAX_SAFE_INTEGER) - (right.sequence ?? right.payload?.sequence ?? Number.MAX_SAFE_INTEGER);
 }
 
+function isProjectLogEvent(eventName) { return /^(ticket\.status_change|node\.(execution_step|command|command_result)|execution\.|verification\.|git\.|index\.)/.test(eventName ?? ""); }
+function validConversationId(value) { return typeof value === "string" && value.length > 0; }
+function shouldStream(eventName, conversationId) { return !isProjectLogEvent(eventName) || validConversationId(conversationId); }
+function conversationIdForEvent(event) { return event?.metadata?.conversation_id ?? event?.payload?.conversation_id ?? event?.metadata?.task_id ?? null; }
+
 function messageEnvelope(message) { return { ...message, _kind: "message" }; }
+function logEventMessage(event) { return { id: event.event_id, project_id: event.project_id, conversation_id: event.conversation_id, correlation_id: event.correlation_id ?? null, message_type: event.event_name, timestamp: event.timestamp, sequence: event.sequence, sender: { id: event.source, role: "node" }, recipient: { id: "NODE", role: "node" }, payload: event.payload, _kind: "event" }; }
 function eventMessage(event) {
-  return { id: event.event_id, project_id: event.project_id ?? event.metadata?.project_id, conversation_id: event.metadata?.conversation_id ?? event.metadata?.task_id, correlation_id: event.metadata?.correlation_id ?? null, message_type: event.event_type, timestamp: event.timestamp, sender: { id: event.metadata?.agent_id ?? event.source, role: "node" }, recipient: { id: "NODE", role: "node" }, payload: event.payload, _kind: "event" };
+  return { id: event.event_id, project_id: event.project_id ?? event.metadata?.project_id, conversation_id: conversationIdForEvent(event), correlation_id: event.metadata?.correlation_id ?? event.payload?.correlation_id ?? null, message_type: event.event_type, timestamp: event.timestamp, sender: { id: event.metadata?.agent_id ?? event.source, role: "node" }, recipient: { id: "NODE", role: "node" }, payload: event.payload, _kind: "event" };
 }
 
 function normalize(message) {

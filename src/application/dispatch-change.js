@@ -4,6 +4,7 @@ import { applySearchReplaceBlock } from "./execution-handlers/search-replace.js"
 import { applyFullFileReplace } from "./execution-handlers/full-file-replace.js";
 import { applyUnifiedDiff } from "./execution-handlers/unified-diff.js";
 import { applyStructuredPatch } from "./execution-handlers/structured-patch.js";
+import { logEvent } from "../core/project-log-service.js";
 
 /** Verify a change and dispatch it to exactly one execution handler. */
 export async function dispatchChange(context) {
@@ -32,5 +33,7 @@ export async function dispatchChange(context) {
       errorMessage: "Change does not contain a supported patch format."
     });
   }
-  return withExecutionResult(next, result);
+  const completed = withExecutionResult(next, result);
+  logEvent({ timestamp: new Date().toISOString(), event_name: "execution.dispatch_result", level: result.success ? "info" : "error", status: result.success ? "success" : "failed", message: result.success ? "Change dispatched successfully." : "Change dispatch failed.", task_id: context.task_id, ticket_id: context.ticket_id ?? context.task_id, conversation_id: context.conversation_id ?? `CONV-${context.task_id}`, source: "dispatch-change" });
+  return completed;
 }

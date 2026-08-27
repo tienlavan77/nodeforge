@@ -5,6 +5,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 
 import { ConfigurationError } from "../../shared/errors.js";
+import { logEvent } from "../../core/project-log-service.js";
 import { createProjectCommandExecutor } from "./command-executor.js";
 
 const require = createRequire(import.meta.url);
@@ -53,24 +54,24 @@ export function createTestRunner({ projectRoot, projectId, spawnProcess, createI
   const execute = createProjectCommandExecutor({ projectRoot, spawnProcess });
 
   return Object.freeze({
-    async run(plan, { taskId, sessionId, scope = scopeFor(plan), timeoutMs, eventSink } = {}) {
+    async run(plan, { taskId, ticketId = taskId, conversationId = taskId ? `CONV-${taskId}` : undefined, sessionId, scope = scopeFor(plan), timeoutMs, eventSink } = {}) {
       validatePlan(plan);
       if (!isScope(scope)) throw new ConfigurationError("Test result scope must be targeted, integration, full, or custom.");
 
       const checks = plan.checks.filter(({ type }) => type === "test");
       const results = [];
       for (const check of checks) {
-        results.push(await runCheck(check, { taskId, sessionId, scope, timeoutMs, eventSink }));
+        results.push(await runCheck(check, { taskId, ticketId, conversationId, sessionId, scope, timeoutMs, eventSink }));
       }
       return Object.freeze(results);
     }
   });
 
-  async function runCheck(check, { taskId, sessionId, scope, timeoutMs, eventSink }) {
+  async function runCheck(check, { taskId, ticketId, conversationId, sessionId, scope, timeoutMs, eventSink }) {
     const startedAt = clock();
     const commandId = createId();
     const effectiveTimeout = timeoutMs ?? defaultTimeout("unit_test");
-    emitCommand(eventSink, taskId, commandId, check.command, startedAt);
+    emitCommand(eventSink, taskId, ticketId, conversationId, commandId, check.command, startedAt);
     const execution = await execute(check.command, { timeoutMs: effectiveTimeout });
     const finishedAt = clock();
     const summary = parseTapSummary(execution.stdout);
@@ -97,18 +98,23 @@ export function createTestRunner({ projectRoot, projectId, spawnProcess, createI
     if (taskId !== undefined) result.task_id = taskId;
     if (sessionId !== undefined) result.session_id = sessionId;
     validateResult(result);
-    emitCommandResult(eventSink, taskId, commandId, execution, result, finishedAt);
+    emitCommandResult(eventSink, taskId, ticketId, conversationId, commandId, execution, result, finishedAt);
     return Object.freeze(result);
   }
 
-  function emitCommand(sink, taskId, commandId, command, startedAt) {
-    if (typeof sink !== "function" || typeof taskId !== "string") return;
-    sink({ event_type: "node.command", task_id: taskId, timestamp: startedAt.toISOString(), sequence: 1, payload: { command_id: commandId, command, phase: "runTests" } });
+  function emitCommand(sink, taskId, ticketId, conversationId, commandId, command, startedAt) {
+    if (typeof taskId !== "string") return;
+    logEvent({ timestamp: startedAt.toISOString(), event_name: "verification.command", level: "info", status: "info", message: `Running test command: ${command}`, task_id: taskId, ticket_id: ticketId, conversation_id: conversationId, source: "verification-runner" });
+    if (typeof sink !== "function") return;
+    sink({ event_type: "node.command", task_id: taskId, timestamp: startedAt.toISOString(), sequence: 1, payload: { command_id: commandId, command, phase: "runTests", conversation_id: conversationId } });
   }
 
-  function emitCommandResult(sink, taskId, commandId, execution, result, finishedAt) {
-    if (typeof sink !== "function" || typeof taskId !== "string") return;
-    sink({ event_type: "node.command_result", task_id: taskId, timestamp: finishedAt.toISOString(), sequence: 2, payload: { command_id: commandId, success: result.status === "passed", result: { step_name: "runTests", success: result.status === "passed", error_code: result.status === "passed" ? null : result.status === "timeout" ? "IO_ERROR" : "TEST_FAILED", duration_ms: result.duration_ms }, exit_code: execution.exitCode, stdout: summarize(execution.stdout), stderr: summarize(execution.stderr) } });
+  function emitCommandResult(sink, taskId, ticketId, conversationId, commandId, execution, result, finishedAt) {
+    if (typeof taskId !== "string") return;
+    const success = result.status === "passed";
+    logEvent({ timestamp: finishedAt.toISOString(), event_name: "verification.command_result", level: success ? "info" : "error", status: success ? "success" : "failed", message: success ? "Verification command passed." : (result.stderr || result.stdout || "Verification command failed.").slice(0, 2000), task_id: taskId, ticket_id: ticketId, conversation_id: conversationId, source: "verification-runner", exit_code: execution.exitCode, error_code: success ? undefined : (result.kind === "lint" ? "LINT_FAILED" : result.kind === "build" ? "BUILD_FAILED" : "TEST_FAILED") });
+    if (typeof sink !== "function") return;
+    sink({ event_type: "node.command_result", task_id: taskId, timestamp: finishedAt.toISOString(), sequence: 2, payload: { command_id: commandId, success: result.status === "passed", result: { step_name: "runTests", success: result.status === "passed", error_code: result.status === "passed" ? null : result.status === "timeout" ? "IO_ERROR" : "TEST_FAILED", duration_ms: result.duration_ms }, exit_code: execution.exitCode, stdout: summarize(execution.stdout), stderr: summarize(execution.stderr), conversation_id: conversationId } });
   }
 
   function summarize(value) { return value.length > 4000 ? `${value.slice(0, 4000)}\n[output truncated]` : value; }

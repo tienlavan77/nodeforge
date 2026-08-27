@@ -1,0 +1,14 @@
+{
+  "event_type": "git.commit",
+  "task_id": "FORGE-STREAM-003-TEST6",
+  "timestamp": "2026-08-25T01:50:51.201Z",
+  "sequence": 9,
+  "payload": {
+    "message": "git.commit succeeded.",
+    "conversation_id": "CONV-BUILDER",
+    "task_id": "FORGE-STREAM-003-TEST6",
+    "ticket_id": "FORGE-STREAM-003-TEST6",
+    "exit_code": 0,
+    "commit": "22d845a"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "event_type": "index.started",
+  "task_id": "INDEX-src/example.js",
+  "timestamp": "2026-08-24T14:21:55.432Z",
+  "sequence": 3,
+  "payload": {
+    "message": "Index operation started."
+  }
+}

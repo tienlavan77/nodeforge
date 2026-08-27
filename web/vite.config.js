@@ -5,12 +5,14 @@ import { loadNodeforgeEnv } from "../scripts/nodeforge-env.mjs";
 loadNodeforgeEnv();
 
 const nodeApiUrl = process.env.VITE_NODE_API_URL ?? "http://192.168.1.181:3100";
+const webHost = process.env.VITE_WEB_HOST ?? "127.0.0.1";
 
 export default defineConfig({
   root: fileURLToPath(new URL(".", import.meta.url)),
   server: {
+    host: webHost,
     port: 4174,
-    strictPort: false,
+    strictPort: true,
     proxy: {
       "/projects": { target: nodeApiUrl, changeOrigin: true },
       "/agents": { target: nodeApiUrl, changeOrigin: true },

@@ -38,7 +38,8 @@ test("orchestrates test and build/lint/typecheck passes into a review-ready gate
     build: "passed",
     lint: "passed",
     typecheck: "passed",
-    ready_for_review: true
+    ready_for_review: true,
+    breakdown: result.breakdown
   });
 });
 
