@@ -25,7 +25,7 @@ export function createHttpApi({ runtimeService, ownerChatService, conversationSt
       const parts = url.pathname.split("/").filter(Boolean);
       if (request.method === "GET" && parts.length === 5 && parts[0] === "projects" && parts[2] === "conversations" && parts[4] === "stream") {
         if (!conversationStream) throw new ConfigurationError("Conversation SSE is not configured.");
-        const connection = conversationStream.connect({ projectId: parts[1], conversationId: parts[3], response, afterMessageId: request.headers?.["last-event-id"] ?? url.searchParams.get("after") ?? undefined });
+        const connection = await conversationStream.connect({ projectId: parts[1], conversationId: parts[3], response, afterMessageId: request.headers?.["last-event-id"] ?? url.searchParams.get("after") ?? undefined });
         request.once?.("close", () => connection.close());
         return;
       }
@@ -68,7 +68,7 @@ export function createHttpApi({ runtimeService, ownerChatService, conversationSt
     }
     if (method === "GET" && parts.length === 3 && parts[0] === "projects" && parts[2] === "dashboard") {
       if (!projectDashboardService) throw new ConfigurationError("Project Dashboard API is not configured.");
-      return { status: 200, body: projectDashboardService.getDashboard(parts[1]) };
+      return { status: 200, body: await projectDashboardService.getDashboard(parts[1]) };
     }
     if (method === "POST" && parts.length === 3 && parts[0] === "projects" && parts[2] === "sprint-plans") {
       if (!sprintPlanUploadService) throw new ConfigurationError("Sprint Plan Upload API is not configured.");
@@ -93,7 +93,7 @@ export function createHttpApi({ runtimeService, ownerChatService, conversationSt
     }
     if (method === "GET" && parts.length === 3 && parts[0] === "projects" && parts[2] === "history") {
       if (!conversationAuditHistoryService) throw new ConfigurationError("Conversation Audit History API is not configured.");
-      return { status: 200, body: conversationAuditHistoryService.query({
+      return { status: 200, body: await conversationAuditHistoryService.query({
         projectId: parts[1], agentId: url.searchParams.get("agent") ?? undefined,
         conversationId: url.searchParams.get("conversationId") ?? undefined, correlationId: url.searchParams.get("correlationId") ?? undefined,
         type: url.searchParams.get("type") ?? undefined, cursor: url.searchParams.get("cursor") ?? undefined,

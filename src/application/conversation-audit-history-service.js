@@ -3,7 +3,7 @@ import { ConfigurationError } from "../shared/errors.js";
 const SENSITIVE = /(?:api[_-]?key|credential|secret|password|token|authorization)/i;
 
 // Read-only projection over existing audit authorities. It never persists or mutates records.
-export function createConversationAuditHistoryService({ communications, eventStore, history } = {}) {
+export function createConversationAuditHistoryService({ communications, eventStore, history, logReader } = {}) {
   if (typeof communications?.getAll !== "function") throw new ConfigurationError("Conversation Audit History requires a Communication Store.");
   if (eventStore !== undefined && typeof eventStore?.getAll !== "function") throw new ConfigurationError("Conversation Audit History Event Store must provide getAll().");
   if (history !== undefined && typeof history?.getByProject !== "function") throw new ConfigurationError("Conversation Audit History Store must provide getByProject().");
@@ -11,6 +11,10 @@ export function createConversationAuditHistoryService({ communications, eventSto
   return Object.freeze({ query });
 
   function query({ projectId, agentId, conversationId, correlationId, type, cursor, limit = 25, order = "asc" } = {}) {
+    if (logReader) {
+      return Promise.resolve(logReader({ project_id: projectId, task_id: correlationId, correlation_id: correlationId, conversation_id: conversationId, event_name: type })).then((result) => { const items = result.events.map((event, index) => ({ id: event.event_id, kind: event.status === "failed" ? "failure" : "system", sequence: event.sequence ?? index + 1, timestamp: event.timestamp, agent_id: event.source, sender: event.source, receiver: "NODE", conversation_id: event.conversation_id ?? null, correlation_id: event.correlation_id ?? null, type: event.event_name, content: redact(event.payload) }));
+      return { items: order === "desc" ? items.reverse() : items, next_cursor: null }; });
+    }
     assertId(projectId, "project");
     for (const [value, label] of [[agentId, "agent"], [conversationId, "conversation"], [correlationId, "correlation"], [type, "type"]]) {
       if (value !== undefined) assertId(value, label);

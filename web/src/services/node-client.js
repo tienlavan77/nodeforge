@@ -1,3 +1,56 @@
+export const MESSAGE_INTENTS = Object.freeze({ normalChat: "normal_chat", ticketCreate: "ticket_create", ticketDispatch: "ticket_dispatch" });
+
+export function detectMessageIntent(input) {
+  const text = String(input ?? "").trim();
+  if (/^\/ticket(?:\s|$)/i.test(text)) return MESSAGE_INTENTS.ticketDispatch;
+  const normalized = normalizeTicketInput(text);
+  if (normalized.recognized) return MESSAGE_INTENTS.ticketCreate;
+  return MESSAGE_INTENTS.normalChat;
+}
+
+export function normalizeTicketInput(input) {
+  const text = String(input ?? "");
+  if (!text.trim()) return { text, normalized_text: "", recognized: false };
+  const normalizedText = text.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
+  const json = extractStructuredJson(normalizedText);
+  if (json) {
+    const recognized = ["id", "title", "objective", "acceptance_criteria"].some((field) => Object.prototype.hasOwnProperty.call(json, field));
+    return { text, normalized_text: normalizedText, recognized, ticket: recognized ? json : undefined, missing: recognized ? requiredTicketFields(json) : [] };
+  }
+  const hasTicketLabel = /^\s*(?:[-*+]\s+)?(?:\*\*)?\s*(?:title|objective|acceptance[_ ]criteria|criteria|tiêu đề|mục tiêu|tiêu chí)\s*(?:\*\*)?\s*:/im.test(text);
+  if (!hasTicketLabel && !/\b(create|tạo|thêm|implement|yêu cầu)\b[\s\S]*\b(ticket|task|công việc)\b/i.test(text)) return { text, normalized_text: normalizedText, recognized: false };
+  const normalized = text.split(/\r?\n/).map((line) => line.replace(/^\s*(?:[-*+]\s+)?(?:\*\*)?\s*(title|objective|acceptance[_ ]criteria|criteria|tiêu đề|mục tiêu|tiêu chí)\s*:\s*(?:\*\*)?/i, (_, label) => `${canonicalLabel(label)}:`)).join("\n");
+  const fields = new Set([...normalized.matchAll(/^\s*(title|objective|acceptance_criteria)\s*:/gim)].map((match) => match[1].toLowerCase()));
+  const missing = ["title", "objective", "acceptance_criteria"].filter((field) => !fields.has(field));
+  return { text: normalized, normalized_text: normalizedText, recognized: true, missing };
+}
+
+function canonicalLabel(label) {
+  const key = label.toLowerCase().replace(/\s+/g, "_");
+  return { "tiêu_đề": "title", "mục_tiêu": "objective", "tiêu_chí": "acceptance_criteria", criteria: "acceptance_criteria" }[key] ?? key;
+}
+
+function extractStructuredJson(text) {
+  const start = text.search(/[{[]/);
+  if (start < 0) return null;
+  let depth = 0; let quoted = false; let escaped = false;
+  const opening = text[start]; const closing = opening === "{" ? "}" : "]";
+  for (let index = start; index < text.length; index += 1) {
+    const character = text[index];
+    if (quoted) { if (escaped) escaped = false; else if (character === "\\") escaped = true; else if (character === '"') quoted = false; continue; }
+    if (character === '"') quoted = true;
+    else if (character === opening) depth += 1;
+    else if (character === closing && --depth === 0) { try { const value = JSON.parse(text.slice(start, index + 1)); return value && !Array.isArray(value) ? value : null; } catch { return null; } }
+  }
+  return null;
+}
+
+function requiredTicketFields(value) {
+  return ["title", "objective", "acceptance_criteria"].filter((field) => {
+    const item = value[field]; return field === "acceptance_criteria" ? !Array.isArray(item) || item.length === 0 : typeof item !== "string" || !item.trim();
+  });
+}
+
 export function createNodeClient() {
   return Object.freeze({
     async getAgentSettings() {
@@ -55,11 +108,16 @@ export function createNodeClient() {
     async getArchitectureWorkspace(projectId) {
       return requestJson(`/projects/${projectId}/architecture-workspace`, { fallbackError: "Node could not load the Architecture Workspace." });
     },
-    async postOwnerMessage({ projectId, conversationId, agentId, messageId, correlationId, text }) {
+    async postOwnerMessage({ projectId, conversationId, agentId, messageId, correlationId, text, intent }) {
+      const messageIntent = intent ?? detectMessageIntent(text);
+      if (!Object.values(MESSAGE_INTENTS).includes(messageIntent)) throw new Error("Invalid message intent.");
+      const rawText = String(text);
+      const normalized = messageIntent === MESSAGE_INTENTS.normalChat ? { text: rawText, normalized_text: rawText } : normalizeTicketInput(rawText);
+      console.log("ticket", normalized.ticket ?? null);
       return requestJson(`/projects/${projectId}/conversations/${conversationId}/messages`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ agent_id: agentId, message_id: messageId, correlation_id: correlationId, timestamp: new Date().toISOString(), payload: { text } }),
+        body: JSON.stringify({ agent_id: agentId, message_id: messageId, correlation_id: correlationId, timestamp: new Date().toISOString(), payload: { text: rawText, raw_text: rawText, normalized_text: normalized.normalized_text ?? rawText, intent: messageIntent, ...(messageIntent === MESSAGE_INTENTS.ticketCreate && normalized.ticket ? { ticket: normalized.ticket } : {}) } }),
         fallbackError: "Node rejected the owner message."
       });
     },

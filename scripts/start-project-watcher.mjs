@@ -29,20 +29,22 @@ const rawWatcher = createFilesystemWatcher({
   ignore: DEFAULT_WATCHER_IGNORE,
   chokidarOptions: { ignoreInitial: true, usePolling: true, interval: 250 }
 });
+function timestamp() { return new Date().toISOString().slice(0, 19).replace("T", " "); }
+function log(message) { process.stdout.write(`[${timestamp()}] ${message}\n`); }
 for (const rawType of ["add", "change", "unlink"]) {
-  rawWatcher.on(rawType, (path) => process.stdout.write(`Filesystem ${rawType}: ${path}\n`));
+  rawWatcher.on(rawType, (path) => log(`Filesystem ${rawType}: ${path}`));
 }
 const watcher = createDebouncedWatcher({ rawWatcher, projectId, root: process.cwd() });
 const indexer = createIncrementalIndexer({ database: indexDb, projectRoot: process.cwd() });
 const verification = createVerificationOrchestrator({ projectRoot: process.cwd(), projectId });
 
-rawWatcher.once("ready", () => process.stdout.write("Project filesystem watcher ready (polling)\n"));
-rawWatcher.once("ready", () => process.stdout.write(`Project root watched: ${process.cwd()}\nIndex database: ${indexDb.databasePath}\n`));
+rawWatcher.once("ready", () => log("Project filesystem watcher ready (polling)"));
+rawWatcher.once("ready", () => { log(`Project root watched: ${process.cwd()}`); log(`Index database: ${indexDb.databasePath}`); });
 watcher.on("event", (event) => {
-  process.stdout.write(`Watcher event: ${event.type} ${event.payload?.path ?? ""}\n`);
+  log(`Watcher event: ${event.type} ${event.payload?.path ?? ""}`);
   void indexer.handle(event)
     .then((indexed) => {
-      process.stdout.write(`Indexer ${indexed ? "updated" : "skipped"}: ${event.payload?.path ?? ""}\n`);
+      log(`Indexer ${indexed ? "updated" : "skipped"}: ${event.payload?.path ?? ""}`);
       return indexed ? verification.run({
       schema_version: "1.0",
       commit_id: event.event_id,

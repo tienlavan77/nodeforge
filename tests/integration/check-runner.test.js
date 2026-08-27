@@ -59,6 +59,8 @@ test("emits command and command_result around a real check", async () => {
     assert.equal(result.status, "passed");
     assert.deepEqual(events.map(({ event_type }) => event_type), ["node.command", "node.command_result"]);
     assert.equal(events[0].task_id, "TASK-events");
+    assert.equal(events[0].payload.conversation_id, "CONV-TASK-events");
+    assert.equal(events[1].payload.conversation_id, "CONV-TASK-events");
     assert.equal(events[1].payload.command_id, events[0].payload.command_id);
     assert.equal(events[1].payload.success, true);
   } finally { await rm(projectRoot, { recursive: true, force: true }); }

@@ -16,7 +16,11 @@ if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const child = spawn(npm, ["run", "dev:web"], {
   stdio: "inherit",
-  env: { ...process.env, VITE_NODE_API_URL: `http://${address}:${port}` }
+  env: {
+    ...process.env,
+    VITE_NODE_API_URL: `http://${address}:${port}`,
+    VITE_WEB_HOST: "0.0.0.0",
+  }
 });
 child.once("exit", (code, signal) => {
   if (signal) process.kill(process.pid, signal);

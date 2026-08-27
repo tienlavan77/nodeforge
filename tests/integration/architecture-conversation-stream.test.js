@@ -115,6 +115,31 @@ test("replays from a valid cursor regardless of initial history size", () => {
   connection.close();
 });
 
+test("streams project log events with conversation routing in live and replay paths", async () => {
+  const observers = [];
+  const bus = { subscribeAll(handler) { observers.push(handler); }, unsubscribeAll(handler) { observers.splice(observers.indexOf(handler), 1); } };
+  const subscriptions = { subscribe() { return { id: "sub" }; }, unsubscribe() {} };
+  const logEvent = { event_id: "LOG-EXEC-1", project_id: "PROJECT-137", conversation_id: "CONV-LOG", event_name: "execution.step", timestamp: "2026-08-21T00:00:01Z", sequence: 1, source: "execution-layer", payload: { conversation_id: "CONV-LOG", result: { step_name: "apply", success: true } } };
+  const stream = createConversationStream({ bus, subscriptions, communicationStore: { getByConversationId: () => [] }, logReader: async () => ({ events: [logEvent] }) });
+  const response = responseStub();
+  const connection = await stream.connect({ projectId: "PROJECT-137", conversationId: "CONV-LOG", response });
+  observers.forEach((observer) => observer({ id: "MSG-CMD-1", project_id: "PROJECT-137", conversation_id: "CONV-LOG", message_type: "node.command_result", timestamp: "2026-08-21T00:00:02Z", sender: { id: "NODE", role: "node" }, recipient: { id: "OWNER", role: "owner" }, payload: { conversation_id: "CONV-LOG", success: true } }));
+  const events = parseEvents(response.chunks);
+  assert.deepEqual(events.map(({ message_type }) => message_type), ["execution.step", "node.command_result"]);
+  assert(events.every((event) => event.conversation_id === "CONV-LOG"));
+  connection.close();
+});
+
+test("drops project log events without conversation routing", () => {
+  const bus = createAgentCommunicationBus();
+  const eventStore = { getAll: () => [{ event_id: "EVT-UNROUTED", project_id: "PROJECT-137", event_type: "git.commit", timestamp: "2026-08-21T00:00:01Z", source: "NODE", metadata: {}, payload: {} }] };
+  const stream = createConversationStream({ bus, eventStore, communicationStore: { getByConversationId: () => [] } });
+  const response = responseStub();
+  const connection = stream.connect({ projectId: "PROJECT-137", conversationId: "CONV-R", response });
+  assert.deepEqual(parseEvents(response.chunks), []);
+  connection.close();
+});
+
 test("does not lose a live message emitted while the replay snapshot is loading", () => {
   const observers = [];
   const bus = {

@@ -6,7 +6,9 @@ export function createSprintPlanProjection({ roadmaps } = {}) {
   return Object.freeze({ getCurrentSprint, getSprintById, getSprintBacklog, getSprintStatus });
 
   function getCurrentSprint() {
-    return cloneSprint(currentRoadmap()?.sprints[0]);
+    const sprints = currentRoadmap()?.sprints ?? [];
+    const active = [...sprints].reverse().find((sprint) => (sprint.tickets ?? []).some((ticket) => ["pending", "running", "reviewing"].includes(ticket.status)));
+    return cloneSprint(active ?? sprints[0]);
   }
 
   function getSprintById(id) {
@@ -22,11 +24,15 @@ export function createSprintPlanProjection({ roadmaps } = {}) {
   function getSprintStatus(id) {
     const sprint = getRequiredSprint(id);
     const completed = sprint.tickets.filter((ticket) => ticket.status === "done").length;
+    const failed = sprint.tickets.filter((ticket) => ticket.status === "failed").length;
+    const terminal = completed + failed === sprint.tickets.length && sprint.tickets.length > 0;
+    const status = terminal ? (failed > 0 ? "completed_with_errors" : "done") : sprint.tickets.some((ticket) => ["pending", "running", "reviewing"].includes(ticket.status)) ? "running" : "planned";
     return Object.freeze({
       sprint_id: sprint.id,
-      status: completed === sprint.tickets.length && sprint.tickets.length > 0 ? "done" : sprint.tickets.some((ticket) => ticket.status === "running") ? "running" : "planned",
+      status,
       ticket_count: sprint.tickets.length,
-      completed_ticket_count: completed
+      completed_ticket_count: completed,
+      failed_ticket_count: failed
     });
   }
 

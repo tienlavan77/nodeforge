@@ -1,0 +1,9 @@
+{
+  "event_type": "index.completed",
+  "task_id": "INDEX-src/example.js",
+  "timestamp": "2026-08-24T14:21:55.447Z",
+  "sequence": 4,
+  "payload": {
+    "message": "File index updated."
+  }
+}

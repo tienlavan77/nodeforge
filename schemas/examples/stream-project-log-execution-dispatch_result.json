@@ -1,0 +1,11 @@
+{
+  "event_type": "execution.dispatch_result",
+  "task_id": "e2e-task",
+  "timestamp": "2026-08-25T10:47:37.955Z",
+  "sequence": 3,
+  "payload": {
+    "message": "Change dispatched successfully.",
+    "ticket_id": "e2e-task",
+    "conversation_id": "CONV-e2e-task"
+  }
+}

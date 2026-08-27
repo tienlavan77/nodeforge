@@ -328,6 +328,26 @@ test("rolls back a multi-statement index write when a database operation fails",
   await rm(projectRoot, { recursive: true, force: true });
 });
 
+test("indexer emits centralized start and completion log entries", async () => {
+  const events = [];
+  await withIndexer({ projectLogger: (entry) => events.push(entry) }, async ({ projectRoot, indexer }) => {
+    await writeProjectFile(projectRoot, "src/logged.js", "export const logged = true;\n");
+    await indexer.handle({ type: "watcher.file_created", task_id: "TASK-INDEX", ticket_id: "FORGE-LOG-001h", conversation_id: "CONV-BUILDER", payload: { path: "src/logged.js" } });
+  });
+  assert.deepEqual(events.map((entry) => entry.event_name), ["index.started", "index.completed"]);
+  assert.ok(events.every((entry) => entry.ticket_id === "FORGE-LOG-001h" && entry.conversation_id === "CONV-BUILDER"));
+});
+
+test("indexer emits a centralized failure log entry", async () => {
+  const events = [];
+  await withIndexer({ registry: { extract() { throw new Error("parse exploded"); } }, projectLogger: (entry) => events.push(entry) }, async ({ projectRoot, indexer }) => {
+    await writeProjectFile(projectRoot, "src/broken.js", "export const broken = ;\n");
+    assert.equal(await indexer.handle({ type: "watcher.file_created", task_id: "TASK-INDEX", ticket_id: "FORGE-LOG-001h", conversation_id: "CONV-BUILDER", payload: { path: "src/broken.js" } }), false);
+  });
+  assert.equal(events.at(-1).event_name, "index.failed");
+  assert.equal(events.at(-1).status, "failed");
+});
+
 function event(type, path, oldPath) {
   return { type, payload: oldPath ? { path, old_path: oldPath } : { path } };
 }

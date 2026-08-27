@@ -32,7 +32,7 @@ async function start() {
   console.log(`  [RUNNING] Control API + source restart supervisor (pid ${nodePid})`);
   console.log("            http://127.0.0.1:3100  (scripts/start-dev.mjs -> scripts/start-control-api.mjs)");
   console.log("  [SEPARATE] Filesystem/index watcher — run separately: npm run dev:watcher");
-  console.log("  [CLIENT]  Vite Web UI — runs on macOS: npm run dev:web (vite --host 0.0.0.0 --config web/vite.config.js)");
+  console.log("  [CLIENT]  Vite Web UI — runs on macOS: npm run dev:web (vite --host 127.0.0.1 --config web/vite.config.js)");
 }
 
 function launch(file, args, logPath) {

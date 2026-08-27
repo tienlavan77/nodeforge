@@ -47,6 +47,8 @@ test("emits command and command_result around a project test", async () => {
   assert.deepEqual(events.map(({ event_type }) => event_type), ["node.command", "node.command_result"]);
   assert.equal(events[0].payload.phase, "runTests");
   assert.equal(events[0].task_id, "TASK-verification-events");
+  assert.equal(events[0].payload.conversation_id, "CONV-TASK-verification-events");
+  assert.equal(events[1].payload.conversation_id, "CONV-TASK-verification-events");
   assert.equal(events[1].payload.command_id, events[0].payload.command_id);
 });
 

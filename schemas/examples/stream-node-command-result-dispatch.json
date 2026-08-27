@@ -1,0 +1,17 @@
+{
+  "event_type": "node.command_result",
+  "task_id": "FORGE-FIX-013",
+  "timestamp": "2026-08-24T18:05:00Z",
+  "sequence": 1,
+  "payload": {
+    "command_id": "dispatchChange-FORGE-FIX-013-1",
+    "success": true,
+    "result": {
+      "step_name": "applyUnifiedDiff",
+      "success": true,
+      "error_code": null,
+      "duration_ms": 12
+    },
+    "conversation_id": "CONV-BUILDER"
+  }
+}

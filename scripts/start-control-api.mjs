@@ -56,6 +56,7 @@ import { createExecutionContext } from "../src/application/execution-layer.js";
 import { createUnifiedStreamOrderer } from "../src/modules/events/unified-stream-order.js";
 import { createTicketCommandParser } from "../src/application/ticket-command-parser.js";
 import { createProseTicketService } from "../src/application/prose-ticket-service.js";
+import { logEvent, readLogEvents } from "../src/core/project-log-service.js";
 
 const port = Number(process.env.NODE_CONTROL_PORT ?? 3100);
 const host = process.env.NODE_CONTROL_HOST ?? "127.0.0.1";
@@ -199,16 +200,21 @@ const executeAgentTool = async (tool, { message, eventSink }) => {
     for (const file of files) {
       assertAgentSourcePath(file.target_path);
       if (file.module_system !== "esm") throw new Error(`Builder ${file.target_path} must declare module_system: esm; use import/export, not require/module.exports.`);
-      if ((file.code_kind === "main" && !file.target_path.startsWith("src/")) || (file.code_kind === "test" && !file.target_path.startsWith("tests/"))) throw new Error(`Agent ${file.code_kind} code must stay under ${file.code_kind === "main" ? "src/" : "tests/"}.`);
+      if ((file.code_kind === "main" && !isMainSourcePath(file.target_path)) || (file.code_kind === "test" && !file.target_path.startsWith("tests/"))) throw new Error(`Agent ${file.code_kind} code must stay under ${file.code_kind === "main" ? "src/ or web/src/" : "tests/"}.`);
       console.log(`[agent-loop] file.write.request ${JSON.stringify({ path: file.target_path, target_dir: file.target_dir, file_operation: file.file_operation, code_kind: file.code_kind, chars: file.content.length })}`);
       try {
         const current = await fileService.readFile({ path: file.target_path }).catch(() => "");
         const checksum = `sha256:${createHash("sha256").update(current).digest("hex")}`;
         const change = { file_path: file.target_path, checksum_before: checksum, ...(file.content.includes("@@") ? { diff: file.content } : { content: file.content }) };
-        const execution = await dispatchChange(createExecutionContext({ taskId: message.payload.task?.id ?? message.id, stepId: written.length + 1, change, eventSink }));
+        const execution = await dispatchChange(createExecutionContext({ taskId: message.payload.task?.id ?? message.id, ticketId: message.payload.task?.id ?? message.id, conversationId: message.conversation_id, stepId: written.length + 1, change, eventSink }));
         const finalResult = execution.trace.at(-1);
         if (!finalResult?.success) throw new Error(finalResult?.error_message ?? "Execution apply failed.");
-        eventSink?.({ event_type: "node.command_result", task_id: message.payload.task?.id ?? message.id, timestamp: new Date().toISOString(), payload: { command: "dispatchChange", status: "passed", success: true, step_name: finalResult.step_name, error_code: null } });
+        eventSink?.({ event_type: "node.command_result", task_id: message.payload.task?.id ?? message.id, timestamp: new Date().toISOString(), payload: {
+          command_id: `dispatchChange-${message.payload.task?.id ?? message.id}-${written.length + 1}`,
+          success: true,
+          result: { step_name: finalResult.step_name, success: true, error_code: null, duration_ms: finalResult.duration_ms ?? 0 },
+          conversation_id: message.conversation_id
+        } });
         console.log(`[agent-loop] file.write.success ${JSON.stringify({ path: file.target_path, code_kind: file.code_kind, execution: finalResult })}`);
         written.push(file.target_path);
       } catch (error) {
@@ -221,17 +227,18 @@ const executeAgentTool = async (tool, { message, eventSink }) => {
   }
   throw new Error("Unsupported agent tool request.");
 };
+function isMainSourcePath(path) { return /^(src|web\/src)(\/|$)/.test(path); }
 function assertAgentSourcePath(path, { directory = false } = {}) {
-  if (typeof path !== "string" || !/^(src|tests)(\/|$)/.test(path) || path.includes("..")) throw new Error(`Agent path must stay under src/ or tests/: ${path ?? "<missing>"}`);
+  if (typeof path !== "string" || !(isMainSourcePath(path) || /^(tests)(\/|$)/.test(path)) || path.includes("..")) throw new Error(`Agent path must stay under src/, web/src/, or tests/: ${path ?? "<missing>"}`);
   if (directory && path.endsWith("/")) return;
 }
 const api = createHttpApi({
   runtimeService,
-  ownerChatService: createOwnerChatService({ bus, internalBus, ticketCommandParser, proseTicketService, buildAgentContext: buildBuilderContext, executeAgentTool, debug: (detail) => console.log(`[agent-loop] ${JSON.stringify(detail)}`), dispatchAgentTicket: ({ task_id: taskId, ticket, message }) => streamTicket({ taskId, ticket, message }), agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId, eventSink: publishUnifiedStreamEvent }), onAgentCompleted: sprintOrchestration.ingestAgentCompletion }),
-  conversationStream: createConversationStream({ bus, communicationStore: communications, eventStore, subscriptions }),
+  ownerChatService: createOwnerChatService({ bus, projectLogger: logEvent, internalBus, ticketCommandParser, proseTicketService, buildAgentContext: buildBuilderContext, executeAgentTool, debug: (detail) => console.log(`[agent-loop] ${JSON.stringify(detail)}`), dispatchAgentTicket: ({ task_id: taskId, ticket, message }) => streamTicket({ taskId, ticket, message }), agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId, eventSink: publishUnifiedStreamEvent }), onAgentCompleted: sprintOrchestration.ingestAgentCompletion }),
+  conversationStream: createConversationStream({ bus, communicationStore: communications, eventStore, subscriptions, logReader: ({ conversation_id }) => readLogEvents({ project_id: process.env.NODE_CONTROL_PROJECT_ID ?? "PROJECT-NODEFORGE", conversation_id }) }),
   architectureWorkspaceService: createArchitectureWorkspaceService({ knowledge, roadmaps, sprintPlans }),
-  projectDashboardService: createProjectDashboardService({ roadmaps, sprintPlans, provenance }),
-  conversationAuditHistoryService: createConversationAuditHistoryService({ communications, eventStore }),
+  projectDashboardService: createProjectDashboardService({ roadmaps, sprintPlans, provenance, logReader: ({ ticket_id }) => readLogEvents({ project_id: process.env.NODE_CONTROL_PROJECT_ID ?? "PROJECT-NODEFORGE", ticket_id }) }),
+  conversationAuditHistoryService: createConversationAuditHistoryService({ communications, eventStore, logReader: ({ project_id, task_id, correlation_id, conversation_id, event_name }) => readLogEvents({ project_id, task_id, ticket_id: task_id, conversation_id, event_name, correlation_id }) }),
   humanDecisionService: createHumanDecisionService({ decisions, bus }),
   agentSettingsService: agentSettings,
   sprintPlanUploadService: sprintPlanUpload,
@@ -259,14 +266,34 @@ function publishUnifiedStreamEvent(event) {
       timestamp: ordered.timestamp
     });
   } catch (error) {
-    // A malformed side-channel event must never terminate the Control API.
-    console.error(`[unified-stream] delivery failed: ${error.message}`);
+    // Keep delivery failures queryable even though one malformed event must not
+    // terminate the Control API or interrupt later stream events.
+    const detail = String(error?.message ?? error).slice(0, 2000);
+    try {
+      logEvent({
+        timestamp: new Date().toISOString(),
+        event_name: "system.delivery_error",
+        level: "error",
+        status: "failed",
+        message: `Unified stream delivery failed: ${detail}`,
+        task_id: ordered.task_id ?? "UNIFIED-STREAM",
+        ticket_id: ordered.payload?.ticket_id,
+        conversation_id: conversationId,
+        source: "start-control-api",
+        error_code: "STREAM_DELIVERY_FAILED",
+        payload: { event_type: ordered.event_type, message: detail, conversation_id: conversationId }
+      });
+    } catch (logError) {
+      console.error(`[unified-stream] delivery failed: ${detail}; log failed: ${logError.message}`);
+    }
   }
   return ordered;
 }
 async function streamTicket({ taskId, ticket, message }) {
   try {
+    logEvent({ timestamp: new Date().toISOString(), event_name: "ticket.status_change", level: "info", status: "info", message: "Ticket dispatch accepted.", task_id: taskId, ticket_id: ticket.id, conversation_id: message.conversation_id, source: "start-control-api", payload: { from: "pending", to: "running", ticket_id: ticket.id, conversation_id: message.conversation_id } });
     roadmaps.updateTicketStatus({ projectId: message.project_id, ticketId: ticket.id, status: "running" });
+    logEvent({ timestamp: new Date().toISOString(), event_name: "ticket.status_change", level: "info", status: "info", message: "Ticket is running.", task_id: taskId, ticket_id: ticket.id, conversation_id: message.conversation_id, source: "start-control-api" });
     publishUnifiedStreamEvent({ event_type: "node.status_change", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, from: "pending", to: "running", ticket_id: ticket.id } });
     const acceptance = (ticket.acceptance_criteria ?? []).map((item) => `- ${item}`).join("\n");
     const dependencies = (ticket.dependencies ?? []).join(", ") || "none";
@@ -300,18 +327,28 @@ async function streamTicket({ taskId, ticket, message }) {
       if (!requestedContext && !submitted) break;
     }
     if (!submitted) throw new Error("Builder stream ended without submit_code.");
-    const { stdout } = await runGit("git", ["status", "--porcelain", "--", ...appliedPaths], { cwd: process.cwd() });
+    const gitContext = { task_id: taskId, ticket_id: ticket.id, conversation_id: message.conversation_id };
+    const { stdout } = await runGitLogged(["status", "--porcelain", "--", ...appliedPaths], "git.status", { ...gitContext, eventSink: publishUnifiedStreamEvent });
     if (!stdout.trim()) throw new Error("No applied changes to commit.");
-    await runGit("git", ["add", "--", ...appliedPaths], { cwd: process.cwd() });
-    await runGit("git", ["commit", "-m", `chore: apply ${ticket.id}`], { cwd: process.cwd() });
+    await runGitLogged(["add", "--", ...appliedPaths], "git.add", { ...gitContext, eventSink: publishUnifiedStreamEvent });
+    const commitResult = await runGitLogged(["commit", "-m", `chore: apply ${ticket.id}`], "git.commit", { ...gitContext, eventSink: publishUnifiedStreamEvent });
     roadmaps.updateTicketStatus({ projectId: message.project_id, ticketId: ticket.id, status: "done" });
+    logEvent({ timestamp: new Date().toISOString(), event_name: "ticket.status_change", level: "info", status: "success", message: "Ticket completed.", task_id: taskId, ticket_id: ticket.id, conversation_id: message.conversation_id, source: "start-control-api", payload: { from: "running", to: "done", ticket_id: ticket.id, conversation_id: message.conversation_id, files: appliedPaths, commit: commitResult.commit } });
   } catch (error) {
     const reason = error?.code === "RATE_LIMITED" || error?.statusCode === 429 ? "rate_limited" : "provider_error";
     const errorMessage = String(error?.message ?? error);
     const errorCode = error?.code ?? (error?.statusCode === 429 ? "HTTP_429" : "UPSTREAM_ERROR");
     const detail = `${reason} (${errorCode}): ${errorMessage}`;
     roadmaps.updateTicketStatus({ projectId: message.project_id, ticketId: ticket.id, status: "failed", error: detail });
-    publishUnifiedStreamEvent({ event_type: "node.command_result", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, command: "agent.stream", status: "failed", exit_code: null, reason, error_code: errorCode, error: errorMessage, message: detail } });
+    logEvent({ timestamp: new Date().toISOString(), event_name: "ticket.status_change", level: "error", status: "failed", message: detail, task_id: taskId, ticket_id: ticket.id, conversation_id: message.conversation_id, source: "start-control-api", payload: { from: "running", to: "failed", ticket_id: ticket.id, conversation_id: message.conversation_id, error: detail } });
+    publishUnifiedStreamEvent({ event_type: "node.command_result", task_id: taskId, timestamp: new Date().toISOString(), payload: {
+      command_id: `agent-stream-${taskId}`,
+      success: false,
+      conversation_id: message.conversation_id,
+      exit_code: null,
+      error_code: errorCode,
+      message: detail
+    } });
     publishUnifiedStreamEvent({ event_type: "node.status_change", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, from: "running", to: "failed", ticket_id: ticket.id, reason, error_code: errorCode, error: errorMessage, message: detail } });
     try {
       bus.send({ id: `MSG-BUILDER-FAILED-${taskId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, project_id: message.project_id, sender: { id: "builder", role: "builder" }, recipient: { id: "NODE", role: "node" }, message_type: "builder.error", conversation_id: message.conversation_id, correlation_id: message.correlation_id, payload: { task_id: taskId, reason, error_code: errorCode, error: errorMessage, message: detail }, timestamp: new Date().toISOString() });
@@ -322,6 +359,26 @@ async function streamTicket({ taskId, ticket, message }) {
   }
   publishUnifiedStreamEvent({ event_type: "node.status_change", task_id: taskId, timestamp: new Date().toISOString(), payload: { conversation_id: message.conversation_id, from: "running", to: "done", ticket_id: ticket.id } });
   return { task_id: taskId, status: "done" };
+}
+
+async function runGitLogged(args, eventName, context) {
+  const started = new Date().toISOString();
+  try {
+    const result = await runGit("git", args, { cwd: process.cwd() });
+    const commit = eventName === "git.commit" ? String(result.stdout ?? "").match(/\b[0-9a-f]{7,40}\b/i)?.[0] : undefined;
+    const payload = { message: `${eventName} succeeded.`, conversation_id: context.conversation_id, task_id: context.task_id, ticket_id: context.ticket_id, exit_code: 0, ...(commit ? { commit } : {}) };
+    context.eventSink?.({ event_type: eventName, task_id: context.task_id, timestamp: started, payload });
+    logEvent({ timestamp: started, event_name: eventName, level: "info", status: "success", message: `${eventName} succeeded.`, task_id: context.task_id, ticket_id: context.ticket_id, conversation_id: context.conversation_id, source: "start-control-api", exit_code: 0, payload });
+    return { ...result, commit };
+  } catch (error) {
+    const parsedCode = Number(error?.code);
+    const exitCode = Number.isInteger(parsedCode) ? parsedCode : Number.isInteger(error?.status) ? error.status : null;
+    const message = String(error?.stderr || error?.message || "Git operation failed.").replace(/(?:https?:\/\/|ssh\s+)[^\s]+/gi, "[REDACTED]");
+    const payload = { message: message.slice(0, 2000), conversation_id: context.conversation_id, task_id: context.task_id, ticket_id: context.ticket_id, exit_code: exitCode, error_code: `GIT_${eventName.split(".").at(-1).toUpperCase()}_FAILED` };
+    context.eventSink?.({ event_type: eventName, task_id: context.task_id, timestamp: new Date().toISOString(), payload });
+    logEvent({ timestamp: new Date().toISOString(), event_name: eventName, level: "error", status: "failed", message: message.slice(0, 2000), task_id: context.task_id, ticket_id: context.ticket_id, conversation_id: context.conversation_id, source: "start-control-api", exit_code: exitCode, error_code: payload.error_code, payload });
+    throw error;
+  }
 }
 
 function ticketPrompt(ticket, acceptance, dependencies) {

@@ -81,7 +81,19 @@ const fixtures = [
   , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-node-execution-step.json"]
   , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-node-command.json"]
   , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-node-command-result.json"]
+  , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-node-command-result-dispatch.json"]
   , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-agent-text-stream.json"]
+  , ["https://forge.local/schemas/log/project-log.schema.json", "schemas/examples/project-log-entry.json"]
+  , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-project-log-execution-step.json"]
+  , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-project-log-execution-dispatch_result.json"]
+  , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-project-log-verification-command.json"]
+  , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-project-log-verification-command_result.json"]
+  , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-project-log-git-status.json"]
+  , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-project-log-git-add.json"]
+  , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-project-log-git-commit.json"]
+  , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-project-log-index-started.json"]
+  , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-project-log-index-completed.json"]
+  , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-project-log-index-failed.json"]
 ];
 
 async function readJson(file) {
