@@ -91,6 +91,7 @@ function App() {
   const [settingsAgent, setSettingsAgent] = useState(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [dashboard, setDashboard] = useState(null);
+  const dashboardRequestRef = useRef(null);
   const [historyChat, setHistoryChat] = useState(() => Object.fromEntries(AGENTS.map((a) => [a.id, []])));
   const [historyHasMore, setHistoryHasMore] = useState(() => Object.fromEntries(AGENTS.map((a) => [a.id, true])));
   const [historyLoading, setHistoryLoading] = useState(() => Object.fromEntries(AGENTS.map((a) => [a.id, false])));
@@ -121,6 +122,8 @@ function App() {
     }
   }, [client]);
   const loadDashboard = useCallback(async () => {
+    if (dashboardRequestRef.current) return dashboardRequestRef.current;
+    const request = (async () => {
     try {
       const primary = await client.getProjectDashboard(PROJECT_ID);
       if (primary?.roadmap || PROJECT_ID === "PROJECT-114A") { setDashboard(primary); return; }
@@ -128,6 +131,9 @@ function App() {
     } catch {
       try { setDashboard(await client.getProjectDashboard("PROJECT-114A")); } catch { setDashboard(null); }
     }
+    })();
+    dashboardRequestRef.current = request;
+    try { return await request; } finally { dashboardRequestRef.current = null; }
   }, [client]);
 
   const loadHistoryPage = useCallback(async (agentId, direction = "initial") => {
