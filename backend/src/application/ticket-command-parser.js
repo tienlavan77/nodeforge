@@ -1,4 +1,6 @@
 const COMMAND_PATTERN = /^\/ticket\s+([\s\S]+?)\s*$/i;
+// Failed tickets are retryable; only active/review states and completed work
+// remain protected from a duplicate dispatch.
 const TERMINAL_OR_ACTIVE = new Set(["running", "reviewing", "done"]);
 
 /** Parses an owner chat ticket command and checks its dependency gate only. */
