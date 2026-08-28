@@ -1,0 +1,5 @@
+import SprintSummary from "./SprintSummary";
+export default function Dashboard({ dashboard }) {
+  if (!dashboard?.roadmap || !dashboard.current_sprint) return <p className="dashboard-state">No roadmap or current sprint has been published yet.</p>;
+  return <section aria-label="Project and Sprint Dashboard" className="dashboard-content"><div className="dashboard-overview"><span>ROADMAP <strong>{dashboard.roadmap.id}</strong></span><span>v{dashboard.roadmap.version}</span><span>{dashboard.current_sprint.status?.toUpperCase()}</span></div><SprintSummary sprint={dashboard.current_sprint} /><section className="dashboard-section"><h3>Sprint Backlog</h3>{dashboard.backlog?.length ? <div className="dashboard-tickets">{dashboard.backlog.map((ticket) => <article className="dashboard-ticket" key={ticket.id}><strong>{ticket.id}</strong><p>{ticket.title}</p><small>{ticket.status ?? "planned"} · {ticket.progress ?? 0}%</small></article>)}</div> : <p className="dashboard-state">No tickets in the current sprint.</p>}</section></section>;
+}
