@@ -24,7 +24,9 @@ export function createTicketCommandParser({ roadmapStore } = {}) {
   }
 
   function findTicket(roadmap, id) {
-    return roadmap?.sprints?.flatMap((sprint) => sprint.tickets ?? []).find((ticket) => ticket.id.toLowerCase() === String(id).toLowerCase());
+    // Duplicate IDs are historically allowed; dispatch the newest matching record.
+    const matches = roadmap?.sprints?.flatMap((sprint) => sprint.tickets ?? []).filter((ticket) => ticket.id.toLowerCase() === String(id).toLowerCase()) ?? [];
+    return matches.at(-1);
   }
 }
 

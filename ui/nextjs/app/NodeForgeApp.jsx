@@ -211,7 +211,7 @@ function App() {
           } else if (!message.message_type.endsWith(".tool.result") && !message.message_type.endsWith(".message.progress") && !message.message_type.endsWith(".progress") && !message.message_type.endsWith(".working")) {
             pushLiveHistory(agent.id, message);
           }
-          if (message.message_type === "governance.sprint_plan.created") loadDashboard();
+          if (message.message_type === "governance.sprint_plan.created" || message.message_type === "ticket.creation") loadDashboard();
           if (message.message_type === "node.status_change" && message.payload?.ticket_id) loadDashboard();
           if (agent.id === "architecture-manager" && message.message_type === "architecture.message.received") loadWorkspace();
         },
