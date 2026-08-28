@@ -2,7 +2,7 @@
 /* Legacy Vite parity copy: retain dormant components until the Next UI is fully consolidated. */
 /* eslint-disable no-unused-vars, no-undef */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createNodeClient, detectMessageIntent, MESSAGE_INTENTS } from "../../src/services/node-client.js";
+import { createNodeClient, detectMessageIntent, normalizeTicketInput, MESSAGE_INTENTS } from "../../src/services/node-client.js";
 import { validateSprintPlan } from "../../src/services/sprint-plan-validator.js";
 
 const AGENTS = [
@@ -338,6 +338,7 @@ function App() {
     const text = drafts[agentId]?.trim();
     if (!text) return;
     const intent = detectMessageIntent(text);
+    const extractedTicket = intent === MESSAGE_INTENTS.ticketCreate ? normalizeTicketInput(text).ticket : undefined;
     const isDispatch = intent === MESSAGE_INTENTS.ticketDispatch;
     const targetAgentId = intent === MESSAGE_INTENTS.normalChat ? agentId : "builder";
     const conversationId = CONVERSATIONS[targetAgentId] ?? ARCHITECTURE_CONVERSATION_ID;
@@ -358,7 +359,8 @@ function App() {
         messageId,
         correlationId: optimistic.correlation_id,
         text,
-        intent
+        intent,
+        ticket: extractedTicket
       });
       // Some immediate Node responses (ticket.creation/status) can arrive
       // before the SSE subscription observes the persisted message. Render
