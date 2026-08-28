@@ -86,6 +86,7 @@ function App() {
   const [activeAgent, setActiveAgent] = useState("architecture-manager");
   const [drafts, setDrafts] = useState({});
   const [workspace, setWorkspace] = useState(null);
+  const workspaceRequestRef = useRef(null);
   const [workingByAgent, setWorkingByAgent] = useState(() => Object.fromEntries(AGENTS.map((agent) => [agent.id, "READY"])));
   const [historyOpen, setHistoryOpen] = useState(false);
   const [settingsAgent, setSettingsAgent] = useState(null);
@@ -109,6 +110,8 @@ function App() {
   const pendingDispatchRef = useRef({});
   const active = AGENTS.find((agent) => agent.id === activeAgent);
   const loadWorkspace = useCallback(async () => {
+    if (workspaceRequestRef.current) return workspaceRequestRef.current;
+    const request = (async () => {
     try {
       const data = await client.getArchitectureWorkspace(PROJECT_ID);
       setWorkspace(data);
@@ -120,6 +123,9 @@ function App() {
     } catch {
       setWorkingByAgent((prev) => ({ ...prev, "architecture-manager": "FAILED" }));
     }
+    })();
+    workspaceRequestRef.current = request;
+    try { return await request; } finally { workspaceRequestRef.current = null; }
   }, [client]);
   const loadDashboard = useCallback(async () => {
     if (dashboardRequestRef.current) return dashboardRequestRef.current;
