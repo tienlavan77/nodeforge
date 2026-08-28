@@ -108,17 +108,18 @@ export function createNodeClient() {
     async getArchitectureWorkspace(projectId) {
       return requestJson(`/projects/${projectId}/architecture-workspace`, { fallbackError: "Node could not load the Architecture Workspace." });
     },
-    async postOwnerMessage({ projectId, conversationId, agentId, messageId, correlationId, text, intent }) {
+    async postOwnerMessage({ projectId, conversationId, agentId, messageId, correlationId, text, intent, ticket }) {
       const messageIntent = intent ?? detectMessageIntent(text);
       if (!Object.values(MESSAGE_INTENTS).includes(messageIntent)) throw new Error("Invalid message intent.");
       const rawText = String(text);
-      const normalized = messageIntent === MESSAGE_INTENTS.normalChat ? { text: rawText, normalized_text: rawText } : normalizeTicketInput(rawText);
+      const normalized = messageIntent === MESSAGE_INTENTS.normalChat ? { text: rawText } : normalizeTicketInput(rawText);
+      const ticketObject = ticket ?? normalized.ticket;
       console.log("ticket", normalized.ticket ?? null);
-      if (messageIntent === MESSAGE_INTENTS.ticketCreate && !normalized.ticket) throw new Error("Ticket JSON could not be extracted from the message.");
+      if (messageIntent === MESSAGE_INTENTS.ticketCreate && !ticketObject) throw new Error("Ticket JSON could not be extracted from the message.");
       return requestJson(`/projects/${projectId}/conversations/${conversationId}/messages`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ agent_id: agentId, message_id: messageId, correlation_id: correlationId, timestamp: new Date().toISOString(), payload: { intent: messageIntent, ...(messageIntent === MESSAGE_INTENTS.ticketCreate ? { ticket: normalized.ticket } : {}), text: rawText } }),
+        body: JSON.stringify({ agent_id: agentId, message_id: messageId, correlation_id: correlationId, timestamp: new Date().toISOString(), payload: { intent: messageIntent, ...(messageIntent === MESSAGE_INTENTS.ticketCreate ? { ticket: ticketObject } : {}), text: rawText } }),
         fallbackError: "Node rejected the owner message."
       });
     },
