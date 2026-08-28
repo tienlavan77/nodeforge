@@ -6,9 +6,9 @@ import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 
 const require = createRequire(import.meta.url);
-const commonSchema = require("../../schemas/core/common.schema.json");
-const ticketSchema = require("../../schemas/governance/ticket.schema.json");
-const agentToolSchema = require("../../schemas/agent/agent-tool.schema.json");
+const commonSchema = require("../../../schemas/core/common.schema.json");
+const ticketSchema = require("../../../schemas/governance/ticket.schema.json");
+const agentToolSchema = require("../../../schemas/agent/agent-tool.schema.json");
 const AGENT_TOOL_PROTOCOL_UNLIMITED = "\n\nAgent tool loop protocol:\n- Use request_info whenever more context is needed.\n- Node continues returning context until submit_code; there is no round limit.\n- submit_code must include the requested code; add test files only when the task acceptance criteria require tests.";
 
 export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, executeAgentTool, ticketCommandParser, proseTicketService, dispatchAgentTicket, internalBus, debug = () => {}, streamBatchMs = 500, projectLogger = logEvent } = {}) {
@@ -45,6 +45,12 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     const intent = input.payload.intent;
     if (intent !== undefined && !["normal_chat", "ticket_create", "ticket_dispatch"].includes(intent)) throw new ConfigurationError("Invalid owner message intent.");
     const resolvedIntent = intent ?? inferLegacyIntent(input.payload.text);
+    if (isBuilder && intent === "ticket_create" && (!input.payload.ticket || typeof input.payload.ticket !== "object" || Array.isArray(input.payload.ticket))) {
+      const missingTicket = { create_ticket: true, status: "needs_input", error_code: "missing_ticket_object", question: "payload.ticket JSON object is required for ticket_create." };
+      const notice = bus.send(responseMessage({ id: input.message_id, project_id: input.project_id, conversation_id: input.conversation_id, correlation_id: input.correlation_id, timestamp: input.timestamp, sender: { id: "NODE", role: "node" }, recipient: { id: "builder-ex", role: "builder" } }, "ticket.creation", missingTicket, `TICKET-CREATE-${input.message_id}`));
+      messages.set(input.message_id, Object.freeze(structuredClone(notice)));
+      return structuredClone(notice);
+    }
     if (isBuilder && resolvedIntent === "ticket_create" && !input.payload.ticket && hasJsonCandidate(input.payload.text) && !isParsableJsonCandidate(input.payload.text)) {
       const invalidJson = { create_ticket: true, status: "needs_input", error_code: "invalid_ticket_json", question: "Ticket JSON không hợp lệ; vui lòng kiểm tra dấu ngoặc kép và xuống dòng trong chuỗi." };
       const notice = bus.send(responseMessage({ id: input.message_id, project_id: input.project_id, conversation_id: input.conversation_id, correlation_id: input.correlation_id, timestamp: input.timestamp, sender: { id: "NODE", role: "node" }, recipient: { id: "builder-ex", role: "builder" } }, "ticket.creation", invalidJson, `TICKET-CREATE-${input.message_id}`));
