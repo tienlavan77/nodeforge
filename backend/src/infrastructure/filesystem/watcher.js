@@ -60,7 +60,12 @@ export function createFilesystemWatcher({ root, ignore = [], chokidarOptions = {
 
 export function createProjectIgnoreMatcher(root, ignore = []) {
   const patterns = [...DEFAULT_WATCHER_IGNORE, ...ignore];
-  const projectPatterns = patterns.map((pattern) => (pattern.includes("/") ? pattern : `**/${pattern}`));
+  // Match ignored directories at any depth (for example ui/nextjs/.next/**),
+  // not only when they sit directly under the repository root.
+  const projectPatterns = patterns.flatMap((pattern) => {
+    const normalized = pattern.replace(/^\.\//, "");
+    return normalized.startsWith("**/") ? [normalized] : [normalized, `**/${normalized}`];
+  });
   const isIgnored = picomatch(projectPatterns, { dot: true });
 
   return (path) => {
