@@ -17,13 +17,17 @@ export function createArchitectureWorkspaceService({ knowledge, roadmaps, sprint
     const roadmap = roadmaps.getCurrent();
     if (roadmap && roadmap.project_id !== projectId) return emptyWorkspace(projectId);
     const currentSprint = sprintPlans.getCurrentSprint();
+    const decisions = knowledge.getDecisions().filter((decision) => decision.project_id === projectId);
+    const architecture = decisions.filter(({ type }) => type === "architecture");
+    const standards = decisions.filter(({ type }) => type === "standard");
+    const constraints = decisions.filter(({ type }) => type === "constraint");
     return structuredClone({
       project_id: projectId,
       agent: { id: "architecture-manager", status: "READY" },
-      architecture_plan: { architecture: knowledge.getArchitecture(), standards: knowledge.getStandards(), constraints: knowledge.getConstraints() },
-      decisions: knowledge.getDecisions(),
-      standards: knowledge.getStandards(),
-      constraints: knowledge.getConstraints(),
+      architecture_plan: { architecture, standards, constraints },
+      decisions,
+      standards,
+      constraints,
       roadmap: roadmap ?? null,
       sprint_breakdown: roadmap?.sprints ?? [],
       current_sprint: currentSprint ?? null
