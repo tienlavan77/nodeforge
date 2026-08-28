@@ -2,35 +2,35 @@
   "name": "nodeforge",
   "version": "0.1.0",
   "private": true,
-  "description": "Protocol-driven multi-agent orchestration system.",
+  "description": "NodeForge workspace orchestration",
   "type": "module",
   "bin": {
-    "forge": "src/transport/cli/index.js"
+    "forge": "backend/src/transport/cli/index.js"
   },
   "scripts": {
-    "dev": "node scripts/start-dev.mjs",
-    "dev:web": "node ./node_modules/vite/bin/vite.js --config web/vite.config.js",
-    "dev:web:vps": "node scripts/start-web-vps.mjs",
-    "dev:node": "node scripts/start-control-api.mjs",
-    "dev:forge": "node scripts/dev-forge.mjs",
-    "dev:forge:stop": "node scripts/dev-forge.mjs --stop",
-    "dev:forge:restart": "node scripts/dev-forge.mjs --restart",
-    "dev:forge:api:start": "node scripts/dev-forge-processes.mjs api:start",
-    "dev:forge:api:stop": "node scripts/dev-forge-processes.mjs api:stop",
-    "dev:forge:api:restart": "node scripts/dev-forge-processes.mjs api:restart",
-    "dev:forge:vite:start": "node scripts/dev-forge-processes.mjs vite:start",
-    "dev:forge:vite:stop": "node scripts/dev-forge-processes.mjs vite:stop",
-    "dev:forge:vite:restart": "node scripts/dev-forge-processes.mjs vite:restart",
-    "dev:forge:start": "node scripts/dev-forge-processes.mjs start",
-    "dev:forge:shutdown": "node scripts/dev-forge-processes.mjs shutdown",
-    "dev:watcher": "rm -f .forge/runtime/nf/.nodeforge-watcher.lock && node scripts/start-project-watcher.mjs",
-    "build:web": "node ./node_modules/vite/bin/vite.js build --config web/vite.config.js",
-    "lint": "node node_modules/eslint/bin/eslint.js \"src/**/*.js\" \"tests/**/*.js\" \"web/src/**/*.js\" --no-error-on-unmatched-pattern --max-warnings=0",
+    "dev": "node backend/scripts/dev-workspace.mjs",
+    "dev:web": "node ./node_modules/vite/bin/vite.js --config ui/vite.config.js",
+    "dev:web:vps": "node backend/scripts/start-web-vps.mjs",
+    "dev:node": "node backend/scripts/start-control-api.mjs",
+    "dev:forge": "node backend/scripts/dev-forge.mjs",
+    "dev:forge:stop": "node backend/scripts/dev-forge.mjs --stop",
+    "dev:forge:restart": "node backend/scripts/dev-forge.mjs --restart",
+    "dev:forge:api:start": "node backend/scripts/dev-forge-processes.mjs api:start",
+    "dev:forge:api:stop": "node backend/scripts/dev-forge-processes.mjs api:stop",
+    "dev:forge:api:restart": "node backend/scripts/dev-forge-processes.mjs api:restart",
+    "dev:forge:vite:start": "node backend/scripts/dev-forge-processes.mjs vite:start",
+    "dev:forge:vite:stop": "node backend/scripts/dev-forge-processes.mjs vite:stop",
+    "dev:forge:vite:restart": "node backend/scripts/dev-forge-processes.mjs vite:restart",
+    "dev:forge:start": "node backend/scripts/dev-forge-processes.mjs start",
+    "dev:forge:shutdown": "node backend/scripts/dev-forge-processes.mjs shutdown",
+    "dev:watcher": "node backend/scripts/start-project-watcher.mjs",
+    "build:web": "node ./node_modules/vite/bin/vite.js build --config ui/vite.config.js",
+    "lint": "node node_modules/eslint/bin/eslint.js \"backend/src/**/*.js\" \"backend/tests/**/*.js\" \"ui/src/**/*.js\" --no-error-on-unmatched-pattern --max-warnings=0",
     "typecheck": "node node_modules/typescript/bin/tsc --project jsconfig.json",
     "test": "node --test",
-    "bootstrap:smoke": "node scripts/bootstrap-smoke.mjs",
-    "validate:schemas": "node scripts/validate-schemas.mjs",
-    "postinstall": "node scripts/repair-npm-bin-links.mjs"
+    "bootstrap:smoke": "node backend/scripts/bootstrap-smoke.mjs",
+    "validate:schemas": "node backend/scripts/validate-schemas.mjs",
+    "postinstall": "node backend/scripts/repair-npm-bin-links.mjs"
   },
   "engines": {
     "node": ">=22.5.0"
@@ -39,15 +39,5 @@
     "eslint": "^8.57.1",
     "typescript": "^7.0.2",
     "vite": "^8.2.2"
-  },
-  "dependencies": {
-    "@babel/parser": "^7.29.8",
-    "ajv": "^8.20.0",
-    "ajv-formats": "^3.0.1",
-    "chokidar": "^4.0.3",
-    "php-parser": "^3.7.0",
-    "picomatch": "^4.0.5",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8"
   }
 }
