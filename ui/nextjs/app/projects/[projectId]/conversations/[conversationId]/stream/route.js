@@ -21,7 +21,8 @@ export async function GET(request, { params }) {
       "content-type": "text/event-stream; charset=utf-8",
       "cache-control": "no-cache, no-transform",
       connection: "keep-alive",
-      "x-accel-buffering": "no"
+      "x-accel-buffering": "no",
+      "x-nodeforge-sse-route": "route-handler"
     }
   });
 }
