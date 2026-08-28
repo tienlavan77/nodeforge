@@ -13,3 +13,5 @@ config/.env
 .DS_Store
 # macOS AppleDouble metadata files created on mounted folders.
 ._*
+
+ui/nextjs/.next/

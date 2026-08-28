@@ -1,6 +1,0 @@
-{
-  "version": 3,
-  "sources": [],
-  "sections": [
-    {"offset": {"line": 10, "column": 0}, "map": {"version":3,"sources":["file:///home/data/sites/nodeforge/ui/nextjs/app/page.jsx"],"sourcesContent":["export default function HomePage() {\n  return (\n    <main className=\"grid min-h-screen place-items-center bg-red-500 p-8 text-white\">\n      <p className=\"text-lg font-semibold\">NodeForge Next.js scaffold</p>\n    </main>\n  );\n}\n"],"names":["HomePage","className"],"mappings":";;;;;;AAAe,SAASA;IACtB,qBACE,6WAAC;QAAKC,WAAU;kBACd,cAAA,6WAAC;YAAEA,WAAU;sBAAwB;;;;;;;;;;;AAG3C"}}]
-}
