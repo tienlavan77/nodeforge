@@ -61,12 +61,18 @@ export function createConversationStream({ bus, communicationStore, eventStore, 
     const replayStart = afterMessageId && cursorIndex >= 0 ? cursorIndex + 1 : Math.max(0, replayMessages.length - normalizeLimit(replayLimit));
     for (const message of replayMessages.slice(replayStart)) write(message);
     response.write("event: conversation.replay.complete\ndata: {}\n\n");
+    // Keep idle SSE connections alive through proxies and browser dev servers.
+    const heartbeat = setInterval(() => {
+      if (!closed && !response.writableEnded) response.write(": keep-alive\n\n");
+    }, 15000);
+    heartbeat.unref?.();
     replaying = false;
     for (const message of pending.splice(0).sort(compareStreamEvents)) write(message);
     return Object.freeze({
       close() {
         if (closed) return false;
         closed = true;
+        clearInterval(heartbeat);
         bus.unsubscribeAll(observer);
         for (const eventSubscription of eventSubscriptions) subscriptions.unsubscribe(eventSubscription);
         response.end();
