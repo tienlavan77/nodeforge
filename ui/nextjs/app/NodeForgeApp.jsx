@@ -326,6 +326,7 @@ function App() {
     const text = drafts[agentId]?.trim();
     if (!text) return;
     const intent = detectMessageIntent(text);
+    const isDispatch = intent === MESSAGE_INTENTS.ticketDispatch;
     const targetAgentId = intent === MESSAGE_INTENTS.normalChat ? agentId : "builder";
     const conversationId = CONVERSATIONS[targetAgentId] ?? ARCHITECTURE_CONVERSATION_ID;
     const messageId = `MSG-OWNER-${Date.now()}-${targetAgentId}`;
@@ -333,7 +334,7 @@ function App() {
     const nowDate = new Date(nowIso);
     const optimistic = { id: messageId, correlation_id: `CORR-${agentId}-${Date.now()}`, message_type: "owner.message", from: "owner", text, time: nowDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), timestamp: nowIso, dateKey: nowIso.slice(0, 10), dateLabel: formatDateLabel(nowIso) };
     setDrafts((current) => ({ ...current, [agentId]: "" }));
-    pendingDispatchRef.current[agentId] = optimistic.correlation_id;
+    if (isDispatch) pendingDispatchRef.current[agentId] = optimistic.correlation_id;
     setHistoryChat((m) => ({ ...m, [agentId]: [...(m[agentId] ?? []), optimistic] }));
     pendingLive.current[agentId] = [...(pendingLive.current[agentId] ?? []), optimistic];
     requestAnimationFrame(() => scrollToBottom(agentId));
@@ -353,7 +354,19 @@ function App() {
       if (response?.message_type && (response.message_id || response.id)) {
         pushLiveHistory(targetAgentId, { ...response, message_id: response.message_id ?? response.id });
       }
-      if (response?.message_type === "ticket.creation" && response.payload?.status === "created") await loadDashboard();
+      if (response?.message_type === "ticket.creation") {
+        const status = response.payload?.status;
+        if (status === "created") {
+          clearTimeout(dispatchTimersRef.current[agentId]);
+          delete dispatchTimersRef.current[agentId];
+          delete pendingDispatchRef.current[agentId];
+          setWorkingByAgent((current) => ({ ...current, [agentId]: "READY" }));
+          await loadDashboard();
+        } else if (status) {
+          setWorkingByAgent((current) => ({ ...current, [agentId]: "FAILED" }));
+        }
+      }
+      if (!isDispatch) return;
       dispatchTimersRef.current[agentId] = setTimeout(() => {
         if (pendingDispatchRef.current[agentId] !== optimistic.correlation_id) return;
         delete pendingDispatchRef.current[agentId];
