@@ -2,7 +2,7 @@
 /* Legacy Vite parity copy: retain dormant components until the Next UI is fully consolidated. */
 /* eslint-disable no-unused-vars, no-undef */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createNodeClient } from "../../src/services/node-client.js";
+import { createNodeClient, detectMessageIntent, MESSAGE_INTENTS } from "../../src/services/node-client.js";
 import { validateSprintPlan } from "../../src/services/sprint-plan-validator.js";
 
 const AGENTS = [
@@ -325,8 +325,10 @@ function App() {
   async function send(agentId) {
     const text = drafts[agentId]?.trim();
     if (!text) return;
-    const conversationId = CONVERSATIONS[agentId] ?? ARCHITECTURE_CONVERSATION_ID;
-    const messageId = `MSG-OWNER-${Date.now()}-${agentId}`;
+    const intent = detectMessageIntent(text);
+    const targetAgentId = intent === MESSAGE_INTENTS.normalChat ? agentId : "builder";
+    const conversationId = CONVERSATIONS[targetAgentId] ?? ARCHITECTURE_CONVERSATION_ID;
+    const messageId = `MSG-OWNER-${Date.now()}-${targetAgentId}`;
     const nowIso = new Date().toISOString();
     const nowDate = new Date(nowIso);
     const optimistic = { id: messageId, correlation_id: `CORR-${agentId}-${Date.now()}`, message_type: "owner.message", from: "owner", text, time: nowDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), timestamp: nowIso, dateKey: nowIso.slice(0, 10), dateLabel: formatDateLabel(nowIso) };
@@ -339,17 +341,19 @@ function App() {
       const response = await client.postOwnerMessage({
         projectId: PROJECT_ID,
         conversationId,
-        agentId,
+        agentId: targetAgentId,
         messageId,
         correlationId: optimistic.correlation_id,
-        text
+        text,
+        intent
       });
       // Some immediate Node responses (ticket.creation/status) can arrive
       // before the SSE subscription observes the persisted message. Render
       // the POST response as a fallback; SSE deduplication prevents doubles.
       if (response?.message_type && (response.message_id || response.id)) {
-        pushLiveHistory(agentId, { ...response, message_id: response.message_id ?? response.id });
+        pushLiveHistory(targetAgentId, { ...response, message_id: response.message_id ?? response.id });
       }
+      if (response?.message_type === "ticket.creation" && response.payload?.status === "created") await loadDashboard();
       dispatchTimersRef.current[agentId] = setTimeout(() => {
         if (pendingDispatchRef.current[agentId] !== optimistic.correlation_id) return;
         delete pendingDispatchRef.current[agentId];
