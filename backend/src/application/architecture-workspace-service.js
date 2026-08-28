@@ -16,7 +16,8 @@ export function createArchitectureWorkspaceService({ knowledge, roadmaps, sprint
     assertProjectId(projectId);
     const roadmap = roadmaps.getCurrent();
     if (roadmap && roadmap.project_id !== projectId) return emptyWorkspace(projectId);
-    const currentSprint = sprintPlans.getCurrentSprint();
+    const currentSprintCandidate = sprintPlans.getCurrentSprint();
+    const currentSprint = currentSprintCandidate?.project_id === projectId ? currentSprintCandidate : null;
     const decisions = knowledge.getDecisions().filter((decision) => decision.project_id === projectId);
     const architecture = decisions.filter(({ type }) => type === "architecture");
     const standards = decisions.filter(({ type }) => type === "standard");
