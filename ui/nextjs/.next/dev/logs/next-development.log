@@ -1,4 +1,0 @@
-{"timestamp":"00:00:13.944","source":"Server","level":"WARN","message":"⚠ Slow filesystem detected. The benchmark took 243ms. If /home/data/sites/nodeforge/ui/nextjs/.next/dev is a network drive, consider moving it to a local folder.\nSee more: https://nextjs.org/docs/app/guides/local-development"}
-{"timestamp":"00:00:15.691","source":"Server","level":"LOG","message":""}
-{"timestamp":"00:00:15.693","source":"Server","level":"LOG","message":"✓ Generated AGENTS.md and CLAUDE.md for AI agents. Set `agentRules: false` in next.config to disable."}
-{"timestamp":"00:00:18.757","source":"Server","level":"LOG","message":"○ Compiling / ..."}
