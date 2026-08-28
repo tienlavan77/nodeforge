@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { ensureRuntimeDir } from "../sqlite/index-database.js";
 
-const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 const SNAPSHOT_DIRECTORIES = ["schemas", "rules", "workflows"];
 
 export async function ensureForgeLayout(projectRoot, { sourceRoot = repositoryRoot } = {}) {
