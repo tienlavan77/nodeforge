@@ -2,6 +2,7 @@ const controlApiUrl = (process.env.NODE_CONTROL_API_URL ?? "http://localhost:310
 
 /** Keep browser requests same-origin while forwarding API and SSE traffic. */
 const nextConfig = {
+  allowedDevOrigins: ["192.168.1.181", "192.168.1.0/24", "localhost", "127.0.0.1"],
   async rewrites() {
     return [
       { source: "/api/:path*", destination: `${controlApiUrl}/:path*` },
