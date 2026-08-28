@@ -14,6 +14,7 @@ export const DEFAULT_WATCHER_IGNORE = Object.freeze([
   "node_modules/**",
   ".git/**",
   "dist/**",
+  ".next/**",
   "coverage/**"
 ]);
 
