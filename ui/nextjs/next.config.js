@@ -1,4 +1,4 @@
-const controlApiUrl = (process.env.NODE_CONTROL_API_URL ?? "http://localhost:3100").replace(/\/$/, "");
+const controlApiUrl = (process.env.NODE_CONTROL_API_URL ?? "http://127.0.0.1:3100").replace(/\/$/, "");
 
 /** Keep browser requests same-origin while forwarding API and SSE traffic. */
 const nextConfig = {
