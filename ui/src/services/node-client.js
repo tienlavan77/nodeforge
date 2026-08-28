@@ -114,10 +114,11 @@ export function createNodeClient() {
       const rawText = String(text);
       const normalized = messageIntent === MESSAGE_INTENTS.normalChat ? { text: rawText, normalized_text: rawText } : normalizeTicketInput(rawText);
       console.log("ticket", normalized.ticket ?? null);
+      if (messageIntent === MESSAGE_INTENTS.ticketCreate && !normalized.ticket) throw new Error("Ticket JSON could not be extracted from the message.");
       return requestJson(`/projects/${projectId}/conversations/${conversationId}/messages`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ agent_id: agentId, message_id: messageId, correlation_id: correlationId, timestamp: new Date().toISOString(), payload: { text: rawText, raw_text: rawText, normalized_text: normalized.normalized_text ?? rawText, intent: messageIntent, ...(messageIntent === MESSAGE_INTENTS.ticketCreate && normalized.ticket ? { ticket: normalized.ticket } : {}) } }),
+        body: JSON.stringify({ agent_id: agentId, message_id: messageId, correlation_id: correlationId, timestamp: new Date().toISOString(), payload: { intent: messageIntent, ...(messageIntent === MESSAGE_INTENTS.ticketCreate ? { ticket: normalized.ticket } : {}), text: rawText } }),
         fallbackError: "Node rejected the owner message."
       });
     },
