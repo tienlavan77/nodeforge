@@ -518,7 +518,7 @@ function SprintPlanDashboard({ dashboard, client, onRefresh }) {
   const currentId = dashboard?.current_sprint?.id ?? null;
   const sprints = dashboard?.roadmap?.sprints ?? [];
   useEffect(() => {
-    const timer = setInterval(() => onRefresh?.(), 3000);
+    const timer = setInterval(() => onRefresh?.(), 60000);
     return () => clearInterval(timer);
   }, [onRefresh]);
   useEffect(() => {
