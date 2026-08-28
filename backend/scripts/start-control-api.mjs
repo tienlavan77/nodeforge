@@ -2,11 +2,12 @@ import process from "node:process";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { EventEmitter } from "node:events";
 import { loadNodeforgeEnv } from "./nodeforge-env.mjs";
 import { acquireProcessLock } from "./nodeforge-process-lock.mjs";
 
+process.chdir(resolve(new URL("../..", import.meta.url).pathname));
 loadNodeforgeEnv();
 
 import { createRuntimeService } from "../src/application/runtime-service.js";
@@ -235,7 +236,10 @@ function assertAgentSourcePath(path, { directory = false } = {}) {
 const api = createHttpApi({
   runtimeService,
   ownerChatService: createOwnerChatService({ bus, projectLogger: logEvent, internalBus, ticketCommandParser, proseTicketService, buildAgentContext: buildBuilderContext, executeAgentTool, debug: (detail) => console.log(`[agent-loop] ${JSON.stringify(detail)}`), dispatchAgentTicket: ({ task_id: taskId, ticket, message }) => streamTicket({ taskId, ticket, message }), agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId, eventSink: publishUnifiedStreamEvent }), onAgentCompleted: sprintOrchestration.ingestAgentCompletion }),
-  conversationStream: createConversationStream({ bus, communicationStore: communications, eventStore, subscriptions, logReader: ({ conversation_id }) => readLogEvents({ project_id: process.env.NODE_CONTROL_PROJECT_ID ?? "PROJECT-NODEFORGE", conversation_id }) }),
+  // Live SSE must send headers immediately. Scanning the rotating project log
+  // on every connection can block the response on network filesystems; replay
+  // is already available from the communication/event stores.
+  conversationStream: createConversationStream({ bus, communicationStore: communications, eventStore, subscriptions }),
   architectureWorkspaceService: createArchitectureWorkspaceService({ knowledge, roadmaps, sprintPlans }),
   projectDashboardService: createProjectDashboardService({ roadmaps, sprintPlans, provenance, logReader: ({ ticket_id }) => readLogEvents({ project_id: process.env.NODE_CONTROL_PROJECT_ID ?? "PROJECT-NODEFORGE", ticket_id }) }),
   conversationAuditHistoryService: createConversationAuditHistoryService({ communications, eventStore, logReader: ({ project_id, task_id, correlation_id, conversation_id, event_name }) => readLogEvents({ project_id, task_id, ticket_id: task_id, conversation_id, event_name, correlation_id }) }),
