@@ -1,1 +1,37 @@
-export function formatTicketResponse(message) { const payload = message?.payload ?? {}; if (message?.message_type === "ticket.creation" || message?.message_type === "ticket.status") { if (payload.error) return payload.error; if (payload.status === "syntax_error") return payload.error ?? "Không nhận diện được ticket id."; if (payload.status === "created" || payload.create_ticket) return `Ticket ${payload.ticket?.id ?? payload.id ?? "mới"} đã được tạo và lưu vào roadmap.`; if (payload.status) return `Ticket ${payload.ticket_id ?? ""}: ${payload.status}`.trim(); } if (message?.message_type?.includes("error")) return payload.error ?? payload.message ?? "Node báo lỗi khi xử lý yêu cầu."; return null; }
+/**
+ * Formats a structured ticket for chat without mutating or dispatching it.
+ * Plain prose is returned unchanged.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function formatTicketResponse(value) {
+  const json = toStructuredJson(value);
+
+  if (json === undefined) {
+    return typeof value === 'string' ? value : String(value ?? '');
+  }
+
+  return `\`\`\`json\n${JSON.stringify(json, null, 2)}\n\`\`\``;
+}
+
+function toStructuredJson(value) {
+  if (value !== null && typeof value === 'object') {
+    return value;
+  }
+
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    // Scalar JSON strings/numbers are normal chat content, not ticket payloads.
+    return parsed !== null && typeof parsed === 'object' ? parsed : undefined;
+  } catch {
+    // Invalid JSON must remain prose so the original message is not lost.
+    return undefined;
+  }
+}
+
+export default formatTicketResponse;
