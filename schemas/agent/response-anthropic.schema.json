@@ -1,0 +1,236 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/response-anthropic.schema.json",
+  "title": "Forge Anthropic Agent Tool Responses",
+  "description": "Anthropic tool definitions for Agent to Node responses. Pass each entry in tools[].",
+  "provider": "anthropic",
+  "tools": [
+    {
+      "name": "code_needed",
+      "description": "Gọi khi cần xem nội dung file hiện có để tiếp tục code — chưa đủ thông tin để viết code ngay.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "files_requested",
+          "reason"
+        ],
+        "properties": {
+          "files_requested": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Danh sách path file cần xem, tương đối theo gốc project."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Vì sao cần các file này để hoàn thành task."
+          }
+        }
+      }
+    },
+    {
+      "name": "submit_code_response",
+      "description": "Trả code đã hoàn thành theo task được giao. Mỗi file phải đúng required_output_format đã được Node chỉ định.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "files"
+        ],
+        "properties": {
+          "explanation": {
+            "type": "string",
+            "description": "Tóm tắt ngắn gọn đã làm gì và vì sao."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "path",
+                "format"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "language": {
+                  "type": "string"
+                },
+                "format": {
+                  "type": "string",
+                  "enum": [
+                    "full",
+                    "unified_diff",
+                    "patch"
+                  ]
+                },
+                "content": {
+                  "description": "String cho format 'full'/'unified_diff'; object { operations: [...] } cho format 'patch'."
+                },
+                "exists": {
+                  "type": "boolean",
+                  "description": "True nếu file này đã tồn tại trước khi sửa, false nếu là file mới tạo."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "usage_needed",
+      "description": "Gọi khi cần xem file khác (thường là component cha) để biết cách đấu nối/sử dụng code vừa tạo vào hệ thống.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "files_requested",
+          "reason"
+        ],
+        "properties": {
+          "files_requested": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "no_wiring_needed",
+      "description": "Gọi khi xác nhận code vừa tạo KHÔNG cần đấu nối thêm ở bước này (nằm ngoài phạm vi ticket hiện tại).",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "completed",
+      "description": "Gọi khi đã đối chiếu acceptance_criteria thuộc phạm vi của mình và xác nhận đã đáp ứng đủ.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "status",
+          "report"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed"
+            ]
+          },
+          "report": {
+            "type": "object",
+            "required": [
+              "summary",
+              "files_changed",
+              "criteria_check"
+            ],
+            "properties": {
+              "summary": {
+                "type": "string"
+              },
+              "files_changed": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "path",
+                    "action"
+                  ],
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "created",
+                        "patched"
+                      ]
+                    },
+                    "description": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "criteria_check": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "criteria",
+                    "met"
+                  ],
+                  "properties": {
+                    "criteria": {
+                      "type": "string"
+                    },
+                    "met": {
+                      "type": "boolean"
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "known_limitations": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "continue",
+      "description": "Gọi khi vẫn còn việc cần làm thêm để đáp ứng đủ acceptance_criteria thuộc phạm vi của mình.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "status",
+          "next_task"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "continue"
+            ]
+          },
+          "next_task": {
+            "type": "object",
+            "required": [
+              "description"
+            ],
+            "properties": {
+              "description": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
