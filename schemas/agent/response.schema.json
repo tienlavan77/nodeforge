@@ -1,0 +1,505 @@
+{
+  "_note": "0a-3 — Schema payload chiều Agent → Node, viết theo đúng chuẩn tool-calling của từng provider. Adapter dùng trực tiếp object 'claude' hoặc 'openai' tương ứng khi build request gửi lên API. Node validate response trả về đối chiếu lại field 'input_schema' (Claude) hoặc 'parameters' (OpenAI) — cùng 1 field logic, khác tên theo chuẩn provider.",
+  "claude": {
+    "_format_note": "Dùng trong request Anthropic API, field tools[]. Model bị ép gọi tool tương ứng bằng tool_choice: { type: 'tool', name: '<tên tool>' }.",
+    "code_needed": {
+      "name": "code_needed",
+      "description": "Gọi khi cần xem nội dung file hiện có để tiếp tục code — chưa đủ thông tin để viết code ngay.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "files_requested",
+          "reason"
+        ],
+        "properties": {
+          "files_requested": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Danh sách path file cần xem, tương đối theo gốc project."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Vì sao cần các file này để hoàn thành task."
+          }
+        }
+      }
+    },
+    "submit_code_response": {
+      "name": "submit_code_response",
+      "description": "Trả code đã hoàn thành theo task được giao. Mỗi file phải đúng required_output_format đã được Node chỉ định.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "files"
+        ],
+        "properties": {
+          "explanation": {
+            "type": "string",
+            "description": "Tóm tắt ngắn gọn đã làm gì và vì sao."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "path",
+                "format"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "language": {
+                  "type": "string"
+                },
+                "format": {
+                  "type": "string",
+                  "enum": [
+                    "full",
+                    "unified_diff",
+                    "patch"
+                  ]
+                },
+                "content": {
+                  "description": "String cho format 'full'/'unified_diff'; object { operations: [...] } cho format 'patch'."
+                },
+                "exists": {
+                  "type": "boolean",
+                  "description": "True nếu file này đã tồn tại trước khi sửa, false nếu là file mới tạo."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "usage_needed": {
+      "name": "usage_needed",
+      "description": "Gọi khi cần xem file khác (thường là component cha) để biết cách đấu nối/sử dụng code vừa tạo vào hệ thống.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "files_requested",
+          "reason"
+        ],
+        "properties": {
+          "files_requested": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "no_wiring_needed": {
+      "name": "no_wiring_needed",
+      "description": "Gọi khi xác nhận code vừa tạo KHÔNG cần đấu nối thêm ở bước này (nằm ngoài phạm vi ticket hiện tại).",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "completed": {
+      "name": "completed",
+      "description": "Gọi khi đã đối chiếu acceptance_criteria thuộc phạm vi của mình và xác nhận đã đáp ứng đủ.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "status",
+          "report"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed"
+            ]
+          },
+          "report": {
+            "type": "object",
+            "required": [
+              "summary",
+              "files_changed",
+              "criteria_check"
+            ],
+            "properties": {
+              "summary": {
+                "type": "string"
+              },
+              "files_changed": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "path",
+                    "action"
+                  ],
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "created",
+                        "patched"
+                      ]
+                    },
+                    "description": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "criteria_check": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "criteria",
+                    "met"
+                  ],
+                  "properties": {
+                    "criteria": {
+                      "type": "string"
+                    },
+                    "met": {
+                      "type": "boolean"
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "known_limitations": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "continue": {
+      "name": "continue",
+      "description": "Gọi khi vẫn còn việc cần làm thêm để đáp ứng đủ acceptance_criteria thuộc phạm vi của mình.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "status",
+          "next_task"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "continue"
+            ]
+          },
+          "next_task": {
+            "type": "object",
+            "required": [
+              "description"
+            ],
+            "properties": {
+              "description": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "openai": {
+    "_format_note": "Dùng trong request Chat Completions/Responses API, field tools[]. Ép model gọi đúng tool bằng tool_choice: { type: 'function', function: { name: '<tên tool>' } }. Nếu dùng Structured Outputs (strict:true), mọi field trong 'required' phải liệt kê đủ TOÀN BỘ property, và additionalProperties phải là false ở mọi object level — đã áp dụng sẵn bên dưới.",
+    "code_needed": {
+      "type": "function",
+      "function": {
+        "name": "code_needed",
+        "description": "Gọi khi cần xem nội dung file hiện có để tiếp tục code — chưa đủ thông tin để viết code ngay.",
+        "strict": true,
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "files_requested",
+            "reason"
+          ],
+          "properties": {
+            "files_requested": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Danh sách path file cần xem, tương đối theo gốc project."
+            },
+            "reason": {
+              "type": "string",
+              "description": "Vì sao cần các file này để hoàn thành task."
+            }
+          }
+        }
+      }
+    },
+    "submit_code_response": {
+      "type": "function",
+      "function": {
+        "name": "submit_code_response",
+        "description": "Trả code đã hoàn thành theo task được giao. Mỗi file phải đúng required_output_format đã được Node chỉ định.",
+        "strict": true,
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "explanation",
+            "files"
+          ],
+          "properties": {
+            "explanation": {
+              "type": "string"
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "language",
+                  "format",
+                  "content",
+                  "exists"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "language": {
+                    "type": "string"
+                  },
+                  "format": {
+                    "type": "string",
+                    "enum": [
+                      "full",
+                      "unified_diff",
+                      "patch"
+                    ]
+                  },
+                  "content": {
+                    "type": "string",
+                    "description": "Với format 'patch', encode object operations thành chuỗi JSON (JSON.stringify) — OpenAI Structured Outputs strict mode không hỗ trợ union type cho 1 field."
+                  },
+                  "exists": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "usage_needed": {
+      "type": "function",
+      "function": {
+        "name": "usage_needed",
+        "description": "Gọi khi cần xem file khác (thường là component cha) để biết cách đấu nối/sử dụng code vừa tạo vào hệ thống.",
+        "strict": true,
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "files_requested",
+            "reason"
+          ],
+          "properties": {
+            "files_requested": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "no_wiring_needed": {
+      "type": "function",
+      "function": {
+        "name": "no_wiring_needed",
+        "description": "Gọi khi xác nhận code vừa tạo KHÔNG cần đấu nối thêm ở bước này (nằm ngoài phạm vi ticket hiện tại).",
+        "strict": true,
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "reason"
+          ],
+          "properties": {
+            "reason": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "completed": {
+      "type": "function",
+      "function": {
+        "name": "completed",
+        "description": "Gọi khi đã đối chiếu acceptance_criteria thuộc phạm vi của mình và xác nhận đã đáp ứng đủ.",
+        "strict": true,
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "report"
+          ],
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "completed"
+              ]
+            },
+            "report": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "summary",
+                "files_changed",
+                "criteria_check",
+                "known_limitations"
+              ],
+              "properties": {
+                "summary": {
+                  "type": "string"
+                },
+                "files_changed": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "path",
+                      "action",
+                      "description"
+                    ],
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "action": {
+                        "type": "string",
+                        "enum": [
+                          "created",
+                          "patched"
+                        ]
+                      },
+                      "description": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "criteria_check": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "criteria",
+                      "met",
+                      "note"
+                    ],
+                    "properties": {
+                      "criteria": {
+                        "type": "string"
+                      },
+                      "met": {
+                        "type": "boolean"
+                      },
+                      "note": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "known_limitations": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "continue": {
+      "type": "function",
+      "function": {
+        "name": "continue",
+        "description": "Gọi khi vẫn còn việc cần làm thêm để đáp ứng đủ acceptance_criteria thuộc phạm vi của mình.",
+        "strict": true,
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "next_task"
+          ],
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "continue"
+              ]
+            },
+            "next_task": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "description",
+                "reason"
+              ],
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

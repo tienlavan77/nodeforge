@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/request-anthropic.schema.json",
+  "title": "Forge Anthropic Provider Request",
+  "description": "Provider projection for Anthropic Messages-compatible adapters (Claude and Anthropic).",
+  "allOf": [
+    { "$ref": "anthropic.schema.json" }
+  ]
+}

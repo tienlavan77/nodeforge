@@ -1,0 +1,228 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "forge-payload-anthropic-v1.4.schema.json",
+  "title": "Forge Node→Agent Payload — Anthropic variant",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "task_id",
+    "step_id",
+    "provider",
+    "model",
+    "conversation_mode",
+    "hybrid_window",
+    "cache_config",
+    "system_blocks",
+    "transcript_blocks",
+    "user_blocks",
+    "expected_output",
+    "metadata"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1.4-anthropic"
+    },
+    "task_id": {
+      "type": "string"
+    },
+    "step_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "provider": {
+      "const": "anthropic"
+    },
+    "model": {
+      "type": "string"
+    },
+    "conversation_mode": {
+      "enum": [
+        "hybrid",
+        "full_transcript"
+      ]
+    },
+    "hybrid_window": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "cache_config": {
+      "type": "object",
+      "required": [
+        "mode",
+        "ttl",
+        "max_breakpoints"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "const": "explicit"
+        },
+        "ttl": {
+          "enum": [
+            "5m",
+            "1h"
+          ]
+        },
+        "max_breakpoints": {
+          "const": 4
+        }
+      }
+    },
+    "system_blocks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/block"
+      }
+    },
+    "transcript_blocks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/transcript_block"
+      }
+    },
+    "user_blocks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/block"
+      }
+    },
+    "expected_output": {
+      "type": "object",
+      "required": [
+        "type",
+        "format",
+        "output_schema_ref",
+        "delivery"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "code_response",
+            "usage_needed",
+            "no_wiring_needed",
+            "completed",
+            "continue"
+          ]
+        },
+        "format": {
+          "const": "json"
+        },
+        "output_schema_ref": {
+          "type": "string"
+        },
+        "delivery": {
+          "const": "forced_tool_use",
+          "description": "Claude không có JSON mode — bắt buộc dùng tool_choice ép gọi tool khớp output_schema_ref."
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "required": [
+        "retry_of_step",
+        "previous_error"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "retry_of_step": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "previous_error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  },
+  "definitions": {
+    "block": {
+      "type": "object",
+      "required": [
+        "block_id",
+        "content",
+        "cacheable"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "block_id": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "cacheable": {
+          "type": "boolean"
+        },
+        "cache_control": {
+          "type": "object",
+          "description": "Chỉ được đặt trên block CUỐI của một chuỗi cacheable liên tục. Adapter tự tính, không copy cờ cacheable 1-1 từ block sang marker.",
+          "required": [
+            "type",
+            "ttl"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "ephemeral"
+            },
+            "ttl": {
+              "enum": [
+                "5m",
+                "1h"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "transcript_block": {
+      "type": "object",
+      "required": [
+        "block_id",
+        "round",
+        "instruction",
+        "response_summary",
+        "full_request_ref",
+        "full_response_ref",
+        "in_window",
+        "cacheable"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "block_id": {
+          "type": "string"
+        },
+        "round": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "instruction": {
+          "type": "string"
+        },
+        "response_summary": {
+          "type": "string"
+        },
+        "full_request_ref": {
+          "type": "string"
+        },
+        "full_response_ref": {
+          "type": "string"
+        },
+        "in_window": {
+          "type": "boolean",
+          "description": "true = round nằm trong hybrid_window → adapter phải resolve full_request_ref/full_response_ref thành message user/assistant đầy đủ. false = ngoài window → chỉ dùng response_summary, gói vào 1 message user dạng ghi chú ngữ cảnh."
+        },
+        "cacheable": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}
