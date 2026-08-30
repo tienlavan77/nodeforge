@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/request-oai.schema.json",
+  "title": "Forge OpenAI Provider Request",
+  "description": "Provider projection for OpenAI Responses-compatible adapters (OpenAI, ChatGPT, and Codex).",
+  "allOf": [
+    { "$ref": "agent-request-oai.schema.json" }
+  ]
+}

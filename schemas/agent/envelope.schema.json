@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/envelope.schema.json",
+  "title": "Forge Node-Agent Envelope",
+  "description": "Common envelope for every message exchanged between Node and an Agent.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["request_id", "parent_id", "type", "role", "payload", "timestamp"],
+  "properties": {
+    "request_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "parent_id": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["task", "code_needed", "code_provide", "code_response", "submit_code_response", "usage_query", "usage_needed", "no_wiring_needed", "status_check", "completed", "continue"]
+    },
+    "role": {
+      "type": "string",
+      "enum": ["node", "agent"]
+    },
+    "payload": {
+      "type": "object"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

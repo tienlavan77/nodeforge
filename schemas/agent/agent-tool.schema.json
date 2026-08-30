@@ -44,7 +44,7 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind", "target_path", "target_dir", "file_operation", "code_kind", "content", "next_action", "is_final", "module_system"],
+          "required": ["kind", "target_path", "target_dir", "file_operation", "code_kind", "content", "change_format", "next_action", "is_final", "module_system"],
           "properties": {
             "kind": { "const": "submit_code" },
             "target_path": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+" },
@@ -53,6 +53,8 @@
             "code_kind": { "type": "string", "enum": ["main", "test"] },
             "module_system": { "const": "esm" },
             "content": { "type": "string" },
+            "change_format": { "type": "string", "enum": ["unified_diff", "apply_patch", "full_file"] },
+            "change_summary": { "type": "string" },
             "round": { "type": "integer", "minimum": 1 },
             "max_rounds": { "type": "integer", "minimum": 1 },
             "next_action": { "type": "string", "enum": ["need_more_info", "submit_main", "submit_test", "done"] },
@@ -65,7 +67,7 @@
               "items": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["target_path", "target_dir", "file_operation", "code_kind", "content", "module_system"],
+                "required": ["target_path", "target_dir", "file_operation", "code_kind", "content", "change_format", "module_system"],
                 "properties": {
                   "target_path": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+" },
                   "target_dir": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+" },
@@ -73,16 +75,26 @@
                   "code_kind": { "type": "string", "enum": ["main", "test"] },
                   "module_system": { "const": "esm" },
                   "content": { "type": "string" },
+                  "change_format": { "type": "string", "enum": ["unified_diff", "apply_patch", "full_file"] },
+                  "change_summary": { "type": "string" },
                   "checksum": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" }
                 },
                 "allOf": [
-                  { "if": { "properties": { "code_kind": { "const": "test" } } }, "then": { "properties": { "target_path": { "type": "string", "pattern": "^(tests/|.*(?:^|/)tests/).+" } } } }
+                  { "if": { "properties": { "code_kind": { "const": "test" } } }, "then": { "properties": { "target_path": { "type": "string", "pattern": "^(tests/|.*(?:^|/)tests/).+" } } } },
+                  {
+                    "if": { "properties": { "change_format": { "const": "unified_diff" } }, "required": ["change_format"] },
+                    "then": { "properties": { "content": { "type": "string", "pattern": "^(?:diff --git[^\\r\\n]*\\r?\\n)?---[^\\r\\n]*\\r?\\n\\+\\+\\+[^\\r\\n]*\\r?\\n[\\s\\S]*@@ -[0-9]+(?:,[0-9]+)? \\+[0-9]+(?:,[0-9]+)? @@" } } }
+                  }
                 ]
               }
             }
           },
           "allOf": [
-            { "if": { "properties": { "code_kind": { "const": "test" } } }, "then": { "properties": { "target_path": { "type": "string", "pattern": "^(tests/|.*(?:^|/)tests/).+" } } } }
+            { "if": { "properties": { "code_kind": { "const": "test" } } }, "then": { "properties": { "target_path": { "type": "string", "pattern": "^(tests/|.*(?:^|/)tests/).+" } } } },
+            {
+              "if": { "properties": { "change_format": { "const": "unified_diff" } }, "required": ["change_format"] },
+              "then": { "properties": { "content": { "type": "string", "pattern": "^(?:diff --git[^\\r\\n]*\\r?\\n)?---[^\\r\\n]*\\r?\\n\\+\\+\\+[^\\r\\n]*\\r?\\n[\\s\\S]*@@ -[0-9]+(?:,[0-9]+)? \\+[0-9]+(?:,[0-9]+)? @@" } } }
+            }
           ]
         }
       ]
