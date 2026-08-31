@@ -1,23 +1,24 @@
 import { closeSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import process from "node:process";
 
+process.chdir(resolve(new URL("../..", import.meta.url).pathname));
 const runtimeDir = process.env.NODE_CONTROL_DATA_DIR ?? join(process.cwd(), ".forge", "runtime", "nf");
 const processDir = join(runtimeDir, "processes");
 const definitions = {
-  api: { args: ["scripts/start-control-api.mjs"], log: "api.log" },
-  vite: { args: ["./node_modules/vite/bin/vite.js", "--config", "web/vite.config.js"], log: "vite.log" },
+  api: { args: ["backend/scripts/start-control-api.mjs"], log: "api.log" },
+  next: { command: "pnpm", args: ["--dir", "ui/nextjs", "dev"], log: "next.log" },
 };
 const command = process.argv[2];
-const [, service, action] = command?.match(/^(api|vite):(start|stop|restart)$/) ?? [];
+const [, service, action] = command?.match(/^(api|next):(start|stop|restart)$/) ?? [];
 
-if (command === "start") { start("api"); start("vite"); }
-else if (command === "shutdown" || command === "shutdow") { stop("vite"); stop("api"); }
+if (command === "start") { start("api"); start("next"); }
+else if (command === "shutdown" || command === "shutdow") { stop("next"); stop("api"); }
 else if (service && action === "start") start(service);
 else if (service && action === "stop") stop(service);
 else if (service && action === "restart") { stop(service); start(service); }
-else { console.error("Usage: api|vite:(start|stop|restart), start, shutdown"); process.exitCode = 2; }
+else { console.error("Usage: api|next:(start|stop|restart), start, shutdown"); process.exitCode = 2; }
 
 function pidPath(name) { return join(processDir, `${name}.pid`); }
 function readPid(name) { try { const pid = Number(readFileSync(pidPath(name), "utf8")); return Number.isInteger(pid) && pid > 0 ? pid : null; } catch { return null; } }
@@ -29,7 +30,7 @@ function start(name) {
   mkdirSync(processDir, { recursive: true });
   const def = definitions[name];
   const log = openSync(join(processDir, def.log), "a");
-  const child = spawn(process.execPath, def.args, { detached: true, stdio: ["ignore", log, log], env: { ...process.env, ...(name === "vite" ? { VITE_WEB_HOST: process.env.VITE_WEB_HOST ?? "0.0.0.0" } : {}) } });
+  const child = spawn(def.command ?? process.execPath, def.args, { detached: true, stdio: ["ignore", log, log], env: { ...process.env, ...(name === "next" ? { NEXT_TELEMETRY_DISABLED: "1" } : {}) } });
   closeSync(log); child.unref(); writeFileSync(pidPath(name), `${child.pid}\n`);
   console.log(`${name}: started (pid ${child.pid})`);
 }

@@ -3,7 +3,7 @@ import process from "node:process";
 
 const address = process.argv[2];
 if (!address || !/^[a-zA-Z0-9.-]+$/.test(address)) {
-  console.error("Usage: npm run dev:web:vps -- <VPS-IP-or-hostname> [port]");
+  console.error("Usage: pnpm dev:web:vps -- <VPS-IP-or-hostname> [port]");
   process.exit(2);
 }
 
@@ -13,13 +13,13 @@ if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
   process.exit(2);
 }
 
-const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-const child = spawn(npm, ["run", "dev:web"], {
+const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+const child = spawn(pnpm, ["--dir", "ui/nextjs", "dev"], {
   stdio: "inherit",
   env: {
     ...process.env,
-    VITE_NODE_API_URL: `http://${address}:${port}`,
-    VITE_WEB_HOST: "0.0.0.0",
+    NODE_CONTROL_API_URL: `http://${address}:${port}`,
+    HOSTNAME: "0.0.0.0",
   }
 });
 child.once("exit", (code, signal) => {
