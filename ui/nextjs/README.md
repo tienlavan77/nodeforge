@@ -1,9 +1,6 @@
 # NodeForge Next.js UI
 
-This directory is the temporary Next.js App Router replacement workspace.
-
-The existing Vite application in `ui/` remains the primary runnable UI until
-FORGE-MONO-008 verifies that the Next.js application can replace it completely.
+This directory contains the canonical Next.js App Router UI. Vite has been removed from the workspace.
 
 ## Commands
 
@@ -14,7 +11,7 @@ pnpm --filter @nodeforge/ui-nextjs dev
 pnpm --filter @nodeforge/ui-nextjs build
 ```
 
-The migrated Dashboard, HistoryView, SprintSummary, ProjectLogPreview, and formatTicketResponse modules originate from the legacy ui/src/main.jsx. That source contains uncommitted FORGE-UI-041/040-era logic and requires owner confirmation before becoming canonical. Dashboard/SprintSummary/ProjectLogPreview are presentational Server Components; HistoryView is a Client Component because it owns interactive state.
+The migrated Dashboard, HistoryView, SprintSummary, ProjectLogPreview, and formatTicketResponse modules Dashboard/SprintSummary/ProjectLogPreview are presentational Server Components; HistoryView is a Client Component because it owns interactive state.
 
 ## LAN development
 

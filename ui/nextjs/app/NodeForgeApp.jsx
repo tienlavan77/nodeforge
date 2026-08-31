@@ -2,8 +2,8 @@
 /* Legacy Vite parity copy: retain dormant components until the Next UI is fully consolidated. */
 /* eslint-disable no-unused-vars, no-undef */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createNodeClient, detectMessageIntent, normalizeTicketInput, MESSAGE_INTENTS } from "../../src/services/node-client.js";
-import { validateSprintPlan } from "../../src/services/sprint-plan-validator.js";
+import { createNodeClient, detectMessageIntent, normalizeTicketInput, MESSAGE_INTENTS } from "../lib/node-client.js";
+import { validateSprintPlan } from "../lib/sprint-plan-validator.js";
 
 const AGENTS = [
   { id: "architecture-manager", label: "Architecture Manager", short: "AM", tone: "violet" },
@@ -41,14 +41,40 @@ function formatDateLabel(timestamp) {
 }
 
 function historyRecordToMessage(record) {
-  if (record.type?.endsWith(".tool.result") || record.type?.endsWith(".message.progress") || record.type?.endsWith(".progress") || record.type?.endsWith(".working")) return null;
   const isOwner = record.kind === "owner";
   const raw = record.content;
-  const text = raw?.text ?? raw?.content ?? formatTicketResponse({ message_type: record.type, payload: raw }) ?? (typeof raw === "string" ? raw : JSON.stringify(raw ?? ""));
+  const text = eventTextForUser(record.type, raw) ?? raw?.text ?? raw?.content ?? formatTicketResponse({ message_type: record.type, payload: raw }) ?? (typeof raw === "string" ? raw : JSON.stringify(raw ?? ""));
   const from = isOwner ? "owner" : record.kind === "failure" ? "system" : record.kind === "agent" || record.kind === "completion" ? "agent" : isOwner ? "owner" : "agent";
   const ts = record.timestamp;
   const d = ts ? new Date(ts) : new Date();
   return { id: record.id, correlation_id: record.correlation_id, message_type: record.type, from, text: String(text ?? record.type), time: d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), timestamp: ts, dateKey: Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10), dateLabel: ts ? formatDateLabel(ts) : "" };
+}
+
+function isInternalNodeEvent(type) {
+  const value = String(type ?? "");
+  return value.endsWith(".tool.result");
+}
+
+function eventTextForUser(type, payload = {}) {
+  const value = String(type ?? "");
+  const step = payload?.result?.step_name ?? payload?.step_name;
+  if (value.endsWith(".message.progress") || value.endsWith(".progress")) return payload?.message ?? payload?.text ?? "Node đang xử lý…";
+  if (value.endsWith(".working")) return "Builder đang làm việc…";
+  if (value === "node.status_change") {
+    const status = payload?.to ?? payload?.status;
+    return status === "running" ? "Builder bắt đầu chạy ticket." : status === "reviewing" ? "Builder đã hoàn tất, đang chờ review." : status === "done" ? "Ticket đã hoàn tất." : status === "failed" ? `Ticket thất bại${payload?.error ? `: ${payload.error}` : "."}` : `Trạng thái ticket: ${status ?? "đã cập nhật"}.`;
+  }
+  if (value === "node.execution_step") return step ? `Đang xử lý: ${humanizeStep(step)}.` : "Đang xử lý một bước thực thi…";
+  if (value === "node.command_result") return payload?.success === false ? `Bước thực thi thất bại${payload?.result?.error_code ? ` (${payload.result.error_code})` : "."}` : step ? `Đã hoàn tất: ${humanizeStep(step)}.` : "Đã hoàn tất một bước thực thi.";
+  if (value === "git.status") return "Đã kiểm tra thay đổi Git.";
+  if (value === "git.add") return "Đã chuẩn bị các file thay đổi cho commit.";
+  if (value === "git.commit") return payload?.commit ? `Đã commit thay đổi (${payload.commit}).` : "Đã commit thay đổi.";
+  if (value === "ticket.input_rejected") return payload?.error ?? "Ticket đang chạy; yêu cầu mới chưa được nhận.";
+  return null;
+}
+
+function humanizeStep(step) {
+  return String(step).replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (char) => char.toUpperCase());
 }
 const MODEL_CATALOG = {
   codex: [
@@ -93,6 +119,9 @@ function App() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [dashboard, setDashboard] = useState(null);
   const dashboardRequestRef = useRef(null);
+  const dashboardRequestVersionRef = useRef(0);
+  const dashboardRefreshTimerRef = useRef(null);
+  const sseReplayRef = useRef(Object.fromEntries(AGENTS.map((agent) => [agent.id, true])));
   const [historyChat, setHistoryChat] = useState(() => Object.fromEntries(AGENTS.map((a) => [a.id, []])));
   const [historyHasMore, setHistoryHasMore] = useState(() => Object.fromEntries(AGENTS.map((a) => [a.id, true])));
   const [historyLoading, setHistoryLoading] = useState(() => Object.fromEntries(AGENTS.map((a) => [a.id, false])));
@@ -128,19 +157,31 @@ function App() {
     try { return await request; } finally { workspaceRequestRef.current = null; }
   }, [client]);
   const loadDashboard = useCallback(async () => {
-    if (dashboardRequestRef.current) return dashboardRequestRef.current;
+    if (dashboardRequestRef.current) return dashboardRequestRef.current.promise;
+    const requestVersion = ++dashboardRequestVersionRef.current;
     const request = (async () => {
     try {
       const primary = await client.getProjectDashboard(PROJECT_ID);
-      if (primary?.roadmap || PROJECT_ID === "PROJECT-114A") { setDashboard(primary); return; }
-      setDashboard(await client.getProjectDashboard("PROJECT-114A"));
+      // The API/database is the sole source of ticket status. SSE only
+      // triggers a refresh and never mutates ticket status in React state.
+      if (requestVersion === dashboardRequestVersionRef.current) setDashboard(primary);
     } catch {
-      try { setDashboard(await client.getProjectDashboard("PROJECT-114A")); } catch { setDashboard(null); }
+      if (requestVersion === dashboardRequestVersionRef.current) setDashboard(null);
     }
     })();
-    dashboardRequestRef.current = request;
-    try { return await request; } finally { dashboardRequestRef.current = null; }
+    dashboardRequestRef.current = { promise: request, version: requestVersion };
+    try { return await request; } finally {
+      if (dashboardRequestRef.current?.promise === request) dashboardRequestRef.current = null;
+    }
   }, [client]);
+
+  const scheduleDashboardRefresh = useCallback(() => {
+    if (dashboardRefreshTimerRef.current) return;
+    dashboardRefreshTimerRef.current = setTimeout(() => {
+      dashboardRefreshTimerRef.current = null;
+      void loadDashboard();
+    }, 250);
+  }, [loadDashboard]);
 
   const loadHistoryPage = useCallback(async (agentId, direction = "initial") => {
     if (historyLoadingRef.current[agentId]) return;
@@ -206,7 +247,7 @@ function App() {
           const isRunningEvent = message.correlation_id === pendingCorrelation && (
             message.message_type === "architecture.working" || message.message_type === `${agent.id}.working`
             || message.message_type === "agent.text_stream" || message.message_type?.endsWith(".message.delta")
-            || (message.message_type === "node.status_change" && message.payload?.to === "running")
+            || (message.message_type === "node.status_change" && message.payload?.to === "running" && (message.correlation_id === pendingCorrelation || agent.id === "builder"))
           );
           if (isRunningEvent) {
             clearTimeout(dispatchTimersRef.current[agent.id]);
@@ -214,20 +255,32 @@ function App() {
             delete pendingDispatchRef.current[agent.id];
             setWorkingByAgent((prev) => ({ ...prev, [agent.id]: "WORKING" }));
           }
+          if (message.message_type === "node.status_change" && ["done", "failed", "reviewing"].includes(message.payload?.to) && (message.correlation_id === pendingCorrelation || agent.id === "builder")) {
+            clearTimeout(dispatchTimersRef.current[agent.id]);
+            delete dispatchTimersRef.current[agent.id];
+            delete pendingDispatchRef.current[agent.id];
+            setWorkingByAgent((prev) => ({ ...prev, [agent.id]: message.payload.to === "failed" ? "FAILED" : message.payload.to === "reviewing" ? "REVIEWING" : "READY" }));
+          }
           if (message.message_type.endsWith(".message.received") || message.message_type.endsWith(".error")) setWorkingByAgent((prev) => ({ ...prev, [agent.id]: message.payload?.agent_status ?? (message.message_type.endsWith(".error") ? "FAILED" : "COMPLETED") }));
           if (message.message_type.endsWith(".message.delta")) {
             queueHistoryDelta(agent.id, message);
           } else if (message.message_type.endsWith(".message.received")) {
             finalizeHistoryDelta(agent.id, message);
             pushLiveHistory(agent.id, message);
-          } else if (!message.message_type.endsWith(".tool.result") && !message.message_type.endsWith(".message.progress") && !message.message_type.endsWith(".progress") && !message.message_type.endsWith(".working")) {
+          } else {
             pushLiveHistory(agent.id, message);
           }
-          if (message.message_type === "governance.sprint_plan.created" || message.message_type === "ticket.creation") loadDashboard();
-          if (message.message_type === "node.status_change" && message.payload?.ticket_id) loadDashboard();
+          if (!sseReplayRef.current[agent.id] && (message.message_type === "governance.sprint_plan.created" || message.message_type === "ticket.creation")) scheduleDashboardRefresh();
+          if (!sseReplayRef.current[agent.id] && message.message_type === "node.status_change" && message.payload?.ticket_id) {
+            // SSE is a live signal only; API remains the canonical ticket source.
+            scheduleDashboardRefresh();
+          }
           if (agent.id === "architecture-manager" && message.message_type === "architecture.message.received") loadWorkspace();
         },
-        onReplayComplete: () => setWorkingByAgent((prev) => ({ ...prev, [agent.id]: prev[agent.id] === "WORKING" ? "READY" : prev[agent.id] })),
+        onReplayComplete: () => {
+          sseReplayRef.current[agent.id] = false;
+          setWorkingByAgent((prev) => ({ ...prev, [agent.id]: prev[agent.id] === "WORKING" ? "READY" : prev[agent.id] }));
+        },
         onError: () => {
           if (pendingDispatchRef.current[agent.id]) {
             clearTimeout(dispatchTimersRef.current[agent.id]);
@@ -238,8 +291,12 @@ function App() {
         }
       });
     });
-    return () => streams.forEach((s) => s.close());
-  }, [client, loadDashboard, loadWorkspace]);
+    return () => {
+      streams.forEach((stream) => stream.close());
+      if (dashboardRefreshTimerRef.current) clearTimeout(dashboardRefreshTimerRef.current);
+      dashboardRefreshTimerRef.current = null;
+    };
+  }, [client, loadDashboard, loadWorkspace, scheduleDashboardRefresh]);
 
   function pushLiveHistory(agentId, message) {
     const mapped = toDisplayMessage(message);
@@ -732,6 +789,7 @@ function formatTicketResponse(message) {
   const payload = message.payload ?? {};
   if (message.message_type === "ticket.creation" || message.message_type === "ticket.status") {
     if (payload.error) return payload.error;
+    if (message.message_type === "ticket.input_rejected") return payload.error ?? "Ticket đang chạy; hãy chờ hoàn tất rồi thử lại.";
     if (payload.status === "syntax_error") return payload.error ?? "Không nhận diện được ticket id.";
     if (payload.status === "created" || payload.create_ticket) {
       const ticket = payload.ticket ?? payload;
@@ -825,10 +883,23 @@ function DashboardData({ dashboard, client, onRefresh }) {
 function TicketCard({ ticket, client, projectId, onRefresh }) {
   const [message, setMessage] = useState("");
   const [viewOpen, setViewOpen] = useState(false);
+  const [detail, setDetail] = useState(null);
+  async function view() {
+    try {
+      const sprint = await client.getSprintPlan(projectId, ticket.sprint_id);
+      setDetail(sprint?.tickets?.find((item) => item.id === ticket.id) ?? ticket);
+    } catch { setDetail(ticket); }
+    setViewOpen(true);
+  }
   async function run() {
     try {
-      await client.postOwnerMessage({ projectId, conversationId: "CONV-BUILDER", agentId: "builder", messageId: `MSG-UI-RUN-${ticket.id}-${Date.now()}`, correlationId: `CORR-UI-RUN-${ticket.id}-${Date.now()}`, text: `/ticket ${ticket.id}` });
-      setMessage("Run requested");
+      const response = await client.postOwnerMessage({ projectId, conversationId: "CONV-BUILDER", agentId: "builder", messageId: `MSG-UI-RUN-${ticket.id}-${Date.now()}`, correlationId: `CORR-UI-RUN-${ticket.id}-${Date.now()}`, text: `/ticket ${ticket.id}` });
+      const status = response?.payload?.status;
+      if (status === "ready") setMessage(`Đã gửi ${ticket.id} cho Builder, đang xử lý…`);
+      else if (status === "running") setMessage(`${ticket.id} đang chạy.`);
+      else if (status === "failed") { setMessage(`${ticket.id} retry thất bại: ${response?.payload?.error ?? "Builder không khởi động."}`); }
+      else if (status) setMessage(`${ticket.id}: ${response?.payload?.error ?? status}`);
+      else setMessage("Đã gửi yêu cầu chạy ticket.");
       await onRefresh?.();
     } catch (error) { setMessage(error.message); }
   }
@@ -837,7 +908,7 @@ function TicketCard({ ticket, client, projectId, onRefresh }) {
     try { await client.deleteTicket(projectId, ticket.id); setMessage("Deleted"); await onRefresh?.(); }
     catch (error) { setMessage(error.message); }
   }
-  return <><article className="dashboard-ticket"><div><strong>{ticket.id}</strong><span className="priority">{ticket.priority}</span></div><p>{ticket.title}</p><small><span className={`ticket-status ticket-status-${ticket.status ?? "planned"}`}>{ticket.status ?? "planned"}</span> · {ticket.progress}%</small><div className="ticket-actions"><button className="sprint-view-button small" onClick={() => setViewOpen(true)}>View</button><button className="sprint-run-button small" onClick={run} disabled={ticket.status === "done" || ticket.status === "running"}>Run</button><button className="sprint-delete-button small" onClick={remove} disabled={ticket.status === "done" || ticket.status === "running"}>Delete</button></div>{message && <small>{message}</small>}{ticket.provenance && <small className="provenance">{ticket.provenance.architecture_decision_ids.join(", ")} → {ticket.provenance.roadmap_id} → {ticket.provenance.sprint_id}</small>}</article>{viewOpen && <TicketModal ticket={ticket} onClose={() => setViewOpen(false)} />}</>;
+  return <><article className="dashboard-ticket"><div><strong>{ticket.id}</strong><span className="priority">{ticket.priority}</span></div><p>{ticket.title}</p><small><span className={`ticket-status ticket-status-${ticket.status ?? "planned"}`}>{ticket.status ?? "planned"}</span> · {ticket.progress}%</small><div className="ticket-actions"><button className="sprint-view-button small" onClick={view}>View</button><button className="sprint-run-button small" onClick={run} disabled={ticket.status === "done" || ticket.status === "running"}>Run</button><button className="sprint-delete-button small" onClick={remove} disabled={ticket.status === "done" || ticket.status === "running"}>Delete</button></div>{message && <small>{message}</small>}{ticket.provenance && <small className="provenance">{(ticket.provenance.architecture_decision_ids ?? []).join(", ") || "Project owner"} → {ticket.roadmap_id ?? ticket.provenance.roadmap_id ?? "Roadmap"} → {ticket.sprint_id ?? ticket.provenance.sprint_id ?? "Sprint"}</small>}</article>{viewOpen && <TicketModal ticket={detail ?? ticket} onClose={() => { setViewOpen(false); setDetail(null); }} />}</>;
 }
 
 function TicketModal({ ticket, onClose }) {

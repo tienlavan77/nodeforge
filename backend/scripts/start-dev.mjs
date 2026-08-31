@@ -5,7 +5,7 @@ import { loadNodeforgeEnv } from "./nodeforge-env.mjs";
 
 loadNodeforgeEnv();
 
-// Control API supervisor only — Vite runs on client macOS (npm run dev:web),
+// Control API supervisor only — Next.js runs separately via pnpm --dir ui/nextjs dev,
 // watcher runs separately on VPS via `npm run dev:watcher`.
 // This file supervises only the Control API and restarts it on src changes.
 
@@ -31,7 +31,7 @@ const children = [];
 async function startChildren() {
   freePort(controlPort);
   await new Promise((r) => setTimeout(r, 300));
-  control = spawn(process.execPath, ["scripts/start-control-api.mjs"], {
+  control = spawn(process.execPath, ["backend/scripts/start-control-api.mjs"], {
     stdio: ["ignore", "pipe", "inherit"],
     env: { ...process.env, NODE_DISABLE_PROJECT_WATCHER: "1" },
   });
@@ -58,7 +58,7 @@ async function startChildren() {
 
 await startChildren();
 
-const sourceWatcher = chokidar.watch(["src/**/*.js", "src/**/*.mjs"], {
+const sourceWatcher = chokidar.watch(["backend/src/**/*.js", "backend/src/**/*.mjs"], {
   ignoreInitial: true,
   usePolling: true,
   interval: 250,
