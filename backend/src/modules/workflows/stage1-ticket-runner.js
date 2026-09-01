@@ -10,17 +10,22 @@ import { normalizeResponse } from "../agent/provider-adapters/openai-response-no
 import { stage1AgentTools } from "./stage1-agent-tools.js";
 import { createUnwiredFileChecker } from "./unwired-file-checker.js";
 import { buildUsageQuery } from "./stage1-usage-query-builder.js";
-import { buildStatusCheck } from "./stage1-status-check-builder.js";
+import { assertValidEnvelope } from "../protocol/envelope-validator.js";
 
 /** Runs one ticket through the canonical Stage-1 protocol, without owner-chat legacy dispatch. */
 export function createStage1TicketRunner({ statusStore, gitService, protocolLogger, protocolStorage, fileService, files, fileGraph, requestBuilder, agentGateway, agentProfile, credential, resolveAgentProfile, relevantTreeSelector, onStatusChange = () => {} } = {}) {
   if (!requestBuilder?.buildTaskRequest || typeof agentGateway?.request !== "function") throw new ConfigurationError("Stage-1 ticket runner requires request builder and agent gateway.");
   const initializer = createStage1TaskInitializer({ statusStore, gitService, protocolLogger });
     const sender = createStage1RequestSender({ protocolLogger, protocolStorage, adapterResolver: () => ({ call: async ({ payload, correlationId }) => { const tools = payload.type === "code_provide" ? stage1AgentTools.filter(({ name }) => name === "submit_code_response") : payload.type === "usage_query" ? stage1AgentTools.filter(({ name }) => ["usage_needed", "no_wiring_needed"].includes(name)) : payload.type === "status_check" ? stage1AgentTools.filter(({ name }) => ["completed", "continue"].includes(name)) : stage1AgentTools.filter(({ name }) => name === "code_needed"); const raw = await agentGateway.request({ agentId: "builder", payload, correlationId, tools });
-      try { return normalizeResponse(raw.payload ?? raw, { request_id: payload.request_id }); }
-      catch (error) { error.rawResponse = raw; throw error; } } }) });
+      try {
+        assertProviderCompleted(raw);
+        const envelope = normalizeResponse(raw.payload ?? raw, { request_id: payload.request_id });
+        Object.defineProperty(envelope, "provider_metadata", { value: Object.freeze({ provider: "openai", response_id: raw?.payload?.response_id ?? raw?.response_id ?? null, status: raw?.status ?? "completed", completed_at: raw?.completed_at ?? null, error: raw?.error ?? null, incomplete_details: raw?.incomplete_details ?? null }), enumerable: false });
+        return envelope;
+      } catch (error) { error.rawResponse = raw; throw error; } } }) });
   let activeRelevantTree = [];
   let continueRounds = 0;
+  let formatRetries = 0;
   const codeNeeded = createStage1CodeNeededHandler({ files, fileService, relevantTree: activeRelevantTree });
   const receiver = createStage1ResponseReceiver({ protocolLogger });
   const submitCode = createStage1SubmitCodeHandler({ fileService, gitService, statusStore, protocolLogger, unwiredChecker: fileGraph ? createUnwiredChecker(fileGraph) : undefined });
@@ -33,6 +38,15 @@ export function createStage1TicketRunner({ statusStore, gitService, protocolLogg
     onCompleted: (response, context) => handleCompleted(response, context)
   });
   return Object.freeze({ run });
+
+  async function completeAfterCode(ticket, filesChanged, reason) {
+    const current = statusStore.get(ticket.id);
+    const completed = current?.status === "reviewing"
+      ? statusStore.updateStatus(ticket.id, "done", { reason, files: filesChanged }, { expectedCurrentStatus: "reviewing" })
+      : current;
+    await publishTerminalStatus(ticket, completed?.status ?? "done");
+    return { type: "completed", files_changed: filesChanged, status: completed };
+  }
 
   async function handleCompleted(response) { return { type: "completed", report: response.payload.report }; }
 
@@ -67,11 +81,22 @@ export function createStage1TicketRunner({ statusStore, gitService, protocolLogg
       let wiringRounds = 0;
       let filesChanged = [];
       continueRounds = 0;
+      formatRetries = 0;
       for (let round = 0; round < 10; round += 1) {
         const correlationContext = request?.payload?.metadata?.correlation_id ?? correlationId;
-        const sent = await sender.sendRequest(request, { agentProfile: profile, credential, correlationId: correlationContext });
-        const response = receiver.receiveResponse(sent.response, { requestEnvelope: request });
-        const result = await router.routeResponse(response, { requestEnvelope: request, taskId: ticket.id, projectId: ticket.project_id, ticketId: ticket.id, contextFiles: request.payload?.files });
+        let sent;
+        let response;
+        let result;
+        try {
+          sent = await sender.sendRequest(request, { agentProfile: profile, credential, correlationId: correlationContext });
+          response = receiver.receiveResponse(sent.response, { requestEnvelope: request });
+          result = await router.routeResponse(response, { requestEnvelope: request, taskId: ticket.id, projectId: ticket.project_id, ticketId: ticket.id, contextFiles: request.payload?.files });
+        } catch (error) {
+          if (!isRetryableSubmissionError(error) || formatRetries >= 2) throw error;
+          formatRetries += 1;
+          request = buildSubmissionRetry(request, ticket, error, formatRetries);
+          continue;
+        }
         if (response.type === "submit_code_response") {
           filesChanged = [...filesChanged, ...(result.files_changed ?? [])].filter((file, index, all) => all.findIndex((item) => item.path === file.path) === index);
           if (result?.unwired_files?.length) {
@@ -80,12 +105,10 @@ export function createStage1TicketRunner({ statusStore, gitService, protocolLogg
             request = buildUsageQuery({ taskId: ticket.id, stepId: request.payload.step_id + 1, parentId: response.request_id, projectId: ticket.project_id, conversationId, correlationId, unwiredFiles: result.unwired_files, instructionBlocks: request.payload.instruction_blocks ?? [], userBlocks: request.payload.user_blocks ?? [] });
             continue;
           }
-          request = buildStatusCheck({ taskId: ticket.id, stepId: request.payload.step_id + 1, parentId: response.request_id, projectId: ticket.project_id, conversationId, correlationId, criteria: ticket.acceptance_criteria, filesChanged, instructionBlocks: request.payload.instruction_blocks ?? [], userBlocks: request.payload.user_blocks ?? [] });
-          continue;
+          return await completeAfterCode(ticket, filesChanged, "code_submitted");
         }
         if (result?.type === "no_wiring_needed") {
-          request = buildStatusCheck({ taskId: ticket.id, stepId: request.payload.step_id + 1, parentId: response.request_id, projectId: ticket.project_id, conversationId, correlationId, criteria: ticket.acceptance_criteria, filesChanged, instructionBlocks: request.payload.instruction_blocks ?? [], userBlocks: request.payload.user_blocks ?? [] });
-          continue;
+          return await completeAfterCode(ticket, filesChanged, "wiring_not_required");
         }
         if (response.type === "completed") {
           await protocolStorage?.save(`task/${ticket.id}/report`, result.report, { schemaId: "https://forge.local/schemas/agent/agent-completed.schema.json" });
@@ -95,7 +118,7 @@ export function createStage1TicketRunner({ statusStore, gitService, protocolLogg
           return { ...result, status: completed };
         }
         request = result;
-        if (!["code_provide", "status_check", "task"].includes(request.type)) throw new ConfigurationError(`Unsupported Stage-1 continuation: ${request.type}.`);
+        if (!["code_provide", "usage_query", "task"].includes(request.type)) throw new ConfigurationError(`Unsupported Stage-1 continuation: ${request.type}.`);
       }
       throw new ConfigurationError("Stage-1 ticket exceeded the maximum protocol rounds.");
     } catch (error) {
@@ -116,6 +139,39 @@ export function createStage1TicketRunner({ statusStore, gitService, protocolLogg
     const ui = source.filter((entry) => /^(?:ui\/nextjs|ui\/src|web\/src)\//.test(entry.path));
     const backend = source.filter((entry) => entry.path.startsWith("backend/src/"));
     return [...ui, ...backend].slice(0, 3);
+  }
+
+  function isRetryableSubmissionError(error) {
+    return ["INVALID_PAYLOAD", "CHECKSUM_MISMATCH", "PATCH_CONTEXT_REQUIRED", "PATCH_NOT_APPLICABLE", "SUBMISSION_FORMAT_UNSUPPORTED", "UNIFIED_DIFF_INVALID", "APPLY_PATCH_INVALID", "SUBMISSION_TRUNCATED"].includes(error?.code)
+      || error?.providerCode === "PROVIDER_PAYLOAD_INVALID";
+  }
+
+  function buildSubmissionRetry(previous, ticket, error, retryNumber) {
+    const nextFormat = retryNumber >= 2 ? "full_content" : (previous.payload?.expected_submission?.representation ?? "full_content");
+    const previousBlocks = previous.payload?.task_context?.user_blocks ?? previous.payload?.user_blocks ?? [];
+    const retryInstruction = `Previous submission was rejected before writing any file: ${error.code ?? "INVALID_PAYLOAD"}: ${error.message}. Retry ${retryNumber} of 2. Return exactly the requested format (${nextFormat}), copy every existing file before_checksum exactly from Node context, and do not submit a shortened placeholder.`;
+    const payload = {
+      ...structuredClone(previous.payload),
+      step_id: previous.payload.step_id + 1,
+      expected_submission: { ...(previous.payload.expected_submission ?? {}), representation: nextFormat },
+      task_context: {
+        instruction_blocks: structuredClone(previous.payload?.task_context?.instruction_blocks ?? previous.payload?.instruction_blocks ?? []),
+        user_blocks: [...structuredClone(previousBlocks), { block_id: `submission-retry-${retryNumber}`, content: retryInstruction, cacheable: false }]
+      },
+      metadata: { ...(previous.payload.metadata ?? {}), retry_of_step: previous.payload.step_id, previous_error: error.message }
+    };
+    return assertValidEnvelope({ request_id: randomUUID(), parent_id: previous.request_id, type: "code_provide", role: "node", payload, timestamp: new Date().toISOString() });
+  }
+
+  function assertProviderCompleted(response) {
+    const status = response?.status ?? "completed";
+    if (status === "completed") return;
+    const error = new ConfigurationError(`OpenAI Responses request is not complete: ${status}.`);
+    error.providerStatus = status;
+    error.responseId = response?.payload?.response_id ?? response?.response_id;
+    error.providerDetail = status === "failed" ? response?.error ?? null : status === "incomplete" ? response?.incomplete_details ?? null : null;
+    error.code = status === "failed" ? "PROVIDER_RESPONSE_FAILED" : status === "incomplete" ? "PROVIDER_RESPONSE_INCOMPLETE" : ["queued", "in_progress"].includes(status) ? "PROVIDER_RESPONSE_NOT_READY" : status === "cancelled" ? "PROVIDER_RESPONSE_CANCELLED" : "PROVIDER_RESPONSE_STATUS_UNSUPPORTED";
+    throw error;
   }
 
   function ticketTitle(description) { return description.length > 120 ? `${description.slice(0, 117)}...` : description; }
