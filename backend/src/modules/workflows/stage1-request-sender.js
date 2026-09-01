@@ -42,12 +42,13 @@ export function createStage1RequestSender({ adapterResolver = getAdapter, protoc
 }
 
 function assertEnvelope(envelope) {
-  if (!envelope || typeof envelope !== "object" || !["task", "code_provide", "usage_query"].includes(envelope.type) || envelope.role !== "node" || typeof envelope.request_id !== "string" || !envelope.payload || typeof envelope.payload.task_id !== "string" || !Number.isInteger(envelope.payload.step_id)) throw new ConfigurationError("Stage-1 sender requires a valid node task/code_provide envelope.");
+  if (!envelope || typeof envelope !== "object" || !["task", "code_provide", "usage_query", "status_check"].includes(envelope.type) || envelope.role !== "node" || typeof envelope.request_id !== "string" || !envelope.payload || typeof envelope.payload.task_id !== "string" || !Number.isInteger(envelope.payload.step_id)) throw new ConfigurationError("Stage-1 sender requires a valid node task/code_provide envelope.");
 }
 
 function buildProviderPayload(envelope) {
   const payload = { ...envelope.payload, request_id: envelope.request_id };
   if (envelope.type === "usage_query") return { ...payload, expected_output: { type: "usage_response", representation: "json", transport: "function_tool" } };
+  if (envelope.type === "status_check") return { ...payload, expected_output: { type: "status_response", representation: "json", transport: "function_tool" } };
   if (envelope.type !== "code_provide") {
     // The first task round only requests context; code submission is opened
     // after Node sends the requested file contents in a code_provide round.
