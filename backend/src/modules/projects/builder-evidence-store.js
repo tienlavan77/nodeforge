@@ -7,8 +7,8 @@ import addFormats from "ajv-formats";
 import { ConfigurationError } from "../../shared/errors.js";
 
 const require = createRequire(import.meta.url);
-const commonSchema = require("../../../schemas/core/common.schema.json");
-const builderEvidenceSchema = require("../../../schemas/project/builder-evidence.schema.json");
+const commonSchema = require("../../../../schemas/core/common.schema.json");
+const builderEvidenceSchema = require("../../../../schemas/project/builder-evidence.schema.json");
 
 export function createBuilderEvidenceId() {
   return `EVIDENCE-${randomUUID()}`;

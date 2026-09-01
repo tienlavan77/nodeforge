@@ -1,0 +1,31 @@
+{
+  "mehthod-A": {
+    "request_id": "c9d0e1f2-0009-0000-0000-000000000009",
+    "parent_id": "b8c9d0e1-0008-0000-0000-000000000008",
+    "type": "usage_needed",
+    "role": "agent",
+    "timestamp": "2026-08-29T10:11:00Z",
+    "payload": {
+      "schema_version": "1.4",
+      "task_id": "FORGE-UI-037",
+      "step_id": 3,
+      "files_requested": [
+        "src/components/DocumentViewer.js"
+      ],
+      "reason": "Cần xem cấu trúc component cha (DocumentViewer.js) để biết nơi phù hợp import FileUploadWidget — component này quản lý các tab, cần biết tab 'Uploads' đã tồn tại chưa hay phải tạo mới."
+    },
+    "method-B": {
+      "request_id": "c9d0e1f2-0009-0000-0000-000000000009",
+      "parent_id": "b8c9d0e1-0008-0000-0000-000000000008",
+      "type": "no_wiring_needed",
+      "role": "agent",
+      "timestamp": "2026-08-29T10:11:00Z",
+      "payload": {
+        "schema_version": "1.4",
+        "task_id": "FORGE-UI-037",
+        "step_id": 3,
+        "reason": "FileUploadWidget chỉ export component thuần, việc gọi nó thuộc phạm vi ticket khác (FORGE-UI-038) sẽ xử lý UI tích hợp — ticket này chỉ yêu cầu tạo component, chưa yêu cầu đấu nối."
+      }
+    }
+  }
+}

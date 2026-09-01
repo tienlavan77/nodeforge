@@ -9,8 +9,8 @@ import { ConfigurationError } from "../../shared/errors.js";
 import { createNodeEventValidator } from "../watcher/debounced-watcher.js";
 
 const require = createRequire(import.meta.url);
-const commonSchema = require("../../../schemas/core/common.schema.json");
-const permissionSchema = require("../../../schemas/project/permission.schema.json");
+const commonSchema = require("../../../../schemas/core/common.schema.json");
+const permissionSchema = require("../../../../schemas/project/permission.schema.json");
 const ROLES = new Set(["node", "builder", "reviewer", "planner", "tester", "human", "custom"]);
 const ACCESS_TYPES = new Set(["read", "write", "create", "delete", "rename", "execute"]);
 

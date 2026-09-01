@@ -18,10 +18,11 @@ export async function applySearchReplaceBlock(filePath, oldStr, newStr, options 
 
   const updated = content.replace(oldStr, newStr);
   if (!dryRun) {
-    const backup = await (options?.backupFile ?? createBackup)(filePath);
+    const backup = await (options?.backupFile ?? ((path) => createBackup(path, { fileService: options?.fileService })))(filePath);
     if (!backup?.success) return backup;
     try {
-      await writeFile(filePath, updated, "utf8");
+      if (options?.fileService?.atomicWrite) await options.fileService.atomicWrite({ path: filePath, content: updated, replace: true });
+      else await writeFile(filePath, updated, "utf8");
       return result({
         success: true,
         detail: { file_path: filePath, dry_run: false, match_count: matches, old_length: oldStr.length, new_length: newStr.length, bytes_changed: Buffer.byteLength(updated) - Buffer.byteLength(content), backup_ref: backup.detail?.backup_ref }

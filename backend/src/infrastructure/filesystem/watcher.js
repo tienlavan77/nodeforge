@@ -15,7 +15,11 @@ export const DEFAULT_WATCHER_IGNORE = Object.freeze([
   ".git/**",
   "dist/**",
   ".next/**",
-  "coverage/**"
+  // Ignore Next.js stale build directories created during interrupted dev runs.
+  "**/.next.stale-*/**",
+  "coverage/**",
+  "**/.DS_Store",
+  "**/._*"
 ]);
 
 const RAW_EVENTS = ["add", "change", "unlink"];

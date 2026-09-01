@@ -16,20 +16,20 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
 
   return Object.freeze({ request, stream, testConnection });
 
-  async function request({ agentId, payload, correlationId } = {}) {
+  async function request({ agentId, payload, correlationId, tools } = {}) {
     const config = getEnabledConfig(agentId);
     assertCorrelation(correlationId);
     if (!payload || typeof payload !== "object") throw new ConfigurationError("Agent Gateway payload is required.");
     const credential = await resolveCredential(config.credential_ref);
     if (!isDefaultTransport) {
-      return callTransport({ config, credential, payload: withAgentTools(payload), correlationId, operation: "request" });
+      return callTransport({ config, credential, payload: withAgentTools(payload, tools), correlationId, operation: "request" });
     }
     const adapter = adapterRegistry(config.provider);
     const model = config.model || undefined;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const response = await adapter.request({ url: config.gateway_url, credential, payload: withAgentTools(payload), model, correlationId, signal: controller.signal });
+      const response = await adapter.request({ url: config.gateway_url, credential, payload: withAgentTools(payload, tools), model, correlationId, signal: controller.signal });
       validateResponse(response);
       return { agent_id: config.agent_id, correlation_id: correlationId, status: response.status ?? "completed", payload: structuredClone(response.payload ?? response.data ?? response) };
     } catch (error) {
@@ -39,7 +39,7 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
     } finally { clearTimeout(timeout); }
   }
 
-  async function* stream({ agentId, payload, correlationId, eventSink } = {}) {
+  async function* stream({ agentId, payload, correlationId, eventSink, tools } = {}) {
     const config = getEnabledConfig(agentId);
     assertCorrelation(correlationId);
     if (!payload || typeof payload !== "object") throw new ConfigurationError("Agent Gateway payload is required.");
@@ -49,7 +49,7 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
       try {
         let sequence = 0;
-        for await (const event of streamTransport({ url: config.gateway_url, credential, payload: withAgentTools(payload), correlation_id: correlationId, signal: controller.signal })) {
+        for await (const event of streamTransport({ url: config.gateway_url, credential, payload: withAgentTools(payload, tools), correlation_id: correlationId, signal: controller.signal })) {
           if (typeof event?.text === "string" && event.text) {
             emitText(eventSink, payload, correlationId, config.agent_id, event.text, sequence++);
             yield { agent_id: config.agent_id, correlation_id: correlationId, text: event.text };
@@ -71,7 +71,7 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
       let sequence = 0;
-      for await (const event of adapter.stream({ url: config.gateway_url, credential, payload: withAgentTools(payload), model, correlationId, signal: controller.signal })) {
+      for await (const event of adapter.stream({ url: config.gateway_url, credential, payload: withAgentTools(payload, tools), model, correlationId, signal: controller.signal })) {
         if (typeof event?.text === "string" && event.text) {
           emitText(eventSink, payload, correlationId, config.agent_id, event.text, sequence++);
           yield { agent_id: config.agent_id, correlation_id: correlationId, text: event.text };
@@ -87,8 +87,8 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
     } finally { clearTimeout(timeout); }
   }
 
-  function withAgentTools(payload) {
-    return { ...structuredClone(payload), tools: payload.tools ?? [agentToolDefinition] };
+  function withAgentTools(payload, tools) {
+    return { ...structuredClone(payload), tools: tools ?? payload.tools ?? [agentToolDefinition] };
   }
 
   async function testConnection(agentId) {

@@ -7,8 +7,8 @@ import addFormats from "ajv-formats";
 import { ConfigurationError } from "../../shared/errors.js";
 
 const require = createRequire(import.meta.url);
-const commonSchema = require("../../../schemas/core/common.schema.json");
-const agentSchema = require("../../../schemas/core/agent.schema.json");
+const commonSchema = require("../../../../schemas/core/common.schema.json");
+const agentSchema = require("../../../../schemas/core/agent.schema.json");
 
 export function createCapabilityScopesValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });

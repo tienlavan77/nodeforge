@@ -54,3 +54,12 @@ test("returns backup failure and does not overwrite the original", async () => {
     assert.equal(await readFile(filePath, "utf8"), "original\n");
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+test("allows a valid full-file replacement to shorten the file", async () => {
+  const { directory, filePath } = await fixture(Array.from({ length: 100 }, (_, index) => `line-${index}`).join("\n") + "\n");
+  try {
+    const result = await applyFullFileReplace(filePath, "short\n");
+    assert.equal(result.success, true);
+    assert.equal(await readFile(filePath, "utf8"), "short\n");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});

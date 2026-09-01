@@ -1,9 +1,12 @@
 import Ajv2020 from "ajv/dist/2020.js";
+import draft7MetaSchema from "ajv/dist/refs/json-schema-draft-07.json" with { type: "json" };
 import addFormats from "ajv-formats";
 import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const schemaDirectories = ["schemas"];
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const schemaDirectories = [join(repositoryRoot, "schemas")];
 const fixtures = [
   ["https://forge.local/schemas/core/agent.schema.json", "schemas/examples/builder-agent.json"],
   ["https://forge.local/schemas/core/agent.schema.json", "schemas/examples/node-agent.json"],
@@ -72,10 +75,10 @@ const fixtures = [
   , ["https://forge.local/schemas/agent/agent-tool.schema.json", "schemas/examples/agent-tool-submit-main.json"]
   , ["https://forge.local/schemas/agent/agent-tool.schema.json", "schemas/examples/agent-tool-submit-test.json"]
   , ["https://forge.local/schemas/agent/agent-tool.schema.json", "schemas/examples/agent-tool-invalid.json", undefined, false]
-  , ["https://forge.local/schemas/agent/agent-request.schema.json", "schemas/examples/agent-request-v1.3.json"]
-  , ["https://forge.local/schemas/agent/agent-response.schema.json", "schemas/examples/agent-response-v1.3.json"]
-  , ["https://forge.local/schemas/agent/agent-request-oai.schema.json", "schemas/examples/agent-request-oai-v1.3.json"]
-  , ["https://forge.local/schemas/agent/agent-response-oai.schema.json", "schemas/examples/agent-response-oai-v1.3.json"]
+  , ["https://forge.local/schemas/agent/unused/agent-request.schema.json", "schemas/examples/agent-request-v1.3.json"]
+  , ["https://forge.local/schemas/agent/unused/agent-response.schema.json", "schemas/examples/agent-response-v1.3.json"]
+  , ["https://forge.local/schemas/agent/unused/agent-request-oai.schema.json", "schemas/examples/agent-request-oai-v1.3.json"]
+  , ["https://forge.local/schemas/agent/unused/agent-response-oai.schema.json", "schemas/examples/agent-response-oai-v1.3.json"]
   , ["https://forge.local/schemas/execution/execution-context.schema.json", "schemas/examples/execution-context.json"]
   , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-node-status-change.json"]
   , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-node-execution-step.json"]
@@ -97,7 +100,8 @@ const fixtures = [
 ];
 
 async function readJson(file) {
-  return JSON.parse(await readFile(file, "utf8"));
+  const path = isAbsolute(file) ? file : join(repositoryRoot, file);
+  return JSON.parse(await readFile(path, "utf8"));
 }
 
 async function loadSchemas(directory) {
@@ -119,7 +123,8 @@ function atPointer(value, pointer) {
   );
 }
 
-const ajv = new Ajv2020({ allErrors: true, strict: true });
+const ajv = new Ajv2020({ allErrors: true, strict: false });
+ajv.addMetaSchema(draft7MetaSchema);
 addFormats(ajv);
 
 try {

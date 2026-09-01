@@ -1,12 +1,18 @@
-import { randomUUID } from "node:crypto";
-
-export function createAgentTranscriptStore({ onDowngrade = () => {} } = {}) {
+export function createAgentTranscriptStore({ onDowngrade = () => {}, protocolStorage, onPersistError = () => {} } = {}) {
   const tasks = new Map();
   return Object.freeze({ append, select });
 
   function append({ taskId, round, instruction = "", responseSummary = "", fullRequest = "", fullResponse = "" } = {}) {
     if (!tasks.has(taskId)) tasks.set(taskId, []);
-    const entry = { round, instruction, response_summary: responseSummary, full_request_ref: `task/${taskId}/round_${round}/request_${randomUUID()}`, full_response_ref: `task/${taskId}/round_${round}/response_${randomUUID()}`, full_request: fullRequest, full_response: fullResponse };
+    const fullRequestRef = `task/${taskId}/round_${round}/request`;
+    const fullResponseRef = `task/${taskId}/round_${round}/response`;
+    const entry = { round, instruction, response_summary: responseSummary, full_request_ref: fullRequestRef, full_response_ref: fullResponseRef, full_request: fullRequest, full_response: fullResponse };
+    if (protocolStorage?.save) {
+      Promise.all([
+        protocolStorage.save(fullRequestRef, parseStoredValue(fullRequest), { schemaId: "forge-agent-request" }),
+        protocolStorage.save(fullResponseRef, parseStoredValue(fullResponse), { schemaId: "forge-agent-response" })
+      ]).catch((error) => onPersistError({ taskId, round, error }));
+    }
     const list = tasks.get(taskId).filter((item) => item.round !== round);
     list.push(entry); list.sort((a, b) => a.round - b.round); tasks.set(taskId, list);
     return entry;
@@ -26,6 +32,11 @@ export function createAgentTranscriptStore({ onDowngrade = () => {} } = {}) {
       return visible;
     });
   }
+}
+
+function parseStoredValue(value) {
+  if (typeof value !== "string") return value;
+  try { return JSON.parse(value); } catch { return { text: value }; }
 }
 
 function summary(entry) { return { ...entry, full_request: undefined, full_response: undefined, response_summary: entry.response_summary || entry.full_response.slice(0, 500) }; }

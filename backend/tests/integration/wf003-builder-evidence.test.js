@@ -7,12 +7,12 @@ import addFormats from "ajv-formats";
 
 const require = createRequire(import.meta.url);
 const ruleset = require("../../rules/forge-sprint-delivery.rules.json");
-const commonSchema = require("../../schemas/core/common.schema.json");
-const workflowRuleSchema = require("../../schemas/project/workflow-rule.schema.json");
-const rulesetSchema = require("../../schemas/project/workflow-ruleset.schema.json");
-const builderEvidenceSchema = require("../../schemas/project/builder-evidence.schema.json");
-const validEvidence = require("../../schemas/examples/builder-evidence.json");
-const invalidEvidence = require("../../schemas/examples/builder-evidence-invalid.json");
+const commonSchema = require("../../../schemas/core/common.schema.json");
+const workflowRuleSchema = require("../../../schemas/project/workflow-rule.schema.json");
+const rulesetSchema = require("../../../schemas/project/workflow-ruleset.schema.json");
+const builderEvidenceSchema = require("../../../schemas/project/builder-evidence.schema.json");
+const validEvidence = require("../../../schemas/examples/builder-evidence.json");
+const invalidEvidence = require("../../../schemas/examples/builder-evidence-invalid.json");
 
 test("WF-003 maps implementation evidence to Nodeforge records", () => {
   const wf003 = ruleset.rules.find(({ id }) => id === "WF-003");

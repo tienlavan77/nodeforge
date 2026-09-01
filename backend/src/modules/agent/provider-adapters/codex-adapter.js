@@ -1,21 +1,21 @@
 import { ConfigurationError } from "../../../shared/errors.js";
-import { buildCacheOptions, buildResponsesInput, mapOpenAIUsage } from "./openai-request-builder.js";
+import { buildCacheOptions, buildResponsesInput, buildToolConfig, mapOpenAIUsage } from "./openai-request-builder.js";
 
-export async function request({ url, credential, payload, model, correlationId, signal }) {
+export async function request({ url, credential, payload, preparedRequest, model, correlationId, signal }) {
   url = responsesUrl(url);
   const isResponses = true;
   const requestBody = isResponses
-    ? { model: model || process.env.NODE_AGENT_MODEL || "gpt-5.6-terra", input: buildResponsesInput(payload), ...buildCacheOptions(payload) }
+    ? (preparedRequest ?? { model: model || process.env.NODE_AGENT_MODEL || "gpt-5.6-terra", input: buildResponsesInput(payload), ...buildCacheOptions(payload) })
     : payload;
   const response = await fetchWithRetry(url, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${credential}`, "x-correlation-id": correlationId },
-    body: JSON.stringify({ ...requestBody, tools: toResponsesTools(payload.tools) }),
+    body: JSON.stringify({ ...requestBody, ...responseToolOptions(payload, requestBody) }),
     signal
   }, "Codex Responses");
   if (!response.ok) throw await gatewayError(response, "Codex Responses");
   const body = await response.json();
-  if (isResponses) return { status: body.status ?? "completed", payload: { text: extractResponseText(body), response_id: body.id, tool_use: extractToolUse(body), usage: mapOpenAIUsage(body.usage) } };
+  if (isResponses) return { status: body.status ?? "completed", payload: { text: extractResponseText(body, { allowEmpty: true }), response_id: body.id, tool_use: extractToolUse(body), usage: mapOpenAIUsage(body.usage) } };
   return { status: body.status ?? "completed", payload: { text: extractResponseText(body), response_id: body.id ?? body.response_id } };
 }
 
@@ -24,7 +24,7 @@ export async function* stream({ url, credential, payload, model, correlationId, 
   const response = await fetchWithRetry(url, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${credential}`, "x-correlation-id": correlationId },
-    body: JSON.stringify({ model: model || process.env.NODE_AGENT_MODEL || "gpt-5.6-terra", input: buildResponsesInput(payload), ...buildCacheOptions(payload), tools: toResponsesTools(payload.tools), stream: true }),
+    body: JSON.stringify({ model: model || process.env.NODE_AGENT_MODEL || "gpt-5.6-terra", input: buildResponsesInput(payload), ...buildCacheOptions(payload), ...responseToolOptions(payload), stream: true }),
     signal
   }, "Codex Responses stream");
   if (!response.ok) throw await gatewayError(response, "Codex Responses stream");
@@ -54,8 +54,14 @@ export async function* stream({ url, credential, payload, model, correlationId, 
   }
 }
 
-function toResponsesTools(tools = []) {
-  return tools?.length ? tools.map((tool) => ({ type: "function", name: tool.name, description: tool.description, parameters: tool.input_schema })) : undefined;
+function responseToolOptions(payload, requestBody = {}) {
+  if (requestBody.tools) return { tools: requestBody.tools, ...(requestBody.tool_choice ? { tool_choice: requestBody.tool_choice } : {}) };
+  if (!Array.isArray(payload?.tools) || payload.tools.length === 0) return {};
+  const config = buildToolConfig(payload);
+  return {
+    tools: config.tools.map((tool) => ({ ...tool, parameters: tool.parameters ?? tool.input_schema })),
+    tool_choice: config.tool_choice
+  };
 }
 
 function responsesUrl(value) {
@@ -65,7 +71,7 @@ function responsesUrl(value) {
   return normalized.endsWith("/responses") ? normalized : `${normalized}/responses`;
 }
 
-function extractResponseText(body) {
+function extractResponseText(body, { allowEmpty = false } = {}) {
   if (typeof body?.output_text === "string") return body.output_text;
   const parts = body?.output?.flatMap((item) => item.content ?? []) ?? [];
   const text = parts.filter((item) => typeof item?.text === "string").map((item) => item.text).join("\n");
@@ -77,6 +83,7 @@ function extractResponseText(body) {
     const contentText = body.content.filter((item) => typeof item?.text === "string").map((item) => item.text).join("\n");
     if (contentText) return contentText;
   }
+  if (allowEmpty) return undefined;
   throw new ConfigurationError("Agent Gateway response is invalid.");
 }
 

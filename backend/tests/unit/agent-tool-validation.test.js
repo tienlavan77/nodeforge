@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import Ajv2020 from "ajv/dist/2020.js";
 
 const require = createRequire(import.meta.url);
-const schema = require("../../schemas/agent/agent-tool.schema.json");
+const schema = require("../../../schemas/agent/agent-tool.schema.json");
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 const validate = ajv.compile(schema);
 

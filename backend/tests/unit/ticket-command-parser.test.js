@@ -29,6 +29,12 @@ test("distinguishes missing and already active tickets", () => {
   assert.equal(service.parse("/ticket NF-2").status, "done");
 });
 
+test("allows retrying a failed ticket", () => {
+  const result = parser([{ id: "NF-FAILED", status: "failed" }]).parse("/ticket NF-FAILED");
+  assert.equal(result.status, "ready");
+  assert.equal(result.ticket.id, "NF-FAILED");
+});
+
 test("owner chat dispatches only ready commands with the ticket id as task id", async () => {
   const { createOwnerChatService } = await import("../../src/application/owner-chat-service.js");
   const sent = [];

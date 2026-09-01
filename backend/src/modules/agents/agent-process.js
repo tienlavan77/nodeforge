@@ -9,10 +9,10 @@ import addFormats from "ajv-formats";
 import { ConfigurationError, LifecycleError } from "../../shared/errors.js";
 
 const require = createRequire(import.meta.url);
-const commonSchema = require("../../../schemas/core/common.schema.json");
-const commandSchema = require("../../../schemas/core/command.schema.json");
-const eventSchema = require("../../../schemas/core/event.schema.json");
-const envelopeSchema = require("../../../schemas/core/envelope.schema.json");
+const commonSchema = require("../../../../schemas/core/common.schema.json");
+const commandSchema = require("../../../../schemas/core/command.schema.json");
+const eventSchema = require("../../../../schemas/core/event.schema.json");
+const envelopeSchema = require("../../../../schemas/core/envelope.schema.json");
 
 export function createEnvelopeValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });

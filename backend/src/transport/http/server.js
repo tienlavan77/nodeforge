@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 
 import { ConfigurationError } from "../../shared/errors.js";
 
-export function createHttpApi({ runtimeService, ownerChatService, conversationStream, architectureWorkspaceService, projectDashboardService, conversationAuditHistoryService, humanDecisionService, agentSettingsService, sprintPlanUploadService, sprintOrchestrationService } = {}) {
+export function createHttpApi({ runtimeService, ownerChatService, conversationStream, architectureWorkspaceService, projectDashboardService, conversationAuditHistoryService, humanDecisionService, agentSettingsService, sprintPlanUploadService, sprintOrchestrationService, ticketRunner } = {}) {
   if (!runtimeService || typeof runtimeService.startTask !== "function" || typeof runtimeService.pauseSession !== "function"
     || typeof runtimeService.resumeSession !== "function" || typeof runtimeService.getSession !== "function" || typeof runtimeService.getProjectMemory !== "function") {
     throw new ConfigurationError("HTTP API requires a Runtime Service.");
@@ -87,6 +87,10 @@ export function createHttpApi({ runtimeService, ownerChatService, conversationSt
       if (!sprintPlanUploadService?.removeTicket) throw new ConfigurationError("Ticket Delete API is not configured.");
       return { status: 200, body: sprintPlanUploadService.removeTicket({ projectId: parts[1], ticketId: parts[3] }) };
     }
+    if (method === "POST" && parts.length === 5 && parts[0] === "projects" && parts[2] === "tickets" && parts[4] === "run") {
+      if (typeof ticketRunner !== "function") throw new ConfigurationError("Ticket Run API is not configured.");
+      return { status: 202, body: await ticketRunner({ projectId: parts[1], ticketId: parts[3], conversationId: "CONV-BUILDER" }) };
+    }
     if (method === "POST" && parts.length === 5 && parts[0] === "projects" && parts[2] === "sprint-plans" && parts[4] === "run") {
       if (!sprintOrchestrationService) throw new ConfigurationError("Sprint Orchestration API is not configured.");
       return { status: 202, body: sprintOrchestrationService.run({ projectId: parts[1], sprintId: parts[3] }) };
@@ -98,7 +102,7 @@ export function createHttpApi({ runtimeService, ownerChatService, conversationSt
         conversationId: url.searchParams.get("conversationId") ?? undefined, correlationId: url.searchParams.get("correlationId") ?? undefined,
         type: url.searchParams.get("type") ?? undefined, cursor: url.searchParams.get("cursor") ?? undefined,
         limit: url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : undefined,
-        order: url.searchParams.get("order") ?? undefined
+        ...(url.searchParams.has("order") ? { order: url.searchParams.get("order") } : {})
       }) };
     }
     if (method === "POST" && parts.length === 1 && parts[0] === "tasks") {

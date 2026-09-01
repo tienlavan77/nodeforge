@@ -9,9 +9,9 @@ const require = createRequire(import.meta.url);
 const commonSchema = require("../../../schemas/core/common.schema.json");
 const ticketSchema = require("../../../schemas/governance/ticket.schema.json");
 const agentToolSchema = require("../../../schemas/agent/agent-tool.schema.json");
-const AGENT_TOOL_PROTOCOL_UNLIMITED = "\n\nAgent tool loop protocol:\n- Use request_info whenever more context is needed.\n- Node continues returning context until submit_code; there is no round limit.\n- submit_code must include the requested code; add test files only when the task acceptance criteria require tests.";
+const AGENT_TOOL_PROTOCOL_UNLIMITED = "\n\nAgent tool loop protocol:\n- Use code_needed only when more context is needed; request files with files_requested and a short reason.\n- When ready to submit code, use submit_code_response and return explanation plus files[].\n- Each file entry must include path, language, format, content, exists, and before_checksum.\n- Keep representation to full_content unless a diff is explicitly required.\n- If the task is a status-style result, use the matching tool kind and keep the response minimal and structured, not prose-only.\n- Never send apply_patch syntax or a bare @@ hunk.\n- Never replace a long file with a shortened reconstruction.";
 
-export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, executeAgentTool, ticketCommandParser, proseTicketService, dispatchAgentTicket, internalBus, debug = () => {}, streamBatchMs = 500, projectLogger = logEvent } = {}) {
+export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, executeAgentTool, ticketCommandParser, proseTicketService, dispatchAgentTicket, internalBus, debug = () => {}, streamBatchMs = 500, projectLogger = logEvent, protocolStorage } = {}) {
   if (typeof bus?.send !== "function") throw new ConfigurationError("Owner Chat Service requires the shared Communication Bus.");
   if (!Number.isInteger(streamBatchMs) || streamBatchMs < 1) throw new ConfigurationError("Owner Chat stream batch interval must be positive.");
   const messages = new Map();
@@ -45,7 +45,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     const intent = input.payload.intent;
     if (intent !== undefined && !["normal_chat", "ticket_create", "ticket_dispatch"].includes(intent)) throw new ConfigurationError("Invalid owner message intent.");
     const resolvedIntent = intent ?? inferLegacyIntent(input.payload.text);
-    if (isBuilder && intent === "ticket_create" && (!input.payload.ticket || typeof input.payload.ticket !== "object" || Array.isArray(input.payload.ticket))) {
+    if (isBuilder && intent === "ticket_create" && (!input.payload.ticket || typeof input.payload.ticket !== "object" || Array.isArray(input.payload.ticket)) && !(hasJsonCandidate(input.payload.text) && !isParsableJsonCandidate(input.payload.text))) {
       const missingTicket = { create_ticket: true, status: "needs_input", error_code: "missing_ticket_object", question: "payload.ticket JSON object is required for ticket_create." };
       const notice = bus.send(responseMessage({ id: input.message_id, project_id: input.project_id, conversation_id: input.conversation_id, correlation_id: input.correlation_id, timestamp: input.timestamp, sender: { id: "NODE", role: "node" }, recipient: { id: "builder-ex", role: "builder" } }, "ticket.creation", missingTicket, `TICKET-CREATE-${input.message_id}`));
       messages.set(input.message_id, Object.freeze(structuredClone(notice)));
@@ -94,6 +94,10 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     };
     // Bus persists via the canonical Communication Store before dispatching.
     const persisted = bus.send(message);
+    // Dispatches enter the canonical Stage-1 pipeline, which persists the
+    // validated task envelope at round_1/request. Do not occupy that ref with
+    // the UI command envelope; Communication Store still retains the message.
+    if (!(commandResult?.command && commandResult.status === "ready")) persistProtocolMessage(persisted, round, "request");
     safeLog(projectLogger, { event_name: "owner.message", level: "info", status: "info", message: "Owner message received.", task_id: message.payload.task?.id ?? message.id, ticket_id: message.payload.task?.id, conversation_id: message.conversation_id, source: "owner-chat-service" });
     messages.set(persisted.id, Object.freeze(structuredClone(persisted)));
     if (commandResult?.command && commandResult.status === "ready" && typeof dispatchAgentTicket === "function") void dispatchAgentTicket({ task_id: commandResult.ticket_id, ticket: commandResult.ticket, message: persisted, agent_id: agentId, eventSink: input.eventSink });
@@ -141,37 +145,37 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
             const tool = chunk.tool_use.input ?? chunk.tool_use;
             debug({ event: "agent.loop.tool_use", agent_id: agentId, task_id: taskId, round, tool: summarizeValue(tool) });
             if (!validateAgentTool(tool)) throw new ConfigurationError("Invalid agent tool request.");
-            if (tool.kind === "request_info") {
+            if (tool.kind === "code_needed") {
               const fingerprint = requestInfoFingerprint(tool);
               const duplicate = requestInfoFingerprints.has(fingerprint);
               requestInfoFingerprints.add(fingerprint);
               if (duplicate) emitProgress(message, agentId, "Context đã cache, gửi lại bản tóm tắt…", `PROGRESS-${round}-CACHE`);
             }
-            emitProgress(message, agentId, tool.kind === "request_info" ? "Đang đọc context cần thiết…" : "Đang chuẩn bị ghi code…", `PROGRESS-${round}-${tool.kind}`);
-            const fingerprint = tool.kind === "request_info" ? requestInfoFingerprint(tool) : null;
+            emitProgress(message, agentId, tool.kind === "code_needed" ? "Đang đọc context cần thiết…" : "Đang chuẩn bị ghi code…", `PROGRESS-${round}-${tool.kind}`);
+            const fingerprint = tool.kind === "code_needed" ? requestInfoFingerprint(tool) : null;
             const result = fingerprint && contextResults.has(fingerprint)
               ? contextResults.get(fingerprint)
               : await executeAgentTool?.(tool, { message, agentId }) ?? { content: "Tool execution is unavailable." };
             if (fingerprint) contextResults.set(fingerprint, result);
-            emitProgress(message, agentId, tool.kind === "request_info" ? "Context đã sẵn sàng, đang gửi lại cho agent…" : "Đã xử lý tool…", `PROGRESS-${round}-RESULT`);
+            emitProgress(message, agentId, tool.kind === "code_needed" ? "Context đã sẵn sàng, đang gửi lại cho agent…" : "Đã xử lý tool…", `PROGRESS-${round}-RESULT`);
             debug({ event: "agent.loop.tool_result", agent_id: agentId, task_id: taskId, round: tool.round, result: summarizeValue(result) });
-            safeLog(projectLogger, { event_name: tool.kind === "request_info" ? "context.request" : "agent.tool_result", level: "info", status: "success", message: `Agent ${tool.kind} completed.`, task_id: taskId, ticket_id: message.payload.task?.id, conversation_id: message.conversation_id, source: "owner-chat-service" });
+            safeLog(projectLogger, { event_name: tool.kind === "code_needed" ? "context.request" : "agent.tool_result", level: "info", status: "success", message: `Agent ${tool.kind} completed.`, task_id: taskId, ticket_id: message.payload.task?.id, conversation_id: message.conversation_id, source: "owner-chat-service" });
             bus.send(responseMessage(message, streamEventType(agentId, "tool.result"), { content: result.content ?? result, token_usage: result.token_usage ?? null }, `TOOL-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`));
-            const needsAnotherRound = tool.kind === "request_info";
+            const needsAnotherRound = tool.kind === "code_needed";
             if (needsAnotherRound) {
               const taskSummary = message.payload.task ? `${message.payload.task.title}: ${message.payload.task.objective}` : message.payload.text;
-              const stateSummary = `Task ${taskId}: ${taskSummary}; context request completed; return submit_code when ready.`;
+              const stateSummary = `Task ${taskId}: ${taskSummary}; context request completed; return submit_code_response when ready.`;
               const contextRef = `CTX-${taskId}-${round}-${createHash("sha256").update(String(result.content ?? "")).digest("hex").slice(0, 12)}`;
               const contextContent = String(result.content ?? "");
               contextRefs.set(contextRef, contextContent);
               const excerpt = contextContent.slice(0, 3000);
-              requestPayload = { text: `task_id: ${taskId}\ncontext_ref: ${contextRef}\nstate_summary: ${stateSummary}\ncontext_status: ${result.status ?? "context_ready"}\ncontext_available: ${result.context_available !== false}\ntool_result: context stored by Node (${contextContent.length} chars)\ncontext_excerpt:\n${excerpt}\nnext_step: submit_code\n\nUse the context_ref for correlation. The excerpt above is the available context; do not request the same listing again. Return submit_code now.` };
+              requestPayload = { text: `task_id: ${taskId}\ncontext_ref: ${contextRef}\nstate_summary: ${stateSummary}\ncontext_status: ${result.status ?? "context_ready"}\ncontext_available: ${result.context_available !== false}\ntool_result: context stored by Node (${contextContent.length} chars)\ncontext_excerpt:\n${excerpt}\nnext_step: submit_code_response\n\nUse the context_ref for correlation. The excerpt above is the available context; do not request the same listing again. Return submit_code_response now.` };
               requestedNextRound = true;
             }
-            if (tool.kind === "submit_code") {
+            if (tool.kind === "submit_code_response") {
               emitProgress(message, agentId, "Đã nhận code, đang hoàn tất…", `PROGRESS-${round}-SUBMIT`);
               submittedCode = true;
-              // submit_code is the terminal agent action. Do not consume trailing
+              // submit_code_response is the terminal agent action. Do not consume trailing
               // gateway chunks or open another request for the same task.
               break;
             }
@@ -198,6 +202,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       if (!submittedCode && !text.trim()) throw new ConfigurationError("Agent ended without submit_code or a non-empty response.");
       await bus.flush();
       bus.send(responseMessage(message, streamEventType(agentId, "message.received"), { text, agent_status: "COMPLETED" }, "COMPLETED"));
+      persistProtocolMessage({ ...message, payload: { ...message.payload, text } }, conversationRounds.get(message.conversation_id) ?? 1, "response");
       await onAgentCompleted?.({ message, agentId, text });
     } catch (error) {
       bus.send(responseMessage(message, streamEventType(agentId, "error"), { error: error.message, agent_status: "FAILED" }, "ERROR"));
@@ -222,11 +227,20 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
   async function requestRealAgent(message, agentId) {
     try {
       const result = await agentRequest({ agentId, payload: { text: await enrichAgentText(message, agentId), ...(message.payload.task ? { task: message.payload.task } : {}) }, correlationId: message.correlation_id });
+      persistProtocolMessage({ ...message, payload: result.payload ?? {} }, conversationRounds.get(message.conversation_id) ?? 1, "response");
       bus.send(responseMessage(message, streamEventType(agentId, "message.received"), { text: result.payload?.text, response_id: result.payload?.response_id, agent_status: "COMPLETED" }));
       await onAgentCompleted?.({ message, agentId, text: result.payload?.text ?? "" });
     } catch (error) {
       bus.send(responseMessage(message, streamEventType(agentId, "error"), { error: error.message, agent_status: "FAILED" }));
     }
+  }
+
+  function persistProtocolMessage(message, round, direction) {
+    if (!protocolStorage?.save || !message?.conversation_id) return;
+    const taskId = message.payload?.task?.id ?? message.payload?.ticket?.id ?? message.conversation_id.replace(/[^A-Za-z0-9._-]/g, "-");
+    const ref = `task/${taskId}/round_${round}/${direction}`;
+    Promise.resolve(protocolStorage.save(ref, message, { schemaId: direction === "request" ? "forge-envelope" : "forge-response" }))
+      .catch((error) => debug({ event: "protocol-storage.persist.error", ref, error: error.message }));
   }
 
   async function enrichAgentText(message, agentId) {

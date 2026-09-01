@@ -1,5 +1,5 @@
 import process from "node:process";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { loadNodeforgeEnv } from "./nodeforge-env.mjs";
 import { acquireProcessLock } from "./nodeforge-process-lock.mjs";
 
@@ -11,12 +11,15 @@ import { createFilesystemWatcher, DEFAULT_WATCHER_IGNORE } from "../src/infrastr
 import { createDebouncedWatcher } from "../src/modules/watcher/debounced-watcher.js";
 import { createIncrementalIndexer } from "../src/modules/index/incremental-indexer.js";
 import { createVerificationOrchestrator } from "../src/modules/verification/orchestrator.js";
+import { createFileService } from "../src/infrastructure/filesystem/file-service.js";
 
+process.chdir(resolve(new URL("../..", import.meta.url).pathname));
 loadNodeforgeEnv();
 const runtimeRoot = join(process.cwd(), ".forge", "runtime");
 const dataDir = process.env.NODE_CONTROL_DATA_DIR ?? join(runtimeRoot, "nf");
 const projectId = process.env.NODE_CONTROL_PROJECT_ID ?? "PROJECT-NODEFORGE";
-const processLock = acquireProcessLock(dataDir, "watcher");
+const fileService = createFileService({ projectRoot: process.cwd() });
+const processLock = acquireProcessLock(dataDir, "watcher", { fileService });
 // Control DB stores events; the project index also uses DatabaseService so all
 // watcher/indexer mutations are serialized through the SQLite write queue.
 const controlDb = await createDatabaseService({ dataDir, runtimeDir: "." });

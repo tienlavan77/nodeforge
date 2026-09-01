@@ -16,7 +16,7 @@ test("forge index rebuild restores the file and symbol snapshot after index.db i
     await writeProjectFile(projectRoot, "node_modules/ignored.js", "function ignored() {}\n");
     await writeProjectFile(projectRoot, ".forge/ignored.php", "<?php function ignored() {}\n");
 
-    const firstDatabase = await openIndexDatabase(projectRoot);
+    const firstDatabase = await openIndexDatabase(projectRoot, { runtimeDir: ".forge/runtime/wc" });
     await rebuildIndex({ projectRoot, database: firstDatabase });
     const snapshot = readSnapshot(firstDatabase);
     const databasePath = firstDatabase.databasePath;
@@ -27,7 +27,7 @@ test("forge index rebuild restores the file and symbol snapshot after index.db i
     assert.equal(await runCli(["index", "rebuild"], { cwd: projectRoot, stdout: { write: (value) => output.push(value) } }), 0);
     assert.deepEqual(output, ["Rebuilt index for 2 files.\n"]);
 
-    const rebuiltDatabase = await openIndexDatabase(projectRoot);
+    const rebuiltDatabase = await openIndexDatabase(projectRoot, { runtimeDir: ".forge/runtime/wc" });
     assert.deepEqual(readSnapshot(rebuiltDatabase), snapshot);
     await rebuiltDatabase.close();
   });
@@ -36,7 +36,7 @@ test("forge index rebuild restores the file and symbol snapshot after index.db i
 test("consistency checker emits index.inconsistent and rebuilds when an indexed file is missing", async () => {
   await withProject(async (projectRoot) => {
     await writeProjectFile(projectRoot, "src/auth.js", "export function login() {}\n");
-    const database = await openIndexDatabase(projectRoot);
+    const database = await openIndexDatabase(projectRoot, { runtimeDir: ".forge/runtime/wc" });
     await rebuildIndex({ projectRoot, database });
     await unlink(join(projectRoot, "src/auth.js"));
 

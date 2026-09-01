@@ -9,9 +9,9 @@ import addFormats from "ajv-formats";
 import { ConfigurationError } from "../../shared/errors.js";
 
 const require = createRequire(import.meta.url);
-const commonSchema = require("../../../schemas/core/common.schema.json");
-const coreEventSchema = require("../../../schemas/core/event.schema.json");
-const nodeEventSchema = require("../../../schemas/node/node-event.schema.json");
+const commonSchema = require("../../../../schemas/core/common.schema.json");
+const coreEventSchema = require("../../../../schemas/core/event.schema.json");
+const nodeEventSchema = require("../../../../schemas/node/node-event.schema.json");
 const RAW_EVENT_TYPES = Object.freeze({ add: "watcher.file_created", change: "watcher.file_modified", unlink: "watcher.file_deleted" });
 
 export function createNodeEventValidator() {

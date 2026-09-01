@@ -67,6 +67,28 @@
         "source_id": "FORGE-UI-039",
         "created_at": "2026-08-23T10:30:00Z"
       }
+    },
+    {
+      "id": "FORGE-UI-040",
+      "project_id": "PROJECT-NODEFORGE",
+      "roadmap_id": "ROADMAP-NODEFORGE",
+      "sprint_id": "SPRINT-FORGE-NOTIFY-001",
+      "title": "Create an Agent Profile page in the Next.js UI",
+      "objective": "Add a user-facing Agent Profile page to the Next.js application so an owner can view an agent's profile information in a clear, human-readable layout.",
+      "acceptance_criteria": [
+        "The Next.js UI includes a dedicated Agent Profile page reachable through the existing application navigation or agent management flow.",
+        "The page presents available agent profile information with clear labels and sensible empty states when data is unavailable.",
+        "The implementation discovers the appropriate existing UI entry points and components from the repository structure instead of assuming a file path supplied by the ticket.",
+        "The change does not modify backend endpoints, dispatch behavior, or existing ticket and sprint flows.",
+        "The page builds successfully with the existing Next.js configuration."
+      ],
+      "priority": "medium",
+      "dependencies": [],
+      "provenance": {
+        "source": "project_owner",
+        "source_id": "FORGE-UI-040",
+        "created_at": "2026-09-01T00:00:00Z"
+      }
     }
   ],
   "exit_criteria": [

@@ -13,15 +13,18 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["path", "language", "format", "content", "exists"],
+        "required": ["path", "language", "format", "content", "exists", "before_checksum"],
         "properties": {
           "path": { "type": "string", "minLength": 1 },
           "language": { "type": "string", "minLength": 1 },
-          "format": { "type": "string", "enum": ["full", "unified_diff", "patch"] },
+          "format": { "type": "string", "enum": ["full_content", "unified_diff", "patch"] },
           "content": { "type": "string" },
-          "exists": { "type": "boolean" }
+          "exists": { "type": "boolean" },
+            "before_checksum": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" },
+            "summary": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[^\\r\\n]+$" }
+          },
+          "allOf": [{ "if": { "properties": { "exists": { "const": false } }, "required": ["exists"] }, "then": { "required": ["summary"] } }]
         }
       }
     }
   }
-}

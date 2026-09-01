@@ -9,9 +9,15 @@ import process from "node:process";
 import { ConfigurationError } from "../shared/errors.js";
 
 const require = createRequire(import.meta.url);
-const schema = require("../../schemas/log/project-log.schema.json");
+const schema = require("../../../schemas/log/project-log.schema.json");
 const validator = createValidator();
 const taskSequences = new Map();
+let configuredFileService;
+
+export function configureProjectLogFileService(fileService) {
+  if (fileService !== undefined && typeof fileService?.appendFileSync !== "function") throw new ConfigurationError("Project log File Service requires appendFileSync.");
+  configuredFileService = fileService;
+}
 
 export async function readLogEvents({ logPath = defaultLogPath(), project_id, task_id, ticket_id, conversation_id, correlation_id, event_name, from, to, onWarning } = {}) {
   const warnings = [];
@@ -64,8 +70,15 @@ function appendLog(event) {
   const maxBytes = Number(process.env.NODEFORGE_PROJECT_LOG_MAX_BYTES ?? 256 * 1024 * 1024);
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new ConfigurationError("Project log max bytes must be a positive integer.");
   const line = `${JSON.stringify(event)}\n`;
-  mkdirSync(dirname(logPath), { recursive: true });
-  appendFileSync(nextLogPath(logPath, maxBytes, Buffer.byteLength(line)), line, { encoding: "utf8", flag: "a" });
+  const target = nextLogPath(logPath, maxBytes, Buffer.byteLength(line));
+  if (configuredFileService) {
+    const projectRoot = process.cwd();
+    const relativePath = target.startsWith(`${projectRoot}/`) ? target.slice(projectRoot.length + 1) : target;
+    configuredFileService.appendFileSync({ path: relativePath, content: line });
+  } else {
+    mkdirSync(dirname(logPath), { recursive: true });
+    appendFileSync(target, line, { encoding: "utf8", flag: "a" });
+  }
 }
 
 function nextLogPath(basePath, maxBytes, incomingBytes) {

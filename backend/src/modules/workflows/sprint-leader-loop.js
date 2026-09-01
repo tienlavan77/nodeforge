@@ -7,12 +7,12 @@ import addFormats from "ajv-formats";
 import { ConfigurationError } from "../../shared/errors.js";
 
 const require = createRequire(import.meta.url);
-const commonSchema = require("../../../schemas/core/common.schema.json");
-const commandSchema = require("../../../schemas/core/command.schema.json");
-const eventSchema = require("../../../schemas/core/event.schema.json");
-const sprintSchema = require("../../../schemas/roadmap/sprint.schema.json");
-const commitSchema = require("../../../schemas/roadmap/commit.schema.json");
-const verificationPlanSchema = require("../../../schemas/verification/verification-plan.schema.json");
+const commonSchema = require("../../../../schemas/core/common.schema.json");
+const commandSchema = require("../../../../schemas/core/command.schema.json");
+const eventSchema = require("../../../../schemas/core/event.schema.json");
+const sprintSchema = require("../../../../schemas/roadmap/sprint.schema.json");
+const commitSchema = require("../../../../schemas/roadmap/commit.schema.json");
+const verificationPlanSchema = require("../../../../schemas/verification/verification-plan.schema.json");
 
 const REQUEST_TYPE = "sprints.request_plan";
 const PROPOSAL_TYPE = "sprints.plan_proposed";

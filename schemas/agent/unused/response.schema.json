@@ -1,4 +1,5 @@
 {
+  "$id": "https://forge.local/schemas/agent/response.schema.json",
   "_note": "0a-3 — Schema payload chiều Agent → Node, viết theo đúng chuẩn tool-calling của từng provider. Adapter dùng trực tiếp object 'claude' hoặc 'openai' tương ứng khi build request gửi lên API. Node validate response trả về đối chiếu lại field 'input_schema' (Claude) hoặc 'parameters' (OpenAI) — cùng 1 field logic, khác tên theo chuẩn provider.",
   "claude": {
     "_format_note": "Dùng trong request Anthropic API, field tools[]. Model bị ép gọi tool tương ứng bằng tool_choice: { type: 'tool', name: '<tên tool>' }.",
@@ -45,7 +46,8 @@
               "type": "object",
               "required": [
                 "path",
-                "format"
+                "format",
+                "before_checksum"
               ],
               "properties": {
                 "path": {
@@ -68,6 +70,11 @@
                 "exists": {
                   "type": "boolean",
                   "description": "True nếu file này đã tồn tại trước khi sửa, false nếu là file mới tạo."
+                },
+                "before_checksum": {
+                  "type": ["string", "null"],
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "description": "SHA-256 snapshot của file trước khi Agent sửa; null cho file mới."
                 }
               }
             }

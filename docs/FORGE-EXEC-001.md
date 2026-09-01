@@ -93,7 +93,7 @@ Nếu project có build step (webpack, vite...) — chạy thử build để ch�
 Gộp kết quả từ dry-run/lint/test → quyết định: `commit` (giữ thay đổi), `rollback` (khôi phục + báo lỗi), hay `retry` (gửi lại agent kèm lỗi cụ thể).
 
 ### `buildRetryRequest(originalRequest, error)`
-Tạo request mới cho agent, nhúng `previous_error` + `retry_of_step`, có thể **downgrade** `expected_output.type` (VD từ `unified_diff` → `search_replace_block` → `full_file`) nếu retry nhiều lần vẫn fail cùng 1 kiểu lỗi.
+Tạo request mới cho agent, nhúng `previous_error` + `retry_of_step`, có thể **downgrade** `expected_output.type` (VD từ `unified_diff` → `search_replace_block` → `full_content`) nếu retry nhiều lần vẫn fail cùng 1 kiểu lỗi.
 
 ---
 
@@ -112,7 +112,7 @@ Ghi log chi tiết từng hành động (apply/rollback/retry) — cần thiết
 - `dispatchChange` là **entry point duy nhất** — không có handler nào ở nhóm 2 được gọi trực tiếp từ ngoài, tránh bỏ sót bước validate.
 - Mọi handler ở nhóm 2 nên có **chế độ dry-run** dùng chung code path với apply thật, chỉ khác flag — tránh 2 bộ logic riêng dễ lệch nhau (dry-run pass nhưng apply thật lại khác hành vi).
 - `logExecutionTrace` chạy ở **mọi nhánh**, kể cả khi lỗi — không đặt trong nhánh `commit` only.
-- Độ ưu tiên chọn `applyXxx` mặc định (theo `expected_output.type`): `search_replace_block` > `full_file` (file nhỏ) > `structured_patch` > `unified_diff` (rủi ro cao nhất, chỉ dùng khi các dạng khác không phù hợp).
+- Độ ưu tiên chọn `applyXxx` mặc định (theo `expected_output.type`): `search_replace_block` > `full_content` (file nhỏ) > `structured_patch` > `unified_diff` (rủi ro cao nhất, chỉ dùng khi các dạng khác không phù hợp).
 
 ---
 

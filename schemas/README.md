@@ -1,13 +1,15 @@
 # Forge Schema v1.3
 
-Agent request/response envelopes in `schemas/agent/agent-request.schema.json` and
-`schemas/agent/agent-response.schema.json` use v1.3. Stable context is isolated from
+> Legacy v1.3 Agent contracts are retained under `schemas/agent/unused/`; the current pipeline does not load them.
+
+Agent request/response envelopes in `schemas/agent/unused/agent-request.schema.json` and
+`schemas/agent/unused/agent-response.schema.json` use v1.3. Stable context is isolated from
 step-specific dynamic context; when `cache_enabled` is true, Node marks the stable
 block with Anthropic `cache_control: { type: "ephemeral" }`. Cache usage is reported
 from the provider response and is never treated as agent content.
 
-ChatGPT Responses API uses the provider-specific `agent-request-oai.schema.json` and
-`agent-response-oai.schema.json` contracts. OpenAI adapters map cacheable developer
+ChatGPT Responses API uses the provider-specific `schemas/agent/unused/agent-request-oai.schema.json` and
+`schemas/agent/unused/agent-response-oai.schema.json` contracts. OpenAI adapters map cacheable developer
 blocks to `prompt_cache_breakpoint`, pass the explicit cache key/TTL, and normalize
 cached usage to `usage.cached_tokens`.
 

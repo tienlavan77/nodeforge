@@ -20,9 +20,9 @@ export async function applyStructuredPatch(filePath, operations, options = {}) {
   const updated = joinLines(updatedLines, trailingNewline);
   if (dryRun) return result({ success: true, detail: { file_path: filePath, dry_run: true, content: updated, operation_count: operations.length } });
 
-  const backup = await (options?.backupFile ?? createBackup)(filePath);
+  const backup = await (options?.backupFile ?? ((path) => createBackup(path, { fileService: options?.fileService })))(filePath);
   if (!backup?.success) return backup;
-  try { await writeFile(filePath, updated, "utf8"); return result({ success: true, detail: { file_path: filePath, backup_ref: backup.detail?.backup_ref, operation_count: operations.length } }); } catch (error) { return result({ success: false, errorCode: "IO_ERROR", errorMessage: error.message, detail: { backup_ref: backup.detail?.backup_ref } }); }
+  try { if (options?.fileService?.atomicWrite) await options.fileService.atomicWrite({ path: filePath, content: updated, replace: true }); else await writeFile(filePath, updated, "utf8"); return result({ success: true, detail: { file_path: filePath, backup_ref: backup.detail?.backup_ref, operation_count: operations.length } }); } catch (error) { return result({ success: false, errorCode: "IO_ERROR", errorMessage: error.message, detail: { backup_ref: backup.detail?.backup_ref } }); }
 
   function result(values) { return createExecutionResult({ stepName: "applyStructuredPatch", durationMs: Date.now() - startedAt, ...values }); }
 }

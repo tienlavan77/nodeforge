@@ -65,5 +65,9 @@ export function assertValidEnvelope(envelope, options = {}) {
 }
 
 function formatErrors(errors) {
-  return errors.map((error) => error.message ?? "invalid message").join("; ");
+  return errors.map((error) => {
+    const path = error.instancePath || error.dataPath || "/";
+    const schema = error.schemaPath ? ` (${error.schemaPath})` : "";
+    return `${path} ${error.message ?? "invalid message"}${schema}`;
+  }).join("; ");
 }

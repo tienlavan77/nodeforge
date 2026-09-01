@@ -4,8 +4,8 @@ import addFormats from "ajv-formats";
 import { ConfigurationError } from "../shared/errors.js";
 
 const require = createRequire(import.meta.url);
-const commonSchema = require("../../schemas/core/common.schema.json");
-const ticketSchema = require("../../schemas/governance/ticket.schema.json");
+const commonSchema = require("../../../schemas/core/common.schema.json");
+const ticketSchema = require("../../../schemas/governance/ticket.schema.json");
 
 const INTENT = /\b(ticket|task|công việc|yêu cầu|implement|thêm|sửa|fix|build)\b/i;
 

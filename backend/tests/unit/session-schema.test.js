@@ -7,9 +7,9 @@ import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 
 const require = createRequire(import.meta.url);
-const commonSchema = require("../../schemas/core/common.schema.json");
-const agentSchema = require("../../schemas/core/agent.schema.json");
-const sessionSchema = require("../../schemas/project/session.schema.json");
+const commonSchema = require("../../../schemas/core/common.schema.json");
+const agentSchema = require("../../../schemas/core/agent.schema.json");
+const sessionSchema = require("../../../schemas/project/session.schema.json");
 
 test("accepts AI and Node session capability profiles while keeping the field optional", async () => {
   const validate = createSessionValidator();
@@ -31,5 +31,5 @@ function createSessionValidator() {
 }
 
 async function readFixture(name) {
-  return JSON.parse(await readFile(new URL(`../../schemas/examples/${name}`, import.meta.url), "utf8"));
+  return JSON.parse(await readFile(new URL(`../../../schemas/examples/${name}`, import.meta.url), "utf8"));
 }

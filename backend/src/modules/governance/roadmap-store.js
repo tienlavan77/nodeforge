@@ -6,10 +6,10 @@ import addFormats from "ajv-formats";
 import { ConfigurationError } from "../../shared/errors.js";
 
 const require = createRequire(import.meta.url);
-const commonSchema = require("../../../schemas/core/common.schema.json");
-const roadmapSchema = require("../../../schemas/governance/roadmap.schema.json");
-const sprintPlanSchema = require("../../../schemas/governance/sprint-plan.schema.json");
-const ticketSchema = require("../../../schemas/governance/ticket.schema.json");
+const commonSchema = require("../../../../schemas/core/common.schema.json");
+const roadmapSchema = require("../../../../schemas/governance/roadmap.schema.json");
+const sprintPlanSchema = require("../../../../schemas/governance/sprint-plan.schema.json");
+const ticketSchema = require("../../../../schemas/governance/ticket.schema.json");
 
 const SENSITIVE = /(?:api[_-]?key|credential|secret|password|token|authorization)/i;
 

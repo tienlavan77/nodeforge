@@ -10,8 +10,8 @@ import { ensureForgeLayout } from "../../infrastructure/filesystem/forge-layout.
 import { ConfigurationError } from "../../shared/errors.js";
 
 const require = createRequire(import.meta.url);
-const commonSchema = require("../../../schemas/core/common.schema.json");
-const projectSchema = require("../../../schemas/project/project.schema.json");
+const commonSchema = require("../../../../schemas/core/common.schema.json");
+const projectSchema = require("../../../../schemas/project/project.schema.json");
 const PROJECT_FILE = "project.json";
 
 export function createProjectId() {
@@ -22,9 +22,10 @@ export class ProjectRegistry {
   #createId;
   #schemaVersion;
 
-  constructor({ createId = createProjectId, schemaVersion = "1.2.0" } = {}) {
+  constructor({ createId = createProjectId, schemaVersion = "1.2.0", fileService } = {}) {
     this.#createId = createId;
     this.#schemaVersion = schemaVersion;
+    this.fileService = fileService;
   }
 
   async getOrCreate(projectRoot) {
@@ -50,10 +51,11 @@ export class ProjectRegistry {
     validateProject(project);
 
     try {
-      await writeFile(projectFile, `${JSON.stringify(project, null, 2)}\n`, { flag: "wx" });
+      if (this.fileService?.atomicCreate) await this.fileService.atomicCreate({ path: projectFile.slice(root.length + 1), content: `${JSON.stringify(project, null, 2)}\n` });
+      else await writeFile(projectFile, `${JSON.stringify(project, null, 2)}\n`, { flag: "wx" });
       return project.project_id;
     } catch (error) {
-      if (error.code !== "EEXIST") throw error;
+      if (error.code !== "EEXIST" && error.code !== "FILE_ALREADY_EXISTS") throw error;
       const existing = await readProject(projectFile);
       validateProject(existing);
       return existing.project_id;

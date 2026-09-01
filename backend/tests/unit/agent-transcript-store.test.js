@@ -18,3 +18,19 @@ test("hybrid mode keeps only the newest window and downgrades on budget", () => 
   assert.equal(result.length, 4);
   assert.equal(downgrades.length > 0, true);
 });
+
+test("persists full request and response envelopes through Protocol Storage", async () => {
+  const saved = [];
+  const store = createAgentTranscriptStore({
+    protocolStorage: {
+      save: async (ref, data, options) => { saved.push({ ref, data, options }); }
+    }
+  });
+  store.append({ taskId: "TASK-PERSIST", round: 1, fullRequest: '{"type":"task"}', fullResponse: "done" });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(saved.length, 2);
+  assert.equal(saved[0].ref, "task/TASK-PERSIST/round_1/request");
+  assert.deepEqual(saved[0].data, { type: "task" });
+  assert.equal(saved[1].ref, "task/TASK-PERSIST/round_1/response");
+  assert.deepEqual(saved[1].data, { text: "done" });
+});
