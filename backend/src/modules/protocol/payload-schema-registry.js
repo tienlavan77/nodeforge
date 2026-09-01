@@ -7,6 +7,7 @@ const require = createRequire(import.meta.url);
 const schemas = Object.freeze({
   "node:code_provide": require("../../../../schemas/agent/payloads/node-code-provide.schema.json"),
   "node:usage_query": require("../../../../schemas/agent/payloads/node-usage-query.schema.json"),
+  "node:status_check": require("../../../../schemas/agent/payloads/node-status-check.schema.json"),
   "node:task": require("../../../../schemas/agent/request.schema.json"),
   "agent:code_needed": require("../../../../schemas/agent/payloads/agent-code-needed.schema.json"),
   "agent:submit_code_response": require("../../../../schemas/agent/payloads/agent-code-response.schema.json"),

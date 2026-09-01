@@ -50,7 +50,7 @@ export function createStage1MockAgent() {
     if (envelope?.type === "code_provide") {
       return responseEnvelope(parentId, "submit_code_response", {
         explanation: "Create the stage-1 fixture marker.",
-        files: [{ path: stage1Target.path, language: "text", format: "full", content: stage1Target.content, exists: false }]
+        files: [{ path: stage1Target.path, language: "text", format: "full_content", content: stage1Target.content, exists: false }]
       });
     }
     throw new Error(`Stage-1 mock does not support request type: ${envelope?.type ?? "<missing>"}`);
