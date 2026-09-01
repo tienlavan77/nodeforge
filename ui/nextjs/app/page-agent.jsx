@@ -88,6 +88,7 @@ export default function AgentPage() {
   const selectedAgent = AGENTS.find((agent) => agent.id === selectedId) || AGENTS[0];
   const profile = profiles.find((item) => item.agent_id === selectedAgent.id);
   const selectedCapabilities = profile ? capabilities(profile, selectedAgent) : [];
+  const connectionLabel = profile?.enabled ? "Connected" : "Not connected";
 
   return (
     <main className="agent-profile-page">
@@ -138,7 +139,7 @@ export default function AgentPage() {
               <span className={`agent-profile-avatar large accent-${selectedAgent.accent}`}>{selectedAgent.short}</span>
               <p className="eyebrow">PROFILE NOT CONFIGURED</p>
               <h2>{selectedAgent.label}</h2>
-              <p>No connection or capability information is available for this agent yet.</p>
+              <p>No connection, status, or capability information is available for this agent yet.</p>
               <Link href="/">Open agent settings from the control room</Link>
             </div>
           )}
@@ -150,12 +151,12 @@ export default function AgentPage() {
                   <p className="eyebrow">AGENT PROFILE</p>
                   <h2>{profile.agent_name || selectedAgent.label}</h2>
                   <p className="agent-profile-role">{selectedAgent.role}</p>
-                  <span className={`agent-profile-status ${profile.enabled ? "is-active" : "is-inactive"}`}>{profile.enabled ? "Active" : "Inactive"}</span>
+                  <span className={`agent-profile-status ${profile.enabled ? "is-active" : "is-inactive"}`} aria-label={`Connection status: ${connectionLabel}`}>{connectionLabel}</span>
                 </div>
               </div>
               <div className="agent-profile-section">
                 <div className="agent-profile-section-heading"><p className="eyebrow">CAPABILITIES</p><span>{selectedCapabilities.length} available</span></div>
-                <ul className="agent-profile-capabilities">{selectedCapabilities.map((item) => <li key={item}>{item}</li>)}</ul>
+                {selectedCapabilities.length ? <ul className="agent-profile-capabilities">{selectedCapabilities.map((item) => <li key={item}>{item}</li>)}</ul> : <p className="agent-profile-empty">No capabilities have been declared for this agent.</p>}
               </div>
               <div className="agent-profile-section">
                 <p className="eyebrow">CONNECTION DETAILS</p>
