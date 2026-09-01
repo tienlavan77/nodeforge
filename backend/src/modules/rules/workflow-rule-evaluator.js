@@ -10,10 +10,10 @@ import { createNodeEventValidator } from "../watcher/debounced-watcher.js";
 
 const require = createRequire(import.meta.url);
 const defaultRuleset = require("../../../rules/forge-sprint-delivery.rules.json");
-const commonSchema = require("../../../schemas/core/common.schema.json");
-const builderEvidenceSchema = require("../../../schemas/project/builder-evidence.schema.json");
-const workflowRuleSchema = require("../../../schemas/project/workflow-rule.schema.json");
-const rulesetSchema = require("../../../schemas/project/workflow-ruleset.schema.json");
+const commonSchema = require("../../../../schemas/core/common.schema.json");
+const builderEvidenceSchema = require("../../../../schemas/project/builder-evidence.schema.json");
+const workflowRuleSchema = require("../../../../schemas/project/workflow-rule.schema.json");
+const rulesetSchema = require("../../../../schemas/project/workflow-ruleset.schema.json");
 
 export function createWorkflowRuleEvaluator({ ruleset = defaultRuleset, projectId, internalBus, clock = () => new Date(), createEventId = () => `EVT-${randomUUID()}`, validateEvent = createNodeEventValidator() } = {}) {
   if (typeof projectId !== "string" || projectId.length === 0 || !internalBus?.emit) {

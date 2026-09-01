@@ -8,9 +8,9 @@ import addFormats from "ajv-formats";
 import { ConfigurationError } from "../shared/errors.js";
 
 const require = createRequire(import.meta.url);
-const commonSchema = require("../../schemas/core/common.schema.json");
-const ticketSchema = require("../../schemas/governance/ticket.schema.json");
-const sprintPlanSchema = require("../../schemas/governance/sprint-plan.schema.json");
+const commonSchema = require("../../../schemas/core/common.schema.json");
+const ticketSchema = require("../../../schemas/governance/ticket.schema.json");
+const sprintPlanSchema = require("../../../schemas/governance/sprint-plan.schema.json");
 
 export function createSprintPlanUploadService({ roadmaps, projectRoot = process.cwd(), isRunning = () => false } = {}) {
   if (typeof roadmaps?.save !== "function") throw new ConfigurationError("Sprint Plan Upload requires a Roadmap Store.");

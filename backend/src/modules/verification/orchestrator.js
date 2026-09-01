@@ -9,8 +9,8 @@ import { createCheckRunner } from "./check-runner.js";
 import { createTestRunner, createVerificationPlanValidator } from "./runner.js";
 
 const require = createRequire(import.meta.url);
-const verificationResultSchema = require("../../../schemas/verification/verification-result.schema.json");
-const commonSchema = require("../../../schemas/core/common.schema.json");
+const verificationResultSchema = require("../../../../schemas/verification/verification-result.schema.json");
+const commonSchema = require("../../../../schemas/core/common.schema.json");
 const CHECK_TYPES = ["test", "build", "lint", "typecheck"];
 const RESULT_KEYS = { test: "tests", build: "build", lint: "lint", typecheck: "typecheck" };
 

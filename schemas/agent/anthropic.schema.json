@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "forge-payload-anthropic-v1.4.schema.json",
+  "$id": "https://forge.local/schemas/agent/anthropic.schema.json",
   "title": "Forge Node→Agent Payload — Anthropic variant",
   "type": "object",
   "required": [
@@ -99,7 +99,7 @@
       "properties": {
         "type": {
           "enum": [
-            "code_response",
+            "submit_code_response",
             "usage_needed",
             "no_wiring_needed",
             "completed",

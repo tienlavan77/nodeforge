@@ -38,6 +38,26 @@ test("routes the Project Dashboard through its Node application service", async 
   assert.deepEqual(await request(api, "GET", "/projects/PROJECT-140/dashboard"), [200, { project_id: "PROJECT-140", backlog: [] }]);
 });
 
+test("routes ticket Run through the canonical Stage-1 runner", async () => {
+  let received;
+  const api = createHttpApi({
+    runtimeService: runtimeStub(),
+    ticketRunner: async (input) => {
+      received = input;
+      return { ticket_id: input.ticketId, status: "accepted", pipeline: "stage1" };
+    }
+  });
+  assert.deepEqual(
+    await request(api, "POST", "/projects/PROJECT-NODEFORGE/tickets/FORGE-1/run"),
+    [202, { ticket_id: "FORGE-1", status: "accepted", pipeline: "stage1" }]
+  );
+  assert.deepEqual(received, {
+    projectId: "PROJECT-NODEFORGE",
+    ticketId: "FORGE-1",
+    conversationId: "CONV-BUILDER"
+  });
+});
+
 test("routes read-only Conversation and Audit History filters through Node", async () => {
   let received;
   const api = createHttpApi({ runtimeService: runtimeStub(), conversationAuditHistoryService: { query: (input) => { received = input; return { items: [], next_cursor: null }; } } });

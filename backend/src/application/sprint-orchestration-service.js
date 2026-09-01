@@ -7,9 +7,9 @@ import addFormats from "ajv-formats";
 import { ConfigurationError } from "../shared/errors.js";
 
 const require = createRequire(import.meta.url);
-const commonSchema = require("../../schemas/core/common.schema.json");
-const ticketSchema = require("../../schemas/governance/ticket.schema.json");
-const sprintPlanSchema = require("../../schemas/governance/sprint-plan.schema.json");
+const commonSchema = require("../../../schemas/core/common.schema.json");
+const ticketSchema = require("../../../schemas/governance/ticket.schema.json");
+const sprintPlanSchema = require("../../../schemas/governance/sprint-plan.schema.json");
 
 export function createSprintOrchestrationService({ runtimeService, sprintPlans, sprintPlanStore, ticketProvenanceTracker, agentGateway, publisher, agentRoles = ["architecture-manager", "sprint-leader", "builder", "reviewer"], streamBatchMs = 500 } = {}) {
   if (typeof runtimeService?.startTask !== "function" || typeof sprintPlans?.getSprintById !== "function") {

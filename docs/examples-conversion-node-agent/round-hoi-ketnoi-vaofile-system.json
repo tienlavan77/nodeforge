@@ -1,0 +1,64 @@
+{
+  "chuc-nang": "Khi tao xong file FileUploadWidget.js, file này chưa được import vào component cha nào, nên đang mồ côi trong hệ thống. Node hỏi Agent có cần patch thêm file nào để đấu nối nó vào UI (ví dụ import vào DocumentViewer.js hoặc component tab liên quan) không? Nếu cần, Agent trả type usage_needed kèm files_requested + reason. Nếu file này chủ đích chưa cần gọi ngay (vd chờ task khác), Agent trả type no_wiring_needed kèm lý do.",
+  "request_id": "b8c9d0e1-0008-0000-0000-000000000008",
+  "parent_id": "e5f6a7b8-0005-0000-0000-000000000005",
+  "type": "usage_query",
+  "role": "node",
+  "timestamp": "2026-08-29T10:10:00Z",
+  "payload": {
+    "schema_version": "1.4",
+    "task_id": "FORGE-UI-037",
+    "step_id": 3,
+    "conversation_mode": "hybrid",
+    "hybrid_window": 2,
+    "developer_blocks": [
+      {
+        "block_id": "builder_rules",
+        "content": "Frontend JS dùng ESM (import/export). Component mới phải được import vào đúng component cha để chạy được — không để file mồ côi.",
+        "cacheable": true
+      }
+    ],
+    "transcript_blocks": [
+      {
+        "block_id": "round_2",
+        "round": 2,
+        "instruction": "Node cung cấp file, yêu cầu code theo format quy định",
+        "response_summary": "Agent trả full FileUploadWidget.js, đã patch thành công",
+        "full_request_ref": "task/FORGE-UI-037/round_2/request",
+        "full_response_ref": "task/FORGE-UI-037/round_2/response",
+        "cacheable": false
+      }
+    ],
+    "user_blocks": [
+      {
+        "block_id": "unwired_files",
+        "content": {
+          "files": [
+            {
+              "path": "src/components/FileUploadWidget.js",
+              "status": "created",
+              "imported_by": [],
+              "exports": [
+                "default: FileUploadWidget"
+              ]
+            }
+          ]
+        },
+        "cacheable": false
+      },
+      {
+        "block_id": "current_request",
+        "content": "File FileUploadWidget.js đã được tạo (round 2) nhưng chưa có file nào import/sử dụng nó — đang mồ côi trong hệ thống. Bạn có cần patch thêm file nào để đấu nối nó vào UI (ví dụ import vào DocumentViewer.js hoặc component tab liên quan) không? Nếu cần, trả type usage_needed kèm files_requested + reason. Nếu file này chủ đích chưa cần gọi ngay (vd chờ task khác), trả type no_wiring_needed kèm lý do.",
+        "cacheable": false
+      }
+    ],
+    "expected_output": {
+      "type": "usage_needed | no_wiring_needed",
+      "format": "json"
+    },
+    "metadata": {
+      "retry_of_step": null,
+      "previous_error": null
+    }
+  }
+}

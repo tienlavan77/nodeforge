@@ -7,8 +7,8 @@ import addFormats from "ajv-formats";
 import { ConfigurationError } from "../../shared/errors.js";
 
 const require = createRequire(import.meta.url);
-const commonSchema = require("../../../schemas/core/common.schema.json");
-const workflowSchema = require("../../../schemas/project/workflow.schema.json");
+const commonSchema = require("../../../../schemas/core/common.schema.json");
+const workflowSchema = require("../../../../schemas/project/workflow.schema.json");
 
 export class WorkflowTransitionError extends ConfigurationError {
   constructor(message) {

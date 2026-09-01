@@ -20,10 +20,11 @@ export async function applyUnifiedDiff(filePath, diffText, options = {}) {
   }
   if (dryRun) return result({ success: true, detail: { file_path: filePath, dry_run: true, content: updated } });
 
-  const backup = await (options?.backupFile ?? createBackup)(filePath);
+  const backup = await (options?.backupFile ?? ((path) => createBackup(path, { fileService: options?.fileService })))(filePath);
   if (!backup?.success) return backup;
   try {
-    await writeFile(filePath, updated, "utf8");
+    if (options?.fileService?.atomicWrite) await options.fileService.atomicWrite({ path: filePath, content: updated, replace: true });
+    else await writeFile(filePath, updated, "utf8");
     return result({ success: true, detail: { file_path: filePath, backup_ref: backup.detail?.backup_ref } });
   } catch (error) {
     return result({ success: false, errorCode: "IO_ERROR", errorMessage: error.message, detail: { backup_ref: backup.detail?.backup_ref } });

@@ -58,7 +58,8 @@
                 "language",
                 "format",
                 "content",
-                "exists"
+                "exists",
+                "before_checksum"
               ],
               "properties": {
                 "path": {
@@ -70,7 +71,7 @@
                 "format": {
                   "type": "string",
                   "enum": [
-                    "full",
+                    "full_content",
                     "unified_diff",
                     "patch"
                   ]
@@ -81,8 +82,17 @@
                 },
                 "exists": {
                   "type": "boolean"
+                },
+                "before_checksum": {
+                  "type": ["string", "null"],
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "summary": {
+                  "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[^\\r\\n]+$",
+                  "description": "Bắt buộc với file mới (exists=false); Node sẽ chèn summary thành comment."
                 }
-              }
+              },
+              "allOf": [{ "if": { "properties": { "exists": { "const": false } }, "required": ["exists"] }, "then": { "required": ["summary"] } }]
             }
           }
         }

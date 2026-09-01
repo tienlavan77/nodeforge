@@ -9,9 +9,9 @@ import { logEvent } from "../../core/project-log-service.js";
 import { createProjectCommandExecutor } from "./command-executor.js";
 
 const require = createRequire(import.meta.url);
-const commonSchema = require("../../../schemas/core/common.schema.json");
-const testResultSchema = require("../../../schemas/results/test-result.schema.json");
-const verificationPlanSchema = require("../../../schemas/verification/verification-plan.schema.json");
+const commonSchema = require("../../../../schemas/core/common.schema.json");
+const testResultSchema = require("../../../../schemas/results/test-result.schema.json");
+const verificationPlanSchema = require("../../../../schemas/verification/verification-plan.schema.json");
 
 export function createTestResultValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });

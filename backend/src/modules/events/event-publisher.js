@@ -6,8 +6,8 @@ import addFormats from "ajv-formats";
 import { ConfigurationError } from "../../shared/errors.js";
 
 const require = createRequire(import.meta.url);
-const commonSchema = require("../../../schemas/core/common.schema.json");
-const eventSchema = require("../../../schemas/core/event.schema.json");
+const commonSchema = require("../../../../schemas/core/common.schema.json");
+const eventSchema = require("../../../../schemas/core/event.schema.json");
 
 export function createEventPublisher({ store, subscriptions, source = "node", validateEvent = createEventValidator() } = {}) {
   if (typeof store?.append !== "function" || (subscriptions !== undefined && typeof subscriptions?.publish !== "function") || typeof source !== "string" || source.length === 0 || typeof validateEvent !== "function") {

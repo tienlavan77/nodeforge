@@ -8,14 +8,14 @@ import addFormats from "ajv-formats";
 import { ConfigurationError } from "../../shared/errors.js";
 
 const require = createRequire(import.meta.url);
-const commonSchema = require("../../../schemas/core/common.schema.json");
-const agentMessageSchema = require("../../../schemas/governance/agent-message.schema.json");
+const commonSchema = require("../../../../schemas/core/common.schema.json");
+const agentMessageSchema = require("../../../../schemas/governance/agent-message.schema.json");
 
 const SENSITIVE = /(?:api[_-]?key|credential|secret|password|token|authorization)/i;
 const CONVERSATION_DIR = "conversations";
 const LEGACY_TABLE = "agent_communications_legacy_raw";
 
-export function createAgentCommunicationStore({ validateMessage = createAgentMessageValidator(), database } = {}) {
+export function createAgentCommunicationStore({ validateMessage = createAgentMessageValidator(), database, fileService } = {}) {
   if (typeof validateMessage !== "function") throw new ConfigurationError("Agent Message validation must be a function.");
   if (database !== undefined && (!database?.run || !database?.all)) throw new ConfigurationError("Persistent Agent Communication Store requires a SQLite database.");
   const messages = [];
@@ -32,7 +32,7 @@ export function createAgentCommunicationStore({ validateMessage = createAgentMes
     if (messagesById.has(message.id)) throw new ConfigurationError(`Agent Message already exists: ${message.id}.`);
     const stored = Object.freeze(redact(structuredClone(message)));
     if (database) {
-      const location = appendRawMessage(storageRoot, stored);
+      const location = appendRawMessage(storageRoot, stored, fileService);
       database.run(`INSERT INTO agent_communications (
         message_id, project_id, agent_id, sender_id, receiver_id, conversation_id, correlation_id,
         message_type, timestamp, raw_file, byte_offset, byte_length
@@ -184,13 +184,17 @@ function nextLegacyTableName(database) {
   return `${LEGACY_TABLE}_${suffix}`;
 }
 
-function appendRawMessage(storageRoot, message) {
+function appendRawMessage(storageRoot, message, fileService) {
   if (!storageRoot) throw new ConfigurationError("Persistent Agent Communication Store requires databasePath for raw file storage.");
   const relativeFile = join(CONVERSATION_DIR, `${fileKey(message.conversation_id ?? "__unassigned")}.jsonl`);
   const filePath = join(storageRoot, relativeFile);
+  const line = `${JSON.stringify(message)}\n`;
+  if (fileService?.appendFileSync) {
+    const result = fileService.appendFileSync({ path: join(".forge", "runtime", "nf", relativeFile), content: line });
+    return { raw_file: relativeFile, byte_offset: result.byte_offset, byte_length: result.byte_length };
+  }
   mkdirSync(dirname(filePath), { recursive: true });
   const byte_offset = existsSync(filePath) ? statSync(filePath).size : 0;
-  const line = `${JSON.stringify(message)}\n`;
   writeFileSync(filePath, line, { flag: "a" });
   return { raw_file: relativeFile, byte_offset, byte_length: Buffer.byteLength(line) };
 }

@@ -66,7 +66,7 @@ Kết thúc sprint, Execution Layer (`execution-layer.js`) phải **thực sự 
 
 **Song song hóa gợi ý (nếu có ≥2 người):**
 ```
-Người 1: 2.1 (search_replace) → 2.2 (backup/rollback) → 2.3 (full_file)
+Người 1: 2.1 (search_replace) → 2.2 (backup/rollback) → 2.3 (full_content)
 Người 2: chờ 2.2 xong → 2.4 (unified_diff)
 Người 3: chờ 2.2 xong → 2.5 (structured_patch)
 ```
@@ -119,7 +119,7 @@ Người 3: chờ 2.2 xong → 2.5 (structured_patch)
 |---|---|
 | FORGE-EXEC-001b (search_replace) | Phase 2.1 |
 | FORGE-EXEC-001e (backup/rollback) | Phase 2.2 |
-| FORGE-EXEC-001c (full_file) | Phase 2.3 |
+| FORGE-EXEC-001c (full_content) | Phase 2.3 |
 | FORGE-EXEC-001a (unified_diff) | Phase 2.4 |
 | FORGE-EXEC-001d (structured_patch) | Phase 2.5 |
 | FORGE-EXEC-001f (wire + validate) | Phase 3 |

@@ -99,6 +99,13 @@ const MIGRATIONS = [
       "CREATE TABLE index_metadata (version INTEGER NOT NULL)",
       "INSERT INTO index_metadata (version) VALUES (0)"
     ]
+  },
+  {
+    version: 5,
+    statements: [
+      "CREATE VIRTUAL TABLE file_content_fts USING fts5(file_id UNINDEXED, path, language, content)",
+      "CREATE VIRTUAL TABLE symbol_content_fts USING fts5(symbol_id UNINDEXED, file_id UNINDEXED, path, name, kind, content, start_line UNINDEXED, end_line UNINDEXED)"
+    ]
   }
 ];
 

@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { dirname } from "node:path";
 import { ConfigurationError } from "../../shared/errors.js";
 
-export function createPersistentSecretBackend({ filePath, encryptionKey, keychainService = "nodeforge-secret-key" } = {}) {
+export function createPersistentSecretBackend({ filePath, encryptionKey, keychainService = "nodeforge-secret-key", fileService } = {}) {
   if (typeof filePath !== "string" || !filePath) throw new ConfigurationError("Persistent Secret Backend requires a file path.");
   const key = normalizeKey(encryptionKey ?? loadKeychainKey(keychainService));
   let records = load();
@@ -25,6 +25,11 @@ export function createPersistentSecretBackend({ filePath, encryptionKey, keychai
     catch (error) { throw new ConfigurationError(`Invalid persistent secret vault: ${error.message}`); }
   }
   function persist() {
+    if (fileService?.atomicWriteSync) {
+      const relative = filePath.startsWith(`${process.cwd()}/`) ? filePath.slice(process.cwd().length + 1) : filePath;
+      fileService.atomicWriteSync({ path: relative, content: `${JSON.stringify(records)}\n`, mode: 0o600 });
+      return;
+    }
     mkdirSync(dirname(filePath), { recursive: true, mode: 0o700 });
     const temp = `${filePath}.tmp`;
     writeFileSync(temp, `${JSON.stringify(records)}\n`, { mode: 0o600 }); chmodSync(temp, 0o600); renameSync(temp, filePath);

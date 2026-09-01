@@ -12,10 +12,11 @@ export async function applyFullFileReplace(filePath, newContent, options = {}) {
     return result({ success: true, detail: { file_path: filePath, dry_run: true, operation: "overwrite", new_bytes: Buffer.byteLength(newContent) } });
   }
 
-  const backup = await (options?.backupFile ?? createBackup)(filePath);
+  const backup = await (options?.backupFile ?? ((path) => createBackup(path, { fileService: options?.fileService })))(filePath);
   if (!backup?.success) return backup;
   try {
-    await writeFile(filePath, newContent, "utf8");
+    if (options?.fileService?.atomicWrite) await options.fileService.atomicWrite({ path: filePath, content: newContent, replace: true });
+    else await writeFile(filePath, newContent, "utf8");
     return result({ success: true, detail: { file_path: filePath, backup_ref: backup.detail?.backup_ref, new_bytes: Buffer.byteLength(newContent) } });
   } catch (error) {
     return result({ success: false, errorCode: "IO_ERROR", errorMessage: error.message, detail: { backup_ref: backup.detail?.backup_ref } });

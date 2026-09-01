@@ -124,7 +124,7 @@ export function createWorkflowTransitionGate({ workflow, projectId, projectRoot,
   }
 }
 
-export function createRuntimeStateStore({ projectRoot } = {}) {
+export function createRuntimeStateStore({ projectRoot, fileService } = {}) {
   if (typeof projectRoot !== "string" || projectRoot.length === 0) throw new ConfigurationError("A project root is required for runtime state.");
   const path = join(projectRoot, STATE_FILE);
   let writeQueue = Promise.resolve();
@@ -143,7 +143,7 @@ export function createRuntimeStateStore({ projectRoot } = {}) {
         if (currentVersion !== expectedVersion) throw new WorkflowStateConflictError(taskId, expectedVersion, currentVersion);
         const next = { ...taskState, _version: currentVersion + 1 };
         state.tasks[taskId] = next;
-        await writeState(path, state);
+        await writeState(path, state, fileService);
         return Object.freeze({ ...next });
       });
       writeQueue = operation.catch(() => {});
@@ -174,7 +174,12 @@ async function readState(path) {
   }
 }
 
-async function writeState(path, state) {
+async function writeState(path, state, fileService) {
+  if (fileService?.atomicWrite) {
+    const relative = path.startsWith(`${process.cwd()}/`) ? path.slice(process.cwd().length + 1) : path;
+    await fileService.atomicWrite({ path: relative, content: `${JSON.stringify(state, null, 2)}\n`, replace: true });
+    return;
+  }
   await mkdir(dirname(path), { recursive: true });
   const temporaryPath = `${path}.tmp`;
   await writeFile(temporaryPath, `${JSON.stringify(state, null, 2)}\n`);

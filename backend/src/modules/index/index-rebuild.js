@@ -7,10 +7,12 @@ import { openIndexDatabase } from "../../infrastructure/sqlite/index-database.js
 import { createIncrementalIndexer } from "./incremental-indexer.js";
 import { extractorRegistry } from "./parser/index.js";
 
-export async function rebuildIndex({ projectRoot, database, ignore = [], registry = extractorRegistry, indexer } = {}) {
+const CODE_INDEX_RUNTIME_DIR = ".forge/runtime/wc";
+
+export async function rebuildIndex({ projectRoot, database, runtimeDir = CODE_INDEX_RUNTIME_DIR, ignore = [], registry = extractorRegistry, indexer } = {}) {
   await ensureForgeLayout(projectRoot);
   const ownsDatabase = !database;
-  const indexDatabase = database ?? await openIndexDatabase(projectRoot);
+  const indexDatabase = database ?? await openIndexDatabase(projectRoot, { runtimeDir });
   const incrementalIndexer = indexer ?? createIncrementalIndexer({ database: indexDatabase, projectRoot, registry });
 
   try {
@@ -36,7 +38,7 @@ export async function rebuildIndex({ projectRoot, database, ignore = [], registr
 }
 
 export function clearIndex(database) {
-  for (const table of ["calls", "references", "tests_map", "imports_exports", "dependency_edges", "symbols", "files"]) {
+  for (const table of ["calls", "references", "tests_map", "imports_exports", "dependency_edges", "symbol_content_fts", "file_content_fts", "symbols", "files"]) {
     database.run(`DELETE FROM "${table}"`);
   }
 }

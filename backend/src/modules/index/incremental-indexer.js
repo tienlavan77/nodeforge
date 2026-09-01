@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { readFile, stat } from "node:fs/promises";
+import { extname, resolve } from "node:path";
 
 import { createDependencyGraph } from "./dependency-graph.js";
 import { createFileRepository } from "./file-repository.js";
@@ -8,7 +8,7 @@ import { extractorRegistry } from "./parser/index.js";
 import { readContentHash } from "../watcher/debounced-watcher.js";
 import { logEvent } from "../../core/project-log-service.js";
 
-export function createIncrementalIndexer({ database, projectRoot, registry = extractorRegistry, files = createFileRepository(database), graph = createDependencyGraph({ database, files, projectRoot }), getContentHash = readContentHash, logger = console, projectLogger = logEvent } = {}) {
+export function createIncrementalIndexer({ database, projectRoot, registry = extractorRegistry, files = createFileRepository(database), graph = createDependencyGraph({ database, files, projectRoot }), fileService, getContentHash = readContentHash, logger = console, projectLogger = logEvent } = {}) {
   return Object.freeze({
     async handle(event) {
       const path = event.payload?.path;
@@ -29,19 +29,23 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
   });
 
   async function indexNewFile(path, event) {
-    const sha256 = await hash(path);
+    const snapshot = await readSnapshot(path);
+    const sha256 = snapshot?.sha256;
+    const sizeBytes = snapshot?.size_bytes;
     if (!sha256) { writeLog("index.skipped", "info", "File content unavailable; index skipped.", event, path); return false; }
-    const extraction = await extract(path);
+    const extraction = await extract(path, snapshot.content);
     if (!extraction) { writeLog("index.failed", "error", "File extraction failed.", event, path); return false; }
     let fileId;
     withTransaction(() => {
-      fileId = files.insert(path, { sha256 });
+      fileId = files.insert(path, { language: languageForPath(path), sha256, sizeBytes });
       // Created events can be delivered by more than one watcher process.
       // Replace derived rows so replay remains idempotent after the upsert.
       database.run("DELETE FROM symbols WHERE file_id = ?", [fileId]);
       database.run("DELETE FROM imports_exports WHERE file_id = ?", [fileId]);
       database.run("DELETE FROM calls WHERE source_file_id = ?", [fileId]);
+      clearContentIndex(fileId);
       writeExtraction(fileId, path, extraction);
+      indexContent(fileId, path, snapshot.content);
       graph.replaceForFile(fileId, path, extraction.imports);
       writeCalls(fileId, path, extraction);
       database.run("UPDATE index_metadata SET version = version + 1");
@@ -54,21 +58,25 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
     const file = files.findByPath(path);
     if (!file) return indexNewFile(path, event);
 
-    const sha256 = await hash(path);
+    const snapshot = await readSnapshot(path);
+    const sha256 = snapshot?.sha256;
+    const sizeBytes = snapshot?.size_bytes;
     if (!sha256) { writeLog("index.skipped", "info", "File content unavailable; index skipped.", event, path); return false; }
-    const extraction = await extract(path);
+    const extraction = await extract(path, snapshot.content);
     if (!extraction) {
       writeLog("index.failed", "error", "File extraction failed; prior index retained.", event, path);
       // Keep the index content marked with the latest hash even when parsing fails.
-      files.updateHash(file.file_id, sha256);
+      files.updateHash(file.file_id, sha256, sizeBytes, languageForPath(path));
       return false;
     }
     withTransaction(() => {
       database.run("DELETE FROM symbols WHERE file_id = ?", [file.file_id]);
       database.run("DELETE FROM imports_exports WHERE file_id = ?", [file.file_id]);
       database.run("DELETE FROM calls WHERE source_file_id = ?", [file.file_id]);
-      files.updateHash(file.file_id, sha256);
+      clearContentIndex(file.file_id);
+      files.updateHash(file.file_id, sha256, sizeBytes, languageForPath(path));
       writeExtraction(file.file_id, path, extraction);
+      indexContent(file.file_id, path, snapshot.content);
       graph.replaceForFile(file.file_id, path, extraction.imports);
       writeCalls(file.file_id, path, extraction);
       database.run("UPDATE index_metadata SET version = version + 1");
@@ -83,6 +91,7 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
 
     database.run("UPDATE imports_exports SET is_broken = 1 WHERE related_file_id = ?", [file.file_id]);
     graph.markTargetBroken(file.file_id);
+    clearContentIndex(file.file_id);
     const removed = files.remove(file.file_id);
     if (removed) database.run("UPDATE index_metadata SET version = version + 1");
     writeLog(removed ? "index.completed" : "index.skipped", "info", removed ? "File removed from index." : "File was not indexed.", event, path, removed ? "success" : "info");
@@ -108,18 +117,29 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
     try { const result = operation(); database.run("COMMIT"); return result; } catch (error) { database.run("ROLLBACK"); throw error; }
   }
 
-  async function extract(path) {
+  async function extract(path, content) {
     const absolutePath = resolve(projectRoot, path);
     try {
-      return registry.extract(absolutePath, await readFile(absolutePath, "utf8"));
+      return registry.extract(absolutePath, content ?? await readFile(absolutePath, "utf8"));
     } catch (error) {
       logger.warning?.("Index extraction failed; retaining the prior index entry.", { path, error: error.message });
       return null;
     }
   }
 
+  async function readSnapshot(path) {
+    if (fileService?.readForIndex) return fileService.readForIndex({ path });
+    const absolutePath = resolve(projectRoot, path);
+    const content = await readFile(absolutePath, "utf8");
+    return { content, sha256: await hash(path), size_bytes: await fileSize(path), language: languageForPath(path) };
+  }
+
   function hash(path) {
     return getContentHash(resolve(projectRoot, path));
+  }
+
+  async function fileSize(path) {
+    try { return (await stat(resolve(projectRoot, path))).size; } catch { return null; }
   }
 
   function writeExtraction(fileId, path, extraction) {
@@ -131,6 +151,23 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
     }
     for (const item of extraction.imports) writeRelation(fileId, path, item, item.imported ?? item.source, item.kind);
     for (const item of extraction.exports) writeRelation(fileId, path, item, item.name, `export:${item.kind}`);
+  }
+
+  function clearContentIndex(fileId) {
+    database.run("DELETE FROM file_content_fts WHERE file_id = ?", [fileId]);
+    database.run("DELETE FROM symbol_content_fts WHERE file_id = ?", [fileId]);
+  }
+
+  function indexContent(fileId, path, content) {
+    if (typeof content !== "string") return;
+    database.run("INSERT INTO file_content_fts (file_id, path, language, content) VALUES (?, ?, ?, ?)", [fileId, path, languageForPath(path), content]);
+    const lines = content.split(/\r?\n/);
+    const rows = database.all("SELECT symbol_id, name, kind, start_line, end_line FROM symbols WHERE file_id = ? ORDER BY start_line, name", [fileId]);
+    for (const symbol of rows) {
+      const start = Math.max(1, symbol.start_line ?? 1);
+      const end = Math.min(lines.length, Math.max(start, symbol.end_line ?? start));
+      database.run("INSERT INTO symbol_content_fts (symbol_id, file_id, path, name, kind, content, start_line, end_line) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [symbol.symbol_id, fileId, path, symbol.name, symbol.kind, lines.slice(start - 1, end).join("\n"), symbol.start_line, symbol.end_line]);
+    }
   }
 
   function writeRelation(fileId, path, item, name, kind) {
@@ -178,6 +215,11 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
     return database.all("SELECT symbol_id FROM symbols WHERE file_id = ? AND name = ? LIMIT 1", [fileId, name])[0]?.symbol_id ?? null;
   }
 
+}
+
+function languageForPath(path) {
+  const extension = extname(path).toLowerCase();
+  return { ".js": "javascript", ".jsx": "javascript", ".ts": "typescript", ".tsx": "typescript", ".php": "php" }[extension] ?? null;
 }
 
 function createRecordId(prefix) {

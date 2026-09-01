@@ -8,9 +8,9 @@ import picomatch from "picomatch";
 
 const require = createRequire(import.meta.url);
 const ruleset = require("../../rules/forge-sprint-delivery.rules.json");
-const commonSchema = require("../../schemas/core/common.schema.json");
-const workflowRuleSchema = require("../../schemas/project/workflow-rule.schema.json");
-const rulesetSchema = require("../../schemas/project/workflow-ruleset.schema.json");
+const commonSchema = require("../../../schemas/core/common.schema.json");
+const workflowRuleSchema = require("../../../schemas/project/workflow-rule.schema.json");
+const rulesetSchema = require("../../../schemas/project/workflow-ruleset.schema.json");
 
 test("maps WF-002, WF-003, WF-005, WF-006, and WF-007 to Nodeforge records", () => {
   const rule = (id) => ruleset.rules.find((entry) => entry.id === id);

@@ -6,8 +6,8 @@ import addFormats from "ajv-formats";
 import { ConfigurationError } from "../../shared/errors.js";
 
 const require = createRequire(import.meta.url);
-const commonSchema = require("../../../schemas/core/common.schema.json");
-const decisionSchema = require("../../../schemas/governance/architecture-decision.schema.json");
+const commonSchema = require("../../../../schemas/core/common.schema.json");
+const decisionSchema = require("../../../../schemas/governance/architecture-decision.schema.json");
 
 const SENSITIVE = /(?:api[_-]?key|credential|secret|password|token|authorization)/i;
 
