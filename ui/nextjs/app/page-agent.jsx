@@ -4,10 +4,30 @@ import { useEffect, useMemo, useState } from "react";
 import { createNodeClient } from "../lib/node-client.js";
 
 const AGENTS = [
-  { id: "architecture-manager", label: "Architecture Manager", short: "AM" },
-  { id: "sprint-leader", label: "Sprint Leader", short: "SL" },
-  { id: "builder", label: "Builder", short: "BU" },
-  { id: "reviewer", label: "Reviewer", short: "RV" }
+  {
+    id: "architecture-manager",
+    label: "Architecture Manager",
+    short: "AM",
+    role: "Plans the system and keeps the project aligned"
+  },
+  {
+    id: "sprint-leader",
+    label: "Sprint Leader",
+    short: "SL",
+    role: "Coordinates delivery and keeps work moving"
+  },
+  {
+    id: "builder",
+    label: "Builder",
+    short: "BU",
+    role: "Turns approved plans into working changes"
+  },
+  {
+    id: "reviewer",
+    label: "Reviewer",
+    short: "RV",
+    role: "Checks quality, safety, and readiness"
+  }
 ];
 
 function displayValue(value) {
@@ -26,6 +46,13 @@ function profileFields(profile) {
     ["Connection", profile.enabled ? "Enabled" : "Disabled"],
     ["API key", profile.api_key_masked || (profile.api_key ? "Configured" : "Not configured")]
   ];
+}
+
+function capabilities(profile, agent) {
+  if (Array.isArray(profile?.capabilities) && profile.capabilities.length) {
+    return profile.capabilities;
+  }
+  return [agent.role, profile?.model ? `Works with ${profile.model}` : "Model configuration pending"];
 }
 
 export default function AgentPage() {
@@ -62,34 +89,37 @@ export default function AgentPage() {
         <div>
           <p className="eyebrow">NODE CONTROL ROOM / AGENTS</p>
           <h1>Agent Profile</h1>
-          <p className="agent-profile-intro">Review the configuration and connection details for each project agent.</p>
+          <p className="agent-profile-intro">A clear view of who is on the team, what they can do, and how they connect.</p>
         </div>
         <a className="agent-profile-back" href="/">Back to control room</a>
       </header>
 
       <div className="agent-profile-layout">
         <nav className="agent-profile-list" aria-label="Agents">
+          <p className="agent-profile-list-label">Project agents</p>
           {AGENTS.map((agent) => (
             <button
               key={agent.id}
               type="button"
               className={selectedAgent.id === agent.id ? "is-selected" : ""}
               onClick={() => setSelectedId(agent.id)}
+              aria-pressed={selectedAgent.id === agent.id}
             >
               <span className="agent-profile-avatar">{agent.short}</span>
-              <span>{agent.label}</span>
+              <span className="agent-profile-list-copy"><strong>{agent.label}</strong><small>{agent.role}</small></span>
             </button>
           ))}
         </nav>
 
         <section className="agent-profile-card" aria-live="polite">
           {state === "loading" && <p className="agent-profile-state">Loading agent profile...</p>}
-          {state === "error" && <div className="agent-profile-state error"><strong>Unable to load profile</strong><p>{error}</p></div>}
+          {state === "error" && <div className="agent-profile-state error"><strong>Unable to load profiles</strong><p>{error}</p><a href="/">Return to control room</a></div>}
           {state === "ready" && !profile && (
             <div className="agent-profile-state">
               <span className="agent-profile-avatar large">{selectedAgent.short}</span>
+              <p className="eyebrow">PROFILE NOT CONFIGURED</p>
               <h2>{selectedAgent.label}</h2>
-              <p>No profile information is available for this agent yet.</p>
+              <p>No connection or capability information is available for this agent yet.</p>
               <a href="/">Open agent settings from the control room</a>
             </div>
           )}
@@ -97,11 +127,21 @@ export default function AgentPage() {
             <>
               <div className="agent-profile-card-heading">
                 <span className="agent-profile-avatar large">{selectedAgent.short}</span>
-                <div><p className="eyebrow">AGENT PROFILE</p><h2>{profile.agent_name || selectedAgent.label}</h2><span className="agent-profile-status">{profile.enabled ? "Active" : "Inactive"}</span></div>
+                <div>
+                  <p className="eyebrow">AGENT PROFILE</p>
+                  <h2>{profile.agent_name || selectedAgent.label}</h2>
+                  <p className="agent-profile-role">{selectedAgent.role}</p>
+                  <span className={`agent-profile-status ${profile.enabled ? "is-active" : "is-inactive"}`}>{profile.enabled ? "Active" : "Inactive"}</span>
+                </div>
               </div>
-              <dl className="agent-profile-details">
-                {profileFields(profile).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{displayValue(value)}</dd></div>)}
-              </dl>
+              <div className="agent-profile-section">
+                <div className="agent-profile-section-heading"><p className="eyebrow">CAPABILITIES</p><span>{capabilities(profile, selectedAgent).length} available</span></div>
+                <ul className="agent-profile-capabilities">{capabilities(profile, selectedAgent).map((item) => <li key={item}>{item}</li>)}</ul>
+              </div>
+              <div className="agent-profile-section">
+                <p className="eyebrow">CONNECTION DETAILS</p>
+                <dl className="agent-profile-details">{profileFields(profile).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{displayValue(value)}</dd></div>)}</dl>
+              </div>
             </>
           )}
         </section>
