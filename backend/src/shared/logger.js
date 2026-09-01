@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { ConfigurationError } from "./errors.js";
 
 const require = createRequire(import.meta.url);
-const commonSchema = require("../../schemas/core/common.schema.json");
+const commonSchema = require("../../../schemas/core/common.schema.json");
 
 export const SEVERITIES = Object.freeze([...commonSchema.$defs.severity.enum]);
 

@@ -54,6 +54,21 @@ test("maps an OpenAI-compatible Responses API payload to a safe Agent response",
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test("forwards explicit Stage-1 tools instead of the legacy agent_tool", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody;
+  globalThis.fetch = async (_url, options) => {
+    requestBody = JSON.parse(options.body);
+    return new Response(JSON.stringify({ id: "resp_tools", status: "completed", output: [{ type: "function_call", name: "code_needed", arguments: JSON.stringify({ files_requested: ["src/example.js"], reason: "inspect" }) }] }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const gateway = createAgentGateway({ configuration: { getById: () => ({ ...config(), provider: "codex", gateway_url: "https://gateway.example.test/v1/responses" }) }, credentialResolver: () => "secret" });
+    await gateway.request({ agentId: "architecture-manager", correlationId: "CORR-TOOLS", payload: { request_id: "11111111-1111-4111-8111-111111111111", expected_output: { type: "submit_code_response" }, text: "inspect" }, tools: [{ type: "function", name: "code_needed", description: "Request source", parameters: { type: "object" } }, { type: "function", name: "submit_code_response", description: "Submit code", parameters: { type: "object" } }] });
+    assert.deepEqual(requestBody.tools.map((tool) => tool.name), ["code_needed", "submit_code_response"]);
+    assert(!requestBody.tools.some((tool) => tool.name === "agent_tool"));
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test("forwards ordered Responses API stream deltas without credential leakage", async () => {
   const gateway = createAgentGateway({ configuration: { getById: () => ({ ...config(), gateway_url: "https://gateway.example.test/v1/responses" }) }, credentialResolver: () => "secret", streamTransport: async function* () { yield { text: "Hello " }; yield { text: "stream", response_id: "resp_stream" }; } });
   const chunks = [];

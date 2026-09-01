@@ -11,8 +11,8 @@ import { createProjectCommandExecutor } from "./command-executor.js";
 import { createVerificationPlanValidator } from "./runner.js";
 
 const require = createRequire(import.meta.url);
-const checkResultSchema = require("../../../schemas/results/check-result.schema.json");
-const commonSchema = require("../../../schemas/core/common.schema.json");
+const checkResultSchema = require("../../../../schemas/results/check-result.schema.json");
+const commonSchema = require("../../../../schemas/core/common.schema.json");
 const CHECK_TYPES = new Set(["build", "lint", "typecheck"]);
 
 export function createCheckResultValidator() {

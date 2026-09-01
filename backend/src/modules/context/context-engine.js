@@ -10,8 +10,8 @@ import { ConfigurationError } from "../../shared/errors.js";
 import { createSecretPathMatcher } from "./secret-paths.js";
 
 const require = createRequire(import.meta.url);
-const commonSchema = require("../../../schemas/core/common.schema.json");
-const contextSchema = require("../../../schemas/context/context.schema.json");
+const commonSchema = require("../../../../schemas/core/common.schema.json");
+const contextSchema = require("../../../../schemas/context/context.schema.json");
 
 export class ContextStaleError extends ConfigurationError {
   constructor(message = "The Code Index changed while the Context Pack was being generated.") {

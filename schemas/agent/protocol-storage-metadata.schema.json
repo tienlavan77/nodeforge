@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/protocol-storage-metadata.schema.json",
+  "title": "Forge Protocol Storage Metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ref", "sha256", "bytes", "created_at"],
+  "properties": {
+    "ref": { "type": "string", "minLength": 1 },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "bytes": { "type": "integer", "minimum": 0 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "schema_id": { "type": "string", "minLength": 1 }
+  }
+}

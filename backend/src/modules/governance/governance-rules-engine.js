@@ -6,8 +6,8 @@ import addFormats from "ajv-formats";
 import { ConfigurationError } from "../../shared/errors.js";
 
 const require = createRequire(import.meta.url);
-const commonSchema = require("../../../schemas/core/common.schema.json");
-const governanceRuleSchema = require("../../../schemas/governance/governance-rule.schema.json");
+const commonSchema = require("../../../../schemas/core/common.schema.json");
+const governanceRuleSchema = require("../../../../schemas/governance/governance-rule.schema.json");
 
 export function createGovernanceRulesEngine({ validateRule = createGovernanceRuleValidator() } = {}) {
   if (typeof validateRule !== "function") throw new ConfigurationError("Governance Rule validation must be a function.");

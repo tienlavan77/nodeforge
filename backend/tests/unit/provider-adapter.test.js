@@ -60,6 +60,31 @@ test("codex adapter maps Responses API request to normalized response with model
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test("codex adapter accepts tool-only Responses output", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ id: "resp_tool", status: "completed", output: [{ type: "function_call", name: "no_wiring_needed", arguments: JSON.stringify({ reason: "ok" }) }] }), { status: 200, headers: { "content-type": "application/json" } });
+  try {
+    const result = await codex.request({ url: "https://gateway.example.test/v1/responses", credential: "secret", payload: { text: "hello" }, model: "gpt-5.6-terra", correlationId: "CORR-TOOL" });
+    assert.equal(result.payload.text, undefined);
+    assert.equal(result.payload.tool_use.name, "no_wiring_needed");
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("codex adapter forces the expected Stage-1 tool choice", async () => {
+  const originalFetch = globalThis.fetch;
+  let body;
+  globalThis.fetch = async (_url, options) => {
+    body = JSON.parse(options.body);
+    return new Response(JSON.stringify({ id: "resp_forced", output: [{ type: "function_call", name: "code_needed", arguments: JSON.stringify({ files_requested: ["src/a.js"], reason: "inspect" }) }] }), { status: 200 });
+  };
+  try {
+    await codex.request({ url: "https://gateway.example.test/v1/responses", credential: "secret", payload: { request_id: "11111111-1111-4111-8111-111111111111", expected_output: { type: "submit_code_response" }, tools: [{ type: "function", name: "submit_code_response", description: "submit", strict: true, parameters: { type: "object", properties: {}, additionalProperties: false } }] }, correlationId: "CORR-FORCE" });
+    assert.deepEqual(body.tool_choice, { type: "function", name: "submit_code_response" });
+    assert.equal(body.tools[0].name, "submit_code_response");
+    assert.equal(body.tools[0].strict, true);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test("codex adapter normalizes legacy singular response endpoint", async () => {
   const originalFetch = globalThis.fetch;
   let requestedUrl;

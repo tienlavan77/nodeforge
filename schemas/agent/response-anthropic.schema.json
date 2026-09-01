@@ -48,7 +48,8 @@
               "type": "object",
               "required": [
                 "path",
-                "format"
+                "format",
+                "before_checksum"
               ],
               "properties": {
                 "path": {
@@ -71,8 +72,18 @@
                 "exists": {
                   "type": "boolean",
                   "description": "True nếu file này đã tồn tại trước khi sửa, false nếu là file mới tạo."
+                },
+                "before_checksum": {
+                  "type": ["string", "null"],
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "description": "SHA-256 snapshot của file trước khi Agent sửa; null cho file mới."
+                },
+                "summary": {
+                  "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[^\\r\\n]+$",
+                  "description": "Bắt buộc với file mới (exists=false); Node sẽ chèn summary thành comment."
                 }
-              }
+              },
+              "allOf": [{ "if": { "properties": { "exists": { "const": false } }, "required": ["exists"] }, "then": { "required": ["summary"] } }]
             }
           }
         }

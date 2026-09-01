@@ -25,21 +25,35 @@
       "enum": ["full_transcript", "rolling_summary", "hybrid"]
     },
     "hybrid_window": { "type": "integer", "minimum": 1 },
+    "cache_config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["prompt_cache_key", "mode", "ttl"],
+      "properties": {
+        "prompt_cache_key": { "type": "string", "minLength": 1 },
+        "mode": { "type": "string", "enum": ["explicit", "automatic"] },
+        "ttl": { "type": "string", "minLength": 1 }
+      }
+    },
     "instruction_blocks": { "$ref": "#/$defs/blocks" },
     "user_blocks": { "$ref": "#/$defs/blocks" },
     "transcript_blocks": { "$ref": "#/$defs/transcript_blocks" },
     "expected_submission": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "format"],
+      "required": ["type", "representation", "transport"],
       "properties": {
         "type": {
           "type": "string",
           "enum": ["submit_code", "request_info", "usage_report", "completed", "continue"]
         },
-        "format": {
+        "representation": {
           "type": "string",
-          "enum": ["full_file", "unified_diff", "apply_patch", "json"]
+          "enum": ["full_content", "unified_diff", "apply_patch", "json"]
+        },
+        "transport": {
+          "type": "string",
+          "enum": ["function_tool", "json_schema"]
         },
         "required_fields": {
           "type": "array",

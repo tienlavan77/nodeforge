@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/log/project-log.schema.json",
+  "title": "NodeForge Project Log Entry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["timestamp", "event_name", "level", "status", "message", "task_id", "source", "project_id", "event_id", "sequence", "payload"],
+  "properties": {
+    "timestamp": { "type": "string", "format": "date-time" },
+    "project_id": { "type": "string", "minLength": 1 },
+    "event_id": { "type": "string", "minLength": 1 },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "event_name": { "type": "string", "minLength": 1 },
+    "level": { "type": "string", "enum": ["info", "error", "debug"] },
+    "status": { "type": "string", "enum": ["success", "failed", "info"] },
+    "message": { "type": "string", "minLength": 1 },
+    "task_id": { "type": "string", "minLength": 1 },
+    "ticket_id": { "type": "string", "minLength": 1 },
+    "conversation_id": { "type": "string", "minLength": 1 },
+    "source": { "type": "string", "minLength": 1 },
+    "exit_code": { "type": ["integer", "null"] },
+    "error_code": { "type": "string", "minLength": 1 },
+    "correlation_id": { "type": "string", "minLength": 1 },
+    "payload": { "type": "object" }
+  }
+}

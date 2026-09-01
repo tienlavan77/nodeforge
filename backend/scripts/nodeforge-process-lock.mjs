@@ -1,8 +1,18 @@
 import { closeSync, existsSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-export function acquireProcessLock(dataDir, role) {
+export function acquireProcessLock(dataDir, role, { fileService } = {}) {
   const path = join(dataDir, `.nodeforge-${role}.lock`);
+  if (fileService?.createLockSync) {
+    const relative = path.startsWith(`${process.cwd()}/`) ? path.slice(process.cwd().length + 1) : path;
+    try {
+      const lock = fileService.createLockSync({ path: relative });
+      return Object.freeze({ path, release: lock.release });
+    } catch (error) {
+      if (error.code !== "FILE_LOCK_EXISTS") throw error;
+      throw new Error(`${role} process already running (lock: ${path}).`);
+    }
+  }
   let fd;
   try {
     fd = openSync(path, "wx");

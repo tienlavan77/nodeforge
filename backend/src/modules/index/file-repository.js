@@ -14,8 +14,12 @@ export function createFileRepository(database, { createId = createFileId, now = 
       const result = database.run("UPDATE files SET path = ?, indexed_at = ? WHERE file_id = ?", [path, now(), fileId]);
       return result.changes > 0;
     },
-    updateHash(fileId, sha256) {
-      const result = database.run("UPDATE files SET sha256 = ?, indexed_at = ? WHERE file_id = ?", [sha256, now(), fileId]);
+    updateHash(fileId, sha256, sizeBytes = undefined, language = undefined) {
+      const result = sizeBytes === undefined
+        ? database.run("UPDATE files SET sha256 = ?, indexed_at = ? WHERE file_id = ?", [sha256, now(), fileId])
+        : language === undefined
+          ? database.run("UPDATE files SET sha256 = ?, size_bytes = ?, indexed_at = ? WHERE file_id = ?", [sha256, sizeBytes, now(), fileId])
+          : database.run("UPDATE files SET sha256 = ?, size_bytes = ?, language = ?, indexed_at = ? WHERE file_id = ?", [sha256, sizeBytes, language, now(), fileId]);
       return result.changes > 0;
     },
     findById(fileId) {

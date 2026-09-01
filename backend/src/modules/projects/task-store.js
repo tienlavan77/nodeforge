@@ -7,8 +7,8 @@ import addFormats from "ajv-formats";
 import { ConfigurationError } from "../../shared/errors.js";
 
 const require = createRequire(import.meta.url);
-const commonSchema = require("../../../schemas/core/common.schema.json");
-const taskSchema = require("../../../schemas/project/task.schema.json");
+const commonSchema = require("../../../../schemas/core/common.schema.json");
+const taskSchema = require("../../../../schemas/project/task.schema.json");
 
 export function createTaskId() {
   return `TASK-${randomUUID()}`;

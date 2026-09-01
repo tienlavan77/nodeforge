@@ -1,0 +1,81 @@
+{
+  "": " Hỏi agent còn thiếu gì không, nếu đã đủ thì trả type completed. Nếu còn thiếu (vd chưa có test/build check theo criteria số 4), trả type continue kèm next_task mô tả việc còn lại.",
+  "request_id": "e1f2a3b4-0011-0000-0000-000000000011",
+  "parent_id": "d0e1f2a3-0010-0000-0000-000000000010",
+  "type": "status_check",
+  "role": "node",
+  "timestamp": "2026-08-29T10:15:00Z",
+  "payload": {
+    "schema_version": "1.4",
+    "task_id": "FORGE-UI-037",
+    "step_id": 5,
+    "conversation_mode": "hybrid",
+    "hybrid_window": 2,
+    "developer_blocks": [],
+    "transcript_blocks": [
+      {
+        "block_id": "round_2",
+        "round": 2,
+        "instruction": "Node cung cấp file, yêu cầu code theo format",
+        "response_summary": "Agent tạo FileUploadWidget.js, đã patch thành công",
+        "full_request_ref": "task/FORGE-UI-037/round_2/request",
+        "full_response_ref": "task/FORGE-UI-037/round_2/response",
+        "cacheable": false
+      },
+      {
+        "block_id": "round_4",
+        "round": 4,
+        "instruction": "Node gửi DocumentViewer.js để agent đấu nối FileUploadWidget",
+        "response_summary": "Agent đã sửa DocumentViewer.js, thêm tab Uploads, import và render FileUploadWidget — đã patch thành công",
+        "full_request_ref": "task/FORGE-UI-037/round_4/request",
+        "full_response_ref": "task/FORGE-UI-037/round_4/response",
+        "cacheable": false
+      }
+    ],
+    "user_blocks": [
+      {
+        "block_id": "task_summary",
+        "content": {
+          "task_id": "FORGE-UI-037",
+          "files_changed": [
+            {
+              "path": "src/components/FileUploadWidget.js",
+              "action": "created"
+            },
+            {
+              "path": "src/components/Tabs.js",
+              "action": "patched"
+            },
+            {
+              "path": "src/styles/style.scss",
+              "action": "patched"
+            },
+            {
+              "path": "src/components/DocumentViewer.js",
+              "action": "patched"
+            }
+          ],
+          "acceptance_criteria": [
+            "UI hiển thị đầy đủ và không tạo thanh cuộn ngang ở viewport desktop, tablet và mobile.",
+            "Các tab chat, ô nhập, nút Run/View và danh sách roadmap co giãn hoặc chuyển bố cục hợp lý trên màn hình hẹp.",
+            "Không làm thay đổi endpoint, payload hoặc hành vi dispatch hiện tại.",
+            "Có test hoặc kiểm tra build chứng minh frontend build thành công sau thay đổi."
+          ]
+        },
+        "cacheable": false
+      },
+      {
+        "block_id": "current_request",
+        "content": "Toàn bộ file liên quan đã patch và đã đấu nối xong (không còn file mồ côi). Đối chiếu với acceptance_criteria ở trên, bạn còn thấy cần bổ sung/sửa gì nữa không? Nếu đã đủ, trả type completed. Nếu còn thiếu (vd chưa có test/build check theo criteria số 4), trả type continue kèm next_task mô tả việc còn lại."
+      }
+    ],
+    "expected_output": {
+      "type": "completed | continue",
+      "format": "json"
+    },
+    "metadata": {
+      "retry_of_step": null,
+      "previous_error": null
+    }
+  }
+}

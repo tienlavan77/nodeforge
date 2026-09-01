@@ -4,7 +4,7 @@ import addFormats from "ajv-formats";
 import { ConfigurationError } from "../../shared/errors.js";
 
 const require = createRequire(import.meta.url);
-const profileSchema = require("../../../schemas/governance/agent-profile.schema.json");
+const profileSchema = require("../../../../schemas/governance/agent-profile.schema.json");
 const SECRET_FIELD = /(?:api[_-]?key|credential(?!_ref)|secret|password|token|authorization)/i;
 
 export function createAgentProfileStore({ validateProfile = createValidator(), database } = {}) {

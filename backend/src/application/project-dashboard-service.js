@@ -31,6 +31,9 @@ export function createProjectDashboardService({ roadmaps, sprintPlans, provenanc
     if (!logReader) return build();
     return Promise.all(tickets.map(async (ticket) => {
       const latest = (await logReader({ project_id: projectId, ticket_id: ticket.id })).events.at(-1);
+      // Persistent roadmap status is authoritative for manually reviewed
+      // failures; an older completion event must not resurrect a failed task.
+      if (ticket.status === "failed") return { ...ticket, progress: 0 };
       if (!latest) return ticket;
       const to = latest.payload?.to ?? (/failed|error/i.test(latest.message ?? "") ? "failed" : /completed|done/i.test(latest.message ?? "") ? "done" : /running/i.test(latest.message ?? "") ? "running" : undefined);
       if (!to) return ticket;
@@ -53,6 +56,11 @@ export function createProjectDashboardService({ roadmaps, sprintPlans, provenanc
     return {
       id: ticket.id,
       title: ticket.title,
+      objective: ticket.objective,
+      acceptance_criteria: ticket.acceptance_criteria ?? [],
+      dependencies: ticket.dependencies ?? ticket.depends_on ?? [],
+      project_id: ticket.project_id,
+      roadmap_id: ticket.roadmap_id,
       priority: ticket.priority ?? "normal",
       status: ticket.status ?? "planned",
       progress: ticket.status === "done" ? 100 : ticket.status === "running" || ticket.status === "reviewing" ? 50 : 0,

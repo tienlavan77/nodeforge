@@ -37,7 +37,7 @@ test("first watch creates the runtime, rebuilds a baseline, and only indexes lat
 test("an existing empty database rebuilds its baseline", async () => {
   await withProject(async (projectRoot) => {
     await writeProjectFile(projectRoot, "src/example.js", "export function stable() {}\n");
-    const emptyDatabase = await openIndexDatabase(projectRoot);
+    const emptyDatabase = await openIndexDatabase(projectRoot, { runtimeDir: ".forge/runtime/wc" });
     await emptyDatabase.close();
 
     const emptyWatch = await startProjectWatch({ projectRoot, loggerOptions: quietLogger(), chokidarOptions: polling() });
@@ -53,7 +53,7 @@ test("a populated database remains the baseline without replacing file rows", as
     const seedWatch = await startProjectWatch({ projectRoot, loggerOptions: quietLogger(), chokidarOptions: polling() });
     await seedWatch.close();
 
-    const database = await openIndexDatabase(projectRoot);
+    const database = await openIndexDatabase(projectRoot, { runtimeDir: ".forge/runtime/wc" });
     const before = database.all("SELECT file_id, path FROM files");
     await database.close();
 
@@ -111,7 +111,7 @@ function quietLogger() {
 }
 
 async function readFiles(projectRoot) {
-  const database = await openIndexDatabase(projectRoot);
+  const database = await openIndexDatabase(projectRoot, { runtimeDir: ".forge/runtime/wc" });
   try {
     return database.all("SELECT file_id, path FROM files ORDER BY path");
   } finally {
@@ -120,7 +120,7 @@ async function readFiles(projectRoot) {
 }
 
 async function readSymbols(projectRoot) {
-  const database = await openIndexDatabase(projectRoot);
+  const database = await openIndexDatabase(projectRoot, { runtimeDir: ".forge/runtime/wc" });
   try {
     return database.all("SELECT name FROM symbols");
   } finally {
