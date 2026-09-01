@@ -6,7 +6,9 @@ import { createExecutionResult } from "../execution-layer.js";
 export async function applyApplyPatch(filePath, patchText, options = {}) {
   const startedAt = Date.now();
   let original;
-  try { original = await readFile(filePath, "utf8"); }
+  try { original = options?.fileService?.readFile
+      ? await options.fileService.readFile({ path: filePath })
+      : await readFile(filePath, "utf8"); }
   catch (error) { return result({ success: false, errorCode: "IO_ERROR", errorMessage: error.message }); }
   try {
     const updated = applyPatch(original, patchText, filePath);
