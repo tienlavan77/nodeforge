@@ -36,7 +36,8 @@ export function createStage1CodeNeededHandler({ files, fileService, relevantTree
         before_checksum: indexedChecksum ?? actualChecksum
       });
     }
-    const envelope = { request_id: createRequestId(), parent_id: response.request_id, type: "code_provide", role: "node", payload: { task_id: requestEnvelope.payload.task_id, step_id: requestEnvelope.payload.step_id + 1, files: resolved, task_context: { user_blocks: structuredClone(requestEnvelope.payload.user_blocks ?? []), instruction_blocks: structuredClone(requestEnvelope.payload.instruction_blocks ?? []) } }, timestamp: clock().toISOString() };
+    const expectedSubmission = chooseExpectedSubmission(requestEnvelope.payload.expected_submission, resolved);
+    const envelope = { request_id: createRequestId(), parent_id: response.request_id, type: "code_provide", role: "node", payload: { task_id: requestEnvelope.payload.task_id, step_id: requestEnvelope.payload.step_id + 1, files: resolved, ...(requestEnvelope.payload.cache_config ? { cache_config: structuredClone(requestEnvelope.payload.cache_config) } : {}), ...(expectedSubmission ? { expected_submission: expectedSubmission } : {}), task_context: { user_blocks: structuredClone(requestEnvelope.payload.user_blocks ?? []), instruction_blocks: structuredClone(requestEnvelope.payload.instruction_blocks ?? []) } }, timestamp: clock().toISOString() };
     return assertValidEnvelope(envelope);
   }
 }
@@ -44,4 +45,13 @@ export function createStage1CodeNeededHandler({ files, fileService, relevantTree
 function normalizeChecksum(value) {
   if (typeof value !== "string" || !value) return null;
   return value.startsWith("sha256:") ? value : `sha256:${value}`;
+}
+
+function chooseExpectedSubmission(existing, files) {
+  const requested = existing?.representation;
+  if (requested && !["full_content", "structured_patch"].includes(requested)) return structuredClone(existing);
+  const allExisting = files.length > 0 && files.every((file) => file.exists === true);
+  const allNew = files.length > 0 && files.every((file) => file.exists === false);
+  const base = existing && ["structured_patch", "per_file"].includes(requested) ? structuredClone(existing) : { type: "submit_code", transport: "function_tool", required_fields: ["explanation", "files"] };
+  return { ...base, representation: allExisting ? "structured_patch" : allNew ? "full_content" : "per_file" };
 }

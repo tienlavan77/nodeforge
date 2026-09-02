@@ -1,6 +1,7 @@
 import { ConfigurationError } from "../../shared/errors.js";
 import { getAdapter } from "../agent/provider-adapters/index.js";
 import { requestedSubmissionFormat } from "./submission-format.js";
+import { STRUCTURED_PATCH_PROMPT } from "./structured-patch-prompt.js";
 
 /** Sends one canonical task envelope through the provider selected by profile. */
 export function createStage1RequestSender({ adapterResolver = getAdapter, protocolLogger, protocolStorage, roundCounter, onRoundLimit } = {}) {
@@ -91,8 +92,10 @@ function buildProviderPayload(envelope) {
     : representation === "apply_patch"
       ? "Return submit_code_response with format=apply_patch. Wrap each patch in *** Begin Patch/*** End Patch, use *** Update File: path and context lines; do not use unified diff headers."
       : representation === "structured_patch"
-        ? 'STRUCTURED PATCH: Existing files only; use format=structured_patch and content={operations:[...]}. Allowed ops: replace_range(start_line,end_line,new_content), delete_range(start_line,end_line), insert_after(anchor_line,new_content), insert_at_end(new_content). Do not provide line numbers. Use only exact source content, expected_content, and anchor_text from the supplied file context; never guess or reconstruct them. For replace_range/delete_range provide expected_content exactly once; for insert_after provide anchor_text exactly once. Node locates these regions deterministically and rejects missing or ambiguous context before writing. Node applies operations sequentially and shifts later line/anchor coordinates automatically after each insert/delete/replace. Do not recompute coordinates yourself and do not overlap operations; Node rejects overlapping ranges. Use only Node-provided paths, lines, anchors, and context; never guess. New files require full_content. Copy before_checksum exactly; never calculate, alter, or omit it. Missing/stale/ambiguous context or checksum -> code_needed. No full files, diff/apply_patch text, placeholders, fences, or prose. Node validates, applies, syntax-checks, writes via File Service, and commits; reject the whole file if any operation fails. Return only the structured response tool.'
-        : "Return submit_code_response with format=full_content and complete final file contents, not a stub or unchanged placeholder.";
+        ? STRUCTURED_PATCH_PROMPT
+        : representation === "per_file"
+          ? `${STRUCTURED_PATCH_PROMPT} For each file, choose structured_patch when before_checksum is a sha256 string, and full_content only when before_checksum is null and exists is false.`
+          : "Return submit_code_response with format=full_content and complete final file contents, not a stub or unchanged placeholder.";
   return {
     ...payload,
     instruction_blocks: payload.task_context?.instruction_blocks ?? [],

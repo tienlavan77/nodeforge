@@ -17,62 +17,148 @@
     "metadata"
   ],
   "properties": {
-    "schema_version": { "type": "string", "const": "1.4" },
-    "task_id": { "type": "string", "minLength": 1 },
-    "step_id": { "type": "integer", "minimum": 1 },
+    "schema_version": {
+      "type": "string",
+      "const": "1.4"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "step_id": {
+      "type": "integer",
+      "minimum": 1
+    },
     "conversation_mode": {
       "type": "string",
-      "enum": ["full_transcript", "rolling_summary", "hybrid"]
+      "enum": [
+        "full_transcript",
+        "rolling_summary",
+        "hybrid"
+      ]
     },
-    "hybrid_window": { "type": "integer", "minimum": 1 },
+    "hybrid_window": {
+      "type": "integer",
+      "minimum": 1
+    },
     "cache_config": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["prompt_cache_key", "mode", "ttl"],
+      "required": [
+        "prompt_cache_key",
+        "mode",
+        "ttl"
+      ],
       "properties": {
-        "prompt_cache_key": { "type": "string", "minLength": 1 },
-        "mode": { "type": "string", "enum": ["explicit", "automatic"] },
-        "ttl": { "type": "string", "minLength": 1 }
+        "prompt_cache_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "explicit",
+            "automatic"
+          ]
+        },
+        "ttl": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
-    "instruction_blocks": { "$ref": "#/$defs/blocks" },
-    "user_blocks": { "$ref": "#/$defs/blocks" },
-    "transcript_blocks": { "$ref": "#/$defs/transcript_blocks" },
+    "instruction_blocks": {
+      "$ref": "#/$defs/blocks"
+    },
+    "user_blocks": {
+      "$ref": "#/$defs/blocks"
+    },
+    "transcript_blocks": {
+      "$ref": "#/$defs/transcript_blocks"
+    },
     "expected_submission": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "representation", "transport"],
+      "required": [
+        "type",
+        "representation",
+        "transport"
+      ],
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["submit_code", "request_info", "usage_report", "completed", "continue"]
+          "enum": [
+            "submit_code",
+            "request_info",
+            "usage_report",
+            "completed",
+            "continue"
+          ]
         },
         "representation": {
           "type": "string",
-          "enum": ["full_content", "unified_diff", "apply_patch", "json"]
+          "enum": [
+            "full_content",
+            "unified_diff",
+            "apply_patch",
+            "structured_patch",
+            "json",
+            "per_file"
+          ]
         },
         "transport": {
           "type": "string",
-          "enum": ["function_tool", "json_schema"]
+          "enum": [
+            "function_tool",
+            "json_schema"
+          ]
         },
         "required_fields": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 }
-        },
-        "is_final": { "type": "boolean" }
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
       }
     },
     "metadata": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["retry_of_step", "previous_error"],
+      "required": [
+        "retry_of_step",
+        "previous_error"
+      ],
       "properties": {
-        "retry_of_step": { "type": ["integer", "null"], "minimum": 1 },
-        "previous_error": { "type": ["string", "null"] },
-        "agent_id": { "type": "string", "minLength": 1 },
-        "project_id": { "type": "string", "minLength": 1 },
-        "conversation_id": { "type": "string", "minLength": 1 },
-        "correlation_id": { "type": "string", "minLength": 1 }
+        "retry_of_step": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "previous_error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "agent_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "project_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "conversation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "correlation_id": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     }
   },
@@ -82,11 +168,22 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["block_id", "content", "cacheable"],
+        "required": [
+          "block_id",
+          "content",
+          "cacheable"
+        ],
         "properties": {
-          "block_id": { "type": "string", "minLength": 1 },
-          "content": { "type": "string" },
-          "cacheable": { "type": "boolean" }
+          "block_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "content": {
+            "type": "string"
+          },
+          "cacheable": {
+            "type": "boolean"
+          }
         }
       }
     },
@@ -95,22 +192,63 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["block_id", "round", "instruction", "response_summary", "full_request_ref", "full_response_ref", "in_window", "cacheable"],
+        "required": [
+          "block_id",
+          "round",
+          "instruction",
+          "response_summary",
+          "full_request_ref",
+          "full_response_ref",
+          "in_window",
+          "cacheable"
+        ],
         "properties": {
-          "block_id": { "type": "string", "minLength": 1 },
-          "round": { "type": "integer", "minimum": 1 },
-          "instruction": { "type": "string" },
-          "response_summary": { "type": "string" },
-          "full_request_ref": { "type": "string", "minLength": 1 },
-          "full_response_ref": { "type": "string", "minLength": 1 },
-          "in_window": { "type": "boolean" },
-          "cacheable": { "type": "boolean" }
+          "block_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "round": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "instruction": {
+            "type": "string"
+          },
+          "response_summary": {
+            "type": "string"
+          },
+          "full_request_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "full_response_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "in_window": {
+            "type": "boolean"
+          },
+          "cacheable": {
+            "type": "boolean"
+          }
         }
       }
     }
   },
-  "allOf": [{
-    "if": { "properties": { "conversation_mode": { "const": "hybrid" } } },
-    "then": { "required": ["hybrid_window"] }
-  }]
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "conversation_mode": {
+            "const": "hybrid"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "hybrid_window"
+        ]
+      }
+    }
+  ]
 }
