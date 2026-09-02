@@ -31,7 +31,7 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
     try {
       const response = await adapter.request({ url: config.gateway_url, credential, payload: withAgentTools(payload, tools), model, correlationId, signal: controller.signal });
       validateResponse(response);
-      return { agent_id: config.agent_id, correlation_id: correlationId, status: response.status ?? "completed", completed_at: response.completed_at ?? null, error: response.error ?? null, incomplete_details: response.incomplete_details ?? null, raw_response: response.raw_response === undefined ? undefined : structuredClone(response.raw_response), payload: structuredClone(response.payload ?? response.data ?? response) };
+      return { agent_id: config.agent_id, correlation_id: correlationId, status: response.status ?? "completed", completed_at: response.completed_at ?? null, error: response.error ?? null, incomplete_details: response.incomplete_details ?? null, ...(response.raw_response === undefined ? {} : { raw_response: jsonSafe(response.raw_response) }), payload: jsonSafe(response.payload ?? response.data ?? response) };
     } catch (error) {
       if (error?.name === "AbortError") throw new ConfigurationError(`Agent Gateway request timed out for ${config.agent_id}.`);
       if (error instanceof ConfigurationError) throw error;
@@ -141,6 +141,12 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
       throw new ConfigurationError(`Agent Gateway request failed for ${config.agent_id}.`);
     } finally { clearTimeout(timeout); }
   }
+}
+
+function jsonSafe(value) {
+  if (Array.isArray(value)) return value.map((item) => (item === undefined ? null : jsonSafe(item)));
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined).map(([key, item]) => [key, jsonSafe(item)]));
+  return value;
 }
 
 function emitText(eventSink, payload, correlationId, agentId, text, sequence) {
