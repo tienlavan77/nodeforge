@@ -53,3 +53,30 @@ test("does not write when a patch cannot be applied", async () => {
   await assert.rejects(() => handler.handleSubmitCode(response("unified_diff", invalid), { taskId: "FORMAT-001", projectId: "PROJECT-NODEFORGE", contextFiles: [{ path, content: before, before_checksum: beforeChecksum }] }), /Hunk context mismatch/);
   assert.deepEqual(writes, []);
 });
+
+
+test("materializes a strict structured patch sequentially through File Service", async () => {
+  const { handler, writes } = harness();
+  const patch = { operations: [
+    { op: "replace_range", expected_content: "export const marker = 'before';", new_content: "export const marker = 'after';" },
+    { op: "insert_after", anchor_text: "export const marker = 'after';", new_content: "\nexport const added = true;" }
+  ] };
+  await handler.handleSubmitCode(response("structured_patch", patch), { taskId: "FORMAT-001", projectId: "PROJECT-NODEFORGE", contextFiles: [{ path, content: before, before_checksum: beforeChecksum }] });
+  assert.deepEqual(writes, ["export const marker = 'after';\nexport const added = true;\n"]);
+});
+
+test("rejects unused or nullable structured patch fields before writing", async () => {
+  const { handler, writes } = harness();
+  const patch = { operations: [{ op: "replace_range", expected_content: "export const marker = 'before';", new_content: "export const marker = 'after';", anchor_text: null }] };
+  await assert.rejects(() => handler.handleSubmitCode(response("structured_patch", patch), { taskId: "FORMAT-001", projectId: "PROJECT-NODEFORGE" }), (error) => error.code === "INVALID_STRUCTURED_PATCH");
+  assert.deepEqual(writes, []);
+});
+
+test("rejects duplicate file paths before materializing or writing", async () => {
+  const { handler, writes } = harness();
+  const patch = { operations: [{ op: "delete_range", expected_content: "export const marker = 'before';" }] };
+  const duplicate = response("structured_patch", patch);
+  duplicate.payload.files.push(structuredClone(duplicate.payload.files[0]));
+  await assert.rejects(() => handler.handleSubmitCode(duplicate, { taskId: "FORMAT-001", projectId: "PROJECT-NODEFORGE" }), (error) => error.code === "DUPLICATE_FILE_PATH");
+  assert.deepEqual(writes, []);
+});
