@@ -44,8 +44,8 @@ export function buildToolConfig(payload = {}) {
   const requiredFormat = payload.expected_output?.representation ?? payload.expected_submission?.representation ?? payload.expected_output?.format ?? payload.expected_submission?.format;
   const tools = selected.map(({ type, name, description, strict, parameters }) => ({
     type, name, description, strict,
-    parameters: name === "submit_code_response" && requiredFormat === "full_content"
-      ? constrainSubmitFormat(parameters, "full_content")
+    parameters: name === "submit_code_response" && requiredFormat && !["per_file", "mixed"].includes(requiredFormat)
+      ? constrainSubmitFormat(parameters, requiredFormat === "patch" ? "apply_patch" : requiredFormat)
       : parameters
   }));
   // Responses API uses the string "auto" for a choice among multiple tools;
@@ -64,7 +64,14 @@ export function buildResponseFormat(payload = {}, toolConfig = buildToolConfig(p
 
 function constrainSubmitFormat(parameters, format) {
   const copy = structuredClone(parameters);
-  const formatSchema = copy?.properties?.files?.items?.properties?.format;
+  const items = copy?.properties?.files?.items;
+  if (Array.isArray(items?.oneOf)) {
+    const ref = format === "full_content" ? "#/$defs/new_file" : format === "structured_patch" ? "#/$defs/existing_file" : null;
+    if (!ref) throw new Error(`Unsupported per-file submission format: ${format}. Use structured_patch for existing files and full_content for new files.`);
+    items.oneOf = items.oneOf.filter((branch) => branch.$ref === ref);
+    return copy;
+  }
+  const formatSchema = items?.properties?.format;
   if (formatSchema) formatSchema.enum = [format];
   return copy;
 }

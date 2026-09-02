@@ -45,8 +45,8 @@ test("builds OpenAI tool config from expected output", () => {
 
 test("constrains Stage-1 submit tool to requested full format", () => {
   const config = buildToolConfig({ expected_output: { type: "submit_code_response", representation: "full_content" } });
-  const format = config.tools[0].parameters.properties.files.items.properties.format;
-  assert.deepEqual(format.enum, ["full_content"]);
+  const items = config.tools[0].parameters.properties.files.items;
+  assert.deepEqual(items.oneOf, [{ $ref: "#/$defs/new_file" }]);
 });
 
 test("projects a single response type to OpenAI json_schema transport", () => {
@@ -56,5 +56,12 @@ test("projects a single response type to OpenAI json_schema transport", () => {
   assert.equal(projected.text.format.type, "json_schema");
   assert.equal(projected.text.format.name, "submit_code_response");
   assert.equal(projected.text.format.strict, true);
-  assert.equal(projected.text.format.schema.properties.files.items.properties.format.enum[0], "full_content");
+  assert.deepEqual(projected.text.format.schema.properties.files.items.oneOf, [{ $ref: "#/$defs/new_file" }]);
+});
+
+
+test("rejects legacy global patch formats with the per-file contract", () => {
+  for (const representation of ["unified_diff", "apply_patch"]) {
+    assert.throws(() => buildToolConfig({ expected_output: { type: "submit_code_response", representation } }), /Unsupported per-file submission format/);
+  }
 });
