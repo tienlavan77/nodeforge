@@ -21,7 +21,11 @@ export default function RootLayout({ children }) {
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
+    >      <script
+        dangerouslySetInnerHTML={{
+          __html: `(() => { const stored = localStorage.getItem('nodeforge-theme'); const theme = stored || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); document.documentElement.dataset.theme = theme; })();`,
+        }}
+      />
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );

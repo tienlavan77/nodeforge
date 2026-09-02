@@ -3,8 +3,33 @@
 import { useEffect, useState } from 'react';
 
 export function ThemeToggle() {
+  const [theme, setTheme] = useState('light');
 
+  useEffect(() => {
+    const storedTheme = window.localStorage.getItem('nodeforge-theme');
+    const preferredTheme = storedTheme || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    document.documentElement.dataset.theme = preferredTheme;
+    setTheme(preferredTheme);
+  }, []);
 
+  const toggleTheme = () => {
+    const nextTheme = theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = nextTheme;
+    window.localStorage.setItem('nodeforge-theme', nextTheme);
+    setTheme(nextTheme);
+  };
+
+  return (
+    <button
+      type="button"
+      aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+      aria-pressed={theme === 'dark'}
+      onClick={toggleTheme}
+      style={{ background: 'var(--header-button)', border: '1px solid var(--header-button-border)', borderRadius: 9, color: 'var(--page-text)', cursor: 'pointer', fontSize: 14, fontWeight: 650, padding: '10px 12px' }}
+    >
+      {theme === 'dark' ? 'Light' : 'Dark'} theme
+    </button>
+  );
 }
 
 export default function Header() {
@@ -37,7 +62,7 @@ export default function Header() {
         </a>
         <a href="/login" style={{ background: 'var(--header-mark)', border: '1px solid var(--header-mark)', borderRadius: 9, color: '#fff', cursor: 'pointer', fontSize: 14, fontWeight: 700, padding: '10px 16px', textDecoration: 'none' }}>
           Login
-        </a>
+        </a>        <ThemeToggle />
       </nav>
     </header>
   );
