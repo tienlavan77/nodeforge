@@ -3,53 +3,8 @@
 import { useEffect, useState } from 'react';
 
 export function ThemeToggle() {
-  const [theme, setTheme] = useState(null);
 
-  useEffect(() => {
-    const storedTheme = window.localStorage.getItem('theme');
-    const initialTheme = storedTheme === 'dark' || storedTheme === 'light'
-      ? storedTheme
-      : window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 
-    document.documentElement.classList.toggle('dark', initialTheme === 'dark');
-    document.documentElement.style.colorScheme = initialTheme;
-    setTheme(initialTheme);
-  }, []);
-
-  const toggleTheme = () => {
-    const nextTheme = theme === 'dark' ? 'light' : 'dark';
-    document.documentElement.classList.toggle('dark', nextTheme === 'dark');
-    document.documentElement.style.colorScheme = nextTheme;
-    window.localStorage.setItem('theme', nextTheme);
-    setTheme(nextTheme);
-  };
-
-  const nextTheme = theme === 'dark' ? 'light' : 'dark';
-
-  return (
-    <button
-      type="button"
-      aria-label={`Switch to ${nextTheme} theme`}
-      title={`Switch to ${nextTheme} theme`}
-      onClick={toggleTheme}
-      style={{
-        alignItems: 'center',
-        background: 'var(--header-button)',
-        border: '1px solid var(--header-button-border)',
-        borderRadius: 9,
-        color: 'var(--page-text)',
-        cursor: 'pointer',
-        display: 'inline-flex',
-        fontSize: 18,
-        height: 39,
-        justifyContent: 'center',
-        padding: 0,
-        width: 39,
-      }}
-    >
-      <span aria-hidden="true">{theme === 'dark' ? '☀' : '☾'}</span>
-    </button>
-  );
 }
 
 export default function Header() {
@@ -83,7 +38,6 @@ export default function Header() {
         <a href="/login" style={{ background: 'var(--header-mark)', border: '1px solid var(--header-mark)', borderRadius: 9, color: '#fff', cursor: 'pointer', fontSize: 14, fontWeight: 700, padding: '10px 16px', textDecoration: 'none' }}>
           Login
         </a>
-        <ThemeToggle />
       </nav>
     </header>
   );
