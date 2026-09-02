@@ -36,8 +36,13 @@ export default function Header() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
+    document.documentElement.style.setProperty('--page-background', theme === 'light' ? '#f7faf6' : '#141c18');
+    document.documentElement.style.setProperty('--page-background-end', theme === 'light' ? '#edf4ed' : '#1c2920');
+    document.documentElement.style.setProperty('--page-text', colors.text);
+    document.documentElement.style.setProperty('--page-muted', colors.muted);
+    document.documentElement.style.setProperty('--page-accent', colors.accent);
     window.localStorage.setItem('nodeforge-theme', theme);
-  }, [theme]);
+  }, [theme, colors]);
 
   const toggleTheme = () => setTheme((current) => (current === 'light' ? 'dark' : 'light'));
 
@@ -65,9 +70,9 @@ export default function Header() {
       </a>
 
       <nav aria-label="Header actions" style={{ alignItems: 'center', display: 'flex', gap: 10 }}>
-        <button type="button" style={{ background: colors.button, border: `1px solid ${colors.buttonBorder}`, borderRadius: 9, color: colors.text, cursor: 'pointer', fontSize: 14, fontWeight: 650, padding: '10px 16px' }}>
+        <a href="/agents" style={{ background: colors.button, border: `1px solid ${colors.buttonBorder}`, borderRadius: 9, color: colors.text, cursor: 'pointer', fontSize: 14, fontWeight: 650, padding: '10px 16px', textDecoration: 'none' }}>
           Agents
-        </button>
+        </a>
         <button
           type="button"
           onClick={toggleTheme}
