@@ -11,13 +11,22 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
   if (typeof runGit !== "function") throw new ConfigurationError("Git Service requires a git executor.");
   if (typeof onEvent !== "function") throw new ConfigurationError("Git Service onEvent must be a function.");
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1) throw new ConfigurationError("Git Service timeout must be positive.");
-  return Object.freeze({ status, currentBranch, branchExists, createBranch, commit, merge, discardBranch });
+  return Object.freeze({ status, currentBranch, branchExists, createBranch, commit, merge, discardBranch, getHead, getBranchHead, abortMerge, hasConflicts, diffBetween, getChangedFiles, getCommitsForTask, deleteMergedBranch, resetTo });
 
   async function status({ paths = [] } = {}) {
     const safePaths = validatePaths(paths);
     const result = await execute(["status", "--porcelain", ...(safePaths.length ? ["--", ...safePaths] : [])], "GIT_STATUS_FAILED");
     emit("git.status", { paths: safePaths, output: result.stdout });
     return result.stdout;
+  }
+
+  async function getHead() {
+    return (await execute(["rev-parse", "HEAD"], "GIT_HEAD_FAILED")).stdout.trim();
+  }
+
+  async function getBranchHead(name) {
+    validateBranch(name);
+    return (await execute(["rev-parse", `refs/heads/${name}`], "GIT_BRANCH_HEAD_FAILED")).stdout.trim();
   }
 
   async function currentBranch() {
@@ -56,16 +65,63 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
     return { sha, output: result.stdout };
   }
 
-  async function merge(branch, { target } = {}) {
+  async function merge(branch, { target, noFastForward = true } = {}) {
     validateBranch(branch);
     if (target !== undefined) validateBranch(target);
     if (!(await branchExists(branch))) throw gitError("GIT_BRANCH_NOT_FOUND", `Git branch does not exist: ${branch}.`);
     const destination = target ?? await currentBranch();
     if (destination === branch) throw gitError("GIT_MERGE_SELF", `Cannot merge branch into itself: ${branch}.`);
     if (target !== undefined && destination !== await currentBranch()) await execute(["switch", destination], "GIT_CHECKOUT_FAILED");
-    const result = await execute(["merge", "--no-edit", branch], "GIT_MERGE_CONFLICT");
+    const result = await execute(["merge", ...(noFastForward ? ["--no-ff"] : []), "--no-edit", branch], "GIT_MERGE_CONFLICT");
     emit("git.merge", { branch, target: destination });
     return { branch, target: destination, output: result.stdout };
+  }
+
+  async function abortMerge() {
+    const result = await execute(["merge", "--abort"], "GIT_MERGE_ABORT_FAILED");
+    emit("git.merge", { action: "abort" });
+    return { aborted: true, output: result.stdout };
+  }
+
+  async function hasConflicts() {
+    const result = await execute(["status", "--porcelain"], "GIT_STATUS_FAILED");
+    const paths = result.stdout.split(/\r?\n/).filter((line) => /^(UU|AA|DD|AU|UA|DU|UD)\s/.test(line)).map((line) => line.slice(3).trim());
+    return { has_conflicts: paths.length > 0, paths };
+  }
+
+  async function diffBetween(base, head = "HEAD") {
+    validateRevision(base); validateRevision(head);
+    const result = await execute(["diff", "--name-status", base, head], "GIT_DIFF_FAILED");
+    return result.stdout;
+  }
+
+  async function getChangedFiles({ baseCommit, headCommit = "HEAD" } = {}) {
+    validateRevision(baseCommit); validateRevision(headCommit);
+    const result = await execute(["diff", "--name-only", baseCommit, headCommit], "GIT_DIFF_FAILED");
+    return result.stdout.split(/\r?\n/).map((path) => path.trim()).filter(Boolean);
+  }
+
+  async function getCommitsForTask(taskId) {
+    if (typeof taskId !== "string" || !taskId) throw new ConfigurationError("Task id is required.");
+    const result = await execute(["log", "main", "--all", "--format=%H%x09%s%x09%aI", "--grep", `[${taskId}]`], "GIT_LOG_FAILED");
+    return result.stdout.split(/\r?\n/).filter(Boolean).map((line) => { const [sha, subject, timestamp] = line.split("\t"); return { sha, subject, timestamp }; });
+  }
+
+  async function deleteMergedBranch(name) {
+    validateBranch(name);
+    if (PROTECTED_BRANCHES.has(name)) throw gitError("GIT_PROTECTED_BRANCH", `Cannot delete protected branch: ${name}.`);
+    if (name === await currentBranch()) throw gitError("GIT_CURRENT_BRANCH", `Cannot delete the current branch: ${name}.`);
+    if (!(await branchExists(name))) throw gitError("GIT_BRANCH_NOT_FOUND", `Git branch does not exist: ${name}.`);
+    await execute(["branch", "-d", name], "GIT_BRANCH_DELETE_FAILED");
+    emit("git.branch", { action: "delete", name });
+    return { name, deleted: true };
+  }
+
+  async function resetTo(commit, { hard = false } = {}) {
+    validateRevision(commit);
+    const result = await execute(["reset", ...(hard ? ["--hard"] : ["--mixed"]), commit], "GIT_RESET_FAILED");
+    emit("git.reset", { commit, hard });
+    return { commit, hard, output: result.stdout };
   }
 
   async function discardBranch(name) {
@@ -91,6 +147,10 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
 async function defaultRunGit(args, options) {
   try { const result = await execFile("git", args, options); return { ...result, exitCode: 0 }; }
   catch (error) { return { stdout: error.stdout ?? "", stderr: error.stderr ?? "", exitCode: error.code === 1 ? 1 : undefined, error }; }
+}
+
+function validateRevision(value) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(value) || value.startsWith("-") || value.includes("..")) throw gitError("GIT_INVALID_REVISION", `Invalid Git revision: ${value ?? "<missing>"}.`);
 }
 
 function validateBranch(name) {
