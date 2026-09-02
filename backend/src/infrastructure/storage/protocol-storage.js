@@ -28,7 +28,7 @@ export function createProtocolStorage({ projectRoot = process.cwd(), fileService
   const storageRootRelative = configuredRoot.replace(/\\/g, "/").replace(/\/$/, "");
   const validateMetadata = createMetadataValidator();
   const saveLocks = new Map();
-  return Object.freeze({ save, get, exists, list, root: storageRoot, normalizeRef, serialize, checksum, createMetadata });
+  return Object.freeze({ save, get, exists, list, clearTask, root: storageRoot, normalizeRef, serialize, checksum, createMetadata });
 
   async function save(ref, data, { schemaId } = {}) {
     const normalizedRef = normalizeRef(ref);
@@ -95,11 +95,20 @@ export function createProtocolStorage({ projectRoot = process.cwd(), fileService
     return dataExists && metadataExists;
   }
 
+  async function clearTask(taskId) {
+    const normalizedTaskId = normalizeTaskId(taskId);
+    if (typeof fileService.listFiles !== "function" || typeof fileService.deleteFile !== "function") throw storageError("STORAGE_CLEAR_UNAVAILABLE", "Protocol Storage File Service cannot clear task records.");
+    const prefix = `${storageRootRelative}/task/${normalizedTaskId}/`;
+    const files = (await fileService.listFiles({ glob: `${prefix}**` })).filter((path) => /\/(?:request|response|verify_result|report|final_report)(?:\.meta)?\.json$/.test(path));
+    await Promise.all(files.map((path) => fileService.deleteFile({ path })));
+    return { task_id: normalizedTaskId, deleted: files.length };
+  }
+
   async function list(taskId) {
     const normalizedTaskId = normalizeTaskId(taskId);
     if (typeof fileService.listFiles !== "function") throw storageError("STORAGE_LIST_UNAVAILABLE", "Protocol Storage File Service cannot list files.");
     const prefix = `${storageRootRelative}/task/${normalizedTaskId}/`;
-    const files = await fileService.listFiles({ glob: `${prefix}round_*/{request,response}{,.meta}.json` });
+    const files = (await fileService.listFiles({ glob: `${prefix}**` })).filter((path) => /\/(?:request|response|verify_result|report|final_report)(?:\.meta)?\.json$/.test(path));
     const fileSet = new Set(files);
     const refs = files
       .filter((path) => path.endsWith(".json") && !path.endsWith(".meta.json"))
@@ -115,8 +124,8 @@ export function createProtocolStorage({ projectRoot = process.cwd(), fileService
     if (ref.includes("\0") || ref.includes("\\") || ref.startsWith("/") || ref.endsWith("/") || ref.split("/").some((part) => part === ".." || part === "." || part === "")) {
       throw protocolError("STORAGE_INVALID_REF", "Storage ref must be a safe relative path.");
     }
-    if (!/^task\/[A-Za-z0-9][A-Za-z0-9._-]*\/round_[1-9][0-9]*\/(request|response)$/.test(ref)) {
-      throw protocolError("STORAGE_INVALID_REF", "Storage ref must match task/<id>/round_<n>/(request|response).");
+    if (!/^task\/[A-Za-z0-9][A-Za-z0-9._-]*\/(?:round_[1-9][0-9]*\/(?:request|response)|verify_result|report|final_report)$/.test(ref)) {
+      throw protocolError("STORAGE_INVALID_REF", "Storage ref must match task/<id>/round_<n>/(request|response), verify_result, report, or final_report.");
     }
     return ref;
   }

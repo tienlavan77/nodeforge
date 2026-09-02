@@ -4,7 +4,7 @@ import { agentToolDefinition } from "./agent-tool-definition.js";
 
 const SAFE_URL = /^https:\/\//;
 
-export function createAgentGateway({ configuration, credentialResolver, transport = defaultTransport, streamTransport = defaultStreamTransport, timeoutMs = 10000, adapterRegistry = getAdapter } = {}) {
+export function createAgentGateway({ configuration, credentialResolver, transport = defaultTransport, streamTransport = defaultStreamTransport, timeoutMs = 35000, adapterRegistry = getAdapter } = {}) {
   if (typeof configuration?.getById !== "function") throw new ConfigurationError("Agent Gateway requires Node Agent Configuration.");
   if (typeof credentialResolver !== "function") throw new ConfigurationError("Agent Gateway requires a credential resolver.");
   if (typeof transport !== "function" || typeof streamTransport !== "function") throw new ConfigurationError("Agent Gateway transport must be a function.");
@@ -31,7 +31,7 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
     try {
       const response = await adapter.request({ url: config.gateway_url, credential, payload: withAgentTools(payload, tools), model, correlationId, signal: controller.signal });
       validateResponse(response);
-      return { agent_id: config.agent_id, correlation_id: correlationId, status: response.status ?? "completed", payload: structuredClone(response.payload ?? response.data ?? response) };
+      return { agent_id: config.agent_id, correlation_id: correlationId, status: response.status ?? "completed", completed_at: response.completed_at ?? null, error: response.error ?? null, incomplete_details: response.incomplete_details ?? null, raw_response: response.raw_response === undefined ? undefined : structuredClone(response.raw_response), payload: structuredClone(response.payload ?? response.data ?? response) };
     } catch (error) {
       if (error?.name === "AbortError") throw new ConfigurationError(`Agent Gateway request timed out for ${config.agent_id}.`);
       if (error instanceof ConfigurationError) throw error;
@@ -134,7 +134,7 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
     try {
       const response = await transport({ url: config.gateway_url, credential, payload, correlation_id: correlationId, operation, signal: controller.signal });
       validateResponse(response);
-      return { agent_id: config.agent_id, correlation_id: correlationId, status: response.status ?? "completed", payload: structuredClone(response.payload ?? response.data ?? response) };
+      return { agent_id: config.agent_id, correlation_id: correlationId, status: response.status ?? "completed", completed_at: response.completed_at ?? null, error: response.error ?? null, incomplete_details: response.incomplete_details ?? null, payload: structuredClone(response.payload ?? response.data ?? response) };
     } catch (error) {
       if (error?.name === "AbortError") throw new ConfigurationError(`Agent Gateway request timed out for ${config.agent_id}.`);
       if (error instanceof ConfigurationError) throw error;
