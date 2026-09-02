@@ -72,8 +72,6 @@ export default function Header() {
       <nav aria-label="Header actions" style={{ alignItems: 'center', display: 'flex', gap: 10 }}>
         <a href="/agents" style={{ background: colors.button, border: `1px solid ${colors.buttonBorder}`, borderRadius: 9, color: colors.text, cursor: 'pointer', fontSize: 14, fontWeight: 650, padding: '10px 16px', textDecoration: 'none' }}>
           Agents
-        </a>        <a href="/agents" style={{ background: colors.button, border: `1px solid ${colors.buttonBorder}`, borderRadius: 9, color: colors.text, cursor: 'pointer', fontSize: 14, fontWeight: 650, padding: '10px 16px', textDecoration: 'none' }}>
-          Agents
         </a>
         <a href="/login" style={{ background: colors.mark, border: `1px solid ${colors.mark}`, borderRadius: 9, color: '#fff', cursor: 'pointer', fontSize: 14, fontWeight: 700, padding: '10px 16px', textDecoration: 'none' }}>
           Login
