@@ -39,7 +39,12 @@ export function createSupervisorRoundController({ contextProvider, fullContextPr
       approvedPlan = response.plan ?? response.payload.plan;
       await persistPlan(approvedPlan, { event, context });
       round = 3;
-      const fullContext = typeof fullContextProvider === "function" ? await fullContextProvider({ event, response: { ...response, files_requested: approvedPlan.map((item) => item.path) }, context, phase: "full" }) : context;
+      const implementationPlan = approvedPlan.filter((item) =>
+        (item?.action === "NEW" || item?.action === "MODIFY") && isFilePath(item?.path)
+      );
+      const fullContext = typeof fullContextProvider === "function"
+        ? await fullContextProvider({ event, response: { ...response, files_requested: implementationPlan.map((item) => item.path) }, context, phase: "full" })
+        : context;
       return { request: await requestForRound({ ...event, context: fullContext, plan: approvedPlan }, "code_provide", "submit_code_response", { context, plan: approvedPlan }) };
     }
     if (round === 3) {
@@ -63,6 +68,10 @@ export function createSupervisorRoundController({ contextProvider, fullContextPr
       in_window: true,
       cacheable: false
     });
+  }
+
+  function isFilePath(value) {
+    return typeof value === "string" && value.length > 0 && !value.endsWith("/") && !value.split("/").some((segment) => segment === "." || segment === "..");
   }
 
   function isUuid(value) {
