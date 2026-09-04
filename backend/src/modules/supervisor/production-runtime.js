@@ -63,7 +63,7 @@ export function createProductionSupervisorRuntime({ fileService, root = ".forge/
       const loop = loops.get(state.supervisor_id);
       const pending = state.pending_request;
       if (loop && pending && ["CREATED", "WAITING_AGENT"].includes(state.state)) {
-        await loop.start({ ...pending, task_id: state.task_id, supervisor_id: state.supervisor_id, request_id: pending.request_id, correlation_id: pending.correlation_id, attempt: pending.attempt ?? 1 });
+        await loop.start({ ...pending, task_id: state.task_id, supervisor_id: state.supervisor_id, request_id: pending.request_id, correlation_id: pending.correlation_id, attempt: pending.attempt ?? 1 }, { resume: true });
       }
     }
     logger.info?.("Supervisor production runtime recovered", { supervisors, queues: recoveredQueues });
