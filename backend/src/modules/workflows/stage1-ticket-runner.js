@@ -10,16 +10,15 @@ import { normalizeResponse } from "../agent/provider-adapters/openai-response-no
 import { stage1AgentTools } from "./stage1-agent-tools.js";
 import { createUnwiredFileChecker } from "./unwired-file-checker.js";
 import { buildUsageQuery } from "./stage1-usage-query-builder.js";
-import { assertValidEnvelope } from "../protocol/envelope-validator.js";
 import { createRoundCounter } from "./round-counter.js";
 import { logEvent } from "../../core/project-log-service.js";
 
 /** Runs one ticket through the canonical Stage-1 protocol, without owner-chat legacy dispatch. */
-export function createStage1TicketRunner({ statusStore, gitService, protocolLogger, protocolStorage, fileService, files, fileGraph, requestBuilder, agentGateway, agentProfile, credential, resolveAgentProfile, relevantTreeSelector, verificationGate, reportService, onStatusChange = () => {}, maxRounds = 15 } = {}) {
+export function createStage1TicketRunner({ conversationStateStore, statusStore, gitService, protocolLogger, protocolStorage, fileService, files, fileGraph, requestBuilder, agentGateway, agentProfile, credential, resolveAgentProfile, relevantTreeSelector, verificationGate, reportService, onStatusChange = () => {}, maxRounds = 15 } = {}) {
   if (!requestBuilder?.buildTaskRequest || typeof agentGateway?.request !== "function") throw new ConfigurationError("Stage-1 ticket runner requires request builder and agent gateway.");
   const initializer = createStage1TaskInitializer({ statusStore, gitService, protocolLogger });
   const roundCounter = createRoundCounter({ maxRounds });
-    const sender = createStage1RequestSender({ protocolLogger, protocolStorage, roundCounter, onRoundLimit, adapterResolver: () => ({ call: async ({ payload, correlationId }) => { const tools = payload.type === "code_provide" ? stage1AgentTools.filter(({ name }) => name === "submit_code_response") : payload.type === "usage_query" ? stage1AgentTools.filter(({ name }) => ["usage_needed", "no_wiring_needed"].includes(name)) : payload.type === "status_check" ? stage1AgentTools.filter(({ name }) => ["completed", "continue"].includes(name)) : stage1AgentTools.filter(({ name }) => name === "code_needed"); const raw = await agentGateway.request({ agentId: "builder", payload, correlationId, tools });
+    const sender = createStage1RequestSender({ protocolLogger, protocolStorage, roundCounter, onRoundLimit, adapterResolver: () => ({ call: async ({ payload, correlationId }) => { const tools = payload.type === "code_provide" ? stage1AgentTools.filter(({ name }) => name === "submit_code_response") : payload.type === "planning" ? stage1AgentTools.filter(({ name }) => name === "planning") : payload.type === "usage_query" ? stage1AgentTools.filter(({ name }) => ["usage_needed", "no_wiring_needed"].includes(name)) : payload.type === "status_check" ? stage1AgentTools.filter(({ name }) => ["completed", "continue"].includes(name)) : stage1AgentTools.filter(({ name }) => name === "code_needed"); const raw = await agentGateway.request({ agentId: "builder", payload, correlationId, tools });
       try {
         assertProviderCompleted(raw);
         const envelope = normalizeResponse(raw.payload ?? raw, { request_id: payload.request_id });
@@ -27,11 +26,6 @@ export function createStage1TicketRunner({ statusStore, gitService, protocolLogg
         return envelope;
       } catch (error) { error.rawResponse = raw; throw error; } } }) });
   let activeRelevantTree = [];
-  let formatRetries = 0;
-  let formatAttempts = new Map();
-  // Track format failures independently for each task and file.
-  let retryCountPerFile = new Map();
-  let attemptedFormats = new Set();
   let latestCommit = null;
   let baseBranch = "main";
   const codeNeeded = createStage1CodeNeededHandler({ files, fileService, relevantTree: activeRelevantTree });
@@ -39,6 +33,10 @@ export function createStage1TicketRunner({ statusStore, gitService, protocolLogg
   const submitCode = createStage1SubmitCodeHandler({ fileService, gitService, statusStore, protocolLogger, unwiredChecker: fileGraph ? createUnwiredChecker(fileGraph) : undefined });
   const router = createStage1ResponseRouter({
     onCodeNeeded: (response, context) => codeNeeded.handleCodeNeeded(response, context),
+    onPlanning: (response, context) => {
+      const files = context.requestEnvelope?.payload?.files ?? [];
+      return codeNeeded.handleCodeNeeded({ request_id: response.request_id, parent_id: response.parent_id, type: "code_needed", role: "agent", payload: { files_requested: [...new Set([...files.map((file) => file.path), ...response.payload.plan.map((item) => item.path)])], reason: "Planning confirmed; provide the implementation response.", plan: response.payload.plan }, timestamp: response.timestamp }, context);
+    },
     onSubmitCode: (response, context) => submitCode.handleSubmitCode(response, context),
     onUsageNeeded: (response, context) => handleUsageNeeded(response, context),
     onNoWiringNeeded: (response) => ({ type: "no_wiring_needed", reason: response.payload.reason }),
@@ -76,6 +74,7 @@ export function createStage1TicketRunner({ statusStore, gitService, protocolLogg
 
   async function run(ticket, { conversationId = `CONV-BUILDER`, correlationId = `CORR-${ticket?.id}-${randomUUID()}` } = {}) {
     try {
+      conversationId = conversationId === "CONV-BUILDER" ? `CONV-BUILDER-${ticket?.project_id ?? "PROJECT-NODEFORGE"}-${ticket?.id}` : conversationId;
       roundCounter.reset(ticket.id);
       const initialized = await initializer.initTask(ticket);
       baseBranch = initialized.base_branch ?? "main";
@@ -88,22 +87,31 @@ export function createStage1TicketRunner({ statusStore, gitService, protocolLogg
       activeRelevantTree.splice(0, activeRelevantTree.length, ...relevantTree);
       let request = requestBuilder.buildTaskRequest(ticket, { agentId: "builder", conversationId, correlationId, stepId: 1, relevantTree });
       let filesChanged = [];
-      formatRetries = 0;
-      formatAttempts = new Map();
-      retryCountPerFile = new Map();
-      attemptedFormats = new Set();
+      const transcriptBlocks = [];
+      if (conversationStateStore) {
+        let existingState = await conversationStateStore.get(conversationId);
+        const runtimeStatus = statusStore.get(ticket.id);
+        if (existingState && (["planned", "failed", "needs_human_review"].includes(ticket.status) || ["failed", "needs_human_review"].includes(runtimeStatus?.status))) {
+          await conversationStateStore.clear(conversationId);
+          existingState = null;
+        }
+        if (!existingState) await conversationStateStore.create({ conversationId, taskId: ticket.id, projectId: ticket.project_id, agentId: "builder", promptCacheKey: request.payload.cache_config?.prompt_cache_key ?? null });
+      }
       for (;;) {
         const correlationContext = request?.payload?.metadata?.correlation_id ?? correlationId;
         let sent;
         let response;
         let result;
         try {
+          request = { ...request, payload: { ...request.payload, transcript_blocks: transcriptBlocks.slice(-2), conversation_mode: "hybrid", hybrid_window: 2 } };
+          await conversationStateStore?.advanceRound(conversationId, { round: request.payload.step_id, step: request.payload.step_id, requestId: request.request_id, parentId: request.parent_id, status: request.type === "task" ? "round_1_sent" : request.type === "planning" ? "round_2_sent" : "round_3_sent" });
           sent = await sender.sendRequest(request, { agentProfile: profile, credential, correlationId: correlationContext });
+          await conversationStateStore?.update(conversationId, { last_provider_response_id: sent.provider_metadata?.response_id ?? null, last_provider_status: sent.provider_metadata?.status ?? "completed", status: request.type === "task" ? "round_1_completed" : request.type === "planning" ? "round_2_completed" : "awaiting_submission" });
+          if (sent.request_ref && sent.response_ref) transcriptBlocks.push({ block_id: `round-${request.payload.step_id}`, round: request.payload.step_id, instruction: request.payload.type, response_summary: summarizeResponse(sent.response), full_request_ref: sent.request_ref, full_response_ref: sent.response_ref, in_window: true, cacheable: false });
           response = receiver.receiveResponse(sent.response, { requestEnvelope: request });
           result = await router.routeResponse(response, { requestEnvelope: request, taskId: ticket.id, projectId: ticket.project_id, ticketId: ticket.id, contextFiles: request.payload?.files });
         } catch (error) {
-          // Only two provider rounds are allowed; preserve the failure and stop.
-          if (isRetryableSubmissionError(error)) await escalateToOwner(ticket, error);
+          // Repair retries are intentionally disabled; the outer runner records the failure.
           throw error;
         }
         if (response.type === "submit_code_response") {
@@ -128,8 +136,10 @@ export function createStage1TicketRunner({ statusStore, gitService, protocolLogg
               await gitService.deleteMergedBranch(`task/${ticket.id}`);
             }
             await persistFinalReport(ticket, verified.runtimeStatus?.status ?? "done", verified.verification, filesChanged, "verified_and_merged");
+            await conversationStateStore?.markStatus(conversationId, "completed", { current_round: request.payload.step_id });
             return { type: "completed", files_changed: filesChanged, status: verified.runtimeStatus ?? statusStore.get(ticket.id), verification: verified.verification, merge: verified.merge };
           }
+          await conversationStateStore?.markStatus(conversationId, "completed", { current_round: request.payload.step_id });
           return await completeAfterCode(ticket, filesChanged, "code_submitted");
         }
         if (result?.type === "no_wiring_needed") {
@@ -139,6 +149,7 @@ export function createStage1TicketRunner({ statusStore, gitService, protocolLogg
             if (verified.status === "merged" && typeof gitService.deleteMergedBranch === "function") {
               await gitService.deleteMergedBranch(`task/${ticket.id}`);
             }
+            await conversationStateStore?.markStatus(conversationId, "completed", { current_round: request.payload.step_id });
             return { type: "completed", files_changed: filesChanged, status: verified.runtimeStatus ?? statusStore.get(ticket.id), verification: verified.verification, merge: verified.merge };
           }
           return await completeAfterCode(ticket, filesChanged, "wiring_not_required");
@@ -151,7 +162,7 @@ export function createStage1TicketRunner({ statusStore, gitService, protocolLogg
           return { ...result, status: completed };
         }
         request = result;
-        if (!["code_provide", "usage_query", "task"].includes(request.type)) throw new ConfigurationError(`Unsupported Stage-1 continuation: ${request.type}.`);
+        if (!["code_provide", "planning", "usage_query", "task"].includes(request.type)) throw new ConfigurationError(`Unsupported Stage-1 continuation: ${request.type}.`);
       }
     } catch (error) {
       const current = statusStore.get(ticket.id);
@@ -180,58 +191,7 @@ export function createStage1TicketRunner({ statusStore, gitService, protocolLogg
     return [...ui, ...backend].slice(0, 3);
   }
 
-  function isRetryableSubmissionError(error) {
-    return ["INVALID_PAYLOAD", "CHECKSUM_MISMATCH", "PATCH_CONTEXT_REQUIRED", "PATCH_NOT_APPLICABLE", "SUBMISSION_FORMAT_UNSUPPORTED", "UNIFIED_DIFF_INVALID", "APPLY_PATCH_INVALID", "SUBMISSION_TRUNCATED", "SYNTAX_INVALID", "STRUCTURED_PATCH_INVALID"].includes(error?.code)
-      || error?.providerCode === "PROVIDER_PAYLOAD_INVALID";
-  }
-
-  function buildSubmissionRetry(previous, ticket, error, retryNumber, nextFormat = "full_content", notice = "") {
-    const previousBlocks = previous.payload?.task_context?.user_blocks ?? previous.payload?.user_blocks ?? [];
-    const retryInstruction = `Previous submission was rejected before writing any file: ${error.code ?? "INVALID_PAYLOAD"}: ${error.message}. Retry ${retryNumber}. Return exactly format ${nextFormat}, copy every existing file before_checksum exactly from Node context, and do not submit a shortened placeholder.${notice ? ` ${notice}` : ""}`;
-    const payload = {
-      ...structuredClone(previous.payload),
-      step_id: previous.payload.step_id + 1,
-      expected_submission: { ...(previous.payload.expected_submission ?? {}), representation: nextFormat },
-      task_context: {
-        instruction_blocks: structuredClone(previous.payload?.task_context?.instruction_blocks ?? previous.payload?.instruction_blocks ?? []),
-        user_blocks: [...structuredClone(previousBlocks), { block_id: `submission-retry-${retryNumber}`, content: retryInstruction, cacheable: false }]
-      },
-      metadata: { ...(previous.payload.metadata ?? {}), retry_of_step: previous.payload.step_id, previous_error: error.message }
-    };
-    return assertValidEnvelope({ request_id: randomUUID(), parent_id: previous.request_id, type: "code_provide", role: "node", payload, timestamp: new Date().toISOString() });
-  }
-
-  function nextSubmissionFormat(request) {
-    const current = request?.payload?.expected_submission?.representation ?? "full_content";
-    const attempts = (formatAttempts.get(current) ?? 0) + 1;
-    formatAttempts.set(current, attempts);
-    attemptedFormats.add(current);
-    const nextPatch = current === "structured_patch" ? "apply_patch" : current === "apply_patch" ? "unified_diff" : current === "unified_diff" ? "full_content" : null;
-    if (nextPatch === "full_content") {
-      const tooLarge = (request?.payload?.files ?? []).some((file) => Number(file.size_bytes ?? Buffer.byteLength(String(file.content ?? ""), "utf8")) > 3 * 1024);
-      if (tooLarge) return null;
-      return { format: "full_content", notice: "All patch formats failed; this file is within 3 KiB, so full_content is now required." };
-    }
-    if (nextPatch && !attemptedFormats.has(nextPatch)) return { format: nextPatch, notice: `Format ${current} failed; switch to ${nextPatch}.` };
-    if (current === "full_content" && attempts < 3) return { format: "full_content", notice: `Format full_content attempt ${attempts}/3 failed; retry with the same file context.` };
-    return null;
-  }
-
-  function recordFormatFailures(request) {
-    for (const file of request?.payload?.files ?? []) {
-      if (!file?.path) continue;
-      const key = `${request?.payload?.task_id ?? "task"}:${file.path}`;
-      retryCountPerFile.set(key, (retryCountPerFile.get(key) ?? 0) + 1);
-    }
-  }
-
-  async function escalateToOwner(ticket, error) {
-    const current = statusStore.get(ticket.id);
-    if (["running", "reviewing"].includes(current?.status)) {
-      statusStore.updateStatus(ticket.id, "needs_human_review", { reason: "submission_escalation_exhausted", error: error.message }, { expectedCurrentStatus: current.status });
-      await publishTerminalStatus(ticket, "needs_human_review", error.message);
-    }
-  }
+  function summarizeResponse(response) { return String(response?.type ?? response?.payload?.type ?? "response").replace(/\s+/g, " ").slice(0, 240); }
 
   function assertProviderCompleted(response) {
     const status = response?.status ?? "completed";

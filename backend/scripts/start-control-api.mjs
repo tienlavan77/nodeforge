@@ -1,4 +1,5 @@
 import process from "node:process";
+import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
 import { EventEmitter } from "node:events";
 import { loadNodeforgeEnv } from "./nodeforge-env.mjs";
@@ -12,13 +13,6 @@ import { createConversationAuditHistoryService } from "../src/application/conver
 import { createHumanDecisionService } from "../src/application/human-decision-service.js";
 import { createGitService } from "../src/infrastructure/git/git-service.js";
 import { createUnifiedStreamOrderer } from "../src/modules/events/unified-stream-order.js";
-import { createStage1TaskRequestBuilder } from "../src/modules/workflows/stage1-task-request-builder.js";
-import { createStage1TicketRunner } from "../src/modules/workflows/stage1-ticket-runner.js";
-import { createStage1VerificationGate } from "../src/modules/workflows/stage1-verification-gate.js";
-import { createStage1ReportService } from "../src/modules/workflows/stage1-report-service.js";
-import { stage1AgentTools } from "../src/modules/workflows/stage1-agent-tools.js";
-import { createFileRepository } from "../src/modules/index/file-repository.js";
-import { createProtocolStepLogger } from "../src/modules/protocol/protocol-step-logger.js";
 import { logEvent, readLogEvents } from "../src/core/project-log-service.js";
 import { readControlApiConfig } from "./control-api-config.mjs";
 import { createUnifiedStreamPublisher } from "./control-api-unified-stream.mjs";
@@ -29,6 +23,8 @@ import { createControlApiAgent } from "./control-api-agent.mjs";
 import { createControlApiPlatform } from "./control-api-platform.mjs";
 import { createControlApiStorage } from "./control-api-storage.mjs";
 import { createControlApiHttp } from "./control-api-http.mjs";
+import { createProductionSupervisorRuntime } from "../src/modules/supervisor/production-runtime.js";
+import { createSupervisorRoundController } from "../src/modules/supervisor/round-controller.js";
 
 const config = readControlApiConfig();
 const { port, host, dataDir } = config;
@@ -41,31 +37,58 @@ const { fileService, protocolStorage, conversationStateStore, processLock, contr
 const database = controlDb;
 const { profiles, agentConfiguration, secrets, agentGateway, agentSettings } = createControlApiAgent({ database, fileService, config });
 const platform = createControlApiPlatform({ config, database, indexDb, fileService, agentGateway, logEvent });
+const gitService = createGitService({ projectRoot: config.cwd });
 const { projectId, codeSearch, fileGraph, relevantTreeSelector, communications, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, verificationOrchestrator, contextEngine, runtimeService, sprintOrchestration, ticketCommandParser, proseTicketService, sprintPlanUpload } = platform;
 testService = platform.testService;
 const unifiedStreamOrder = createUnifiedStreamOrderer();
-const stage1RequestBuilder = createStage1TaskRequestBuilder({ conventions: ["Use the NodeForge Code Index before requesting context.", "Use File Service for every file read/write and keep changes within the ticket scope.", "Return submit_code_response using the provided schema and the requested file representation."] });
 const buildBuilderContext = createBuilderContext({ roadmaps, indexDb, contextEngine });
+const supervisorRuntime = createProductionSupervisorRuntime({ fileService, root: ".forge/runtime", eventStore, agentGateway, logger: console,
+  conversationStateStore, protocolStorage,
+  roundControllerFactory: (runtime, stores) => createSupervisorRoundController({
+    conversationStateStore: stores.conversationStateStore, protocolStorage: stores.protocolStorage, conversationId: `CONV-BUILDER-PROJECT-NODEFORGE-${runtime.taskId}`,
+    contextProvider: async ({ response } = {}) => buildFileContext(response, { summary: true }),
+    fullContextProvider: async ({ response } = {}) => buildFileContext(response, { summary: false }),
+    persistPlan: async () => ({ persisted: true })
+  }),
+  preparation: {
+    createTaskSession: async ({ task_id, project_id, ticket } = {}) => {
+      const existing = taskStore.get(task_id);
+      if (!existing) taskStore.create({ id: task_id, type: "custom", title: ticket?.title ?? task_id, description: ticket?.objective ?? "", acceptance_criteria: ticket?.acceptance_criteria ?? [], status: "pending", created_at: new Date().toISOString() });
+      return { session_id: `SESSION-${task_id}` };
+    },
+    createBranch: async ({ task_id, branch } = {}) => {
+      if (await gitService.branchExists(branch)) return { branch, reused: true };
+      return gitService.createBranch(branch);
+    },
+    resolveCodeIndex: async () => `IDX-${indexDb.all("SELECT version FROM index_metadata LIMIT 1")[0]?.version ?? 0}`,
+    persist: async () => ({ persisted: true })
+  }
+});
+await supervisorRuntime.recover();
+function isSourceCandidate(entry = {}) {
+  const path = String(entry.path ?? "");
+  return !path.split("/").some((segment) => segment.startsWith(".")) && /\.(?:js|jsx|ts|tsx|css|scss)$/.test(path);
+}
 
-const protocolLogger = createProtocolStepLogger({ logger: {
-  info: (_message, record) => logEvent({ event_name: `protocol.${record.event}`, level: "info", timestamp: record.timestamp, status: record.status === "failed" ? "failed" : "info", message: `Node-Agent protocol ${record.event}.`, task_id: record.task_id, conversation_id: record.conversation_id, source: "protocol-step-logger", ...(record.error_code ? { error_code: record.error_code } : {}), payload: record }),
-  error: (_message, record) => logEvent({ event_name: `protocol.${record.event}`, level: "error", timestamp: record.timestamp, status: record.status === "failed" ? "failed" : "info", message: record.error_message ?? `Node-Agent protocol ${record.event}.`, task_id: record.task_id, conversation_id: record.conversation_id, source: "protocol-step-logger", ...(record.error_code ? { error_code: record.error_code } : {}), payload: record })
-} });
-const stage1GitService = createGitService({ projectRoot: process.cwd() });
-const stage1ReportService = createStage1ReportService({ protocolStorage, fileService, gitService: stage1GitService });
-const stage1VerificationGate = createStage1VerificationGate({ verificationOrchestrator, gitService: stage1GitService, statusStore: ticketStatusStore, protocolStorage, onStatusChange: ({ projectId, ticketId, status, error }) => roadmaps.updateTicketStatus({ projectId, ticketId, status, error }) });
-const stage1TicketRunner = createStage1TicketRunner({ conversationStateStore, statusStore: ticketStatusStore, gitService: stage1GitService, verificationGate: stage1VerificationGate, reportService: stage1ReportService, protocolLogger, protocolStorage, fileService, files: createFileRepository(indexDb), fileGraph, relevantTreeSelector, requestBuilder: stage1RequestBuilder, agentGateway, resolveAgentProfile: (agentId) => profiles.getById(agentId), onStatusChange: ({ projectId, ticketId, status, error }) => roadmaps.updateTicketStatus({ projectId, ticketId, status, error }) });
+function isFrontendTicket(ticket = {}) { return /\bfrontend\b|\breact\b|\bnext(?:\.js)?\b|\bjsx\b/i.test([ticket.title, ticket.objective, ...(ticket.acceptance_criteria ?? [])].join(" ")); }
+
+const dispatchTask = async ({ ticket, message } = {}) => supervisorRuntime.integration.startTask({ ticket, restart: ["failed", "needs_human_review"].includes(ticket.status), task_id: ticket.id, project_id: ticket.project_id, request_id: message?.id, correlation_id: message?.correlation_id, relevantTree: relevantTreeSelector.select({
+    title: ticket.title, objective: ticket.objective, acceptance_criteria: ticket.acceptance_criteria,
+    limit: 30,
+    ...(isFrontendTicket(ticket) ? { scope: "frontend", allowed_prefixes: ["frontend/"] } : {})
+  }).tree.filter(isSourceCandidate).slice(0, 3), payload: { text: `Ticket ${ticket.id}: ${ticket.title ?? ""}\nObjective: ${ticket.objective ?? ""}\nAcceptance: ${(ticket.acceptance_criteria ?? []).join("; ")}`, task: { id: ticket.id, title: ticket.title, objective: ticket.objective, dependencies: ticket.dependencies ?? [], acceptance_criteria: ticket.acceptance_criteria ?? [] }, ticket } });
+
 const ticketRunner = async ({ projectId, ticketId, conversationId } = {}) => {
   const ticket = roadmaps.getCurrent()?.sprints?.flatMap((sprint) => sprint.tickets ?? []).find((item) => item.id === ticketId && item.project_id === projectId);
   if (!ticket) { const error = new Error(`Ticket not found: ${ticketId}`); error.statusCode = 404; throw error; }
   const runtimeStatus = ticketStatusStore.get(ticketId);
   if (["planned", "failed", "needs_human_review"].includes(ticket.status) || ["failed", "needs_human_review"].includes(runtimeStatus?.status)) {
     await protocolStorage.clearTask(ticketId);
-    await conversationStateStore.clear(conversationId ?? `CONV-BUILDER-${projectId}-${ticketId}`);
+    await conversationStateStore.clear(`CONV-BUILDER-PROJECT-NODEFORGE-${ticketId}`);
   }
-  const message = { project_id: projectId, conversation_id: conversationId ?? `CONV-BUILDER-${projectId}-${ticketId}`, correlation_id: `CORR-UI-RUN-${ticketId}-${Date.now()}` };
-  void stage1TicketRunner.run(ticket, { conversationId: message.conversation_id, correlationId: message.correlation_id }).catch((error) => console.error(`[stage1-ticket] ${ticketId}: ${error.message}`));
-  return { ticket_id: ticketId, status: "accepted", pipeline: "stage1" };
+  const correlationId = `CORR-UI-RUN-${ticketId}-${Date.now()}`;
+  const result = await dispatchTask({ ticket, message: { id: `REQ-${ticketId}-${Date.now()}`, correlation_id: correlationId } });
+  return { ticket_id: ticketId, supervisor_id: result.supervisor_id, status: "accepted", pipeline: "supervisor" };
 };
 const publishUnifiedStreamEvent = createUnifiedStreamPublisher({ unifiedStreamOrder, internalBus, bus, projectId, logEvent });
 
@@ -73,36 +96,11 @@ const api = createControlApiHttp({ services: {
   runtimeService, bus, communications, eventStore, subscriptions, knowledge, roadmaps, sprintPlans, provenance,
   relevantTreeSelector, decisions, agentSettings, sprintPlanUpload, sprintOrchestration, ticketRunner, internalBus,
   ticketCommandParser, proseTicketService, buildBuilderContext, protocolStorage, agentGateway, publishUnifiedStreamEvent,
-  stage1TicketRunner, logEvent, projectId,
+  dispatchTask, logEvent, projectId,
   architectureWorkspaceService: createArchitectureWorkspaceService({ knowledge, roadmaps, sprintPlans }),
   projectDashboardService: createProjectDashboardService({ roadmaps, sprintPlans, provenance, relevantTreeSelector, logReader: ({ ticket_id }) => readLogEvents({ project_id: projectId, ticket_id }) }),
   conversationAuditHistoryService: createConversationAuditHistoryService({ communications, eventStore, logReader: ({ project_id, task_id, correlation_id, conversation_id, event_name }) => readLogEvents({ project_id, task_id, ticket_id: task_id, conversation_id, event_name, correlation_id }) }),
   humanDecisionService: createHumanDecisionService({ decisions, bus })
 } });
 
-function canonicalizeStage1Tool(toolUse = {}) {
-  const input = toolUse?.input && typeof toolUse.input === "object" ? toolUse.input : {};
-  const name = toolUse?.name;
-  if (name === "code_needed") return { ...input, kind: "request_info", tool: input.tool ?? "read_file", target_path: input.target_path ?? input.files_requested?.[0] };
-  if (name === "submit_code_response") {
-    const files = Array.isArray(input.files) ? input.files.map((file) => ({ ...file, target_path: file.target_path ?? file.path, change_format: file.change_format ?? file.format })) : input.files;
-    return { ...input, kind: "submit_code", files, target_path: input.target_path ?? files?.[0]?.target_path, content: input.content ?? files?.[0]?.content, change_format: input.change_format ?? files?.[0]?.change_format, module_system: input.module_system ?? files?.[0]?.module_system };
-  }
-  return { ...input, kind: input.kind ?? name };
-}
-
-function ticketPrompt(ticket, acceptance, dependencies) {
-  return `Ticket ${ticket.id}: ${ticket.title}\nObjective: ${ticket.objective}\nAcceptance criteria:\n${acceptance || "- Follow the objective."}\nDependencies: ${dependencies}\n\nSubmission format: return submit_code_response tool with a concrete target_path, module_system=esm, change_format=full, and the complete content of every submitted file. Do not return unified diff or apply_patch syntax.`;
-}
-
-function ticketRequestPayload({ taskId, conversationId, ticket, text }) {
-  const envelope = stage1RequestBuilder.buildTaskRequest(ticket, {
-    agentId: "builder",
-    conversationId,
-    correlationId: `CORR-${taskId}`,
-    stepId: 1
-  });
-  const userBlocks = envelope.payload.user_blocks.map((block, index) => index === 0 ? { ...block, content: `${block.content}\n\n${text}` } : block);
-  return { ...envelope.payload, user_blocks: userBlocks, request_id: envelope.request_id };
-}
-startControlApi({ api, port, host, indexDb, controlDb, processLock });
+startControlApi({ api, port, host, indexDb, controlDb, processLock, workers: [supervisorRuntime.senderWorker, supervisorRuntime.repairWorker, supervisorRuntime.materializerWorkerLoop, supervisorRuntime.verificationWorkerLoop] });

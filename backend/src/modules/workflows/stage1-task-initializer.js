@@ -28,11 +28,12 @@ export function createStage1TaskInitializer({ statusStore, gitService, protocolL
     }
     if (status.status === "pending") {
       const branchName = `task/${ticket.id}`;
+      const baseBranch = typeof gitService.currentBranch === "function" ? await gitService.currentBranch() : "main";
       if (!(await gitService.branchExists(branchName))) await gitService.createBranch(branchName);
-      status = statusStore.updateStatus(ticket.id, "running", { reason: "task_initialized", branch: branchName }, { expectedCurrentStatus: "pending" });
+      status = statusStore.updateStatus(ticket.id, "running", { reason: "task_initialized", branch: branchName, base_branch: baseBranch }, { expectedCurrentStatus: "pending" });
     }
     protocolLogger.requestSent(baseContext);
-    return Object.freeze({ status, blocked_by: [], branch: `task/${ticket.id}`, request_id: requestId });
+    return Object.freeze({ status, blocked_by: [], branch: status.details?.branch ?? `task/${ticket.id}`, base_branch: status.details?.base_branch ?? "main", request_id: requestId });
   }
 
   function ensurePending(ticketId) {

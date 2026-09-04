@@ -2,6 +2,7 @@ import { ConfigurationError } from "../../shared/errors.js";
 import { getAdapter } from "../agent/provider-adapters/index.js";
 import { STRUCTURED_PATCH_PROMPT } from "./structured-patch-prompt.js";
 import { CODE_REQUIRE_INSTRUCTION } from "./stage1-instructions.js";
+import { persistAgentResponse } from "../agent/response-persistence.js";
 
 /** Sends one canonical task envelope through the provider selected by profile. */
 export function createStage1RequestSender({ adapterResolver = getAdapter, protocolLogger, protocolStorage, roundCounter, onRoundLimit } = {}) {
@@ -41,7 +42,7 @@ export function createStage1RequestSender({ adapterResolver = getAdapter, protoc
         throw error;
       }
       const responseRef = `task/${envelope.payload.task_id}/round_${envelope.payload.step_id}/response`;
-      await protocolStorage?.save(responseRef, response, { replace: true, schemaId: "https://forge.local/schemas/agent/envelope.schema.json" });
+      await persistAgentResponse({ protocolStorage, taskId: envelope.payload.task_id, round: envelope.payload.step_id, response });
       if (response?.provider_metadata) {
         protocolLogger.responseReceived({ ...context, provider: response.provider_metadata.provider, provider_response_id: response.provider_metadata.response_id, provider_status: response.provider_metadata.status, completed_at: response.provider_metadata.completed_at, status: "received" });
       }
@@ -55,7 +56,7 @@ export function createStage1RequestSender({ adapterResolver = getAdapter, protoc
   async function persistResponseOrStop(responseRef, response, context, started) {
     if (!protocolStorage) return;
     try {
-      await protocolStorage.save(responseRef, response, { schemaId: "https://forge.local/schemas/agent/raw-response.schema.json" });
+      await persistAgentResponse({ protocolStorage, taskId: context.task_id, round: context.step_id, response, raw: true });
     } catch (persistError) {
       const detail = { ...context, duration_ms: Date.now() - started, error_code: "PROTOCOL_RESPONSE_PERSIST_FAILED", error_message: persistError.message };
       if (typeof protocolLogger.responsePersistFailed === "function") protocolLogger.responsePersistFailed(detail);
