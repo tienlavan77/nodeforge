@@ -46,7 +46,7 @@ const supervisorRuntime = createProductionSupervisorRuntime({ fileService, root:
   conversationStateStore, protocolStorage,
   roundControllerFactory: (runtime, stores) => createSupervisorRoundController({
     conversationStateStore: stores.conversationStateStore, protocolStorage: stores.protocolStorage, conversationId: `CONV-BUILDER-PROJECT-NODEFORGE-${runtime.taskId}`,
-    contextProvider: async ({ response } = {}) => buildFileContext(response, { summary: true }),
+    contextProvider: async ({ response } = {}) => buildFileContext(response, { summary: false }),
     fullContextProvider: async ({ response } = {}) => buildFileContext(response, { summary: false }),
     persistPlan: async () => ({ persisted: true })
   }),
