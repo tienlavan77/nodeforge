@@ -1,13 +1,14 @@
 import { ConfigurationError } from "../../shared/errors.js";
 
 /** Route validated Agent responses to the stage-1 branch handlers. */
-export function createStage1ResponseRouter({ onCodeNeeded, onSubmitCode, onUsageNeeded = defaultUsageNeeded, onNoWiringNeeded = defaultNoWiringNeeded, onCompleted = defaultCompleted, onContinue = defaultContinue } = {}) {
+export function createStage1ResponseRouter({ onCodeNeeded, onPlanning = defaultPlanning, onSubmitCode, onUsageNeeded = defaultUsageNeeded, onNoWiringNeeded = defaultNoWiringNeeded, onCompleted = defaultCompleted, onContinue = defaultContinue } = {}) {
   if (typeof onCodeNeeded !== "function" || typeof onSubmitCode !== "function") throw new ConfigurationError("Stage-1 response router requires code_needed and submit_code handlers.");
   return Object.freeze({ routeResponse });
 
   async function routeResponse(envelope, context = {}) {
     if (!envelope || envelope.role !== "agent" || typeof envelope.type !== "string") throw routeError("RESPONSE_INVALID", "Stage-1 router requires a validated Agent envelope.");
     if (envelope.type === "code_needed") return onCodeNeeded(envelope, context);
+    if (envelope.type === "planning") return onPlanning(envelope, context);
     if (envelope.type === "submit_code_response") return onSubmitCode(envelope, context);
     if (envelope.type === "usage_needed") return onUsageNeeded(envelope, context);
     if (envelope.type === "no_wiring_needed") return onNoWiringNeeded(envelope, context);
@@ -17,6 +18,7 @@ export function createStage1ResponseRouter({ onCodeNeeded, onSubmitCode, onUsage
   }
 }
 
+function defaultPlanning(envelope) { return Object.freeze({ type: "planning", plan: structuredClone(envelope.payload.plan) }); }
 function defaultUsageNeeded(envelope) { return Object.freeze({ type: "usage_needed", files_requested: [...envelope.payload.files_requested], reason: envelope.payload.reason }); }
 function defaultNoWiringNeeded(envelope) { return Object.freeze({ type: "no_wiring_needed", reason: envelope.payload.reason }); }
 function defaultCompleted(envelope) { return Object.freeze({ type: "completed", report: envelope.payload.report }); }
