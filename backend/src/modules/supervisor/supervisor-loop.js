@@ -3,7 +3,9 @@ export function createSupervisorLoop({ runtime, senderQueue, materializerQueue, 
   if (!runtime || typeof eventBus?.publish !== "function") throw new ConfigurationError("Supervisor loop requires runtime and event bus.");
   return Object.freeze({ start, onEvent });
   async function start(request) {
-    const initial = typeof roundController?.start === "function" ? await roundController.start(request) : request;
+    const initial = request?.payload?.step_id > 1
+      ? request
+      : (typeof roundController?.start === "function" ? await roundController.start(request) : request);
     await runtime.transition("REQUESTING", initial);
     await senderQueue.enqueue(initial);
     return runtime.transition("WAITING_AGENT", initial);
