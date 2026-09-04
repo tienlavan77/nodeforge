@@ -101,7 +101,9 @@ const dispatchTicket = async ({ projectId, ticketId, conversationId } = {}) => {
   const ticket = roadmaps.getCurrent()?.sprints?.flatMap((sprint) => sprint.tickets ?? []).find((item) => item.id === ticketId && item.project_id === projectId);
   if (!ticket) { const error = new Error(`Ticket not found: ${ticketId}`); error.statusCode = 404; throw error; }
   const runtimeStatus = ticketStatusStore.get(ticketId);
-  if (["planned", "failed", "needs_human_review"].includes(ticket.status) || ["failed", "needs_human_review"].includes(runtimeStatus?.status)) {
+  const ownerState = supervisorRuntime.supervisorManager.getByTask(ticketId)?.getState?.();
+  const terminalOwner = ["FAILED", "COMPLETED", "NEEDS_HUMAN_REVIEW"].includes(ownerState);
+  if (["planned", "failed", "needs_human_review"].includes(ticket.status) || ["failed", "needs_human_review"].includes(runtimeStatus?.status) || terminalOwner) {
     await protocolStorage.clearTask(ticketId);
     await conversationStateStore.clear(`CONV-BUILDER-PROJECT-NODEFORGE-${ticketId}`);
   }
