@@ -109,7 +109,7 @@ const dispatchTicket = async ({ projectId, ticketId, conversationId } = {}) => {
   }
   const correlationId = `CORR-UI-RUN-${ticketId}-${Date.now()}`;
   const result = await dispatchTask({ ticket, message: { id: `REQ-${ticketId}-${Date.now()}`, correlation_id: correlationId } });
-  return { ticket_id: ticketId, supervisor_id: result.supervisor_id, status: "accepted", pipeline: "supervisor" };
+  return { ticket_id: ticketId, supervisor_id: result.supervisor_id, status: result.status === "already_running" ? "already_running" : "accepted", pipeline: "supervisor" };
 };
 const publishUnifiedStreamEvent = createUnifiedStreamPublisher({ unifiedStreamOrder, internalBus, bus, projectId, logEvent });
 
