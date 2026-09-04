@@ -90,7 +90,7 @@ export function createSupervisorRoundController({ contextProvider, fullContextPr
       ...built,
       task_id: origin.task_id,
       supervisor_id: source.supervisor_id,
-      request_id: isUuid(origin.request_id) ? origin.request_id : built.request_id,
+      request_id: built.request_id,
       parent_id: roundNumber > 1
         ? (isUuid(origin.request_id) ? origin.request_id : (isUuid(origin.parent_id) ? origin.parent_id : built.parent_id))
         : (isUuid(origin.parent_id) ? origin.parent_id : built.parent_id),
