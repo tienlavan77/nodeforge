@@ -114,6 +114,9 @@ export function createSupervisorRoundController({ contextProvider, fullContextPr
         step_id: roundNumber,
         expected_output: { type: expectedType, transport: "function_tool" },
         transcript_blocks: transcriptBlocks.map((block) => ({ ...block })),
+        user_blocks: type === "planning"
+          ? built.payload.user_blocks.filter((block) => block.block_id !== "code_graph_candidates")
+          : built.payload.user_blocks,
         instruction_blocks: type === "task"
           ? buildStage1InstructionBlocks({ includeTaskReview: true, includeConventions: true })
           : type === "planning"
