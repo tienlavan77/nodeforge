@@ -8,6 +8,8 @@ export function createSupervisorRuntime({ taskId, supervisorId, eventBus, initia
   return Object.freeze({ taskId, supervisorId, getState: () => state, transition, command, prepare });
   async function transition(next, context = {}) {
     if (!SUPERVISOR_STATES.includes(next)) throw new ConfigurationError(`Unknown Supervisor state: ${next}`);
+    if (next === state) return state;
+    if (!ALLOWED_TRANSITIONS[state]?.includes(next)) throw new ConfigurationError(`Invalid Supervisor transition: ${state} -> ${next}.`);
     const previous = state; state = next;
     await stateStore?.save?.({ task_id: taskId, supervisor_id: supervisorId, state, pending_request: context, updated_at: new Date().toISOString() });
     await eventBus.publish({ type: "supervisor.state_changed", task_id: taskId, supervisor_id: supervisorId, request_id: context.request_id ?? `STATE-${taskId}-${next}`, correlation_id: context.correlation_id ?? `CORR-${taskId}`, attempt: context.attempt ?? 1, payload: { from: previous, to: next } });
@@ -33,3 +35,11 @@ export function createSupervisorRuntime({ taskId, supervisorId, eventBus, initia
     }
   }
 }
+
+const ALLOWED_TRANSITIONS = Object.freeze({
+  CREATED: ["PREPARING", "REQUESTING", "FAILED"], PREPARING: ["READY", "FAILED"], READY: ["REQUESTING", "FAILED"],
+  REQUESTING: ["WAITING_AGENT", "FAILED"], WAITING_AGENT: ["REQUESTING", "MATERIALIZING", "VERIFYING", "REPAIRING", "FAILED"],
+  MATERIALIZING: ["VERIFYING", "REPAIRING", "FAILED"], VERIFYING: ["COMPLETED", "REPAIRING", "FAILED"],
+  REPAIRING: ["WAITING_REPAIR", "MATERIALIZING", "NEEDS_HUMAN_REVIEW", "FAILED"], WAITING_REPAIR: ["REQUESTING", "MATERIALIZING", "FAILED"],
+  COMPLETED: [], FAILED: [], NEEDS_HUMAN_REVIEW: []
+});
