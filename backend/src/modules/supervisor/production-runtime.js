@@ -28,7 +28,7 @@ export function createProductionSupervisorRuntime({ fileService, root = ".forge/
   const baseIntegration = createNodeforgeTaskIntegration({ supervisorManager, eventBus });
   const integration = { startTask: async (request) => {
     const active = supervisorManager.getByTask(request.task_id);
-    if (active && !["COMPLETED", "FAILED", "NEEDS_HUMAN_REVIEW"].includes(active.getState())) {
+    if (active && !["COMPLETED", "FAILED", "NEEDS_HUMAN_REVIEW", "READY"].includes(active.getState())) {
       return { task_id: request.task_id, supervisor_id: active.supervisorId, status: "already_running" };
     }
     const result = await baseIntegration.startTask(request);
