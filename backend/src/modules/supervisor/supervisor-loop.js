@@ -1,8 +1,11 @@
 import { ConfigurationError } from "../../shared/errors.js";
 export function createSupervisorLoop({ runtime, senderQueue, materializerQueue, verificationQueue, repairQueue, eventBus, maxAttempts = 3, roundController } = {}) {
   if (!runtime || typeof eventBus?.publish !== "function") throw new ConfigurationError("Supervisor loop requires runtime and event bus.");
+  let started = false;
   return Object.freeze({ start, onEvent });
   async function start(request, { resume = false } = {}) {
+    if (started) return request;
+    started = true;
     const initial = resume || request?.payload?.step_id > 1
       ? request
       : (typeof roundController?.start === "function" ? await roundController.start(request) : request);
