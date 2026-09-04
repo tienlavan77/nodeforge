@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 
 import { ConfigurationError } from "../../shared/errors.js";
 
-export function createHttpApi({ runtimeService, ownerChatService, conversationStream, architectureWorkspaceService, projectDashboardService, conversationAuditHistoryService, humanDecisionService, agentSettingsService, sprintPlanUploadService, sprintOrchestrationService, ticketRunner } = {}) {
+export function createHttpApi({ runtimeService, ownerChatService, conversationStream, architectureWorkspaceService, projectDashboardService, conversationAuditHistoryService, humanDecisionService, agentSettingsService, sprintPlanUploadService, sprintOrchestrationService, dispatchTicket, ticketRunner } = {}) {
   if (!runtimeService || typeof runtimeService.startTask !== "function" || typeof runtimeService.pauseSession !== "function"
     || typeof runtimeService.resumeSession !== "function" || typeof runtimeService.getSession !== "function" || typeof runtimeService.getProjectMemory !== "function") {
     throw new ConfigurationError("HTTP API requires a Runtime Service.");
@@ -70,6 +70,14 @@ export function createHttpApi({ runtimeService, ownerChatService, conversationSt
       if (!projectDashboardService) throw new ConfigurationError("Project Dashboard API is not configured.");
       return { status: 200, body: await projectDashboardService.getDashboard(parts[1]) };
     }
+    if (method === "GET" && parts.length === 4 && parts[0] === "projects" && parts[2] === "tickets") {
+      if (!projectDashboardService?.getTicket) throw new ConfigurationError("Ticket Detail API is not configured.");
+      return { status: 200, body: await projectDashboardService.getTicket(parts[1], parts[3]) };
+    }
+    if (method === "GET" && parts.length === 5 && parts[0] === "projects" && parts[2] === "tickets" && parts[4] === "graph") {
+      if (!projectDashboardService?.getTicketGraph) throw new ConfigurationError("Ticket Code Graph API is not configured.");
+      return { status: 200, body: await projectDashboardService.getTicketGraph(parts[1], parts[3]) };
+    }
     if (method === "POST" && parts.length === 3 && parts[0] === "projects" && parts[2] === "sprint-plans") {
       if (!sprintPlanUploadService) throw new ConfigurationError("Sprint Plan Upload API is not configured.");
       const body = await readJson(request, { maxBytes: 5 * 1024 * 1024 });
@@ -88,8 +96,9 @@ export function createHttpApi({ runtimeService, ownerChatService, conversationSt
       return { status: 200, body: sprintPlanUploadService.removeTicket({ projectId: parts[1], ticketId: parts[3] }) };
     }
     if (method === "POST" && parts.length === 5 && parts[0] === "projects" && parts[2] === "tickets" && parts[4] === "run") {
-      if (typeof ticketRunner !== "function") throw new ConfigurationError("Ticket Run API is not configured.");
-      return { status: 202, body: await ticketRunner({ projectId: parts[1], ticketId: parts[3], conversationId: "CONV-BUILDER" }) };
+      const runDispatch = dispatchTicket ?? ticketRunner;
+      if (typeof runDispatch !== "function") throw new ConfigurationError("Ticket Dispatch API is not configured.");
+      return { status: 202, body: await runDispatch({ projectId: parts[1], ticketId: parts[3], conversationId: "CONV-BUILDER" }) };
     }
     if (method === "POST" && parts.length === 5 && parts[0] === "projects" && parts[2] === "sprint-plans" && parts[4] === "run") {
       if (!sprintOrchestrationService) throw new ConfigurationError("Sprint Orchestration API is not configured.");

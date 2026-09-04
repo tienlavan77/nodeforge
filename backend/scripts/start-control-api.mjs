@@ -97,7 +97,7 @@ const dispatchTask = async ({ ticket, message } = {}) => supervisorRuntime.integ
     ...(isFrontendTicket(ticket) ? { scope: "frontend", allowed_prefixes: ["frontend/"] } : {})
   }).tree.filter(isSourceCandidate).slice(0, 3), payload: { text: `Ticket ${ticket.id}: ${ticket.title ?? ""}\nObjective: ${ticket.objective ?? ""}\nAcceptance: ${(ticket.acceptance_criteria ?? []).join("; ")}`, task: { id: ticket.id, title: ticket.title, objective: ticket.objective, dependencies: ticket.dependencies ?? [], acceptance_criteria: ticket.acceptance_criteria ?? [] }, ticket } });
 
-const ticketRunner = async ({ projectId, ticketId, conversationId } = {}) => {
+const dispatchTicket = async ({ projectId, ticketId, conversationId } = {}) => {
   const ticket = roadmaps.getCurrent()?.sprints?.flatMap((sprint) => sprint.tickets ?? []).find((item) => item.id === ticketId && item.project_id === projectId);
   if (!ticket) { const error = new Error(`Ticket not found: ${ticketId}`); error.statusCode = 404; throw error; }
   const runtimeStatus = ticketStatusStore.get(ticketId);
@@ -113,7 +113,7 @@ const publishUnifiedStreamEvent = createUnifiedStreamPublisher({ unifiedStreamOr
 
 const api = createControlApiHttp({ services: {
   runtimeService, bus, communications, eventStore, subscriptions, knowledge, roadmaps, sprintPlans, provenance,
-  relevantTreeSelector, decisions, agentSettings, sprintPlanUpload, sprintOrchestration, ticketRunner, internalBus,
+  relevantTreeSelector, decisions, agentSettings, sprintPlanUpload, sprintOrchestration, dispatchTicket, internalBus,
   ticketCommandParser, proseTicketService, buildBuilderContext, protocolStorage, agentGateway, publishUnifiedStreamEvent,
   dispatchTask, logEvent, projectId,
   architectureWorkspaceService: createArchitectureWorkspaceService({ knowledge, roadmaps, sprintPlans }),
