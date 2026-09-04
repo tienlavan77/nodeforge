@@ -1,7 +1,7 @@
 import { ConfigurationError } from "../../shared/errors.js";
 import { getAdapter } from "../agent/provider-adapters/index.js";
-import { requestedSubmissionFormat } from "./submission-format.js";
 import { STRUCTURED_PATCH_PROMPT } from "./structured-patch-prompt.js";
+import { CODE_REQUIRE_INSTRUCTION } from "./stage1-instructions.js";
 
 /** Sends one canonical task envelope through the provider selected by profile. */
 export function createStage1RequestSender({ adapterResolver = getAdapter, protocolLogger, protocolStorage, roundCounter, onRoundLimit } = {}) {
@@ -27,7 +27,7 @@ export function createStage1RequestSender({ adapterResolver = getAdapter, protoc
     protocolLogger.requestSent(context);
     const requestRef = `task/${envelope.payload.task_id}/round_${envelope.payload.step_id}/request`;
     try {
-      await protocolStorage?.save(requestRef, envelope, { schemaId: "https://forge.local/schemas/agent/envelope.schema.json" });
+      await protocolStorage?.save(requestRef, envelope, { replace: true, schemaId: "https://forge.local/schemas/agent/envelope.schema.json" });
       const providerPayload = buildProviderPayload(envelope);
       let response;
       try {
@@ -41,7 +41,7 @@ export function createStage1RequestSender({ adapterResolver = getAdapter, protoc
         throw error;
       }
       const responseRef = `task/${envelope.payload.task_id}/round_${envelope.payload.step_id}/response`;
-      await protocolStorage?.save(responseRef, response, { schemaId: "https://forge.local/schemas/agent/envelope.schema.json" });
+      await protocolStorage?.save(responseRef, response, { replace: true, schemaId: "https://forge.local/schemas/agent/envelope.schema.json" });
       if (response?.provider_metadata) {
         protocolLogger.responseReceived({ ...context, provider: response.provider_metadata.provider, provider_response_id: response.provider_metadata.response_id, provider_status: response.provider_metadata.status, completed_at: response.provider_metadata.completed_at, status: "received" });
       }
@@ -69,42 +69,55 @@ export function createStage1RequestSender({ adapterResolver = getAdapter, protoc
 }
 
 function assertEnvelope(envelope) {
-  if (!envelope || typeof envelope !== "object" || !["task", "code_provide", "usage_query", "status_check"].includes(envelope.type) || envelope.role !== "node" || typeof envelope.request_id !== "string" || !envelope.payload || typeof envelope.payload.task_id !== "string" || !Number.isInteger(envelope.payload.step_id)) throw new ConfigurationError("Stage-1 sender requires a valid node task/code_provide envelope.");
+  if (!envelope || typeof envelope !== "object" || !["task", "planning", "code_provide", "usage_query", "status_check"].includes(envelope.type) || envelope.role !== "node" || typeof envelope.request_id !== "string" || !envelope.payload || typeof envelope.payload.task_id !== "string" || !Number.isInteger(envelope.payload.step_id)) throw new ConfigurationError("Stage-1 sender requires a valid node task/code_provide envelope.");
 }
 
 function buildProviderPayload(envelope) {
   const payload = { ...envelope.payload, request_id: envelope.request_id };
   if (envelope.type === "usage_query") return { ...payload, expected_output: { type: "usage_response", representation: "json", transport: "function_tool" } };
   if (envelope.type === "status_check") return { ...payload, expected_output: { type: "status_response", representation: "json", transport: "function_tool" } };
-  if (envelope.type !== "code_provide") {
-    // The first task round only requests context; code submission is opened
-    // after Node sends the requested file contents in a code_provide round.
-    return {
-      ...payload,
-      expected_output: { type: "code_needed", representation: "json", transport: "function_tool" }
-    };
+  if (envelope.type === "planning") {
+    const files = Array.isArray(envelope.payload.files) ? envelope.payload.files.map(stripInternalFileFields) : null;
+    return { ...payload, files, instruction_blocks: payload.task_context?.instruction_blocks ?? [], user_blocks: [...(payload.task_context?.user_blocks ?? []), { block_id: "planning-context", content: JSON.stringify({ plan: payload.plan, files }), cacheable: false }], expected_output: { type: "planning", representation: "json", transport: "function_tool" } };
   }
-  const files = Array.isArray(envelope.payload.files) ? envelope.payload.files.map(stripInternalFileFields) : envelope.payload.files;
-  if (!Array.isArray(files) || files.length === 0) throw new ConfigurationError("code_provide payload requires files.");
-  const representation = requestedSubmissionFormat(envelope.payload);
-  const guidance = representation === "unified_diff"
-    ? "Return submit_code_response with format=unified_diff. Each existing file must contain a valid ---/+++ header, ranged @@ hunk, and context lines; do not use bare @@ or markdown fences."
-    : representation === "apply_patch"
-      ? "Return submit_code_response with format=apply_patch. Wrap each patch in *** Begin Patch/*** End Patch, use *** Update File: path and context lines; do not use unified diff headers."
-      : representation === "structured_patch"
-        ? STRUCTURED_PATCH_PROMPT
-        : representation === "per_file"
-          ? `${STRUCTURED_PATCH_PROMPT} For each file, choose structured_patch when before_checksum is a sha256 string, and full_content only when before_checksum is null and exists is false.`
-          : "Return submit_code_response with format=full_content and complete final file contents, not a stub or unchanged placeholder.";
+  if (envelope.type !== "code_provide") return { ...payload, expected_output: { type: "code_needed", representation: "json", transport: "function_tool" } };
+
+  const files = Array.isArray(envelope.payload.files) ? envelope.payload.files.map(stripInternalFileFields) : null;
+  const formats = submissionFormatsFromPlan(payload.plan);
+  const guidance = formats.has("structured_patch")
+    ? `${STRUCTURED_PATCH_PROMPT}${formats.has("full_content") ? " For NEW files, use full_content with exists=false, before_checksum=null, complete string content, and a one-line summary." : ""}`
+    : "For NEW files, return format=full_content, exists=false, before_checksum=null, complete file content as a string, and a one-line summary.";
   return {
     ...payload,
-    instruction_blocks: payload.task_context?.instruction_blocks ?? [],
+    instruction_blocks: [
+      ...(payload.task_context?.instruction_blocks ?? []).filter((block) => !isLegacySubmissionInstruction(block)),
+      { block_id: "code_require", content: CODE_REQUIRE_INSTRUCTION, cacheable: false },
+      { block_id: "submission-contract", content: guidance, cacheable: true }
+    ],
     user_blocks: [
       ...(payload.task_context?.user_blocks ?? []),
-      { block_id: "code_provide", content: `${JSON.stringify({ files })}\n\nApply the requested ticket change now. ${guidance} For each file, inspect before_checksum: when it is null, you MUST use format=full_content with complete content; when it is a sha256 value, use the requested patch format and copy the checksum exactly. Include a concise one-line summary (1-160 characters) for new files; Node will insert the summary comment.`, cacheable: false }
+      ...(Array.isArray(payload.plan) ? [{ block_id: "execution-plan", content: JSON.stringify({ plan: payload.plan }), cacheable: false }] : []),
+      ...(files?.length ? [{ block_id: "code_provide", content: `${JSON.stringify({ files })}\n\nApply the requested ticket change now. ${guidance}`, cacheable: false }] : [])
     ],
-    expected_output: { type: "submit_code_response", representation, transport: "function_tool" }
+    expected_output: { type: "submit_code_response", transport: "function_tool" }
   };
+}
+
+function submissionFormatsFromPlan(plan) {
+  const formats = new Set();
+  for (const item of plan ?? []) {
+    if (item?.action === "NEW") formats.add("full_content");
+    if (item?.action === "MODIFY") formats.add("structured_patch");
+  }
+  if (formats.size === 0) throw new ConfigurationError("Round 3 plan requires at least one NEW or MODIFY item.");
+  return formats;
+}
+
+function isLegacySubmissionInstruction(block = {}) {
+  const content = String(block.content ?? "");
+  return /Return\s+full_content\s+only\b/i.test(content)
+    || /complete\s+(?:final\s+)?file\s+contents?/i.test(content)
+    || /full\s+contents?\s+and\s+module_system/i.test(content);
 }
 
 function stripInternalFileFields(file = {}) {

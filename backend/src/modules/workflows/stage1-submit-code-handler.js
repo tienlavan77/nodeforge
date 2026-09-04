@@ -4,7 +4,7 @@ import { applyUnifiedDiff } from "../../application/execution-handlers/unified-d
 import { applyApplyPatch } from "../../application/execution-handlers/apply-patch.js";
 import { resolveSubmissionFormat } from "./submission-format.js";
 import { validateSyntax } from "./validate-syntax.js";
-import { applyStructuredPatch } from "./structured-patch.js";
+import { inspectStructuredPatch } from "./structured-patch.js";
 
 /** Applies the first-round full-file submission through File Service and commits it. */
 export function createStage1SubmitCodeHandler({ fileService, gitService, statusStore, protocolLogger, unwiredChecker } = {}) {
@@ -74,23 +74,51 @@ export function createStage1SubmitCodeHandler({ fileService, gitService, statusS
 
   async function materializeChanges(input) {
     const files = [];
-    for (const file of input.payload.files) {
-      const format = resolveSubmissionFormat(file.format);
-      if (format === "full_content") { files.push({ ...file, format }); continue; }
-      if (!file.exists) throw handlerError("SUBMISSION_FORMAT_UNSUPPORTED", `${format} cannot create a file; use full_content: ${file.path}.`);
-      if (typeof file.before_checksum !== "string") throw handlerError("PATCH_CONTEXT_REQUIRED", `${format} requires before_checksum: ${file.path}.`);
-      let result;
-      if (format === "unified_diff") result = await applyUnifiedDiff(file.path, file.content, { dry_run: true, fileService });
-      else if (format === "apply_patch") {
-        if (typeof file.content !== "string") throw handlerError("INVALID_PAYLOAD", `apply_patch content must be a string: ${file.path}.`);
-        result = await applyApplyPatch(file.path, file.content, { dry_run: true, fileService });
-      } else if (format === "structured_patch") {
-        const original = await fileService.readFile({ path: file.path });
-        try { files.push({ ...file, content: applyStructuredPatch(original, file.content), materialized: true }); continue; }
-        catch (error) { throw handlerError(error.code ?? "STRUCTURED_PATCH_INVALID", error.message); }
-      } else throw handlerError("SUBMISSION_FORMAT_UNSUPPORTED", `Unsupported code exchange format: ${file.format}.`);
-      if (!result?.success || typeof result.detail?.content !== "string") throw handlerError(result?.error_code ?? "PATCH_NOT_APPLICABLE", result?.error_message ?? `Cannot apply ${format}: ${file.path}.`);
-      files.push({ ...file, content: result.detail.content, materialized: true });
+    const validPatches = [];
+    const invalidPatches = [];
+    for (const [fileIndex, file] of input.payload.files.entries()) {
+      try {
+        const format = resolveSubmissionFormat(file.format);
+        if (format === "full_content") {
+          files.push({ ...file, format });
+          validPatches.push({ index: fileIndex, path: file.path, format, status: "valid" });
+          continue;
+        }
+        if (!file.exists) throw handlerError("SUBMISSION_FORMAT_UNSUPPORTED", `${format} cannot create a file; use full_content: ${file.path}.`);
+        if (typeof file.before_checksum !== "string") throw handlerError("PATCH_CONTEXT_REQUIRED", `${format} requires before_checksum: ${file.path}.`);
+        let content;
+        if (format === "unified_diff") {
+          const result = await applyUnifiedDiff(file.path, file.content, { dry_run: true, fileService });
+          if (!result?.success || typeof result.detail?.content !== "string") throw handlerError(result?.error_code ?? "PATCH_NOT_APPLICABLE", result?.error_message ?? `Cannot apply ${format}: ${file.path}.`);
+          content = result.detail.content;
+        } else if (format === "apply_patch") {
+          if (typeof file.content !== "string") throw handlerError("INVALID_PAYLOAD", `apply_patch content must be a string: ${file.path}.`);
+          const result = await applyApplyPatch(file.path, file.content, { dry_run: true, fileService });
+          if (!result?.success || typeof result.detail?.content !== "string") throw handlerError(result?.error_code ?? "PATCH_NOT_APPLICABLE", result?.error_message ?? `Cannot apply ${format}: ${file.path}.`);
+          content = result.detail.content;
+        } else if (format === "structured_patch") {
+          const original = await fileService.readFile({ path: file.path });
+          const inspected = inspectStructuredPatch(original, file.content);
+          validPatches.push(...inspected.valid_operations.map((operation) => ({ index: fileIndex, path: file.path, format, ...operation })));
+          invalidPatches.push(...inspected.invalid_operations.map((operation) => ({ index: fileIndex, path: file.path, format, ...operation })));
+          if (!inspected.success) continue;
+          content = inspected.content;
+        } else {
+          throw handlerError("SUBMISSION_FORMAT_UNSUPPORTED", `Unsupported code exchange format: ${file.format}.`);
+        }
+        files.push({ ...file, content, materialized: true });
+        if (format !== "structured_patch") validPatches.push({ index: fileIndex, path: file.path, format, status: "valid" });
+      } catch (error) {
+        invalidPatches.push({ index: fileIndex, path: file.path, format: file.format, code: error.code ?? "PATCH_NOT_APPLICABLE", message: error.message });
+      }
+    }
+    if (invalidPatches.length) {
+      const summary = invalidPatches.map(({ path, operation_index, message }) => `${path}${operation_index === undefined ? "" : `[${operation_index}]`}: ${message}`).join("; ");
+      const failure = handlerError("PATCH_BATCH_INVALID", `Patch verification completed: ${invalidPatches.length} invalid, ${validPatches.length} valid. Invalid patches: ${summary}`);
+      failure.details = { valid_patches: validPatches, invalid_patches: invalidPatches };
+      failure.valid_patches = validPatches;
+      failure.invalid_patches = invalidPatches;
+      throw failure;
     }
     return { ...input, payload: { ...input.payload, files } };
   }

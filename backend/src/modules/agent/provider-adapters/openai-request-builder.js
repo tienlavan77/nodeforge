@@ -42,10 +42,13 @@ export function buildToolConfig(payload = {}) {
   const selected = names.length ? definitions.filter((tool) => names.includes(tool.name)) : definitions;
   if (!selected.length) throw new Error(`No OpenAI response tool matches expected output: ${expectedTypes.join(", ") || "<none>"}.`);
   const requiredFormat = payload.expected_output?.representation ?? payload.expected_submission?.representation ?? payload.expected_output?.format ?? payload.expected_submission?.format;
+  const planFormats = submissionFormatsFromPlan(payload.plan);
   const tools = selected.map(({ type, name, description, strict, parameters }) => ({
     type, name, description, strict,
-    parameters: name === "submit_code_response" && requiredFormat && !["per_file", "mixed"].includes(requiredFormat)
-      ? constrainSubmitFormat(parameters, requiredFormat === "patch" ? "apply_patch" : requiredFormat)
+    parameters: name === "submit_code_response"
+      ? constrainSubmitFormats(parameters, requiredFormat && !["per_file", "mixed"].includes(requiredFormat)
+        ? [requiredFormat === "patch" ? "apply_patch" : requiredFormat]
+        : planFormats)
       : parameters
   }));
   // Responses API uses the string "auto" for a choice among multiple tools;
@@ -62,18 +65,30 @@ export function buildResponseFormat(payload = {}, toolConfig = buildToolConfig(p
   return { text: { format: { type: "json_schema", name: tool.name, schema: tool.parameters, strict: true } } };
 }
 
-function constrainSubmitFormat(parameters, format) {
+function constrainSubmitFormats(parameters, formats) {
+  if (!Array.isArray(formats) || formats.length === 0) return parameters;
   const copy = structuredClone(parameters);
   const items = copy?.properties?.files?.items;
+  const refs = new Set(formats.map((format) => {
+    if (format === "full_content") return "#/$defs/new_file";
+    if (format === "structured_patch") return "#/$defs/existing_file";
+    throw new Error(`Unsupported per-file submission format: ${format}.`);
+  }));
   if (Array.isArray(items?.oneOf)) {
-    const ref = format === "full_content" ? "#/$defs/new_file" : format === "structured_patch" ? "#/$defs/existing_file" : null;
-    if (!ref) throw new Error(`Unsupported per-file submission format: ${format}. Use structured_patch for existing files and full_content for new files.`);
-    items.oneOf = items.oneOf.filter((branch) => branch.$ref === ref);
-    return copy;
+    items.oneOf = items.oneOf.filter((branch) => refs.has(branch.$ref));
+    if (items.oneOf.length !== refs.size) throw new Error("Submit-code schema is missing a plan-required file format.");
   }
-  const formatSchema = items?.properties?.format;
-  if (formatSchema) formatSchema.enum = [format];
   return copy;
+}
+
+function submissionFormatsFromPlan(plan) {
+  if (!Array.isArray(plan)) return [];
+  const formats = new Set();
+  for (const item of plan) {
+    if (item?.action === "NEW") formats.add("full_content");
+    if (item?.action === "MODIFY") formats.add("structured_patch");
+  }
+  return [...formats];
 }
 
 export function buildCacheOptions(payload = {}) {

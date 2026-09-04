@@ -5,23 +5,52 @@
   "description": "Common envelope for every message exchanged between Node and an Agent.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["request_id", "parent_id", "type", "role", "payload", "timestamp"],
+  "required": [
+    "request_id",
+    "parent_id",
+    "type",
+    "role",
+    "payload",
+    "timestamp"
+  ],
   "properties": {
     "request_id": {
       "type": "string",
       "format": "uuid"
     },
     "parent_id": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "format": "uuid"
     },
     "type": {
       "type": "string",
-      "enum": ["task", "code_needed", "code_provide", "code_response", "submit_code_response", "usage_query", "usage_needed", "no_wiring_needed", "status_check", "completed", "continue"]
+      "enum": [
+        "task",
+        "code_needed",
+        "planning",
+        "code_provide",
+        "code_response",
+        "submit_code_response",
+        "usage_query",
+        "usage_needed",
+        "no_wiring_needed",
+        "status_check",
+        "completed",
+        "continue",
+        "code_error",
+        "patch_repair",
+        "patch_repair_response"
+      ]
     },
     "role": {
       "type": "string",
-      "enum": ["node", "agent"]
+      "enum": [
+        "node",
+        "agent"
+      ]
     },
     "payload": {
       "type": "object"
