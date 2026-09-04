@@ -19,10 +19,23 @@ test("logs failure and does not hide adapter errors", async () => {
   await assert.rejects(() => sender.sendRequest(envelope, { agentProfile: { provider: "openai" } }), /gateway down/); assert.equal(events.at(-1).event, "failed");
 });
 
-test("sends round-2 code_provide content to OpenAI and stores round 2 refs", async () => {
+test("sends Round 3 with plan-driven full_content contract for NEW files", async () => {
   const events = []; const saved = []; let providerPayload;
-  const round2 = { request_id: "33333333-3333-4333-8333-333333333333", parent_id: response.request_id, type: "code_provide", role: "node", payload: { task_id: envelope.payload.task_id, step_id: 2, files: [{ path: "src/a.js", exists: true, content: "export const a = 1;" }] } };
-  const sender = createStage1RequestSender({ adapterResolver: () => ({ call: async ({ payload }) => { providerPayload = payload; return { type: "submit_code_response", payload: {}, request_id: "44444444-4444-4444-8444-444444444444", parent_id: round2.request_id, role: "agent", timestamp: "2026-08-31T00:00:00.000Z" }; } }), protocolLogger: logger(events), protocolStorage: { save: async (ref, data) => saved.push({ ref, data }) } });
-  await sender.sendRequest(round2, { agentProfile: { provider: "openai" } });
-  assert.equal(providerPayload.request_id, round2.request_id); assert.equal(providerPayload.expected_output.type, "submit_code_response"); assert.match(providerPayload.user_blocks[0].content, /export const a/); assert.deepEqual(saved.map(({ ref }) => ref), ["task/FORGE-STAGE1-001/round_2/request", "task/FORGE-STAGE1-001/round_2/response"]);
+  const round3 = { request_id: "33333333-3333-4333-8333-333333333333", parent_id: response.request_id, type: "code_provide", role: "node", payload: { task_id: envelope.payload.task_id, step_id: 3, task_context: { instruction_blocks: [] }, plan: [{ path: "src/new.js", action: "NEW", representation: "full_content", before_checksum: null, reason: "create", current_content: null }] } };
+  const sender = createStage1RequestSender({ adapterResolver: () => ({ call: async ({ payload }) => { providerPayload = payload; return { type: "submit_code_response", payload: {}, request_id: "44444444-4444-4444-8444-444444444444", parent_id: round3.request_id, role: "agent", timestamp: "2026-08-31T00:00:00.000Z" }; } }), protocolLogger: logger(events), protocolStorage: { save: async (ref, data) => saved.push({ ref, data }) } });
+  await sender.sendRequest(round3, { agentProfile: { provider: "openai" } });
+  assert.equal(providerPayload.expected_output.type, "submit_code_response");
+  assert.equal(providerPayload.expected_output.representation, undefined);
+  assert.match(providerPayload.user_blocks.find((block) => block.block_id === "execution-plan").content, /full_content/);
+  assert.match(providerPayload.instruction_blocks.at(-1).content, /NEW files.*full_content/);
+  assert.deepEqual(saved.map(({ ref }) => ref), ["task/FORGE-STAGE1-001/round_3/request", "task/FORGE-STAGE1-001/round_3/response"]);
+});
+
+test("sends Round 3 with structured_patch contract for MODIFY files", async () => {
+  let providerPayload;
+  const round3 = { ...envelope, request_id: "33333333-3333-4333-8333-333333333333", type: "code_provide", payload: { task_id: envelope.payload.task_id, step_id: 3, task_context: { instruction_blocks: [] }, plan: [{ path: "src/a.js", action: "MODIFY", representation: "structured_patch", before_checksum: "sha256:" + "a".repeat(64), reason: "edit", current_content: "x" }] } };
+  const sender = createStage1RequestSender({ adapterResolver: () => ({ call: async ({ payload }) => { providerPayload = payload; return response; } }), protocolLogger: logger([]) });
+  await sender.sendRequest(round3, { agentProfile: { provider: "openai" } });
+  assert.equal(providerPayload.expected_output.representation, undefined);
+  assert.match(providerPayload.instruction_blocks.at(-1).content, /structured_patch/);
 });

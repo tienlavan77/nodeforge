@@ -6,8 +6,10 @@ import { assertValidEnvelope } from "../../protocol/envelope-validator.js";
 const TOOL_TYPES = Object.freeze({
   code_needed: "code_needed",
   request_info: "code_needed",
+  planning: "planning",
   submit_code: "submit_code_response",
   submit_code_response: "submit_code_response",
+  patch_repair_response: "patch_repair_response",
   usage_report: "usage_needed",
   usage_needed: "usage_needed",
   no_wiring_needed: "no_wiring_needed",
@@ -81,13 +83,12 @@ function canonicalizeAgentToolPayload(payload, toolName) {
     delete canonical.target_path;
   }
   if (toolName === "submit_code_response") {
-    const sourceFiles = Array.isArray(payload.files) && payload.files.length ? payload.files : [payload];
+    const sourceFiles = Array.isArray(payload.files) ? payload.files : [payload];
     const files = sourceFiles.map((file) => ({
       path: file.path ?? file.target_path,
-      language: file.language ?? "text",
       format: file.format === "full" ? "full_content" : (file.format ?? file.change_format ?? "full_content"),
       content: file.content ?? "",
-      exists: typeof file.exists === "boolean" ? file.exists : file.file_operation !== "create",
+      exists: typeof file.exists === "boolean" ? file.exists : (file.before_checksum === null || file.file_operation === "create" ? false : true),
       before_checksum: file.before_checksum ?? (file.exists === false || file.file_operation === "create" ? null : file.checksum ?? null),
       ...(typeof file.summary === "string" ? { summary: file.summary } : {})
     }));

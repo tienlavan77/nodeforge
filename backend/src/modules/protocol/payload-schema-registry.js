@@ -5,12 +5,18 @@ import { ConfigurationError } from "../../shared/errors.js";
 const require = createRequire(import.meta.url);
 
 const schemas = Object.freeze({
-  "node:code_provide": require("../../../../schemas/agent/payloads/node-code-provide.schema.json"),
+  "node:code_provide": require("../../../../schemas/agent/payloads/node-code-require.schema.json"),
+  "node:code_require": require("../../../../schemas/agent/payloads/node-code-require.schema.json"),
+  "node:planning": require("../../../../schemas/agent/payloads/node-planning.schema.json"),
   "node:usage_query": require("../../../../schemas/agent/payloads/node-usage-query.schema.json"),
   "node:status_check": require("../../../../schemas/agent/payloads/node-status-check.schema.json"),
+  "node:code_error": require("../../../../schemas/agent/payloads/node-code-error.schema.json"),
+  "node:patch_repair": require("../../../../schemas/agent/payloads/node-patch-repair.schema.json"),
   "node:task": require("../../../../schemas/agent/request.schema.json"),
   "agent:code_needed": require("../../../../schemas/agent/payloads/agent-code-needed.schema.json"),
+  "agent:planning": require("../../../../schemas/agent/payloads/agent-planning.schema.json"),
   "agent:submit_code_response": require("../../../../schemas/agent/payloads/agent-code-response.schema.json"),
+  "agent:patch_repair_response": require("../../../../schemas/agent/payloads/agent-patch-repair-response.schema.json"),
   "agent:code_response": require("../../../../schemas/agent/payloads/agent-code-response.schema.json"),
   "agent:usage_needed": require("../../../../schemas/agent/payloads/agent-usage-needed.schema.json"),
   "agent:no_wiring_needed": require("../../../../schemas/agent/payloads/agent-no-wiring-needed.schema.json"),
