@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/agent-planning.schema.json",
+  "title": "NodeForge Planning Response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "plan"
+  ],
+  "properties": {
+    "plan": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/plan_item"
+      }
+    }
+  },
+  "$defs": {
+    "plan_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "action",
+        "reason"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 3,
+          "pattern": "^(?:[^/]+/)*[^/]+\\.[^/]+$"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "NEW",
+            "MODIFY",
+            "READ_ONLY"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}
