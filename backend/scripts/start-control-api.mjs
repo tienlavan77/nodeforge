@@ -65,6 +65,25 @@ const supervisorRuntime = createProductionSupervisorRuntime({ fileService, root:
   }
 });
 await supervisorRuntime.recover();
+async function buildFileContext(response = {}, { summary = false } = {}) {
+  const requested = response.files_requested ?? response.payload?.files_requested ?? response.plan?.map((item) => item.path) ?? [];
+  const paths = [...new Set(Array.isArray(requested) ? requested.filter((path) => typeof path === "string" && path) : [])];
+  return Promise.all(paths.map(async (path) => {
+    const content = await fileService.readFile({ path });
+    const indexed = indexDb.all("SELECT file_id, path, language, size_bytes, sha256 FROM files WHERE path = ? LIMIT 1", [path])[0] ?? {};
+    const symbols = indexed.file_id ? indexDb.all("SELECT name, kind FROM symbols WHERE file_id = ? ORDER BY start_line, name", [indexed.file_id]) : [];
+    const description = symbols.length ? `symbols: ${symbols.map((symbol) => `${symbol.kind ?? "symbol"} ${symbol.name}`).join(", ")}` : "no indexed symbols";
+    return {
+      path,
+      exists: true,
+      before_checksum: indexed.sha256 ? `sha256:${indexed.sha256.replace(/^sha256:/, "")}` : `sha256:${createHash("sha256").update(content).digest("hex")}`,
+      language: indexed.language ?? "text",
+      size_bytes: Number(indexed.size_bytes ?? Buffer.byteLength(content)),
+      content: summary ? `${path} — ${description}` : content
+    };
+  }));
+}
+
 function isSourceCandidate(entry = {}) {
   const path = String(entry.path ?? "");
   return !path.split("/").some((segment) => segment.startsWith(".")) && /\.(?:js|jsx|ts|tsx|css|scss)$/.test(path);
