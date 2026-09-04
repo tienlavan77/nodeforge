@@ -8,7 +8,7 @@
     {
       "type": "function",
       "name": "code_needed",
-      "description": "Gọi khi cần xem nội dung file hiện có để tiếp tục code — chưa đủ thông tin để viết code ngay.",
+      "description": "G\u1ecdi khi c\u1ea7n xem n\u1ed9i dung file hi\u1ec7n c\u00f3 \u0111\u1ec3 ti\u1ebfp t\u1ee5c code \u2014 ch\u01b0a \u0111\u1ee7 th\u00f4ng tin \u0111\u1ec3 vi\u1ebft code ngay.",
       "strict": true,
       "parameters": {
         "type": "object",
@@ -20,43 +20,103 @@
         "properties": {
           "files_requested": {
             "type": "array",
+            "uniqueItems": true,
             "items": {
-              "type": "string"
-            },
-            "description": "Danh sách path file cần xem, tương đối theo gốc project."
+              "type": "string",
+              "minLength": 1
+            }
           },
           "reason": {
             "type": "string",
-            "description": "Vì sao cần các file này để hoàn thành task."
+            "minLength": 1
           }
         }
       }
     },
     {
       "type": "function",
-      "name": "submit_code_response",
-      "description": "Trả code đã hoàn thành theo task được giao. Mỗi file phải đúng required_output_format đã được Node chỉ định.",
+      "name": "planning",
+      "description": "Return the implementation plan after reviewing the provided repository context.",
       "strict": true,
       "parameters": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "explanation",
-          "files"
+          "plan"
         ],
         "properties": {
-          "explanation": {
-            "type": "string"
-          },
-          "files": {
+          "plan": {
             "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/plan_item"
+            }
+          }
+        },
+        "$defs": {
+          "plan_item": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "action",
+              "reason"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "action": {
+                "type": "string",
+                "enum": [
+                  "NEW",
+                  "MODIFY",
+                  "READ_ONLY"
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "function",
+      "name": "patch_repair_response",
+      "description": "Return only repaired patches, preserving each patch_id and the requested format.",
+      "strict": true,
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "repair_id",
+          "repaired_patches"
+        ],
+        "properties": {
+          "repair_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "repaired_patches": {
+            "type": "array",
+            "minItems": 1,
             "items": {
               "oneOf": [
                 {
-                  "$ref": "#/$defs/existing_file"
+                  "$ref": "#/$defs/full_content_patch"
                 },
                 {
-                  "$ref": "#/$defs/new_file"
+                  "$ref": "#/$defs/structured_patch_repair"
+                },
+                {
+                  "$ref": "#/$defs/apply_patch_repair"
+                },
+                {
+                  "$ref": "#/$defs/unified_diff_repair"
                 }
               ]
             }
@@ -109,7 +169,8 @@
                 "minLength": 1
               },
               "new_content": {
-                "type": "string"
+                "type": "string",
+                "minLength": 1
               }
             }
           },
@@ -147,7 +208,8 @@
                 "minLength": 1
               },
               "new_content": {
-                "type": "string"
+                "type": "string",
+                "minLength": 1
               }
             }
           },
@@ -163,7 +225,297 @@
                 "const": "insert_at_end"
               },
               "new_content": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "full_content_patch": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "patch_id",
+              "path",
+              "format",
+              "exists",
+              "before_checksum",
+              "content",
+              "summary"
+            ],
+            "properties": {
+              "patch_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "format": {
+                "const": "full_content"
+              },
+              "exists": {
+                "const": false
+              },
+              "before_checksum": {
+                "type": "null"
+              },
+              "content": {
                 "type": "string"
+              },
+              "summary": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "structured_patch_repair": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "patch_id",
+              "path",
+              "format",
+              "exists",
+              "before_checksum",
+              "content"
+            ],
+            "properties": {
+              "patch_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "format": {
+                "const": "structured_patch"
+              },
+              "exists": {
+                "const": true
+              },
+              "before_checksum": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "content": {
+                "$ref": "#/$defs/structured_patch"
+              }
+            }
+          },
+          "apply_patch_repair": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "patch_id",
+              "path",
+              "format",
+              "exists",
+              "before_checksum",
+              "content"
+            ],
+            "properties": {
+              "patch_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "format": {
+                "const": "apply_patch"
+              },
+              "exists": {
+                "const": true
+              },
+              "before_checksum": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "content": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "unified_diff_repair": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "patch_id",
+              "path",
+              "format",
+              "exists",
+              "before_checksum",
+              "content"
+            ],
+            "properties": {
+              "patch_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "format": {
+                "const": "unified_diff"
+              },
+              "exists": {
+                "const": true
+              },
+              "before_checksum": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "content": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "function",
+      "name": "submit_code_response",
+      "description": "Tr\u1ea3 code \u0111\u00e3 ho\u00e0n th\u00e0nh theo task \u0111\u01b0\u1ee3c giao. M\u1ed7i file ph\u1ea3i \u0111\u00fang required_output_format \u0111\u00e3 \u0111\u01b0\u1ee3c Node ch\u1ec9 \u0111\u1ecbnh.",
+      "strict": true,
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "explanation",
+          "files"
+        ],
+        "properties": {
+          "explanation": {
+            "type": "string",
+            "minLength": 1
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/existing_file"
+                },
+                {
+                  "$ref": "#/$defs/new_file"
+                }
+              ]
+            },
+            "minItems": 1
+          }
+        },
+        "$defs": {
+          "structured_patch": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "operations"
+            ],
+            "properties": {
+              "operations": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/replace_range"
+                    },
+                    {
+                      "$ref": "#/$defs/delete_range"
+                    },
+                    {
+                      "$ref": "#/$defs/insert_after"
+                    },
+                    {
+                      "$ref": "#/$defs/insert_at_end"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "replace_range": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "op",
+              "expected_content",
+              "new_content"
+            ],
+            "properties": {
+              "op": {
+                "const": "replace_range"
+              },
+              "expected_content": {
+                "type": "string",
+                "minLength": 1
+              },
+              "new_content": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "delete_range": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "op",
+              "expected_content"
+            ],
+            "properties": {
+              "op": {
+                "const": "delete_range"
+              },
+              "expected_content": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "insert_after": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "op",
+              "anchor_text",
+              "new_content"
+            ],
+            "properties": {
+              "op": {
+                "const": "insert_after"
+              },
+              "anchor_text": {
+                "type": "string",
+                "minLength": 1
+              },
+              "new_content": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "insert_at_end": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "op",
+              "new_content"
+            ],
+            "properties": {
+              "op": {
+                "const": "insert_at_end"
+              },
+              "new_content": {
+                "type": "string",
+                "minLength": 1
               }
             }
           },
@@ -172,7 +524,6 @@
             "additionalProperties": false,
             "required": [
               "path",
-              "language",
               "format",
               "content",
               "exists",
@@ -180,10 +531,6 @@
             ],
             "properties": {
               "path": {
-                "type": "string",
-                "minLength": 1
-              },
-              "language": {
                 "type": "string",
                 "minLength": 1
               },
@@ -198,6 +545,7 @@
               },
               "before_checksum": {
                 "type": "string",
+                "minLength": 1,
                 "pattern": "^sha256:[0-9a-f]{64}$"
               }
             }
@@ -207,7 +555,6 @@
             "additionalProperties": false,
             "required": [
               "path",
-              "language",
               "format",
               "content",
               "exists",
@@ -216,10 +563,6 @@
             ],
             "properties": {
               "path": {
-                "type": "string",
-                "minLength": 1
-              },
-              "language": {
                 "type": "string",
                 "minLength": 1
               },
@@ -237,9 +580,7 @@
               },
               "summary": {
                 "type": "string",
-                "minLength": 1,
-                "maxLength": 160,
-                "pattern": "^[^\\r\\n]+$"
+                "minLength": 1
               }
             }
           }
@@ -249,7 +590,7 @@
     {
       "type": "function",
       "name": "usage_needed",
-      "description": "Gọi khi cần xem file khác (thường là component cha) để biết cách đấu nối/sử dụng code vừa tạo vào hệ thống.",
+      "description": "G\u1ecdi khi c\u1ea7n xem file kh\u00e1c (th\u01b0\u1eddng l\u00e0 component cha) \u0111\u1ec3 bi\u1ebft c\u00e1ch \u0111\u1ea5u n\u1ed1i/s\u1eed d\u1ee5ng code v\u1eeba t\u1ea1o v\u00e0o h\u1ec7 th\u1ed1ng.",
       "strict": true,
       "parameters": {
         "type": "object",
@@ -274,7 +615,7 @@
     {
       "type": "function",
       "name": "no_wiring_needed",
-      "description": "Gọi khi xác nhận code vừa tạo KHÔNG cần đấu nối thêm ở bước này (nằm ngoài phạm vi ticket hiện tại).",
+      "description": "G\u1ecdi khi x\u00e1c nh\u1eadn code v\u1eeba t\u1ea1o KH\u00d4NG c\u1ea7n \u0111\u1ea5u n\u1ed1i th\u00eam \u1edf b\u01b0\u1edbc n\u00e0y (n\u1eb1m ngo\u00e0i ph\u1ea1m vi ticket hi\u1ec7n t\u1ea1i).",
       "strict": true,
       "parameters": {
         "type": "object",
@@ -292,7 +633,7 @@
     {
       "type": "function",
       "name": "completed",
-      "description": "Gọi khi đã đối chiếu acceptance_criteria thuộc phạm vi của mình và xác nhận đã đáp ứng đủ.",
+      "description": "G\u1ecdi khi \u0111\u00e3 \u0111\u1ed1i chi\u1ebfu acceptance_criteria thu\u1ed9c ph\u1ea1m vi c\u1ee7a m\u00ecnh v\u00e0 x\u00e1c nh\u1eadn \u0111\u00e3 \u0111\u00e1p \u1ee9ng \u0111\u1ee7.",
       "strict": true,
       "parameters": {
         "type": "object",
@@ -385,7 +726,7 @@
     {
       "type": "function",
       "name": "continue",
-      "description": "Gọi khi vẫn còn việc cần làm thêm để đáp ứng đủ acceptance_criteria thuộc phạm vi của mình.",
+      "description": "G\u1ecdi khi v\u1eabn c\u00f2n vi\u1ec7c c\u1ea7n l\u00e0m th\u00eam \u0111\u1ec3 \u0111\u00e1p \u1ee9ng \u0111\u1ee7 acceptance_criteria thu\u1ed9c ph\u1ea1m vi c\u1ee7a m\u00ecnh.",
       "strict": true,
       "parameters": {
         "type": "object",

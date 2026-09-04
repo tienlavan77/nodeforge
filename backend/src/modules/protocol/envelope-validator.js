@@ -42,6 +42,7 @@ export function validateEnvelope(envelope, options = {}) {
 
 function payloadType(role, type) {
   if (role === "agent" && (type === "code_response" || type === "submit_code_response")) return "submit_code_response";
+  if (role === "node" && type === "code_provide") return "code_require";
   return type;
 }
 
