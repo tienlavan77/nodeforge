@@ -25,7 +25,7 @@ export function createStage1ResponseReceiver({ protocolLogger, validator = asser
       protocolLogger.responseReceived({ ...context, type: envelope.type, role: envelope.role, request_id: envelope.request_id, parent_id: envelope.parent_id, status: "received" });
       return envelope;
     } catch (error) {
-      protocolLogger.failed({ ...context, status: "failed" });
+      protocolLogger.failed({ ...context, status: "failed", error_code: error.code ?? "RESPONSE_INVALID", error_message: error.message });
       throw error;
     }
   }
