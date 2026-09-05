@@ -46,7 +46,7 @@ const supervisorRuntime = createProductionSupervisorRuntime({ fileService, root:
   conversationStateStore, protocolStorage,
   roundControllerFactory: (runtime, stores) => createSupervisorRoundController({
     conversationStateStore: stores.conversationStateStore, protocolStorage: stores.protocolStorage, conversationId: `CONV-BUILDER-PROJECT-NODEFORGE-${runtime.taskId}`,
-    contextProvider: async ({ response } = {}) => buildFileContext(response, { summary: false }),
+    contextProvider: async ({ response } = {}) => buildFileContext(response, { summary: true }),
     fullContextProvider: async ({ response } = {}) => buildFileContext(response, { summary: false }),
     persistPlan: async () => ({ persisted: true })
   }),
@@ -72,7 +72,21 @@ async function buildFileContext(response = {}, { summary = false } = {}) {
     const content = await fileService.readFile({ path });
     const indexed = indexDb.all("SELECT file_id, path, language, size_bytes, sha256 FROM files WHERE path = ? LIMIT 1", [path])[0] ?? {};
     const symbols = indexed.file_id ? indexDb.all("SELECT name, kind FROM symbols WHERE file_id = ? ORDER BY start_line, name", [indexed.file_id]) : [];
-    const description = symbols.length ? `symbols: ${symbols.map((symbol) => `${symbol.kind ?? "symbol"} ${symbol.name}`).join(", ")}` : "no indexed symbols";
+    const relations = indexed.file_id ? indexDb.all("SELECT name, kind FROM imports_exports WHERE file_id = ? ORDER BY kind, name", [indexed.file_id]) : [];
+    const dependencies = indexed.file_id ? indexDb.all("SELECT target.path AS path, edge.kind FROM dependency_edges edge JOIN files target ON target.file_id = edge.target_file_id WHERE edge.source_file_id = ? ORDER BY target.path", [indexed.file_id]) : [];
+    const cssVariables = [...content.matchAll(/--[A-Za-z0-9_-]+/g)].map((match) => match[0]).filter((name, index, all) => all.indexOf(name) === index);
+    const jsxElements = [...content.matchAll(/<([A-Z][A-Za-z0-9._-]*|(?:header|nav|main|body|html|button|a|div|section|form))\b/g)].map((match) => match[1]).filter((name, index, all) => all.indexOf(name) === index);
+    const imports = relations.filter((item) => item.kind === "import").map((item) => item.name);
+    const exports = relations.filter((item) => item.kind === "export").map((item) => item.name);
+    const description = [
+      `symbols: ${symbols.length ? symbols.map((symbol) => `${symbol.kind ?? "symbol"} ${symbol.name}`).join(", ") : "none"}`,
+      `imports: ${imports.length ? imports.join(", ") : "none"}`,
+      `exports: ${exports.length ? exports.join(", ") : "none"}`,
+      `JSX: ${jsxElements.length ? jsxElements.join(", ") : "none"}`,
+      `CSS variables: ${cssVariables.length ? cssVariables.join(", ") : "none"}`,
+      `dependencies: ${dependencies.length ? dependencies.map((item) => item.path).join(", ") : "none"}`,
+      `modification points: ${symbols.filter((symbol) => ["function", "component", "class", "export"].includes(symbol.kind)).map((symbol) => symbol.name).join(", ") || "inspect file structure"}`
+    ].join("; ");
     return {
       path,
       exists: true,
