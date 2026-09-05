@@ -93,7 +93,17 @@ async function buildFileContext(response = {}, { summary = false } = {}) {
       before_checksum: indexed.sha256 ? `sha256:${indexed.sha256.replace(/^sha256:/, "")}` : `sha256:${createHash("sha256").update(content).digest("hex")}`,
       language: indexed.language ?? "text",
       size_bytes: Number(indexed.size_bytes ?? Buffer.byteLength(content)),
-      content: summary ? `${path} — ${description}` : content
+      content: summary ? {
+        type: indexed.language?.startsWith("javascript") ? "React/JavaScript source file" : (indexed.language ?? "Source file"),
+        export: exports.length ? exports.join(", ") : "none",
+        role: path.includes("/app/") ? "Application route/layout" : path.includes("components/") ? "Reusable component" : "Repository source",
+        symbols: symbols.map((symbol) => `${symbol.kind ?? "symbol"} ${symbol.name}`),
+        imports,
+        dependencies: dependencies.map((item) => item.path),
+        jsx_elements: jsxElements,
+        css_variables: cssVariables,
+        modification_relevance: "Inspect for compatibility; modify only if included in the approved plan."
+      } : content
     };
   }));
 }
