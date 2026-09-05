@@ -128,7 +128,12 @@ export function createSupervisorRoundController({ contextProvider, fullContextPr
       }
     };
     transcript.push({ type: "request", round: roundNumber, request_id: envelope.request_id, payload: envelope.payload });
-    if (conversationStateStore?.advanceRound && conversationId) await conversationStateStore.advanceRound(conversationId, { round: roundNumber, step: roundNumber, requestId: envelope.request_id, parentId: envelope.parent_id, status: type === "task" ? "round_1_sent" : type === "planning" ? "round_2_sent" : "round_3_sent" });
+    if (conversationStateStore?.advanceRound && conversationId) {
+      const currentState = await conversationStateStore.get?.(conversationId);
+      if (!currentState || !Number.isInteger(currentState.current_round) || currentState.current_round <= roundNumber) {
+        await conversationStateStore.advanceRound(conversationId, { round: roundNumber, step: roundNumber, requestId: envelope.request_id, parentId: envelope.parent_id, status: type === "task" ? "round_1_sent" : type === "planning" ? "round_2_sent" : "round_3_sent" });
+      }
+    }
     if (protocolStorage?.save) await protocolStorage.save(`task/${origin.task_id}/round_${roundNumber}/request`, envelope, { replace: true, schemaId: "https://forge.local/schemas/agent/envelope.schema.json" });
     return envelope;
   }}
