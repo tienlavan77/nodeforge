@@ -1,3 +1,12 @@
+/*
+ * Validates the repository's JSON Schemas and representative fixtures with AJV.
+ * It recursively loads schema files, registers draft-07 metadata and format support,
+ * resolves optional JSON Pointers into fixtures, and checks both valid and invalid
+ * examples against their declared schemas. The script reports schema and fixture
+ * counts by directory and exits with a failure status when registration or validation
+ * errors occur. It is a standalone validation script with no exported bindings;
+ * its main helpers are readJson, loadSchemas, and atPointer.
+ */
 import Ajv2020 from "ajv/dist/2020.js";
 import draft7MetaSchema from "ajv/dist/refs/json-schema-draft-07.json" with { type: "json" };
 import addFormats from "ajv-formats";
@@ -8,6 +17,12 @@ import { fileURLToPath } from "node:url";
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const schemaDirectories = [join(repositoryRoot, "schemas")];
 const fixtures = [
+  ["https://forge.local/schemas/supervisor/execution-contract.schema.json", "schemas/examples/supervisor-task-execution.json"],
+  ["https://forge.local/schemas/supervisor/material-verification.schema.json", "schemas/examples/supervisor-material-verification.json"],
+  ["https://forge.local/schemas/agent/node-patch-repair.schema.json", "schemas/examples/supervisor-patch-repair-request.json"],
+  ["https://forge.local/schemas/agent/agent-patch-repair-response.schema.json", "schemas/examples/supervisor-patch-repair-response.json"],
+  ["https://forge.local/schemas/supervisor/execution-contract.schema.json", "schemas/examples/supervisor-command.json"],
+  ["https://forge.local/schemas/supervisor/execution-contract.schema.json", "schemas/examples/supervisor-error-event.json"],
   ["https://forge.local/schemas/core/agent.schema.json", "schemas/examples/builder-agent.json"],
   ["https://forge.local/schemas/core/agent.schema.json", "schemas/examples/node-agent.json"],
   ["https://forge.local/schemas/core/command.schema.json", "schemas/examples/envelope-command.json", "/message"],
@@ -75,10 +90,6 @@ const fixtures = [
   , ["https://forge.local/schemas/agent/agent-tool.schema.json", "schemas/examples/agent-tool-submit-main.json"]
   , ["https://forge.local/schemas/agent/agent-tool.schema.json", "schemas/examples/agent-tool-submit-test.json"]
   , ["https://forge.local/schemas/agent/agent-tool.schema.json", "schemas/examples/agent-tool-invalid.json", undefined, false]
-  , ["https://forge.local/schemas/agent/unused/agent-request.schema.json", "schemas/examples/agent-request-v1.3.json"]
-  , ["https://forge.local/schemas/agent/unused/agent-response.schema.json", "schemas/examples/agent-response-v1.3.json"]
-  , ["https://forge.local/schemas/agent/unused/agent-request-oai.schema.json", "schemas/examples/agent-request-oai-v1.3.json"]
-  , ["https://forge.local/schemas/agent/unused/agent-response-oai.schema.json", "schemas/examples/agent-response-oai-v1.3.json"]
   , ["https://forge.local/schemas/execution/execution-context.schema.json", "schemas/examples/execution-context.json"]
   , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-node-status-change.json"]
   , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-node-execution-step.json"]
