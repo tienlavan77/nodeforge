@@ -1,0 +1,6 @@
+/*
+ * Purpose: Documents the acceptance criteria for the sprint ticket-creation feature.
+ * Responsibilities: Defines the required action-row order, paste modal behavior, supported ticket formats,
+ * validation rules, sprint-scoped creation behavior, and refresh expectations after a successful creation.
+ * Exports: This documentation file exports no code symbols; its contents serve as the feature specification.
+ */
