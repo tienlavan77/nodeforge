@@ -10,21 +10,166 @@
       "description": "Gọi khi cần xem nội dung file hiện có để tiếp tục code — chưa đủ thông tin để viết code ngay.",
       "input_schema": {
         "type": "object",
+        "additionalProperties": false,
         "required": [
+          "plan",
           "files_requested",
           "reason"
         ],
         "properties": {
+          "plan": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/plan_item"
+            }
+          },
           "files_requested": {
             "type": "array",
+            "uniqueItems": true,
             "items": {
-              "type": "string"
-            },
-            "description": "Danh sách path file cần xem, tương đối theo gốc project."
+              "type": "string",
+              "minLength": 1
+            }
           },
           "reason": {
             "type": "string",
-            "description": "Vì sao cần các file này để hoàn thành task."
+            "minLength": 1
+          }
+        },
+        "$defs": {
+          "plan_item": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "action",
+              "reason"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "action": {
+                "type": "string",
+                "enum": [
+                  "NEW",
+                  "MODIFY",
+                  "READ_ONLY"
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "read_transcript_blocks",
+      "description": "Read approved transcript rounds and approved project files through Forge services.",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://forge.local/schemas/agent/tools/read-transcript-blocks.schema.json",
+        "title": "Forge read transcript blocks tool input",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "block_ids",
+          "rounds",
+          "file_paths",
+          "include",
+          "max_chars"
+        ],
+        "properties": {
+          "block_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "rounds": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "file_paths": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "include": {
+            "type": "string",
+            "enum": [
+              "request",
+              "response",
+              "both"
+            ]
+          },
+          "max_chars": {
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 50000
+          }
+        }
+      }
+    },
+    {
+      "name": "planning",
+      "description": "Return the implementation plan after reviewing the provided repository context.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "plan"
+        ],
+        "properties": {
+          "plan": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/plan_item"
+            }
+          }
+        },
+        "$defs": {
+          "plan_item": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "action",
+              "reason"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "action": {
+                "type": "string",
+                "enum": [
+                  "NEW",
+                  "MODIFY",
+                  "READ_ONLY"
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
           }
         }
       }
@@ -35,12 +180,14 @@
       "input_schema": {
         "type": "object",
         "required": [
+          "explanation",
           "files"
         ],
         "properties": {
           "explanation": {
             "type": "string",
-            "description": "Tóm tắt ngắn gọn đã làm gì và vì sao."
+            "description": "Tóm tắt ngắn gọn đã làm gì và vì sao.",
+            "minLength": 1
           },
           "files": {
             "type": "array",
@@ -53,7 +200,8 @@
                   "$ref": "#/$defs/new_file"
                 }
               ]
-            }
+            },
+            "minItems": 1
           }
         },
         "$defs": {
@@ -166,7 +314,6 @@
             "additionalProperties": false,
             "required": [
               "path",
-              "language",
               "format",
               "content",
               "exists",
@@ -174,10 +321,6 @@
             ],
             "properties": {
               "path": {
-                "type": "string",
-                "minLength": 1
-              },
-              "language": {
                 "type": "string",
                 "minLength": 1
               },
@@ -192,7 +335,7 @@
               },
               "before_checksum": {
                 "type": "string",
-                "pattern": "^sha256:[0-9a-f]{64}$"
+                "minLength": 1
               }
             }
           },
@@ -201,19 +344,13 @@
             "additionalProperties": false,
             "required": [
               "path",
-              "language",
               "format",
               "content",
               "exists",
-              "before_checksum",
-              "summary"
+              "before_checksum"
             ],
             "properties": {
               "path": {
-                "type": "string",
-                "minLength": 1
-              },
-              "language": {
                 "type": "string",
                 "minLength": 1
               },
@@ -228,12 +365,6 @@
               },
               "before_checksum": {
                 "type": "null"
-              },
-              "summary": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 160,
-                "pattern": "^[^\\r\\n]+$"
               }
             }
           }

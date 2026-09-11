@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/governance/supervisor-ticket-result.schema.json",
+  "title": "Supervisor Ticket Result",
+  "description": "Result that Supervisor returns to Node after selecting and calling one ready agent.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ticket_id", "status"],
+  "properties": {
+    "ticket_id": {
+      "$ref": "../core/common.schema.json#/$defs/id"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["completed", "failed", "no_agent_available"]
+    },
+    "selected_agent_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "selected_agent_role": {
+      "type": "string",
+      "enum": [
+        "coder",
+        "reviewer",
+        "sprint_leader",
+        "architecture_manager"
+      ]
+    },
+    "result": {},
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "completed" } }
+      },
+      "then": {
+        "required": ["selected_agent_id", "selected_agent_role", "result"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": { "enum": ["failed", "no_agent_available"] }
+        }
+      },
+      "then": {
+        "required": ["error"]
+      }
+    }
+  ]
+}

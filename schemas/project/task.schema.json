@@ -114,6 +114,7 @@
       "type": "string",
       "enum": [
         "low",
+        "medium",
         "normal",
         "high",
         "critical"

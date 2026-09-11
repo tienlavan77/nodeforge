@@ -1,0 +1,10 @@
+{
+  "task_id": "FORGE-UI-054",
+  "supervisor_id": "SUP-FORGE-UI-054",
+  "request_id": "REQ-FORGE-UI-054-1",
+  "correlation_id": "CORR-FORGE-UI-054",
+  "attempt": 1,
+  "timestamp": "2026-09-04T10:00:00Z",
+  "state": "WAITING_AGENT",
+  "idempotency_key": "REQ-FORGE-UI-054-1"
+}

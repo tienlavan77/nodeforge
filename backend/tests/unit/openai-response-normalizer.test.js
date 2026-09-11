@@ -26,10 +26,13 @@ test("unwraps the provider-neutral agent_tool wrapper by kind", () => {
 });
 
 test("maps submit_code alias and preserves payload", () => {
-  const payload = { explanation: "done", files: [{ path: "src/a.js", language: "js", format: "full_content", content: "export {};", exists: false, before_checksum: null }] };
+  const payload = { explanation: "done", files: [{ path: "src/a.js", format: "full_content", content: "export {};", exists: false, before_checksum: null }] };
   const result = normalizeResponse({ tool_use: { name: "submit_code", input: payload } }, { request_id: parent });
   assert.equal(result.type, "submit_code_response");
-  assert.deepEqual(result.payload, payload);
+  assert.deepEqual(result.payload, {
+    explanation: "done",
+    files: [{ path: "src/a.js", format: "full_content", content: "export {};", exists: false, before_checksum: null }]
+  });
 });
 
 test("supports Chat Completions tool calls and requestId alias", () => {

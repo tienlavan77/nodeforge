@@ -181,7 +181,7 @@ test("anthropic adapter sends x-api-key and anthropic-version headers with model
     assert.equal(captured.headers["anthropic-version"], "2023-06-01");
     assert.equal(captured.headers["x-correlation-id"], "CORR-ANT");
     assert.equal(captured.body.model, "claude-sonnet-4-5-20251001");
-    assert.deepEqual(captured.body.messages, [{ role: "user", content: "Hello claude" }]);
+    assert.deepEqual(captured.body.messages, [{ role: "user", content: [{ type: "text", text: "Hello claude" }] }]);
     assert.equal(result.payload.text, "Anthropic reply");
     assert.equal(result.payload.response_id, "msg_123");
     assert(!captured.headers.authorization);

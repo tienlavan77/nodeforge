@@ -16,7 +16,7 @@ export function createSprintPlanUploadService({ roadmaps, projectRoot = process.
   if (typeof roadmaps?.save !== "function") throw new ConfigurationError("Sprint Plan Upload requires a Roadmap Store.");
   const validate = createValidator();
 
-  return Object.freeze({ upload, get, remove, removeTicket });
+  return Object.freeze({ upload, list, get, update, remove, removeTicket });
 
   function remove({ projectId, sprintId } = {}) {
     get({ projectId, sprintId });
@@ -29,6 +29,13 @@ export function createSprintPlanUploadService({ roadmaps, projectRoot = process.
     return { deleted: true, sprint_id: sprintId };
   }
 
+  function list({ projectId } = {}) {
+    if (typeof projectId !== "string" || projectId.length === 0) throw new ConfigurationError("A project id is required.");
+    const current = roadmaps.getCurrent?.();
+    if (!current || current.project_id !== projectId) return [];
+    return structuredClone(current.sprints ?? []);
+  }
+
   function get({ projectId, sprintId } = {}) {
     const sprint = roadmaps.getAllVersions?.().flatMap((roadmap) => roadmap.project_id === projectId ? (roadmap.sprints ?? []) : []).find(({ id }) => id === sprintId);
     if (!sprint) {
@@ -37,6 +44,15 @@ export function createSprintPlanUploadService({ roadmaps, projectRoot = process.
       throw error;
     }
     return structuredClone(sprint);
+  }
+
+  function update({ projectId, sprintId, sprintPlan } = {}) {
+    const current = get({ projectId, sprintId });
+    if (isRunning(sprintId)) { const error = new ConfigurationError(`Sprint is currently running: ${sprintId}.`); error.statusCode = 409; throw error; }
+    const next = { ...sprintPlan, id: sprintId, project_id: projectId, roadmap_id: sprintPlan?.roadmap_id ?? current.roadmap_id };
+    if (!validate(next)) throw new ConfigurationError(`Invalid Sprint Plan: ${validate.errors.map((error) => `${error.instancePath || "/"} ${error.message}`).join("; ")}`);
+    if (!roadmaps.removeSprint?.(projectId, sprintId)) { const error = new ConfigurationError(`Unknown Sprint Plan: ${sprintId}.`); error.statusCode = 404; throw error; }
+    return upload({ projectId, sprintPlan: next });
   }
 
   function removeTicket({ projectId, ticketId } = {}) {

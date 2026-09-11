@@ -8,7 +8,7 @@
     {
       "type": "function",
       "name": "code_needed",
-      "description": "G\u1ecdi khi c\u1ea7n xem n\u1ed9i dung file hi\u1ec7n c\u00f3 \u0111\u1ec3 ti\u1ebfp t\u1ee5c code \u2014 ch\u01b0a \u0111\u1ee7 th\u00f4ng tin \u0111\u1ec3 vi\u1ebft code ngay.",
+      "description": "Gọi khi cần xem nội dung file hiện có để tiếp tục code — chưa đủ thông tin để viết code ngay. files_requested phải là đường dẫn file cụ thể, không bao giờ là thư mục.",
       "strict": true,
       "parameters": {
         "type": "object",
@@ -21,6 +21,7 @@
           "files_requested": {
             "type": "array",
             "uniqueItems": true,
+            "description": "Individual file paths only — never directories.",
             "items": {
               "type": "string",
               "minLength": 1
@@ -29,6 +30,65 @@
           "reason": {
             "type": "string",
             "minLength": 1
+          }
+        }
+      }
+    },
+    {
+      "type": "function",
+      "name": "read_transcript_blocks",
+      "description": "Read approved transcript rounds and approved project files through Forge services.",
+      "strict": true,
+      "parameters": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://forge.local/schemas/agent/tools/read-transcript-blocks.schema.json",
+        "title": "Forge read transcript blocks tool input",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "block_ids",
+          "rounds",
+          "file_paths",
+          "include",
+          "max_chars"
+        ],
+        "properties": {
+          "block_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "rounds": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "file_paths": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "include": {
+            "type": "string",
+            "enum": [
+              "request",
+              "response",
+              "both"
+            ]
+          },
+          "max_chars": {
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 50000
           }
         }
       }
@@ -46,8 +106,10 @@
         ],
         "properties": {
           "plan": {
+            "description": "Return exactly one entry per concrete filesystem path. Never repeat a path. For an ambiguous classification, use precedence NEW, then MODIFY, then READ_ONLY.",
             "type": "array",
             "minItems": 1,
+            "uniqueItems": true,
             "items": {
               "$ref": "#/$defs/plan_item"
             }
@@ -65,7 +127,9 @@
             "properties": {
               "path": {
                 "type": "string",
-                "minLength": 1
+                "minLength": 3,
+                "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?:(?:[^/]+/)*[^/]+\\.[^/]+)$",
+                "description": "Concrete relative filesystem file path, including extension."
               },
               "action": {
                 "type": "string",
@@ -239,8 +303,7 @@
               "format",
               "exists",
               "before_checksum",
-              "content",
-              "summary"
+              "content"
             ],
             "properties": {
               "patch_id": {
@@ -262,10 +325,6 @@
               },
               "content": {
                 "type": "string"
-              },
-              "summary": {
-                "type": "string",
-                "minLength": 1
               }
             }
           },
@@ -382,7 +441,7 @@
     {
       "type": "function",
       "name": "submit_code_response",
-      "description": "Tr\u1ea3 code \u0111\u00e3 ho\u00e0n th\u00e0nh theo task \u0111\u01b0\u1ee3c giao. M\u1ed7i file ph\u1ea3i \u0111\u00fang required_output_format \u0111\u00e3 \u0111\u01b0\u1ee3c Node ch\u1ec9 \u0111\u1ecbnh.",
+      "description": "Return code for EVERY NEW and MODIFY file in the approved execution plan. Every MODIFY file MUST include a structured_patch operation; never return only NEW-file content when MODIFY files exist.",
       "strict": true,
       "parameters": {
         "type": "object",
@@ -397,6 +456,7 @@
             "minLength": 1
           },
           "files": {
+            "description": "Phải chứa mọi path có action NEW hoặc MODIFY trong execution plan; READ_ONLY không được gửi.",
             "type": "array",
             "items": {
               "oneOf": [
@@ -558,8 +618,7 @@
               "format",
               "content",
               "exists",
-              "before_checksum",
-              "summary"
+              "before_checksum"
             ],
             "properties": {
               "path": {
@@ -577,10 +636,6 @@
               },
               "before_checksum": {
                 "type": "null"
-              },
-              "summary": {
-                "type": "string",
-                "minLength": 1
               }
             }
           }
@@ -590,7 +645,7 @@
     {
       "type": "function",
       "name": "usage_needed",
-      "description": "G\u1ecdi khi c\u1ea7n xem file kh\u00e1c (th\u01b0\u1eddng l\u00e0 component cha) \u0111\u1ec3 bi\u1ebft c\u00e1ch \u0111\u1ea5u n\u1ed1i/s\u1eed d\u1ee5ng code v\u1eeba t\u1ea1o v\u00e0o h\u1ec7 th\u1ed1ng.",
+      "description": "Gọi khi cần xem file khác (thường là component cha) để biết cách đấu nối/sử dụng code vừa tạo vào hệ thống.",
       "strict": true,
       "parameters": {
         "type": "object",
@@ -615,7 +670,7 @@
     {
       "type": "function",
       "name": "no_wiring_needed",
-      "description": "G\u1ecdi khi x\u00e1c nh\u1eadn code v\u1eeba t\u1ea1o KH\u00d4NG c\u1ea7n \u0111\u1ea5u n\u1ed1i th\u00eam \u1edf b\u01b0\u1edbc n\u00e0y (n\u1eb1m ngo\u00e0i ph\u1ea1m vi ticket hi\u1ec7n t\u1ea1i).",
+      "description": "Gọi khi xác nhận code vừa tạo KHÔNG cần đấu nối thêm ở bước này (nằm ngoài phạm vi ticket hiện tại).",
       "strict": true,
       "parameters": {
         "type": "object",
@@ -633,7 +688,7 @@
     {
       "type": "function",
       "name": "completed",
-      "description": "G\u1ecdi khi \u0111\u00e3 \u0111\u1ed1i chi\u1ebfu acceptance_criteria thu\u1ed9c ph\u1ea1m vi c\u1ee7a m\u00ecnh v\u00e0 x\u00e1c nh\u1eadn \u0111\u00e3 \u0111\u00e1p \u1ee9ng \u0111\u1ee7.",
+      "description": "Gọi khi đã đối chiếu acceptance_criteria thuộc phạm vi của mình và xác nhận đã đáp ứng đủ.",
       "strict": true,
       "parameters": {
         "type": "object",
@@ -726,7 +781,7 @@
     {
       "type": "function",
       "name": "continue",
-      "description": "G\u1ecdi khi v\u1eabn c\u00f2n vi\u1ec7c c\u1ea7n l\u00e0m th\u00eam \u0111\u1ec3 \u0111\u00e1p \u1ee9ng \u0111\u1ee7 acceptance_criteria thu\u1ed9c ph\u1ea1m vi c\u1ee7a m\u00ecnh.",
+      "description": "Gọi khi vẫn còn việc cần làm thêm để đáp ứng đủ acceptance_criteria thuộc phạm vi của mình.",
       "strict": true,
       "parameters": {
         "type": "object",

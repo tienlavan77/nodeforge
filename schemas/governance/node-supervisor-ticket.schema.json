@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/governance/node-supervisor-ticket.schema.json",
+  "title": "Node Supervisor Ticket",
+  "description": "Ticket that Node sends to Supervisor for agent selection.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ticket_id", "title", "description", "created_at"],
+  "properties": {
+    "ticket_id": {
+      "$ref": "../core/common.schema.json#/$defs/id"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "project_id": {
+      "$ref": "../core/common.schema.json#/$defs/id"
+    },
+    "required_role": {
+      "type": "string",
+      "enum": [
+        "coder",
+        "reviewer",
+        "sprint_leader",
+        "architecture_manager"
+      ]
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "created_at": {
+      "$ref": "../core/common.schema.json#/$defs/timestamp"
+    }
+  }
+}

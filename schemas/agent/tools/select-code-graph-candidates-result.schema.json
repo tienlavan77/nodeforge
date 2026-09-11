@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/tools/select-code-graph-candidates-result.schema.json",
+  "title": "Forge selected Code Graph candidates tool result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task_id", "selected"],
+  "properties": {
+    "task_id": { "type": "string", "minLength": 1 },
+    "index_version": { "type": ["string", "null"] },
+    "selected": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4,
+      "items": { "type": "object", "additionalProperties": true }
+    }
+  }
+}

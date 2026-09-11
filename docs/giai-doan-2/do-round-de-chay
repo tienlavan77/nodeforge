@@ -1,0 +1,31 @@
+Hiện tại Supervisor chỉ biết một phần:
+
+  - State file lưu state, pending_request, round.
+  - Protocol Storage lưu request/response từng round.
+  - Nhưng recovery chưa tự đối chiếu đầy đủ request/response để quyết định chính xác round tiếp theo.
+
+  Vì vậy hiện tại chưa đảm bảo hoàn toàn các trường hợp:
+
+  R1 có request, chưa có response
+  → chạy lại R1
+
+  R1 có response
+  → phải tạo R2
+
+  R2 có request, chưa có response
+  → chạy lại R2
+
+  R2 có response
+  → phải tạo R3
+
+  Để an toàn sau VPS crash, recovery cần làm reconciliation:
+
+  1. Đọc Supervisor state.
+  2. Đọc Protocol Storage theo task_id.
+  3. Xác định round cuối cùng có request/response.
+  4. Nếu request chưa có response → enqueue lại đúng request đó.
+  5. Nếu đã có response → tạo round tiếp theo.
+  6. Nếu R3 đã có response → chuyển sang Materializer/Verification.
+  7. Không tạo Supervisor mới và không duplicate request đã completed.
+
+  Nói ngắn gọn: dữ liệu nền đã có, nhưng logic “tìm round và resume đúng bước” hiện vẫn cần bổ sung

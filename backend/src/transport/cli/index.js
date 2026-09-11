@@ -14,7 +14,15 @@ export async function runCli(args, { cwd = process.cwd(), stdout = process.stdou
     return runAgentCommand(args, runtimeService, stdout, stderr);
   }
   if (args[0] === "index" && args[1] === "rebuild" && args.length === 2) {
-    const { indexedFiles } = await rebuildIndex({ projectRoot: cwd });
+    let processed = 0;
+    const { indexedFiles } = await rebuildIndex({
+      projectRoot: cwd,
+      onFile: ({ path, indexed, phase }) => {
+        if (phase !== "index") return;
+        processed += 1;
+        stdout.write(`[${processed}] ${indexed ? "indexed" : "skipped"} ${path}\n`);
+      }
+    });
     stdout.write(`Rebuilt index for ${indexedFiles} files.\n`);
     return 0;
   }

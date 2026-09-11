@@ -30,22 +30,34 @@ export function createSupervisorManager({ eventBus, stateStore, idFactory = () =
     }
     return { task_id: taskId, supervisor_id: requestedId ?? null, context: { ticket, ...context } };
   }
-  function startTask({ task_id: taskId, supervisor_id: requestedId, ticket, restart = false, ...context } = {}) {
+  async function startTask({ task_id: taskId, supervisor_id: requestedId, ticket, restart = false, ...context } = {}) {
     admitTask({ task_id: taskId, supervisor_id: requestedId, ticket, ...context });
-    if (byTask.has(taskId)) {
-      const existing = byTask.get(taskId);
-      if (!(restart && ["COMPLETED", "FAILED", "NEEDS_HUMAN_REVIEW"].includes(existing.getState()))) return existing;
-      byTask.delete(taskId); bySupervisor.delete(existing.supervisorId);
-    }
+    const local = byTask.get(taskId);
     const supervisorId = requestedId ?? idFactory();
-    const runtime = createSupervisorRuntime({ taskId, supervisorId, eventBus, stateStore, preparation });
+    const claim = await stateStore?.claimTask?.(taskId, { supervisor_id: supervisorId, state: local?.getState?.() ?? "CREATED", pending_request: { ticket, ...context } });
+    if (claim && !claim.created) {
+      const terminal = ["COMPLETED", "FAILED", "NEEDS_HUMAN_REVIEW"].includes(claim.state);
+      const shouldRestart = restart || terminal;
+      const rerunAttempt = terminal && shouldRestart ? Math.max(Number(context.attempt) || 1, (Number(claim.pending_request?.attempt) || 0) + 1) : (Number(context.attempt) || 1);
+      const resetContext = { ticket, ...context, attempt: rerunAttempt };
+      const existing = byTask.get(taskId);
+      if (existing) { if (shouldRestart && existing.reset) await existing.reset(resetContext); return existing; }
+      const runtime = createSupervisorRuntime({ taskId, supervisorId: claim.supervisor_id, eventBus, stateStore, preparation, initialState: claim.state ?? "CREATED", ownershipCreated: false });
+      byTask.set(taskId, runtime); bySupervisor.set(claim.supervisor_id, runtime); if (shouldRestart && runtime.reset) await runtime.reset(resetContext); onCreate(runtime); return runtime;
+    }
+    if (!claim && local) {
+      const shouldRestart = restart || ["COMPLETED", "FAILED", "NEEDS_HUMAN_REVIEW"].includes(local.getState?.());
+      if (shouldRestart && local.reset) await local.reset({ ticket, ...context, attempt: Math.max(Number(context.attempt) || 1, 2) });
+      return local;
+    }
+    const runtime = createSupervisorRuntime({ taskId, supervisorId, eventBus, stateStore, preparation, ownershipCreated: true });
     byTask.set(taskId, runtime); bySupervisor.set(supervisorId, runtime);
-    void stateStore?.save?.({ task_id: taskId, supervisor_id: supervisorId, state: runtime.getState(), pending_request: { ticket, ...context }, updated_at: new Date().toISOString() });
+    await stateStore?.save?.({ task_id: taskId, supervisor_id: supervisorId, state: runtime.getState(), pending_request: { task_id: taskId, ticket_id: ticket?.id ?? taskId, project_id: context.project_id ?? ticket?.project_id, request_id: context.request_id, correlation_id: context.correlation_id, attempt: context.attempt ?? 1 }, updated_at: new Date().toISOString() });
     onCreate(runtime);
     return runtime;
   }
   async function recover() {
-    const states = await stateStore?.list?.() ?? [];
+    const states = await stateStore?.list?.({ scope: "pending" }) ?? [];
     for (const state of states) if (state.task_id && state.supervisor_id && !byTask.has(state.task_id)) { const runtime = createSupervisorRuntime({ taskId: state.task_id, supervisorId: state.supervisor_id, eventBus, stateStore, preparation, initialState: state.state }); byTask.set(state.task_id, runtime); bySupervisor.set(state.supervisor_id, runtime); onCreate(runtime); }
     return states.length;
   }

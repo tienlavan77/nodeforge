@@ -16,6 +16,21 @@ test("validates envelope and payload selected by role:type", () => {
   assert.match(result.schema_id, /agent-no-wiring-needed/);
 });
 
+test("planning allows one action per path and rejects duplicate paths", () => {
+  const planning = (plan) => validateEnvelope({ ...base, type: "planning", payload: { plan } });
+  assert.equal(planning([
+    { path: "src/new-file.js", action: "NEW", reason: "Create the implementation." },
+    { path: "src/existing.js", action: "MODIFY", reason: "Update the implementation." },
+    { path: "tests/existing.test.js", action: "READ_ONLY", reason: "Inspect the current behavior." }
+  ]).valid, true);
+  const duplicate = planning([
+    { path: "src/existing.js", action: "MODIFY", reason: "Update the implementation." },
+    { path: "src/existing.js", action: "READ_ONLY", reason: "Inspect the implementation." }
+  ]);
+  assert.equal(duplicate.valid, false);
+  assert.equal(duplicate.code, "INVALID_PAYLOAD");
+});
+
 test("rejects an invalid payload with a dedicated error code", () => {
   const result = validateEnvelope({ ...base, type: "completed", payload: { status: "completed" } });
   assert.equal(result.valid, false);
@@ -55,7 +70,7 @@ test("validates every registered Agent payload branch", () => {
     code_needed: { files_requested: ["backend/src/app.js"], reason: "Need the current implementation." },
     submit_code_response: {
       explanation: "Updated the implementation.",
-      files: [{ path: "backend/src/app.js", language: "javascript", format: "full", content: "export {};", exists: true }]
+      files: [{ path: "backend/src/app.js", format: "full_content", content: "export {};", exists: false, before_checksum: null }]
     },
     usage_needed: { files_requested: ["backend/src/index.js"], reason: "Need the caller to wire this module." },
     no_wiring_needed: { reason: "The new module is already reachable." },

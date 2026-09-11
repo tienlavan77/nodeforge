@@ -1,12 +1,17 @@
 import { ConfigurationError } from "../../../shared/errors.js";
-import { buildMessages, mapUsage } from "./request-builder.js";
+import { buildAnthropicMessages, buildAnthropicSystem, buildAnthropicToolChoice, mapUsage } from "./request-builder.js";
+import * as devquote from "./devquote-adapter.js";
 
 export async function request({ url, credential, payload, model, correlationId, signal }) {
+  // Profiles created as "anthropic" may point at the DevQuote-compatible gateway.
+  if (isDevquoteGateway(url)) return devquote.request({ url, credential, payload, model, correlationId, signal });
   const body = {
     model: model || process.env.CLAUDE_MODEL || process.env.NODE_AGENT_MODEL || "claude-sonnet-4-5-20251001",
     max_tokens: 8192,
-    messages: buildMessages(payload),
+    system: buildAnthropicSystem(payload),
+    messages: buildAnthropicMessages(payload),
     tools: toAnthropicTools(payload.tools),
+    ...(buildAnthropicToolChoice(payload, payload.tools ?? []) ? { tool_choice: buildAnthropicToolChoice(payload, payload.tools ?? []) } : {})
   };
   const response = await fetch(url, {
     method: "POST",
@@ -17,16 +22,24 @@ export async function request({ url, credential, payload, model, correlationId, 
   if (!response.ok) throw new ConfigurationError("Agent Gateway response is invalid.");
   const data = await response.json();
   const text = data?.content?.find((c) => typeof c?.text === "string")?.text ?? data?.output_text ?? extractText(data);
+  const tool = data?.content?.find((c) => c?.type === "tool_use" && c?.input && typeof c.input === "object");
+  if (tool) return { status: data.status ?? "completed", payload: { tool_use: { id: tool.id, name: tool.name, input: tool.input }, response_id: data.id ?? data.response_id, usage: mapUsage(data.usage) } };
   if (!text) throw new ConfigurationError("Agent Gateway response is invalid.");
   return { status: data.status ?? "completed", payload: { text, response_id: data.id ?? data.response_id, usage: mapUsage(data.usage) } };
 }
 
 export async function* stream({ url, credential, payload, model, correlationId, signal }) {
+  if (isDevquoteGateway(url)) {
+    yield* devquote.stream({ url, credential, payload, model, correlationId, signal });
+    return;
+  }
   const body = {
     model: model || process.env.CLAUDE_MODEL || process.env.NODE_AGENT_MODEL || "claude-sonnet-4-5-20251001",
     max_tokens: 8192,
-    messages: buildMessages(payload),
+    system: buildAnthropicSystem(payload),
+    messages: buildAnthropicMessages(payload),
     tools: toAnthropicTools(payload.tools),
+    ...(buildAnthropicToolChoice(payload, payload.tools ?? []) ? { tool_choice: buildAnthropicToolChoice(payload, payload.tools ?? []) } : {}),
     stream: true
   };
   const response = await fetch(url, {
@@ -78,4 +91,8 @@ function extractText(data) {
 
 function toAnthropicTools(tools = []) {
   return tools?.length ? tools.map((tool) => ({ name: tool.name, description: tool.description, input_schema: tool.input_schema })) : undefined;
+}
+
+function isDevquoteGateway(url) {
+  try { return new URL(url).hostname === "sv.devquote.shop"; } catch { return false; }
 }

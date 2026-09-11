@@ -96,17 +96,42 @@ test("adds watcherIgnore patterns without hiding normal source files", async () 
   }
 });
 
+test("watches frontend source while ignoring frontend Next build output", async () => {
+  const root = await mkdtemp(join(os.tmpdir(), "nodeforge-watcher-"));
+  const sourcePath = join(root, "frontend", "app.jsx");
+  const nextPath = join(root, "frontend", ".next", "trace");
+  let watcher;
+  try {
+    await mkdir(join(root, "frontend", ".next"), { recursive: true });
+    await writeFile(sourcePath, "export const value = 1;\n");
+    await writeFile(nextPath, "before\n");
+    watcher = createFilesystemWatcher({ root, chokidarOptions: { interval: 20, usePolling: true } });
+    await waitForReady(watcher);
+    const changes = [];
+    watcher.on("change", (path) => changes.push(path));
+    const sourceChange = waitForChange(watcher, sourcePath);
+    await writeFile(sourcePath, "export const value = 2;\n");
+    assert.equal(await sourceChange, sourcePath);
+    await writeFile(nextPath, "ignored\n");
+    await wait(200);
+    assert.equal(changes.includes(nextPath), false);
+  } finally { await watcher?.close(); await rm(root, { recursive: true, force: true }); }
+});
+
 test("keeps mandatory ignores when watcherIgnore is empty", async () => {
   const root = await mkdtemp(join(os.tmpdir(), "nodeforge-watcher-"));
   const forgePath = join(root, ".forge", "state.json");
   const controlPath = join(root, ".node-control", "runtime", "index.db-wal");
+  const pnpmStorePath = join(root, ".pnpm-store", "v3", "files", "package.json");
   let watcher;
 
   try {
     await mkdir(join(root, ".forge"), { recursive: true });
     await mkdir(join(root, ".node-control", "runtime"), { recursive: true });
+    await mkdir(join(root, ".pnpm-store", "v3", "files"), { recursive: true });
     await writeFile(forgePath, "{}\n");
     await writeFile(controlPath, "wal\n");
+    await writeFile(pnpmStorePath, "{}\n");
     const config = loadConfig({ overrides: { watcherIgnore: [] } });
     watcher = createFilesystemWatcher({
       root,
@@ -119,10 +144,12 @@ test("keeps mandatory ignores when watcherIgnore is empty", async () => {
     watcher.on("change", (path) => changes.push(path));
     await writeFile(forgePath, '{"changed":true}\n');
     await writeFile(controlPath, "wal changed\n");
+    await writeFile(pnpmStorePath, '{"changed":true}\n');
     await wait(200);
 
     assert.equal(changes.includes(forgePath), false);
     assert.equal(changes.includes(controlPath), false);
+    assert.equal(changes.includes(pnpmStorePath), false);
   } finally {
     await watcher?.close();
     await rm(root, { recursive: true, force: true });

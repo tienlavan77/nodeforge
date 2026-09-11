@@ -3,6 +3,7 @@ import { createAgentSession } from "../modules/agent/session.js";
 import { createEventReplayEngine } from "../modules/recovery/event-replay-engine.js";
 import { createRuntimeRecovery } from "../modules/recovery/runtime-recovery.js";
 import { ConfigurationError } from "../shared/errors.js";
+import { logEvent } from "../core/project-log-service.js";
 
 export function createRuntimeService({ sessionFactory = createAgentSession, memoryRetriever, createSessionId, sessionStore, eventStore, recovery, replayEngine = createEventReplayEngine(), agentRuntime, publisher, logger = console, taskStore, now = () => new Date().toISOString() } = {}) {
   if (typeof sessionFactory !== "function") throw new ConfigurationError("Runtime Service requires a session factory.");
@@ -40,6 +41,7 @@ export function createRuntimeService({ sessionFactory = createAgentSession, memo
         .catch((error) => {
           try { session.fail(error); sessionStore.save(session); } catch (stateError) { logger.error?.("Agent session state update failed", { error: stateError.message }); }
           try { logger.error?.("Agent runtime execution failed", { project_id: projectId, task_id: taskId, session_id: snapshot.id, error: error.message }); } catch { /* logging must not affect the HTTP response */ }
+          try { logEvent({ timestamp: new Date().toISOString(), event_name: "agent.failed", level: "error", status: "failed", message: error.message, task_id: taskId, ticket_id: taskId, conversation_id: `CONV-${taskId}`, source: "runtime-service", error_code: error.code ?? "AGENT_RUNTIME_FAILED", payload: { error: error.message, session_id: snapshot.id } }); } catch (logError) { logger.error?.("Project log write failed", { task_id: taskId, error: logError.message }); }
           publishAgentEvent("agent.failed", { project_id: projectId, task_id: taskId, session_id: snapshot.id, error: error.message });
         });
     }

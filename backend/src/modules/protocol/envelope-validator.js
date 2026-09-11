@@ -8,8 +8,20 @@ import { getPayloadSchema } from "./payload-schema-registry.js";
 
 const require = createRequire(import.meta.url);
 const envelopeSchema = require("../../../../schemas/agent/envelope.schema.json");
+const structuralSummarySchema = require("../../../../schemas/agent/payloads/structural-summary.schema.json");
 const ajv = new Ajv({ allErrors: true, strict: false });
 addFormats(ajv);
+ajv.addKeyword({ keyword: "uniquePlanPaths", type: "array", schemaType: "boolean", errors: false, validate: (_enabled, plan) => {
+  const seen = new Set();
+  for (const item of plan) {
+    if (seen.has(item?.path)) {
+      return false;
+    }
+    seen.add(item?.path);
+  }
+  return true;
+} });
+ajv.addSchema(structuralSummarySchema);
 const validateShape = ajv.compile(envelopeSchema);
 
 /**

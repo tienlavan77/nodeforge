@@ -7,8 +7,8 @@ const nextConfig = {
   async rewrites() {
     return { afterFiles: [
       { source: "/api/:path*", destination: `${controlApiUrl}/:path*` },
+      { source: "/forge/v1/:path*", destination: `${controlApiUrl}/forge/v1/:path*` },
       { source: "/projects/:path*", destination: `${controlApiUrl}/projects/:path*` },
-      { source: "/agents/:path*", destination: `${controlApiUrl}/agents/:path*` },
       { source: "/tasks/:path*", destination: `${controlApiUrl}/tasks/:path*` },
       { source: "/sessions/:path*", destination: `${controlApiUrl}/sessions/:path*` },
     ] };

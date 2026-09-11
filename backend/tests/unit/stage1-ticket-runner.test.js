@@ -27,7 +27,7 @@ test("runs code_needed to submit_code_response through the canonical Stage-1 run
     resolveAgentProfile: () => { profileResolved = true; return { provider: "codex", gateway_url: "https://gateway.test", model: "gpt-5.6-sol" }; },
     agentGateway: { request: async ({ tools }) => { calls += 1; assert.ok(Array.isArray(tools)); assert.ok(tools.every((tool) => tool.name !== "agent_tool")); return calls === 1
       ? { payload: { tool_use: { name: "request_info", input: { files_requested: ["ui/nextjs/app/Test.jsx"], reason: "Need source" } } } }
-      : { payload: { tool_use: { name: "submit_code", input: { explanation: "Updated", files: [{ path: "ui/nextjs/app/Test.jsx", language: "javascript", format: "full_content", content: "after\n", exists: true, before_checksum: checksum }] } } } }; } }
+      : { payload: { tool_use: { name: "submit_code", input: { explanation: "Updated", files: [{ path: "ui/nextjs/app/Test.jsx", format: "structured_patch", content: { operations: [{ op: "replace_range", expected_content: "before\n", new_content: "after\n" }] }, exists: true, before_checksum: checksum }] } } } }; } }
   });
   const result = await runner.run(ticket);
   assert.equal(profileResolved, true); assert.equal(calls, 2); assert.equal(writes.length, 1); assert.equal(result.status.status, "done");

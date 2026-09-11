@@ -23,9 +23,22 @@ export function createExecutionEventBus({ validate = () => true, eventStore, clo
     if (!normalized.supervisor_id || !normalized.task_id) throw new ConfigurationError("Execution event requires task_id and supervisor_id.");
     if (!validate(normalized)) throw new ConfigurationError("Invalid execution event.");
     if (seen.has(normalized.event_id)) return { accepted: false, duplicate: true, event: normalized };
+    let persisted;
+    if (typeof eventStore?.append === "function") {
+      try { persisted = await eventStore.append(normalized); }
+      catch (error) {
+        // A concurrent process may win the persistent unique event_id insert.
+        if (typeof eventStore.getById === "function" && eventStore.getById(normalized.event_id)) return { accepted: false, duplicate: true, event: normalized };
+        throw error;
+      }
+      if (persisted?.accepted === false) { seen.add(normalized.event_id); return { accepted: false, duplicate: true, event: persisted.event ?? normalized }; }
+    }
     seen.add(normalized.event_id);
-    await eventStore?.append?.(normalized);
-    for (const handler of subscribers.get(normalized.supervisor_id) ?? []) await handler(normalized);
-    return { accepted: true, event: normalized };
+    // Persistent event stores use event_type; SupervisorLoop consumes type.
+    // Normalize both representations before routing to subscribers.
+    const stored = persisted?.event ?? normalized;
+    const delivered = { ...stored, type: stored.type ?? stored.event_type ?? normalized.type };
+    for (const handler of subscribers.get(normalized.supervisor_id) ?? []) await handler(delivered);
+    return { accepted: true, event: delivered };
   }
 }

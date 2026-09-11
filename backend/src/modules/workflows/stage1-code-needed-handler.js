@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { assertValidEnvelope } from "../protocol/envelope-validator.js";
 import { buildStage1InstructionBlocks, CODE_REQUIRE_INSTRUCTION, STRUCTURED_PATCH_CONTRACT } from "./stage1-instructions.js";
+import { inferLanguage, summarizeFile } from "../index/code-index-summary-builder.js";
 
 /** Resolve requested files through Code Index, then read content through File Service. */
 export function createStage1CodeNeededHandler({ files, fileService, relevantTree = [], createRequestId = randomUUID, clock = () => new Date() } = {}) {
@@ -36,17 +37,38 @@ export function createStage1CodeNeededHandler({ files, fileService, relevantTree
         path,
         exists: true,
         content,
-        ...(typeof index.language === "string" && index.language ? { language: index.language } : {}),
+        language: typeof index.language === "string" && index.language ? index.language : inferLanguage(path),
         size_bytes: index.size_bytes ?? Buffer.byteLength(content, "utf8"),
-        before_checksum: indexedChecksum ?? actualChecksum
+        before_checksum: indexedChecksum ?? actualChecksum,
+        index
       });
     }
     const planningFollowup = requestEnvelope.type === "planning";
     const executionPlan = planningFollowup ? buildExecutionPlan(response.payload.plan, resolved) : null;
+    const planningFiles = planningFollowup ? [] : toPlanningFiles(resolved);
     const inheritedUserBlocks = structuredClone(requestEnvelope.payload.user_blocks ?? requestEnvelope.payload.task_context?.user_blocks ?? []).filter((block) => block?.block_id !== "code_graph_candidates");
-    const envelope = { request_id: createRequestId(), parent_id: response.request_id, type: planningFollowup ? "code_provide" : "planning", role: "node", payload: { task_id: requestEnvelope.payload.task_id, step_id: requestEnvelope.payload.step_id + 1, ...(planningFollowup ? { plan: executionPlan } : { files: resolved }), ...(requestEnvelope.payload.cache_config ? { cache_config: structuredClone(requestEnvelope.payload.cache_config) } : {}), ...(planningFollowup ? { expected_output: { type: "submit_code_response", transport: "function_tool" } } : { expected_output: { type: "planning", representation: "json", transport: "function_tool" } }), task_context: { user_blocks: [...inheritedUserBlocks], instruction_blocks: [...buildStage1InstructionBlocks({ includePlanning: !planningFollowup, includeConventions: false }), ...(planningFollowup ? [{ block_id: "code_require", content: CODE_REQUIRE_INSTRUCTION, cacheable: false }, { block_id: "structured-patch-contract", content: STRUCTURED_PATCH_CONTRACT, cacheable: true }] : [])] } }, timestamp: clock().toISOString() };
+    const envelope = { request_id: createRequestId(), parent_id: response.request_id, type: planningFollowup ? "code_provide" : "planning", role: "node", payload: { task_id: requestEnvelope.payload.task_id, step_id: requestEnvelope.payload.step_id + 1, ...(planningFollowup ? { plan: executionPlan } : { files: planningFiles }), ...(requestEnvelope.payload.cache_config ? { cache_config: structuredClone(requestEnvelope.payload.cache_config) } : {}), ...(planningFollowup ? { expected_output: { type: "submit_code_response", transport: "function_tool" } } : { expected_output: { type: "planning", representation: "json", transport: "function_tool" } }), task_context: { user_blocks: [...inheritedUserBlocks], instruction_blocks: [...buildStage1InstructionBlocks({ includePlanning: !planningFollowup, includeConventions: false }), ...(planningFollowup ? [{ block_id: "code_require", content: CODE_REQUIRE_INSTRUCTION, cacheable: false }, { block_id: "structured-patch-contract", content: STRUCTURED_PATCH_CONTRACT, cacheable: true }] : [])] } }, timestamp: clock().toISOString() };
     return assertValidEnvelope(envelope);
   }
+}
+
+/** Planning context carries structural summaries of indexed files only; unresolved paths are new or out of index. */
+function toPlanningFiles(resolved) {
+  const existing = resolved.filter((file) => file.exists);
+  if (existing.length === 0) {
+    const error = new ConfigurationError(`No requested path is indexed: ${resolved.map((file) => file.path).join(", ")}.`);
+    error.code = "CONTEXT_UNAVAILABLE";
+    throw error;
+  }
+  return existing.map((file) => ({
+    path: file.path,
+    exists: true,
+    content: summarizeFile({ path: file.path, language: file.language, content: file.content }),
+    before_checksum: file.before_checksum,
+    size_bytes: file.size_bytes,
+    language: file.language,
+    index: file.index ?? null
+  }));
 }
 
 function buildExecutionPlan(plan, files) {
@@ -57,15 +79,15 @@ function buildExecutionPlan(plan, files) {
     if (!file) throw new ConfigurationError(`Plan path has no Node-provided context: ${item.path}.`);
     if (item.action === "NEW") {
       if (file.exists) throw new ConfigurationError(`Plan marks an existing file as NEW: ${item.path}.`);
-      return { path: item.path, action: "NEW", representation: "full_content", before_checksum: null, reason: item.reason, current_content: null };
+      return { path: item.path, action: "NEW", before_checksum: null, content: null, exists: false, language: file.language ?? "text", size_bytes: 0, format: "full_content", reason: item.reason, current_content: null };
     }
     if (item.action === "MODIFY") {
       if (!file.exists || typeof file.content !== "string" || typeof file.before_checksum !== "string") throw new ConfigurationError(`Plan MODIFY requires current file context: ${item.path}.`);
-      return { path: item.path, action: "MODIFY", representation: "structured_patch", before_checksum: file.before_checksum, reason: item.reason, current_content: file.content };
+      return { path: item.path, action: "MODIFY", before_checksum: file.before_checksum, content: file.content, exists: true, language: file.language ?? "text", size_bytes: file.size_bytes, format: "structured_patch", reason: item.reason, current_content: file.content };
     }
     if (item.action === "READ_ONLY") {
       if (!file.exists || typeof file.content !== "string") throw new ConfigurationError(`Plan READ_ONLY requires current file context: ${item.path}.`);
-      return { path: item.path, action: "READ_ONLY", representation: "none", before_checksum: null, reason: item.reason, current_content: file.content };
+      return { path: item.path, action: "READ_ONLY", before_checksum: file.before_checksum, content: file.content, exists: true, language: file.language ?? "text", size_bytes: file.size_bytes, format: "none", reason: item.reason, current_content: file.content };
     }
     throw new ConfigurationError(`Unsupported plan action for ${item.path}.`);
   });

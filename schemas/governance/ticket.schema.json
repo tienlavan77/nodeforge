@@ -13,8 +13,8 @@
     "title": { "type": "string", "minLength": 1 },
     "objective": { "type": "string", "minLength": 1 },
     "acceptance_criteria": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
-    "priority": { "type": "string", "enum": ["low", "normal", "high", "critical"] },
-    "status": { "type": "string", "enum": ["planned", "pending", "running", "reviewing", "done", "failed"] },
+    "priority": { "type": "string", "enum": ["low", "medium", "normal", "high", "critical"] },
+    "status": { "type": "string", "enum": ["planned", "pending", "running", "reviewing", "done", "failed", "needs_human_review"] },
     "last_error": { "type": "string" },
     "dependencies": { "type": "array", "items": { "$ref": "../core/common.schema.json#/$defs/id" }, "uniqueItems": true },
     "provenance": { "type": "object", "additionalProperties": false, "required": ["source", "source_id", "created_at"], "properties": {

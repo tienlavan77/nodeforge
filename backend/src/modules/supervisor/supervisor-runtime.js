@@ -2,16 +2,24 @@ import { ConfigurationError } from "../../shared/errors.js";
 
 export const SUPERVISOR_STATES = Object.freeze(["CREATED", "PREPARING", "READY", "REQUESTING", "WAITING_AGENT", "MATERIALIZING", "VERIFYING", "REPAIRING", "WAITING_REPAIR", "COMPLETED", "FAILED", "NEEDS_HUMAN_REVIEW"]);
 
-export function createSupervisorRuntime({ taskId, supervisorId, eventBus, initialState = "CREATED", stateStore, preparation = {} } = {}) {
+export function createSupervisorRuntime({ taskId, supervisorId, eventBus, initialState = "CREATED", stateStore, preparation = {}, ownershipCreated = false } = {}) {
   if (!taskId || !supervisorId || typeof eventBus?.publish !== "function") throw new ConfigurationError("Supervisor runtime requires task_id, supervisor_id and event bus.");
   let state = initialState;
-  return Object.freeze({ taskId, supervisorId, getState: () => state, transition, command, prepare });
+  let wasReset = false;
+  return Object.freeze({ taskId, supervisorId, ownershipCreated, get wasReset() { return wasReset; }, getState: () => state, transition, reset, command, prepare });
+  async function reset(context = {}) {
+    if (!["COMPLETED", "FAILED", "NEEDS_HUMAN_REVIEW"].includes(state)) return state;
+    const previous = state; state = "CREATED"; wasReset = true;
+    await stateStore?.save?.({ task_id: taskId, supervisor_id: supervisorId, state, pending_request: compactContext(context, taskId), updated_at: new Date().toISOString() });
+    await eventBus.publish({ type: "supervisor.state_changed", task_id: taskId, supervisor_id: supervisorId, request_id: context.request_id ?? `RESET-${taskId}`, correlation_id: context.correlation_id ?? `CORR-${taskId}`, attempt: context.attempt ?? 1, payload: { from: previous, to: state, reset: true } });
+    return state;
+  }
   async function transition(next, context = {}) {
     if (!SUPERVISOR_STATES.includes(next)) throw new ConfigurationError(`Unknown Supervisor state: ${next}`);
     if (next === state) return state;
     if (!ALLOWED_TRANSITIONS[state]?.includes(next)) throw new ConfigurationError(`Invalid Supervisor transition: ${state} -> ${next}.`);
     const previous = state; state = next;
-    await stateStore?.save?.({ task_id: taskId, supervisor_id: supervisorId, state, pending_request: context, updated_at: new Date().toISOString() });
+    await stateStore?.save?.({ task_id: taskId, supervisor_id: supervisorId, state, pending_request: compactContext(context, taskId), updated_at: new Date().toISOString() });
     await eventBus.publish({ type: "supervisor.state_changed", task_id: taskId, supervisor_id: supervisorId, request_id: context.request_id ?? `STATE-${taskId}-${next}`, correlation_id: context.correlation_id ?? `CORR-${taskId}`, attempt: context.attempt ?? 1, payload: { from: previous, to: next } });
     return state;
   }
@@ -40,6 +48,11 @@ const ALLOWED_TRANSITIONS = Object.freeze({
   CREATED: ["PREPARING", "REQUESTING", "FAILED"], PREPARING: ["READY", "FAILED"], READY: ["REQUESTING", "FAILED"],
   REQUESTING: ["WAITING_AGENT", "FAILED"], WAITING_AGENT: ["REQUESTING", "MATERIALIZING", "VERIFYING", "REPAIRING", "FAILED"],
   MATERIALIZING: ["VERIFYING", "REPAIRING", "FAILED"], VERIFYING: ["COMPLETED", "REPAIRING", "FAILED"],
-  REPAIRING: ["WAITING_REPAIR", "MATERIALIZING", "NEEDS_HUMAN_REVIEW", "FAILED"], WAITING_REPAIR: ["REQUESTING", "MATERIALIZING", "FAILED"],
+  REPAIRING: ["WAITING_REPAIR", "REQUESTING", "MATERIALIZING", "NEEDS_HUMAN_REVIEW", "FAILED"], WAITING_REPAIR: ["REQUESTING", "MATERIALIZING", "FAILED"],
   COMPLETED: [], FAILED: [], NEEDS_HUMAN_REVIEW: []
 });
+
+function compactContext(context = {}, taskId) {
+  const ticket = context.ticket ?? context.payload?.ticket ?? context.payload?.task;
+  return { task_id: taskId, request_id: context.request_id, correlation_id: context.correlation_id, attempt: context.attempt ?? 1, project_id: context.project_id ?? ticket?.project_id, ticket_id: ticket?.id ?? taskId, round: context.payload?.step_id ?? context.step_id, queue_job_id: context.job_id };
+}

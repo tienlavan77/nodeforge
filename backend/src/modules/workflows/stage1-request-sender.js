@@ -1,6 +1,5 @@
 import { ConfigurationError } from "../../shared/errors.js";
 import { getAdapter } from "../agent/provider-adapters/index.js";
-import { STRUCTURED_PATCH_PROMPT } from "./structured-patch-prompt.js";
 import { CODE_REQUIRE_INSTRUCTION } from "./stage1-instructions.js";
 import { persistAgentResponse } from "../agent/response-persistence.js";
 
@@ -20,7 +19,7 @@ export function createStage1RequestSender({ adapterResolver = getAdapter, protoc
       error.code = "ROUND_LIMIT_EXCEEDED";
       throw error;
     }
-    const provider = agentProfile?.provider ?? "openai";
+    const provider = agentProfile?.provider ?? "codex";
     const adapter = adapterResolver(provider);
     if (typeof adapter?.call !== "function") throw new ConfigurationError(`Provider adapter does not implement call(): ${provider}.`);
     const context = { task_id: envelope.payload.task_id, step_id: envelope.payload.step_id, type: envelope.type, role: envelope.role, request_id: envelope.request_id, parent_id: envelope.parent_id };
@@ -86,8 +85,8 @@ function buildProviderPayload(envelope) {
   const files = Array.isArray(envelope.payload.files) ? envelope.payload.files.map(stripInternalFileFields) : null;
   const formats = submissionFormatsFromPlan(payload.plan);
   const guidance = formats.has("structured_patch")
-    ? `${STRUCTURED_PATCH_PROMPT}${formats.has("full_content") ? " For NEW files, use full_content with exists=false, before_checksum=null, complete string content, and a one-line summary." : ""}`
-    : "For NEW files, return format=full_content, exists=false, before_checksum=null, complete file content as a string, and a one-line summary.";
+    ? "NEW files must use format=full_content with complete file content as a string, exists=false, and before_checksum=null. MODIFY files receive complete current content from Node but must return format=structured_patch with content={operations:[...]}; preserve the exact Node checksum. replace_range must be exactly {op, expected_content, new_content}."
+    : "For NEW files, return format=full_content, exists=false, before_checksum=null, complete file content as a string.";
   return {
     ...payload,
     instruction_blocks: [

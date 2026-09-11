@@ -137,7 +137,16 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     authorize(toolName, normalized, resource);
     const reservation = await reserveRetrieval(normalized, { tool: toolName, resource, estimatedBytes: input?.max_chars ?? input?.maxChars ?? 0 });
     try {
-      const toolContext = { ...normalized }; delete toolContext.context_budget; delete toolContext.retrieval_budget; delete toolContext.consume_retrieval; delete toolContext.consumeRetrieval;
+      const toolContext = {
+        ...context,
+        ...normalized,
+        allowed_file_paths: normalized.allowed_resources?.allowed_file_paths ?? [],
+        allowed_prefixes: normalized.allowed_resources?.allowed_prefixes ?? []
+      };
+      delete toolContext.context_budget;
+      delete toolContext.retrieval_budget;
+      delete toolContext.consume_retrieval;
+      delete toolContext.consumeRetrieval;
       const result = await execute(input, toolContext);
       const bytes = Buffer.byteLength(JSON.stringify(result ?? ""), "utf8");
       await commitRetrieval(normalized, reservation, { bytes, success: true });

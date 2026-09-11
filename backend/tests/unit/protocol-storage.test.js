@@ -59,7 +59,7 @@ test("Protocol Storage serializes JSON deterministically", () => {
   assert.equal(storage.serialize({ list: [2, 1], value: "x" }), '{"list":[2,1],"value":"x"}\n');
   const circular = {}; circular.self = circular;
   assert.throws(() => storage.serialize(circular), (error) => error.code === "STORAGE_SERIALIZATION_ERROR");
-  assert.throws(() => storage.serialize({ value: undefined }), (error) => error.code === "STORAGE_SERIALIZATION_ERROR");
+  assert.equal(storage.serialize({ value: undefined }), "{}\n");
 });
 
 test("Protocol Storage computes SHA-256 over exact serialized bytes and creates metadata", () => {

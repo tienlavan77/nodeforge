@@ -15,7 +15,7 @@ const TRANSITIONS = {
   pending: ["blocked", "running", "cancelled"],
   blocked: ["pending", "cancelled"],
   running: ["reviewing", "failed", "cancelled", "needs_human_review"],
-  reviewing: ["done", "failed", "cancelled", "needs_human_review"],
+  reviewing: ["running", "done", "failed", "cancelled", "needs_human_review"],
   done: [],
   failed: ["pending"],
   cancelled: [],

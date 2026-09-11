@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/tools/check-test.schema.json",
+  "title": "Forge check test tool input",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "job_id": { "type": "string", "minLength": 1 }
+  },
+  "required": ["job_id"]
+}

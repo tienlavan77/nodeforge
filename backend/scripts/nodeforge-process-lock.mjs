@@ -10,6 +10,19 @@ export function acquireProcessLock(dataDir, role, { fileService } = {}) {
       return Object.freeze({ path, release: lock.release });
     } catch (error) {
       if (error.code !== "FILE_LOCK_EXISTS") throw error;
+      // A crashed startup can leave a lock behind. Reclaim it only when the
+      // recorded owner is definitely gone; a live owner remains protected.
+      let ownerPid = null;
+      try { ownerPid = Number.parseInt(readFileSync(path, "utf8").trim(), 10); } catch {}
+      if (Number.isInteger(ownerPid) && ownerPid > 0) {
+        try { process.kill(ownerPid, 0); } catch (probe) {
+          if (probe.code === "ESRCH") {
+            try { unlinkSync(path); } catch (removeError) { if (removeError.code !== "ENOENT") throw removeError; }
+            const retry = fileService.createLockSync({ path: relative });
+            return Object.freeze({ path, release: retry.release });
+          }
+        }
+      }
       throw new Error(`${role} process already running (lock: ${path}).`);
     }
   }

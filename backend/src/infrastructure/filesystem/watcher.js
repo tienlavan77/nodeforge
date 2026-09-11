@@ -12,6 +12,8 @@ export const DEFAULT_WATCHER_IGNORE = Object.freeze([
   // which grow the WAL and trigger another verification run.
   ".node-control/**",
   "node_modules/**",
+  "agent-tool/**",
+  ".pnpm-store/**",
   ".git/**",
   "dist/**",
   ".next/**",
@@ -74,6 +76,8 @@ export function createProjectIgnoreMatcher(root, ignore = []) {
 
   return (path) => {
     const relativePath = relative(root, path).split(sep).join("/");
+    // Runtime/control data must never enter the project index, even when the watcher root is a parent directory.
+    if (relativePath === ".forge" || relativePath.startsWith(".forge/") || relativePath === ".node-control" || relativePath.startsWith(".node-control/")) return true;
     return relativePath.length > 0 && isIgnored(relativePath);
   };
 }

@@ -11,7 +11,7 @@ export function createStage1TaskRequestBuilder({ createRequestId = randomUUID, c
   if (!Array.isArray(conventions) || conventions.some((value) => typeof value !== "string" || !value.trim())) throw new ConfigurationError("Stage-1 conventions must be non-empty strings.");
   return Object.freeze({ buildTaskRequest });
 
-  function buildTaskRequest(ticket, { agentId = "builder", conversationId = `CONV-${ticket?.id ?? "TASK"}`, correlationId = `CORR-${ticket?.id ?? "TASK"}`, stepId = 1, parentId = null, relevantTree = [], submissionFormat, cacheConfig } = {}) {
+  function buildTaskRequest(ticket, { agentId, conversationId = `CONV-${ticket?.id ?? "TASK"}`, correlationId = `CORR-${ticket?.id ?? "TASK"}`, stepId = 1, parentId = null, relevantTree = [], submissionFormat, cacheConfig } = {}) {
     assertTicket(ticket);
     if (typeof agentId !== "string" || !agentId) throw new ConfigurationError("Stage-1 request requires agentId.");
     if (!Number.isInteger(stepId) || stepId < 1) throw new ConfigurationError("Stage-1 request stepId must be positive.");
@@ -35,15 +35,15 @@ export function createStage1TaskRequestBuilder({ createRequestId = randomUUID, c
       conversation_mode: "hybrid",
       hybrid_window: 2,
       cache_config: cacheConfig ? structuredClone(cacheConfig) : { prompt_cache_key: `forge:${ticket.project_id}:${ticket.sprint_id ?? "default"}:${ticket.id}`, mode: "explicit", ttl: "30m" },
-      instruction_blocks: buildStage1InstructionBlocks({ includeTaskReview: stepId === 1 }),
+      instruction_blocks: [
+        ...buildStage1InstructionBlocks({ includeTaskReview: stepId === 1, includeCodeGraphCandidates: stepId === 1 })
+      ],
       user_blocks: [
         { block_id: "task_context", content: `${ticket.title}\n\nObjective: ${ticket.objective}`, cacheable: false },
-        { block_id: "acceptance_criteria", content: ticket.acceptance_criteria.map((criterion, index) => `${index + 1}. ${criterion}`).join("\n"), cacheable: false },
-        ...(relevantTree.length ? [{ block_id: "code_graph_candidates", content: `Code Graph candidates (source only):\n${relevantTree.map((entry) => `- ${entry.path}`).join("\n")}`, cacheable: false }] : [])
+        { block_id: "acceptance_criteria", content: ticket.acceptance_criteria.map((criterion, index) => `${index + 1}. ${criterion}`).join("\n"), cacheable: false }
       ],
       transcript_blocks: [],
       expected_output: { type: "code_needed", representation: "json", transport: "function_tool" },
-      ...((stepId > 2) ? { expected_submission: { type: "submit_code", representation: format, transport: "function_tool", required_fields: ["explanation", "files"] } } : {}),
       metadata: { retry_of_step: null, previous_error: null, agent_id: agentId, project_id: ticket.project_id, conversation_id: conversationId, correlation_id: correlationId }
     };
     return assertValidEnvelope({ request_id: requestId, parent_id: parentId, type: "task", role: "node", payload, timestamp: clock().toISOString() });

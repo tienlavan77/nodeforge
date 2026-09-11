@@ -2,8 +2,8 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSy
 import { dirname } from "node:path";
 import { ConfigurationError } from "../../shared/errors.js";
 
-const REQUIRED_FIELDS = ["agent_id", "agent_name", "gateway_url", "credential_ref", "enabled", "status", "created_at", "updated_at"];
-const OPTIONAL_FIELDS = ["provider", "model"];
+const REQUIRED_FIELDS = ["agent_id", "agent_name", "role", "gateway_url", "credential_ref", "enabled", "status", "created_at", "updated_at"];
+const OPTIONAL_FIELDS = ["provider", "model", "reasoning", "use_responses"];
 const FIELDS = [...REQUIRED_FIELDS, ...OPTIONAL_FIELDS];
 const PROVIDERS = ["codex", "claude", "openai", "anthropic", "custom", "devquote"];
 const SECRET_FIELD = /(?:api[_-]?key|credential(?!_ref)|secret|password|token|authorization)/i;
@@ -44,8 +44,19 @@ export function createNodeAgentConfiguration({ profiles, configurationPath, file
       if (!Array.isArray(parsed)) throw new Error("configuration must be an array");
       return freezeAll(parsed.map(validateConfiguration));
     } catch (error) {
-      throw new ConfigurationError(`Invalid Node Agent Configuration: ${error.message}`);
+      let parsed;
+      try { parsed = JSON.parse(readFileSync(configurationPath, "utf8")); } catch { parsed = undefined; }
+      if (Array.isArray(parsed) && parsed.some((value) => value && typeof value === "object" && Object.keys(value).some((key) => SECRET_FIELD.test(key)))) {
+        throw new ConfigurationError(`Invalid Node Agent Configuration: ${error.message}`);
+      }
+      return rebuildFromProfiles();
     }
+  }
+
+  function rebuildFromProfiles() {
+    const next = profiles.getAll().map(project).sort((left, right) => left.agent_id.localeCompare(right.agent_id));
+    write(next);
+    return freezeAll(next);
   }
 
   function write(next) {
@@ -73,10 +84,12 @@ function validateConfiguration(value) {
   if (!value || typeof value !== "object"
     || REQUIRED_FIELDS.some((field) => value[field] === undefined)
     || Object.keys(value).some((key) => !FIELDS.includes(key))
-    || typeof value.agent_id !== "string" || typeof value.gateway_url !== "string" || !value.gateway_url.startsWith("https://")
+    || typeof value.agent_id !== "string" || typeof value.agent_name !== "string" || typeof value.role !== "string" || !["coder", "reviewer", "sprint_leader", "architecture_manager"].includes(value.role) || typeof value.gateway_url !== "string" || !value.gateway_url.startsWith("https://")
     || typeof value.credential_ref !== "string" || !value.credential_ref || typeof value.enabled !== "boolean") throw new ConfigurationError("Agent configuration is invalid.");
   if (value.provider !== undefined && !PROVIDERS.includes(value.provider)) throw new ConfigurationError("Agent configuration is invalid.");
   if (value.model !== undefined && typeof value.model !== "string") throw new ConfigurationError("Agent configuration is invalid.");
+  if (value.reasoning !== undefined && (!value.reasoning || typeof value.reasoning !== "object" || Array.isArray(value.reasoning) || !["none", "low", "medium", "high", "max"].includes(value.reasoning.effort))) throw new ConfigurationError("Agent configuration is invalid.");
+  if (value.use_responses !== undefined && typeof value.use_responses !== "boolean") throw new ConfigurationError("Agent configuration is invalid.");
   if (Object.keys(value).some((key) => SECRET_FIELD.test(key))) throw new ConfigurationError("Agent configuration cannot contain plaintext credentials.");
   const result = Object.fromEntries(REQUIRED_FIELDS.map((field) => [field, value[field]]));
   for (const field of OPTIONAL_FIELDS) if (value[field] !== undefined) result[field] = value[field];

@@ -55,8 +55,30 @@ test("Git Service merges an existing branch and rejects missing/self merges", as
   const git = createGitService({ projectRoot: "/repo", runGit: fake.run });
   const result = await git.merge("task/TICKET-1");
   assert.equal(result.target, "main");
-  assert.deepEqual(fake.calls.at(-1), ["merge", "--no-edit", "task/TICKET-1"]);
+  assert.deepEqual(fake.calls.at(-1), ["merge", "--no-ff", "--no-edit", "task/TICKET-1"]);
   await assert.rejects(() => git.merge("task/TICKET-1", { target: "task/TICKET-1" }), (error) => error.code === "GIT_MERGE_SELF");
+});
+
+test("Git Service exposes safe branch/revision and merge recovery primitives", async () => {
+  const fake = fakeGit();
+  fake.run = async (args) => {
+    fake.calls.push(args);
+    if (args[0] === "show-ref") return { stdout: "abc\n", exitCode: 0 };
+    if (args[0] === "branch" && args[1] === "--show-current") return { stdout: "main\n", exitCode: 0 };
+    if (args[0] === "status") return { stdout: "UU src/conflicted.js\n M src/clean.js\n", exitCode: 0 };
+    if (args[0] === "diff") return { stdout: "M\tsrc/example.js\n", exitCode: 0 };
+    if (args[0] === "rev-parse") return { stdout: "abc123\n", exitCode: 0 };
+    return { stdout: "ok\n", exitCode: 0 };
+  };
+  const git = createGitService({ projectRoot: "/repo", runGit: fake.run });
+  assert.equal(await git.getHead(), "abc123");
+  assert.equal(await git.getBranchHead("task/TICKET-1"), "abc123");
+  assert.deepEqual(await git.hasConflicts(), { has_conflicts: true, paths: ["src/conflicted.js"] });
+  assert.match(await git.diffBetween("abc123", "def456"), /src\/example\.js/);
+  await git.abortMerge();
+  await git.resetTo("abc123", { hard: true });
+  assert.deepEqual(fake.calls.at(-1), ["reset", "--hard", "abc123"]);
+  await assert.rejects(() => git.resetTo("../escape", { hard: true }), (error) => error.code === "GIT_INVALID_REVISION");
 });
 
 test("Git Service emits structured audit events without affecting operations", async () => {

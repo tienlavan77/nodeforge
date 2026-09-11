@@ -32,18 +32,13 @@ export function createStage1SubmitCodeHandler({ fileService, gitService, statusS
     // Validate every file before the first write so malformed submissions cannot partially apply.
     for (const file of files) {
       assertSubmission(file);
-      if (file.format === "full_content" && file.exists && file.before_checksum !== null) {
-        if (!Number.isInteger(file.content_size_bytes)) throw handlerError("INVALID_PAYLOAD", `Existing full_content file ${file.path} requires content_size_bytes.`);
-        const actualAgentSize = Buffer.byteLength(file.content, "utf8");
-        if (actualAgentSize < file.content_size_bytes) throw handlerError("SUBMISSION_TRUNCATED", `Full-content response for ${file.path} is shorter than its declared UTF-8 size.`);
-      }
+      if (file.format === "full_content" && file.exists && file.before_checksum !== null && typeof file.content !== "string") throw handlerError("INVALID_PAYLOAD", `Existing full_content file ${file.path} requires complete string content.`);
     }
     for (const file of files) {
       const syntax = validateSyntax(file.language, file.content);
       if (!syntax.valid) throw handlerError("SYNTAX_INVALID", `Invalid ${file.language ?? "source"} syntax in ${file.path}: ${syntax.error}`);
       if (!file.exists) {
         if (file.before_checksum !== null) throw handlerError("CHECKSUM_MISMATCH", `New file ${file.path} must use before_checksum=null.`);
-        if (typeof file.summary !== "string" || !file.summary.trim() || /[\r\n]/.test(file.summary) || file.summary.length > 160) throw handlerError("INVALID_PAYLOAD", `New file ${file.path} requires a one-line summary (1-160 characters).`);
         continue;
       }
       if (typeof file.before_checksum !== "string") throw handlerError("CHECKSUM_MISMATCH", `Existing file ${file.path} requires before_checksum.`);
@@ -57,7 +52,7 @@ export function createStage1SubmitCodeHandler({ fileService, gitService, statusS
     const paths = files.map(({ path }) => path);
     try {
       for (const file of files) {
-        const content = file.exists ? file.content : prependSummary(file.content, file.summary, file.language);
+        const content = file.content;
         if (file.exists) await fileService.atomicWrite({ path: file.path, content, replace: true });
         else await fileService.atomicCreate({ path: file.path, content });
       }
@@ -76,15 +71,20 @@ export function createStage1SubmitCodeHandler({ fileService, gitService, statusS
     const files = [];
     const validPatches = [];
     const invalidPatches = [];
+    // Resolve formats up front so an unusable format reports its own error code instead of
+    // being folded into the aggregate PATCH_BATCH_INVALID summary below.
+    const formats = input.payload.files.map((file) => resolveSubmissionFormat(file.format));
+    for (const [index, format] of formats.entries()) {
+      if (format !== "full_content" && !input.payload.files[index].exists) throw handlerError("SUBMISSION_FORMAT_UNSUPPORTED", `${format} cannot create a file; use full_content: ${input.payload.files[index].path}.`);
+    }
     for (const [fileIndex, file] of input.payload.files.entries()) {
       try {
-        const format = resolveSubmissionFormat(file.format);
+        const format = formats[fileIndex];
         if (format === "full_content") {
           files.push({ ...file, format });
           validPatches.push({ index: fileIndex, path: file.path, format, status: "valid" });
           continue;
         }
-        if (!file.exists) throw handlerError("SUBMISSION_FORMAT_UNSUPPORTED", `${format} cannot create a file; use full_content: ${file.path}.`);
         if (typeof file.before_checksum !== "string") throw handlerError("PATCH_CONTEXT_REQUIRED", `${format} requires before_checksum: ${file.path}.`);
         let content;
         if (format === "unified_diff") {
@@ -171,11 +171,3 @@ function assertSubmission(file) {
   if (!file || typeof file !== "object" || typeof file.path !== "string" || !file.path || !["full_content", "structured_patch", "apply_patch", "unified_diff"].includes(file.format) || typeof file.content !== "string" || typeof file.exists !== "boolean" || !(typeof file.before_checksum === "string" || file.before_checksum === null)) throw handlerError("SUBMISSION_FORMAT_UNSUPPORTED", "Stage-1 accepts a canonical code response with path, content, format, exists, and before_checksum.");
 }
 function handlerError(code, message) { const error = new ConfigurationError(message); error.code = code; return error; }
-function prependSummary(content, summary, language) {
-  const line = summary.trim().replace(/[\r\n]+/g, " ");
-  const normalized = String(language).toLowerCase();
-  const comment = ["javascript", "typescript", "jsx", "tsx", "java", "c", "cpp", "csharp", "go", "rust", "php", "swift", "kotlin"].includes(normalized) ? `// NodeForge summary: ${line}` : ["css", "scss", "less"].includes(normalized) ? `/* NodeForge summary: ${line} */` : ["python", "ruby", "shell", "bash", "yaml", "toml", "ini", "dockerfile", "text"].includes(normalized) ? `# NodeForge summary: ${line}` : null;
-  if (!comment) throw handlerError("INVALID_PAYLOAD", `Cannot add summary comment for unsupported language: ${language}.`);
-  const shebang = content.startsWith("#!") ? content.match(/^#![^\r\n]*(?:\r?\n|$)/)?.[0] ?? "" : "";
-  return shebang + comment + "\n" + content.slice(shebang.length);
-}

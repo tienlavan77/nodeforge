@@ -1,4 +1,4 @@
-export function startControlApi({ api, port, host, indexDb, controlDb, processLock, logger = console } = {}) {
+export function startControlApi({ api, port, host, indexDb, controlDb, processLock, workers = [], logger = console } = {}) {
   const server = api.createServer().listen(port, host, () => {
     process.stdout.write(`Node Control API listening on http://${host}:${port}\n`);
   });
@@ -6,7 +6,13 @@ export function startControlApi({ api, port, host, indexDb, controlDb, processLo
   async function shutdown() {
     if (closing) return;
     closing = true;
-    await new Promise((resolve) => server.close(resolve));
+    for (const worker of workers) worker?.stop?.();
+    // Do not let keep-alive or long-lived HTTP connections block Ctrl-C/r restart.
+    server.closeIdleConnections?.();
+    await Promise.race([
+      new Promise((resolve) => server.close(resolve)),
+      new Promise((resolve) => setTimeout(() => { server.closeAllConnections?.(); resolve(); }, 2000))
+    ]);
     await indexDb.close();
     await controlDb.close();
     processLock.release();

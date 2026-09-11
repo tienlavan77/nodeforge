@@ -3,6 +3,7 @@ import { Readable } from "node:stream";
 import test from "node:test";
 
 import { createHttpApi } from "../../src/transport/http/server.js";
+import { createForgeV1Router } from "../../src/transport/http/forge-v1-router.js";
 
 test("routes REST requests exclusively through Runtime Service", async () => {
   const calls = [];
@@ -33,6 +34,25 @@ test("routes the Architecture Workspace through its Node application service", a
   assert.deepEqual(await request(api, "GET", "/projects/PROJECT-138/architecture-workspace"), [200, { project_id: "PROJECT-138", agent: { status: "READY" } }]);
 });
 
+test("serves the parallel Forge v1 ticket run route", async () => {
+  let received;
+  const api = createHttpApi({
+    runtimeService: runtimeStub(),
+    forgeV1Router: createForgeV1Router({
+      dispatchTicket: async (input) => { received = input; return { ticket_id: input.ticketId, supervisor_id: "SUP-V1", status: "accepted", pipeline: "supervisor" }; }
+    })
+  });
+  const [status, result] = await request(api, "POST", "/forge/v1/tickets/FORGE-1:run?project=PROJECT-1");
+  assert.equal(status, 202);
+  assert.equal(result.ticket_id, "FORGE-1");
+  assert.equal(result.supervisor_id, "SUP-V1");
+  assert.equal(result.status, "accepted");
+  assert.equal(result.pipeline, "supervisor");
+  assert.match(result.request_id, /^[0-9a-f-]{36}$/);
+  assert.equal(result.correlation_id, result.request_id);
+  assert.deepEqual(received, { projectId: "PROJECT-1", ticketId: "FORGE-1", conversationId: "CONV-BUILDER" });
+});
+
 test("routes the Project Dashboard through its Node application service", async () => {
   const api = createHttpApi({ runtimeService: runtimeStub(), projectDashboardService: { getDashboard: (projectId) => ({ project_id: projectId, backlog: [] }) } });
   assert.deepEqual(await request(api, "GET", "/projects/PROJECT-140/dashboard"), [200, { project_id: "PROJECT-140", backlog: [] }]);
@@ -56,6 +76,16 @@ test("routes ticket Run through the canonical Stage-1 runner", async () => {
     ticketId: "FORGE-1",
     conversationId: "CONV-BUILDER"
   });
+});
+
+test("routes Sprint Run through the Supervisor dispatch hook", async () => {
+  let received;
+  const api = createHttpApi({
+    runtimeService: runtimeStub(),
+    dispatchSprint: async (input) => { received = input; return { sprint_id: input.sprintId, status: "accepted", pipeline: "supervisor" }; }
+  });
+  assert.deepEqual(await request(api, "POST", "/sprints/SPRINT-1/run?project=PROJECT-142"), [202, { sprint_id: "SPRINT-1", status: "accepted", pipeline: "supervisor" }]);
+  assert.deepEqual(received, { projectId: "PROJECT-142", sprintId: "SPRINT-1" });
 });
 
 test("routes read-only Conversation and Audit History filters through Node", async () => {
@@ -99,7 +129,7 @@ async function request(api, method, url, body) {
   const request = Readable.from(body === undefined ? [] : [JSON.stringify(body)]);
   request.method = method;
   request.url = url;
-  const response = { status: 0, headers: {}, chunks: [], writeHead(status, headers) { this.status = status; this.headers = headers; }, end(chunk) { this.chunks.push(chunk); } };
+  const response = { status: 0, headers: {}, chunks: [], setHeader(name, value) { this.headers[name] = value; }, writeHead(status, headers) { this.status = status; this.headers = { ...this.headers, ...headers }; }, end(chunk) { this.chunks.push(chunk); } };
   await api.handler(request, response);
   return [response.status, JSON.parse(response.chunks.join(""))];
 }

@@ -9,6 +9,8 @@ const ALIASES = Object.freeze({
   unified_diff: "unified_diff",
   patch: "apply_patch",
   apply_patch: "apply_patch",
+  patch_apply: "apply_patch",
+  diff: "unified_diff",
   structured_patch: "structured_patch",
   per_file: "per_file"
 });

@@ -32,7 +32,7 @@ export async function dispatchChange(context) {
   if (typeof change?.diff === "string" && /^\s*\*\*\* Begin Patch\b/.test(change.diff)) {
     const result = await applyApplyPatch(filePath, change.diff, { fileService: context.file_service });
     const completed = withExecutionResult(next, result);
-    logEvent({ timestamp: new Date().toISOString(), event_name: "execution.dispatch_result", level: result.success ? "info" : "error", status: result.success ? "success" : "failed", message: result.success ? "apply_patch dispatched successfully." : result.error_message, task_id: context.task_id, ticket_id: context.ticket_id ?? context.task_id, conversation_id: context.conversation_id ?? `CONV-${context.task_id}`, source: "dispatch-change", error_code: result.error_code });
+    logEvent({ timestamp: new Date().toISOString(), event_name: "execution.dispatch_result", level: result.success ? "info" : "error", status: result.success ? "success" : "failed", message: result.success ? "apply_patch dispatched successfully." : result.error_message, task_id: context.task_id, ticket_id: context.ticket_id ?? context.task_id, conversation_id: context.conversation_id ?? `CONV-${context.task_id}`, source: "dispatch-change", ...(result.error_code ? { error_code: result.error_code } : {}), payload: { result: { success: result.success, error_code: result.error_code, ...(result.error_message ? { error_message: result.error_message } : {}), ...(result.detail ? { detail: result.detail } : {}) } } });
     return completed;
   }
 
@@ -54,6 +54,6 @@ export async function dispatchChange(context) {
     });
   }
   const completed = withExecutionResult(next, result);
-  logEvent({ timestamp: new Date().toISOString(), event_name: "execution.dispatch_result", level: result.success ? "info" : "error", status: result.success ? "success" : "failed", message: result.success ? "Change dispatched successfully." : "Change dispatch failed.", task_id: context.task_id, ticket_id: context.ticket_id ?? context.task_id, conversation_id: context.conversation_id ?? `CONV-${context.task_id}`, source: "dispatch-change" });
+  logEvent({ timestamp: new Date().toISOString(), event_name: "execution.dispatch_result", level: result.success ? "info" : "error", status: result.success ? "success" : "failed", message: result.success ? "Change dispatched successfully." : "Change dispatch failed.", task_id: context.task_id, ticket_id: context.ticket_id ?? context.task_id, conversation_id: context.conversation_id ?? `CONV-${context.task_id}`, source: "dispatch-change", ...(result.error_code ? { error_code: result.error_code } : {}), payload: { result: { success: result.success, error_code: result.error_code, ...(result.error_message ? { error_message: result.error_message } : {}), ...(result.detail ? { detail: result.detail } : {}) } } });
   return completed;
 }

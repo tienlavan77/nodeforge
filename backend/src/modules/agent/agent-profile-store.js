@@ -14,12 +14,13 @@ export function createAgentProfileStore({ validateProfile = createValidator(), d
   const byId = new Map();
   if (database) load();
 
-  return Object.freeze({ create, update, getById, getAll, load });
+  return Object.freeze({ create, update, delete: remove, getById, getAll, isDeleted, load });
 
   function create(input) {
     const profile = normalize(input);
     validateProfile(profile);
     if (byId.has(profile.agent_id)) throw new ConfigurationError(`Agent Profile already exists: ${profile.agent_id}.`);
+    if (database) database.run("DELETE FROM agent_profile_tombstones WHERE agent_id = ?", [profile.agent_id]);
     persist(profile, "INSERT INTO agent_profiles (agent_id, profile_json) VALUES (?, ?)");
     profiles.push(freeze(profile));
     byId.set(profile.agent_id, profiles.at(-1));
@@ -39,6 +40,24 @@ export function createAgentProfileStore({ validateProfile = createValidator(), d
     return clone(stored);
   }
 
+  function remove(agentId) {
+    assertId(agentId);
+    const existing = byId.get(agentId);
+    if (!existing) return undefined;
+    if (database) {
+      database.run("DELETE FROM agent_profiles WHERE agent_id = ?", [agentId]);
+      database.run("INSERT OR IGNORE INTO agent_profile_tombstones (agent_id, deleted_at) VALUES (?, ?)", [agentId, new Date().toISOString()]);
+    }
+    byId.delete(agentId);
+    profiles.splice(profiles.findIndex(({ agent_id: id }) => id === agentId), 1);
+    return clone(existing);
+  }
+
+  function isDeleted(agentId) {
+    assertId(agentId);
+    return Boolean(database?.all("SELECT 1 FROM agent_profile_tombstones WHERE agent_id = ? LIMIT 1", [agentId]).length);
+  }
+
   function getById(agentId) {
     assertId(agentId);
     const profile = byId.get(agentId);
@@ -51,7 +70,13 @@ export function createAgentProfileStore({ validateProfile = createValidator(), d
     ensureTable(database);
     profiles.splice(0, profiles.length); byId.clear();
     for (const { profile_json } of database.all("SELECT profile_json FROM agent_profiles ORDER BY sequence")) {
-      const profile = freeze(JSON.parse(profile_json)); profiles.push(profile); byId.set(profile.agent_id, profile);
+      const profile = normalize(JSON.parse(profile_json));
+      validateProfile(profile);
+      const stored = freeze(profile);
+      profiles.push(stored); byId.set(stored.agent_id, stored);
+      if (stored.agent_id !== JSON.parse(profile_json).agent_id || JSON.stringify(profile) !== profile_json) {
+        database.run("UPDATE agent_profiles SET profile_json = ?, agent_id = ? WHERE sequence = (SELECT sequence FROM agent_profiles WHERE profile_json = ? LIMIT 1)", [JSON.stringify(profile), profile.agent_id, profile_json]);
+      }
     }
     return getAll();
   }
@@ -65,7 +90,7 @@ function normalize(input) {
   if (!input || typeof input !== "object") throw new ConfigurationError("Agent Profile is required.");
   if (Object.keys(input).some((key) => SECRET_FIELD.test(key))) throw new ConfigurationError("Agent Profile cannot contain plaintext credentials.");
   const profile = structuredClone(input);
-  if (!profile.status) profile.status = profile.enabled ? "configured" : "disabled";
+  if (!profile.status) profile.status = profile.enabled ? "ready" : "not_connected";
   validateTimestamp(profile.created_at, "created_at"); validateTimestamp(profile.updated_at, "updated_at");
   return profile;
 }
@@ -77,6 +102,7 @@ function createValidator() {
 
 function ensureTable(database) {
   database.run("CREATE TABLE IF NOT EXISTS agent_profiles (sequence INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL UNIQUE, profile_json TEXT NOT NULL)");
+  database.run("CREATE TABLE IF NOT EXISTS agent_profile_tombstones (agent_id TEXT PRIMARY KEY, deleted_at TEXT NOT NULL)");
 }
 function freeze(profile) { return Object.freeze(structuredClone(profile)); }
 function clone(profile) { return structuredClone(profile); }

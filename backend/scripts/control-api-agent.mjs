@@ -3,6 +3,7 @@ import { createAgentSettingsService } from "../src/application/agent-settings-se
 import { createNodeAgentConfiguration } from "../src/modules/agent/node-agent-configuration.js";
 import { createAgentGateway } from "../src/modules/agent/agent-gateway.js";
 import { createAgentProfileStore } from "../src/modules/agent/agent-profile-store.js";
+import { createAgentRoleResolver } from "../src/modules/agent/agent-role-resolver.js";
 import { createPersistentSecretBackend } from "../src/modules/agent/persistent-secret-backend.js";
 
 export function createControlApiAgent({ database, fileService, config, env = process.env } = {}) {
@@ -21,14 +22,14 @@ export function createControlApiAgent({ database, fileService, config, env = pro
   agentConfiguration.sync();
   const agentGateway = createAgentGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference), timeoutMs: config.agentTimeoutMs });
   const agentSettings = createAgentSettingsService({ profiles, configuration: agentConfiguration, gateway: agentGateway, secretStore: secrets });
-  return { profiles, agentConfiguration, secrets, agentGateway, agentSettings };
+  const agentRoleResolver = createAgentRoleResolver({ profiles });
+  return { profiles, agentConfiguration, secrets, agentGateway, agentSettings, agentRoleResolver };
 }
 
 function syncArchitectureProfile({ profiles, codexBaseUrl, codexCredential, env }) {
-  const current = profiles.getById("architecture-manager");
+  const current = profiles.getAll().find((profile) => profile.role === "architecture_manager");
   const gatewayUrl = codexBaseUrl.endsWith("/responses") ? codexBaseUrl : codexBaseUrl.endsWith("/v1") ? `${codexBaseUrl}/responses` : `${codexBaseUrl}/v1/responses`;
   const model = env.NODE_AGENT_MODEL ?? "gpt-5.6-terra";
   const now = new Date().toISOString();
-  if (!current) return profiles.create({ agent_id: "architecture-manager", agent_name: "Architecture Manager", gateway_url: gatewayUrl, credential_ref: "env:OPENAI_API_KEY", enabled: true, status: "configured", provider: "codex", model, created_at: now, updated_at: now });
-  if (current.gateway_url.includes("gateway.example.test") || current.credential_ref.startsWith("runtime:")) profiles.update({ ...current, gateway_url: gatewayUrl, credential_ref: "env:OPENAI_API_KEY", enabled: true, status: "configured", provider: current.provider ?? "codex", model: current.model ?? model, updated_at: now });
+  if (current && (current.gateway_url.includes("gateway.example.test") || current.credential_ref.startsWith("runtime:"))) profiles.update({ ...current, gateway_url: gatewayUrl, credential_ref: "env:OPENAI_API_KEY", enabled: true, status: "ready", provider: current.provider ?? "codex", model: current.model ?? model, updated_at: now });
 }

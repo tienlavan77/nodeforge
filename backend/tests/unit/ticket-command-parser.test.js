@@ -45,6 +45,7 @@ test("owner chat dispatches only ready commands with the ticket id as task id", 
   chat.submit(input);
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(dispatched[0].task_id, "NF-1");
+  assert.equal(dispatched[0].agent_id, undefined);
   assert.equal(sent[0].payload.task.id, "NF-1");
 });
 

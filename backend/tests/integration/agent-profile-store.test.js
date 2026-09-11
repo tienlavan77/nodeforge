@@ -12,32 +12,32 @@ test("creates, updates, queries, and reloads immutable Agent Profiles without pl
   let database = await openIndexDatabase(root);
   try {
     const store = createAgentProfileStore({ database });
-    const first = store.create(profile("architecture-manager", "env:ARCHITECTURE_MANAGER_API_KEY"));
-    store.create(profile("builder", "env:BUILDER_API_KEY"));
-    assert.equal(first.agent_id, "architecture-manager");
+    const first = store.create(profile("11111111-1111-4111-8111-111111111111", "architecture_manager", "env:ARCHITECTURE_MANAGER_API_KEY"));
+    store.create(profile("22222222-2222-4222-8222-222222222222", "coder", "env:BUILDER_API_KEY"));
+    assert.equal(first.agent_id, "11111111-1111-4111-8111-111111111111");
     assert.equal(store.getAll().length, 2);
-    assert.throws(() => store.create(profile("builder", "env:BUILDER_API_KEY")), /already exists/);
+    assert.throws(() => store.create(profile("22222222-2222-4222-8222-222222222222", "coder", "env:BUILDER_API_KEY")), /already exists/);
     const changed = store.update({ ...first, gateway_url: "https://gateway.example.test/architecture-v2", updated_at: "2026-08-22T11:00:00Z" });
     assert.equal(changed.gateway_url.endsWith("v2"), true);
     changed.agent_name = "mutated";
-    assert.equal(store.getById("architecture-manager").agent_name, "Architecture Manager");
-    assert.throws(() => store.create({ ...profile("reviewer", "env:REVIEWER_API_KEY"), api_key: "secret" }), /plaintext credentials/);
+    assert.equal(store.getById("11111111-1111-4111-8111-111111111111").agent_name, "Architecture Manager");
+    assert.throws(() => store.create({ ...profile("33333333-3333-4333-8333-333333333333", "reviewer", "env:REVIEWER_API_KEY"), api_key: "secret" }), /plaintext credentials/);
     await database.close();
     database = await openIndexDatabase(root);
     const restarted = createAgentProfileStore({ database });
-    assert.deepEqual(restarted.getAll().map(({ agent_id }) => agent_id), ["architecture-manager", "builder"]);
-    assert.equal(restarted.getById("architecture-manager").gateway_url.endsWith("v2"), true);
+    assert.deepEqual(restarted.getAll().map(({ agent_id }) => agent_id), ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"]);
+    assert.equal(restarted.getById("11111111-1111-4111-8111-111111111111").gateway_url.endsWith("v2"), true);
   } finally { await database?.close(); await rm(root, { recursive: true, force: true }); }
 });
 
 test("rejects invalid profiles and unknown updates", () => {
   const store = createAgentProfileStore();
-  assert.throws(() => store.create(profile("runtime", "env:RUNTIME_KEY")), /Invalid Agent Profile/);
-  assert.throws(() => store.create({ ...profile("reviewer", "env:REVIEWER_KEY"), gateway_url: "http://insecure.test" }), /Invalid Agent Profile/);
-  assert.throws(() => store.update(profile("reviewer", "env:REVIEWER_KEY")), /Unknown Agent Profile/);
+  assert.throws(() => store.create(profile("runtime", "coder", "env:RUNTIME_KEY")), /Invalid Agent Profile/);
+  assert.throws(() => store.create({ ...profile("33333333-3333-4333-8333-333333333333", "reviewer", "env:REVIEWER_KEY"), gateway_url: "http://insecure.test" }), /Invalid Agent Profile/);
+  assert.throws(() => store.update(profile("33333333-3333-4333-8333-333333333333", "reviewer", "env:REVIEWER_KEY")), /Unknown Agent Profile/);
 });
 
-function profile(agentId, credentialRef) {
-  const names = { "architecture-manager": "Architecture Manager", builder: "Builder", reviewer: "Reviewer" };
-  return { agent_id: agentId, agent_name: names[agentId] ?? agentId, gateway_url: "https://gateway.example.test/agent", credential_ref: credentialRef, enabled: true, created_at: "2026-08-22T10:00:00Z", updated_at: "2026-08-22T10:00:00Z" };
+function profile(agentId, role, credentialRef) {
+  const names = { architecture_manager: "Architecture Manager", coder: "Builder", reviewer: "Reviewer" };
+  return { agent_id: agentId, agent_name: names[role] ?? agentId, role, gateway_url: "https://gateway.example.test/agent", credential_ref: credentialRef, enabled: true, status: "ready", created_at: "2026-08-22T10:00:00Z", updated_at: "2026-08-22T10:00:00Z" };
 }

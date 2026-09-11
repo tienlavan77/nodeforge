@@ -6,7 +6,7 @@ import { createStage1CodeNeededHandler } from "./stage1-code-needed-handler.js";
 import { createStage1ResponseReceiver } from "./stage1-response-receiver.js";
 import { createStage1ResponseRouter } from "./stage1-response-router.js";
 import { createStage1SubmitCodeHandler } from "./stage1-submit-code-handler.js";
-import { normalizeResponse } from "../agent/provider-adapters/openai-response-normalizer.js";
+import { normalizeResponse } from "../agent/provider-adapters/response-normalizer.js";
 import { stage1AgentTools } from "./stage1-agent-tools.js";
 import { createUnwiredFileChecker } from "./unwired-file-checker.js";
 import { buildUsageQuery } from "./stage1-usage-query-builder.js";
@@ -14,15 +14,17 @@ import { createRoundCounter } from "./round-counter.js";
 import { logEvent } from "../../core/project-log-service.js";
 
 /** Runs one ticket through the canonical Stage-1 protocol, without owner-chat legacy dispatch. */
-export function createStage1TicketRunner({ conversationStateStore, statusStore, gitService, protocolLogger, protocolStorage, fileService, files, fileGraph, requestBuilder, agentGateway, agentProfile, credential, resolveAgentProfile, relevantTreeSelector, verificationGate, reportService, onStatusChange = () => {}, maxRounds = 15 } = {}) {
+export function createStage1TicketRunner({ conversationStateStore, statusStore, gitService, protocolLogger, protocolStorage, fileService, files, fileGraph, requestBuilder, agentGateway, agentProfile, credential, resolveAgentProfile, agentRoleResolver, relevantTreeSelector, verificationGate, reportService, onStatusChange = () => {}, maxRounds = 15 } = {}) {
   if (!requestBuilder?.buildTaskRequest || typeof agentGateway?.request !== "function") throw new ConfigurationError("Stage-1 ticket runner requires request builder and agent gateway.");
   const initializer = createStage1TaskInitializer({ statusStore, gitService, protocolLogger });
   const roundCounter = createRoundCounter({ maxRounds });
-    const sender = createStage1RequestSender({ protocolLogger, protocolStorage, roundCounter, onRoundLimit, adapterResolver: () => ({ call: async ({ payload, correlationId }) => { const tools = payload.type === "code_provide" ? stage1AgentTools.filter(({ name }) => name === "submit_code_response") : payload.type === "planning" ? stage1AgentTools.filter(({ name }) => name === "planning") : payload.type === "usage_query" ? stage1AgentTools.filter(({ name }) => ["usage_needed", "no_wiring_needed"].includes(name)) : payload.type === "status_check" ? stage1AgentTools.filter(({ name }) => ["completed", "continue"].includes(name)) : stage1AgentTools.filter(({ name }) => name === "code_needed"); const raw = await agentGateway.request({ agentId: "builder", payload, correlationId, tools });
+  const coderAgentId = () => agentRoleResolver?.resolve?.("coder") ?? agentProfile?.agent_id ?? "builder";
+  const sender = createStage1RequestSender({ protocolLogger, protocolStorage, roundCounter, onRoundLimit, adapterResolver: () => ({ call: async ({ payload, correlationId }) => { const tools = payload.type === "code_provide" ? stage1AgentTools.filter(({ name }) => name === "submit_code_response") : payload.type === "planning" ? stage1AgentTools.filter(({ name }) => name === "planning") : payload.type === "usage_query" ? stage1AgentTools.filter(({ name }) => ["usage_needed", "no_wiring_needed"].includes(name)) : payload.type === "status_check" ? stage1AgentTools.filter(({ name }) => ["completed", "continue"].includes(name)) : stage1AgentTools.filter(({ name }) => name === "code_needed"); const raw = await agentGateway.request({ agentId: coderAgentId(), payload, correlationId, tools });
       try {
         assertProviderCompleted(raw);
         const envelope = normalizeResponse(raw.payload ?? raw, { request_id: payload.request_id });
-        Object.defineProperty(envelope, "provider_metadata", { value: Object.freeze({ provider: "openai", response_id: raw?.payload?.response_id ?? raw?.response_id ?? null, status: raw?.status ?? "completed", completed_at: raw?.completed_at ?? null, error: raw?.error ?? null, incomplete_details: raw?.incomplete_details ?? null }), enumerable: false });
+        const provider = raw?.provider_metadata?.provider ?? agentProfile?.provider ?? "codex";
+        Object.defineProperty(envelope, "provider_metadata", { value: Object.freeze({ provider, response_id: raw?.payload?.response_id ?? raw?.response_id ?? null, status: raw?.status ?? "completed", completed_at: raw?.completed_at ?? null, error: raw?.error ?? null, incomplete_details: raw?.incomplete_details ?? null }), enumerable: false });
         return envelope;
       } catch (error) { error.rawResponse = raw; throw error; } } }) });
   let activeRelevantTree = [];
@@ -62,7 +64,7 @@ export function createStage1TicketRunner({ conversationStateStore, statusStore, 
     if (!next?.description || !context.requestEnvelope) throw new ConfigurationError("continue requires next_task.description and the originating request envelope.");
     const original = context.requestEnvelope.payload;
     const continuedTicket = { id: original.task_id, project_id: original.metadata?.project_id ?? context.projectId ?? "PROJECT-NODEFORGE", title: ticketTitle(next.description), objective: next.description, acceptance_criteria: ["Complete the requested continuation task."] };
-    return requestBuilder.buildTaskRequest(continuedTicket, { agentId: original.metadata?.agent_id ?? "builder", conversationId: original.metadata?.conversation_id, correlationId: original.metadata?.correlation_id, stepId: original.step_id + 1, parentId: context.requestEnvelope.request_id, relevantTree: activeRelevantTree, submissionFormat: original.expected_submission?.representation, cacheConfig: original.cache_config });
+    return requestBuilder.buildTaskRequest(continuedTicket, { agentId: original.metadata?.agent_id ?? coderAgentId(), conversationId: original.metadata?.conversation_id, correlationId: original.metadata?.correlation_id, stepId: original.step_id + 1, parentId: context.requestEnvelope.request_id, relevantTree: activeRelevantTree, submissionFormat: original.expected_submission?.representation, cacheConfig: original.cache_config });
   }
 
   async function handleUsageNeeded(response, context = {}) {
@@ -79,13 +81,13 @@ export function createStage1TicketRunner({ conversationStateStore, statusStore, 
       const initialized = await initializer.initTask(ticket);
       baseBranch = initialized.base_branch ?? "main";
       if (initialized.status?.status === "blocked") return initialized;
-      const profile = typeof resolveAgentProfile === "function" ? await resolveAgentProfile("builder") : agentProfile;
+      const profile = typeof resolveAgentProfile === "function" ? await resolveAgentProfile(coderAgentId()) : agentProfile;
       const scope = inferTicketScope(ticket);
       const relevantTree = relevantTreeSelector
         ? selectInitialCandidates(relevantTreeSelector.select({ title: ticket.title, objective: ticket.objective, acceptanceCriteria: ticket.acceptance_criteria, depth: 1, limit: 30, ...scope }).tree, ticket)
         : [];
       activeRelevantTree.splice(0, activeRelevantTree.length, ...relevantTree);
-      let request = requestBuilder.buildTaskRequest(ticket, { agentId: "builder", conversationId, correlationId, stepId: 1, relevantTree });
+      let request = requestBuilder.buildTaskRequest(ticket, { agentId: coderAgentId(), conversationId, correlationId, stepId: 1, relevantTree });
       let filesChanged = [];
       const transcriptBlocks = [];
       if (conversationStateStore) {
@@ -95,7 +97,7 @@ export function createStage1TicketRunner({ conversationStateStore, statusStore, 
           await conversationStateStore.clear(conversationId);
           existingState = null;
         }
-        if (!existingState) await conversationStateStore.create({ conversationId, taskId: ticket.id, projectId: ticket.project_id, agentId: "builder", promptCacheKey: request.payload.cache_config?.prompt_cache_key ?? null });
+        if (!existingState) await conversationStateStore.create({ conversationId, taskId: ticket.id, projectId: ticket.project_id, agentId: coderAgentId(), promptCacheKey: request.payload.cache_config?.prompt_cache_key ?? null });
       }
       for (;;) {
         const correlationContext = request?.payload?.metadata?.correlation_id ?? correlationId;
@@ -177,12 +179,12 @@ export function createStage1TicketRunner({ conversationStateStore, statusStore, 
   }
 
   function selectInitialCandidates(tree, ticket) {
-    const source = tree.filter((entry) => /^(?:backend\/src|frontend|ui\/nextjs|ui\/src|web\/src)\//.test(entry.path)).sort((left, right) => Number(right.score) - Number(left.score) || left.path.localeCompare(right.path));
+    const source = tree.filter((entry) => /^(?:backend\/src|ui\/nextjs|ui\/src|web\/src)\//.test(entry.path)).sort((left, right) => Number(right.score) - Number(left.score) || left.path.localeCompare(right.path));
     const text = [ticket.title, ticket.objective, ...(ticket.acceptance_criteria ?? [])].join(" ").toLowerCase();
     const frontendTicket = /\b(frontend|front-end)\b/.test(text);
     const uiTicket = /\b(ui|next\.js|nextjs|page|component|layout|navigation|responsive)\b/.test(text);
     if (frontendTicket) {
-      const frontend = source.filter((entry) => entry.path.startsWith("frontend/"));
+      const frontend = source.filter((entry) => entry.path.startsWith("ui/nextjs/"));
       return frontend.slice(0, 3);
     }
     if (!uiTicket) return source.slice(0, 3);
@@ -216,7 +218,7 @@ export function createStage1TicketRunner({ conversationStateStore, statusStore, 
 
   function inferTicketScope(ticket) {
     const text = [ticket?.title, ticket?.objective, ...(ticket?.acceptance_criteria ?? [])].filter(Boolean).join(" ").toLowerCase();
-    if (/\b(frontend|front-end)\b/.test(text)) return { scope: "frontend", allowed_prefixes: ["frontend/"] };
+    if (/\b(frontend|front-end)\b/.test(text)) return { scope: "ui", allowed_prefixes: ["ui/nextjs/"] };
     if (/\b(ui|next\.js|nextjs|page|component|layout|navigation|responsive)\b/.test(text)) return { scope: "ui", allowed_prefixes: ["ui/nextjs/", "ui/src/", "web/src/"] };
     return { scope: "repository" };
   }

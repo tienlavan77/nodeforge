@@ -1,8 +1,8 @@
 import { createAgentEventPublisher } from "./agent-event-publisher.js";
 import { ConfigurationError } from "../../shared/errors.js";
 
-export function createExternalAgentOrchestrator({ builder, reviewer, publisher, summaries, memory, createSessionId, createAgentId, clock } = {}) {
-  assertAgent(builder, "Builder");
+export function createExternalAgentOrchestrator({ builder, coder = builder, reviewer, publisher, summaries, memory, createSessionId, createAgentId, clock } = {}) {
+  assertAgent(coder, "Coder");
   assertAgent(reviewer, "Reviewer");
   if (typeof publisher?.publish !== "function") throw new ConfigurationError("External Agent Orchestrator requires an Event Publisher.");
   if (typeof summaries?.build !== "function" || typeof memory?.build !== "function") throw new ConfigurationError("External Agent Orchestrator requires Summary and Memory stores.");
@@ -11,11 +11,11 @@ export function createExternalAgentOrchestrator({ builder, reviewer, publisher, 
 
   return Object.freeze({ run });
 
-  async function run({ projectId, taskId, task, context = {}, sessionId = createSessionId?.() ?? `SESSION-${taskId}`, agentId = createAgentId?.() ?? builder.id } = {}) {
+  async function run({ projectId, taskId, task, context = {}, sessionId = createSessionId?.() ?? `SESSION-${taskId}`, agentId = createAgentId?.() ?? coder.id } = {}) {
     if (typeof projectId !== "string" || projectId.length === 0 || typeof taskId !== "string" || taskId.length === 0) {
       throw new ConfigurationError("External Agent Orchestrator requires projectId and taskId.");
     }
-    if (!builder.canHandle(task)) throw new ConfigurationError("Builder Agent cannot handle this task.");
+    if (!coder.canHandle(task)) throw new ConfigurationError("Coder Agent cannot handle this task.");
     if (!reviewer.canHandle({ ...task, type: "review" })) throw new ConfigurationError("Reviewer Agent cannot handle this task.");
     const events = createAgentEventPublisher({ publisher, projectId, taskId, sessionId, agentId, ...(clock ? { clock } : {}) });
     let eventsPublished = 0;
@@ -26,10 +26,10 @@ export function createExternalAgentOrchestrator({ builder, reviewer, publisher, 
     };
 
     emit("started", { state: "RUNNING" });
-    const buildResult = await builder.execute({ ...context, task, projectId, taskId });
-    emit("planCreated", { step_count: 0, agent_id: builder.id });
+    const buildResult = await coder.execute({ ...context, task, projectId, taskId });
+    emit("planCreated", { step_count: 0, agent_id: coder.id });
     if (buildResult.status !== "completed") {
-      emit("failed", { agent_id: builder.id, result: buildResult.status });
+      emit("failed", { agent_id: coder.id, result: buildResult.status });
       return { status: "failed", buildResult, reviewResult: null, eventsPublished };
     }
     const reviewResult = await reviewer.execute({ ...context, task: { ...task, type: "review" }, projectId, taskId, buildResult });

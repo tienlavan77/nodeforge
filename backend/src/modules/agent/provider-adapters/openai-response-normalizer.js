@@ -9,6 +9,7 @@ const TOOL_TYPES = Object.freeze({
   planning: "planning",
   submit_code: "submit_code_response",
   submit_code_response: "submit_code_response",
+  read_transcript_blocks: "read_transcript_blocks",
   patch_repair_response: "patch_repair_response",
   usage_report: "usage_needed",
   usage_needed: "usage_needed",
@@ -81,6 +82,7 @@ function canonicalizeAgentToolPayload(payload, toolName) {
   if (toolName === "code_needed") {
     delete canonical.query;
     delete canonical.target_path;
+    if (!canonical.expected_output || typeof canonical.expected_output !== "object") canonical.expected_output = { type: "code_needed", transport: "function_tool" };
   }
   if (toolName === "submit_code_response") {
     const sourceFiles = Array.isArray(payload.files) ? payload.files : [payload];

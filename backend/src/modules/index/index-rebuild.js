@@ -9,7 +9,7 @@ import { extractorRegistry } from "./parser/index.js";
 
 const CODE_INDEX_RUNTIME_DIR = ".forge/runtime/wc";
 
-export async function rebuildIndex({ projectRoot, database, runtimeDir = CODE_INDEX_RUNTIME_DIR, ignore = [], registry = extractorRegistry, indexer } = {}) {
+export async function rebuildIndex({ projectRoot, database, runtimeDir = CODE_INDEX_RUNTIME_DIR, ignore = [], registry = extractorRegistry, indexer, onFile = () => {} } = {}) {
   await ensureForgeLayout(projectRoot);
   const ownsDatabase = !database;
   const indexDatabase = database ?? await openIndexDatabase(projectRoot, { runtimeDir });
@@ -22,7 +22,9 @@ export async function rebuildIndex({ projectRoot, database, runtimeDir = CODE_IN
     let indexedFiles = 0;
     for await (const path of scanProject(projectRoot, isIgnored)) {
       if (!registry.supports(path)) continue;
-      if (await incrementalIndexer.handle({ type: "watcher.file_created", payload: { path } })) {
+      const indexed = await incrementalIndexer.handle({ type: "watcher.file_created", payload: { path } });
+      onFile({ path, indexed, phase: "index" });
+      if (indexed) {
         indexedPaths.push(path);
         indexedFiles += 1;
       }
@@ -30,6 +32,7 @@ export async function rebuildIndex({ projectRoot, database, runtimeDir = CODE_IN
     // A second pass resolves imports whose target appeared later in the directory traversal.
     for (const path of indexedPaths) {
       await incrementalIndexer.handle({ type: "watcher.file_modified", payload: { path } });
+      onFile({ path, indexed: true, phase: "resolve" });
     }
     return { indexedFiles };
   } finally {
