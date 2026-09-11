@@ -92,7 +92,6 @@
           "minLength": 1
         },
         "mode": {
-          "type": "string",
           "enum": [
             "explicit",
             "automatic"
@@ -123,32 +122,25 @@
     "plan": {
       "type": "array",
       "minItems": 1,
+      "uniqueItems": true,
       "items": {
-        "oneOf": [
-          {
-            "$ref": "#/$defs/new_plan_item"
-          },
-          {
-            "$ref": "#/$defs/modify_plan_item"
-          },
-          {
-            "$ref": "#/$defs/read_only_plan_item"
-          }
-        ]
+        "$ref": "#/$defs/plan_item"
       }
     }
   },
   "$defs": {
-    "new_plan_item": {
+    "plan_item": {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "path",
         "action",
-        "representation",
         "before_checksum",
-        "reason",
-        "current_content"
+        "content",
+        "exists",
+        "language",
+        "size_bytes",
+        "format"
       ],
       "properties": {
         "path": {
@@ -156,89 +148,54 @@
           "minLength": 1
         },
         "action": {
-          "const": "NEW"
-        },
-        "representation": {
-          "const": "full_content"
-        },
-        "before_checksum": {
-          "type": "null"
-        },
-        "reason": {
-          "type": "string",
-          "minLength": 1
-        },
-        "current_content": {
-          "type": "null"
-        }
-      }
-    },
-    "modify_plan_item": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "path",
-        "action",
-        "representation",
-        "before_checksum",
-        "reason",
-        "current_content"
-      ],
-      "properties": {
-        "path": {
-          "type": "string",
-          "minLength": 1
-        },
-        "action": {
-          "const": "MODIFY"
-        },
-        "representation": {
-          "const": "structured_patch"
+          "enum": [
+            "NEW",
+            "MODIFY",
+            "READ_ONLY"
+          ]
         },
         "before_checksum": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "pattern": "^sha256:[0-9a-f]{64}$"
         },
-        "reason": {
+        "content": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "exists": {
+          "type": "boolean"
+        },
+        "language": {
           "type": "string",
           "minLength": 1
         },
-        "current_content": {
-          "type": "string"
-        }
-      }
-    },
-    "read_only_plan_item": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "path",
-        "action",
-        "representation",
-        "before_checksum",
-        "reason",
-        "current_content"
-      ],
-      "properties": {
-        "path": {
-          "type": "string",
-          "minLength": 1
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
         },
-        "action": {
-          "const": "READ_ONLY"
-        },
-        "representation": {
-          "const": "none"
-        },
-        "before_checksum": {
-          "type": "null"
+        "format": {
+          "enum": [
+            "full_content",
+            "structured_patch",
+            "patch_apply",
+            "diff",
+            "none"
+          ]
         },
         "reason": {
           "type": "string",
           "minLength": 1
         },
         "current_content": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     }

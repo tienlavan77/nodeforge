@@ -17,5 +17,5 @@ test("code_response is an explicit compatibility alias", () => {
 test("unknown role/type is rejected", () => {
   assert.equal(hasPayloadSchema("node", "completed"), false);
   assert.throws(() => getPayloadSchema("node", "completed"), /Unsupported payload schema/);
-  assert.equal(Object.keys(payloadSchemaRegistry).length, 7);
+  assert.equal(Object.keys(payloadSchemaRegistry).length, 18);
 });

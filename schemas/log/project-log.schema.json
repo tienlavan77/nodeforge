@@ -12,7 +12,7 @@
     "sequence": { "type": "integer", "minimum": 1 },
     "event_name": { "type": "string", "minLength": 1 },
     "level": { "type": "string", "enum": ["info", "error", "debug"] },
-    "status": { "type": "string", "enum": ["success", "failed", "info"] },
+    "status": { "type": "string", "enum": ["success", "failed", "info", "started"] },
     "message": { "type": "string", "minLength": 1 },
     "task_id": { "type": "string", "minLength": 1 },
     "ticket_id": { "type": "string", "minLength": 1 },

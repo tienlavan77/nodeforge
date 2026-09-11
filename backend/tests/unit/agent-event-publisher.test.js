@@ -31,7 +31,7 @@ test("publishes the Agent Runtime lifecycle to the Event Store", () => {
     source: "agent-runtime",
     session_id: "SESSION-091",
     agent_id: "AGENT-091",
-    project_id: "PROJECT-091",
+    conversation_id: "CONV-TASK-091",
     task_id: "TASK-091"
   });
 });

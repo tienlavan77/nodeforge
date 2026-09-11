@@ -4,8 +4,9 @@ import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from "node:path";
 import picomatch from "picomatch";
 import { ConfigurationError } from "../../shared/errors.js";
+import { SECRET_PATTERNS, isProtectedPath } from "./protected-path-policy.js";
 
-const DEFAULT_SECRETS = ["**/.env", "**/.env.*", "**/*.key", "**/*.pem", "**/*.crt", "**/*.pfx", "**/*.keystore"];
+const DEFAULT_SECRETS = SECRET_PATTERNS;
 const DEFAULT_IGNORE = [".forge/**", ".node-control/**", "node_modules/**", ".git/**", "dist/**", "coverage/**", ".next/**", ".next.stale-*/**", "**/.DS_Store", "**/._*"];
 
 export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRETS, watcherIgnore = DEFAULT_IGNORE, databaseService, internalBus, onWrite } = {}) {
@@ -14,7 +15,7 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
   const secretMatch = picomatch(secretPatterns, { dot: true });
   const ignoreMatch = picomatch(watcherIgnore, { dot: true });
   let queue = Promise.resolve();
-  return Object.freeze({ writeFile, atomicCreate, atomicWrite, atomicWriteSync, appendFile, appendFileSync, createLock, createLockSync, readFile, readForIndex, deleteFile, listFiles });
+  return Object.freeze({ writeFile, atomicCreate, atomicWrite, atomicWriteSync, appendFile, appendFileSync, createLock, createLockSync, readFile, readForIndex, deleteFile, renameFile, listFiles });
 
   function writeFile(input) {
     const job = queue.then(() => write(input));
@@ -178,7 +179,19 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
     return Object.freeze({ path: rel, content, sha256: `sha256:${sha256}`, size_bytes: Buffer.byteLength(content, "utf8"), language: languageForPath(rel) });
   }
   async function deleteFile({ path } = {}) { const rel = safePath(path, { write: true }); await unlink(resolve(root, rel)); internalBus?.emit?.("file.deleted", { path: rel }); return { path: rel, deleted: true }; }
-  async function listFiles({ glob = "**/*" } = {}) { const files = []; const runtimeListing = glob === ".forge/runtime" || glob.startsWith(".forge/runtime/"); await scan(root, ""); const match = picomatch(glob, { dot: true }); return files.filter((path) => match(path));
+  async function renameFile({ from, to } = {}) {
+    const source = safePath(from, { write: true });
+    const destination = safePath(to, { write: true });
+    const job = queue.then(async () => {
+      await mkdir(dirname(resolve(root, destination)), { recursive: true });
+      await rename(resolve(root, source), resolve(root, destination));
+      internalBus?.emit?.("file.renamed", { old_path: source, path: destination });
+      return { from: source, to: destination, renamed: true };
+    });
+    queue = job.catch(() => {});
+    return job;
+  }
+  async function listFiles({ glob = "**/*" } = {}) { const files = []; const runtimeListing = glob === ".forge/runtime" || glob.startsWith(".forge/runtime/"); const wildcard = glob.search(/[!*?[]/); const base = wildcard < 0 ? glob : glob.slice(0, wildcard).replace(/\/+$/, ""); const start = base ? resolve(root, base) : root; const startPrefix = base ? base : ""; try { await scan(start, startPrefix); } catch (error) { if (error?.code !== "ENOENT") throw error; } const match = picomatch(glob, { dot: true }); return files.filter((path) => match(path));
     async function scan(directory, prefix) { for (const entry of await readdir(directory, { withFileTypes: true })) { const rel = prefix ? `${prefix}/${entry.name}` : entry.name; const runtimeAncestor = runtimeListing && (rel === ".forge" || rel === ".forge/runtime" || rel.startsWith(".forge/runtime/")); if (ignoreMatch(rel) && !runtimeAncestor) continue; if (entry.isDirectory()) await scan(resolve(directory, entry.name), rel); else files.push(rel); } }
   }
   function safePath(path, { write = false } = {}) {
@@ -186,7 +199,7 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
     const absolute = resolve(root, path);
     const rel = relative(root, absolute).split(sep).join("/");
     const runtimePath = rel === ".forge/runtime" || rel.startsWith(".forge/runtime/");
-    if (isAbsolute(path) || !rel || rel.startsWith("..") || secretMatch(rel) || (ignoreMatch(rel) && !runtimePath)) {
+    if (isAbsolute(path) || !rel || rel.startsWith("..") || isProtectedPath(rel, { operation: write ? "write" : "read" }) || secretMatch(rel) || (ignoreMatch(rel) && !runtimePath)) {
       throw new ConfigurationError("Refusing unsafe, ignored, or secret project path.");
     }
     // Runtime state is Node-owned but must be writable through this service; other

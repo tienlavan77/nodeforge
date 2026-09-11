@@ -1,7 +1,7 @@
 import { ConfigurationError } from "../../shared/errors.js";
 import { validateAgentContract } from "../../agents/agent-contract.js";
 
-const AGENT_ROLES = new Set(["architecture-manager", "sprint-leader", "runtime", "builder", "reviewer"]);
+const AGENT_ROLES = new Set(["architecture_manager", "sprint_leader", "runtime", "coder", "reviewer", "builder"]);
 
 export function createAgentRegistry() {
   const agents = new Map();

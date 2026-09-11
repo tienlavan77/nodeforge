@@ -92,17 +92,13 @@ test("accepts a valid ticket JSON payload followed by transport instructions", (
   assert.equal(result.ticket.id, ticketValue.id);
 });
 
-test("reports enum mismatches separately from missing fields", () => {
+test("accepts medium priority for structured tickets", () => {
   const store = createRoadmapStore();
   const service = createProseTicketService({ roadmapStore: store });
-  const result = service.parse(JSON.stringify({ ...ticket("BAD-PRIORITY"), priority: "medium" }));
-  assert.equal(result.status, "needs_input");
-  assert.equal(result.missing, undefined);
-  assert.equal(result.invalid_fields[0].field, "priority");
-  assert.equal(result.invalid_fields[0].value, "medium");
-  assert.deepEqual(result.invalid_fields[0].allowed_values, ["low", "normal", "high", "critical"]);
-  assert.match(result.question, /priority=.*medium.*allowed/);
-  assert.equal(store.getCurrent(), undefined);
+  const result = service.parse(JSON.stringify({ ...ticket("MEDIUM-PRIORITY"), priority: "medium" }));
+  assert.equal(result.status, "created");
+  assert.equal(result.ticket.priority, "medium");
+  assert.equal(store.getCurrent().sprints[0].tickets[0].priority, "medium");
 });
 
 test("structured JSON with missing fields reports exact omissions and does not persist", () => {

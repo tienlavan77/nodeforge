@@ -1,0 +1,13 @@
+{
+  "repair_id": "REPAIR-FORGE-UI-054-1",
+  "repaired_patches": [
+    {
+      "patch_id": "PATCH-LAYOUT-001",
+      "path": "frontend/src/app/layout.js",
+      "format": "structured_patch",
+      "exists": true,
+      "before_checksum": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "content": { "operations": [{ "op": "insert_at_end", "new_content": "\nexport const metadata = {};\n" }] }
+    }
+  ]
+}

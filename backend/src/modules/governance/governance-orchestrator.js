@@ -1,17 +1,17 @@
 import { ConfigurationError } from "../../shared/errors.js";
 
-export function createGovernanceOrchestrator({ registry, bus, nodeId = "NODE" } = {}) {
+export function createGovernanceOrchestrator({ registry, bus, agentResolver, architectureManagerId, sprintLeaderId, nodeId = "NODE" } = {}) {
   if (typeof registry?.get !== "function" || typeof bus?.send !== "function" || typeof bus?.subscribe !== "function") {
     throw new ConfigurationError("Governance Orchestrator requires an Agent Registry and Communication Bus.");
   }
-  const architecture = requireAgent("architecture-manager");
-  const sprintLeader = requireAgent("sprint-leader");
+  const architecture = requireAgent(architectureManagerId ?? agentResolver?.resolve?.("architecture_manager") ?? "architecture-manager");
+  const sprintLeader = requireAgent(sprintLeaderId ?? agentResolver?.resolve?.("sprint_leader") ?? "sprint-leader");
   const completed = new Map();
   const active = new Map();
   const audit = [];
 
-  bus.subscribe("architecture-manager", onArchitectureRequest);
-  bus.subscribe("sprint-leader", onSprintRequest);
+  bus.subscribe(architecture.id, onArchitectureRequest);
+  bus.subscribe(sprintLeader.id, onSprintRequest);
   bus.subscribe(nodeId, onNodeMessage);
 
   return Object.freeze({ orchestrate, getAudit });
@@ -114,5 +114,5 @@ function unwrap(result) {
 }
 
 function messageRole(role) {
-  return role === "architecture-manager" ? "architecture_manager" : role === "sprint-leader" ? "sprint_lead" : role;
+  return role === "sprint_leader" ? "sprint_lead" : role;
 }

@@ -51,21 +51,48 @@ function requiredTicketFields(value) {
   });
 }
 
+function forgeV1(pathname, query = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  }
+  const search = params.toString();
+  return `${controlApiBase()}/forge/v1${pathname}${search ? `?${search}` : ""}`;
+}
+
+function controlApiBase() {
+  const configured = process.env.NEXT_PUBLIC_NODE_CONTROL_API_URL;
+  if (configured) return configured.replace(/\/$/, "");
+  if (typeof window !== "undefined" && window.location?.hostname) {
+    return `${window.location.protocol}//${window.location.hostname}:3100`;
+  }
+  return "http://127.0.0.1:3100";
+}
+
 export function createNodeClient() {
   return Object.freeze({
-    async getAgentSettings() {
-      return requestJson("/agents/settings", { fallbackError: "Node could not load Agent Settings." });
+    async getAgents() {
+      return requestJson(forgeV1("/agents"), { fallbackError: "Node could not load Agents." });
     },
+
+    async getAgent(agentId) {
+      return requestJson(forgeV1(`/agents/${agentId}`), { fallbackError: `Node could not load agent ${agentId}.` });
+    },
+
+    async createAgent(settings) {
+      return requestJson(forgeV1("/agents"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(settings), fallbackError: "Node rejected the Agent." });
+    },
+
     async saveAgentSettings(agentId, settings) {
-      return requestJson(`/agents/${agentId}/settings`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(settings), fallbackError: "Node rejected Agent Settings." });
+      return requestJson(forgeV1(`/agents/${agentId}`), { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(settings), fallbackError: "Node rejected the Agent." });
     },
     async testAgentConnection(agentId) {
-      return requestJson(`/agents/${agentId}/settings/test`, { method: "POST", fallbackError: "Agent connection failed." });
+      return requestJson(forgeV1(`/agents/${agentId}/test`), { method: "POST", fallbackError: "Agent connection failed." });
     },
     async postHumanDecision({ projectId, decisionId, actor, proposalId, decision, reason, correlationId }) {
-      return requestJson(`/projects/${projectId}/decisions`, {
+      return requestJson(forgeV1(`/projects/${projectId}/decisions`, { project: projectId }), {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ decision_id: decisionId, type: "human_governance", actor, actor_role: "project_owner", proposal_id: proposalId, decision, ...(reason ? { reason } : {}), correlation_id: correlationId, timestamp: new Date().toISOString() }),
+        body: JSON.stringify({ decision_id: decisionId, type: "human_governance", actor, actor_role: "project_owner", proposal_id: proposalId, decision, ...(reason ? { reason } : {}), correlation_id: correlationId, timestamp: new Date().toISOString(), project_id: projectId }),
         fallbackError: "Node rejected the Human Decision."
       });
     },
@@ -77,39 +104,50 @@ export function createNodeClient() {
       if (type) params.set("type", type);
       if (cursor) params.set("cursor", cursor);
       if (order) params.set("order", order);
-      return requestJson(`/projects/${projectId}/history?${params}`, { fallbackError: "Node could not load the Conversation and Audit History." });
+      return requestJson(forgeV1(`/projects/${projectId}/history`, { ...Object.fromEntries(params), project: projectId }), { fallbackError: "Node could not load the Conversation and Audit History." });
     },
     async getProjectDashboard(projectId) {
-      return requestJson(`/projects/${projectId}/dashboard`, { fallbackError: "Node could not load the Project Dashboard." });
+      return requestJson(forgeV1(`/projects/${projectId}/dashboard`, { project: projectId }), { fallbackError: "Node could not load the Project Dashboard." });
     },
+    async getTicket(projectId, ticketId) { return requestJson(forgeV1(`/projects/${projectId}/tickets/${ticketId}`, { project: projectId }), { fallbackError: `Node could not load ticket ${ticketId}.` }); },
+    async getTicketGraph(projectId, ticketId) { return requestJson(forgeV1(`/projects/${projectId}/tickets/${ticketId}/graph`, { project: projectId }), { fallbackError: `Node could not load code graph for ${ticketId}.` }); },
     async uploadSprintPlan(projectId, sprintPlan) {
-      return requestJson(`/projects/${projectId}/sprint-plans`, {
+      return requestJson(forgeV1("/sprints", { project: projectId }), {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sprint_plan: sprintPlan }), fallbackError: "Node rejected the Sprint Plan."
+        body: JSON.stringify({ project_id: projectId, sprint_plan: sprintPlan }), fallbackError: "Node rejected the Sprint Plan."
       });
     },
+    async listSprints(projectId) {
+      return requestJson(forgeV1("/sprints", { project: projectId }), { fallbackError: "Node could not load Sprints." });
+    },
     async getSprintPlan(projectId, sprintId) {
-      return requestJson(`/projects/${projectId}/sprint-plans/${sprintId}`, { fallbackError: "Node could not load the Sprint Plan." });
+      return requestJson(forgeV1(`/sprints/${sprintId}`, { project: projectId }), { fallbackError: "Node could not load the Sprint Plan." });
+    },
+    async updateSprintPlan(projectId, sprintId, sprintPlan) {
+      return requestJson(forgeV1(`/sprints/${sprintId}`, { project: projectId }), {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ project_id: projectId, sprint_plan: sprintPlan }), fallbackError: "Node could not update the Sprint Plan."
+      });
     },
     async deleteSprintPlan(projectId, sprintId) {
-      return requestJson(`/projects/${projectId}/sprint-plans/${sprintId}`, { method: "DELETE", fallbackError: "Node could not delete the Sprint Plan." });
+      return requestJson(forgeV1(`/sprints/${sprintId}`, { project: projectId }), { method: "DELETE", fallbackError: "Node could not delete the Sprint Plan." });
     },
     async deleteTicket(projectId, ticketId) {
-      return requestJson(`/projects/${projectId}/tickets/${ticketId}`, { method: "DELETE", fallbackError: "Node could not delete the ticket." });
+      return requestJson(forgeV1(`/projects/${projectId}/tickets/${ticketId}`, { project: projectId }), { method: "DELETE", fallbackError: "Node could not delete the ticket." });
     },
     async runTicket(projectId, ticketId) {
-      return requestJson(`/projects/${projectId}/tickets/${ticketId}/run`, { method: "POST", fallbackError: `Node rejected Ticket Run: ${ticketId}.` });
+      return requestJson(forgeV1(`/projects/${projectId}/tickets/${ticketId}/run`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId }), fallbackError: `Node rejected Ticket Run: ${ticketId}.` });
     },
     async runSprint(projectId, sprintId) {
-      return requestJson(`/projects/${projectId}/sprint-plans/${sprintId}/run`, { method: "POST", fallbackError: "Node could not start the sprint." });
+      return requestJson(forgeV1(`/sprints/${sprintId}/run`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId }), fallbackError: "Node could not start the sprint." });
     },
     async runSprintPlan(projectId, sprintId) {
-      return requestJson(`/projects/${projectId}/sprint-plans/${sprintId}/run`, {
-        method: "POST", fallbackError: `Node rejected Sprint Run: ${sprintId}.`
+      return requestJson(forgeV1(`/sprints/${sprintId}/run`, { project: projectId }), {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId }), fallbackError: `Node rejected Sprint Run: ${sprintId}.`
       });
     },
     async getArchitectureWorkspace(projectId) {
-      return requestJson(`/projects/${projectId}/architecture-workspace`, { fallbackError: "Node could not load the Architecture Workspace." });
+      return requestJson(forgeV1(`/projects/${projectId}/architecture-workspace`, { project: projectId }), { fallbackError: "Node could not load the Architecture Workspace." });
     },
     async postOwnerMessage({ projectId, conversationId, agentId, messageId, correlationId, text, intent, ticket }) {
       const messageIntent = intent ?? detectMessageIntent(text);
@@ -117,19 +155,21 @@ export function createNodeClient() {
       const rawText = String(text);
       const normalized = messageIntent === MESSAGE_INTENTS.normalChat ? { text: rawText } : normalizeTicketInput(rawText);
       const ticketObject = ticket ?? normalized.ticket;
-      console.log("ticket", normalized.ticket ?? null);
       if (messageIntent === MESSAGE_INTENTS.ticketCreate && !ticketObject) throw new Error("Ticket JSON could not be extracted from the message.");
-      return requestJson(`/projects/${projectId}/conversations/${conversationId}/messages`, {
+      return requestJson(forgeV1(`/projects/${projectId}/conversations/${conversationId}/messages`, { project: projectId }), {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ agent_id: agentId, message_id: messageId, correlation_id: correlationId, timestamp: new Date().toISOString(), payload: { intent: messageIntent, ...(messageIntent === MESSAGE_INTENTS.ticketCreate ? { ticket: ticketObject } : {}), text: rawText } }),
+        body: JSON.stringify({ project_id: projectId, agent_id: agentId, message_id: messageId, correlation_id: correlationId, timestamp: new Date().toISOString(), payload: { intent: messageIntent, ...(messageIntent === MESSAGE_INTENTS.ticketCreate ? { ticket: ticketObject } : {}), text: rawText } }),
         fallbackError: "Node rejected the owner message."
       });
     },
     connectConversationStream({ projectId, conversationId, afterMessageId, onMessage, onReplayComplete, onError }) {
       if (typeof onMessage !== "function") throw new Error("Conversation stream requires an onMessage handler.");
-      const query = afterMessageId ? `?after=${encodeURIComponent(afterMessageId)}` : "";
-      const source = new EventSource(`/projects/${projectId}/conversations/${conversationId}/stream${query}`);
+      const params = new URLSearchParams();
+      if (projectId) params.set("project", projectId);
+      if (afterMessageId) params.set("after", afterMessageId);
+      const query = params.toString() ? `?${params.toString()}` : "";
+      const source = new EventSource(`${controlApiBase()}/forge/v1/projects/${projectId}/conversations/${conversationId}/stream${query}`);
       const delivered = new Set();
       const onConversationEvent = (event) => {
         const message = JSON.parse(event.data);

@@ -30,7 +30,7 @@ export function createProtocolStorage({ projectRoot = process.cwd(), fileService
   const saveLocks = new Map();
   return Object.freeze({ save, get, exists, list, clearTask, root: storageRoot, normalizeRef, serialize, checksum, createMetadata });
 
-  async function save(ref, data, { schemaId } = {}) {
+  async function save(ref, data, { schemaId, replace = false } = {}) {
     const normalizedRef = normalizeRef(ref);
     const previous = saveLocks.get(normalizedRef) || Promise.resolve();
     let release;
@@ -38,20 +38,20 @@ export function createProtocolStorage({ projectRoot = process.cwd(), fileService
     saveLocks.set(normalizedRef, current);
     await previous;
     try {
-      return await saveUnlocked(normalizedRef, data, schemaId);
+      return await saveUnlocked(normalizedRef, data, schemaId, replace);
     } finally {
       release();
       if (saveLocks.get(normalizedRef) === current) saveLocks.delete(normalizedRef);
     }
   }
 
-  async function saveUnlocked(normalizedRef, data, schemaId) {
+  async function saveUnlocked(normalizedRef, data, schemaId, replace = false) {
     const serialized = serialize(data);
     const metadata = createMetadata(normalizedRef, serialized, schemaId);
     const dataPath = storagePath(normalizedRef, ".json");
     const metadataPath = storagePath(normalizedRef, ".meta.json");
     try {
-      await fileService.atomicCreate({ path: dataPath, content: serialized });
+      await (replace ? fileService.atomicWrite({ path: dataPath, content: serialized, replace: true }) : fileService.atomicCreate({ path: dataPath, content: serialized }));
     } catch (error) {
       if (error.code !== "FILE_ALREADY_EXISTS") throw error;
       const existing = await readExisting(normalizedRef, dataPath, metadataPath);
@@ -59,7 +59,7 @@ export function createProtocolStorage({ projectRoot = process.cwd(), fileService
       return { ref: existing.ref, data: existing.data, metadata: existing.metadata };
     }
     try {
-      await fileService.atomicCreate({ path: metadataPath, content: serialize(metadata) });
+      await (replace ? fileService.atomicWrite({ path: metadataPath, content: serialize(metadata), replace: true }) : fileService.atomicCreate({ path: metadataPath, content: serialize(metadata) }));
     } catch (error) {
       await fileService.deleteFile({ path: dataPath }).catch(() => {});
       if (error.code === "FILE_ALREADY_EXISTS") throw storageConflict(normalizedRef);
@@ -244,7 +244,7 @@ function sortValue(value, seen) {
   let result;
   if (Array.isArray(value)) result = value.map((item) => sortValue(item, seen));
   else if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) throw new Error("unsupported object type");
-  else result = Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortValue(value[key], seen)]));
+  else result = Object.fromEntries(Object.keys(value).sort().filter((key) => value[key] !== undefined).map((key) => [key, sortValue(value[key], seen)]));
   seen.delete(value);
   return result;
 }

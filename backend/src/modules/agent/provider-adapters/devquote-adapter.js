@@ -11,7 +11,7 @@
  */
 
 import { ConfigurationError } from "../../../shared/errors.js";
-import { buildMessages, mapUsage } from "./request-builder.js";
+import { buildAnthropicMessages, buildAnthropicSystem, buildAnthropicToolChoice, mapUsage } from "./request-builder.js";
 
 /**
  * Normalize URL to ensure /v1/messages endpoint
@@ -28,8 +28,10 @@ export async function request({ url, credential, payload, model, correlationId, 
   const requestBody = {
     model: model || process.env.DEVQUOTE_MODEL || process.env.NODE_AGENT_MODEL || "claude-haiku-4-5",
     max_tokens: 8192,
-    messages: buildMessages(payload),
+    system: buildAnthropicSystem(payload),
+    messages: buildAnthropicMessages(payload),
     tools: toAnthropicTools(payload.tools),
+    ...(buildAnthropicToolChoice(payload, payload.tools ?? []) ? { tool_choice: buildAnthropicToolChoice(payload, payload.tools ?? []) } : {})
   };
 
   const response = await fetch(endpoint, {
@@ -50,9 +52,10 @@ export async function request({ url, credential, payload, model, correlationId, 
   }
 
   const data = await response.json();
+  const tool = findToolUse(data);
+  if (tool) return { status: data.status ?? "completed", payload: { tool_use: tool, response_id: data.id ?? data.message?.id ?? data.response_id, usage: mapUsage(data.usage) } };
   const text = extractText(data);
   if (!text) throw new ConfigurationError("Devquote Gateway response is invalid.");
-
   return {
     status: data.status ?? "completed",
     payload: {
@@ -68,7 +71,7 @@ export async function* stream({ url, credential, payload, model, correlationId, 
   const requestBody = {
     model: model || process.env.DEVQUOTE_MODEL || process.env.NODE_AGENT_MODEL || "claude-haiku-4-5",
     max_tokens: 8192,
-    messages: buildMessages(payload),
+    messages: buildAnthropicMessages(payload),
     tools: toAnthropicTools(payload.tools),
     stream: true
   };
@@ -165,6 +168,15 @@ function extractText(data) {
   return "";
 }
 
+function findToolUse(data) {
+  const tool = Array.isArray(data?.content) ? data.content.find((c) => c?.type === "tool_use" && c?.input && typeof c.input === "object") : null;
+  if (tool) return { id: tool.id, name: tool.name, input: tool.input };
+  const outputTool = Array.isArray(data?.output) ? data.output.find((item) => item?.type === "tool_use" && item?.input && typeof item.input === "object") : null;
+  if (outputTool) return { id: outputTool.id, name: outputTool.name, input: outputTool.input };
+  return null;
+}
+
 function toAnthropicTools(tools = []) {
   return tools?.length ? tools.map((tool) => ({ name: tool.name, description: tool.description, input_schema: tool.input_schema })) : undefined;
 }
+

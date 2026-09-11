@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/structural-summary.schema.json",
+  "title": "NodeForge Code Index Structural Summary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "role",
+    "exports",
+    "imports",
+    "components",
+    "functions",
+    "routes",
+    "jsx_elements",
+    "css_variables",
+    "dependencies",
+    "relationships",
+    "modification_points"
+  ],
+  "properties": {
+    "type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "role": {
+      "type": "string",
+      "minLength": 1
+    },
+    "exports": {
+      "$ref": "#/$defs/string_list"
+    },
+    "imports": {
+      "$ref": "#/$defs/string_list"
+    },
+    "components": {
+      "$ref": "#/$defs/string_list"
+    },
+    "functions": {
+      "$ref": "#/$defs/string_list"
+    },
+    "routes": {
+      "$ref": "#/$defs/string_list"
+    },
+    "jsx_elements": {
+      "$ref": "#/$defs/string_list"
+    },
+    "css_variables": {
+      "$ref": "#/$defs/string_list"
+    },
+    "dependencies": {
+      "$ref": "#/$defs/string_list"
+    },
+    "relationships": {
+      "$ref": "#/$defs/string_list"
+    },
+    "modification_points": {
+      "$ref": "#/$defs/string_list"
+    }
+  },
+  "$defs": {
+    "string_list": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

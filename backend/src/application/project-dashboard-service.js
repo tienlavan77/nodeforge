@@ -1,7 +1,7 @@
 import { ConfigurationError } from "../shared/errors.js";
 
 // Read-only Node projection; canonical roadmap and provenance remain in governance modules.
-export function createProjectDashboardService({ roadmaps, sprintPlans, provenance, logReader } = {}) {
+export function createProjectDashboardService({ roadmaps, sprintPlans, provenance, logReader, relevantTreeSelector } = {}) {
   if (typeof roadmaps?.getCurrent !== "function" || typeof sprintPlans?.getCurrentSprint !== "function"
     || typeof sprintPlans?.getSprintStatus !== "function" || typeof sprintPlans?.getSprintBacklog !== "function") {
     throw new ConfigurationError("Project Dashboard Service requires Roadmap and Sprint Plan projections.");
@@ -10,35 +10,52 @@ export function createProjectDashboardService({ roadmaps, sprintPlans, provenanc
     throw new ConfigurationError("Project Dashboard provenance must provide validateProvenance().");
   }
 
-  return Object.freeze({ getDashboard });
+  return Object.freeze({ getDashboard, getTicket, getTicketGraph });
+
+  function findTicket(projectId, ticketId) {
+    assertProjectId(projectId);
+    if (typeof ticketId !== "string" || !ticketId) throw httpError(400, "A ticket id is required.");
+    const ticket = roadmaps.getCurrent()?.sprints?.flatMap((sprint) => sprint.tickets ?? []).find((item) => item.project_id === projectId && item.id === ticketId);
+    if (!ticket) throw httpError(404, `Ticket not found: ${ticketId}.`);
+    return ticket;
+  }
+
+  function getTicket(projectId, ticketId) { return structuredClone(ticketView(findTicket(projectId, ticketId))); }
+
+  function getTicketGraph(projectId, ticketId) {
+    if (!relevantTreeSelector?.select) throw new ConfigurationError("Ticket Code Graph API is not configured.");
+    const ticket = findTicket(projectId, ticketId);
+    return structuredClone({ project_id: projectId, ticket: ticketView(ticket), graph: relevantTreeSelector.select({ title: ticket.title, objective: ticket.objective, acceptance_criteria: ticket.acceptance_criteria ?? [], scope: "ui", allowed_prefixes: ["ui/nextjs/"] }) });
+  }
 
   function getDashboard(projectId) {
     assertProjectId(projectId);
     const roadmap = roadmaps.getCurrent();
     if (!roadmap || roadmap.project_id !== projectId) return emptyDashboard(projectId);
-    const sprint = sprintPlans.getCurrentSprint();
-    if (!sprint) return emptyDashboard(projectId, roadmap);
-    const status = sprintPlans.getSprintStatus(sprint.id);
-    const tickets = sprintPlans.getSprintBacklog(sprint.id).map((ticket) => ticketView(ticket));
-    const build = () => structuredClone({
+    const sprintEntries = (roadmap.sprints ?? []).map((sprint, index) => {
+      const status = sprintPlans.getSprintStatus(sprint.id) ?? { status: "planned" };
+      const sourceTasks = sprint.tickets?.length ? sprint.tickets : (sprintPlans.getSprintBacklog(sprint.id) ?? []);
+      const tasks = sourceTasks.filter((ticket) => ticket.project_id === projectId).map((ticket) => ticketView(ticket));
+      return { id: sprint.id, objective: sprint.objective, order: index + 1, status: status.status ?? "planned", tasks };
+    });
+    const build = (tasksBySprint = new Map()) => structuredClone({
       project_id: projectId,
-      roadmap: { id: roadmap.id, version: roadmap.version, sprints: roadmap.sprints.map((item, index) => {
-        const sprintStatus = sprintPlans.getSprintStatus(item.id);
-        return { id: item.id, objective: item.objective, order: index + 1, status: sprintStatus.status, ticket_count: sprintStatus.ticket_count, completed_ticket_count: sprintStatus.completed_ticket_count };
-      }) },
-      current_sprint: { id: sprint.id, objective: sprint.objective, ...status }, backlog: tickets
+      roadmap: { id: roadmap.id, version: roadmap.version, sprints: sprintEntries.map((sprint) => ({ ...sprint, tasks: (tasksBySprint.get(sprint.id) ?? sprint.tasks).map(taskViewSummary) })) }
     });
     if (!logReader) return build();
-    return Promise.all(tickets.map(async (ticket) => {
-      const latest = (await logReader({ project_id: projectId, ticket_id: ticket.id })).events.at(-1);
-      // Persistent roadmap status is authoritative for manually reviewed
-      // failures; an older completion event must not resurrect a failed task.
-      if (ticket.status === "failed") return { ...ticket, progress: 0 };
-      if (!latest) return ticket;
-      const to = latest.payload?.to ?? (/failed|error/i.test(latest.message ?? "") ? "failed" : /completed|done/i.test(latest.message ?? "") ? "done" : /running/i.test(latest.message ?? "") ? "running" : undefined);
-      if (!to) return ticket;
-      return { ...ticket, status: to, progress: to === "done" ? 100 : to === "running" || to === "reviewing" ? 50 : 0 };
-    })).then((logged) => { tickets.splice(0, tickets.length, ...logged); return build(); });
+    const allTasks = sprintEntries.flatMap((sprint) => sprint.tasks.map((task) => ({ sprintId: sprint.id, task })));
+    return Promise.all(allTasks.map(async ({ sprintId, task }) => {
+      try {
+        const latest = (await logReader({ project_id: projectId, ticket_id: task.id }))?.events?.at(-1);
+        if (!latest || task.status === "failed") return { sprintId, task };
+        const status = latest.payload?.to ?? (/failed|error/i.test(latest.message ?? "") ? "failed" : /completed|done/i.test(latest.message ?? "") ? "done" : /running/i.test(latest.message ?? "") ? "running" : undefined);
+        return { sprintId, task: status ? { ...task, status, progress: status === "done" ? 100 : status === "running" || status === "reviewing" ? 50 : 0 } : task };
+      } catch { return { sprintId, task }; }
+    })).then((items) => {
+      const grouped = new Map(sprintEntries.map((sprint) => [sprint.id, []]));
+      for (const item of items) grouped.get(item.sprintId)?.push(item.task);
+      return build(grouped);
+    });
   }
 
   function ticketView(ticket) {
@@ -72,9 +89,13 @@ export function createProjectDashboardService({ roadmaps, sprintPlans, provenanc
   }
 }
 
+function taskViewSummary(task) { return { id: task.id, title: task.title, priority: task.priority, status: task.status, progress: task.progress }; }
+
 function emptyDashboard(projectId, roadmap = null) {
-  return { project_id: projectId, roadmap: roadmap ? { id: roadmap.id, version: roadmap.version, sprints: [] } : null, current_sprint: null, backlog: [] };
+  return { project_id: projectId, roadmap: roadmap ? { id: roadmap.id, version: roadmap.version, sprints: [] } : null };
 }
+
+function httpError(statusCode, message) { const error = new ConfigurationError(message); error.statusCode = statusCode; return error; }
 
 function assertProjectId(projectId) {
   if (typeof projectId !== "string" || projectId.length === 0) throw new ConfigurationError("A Project Dashboard project id is required.");

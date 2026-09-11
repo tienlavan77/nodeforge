@@ -1,0 +1,13 @@
+import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
+import { createExecutionEventBus } from "../../src/modules/supervisor/execution-event-bus.js";
+import { createSupervisorStateStore } from "../../src/modules/supervisor/supervisor-state-store.js";
+import { createSupervisorManager } from "../../src/modules/supervisor/supervisor-manager.js";
+import { createProcessedRequestStore } from "../../src/modules/supervisor/processed-request-store.js";
+const root = process.argv[2];
+const fileService = createFileService({ projectRoot: root });
+const stateStore = createSupervisorStateStore({ fileService, root: "runtime/supervisors" });
+const requestStore = createProcessedRequestStore({ fileService, root: "runtime/requests" });
+const manager = createSupervisorManager({ eventBus: createExecutionEventBus(), stateStore, idFactory: () => `SUP-${process.pid}` });
+const runtime = await manager.startTask({ task_id: "TASK-MULTI-PROCESS", request_id: "REQ-R1" });
+const claimed = await requestStore.claim("REQ-R1", "agent.response.received");
+process.stdout.write(JSON.stringify({ supervisor_id: runtime.supervisorId, claimed }) + "\n");

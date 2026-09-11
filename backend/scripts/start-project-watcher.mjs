@@ -4,9 +4,6 @@ import { loadNodeforgeEnv } from "./nodeforge-env.mjs";
 import { acquireProcessLock } from "./nodeforge-process-lock.mjs";
 
 import { createDatabaseService } from "../src/infrastructure/sqlite/database-service.js";
-import { createPersistentEventStore } from "../src/modules/events/persistent-event-store.js";
-import { createSubscriptionRegistry } from "../src/modules/events/subscription-registry.js";
-import { createEventPublisher } from "../src/modules/events/event-publisher.js";
 import { createFilesystemWatcher, DEFAULT_WATCHER_IGNORE } from "../src/infrastructure/filesystem/watcher.js";
 import { createDebouncedWatcher } from "../src/modules/watcher/debounced-watcher.js";
 import { createIncrementalIndexer } from "../src/modules/index/incremental-indexer.js";
@@ -20,13 +17,7 @@ const dataDir = process.env.NODE_CONTROL_DATA_DIR ?? join(runtimeRoot, "nf");
 const projectId = process.env.NODE_CONTROL_PROJECT_ID ?? "PROJECT-NODEFORGE";
 const fileService = createFileService({ projectRoot: process.cwd() });
 const processLock = acquireProcessLock(dataDir, "watcher", { fileService });
-// Control DB stores events; the project index also uses DatabaseService so all
-// watcher/indexer mutations are serialized through the SQLite write queue.
-const controlDb = await createDatabaseService({ dataDir, runtimeDir: "." });
 const indexDb = await createDatabaseService({ dataDir: process.cwd(), runtimeDir: join(".forge", "runtime", "wc") });
-const eventStore = createPersistentEventStore({ database: controlDb });
-const subscriptions = createSubscriptionRegistry();
-const publisher = createEventPublisher({ store: eventStore, subscriptions });
 const rawWatcher = createFilesystemWatcher({
   root: process.cwd(),
   ignore: DEFAULT_WATCHER_IGNORE,
@@ -57,13 +48,7 @@ watcher.on("event", (event) => {
     })
     .then((result) => {
       if (!result) return;
-      publisher.publish({
-        event_id: `VERIFY-EVENT-${event.event_id}`,
-        type: "verification.result",
-        project_id: projectId,
-        timestamp: new Date().toISOString(),
-        payload: { watcher_event_id: event.event_id, path: event.payload?.path, result }
-      });
+      log(`Watcher verification ${result.status}: ${event.payload?.path ?? ""} (run ${result.run_id ?? "unknown"})`);
     })
     .catch((error) => console.error("Watcher verification failed", { error: error.message, event_id: event.event_id }));
 });
@@ -72,7 +57,6 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
   process.once(signal, async () => {
     await watcher.close?.();
     await indexDb.close();
-    await controlDb.close();
     processLock.release();
     process.exit(0);
   });

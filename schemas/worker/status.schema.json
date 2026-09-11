@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "nodeforge.worker.status",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["message_type", "worker_id", "worker_type", "status", "timestamp", "sequence"],
+  "properties": {
+    "message_type": { "enum": ["worker.status", "worker.status.request", "worker.status.response", "worker.heartbeat"] },
+    "worker_id": { "type": "string", "minLength": 1 },
+    "worker_type": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["starting", "ready", "idle", "busy", "draining", "failed", "recovering", "stopped", "stale"] },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "sequence": { "type": "integer", "minimum": 0 },
+    "current_job_id": { "type": ["string", "null"] },
+    "capacity": { "type": "integer", "minimum": 1 },
+    "capabilities": { "type": "array", "items": { "type": "string" } },
+    "request_id": { "type": "string", "minLength": 1 },
+    "supervisor_id": { "type": "string", "minLength": 1 }
+  }
+}

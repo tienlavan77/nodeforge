@@ -14,6 +14,7 @@ const schemas = Object.freeze({
   "node:patch_repair": require("../../../../schemas/agent/payloads/node-patch-repair.schema.json"),
   "node:task": require("../../../../schemas/agent/request.schema.json"),
   "agent:code_needed": require("../../../../schemas/agent/payloads/agent-code-needed.schema.json"),
+  "agent:read_transcript_blocks": require("../../../../schemas/agent/tools/read-transcript-blocks.schema.json"),
   "agent:planning": require("../../../../schemas/agent/payloads/agent-planning.schema.json"),
   "agent:submit_code_response": require("../../../../schemas/agent/payloads/agent-code-response.schema.json"),
   "agent:patch_repair_response": require("../../../../schemas/agent/payloads/agent-patch-repair-response.schema.json"),

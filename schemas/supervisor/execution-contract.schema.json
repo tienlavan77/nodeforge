@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/supervisor/execution-contract.schema.json",
+  "title": "NodeForge Supervisor Execution Contract",
+  "description": "Shared contract for task execution state and supervisor commands/events.",
+  "oneOf": [
+    { "$ref": "#/$defs/task_execution" },
+    { "$ref": "#/$defs/command" },
+    { "$ref": "#/$defs/event" }
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "lifecycle": {
+      "type": "string",
+      "enum": [
+        "CREATED",
+        "REQUESTING",
+        "WAITING_AGENT",
+        "MATERIALIZING",
+        "VERIFYING",
+        "REPAIRING",
+        "WAITING_REPAIR",
+        "COMPLETED",
+        "FAILED",
+        "NEEDS_HUMAN_REVIEW"
+      ]
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "supervisor_id", "request_id", "correlation_id", "attempt", "timestamp"],
+      "properties": {
+        "task_id": { "$ref": "#/$defs/id" },
+        "supervisor_id": { "$ref": "#/$defs/id" },
+        "request_id": { "$ref": "#/$defs/id" },
+        "correlation_id": { "$ref": "#/$defs/id" },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "timestamp": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "task_execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "supervisor_id", "request_id", "correlation_id", "attempt", "timestamp", "state"],
+      "properties": {
+        "task_id": { "$ref": "#/$defs/id" },
+        "supervisor_id": { "$ref": "#/$defs/id" },
+        "request_id": { "$ref": "#/$defs/id" },
+        "correlation_id": { "$ref": "#/$defs/id" },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "state": { "$ref": "#/$defs/lifecycle" },
+        "idempotency_key": { "$ref": "#/$defs/id" }
+      }
+    },
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "command_id", "task_id", "supervisor_id", "request_id", "correlation_id", "attempt", "timestamp", "payload"],
+      "properties": {
+        "kind": { "const": "command" },
+        "command_id": { "$ref": "#/$defs/id" },
+        "task_id": { "$ref": "#/$defs/id" },
+        "supervisor_id": { "$ref": "#/$defs/id" },
+        "request_id": { "$ref": "#/$defs/id", "description": "Idempotency key for the command." },
+        "correlation_id": { "$ref": "#/$defs/id", "description": "Trace identifier shared by related commands and events." },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "payload": { "type": "object" }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "retryable"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 },
+        "retryable": { "type": "boolean" },
+        "details": { "type": "object" }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "event_id", "type", "task_id", "supervisor_id", "request_id", "correlation_id", "attempt", "timestamp", "payload"],
+      "properties": {
+        "kind": { "const": "event" },
+        "event_id": { "$ref": "#/$defs/id" },
+        "type": { "type": "string", "minLength": 1 },
+        "task_id": { "$ref": "#/$defs/id" },
+        "supervisor_id": { "$ref": "#/$defs/id" },
+        "request_id": { "$ref": "#/$defs/id" },
+        "correlation_id": { "$ref": "#/$defs/id" },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "payload": { "type": "object" },
+        "error": { "$ref": "#/$defs/error" }
+      }
+    }
+  }
+}

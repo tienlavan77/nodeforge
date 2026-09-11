@@ -7,7 +7,7 @@
   "required": [
     "task_id",
     "step_id",
-    "files"
+    "plan"
   ],
   "properties": {
     "task_id": {
@@ -30,88 +30,30 @@
         }
       }
     },
-    "files": {
+    "plan": {
       "type": "array",
       "minItems": 1,
+      "uniqueItems": true,
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "path",
-          "exists",
-          "content",
-          "before_checksum",
-          "size_bytes"
-        ],
-        "properties": {
-          "path": {
-            "type": "string",
-            "minLength": 1
-          },
-          "exists": {
-            "type": "boolean"
-          },
-          "content": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "before_checksum": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "pattern": "^sha256:[0-9a-f]{64}$"
-          },
-          "size_bytes": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "language": {
-            "type": "string"
-          },
-          "index": {
-            "type": [
-              "object",
-              "null"
-            ]
-          }
-        }
+        "$ref": "#/$defs/plan_item"
       }
     },
-    "expected_submission": {
+    "expected_output": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "representation"
+        "type",
+        "transport"
       ],
       "properties": {
         "type": {
-          "type": "string"
-        },
-        "representation": {
-          "type": "string",
-          "enum": [
-            "full_content",
-            "unified_diff",
-            "apply_patch",
-            "structured_patch",
-            "per_file"
-          ]
+          "const": "submit_code_response"
         },
         "transport": {
-          "type": "string",
           "enum": [
             "function_tool",
             "json_schema"
           ]
-        },
-        "required_fields": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
         }
       }
     },
@@ -160,7 +102,6 @@
           "minLength": 1
         },
         "mode": {
-          "type": "string",
           "enum": [
             "explicit",
             "automatic"
@@ -169,6 +110,78 @@
         "ttl": {
           "type": "string",
           "minLength": 1
+        }
+      }
+    }
+  },
+  "$defs": {
+    "plan_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "action",
+        "before_checksum",
+        "content",
+        "exists",
+        "language",
+        "size_bytes",
+        "format"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action": {
+          "enum": [
+            "NEW",
+            "MODIFY",
+            "READ_ONLY"
+          ]
+        },
+        "before_checksum": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "content": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "exists": {
+          "type": "boolean"
+        },
+        "language": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "format": {
+          "enum": [
+            "full_content",
+            "structured_patch",
+            "patch_apply",
+            "diff",
+            "none"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "current_content": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     }

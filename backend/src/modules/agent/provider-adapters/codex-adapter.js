@@ -7,15 +7,26 @@ export async function request({ url, credential, payload, preparedRequest, model
   const requestBody = isResponses
     ? (preparedRequest ?? { model: model || process.env.NODE_AGENT_MODEL || "gpt-5.6-terra", input: buildResponsesInput(payload), ...buildCacheOptions(payload) })
     : payload;
-  const response = await fetchWithRetry(url, {
+  let response = await fetchWithRetry(url, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${credential}`, "x-correlation-id": correlationId },
     body: JSON.stringify({ ...requestBody, ...responseToolOptions(payload, requestBody) }),
     signal
   }, "Codex Responses");
   if (!response.ok) throw await gatewayError(response, "Codex Responses");
-  const body = await response.json();
-  if (isResponses) return { status: body.status ?? "completed", payload: { text: extractResponseText(body, { allowEmpty: true }), response_id: body.id, tool_use: extractToolUse(body), usage: mapOpenAIUsage(body.usage) } };
+  let body = await response.json();
+  if (isResponses) {
+    ({ response, body } = await pollUntilTerminal({ url, credential, correlationId, signal, response, body }));
+    return {
+      status: body.status ?? "completed",
+      completed_at: body.completed_at ?? null,
+      error: body.error ?? null,
+      incomplete_details: body.incomplete_details ?? null,
+      // Preserve the provider response for persistence when normalization fails.
+      raw_response: body,
+      payload: { text: extractResponseText(body, { allowEmpty: true }), response_id: body.id, tool_use: extractToolUse(body), usage: mapOpenAIUsage(body.usage) }
+    };
+  }
   return { status: body.status ?? "completed", payload: { text: extractResponseText(body), response_id: body.id ?? body.response_id } };
 }
 
@@ -93,6 +104,30 @@ function extractToolUse(body) {
   let input = {};
   try { input = JSON.parse(item.arguments ?? "{}"); } catch { throw new ConfigurationError("Codex tool input is invalid."); }
   return { id: item.call_id ?? item.id, name: item.name, input };
+}
+
+async function pollUntilTerminal({ url, credential, correlationId, signal, response, body }) {
+  const pending = new Set(["queued", "in_progress"]);
+  if (!pending.has(body?.status) || !body?.id) return { response, body };
+  const maxDurationMs = Math.max(1000, Number.parseInt(process.env.NODE_AGENT_POLL_TIMEOUT_MS ?? "120000", 10));
+  const intervalMs = Math.max(1000, Number.parseInt(process.env.NODE_AGENT_POLL_INTERVAL_MS ?? "5000", 10));
+  const pollUrl = `${url.replace(/\/$/, "")}/${encodeURIComponent(body.id)}`;
+  const deadline = Date.now() + maxDurationMs;
+  while (pending.has(body.status) && Date.now() < deadline) {
+    await delay(Math.min(intervalMs, Math.max(0, deadline - Date.now())), signal);
+    const polled = await fetchWithRetry(pollUrl, { method: "GET", headers: { authorization: `Bearer ${credential}`, "x-correlation-id": correlationId }, signal }, "Codex Responses polling");
+    if (!polled.ok) throw await gatewayError(polled, "Codex Responses polling");
+    response = polled;
+    body = await polled.json();
+  }
+  if (pending.has(body?.status)) {
+    const error = new ConfigurationError(`OpenAI Responses polling timed out: ${body.status}.`);
+    error.code = "PROVIDER_RESPONSE_POLL_TIMEOUT";
+    error.providerStatus = body.status;
+    error.responseId = body.id;
+    throw error;
+  }
+  return { response, body };
 }
 
 async function gatewayError(response, label) {

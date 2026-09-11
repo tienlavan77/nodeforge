@@ -14,7 +14,9 @@ export async function ensureForgeLayout(projectRoot, { sourceRoot = repositoryRo
   for (const directory of SNAPSHOT_DIRECTORIES) {
     const destination = join(forgeDir, directory);
     if (await exists(destination)) continue;
-    await cp(join(sourceRoot, directory), destination, { recursive: true, force: false, errorOnExist: true });
+    const source = join(sourceRoot, directory);
+    if (!(await exists(source))) continue;
+    await cp(source, destination, { recursive: true, force: false, errorOnExist: true });
   }
 
   await mkdir(join(forgeDir, "roadmap"), { recursive: true });

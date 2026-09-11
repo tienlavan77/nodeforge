@@ -52,7 +52,7 @@ export function createControlApiPlatform({ config, database, indexDb, fileServic
   const taskStore = createTaskStore({ database, projectId });
   const ticketStatusStore = createTicketStatusStore({ database, projectId, publisher: eventPublisher, onEvent: createTicketStatusLogger({ internalBus, logEvent }) });
   const verificationOrchestrator = createVerificationOrchestrator({ projectRoot, projectId });
-  const testService = createTestService({ verificationOrchestrator, fileService, projectRoot, publisher: eventPublisher, internalBus });
+  const testService = createTestService({ verificationOrchestrator, fileService, projectRoot, publisher: eventPublisher, internalBus, projectLogger: createTestJobLogger({ logEvent }) });
   const history = createHistoryStore({ subscriptions });
   const summaries = createTaskSummaryStore({ history });
   const memory = createProjectMemoryStore({ summaries });
@@ -75,5 +75,12 @@ function createTicketStatusLogger({ internalBus, logEvent }) {
     internalBus.emit(event.type, event);
     if (event.type !== "ticket.status_change" || !(event.to === "failed" || event.to === "needs_human_review" || event.details?.error)) return;
     logEvent({ timestamp: event.timestamp ?? new Date().toISOString(), event_name: "ticket.status_error", level: "error", status: "failed", message: event.details?.error ?? `Ticket status changed to ${event.to}.`, task_id: event.ticket_id, ticket_id: event.ticket_id, source: "ticket-status-store", error_code: event.details?.error_code ?? (event.to === "needs_human_review" ? "NEEDS_HUMAN_REVIEW" : "TICKET_FAILED"), payload: { ...event } });
+  };
+}
+
+function createTestJobLogger({ logEvent }) {
+  return (entry) => {
+    try { logEvent({ timestamp: new Date().toISOString(), ...entry }); } catch (error) { console.error("Project log failed", error); }
+    console.log(`[test-job] ${entry.payload?.job_id} ${entry.payload?.job_status}`, JSON.stringify({ task_id: entry.task_id, job_id: entry.payload?.job_id, status: entry.payload?.job_status, duration_ms: entry.payload?.duration_ms, error: entry.error_code ?? null }));
   };
 }
