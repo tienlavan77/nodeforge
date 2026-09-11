@@ -13,7 +13,7 @@ export function createStage1ReportService({ protocolStorage, fileService, gitSer
     let agentReport = null;
     try { agentReport = (await protocolStorage.get(`task/${ticket.id}/report`)).data; } catch { /* report is optional on abnormal stops */ }
     const commits = await getCommitsForTask(ticket.id);
-    const verified = ticket.acceptance_criteria.map((criterion) => ({ criterion, node_verified: /syntax|build|compile|test|lint/i.test(criterion) && verifyResult ? Boolean(verifyResult.pass ?? verifyResult.ready_for_review) : null }));
+    const verified = (ticket.acceptance_criteria ?? []).map((criterion) => ({ criterion, node_verified: /syntax|build|compile|test|lint/i.test(criterion) && verifyResult ? Boolean(verifyResult.pass ?? verifyResult.ready_for_review) : null }));
     return { ticket: { id: ticket.id, title: ticket.title, objective: ticket.objective }, status: status ?? null, reason, error, agent_report: agentReport, verify_result: verifyResult, files_changed: filesChanged, commits, criteria_check: verified, generated_at: new Date().toISOString() };
   }
 

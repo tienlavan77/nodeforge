@@ -7,7 +7,9 @@ export async function applyUnifiedDiff(filePath, diffText, options = {}) {
   const dryRun = options?.dry_run === true;
   let original;
   try {
-    original = await readFile(filePath, "utf8");
+    original = options?.fileService?.readFile
+      ? await options.fileService.readFile({ path: filePath })
+      : await readFile(filePath, "utf8");
   } catch (error) {
     return result({ success: false, errorCode: "IO_ERROR", errorMessage: error.message });
   }

@@ -23,7 +23,7 @@ export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(),
   return Object.freeze({ save, updateTicketStatus, removeSprint, removeTicket, getCurrent, getVersion, getAllVersions, load });
 
   function updateTicketStatus({ projectId, ticketId, status, error } = {}) {
-    if (!projectId || !ticketId || !["pending", "running", "reviewing", "done", "failed"].includes(status)) throw new ConfigurationError("A valid project, ticket, and status are required.");
+    if (!projectId || !ticketId || !["pending", "running", "reviewing", "done", "failed", "needs_human_review"].includes(status)) throw new ConfigurationError("A valid project, ticket, and status are required.");
     const current = getCurrent();
     if (!current || current.project_id !== projectId) return undefined;
     let found = false;

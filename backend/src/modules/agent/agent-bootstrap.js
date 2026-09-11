@@ -1,18 +1,19 @@
+import { randomUUID } from "node:crypto";
 import { createAgentContract } from "../../agents/agent-contract.js";
 import { ConfigurationError } from "../../shared/errors.js";
 import { createAgentRegistry } from "./agent-registry.js";
 
-export function createAgentBootstrap({ registry = createAgentRegistry(), bus, architectureManager, architectureManagerAdapter, sprintLeader, runtime, builder, reviewer, sessionStore, recovery, replayEngine, eventStore } = {}) {
+export function createAgentBootstrap({ registry = createAgentRegistry(), bus, architectureManager, architectureManagerAdapter, architectureManagerId, sprintLeader, sprintLeaderId, runtime, coder, builder, reviewer, sessionStore, recovery, replayEngine, eventStore } = {}) {
   if (typeof bus?.send !== "function") throw new ConfigurationError("Agent Bootstrap requires the shared Communication Bus.");
   if (!architectureManager || typeof architectureManager.createArchitecturePlan !== "function") throw new ConfigurationError("Agent Bootstrap requires an Architecture Manager.");
   if (architectureManagerAdapter !== undefined && typeof architectureManagerAdapter?.handle !== "function") throw new ConfigurationError("Architecture Manager Adapter must provide handle().");
   if (!sprintLeader || typeof sprintLeader.generateTickets !== "function") throw new ConfigurationError("Agent Bootstrap requires a Sprint Leader Planner.");
   if (!runtime || typeof runtime.startTask !== "function") throw new ConfigurationError("Agent Bootstrap requires a Runtime Service.");
   const agents = [
-    managerAgent(architectureManager, architectureManagerAdapter),
-    leaderAgent(sprintLeader),
+    managerAgent(architectureManager, architectureManagerAdapter, architectureManagerId),
+    leaderAgent(sprintLeader, sprintLeaderId),
     runtimeAgent(runtime),
-    requireContract(builder, "Builder"),
+    requireContract(coder ?? builder, "Coder"),
     requireContract(reviewer, "Reviewer")
   ];
 
@@ -33,31 +34,31 @@ export function createAgentBootstrap({ registry = createAgentRegistry(), bus, ar
   }
 }
 
-function managerAgent(manager, adapter) {
+function managerAgent(manager, adapter, agentId) {
   return withRole(createAgentContract({
-    id: "architecture-manager",
+    id: requireIdentity(agentId ?? randomUUID(), "Architecture Manager"),
     name: "Architecture Manager",
-    role: "architecture-manager",
-    canHandle: (task) => task?.role === "architecture-manager" || task?.type === "architecture",
+    role: "architecture_manager",
+    canHandle: (task) => task?.role === "architecture_manager" || task?.type === "architecture",
     async execute({ operation = "createArchitecturePlan", ...input } = {}) {
       if (typeof manager[operation] !== "function") throw new ConfigurationError(`Unknown Architecture Manager operation: ${operation}.`);
       return { status: "completed", result: manager[operation](input) };
     }
-  }), "architecture-manager", adapter);
+  }), "architecture_manager", adapter);
 }
 
-function leaderAgent(leader) {
+function leaderAgent(leader, agentId) {
   return withRole(createAgentContract({
-    id: "sprint-leader",
+    id: requireIdentity(agentId ?? randomUUID(), "Sprint Leader"),
     name: "Sprint Leader",
-    role: "sprint-leader",
-    canHandle: (task) => task?.role === "sprint-leader" || task?.type === "sprint-planning",
+    role: "sprint_leader",
+    canHandle: (task) => task?.role === "sprint_leader" || task?.type === "sprint-planning",
     async execute({ operation = "generateTickets", tickets, ...input } = {}) {
       if (typeof leader[operation] !== "function") throw new ConfigurationError(`Unknown Sprint Leader operation: ${operation}.`);
       const result = operation === "prioritizeBacklog" ? leader[operation](tickets) : leader[operation](input);
       return { status: "completed", result };
     }
-  }), "sprint-leader");
+  }), "sprint_leader");
 }
 
 function runtimeAgent(runtime) {
@@ -73,11 +74,16 @@ function runtimeAgent(runtime) {
   }), "runtime");
 }
 
+function requireIdentity(id, label) {
+  if (typeof id !== "string" || id.length === 0) throw new ConfigurationError(`${label} Agent identity is required.`);
+  return id;
+}
+
 function requireContract(agent, label) {
   if (!agent || typeof agent.canHandle !== "function" || typeof agent.execute !== "function") {
     throw new ConfigurationError(`${label} Agent Contract is required.`);
   }
-  return Object.freeze({ ...agent, role: label.toLowerCase() });
+  return Object.freeze({ ...agent, role: label === "Coder" ? "coder" : label.toLowerCase() });
 }
 
 function withRole(agent, role, runtimeAdapter) {

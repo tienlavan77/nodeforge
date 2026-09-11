@@ -1,7 +1,4 @@
-import { createRequire } from "node:module";
-
-const require = createRequire(import.meta.url);
-const schema = require("../../../../schemas/agent/response-openai.schema.json");
+import { schema } from "./stage1-response-schema.js";
 
 // Stage-1 uses explicit response tools; the legacy agent_tool wrapper is not sent.
 export const stage1AgentTools = Object.freeze(

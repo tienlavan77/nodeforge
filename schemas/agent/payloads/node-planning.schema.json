@@ -42,7 +42,8 @@
           "exists",
           "content",
           "before_checksum",
-          "size_bytes"
+          "size_bytes",
+          "language"
         ],
         "properties": {
           "path": {
@@ -50,26 +51,13 @@
             "minLength": 1
           },
           "exists": {
-            "type": "boolean"
+            "const": true
           },
           "content": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              },
-              {
-                "type": "object"
-              }
-            ]
+            "$ref": "https://forge.local/schemas/agent/structural-summary.schema.json"
           },
           "before_checksum": {
-            "type": [
-              "string",
-              "null"
-            ],
+            "type": "string",
             "pattern": "^sha256:[0-9a-f]{64}$"
           },
           "size_bytes": {
@@ -77,7 +65,8 @@
             "minimum": 0
           },
           "language": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "index": {
             "type": [

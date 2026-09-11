@@ -104,6 +104,11 @@ function freezeRecord(event) {
     event_type: event.event_type,
     timestamp: event.timestamp,
     source: event.source,
+    ...(event.task_id ? { task_id: event.task_id } : {}),
+    ...(event.supervisor_id ? { supervisor_id: event.supervisor_id } : {}),
+    ...(event.request_id ? { request_id: event.request_id } : {}),
+    ...(event.correlation_id ? { correlation_id: event.correlation_id } : {}),
+    ...(Number.isInteger(event.attempt) ? { attempt: event.attempt } : {}),
     payload: Object.freeze({ ...event.payload }),
     metadata: Object.freeze({ ...event.metadata })
   });
@@ -117,6 +122,11 @@ function cloneRecord(event) {
     event_type: event.event_type,
     timestamp: event.timestamp,
     source: event.source,
+    ...(event.task_id ? { task_id: event.task_id } : {}),
+    ...(event.supervisor_id ? { supervisor_id: event.supervisor_id } : {}),
+    ...(event.request_id ? { request_id: event.request_id } : {}),
+    ...(event.correlation_id ? { correlation_id: event.correlation_id } : {}),
+    ...(Number.isInteger(event.attempt) ? { attempt: event.attempt } : {}),
     payload: { ...event.payload },
     metadata: { ...event.metadata }
   };

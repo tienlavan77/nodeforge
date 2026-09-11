@@ -100,8 +100,17 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     if (!(commandResult?.command && commandResult.status === "ready")) persistProtocolMessage(persisted, round, "request");
     safeLog(projectLogger, { event_name: "owner.message", level: "info", status: "info", message: "Owner message received.", task_id: message.payload.task?.id ?? message.id, ticket_id: message.payload.task?.id, conversation_id: message.conversation_id, source: "owner-chat-service" });
     messages.set(persisted.id, Object.freeze(structuredClone(persisted)));
-    if (commandResult?.command && commandResult.status === "ready" && typeof dispatchAgentTicket === "function") void dispatchAgentTicket({ task_id: commandResult.ticket_id, ticket: commandResult.ticket, message: persisted, agent_id: agentId, eventSink: input.eventSink });
-    else if (typeof agentStream === "function") void streamRealAgent(persisted, agentId);
+    if (commandResult?.command && commandResult.status === "ready" && typeof dispatchAgentTicket === "function") void dispatchAgentTicket({ task_id: commandResult.ticket_id, ticket: commandResult.ticket, required_role: commandResult.ticket?.required_role, message: persisted, eventSink: input.eventSink });
+    else if (isBuilder) {
+      // Builder coding is exclusively dispatched through Stage-1. This prevents
+      // the retired agent_tool loop from silently handling direct chat messages.
+      bus.send(responseMessage(persisted, "ticket.status", {
+        command: false,
+        status: "ticket_required",
+        error_code: "BUILDER_TICKET_REQUIRED",
+        error: "Builder coding requests must use /ticket <id>; the legacy direct coding flow is disabled."
+      }, `TICKET-REQUIRED-${input.message_id}`));
+    } else if (typeof agentStream === "function") void streamRealAgent(persisted, agentId);
     else if (typeof agentRequest === "function") void requestRealAgent(persisted, agentId);
     return structuredClone(persisted);
   }

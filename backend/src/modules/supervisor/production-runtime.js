@@ -8,7 +8,6 @@ import { createSupervisorStateStore } from "./supervisor-state-store.js";
 import { createAgentRegistry } from "./agent-registry.js";
 import { createSenderWorker } from "./sender-worker.js";
 import { createProcessedRequestStore } from "./processed-request-store.js";
-import { createProductionRepairWorker } from "./repair-worker-production.js";
 import { createMaterializerWorker } from "./materializer-worker.js";
 import { createVerificationWorker } from "./verification-worker.js";
 import { createSupervisorLoop } from "./supervisor-loop.js";
@@ -18,9 +17,9 @@ import { createWorkerStatusBus } from "./worker-status-bus.js";
 import { createForgeToolRegistry } from "../../tools/index.js";
 import { createRuntimeToolGovernance } from "../governance/runtime-tool-governance.js";
 
-const QUEUE_NAMES = ["agent.request", "materializer.request", "verification.request", "repair.request"];
+const QUEUE_NAMES = ["agent.request", "sender.handoff", "materializer.request", "verification.request", "repair.request"];
 
-export function createProductionSupervisorRuntime({ fileService, root = ".forge/runtime", eventStore, agentGateway, logger = console, projectLogger = () => {}, preparation = {}, roundControllerFactory, conversationStateStore, protocolStorage, autoStartWorkers = true, toolGovernance, governanceDatabase, codeSearch, enableReadCode = false } = {}) {
+export function createProductionSupervisorRuntime({ fileService, projectRoot = process.cwd(), root = ".forge/runtime", eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, agentRoleResolver, logger = console, projectLogger = () => {}, preparation = {}, roundControllerFactory, conversationStateStore, protocolStorage, autoStartWorkers = true, toolGovernance, governanceDatabase, codeSearch, relevantTreeSelector, enableReadCode = false, testService, gitService, reportService } = {}) {
   const hasPreparation = Object.keys(preparation ?? {}).length > 0;
   const queueStore = createFileQueueStore({ fileService, root: `${root}/queues` });
   const stateStore = createSupervisorStateStore({ fileService, root: `${root}/supervisors` });
@@ -34,10 +33,10 @@ export function createProductionSupervisorRuntime({ fileService, root = ".forge/
   const controlLock = createProcessMutex();
   const processedRequestStore = createProcessedRequestStore({ fileService, root: `${root}/processed-requests` });
   const runtimeGovernance = toolGovernance ?? createRuntimeToolGovernance({ database: governanceDatabase, eventStore });
-  const toolRegistry = protocolStorage?.get && fileService?.readForIndex ? createForgeToolRegistry({ protocolStorage, fileService, codeSearch, enableReadCode, governance: runtimeGovernance }) : {};
+  const toolRegistry = protocolStorage?.get && fileService?.readForIndex ? createForgeToolRegistry({ protocolStorage, fileService, codeSearch, relevantTreeSelector, enableReadCode, testService, gitService, reportService, governance: runtimeGovernance, projectLogger }) : {};
   const supervisorManager = createSupervisorManager({ eventBus, stateStore, preparation, onCreate: (runtime) => {
     const executionContextProvider = createExecutionContextProvider(runtime, runtimeGovernance, toolRegistry);
-    const loop = createSupervisorLoop({ runtime, senderQueue: queues["agent.request"], materializerQueue: queues["materializer.request"], verificationQueue: queues["verification.request"], repairQueue: queues["repair.request"], eventBus, requestStore: processedRequestStore, roundController: typeof roundControllerFactory === "function" ? roundControllerFactory(runtime, { conversationStateStore, protocolStorage, toolRegistry, governance: runtimeGovernance, executionContextProvider }) : undefined });
+    const loop = createSupervisorLoop({ runtime, senderQueue: queues["agent.request"], materializerQueue: queues["materializer.request"], verificationQueue: queues["verification.request"], repairQueue: queues["repair.request"], eventBus, requestStore: processedRequestStore, agentResolver: agentRoleResolver, roundController: typeof roundControllerFactory === "function" ? roundControllerFactory(runtime, { conversationStateStore, protocolStorage, toolRegistry, governance: runtimeGovernance, executionContextProvider }) : undefined });
     loops.set(runtime.supervisorId, loop);
     // Keep event handling off the publish call stack so control operations can
     // safely publish their own state events without re-entrant lock deadlocks.
@@ -47,12 +46,13 @@ export function createProductionSupervisorRuntime({ fileService, root = ".forge/
       queueMicrotask(() => {
         void controlLock.run(runtime.taskId, () => loop.onEvent(event)).catch((error) => {
           logger.error?.("Supervisor event handling failed", { task_id: runtime.taskId, supervisor_id: runtime.supervisorId, event_type: event?.type, request_id: event?.request_id, error: error?.message });
+          projectLogger({ event_name: "supervisor.event_failed", level: "error", status: "failed", message: "Supervisor event handling failed.", task_id: runtime.taskId, source: "production-runtime", payload: { event_type: event?.type, request_id: event?.request_id, supervisor_id: runtime.supervisorId, error_code: error?.code ?? "EVENT_HANDLING_FAILED", error: error?.message } });
         });
       });
     });
   } });
-  const baseIntegration = createNodeforgeTaskIntegration({ supervisorManager, eventBus });
-  const integration = { startTask: async (request) => {
+  const baseIntegration = createNodeforgeTaskIntegration({ supervisorManager, eventBus, agentResolver: agentRoleResolver, handoffQueue: queues["sender.handoff"], claudeSdkGateway, openaiSdkGateway, codexSdkGateway, agentGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger });
+  const integration = { submitTicket: baseIntegration.submitTicket, startTask: async (request) => {
     if (!request?.task_id) throw new ConfigurationError("Production task requires task_id.");
     if (startingTasks.has(request.task_id)) {
       const result = await startingTasks.get(request.task_id);
@@ -74,7 +74,9 @@ export function createProductionSupervisorRuntime({ fileService, root = ".forge/
     const pending = persisted?.pending_request ? { ...persisted.pending_request, ...request, attempt: Math.max(Number(persisted.pending_request.attempt) || 1, Number(request.attempt) || 1) } : request;
     const owner = supervisorManager.getByTask(result.task_id);
     if (hasPreparation && owner?.prepare) await owner.prepare(pending);
-    if (loop && ["CREATED", "REQUESTING", "WAITING_AGENT", "READY"].includes((await stateStore.get(result.supervisor_id))?.state ?? "CREATED")) {
+    // REPAIRING is an active state a stuck run may sit in (for example after a
+    // repair round crashed mid-flight); a fresh Run must be able to resume it.
+    if (loop && ["CREATED", "REQUESTING", "WAITING_AGENT", "READY", "REPAIRING"].includes((await stateStore.get(result.supervisor_id))?.state ?? "CREATED")) {
       await loop.start({ ...pending, task_id: result.task_id, supervisor_id: result.supervisor_id,
         request_id: pending.request_id ?? request.request_id, correlation_id: pending.correlation_id ?? request.correlation_id,
         attempt: pending.attempt ?? request.attempt ?? 1 }, { resume: result.status === "already_running" });
@@ -82,21 +84,28 @@ export function createProductionSupervisorRuntime({ fileService, root = ".forge/
     return result;
   }
   const agentRegistry = createAgentRegistry();
-  if (agentGateway?.request) agentRegistry.register("builder", { send: (input) => agentGateway.request(input) });
-  const senderWorker = createSenderWorker({ queue: queues["agent.request"], agentRegistry, eventBus, processedStore: processedRequestStore, statusBus, signalBus, projectLogger, protocolStorage, conversationStateStore, toolRegistry, runtimeGovernance });
+  if (agentGateway?.request) {
+    for (const profile of agentRoleResolver?.list?.() ?? []) {
+      if (profile.enabled !== true || profile.status !== "ready") continue;
+      agentRegistry.register(profile.agent_id, { send: (input) => agentGateway.request(input) }, profile);
+    }
+  }
+  const senderWorker = createSenderWorker({ queue: queues["agent.request"], agentRegistry, agentResolver: agentRoleResolver, eventBus, processedStore: processedRequestStore, statusBus, signalBus, projectLogger, protocolStorage, conversationStateStore, toolRegistry, runtimeGovernance });
   const materializerWorker = createMaterializerWorker({ fileService });
   const verificationWorker = createVerificationWorker();
   const materializerWorkerLoop = createQueuePoller(queues["materializer.request"], "materializer-1", signalBus, async (job) => { projectLogger({ event_name: "materializer.request_started", level: "info", status: "info", message: "Materializer Worker started job.", task_id: job.task_id, correlation_id: job.correlation_id, source: "materializer-worker", payload: { request_id: job.request_id, job_id: job.id } }); const result = await materializerWorker.verify({ ...job, ...(job.payload ?? {}) }); await eventBus.publish({ type: result.status === "valid" ? "material_verification.completed" : "material_verification.invalid", task_id: job.task_id, supervisor_id: job.supervisor_id, request_id: job.request_id, correlation_id: job.correlation_id, attempt: job.attempt ?? 1, payload: result }); projectLogger({ event_name: "material_worker.verification_completed", level: "info", status: result.status === "valid" ? "success" : "failed", message: "Material Worker completed verification.", task_id: job.task_id, correlation_id: job.correlation_id, source: "material-worker", payload: { request_id: job.request_id, job_id: job.id, status: result.status, valid: result.valid, invalid: result.invalid, invalid_count: result.invalid_count, repair_context: result.repair_context } }); await queues["materializer.request"].ack(job.id); });
   const verificationWorkerLoop = createQueuePoller(queues["verification.request"], "verification-1", signalBus, async (job) => { projectLogger({ event_name: "verification.request_started", level: "info", status: "info", message: "Verification Worker started job.", task_id: job.task_id, correlation_id: job.correlation_id, source: "verification-worker", payload: { request_id: job.request_id, job_id: job.id } }); const result = await verificationWorker.verifyPatches(job.payload ?? job); await eventBus.publish({ type: result.status === "passed" ? "verification.passed" : "verification.failed", task_id: job.task_id, supervisor_id: job.supervisor_id, request_id: job.request_id, correlation_id: job.correlation_id, attempt: job.attempt ?? 1, payload: result }); projectLogger({ event_name: "verification.request_completed", level: "info", status: result.status === "passed" ? "success" : "failed", message: "Verification Worker completed job.", task_id: job.task_id, correlation_id: job.correlation_id, source: "verification-worker", payload: { request_id: job.request_id, job_id: job.id, status: result.status } }); await queues["verification.request"].ack(job.id); });
-  const repairWorker = createProductionRepairWorker({ queue: queues["repair.request"], senderQueue: queues["agent.request"], statusBus, signalBus, projectLogger });
+  // Hub-and-spoke: repair is decided and dispatched by the Supervisor loop
+  // (round controller builds and persists the repair round request). No repair
+  // worker sends anything anymore.
+  const repairWorker = null;
   async function startWorkers() {
-    senderWorker.start(); repairWorker.start(); materializerWorkerLoop.start(); verificationWorkerLoop.start();
+    senderWorker.start(); materializerWorkerLoop.start(); verificationWorkerLoop.start();
     for (const name of QUEUE_NAMES) for (const job of await queueStore.list(name)) {
       if (["queued", "leased"].includes(job.status)) signalBus.wakeup({ source: "startup-recovery", target: name, queue: name, job_id: job.id, task_id: job.task_id, supervisor_id: job.supervisor_id, request_id: job.request_id, correlation_id: job.correlation_id, attempt: job.attempt ?? 1 });
     }
   }
   if (autoStartWorkers) void startWorkers();
-  async function supervisorRuntimePrepare(runtime, pending) { const owner = supervisorManager.getByTask(pending.task_id); if (owner?.prepare) await owner.prepare(pending); }
   return Object.freeze({ governance: runtimeGovernance, queues, queueStore, stateStore, processedRequestStore, eventBus, signalBus, resultBus, statusBus, supervisorManager, integration, agentRegistry, senderWorker, repairWorker, materializerWorkerLoop, verificationWorkerLoop, startWorkers, recover });
 
   async function recover() {
@@ -124,23 +133,27 @@ function createExecutionContextProvider(runtime, governance) {
   return ({ source = {}, round = 1, type } = {}) => {
     const existing = source.execution_context ?? source.executionContext;
     if (existing) return governance.createExecutionContext({ ...existing, lifecycle: runtime.getState?.() ?? "RUNNING" });
-    return governance.createExecutionContext({
+    const capabilities = capabilitiesForRound(round, type);
+    const executionContext = {
       task_id: runtime.taskId,
       execution_id: `${runtime.supervisorId}:${source.attempt ?? 1}`,
-      agent_identity: { agent_id: source.agent_id ?? "builder", role: "builder" },
-      capabilities: capabilitiesForRound(round, type),
-      allowed_resources: { allowed_file_paths: source.allowed_file_paths ?? [], allowed_prefixes: source.allowed_prefixes ?? [] },
+      agent_identity: { agent_id: source.agent_id ?? "builder", role: "coder" },
+      capabilities,
       lifecycle: runtime.getState?.() ?? "RUNNING",
       audit_context: { supervisor_id: runtime.supervisorId, correlation_id: source.correlation_id }
-    });
+    };
+    if (round !== 1 || type !== "task") {
+      executionContext.allowed_resources = { allowed_file_paths: source.allowed_file_paths ?? source.relevantTree?.map((entry) => typeof entry === "string" ? entry : entry?.path).filter(Boolean) ?? [], allowed_prefixes: source.allowed_prefixes ?? [] };
+    }
+    return governance.createExecutionContext(executionContext);
   };
 }
 
 function capabilitiesForRound(round, type) {
-  if (round === 1) return type === "task" ? [] : ["select_code_graph_candidates"];
+  if (round === 1) return type === "task" ? ["select_code_graph_candidates"] : ["select_code_graph_candidates"];
   if (round === 2) return ["select_code_graph_candidates", "search_code", "read_code", "read_transcript_blocks"];
-  if (round === 3) return ["read_transcript_blocks", "read_code"];
-  return ["read_transcript_blocks", "read_code"];
+  if (round === 3) return ["read_transcript_blocks", "read_code", "read_file", "write_diff", "run_test", "commit_changes", "report_done"];
+  return ["read_transcript_blocks", "read_code", "read_file", "write_diff", "run_test", "commit_changes", "report_done"];
 }
 function validateEvent(event) {
   return Boolean(event && typeof event.task_id === "string" && typeof event.supervisor_id === "string" && typeof event.request_id === "string" && typeof event.correlation_id === "string" && Number.isInteger(event.attempt) && event.attempt > 0 && typeof event.timestamp === "string" && event.payload && typeof event.payload === "object");

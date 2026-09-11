@@ -20,7 +20,7 @@ test("rejects input while running and reopens on done", async () => {
   assert.equal(rejected.message_type, "ticket.input_rejected"); assert.equal(dispatched.length, 1);
   internalBus.emit("node.status_change", { task_id: "T", payload: { conversation_id: "CONV-BU-P-T", to: "done" } });
   service.submit(input("M3", "follow up"));
-  assert.equal(sent.at(-1).payload.round, 2);
+  assert.equal(sent.filter((message) => message.message_type === "owner.message").at(-1).payload.round, 2);
 });
 
 test("race between status and send never dispatches while locked", () => {

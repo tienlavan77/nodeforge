@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/tools/read-code.schema.json",
+  "title": "Forge read code tool input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "path",
+    "symbol",
+    "start_line",
+    "end_line",
+    "max_chars"
+  ],
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "file",
+        "symbol"
+      ]
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+"
+    },
+    "symbol": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "maxLength": 300
+    },
+    "start_line": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "end_line": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "max_chars": {
+      "type": "integer",
+      "minimum": 1000,
+      "maximum": 100000
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "file"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "symbol": {
+            "type": "null"
+          },
+          "start_line": {
+            "type": "null"
+          },
+          "end_line": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "symbol"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "start_line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "end_line": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    }
+  ]
+}

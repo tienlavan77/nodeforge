@@ -16,6 +16,7 @@ test("routes code_needed and submit_code_response to their handlers", async () =
 
 test("rejects unsupported and unvalidated response envelopes", async () => {
   const router = createStage1ResponseRouter({ onCodeNeeded() {}, onSubmitCode() {} });
-  await assert.rejects(() => router.routeResponse({ ...base, type: "completed" }), /does not support/);
+  assert.deepEqual(await router.routeResponse({ ...base, type: "planning", payload: { plan: [] } }), { type: "planning", plan: [] });
+  await assert.rejects(() => router.routeResponse({ ...base, type: "unknown" }), /does not support/);
   await assert.rejects(() => router.routeResponse({ type: "code_needed", role: "node" }), /validated Agent envelope/);
 });

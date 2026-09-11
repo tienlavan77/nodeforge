@@ -4,8 +4,9 @@ const require = createRequire(import.meta.url);
 const openAIResponseSchema = require("../../../../../schemas/agent/response-openai.schema.json");
 
 export function buildResponsesInput(payload = {}) {
-  if (!Array.isArray(payload.developer_blocks) && !Array.isArray(payload.user_blocks)) return payload.text ?? JSON.stringify(payload);
-  const blocks = [];
+  const prior = Array.isArray(payload.messages) ? payload.messages : [];
+  if (!Array.isArray(payload.developer_blocks) && !Array.isArray(payload.user_blocks) && !prior.length) return payload.text ?? JSON.stringify(payload);
+  const blocks = [...prior];
   for (const block of payload.developer_blocks ?? []) blocks.push({ role: "developer", content: [{ type: "input_text", text: block.content, ...(block.cacheable ? { prompt_cache_breakpoint: true } : {}) }] });
   for (const block of payload.transcript_blocks ?? []) blocks.push({ role: "user", content: [{ type: "input_text", text: JSON.stringify({ round: block.round, instruction: block.instruction, response_summary: block.response_summary, full_request_ref: block.full_request_ref, full_response_ref: block.full_response_ref }) }] });
   for (const block of payload.user_blocks ?? []) blocks.push({ role: "user", content: [{ type: "input_text", text: block.content }] });
@@ -32,14 +33,15 @@ export function buildInput(payload = {}, resolvedTranscript = []) {
 }
 
 export function buildToolConfig(payload = {}) {
-  const definitions = Array.isArray(openAIResponseSchema.tools) ? openAIResponseSchema.tools : [];
+  const suppliedTools = Array.isArray(payload.tools) && payload.tools.length ? payload.tools.map((tool) => ({ ...tool, parameters: tool.parameters ?? tool.input_schema })) : null;
+  const definitions = suppliedTools ?? (Array.isArray(openAIResponseSchema.tools) ? openAIResponseSchema.tools : []);
   // Provider projection may intentionally narrow or widen the canonical
   // envelope (for example, first round allows code_needed). Prefer it.
   const expected = payload.expected_output?.type ?? payload.expected_submission?.type;
   const expectedTypes = Array.isArray(expected) ? expected : expected ? [expected] : [];
   const aliases = { submit_code: "submit_code_response", code_response: "submit_code_response", request_info: "code_needed", usage_report: "usage_needed" };
   const names = expectedTypes.map((type) => aliases[type] ?? type);
-  const selected = names.length ? definitions.filter((tool) => names.includes(tool.name)) : definitions;
+  const selected = suppliedTools ? definitions : (names.length ? definitions.filter((tool) => names.includes(tool.name)) : definitions);
   if (!selected.length) throw new Error(`No OpenAI response tool matches expected output: ${expectedTypes.join(", ") || "<none>"}.`);
   const requiredFormat = payload.expected_output?.representation ?? payload.expected_submission?.representation ?? payload.expected_output?.format ?? payload.expected_submission?.format;
   const planFormats = submissionFormatsFromPlan(payload.plan);
