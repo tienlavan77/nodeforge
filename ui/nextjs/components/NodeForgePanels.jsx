@@ -371,21 +371,47 @@ function mergeStreamMessage(messages, message) {
   return next;
 }
 
-function ArchitecturePanel({ client, onWorkspaceChanged, onSettings, agent, workspace, messages, draft, onDraft, onSend, onActivate, active }) {
+function enabledArchitectureManagers(agents = []) {
+  return agents.filter((candidate) => candidate?.role === "Architecture Manager" && candidate.enabled === true);
+}
+
+export function ArchitectureManagerSelector({ agents = [], value, onChange }) {
+  const managers = enabledArchitectureManagers(agents);
+  const selected = managers.some((candidate) => candidate.id === value) ? value : "";
+  return <label className="architecture-manager-selector">
+    <span>Architecture Manager</span>
+    <select value={selected} onChange={(event) => onChange?.(event.target.value)} aria-label="Select Architecture Manager" disabled={!managers.length}>
+      <option value="">{managers.length ? "Select an Architecture Manager" : "No enabled Architecture Manager agents"}</option>
+      {managers.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name ?? candidate.label ?? candidate.id}{candidate.identity ? ` (${candidate.identity})` : ""}</option>)}
+    </select>
+  </label>;
+}
+
+function ArchitecturePanel({ client, onWorkspaceChanged, onSettings, agent, workspace, agents = workspace?.agents ?? [], messages, draft, onDraft, onSend, onActivate, active }) {
   const conversationRef = useRef(null);
   const wasAtBottom = useRef(true);
+  const managers = enabledArchitectureManagers(agents);
+  const [selectedAgentId, setSelectedAgentId] = useState("");
+  const selectedAgent = managers.find((candidate) => candidate.id === selectedAgentId);
+  useEffect(() => {
+    if (!selectedAgentId && managers.length === 1) setSelectedAgentId(managers[0].id);
+    if (selectedAgentId && !selectedAgent) setSelectedAgentId("");
+  }, [managers, selectedAgent, selectedAgentId]);
   useEffect(() => {
     const element = conversationRef.current;
     if (element && wasAtBottom.current) element.scrollTop = element.scrollHeight;
   }, [messages]);
+  function send() {
+    if (selectedAgent) onSend(selectedAgent);
+  }
   return <article className={`agent-panel architecture-workspace ${active ? "is-active" : ""}`} onClick={onActivate}>
-    <PanelHeader agent={agent} onSettings={onSettings} />
+    <div className="agent-header"><ArchitectureManagerSelector agents={agents} value={selectedAgentId} onChange={setSelectedAgentId} /><button className="panel-menu" onClick={onSettings} title="Agent Settings" aria-label="Architecture Manager Agent Settings">&#9881;</button></div>
     <div className="architecture-conversation conversation natural-conversation" ref={conversationRef} onScroll={(event) => { const element = event.currentTarget; wasAtBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 56; }} role="log" aria-label="Architecture Manager messages">
       <div className="date-rule"><span>Conversation</span></div>
       {messages.map((message, index) => <Message key={message.id ?? `${message.time}-${index}`} message={message} />)}
       {agent.status === "WORKING" && <div className="working-status" role="status">Architecture Manager is working…</div>}
     </div>
-    <form className="composer" onSubmit={(event) => { event.preventDefault(); onSend(); }}><textarea value={draft} onChange={(event) => onDraft(event.target.value)} onInput={(event) => { event.currentTarget.style.height = "auto"; event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`; }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); onSend(); } }} rows="2" placeholder="Message Architecture Manager..." aria-label="Message Architecture Manager" /><button type="submit" title="Send message" aria-label="Send message">&#8593;</button></form>
+    <form className="composer" onSubmit={(event) => { event.preventDefault(); send(); }}><textarea value={draft} onChange={(event) => onDraft(event.target.value)} onInput={(event) => { event.currentTarget.style.height = "auto"; event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`; }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(); } }} rows="2" placeholder="Message Architecture Manager..." aria-label="Message Architecture Manager" disabled={!selectedAgent} /><button type="submit" title="Send message" aria-label="Send message" disabled={!selectedAgent}>&#8593;</button></form>
   </article>;
 }
 
