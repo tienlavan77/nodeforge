@@ -118,6 +118,7 @@ export function SprintPlanDashboard({ dashboard, client, onRefresh, onTicketDele
   const [deleteMessage, setDeleteMessage] = useState("");
   const [highlightSprint, setHighlightSprint] = useState(null);
   const [collapsedSprints, setCollapsedSprints] = useState({});
+  const [addTicketSprint, setAddTicketSprint] = useState(null);
   const knownSprintIds = useRef(null);
   useEffect(() => () => runStreamRef.current?.close?.(), []);
   const sprints = dashboard?.roadmap?.sprints ?? [];
@@ -186,14 +187,50 @@ export function SprintPlanDashboard({ dashboard, client, onRefresh, onTicketDele
       {!collapsedSprints[sprint.id] && <div className="sprint-ticket-list" aria-label={`Tasks in ${sprint.id}`}>
         {sprint.tasks?.length ? sortSprintTickets(sprint.tasks).map((ticket) => <TicketCard key={ticket.id} ticket={{ ...ticket, sprint_id: sprint.id }} client={client} projectId={dashboard.project_id} onRefresh={onRefresh} onDeleted={onTicketDeleted} />) : <p className="dashboard-state">No tasks in this sprint.</p>}
       </div>}
-      <div className="sprint-actions"><button className="sprint-view-button small" onClick={() => handleView(sprint.id)}>{viewSprint?.id === sprint.id && viewState === "ready" ? "Hide" : "View"}</button><button className="sprint-delete-button small" onClick={() => handleDelete(sprint.id)} disabled={Boolean(runningId) || sprint.status === "done"}>Delete</button><button className={`sprint-run-button small ${runningId === sprint.id ? "is-running" : ""}`} onClick={() => handleRun(sprint.id)} disabled={Boolean(runningId) || sprint.status === "done"}>{runningId === sprint.id ? "Running…" : "Run"}</button></div>
+      <div className="sprint-actions"><button className="sprint-view-button small" onClick={() => handleView(sprint.id)}>{viewSprint?.id === sprint.id && viewState === "ready" ? "Hide" : "View"}</button><button className="sprint-add-ticket-button small" onClick={() => setAddTicketSprint(sprint)}>Add a ticket</button><button className="sprint-delete-button small" onClick={() => handleDelete(sprint.id)} disabled={Boolean(runningId) || sprint.status === "done"}>Delete</button><button className={`sprint-run-button small ${runningId === sprint.id ? "is-running" : ""}`} onClick={() => handleRun(sprint.id)} disabled={Boolean(runningId) || sprint.status === "done"}>{runningId === sprint.id ? "Running…" : "Run"}</button></div>
       {viewSprint?.id === sprint.id && <EntityDetailsModal title={viewSprint.id} state={viewState} onClose={() => { setViewState("idle"); setViewSprint(null); }}>{viewState === "ready" && <><p className="sprint-objective">{viewSprint.objective}</p><h3>Tickets ({viewSprint.tickets?.length ?? 0})</h3><div className="sprint-ticket-table">{(viewSprint.tickets ?? []).map((ticket) => <article key={ticket.id}><strong>{ticket.id}</strong><span>{ticket.title}</span><small>{ticket.priority ?? "normal"}</small></article>)}</div><h3>Exit Criteria</h3><ul>{(viewSprint.exit_criteria ?? []).map((item) => <li key={item}>{item}</li>)}</ul></>}</EntityDetailsModal>}
     </article>)}
     {runMessage && <p className="sprint-run-message" role="status" aria-live="polite">{runMessage}</p>}
     {runEvents.length > 0 && <div className="sprint-run-events" role="log" aria-label="Sprint run events">{runEvents.map((event, index) => <div key={`${index}-${event}`}><strong>Run</strong> {event}</div>)}</div>}
     {deleteMessage && <p className="sprint-run-message" role="status">{deleteMessage}</p>}
+    {addTicketSprint && <AddTicketModal sprint={addTicketSprint} projectId={dashboard.project_id ?? PROJECT_ID} client={client} onClose={() => setAddTicketSprint(null)} onCreated={async () => { setAddTicketSprint(null); await onRefresh?.(); }} />}
 
   </section>;
+}
+
+function AddTicketModal({ sprint, projectId, client, onClose, onCreated }) {
+  const [content, setContent] = useState("");
+  const [error, setError] = useState("");
+  const [state, setState] = useState("");
+  async function submit(event) {
+    event.preventDefault();
+    setError("");
+    const normalized = normalizeTicketInput(content);
+    if (!normalized.recognized) { setError("Paste ticket JSON or labeled prose with title, objective, and acceptance_criteria."); return; }
+    if (normalized.missing?.length) { setError(`Missing required field(s): ${normalized.missing.join(", ")}.`); return; }
+    const ticket = normalized.ticket ?? parseLabeledTicket(normalized.text);
+    if (!ticket) { setError("Ticket content could not be parsed."); return; }
+    const prepared = { ...ticket, sprint_id: sprint.id, project_id: ticket.project_id ?? projectId, roadmap_id: ticket.roadmap_id ?? sprint.roadmap_id };
+    setState("Creating…");
+    try { await client.addTicketToSprint(projectId, sprint.id, prepared); await onCreated?.(); }
+    catch (failure) { setState(""); setError(failure.message); }
+  }
+  return <EntityDetailsModal title={`Add a ticket to ${sprint.id}`} onClose={onClose}>
+    <form onSubmit={submit}>
+      <label htmlFor="paste-ticket-content">Ticket JSON or labeled prose</label>
+      <textarea id="paste-ticket-content" value={content} onChange={(event) => setContent(event.target.value)} rows="12" placeholder={'{"title":"...","objective":"...","acceptance_criteria":["..."]}'} aria-label="Pasted ticket content" />
+      {error && <p className="dashboard-state error" role="alert">{error}</p>}
+      {state && <p aria-live="polite">{state}</p>}
+      <div className="settings-actions"><button type="submit" disabled={!content.trim() || Boolean(state)}>Create ticket</button><button type="button" onClick={onClose}>Cancel</button></div>
+    </form>
+  </EntityDetailsModal>;
+}
+
+function parseLabeledTicket(text) {
+  const fields = {};
+  for (const match of String(text).matchAll(/^\s*(title|objective|acceptance_criteria)\s*:\s*([\s\S]*?)(?=^\s*(?:title|objective|acceptance_criteria)\s*:|$)/gim)) fields[match[1].toLowerCase()] = match[2].trim();
+  if (!fields.title || !fields.objective || !fields.acceptance_criteria) return null;
+  return { ...fields, acceptance_criteria: fields.acceptance_criteria.split(/\n|\s*[;|]\s*/).map((item) => item.replace(/^[-*]\s*/, "").trim()).filter(Boolean) };
 }
 
 export function UploadSprintPlanDialog({ client, onClose, onUploaded }) {
