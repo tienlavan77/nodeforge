@@ -215,7 +215,7 @@ function AddTicketModal({ sprint, projectId, client, onClose, onCreated }) {
     try { await client.addTicketToSprint(projectId, sprint.id, prepared); await onCreated?.(); }
     catch (failure) { setState(""); setError(failure.message); }
   }
-  return <EntityDetailsModal title={`Add a ticket to ${sprint.id}`} onClose={onClose}>
+  return <EntityDetailsModal title={`Add a ticket to ${sprint.id}`} modalClassName="add-ticket-modal" onClose={onClose}>
     <form onSubmit={submit}>
       <label htmlFor="paste-ticket-content">Ticket JSON or labeled prose</label>
       <textarea id="paste-ticket-content" value={content} onChange={(event) => setContent(event.target.value)} rows="12" placeholder={'{"title":"...","objective":"...","acceptance_criteria":["..."]}'} aria-label="Pasted ticket content" />
@@ -475,8 +475,8 @@ function TicketModal({ ticket, onClose }) {
   return <EntityDetailsModal title={ticket.id} onClose={onClose}><p className="sprint-objective">{ticket.title}</p><p>{ticket.objective ?? "No objective provided."}</p><p><strong>Status:</strong> {ticket.status} · {ticket.progress}%</p><h3>Acceptance Criteria</h3><ul>{(ticket.acceptance_criteria ?? []).map((item) => <li key={item}>{item}</li>)}</ul></EntityDetailsModal>;
 }
 
-function EntityDetailsModal({ title, state, onClose, children }) {
-  const content = <div className="sprint-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="sprint-modal" role="dialog" aria-modal="true" aria-label={title}><header><h2>{title}</h2><button onClick={onClose} aria-label="Close details">&#215;</button></header><div className="sprint-modal-content">{state === "loading" && <p className="dashboard-state">Loading...</p>}{state && state !== "loading" && state !== "ready" && <p className="dashboard-state error">{state}</p>}{(!state || state === "ready") && children}</div></section></div>;
+function EntityDetailsModal({ title, state, modalClassName = "", onClose, children }) {
+  const content = <div className="sprint-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className={`sprint-modal ${modalClassName}`.trim()} role="dialog" aria-modal="true" aria-label={title}><header><h2>{title}</h2><button onClick={onClose} aria-label="Close details">&#215;</button></header><div className="sprint-modal-content">{state === "loading" && <p className="dashboard-state">Loading...</p>}{state && state !== "loading" && state !== "ready" && <p className="dashboard-state error">{state}</p>}{(!state || state === "ready") && children}</div></section></div>;
   return typeof document === "undefined" ? null : createPortal(content, document.body);
 }
 
