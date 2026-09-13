@@ -372,7 +372,7 @@ function mergeStreamMessage(messages, message) {
 }
 
 function enabledArchitectureManagers(agents = []) {
-  return agents.filter((candidate) => candidate?.role === "Architecture Manager" && candidate.enabled === true);
+  return agents.filter((candidate) => candidate?.role === "Architecture Manager" && candidate.enabled === true && candidate.id);
 }
 
 export function ArchitectureManagerSelector({ agents = [], value, onChange }) {
@@ -380,7 +380,10 @@ export function ArchitectureManagerSelector({ agents = [], value, onChange }) {
   const selected = managers.some((candidate) => candidate.id === value) ? value : "";
   return <label className="architecture-manager-selector">
     <span>Architecture Manager</span>
-    <select value={selected} onChange={(event) => onChange?.(event.target.value)} aria-label="Select Architecture Manager" disabled={!managers.length}>
+    <select value={selected} onChange={(event) => {
+      const next = managers.find((candidate) => candidate.id === event.target.value);
+      onChange?.(next?.id ?? "");
+    }} aria-label="Select Architecture Manager" disabled={!managers.length}>
       <option value="">{managers.length ? "Select an Architecture Manager" : "No enabled Architecture Manager agents"}</option>
       {managers.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name ?? candidate.label ?? candidate.id}{candidate.identity ? ` (${candidate.identity})` : ""}</option>)}
     </select>
@@ -394,9 +397,8 @@ function ArchitecturePanel({ client, onWorkspaceChanged, onSettings, agent, work
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const selectedAgent = managers.find((candidate) => candidate.id === selectedAgentId);
   useEffect(() => {
-    if (!selectedAgentId && managers.length === 1) setSelectedAgentId(managers[0].id);
-    if (selectedAgentId && !selectedAgent) setSelectedAgentId("");
-  }, [managers, selectedAgent, selectedAgentId]);
+    setSelectedAgentId((current) => managers.some((candidate) => candidate.id === current) ? current : (managers[0]?.id ?? ""));
+  }, [managers]);
   useEffect(() => {
     const element = conversationRef.current;
     if (element && wasAtBottom.current) element.scrollTop = element.scrollHeight;
