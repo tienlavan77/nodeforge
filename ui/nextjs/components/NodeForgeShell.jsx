@@ -24,8 +24,7 @@ export function NodeForgeShell({ app }) {
     <main className="workspace">
       <section className="chat-area panel" aria-label="Project Chat">
         <div className="project-chat-target">
-          <label htmlFor="architecture-manager-selector">Architecture Manager</label>
-          <select id="architecture-manager-selector" value={selectedArchitectureManagerId} onChange={(event) => setSelectedArchitectureManagerId(event.target.value)} aria-label="Architecture Manager selection">
+          <select className="architecture-manager-select" id="architecture-manager-selector" value={selectedArchitectureManagerId} onChange={(event) => setSelectedArchitectureManagerId(event.target.value)} aria-label="Architecture Manager selection">
             {!architectureManagers.length && <option value="">No enabled Architecture Manager agents available</option>}
             {architectureManagers.map((agent) => <option key={agent.id} value={agent.id}>{agent.label} ({agent.agent_id ?? agent.id})</option>)}
           </select>
@@ -60,7 +59,15 @@ export function NodeForgeShell({ app }) {
             const hasMore = historyHasMore[agent.id];
             const loading = historyLoading[agent.id];
             return <div key={agent.id} className="active-chat-panel" style={{ display: isActive ? "flex" : "none" }}>
-              <PanelHeader agent={{ ...agent, status: workingByAgent[agent.id] }} onSettings={() => setSettingsAgent(agent)} />
+              {agent.id === "architecture-manager" ? (
+                <header className="agent-header">
+                  <div className={`agent-avatar ${agent.tone}`}>{agent.short}</div>
+                  <div className="agent-heading"><div className="agent-status"><span className="status-dot" /> {workingByAgent[agent.id]}</div></div>
+                  <button className="panel-menu" onClick={() => setSettingsAgent(agent)} title="Agent Settings" aria-label={`${agent.label} Agent Settings`}>&#9881;</button>
+                </header>
+              ) : (
+                <PanelHeader agent={{ ...agent, status: workingByAgent[agent.id] }} onSettings={() => setSettingsAgent(agent)} />
+              )}
               <div className="conversation natural-conversation" ref={(el) => { if (el) conversationRefs.current[agent.id] = el; }} onScroll={(e) => { const el = e.currentTarget; wasAtBottomRef.current[agent.id] = el.scrollHeight - el.scrollTop - el.clientHeight < 72; if (el.scrollTop <= 20) handleScroll(agent.id); }} role="log" aria-label={`${agent.label} messages`}>
                 {groups.length === 0 && <div className="date-rule"><span>Conversation</span></div>}
                 {loading && !rawChat.length && <p className="dashboard-state">Loading conversation…</p>}
