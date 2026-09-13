@@ -371,6 +371,9 @@ function mergeStreamMessage(messages, message) {
   return next;
 }
 
+// CODEX-DOC-002: Project Chat target selector — only agents with the exact
+// "Architecture Manager" role and enabled === true are selectable; the selected
+// agent id is kept in UI state and invalid ids can never be dispatched to.
 function enabledArchitectureManagers(agents = []) {
   return agents.filter((candidate) => candidate?.role === "Architecture Manager" && candidate.enabled === true && candidate.id);
 }
@@ -391,6 +394,10 @@ export function ArchitectureManagerSelector({ agents = [], value, onChange }) {
 }
 
 function ArchitecturePanel({ client, onWorkspaceChanged, onSettings, agent, workspace, agents = workspace?.agents ?? [], messages, draft, onDraft, onSend, onActivate, active }) {
+  // CODEX-DOC-002: `agent` is the fixed panel identity, not the dispatch target.
+  // The Project Chat target is the Architecture Manager chosen via
+  // ArchitectureManagerSelector; `selectedAgent` is resolved from the enabled
+  // manager list, so an invalid/stale id can never receive a dispatch.
   const conversationRef = useRef(null);
   const wasAtBottom = useRef(true);
   const managers = enabledArchitectureManagers(agents);
