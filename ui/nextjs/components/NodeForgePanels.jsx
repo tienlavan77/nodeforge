@@ -381,13 +381,14 @@ function enabledArchitectureManagers(agents = []) {
 export function ArchitectureManagerSelector({ agents = [], value, onChange }) {
   const managers = enabledArchitectureManagers(agents);
   const selected = managers.some((candidate) => candidate.id === value) ? value : "";
-  return <label className="architecture-manager-selector">
+  const emptyState = "No enabled Architecture Manager agents";
+  return <label className="architecture-manager-selector" htmlFor="architecture-manager-select">
     <span>Architecture Manager</span>
-    <select value={selected} onChange={(event) => {
+    <select id="architecture-manager-select" value={selected} onChange={(event) => {
       const next = managers.find((candidate) => candidate.id === event.target.value);
       onChange?.(next?.id ?? "");
     }} aria-label="Select Architecture Manager" disabled={!managers.length}>
-      <option value="">{managers.length ? "Select an Architecture Manager" : "No enabled Architecture Manager agents"}</option>
+      <option value="">{managers.length ? "Select an Architecture Manager" : emptyState}</option>
       {managers.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name ?? candidate.label ?? candidate.id}{candidate.identity ? ` (${candidate.identity})` : ""}</option>)}
     </select>
   </label>;
