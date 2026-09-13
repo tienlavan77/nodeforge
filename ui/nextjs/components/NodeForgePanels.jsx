@@ -400,7 +400,7 @@ function ArchitecturePanel({ client, onWorkspaceChanged, onSettings, agent, work
   // manager list, so an invalid/stale id can never receive a dispatch.
   const conversationRef = useRef(null);
   const wasAtBottom = useRef(true);
-  const managers = enabledArchitectureManagers(agents);
+  const managers = useMemo(() => enabledArchitectureManagers(agents), [agents]);
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const selectedAgent = managers.find((candidate) => candidate.id === selectedAgentId);
   useEffect(() => {
