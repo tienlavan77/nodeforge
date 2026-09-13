@@ -5,7 +5,7 @@ import { NodeForgeHeader } from "./NodeForgeHeader.jsx";
 import { ArchitectureArtifacts, AgentSettingsOverlay, HistoryOverlay, InlineDecisionControls, Message, PanelHeader, SprintPlanDashboard, UploadSprintPlanDialog } from "./NodeForgePanels.jsx";
 
 export function NodeForgeShell({ app }) {
-  const { AGENTS, active, activeAgent, workingByAgent, drafts, historyChat, historyHasMore, historyLoading, conversationRefs, composerRef, wasAtBottomRef, setActiveAgent, setDrafts, historyOpen, setHistoryOpen, settingsAgent, setSettingsAgent, uploadOpen, setUploadOpen, send, handleScroll, dashboard, workspace, client, loadWorkspace, loadDashboard } = app;
+  const { AGENTS, active, activeAgent, workingByAgent, drafts, historyChat, historyHasMore, historyLoading, conversationRefs, composerRef, wasAtBottomRef, setActiveAgent, setDrafts, historyOpen, setHistoryOpen, settingsAgent, setSettingsAgent, uploadOpen, setUploadOpen, send, handleScroll, dashboard, workspace, client, loadWorkspace, loadDashboard, architectureManagers, selectedArchitectureManagerId, setSelectedArchitectureManagerId } = app;
   const dashboardSprints = dashboard?.roadmap?.sprints ?? [];
   const dashboardTickets = dashboardSprints.flatMap((sprint) => sprint.tasks ?? []);
   const runningTickets = dashboardTickets.filter((ticket) => ticket.status === "running").length;
@@ -22,7 +22,14 @@ export function NodeForgeShell({ app }) {
       <div><span>Running</span><strong>{runningTickets + activeAgents}</strong></div>
     </section>
     <main className="workspace">
-      <section className="chat-area panel" aria-label="Agent conversations">
+      <section className="chat-area panel" aria-label="Project Chat">
+        <div className="project-chat-target">
+          <label htmlFor="architecture-manager-selector">Architecture Manager</label>
+          <select id="architecture-manager-selector" value={selectedArchitectureManagerId} onChange={(event) => setSelectedArchitectureManagerId(event.target.value)} aria-label="Architecture Manager selection">
+            {!architectureManagers.length && <option value="">No enabled Architecture Manager agents available</option>}
+            {architectureManagers.map((agent) => <option key={agent.id} value={agent.id}>{agent.label} ({agent.agent_id ?? agent.id})</option>)}
+          </select>
+        </div>
         <div className="tab-bar" role="tablist" aria-label="Agent tabs">
           {AGENTS.map((agent) => (
             <button key={agent.id} role="tab" aria-selected={activeAgent === agent.id} className={`tab-button ${activeAgent === agent.id ? "is-active" : ""} ${workingByAgent[agent.id] === "WORKING" ? "is-working" : ""}`} onClick={() => setActiveAgent(agent.id)} aria-label={`${agent.label} tab`}>
@@ -66,8 +73,8 @@ export function NodeForgeShell({ app }) {
                 {working && <div className="working-status" role="status">{agent.label} is working…</div>}
               </div>
               {agent.id === "architecture-manager" && isActive && <InlineDecisionControls client={client} onWorkspaceChanged={loadWorkspace} workspace={workspace} />}
-              <form className="composer" onSubmit={(event) => { event.preventDefault(); send(agent.id); }}>
-                <textarea ref={isActive ? composerRef : undefined} value={drafts[agent.id] ?? ""} onChange={(event) => setDrafts((current) => ({ ...current, [agent.id]: event.target.value }))} onInput={(event) => { event.currentTarget.style.height = "auto"; event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`; }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(agent.id); } }} rows="2" placeholder={`Message ${agent.label}...`} aria-label={`Message ${agent.label}`} disabled={working} />
+              <form className="composer" onSubmit={(event) => { event.preventDefault(); send(agent.id === "architecture-manager" ? (architectureManagers.some((candidate) => candidate.id === selectedArchitectureManagerId) ? selectedArchitectureManagerId : "") : agent.id); }}>
+                <textarea ref={isActive ? composerRef : undefined} value={drafts[agent.id] ?? ""} onChange={(event) => setDrafts((current) => ({ ...current, [agent.id]: event.target.value }))} onInput={(event) => { event.currentTarget.style.height = "auto"; event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`; }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(agent.id === "architecture-manager" ? (architectureManagers.some((candidate) => candidate.id === selectedArchitectureManagerId) ? selectedArchitectureManagerId : "") : agent.id); } }} rows="2" placeholder={`Message ${agent.label}...`} aria-label={`Message ${agent.label}`} disabled={working || (agent.id === "architecture-manager" && !architectureManagers.some((candidate) => candidate.id === selectedArchitectureManagerId))} />
                 <button type="submit" title="Send message" aria-label="Send message" disabled={working}>&#8593;</button>
               </form>
             </div>;
