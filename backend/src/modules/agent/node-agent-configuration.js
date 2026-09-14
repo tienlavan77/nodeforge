@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { ConfigurationError } from "../../shared/errors.js";
 
 const REQUIRED_FIELDS = ["agent_id", "agent_name", "role", "gateway_url", "credential_ref", "enabled", "status", "created_at", "updated_at"];
-const OPTIONAL_FIELDS = ["provider", "model", "reasoning", "use_responses"];
+const OPTIONAL_FIELDS = ["provider", "model", "reasoning", "use_responses", "use_previous_response_id"];
 const FIELDS = [...REQUIRED_FIELDS, ...OPTIONAL_FIELDS];
 const PROVIDERS = ["codex", "claude", "openai", "anthropic", "custom", "devquote"];
 const SECRET_FIELD = /(?:api[_-]?key|credential(?!_ref)|secret|password|token|authorization)/i;

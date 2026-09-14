@@ -13,14 +13,15 @@ const ticketSchema = require("../../../../schemas/governance/ticket.schema.json"
 
 const SENSITIVE = /(?:api[_-]?key|credential|secret|password|token|authorization)/i;
 
-export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(), database } = {}) {
+export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(), validateTicket: validateTicketSchema = createTicketValidator(), database } = {}) {
   if (typeof validateRoadmap !== "function") throw new ConfigurationError("Roadmap validation must be a function.");
+  if (typeof validateTicketSchema !== "function") throw new ConfigurationError("Ticket validation must be a function.");
   if (database !== undefined && (!database?.run || !database?.all)) throw new ConfigurationError("Persistent Roadmap Store requires a SQLite database.");
   const versions = [];
   const byVersion = new Map();
   if (database) load();
 
-  return Object.freeze({ save, updateTicketStatus, removeSprint, removeTicket, getCurrent, getVersion, getAllVersions, load });
+  return Object.freeze({ save, updateTicketStatus, updateTicket, removeSprint, removeTicket, getCurrent, getVersion, getAllVersions, load });
 
   function updateTicketStatus({ projectId, ticketId, status, error } = {}) {
     if (!projectId || !ticketId || !["pending", "running", "reviewing", "done", "failed", "needs_human_review"].includes(status)) throw new ConfigurationError("A valid project, ticket, and status are required.");
@@ -34,6 +35,25 @@ export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(),
     }) }));
     if (!found) return undefined;
     const version = `${current.version}-status-${Date.now()}`;
+    return save({ ...current, version, updated_at: new Date().toISOString(), sprints });
+  }
+
+  function updateTicket({ projectId, ticketId, patch } = {}) {
+    if (!projectId || !ticketId || !patch || typeof patch !== "object" || Array.isArray(patch)) throw new ConfigurationError("A valid project, ticket, and patch are required.");
+    const assignable = ["title", "objective", "acceptance_criteria", "priority", "dependencies", "status", "last_error"].filter((field) => patch[field] !== undefined);
+    if (!assignable.length) throw new ConfigurationError("No updatable ticket fields provided.");
+    const current = getCurrent();
+    if (!current || current.project_id !== projectId) return undefined;
+    let found = false;
+    const sprints = current.sprints.map((sprint) => ({ ...sprint, tickets: (sprint.tickets ?? []).map((ticket) => {
+      if (ticket.id !== ticketId || ticket.project_id !== projectId) return ticket;
+      found = true;
+      return { ...ticket, ...Object.fromEntries(assignable.map((field) => [field, patch[field]])) };
+    }) }));
+    if (!found) return undefined;
+    const merged = sprints.flatMap((sprint) => sprint.tickets ?? []).find((ticket) => ticket.id === ticketId);
+    if (!validateTicketSchema(merged)) throw new ConfigurationError(`Invalid Ticket: ${ajvErrorsText(validateTicketSchema)}`);
+    const version = `${current.version}-update-${Date.now()}`;
     return save({ ...current, version, updated_at: new Date().toISOString(), sprints });
   }
 
@@ -114,10 +134,21 @@ function ensureTable(database) {
   )`);
 }
 
+function ajvErrorsText(validate) {
+  return (validate.errors ?? []).map((error) => `${error.instancePath || "/"} ${error.message}`).join("; ");
+}
+
 function redact(value) {
   if (Array.isArray(value)) return value.map(redact);
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, SENSITIVE.test(key) ? "[REDACTED]" : redact(item)]));
+}
+
+export function createTicketValidator() {
+  const ajv = new Ajv2020({ allErrors: true, strict: true });
+  addFormats(ajv);
+  ajv.addSchema(commonSchema).addSchema(ticketSchema);
+  return ajv.getSchema(ticketSchema.$id);
 }
 
 function createRoadmapValidator() {

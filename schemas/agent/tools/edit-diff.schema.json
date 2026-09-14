@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/tools/edit-diff.schema.json",
+  "title": "Forge edit diff tool input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "path",
+    "before_checksum",
+    "anchor",
+    "replacement"
+  ],
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+"
+    },
+    "before_checksum": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^sha256:[a-fA-F0-9]{64}$"
+    },
+    "anchor": {
+      "type": "string",
+      "minLength": 1
+    },
+    "replacement": {
+      "type": "string"
+    },
+    "occurrence": {
+      "type": "string",
+      "enum": [
+        "first",
+        "all"
+      ],
+      "default": "first"
+    }
+  }
+}

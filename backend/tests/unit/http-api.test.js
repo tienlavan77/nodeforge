@@ -53,6 +53,54 @@ test("serves the parallel Forge v1 ticket run route", async () => {
   assert.deepEqual(received, { projectId: "PROJECT-1", ticketId: "FORGE-1", conversationId: "CONV-BUILDER" });
 });
 
+test("serves the Forge v1 ticket CRUD collection and item routes", async () => {
+  const calls = [];
+  const ticket = { id: "TICKET-1", project_id: "PROJECT-1", title: "T", objective: "O", acceptance_criteria: ["A"] };
+  const api = createHttpApi({
+    runtimeService: runtimeStub(),
+    forgeV1Router: createForgeV1Router({
+      ticketCrudService: {
+        listTickets: (input) => { calls.push(["list", input]); return [ticket]; },
+        createTicket: (input) => { calls.push(["create", input]); return { created: true, ticket: input.ticket }; },
+        updateTicket: (input) => { calls.push(["update", input]); return { updated: true, ticket: { ...ticket, title: "T2" } }; }
+      },
+      projectDashboardService: { getTicket: (projectId, ticketId) => { calls.push(["detail", { projectId, ticketId }]); return { id: ticketId, project_id: projectId }; } },
+      sprintPlanUploadService: { removeTicket: (input) => { calls.push(["delete", input]); return { deleted: true, ticket_id: input.ticketId }; } }
+    })
+  });
+  assert.deepEqual(await request(api, "GET", "/forge/v1/tickets?project=PROJECT-1"), [200, [ticket]]);
+  const [createStatus, created] = await request(api, "POST", "/forge/v1/tickets?project=PROJECT-1", { ticket });
+  assert.equal(createStatus, 201);
+  assert.deepEqual(created, { created: true, ticket });
+  const [createStatusBody, createdBody] = await request(api, "POST", "/forge/v1/tickets", { project_id: "PROJECT-1", ticket });
+  assert.equal(createStatusBody, 201);
+  assert.deepEqual(createdBody, { created: true, ticket });
+  assert.deepEqual(await request(api, "GET", "/forge/v1/tickets/TICKET-1?project=PROJECT-1"), [200, { id: "TICKET-1", project_id: "PROJECT-1" }]);
+  const [updateStatus, updated] = await request(api, "PUT", "/forge/v1/tickets/TICKET-1?project=PROJECT-1", { title: "T2" });
+  assert.equal(updateStatus, 200);
+  assert.deepEqual(updated, { updated: true, ticket: { ...ticket, title: "T2" } });
+  assert.deepEqual(await request(api, "DELETE", "/forge/v1/tickets/TICKET-1?project=PROJECT-1"), [200, { deleted: true, ticket_id: "TICKET-1" }]);
+  assert.deepEqual(calls, [
+    ["list", { projectId: "PROJECT-1" }],
+    ["create", { projectId: "PROJECT-1", ticket, content: undefined, sprintId: undefined }],
+    ["create", { projectId: "PROJECT-1", ticket, content: undefined, sprintId: undefined }],
+    ["detail", { projectId: "PROJECT-1", ticketId: "TICKET-1" }],
+    ["update", { projectId: "PROJECT-1", ticketId: "TICKET-1", patch: { title: "T2" } }],
+    ["delete", { projectId: "PROJECT-1", ticketId: "TICKET-1" }]
+  ]);
+});
+
+test("rejects Forge v1 ticket CRUD without a project context", async () => {
+  const api = createHttpApi({
+    runtimeService: runtimeStub(),
+    forgeV1Router: createForgeV1Router({ ticketCrudService: { listTickets: () => [], createTicket: () => ({}), updateTicket: () => ({}) } })
+  });
+  assert.equal((await request(api, "GET", "/forge/v1/tickets"))[0], 400);
+  assert.equal((await request(api, "POST", "/forge/v1/tickets", { ticket: {} }))[0], 400);
+  assert.equal((await request(api, "PUT", "/forge/v1/tickets/TICKET-1", { title: "T" }))[0], 400);
+  assert.equal((await request(api, "DELETE", "/forge/v1/tickets/TICKET-1"))[0], 400);
+});
+
 test("routes the Project Dashboard through its Node application service", async () => {
   const api = createHttpApi({ runtimeService: runtimeStub(), projectDashboardService: { getDashboard: (projectId) => ({ project_id: projectId, backlog: [] }) } });
   assert.deepEqual(await request(api, "GET", "/projects/PROJECT-140/dashboard"), [200, { project_id: "PROJECT-140", backlog: [] }]);

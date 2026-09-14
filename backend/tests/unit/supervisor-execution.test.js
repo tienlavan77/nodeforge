@@ -39,20 +39,20 @@ test("production recovery restores supervisor and queue state across restart sta
   const root = await mkdtemp(join(tmpdir(), "nodeforge-recovery-"));
   const fileService = createFileService({ projectRoot: root });
   const gateway = { request: async () => ({ status: "completed", payload: { ok: true } }) };
-  const states = ["WAITING_AGENT", "MATERIALIZING", "VERIFYING", "REPAIRING"];
+  const states = ["RUNNING", "VERIFYING", "REPAIRING"];
   for (const state of states) {
-    const first = createProductionSupervisorRuntime({ fileService, root: "runtime", agentGateway: gateway, logger: { info() {} }, autoStartWorkers: false });
+    const first = createProductionSupervisorRuntime({ fileService, root: "runtime", agentGateway: gateway, logger: { info() {} }, autoStartWorkers: false, gitService: { status: async () => "" } });
     const started = await first.integration.startTask({ task_id: `TASK-${state}`, project_id: "PROJECT", request_id: `REQ-${state}`, correlation_id: `CORR-${state}` });
     const runtime = first.supervisorManager.getByTask(`TASK-${state}`);
     await runtime.transition(state, { request_id: `REQ-${state}`, correlation_id: `CORR-${state}`, attempt: 1 });
     await new Promise((resolve) => setTimeout(resolve, 5));
-    first.senderWorker.stop(); first.repairWorker?.stop?.(); first.materializerWorkerLoop.stop(); first.verificationWorkerLoop.stop();
-    const second = createProductionSupervisorRuntime({ fileService, root: "runtime", agentGateway: gateway, logger: { info() {} }, autoStartWorkers: false });
+    first.senderWorker.stop(); first.collectorWorkerLoop.stop(); first.verificationWorkerLoop.stop();
+    const second = createProductionSupervisorRuntime({ fileService, root: "runtime", agentGateway: gateway, logger: { info() {} }, autoStartWorkers: false, gitService: { status: async () => "" } });
     await second.recover();
     const recovered = second.supervisorManager.getByTask(`TASK-${state}`);
     assert.equal(recovered?.supervisorId, started.supervisor_id);
     assert.equal(recovered?.getState(), state);
-    second.senderWorker.stop(); second.repairWorker?.stop?.(); second.materializerWorkerLoop.stop(); second.verificationWorkerLoop.stop();
+    second.senderWorker.stop(); second.collectorWorkerLoop.stop(); second.verificationWorkerLoop.stop();
   }
 });
 
@@ -76,7 +76,7 @@ test("explicit rerun reopens a terminal supervisor without creating a new owner"
   const first = createSupervisorManager({ eventBus: createExecutionEventBus(), stateStore: await makeStore(), idFactory: () => "SUP-RERUN" });
   const owner = await first.startTask({ task_id: "TASK-RERUN" });
   const runtime = first.getByTask("TASK-RERUN");
-  for (const [state, request_id] of [["REQUESTING", "REQ-1"], ["WAITING_AGENT", "REQ-1"], ["MATERIALIZING", "REQ-1"], ["VERIFYING", "REQ-1"], ["COMPLETED", "REQ-1"]]) await runtime.transition(state, { request_id, correlation_id: "CORR-1", attempt: 1 });
+  for (const [state, request_id] of [["RUNNING", "REQ-1"], ["VERIFYING", "REQ-1"], ["COMPLETED", "REQ-1"]]) await runtime.transition(state, { request_id, correlation_id: "CORR-1", attempt: 1 });
   const second = createSupervisorManager({ eventBus: createExecutionEventBus(), stateStore: await makeStore(), idFactory: () => "SUP-NEW" });
   const rerun = await second.startTask({ task_id: "TASK-RERUN" });
   const rerunSnapshot = JSON.parse(await fileService.readFile({ path: `runtime/supervisors/pending/${owner.supervisorId}.json` }));
@@ -110,8 +110,8 @@ test("failed event handling is surfaced to the project log", async () => {
   const gateway = { request: async () => { throw new Error("gateway offline"); } };
   const logged = [];
   const runtime = createProductionSupervisorRuntime({
-    fileService, root: "runtime", agentGateway: gateway, logger: { info() {}, error() {} }, projectLogger: (entry) => logged.push(entry),
-    roundControllerFactory: () => ({ onResponse: async () => { const error = new Error("R1 expected code_needed"); error.code = "ROUND_INVALID"; throw error; } })
+    fileService, root: "runtime", agentGateway: gateway, logger: { info() {}, error() {} }, projectLogger: (entry) => logged.push(entry), gitService: { status: async () => "" },
+    attemptBuilderFactory: () => ({ onResponse: async () => { const error = new Error("R1 expected code_needed"); error.code = "ROUND_INVALID"; throw error; } })
   });
   const started = await runtime.integration.startTask({ task_id: "TASK-EVENT-FAIL", project_id: "PROJECT", request_id: "REQ-EF", correlation_id: "CORR-EF" });
   await runtime.eventBus.publish({ type: "agent.response.received", task_id: "TASK-EVENT-FAIL", supervisor_id: started.supervisor_id, request_id: "REQ-EF", correlation_id: "CORR-EF", attempt: 1, payload: { response: { type: "code_needed", files_requested: [], reason: "x" } } });
@@ -122,5 +122,5 @@ test("failed event handling is surfaced to the project log", async () => {
   assert.equal(entry.status, "failed");
   assert.equal(entry.payload.event_type, "agent.response.received");
   assert.equal(entry.payload.error_code, "ROUND_INVALID");
-  runtime.senderWorker.stop(); runtime.repairWorker?.stop?.(); runtime.materializerWorkerLoop.stop(); runtime.verificationWorkerLoop.stop();
+  runtime.senderWorker.stop(); runtime.collectorWorkerLoop.stop(); runtime.verificationWorkerLoop.stop();
 });

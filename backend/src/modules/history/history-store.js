@@ -12,15 +12,17 @@ export function createHistoryStore({ subscriptions, database, clock = () => new 
   return Object.freeze({ compact, getByProject, getByTask, getStats, close });
 
   function appendEvent(event) {
+    const metadata = event?.metadata ?? {};
+    const payload = event?.payload ?? {};
     const record = Object.freeze({
-      event_id: event.event_id,
-      actor: event.metadata.actor ?? event.metadata.agent_id ?? event.source,
-      action: event.event_type,
-      timestamp: event.timestamp,
-      project_id: event.project_id ?? event.metadata?.project_id,
-      task_id: event.metadata.task_id,
-      result: event.payload.result ?? event.payload.status ?? event.payload.outcome ?? "recorded",
-        ...(typeof event.payload.long_term_fact === "string" ? { long_term_fact: event.payload.long_term_fact } : {}),
+      event_id: event?.event_id,
+      actor: metadata.actor ?? metadata.agent_id ?? event?.source ?? "node",
+      action: event?.event_type,
+      timestamp: event?.timestamp,
+      project_id: event?.project_id ?? metadata.project_id,
+      task_id: metadata.task_id,
+      result: payload.result ?? payload.status ?? payload.outcome ?? "recorded",
+        ...(typeof payload.long_term_fact === "string" ? { long_term_fact: payload.long_term_fact } : {}),
       tier: "hot"
     });
     records.push(record);

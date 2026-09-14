@@ -2,7 +2,9 @@ import { extname } from "node:path";
 
 import { emptyExtraction, normalizeExtraction } from "./contract.js";
 import { extractJavaScript } from "./javascript.js";
+import { createJsxUiWalker } from "./jsx-ui.js";
 import { extractPhp } from "./php.js";
+import { extractCss } from "./css.js";
 
 export function createExtractorRegistry() {
   const extractors = new Map();
@@ -31,6 +33,8 @@ export function createExtractorRegistry() {
 export const extractorRegistry = createExtractorRegistry();
 extractorRegistry.register([".js", ".ts", ".jsx", ".tsx"], extractJavaScript);
 extractorRegistry.register([".php"], extractPhp);
+extractorRegistry.register([".css"], extractCss);
+extractorRegistry.register([".jsx", ".tsx"], (source) => extractJavaScript(source, { jsxUi: true }));
 
 function normalizeExtension(extension) {
   if (typeof extension !== "string" || extension.length === 0) {

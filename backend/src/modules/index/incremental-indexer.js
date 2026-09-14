@@ -219,7 +219,7 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
 
 function languageForPath(path) {
   const extension = extname(path).toLowerCase();
-  return { ".js": "javascript", ".jsx": "javascript", ".ts": "typescript", ".tsx": "typescript", ".php": "php" }[extension] ?? null;
+  return { ".js": "javascript", ".jsx": "javascript", ".ts": "typescript", ".tsx": "typescript", ".php": "php", ".css": "css" }[extension] ?? null;
 }
 
 function createRecordId(prefix) {

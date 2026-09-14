@@ -22,6 +22,7 @@ test("ticket transition matrix allows retry and unblocking paths", () => {
   assert.equal(canTransitionTicketStatus("failed", "pending"), true);
   assert.equal(canTransitionTicketStatus("needs_human_review", "pending"), true);
   assert.equal(canTransitionTicketStatus("reviewing", "done"), true);
+  assert.equal(canTransitionTicketStatus("running", "done"), true);
   assert.equal(canTransitionTicketStatus("done", "running"), false);
   assert.equal(canTransitionTicketStatus("cancelled", "running"), false);
   assert.deepEqual(TICKET_TRANSITIONS.done, []);

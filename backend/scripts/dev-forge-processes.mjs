@@ -11,17 +11,18 @@ const runtimeDir = process.env.NODE_CONTROL_DATA_DIR ?? join(process.cwd(), ".fo
 const processDir = join(runtimeDir, "processes");
 const definitions = {
   api: { args: ["backend/scripts/start-control-api.mjs"], log: "api.log" },
+  watcher: { args: ["backend/scripts/start-project-watcher.mjs"], log: "watcher.log" },
   next: { command: "pnpm", args: ["--dir", "ui/nextjs", "dev"], log: "next.log" },
 };
 const command = process.argv[2];
-const [, service, action, mode] = command?.match(/^(api|next):(start|stop|restart)(?::(foreground))?$/) ?? [];
+const [, service, action, mode] = command?.match(/^(api|watcher|next):(start|stop|restart)(?::(foreground))?$/) ?? [];
 
 if (command === "start") { start("api"); start("next"); }
-else if (command === "shutdown" || command === "shutdow") { await stop("next"); await stop("api"); }
+else if (command === "shutdown" || command === "shutdow") { await stop("watcher"); await stop("next"); await stop("api"); }
 else if (service && action === "start") await start(service);
 else if (service && action === "stop") await stop(service);
 else if (service && action === "restart") { await stop(service); await start(service, { foreground: mode === "foreground" }); }
-else { console.error("Usage: api|next:(start|stop|restart[:foreground]), start, shutdown"); process.exitCode = 2; }
+else { console.error("Usage: api|watcher|next:(start|stop|restart[:foreground]), start, shutdown"); process.exitCode = 2; }
 
 function pidPath(name) { return join(processDir, `${name}.pid`); }
 function readPid(name) { try { const pid = Number(readFileSync(pidPath(name), "utf8")); return Number.isInteger(pid) && pid > 0 ? pid : null; } catch { return null; } }

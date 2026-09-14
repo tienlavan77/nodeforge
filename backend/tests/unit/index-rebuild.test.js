@@ -13,6 +13,7 @@ test("forge index rebuild restores the file and symbol snapshot after index.db i
   await withProject(async (projectRoot) => {
     await writeProjectFile(projectRoot, "src/auth.js", "export function login() {}\n");
     await writeProjectFile(projectRoot, "src/main.php", "<?php\nfunction run() {}\n");
+    await writeProjectFile(projectRoot, "ui/globals.css", ".layout-header { display: flex; }\n");
     await writeProjectFile(projectRoot, "node_modules/ignored.js", "function ignored() {}\n");
     await writeProjectFile(projectRoot, ".forge/ignored.php", "<?php function ignored() {}\n");
 
@@ -25,10 +26,11 @@ test("forge index rebuild restores the file and symbol snapshot after index.db i
 
     const output = [];
     assert.equal(await runCli(["index", "rebuild"], { cwd: projectRoot, stdout: { write: (value) => output.push(value) } }), 0);
-    assert.deepEqual(output, ["[1] indexed src/auth.js\n", "[2] indexed src/main.php\n", "Rebuilt index for 2 files.\n"]);
+    assert.deepEqual(output, ["[1] indexed src/auth.js\n", "[2] indexed src/main.php\n", "[3] indexed ui/globals.css\n", "Rebuilt index for 3 files.\n"]);
 
     const rebuiltDatabase = await openIndexDatabase(projectRoot, { runtimeDir: ".forge/runtime/wc" });
     assert.deepEqual(readSnapshot(rebuiltDatabase), snapshot);
+    assert.ok(rebuiltDatabase.all("SELECT name FROM symbols WHERE name = 'layout-header'").length > 0);
     await rebuiltDatabase.close();
   });
 });

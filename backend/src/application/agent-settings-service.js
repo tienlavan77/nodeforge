@@ -66,6 +66,7 @@ export function createAgentSettingsService({ profiles, configuration, gateway, n
       model: input?.model ?? current?.model ?? "",
       ...(input?.reasoning ?? current?.reasoning ? { reasoning: input?.reasoning ?? current?.reasoning } : {}),
       ...(input?.use_responses ?? current?.use_responses !== undefined ? { use_responses: input?.use_responses ?? current?.use_responses } : {}),
+      ...(input?.use_previous_response_id ?? current?.use_previous_response_id !== undefined ? { use_previous_response_id: input?.use_previous_response_id ?? current?.use_previous_response_id } : {}),
       created_at: current?.created_at ?? now(),
       updated_at: now()
     };
@@ -95,6 +96,7 @@ function validateAgent(profile) {
   if (profile.model !== undefined && typeof profile.model !== "string") throw new ConfigurationError("Model must be a string.");
   if (profile.reasoning !== undefined && (!profile.reasoning || typeof profile.reasoning !== "object" || Array.isArray(profile.reasoning) || !["none", "low", "medium", "high", "max"].includes(profile.reasoning.effort))) throw new ConfigurationError("Reasoning effort is invalid.");
   if (profile.use_responses !== undefined && typeof profile.use_responses !== "boolean") throw new ConfigurationError("use_responses must be boolean.");
+  if (profile.use_previous_response_id !== undefined && typeof profile.use_previous_response_id !== "boolean") throw new ConfigurationError("use_previous_response_id must be boolean.");
   if (!["coder", "reviewer", "sprint_leader", "architecture_manager"].includes(profile.role)) throw new ConfigurationError("Role is invalid.");
 }
 
