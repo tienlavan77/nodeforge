@@ -6,7 +6,17 @@ const TERMINAL = new Set(["completed", "failed", "needs_human_review"]);
 export function createConversationStateStore({ fileService, root = ".forge/runtime/protocol-storage/conversations" } = {}) {
   if (typeof fileService?.readFile !== "function" || typeof fileService?.atomicWrite !== "function") throw new ConfigurationError("Conversation state store requires File Service readFile and atomicWrite.");
   const states = new Map();
-  return Object.freeze({ create, get, update, advanceRound, markStatus, clear });
+  return Object.freeze({ create, get, list, listByAgent, update, advanceRound, markStatus, clear });
+
+  async function list({ agentId } = {}) {
+    if (agentId !== undefined) requireId(agentId, "agentId");
+    const conversations = [...states.values()]
+      .filter((state) => agentId === undefined || state.agent_id === agentId)
+      .map((state) => structuredClone(state));
+    return conversations;
+  }
+
+  async function listByAgent(agentId) { return list({ agentId }); }
 
   async function create({ conversationId, taskId, projectId, agentId = "builder", promptCacheKey = null } = {}) {
     requireId(conversationId, "conversationId"); requireId(taskId, "taskId");
