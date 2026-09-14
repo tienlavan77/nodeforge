@@ -66,3 +66,30 @@ test("returns an empty normalized extraction for an unsupported extension", () =
   });
   assert.equal(extractorRegistry.supports("README"), false);
 });
+
+test("extracts JSX UI metadata symbols for .jsx files but not plain .js", () => {
+  const source = `export function Panel({ open }) {
+  return (
+    <div className="architecture-manager-selector" aria-label="Select Architecture Manager">
+      <select className={cls} id="manager-select" role="listbox">
+        <option className="is-selected">x</option>
+      </select>
+      <button data-testid="submit-btn" className={\`btn \${open ? "on" : ""}\`}>go</button>
+    </div>
+  );
+}`;
+
+  const jsxExtraction = extractorRegistry.extract("ui/panel.jsx", source);
+  assert.deepEqual(jsxExtraction.symbols.filter((symbol) => symbol.kind.startsWith("jsx_")), [
+    { name: "architecture-manager-selector", kind: "jsx_class", start_line: 3, end_line: 3 },
+    { name: "Select Architecture Manager", kind: "jsx_aria", start_line: 3, end_line: 3 },
+    { name: "manager-select", kind: "jsx_id", start_line: 4, end_line: 4 },
+    { name: "listbox", kind: "jsx_role", start_line: 4, end_line: 4 },
+    { name: "is-selected", kind: "jsx_class", start_line: 5, end_line: 5 },
+    { name: "submit-btn", kind: "jsx_data", start_line: 7, end_line: 7 }
+  ]);
+  assert.ok(jsxExtraction.symbols.some((symbol) => symbol.name === "Panel" && symbol.kind === "function"));
+
+  const jsExtraction = extractorRegistry.extract("ui/panel.js", source);
+  assert.equal(jsExtraction.symbols.some((symbol) => symbol.kind.startsWith("jsx_")), false);
+});

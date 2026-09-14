@@ -39,6 +39,9 @@ export function createExecutionEventBus({ validate = () => true, eventStore, clo
     const stored = persisted?.event ?? normalized;
     const delivered = { ...stored, type: stored.type ?? stored.event_type ?? normalized.type };
     for (const handler of subscribers.get(normalized.supervisor_id) ?? []) await handler(delivered);
+    // Wildcard subscribers (supervisor_id "*") observe every published event;
+    // used by cross-cutting consumers such as the terminal status bridge.
+    for (const handler of subscribers.get("*") ?? []) await handler(delivered);
     return { accepted: true, event: delivered };
   }
 }

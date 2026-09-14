@@ -206,13 +206,12 @@ function AddTicketModal({ sprint, projectId, client, onClose, onCreated }) {
     event.preventDefault();
     setError("");
     const normalized = normalizeTicketInput(content);
-    if (!normalized.recognized) { setError("Paste ticket JSON or labeled prose with title, objective, and acceptance_criteria."); return; }
-    if (normalized.missing?.length) { setError(`Missing required field(s): ${normalized.missing.join(", ")}.`); return; }
-    const ticket = normalized.ticket ?? parseLabeledTicket(normalized.text);
-    if (!ticket) { setError("Ticket content could not be parsed."); return; }
-    const prepared = { ...ticket, sprint_id: sprint.id, project_id: ticket.project_id ?? projectId, roadmap_id: ticket.roadmap_id ?? sprint.roadmap_id };
+    const ticket = normalized.ticket;
+    const prepared = ticket
+      ? { ...ticket, sprint_id: sprint.id, project_id: ticket.project_id ?? projectId, roadmap_id: ticket.roadmap_id ?? sprint.roadmap_id }
+      : content;
     setState("Creating…");
-    try { await client.addTicketToSprint(projectId, sprint.id, prepared); await onCreated?.(); }
+    try { await client.createTicket(projectId, prepared, sprint.id); await onCreated?.(); }
     catch (failure) { setState(""); setError(failure.message); }
   }
   return <EntityDetailsModal title={`Add a ticket to ${sprint.id}`} modalClassName="add-ticket-modal" onClose={onClose}>
@@ -530,7 +529,7 @@ export function Message({ message }) {
   return <div id={`msg-${message.id}`} className={rowClass} data-message-id={message.id} data-correlation-id={message.correlation_id ?? ""} data-message-type={message.message_type ?? ""} data-role={message.from} data-timestamp={message.timestamp ?? ""}><MessageContent text={message.text} /><time dateTime={message.timestamp ?? ""} title={message.timestamp ?? ""}>{message.time}</time></div>;
 }
 
-function MessageContent({ text }) {
+export function MessageContent({ text }) {
   const parts = parseCodeBlocks(text);
   return <div className="message-content">{parts.map((part, index) => part.code
     ? <CodeBlock key={`code-${index}`} language={part.language} code={part.code} />
@@ -595,6 +594,15 @@ function parseCodeBlocks(text) {
     if (start > cursor) parts.push({ text: value.slice(cursor, start) });
     parts.push({ code: match[2].replace(/\n$/, ""), language: match[1].trim() });
     cursor = start + match[0].length;
+  }
+  if (parts.length === 0) {
+    const trimmed = value.trim();
+    if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+      try {
+        parts.push({ code: JSON.stringify(JSON.parse(trimmed), null, 2), language: "json" });
+        return parts;
+      } catch { /* treat malformed JSON as normal text */ }
+    }
   }
   if (cursor < value.length || parts.length === 0) parts.push({ text: value.slice(cursor) });
   return parts;

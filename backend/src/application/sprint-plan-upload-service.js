@@ -12,7 +12,7 @@ const commonSchema = require("../../../schemas/core/common.schema.json");
 const ticketSchema = require("../../../schemas/governance/ticket.schema.json");
 const sprintPlanSchema = require("../../../schemas/governance/sprint-plan.schema.json");
 
-export function createSprintPlanUploadService({ roadmaps, projectRoot = process.cwd(), isRunning = () => false } = {}) {
+export function createSprintPlanUploadService({ roadmaps, publisher, projectRoot = process.cwd(), isRunning = () => false } = {}) {
   if (typeof roadmaps?.save !== "function") throw new ConfigurationError("Sprint Plan Upload requires a Roadmap Store.");
   const validate = createValidator();
 
@@ -26,6 +26,7 @@ export function createSprintPlanUploadService({ roadmaps, projectRoot = process.
     for (const file of readdirSync(directory, { withFileTypes: true })) if (file.isFile() && file.name.startsWith("governance-sprint-plan-") && file.name.endsWith(".json")) {
       try { const value = JSON.parse(readFileSync(join(directory, file.name), "utf8")); if (value.id === sprintId) unlinkSync(join(directory, file.name)); } catch { /* unrelated invalid fixture */ }
     }
+    publish("sprint.deleted", projectId, { sprint_id: sprintId });
     return { deleted: true, sprint_id: sprintId };
   }
 
@@ -52,7 +53,7 @@ export function createSprintPlanUploadService({ roadmaps, projectRoot = process.
     const next = { ...sprintPlan, id: sprintId, project_id: projectId, roadmap_id: sprintPlan?.roadmap_id ?? current.roadmap_id };
     if (!validate(next)) throw new ConfigurationError(`Invalid Sprint Plan: ${validate.errors.map((error) => `${error.instancePath || "/"} ${error.message}`).join("; ")}`);
     if (!roadmaps.removeSprint?.(projectId, sprintId)) { const error = new ConfigurationError(`Unknown Sprint Plan: ${sprintId}.`); error.statusCode = 404; throw error; }
-    return upload({ projectId, sprintPlan: next });
+    return upload({ projectId, sprintPlan: next }, { eventType: "sprint.updated" });
   }
 
   function removeTicket({ projectId, ticketId } = {}) {
@@ -62,10 +63,11 @@ export function createSprintPlanUploadService({ roadmaps, projectRoot = process.
       const error = new ConfigurationError("Cannot delete the last ticket in a sprint; delete the sprint instead."); error.statusCode = 409; throw error;
     }
     if (!roadmaps.removeTicket(projectId, ticketId)) { const error = new ConfigurationError(`Unknown ticket: ${ticketId}.`); error.statusCode = 404; throw error; }
+    publish("ticket.deleted", projectId, { ticket_id: ticketId, sprint_id: ticket.sprint_id });
     return { deleted: true, ticket_id: ticketId };
   }
 
-  function upload({ projectId, sprintPlan } = {}) {
+  function upload({ projectId, sprintPlan } = {}, { eventType = "sprint.created" } = {}) {
     if (typeof projectId !== "string" || projectId.length === 0) throw new ConfigurationError("A project id is required.");
     if (!sprintPlan || typeof sprintPlan !== "object" || Array.isArray(sprintPlan)) throw new ConfigurationError("sprint_plan must be an object.");
     if (sprintPlan.project_id !== projectId) throw new ConfigurationError("Sprint plan project_id must match the target project.");
@@ -87,7 +89,12 @@ export function createSprintPlanUploadService({ roadmaps, projectRoot = process.
       sprints: [structuredClone(sprintPlan)]
     };
     const saved = roadmaps.save(roadmap);
+    publish(eventType, projectId, { sprint_id: sprintPlan.id, sprint_plan: structuredClone(sprintPlan), ticket_ids: sprintPlan.tickets.map(({ id }) => id) });
     return { sprint_id: sprintPlan.id, ticket_ids: sprintPlan.tickets.map(({ id }) => id), sprint_plan: structuredClone(sprintPlan), roadmap: saved };
+  }
+
+  function publish(type, projectId, payload) {
+    try { publisher?.publish?.({ event_id: `EVT-${Date.now()}-${type}`, type, project_id: projectId, timestamp: new Date().toISOString(), payload, metadata: { source: "sprint-plan-service" } }); } catch { /* stream notification must not undo mutation */ }
   }
 }
 

@@ -1,0 +1,39 @@
+{
+  "id": "SPRINT-CODEX-DOC-001",
+  "roadmap_id": "ROADMAP-NODEFORGE",
+  "project_id": "PROJECT-NODEFORGE",
+  "objective": "Cập nhật Project Chat để owner chọn Architecture Manager đang được enable thay vì hiển thị tiêu đề Talk to NodeForge.",
+  "tickets": [
+    {
+      "id": "CODEX-DOC-001",
+      "project_id": "PROJECT-NODEFORGE",
+      "roadmap_id": "ROADMAP-NODEFORGE",
+      "sprint_id": "SPRINT-CODEX-DOC-001",
+      "title": "Thay tiêu đề Talk to NodeForge bằng select Architecture Manager trong Project Chat",
+      "objective": "Trong cột Project Chat của giao diện hiện tại, loại bỏ dòng tiêu đề \"Talk to NodeForge\" và thay bằng một select cho phép owner chọn một agent có role là Architecture Manager trong danh sách agent đang enabled. Ticket này dùng để chạy RUN từ UI; chỉ thay đổi phần giao diện và dữ liệu lựa chọn cần thiết, không tự ý thay đổi luồng dispatch hoặc backend contract nếu không bắt buộc.",
+      "acceptance_criteria": [
+        "Cột Project Chat không còn hiển thị dòng tiêu đề \"Talk to NodeForge\".",
+        "Vị trí tiêu đề cũ hiển thị một select có label hoặc accessible name rõ ràng để owner biết đây là lựa chọn Architecture Manager.",
+        "Select chỉ hiển thị các agent có role chính xác là Architecture Manager và đang ở trạng thái enabled; agent role khác hoặc disabled không xuất hiện.",
+        "Tên hiển thị và agent identity được lấy từ dữ liệu agent hiện có, không hard-code danh sách agent trong UI.",
+        "Khi danh sách Architecture Manager enabled rỗng, select có empty state phù hợp và không làm hỏng khu vực Project Chat.",
+        "Agent được chọn được giữ ổn định trong state UI và được dùng làm target của Project Chat theo contract hiện tại; không dispatch tới agent không hợp lệ.",
+        "Không làm thay đổi các chức năng chat, ticket, sprint, Run hoặc View ngoài việc thêm lựa chọn agent trong Project Chat.",
+        "Frontend build và các kiểm tra hiện có liên quan đến UI phải pass sau thay đổi."
+      ],
+      "priority": "high",
+      "status": "planned",
+      "dependencies": [],
+      "provenance": {
+        "source": "project_owner",
+        "source_id": "CODEX-DOC-001",
+        "created_at": "2026-09-12T00:00:00Z"
+      }
+    }
+  ],
+  "exit_criteria": [
+    "Ticket được validate theo ticket.schema.json trước khi dispatch.",
+    "Ticket có thể được chọn và chạy bằng RUN từ Project Chat trên UI.",
+    "Frontend build và các kiểm tra liên quan pass sau khi agent hoàn thành ticket."
+  ]
+}

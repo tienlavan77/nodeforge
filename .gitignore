@@ -16,3 +16,4 @@ config/.env
 
 ui/nextjs/.next/
 .pnpm-store/
+.claude

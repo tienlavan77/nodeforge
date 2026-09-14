@@ -35,7 +35,7 @@ test("tokenizes Vietnamese queries without creating ASCII fragments", () => {
   const source = database();
   const search = createCodeSearch({ database: { ...source, all(sql, parameters) { if (sql.includes("file_content_fts")) queries.push(parameters[0]); return source.all(sql, parameters); } } });
   search.search({ query: "Hiển thị trạng thái và UI", kind: "content" });
-  assert.equal(queries[0], '"hiển" AND "thị" AND "trạng" AND "thái" AND "ui"');
+  assert.equal(queries[0], '"hiển" OR "thị" OR "trạng" OR "thái" OR "ui"');
 });
 
 test("removes shared stop words but preserves technical terms", () => {
@@ -43,5 +43,25 @@ test("removes shared stop words but preserves technical terms", () => {
   const source = database();
   const search = createCodeSearch({ database: { ...source, all(sql, parameters) { if (sql.includes("file_content_fts")) queries.push(parameters[0]); return source.all(sql, parameters); } } });
   search.search({ query: "the UI and API for ticket trong một sprint", kind: "content" });
-  assert.equal(queries[0], '"ui" AND "api" AND "ticket" AND "sprint"');
+  assert.equal(queries[0], '"ui" OR "api" OR "ticket" OR "sprint"');
+});
+
+test("single-term queries stay exact without OR operators", () => {
+  const queries = [];
+  const source = database();
+  const search = createCodeSearch({ database: { ...source, all(sql, parameters) { if (sql.includes("file_content_fts")) queries.push(parameters[0]); return source.all(sql, parameters); } } });
+  search.search({ query: "formatCurrency", kind: "content" });
+  assert.equal(queries[0], '"formatcurrency"');
+});
+
+test("ranks symbol-block matches above whole-file matches with location fields", () => {
+  const source = database();
+  const symbolRows = [{ symbol_id: "sa", file_id: "a", path: "src/events/publisher.js", name: "publish", kind: "function", content: "publish notification", start_line: 2, end_line: 6, snippet: "»publish« notification", rank: 0.5 }];
+  const search = createCodeSearch({ database: { ...source, all(sql, parameters) { if (sql.includes("symbol_content_fts")) return symbolRows; return source.all(sql, parameters); } } });
+  const result = search.search({ query: "publish notification", kind: "content" });
+  assert.equal(result.matches[0].reason[0], "symbol_content_match:publish notification");
+  assert.equal(result.matches[0].score > result.matches[1].score, true, "symbol block must outrank whole-file match");
+  assert.equal(result.matches[0].node.symbol_name, "publish");
+  assert.equal(result.matches[0].node.start_line, 2);
+  assert.equal(result.matches[0].node.end_line, 6);
 });

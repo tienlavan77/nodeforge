@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { createRuntimeLogger } from "../src/core/runtime-logger.js";
 import { createRuntimeService } from "../src/application/runtime-service.js";
 import { createAgentSessionStore } from "../src/modules/agent/session-store.js";
 import { createPersistentEventStore } from "../src/modules/events/persistent-event-store.js";
@@ -66,8 +67,8 @@ export function createControlApiPlatform({ config, database, indexDb, fileServic
   const sprintOrchestration = createSprintOrchestrationService({ runtimeService, sprintPlans, sprintPlanStore: roadmaps, ticketProvenanceTracker: provenance, agentGateway, publisher: eventPublisher });
   const ticketCommandParser = createTicketCommandParser({ roadmapStore: roadmaps });
   const proseTicketService = createProseTicketService({ roadmapStore: roadmaps });
-  const sprintPlanUpload = createSprintPlanUploadService({ roadmaps, projectRoot, isRunning: (sprintId) => sprintOrchestration.isRunning(sprintId) });
-  return { projectId, codeSearch, fileGraph, relevantTreeSelector, communications, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, verificationOrchestrator, testService, contextEngine, runtimeService, sprintOrchestration, ticketCommandParser, proseTicketService, sprintPlanUpload };
+  const sprintPlanUpload = createSprintPlanUploadService({ roadmaps, publisher: eventPublisher, projectRoot, isRunning: (sprintId) => sprintOrchestration.isRunning(sprintId) });
+  return { projectId, indexDb, codeSearch, fileGraph, relevantTreeSelector, memoryRetriever, communications, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, verificationOrchestrator, testService, contextEngine, runtimeService, sprintOrchestration, ticketCommandParser, proseTicketService, sprintPlanUpload, taskSummaries: summaries, projectMemory: memory };
 }
 
 function createTicketStatusLogger({ internalBus, logEvent }) {
@@ -78,9 +79,7 @@ function createTicketStatusLogger({ internalBus, logEvent }) {
   };
 }
 
-function createTestJobLogger({ logEvent }) {
-  return (entry) => {
-    try { logEvent({ timestamp: new Date().toISOString(), ...entry }); } catch (error) { console.error("Project log failed", error); }
-    console.log(`[test-job] ${entry.payload?.job_id} ${entry.payload?.job_status}`, JSON.stringify({ task_id: entry.task_id, job_id: entry.payload?.job_id, status: entry.payload?.job_status, duration_ms: entry.payload?.duration_ms, error: entry.error_code ?? null }));
-  };
+function createTestJobLogger({ logEvent, output }) {
+  const logger = createRuntimeLogger({ logEvent, ...(output ? { output } : {}) });
+  return (entry) => logger.emit(entry);
 }

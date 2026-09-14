@@ -2,10 +2,11 @@
 
 import { ConfigurationError } from "../shared/errors.js";
 import { assertExecutionScope, checkRetrievalBudget, recordRetrieval } from "./retrieval-governance.js";
+import { discoveryCount, recordSearch } from "./exploration-state.js";
 
 const MAX_QUERY_LENGTH = 200;
 const MAX_LIMIT = 50;
-const SEARCH_KINDS = new Set(["file", "symbol"]);
+const SEARCH_KINDS = new Set(["file", "symbol", "content"]);
 const IGNORED_PREFIXES = [".git/", ".forge/runtime/", ".next/", ".next.stale-", "agent-tool/"];
 
 export function createSearchCodeTool({ codeSearch } = {}) {
@@ -26,7 +27,7 @@ export function createSearchCodeTool({ codeSearch } = {}) {
     const approvedPrefixes = validateApprovedPrefixes(context.allowed_prefixes ?? context.allowedPrefixes);
     if (!query || query.length > MAX_QUERY_LENGTH) throw scopedError("SEARCH_QUERY_INVALID", `Search query must be between 1 and ${MAX_QUERY_LENGTH} characters.`);
     if (!["minimal", "summary", "graph"].includes(projection)) throw scopedError("SEARCH_PROJECTION_INVALID", "Search projection must be minimal, summary, or graph.");
-    if (!SEARCH_KINDS.has(kind)) throw scopedError("SEARCH_KIND_INVALID", "Search kind must be file or symbol.");
+    if (!SEARCH_KINDS.has(kind)) throw scopedError("SEARCH_KIND_INVALID", "Search kind must be file, symbol, or content.");
     if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) throw scopedError("SEARCH_LIMIT_INVALID", `Search limit must be an integer between 1 and ${MAX_LIMIT}.`);
     if (requestedPrefixes.some((prefix) => !approvedPrefixes.some((approved) => isPrefixWithin(prefix, approved)))) throw scopedError("SEARCH_SCOPE_FORBIDDEN", "Search scope must be narrowed to Node-approved allowed_prefixes.");
     checkRetrievalBudget(context, query.length + limit * 500, "search_code");
@@ -36,7 +37,14 @@ export function createSearchCodeTool({ codeSearch } = {}) {
     const matches = (Array.isArray(searchResult?.matches) ? searchResult.matches : [])
       .filter((match) => isPathAllowed(match?.node?.path, requestedPrefixes) && !isIgnoredPath(match?.node?.path))
       .map((match) => toMetadata(match, kind, projection)).slice(0, limit);
+    recordSearch(context, { query, topPaths: matches.slice(0, 5).map((match) => match.path) });
+    const discovery = discoveryCount(context);
     const result = { task_id: taskId, query, kind, index_version: searchResult?.index_version ?? null, matches };
+    if (!discovery.edit_started && discovery.remaining <= 2) result.deadline_warning = `${discovery.used} discovery calls used. Discovery is refused after ${discovery.limit}; your next calls must be edit_diff or write_diff.`;
+    // Mechanical feedback for empty results: content searches AND-join every
+    // term, so a phrased or guessed query returns nothing. The hint steers the
+    // agent back to observed identifiers without relying on prompt discipline.
+    if (!matches.length) result.hint = "0 matches: all query terms are AND-joined. Search only identifiers or strings you saw in a previous tool result; for exploring an unfamiliar file use kind:\"file\" with projection:\"summary\" to get its symbol map, then read targeted windows.";
     recordRetrieval(context, { bytes: Buffer.byteLength(JSON.stringify(result), "utf8"), tool: "search_code", kind, taskId, resource: query });
     return result;
   }
@@ -55,6 +63,17 @@ function toMetadata(match, expectedKind, projection = "minimal") {
       metadata.symbols = Array.isArray(node.symbols) ? node.symbols : [];
     }
     if (projection === "graph") metadata.graph = node.graph ?? { imports: [], imported_by: [], calls: [] };
+  } else if (expectedKind === "content") {
+    metadata.language = node.language ?? null;
+    metadata.sha256 = node.sha256 ?? null;
+    metadata.size_bytes = Number.isInteger(node.size_bytes) ? node.size_bytes : null;
+    if (typeof node.snippet === "string" && node.snippet) metadata.snippet = node.snippet;
+    if (typeof node.symbol_name === "string" && node.symbol_name) {
+      metadata.symbol_name = node.symbol_name;
+      metadata.symbol_kind = node.symbol_kind ?? "unknown";
+      metadata.start_line = Number.isInteger(node.start_line) ? node.start_line : null;
+      metadata.end_line = Number.isInteger(node.end_line) ? node.end_line : null;
+    }
   } else {
     metadata.name = node.name;
     metadata.symbol_kind = node.symbol_kind ?? "unknown";

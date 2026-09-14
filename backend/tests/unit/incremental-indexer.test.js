@@ -348,6 +348,20 @@ test("indexer emits a centralized failure log entry", async () => {
   assert.equal(events.at(-1).status, "failed");
 });
 
+test("CREATE indexes CSS selectors and custom properties as symbols", async () => {
+  await withIndexer(async ({ projectRoot, database, indexer }) => {
+    await writeProjectFile(projectRoot, "ui/globals.css", ":root {\n  --color-primary: #3b82f6;\n}\n\n.layout-header {\n  display: flex;\n}\n");
+
+    assert.equal(await indexer.handle(event("watcher.file_created", "ui/globals.css")), true);
+
+    assert.deepEqual(database.all("SELECT name, kind, start_line, end_line FROM symbols ORDER BY name"), [
+      { name: "--color-primary", kind: "css_variable", start_line: 2, end_line: 2 },
+      { name: "layout-header", kind: "css_class", start_line: 5, end_line: 7 }
+    ]);
+    assert.deepEqual(database.all("SELECT language FROM files WHERE path = 'ui/globals.css'"), [{ language: "css" }]);
+  });
+});
+
 function event(type, path, oldPath) {
   return { type, payload: oldPath ? { path, old_path: oldPath } : { path } };
 }

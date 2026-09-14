@@ -2,9 +2,9 @@
 
 import { ConfigurationError } from "../../shared/errors.js";
 
-const DEFAULT_MAX_ROUNDS = 12;
+const DEFAULT_MAX_ROUNDS = 24;
 
-export function createCodexForgeToolLoop({ agentGateway } = {}) {
+export function createCodexForgeToolLoop({ agentGateway, projectLogger } = {}) {
   if (typeof agentGateway?.request !== "function") throw new ConfigurationError("Codex Forge tool loop requires an Agent Gateway.");
   return Object.freeze({ run });
 
@@ -18,11 +18,36 @@ export function createCodexForgeToolLoop({ agentGateway } = {}) {
     const toolEvents = [];
     let finalText = "";
     let rounds = 0;
+    // Responses-side cache chaining: the adapter turns cache_config +
+    // previous_response_id into store:true + previous_response_id, so the
+    // provider can hit prompt cache across rounds instead of re-ingesting the
+    // full transcript every turn.
+    const cacheConfig = context?.gateway_payload?.cache_config ?? defaultCacheConfig(context);
+    let previousResponseId = context?.gateway_payload?.previous_response_id ?? (cacheConfig ? "store_only" : undefined);
+    const usageByRound = [];
+    const recordUsage = (response) => {
+      const usage = response?.payload?.usage ?? response?.usage;
+      if (!usage || typeof usage !== "object") return;
+      const cached = Number(usage.cache_read_input_tokens ?? usage.cached_tokens ?? 0);
+      const input = Number(usage.input_tokens ?? 0);
+      const entry = {
+        input_tokens: input,
+        output_tokens: Number(usage.output_tokens ?? 0),
+        cache_read_input_tokens: cached,
+        cache_hit_rate: input > 0 ? Number((cached / input).toFixed(4)) : null
+      };
+      usageByRound.push(entry);
+      if (typeof projectLogger === "function") {
+        projectLogger({ event_name: "agent.loop.usage", level: "debug", status: "success", message: "Agent round token usage.", task_id: context?.task_id, correlation_id: correlationId, source: "codex-forge-tool-loop", payload: { round: rounds, agent_id: agentId, ...entry } });
+      }
+    };
 
     while (rounds < maxRounds) {
       rounds += 1;
-      const response = await agentGateway.request({ agentId, payload: { messages, ...context?.gateway_payload }, correlationId, tools });
+      const response = await agentGateway.request({ agentId, payload: { messages, ...(cacheConfig ? { cache_config: cacheConfig } : {}), ...(previousResponseId !== undefined ? { previous_response_id: previousResponseId } : {}), ...context?.gateway_payload }, correlationId, tools });
       const payload = response?.payload ?? {};
+      if (payload.response_id) previousResponseId = payload.response_id;
+      recordUsage(response);
       const toolUse = normalizeToolUse(payload.tool_use ?? payload.toolCalls?.[0] ?? payload.tool_calls?.[0]);
       if (typeof payload.text === "string" && payload.text) finalText = payload.text;
       if (!toolUse) break;
@@ -48,6 +73,10 @@ export function createCodexForgeToolLoop({ agentGateway } = {}) {
       toolEvents.push(event);
       await emit(onToolEvent, event);
 
+      // A failed tool is returned to the model as a function_call_output error
+      // so it can fix inputs and retry, matching the MCP bridge's isError path.
+      // Terminal success is still guarded: report_done only records a report
+      // after the governed tools it depends on have run (see lifecycle tools).
       messages.push({ type: "function_call", call_id: toolUse.id, name: toolUse.name, arguments: JSON.stringify(toolUse.input ?? {}) });
       messages.push({ type: "function_call_output", call_id: toolUse.id, output: JSON.stringify(result ?? null) });
       if (toolUse.name === "report_done") {
@@ -61,8 +90,24 @@ export function createCodexForgeToolLoop({ agentGateway } = {}) {
       error.code = "CODEX_TOOL_LOOP_ROUND_LIMIT";
       throw error;
     }
-    return { text: finalText, tool_events: toolEvents, rounds };
+    return { text: finalText, tool_events: toolEvents, rounds, usage: aggregateUsage(usageByRound) };
   }
+
+  function aggregateUsage(entries) {
+    return entries.reduce((totals, entry) => ({
+      rounds: totals.rounds + 1,
+      input_tokens: totals.input_tokens + entry.input_tokens,
+      output_tokens: totals.output_tokens + entry.output_tokens,
+      cache_read_input_tokens: totals.cache_read_input_tokens + entry.cache_read_input_tokens
+    }), { rounds: 0, input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0 });
+  }
+}
+
+function defaultCacheConfig(context) {
+  const projectId = context?.ticket?.project_id ?? context?.task?.project_id;
+  const taskId = context?.task_id;
+  if (!projectId || !taskId) return undefined;
+  return { prompt_cache_key: `forge:${projectId}:${taskId}`, mode: "explicit", ttl: "30m" };
 }
 
 function toResponsesTool(definition) {

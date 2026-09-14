@@ -19,7 +19,7 @@ export function createCodexSdkGateway({
 
   return Object.freeze({ execute });
 
-  async function execute({ agentId, agent, prompt, correlationId, cwd, options = {}, onEvent } = {}) {
+  async function execute({ agentId, agent, prompt, correlationId, cwd, options = {}, onEvent, onSessionReady } = {}) {
     const profile = getEnabledConfig(agentId ?? agent?.agent_id);
     assertString(prompt, "Codex SDK prompt");
     assertString(correlationId, "Codex SDK correlation_id");
@@ -39,6 +39,12 @@ export function createCodexSdkGateway({
         features: { mcp_2026_07_28: true },
         suppress_unstable_features_warning: true,
         mcp_optional_startup_grace_ms: 10000,
+        // exec mode has no interactive approver: an on-request policy without
+        // a reviewer downgrades to `never`, which rejects every MCP tool call
+        // ("MCP tool call requires approval, but approval policy is never").
+        // auto_review is the exec equivalent of `--approve-for-me`: approval
+        // requests are resolved automatically against the workspace sandbox.
+        approvals_reviewer: "auto_review",
         mcp_servers: {
           forge: {
             command: process.execPath,
@@ -51,16 +57,18 @@ export function createCodexSdkGateway({
             },
             startup_timeout_sec: 10,
             tool_timeout_sec: 120,
-            // Do not let Codex defer this short-lived test server behind MCP
-            // tool discovery.  Explicitly publishing the six names also
-            // makes the contract deterministic across Codex CLI versions.
+            // Codex 0.154 defers all MCP tools behind `tool_search` when the
+            // model family supports it (e.g. gpt-5.5), so the tool names never
+            // appear in the initial request and the model gives up. Omitting
+            // the deferred surface promotes this server's tools to Direct.
             enabled_tools: mcpSession.tools.map((tool) => tool.name),
+            omit_tools_from: ["deferred"],
             enabled: true
           }
         }
       } : undefined;
       if (mcpSession) {
-        console.log(`[codex-sdk] Forge MCP session ready: ${mcpSession.tools.map((tool) => tool.name).join(", ") || "<no tools>"}`);
+        onSessionReady?.(mcpSession.tools.map((tool) => tool.name) ?? []);
       }
       const codex = new CodexClass({
         apiKey: credential,

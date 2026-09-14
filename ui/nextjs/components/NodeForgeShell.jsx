@@ -24,9 +24,10 @@ export function NodeForgeShell({ app }) {
     <main className="workspace">
       <section className="chat-area panel" aria-label="Project Chat">
         <div className="project-chat-target">
+          <label htmlFor="architecture-manager-selector">Architecture Manager</label>
           <select className="architecture-manager-select" id="architecture-manager-selector" value={selectedArchitectureManagerId} onChange={(event) => setSelectedArchitectureManagerId(event.target.value)} aria-label="Architecture Manager selection">
             {!architectureManagers.length && <option value="">No enabled Architecture Manager agents available</option>}
-            {architectureManagers.map((agent) => <option key={agent.id} value={agent.id}>{agent.label} ({agent.agent_id ?? agent.id})</option>)}
+            {architectureManagers.map((agent) => <option key={agent.id} value={agent.id}>{agent.label}</option>)}
           </select>
         </div>
         <div className="tab-bar" role="tablist" aria-label="Agent tabs">

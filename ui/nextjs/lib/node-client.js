@@ -22,7 +22,15 @@ export function normalizeTicketInput(input) {
   const normalized = text.split(/\r?\n/).map((line) => line.replace(/^\s*(?:[-*+]\s+)?(?:\*\*)?\s*(title|objective|acceptance[_ ]criteria|criteria|tiêu đề|mục tiêu|tiêu chí)\s*:\s*(?:\*\*)?/i, (_, label) => `${canonicalLabel(label)}:`)).join("\n");
   const fields = new Set([...normalized.matchAll(/^\s*(title|objective|acceptance_criteria)\s*:/gim)].map((match) => match[1].toLowerCase()));
   const missing = ["title", "objective", "acceptance_criteria"].filter((field) => !fields.has(field));
-  return { text: normalized, normalized_text: normalizedText, recognized: true, missing };
+  const ticket = parseLabeledTicket(normalized);
+  return { text: normalized, normalized_text: normalizedText, recognized: true, ticket: ticket ?? undefined, missing };
+}
+
+function parseLabeledTicket(text) {
+  const fields = {};
+  for (const match of String(text).matchAll(/^\s*(title|objective|acceptance_criteria)\s*:\s*([\s\S]*?)(?=^\s*(?:title|objective|acceptance_criteria)\s*:|$)/gim)) fields[match[1].toLowerCase()] = match[2].trim();
+  if (!fields.title || !fields.objective || !fields.acceptance_criteria) return null;
+  return { ...fields, acceptance_criteria: fields.acceptance_criteria.split(/\n|\s*[;|]\s*/).map((item) => item.replace(/^[-*]\s*/, "").trim()).filter(Boolean) };
 }
 
 function canonicalLabel(label) {
@@ -110,6 +118,15 @@ export function createNodeClient() {
       return requestJson(forgeV1(`/projects/${projectId}/dashboard`, { project: projectId }), { fallbackError: "Node could not load the Project Dashboard." });
     },
     async getTicket(projectId, ticketId) { return requestJson(forgeV1(`/projects/${projectId}/tickets/${ticketId}`, { project: projectId }), { fallbackError: `Node could not load ticket ${ticketId}.` }); },
+    async createTicket(projectId, ticketOrContent, sprintId) {
+      const body = typeof ticketOrContent === "string"
+        ? { project_id: projectId, sprint_id: sprintId, content: ticketOrContent }
+        : { project_id: projectId, sprint_id: sprintId, ticket: { ...(ticketOrContent ?? {}), sprint_id: ticketOrContent?.sprint_id ?? sprintId } };
+      return requestJson(forgeV1("/tickets", { project: projectId }), {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify(body), fallbackError: "Node could not create the ticket."
+      });
+    },
     async getTicketGraph(projectId, ticketId) { return requestJson(forgeV1(`/projects/${projectId}/tickets/${ticketId}/graph`, { project: projectId }), { fallbackError: `Node could not load code graph for ${ticketId}.` }); },
     async uploadSprintPlan(projectId, sprintPlan) {
       return requestJson(forgeV1("/sprints", { project: projectId }), {
@@ -127,6 +144,12 @@ export function createNodeClient() {
       return requestJson(forgeV1(`/sprints/${sprintId}`, { project: projectId }), {
         method: "PUT", headers: { "content-type": "application/json" },
         body: JSON.stringify({ project_id: projectId, sprint_plan: sprintPlan }), fallbackError: "Node could not update the Sprint Plan."
+      });
+    },
+    async addTicketToSprint(projectId, sprintId, ticket) {
+      return requestJson(forgeV1(`/sprints/${sprintId}/tickets`, { project: projectId }), {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ project_id: projectId, ticket }), fallbackError: "Node could not add the ticket to the Sprint."
       });
     },
     async deleteSprintPlan(projectId, sprintId) {
@@ -183,11 +206,43 @@ export function createNodeClient() {
       source.onerror = () => onError?.();
       return Object.freeze({ close: () => source.close() });
     },
+    connectProjectStream({ projectId, afterEventId, onEvent, onOpen, onError } = {}) {
+      if (typeof projectId !== "string" || !projectId.trim()) throw new Error("Project stream requires a project id.");
+      if (typeof onEvent !== "function") throw new Error("Project stream requires an onEvent handler.");
+      if (typeof EventSource !== "function") throw new Error("Project stream requires EventSource support.");
+      const source = new EventSource(forgeV1("/stream", { project: projectId, ...(afterEventId ? { after: afterEventId } : {}) }));
+      const delivered = new Set();
+      let lastEventId = afterEventId ?? null;
+      const eventTypes = ["stream.connected", "stream.snapshot", "watcher.file_indexed", "watcher.file_removed", "ticket.created", "ticket.updated", "ticket.status_changed", "ticket.deleted", "sprint.created", "sprint.updated", "sprint.deleted", "stream.error"];
+      const handleEvent = (event) => {
+        if (event.lastEventId) lastEventId = event.lastEventId;
+        let data;
+        try { data = JSON.parse(event.data); } catch { onError?.(new Error("Project stream returned invalid JSON.")); return; }
+        if (!isProjectStreamEvent(data, projectId)) { onError?.(new Error("Project stream returned an invalid event.")); return; }
+        if (delivered.has(data.event_id)) return;
+        delivered.add(data.event_id);
+        onEvent(data);
+      };
+      eventTypes.forEach((eventType) => source.addEventListener(eventType, handleEvent));
+      source.onopen = () => onOpen?.();
+      source.onerror = (error) => onError?.(error instanceof Error ? error : new Error("Project stream connection failed."));
+      return Object.freeze({
+        close: () => source.close(),
+        getLastEventId: () => lastEventId
+      });
+    },
     sendOwnerMessage(agentId, text) {
       return { id: `local-${Date.now()}`, agentId, text, timestamp: new Date().toISOString() };
     },
     stream: null
   });
+}
+
+function isProjectStreamEvent(value, projectId) {
+  return Boolean(value && typeof value === "object" && typeof value.event_id === "string" && value.event_id.length > 0
+    && ["stream.connected", "stream.snapshot", "watcher.file_indexed", "watcher.file_removed", "ticket.created", "ticket.updated", "ticket.status_changed", "ticket.deleted", "sprint.created", "sprint.updated", "sprint.deleted", "stream.error"].includes(value.event_type)
+    && value.schema_version === 1 && value.project_id === projectId && typeof value.timestamp === "string"
+    && value.payload && typeof value.payload === "object" && !Array.isArray(value.payload));
 }
 
 async function requestJson(url, { fallbackError, ...init } = {}) {

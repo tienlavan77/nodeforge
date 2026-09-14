@@ -9,7 +9,7 @@ export function buildResponsesInput(payload = {}) {
   const blocks = [...prior];
   for (const block of payload.developer_blocks ?? []) blocks.push({ role: "developer", content: [{ type: "input_text", text: block.content, ...(block.cacheable ? { prompt_cache_breakpoint: true } : {}) }] });
   for (const block of payload.transcript_blocks ?? []) blocks.push({ role: "user", content: [{ type: "input_text", text: JSON.stringify({ round: block.round, instruction: block.instruction, response_summary: block.response_summary, full_request_ref: block.full_request_ref, full_response_ref: block.full_response_ref }) }] });
-  for (const block of payload.user_blocks ?? []) blocks.push({ role: "user", content: [{ type: "input_text", text: block.content }] });
+  for (const block of payload.user_blocks ?? []) blocks.push({ role: "user", content: [{ type: "input_text", text: block.content, ...(block.cacheable ? { prompt_cache_breakpoint: true } : {}) }] });
   return blocks;
 }
 
@@ -95,8 +95,20 @@ function submissionFormatsFromPlan(plan) {
 
 export function buildCacheOptions(payload = {}) {
   const config = payload.cache_config;
-  if (!config) return undefined;
-  return { prompt_cache_key: config.prompt_cache_key, prompt_cache_options: { mode: config.mode, ttl: config.ttl } };
+  const previousResponseId = payload.previous_response_id;
+  // previous_response_id chains this request to the stored provider response;
+  // store:true is required for the provider to retain it. Sentinel value
+  // "store_only" requests store:true without chaining (first turn of a probe).
+  if (!config && previousResponseId === undefined) return undefined;
+  if (previousResponseId === undefined) {
+    return { prompt_cache_key: config.prompt_cache_key, prompt_cache_options: { mode: config.mode, ttl: config.ttl } };
+  }
+  const chaining = previousResponseId !== "store_only";
+  return {
+    store: true,
+    ...(chaining ? { previous_response_id: previousResponseId } : {}),
+    ...(config ? { prompt_cache_key: config.prompt_cache_key, prompt_cache_options: { mode: config.mode, ttl: config.ttl } } : {})
+  };
 }
 
 export function mapOpenAIUsage(usage = {}) {

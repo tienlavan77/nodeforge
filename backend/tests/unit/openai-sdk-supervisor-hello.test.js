@@ -35,12 +35,11 @@ test("Supervisor dispatch sends an OpenAI profile through the SDK hello path", a
   assert.ok(logs.some((entry) => entry.event_name === "supervisor.agent_execution_completed"));
 });
 
-// Ticket mode: the Codex loop is driven through agentGateway function-calls
-// with a prompt built from the real ticket content, not the fixed lab script.
-test("Supervisor dispatch runs a Codex ticket through the Forge function-calling loop", async () => {
+// Ticket mode is delegated to the Codex SDK, with Forge tools exposed through MCP.
+test("Supervisor dispatch runs a Codex ticket through the SDK Forge MCP path", async () => {
   const prompts = [];
-  const executed = [];
-  let toolsSent = null;
+  let forgeTools;
+  let agentGatewayCalls = 0;
   const integration = createNodeforgeTaskIntegration({
     projectRoot: process.cwd(),
     supervisorManager: { startTask: async () => ({}) },
@@ -48,18 +47,38 @@ test("Supervisor dispatch runs a Codex ticket through the Forge function-calling
     agentResolver: { resolveAvailable: () => ({ agent_id: "codex-1", agent_name: "Codex Builder", role: "coder", provider: "codex" }) },
     handoffQueue: { enqueue: async () => ({ id: "JOB-CODEX" }) },
     toolRegistry: {
-      read_file: { execute: async (input, context) => { executed.push({ name: "read_file", input, context }); return { path: input.path, content: "// file\n", sha256: "sha256:abc", size_bytes: 8, truncated: false }; } },
+      read_file: { execute: async () => ({}) },
       search_code: { execute: async () => ({ results: [] }) },
-      report_done: { execute: async (input) => { executed.push({ name: "report_done", input }); return { summary: input.summary }; } }
+      write_diff: { execute: async () => ({}) },
+      commit_changes: { execute: async () => ({}) },
+      report_done: { execute: async () => ({}) }
     },
     runtimeGovernance: { createExecutionContext: (input) => ({ ...input, execution_id: "T-CODEX:REQ-CODEX", lifecycle: "RUNNING" }) },
-    agentGateway: {
-      request: async ({ tools, payload }) => {
-        prompts.push(payload.messages[0].content[0].text);
-        toolsSent = tools;
-        if (payload.messages.length === 1) return { payload: { tool_use: { id: "c1", name: "read_file", input: { path: "backend/scripts/validate-schemas.mjs" } } } };
-        if (payload.messages.length >= 5) return { payload: { tool_use: { id: "c2", name: "report_done", input: { summary: "Added summary comment." } } } };
-        return { payload: { tool_use: { id: `cx${payload.messages.length}`, name: "search_code", input: { query: "validate-schemas", kind: "file", limit: 5 } } } };
+    agentGateway: { request: async () => { agentGatewayCalls += 1; throw new Error("legacy gateway must not be called"); } },
+    codexSdkGateway: {
+      execute: async ({ prompt, options, onEvent }) => {
+        prompts.push(prompt);
+        forgeTools = options.forgeTools;
+        for (const [tool, argumentsInput] of [
+          ["read_file", { path: "backend/scripts/validate-schemas.mjs" }],
+          ["write_diff", { path: "backend/scripts/validate-schemas.mjs" }],
+          ["commit_changes", { message: "Document validate-schemas" }],
+          ["report_done", { summary: "Added summary comment." }]
+        ]) {
+          await onEvent({
+            type: "item.completed",
+            item: {
+              id: `${tool}-1`,
+              type: "mcp_tool_call",
+              server: "forge",
+              tool,
+              arguments: argumentsInput,
+              result: { content: [{ type: "text", text: JSON.stringify({ summary: "ok" }) }] },
+              status: "completed"
+            }
+          });
+        }
+        return { text: "Added summary comment." };
       }
     }
   });
@@ -72,13 +91,13 @@ test("Supervisor dispatch runs a Codex ticket through the Forge function-calling
   });
 
   assert.equal(result.response, "Added summary comment.");
-  assert.deepEqual(executed.map((entry) => entry.name), ["read_file", "report_done"]);
-  assert.deepEqual(executed[0].context.allowed_file_paths.filter((p) => p.endsWith(".mjs")), ["backend/scripts/validate-schemas.mjs"]);
-  // The prompt carries the real ticket content, not the lab script.
+  assert.deepEqual(result.tool_events.map((entry) => entry.tool), ["read_file", "write_diff", "commit_changes", "report_done"]);
+  assert.deepEqual(forgeTools.context.allowed_file_paths.filter((p) => p.endsWith(".mjs")), ["backend/scripts/validate-schemas.mjs"]);
   assert.match(prompts[0], /Document validate-schemas/);
   assert.match(prompts[0], /Read backend\/scripts\/validate-schemas\.mjs/);
   assert.doesNotMatch(prompts[0], /fixed six-tool/i);
-  assert.deepEqual(toolsSent.map((tool) => tool.name), ["search_code", "read_file", "write_diff", "run_test", "commit_changes", "report_done"]);
+  assert.deepEqual(forgeTools.definitions.map((tool) => tool.name), ["select_code_graph_candidates", "search_code", "read_file", "write_diff", "edit_diff", "run_test", "check_test", "commit_changes", "report_done"]);
+  assert.equal(agentGatewayCalls, 0);
 });
 
 // Lab mode stays as the six-tool integration harness when payload.tool_test is set.
@@ -90,12 +109,13 @@ test("payload.tool_test keeps the fixed six-tool Codex lab prompt", async () => 
     eventBus: { publish: async () => {} },
     agentResolver: { resolveAvailable: () => ({ agent_id: "codex-lab", agent_name: "Codex Lab", role: "coder", provider: "codex" }) },
     handoffQueue: { enqueue: async () => ({ id: "JOB-LAB" }) },
-    toolRegistry: { report_done: { execute: async (input) => ({ summary: input.summary }) } },
+    toolRegistry: { report_done: { execute: async () => ({}) } },
     runtimeGovernance: { createExecutionContext: (input) => ({ ...input, execution_id: "T-LAB:REQ-LAB", lifecycle: "RUNNING" }) },
-    agentGateway: {
-      request: async ({ payload }) => {
-        prompt ??= payload.messages[0].content[0].text;
-        return { payload: { tool_use: { id: "c1", name: "report_done", input: { summary: "Tool lab completed" } } } };
+    codexSdkGateway: {
+      execute: async ({ prompt: receivedPrompt, onEvent }) => {
+        prompt = receivedPrompt;
+        await onEvent({ type: "item.completed", item: { id: "report-1", type: "mcp_tool_call", server: "forge", tool: "report_done", arguments: { summary: "Tool lab completed" }, result: { content: [] }, status: "completed" } });
+        return { text: "Tool lab completed" };
       }
     }
   });
@@ -122,7 +142,59 @@ test("Codex run fails when the provider never emits a Forge tool call", async ()
     handoffQueue: { enqueue: async () => ({ id: "JOB-MISSING" }) },
     toolRegistry: {},
     runtimeGovernance: { createExecutionContext: (input) => ({ ...input, execution_id: "T-MISSING:REQ-MISSING", lifecycle: "RUNNING" }) },
-    agentGateway: { request: async () => ({ payload: { text: "Forge MCP tools are not available", tool_use: null } }) }
+    codexSdkGateway: { execute: async () => ({ text: "Forge MCP tools are not available" }) }
   });
   await assert.rejects(() => integration.submitTicket({ ticket: { id: "T-MISSING", title: "Tool lab" }, task_id: "T-MISSING" }), (error) => error.code === "CODEX_MCP_TOOL_CALLS_MISSING");
+});
+
+// Claude ticket runs cap reasoning effort so a single turn cannot spend
+// minutes in extended thinking before the 600s SDK timeout.
+test("Supervisor dispatch runs a Claude ticket with capped reasoning effort", async () => {
+  let receivedOptions;
+  const integration = createNodeforgeTaskIntegration({
+    projectRoot: process.cwd(),
+    supervisorManager: { startTask: async () => ({}) },
+    eventBus: { publish: async () => {} },
+    agentResolver: { resolveAvailable: () => ({ agent_id: "claude-1", agent_name: "Claude Builder", role: "coder", provider: "claude" }) },
+    handoffQueue: { enqueue: async () => ({ id: "JOB-CLAUDE" }) },
+    toolRegistry: {
+      read_file: { execute: async () => ({}) },
+      write_diff: { execute: async () => ({}) },
+      commit_changes: { execute: async () => ({}) },
+      report_done: { execute: async () => ({}) }
+    },
+    runtimeGovernance: { createExecutionContext: (input) => ({ ...input, execution_id: "T-CLAUDE:REQ-CLAUDE", lifecycle: "RUNNING" }) },
+    claudeSdkGateway: {
+      execute: async ({ prompt, options }) => {
+        receivedOptions = options;
+        return {
+          agent_id: "claude-1",
+          agent_name: "Claude Builder",
+          role: "coder",
+          correlation_id: "CORR-CLAUDE",
+          status: "completed",
+          messages: [
+            { role: "assistant", content: [{ type: "tool_use", name: "mcp__forge__read_file", input: { path: "backend/scripts/validate-schemas.mjs" } }] },
+            { role: "assistant", content: [{ type: "tool_use", name: "mcp__forge__write_diff", input: { path: "backend/scripts/validate-schemas.mjs", content: "// summary", before_checksum: "abc" } }] },
+            { role: "assistant", content: [{ type: "tool_use", name: "mcp__forge__commit_changes", input: { message: "Document validate-schemas" } }] },
+            { role: "assistant", content: [{ type: "tool_use", name: "mcp__forge__report_done", input: { summary: "Done." } }] }
+          ]
+        };
+      }
+    }
+  });
+
+  const result = await integration.submitTicket({
+    ticket: { id: "T-CLAUDE", project_id: "PROJECT-1", title: "Document validate-schemas" },
+    task_id: "T-CLAUDE",
+    request_id: "REQ-CLAUDE",
+    correlation_id: "CORR-CLAUDE"
+  });
+
+  assert.equal(result.status, "completed");
+  // "Document validate-schemas" (no explicit component location, backend path
+  // mention) classifies as moderate.
+  assert.equal(receivedOptions.effort, "medium");
+  assert.equal(receivedOptions.maxTurns, 25);
+  assert.deepEqual(receivedOptions.thinking, { type: "enabled", budgetTokens: 4096 });
 });

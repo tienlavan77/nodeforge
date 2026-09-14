@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 
-export function createForgeV1Router({ dispatchTicket, dispatchSprint, projectDashboardService, sprintPlanUploadService, ownerChatService, conversationAuditHistoryService, architectureWorkspaceService, humanDecisionService, agentSettingsService } = {}) {
+export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab, projectStream, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, conversationAuditHistoryService, architectureWorkspaceService, humanDecisionService, agentSettingsService } = {}) {
   return Object.freeze({ route });
 
   async function route(method, url, request) {
@@ -27,6 +27,13 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, projectDas
 
     if (method === "GET" && parts.length === 1 && parts[0] === "version") {
       return { status: 200, body: { api: "forge/v1", service: "nodeforge" } };
+    }
+
+    if (method === "POST" && parts.length === 2 && parts[0] === "stream" && parts[1] === "events") {
+      if (!projectStream?.ingest) throw unavailable("Project Stream");
+      if (!body.project_id) throw Object.assign(new ConfigurationError("project_id is required."), { statusCode: 400, code: "PROJECT_REQUIRED" });
+      const result = projectStream.ingest(body);
+      return { status: 202, body: { ...result, request_id: requestId, correlation_id: correlationId } };
     }
 
     if (parts[0] === "agents") {
@@ -122,6 +129,35 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, projectDas
       return { status: 200, body: sprintPlanUploadService.remove({ projectId, sprintId: parts[1] }) };
     }
 
+    if (parts[0] === "tickets" && (parts.length === 1 || (parts.length === 2 && !parts[1].endsWith(":run")))) {
+      if (parts.length === 1) {
+        requireProject(projectId);
+        if (method === "GET") {
+          if (!ticketCrudService?.listTickets) throw unavailable("Ticket List");
+          return { status: 200, body: ticketCrudService.listTickets({ projectId }) };
+        }
+        if (method === "POST") {
+          if (!ticketCrudService?.createTicket) throw unavailable("Ticket Create");
+          return { status: 201, body: await ticketCrudService.createTicket({ projectId, ticket: body.ticket, content: body.content, sprintId: body.sprint_id }) };
+        }
+      }
+      if (parts.length === 2) {
+        requireProject(projectId);
+        if (method === "GET") {
+          if (!projectDashboardService?.getTicket) throw unavailable("Ticket Detail");
+          return { status: 200, body: await projectDashboardService.getTicket(projectId, parts[1]) };
+        }
+        if (method === "PUT") {
+          if (!ticketCrudService?.updateTicket) throw unavailable("Ticket Update");
+          return { status: 200, body: ticketCrudService.updateTicket({ projectId, ticketId: parts[1], patch: body.ticket ?? body }) };
+        }
+        if (method === "DELETE") {
+          if (!sprintPlanUploadService?.removeTicket) throw unavailable("Ticket Delete");
+          return { status: 200, body: sprintPlanUploadService.removeTicket({ projectId, ticketId: parts[1] }) };
+        }
+      }
+    }
+
     if (method === "DELETE" && parts.length === 4 && parts[0] === "projects" && parts[2] === "tickets") {
       if (!sprintPlanUploadService?.removeTicket) throw unavailable("Ticket Delete");
       return { status: 200, body: sprintPlanUploadService.removeTicket({ projectId: parts[1], ticketId: parts[3] }) };
@@ -168,6 +204,14 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, projectDas
       return { status: 202, body: await ownerChatService.submit({ ...body, project_id: projectId, conversation_id: parts[1] }) };
     }
 
+    if (method === "POST" && parts.length === 1 && parts[0] === "tool-lab") {
+      if (typeof runToolLab !== "function") throw unavailable("Tool Lab");
+      const normalizedPrefixes = body.allowed_prefixes ?? body.allowedPrefixes ?? (typeof body.allowed_prefix === "string" ? [body.allowed_prefix] : undefined);
+      const toolTest = typeof body.tool_test === "object" && body.tool_test !== null ? body.tool_test : {};
+      const result = await runToolLab({ projectId, targetPath: toolTest.target_path ?? body.target_path ?? body.targetPath, allowedPrefixes: toolTest.allowed_prefixes ?? normalizedPrefixes, approvalPolicy: toolTest.approval_policy, taskId: body.task_id ?? body.taskId });
+      return { status: 202, body: { ...result, request_id: requestId, correlation_id: correlationId } };
+    }
+
     if (method === "POST" && parts.length === 5 && parts[0] === "projects" && parts[2] === "tickets" && parts[4].endsWith(":run")) {
       if (typeof dispatchTicket !== "function") throw unavailable("Ticket Dispatch");
       return { status: 202, body: await dispatchTicket({ projectId: parts[1], ticketId: parts[3] ?? parts[4].slice(0, -4), conversationId: "CONV-BUILDER" }) };
@@ -187,6 +231,10 @@ function unavailable(name) {
   return Object.assign(new ConfigurationError(`${name} API is not configured.`), { statusCode: 503 });
 }
 
+function requireProject(projectId) {
+  if (!projectId) throw Object.assign(new ConfigurationError("Project query parameter is required."), { statusCode: 400, code: "PROJECT_REQUIRED" });
+}
+
 async function readJson(request) {
   let raw = "";
   for await (const chunk of request) raw += chunk;
@@ -197,4 +245,3 @@ async function readJson(request) {
     throw new ConfigurationError("Request body must be valid JSON.");
   }
 }
-

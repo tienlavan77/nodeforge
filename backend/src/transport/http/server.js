@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 
 import { ConfigurationError } from "../../shared/errors.js";
 
-export function createHttpApi({ runtimeService, ownerChatService, conversationStream, architectureWorkspaceService, projectDashboardService, conversationAuditHistoryService, humanDecisionService, agentSettingsService, sprintPlanUploadService, sprintOrchestrationService, dispatchSprint, dispatchTicket, ticketRunner, forgeV1Router } = {}) {
+export function createHttpApi({ runtimeService, ownerChatService, conversationStream, projectStream, architectureWorkspaceService, projectDashboardService, conversationAuditHistoryService, humanDecisionService, agentSettingsService, sprintPlanUploadService, sprintOrchestrationService, dispatchSprint, dispatchTicket, ticketRunner, forgeV1Router } = {}) {
   if (!runtimeService || typeof runtimeService.startTask !== "function" || typeof runtimeService.pauseSession !== "function"
     || typeof runtimeService.resumeSession !== "function" || typeof runtimeService.getSession !== "function" || typeof runtimeService.getProjectMemory !== "function") {
     throw new ConfigurationError("HTTP API requires a Runtime Service.");
@@ -32,6 +32,15 @@ export function createHttpApi({ runtimeService, ownerChatService, conversationSt
       }
       if (url.pathname.startsWith("/forge/v1/")) {
         const parts = url.pathname.split("/").filter(Boolean).slice(2);
+        if (request.method === "GET" && parts.length === 1 && parts[0] === "stream") {
+          if (!projectStream) throw new ConfigurationError("Project SSE is not configured.");
+          const projectId = url.searchParams.get("project");
+          if (!projectId) throw Object.assign(new ConfigurationError("Project query parameter is required."), { statusCode: 400, code: "PROJECT_REQUIRED" });
+          applyCorsHeaders(response, origin, true);
+          const connection = projectStream.connect({ requestedProjectId: projectId, response, afterEventId: request.headers?.["last-event-id"] ?? url.searchParams.get("after") ?? undefined });
+          request.once?.("close", () => connection.close());
+          return;
+        }
         if (request.method === "GET" && parts.length === 5 && parts[0] === "projects" && parts[2] === "conversations" && parts[4] === "stream") {
           if (!conversationStream) throw new ConfigurationError("Conversation SSE is not configured.");
           applyCorsHeaders(response, origin, true);
@@ -132,6 +141,7 @@ export function createHttpApi({ runtimeService, ownerChatService, conversationSt
     }
     if (method === "PUT" && parts.length === 2 && parts[0] === "sprints") {
       if (!sprintPlanUploadService?.update) throw new ConfigurationError("Sprint Plan Update API is not configured.");
+      const body = await readJson(request);
       return { status: 200, body: sprintPlanUploadService.update({ projectId, sprintId: parts[1], sprintPlan: body.sprint_plan ?? body }) };
     }
 
