@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
 import { isProtectedPath } from "../infrastructure/filesystem/protected-path-policy.js";
 import { ConfigurationError } from "../shared/errors.js";
-
+import { discoveryCount, recordRead, resetExploration } from "./exploration-state.js";
 const MAX_CONTENT = 200000;
+const WRITE_DIFF_MAX_BYTES = 8192;
+const READ_PREVIEW_LINES = 40;
+const FULL_READ_LINE_LIMIT = 500;
 const safePath = (value, operation = "read") => {
   if (typeof value !== "string" || !value || value.startsWith("/") || value.includes("\\") || value.split("/").some((part) => !part || part === "." || part === "..") || isProtectedPath(value, { operation })) throw error("PATH_FORBIDDEN", "Path is outside the permitted project scope.");
   return value;
@@ -18,20 +21,48 @@ const checksumDiagnostics = (beforeChecksum, targetExists) => ({
   before_checksum_format_valid: typeof beforeChecksum === "string" && checksumPattern.test(beforeChecksum)
 });
 
-export function createReadFileTool({ fileService, maxChars = MAX_CONTENT } = {}) {
+export function createReadFileTool({ fileService, symbolLookup, maxChars = MAX_CONTENT } = {}) {
   if (typeof fileService?.readForIndex !== "function") throw new ConfigurationError("read_file requires File Service.");
   return Object.freeze({ name: "read_file", async execute(input = {}, context = {}) {
     const path = safePath(input.path); assertAllowed(path, context); const file = await fileService.readForIndex({ path });
     if (!file || typeof file.content !== "string") throw error("READ_FAILED", `File could not be read: ${path}`);
-    const content = file.content.slice(0, maxChars);
-    return { path, content, sha256: file.sha256 ?? checksum(file.content), size_bytes: file.size_bytes ?? Buffer.byteLength(file.content), truncated: content.length < file.content.length };
+    const sha256 = file.sha256 ?? checksum(file.content);
+    const sizeBytes = file.size_bytes ?? Buffer.byteLength(file.content);
+    const hasWindow = input.offset !== undefined || input.limit !== undefined;
+    const lines = file.content.split("\n");
+    if (!hasWindow && lines.length > FULL_READ_LINE_LIMIT) {
+      // Refusing full reads of large files forces windowed navigation; the
+      // sha256 stays whole-file so edit_diff before_checksum still works. The
+      // symbol map lets the agent aim its first window instead of blind probing.
+      recordRead(context, { path, window: "preview" });
+      const symbols = typeof symbolLookup === "function" ? symbolLookup(path) : [];
+      const result = { path, content: lines.slice(0, READ_PREVIEW_LINES).join("\n"), sha256, size_bytes: sizeBytes, offset: 1, limit: READ_PREVIEW_LINES, total_lines: lines.length, truncated: true, symbol_map: symbols, notice: `File has ${lines.length} lines. Re-call read_file with offset/limit windows (max 500 lines) targeting the symbol you need; symbol_map gives each symbol's line range.` };
+      const discovery = discoveryCount(context);
+      if (!discovery.edit_started && discovery.remaining <= 2) result.deadline_warning = `${discovery.used} discovery calls used. Discovery is refused after ${discovery.limit}; your next calls must be edit_diff or write_diff.`;
+      return result;
+    }
+    if (!hasWindow) {
+      const content = file.content.slice(0, maxChars);
+      recordRead(context, { path, window: "full" });
+      return { path, content, sha256, size_bytes: sizeBytes, truncated: content.length < file.content.length };
+    }
+    if (input.offset !== undefined && (!Number.isInteger(input.offset) || input.offset < 1)) throw error("INPUT_INVALID", "offset must be a positive integer (1-based line).");
+    if (input.limit !== undefined && (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 500)) throw error("INPUT_INVALID", "limit must be an integer between 1 and 500.");
+    const offset = input.offset ?? 1;
+    if (offset > lines.length) throw error("OFFSET_OUT_OF_RANGE", `offset ${offset} is beyond the last line (${lines.length}) of ${path}.`);
+    const limit = input.limit ?? 500;
+    const content = lines.slice(offset - 1, offset - 1 + limit).join("\n").slice(0, maxChars);
+    recordRead(context, { path, window: `${offset}-${offset - 1 + Math.min(limit, lines.length - offset + 1)}` });
+    return { path, content, sha256, size_bytes: sizeBytes, offset, limit, total_lines: lines.length, truncated: content.length === maxChars && maxChars < file.content.length };
   }});
 }
 
-export function createWriteDiffTool({ fileService, maxChars = MAX_CONTENT } = {}) {
+export function createWriteDiffTool({ fileService, maxChars = MAX_CONTENT, maxBytes = WRITE_DIFF_MAX_BYTES } = {}) {
   if (typeof fileService?.atomicWrite !== "function" || typeof fileService?.readFile !== "function") throw new ConfigurationError("write_diff requires File Service readFile and atomicWrite.");
   return Object.freeze({ name: "write_diff", async execute(input = {}, context = {}) {
     const path = safePath(input.path, "write"); assertAllowed(path, context); if (typeof input.content !== "string" || input.content.length > maxChars) throw error("CONTENT_INVALID", "content must be a bounded string.");
+    const byteLength = Buffer.byteLength(input.content, "utf8");
+    if (byteLength > maxBytes) throw error("CONTENT_TOO_LARGE", `write_diff content is ${byteLength} bytes, limit is ${maxBytes}. For existing files use edit_diff with an anchor; for new files split into smaller writes.`, { byte_length: byteLength, limit: maxBytes });
     let current;
     try {
       current = await fileService.readFile({ path });
@@ -44,9 +75,46 @@ export function createWriteDiffTool({ fileService, maxChars = MAX_CONTENT } = {}
       }
       current = null;
     }
-    if (current !== null) { const actual = checksum(current); if (typeof input.before_checksum !== "string" || input.before_checksum !== actual) throw error("CHECKSUM_MISMATCH", `Checksum mismatch for ${path}.`, checksumDiagnostics(input.before_checksum, true)); }
+    if (current !== null) {
+      const actual = checksum(current);
+      if (typeof input.before_checksum !== "string" || input.before_checksum !== actual) throw error("CHECKSUM_MISMATCH", `Checksum mismatch for ${path}.`, checksumDiagnostics(input.before_checksum, true));
+      // A file too large to be a legitimate write_diff payload must be edited in
+      // place; write_diff only creates or fully rewrites a small (< maxBytes) file.
+      const currentBytes = Buffer.byteLength(current, "utf8");
+      if (currentBytes > maxBytes) throw error("DESTRUCTIVE_OVERWRITE", `${path} is ${currentBytes} bytes, over the ${maxBytes}-byte write_diff limit. Replace it with write_diff would drop content; use edit_diff with an exact anchor for localized changes.`, { path, current_bytes: currentBytes, limit: maxBytes });
+    }
     await fileService.atomicWrite({ path, content: input.content, replace: true });
+    recordChangedPath(context, path);
+    resetExploration(context);
     return textResult(`Written '${path}' (${checksum(input.content)}).`);
+  }});
+}
+
+export function createEditDiffTool({ fileService, maxChars = MAX_CONTENT } = {}) {
+  if (typeof fileService?.atomicWrite !== "function" || typeof fileService?.readFile !== "function") throw new ConfigurationError("edit_diff requires File Service readFile and atomicWrite.");
+  return Object.freeze({ name: "edit_diff", async execute(input = {}, context = {}) {
+    const path = safePath(input.path, "write"); assertAllowed(path, context);
+    if (typeof input.anchor !== "string" || !input.anchor.length) throw error("INPUT_INVALID", "anchor must be a non-empty string.");
+    if (typeof input.replacement !== "string") throw error("INPUT_INVALID", "replacement must be a string.");
+    if (input.anchor.length + input.replacement.length > maxChars) throw error("CONTENT_TOO_LARGE", `anchor + replacement exceeds ${maxChars} chars.`, { limit: maxChars });
+    let current;
+    try {
+      current = await fileService.readFile({ path });
+    } catch (cause) {
+      if (cause?.code === "ENOENT") throw error("CHECKSUM_MISMATCH", `File does not exist: ${path}. Create it with write_diff first.`, checksumDiagnostics(input.before_checksum, false));
+      throw error("READ_FAILED", `File could not be read: ${path}`, checksumDiagnostics(input.before_checksum, true));
+    }
+    const actual = checksum(current);
+    if (typeof input.before_checksum !== "string" || input.before_checksum !== actual) throw error("CHECKSUM_MISMATCH", `Checksum mismatch for ${path}.`, checksumDiagnostics(input.before_checksum, true));
+    const occurrence = input.occurrence === "all" ? "all" : "first";
+    const parts = current.split(input.anchor);
+    if (parts.length === 1) throw error("ANCHOR_NOT_FOUND", `Anchor was not found in ${path}. Read the file again and copy the exact text.`, { path });
+    if (occurrence === "first" && parts.length > 2) throw error("ANCHOR_NOT_UNIQUE", `Anchor occurs ${parts.length - 1} times in ${path}; include more surrounding lines to make it unique.`, { path, occurrences: parts.length - 1 });
+    const replaced = parts.join(input.replacement);
+    await fileService.atomicWrite({ path, content: replaced, replace: true });
+    recordChangedPath(context, path);
+    resetExploration(context);
+    return { path, sha256: checksum(replaced), replaced_count: occurrence === "all" ? parts.length - 1 : 1 };
   }});
 }
 
@@ -71,8 +139,8 @@ export function createCommitChangesTool({ gitService } = {}) {
   if (typeof gitService?.commit !== "function") throw new ConfigurationError("commit_changes requires Git Service.");
   return Object.freeze({ name: "commit_changes", async execute(input = {}, context = {}) {
     if (typeof input.message !== "string" || !input.message.trim()) throw error("INPUT_INVALID", "Commit message is required.");
-    const paths = context.changed_paths ?? context.allowed_file_paths ?? [];
-    if (!Array.isArray(paths) || !paths.length) throw error("SCOPE_INVALID", "Node must provide changed_paths for commit.");
+    const paths = resolveCommitPaths(context);
+    if (!paths.length) throw error("SCOPE_INVALID", "No changed files to commit; write_diff/edit_diff must run first.");
     return gitService.commit(input.message, { paths });
   }});
 }
@@ -90,4 +158,33 @@ export function createReportDoneTool({ reportService } = {}) {
   }});
 }
 
-function assertAllowed(path, context) { const allowed = context.allowed_file_paths ?? context.allowedFilePaths; if (Array.isArray(allowed) && !allowed.includes(path)) throw error("PATH_FORBIDDEN", `Path is not approved: ${path}`); }
+function withinPrefix(path, prefix) { return path === prefix || path.startsWith(`${prefix.replace(/\/$/, "")}/`); }
+function assertAllowed(path, context) {
+  const paths = context.allowed_file_paths ?? context.allowedFilePaths;
+  const prefixes = context.allowed_prefixes ?? context.allowedPrefixes;
+  const exactOk = !Array.isArray(paths) || paths.includes(path);
+  const prefixOk = Array.isArray(prefixes) && prefixes.some((prefix) => withinPrefix(path, prefix));
+  // A path is approved if it matches the exact allowlist OR falls inside an
+  // approved prefix; otherwise reject with PATH_FORBIDDEN.
+  if (exactOk || prefixOk) return;
+  throw error("PATH_FORBIDDEN", `Path is not approved: ${path}`);
+}
+
+// write_diff/edit_diff record each successfully written path on the shared
+// execution context so commit_changes commits exactly the files the agent
+// changed, instead of a hard-coded target. The context object travels by
+// reference through the Forge MCP session, so mutations here are visible to
+// later tool calls in the same execution.
+function recordChangedPath(context, path) {
+  if (!context || typeof context !== "object") return;
+  const paths = Array.isArray(context.changed_paths) ? context.changed_paths : [];
+  if (!paths.includes(path)) paths.push(path);
+  context.changed_paths = paths;
+}
+
+function resolveCommitPaths(context) {
+  const changed = Array.isArray(context.changed_paths) ? context.changed_paths.filter((path) => typeof path === "string" && path) : [];
+  if (changed.length) return changed;
+  const allowed = Array.isArray(context.allowed_file_paths) ? context.allowed_file_paths : [];
+  return allowed.filter((path) => typeof path === "string" && path);
+}

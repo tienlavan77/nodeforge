@@ -17,7 +17,7 @@ export async function dispatchChange(context) {
   next = withExecutionResult(next, checksum);
   if (!checksum.success) return next;
 
-  console.log(`[dispatch-change] input ${JSON.stringify({
+  logEvent({ timestamp: new Date().toISOString(), event_name: "execution.change_input", level: "info", status: "info", message: "Change dispatched to an execution handler.", task_id: context.task_id, ticket_id: context.ticket_id, conversation_id: context.conversation_id, source: "dispatch-change", payload: {
     file_path: filePath,
     fields: change && typeof change === "object" ? Object.keys(change).filter((key) => key !== "checksum_before") : [],
     has_diff: typeof change?.diff === "string",
@@ -26,7 +26,7 @@ export async function dispatchChange(context) {
     has_operations: Array.isArray(change?.operations),
     content_chars: typeof (change?.diff ?? change?.content) === "string" ? (change.diff ?? change.content).length : null,
     content_preview: typeof (change?.diff ?? change?.content) === "string" ? (change.diff ?? change.content).slice(0, 300) : null
-  })}`);
+  } });
 
   // Route the Codex apply_patch envelope to its dedicated context-based parser.
   if (typeof change?.diff === "string" && /^\s*\*\*\* Begin Patch\b/.test(change.diff)) {

@@ -9,6 +9,8 @@ import { createDebouncedWatcher } from "../src/modules/watcher/debounced-watcher
 import { createIncrementalIndexer } from "../src/modules/index/incremental-indexer.js";
 import { createVerificationOrchestrator } from "../src/modules/verification/orchestrator.js";
 import { createFileService } from "../src/infrastructure/filesystem/file-service.js";
+import { createRuntimeLogger } from "../src/core/runtime-logger.js";
+import { logEvent } from "../src/core/project-log-service.js";
 
 process.chdir(resolve(new URL("../..", import.meta.url).pathname));
 loadNodeforgeEnv();
@@ -23,22 +25,26 @@ const rawWatcher = createFilesystemWatcher({
   ignore: DEFAULT_WATCHER_IGNORE,
   chokidarOptions: { ignoreInitial: true, usePolling: true, interval: 250 }
 });
-function timestamp() { return new Date().toISOString().slice(0, 19).replace("T", " "); }
-function log(message) { process.stdout.write(`[${timestamp()}] ${message}\n`); }
-for (const rawType of ["add", "change", "unlink"]) {
-  rawWatcher.on(rawType, (path) => log(`Filesystem ${rawType}: ${path}`));
-}
+const logger = createRuntimeLogger({ logEvent, source: "project-watcher" });
 const watcher = createDebouncedWatcher({ rawWatcher, projectId, root: process.cwd() });
 const indexer = createIncrementalIndexer({ database: indexDb, projectRoot: process.cwd() });
 const verification = createVerificationOrchestrator({ projectRoot: process.cwd(), projectId });
+const controlApiUrl = process.env.NODE_CONTROL_API_URL ?? `http://127.0.0.1:${process.env.NODE_CONTROL_PORT ?? 3100}`;
+async function publishStreamEvent(event, indexed) {
+  try {
+    const response = await fetch(`${controlApiUrl}/forge/v1/stream/events`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...event, indexed, project_id: projectId }) });
+    if (!response.ok) logger.info(`Stream publish failed (${response.status}): ${event.type}`);
+  } catch (error) { logger.info(`Stream publish unavailable: ${error.message}`); }
+}
 
-rawWatcher.once("ready", () => log("Project filesystem watcher ready (polling)"));
-rawWatcher.once("ready", () => { log(`Project root watched: ${process.cwd()}`); log(`Index database: ${indexDb.databasePath}`); });
+logger.info("Project filesystem watcher ready (polling).", { event_name: "watcher.ready" });
+logger.info("Watcher configuration loaded.", { event_name: "watcher.config", payload: { project_root: process.cwd(), index_database: indexDb.databasePath } });
 watcher.on("event", (event) => {
-  log(`Watcher event: ${event.type} ${event.payload?.path ?? ""}`);
+  logger.debug(`Watcher event ${event.type}.`, { event_name: "watcher.event", payload: { type: event.type, path: event.payload?.path ?? null, event_id: event.event_id } });
   void indexer.handle(event)
     .then((indexed) => {
-      log(`Indexer ${indexed ? "updated" : "skipped"}: ${event.payload?.path ?? ""}`);
+      logger.debug(indexed ? "Indexer updated file." : "Indexer skipped file.", { event_name: "watcher.indexed", status: indexed ? "success" : "info", payload: { path: event.payload?.path ?? null, event_id: event.event_id } });
+      void publishStreamEvent(event, indexed);
       return indexed ? verification.run({
       schema_version: "1.0",
       commit_id: event.event_id,
@@ -48,9 +54,9 @@ watcher.on("event", (event) => {
     })
     .then((result) => {
       if (!result) return;
-      log(`Watcher verification ${result.status}: ${event.payload?.path ?? ""} (run ${result.run_id ?? "unknown"})`);
+      logger.info(`Watcher verification ${result.status}.`, { event_name: "watcher.verification", status: result.status === "failed" ? "failed" : "success", payload: { path: event.payload?.path ?? null, run_id: result.run_id ?? null, event_id: event.event_id } });
     })
-    .catch((error) => console.error("Watcher verification failed", { error: error.message, event_id: event.event_id }));
+    .catch((error) => logger.error("Watcher verification failed.", { event_name: "watcher.verification_failed", payload: { error: error.message, event_id: event.event_id } }));
 });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {

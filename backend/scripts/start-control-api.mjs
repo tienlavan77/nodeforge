@@ -23,13 +23,17 @@ import { createControlApiPlatform } from "./control-api-platform.mjs";
 import { createControlApiStorage } from "./control-api-storage.mjs";
 import { createControlApiHttp } from "./control-api-http.mjs";
 import { createProductionSupervisorRuntime } from "../src/modules/supervisor/production-runtime.js";
+import { createTerminalBridge } from "../src/modules/supervisor/terminal-bridge.js";
 import { createClaudeSdkGateway } from "../src/modules/agent/claude-sdk-gateway.js";
 import { createOpenAiSdkProviderFactory } from "../src/modules/agent/openai-sdk-provider.js";
 import { createOpenAiSdkGateway } from "../src/modules/agent/openai-sdk-gateway.js";
 import { createCodexSdkGateway } from "../src/modules/agent/codex-sdk-gateway.js";
-import { createSupervisorRoundController } from "../src/modules/supervisor/round-controller.js";
+import { createRuntimeLogger } from "../src/core/runtime-logger.js";
+import { createAttemptContextBuilder } from "../src/modules/supervisor/attempt-context-builder.js";
+import { createSprintDagRunner, topologicalTicketLevels } from "../src/modules/supervisor/sprint-dag.js";
 import { createCodeIndexSummaryBuilder } from "../src/modules/index/code-index-summary-builder.js";
 import { createStage1ReportService } from "../src/modules/workflows/stage1-report-service.js";
+import { createTicketCrudService } from "../src/application/ticket-crud-service.js";
 
 const config = readControlApiConfig();
 const { port, host, dataDir } = config;
@@ -41,26 +45,25 @@ const storage = await createControlApiStorage({
 const { fileService, protocolStorage, conversationStateStore, processLock, controlDb, indexDb } = storage;
 const database = controlDb;
 const { profiles, agentConfiguration, secrets, agentGateway, agentSettings, agentRoleResolver } = createControlApiAgent({ database, fileService, config });
-const claudeSdkGateway = createClaudeSdkGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference) });
+const claudeSdkGateway = createClaudeSdkGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference), timeoutMs: config.sdkTimeoutMs });
 const openaiSdkProviderFactory = createOpenAiSdkProviderFactory({ credentialResolver: (reference) => secrets.get(reference) });
 const openaiSdkGateway = createOpenAiSdkGateway({ providerFactory: openaiSdkProviderFactory });
-const codexSdkGateway = createCodexSdkGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference) });
+const codexSdkGateway = createCodexSdkGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference), timeoutMs: config.sdkTimeoutMs });
 const platform = createControlApiPlatform({ config, database, indexDb, fileService, agentGateway, logEvent });
 const gitService = createGitService({ projectRoot: config.cwd });
 const reportService = createStage1ReportService({ protocolStorage, fileService, gitService });
-const { projectId, codeSearch, fileGraph, relevantTreeSelector, communications, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, verificationOrchestrator, contextEngine, runtimeService, sprintOrchestration, ticketCommandParser, proseTicketService, sprintPlanUpload } = platform;
+const { projectId, indexDb: platformIndexDb, codeSearch, fileGraph, relevantTreeSelector, memoryRetriever, communications, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, verificationOrchestrator, contextEngine, runtimeService, sprintOrchestration, ticketCommandParser, proseTicketService, sprintPlanUpload, taskSummaries, projectMemory } = platform;
 testService = platform.testService;
 const unifiedStreamOrder = createUnifiedStreamOrderer();
+const runtimeLogger = createRuntimeLogger({ logEvent });
 const buildBuilderContext = createBuilderContext({ roadmaps, indexDb, contextEngine });
 const codeIndexSummaryBuilder = createCodeIndexSummaryBuilder({ fileService, indexDb });
-const supervisorRuntime = createProductionSupervisorRuntime({ projectRoot: config.cwd, fileService, root: ".forge/runtime", eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, agentRoleResolver, codeSearch, relevantTreeSelector, logger: console, projectLogger: (entry) => { try { logEvent({ timestamp: new Date().toISOString(), ...entry }); } catch (error) { console.error("Project log failed", error); } console.log(`[worker-log] ${entry?.event_name ?? "event"}`, JSON.stringify({ task_id: entry?.task_id, request_id: entry?.payload?.request_id, tool: entry?.payload?.tool, target_exists: entry?.payload?.target_exists, before_checksum_present: entry?.payload?.before_checksum_present, before_checksum_format_valid: entry?.payload?.before_checksum_format_valid, duration_ms: entry?.payload?.duration_ms, status: entry?.status, error: entry?.error_code })); if (entry?.event_name === "materializer.request_completed") console.log(`[materialization] ${entry?.status ?? "completed"}`, JSON.stringify({ valid: entry?.payload?.valid_patches ?? [], invalid: entry?.payload?.invalid_patches ?? [], invalid_count: Array.isArray(entry?.payload?.invalid_patches) ? entry.payload.invalid_patches.length : 0 })); },
+const supervisorRuntime = createProductionSupervisorRuntime({ projectRoot: config.cwd, fileService, root: ".forge/runtime", eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, agentRoleResolver, codeSearch, relevantTreeSelector, logger: runtimeLogger, projectLogger: runtimeLogger.emit,
   conversationStateStore, protocolStorage, codeSearch, testService, gitService, reportService, enableReadCode: true, autoStartWorkers: false,
-  roundControllerFactory: (runtime, stores) => createSupervisorRoundController({
-    conversationStateStore: stores.conversationStateStore, protocolStorage: stores.protocolStorage, fileService: stores.fileService, toolRegistry: stores.toolRegistry, conversationId: `CONV-BUILDER-PROJECT-NODEFORGE-${runtime.taskId}`,
-    projectLogger: (entry) => { try { logEvent({ timestamp: new Date().toISOString(), ...entry }); } catch (error) { console.error("Project log failed", error); } console.log(`[round] ${entry?.event_name ?? "event"}`, JSON.stringify({ task_id: entry?.task_id, request_id: entry?.payload?.request_id, round: entry?.payload?.round, type: entry?.payload?.type, status: entry?.status, error_code: entry?.payload?.error_code ?? entry?.error_code })); },
-    contextProvider: async ({ response } = {}) => buildFileContext(response, { summary: true }),
-    fullContextProvider: async ({ response } = {}) => buildFileContext(response, { summary: false, plan: response?.plan ?? response?.payload?.plan }),
-    persistPlan: async () => ({ persisted: true }),
+  attemptBuilderFactory: (runtime, stores) => createAttemptContextBuilder({
+    protocolStorage: stores.protocolStorage, toolRegistry: stores.toolRegistry,
+    memoryRetriever, relevantTreeSelector,
+    projectLogger: runtimeLogger.emit,
     executionContextProvider: stores.executionContextProvider
   }),
   preparation: {
@@ -76,6 +79,11 @@ const supervisorRuntime = createProductionSupervisorRuntime({ projectRoot: confi
     resolveCodeIndex: async () => `IDX-${indexDb.all("SELECT version FROM index_metadata LIMIT 1")[0]?.version ?? 0}`,
     persist: async () => ({ persisted: true })
   }
+});
+const terminalBridge = createTerminalBridge({
+  eventBus: supervisorRuntime.eventBus, ticketStatusStore, roadmaps, projectId,
+  taskSummaries, projectMemory,
+  logger: runtimeLogger.emit
 });
 await supervisorRuntime.recover();
 await supervisorRuntime.startWorkers();
@@ -102,21 +110,39 @@ function isFrontendTicket(ticket = {}) { return /\bfrontend\b|\breact\b|\bnext(?
 
 const dispatchTask = async ({ ticket, message, required_role } = {}) => supervisorRuntime.integration.submitTicket({ ticket, task_id: ticket.id, project_id: ticket.project_id, request_id: message?.id, correlation_id: message?.correlation_id, required_role: required_role ?? ticket.required_role ?? "coder", payload: { text: `Ticket ${ticket.id}: ${ticket.title ?? ""}\nObjective: ${ticket.objective ?? ""}\nAcceptance: ${(ticket.acceptance_criteria ?? []).join("; ")}`, task: { id: ticket.id, title: ticket.title, objective: ticket.objective, dependencies: ticket.dependencies ?? [], acceptance_criteria: ticket.acceptance_criteria ?? [] }, ticket } });
 
+// Sprint execution runs one level at a time, gating each ticket on its
+// predecessors' terminal ticket status via the execution event bus.
+const sprintDagRunner = createSprintDagRunner({ ticketStatusStore, eventBus: supervisorRuntime.eventBus, dispatchTask, logEvent });
+
 const runningSprints = new Set();
 
 const dispatchTicket = async ({ projectId, ticketId, conversationId } = {}) => {
   const ticket = roadmaps.getCurrent()?.sprints?.flatMap((sprint) => sprint.tickets ?? []).find((item) => item.id === ticketId && item.project_id === projectId);
   if (!ticket) { const error = new Error(`Ticket not found: ${ticketId}`); error.statusCode = 404; throw error; }
-  const runtimeStatus = ticketStatusStore.get(ticketId);
-  const ownerState = supervisorRuntime.supervisorManager.getByTask(ticketId)?.getState?.();
-  const terminalOwner = ["FAILED", "COMPLETED", "NEEDS_HUMAN_REVIEW"].includes(ownerState);
-  if (["planned", "failed", "needs_human_review"].includes(ticket.status) || ["failed", "needs_human_review"].includes(runtimeStatus?.status) || terminalOwner) {
-    await protocolStorage.clearTask(ticketId);
-    await conversationStateStore.clear(`CONV-BUILDER-PROJECT-NODEFORGE-${ticketId}`);
-  }
+  // An explicit RUN is always a fresh attempt: clear prior protocol records
+  // (request/response/report/final_report) and conversation state first, so a
+  // stale final_report from an earlier attempt cannot cause STORAGE_CONFLICT
+  // or get silently reused regardless of the ticket's current status.
+  await protocolStorage.clearTask(ticketId);
+  await conversationStateStore.clear(`CONV-BUILDER-PROJECT-NODEFORGE-${ticketId}`);
   const correlationId = `CORR-UI-RUN-${ticketId}-${Date.now()}`;
   const result = await dispatchTask({ ticket, message: { id: `REQ-${ticketId}-${Date.now()}`, correlation_id: correlationId } });
   return { ticket_id: ticketId, supervisor_id: result.supervisor_id, status: result.status === "already_running" ? "already_running" : "accepted", pipeline: "supervisor" };
+};
+// Dedicated Codex Forge tool-lab entry point. Runs the fixed six-tool MCP
+// sequence (search_code -> read_file -> write_diff -> run_test -> commit_changes
+// -> report_done) through the same production Codex SDK + MCP pipeline as a
+// real ticket, using a synthetic ticket and payload.tool_test to select lab
+// mode inside runCodexTask. This is separate from POST /tickets/:id:run so a
+// lab run never clears or reuses a real ticket's protocol/conversation state.
+const runToolLab = async ({ projectId: requestedProjectId, targetPath, allowedPrefixes, approvalPolicy, taskId } = {}) => {
+  const labTaskId = taskId ?? `CODEX-TOOL-LAB-${Date.now()}`;
+  const ticket = { id: labTaskId, project_id: requestedProjectId ?? projectId, title: "Codex Forge Tool Lab", objective: "Run the fixed six-tool Forge MCP integration test.", acceptance_criteria: ["Complete search_code -> read_file -> write_diff -> run_test -> commit_changes -> report_done."], required_role: "coder" };
+  const result = await supervisorRuntime.integration.submitTicket({
+    ticket, task_id: labTaskId, project_id: ticket.project_id, request_id: `REQ-${labTaskId}`, correlation_id: `CORR-TOOL-LAB-${labTaskId}`, required_role: "coder",
+    payload: { tool_test: { target_path: targetPath ?? "backend/tool-lab-target.txt", allowed_prefixes: allowedPrefixes ?? ["backend/"], ...(approvalPolicy ? { approval_policy: approvalPolicy } : {}) }, ticket, task: ticket }
+  });
+  return { task_id: labTaskId, supervisor_id: result.supervisor_id, status: result.status === "already_running" ? "already_running" : "accepted", pipeline: "supervisor-tool-lab" };
 };
 const dispatchSprint = async ({ projectId: requestedProjectId, sprintId } = {}) => {
   const sprint = sprintPlans.getSprintById(sprintId);
@@ -124,19 +150,21 @@ const dispatchSprint = async ({ projectId: requestedProjectId, sprintId } = {}) 
   if (runningSprints.has(sprintId)) { const error = new Error(`Sprint is already running: ${sprintId}`); error.statusCode = 409; throw error; }
   const tickets = sprint.tickets ?? [];
   if (!tickets.length) { const error = new Error(`Sprint has no tickets: ${sprintId}`); error.statusCode = 400; throw error; }
+  const levels = topologicalTicketLevels(tickets);
   runningSprints.add(sprintId);
-  try {
-    const results = await Promise.all(tickets.map((ticket) => dispatchTask({ ticket: { ...ticket, project_id: ticket.project_id ?? requestedProjectId }, message: { id: `REQ-${ticket.id}-${Date.now()}`, correlation_id: `CORR-UI-RUN-${sprintId}-${ticket.id}-${Date.now()}` } })));
-    return { sprint_id: sprintId, status: results.every((result) => result.status === "already_running") ? "already_running" : "accepted", pipeline: "supervisor", tickets: results };
-  } finally { runningSprints.delete(sprintId); }
+  const execution = sprintDagRunner.runSprintLevels({ projectId: requestedProjectId, sprintId, levels });
+  execution.catch((error) => logEvent({ event_name: "sprint.execution_failed", level: "error", status: "failed", message: "Sprint DAG execution failed.", project_id: requestedProjectId, source: "sprint-execution", payload: { sprint_id: sprintId, error_code: error.code ?? "SPRINT_EXECUTION_FAILED", error: error.message } })).finally(() => runningSprints.delete(sprintId));
+  return { sprint_id: sprintId, status: "accepted", pipeline: "supervisor", execution: "sprint-execution", levels: levels.map((level) => level.map((ticket) => ticket.id)) };
 };
+
 
 const publishUnifiedStreamEvent = createUnifiedStreamPublisher({ unifiedStreamOrder, internalBus, bus, projectId, logEvent });
 
 const api = createControlApiHttp({ services: {
-  runtimeService, bus, communications, eventStore, subscriptions, knowledge, roadmaps, sprintPlans, provenance,
-  relevantTreeSelector, decisions, agentSettings, sprintPlanUpload, sprintOrchestration, dispatchTicket, internalBus,
+  runtimeService, bus, communications, eventStore, indexDb: platformIndexDb, subscriptions, knowledge, roadmaps, sprintPlans, provenance,
+  relevantTreeSelector, decisions, agentSettings, sprintPlanUpload, sprintOrchestration, dispatchTicket, runToolLab, internalBus,
   ticketCommandParser, proseTicketService, buildBuilderContext, protocolStorage, agentGateway, publishUnifiedStreamEvent,
+  ticketCrudService: createTicketCrudService({ roadmaps, proseTicketService, publisher: eventPublisher, agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId }), agentRoleResolver }),
   dispatchTask, dispatchSprint, logEvent, projectId,
   architectureWorkspaceService: createArchitectureWorkspaceService({ knowledge, roadmaps, sprintPlans }),
   projectDashboardService: createProjectDashboardService({ roadmaps, sprintPlans, provenance, relevantTreeSelector, logReader: ({ ticket_id }) => readLogEvents({ project_id: projectId, ticket_id }) }),
@@ -144,4 +172,4 @@ const api = createControlApiHttp({ services: {
   humanDecisionService: createHumanDecisionService({ decisions, bus })
 } });
 
-startControlApi({ api, port, host, indexDb, controlDb, processLock, workers: [supervisorRuntime.senderWorker, supervisorRuntime.materializerWorkerLoop, supervisorRuntime.verificationWorkerLoop].filter(Boolean) });
+startControlApi({ api, port, host, indexDb, controlDb, processLock, workers: [supervisorRuntime.senderWorker, supervisorRuntime.collectorWorkerLoop, supervisorRuntime.verificationWorkerLoop].filter(Boolean) });

@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
+import { assertDiscoveryBudget, cloneExplorationState, createExplorationState, markEditStarted } from "../../tools/exploration-state.js";
 
 const TERMINAL_LIFECYCLES = new Set(["COMPLETED", "CANCELLED", "EXPIRED", "FAILED", "NEEDS_HUMAN_REVIEW"]);
 const DEFAULT_MAX_BYTES = 200000;
 const DEFAULT_MAX_CALLS = 20;
+const DISCOVERY_TOOLS = new Set(["select_code_graph_candidates", "search_code", "read_file", "read_code"]);
+const EDIT_TOOLS = new Set(["write_diff", "edit_diff"]);
 
 // Runtime-owned authorization and retrieval accounting. The optional database
 // adapter makes budget/audit state survive process restarts; memory is useful for
@@ -40,16 +43,22 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     const persisted = loadPersistedBudget(taskId, executionId);
     const budgetInput = persisted ?? input.retrieval_budget ?? input.context_budget ?? {};
     const budget = normalizeBudget(budgetInput);
+    const explorationState = input.exploration_state ?? createExplorationState();
+    if (Number.isInteger(input.discovery_budget) && input.discovery_budget > 0) explorationState.discovery_limit = input.discovery_budget;
     const context = {
       task_id: taskId,
       execution_id: executionId,
       execution_scope: normalizeScope(scope, taskId, executionId),
       agent_identity: input.agent_identity,
+      // Mutated in place by write_diff/edit_diff (recordChangedPath) so
+      // commit_changes can commit the files this execution actually wrote.
+      changed_paths: Array.isArray(input.changed_paths) ? [...input.changed_paths] : [],
       capabilities,
       allowed_resources: input.allowed_resources ?? { allowed_file_paths: input.allowed_file_paths ?? [], allowed_prefixes: input.allowed_prefixes ?? [] },
       context_budget: budget,
       retrieval_budget: budget,
       lifecycle: input.lifecycle ?? "RUNNING",
+      exploration_state: explorationState,
       audit_context: input.audit_context ?? {}
     };
     contexts.set(key, context);
@@ -77,7 +86,11 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     const bytes = nonNegativeInteger(estimatedBytes, "estimatedBytes");
     return withLock(normalized, async () => {
       const budget = loadBudget(normalized);
-      if (budget.used_calls + budget.reserved_calls >= budget.max_calls || budget.used_bytes + budget.reserved_bytes + bytes > budget.max_bytes) {
+      // Call accounting is per tool kind, not per invocation: the budget guards
+      // against unbounded context growth (bytes), so a repeated read of the
+      // same file does not consume a distinct call slot. distinct_calls() adds
+      // this tool's name before reserving; commitRetrieval counts identically.
+      if (budget.used_bytes + budget.reserved_bytes + bytes > budget.max_bytes || distinctCalls(budget, tool) > budget.max_calls) {
         throw governanceError("CONTEXT_BUDGET_EXCEEDED", `${tool} retrieval exceeds the current Context Budget.`);
       }
       budget.reserved_calls += 1;
@@ -89,6 +102,12 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     });
   }
 
+  function distinctCalls(budget, nextTool) {
+    const names = new Set(budget.used_tool_calls ?? []);
+    if (nextTool) names.add(nextTool);
+    return names.size;
+  }
+
   async function commitRetrieval(context, reservation, { bytes = reservation?.estimated_bytes ?? 0, success = true, error } = {}) {
     const normalized = resolveContext(context);
     const actualBytes = nonNegativeInteger(bytes, "bytes");
@@ -98,9 +117,12 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
       if (budget.used_bytes + budget.reserved_bytes - (reservation.estimated_bytes ?? 0) + actualBytes > budget.max_bytes) throw governanceError("CONTEXT_BUDGET_EXCEEDED", "Actual retrieval result exceeds the current Context Budget.");
       budget.reserved_calls = Math.max(0, budget.reserved_calls - 1);
       budget.reserved_bytes = Math.max(0, budget.reserved_bytes - (reservation?.estimated_bytes ?? 0));
-      if (budget.used_calls + 1 > budget.max_calls || budget.used_bytes + actualBytes > budget.max_bytes) throw governanceError("CONTEXT_BUDGET_EXCEEDED", "Actual retrieval result exceeds the current Context Budget.");
+      if (budget.used_bytes + actualBytes > budget.max_bytes) throw governanceError("CONTEXT_BUDGET_EXCEEDED", "Actual retrieval result exceeds the current Context Budget.");
       budget.used_calls += 1;
       budget.used_bytes += actualBytes;
+      const usedKinds = new Set(budget.used_tool_calls ?? []);
+      if (typeof reservation?.tool === "string") usedKinds.add(reservation.tool);
+      budget.used_tool_calls = [...usedKinds];
       persistBudgetValues(normalized, budget);
       reservations.delete(reservation.reservation_id);
       await audit({ ...normalized, tool: reservation?.tool, resource: reservation?.resource, bytes: actualBytes, success, error, reservation_id: reservation?.reservation_id });
@@ -135,19 +157,22 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     const normalized = resolveContext(context);
     const resource = input?.path ?? input?.resource ?? input?.file_paths;
     authorize(toolName, normalized, resource);
+    // commit_changes and report_done are the run's exit path. Charging them
+    // against the budget lets an exhausted budget block the run from ever
+    // committing or reporting (observed as AGENT_REPORT_MISSING), so they are
+    // exempt from both call and byte accounting. Their results are small.
+    if (toolName === "commit_changes" || toolName === "report_done") {
+      const toolContext = buildToolContext(context, normalized);
+      return execute(input, toolContext);
+    }
     const reservation = await reserveRetrieval(normalized, { tool: toolName, resource, estimatedBytes: input?.max_chars ?? input?.maxChars ?? 0 });
     try {
-      const toolContext = {
-        ...context,
-        ...normalized,
-        allowed_file_paths: normalized.allowed_resources?.allowed_file_paths ?? [],
-        allowed_prefixes: normalized.allowed_resources?.allowed_prefixes ?? []
-      };
-      delete toolContext.context_budget;
-      delete toolContext.retrieval_budget;
-      delete toolContext.consume_retrieval;
-      delete toolContext.consumeRetrieval;
+      // Phase gate: discovery tools count against the exploration budget; the
+      // gate opens permanently after the first edit lands.
+      if (DISCOVERY_TOOLS.has(toolName)) assertDiscoveryBudget(normalized);
+      const toolContext = buildToolContext(context, normalized);
       const result = await execute(input, toolContext);
+      if (EDIT_TOOLS.has(toolName)) markEditStarted(normalized);
       const bytes = Buffer.byteLength(JSON.stringify(result ?? ""), "utf8");
       await commitRetrieval(normalized, reservation, { bytes, success: true });
       return result;
@@ -155,6 +180,28 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
       await releaseRetrieval(normalized, reservation, { error });
       throw error;
     }
+  }
+
+  function buildToolContext(context, normalized) {
+    const toolContext = {
+      ...context,
+      ...normalized,
+      allowed_file_paths: normalized.allowed_resources?.allowed_file_paths ?? [],
+      allowed_prefixes: normalized.allowed_resources?.allowed_prefixes ?? []
+    };
+    delete toolContext.context_budget;
+    delete toolContext.retrieval_budget;
+    delete toolContext.consume_retrieval;
+    delete toolContext.consumeRetrieval;
+    // normalized.changed_paths is a clone; point the tool context at the
+    // live stored context array so write_diff/edit_diff can append to it and
+    // commit_changes reads the accumulated set in the same execution.
+    toolContext.changed_paths = normalized.changed_paths;
+    // Same live-reference pattern for exploration state: search_code/read_file
+    // mutate it and write_diff/edit_diff reset its streak across calls in one
+    // execution.
+    toolContext.exploration_state = normalized.exploration_state;
+    return toolContext;
   }
 
   function getBudget(contextOrIds = {}) {
@@ -172,7 +219,7 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
       if (context.execution_scope?.execution_id && context.execution_scope.execution_id !== executionId) throw governanceError("TOOL_SCOPE_INVALID", "execution_scope.execution_id does not match execution_id.");
       if (context.agent_identity && JSON.stringify(context.agent_identity) !== JSON.stringify(known.agent_identity)) throw governanceError("TOOL_IDENTITY_INVALID", "Tool caller does not match the execution identity.");
       if (context.lifecycle !== undefined) known.lifecycle = context.lifecycle;
-      return known;
+      return { ...known, changed_paths: known.changed_paths };
     }
     if (!context.agent_identity) throw governanceError("TOOL_IDENTITY_INVALID", "Unknown execution requires agent_identity.");
     const created = createExecutionContext(context);
@@ -230,10 +277,11 @@ function normalizeBudget(value = {}) {
   for (const [name, number] of [["max_bytes", maxBytes], ["max_calls", maxCalls]]) if (!Number.isInteger(number) || number < 0) throw governanceError("CONTEXT_BUDGET_INVALID", `${name} must be a non-negative integer.`);
   const usedBytes = value.used_bytes ?? 0; const usedCalls = value.used_calls ?? 0; const reservedBytes = value.reserved_bytes ?? 0; const reservedCalls = value.reserved_calls ?? 0;
   for (const [name, number] of [["used_bytes", usedBytes], ["used_calls", usedCalls], ["reserved_bytes", reservedBytes], ["reserved_calls", reservedCalls]]) if (!Number.isInteger(number) || number < 0) throw governanceError("CONTEXT_BUDGET_INVALID", `${name} must be a non-negative integer.`);
-  return { max_bytes: maxBytes, max_calls: maxCalls, used_bytes: usedBytes, used_calls: usedCalls, reserved_bytes: reservedBytes, reserved_calls: reservedCalls };
+  const usedToolKinds = Array.isArray(value.used_tool_calls) ? value.used_tool_calls.filter((kind) => typeof kind === "string") : [];
+  return { max_bytes: maxBytes, max_calls: maxCalls, used_bytes: usedBytes, used_calls: usedCalls, reserved_bytes: reservedBytes, reserved_calls: reservedCalls, used_tool_calls: usedToolKinds };
 }
 function cloneBudget(value) { return { ...value }; }
-function cloneContext(value) { return { ...value, context_budget: cloneBudget(value.context_budget), retrieval_budget: cloneBudget(value.retrieval_budget), capabilities: [...value.capabilities] }; }
+function cloneContext(value) { return { ...value, context_budget: cloneBudget(value.context_budget), retrieval_budget: cloneBudget(value.retrieval_budget), capabilities: [...value.capabilities], changed_paths: [...(value.changed_paths ?? [])], exploration_state: cloneExplorationState(value.exploration_state) }; }
 function normalizeScope(scope, taskId, executionId) { const result = { ...(scope ?? {}) }; if (result.task_id !== undefined && result.task_id !== taskId) throw governanceError("TOOL_SCOPE_INVALID", "execution_scope.task_id does not match task_id."); if (result.execution_id !== undefined && result.execution_id !== executionId) throw governanceError("TOOL_SCOPE_INVALID", "execution_scope.execution_id does not match execution_id."); result.task_id = taskId; result.execution_id = executionId; return result; }
 function resourceList(resource) { return resource === undefined ? [] : Array.isArray(resource) ? resource : [resource]; }
 function resourceAllowed(resource, allowed = {}) { if (typeof resource !== "string" || !resource) return false; const paths = allowed.allowed_file_paths ?? allowed.file_paths ?? allowed.paths ?? []; const prefixes = allowed.allowed_prefixes ?? allowed.prefixes ?? []; if (!paths.length && !prefixes.length) return false; return paths.includes(resource) || prefixes.some((prefix) => resource === prefix || resource.startsWith(`${prefix.replace(/\/$/, "")}/`)); }

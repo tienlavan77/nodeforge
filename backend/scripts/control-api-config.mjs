@@ -11,6 +11,10 @@ export function readControlApiConfig({ cwd = process.cwd(), env = process.env } 
     dataDir,
     projectId: env.NODE_CONTROL_PROJECT_ID ?? "PROJECT-NODEFORGE",
     protocolStorageRoot: env.FORGE_PROTOCOL_STORAGE_ROOT ?? ".forge/runtime/protocol-storage",
-    agentTimeoutMs: Number(env.NODE_AGENT_TIMEOUT_MS ?? 120000)
+    agentTimeoutMs: Number(env.NODE_AGENT_TIMEOUT_MS ?? 300000),
+    // Agentic SDK sessions (Claude/Codex tool loops) run many turns against a
+    // third-party gateway and can legitimately exceed the single-request agent
+    // timeout; give them a dedicated, longer wall-clock budget.
+    sdkTimeoutMs: Number(env.NODE_SDK_AGENT_TIMEOUT_MS ?? 600000)
   });
 }

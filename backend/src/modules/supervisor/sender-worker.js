@@ -1,18 +1,7 @@
 import { ConfigurationError } from "../../shared/errors.js";
 import { persistAgentResponse } from "../agent/response-persistence.js";
-import { stage1AgentTools } from "../workflows/stage1-agent-tools.js";
-import { readTranscriptBlocksDefinition, selectCodeGraphCandidatesDefinition, searchCodeDefinition, readCodeDefinition, readFileDefinition, writeDiffDefinition, runTestDefinition, checkTestDefinition, commitChangesDefinition, reportDoneDefinition } from "../../tools/index.js";
+import { readTranscriptBlocksDefinition, selectCodeGraphCandidatesDefinition, searchCodeDefinition, readCodeDefinition, readFileDefinition, writeDiffDefinition, editDiffDefinition, runTestDefinition, checkTestDefinition, commitChangesDefinition, reportDoneDefinition } from "../../tools/index.js";
 
-const RESPONSE_FUNCTION_TOOLS = new Set([
-  "code_needed",
-  "planning",
-  "submit_code_response",
-  "patch_repair_response",
-  "usage_needed",
-  "no_wiring_needed",
-  "completed",
-  "continue"
-]);
 export function createSenderWorker({ queue, agentRegistry, agentResolver, eventBus, processedStore, protocolStorage, conversationStateStore, conversationIdResolver = (job) => `CONV-BUILDER-${job.task_id}`, workerId = "sender-1", statusBus, signalBus, projectLogger = () => {}, toolRegistry, runtimeGovernance } = {}) {
   if (typeof queue?.claim !== "function" || typeof agentRegistry?.resolve !== "function" || typeof eventBus?.publish !== "function") throw new ConfigurationError("Sender Worker requires queue, agent registry and event bus.");
   const defaultAgentId = () => agentResolver?.resolve?.("coder") ?? "builder";
@@ -25,7 +14,7 @@ export function createSenderWorker({ queue, agentRegistry, agentResolver, eventB
     const job = await queue.claim(workerId); if (!job) return null;
     const stored = await processedStore?.get?.(job.request_id);
     if (stored || processed.has(job.request_id)) { const result = stored ?? processed.get(job.request_id); await queue.ack(job.id); return result; }
-    try { const agentId = job.agent_id ?? defaultAgentId(); projectLogger({ event_name: "sender.request_started", level: "info", status: "info", message: "Sender Worker started agent request.", task_id: job.task_id, correlation_id: job.correlation_id, source: "sender-worker", payload: { request_id: job.request_id, worker_id: workerId, agent_id: agentId } }); const { adapter } = agentRegistry.resolve(agentId); const response = await runAgentTurns(adapter, { ...job, agent_id: agentId }); const event = identityEvent(job, "agent.response.received", { response }); await persistResponse(job, response); projectLogger({ event_name: "sender.response_persisted", level: "info", status: "success", message: "Sender Worker persisted agent response before publishing.", task_id: job.task_id, correlation_id: job.correlation_id, source: "sender-worker", payload: { request_id: job.request_id, worker_id: workerId } }); processed.set(job.request_id, event); await processedStore?.save?.(job.request_id, event); await eventBus.publish(event); projectLogger({ event_name: "sender.response_received", level: "info", status: "success", message: "Sender Worker published agent response.", task_id: job.task_id, correlation_id: job.correlation_id, source: "sender-worker", payload: { request_id: job.request_id, worker_id: workerId } }); await queue.ack(job.id); return event; }
+    try { const agentId = job.agent_id ?? defaultAgentId(); projectLogger({ event_name: "sender.request_started", level: "info", status: "info", message: "Sender Worker started agent request.", task_id: job.task_id, correlation_id: job.correlation_id, source: "sender-worker", payload: { request_id: job.request_id, worker_id: workerId, agent_id: agentId } }); const { adapter, config } = agentRegistry.resolve(agentId); const response = await runAgentTurns(adapter, config, { ...job, agent_id: agentId }); const event = identityEvent(job, "agent.response.received", { response }); await persistResponse(job, response); projectLogger({ event_name: "sender.response_persisted", level: "info", status: "success", message: "Sender Worker persisted agent response before publishing.", task_id: job.task_id, correlation_id: job.correlation_id, source: "sender-worker", payload: { request_id: job.request_id, worker_id: workerId } }); processed.set(job.request_id, event); await processedStore?.save?.(job.request_id, event); await eventBus.publish(event); projectLogger({ event_name: "sender.response_received", level: "info", status: "success", message: "Sender Worker published agent response.", task_id: job.task_id, correlation_id: job.correlation_id, source: "sender-worker", payload: { request_id: job.request_id, worker_id: workerId } }); await queue.ack(job.id); return event; }
     catch (error) {
       if (error?.rawResponse !== undefined && protocolStorage) {
         const round = Number(job.payload?.step_id ?? 1);
@@ -37,16 +26,6 @@ export function createSenderWorker({ queue, agentRegistry, agentResolver, eventB
   }
   function toolsForRequest(job) {
     const payload = job.payload ?? {};
-    const type = payload.type ?? job.type;
-    const expected = payload.expected_output?.type;
-    const name = expected === "submit_code_response" || type === "code_provide"
-      ? "submit_code_response"
-      : expected === "planning" || type === "planning"
-        ? "planning"
-        : "code_needed";
-    const responseTool = (type === "code_provide" || expected === "submit_code_response")
-      ? stage1AgentTools.filter((tool) => tool.name === "submit_code_response")
-      : stage1AgentTools.filter((tool) => tool.name === name);
     // Capabilities advertised in execution_context only authorize Forge tools;
     // the provider still needs their function definitions to call them.
     const capabilities = new Set(payload.execution_context?.capabilities ?? []);
@@ -57,25 +36,23 @@ export function createSenderWorker({ queue, agentRegistry, agentResolver, eventB
       [capabilities.has("read_code"), readCodeDefinition],
       [capabilities.has("read_file"), readFileDefinition],
       [capabilities.has("write_diff"), writeDiffDefinition],
+      [capabilities.has("edit_diff"), editDiffDefinition],
       [capabilities.has("run_test"), runTestDefinition],
       [capabilities.has("check_test"), checkTestDefinition],
       [capabilities.has("commit_changes"), commitChangesDefinition],
       [capabilities.has("report_done"), reportDoneDefinition]
     ].filter(([enabled]) => enabled).map(([, definition]) => definition);
-    return [...responseTool, ...retrievalTools];
+    return retrievalTools;
   }
 
-  async function runAgentTurns(adapter, job) {
+  async function runAgentTurns(adapter, adapterConfig, job) {
     let payload = job.payload;
     const maxTurns = Number(payload?.tool_context?.max_turns ?? payload?.max_tool_turns ?? 8);
     for (let turn = 0; turn < maxTurns; turn += 1) {
-      const response = await adapter.send({ agentId: job.agent_id ?? defaultAgentId(), payload, correlationId: job.correlation_id, tools: job.tools ?? toolsForRequest(job) });
+      const response = await adapter.send({ agentId: job.agent_id ?? defaultAgentId(), payload: await withChainedResponseId(adapterConfig, job, payload), correlationId: job.correlation_id, tools: job.tools ?? toolsForRequest(job) });
       await persistResponse(job, response);
       const calls = extractToolCalls(response);
-      // Response function tools (code_needed, planning, submit_code_response, ...)
-      // are the Agent's answer, not context requests: return them to the
-      // Supervisor instead of treating them as Forge retrieval tools.
-      if (!calls.length || calls.every((call) => RESPONSE_FUNCTION_TOOLS.has(call.name))) return response;
+      if (!calls.length) return response;
       const results = [];
       for (const call of calls) {
         const tool = toolRegistry?.[call.name];
@@ -106,6 +83,22 @@ export function createSenderWorker({ queue, agentRegistry, agentResolver, eventB
     throw Object.assign(new ConfigurationError("Agent exceeded the maximum tool turns."), { code: "TOOL_TURN_LIMIT" });
   }
 
+  // previous_response_id probe: opt-in per profile (use_previous_response_id).
+  // Chaining sends store:true + previous_response_id alongside the full input;
+  // if the gateway strips those fields the provider still sees the full input,
+  // so the request cannot fail from the probe. First turn has no stored id and
+  // sends the "store_only" sentinel to prime the server-side store.
+  function withChainedResponseId(adapterConfig, job, payload) {
+    if (adapterConfig?.use_previous_response_id !== true) return payload;
+    if (!["codex", "openai"].includes(adapterConfig.provider ?? "codex")) return payload;
+    const conversationId = conversationIdResolver(job);
+    return conversationStateStore?.get
+      ? conversationStateStore.get(conversationId)
+          .then((state) => ({ ...payload, previous_response_id: state?.last_provider_response_id ?? "store_only" }))
+          .catch(() => payload)
+      : Promise.resolve(payload);
+  }
+
   function appendToolExchange(payload, response, results) {
     const provider = payload.provider ?? payload.provider_name ?? payload.agent_provider ?? "openai";
     const providerFamily = provider === "devquote" || provider === "claude" || provider === "anthropic" ? "anthropic" : provider;
@@ -133,6 +126,10 @@ export function createSenderWorker({ queue, agentRegistry, agentResolver, eventB
   async function persistResponse(job, response) {
     const round = Number(job.payload?.step_id ?? (job.payload?.type === "planning" ? 2 : job.payload?.type === "code_provide" ? 3 : 1));
     await persistAgentResponse({ protocolStorage, taskId: job.task_id, round, response });
+    const usage = response?.usage ?? response?.payload?.usage;
+    if (usage && (usage.cache_read_input_tokens != null || usage.cache_creation_input_tokens != null || usage.cached_tokens != null)) {
+      projectLogger({ event_name: "agent.loop.usage", level: "debug", status: "success", message: "Agent attempt cache usage.", task_id: job.task_id, correlation_id: job.correlation_id, source: "sender-worker", payload: { request_id: job.request_id, worker_id: workerId, attempt: job.attempt ?? 1, ...usage } });
+    }
     if (conversationStateStore?.update) {
       const providerResponseId = response?.provider_metadata?.response_id ?? response?.response_id ?? response?.payload?.response_id ?? null;
       await conversationStateStore.update(conversationIdResolver(job), { last_provider_response_id: providerResponseId, last_provider_status: response?.status ?? "completed" }).catch(() => {});

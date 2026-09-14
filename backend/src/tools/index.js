@@ -6,7 +6,7 @@ import { authorizeTool } from "./tool-authorization.js";
 import { createSelectCodeGraphCandidatesTool } from "./select-code-graph-candidates.js";
 import { createSearchCodeTool } from "./search-code.js";
 import { createReadCodeTool } from "./read-code.js";
-import { createCheckTestTool, createReadFileTool, createWriteDiffTool, createRunTestTool, createCommitChangesTool, createReportDoneTool } from "./agent-lifecycle-tools.js";
+import { createCheckTestTool, createReadFileTool, createWriteDiffTool, createEditDiffTool, createRunTestTool, createCommitChangesTool, createReportDoneTool } from "./agent-lifecycle-tools.js";
 
 const require = createRequire(import.meta.url);
 const readTranscriptInputSchema = require("../../../schemas/agent/tools/read-transcript-blocks.schema.json");
@@ -15,6 +15,7 @@ const searchCodeInputSchema = require("../../../schemas/agent/tools/search-code.
 const readCodeInputSchema = require("../../../schemas/agent/tools/read-code.schema.json");
 const readFileInputSchema = require("../../../schemas/agent/tools/read-file.schema.json");
 const writeDiffInputSchema = require("../../../schemas/agent/tools/write-diff.schema.json");
+const editDiffInputSchema = require("../../../schemas/agent/tools/edit-diff.schema.json");
 const runTestInputSchema = require("../../../schemas/agent/tools/run-test.schema.json");
 const checkTestInputSchema = require("../../../schemas/agent/tools/check-test.schema.json");
 const commitChangesInputSchema = require("../../../schemas/agent/tools/commit-changes.schema.json");
@@ -27,10 +28,11 @@ export const readTranscriptBlocksDefinition = Object.freeze({
 });
 
 export const selectCodeGraphCandidatesDefinition = Object.freeze({ name: "select_code_graph_candidates", description: "Ask Node to find up to four files related to an Agent-provided search intent.", input_schema: selectGraphInputSchema });
-export const searchCodeDefinition = Object.freeze({ name: "search_code", description: "Search Forge Code Search by file or symbol and return scoped metadata only.", input_schema: searchCodeInputSchema });
+export const searchCodeDefinition = Object.freeze({ name: "search_code", description: "Search Forge Code Search by file, symbol, or content (kind=\"content\" returns text snippets from FTS with matching lines) and return scoped metadata.", input_schema: searchCodeInputSchema });
 export const readCodeDefinition = Object.freeze({ name: "read_code", description: "Read exactly one Node-approved file or symbol through Forge File Service.", input_schema: readCodeInputSchema });
 export const readFileDefinition = Object.freeze({ name: "read_file", description: "Read one approved file through Node File Service and return its checksum.", input_schema: readFileInputSchema });
-export const writeDiffDefinition = Object.freeze({ name: "write_diff", description: "Write a complete file through Node File Service after checksum validation.", input_schema: writeDiffInputSchema });
+export const writeDiffDefinition = Object.freeze({ name: "write_diff", description: "Write a complete file through Node File Service after checksum validation. Content is capped at 8 KB; for larger or localized changes use edit_diff.", input_schema: writeDiffInputSchema });
+export const editDiffDefinition = Object.freeze({ name: "edit_diff", description: "Replace an exact anchor string in one approved file after checksum validation. Use read_file {offset,limit} to find the anchor; anchor must be unique unless occurrence=\"all\".", input_schema: editDiffInputSchema });
 export const runTestDefinition = Object.freeze({ name: "run_test", description: "Start the Node-owned test suite and return a job_id immediately; poll check_test with that job_id for the result.", input_schema: runTestInputSchema });
 export const checkTestDefinition = Object.freeze({ name: "check_test", description: "Poll a started test job by job_id until it reports passed or failed.", input_schema: checkTestInputSchema });
 export const commitChangesDefinition = Object.freeze({ name: "commit_changes", description: "Ask Node to commit approved changed paths.", input_schema: commitChangesInputSchema });
@@ -41,8 +43,11 @@ export function createForgeToolRegistry({ protocolStorage, fileService, maxChars
   const graphTool = createSelectCodeGraphCandidatesTool({ relevantTreeSelector });
   const retrievalBudgets = new Map();
   const lifecycle = {};
-  if (fileService?.readForIndex && fileService?.readFile && fileService?.atomicWrite) lifecycle.read_file = wrap(createReadFileTool({ fileService, maxChars }), "read_file");
-  if (fileService?.readFile && fileService?.atomicWrite) lifecycle.write_diff = wrap(createWriteDiffTool({ fileService, maxChars }), "write_diff");
+  if (fileService?.readForIndex && fileService?.readFile && fileService?.atomicWrite) lifecycle.read_file = wrap(createReadFileTool({ fileService, symbolLookup: codeSearch?.symbolsForFile?.bind(codeSearch), maxChars }), "read_file");
+  if (fileService?.readFile && fileService?.atomicWrite) {
+    lifecycle.write_diff = wrap(createWriteDiffTool({ fileService, maxChars }), "write_diff");
+    lifecycle.edit_diff = wrap(createEditDiffTool({ fileService, maxChars }), "edit_diff");
+  }
   if (testService?.startTests) lifecycle.run_test = wrap(createRunTestTool({ testService }), "run_test");
   if (testService?.getTestResult) lifecycle.check_test = wrap(createCheckTestTool({ testService }), "check_test");
   if (gitService?.commit) lifecycle.commit_changes = wrap(createCommitChangesTool({ gitService }), "commit_changes");

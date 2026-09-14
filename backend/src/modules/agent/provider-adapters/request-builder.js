@@ -27,8 +27,8 @@ export function buildAnthropicMessages(payload = {}) {
   for (const block of payload.transcript_blocks ?? []) {
     messages.push({ role: block.role === "assistant" ? "assistant" : "user", content: [{ type: "text", text: transcriptBlockText(block) }] });
   }
-  const userText = joinBlocks(payload.user_blocks);
-  if (userText) messages.push({ role: "user", content: [{ type: "text", text: userText }] });
+  const userContent = userBlocksContent(payload.user_blocks);
+  if (userContent.length) messages.push({ role: "user", content: userContent });
   if (!messages.length && typeof payload.text === "string" && payload.text) return [{ role: "user", content: [{ type: "text", text: payload.text }] }];
   return messages;
 }
@@ -57,8 +57,17 @@ function isAnthropicProvider(provider) {
   return ["anthropic", "claude", "devquote"].includes(provider);
 }
 
-function joinBlocks(blocks = []) {
-  return (blocks ?? []).map((block) => blockText(block)).filter(Boolean).join("\n\n");
+// Anthropic prefix cache matches the longest prefix ending at a cache_control
+// breakpoint. Each cacheable user block keeps its own text entry so stable
+// tiers stay byte-identical and only the boundary carries the marker.
+function userBlocksContent(blocks = []) {
+  const content = [];
+  for (const block of blocks ?? []) {
+    const text = blockText(block);
+    if (!text) continue;
+    content.push({ type: "text", text, ...(block.cacheable ? { cache_control: { type: "ephemeral" } } : {}) });
+  }
+  return content;
 }
 
 function blockText(block = {}) {

@@ -1,8 +1,9 @@
 import { parse } from "@babel/parser";
 
 import { emptyExtraction } from "./contract.js";
+import { createJsxUiWalker } from "./jsx-ui.js";
 
-export function extractJavaScript(source) {
+export function extractJavaScript(source, options = {}) {
   const extraction = emptyExtraction();
   const ast = parse(source, {
     sourceType: "unambiguous",
@@ -10,6 +11,9 @@ export function extractJavaScript(source) {
   });
 
   walk(ast.program, extraction);
+  if (options.jsxUi) {
+    for (const uiSymbol of createJsxUiWalker().collectUiSymbols(ast)) extraction.symbols.push(uiSymbol);
+  }
   return extraction;
 }
 

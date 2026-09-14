@@ -113,6 +113,8 @@ function App() {
   const client = useMemo(() => createNodeClient(), []);
   const [activeAgent, setActiveAgent] = useState("architecture-manager");
   const [drafts, setDrafts] = useState({});
+  const [agentDirectory, setAgentDirectory] = useState([]);
+  const [selectedArchitectureManagerId, setSelectedArchitectureManagerId] = useState("");
   const [workspace, setWorkspace] = useState(null);
   const workspaceRequestRef = useRef(null);
   const [workingByAgent, setWorkingByAgent] = useState(() => Object.fromEntries(AGENTS.map((agent) => [agent.id, "READY"])));
@@ -139,7 +141,29 @@ function App() {
   const streamingIdsRef = useRef(Object.fromEntries(AGENTS.map((a) => [a.id, null])));
   const dispatchTimersRef = useRef({});
   const pendingDispatchRef = useRef({});
+  const architectureManagers = useMemo(() => agentDirectory
+    .filter((agent) => agent?.role === "architecture_manager" && agent?.enabled === true)
+    .map((agent) => ({
+      ...agent,
+      id: agent.agent_id ?? agent.id,
+      label: agent.agent_name ?? agent.name ?? agent.label ?? agent.agent_id ?? agent.id,
+      short: String(agent.agent_name ?? agent.name ?? agent.label ?? "AM").slice(0, 2).toUpperCase(),
+      tone: "violet"
+    }))
+    .filter((agent) => agent.id), [agentDirectory]);
+  const selectedArchitectureManager = architectureManagers.find((agent) => agent.id === selectedArchitectureManagerId) ?? architectureManagers[0] ?? null;
   const active = AGENTS.find((agent) => agent.id === activeAgent);
+  useEffect(() => {
+    if (selectedArchitectureManager?.id !== selectedArchitectureManagerId) setSelectedArchitectureManagerId(selectedArchitectureManager?.id ?? "");
+  }, [selectedArchitectureManager?.id, selectedArchitectureManagerId]);
+  const loadAgents = useCallback(async () => {
+    try {
+      const payload = await client.getAgents();
+      setAgentDirectory(Array.isArray(payload) ? payload : payload?.agents ?? payload?.items ?? []);
+    } catch {
+      setAgentDirectory([]);
+    }
+  }, [client]);
   const loadWorkspace = useCallback(async () => {
     if (workspaceRequestRef.current) return workspaceRequestRef.current;
     const request = (async () => {
@@ -233,6 +257,7 @@ function App() {
   }, [client]);
 
   useEffect(() => { for (const a of AGENTS) loadHistoryPage(a.id, "initial"); }, [loadHistoryPage]);
+  useEffect(() => { loadAgents(); }, [loadAgents]);
 
   useEffect(() => {
     loadWorkspace();
@@ -399,8 +424,17 @@ function App() {
     const intent = detectMessageIntent(text);
     const extractedTicket = intent === MESSAGE_INTENTS.ticketCreate ? normalizeTicketInput(text).ticket : undefined;
     const isDispatch = intent === MESSAGE_INTENTS.ticketDispatch;
-    const targetAgentId = intent === MESSAGE_INTENTS.normalChat ? agentId : "builder";
-    const conversationId = CONVERSATIONS[targetAgentId] ?? ARCHITECTURE_CONVERSATION_ID;
+    const targetAgentId = intent === MESSAGE_INTENTS.normalChat
+      ? (agentId === "architecture-manager" ? selectedArchitectureManager?.id : agentId)
+      : "builder";
+    if (intent === MESSAGE_INTENTS.normalChat && agentId === "architecture-manager" && !selectedArchitectureManager) {
+      setHistoryChat((m) => ({ ...m, [agentId]: [...(m[agentId] ?? []), { id: `ERR-${Date.now()}`, from: "system", text: "No enabled Architecture Manager is available. Select an enabled agent before sending a message.", time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), message_type: "system.invalid_target" }] }));
+      return;
+    }
+    const selectedConversationId = selectedArchitectureManager?.conversation_id ?? selectedArchitectureManager?.conversationId;
+    const conversationId = intent === MESSAGE_INTENTS.normalChat && agentId === "architecture-manager"
+      ? (selectedConversationId ?? CONVERSATIONS[targetAgentId] ?? ARCHITECTURE_CONVERSATION_ID)
+      : (CONVERSATIONS[targetAgentId] ?? ARCHITECTURE_CONVERSATION_ID);
     const messageId = `MSG-OWNER-${Date.now()}-${targetAgentId}`;
     const nowIso = new Date().toISOString();
     const nowDate = new Date(nowIso);
@@ -498,7 +532,7 @@ function App() {
   }
 
 
-  return <NodeForgeShell app={{ AGENTS, active, activeAgent, workingByAgent, drafts, historyChat, historyHasMore, historyLoading, conversationRefs, composerRef, setActiveAgent, setDrafts, historyOpen, setHistoryOpen, settingsAgent, setSettingsAgent, uploadOpen, setUploadOpen, send, handleScroll, dashboard, workspace, client, loadWorkspace, loadDashboard, wasAtBottomRef }} />;
+  return <NodeForgeShell app={{ AGENTS, active, activeAgent, workingByAgent, drafts, historyChat, historyHasMore, historyLoading, conversationRefs, composerRef, setActiveAgent, setDrafts, historyOpen, setHistoryOpen, settingsAgent, setSettingsAgent, uploadOpen, setUploadOpen, send, handleScroll, dashboard, workspace, client, loadWorkspace, loadDashboard, wasAtBottomRef, architectureManagers, selectedArchitectureManagerId, setSelectedArchitectureManagerId }} />;
 }
 
 export default App;

@@ -17,7 +17,7 @@ export function createStage1ReportService({ protocolStorage, fileService, gitSer
     return { ticket: { id: ticket.id, title: ticket.title, objective: ticket.objective }, status: status ?? null, reason, error, agent_report: agentReport, verify_result: verifyResult, files_changed: filesChanged, commits, criteria_check: verified, generated_at: new Date().toISOString() };
   }
 
-  async function saveReport(taskId, report) { return protocolStorage.save(`task/${taskId}/final_report`, report, { schemaId: "https://forge.local/schemas/agent/final-report.schema.json" }); }
+  async function saveReport(taskId, report) { return protocolStorage.save(`task/${taskId}/final_report`, report, { schemaId: "https://forge.local/schemas/agent/final-report.schema.json", replace: true }); }
   async function writeReportFile(taskId, report) {
     const markdown = renderMarkdown(report);
     return fileService.atomicWrite({ path: `.forge/runtime/reports/${taskId}.md`, content: markdown, replace: true });

@@ -1,6 +1,17 @@
 import { ConfigurationError } from "../../shared/errors.js";
 
-export const SUPERVISOR_STATES = Object.freeze(["CREATED", "PREPARING", "READY", "REQUESTING", "WAITING_AGENT", "MATERIALIZING", "VERIFYING", "REPAIRING", "WAITING_REPAIR", "COMPLETED", "FAILED", "NEEDS_HUMAN_REVIEW"]);
+export const SUPERVISOR_STATES = Object.freeze(["CREATED", "PREPARING", "READY", "RUNNING", "VERIFYING", "REPAIRING", "COMPLETED", "FAILED", "NEEDS_HUMAN_REVIEW"]);
+
+const LEGACY_STATE_MAP = Object.freeze({
+  REQUESTING: "RUNNING",
+  WAITING_AGENT: "RUNNING",
+  MATERIALIZING: "VERIFYING",
+  WAITING_REPAIR: "REPAIRING"
+});
+
+export function migrateLegacyState(state) {
+  return LEGACY_STATE_MAP[state] ?? state;
+}
 
 export function createSupervisorRuntime({ taskId, supervisorId, eventBus, initialState = "CREATED", stateStore, preparation = {}, ownershipCreated = false } = {}) {
   if (!taskId || !supervisorId || typeof eventBus?.publish !== "function") throw new ConfigurationError("Supervisor runtime requires task_id, supervisor_id and event bus.");
@@ -27,7 +38,7 @@ export function createSupervisorRuntime({ taskId, supervisorId, eventBus, initia
     return eventBus.publish({ type, task_id: taskId, supervisor_id: supervisorId, request_id: context.request_id, correlation_id: context.correlation_id, attempt: context.attempt ?? 1, payload });
   }
   async function prepare(context = {}) {
-    if (["READY", "REQUESTING", "WAITING_AGENT", "MATERIALIZING", "VERIFYING", "REPAIRING", "WAITING_REPAIR", "COMPLETED"].includes(state)) return { state, reused: true };
+    if (["READY", "RUNNING", "VERIFYING", "REPAIRING", "COMPLETED"].includes(state)) return { state, reused: true };
     await transition("PREPARING", context);
     try {
       const result = {};
@@ -45,10 +56,9 @@ export function createSupervisorRuntime({ taskId, supervisorId, eventBus, initia
 }
 
 const ALLOWED_TRANSITIONS = Object.freeze({
-  CREATED: ["PREPARING", "REQUESTING", "FAILED"], PREPARING: ["READY", "FAILED"], READY: ["REQUESTING", "FAILED"],
-  REQUESTING: ["WAITING_AGENT", "FAILED"], WAITING_AGENT: ["REQUESTING", "MATERIALIZING", "VERIFYING", "REPAIRING", "FAILED"],
-  MATERIALIZING: ["VERIFYING", "REPAIRING", "FAILED"], VERIFYING: ["COMPLETED", "REPAIRING", "FAILED"],
-  REPAIRING: ["WAITING_REPAIR", "REQUESTING", "MATERIALIZING", "NEEDS_HUMAN_REVIEW", "FAILED"], WAITING_REPAIR: ["REQUESTING", "MATERIALIZING", "FAILED"],
+  CREATED: ["PREPARING", "RUNNING", "FAILED"], PREPARING: ["READY", "FAILED"], READY: ["RUNNING", "FAILED"],
+  RUNNING: ["VERIFYING", "REPAIRING", "NEEDS_HUMAN_REVIEW", "FAILED"], VERIFYING: ["COMPLETED", "REPAIRING", "FAILED"],
+  REPAIRING: ["RUNNING", "NEEDS_HUMAN_REVIEW", "FAILED"],
   COMPLETED: [], FAILED: [], NEEDS_HUMAN_REVIEW: []
 });
 

@@ -4,7 +4,16 @@ export function createTaskSummaryStore({ history } = {}) {
   if (typeof history?.getByTask !== "function") throw new ConfigurationError("Task Summary requires a History Store.");
   const summaries = new Map();
 
-  return Object.freeze({ build, getByTask, getByProject });
+  return Object.freeze({ build, record, getByTask, getByProject });
+
+  // Records a summary built by Node from direct pipeline evidence (terminal
+  // events), for tasks whose events never flowed through the event publisher.
+  function record(taskId, { project_id: recordedProjectId, facts = [] } = {}) {
+    if (typeof taskId !== "string" || taskId.length === 0) throw new ConfigurationError("A task_id is required.");
+    const summary = Object.freeze({ task_id: taskId, ...(recordedProjectId ? { project_id: recordedProjectId } : {}), facts: Object.freeze([...facts].filter((fact) => typeof fact === "string" && fact.trim())) });
+    summaries.set(taskId, summary);
+    return cloneSummary(summary);
+  }
 
   function build(taskId) {
     if (typeof taskId !== "string" || taskId.length === 0) throw new ConfigurationError("A task_id is required.");

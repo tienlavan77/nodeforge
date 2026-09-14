@@ -30,6 +30,30 @@ test("stops projecting events after the History Store closes", () => {
   assert.deepEqual(history.getByProject("PROJECT-081"), []);
 });
 
+test("accepts internal watcher events without metadata or payload", () => {
+  const subscriptions = createSubscriptionRegistry();
+  const history = createHistoryStore({ subscriptions });
+
+  subscriptions.publish({
+    event_id: "WATCHER-081-001",
+    event_type: "watcher.file_modified",
+    project_id: "PROJECT-081",
+    timestamp: "2026-08-19T16:00:00Z",
+    source: "watcher"
+  });
+
+  assert.deepEqual(history.getByProject("PROJECT-081"), [{
+    event_id: "WATCHER-081-001",
+    actor: "watcher",
+    action: "watcher.file_modified",
+    timestamp: "2026-08-19T16:00:00Z",
+    project_id: "PROJECT-081",
+    task_id: undefined,
+    result: "recorded",
+    tier: "hot"
+  }]);
+});
+
 function event(eventId, type, projectId, taskId, payload) {
   return { event_id: eventId, type, project_id: projectId, task_id: taskId, timestamp: "2026-08-19T16:00:00Z", payload };
 }

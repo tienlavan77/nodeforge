@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
-import { createSupervisorRuntime } from "./supervisor-runtime.js";
+import { createSupervisorRuntime, migrateLegacyState } from "./supervisor-runtime.js";
 
 export function createSupervisorManager({ eventBus, stateStore, idFactory = () => `SUP-${randomUUID()}`, onCreate = () => {}, admissionGuard = defaultAdmissionGuard, ticketValidator, dependencyChecker, pathPolicy, preparation = {} } = {}) {
   if (typeof eventBus?.subscribe !== "function") throw new ConfigurationError("Supervisor manager requires an event bus.");
@@ -42,7 +42,7 @@ export function createSupervisorManager({ eventBus, stateStore, idFactory = () =
       const resetContext = { ticket, ...context, attempt: rerunAttempt };
       const existing = byTask.get(taskId);
       if (existing) { if (shouldRestart && existing.reset) await existing.reset(resetContext); return existing; }
-      const runtime = createSupervisorRuntime({ taskId, supervisorId: claim.supervisor_id, eventBus, stateStore, preparation, initialState: claim.state ?? "CREATED", ownershipCreated: false });
+      const runtime = createSupervisorRuntime({ taskId, supervisorId: claim.supervisor_id, eventBus, stateStore, preparation, initialState: migrateLegacyState(claim.state) ?? "CREATED", ownershipCreated: false });
       byTask.set(taskId, runtime); bySupervisor.set(claim.supervisor_id, runtime); if (shouldRestart && runtime.reset) await runtime.reset(resetContext); onCreate(runtime); return runtime;
     }
     if (!claim && local) {
@@ -58,7 +58,7 @@ export function createSupervisorManager({ eventBus, stateStore, idFactory = () =
   }
   async function recover() {
     const states = await stateStore?.list?.({ scope: "pending" }) ?? [];
-    for (const state of states) if (state.task_id && state.supervisor_id && !byTask.has(state.task_id)) { const runtime = createSupervisorRuntime({ taskId: state.task_id, supervisorId: state.supervisor_id, eventBus, stateStore, preparation, initialState: state.state }); byTask.set(state.task_id, runtime); bySupervisor.set(state.supervisor_id, runtime); onCreate(runtime); }
+    for (const state of states) if (state.task_id && state.supervisor_id && !byTask.has(state.task_id)) { const runtime = createSupervisorRuntime({ taskId: state.task_id, supervisorId: state.supervisor_id, eventBus, stateStore, preparation, initialState: migrateLegacyState(state.state) }); byTask.set(state.task_id, runtime); bySupervisor.set(state.supervisor_id, runtime); onCreate(runtime); }
     return states.length;
   }
   function getByTask(taskId) { return byTask.get(taskId) ?? null; }

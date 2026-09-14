@@ -142,6 +142,22 @@ test("rejects a tool name outside the exposed allowlist", async () => {
   assert.equal(result.rounds, 1);
 });
 
+test("chains cache config and previous_response_id across rounds", async () => {
+  const payloads = [];
+  const agentGateway = {
+    request: async ({ payload }) => {
+      payloads.push(structuredClone(payload));
+      if (payloads.length === 1) return { payload: { response_id: "resp_1", tool_use: { id: "c1", name: "report_done", input: { summary: "done" } } } };
+      return { payload: { text: "done" } };
+    }
+  };
+  const registry = { report_done: { execute: async (input) => ({ summary: input.summary }) } };
+  const loop = createCodexForgeToolLoop({ agentGateway });
+  await loop.run({ agentId: "codex-1", correlationId: "CORR-CACHE", prompt: "Run.", definitions: definitions(), registry, context: { task_id: "T-CACHE", ticket: { project_id: "P-1" } } });
+  assert.equal(payloads[0].cache_config.prompt_cache_key, "forge:P-1:T-CACHE");
+  assert.equal(payloads[0].previous_response_id, "store_only");
+});
+
 test("throws when maxRounds is exceeded without report_done", async () => {
   let calls = 0;
   const agentGateway = { request: async () => { calls += 1; return { payload: { tool_use: { id: `c${calls}`, name: "search_code", input: { query: "loop" } } } }; } };
@@ -161,4 +177,21 @@ test("stops the loop when report_done returns a summary", async () => {
   assert.equal(result.rounds, 1);
   assert.equal(result.text, "Six tools completed.");
   assert.equal(result.tool_events.at(-1).tool, "report_done");
+});
+
+test("aggregates usage rounds without leaking run-local state outside scope", async () => {
+  const logs = [];
+  const agentGateway = {
+    request: async ({ payload }) => {
+      if (payload.messages.length === 1) return { payload: { usage: { input_tokens: 100, output_tokens: 5, cached_tokens: 25 }, tool_use: { id: "c1", name: "report_done", input: { summary: "done" } } } };
+      return { payload: { text: "done", usage: { input_tokens: 1, output_tokens: 1 } } };
+    }
+  };
+  const registry = { report_done: { execute: async (input) => ({ summary: input.summary }) } };
+  const loop = createCodexForgeToolLoop({ agentGateway, projectLogger: (entry) => logs.push(entry) });
+  const result = await loop.run({ agentId: "codex-1", correlationId: "CORR-USAGE", prompt: "Run.", definitions: definitions(), registry, context: { task_id: "T-USAGE" } });
+  assert.deepEqual(result.usage, { rounds: 1, input_tokens: 100, output_tokens: 5, cache_read_input_tokens: 25 });
+  assert.equal(logs[0].payload.cache_hit_rate, 0.25);
+  assert.equal(logs[0].payload.round, 1);
+  assert.equal(logs[0].payload.agent_id, "codex-1");
 });
