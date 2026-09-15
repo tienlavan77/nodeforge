@@ -3,6 +3,7 @@ import { ConfigurationError } from "../shared/errors.js";
 
 const PROVIDERS = Object.freeze(["codex", "claude", "openai", "anthropic", "custom"]);
 const STATUSES = Object.freeze(["ready", "working", "not_connected"]);
+const TEAMS = Object.freeze(["Backend", "Frontend", "Security"]);
 
 export function createAgentSettingsService({ profiles, configuration, gateway, now = () => new Date().toISOString(), secretStore = new Map() } = {}) {
   if (typeof profiles?.create !== "function" || typeof profiles?.update !== "function" || typeof profiles?.delete !== "function" || typeof profiles?.getAll !== "function" || typeof profiles?.getById !== "function") throw new ConfigurationError("Agent Settings requires an Agent Profile Store.");
@@ -58,6 +59,7 @@ export function createAgentSettingsService({ profiles, configuration, gateway, n
       agent_id: resolvedId,
       agent_name: input?.agent_name ?? current?.agent_name ?? resolvedRole,
       role: resolvedRole,
+      team: normalizeTeam(input?.team ?? current?.team ?? "Backend"),
       gateway_url: input?.gateway_url ?? current?.gateway_url ?? "https://gateway.example.test/agent",
       credential_ref: input?.credential_ref ?? current?.credential_ref ?? `runtime:${resolvedId}:api-key`,
       enabled,
@@ -98,6 +100,7 @@ function validateAgent(profile) {
   if (profile.use_responses !== undefined && typeof profile.use_responses !== "boolean") throw new ConfigurationError("use_responses must be boolean.");
   if (profile.use_previous_response_id !== undefined && typeof profile.use_previous_response_id !== "boolean") throw new ConfigurationError("use_previous_response_id must be boolean.");
   if (!["coder", "reviewer", "sprint_leader", "architecture_manager"].includes(profile.role)) throw new ConfigurationError("Role is invalid.");
+  if (!TEAMS.includes(profile.team)) throw new ConfigurationError("Team is invalid.");
 }
 
 function normalizeStatus(status) {
@@ -108,6 +111,11 @@ function normalizeStatus(status) {
 function normalizeRole(role) {
   if (typeof role !== "string" || !["coder", "reviewer", "sprint_leader", "architecture_manager"].includes(role)) throw new ConfigurationError("Role is invalid.");
   return role;
+}
+
+function normalizeTeam(team) {
+  if (typeof team !== "string" || !TEAMS.includes(team)) throw new ConfigurationError("Team is invalid.");
+  return team;
 }
 
 function resolveAgentId(agentId, role) {

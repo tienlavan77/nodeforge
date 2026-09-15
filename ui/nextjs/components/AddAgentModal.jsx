@@ -16,7 +16,9 @@ function SelectMenu({ label, name, value, options, openName, setOpenName, onChan
 export function AddAgentModal({ title = "Add agent", form, modelOptions, apiKeyMasked, saving, error, testState, onTestConnection, onChange, onSubmit, onClose }) {
   const [openName, setOpenName] = useState(null);
   const roles = [{ value: "architecture_manager", label: "Architecture Manager" }, { value: "sprint_leader", label: "Sprint Leader" }, { value: "coder", label: "Coder" }, { value: "reviewer", label: "Reviewer" }];
+  const teams = [{ value: "Backend", label: "Backend" }, { value: "Frontend", label: "Frontend" }, { value: "Security", label: "Security" }];
   const providers = [{ value: "anthropic", label: "Anthropic" }, { value: "claude", label: "Claude" }, { value: "openai", label: "OpenAI" }, { value: "codex", label: "Codex" }];
+  const efforts = [{ value: "low", label: "Low" }, { value: "medium", label: "Medium" }, { value: "high", label: "High" }];
   const models = (modelOptions ?? []).map((model) => ({ value: model, label: model }));
   return <div className="agent-modal-backdrop" role="presentation">
     <section className="agent-modal" onClick={() => setOpenName(null)} role="dialog" aria-modal="true" aria-labelledby="add-agent-title">
@@ -24,8 +26,10 @@ export function AddAgentModal({ title = "Add agent", form, modelOptions, apiKeyM
       <form onSubmit={onSubmit}>
         <label>Agent name<input name="agent_name" value={form.agent_name} onChange={onChange} required placeholder="Architecture Manager" /></label>
         <SelectMenu label="Role" name="role" value={form.role} options={roles} openName={openName} setOpenName={setOpenName} onChange={onChange} />
+        <SelectMenu label="Team" name="team" value={form.team} options={teams} openName={openName} setOpenName={setOpenName} onChange={onChange} />
         <SelectMenu label="Provider" name="provider" value={form.provider} options={providers} openName={openName} setOpenName={setOpenName} onChange={onChange} />
         <SelectMenu label="Model" name="model" value={form.model} options={models} openName={openName} setOpenName={setOpenName} onChange={onChange} />
+        <SelectMenu label="effort" name="effort" value={form.effort} options={efforts} openName={openName} setOpenName={setOpenName} onChange={onChange} />
         <label>Gateway URL<input name="gateway_url" value={form.gateway_url} onChange={onChange} required placeholder="https://..." /></label>
         <label>API key<input name="api_key" type="password" value={form.api_key} onChange={onChange} placeholder={apiKeyMasked || "Optional"} /></label>
         {error && <p className="agent-form-error">{error}</p>}
