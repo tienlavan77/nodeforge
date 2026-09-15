@@ -5,6 +5,10 @@ import { ConfigurationError } from "../../shared/errors.js";
 
 const require = createRequire(import.meta.url);
 const profileSchema = require("../../../../schemas/governance/agent-profile.schema.json");
+// Ticket TICKET-PROJECT-NODEFORGE-1789489861283: add nullable team field to schema for DB persistence
+if (profileSchema && typeof profileSchema === "object" && profileSchema.properties && !profileSchema.properties.team) {
+  profileSchema.properties.team = { type: ["string", "null"], default: null };
+}
 const SECRET_FIELD = /(?:api[_-]?key|credential(?!_ref)|secret|password|token|authorization)/i;
 
 export function createAgentProfileStore({ validateProfile = createValidator(), database } = {}) {
@@ -21,7 +25,7 @@ export function createAgentProfileStore({ validateProfile = createValidator(), d
     validateProfile(profile);
     if (byId.has(profile.agent_id)) throw new ConfigurationError(`Agent Profile already exists: ${profile.agent_id}.`);
     if (database) database.run("DELETE FROM agent_profile_tombstones WHERE agent_id = ?", [profile.agent_id]);
-    persist(profile, "INSERT INTO agent_profiles (agent_id, profile_json) VALUES (?, ?)");
+    persist(profile, "INSERT INTO agent_profiles (agent_id, team, profile_json) VALUES (?, ?, ?)");
     profiles.push(freeze(profile));
     byId.set(profile.agent_id, profiles.at(-1));
     return clone(profile);
@@ -33,7 +37,7 @@ export function createAgentProfileStore({ validateProfile = createValidator(), d
     if (!existing) throw new ConfigurationError(`Unknown Agent Profile: ${profile.agent_id}.`);
     const updated = { ...profile, created_at: existing.created_at };
     validateProfile(updated);
-    if (database) database.run("UPDATE agent_profiles SET profile_json = ? WHERE agent_id = ?", [JSON.stringify(updated), updated.agent_id]);
+    if (database) database.run("UPDATE agent_profiles SET team = ?, profile_json = ? WHERE agent_id = ?", [updated.team, JSON.stringify(updated), updated.agent_id]);
     const stored = freeze(updated);
     profiles[profiles.findIndex(({ agent_id: id }) => id === updated.agent_id)] = stored;
     byId.set(updated.agent_id, stored);
@@ -82,7 +86,10 @@ export function createAgentProfileStore({ validateProfile = createValidator(), d
   }
 
   function persist(profile, sql) {
-    if (database) database.run(sql, [profile.agent_id, JSON.stringify(profile)]);
+    if (!database) return;
+    // Handle INSERT with team column (3 params) vs legacy sql (2 params)
+    if (sql.includes(\"team\")) database.run(sql, [profile.agent_id, profile.team ?? null, JSON.stringify(profile)]);
+    else database.run(sql, [profile.agent_id, JSON.stringify(profile)]);
   }
 }
 
@@ -91,6 +98,9 @@ function normalize(input) {
   if (Object.keys(input).some((key) => SECRET_FIELD.test(key))) throw new ConfigurationError("Agent Profile cannot contain plaintext credentials.");
   const profile = structuredClone(input);
   if (!profile.status) profile.status = profile.enabled ? "ready" : "not_connected";
+  // team is nullable: default to null for backward compatibility with existing profiles
+  if (profile.team === undefined) profile.team = null;
+  if (profile.team !== null && typeof profile.team !== "string") throw new ConfigurationError("Agent Profile team must be a string or null.");
   validateTimestamp(profile.created_at, "created_at"); validateTimestamp(profile.updated_at, "updated_at");
   return profile;
 }
@@ -101,8 +111,10 @@ function createValidator() {
 }
 
 function ensureTable(database) {
-  database.run("CREATE TABLE IF NOT EXISTS agent_profiles (sequence INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL UNIQUE, profile_json TEXT NOT NULL)");
+  database.run("CREATE TABLE IF NOT EXISTS agent_profiles (sequence INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL UNIQUE, profile_json TEXT NOT NULL, team TEXT)");
   database.run("CREATE TABLE IF NOT EXISTS agent_profile_tombstones (agent_id TEXT PRIMARY KEY, deleted_at TEXT NOT NULL)");
+  // Migration for existing DBs: add team column if missing
+  try { database.run("ALTER TABLE agent_profiles ADD COLUMN team TEXT"); } catch {}
 }
 function freeze(profile) { return Object.freeze(structuredClone(profile)); }
 function clone(profile) { return structuredClone(profile); }

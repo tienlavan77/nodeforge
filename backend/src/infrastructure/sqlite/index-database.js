@@ -106,6 +106,48 @@ const MIGRATIONS = [
       "CREATE VIRTUAL TABLE file_content_fts USING fts5(file_id UNINDEXED, path, language, content)",
       "CREATE VIRTUAL TABLE symbol_content_fts USING fts5(symbol_id UNINDEXED, file_id UNINDEXED, path, name, kind, content, start_line UNINDEXED, end_line UNINDEXED)"
     ]
+  },
+  {
+    version: 6,
+    statements: [
+      `CREATE TABLE conversations (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        agent_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      "CREATE INDEX conversations_project_agent ON conversations (project_id, agent_id, updated_at)",
+      "CREATE INDEX conversations_project ON conversations (project_id, updated_at)"
+    ]
+  },
+  {
+    version: 7,
+    statements: [
+      `CREATE TABLE tickets (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        roadmap_id TEXT NOT NULL,
+        sprint_id TEXT NOT NULL,
+        context TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        ticket_file TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      "CREATE INDEX tickets_project ON tickets (project_id, updated_at)",
+      "CREATE INDEX tickets_sprint ON tickets (project_id, sprint_id, status)"
+    ]
+  },
+  {
+    version: 8,
+    statements: [
+      "CREATE TABLE IF NOT EXISTS agent_profiles (sequence INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL UNIQUE, profile_json TEXT NOT NULL)",
+      "CREATE TABLE IF NOT EXISTS agent_profile_tombstones (agent_id TEXT PRIMARY KEY, deleted_at TEXT NOT NULL)",
+      "ALTER TABLE agent_profiles ADD COLUMN team TEXT"
+    ]
   }
 ];
 
