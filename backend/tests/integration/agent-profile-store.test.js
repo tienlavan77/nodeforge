@@ -12,7 +12,7 @@ test("creates, updates, queries, and reloads immutable Agent Profiles without pl
   let database = await openIndexDatabase(root);
   try {
     const store = createAgentProfileStore({ database });
-    const first = store.create(profile("11111111-1111-4111-8111-111111111111", "architecture_manager", "env:ARCHITECTURE_MANAGER_API_KEY"));
+    const first = store.create({ ...profile("11111111-1111-4111-8111-111111111111", "architecture_manager", "env:ARCHITECTURE_MANAGER_API_KEY"), team: "platform" });
     store.create(profile("22222222-2222-4222-8222-222222222222", "coder", "env:BUILDER_API_KEY"));
     assert.equal(first.agent_id, "11111111-1111-4111-8111-111111111111");
     assert.equal(store.getAll().length, 2);

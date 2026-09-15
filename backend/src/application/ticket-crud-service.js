@@ -1,4 +1,5 @@
 /* TICKET-PROJECT-NODEFORGE-1789479214703: regenerate English via Vietnamese source context -> sprint leader; validate -> persist -> sync runtime file */
+/* TICKET-PROJECT-NODEFORGE-1789489861283: agent profile 'team' field supported via agent-profile-store persistence */
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../shared/errors.js";
 
@@ -144,7 +145,7 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
     const updated = saved.sprints.flatMap((sprint) => sprint.tickets ?? []).find((ticket) => ticket.id === ticketId);
     if (!updated) throw Object.assign(new ConfigurationError(`Could not read persisted regenerated ticket: ${ticketId}.`), { statusCode: 500, code: "TICKET_PERSISTENCE_FAILED" });
     try {
-      const synchronized = ticketFileStore?.update?.({ ticket: updated });
+      const synchronized = ticketFileStore?.update?.({ ticket: updated, context });
       if (synchronized === false) throw new Error("Ticket file store rejected the update.");
     } catch (error) { throw Object.assign(new ConfigurationError(`Could not synchronize runtime ticket file: ${error.message}`), { statusCode: 500, code: "TICKET_RUNTIME_SYNC_FAILED", cause: error }); }
     publish("ticket.updated", projectId, { ticket_id: ticketId, ticket: updated, reason: "english_regeneration" });
