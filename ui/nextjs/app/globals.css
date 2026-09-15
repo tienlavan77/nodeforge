@@ -280,6 +280,9 @@ button, input { font: inherit; }
 .sprint-run-button:active:not(:disabled) { background: #252142; }
 .sprint-run-button:disabled { opacity: .55; cursor: not-allowed; }
 .sprint-run-button.is-running { border-color: #3e7656; background: #1c2a24; color: #9fc6ab; }
+.sprint-run-button.is-resume { border-color: #5f7d67; background: #18251d; color: #b9e4c3; }
+.sprint-run-button.is-resume:hover:not(:disabled) { background: #1f3026; border-color: #7ea88a; }
+.ticket-checkpoint { display: block; margin: 4px 0 0; color: #b9e4c3; font-family: 'DM Mono', monospace; font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
 .sprint-run-button.small { min-width: 56px; padding: 4px 10px; font-size: 11px; }
 .sprint-run-message { margin: 10px 0 0; padding: 8px 10px; border: 1px solid #2b303a; background: #1a1d24; color: #9fc6ab; font-family: 'DM Mono', monospace; font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
 .sprint-run-message:empty { display: none; }
@@ -294,6 +297,14 @@ button, input { font: inherit; }
 .sprint-ticket-list { display: grid; gap: 6px; margin-top: 12px; padding-top: 10px; border-top: 1px solid #303540; }
 .sprint-ticket-list .dashboard-ticket { background: #171a21; }
 .sprint-ticket-list .dashboard-ticket + .dashboard-ticket { border-top: 1px dashed #3a3f4b; }
+.inline-add-ticket { display: grid; gap: 8px; margin-top: 14px; }
+.inline-add-ticket label { color: var(--app-muted); font: 11px 'DM Mono', monospace; letter-spacing: .06em; text-transform: uppercase; }
+.inline-add-ticket-row { display: grid; gap: 8px; }
+.inline-add-ticket textarea { width: 100%; min-width: 0; resize: vertical; box-sizing: border-box; border: 1px solid var(--app-button-border); border-radius: 5px; background: var(--app-input); color: var(--app-text); padding: 9px 10px; font: 13px/1.45 'DM Mono', monospace; }
+.inline-add-ticket textarea:focus-visible { outline: 2px solid color-mix(in srgb, var(--app-accent) 45%, transparent); outline-offset: 1px; border-color: var(--app-accent); }
+.inline-add-ticket button { justify-self: end; border: 1px solid var(--app-accent); border-radius: 5px; background: var(--app-accent); color: #08111f; padding: 8px 12px; cursor: pointer; font: 500 12px 'Space Grotesk', sans-serif; white-space: nowrap; }
+.inline-add-ticket button:disabled { cursor: not-allowed; opacity: .48; }
+.inline-add-ticket-error { margin: 0 !important; color: #eea6ae !important; font-size: 12px !important; }
 .sprint-actions { display: flex; justify-content: flex-end; gap: 2px; margin-top: 10px; padding-top: 8px; border-top: 1px solid #303540; }
 .sprint-collapse-button { margin-left: auto; }
 .sprint-view-button { margin-right: 2px; border: 1px solid #465064; background: #1c222b; color: #cbd5e6; padding: 6px 10px; cursor: pointer; font-size: 15px; }
@@ -327,6 +338,24 @@ button, input { font: inherit; }
 .upload-preview strong { color: #bde2c7; font-family: 'DM Mono', monospace; }
 .upload-preview p { margin: 0; color: #d0d7d2; font-size: 13px; }
 
+/* Ticket language workflow: keep the source context quiet and make the primary
+   regeneration action consistent with the control-room button system. */
+.ticket-language-modal { width: min(820px, 100%); }
+.ticket-language-summary { padding: 12px 14px; border: 1px solid var(--app-border); border-radius: 6px; background: var(--app-surface-alt); }
+.ticket-language-summary p { margin: 0; }
+.ticket-language-summary p + p { margin-top: 6px; color: var(--app-muted); font: 12px/1.4 'DM Mono', monospace; }
+.ticket-content-change-panel { display: grid; gap: 14px; margin-top: 18px; }
+.ticket-language-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--app-border); }
+.ticket-language-header h3 { margin: 0 0 4px; }
+.ticket-language-header p { max-width: 54ch; margin: 0; color: var(--app-muted); font-size: 13px; line-height: 1.5; }
+.ticket-content-change-panel label { display: grid; gap: 6px; color: var(--app-muted); font: 11px 'DM Mono', monospace; letter-spacing: .06em; text-transform: uppercase; }
+.ticket-content-change-panel textarea { width: 100%; min-width: 0; box-sizing: border-box; resize: vertical; border: 1px solid var(--app-button-border); border-radius: 6px; background: var(--app-input); color: var(--app-text); padding: 11px 12px; font: 13px/1.5 'DM Mono', monospace; }
+.ticket-content-change-panel textarea:focus-visible { outline: 2px solid color-mix(in srgb, var(--app-accent) 45%, transparent); outline-offset: 1px; border-color: var(--app-accent); }
+.ticket-content-change-panel textarea[readonly] { color: var(--app-muted); background: var(--app-surface-alt); }
+.ticket-regenerate-button { flex: 0 0 auto; min-height: 36px; white-space: nowrap; }
+.ticket-regenerated-content { margin-top: 20px; padding: 14px; border: 1px solid var(--app-border); border-radius: 6px; background: var(--app-surface-alt); }
+.ticket-regenerated-content h3 { margin-top: 0; }
+.ticket-regenerated-content .message-content { color: var(--app-text); }
 
 /* Responsive overrides kept separate from the verified desktop baseline. */
 @media (max-width: 767px) {
@@ -346,6 +375,8 @@ button, input { font: inherit; }
   .history-overlay, .sprint-modal-backdrop { padding: 12px; }
   .history-filters { grid-template-columns: minmax(0, 1fr); padding: 10px 12px; }
   .sprint-ticket-table article { grid-template-columns: minmax(0, 1fr); }
+  .ticket-language-header { flex-direction: column; align-items: stretch; }
+  .ticket-regenerate-button { width: 100%; }
   .statusbar { padding: 0 10px; }
   .statusbar .status-right { display: none; }
 }
@@ -1444,6 +1475,7 @@ button, input { font: inherit; }
 }
 
 @media (max-width: 560px) {
+  .inline-add-ticket button { min-height: 38px; }
   .sprint-modal.add-ticket-modal .sprint-modal-content { padding: 16px; }
   .add-ticket-modal textarea { min-height: 180px; }
   .add-ticket-modal .settings-actions { flex-direction: column-reverse; }
