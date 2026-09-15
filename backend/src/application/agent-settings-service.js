@@ -4,6 +4,7 @@ import { ConfigurationError } from "../shared/errors.js";
 const PROVIDERS = Object.freeze(["codex", "claude", "openai", "anthropic", "custom"]);
 const STATUSES = Object.freeze(["ready", "working", "not_connected"]);
 const TEAMS = Object.freeze(["Backend", "Frontend", "Security"]);
+// Keep persisted agent.team values aligned with the Agents UI Team selector options.
 
 export function createAgentSettingsService({ profiles, configuration, gateway, now = () => new Date().toISOString(), secretStore = new Map() } = {}) {
   if (typeof profiles?.create !== "function" || typeof profiles?.update !== "function" || typeof profiles?.delete !== "function" || typeof profiles?.getAll !== "function" || typeof profiles?.getById !== "function") throw new ConfigurationError("Agent Settings requires an Agent Profile Store.");
