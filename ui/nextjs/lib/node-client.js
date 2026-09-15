@@ -120,7 +120,7 @@ export function createNodeClient() {
     async getTicket(projectId, ticketId) { return requestJson(forgeV1(`/projects/${projectId}/tickets/${ticketId}`, { project: projectId }), { fallbackError: `Node could not load ticket ${ticketId}.` }); },
     async createTicket(projectId, ticketOrContent, sprintId) {
       const body = typeof ticketOrContent === "string"
-        ? { project_id: projectId, sprint_id: sprintId, content: ticketOrContent }
+        ? { project_id: projectId, sprint_id: sprintId, content: ticketOrContent, context: ticketOrContent }
         : { project_id: projectId, sprint_id: sprintId, ticket: { ...(ticketOrContent ?? {}), sprint_id: ticketOrContent?.sprint_id ?? sprintId } };
       return requestJson(forgeV1("/tickets", { project: projectId }), {
         method: "POST", headers: { "content-type": "application/json" },
@@ -158,8 +158,24 @@ export function createNodeClient() {
     async deleteTicket(projectId, ticketId) {
       return requestJson(forgeV1(`/projects/${projectId}/tickets/${ticketId}`, { project: projectId }), { method: "DELETE", fallbackError: "Node could not delete the ticket." });
     },
-    async runTicket(projectId, ticketId) {
-      return requestJson(forgeV1(`/projects/${projectId}/tickets/${ticketId}/run`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId }), fallbackError: `Node rejected Ticket Run: ${ticketId}.` });
+    async regenerateTicketEnglish(projectId, ticketId, payload = {}) {
+      const body = {
+        project_id: projectId,
+        ticket_id: ticketId,
+        original_vietnamese_context: payload.original_vietnamese_context ?? payload.context ?? payload.vietnamese_context ?? "",
+        role: payload.role ?? "sprint-leader",
+        target_language: payload.target_language ?? "en",
+        ...(payload.correlation_id ? { correlation_id: payload.correlation_id } : {}),
+      };
+      return requestJson(forgeV1(`/projects/${projectId}/tickets/${ticketId}/regenerate-english`, { project: projectId }), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+        fallbackError: "Node could not regenerate the English ticket.",
+      });
+    },
+    async runTicket(projectId, ticketId, { fresh = false } = {}) {
+      return requestJson(forgeV1(`/projects/${projectId}/tickets/${ticketId}/run`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, ...(fresh ? { fresh: true } : {}) }), fallbackError: `Node rejected Ticket Run: ${ticketId}.` });
     },
     async runSprint(projectId, sprintId) {
       return requestJson(forgeV1(`/sprints/${sprintId}/run`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId }), fallbackError: "Node could not start the sprint." });
@@ -213,7 +229,7 @@ export function createNodeClient() {
       const source = new EventSource(forgeV1("/stream", { project: projectId, ...(afterEventId ? { after: afterEventId } : {}) }));
       const delivered = new Set();
       let lastEventId = afterEventId ?? null;
-      const eventTypes = ["stream.connected", "stream.snapshot", "watcher.file_indexed", "watcher.file_removed", "ticket.created", "ticket.updated", "ticket.status_changed", "ticket.deleted", "sprint.created", "sprint.updated", "sprint.deleted", "stream.error"];
+      const eventTypes = ["stream.connected", "stream.snapshot", "watcher.file_indexed", "watcher.file_removed", "ticket.created", "ticket.updated", "ticket.status_changed", "ticket.deleted", "sprint.created", "sprint.updated", "sprint.deleted", "conversation.message.delta", "conversation.message.received", "conversation.message.owner", "stream.error"];
       const handleEvent = (event) => {
         if (event.lastEventId) lastEventId = event.lastEventId;
         let data;
@@ -240,7 +256,7 @@ export function createNodeClient() {
 
 function isProjectStreamEvent(value, projectId) {
   return Boolean(value && typeof value === "object" && typeof value.event_id === "string" && value.event_id.length > 0
-    && ["stream.connected", "stream.snapshot", "watcher.file_indexed", "watcher.file_removed", "ticket.created", "ticket.updated", "ticket.status_changed", "ticket.deleted", "sprint.created", "sprint.updated", "sprint.deleted", "stream.error"].includes(value.event_type)
+    && ["stream.connected", "stream.snapshot", "watcher.file_indexed", "watcher.file_removed", "ticket.created", "ticket.updated", "ticket.status_changed", "ticket.deleted", "sprint.created", "sprint.updated", "sprint.deleted", "conversation.message.delta", "conversation.message.received", "conversation.message.owner", "stream.error"].includes(value.event_type)
     && value.schema_version === 1 && value.project_id === projectId && typeof value.timestamp === "string"
     && value.payload && typeof value.payload === "object" && !Array.isArray(value.payload));
 }
