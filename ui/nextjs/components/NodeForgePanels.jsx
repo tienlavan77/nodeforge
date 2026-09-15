@@ -28,6 +28,11 @@ const PROVIDER_OPTIONS = [
   { value: "anthropic", label: "Anthropic" },
   { value: "custom", label: "Custom / OpenAI-compatible" }
 ];
+const EFFORT_OPTIONS = [
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" }
+];
 
 function formatDateLabel(timestamp) {
   const d = new Date(timestamp);
@@ -301,9 +306,9 @@ export function HistoryOverlay({ client, onClose }) {
 }
 
 export function AgentSettingsOverlay({ client, agent, onClose }) {
-  const [profile, setProfile] = useState(null); const [url, setUrl] = useState(""); const [key, setKey] = useState(""); const [provider, setProvider] = useState("codex"); const [model, setModel] = useState(""); const [enabled, setEnabled] = useState(false); const [message, setMessage] = useState("");
+  const [profile, setProfile] = useState(null); const [url, setUrl] = useState(""); const [key, setKey] = useState(""); const [provider, setProvider] = useState("codex"); const [model, setModel] = useState(""); const [effort, setEffort] = useState("medium"); const [enabled, setEnabled] = useState(false); const [message, setMessage] = useState("");
   const models = MODEL_CATALOG[provider] ?? [];
-  useEffect(() => { client.getAgentSettings().then((items) => { const item = items.find(({ agent_id: id }) => id === agent.id); if (item) { setProfile(item); setUrl(item.gateway_url ?? ""); setEnabled(Boolean(item.enabled)); setProvider(item.provider ?? "codex"); setModel(item.model ?? ""); } }).catch((error) => setMessage(`Error: ${error.message}`)); }, [agent.id, client]);
+  useEffect(() => { client.getAgentSettings().then((items) => { const item = items.find(({ agent_id: id }) => id === agent.id); if (item) { setProfile(item); setUrl(item.gateway_url ?? ""); setEnabled(Boolean(item.enabled)); setProvider(item.provider ?? "codex"); setModel(item.model ?? ""); setEffort(item.effort ?? "medium"); } }).catch((error) => setMessage(`Error: ${error.message}`)); }, [agent.id, client]);
   function changeProvider(value) {
     const nextModels = MODEL_CATALOG[value] ?? [];
     setProvider(value);
@@ -547,12 +552,13 @@ function TicketModal({ ticket, client, projectId, onRefreshed, onClose }) {
         throw new Error(`English ticket regenerated, but the dashboard refresh failed: ${refreshError?.message ?? String(refreshError)}`);
       }
       setSubmitState("done");
+      setError("");
     } catch (err) {
       setError(`Regeneration failed: ${err?.message ?? String(err)}`);
       setSubmitState("error");
     }
   }
-  return <EntityDetailsModal title={ticket.id} modalClassName="ticket-language-modal" onClose={onClose}><div className="ticket-language-summary"><p className="sprint-objective">{ticket.title}</p><p><strong>Status:</strong> {ticket.status} · {ticket.progress}%</p></div>{englishContent && <section className="ticket-english-content ticket-regenerated-content" aria-live="polite"><h3>English content</h3><MessageContent text={englishContent} /></section>}<form className="ticket-content-change-panel" onSubmit={submitContentChange}><div className="ticket-language-header"><div><h3>Vietnamese context</h3><p>Edit the Vietnamese context, then regenerate the English ticket.</p></div></div><label>Vietnamese context<textarea value={vietnameseContext} onChange={(event) => setVietnameseContext(event.target.value)} rows={8} /></label><div className="ticket-regenerate-actions"><button className="sprint-run-button ticket-regenerate-button" type="submit" disabled={submitState === "submitting" || !hasVietnameseContextEdit}>{submitState === "submitting" ? "Regenerating…" : "Regenerate English"}</button></div>{error && <p className="dashboard-state error" role="alert">{error}</p>}</form></EntityDetailsModal>;
+  return <EntityDetailsModal title={ticket.id} modalClassName="ticket-language-modal" onClose={onClose}><div className="ticket-language-summary"><p className="sprint-objective">{ticket.title}</p><p><strong>Status:</strong> {ticket.status} · {ticket.progress}%</p></div>{englishContent && <section className="ticket-english-content ticket-regenerated-content" aria-live="polite"><h3>English content</h3><MessageContent text={englishContent} /></section>}<form className="ticket-content-change-panel" onSubmit={submitContentChange}><div className="ticket-language-header"><div><h3>Vietnamese context</h3><p>Edit the Vietnamese context, then regenerate the English ticket.</p></div></div><label>Vietnamese context<textarea value={vietnameseContext} onChange={(event) => setVietnameseContext(event.target.value)} rows={8} /></label><div className="ticket-regenerate-actions"><button className="sprint-run-button ticket-regenerate-button" type="submit" disabled={submitState === "submitting" || !hasVietnameseContextEdit}>{submitState === "submitting" ? "Regenerating…" : "Regenerate English"}</button></div>{error && <p className="dashboard-state error" role="alert">{error}</p>}{submitState === "done" && <p className="dashboard-state" role="status" aria-live="polite">English ticket regenerated and dashboard refreshed.</p>}</form></EntityDetailsModal>;
 }
 
 function EntityDetailsModal({ title, state, modalClassName = "", onClose, children }) {
