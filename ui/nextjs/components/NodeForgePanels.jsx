@@ -491,7 +491,7 @@ function TicketCard({ ticket, client, projectId, onRefresh, onDeleted }) {
   }
   const resumable = ticket.checkpoint?.resumable === true;
   const disabled = ticket.status === "done" || ticket.status === "running";
-  return <><article className="dashboard-ticket"><div><strong>{ticket.id}</strong><span className="priority">{ticket.priority}</span></div><p>{ticket.title}</p><small><span className={`ticket-status ticket-status-${ticket.status ?? "planned"}`}>{ticket.status ?? "planned"}</span> · {ticket.progress}%</small>{resumable && <small className="ticket-checkpoint">Có checkpoint dở ở turn {ticket.checkpoint.last_completed_turn ?? "?"}{ticket.checkpoint.last_tool ? ` (tool cuối: ${ticket.checkpoint.last_tool})` : ""}.</small>}<div className="ticket-actions"><button className="sprint-view-button small" onClick={view}>View</button>{resumable ? <button className="sprint-run-button small is-resume" onClick={() => run()} disabled={disabled}>Resume</button> : null}{resumable ? <button className="sprint-run-button small" onClick={() => run({ fresh: true })} disabled={disabled}>Run fresh</button> : <button className="sprint-run-button small" onClick={() => run()} disabled={disabled}>Run</button>}<button className="sprint-delete-button small" onClick={remove} disabled={disabled}>Delete</button></div>{message && <small>{message}</small>}</article>{viewOpen && <TicketModal ticket={detail ?? ticket} client={client} projectId={projectId} onClose={() => { setViewOpen(false); setDetail(null); }} />}</>;
+  return <><article className="dashboard-ticket"><div><strong>{ticket.id}</strong><span className="priority">{ticket.priority}</span></div><p>{ticket.title}</p><small><span className={`ticket-status ticket-status-${ticket.status ?? "planned"}`}>{ticket.status ?? "planned"}</span> · {ticket.progress}%</small>{resumable && <small className="ticket-checkpoint">Có checkpoint dở ở turn {ticket.checkpoint.last_completed_turn ?? "?"}{ticket.checkpoint.last_tool ? ` (tool cuối: ${ticket.checkpoint.last_tool})` : ""}.</small>}<div className="ticket-actions"><button className="sprint-view-button small" onClick={view}>View</button>{resumable ? <button className="sprint-run-button small is-resume" onClick={() => run()} disabled={disabled}>Resume</button> : null}{resumable ? <button className="sprint-run-button small" onClick={() => run({ fresh: true })} disabled={disabled}>Run fresh</button> : <button className="sprint-run-button small" onClick={() => run()} disabled={disabled}>Run</button>}<button className="sprint-delete-button small" onClick={remove} disabled={disabled}>Delete</button></div>{message && <small>{message}</small>}</article>{viewOpen && <TicketModal ticket={detail ?? ticket} client={client} projectId={projectId} onRefreshed={(updatedTicket) => { setDetail(updatedTicket); onRefresh?.(); }} onClose={() => { setViewOpen(false); setDetail(null); }} />}</>;
 }
 
 function ticketVietnameseContext(ticket) {
@@ -509,7 +509,7 @@ function ticketEnglishContent(ticket) {
   ].filter(Boolean).join("\n\n");
 }
 
-function TicketModal({ ticket, client, projectId, onClose }) {
+function TicketModal({ ticket, client, projectId, onRefreshed, onClose }) {
   const initialVietnameseContext = useMemo(() => ticketVietnameseContext(ticket), [ticket]);
   const [vietnameseContext, setVietnameseContext] = useState(initialVietnameseContext);
   const [englishContent, setEnglishContent] = useState(ticketEnglishContent(ticket));
@@ -524,12 +524,16 @@ function TicketModal({ ticket, client, projectId, onClose }) {
       const response = client?.regenerateTicketEnglish
         ? await client.regenerateTicketEnglish(projectId, ticket.id, payload)
         : await fetch(`/api/projects/${encodeURIComponent(projectId)}/tickets/${encodeURIComponent(ticket.id)}/regenerate-english`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then(async (res) => { if (!res.ok) throw new Error(await res.text() || `Request failed (${res.status})`); return res.json(); });
-      const regenerated = response?.english_content ?? response?.regenerated_english_content ?? response?.content ?? response?.ticket?.content_en ?? response?.ticket?.objective;
-      if (!regenerated) throw new Error("Backend did not return regenerated English ticket content.");
-      setEnglishContent(String(regenerated));
+      const updatedTicket = response?.ticket ?? response?.data?.ticket ?? (response?.id ? response : null);
+      const regenerated = response?.english_content ?? response?.regenerated_english_content ?? response?.content ?? response?.ticket?.english_content ?? response?.ticket?.regenerated_english_content ?? response?.ticket?.content_en ?? response?.ticket?.generated_content ?? updatedTicket?.english_content ?? updatedTicket?.content_en ?? response?.ticket?.objective;
+      if (!regenerated && !updatedTicket) throw new Error("Backend did not return regenerated English ticket content.");
+      if (regenerated) setEnglishContent(String(regenerated));
+      else if (updatedTicket) setEnglishContent(ticketEnglishContent(updatedTicket));
+      // Ensure dashboard reflects persisted DB update without manual refresh.
+      try { await onRefreshed?.(updatedTicket ?? response?.ticket ?? { ...ticket, english_content: String(regenerated) }); } catch {}
       setSubmitState("done");
     } catch (err) {
-      setError(`Regeneration failed: ${err?.message ?? err}`);
+      setError(`Regeneration failed: ${err?.message ?? String(err)}`);
       setSubmitState("error");
     }
   }
