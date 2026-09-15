@@ -3,7 +3,7 @@
 /* eslint-disable no-unused-vars, no-undef */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { createNodeClient, detectMessageIntent, normalizeTicketInput, MESSAGE_INTENTS } from "../lib/node-client.js";
+import { createNodeClient, detectMessageIntent, MESSAGE_INTENTS } from "../lib/node-client.js";
 import { validateSprintPlan } from "../lib/sprint-plan-validator.js";
 
 const AGENTS = [
@@ -118,7 +118,6 @@ export function SprintPlanDashboard({ dashboard, client, onRefresh, onTicketDele
   const [deleteMessage, setDeleteMessage] = useState("");
   const [highlightSprint, setHighlightSprint] = useState(null);
   const [collapsedSprints, setCollapsedSprints] = useState({});
-  const [addTicketSprint, setAddTicketSprint] = useState(null);
   const knownSprintIds = useRef(null);
   useEffect(() => () => runStreamRef.current?.close?.(), []);
   const sprints = dashboard?.roadmap?.sprints ?? [];
@@ -184,52 +183,39 @@ export function SprintPlanDashboard({ dashboard, client, onRefresh, onTicketDele
       <div className="sprint-row"><div><strong>{sprint.id}</strong>{highlightSprint === sprint.id && <span className="sprint-new-badge">NEW</span>}</div><button className="sprint-collapse-button" onClick={() => setCollapsedSprints((state) => ({ ...state, [sprint.id]: !state[sprint.id] }))} aria-label="Toggle sprint tasks">{collapsedSprints[sprint.id] ? "+" : "−"}</button></div>
       <p>{sprint.objective ?? "No sprint objective provided."}</p>
       <small>{sprint.tasks?.filter((task) => task.status === "done").length ?? 0}/{sprint.tasks?.length ?? 0} tasks completed · {sprint.status ?? "planned"}</small>
+      {!collapsedSprints[sprint.id] && <InlineAddTicketForm sprint={sprint} projectId={dashboard.project_id ?? PROJECT_ID} client={client} onCreated={onRefresh} />}
       {!collapsedSprints[sprint.id] && <div className="sprint-ticket-list" aria-label={`Tasks in ${sprint.id}`}>
         {sprint.tasks?.length ? sortSprintTickets(sprint.tasks).map((ticket) => <TicketCard key={ticket.id} ticket={{ ...ticket, sprint_id: sprint.id }} client={client} projectId={dashboard.project_id} onRefresh={onRefresh} onDeleted={onTicketDeleted} />) : <p className="dashboard-state">No tasks in this sprint.</p>}
       </div>}
-      <div className="sprint-actions"><button className="sprint-view-button small" onClick={() => handleView(sprint.id)}>{viewSprint?.id === sprint.id && viewState === "ready" ? "Hide" : "View"}</button><button className="sprint-add-ticket-button small" onClick={() => setAddTicketSprint(sprint)}>Add a ticket</button><button className="sprint-delete-button small" onClick={() => handleDelete(sprint.id)} disabled={Boolean(runningId) || sprint.status === "done"}>Delete</button><button className={`sprint-run-button small ${runningId === sprint.id ? "is-running" : ""}`} onClick={() => handleRun(sprint.id)} disabled={Boolean(runningId) || sprint.status === "done"}>{runningId === sprint.id ? "Running…" : "Run"}</button></div>
+      <div className="sprint-actions"><button className="sprint-view-button small" onClick={() => handleView(sprint.id)}>{viewSprint?.id === sprint.id && viewState === "ready" ? "Hide" : "View"}</button><button className="sprint-delete-button small" onClick={() => handleDelete(sprint.id)} disabled={Boolean(runningId) || sprint.status === "done"}>Delete</button><button className={`sprint-run-button small ${runningId === sprint.id ? "is-running" : ""}`} onClick={() => handleRun(sprint.id)} disabled={Boolean(runningId) || sprint.status === "done"}>{runningId === sprint.id ? "Running…" : "Run"}</button></div>
       {viewSprint?.id === sprint.id && <EntityDetailsModal title={viewSprint.id} state={viewState} onClose={() => { setViewState("idle"); setViewSprint(null); }}>{viewState === "ready" && <><p className="sprint-objective">{viewSprint.objective}</p><h3>Tickets ({viewSprint.tickets?.length ?? 0})</h3><div className="sprint-ticket-table">{(viewSprint.tickets ?? []).map((ticket) => <article key={ticket.id}><strong>{ticket.id}</strong><span>{ticket.title}</span><small>{ticket.priority ?? "normal"}</small></article>)}</div><h3>Exit Criteria</h3><ul>{(viewSprint.exit_criteria ?? []).map((item) => <li key={item}>{item}</li>)}</ul></>}</EntityDetailsModal>}
     </article>)}
     {runMessage && <p className="sprint-run-message" role="status" aria-live="polite">{runMessage}</p>}
     {runEvents.length > 0 && <div className="sprint-run-events" role="log" aria-label="Sprint run events">{runEvents.map((event, index) => <div key={`${index}-${event}`}><strong>Run</strong> {event}</div>)}</div>}
     {deleteMessage && <p className="sprint-run-message" role="status">{deleteMessage}</p>}
-    {addTicketSprint && <AddTicketModal sprint={addTicketSprint} projectId={dashboard.project_id ?? PROJECT_ID} client={client} onClose={() => setAddTicketSprint(null)} onCreated={async () => { setAddTicketSprint(null); await onRefresh?.(); }} />}
-
   </section>;
 }
 
-function AddTicketModal({ sprint, projectId, client, onClose, onCreated }) {
+function InlineAddTicketForm({ sprint, projectId, client, onCreated }) {
   const [content, setContent] = useState("");
   const [error, setError] = useState("");
   const [state, setState] = useState("");
   async function submit(event) {
     event.preventDefault();
     setError("");
-    const normalized = normalizeTicketInput(content);
-    const ticket = normalized.ticket;
-    const prepared = ticket
-      ? { ...ticket, sprint_id: sprint.id, project_id: ticket.project_id ?? projectId, roadmap_id: ticket.roadmap_id ?? sprint.roadmap_id }
-      : content;
     setState("Creating…");
-    try { await client.createTicket(projectId, prepared, sprint.id); await onCreated?.(); }
-    catch (failure) { setState(""); setError(failure.message); }
+    try { await client.createTicket(projectId, content, sprint.id); setContent(""); await onCreated?.(); }
+    catch (failure) { setError(failure.message); }
+    finally { setState(""); }
   }
-  return <EntityDetailsModal title={`Add a ticket to ${sprint.id}`} modalClassName="add-ticket-modal" onClose={onClose}>
-    <form onSubmit={submit}>
-      <label htmlFor="paste-ticket-content">Ticket JSON or labeled prose</label>
-      <textarea id="paste-ticket-content" value={content} onChange={(event) => setContent(event.target.value)} rows="12" placeholder={'{"title":"...","objective":"...","acceptance_criteria":["..."]}'} aria-label="Pasted ticket content" />
-      {error && <p className="dashboard-state error" role="alert">{error}</p>}
-      {state && <p aria-live="polite">{state}</p>}
-      <div className="settings-actions"><button type="submit" disabled={!content.trim() || Boolean(state)}>Create ticket</button><button type="button" onClick={onClose}>Cancel</button></div>
-    </form>
-  </EntityDetailsModal>;
-}
-
-function parseLabeledTicket(text) {
-  const fields = {};
-  for (const match of String(text).matchAll(/^\s*(title|objective|acceptance_criteria)\s*:\s*([\s\S]*?)(?=^\s*(?:title|objective|acceptance_criteria)\s*:|$)/gim)) fields[match[1].toLowerCase()] = match[2].trim();
-  if (!fields.title || !fields.objective || !fields.acceptance_criteria) return null;
-  return { ...fields, acceptance_criteria: fields.acceptance_criteria.split(/\n|\s*[;|]\s*/).map((item) => item.replace(/^[-*]\s*/, "").trim()).filter(Boolean) };
+  return <form className="inline-add-ticket" onSubmit={submit}>
+    <label htmlFor={`add-ticket-${sprint.id}`}>Add a ticket to this sprint</label>
+    <div className="inline-add-ticket-row">
+      <textarea id={`add-ticket-${sprint.id}`} value={content} onChange={(event) => { setContent(event.target.value); setError(""); }} rows="2" placeholder="Describe the ticket in Vietnamese or paste a draft…" aria-label={`New ticket for ${sprint.id}`} />
+      <button type="submit" disabled={!content.trim() || Boolean(state)}>{state ? "Adding…" : "Add ticket"}</button>
+    </div>
+    {error && <p className="inline-add-ticket-error" role="alert">{error}</p>}
+  </form>;
 }
 
 export function UploadSprintPlanDialog({ client, onClose, onUploaded }) {
@@ -488,11 +474,11 @@ function TicketCard({ ticket, client, projectId, onRefresh, onDeleted }) {
     catch { setDetail(ticket); }
     setViewOpen(true);
   }
-  async function run() {
+  async function run({ fresh = false } = {}) {
     try {
-      const response = await client.runTicket(projectId, ticket.id);
+      const response = await client.runTicket(projectId, ticket.id, { fresh });
       const status = response?.status;
-      if (status === "accepted" || status === "started") setMessage(`Đã gửi ${ticket.id} cho Supervisor, đang xử lý…`);
+      if (status === "accepted" || status === "started") setMessage(response?.resumed ? `Đã resume ${ticket.id} từ turn ${response.resumed_from_turn ?? "?"}, đang xử lý…` : `Đã gửi ${ticket.id} cho Supervisor, đang xử lý…`);
       else if (status === "already_running") setMessage(`${ticket.id} đang chạy.`);
       else if (status === "failed") setMessage(`${ticket.id} retry thất bại.`);
       else setMessage(`${ticket.id}: ${status ?? "đã gửi yêu cầu chạy"}`);
@@ -503,11 +489,50 @@ function TicketCard({ ticket, client, projectId, onRefresh, onDeleted }) {
     try { await client.deleteTicket(projectId, ticket.id); onDeleted?.(ticket.id); setMessage("Deleted"); }
     catch (error) { setMessage(error.message); }
   }
-  return <><article className="dashboard-ticket"><div><strong>{ticket.id}</strong><span className="priority">{ticket.priority}</span></div><p>{ticket.title}</p><small><span className={`ticket-status ticket-status-${ticket.status ?? "planned"}`}>{ticket.status ?? "planned"}</span> · {ticket.progress}%</small><div className="ticket-actions"><button className="sprint-view-button small" onClick={view}>View</button><button className="sprint-run-button small" onClick={run} disabled={ticket.status === "done" || ticket.status === "running"}>Run</button><button className="sprint-delete-button small" onClick={remove} disabled={ticket.status === "done" || ticket.status === "running"}>Delete</button></div>{message && <small>{message}</small>}</article>{viewOpen && <TicketModal ticket={detail ?? ticket} onClose={() => { setViewOpen(false); setDetail(null); }} />}</>;
+  const resumable = ticket.checkpoint?.resumable === true;
+  const disabled = ticket.status === "done" || ticket.status === "running";
+  return <><article className="dashboard-ticket"><div><strong>{ticket.id}</strong><span className="priority">{ticket.priority}</span></div><p>{ticket.title}</p><small><span className={`ticket-status ticket-status-${ticket.status ?? "planned"}`}>{ticket.status ?? "planned"}</span> · {ticket.progress}%</small>{resumable && <small className="ticket-checkpoint">Có checkpoint dở ở turn {ticket.checkpoint.last_completed_turn ?? "?"}{ticket.checkpoint.last_tool ? ` (tool cuối: ${ticket.checkpoint.last_tool})` : ""}.</small>}<div className="ticket-actions"><button className="sprint-view-button small" onClick={view}>View</button>{resumable ? <button className="sprint-run-button small is-resume" onClick={() => run()} disabled={disabled}>Resume</button> : null}{resumable ? <button className="sprint-run-button small" onClick={() => run({ fresh: true })} disabled={disabled}>Run fresh</button> : <button className="sprint-run-button small" onClick={() => run()} disabled={disabled}>Run</button>}<button className="sprint-delete-button small" onClick={remove} disabled={disabled}>Delete</button></div>{message && <small>{message}</small>}</article>{viewOpen && <TicketModal ticket={detail ?? ticket} client={client} projectId={projectId} onClose={() => { setViewOpen(false); setDetail(null); }} />}</>;
 }
 
-function TicketModal({ ticket, onClose }) {
-  return <EntityDetailsModal title={ticket.id} onClose={onClose}><p className="sprint-objective">{ticket.title}</p><p>{ticket.objective ?? "No objective provided."}</p><p><strong>Status:</strong> {ticket.status} · {ticket.progress}%</p><h3>Acceptance Criteria</h3><ul>{(ticket.acceptance_criteria ?? []).map((item) => <li key={item}>{item}</li>)}</ul></EntityDetailsModal>;
+function ticketVietnameseContext(ticket) {
+  const existing = ticket.vietnamese_context ?? ticket.original_vietnamese_context ?? ticket.content_vi ?? ticket.content ?? ticket.description;
+  if (existing) return typeof existing === "string" ? existing : JSON.stringify(existing, null, 2);
+  return [
+    `Tiêu đề: ${ticket.title ?? ticket.id}`,
+    ticket.objective ? `Mục tiêu: ${ticket.objective}` : "",
+    (ticket.acceptance_criteria ?? []).length ? `Tiêu chí chấp nhận:\n${ticket.acceptance_criteria.map((item) => `- ${item}`).join("\n")}` : ""
+  ].filter(Boolean).join("\n\n");
+}
+
+function ticketEnglishContent(ticket) {
+  return ticket.english_content ?? ticket.regenerated_english_content ?? ticket.generated_content ?? ticket.content_en ?? "";
+}
+
+function TicketModal({ ticket, client, projectId, onClose }) {
+  const originalVietnameseContext = useMemo(() => ticketVietnameseContext(ticket), [ticket]);
+  const [changes, setChanges] = useState("");
+  const [englishContent, setEnglishContent] = useState(ticketEnglishContent(ticket));
+  const [submitState, setSubmitState] = useState("idle");
+  const [error, setError] = useState("");
+  async function submitContentChange(event) {
+    event.preventDefault();
+    setSubmitState("submitting");
+    setError("");
+    const payload = { original_vietnamese_context: originalVietnameseContext, changes, role: "sprint-leader", target_language: "en" };
+    try {
+      const response = client?.regenerateTicketEnglish
+        ? await client.regenerateTicketEnglish(projectId, ticket.id, payload)
+        : await fetch(`/api/projects/${encodeURIComponent(projectId)}/tickets/${encodeURIComponent(ticket.id)}/regenerate-english`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then(async (res) => { if (!res.ok) throw new Error(await res.text() || `Request failed (${res.status})`); return res.json(); });
+      const regenerated = response?.english_content ?? response?.regenerated_english_content ?? response?.content ?? response?.ticket?.content_en ?? response?.ticket?.objective;
+      if (!regenerated) throw new Error("Backend did not return regenerated English ticket content.");
+      setEnglishContent(String(regenerated));
+      setSubmitState("done");
+    } catch (err) {
+      setError(`Regeneration failed: ${err?.message ?? err}`);
+      setSubmitState("error");
+    }
+  }
+  return <EntityDetailsModal title={ticket.id} onClose={onClose}><p className="sprint-objective">{ticket.title}</p><p>{ticket.objective ?? "No objective provided."}</p><p><strong>Status:</strong> {ticket.status} · {ticket.progress}%</p><h3>Acceptance Criteria</h3><ul>{(ticket.acceptance_criteria ?? []).map((item) => <li key={item}>{item}</li>)}</ul><form className="ticket-content-change-panel" onSubmit={submitContentChange}><h3>Vietnamese content change</h3><label>Existing Vietnamese context<textarea value={originalVietnameseContext} readOnly rows={6} /></label><label>Your changes<textarea value={changes} onChange={(event) => setChanges(event.target.value)} rows={6} placeholder="Describe the changes to apply before regenerating the ticket in English." /></label><div className="ticket-actions"><button className="sprint-run-button small" type="submit" disabled={submitState === "submitting"}>{submitState === "submitting" ? "Regenerating…" : "Regenerate English"}</button></div>{error && <p className="dashboard-state error" role="alert">{error}</p>}</form>{englishContent && <section className="ticket-regenerated-content" aria-live="polite"><h3>Regenerated English Ticket</h3><MessageContent text={englishContent} /></section>}</EntityDetailsModal>;
 }
 
 function EntityDetailsModal({ title, state, modalClassName = "", onClose, children }) {
