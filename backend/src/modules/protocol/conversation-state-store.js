@@ -1,115 +1,70 @@
-import { randomUUID } from 'node:crypto';
+import { ConfigurationError } from "../../shared/errors.js";
 
-const DEFAULT_STATE = { conversations: [] };
+const TERMINAL = new Set(["completed", "failed", "needs_human_review"]);
 
-export function createConversationStateStore({ storage, path = 'conversation-state.json', filePath } = {}) {
-  if (!storage) throw new Error('storage is required');
-  const statePath = filePath || path;
-  let state = normalizeState(readState(storage, statePath));
+/** Tracks workflow conversation state independently from provider payloads. */
+export function createConversationStateStore({ fileService, root = ".forge/runtime/protocol-storage/conversations" } = {}) {
+  if (typeof fileService?.readFile !== "function" || typeof fileService?.atomicWrite !== "function") throw new ConfigurationError("Conversation state store requires File Service readFile and atomicWrite.");
+  const states = new Map();
+  return Object.freeze({ create, get, list, listByAgent, update, advanceRound, markStatus, clear });
 
-  function list() {
-    return state.conversations.map(copyConversation);
+  async function list({ agentId } = {}) {
+    if (agentId !== undefined) requireId(agentId, "agentId");
+    const conversations = [...states.values()]
+      .filter((state) => agentId === undefined || state.agent_id === agentId)
+      .map((state) => structuredClone(state));
+    return conversations;
   }
 
-  function listByAgent(agentId) {
-    const selectedAgentId = requireId(agentId, 'agentId');
-    return state.conversations
-      .filter((conversation) => conversation.agentId === selectedAgentId)
-      .map(copyConversation);
+  async function listByAgent(agentId) { return list({ agentId }); }
+
+  async function create({ conversationId, taskId, projectId, agentId = "builder", promptCacheKey = null } = {}) {
+    requireId(conversationId, "conversationId"); requireId(taskId, "taskId");
+    const state = { conversation_id: conversationId, task_id: taskId, project_id: projectId ?? null, agent_id: agentId, status: "created", current_round: 0, current_step: 0, last_request_id: null, last_provider_response_id: null, last_provider_status: null, parent_request_id: null, prompt_cache_key: promptCacheKey, context_revision: null, context_checksums: {}, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+    const existing = await get(conversationId);
+    if (existing) return existing;
+    states.set(conversationId, state);
+    try { await persist(state); } catch (error) {
+      if (error?.code === "FILE_ALREADY_EXISTS") {
+        const persisted = await get(conversationId);
+        if (persisted) return persisted;
+      }
+      throw error;
+    }
+    return structuredClone(state);
   }
 
-  function create(input = {}) {
-    const agentId = requireId(input.agentId, 'agentId');
-    const now = new Date().toISOString();
-    const conversation = {
-      id: input.id || randomUUID(),
-      agentId,
-      title: input.title || 'New conversation',
-      status: input.status || 'active',
-      round: Number.isInteger(input.round) ? input.round : 0,
-      messages: Array.isArray(input.messages) ? input.messages.map(copyValue) : [],
-      events: Array.isArray(input.events) ? input.events.map(copyValue) : [],
-      createdAt: input.createdAt || now,
-      updatedAt: input.updatedAt || now
-    };
-    state.conversations.push(conversation);
-    persist();
-    return copyConversation(conversation);
+  async function get(conversationId) {
+    requireId(conversationId, "conversationId");
+    if (states.has(conversationId)) return structuredClone(states.get(conversationId));
+    try { const loaded = JSON.parse(await fileService.readFile({ path: `${root}/${safe(conversationId)}/state.json` })); states.set(conversationId, loaded); return structuredClone(loaded); }
+    catch (error) { if (error?.code === "ENOENT" || error instanceof SyntaxError) return null; throw error; }
   }
 
-  function get(id) {
-    const conversationId = requireId(id, 'id');
-    const conversation = state.conversations.find((item) => item.id === conversationId);
-    return conversation ? copyConversation(conversation) : null;
+  async function clear(conversationId) {
+    requireId(conversationId, "conversationId");
+    states.delete(conversationId);
+    await fileService.deleteFile?.({ path: `${root}/${safe(conversationId)}/state.json` }).catch((error) => { if (error?.code !== "ENOENT") throw error; });
+    return true;
   }
 
-  function clear() {
-    state = normalizeState(DEFAULT_STATE);
-    persist();
+  async function update(conversationId, changes = {}) {
+    const current = await get(conversationId); if (!current) throw new ConfigurationError(`Conversation state not found: ${conversationId}.`);
+    if (changes.status && TERMINAL.has(current.status) && changes.status !== current.status) throw new ConfigurationError(`Conversation ${conversationId} is already terminal.`);
+    const next = { ...current, ...structuredClone(changes), conversation_id: current.conversation_id, task_id: current.task_id, updated_at: new Date().toISOString() };
+    states.set(conversationId, next); await persist(next); return structuredClone(next);
   }
 
-  function update(id, patch = {}) {
-    const conversation = requireConversation(id);
-    Object.assign(conversation, copyValue(patch), { id: conversation.id, updatedAt: new Date().toISOString() });
-    persist();
-    return copyConversation(conversation);
+  async function advanceRound(conversationId, { round, step, requestId, parentId = null, providerResponseId = null, providerStatus = null, status = "round_sent" } = {}) {
+    const current = await get(conversationId); if (!current) throw new ConfigurationError(`Conversation state not found: ${conversationId}.`);
+    if (!Number.isInteger(round) || round < current.current_round) throw new ConfigurationError("Conversation round must advance monotonically.");
+    return update(conversationId, { current_round: round, current_step: step ?? round, last_request_id: requestId ?? current.last_request_id, parent_request_id: parentId, last_provider_response_id: providerResponseId, last_provider_status: providerStatus, status });
   }
 
-  function advanceRound(id) {
-    const conversation = requireConversation(id);
-    conversation.round = (conversation.round || 0) + 1;
-    conversation.updatedAt = new Date().toISOString();
-    persist();
-    return copyConversation(conversation);
-  }
+  async function markStatus(conversationId, status, details = {}) { return update(conversationId, { status, ...details }); }
 
-  function markStatus(id, status) {
-    return update(id, { status: requireId(status, 'status') });
-  }
-
-  function persist() {
-    storage.atomicWrite(statePath, JSON.stringify(state, null, 2));
-  }
-
-  function requireConversation(id) {
-    const conversationId = requireId(id, 'id');
-    const conversation = state.conversations.find((item) => item.id === conversationId);
-    if (!conversation) throw new Error(`Conversation not found: ${conversationId}`);
-    return conversation;
-  }
-
-  return { list, listByAgent, create, get, clear, update, advanceRound, markStatus, persist };
+  async function persist(state) { await fileService.atomicWrite({ path: `${root}/${safe(state.conversation_id)}/state.json`, content: `${JSON.stringify(state)}\n`, replace: true }); }
 }
 
-function readState(storage, statePath) {
-  try {
-    const content = storage.readFile(statePath);
-    return content ? JSON.parse(content) : DEFAULT_STATE;
-  } catch (error) {
-    if (error && (error.code === 'ENOENT' || error.message === 'ENOENT')) return DEFAULT_STATE;
-    throw error;
-  }
-}
-
-function normalizeState(value) {
-  const conversations = Array.isArray(value?.conversations) ? value.conversations : [];
-  return {
-    conversations: conversations.map((conversation) => ({
-      ...copyValue(conversation),
-      agentId: requireId(conversation.agentId, 'agentId')
-    }))
-  };
-}
-
-function copyConversation(conversation) {
-  return copyValue(conversation);
-}
-
-function copyValue(value) {
-  return value == null ? value : JSON.parse(JSON.stringify(value));
-}
-
-function requireId(value, name) {
-  if (typeof value !== 'string' || value.trim() === '') throw new Error(`${name} is required`);
-  return value;
-}
+function requireId(value, name) { if (typeof value !== "string" || !value) throw new ConfigurationError(`Conversation state requires ${name}.`); }
+function safe(value) { if (!/^[A-Za-z0-9._-]+$/.test(value)) throw new ConfigurationError("Conversation ID contains unsafe characters."); return value; }
