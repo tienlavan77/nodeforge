@@ -1,3 +1,4 @@
+/* TICKET-PROJECT-NODEFORGE-1789479214703: regenerate English via Vietnamese source context -> sprint leader; validate -> persist -> sync runtime file */
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../shared/errors.js";
 
