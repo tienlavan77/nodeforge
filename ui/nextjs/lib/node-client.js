@@ -117,7 +117,7 @@ export function createNodeClient() {
     async getProjectDashboard(projectId) {
       return requestJson(forgeV1(`/projects/${projectId}/dashboard`, { project: projectId }), { fallbackError: "Node could not load the Project Dashboard." });
     },
-    async getTicket(projectId, ticketId) { return requestJson(forgeV1(`/projects/${projectId}/tickets/${ticketId}`, { project: projectId }), { fallbackError: `Node could not load ticket ${ticketId}.` }); },
+    async getTicket(projectId, ticketId) { return requestJson(forgeV1(`/tickets/${ticketId}`, { project: projectId }), { fallbackError: `Node could not load ticket ${ticketId}.` }); },
     async createTicket(projectId, ticketOrContent, sprintId) {
       const body = typeof ticketOrContent === "string"
         ? { project_id: projectId, sprint_id: sprintId, content: ticketOrContent, context: ticketOrContent }
@@ -127,7 +127,7 @@ export function createNodeClient() {
         body: JSON.stringify(body), fallbackError: "Node could not create the ticket."
       });
     },
-    async getTicketGraph(projectId, ticketId) { return requestJson(forgeV1(`/projects/${projectId}/tickets/${ticketId}/graph`, { project: projectId }), { fallbackError: `Node could not load code graph for ${ticketId}.` }); },
+    async getTicketGraph(projectId, ticketId) { return requestJson(forgeV1(`/tickets/${ticketId}/graph`, { project: projectId }), { fallbackError: `Node could not load code graph for ${ticketId}.` }); },
     async uploadSprintPlan(projectId, sprintPlan) {
       return requestJson(forgeV1("/sprints", { project: projectId }), {
         method: "POST", headers: { "content-type": "application/json" },
@@ -156,7 +156,7 @@ export function createNodeClient() {
       return requestJson(forgeV1(`/sprints/${sprintId}`, { project: projectId }), { method: "DELETE", fallbackError: "Node could not delete the Sprint Plan." });
     },
     async deleteTicket(projectId, ticketId) {
-      return requestJson(forgeV1(`/projects/${projectId}/tickets/${ticketId}`, { project: projectId }), { method: "DELETE", fallbackError: "Node could not delete the ticket." });
+      return requestJson(forgeV1(`/tickets/${ticketId}`, { project: projectId }), { method: "DELETE", fallbackError: "Node could not delete the ticket." });
     },
     async regenerateTicketEnglish(projectId, ticketId, payload = {}) {
       const body = {
@@ -167,7 +167,7 @@ export function createNodeClient() {
         target_language: payload.target_language ?? "en",
         ...(payload.correlation_id ? { correlation_id: payload.correlation_id } : {}),
       };
-      return requestJson(forgeV1(`/projects/${projectId}/tickets/${ticketId}/regenerate-english`, { project: projectId }), {
+      return requestJson(forgeV1(`/tickets/${ticketId}/regenerate-english`, { project: projectId }), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
@@ -175,7 +175,7 @@ export function createNodeClient() {
       });
     },
     async runTicket(projectId, ticketId, { fresh = false } = {}) {
-      return requestJson(forgeV1(`/projects/${projectId}/tickets/${ticketId}/run`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, ...(fresh ? { fresh: true } : {}) }), fallbackError: `Node rejected Ticket Run: ${ticketId}.` });
+      return requestJson(forgeV1(`/tickets/${ticketId}/run`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, ...(fresh ? { fresh: true } : {}) }), fallbackError: `Node rejected Ticket Run: ${ticketId}.` });
     },
     async runSprint(projectId, sprintId) {
       return requestJson(forgeV1(`/sprints/${sprintId}/run`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId }), fallbackError: "Node could not start the sprint." });
