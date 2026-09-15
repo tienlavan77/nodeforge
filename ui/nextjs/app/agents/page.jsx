@@ -50,7 +50,7 @@ export default function AgentsPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [editingAgent, setEditingAgent] = useState(null);
-  const [form, setForm] = useState({ role: "architecture_manager", agent_name: "", provider: "anthropic", model: "claude-sonnet-4-6", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false });
+  const [form, setForm] = useState({ role: "architecture_manager", team: "Backend", agent_name: "", provider: "anthropic", model: "claude-sonnet-4-6", effort: "medium", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false });
 
   function updateField(event) {
     setForm((current) => {
@@ -72,7 +72,7 @@ export default function AgentsPage() {
     const role = agent.role ?? "coder";
     const availableModels = PROVIDER_MODELS[provider] ?? PROVIDER_MODELS.openai;
     const model = agent.model || availableModels[0];
-    setForm({ role, agent_name: agent.agent_name ?? "", provider, model, gateway_url: agent.gateway_url ?? "https://gateway.example.test/agent", api_key: "", enabled: agent.enabled === true });
+    setForm({ role, team: agent.team ?? "Backend", agent_name: agent.agent_name ?? "", provider, model, effort: agent.effort ?? "medium", gateway_url: agent.gateway_url ?? "https://gateway.example.test/agent", api_key: "", enabled: agent.enabled === true });
     setFormError("");
     setModalOpen(true);
   }
@@ -123,7 +123,7 @@ export default function AgentsPage() {
       setAgents((current) => editingAgent ? current.map((item) => item.agent_id === editingAgent.agent_id ? payload : item) : [...current, payload]);
       setModalOpen(false);
       setEditingAgent(null);
-      setForm({ role: "architecture_manager", agent_name: "", provider: "anthropic", model: "claude-sonnet-4-6", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false });
+      setForm({ role: "architecture_manager", team: "Backend", agent_name: "", provider: "anthropic", model: "claude-sonnet-4-6", effort: "medium", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false });
     } catch (requestError) {
       setFormError(requestError.message || "Agent could not be created.");
     } finally { setSaving(false); }
@@ -156,7 +156,7 @@ export default function AgentsPage() {
       {state === "loading" && <p className="agents-directory-state">Loading agents from `/forge/v1/agents`…</p>}
       {state === "error" && <p className="agents-directory-state error">{error}</p>}
       {state === "ready" && agents.length === 0 && <p className="agents-directory-state">No agents returned by the API.</p>}
-      {state === "ready" && <div className="agents-card-grid"><button className="agent-directory-card agent-add-card" type="button" onClick={() => { setEditingAgent(null); setForm({ role: "architecture_manager", agent_name: "", provider: "anthropic", model: "claude-sonnet-4-6", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false }); setTestState(""); setFormError(""); setModalOpen(true); }} aria-label="Add agent"><span>+</span><strong>Add agent</strong></button>{agents.map((agent, index) => {
+      {state === "ready" && <div className="agents-card-grid"><button className="agent-directory-card agent-add-card" type="button" onClick={() => { setEditingAgent(null); setForm({ role: "architecture_manager", team: "Backend", agent_name: "", provider: "anthropic", model: "claude-sonnet-4-6", effort: "medium", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false }); setTestState(""); setFormError(""); setModalOpen(true); }} aria-label="Add agent"><span>+</span><strong>Add agent</strong></button>{agents.map((agent, index) => {
         const id = agent.agent_id ?? agent.id ?? `agent-${index}`;
         const name = agent.agent_name ?? agent.name ?? agent.label ?? id;
         const capabilities = agent.capabilities ?? agent.tools ?? [];
