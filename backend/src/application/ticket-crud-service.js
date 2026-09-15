@@ -4,11 +4,12 @@ import { ConfigurationError } from "../shared/errors.js";
 const UPDATABLE = ["title", "objective", "acceptance_criteria", "priority", "dependencies", "status", "last_error"];
 const SPRINT_LEADER_ROLE = "sprint_leader";
 
-export function createTicketCrudService({ roadmaps, proseTicketService, publisher, agentStream, agentRoleResolver, clock = () => new Date() } = {}) {
+export function createTicketCrudService({ roadmaps, proseTicketService, ticketFileStore, publisher, agentStream, agentRoleResolver, clock = () => new Date() } = {}) {
   if (typeof roadmaps?.getCurrent !== "function") throw new ConfigurationError("Ticket CRUD requires a Roadmap Store.");
   if (typeof proseTicketService?.createFromObject !== "function") throw new ConfigurationError("Ticket CRUD requires the Prose Ticket Service.");
+  if (ticketFileStore !== undefined && typeof ticketFileStore?.create !== "function") throw new ConfigurationError("Ticket CRUD requires a valid Ticket File Store.");
 
-  return Object.freeze({ listTickets, createTicket, updateTicket });
+  return Object.freeze({ listTickets, createTicket, updateTicket, regenerateTicketEnglish });
 
   function listTickets({ projectId } = {}) {
     requireProject(projectId);
@@ -17,11 +18,32 @@ export function createTicketCrudService({ roadmaps, proseTicketService, publishe
     return structuredClone((current.sprints ?? []).flatMap((sprint) => sprint.tickets ?? []));
   }
 
-  async function createTicket({ projectId, ticket, content, sprintId } = {}) {
+  async function createTicket({ projectId, ticket, content, context, sprintId } = {}) {
     requireProject(projectId);
     const now = clock().toISOString();
+    // Owner-entered text is private context. Normalize it before persistence so
+    // the canonical ticket (and any downstream coder payload) is English only.
+    const ownerContext = typeof context === "string" ? context : undefined;
+    if (ownerContext !== undefined) {
+      if (typeof agentStream !== "function" || typeof agentRoleResolver?.resolve !== "function") {
+        throw Object.assign(new ConfigurationError("Ticket normalization requires the Sprint Leader agent."), { statusCode: 503, code: "TICKET_NORMALIZER_UNAVAILABLE" });
+      }
+      let agentId;
+      try { agentId = agentRoleResolver.resolve(SPRINT_LEADER_ROLE); } catch { throw Object.assign(new ConfigurationError("Ticket normalization requires the Sprint Leader agent."), { statusCode: 503, code: "TICKET_NORMALIZER_UNAVAILABLE" }); }
+      const converted = await requestSprintLeaderTicket({ projectId, agentId, content: ownerContext, ticket, feedback: undefined });
+      if (!converted || typeof converted !== "object" || Array.isArray(converted)) {
+        throw Object.assign(new ConfigurationError("Sprint leader response did not contain a valid ticket JSON object."), { statusCode: 422, code: "INVALID_TICKET" });
+      }
+      const normalized = tryCreate({ projectId, ticket: converted, sprintId, now });
+      if (!normalized.created) throw attemptError(normalized);
+      persistCanonical(normalized.ticket, ownerContext);
+      return normalized;
+    }
     const attempt = tryCreate({ projectId, ticket, content, sprintId, now });
-    if (attempt.created) return attempt;
+    if (attempt.created) {
+      persistCanonical(attempt.ticket, JSON.stringify(ticket ?? {}));
+      return attempt;
+    }
 
     // Structured tickets are created immediately; anything that fails
     // validation (raw chat or an invalid draft) goes through the sprint
@@ -36,7 +58,10 @@ export function createTicketCrudService({ roadmaps, proseTicketService, publishe
       throw Object.assign(new ConfigurationError("Sprint leader response did not contain a valid ticket JSON object."), { statusCode: 422, code: "INVALID_TICKET" });
     }
     const retry = tryCreate({ projectId, ticket: converted, sprintId, now });
-    if (retry.created) return retry;
+    if (retry.created) {
+      persistCanonical(retry.ticket, typeof content === "string" ? content : JSON.stringify(ticket ?? {}));
+      return retry;
+    }
     throw Object.assign(new ConfigurationError(`Sprint leader returned an invalid ticket: ${retry.question ?? "unknown validation failure"}`), { statusCode: 422, code: "INVALID_TICKET", ...(retry.missing?.length ? { missing: retry.missing } : {}) });
   }
 
@@ -70,6 +95,11 @@ export function createTicketCrudService({ roadmaps, proseTicketService, publishe
     return { created: true, ticket: result.ticket, roadmap_version: result.roadmap.version };
   }
 
+  function persistCanonical(ticket, context) {
+    if (!ticketFileStore) return;
+    ticketFileStore.create({ ticket, context });
+  }
+
   async function requestSprintLeaderTicket({ projectId, agentId, content, ticket, feedback }) {
     const prompt = [
       "Convert the project owner request below into exactly one governance ticket.",
@@ -89,6 +119,28 @@ export function createTicketCrudService({ roadmaps, proseTicketService, publishe
     return extractTicketJson(output);
   }
 
+  async function regenerateTicketEnglish({ projectId, ticketId, context, sprintId } = {}) {
+    requireProject(projectId);
+    if (typeof context !== "string" || !context.trim()) throw Object.assign(new ConfigurationError("Vietnamese source context is required."), { statusCode: 400, code: "SOURCE_CONTEXT_REQUIRED" });
+    const current = roadmaps.getCurrent();
+    const original = current?.sprints?.flatMap((sprint) => sprint.tickets ?? []).find((ticket) => ticket.id === ticketId && ticket.project_id === projectId);
+    if (!original) throw Object.assign(new ConfigurationError(`Unknown ticket: ${ticketId}.`), { statusCode: 404 });
+    if (typeof agentStream !== "function" || typeof agentRoleResolver?.resolve !== "function") throw Object.assign(new ConfigurationError("English regeneration requires the Sprint Leader agent."), { statusCode: 503, code: "TICKET_REGENERATOR_UNAVAILABLE" });
+    let agentId;
+    try { agentId = agentRoleResolver.resolve(SPRINT_LEADER_ROLE); } catch { throw Object.assign(new ConfigurationError("English regeneration requires the Sprint Leader agent."), { statusCode: 503, code: "TICKET_REGENERATOR_UNAVAILABLE" }); }
+    const converted = await requestSprintLeaderTicket({ projectId, agentId, content: context, ticket: undefined, feedback: `Regenerate ticket ${ticketId}; preserve its identity and translate every translatable field to English.` });
+    if (!converted) throw Object.assign(new ConfigurationError("Sprint leader did not return a ticket JSON object."), { statusCode: 422, code: "INVALID_REGENERATED_TICKET" });
+    const candidate = { ...original, ...converted, id: ticketId, project_id: projectId, sprint_id: sprintId ?? original.sprint_id, roadmap_id: original.roadmap_id, provenance: original.provenance };
+    const errors = validateRegeneratedTicket(candidate);
+    if (errors.length) throw Object.assign(new ConfigurationError(`Regenerated ticket failed validation: ${errors.join("; ")}`), { statusCode: 422, code: "INVALID_REGENERATED_TICKET" });
+    const saved = roadmaps.updateTicket({ projectId, ticketId, patch: Object.fromEntries(UPDATABLE.filter((field) => candidate[field] !== undefined).map((field) => [field, candidate[field]])) });
+    if (!saved) throw Object.assign(new ConfigurationError(`Could not persist regenerated ticket: ${ticketId}.`), { statusCode: 500, code: "TICKET_PERSISTENCE_FAILED" });
+    const updated = saved.sprints.flatMap((sprint) => sprint.tickets ?? []).find((ticket) => ticket.id === ticketId);
+    try { ticketFileStore?.update({ ticket: updated }); } catch (error) { throw Object.assign(new ConfigurationError(`Could not synchronize runtime ticket file: ${error.message}`), { statusCode: 500, code: "TICKET_RUNTIME_SYNC_FAILED", cause: error }); }
+    publish("ticket.updated", projectId, { ticket_id: ticketId, ticket: updated, reason: "english_regeneration" });
+    return { updated: true, ticket: updated, english_content: ticketEnglishContent(updated), source_context: context };
+  }
+
   function updateTicket({ projectId, ticketId, patch } = {}) {
     requireProject(projectId);
     const provided = patch && typeof patch === "object" && !Array.isArray(patch) ? patch : {};
@@ -96,6 +148,7 @@ export function createTicketCrudService({ roadmaps, proseTicketService, publishe
     const saved = roadmaps.updateTicket?.({ projectId, ticketId, patch: filtered });
     if (saved === undefined) throw Object.assign(new ConfigurationError(`Unknown ticket: ${ticketId}.`), { statusCode: 404 });
     const updated = saved.sprints?.flatMap((sprint) => sprint.tickets ?? []).find((item) => item.id === ticketId);
+    ticketFileStore?.update({ ticket: updated });
     publish("ticket.updated", projectId, { ticket_id: ticketId, ticket: updated, roadmap_version: saved.version, patch: filtered });
     return { updated: true, ticket: updated, roadmap_version: saved.version };
   }
@@ -107,6 +160,18 @@ export function createTicketCrudService({ roadmaps, proseTicketService, publishe
   function publish(type, projectId, payload) {
     try { publisher?.publish?.({ event_id: `EVT-${Date.now()}-${type}`, type, project_id: projectId, timestamp: new Date().toISOString(), payload, metadata: { source: "ticket-crud-service" } }); } catch { /* stream notification must not undo mutation */ }
   }
+}
+
+function ticketEnglishContent(ticket) {
+  return [ticket.title ? `Title: ${ticket.title}` : "", ticket.objective ? `Objective: ${ticket.objective}` : "", (ticket.acceptance_criteria ?? []).length ? `Acceptance criteria:\n${ticket.acceptance_criteria.map((item) => `- ${item}`).join("\n")}` : ""].filter(Boolean).join("\n\n");
+}
+
+function validateRegeneratedTicket(ticket) {
+  const errors = [];
+  for (const field of ["title", "objective"]) if (typeof ticket[field] !== "string" || !ticket[field].trim()) errors.push(`${field} must be a non-empty string`);
+  if (!Array.isArray(ticket.acceptance_criteria) || ticket.acceptance_criteria.length === 0 || ticket.acceptance_criteria.some((item) => typeof item !== "string" || !item.trim())) errors.push("acceptance_criteria must contain non-empty strings");
+  if (ticket.priority !== undefined && !["low", "medium", "normal", "high", "critical"].includes(ticket.priority)) errors.push("priority is invalid");
+  return errors;
 }
 
 function requireProject(projectId) {
