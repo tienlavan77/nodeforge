@@ -137,6 +137,7 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
     const saved = roadmaps.updateTicket({ projectId, ticketId, patch: Object.fromEntries(UPDATABLE.filter((field) => candidate[field] !== undefined).map((field) => [field, candidate[field]])) });
     if (!saved) throw Object.assign(new ConfigurationError(`Could not persist regenerated ticket: ${ticketId}.`), { statusCode: 500, code: "TICKET_PERSISTENCE_FAILED" });
     const updated = saved.sprints.flatMap((sprint) => sprint.tickets ?? []).find((ticket) => ticket.id === ticketId);
+    if (!updated) throw Object.assign(new ConfigurationError(`Could not read persisted regenerated ticket: ${ticketId}.`), { statusCode: 500, code: "TICKET_PERSISTENCE_FAILED" });
     try {
       const synchronized = ticketFileStore?.update?.({ ticket: updated });
       if (synchronized === false) throw new Error("Ticket file store rejected the update.");
