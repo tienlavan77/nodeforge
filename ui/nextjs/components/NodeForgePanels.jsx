@@ -519,12 +519,27 @@ function TicketModal({ ticket, client, projectId, onRefreshed, onClose }) {
   const originalVietnameseContextRef = useRef(initialVietnameseContext);
   const [vietnameseContext, setVietnameseContext] = useState(initialVietnameseContext);
   const [englishContent, setEnglishContent] = useState(ticketEnglishContent(ticket));
+  const [generatedFields, setGeneratedFields] = useState(() => ({
+    title: ticket.title ?? "",
+    objective: ticket.objective ?? "",
+    acceptance_criteria: Array.isArray(ticket.acceptance_criteria) ? ticket.acceptance_criteria : [],
+  }));
   const [submitState, setSubmitState] = useState("idle");
   const [error, setError] = useState("");
+  const ticketIdRef = useRef(ticket.id);
   useEffect(() => {
-    originalVietnameseContextRef.current = initialVietnameseContext;
-    setVietnameseContext(initialVietnameseContext);
-  }, [initialVietnameseContext]);
+    if (ticket.id !== ticketIdRef.current) {
+      ticketIdRef.current = ticket.id;
+      originalVietnameseContextRef.current = initialVietnameseContext;
+      setVietnameseContext(initialVietnameseContext);
+      setEnglishContent(ticketEnglishContent(ticket));
+      setGeneratedFields({
+        title: ticket.title ?? "",
+        objective: ticket.objective ?? "",
+        acceptance_criteria: Array.isArray(ticket.acceptance_criteria) ? ticket.acceptance_criteria : [],
+      });
+    }
+  }, [ticket.id, initialVietnameseContext, ticket]);
   const hasVietnameseContextEdit = normalizeVietnameseContextForDiff(vietnameseContext) !== normalizeVietnameseContextForDiff(originalVietnameseContextRef.current);
   async function submitContentChange(event) {
     event.preventDefault();
@@ -537,10 +552,22 @@ function TicketModal({ ticket, client, projectId, onRefreshed, onClose }) {
         ? await client.regenerateTicketEnglish(projectId, ticket.id, payload)
         : await fetch(`/forge/v1/tickets/${encodeURIComponent(ticket.id)}?project=${encodeURIComponent(projectId)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then(async (res) => { if (!res.ok) throw new Error(await res.text() || `Request failed (${res.status})`); return res.json(); });
       const updatedTicket = response?.ticket ?? response?.data?.ticket ?? (response?.id ? response : null);
+      const generated = updatedTicket ?? response?.data ?? response;
+      const nextFields = {
+        title: generated?.title ?? "",
+        objective: generated?.objective ?? "",
+        acceptance_criteria: Array.isArray(generated?.acceptance_criteria) ? generated.acceptance_criteria : [],
+      };
       const regenerated = response?.english_content ?? response?.regenerated_english_content ?? response?.content ?? response?.ticket?.english_content ?? response?.ticket?.regenerated_english_content ?? response?.ticket?.content_en ?? response?.ticket?.generated_content ?? updatedTicket?.english_content ?? updatedTicket?.content_en ?? response?.ticket?.objective;
+      if (nextFields.title || nextFields.objective || nextFields.acceptance_criteria.length) setGeneratedFields(nextFields);
       if (!regenerated && !updatedTicket) throw new Error("Backend did not return regenerated English ticket content.");
-      if (regenerated) setEnglishContent(String(regenerated));
+      const sourceContext = String(vietnameseContext ?? "");
+      let nextEnglish = regenerated != null ? String(regenerated) : updatedTicket ? ticketEnglishContent(updatedTicket) : "";
+      if (sourceContext && nextEnglish && nextEnglish.trim() === sourceContext.trim()) nextEnglish = "";
+      if (sourceContext && nextEnglish.includes(sourceContext) && sourceContext.length > 20) nextEnglish = nextEnglish.replace(sourceContext, "").trim();
+      if (nextEnglish) setEnglishContent(nextEnglish);
       else if (updatedTicket) setEnglishContent(ticketEnglishContent(updatedTicket));
+      else if (regenerated != null) setEnglishContent(String(regenerated));
       // Ensure dashboard reflects persisted DB update without manual refresh.
       try {
         await onRefreshed?.(updatedTicket ?? response?.ticket ?? { ...ticket, english_content: String(regenerated) });
@@ -554,7 +581,7 @@ function TicketModal({ ticket, client, projectId, onRefreshed, onClose }) {
       setSubmitState("error");
     }
   }
-  return <EntityDetailsModal title={ticket.id} modalClassName="ticket-language-modal" onClose={onClose}><div className="ticket-language-summary"><p className="sprint-objective">{ticket.title}</p><p><strong>Status:</strong> {ticket.status} · {ticket.progress}%</p></div>{englishContent && <section className="ticket-english-content ticket-regenerated-content" aria-live="polite"><h3>English content</h3><MessageContent text={englishContent} /></section>}<form className="ticket-content-change-panel" onSubmit={submitContentChange}><div className="ticket-language-header"><div><h3>Vietnamese context</h3><p>Edit the Vietnamese context, then regenerate the English ticket.</p></div></div><label>Vietnamese context<textarea value={vietnameseContext} onChange={(event) => setVietnameseContext(event.target.value)} rows={8} /></label><div className="ticket-regenerate-actions"><button className="sprint-run-button ticket-regenerate-button" type="submit" aria-busy={submitState === "submitting"} disabled={submitState === "submitting" || !hasVietnameseContextEdit}>{submitState === "submitting" ? "Regenerating…" : "Regenerate English"}</button></div>{error && <p className="dashboard-state error" role="alert">{error}</p>}{submitState === "done" && <p className="dashboard-state" role="status" aria-live="polite">English ticket regenerated and dashboard refreshed.</p>}</form></EntityDetailsModal>;
+  return <EntityDetailsModal title={ticket.id} modalClassName="ticket-language-modal" onClose={onClose}><div className="ticket-language-summary"><p className="sprint-objective">{generatedFields.title || ticket.title}</p><p><strong>Status:</strong> {ticket.status} · {ticket.progress}%</p><dl className="ticket-generated-fields"><dt>Objective</dt><dd>{generatedFields.objective || "—"}</dd><dt>Acceptance criteria</dt><dd>{generatedFields.acceptance_criteria.length ? <ul>{generatedFields.acceptance_criteria.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul> : "—"}</dd></dl></div>{englishContent && <section className="ticket-english-content ticket-regenerated-content" aria-live="polite"><h3>English content</h3><MessageContent text={englishContent} /></section>}<form className="ticket-content-change-panel" onSubmit={submitContentChange}><div className="ticket-language-header"><div><h3>Vietnamese context</h3><p>Edit the Vietnamese context, then regenerate the English ticket.</p></div></div><label>Vietnamese context<textarea value={vietnameseContext} onChange={(event) => setVietnameseContext(event.target.value)} rows={8} /></label><div className="ticket-regenerate-actions"><button className="sprint-run-button ticket-regenerate-button" type="submit" aria-busy={submitState === "submitting"} disabled={submitState === "submitting" || !hasVietnameseContextEdit}>{submitState === "submitting" ? "Regenerating…" : "Regenerate English"}</button></div>{error && <p className="dashboard-state error" role="alert">{error}</p>}{submitState === "done" && <p className="dashboard-state" role="status" aria-live="polite">English ticket regenerated and dashboard refreshed.</p>}</form></EntityDetailsModal>;
 }
 
 function EntityDetailsModal({ title, state, modalClassName = "", onClose, children }) {
