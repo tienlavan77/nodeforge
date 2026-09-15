@@ -10,6 +10,31 @@ test("saves masked Agent Settings through Profile/Configuration and tests connec
   const saved = service.save({ agent_id: "55555555-5555-4555-8555-555555555555", agent_name: "Builder", role: "coder", gateway_url: "https://gateway.example.test/builder", enabled: true, api_key: "secret" });
   assert.equal(saved.api_key_masked, "********"); assert.equal(profile.api_key, undefined); assert.equal(synced, 1);
   assert.equal((await service.testConnection("55555555-5555-4555-8555-555555555555")).status, "CONNECTED"); assert.equal(tested, 1);
+  assert.equal(profile.team, "Backend");
+
+  const updated = service.save({ agent_id: profile.agent_id, agent_name: "Builder", role: "coder", team: "Security", gateway_url: profile.gateway_url, enabled: true });
+  assert.equal(profile.team, "Security");
+  assert.equal(updated.team, "Security");
+  assert.equal(service.get(profile.agent_id).team, "Security");
+});
+
+test("creates and returns an agent profile team", () => {
+  let profile;
+  const profiles = { getAll: () => profile ? [profile] : [], getById: (id) => id === profile?.agent_id ? profile : undefined, create: (value) => (profile = structuredClone(value)), update: (value) => (profile = structuredClone(value)), delete: () => true };
+  const service = createAgentSettingsService({ profiles, configuration: { sync: () => {} }, gateway: { testConnection: async () => ({ status: "CONNECTED" }) } });
+  const created = service.create({ agent_id: "88888888-8888-4888-8888-888888888888", role: "reviewer", team: "Frontend", gateway_url: "https://gateway.example.test/reviewer" });
+  assert.equal(profile.team, "Frontend");
+  assert.equal(created.team, "Frontend");
+  assert.equal(service.list()[0].team, "Frontend");
+});
+
+test("rejects invalid agent teams", () => {
+  const profiles = { getAll: () => [], getById: () => undefined, create: () => {}, update: () => {}, delete: () => true };
+  const service = createAgentSettingsService({ profiles, configuration: { sync: () => {} }, gateway: { testConnection: async () => ({ status: "CONNECTED" }) } });
+  const base = { agent_id: "99999999-9999-4999-8999-999999999999", role: "coder", gateway_url: "https://gateway.example.test/coder" };
+  assert.throws(() => service.create({ ...base, team: "" }), /Team is invalid/);
+  assert.throws(() => service.create({ ...base, team: "A".repeat(33) }), /Team is invalid/);
+  assert.throws(() => service.create({ ...base, team: 42 }), /Team is invalid/);
 });
 
 test("rejects invalid URL and unsupported Agent", () => {

@@ -101,7 +101,7 @@ function validateAgent(profile) {
   if (profile.use_responses !== undefined && typeof profile.use_responses !== "boolean") throw new ConfigurationError("use_responses must be boolean.");
   if (profile.use_previous_response_id !== undefined && typeof profile.use_previous_response_id !== "boolean") throw new ConfigurationError("use_previous_response_id must be boolean.");
   if (!["coder", "reviewer", "sprint_leader", "architecture_manager"].includes(profile.role)) throw new ConfigurationError("Role is invalid.");
-  if (!TEAMS.includes(profile.team) || profile.team.length > 32) throw new ConfigurationError("Team is invalid.");
+  normalizeTeam(profile.team);
 }
 
 function normalizeStatus(status) {
