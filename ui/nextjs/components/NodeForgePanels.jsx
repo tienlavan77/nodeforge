@@ -495,7 +495,7 @@ function TicketCard({ ticket, client, projectId, onRefresh, onDeleted }) {
 }
 
 function ticketVietnameseContext(ticket) {
-  const existing = ticket.vietnamese_context ?? ticket.original_vietnamese_context ?? ticket.content_vi ?? ticket.content ?? ticket.description;
+  const existing = ticket.vietnamese_context ?? ticket.original_vietnamese_context ?? ticket.content_vi;
   if (existing) return typeof existing === "string" ? existing : JSON.stringify(existing, null, 2);
   return [
     `Tiêu đề: ${ticket.title ?? ticket.id}`,
@@ -532,7 +532,7 @@ function TicketModal({ ticket, client, projectId, onClose }) {
       setSubmitState("error");
     }
   }
-  return <EntityDetailsModal title={ticket.id} modalClassName="ticket-language-modal" onClose={onClose}><div className="ticket-language-summary"><p className="sprint-objective">{ticket.title}</p><p><strong>Status:</strong> {ticket.status} · {ticket.progress}%</p></div><form className="ticket-content-change-panel" onSubmit={submitContentChange}><div className="ticket-language-header"><div><h3>Vietnamese context</h3><p>Review the retained Vietnamese source context, add optional notes, then regenerate the English ticket.</p></div><button className="sprint-run-button ticket-regenerate-button" type="submit" disabled={submitState === "submitting"}>{submitState === "submitting" ? "Regenerating…" : "Regenerate English"}</button></div><label>Vietnamese context<textarea value={originalVietnameseContext} readOnly rows={8} /></label><label>Change notes<textarea value={changes} onChange={(event) => setChanges(event.target.value)} rows={5} placeholder="Optional: describe changes to apply before regenerating English content." /></label>{error && <p className="dashboard-state error" role="alert">{error}</p>}</form>{englishContent && <section className="ticket-regenerated-content" aria-live="polite"><h3>Regenerated English Ticket</h3><MessageContent text={englishContent} /></section>}</EntityDetailsModal>;
+  return <EntityDetailsModal title={ticket.id} modalClassName="ticket-language-modal" onClose={onClose}><div className="ticket-language-summary"><p className="sprint-objective">{ticket.title}</p><p><strong>Status:</strong> {ticket.status} · {ticket.progress}%</p></div>{englishContent && <section className="ticket-english-content ticket-regenerated-content" aria-live="polite"><h3>English content</h3><MessageContent text={englishContent} /></section>}<form className="ticket-content-change-panel" onSubmit={submitContentChange}><div className="ticket-language-header"><div><h3>Vietnamese context</h3><p>Review the retained Vietnamese source context, add optional notes, then regenerate the English ticket.</p></div></div><label>Vietnamese context<textarea value={originalVietnameseContext} readOnly rows={8} /></label><div style={{ display: "flex", justifyContent: "flex-end" }}><button className="sprint-run-button ticket-regenerate-button" type="submit" disabled={submitState === "submitting"}>{submitState === "submitting" ? "Regenerating…" : "Regenerate English"}</button></div><label>Change notes<textarea value={changes} onChange={(event) => setChanges(event.target.value)} rows={5} placeholder="Optional: describe changes to apply before regenerating English content." /></label>{error && <p className="dashboard-state error" role="alert">{error}</p>}</form></EntityDetailsModal>;
 }
 
 function EntityDetailsModal({ title, state, modalClassName = "", onClose, children }) {
