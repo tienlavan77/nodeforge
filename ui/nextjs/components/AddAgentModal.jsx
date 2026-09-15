@@ -14,6 +14,7 @@ function SelectMenu({ label, name, value, options, openName, setOpenName, onChan
 }
 
 export function AddAgentModal({ title = "Add agent", form, modelOptions, apiKeyMasked, saving, error, testState, onTestConnection, onChange, onSubmit, onClose }) {
+  // Team selector rendered below Role with options: Backend, Frontend, Security
   const [openName, setOpenName] = useState(null);
   const roles = [{ value: "architecture_manager", label: "Architecture Manager" }, { value: "sprint_leader", label: "Sprint Leader" }, { value: "coder", label: "Coder" }, { value: "reviewer", label: "Reviewer" }];
   const teams = [{ value: "Backend", label: "Backend" }, { value: "Frontend", label: "Frontend" }, { value: "Security", label: "Security" }];
