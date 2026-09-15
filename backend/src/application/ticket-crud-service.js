@@ -129,7 +129,12 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
     if (typeof agentStream !== "function" || typeof agentRoleResolver?.resolve !== "function") throw Object.assign(new ConfigurationError("English regeneration requires the Sprint Leader agent."), { statusCode: 503, code: "TICKET_REGENERATOR_UNAVAILABLE" });
     let agentId;
     try { agentId = agentRoleResolver.resolve(SPRINT_LEADER_ROLE); } catch { throw Object.assign(new ConfigurationError("English regeneration requires the Sprint Leader agent."), { statusCode: 503, code: "TICKET_REGENERATOR_UNAVAILABLE" }); }
-    const converted = await requestSprintLeaderTicket({ projectId, agentId, content: context, ticket: undefined, feedback: `Regenerate ticket ${ticketId}; preserve its identity and translate every translatable field to English.` });
+    let converted;
+    try {
+      converted = await requestSprintLeaderTicket({ projectId, agentId, content: context, ticket: undefined, feedback: `Regenerate ticket ${ticketId}; preserve its identity and translate every translatable field to English.` });
+    } catch (error) {
+      throw Object.assign(new ConfigurationError(`Sprint leader regeneration failed: ${error.message}`), { statusCode: 503, code: "TICKET_REGENERATOR_UNAVAILABLE", cause: error });
+    }
     if (!converted) throw Object.assign(new ConfigurationError("Sprint leader did not return a ticket JSON object."), { statusCode: 422, code: "INVALID_REGENERATED_TICKET" });
     const candidate = { ...original, ...converted, id: ticketId, project_id: projectId, sprint_id: sprintId ?? original.sprint_id, roadmap_id: original.roadmap_id, provenance: original.provenance };
     const errors = validateRegeneratedTicket(candidate);
