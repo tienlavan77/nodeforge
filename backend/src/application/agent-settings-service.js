@@ -115,7 +115,7 @@ function normalizeRole(role) {
 }
 
 function normalizeTeam(team) {
-  if (typeof team !== "string" || !TEAMS.includes(team)) throw new ConfigurationError("Team is invalid.");
+  if (typeof team !== "string" || team.length === 0 || team.length > 32 || !TEAMS.includes(team)) throw new ConfigurationError("Team is invalid.");
   return team;
 }
 
