@@ -495,22 +495,23 @@ function TicketCard({ ticket, client, projectId, onRefresh, onDeleted }) {
 }
 
 function ticketVietnameseContext(ticket) {
-  const existing = ticket.vietnamese_context ?? ticket.original_vietnamese_context ?? ticket.content_vi;
-  if (existing) return typeof existing === "string" ? existing : JSON.stringify(existing, null, 2);
-  return [
-    `Tiêu đề: ${ticket.title ?? ticket.id}`,
-    ticket.objective ? `Mục tiêu: ${ticket.objective}` : "",
-    (ticket.acceptance_criteria ?? []).length ? `Tiêu chí chấp nhận:\n${ticket.acceptance_criteria.map((item) => `- ${item}`).join("\n")}` : ""
-  ].filter(Boolean).join("\n\n");
+  const context = ticket.context ?? ticket.vietnamese_context ?? ticket.original_vietnamese_context ?? ticket.content_vi;
+  return context == null ? "" : typeof context === "string" ? context : JSON.stringify(context, null, 2);
 }
 
 function ticketEnglishContent(ticket) {
-  return ticket.english_content ?? ticket.regenerated_english_content ?? ticket.generated_content ?? ticket.content_en ?? "";
+  const explicit = ticket.english_content ?? ticket.regenerated_english_content ?? ticket.generated_content ?? ticket.content_en;
+  if (explicit) return String(explicit);
+  return [
+    ticket.title ? `Title: ${ticket.title}` : "",
+    ticket.objective ? `Objective: ${ticket.objective}` : "",
+    (ticket.acceptance_criteria ?? []).length ? `Acceptance criteria:\n${ticket.acceptance_criteria.map((item) => `- ${item}`).join("\n")}` : ""
+  ].filter(Boolean).join("\n\n");
 }
 
 function TicketModal({ ticket, client, projectId, onClose }) {
-  const originalVietnameseContext = useMemo(() => ticketVietnameseContext(ticket), [ticket]);
-  const [changes, setChanges] = useState("");
+  const initialVietnameseContext = useMemo(() => ticketVietnameseContext(ticket), [ticket]);
+  const [vietnameseContext, setVietnameseContext] = useState(initialVietnameseContext);
   const [englishContent, setEnglishContent] = useState(ticketEnglishContent(ticket));
   const [submitState, setSubmitState] = useState("idle");
   const [error, setError] = useState("");
@@ -518,7 +519,7 @@ function TicketModal({ ticket, client, projectId, onClose }) {
     event.preventDefault();
     setSubmitState("submitting");
     setError("");
-    const payload = { original_vietnamese_context: originalVietnameseContext, changes, role: "sprint-leader", target_language: "en" };
+    const payload = { original_vietnamese_context: vietnameseContext, role: "sprint-leader", target_language: "en" };
     try {
       const response = client?.regenerateTicketEnglish
         ? await client.regenerateTicketEnglish(projectId, ticket.id, payload)
@@ -532,7 +533,7 @@ function TicketModal({ ticket, client, projectId, onClose }) {
       setSubmitState("error");
     }
   }
-  return <EntityDetailsModal title={ticket.id} modalClassName="ticket-language-modal" onClose={onClose}><div className="ticket-language-summary"><p className="sprint-objective">{ticket.title}</p><p><strong>Status:</strong> {ticket.status} · {ticket.progress}%</p></div>{englishContent && <section className="ticket-english-content ticket-regenerated-content" aria-live="polite"><h3>English content</h3><MessageContent text={englishContent} /></section>}<form className="ticket-content-change-panel" onSubmit={submitContentChange}><div className="ticket-language-header"><div><h3>Vietnamese context</h3><p>Review the retained Vietnamese source context, add optional notes, then regenerate the English ticket.</p></div></div><label>Vietnamese context<textarea value={originalVietnameseContext} readOnly rows={8} /></label><div className="ticket-regenerate-actions" style={{ display: "flex", justifyContent: "flex-end", width: "100%" }}><button className="sprint-run-button ticket-regenerate-button" type="submit" disabled={submitState === "submitting"}>{submitState === "submitting" ? "Regenerating…" : "Regenerate English"}</button></div><label>Change notes<textarea value={changes} onChange={(event) => setChanges(event.target.value)} rows={5} placeholder="Optional: describe changes to apply before regenerating English content." /></label>{error && <p className="dashboard-state error" role="alert">{error}</p>}</form></EntityDetailsModal>;
+  return <EntityDetailsModal title={ticket.id} modalClassName="ticket-language-modal" onClose={onClose}><div className="ticket-language-summary"><p className="sprint-objective">{ticket.title}</p><p><strong>Status:</strong> {ticket.status} · {ticket.progress}%</p></div>{englishContent && <section className="ticket-english-content ticket-regenerated-content" aria-live="polite"><h3>English content</h3><MessageContent text={englishContent} /></section>}<form className="ticket-content-change-panel" onSubmit={submitContentChange}><div className="ticket-language-header"><div><h3>Vietnamese context</h3><p>Edit the Vietnamese context, then regenerate the English ticket.</p></div></div><label>Vietnamese context<textarea value={vietnameseContext} onChange={(event) => setVietnameseContext(event.target.value)} rows={8} /></label><div className="ticket-regenerate-actions"><button className="sprint-run-button ticket-regenerate-button" type="submit" disabled={submitState === "submitting"}>{submitState === "submitting" ? "Regenerating…" : "Regenerate English"}</button></div>{error && <p className="dashboard-state error" role="alert">{error}</p>}</form></EntityDetailsModal>;
 }
 
 function EntityDetailsModal({ title, state, modalClassName = "", onClose, children }) {
@@ -594,7 +595,7 @@ function getAgentProcessData(agent) {
   return null;
 }
 
-function AgentProcessStatus({ agent }) {
+export function AgentProcessStatus({ agent }) {
   const data = getAgentProcessData(agent);
   const pid = data?.pid ?? data?.PID ?? "-";
   const ramRaw = data?.ram ?? data?.RAM ?? data?.memory ?? data?.memoryUsage ?? data?.rss ?? "-";
@@ -604,7 +605,7 @@ function AgentProcessStatus({ agent }) {
   const cpu = cpuRaw === "-" ? "-" : formatCpu(cpuRaw);
   const uptime = uptimeRaw === "-" ? "-" : formatUptime(uptimeRaw);
   return (
-    <div className="agent-process-status" style={{ marginLeft: "auto", textAlign: "right", fontSize: "0.78rem", opacity: 0.9, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flexShrink: 0, maxWidth: "55%", display: "flex", alignItems: "center", gap: "0.35rem" }} aria-label="Agent process status" title={`PID ${pid} | RAM ${ram} | %CPU ${cpu} | Uptime ${uptime}`}>
+    <div className="agent-process-status" data-process-status={`${pid} | ${ram} | ${cpu} | ${uptime}`} style={{ marginLeft: "auto", textAlign: "right", fontSize: "0.78rem", opacity: 0.9, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flexShrink: 0, maxWidth: "55%", display: "flex", alignItems: "center", gap: "0.35rem" }} aria-label="Agent process status" title={`PID ${pid} | RAM ${ram} | %CPU ${cpu} | Uptime ${uptime}`}>
       <span>PID {pid}</span><span aria-hidden="true"> | </span><span>RAM {ram}</span><span aria-hidden="true"> | </span><span>%CPU {cpu}</span><span aria-hidden="true"> | </span><span>Uptime {uptime}</span>
     </div>
   );
