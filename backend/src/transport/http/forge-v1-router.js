@@ -1,8 +1,26 @@
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 
-export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab, projectStream, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, conversationAuditHistoryService, architectureWorkspaceService, humanDecisionService, agentSettingsService } = {}) {
+export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab, projectStream, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, conversationCrudService, conversationAuditHistoryService, architectureWorkspaceService, humanDecisionService, agentSettingsService, listResumableCheckpoints } = {}) {
   return Object.freeze({ route });
+
+  // Adds a compact `checkpoint` summary to each ticket so the UI can show a
+  // Resume button when a previous run crashed mid-execution. Checkpoints are
+  // deleted on report_done, so a surviving entry means resumable progress.
+  async function withCheckpointSummary(sprints) {
+    if (typeof listResumableCheckpoints !== "function") return sprints;
+    let resumable;
+    try { resumable = await listResumableCheckpoints(); } catch { return sprints; }
+    const byTask = new Map((resumable ?? []).map((checkpoint) => [checkpoint.task_id, checkpoint]));
+    return (sprints ?? []).map((sprint) => ({
+      ...sprint,
+      tickets: (sprint.tickets ?? []).map((ticket) => {
+        const checkpoint = byTask.get(ticket?.id);
+        if (!checkpoint) return ticket;
+        return { ...ticket, checkpoint: { resumable: true, last_completed_turn: checkpoint.last_completed_turn ?? 0, last_tool: checkpoint.last_tool ?? null, updated_at: checkpoint.updated_at ?? null } };
+      })
+    }));
+  }
 
   async function route(method, url, request) {
     const parts = normalizeParts(url.pathname);
@@ -20,6 +38,19 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
     }
 
     const projectId = bodyProject ?? queryProject;
+
+    if (parts[0] === "conversations" && conversationCrudService) {
+      if (method === "GET" && parts.length === 1) return { status: 200, body: conversationCrudService.list({ projectId: projectId ?? url.searchParams.get("project_id") ?? undefined, agentId: url.searchParams.get("agent_id") ?? undefined }) };
+      if (method === "POST" && parts.length === 1) return { status: 201, body: conversationCrudService.create(body) };
+      if (parts.length === 2) {
+        const conversation = conversationCrudService.get(parts[1]);
+        if (!conversation) throw Object.assign(new ConfigurationError(`Conversation not found: ${parts[1]}.`), { statusCode: 404 });
+        if (projectId && conversation.project_id !== projectId) throw Object.assign(new ConfigurationError("Conversation belongs to a different project."), { statusCode: 404 });
+        if (method === "GET") return { status: 200, body: conversation };
+        if (method === "PUT") return { status: 200, body: conversationCrudService.update(parts[1], body) };
+        if (method === "DELETE") return { status: 200, body: conversationCrudService.remove(parts[1]) };
+      }
+    }
 
     if (method === "GET" && parts.length === 1 && parts[0] === "health") {
       return { status: 200, body: { status: "ok", service: "nodeforge" } };
@@ -111,7 +142,8 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
 
     if (method === "GET" && parts.length === 1 && parts[0] === "sprints") {
       if (!sprintPlanUploadService?.list) throw unavailable("Sprint Plan List");
-      return { status: 200, body: sprintPlanUploadService.list({ projectId }) };
+      const sprints = sprintPlanUploadService.list({ projectId });
+      return { status: 200, body: await withCheckpointSummary(sprints) };
     }
 
     if (method === "GET" && parts.length === 2 && parts[0] === "sprints") {
@@ -138,7 +170,7 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
         }
         if (method === "POST") {
           if (!ticketCrudService?.createTicket) throw unavailable("Ticket Create");
-          return { status: 201, body: await ticketCrudService.createTicket({ projectId, ticket: body.ticket, content: body.content, sprintId: body.sprint_id }) };
+          return { status: 201, body: await ticketCrudService.createTicket({ projectId, ticket: body.ticket, content: body.content, sprintId: body.sprint_id, ...(body.context !== undefined ? { context: body.context } : {}) }) };
         }
       }
       if (parts.length === 2) {
@@ -148,6 +180,9 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
           return { status: 200, body: await projectDashboardService.getTicket(projectId, parts[1]) };
         }
         if (method === "PUT") {
+          if (body.context !== undefined && ticketCrudService?.regenerateTicketEnglish) {
+            return { status: 200, body: await ticketCrudService.regenerateTicketEnglish({ projectId, ticketId: parts[1], context: body.context, sprintId: body.sprint_id }) };
+          }
           if (!ticketCrudService?.updateTicket) throw unavailable("Ticket Update");
           return { status: 200, body: ticketCrudService.updateTicket({ projectId, ticketId: parts[1], patch: body.ticket ?? body }) };
         }
@@ -165,13 +200,13 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
 
     if (method === "POST" && parts.length === 5 && parts[0] === "projects" && parts[2] === "tickets" && parts[4] === "run") {
       if (typeof dispatchTicket !== "function") throw unavailable("Ticket Dispatch");
-      const result = await dispatchTicket({ projectId: parts[1], ticketId: parts[3], conversationId: "CONV-BUILDER" });
+      const result = await dispatchTicket({ projectId: parts[1], ticketId: parts[3], conversationId: "CONV-BUILDER", ...(runRequestsFresh(url, body) ? { fresh: true } : {}) });
       return { status: 202, body: { ...result, request_id: requestId, correlation_id: correlationId } };
     }
 
     if (method === "POST" && parts.length === 2 && parts[0] === "tickets" && parts[1].endsWith(":run")) {
       if (typeof dispatchTicket !== "function") throw unavailable("Ticket Dispatch");
-      const result = await dispatchTicket({ projectId, ticketId: parts[1].slice(0, -4), conversationId: "CONV-BUILDER" });
+      const result = await dispatchTicket({ projectId, ticketId: parts[1].slice(0, -4), conversationId: "CONV-BUILDER", ...(runRequestsFresh(url, body) ? { fresh: true } : {}) });
       return { status: 202, body: { ...result, request_id: requestId, correlation_id: correlationId } };
     }
 
@@ -214,7 +249,7 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
 
     if (method === "POST" && parts.length === 5 && parts[0] === "projects" && parts[2] === "tickets" && parts[4].endsWith(":run")) {
       if (typeof dispatchTicket !== "function") throw unavailable("Ticket Dispatch");
-      return { status: 202, body: await dispatchTicket({ projectId: parts[1], ticketId: parts[3] ?? parts[4].slice(0, -4), conversationId: "CONV-BUILDER" }) };
+      return { status: 202, body: await dispatchTicket({ projectId: parts[1], ticketId: parts[3] ?? parts[4].slice(0, -4), conversationId: "CONV-BUILDER", ...(runRequestsFresh(url, body) ? { fresh: true } : {}) }) };
     }
 
     throw Object.assign(new ConfigurationError("Route not found."), { statusCode: 404 });
@@ -229,6 +264,14 @@ function normalizeParts(pathname) {
 
 function unavailable(name) {
   return Object.assign(new ConfigurationError(`${name} API is not configured.`), { statusCode: 503 });
+}
+
+// RUN resumes from a crash checkpoint by default; `?fresh=true` or a
+// `fresh: true` body forces a clean restart that clears prior state.
+function runRequestsFresh(url, body) {
+  const query = url?.searchParams?.get?.("fresh");
+  if (query != null) return query === "true" || query === "1";
+  return body?.fresh === true || body?.fresh === "true";
 }
 
 function requireProject(projectId) {

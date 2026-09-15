@@ -541,7 +541,11 @@ function TicketModal({ ticket, client, projectId, onRefreshed, onClose }) {
       if (regenerated) setEnglishContent(String(regenerated));
       else if (updatedTicket) setEnglishContent(ticketEnglishContent(updatedTicket));
       // Ensure dashboard reflects persisted DB update without manual refresh.
-      try { await onRefreshed?.(updatedTicket ?? response?.ticket ?? { ...ticket, english_content: String(regenerated) }); } catch {}
+      try {
+        await onRefreshed?.(updatedTicket ?? response?.ticket ?? { ...ticket, english_content: String(regenerated) });
+      } catch (refreshError) {
+        throw new Error(`English ticket regenerated, but the dashboard refresh failed: ${refreshError?.message ?? String(refreshError)}`);
+      }
       setSubmitState("done");
     } catch (err) {
       setError(`Regeneration failed: ${err?.message ?? String(err)}`);
