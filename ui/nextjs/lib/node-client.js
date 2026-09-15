@@ -161,21 +161,18 @@ export function createNodeClient() {
     async regenerateTicketEnglish(projectId, ticketId, payload = {}) {
       const body = {
         project_id: projectId,
-        ticket_id: ticketId,
-        original_vietnamese_context: payload.original_vietnamese_context ?? payload.context ?? payload.vietnamese_context ?? "",
-        role: payload.role ?? "sprint-leader",
-        target_language: payload.target_language ?? "en",
-        ...(payload.correlation_id ? { correlation_id: payload.correlation_id } : {}),
+        sprint_id: payload.sprint_id ?? payload.sprintId ?? null,
+        context: payload.context ?? payload.original_vietnamese_context ?? payload.vietnamese_context ?? "",
       };
-      return requestJson(forgeV1(`/tickets/${ticketId}/regenerate-english`, { project: projectId }), {
-        method: "POST",
+      return requestJson(forgeV1(`/tickets/${ticketId}`, { project: projectId }), {
+        method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
         fallbackError: "Node could not regenerate the English ticket.",
       });
     },
     async runTicket(projectId, ticketId, { fresh = false } = {}) {
-      return requestJson(forgeV1(`/tickets/${ticketId}/run`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, ...(fresh ? { fresh: true } : {}) }), fallbackError: `Node rejected Ticket Run: ${ticketId}.` });
+      return requestJson(forgeV1(`/tickets/${ticketId}:run`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, ...(fresh ? { fresh: true } : {}) }), fallbackError: `Node rejected Ticket Run: ${ticketId}.` });
     },
     async runSprint(projectId, sprintId) {
       return requestJson(forgeV1(`/sprints/${sprintId}/run`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId }), fallbackError: "Node could not start the sprint." });
