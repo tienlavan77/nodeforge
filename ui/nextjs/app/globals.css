@@ -350,7 +350,13 @@ button, input { font: inherit; }
 .ticket-content-change-panel textarea { width: 100%; min-width: 0; box-sizing: border-box; resize: vertical; border: 1px solid var(--app-button-border); border-radius: 6px; background: var(--app-input); color: var(--app-text); padding: 11px 12px; font: 13px/1.5 'DM Mono', monospace; }
 .ticket-content-change-panel textarea:focus-visible { outline: 2px solid color-mix(in srgb, var(--app-accent) 45%, transparent); outline-offset: 1px; border-color: var(--app-accent); }
 .ticket-content-change-panel textarea[readonly] { color: var(--app-muted); background: var(--app-surface-alt); }
-.ticket-regenerate-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }\n.ticket-regenerate-button { flex: 0 0 auto; min-height: 38px; padding: 9px 16px; border: 1px solid var(--app-accent); border-radius: 6px; background: var(--app-accent); color: var(--navy-950); font: 600 12px/1 'DM Mono', monospace; letter-spacing: .04em; text-transform: uppercase; transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease, transform .15s ease; }\n.ticket-regenerate-button:hover:not(:disabled) { background: var(--cyan-300); border-color: var(--cyan-300); box-shadow: 0 4px 14px rgba(85, 194, 216, .2); transform: translateY(-1px); }\n.ticket-regenerate-button:focus-visible { outline: 2px solid var(--cyan-300); outline-offset: 2px; }\n.ticket-regenerate-button:disabled { cursor: not-allowed; opacity: .55; }
+.ticket-regenerate-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+.ticket-regenerate-button { flex: 0 0 auto; min-height: 38px; padding: 9px 16px; border: 1px solid var(--app-accent); border-radius: 6px; background: var(--app-accent); color: var(--navy-950); cursor: pointer; font: 600 12px/1 'DM Mono', monospace; letter-spacing: .04em; text-transform: uppercase; transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease, transform .15s ease; }
+.ticket-regenerate-button:hover:not(:disabled) { background: var(--cyan-300); border-color: var(--cyan-300); box-shadow: 0 4px 14px rgba(85, 194, 216, .2); transform: translateY(-1px); }
+.ticket-regenerate-button:focus-visible { outline: 2px solid var(--cyan-300); outline-offset: 2px; }
+.ticket-regenerate-button:disabled { cursor: not-allowed; opacity: .55; }
+:root[data-theme='light'] .ticket-regenerate-button { background: var(--app-accent); border-color: var(--app-accent); color: #f8fcfd; }
+:root[data-theme='light'] .ticket-regenerate-button:hover:not(:disabled) { background: var(--cyan-600); border-color: var(--cyan-600); color: #f8fcfd; }
 .ticket-regenerated-content { margin-top: 20px; padding: 14px; border: 1px solid var(--app-border); border-radius: 6px; background: var(--app-surface-alt); }
 .ticket-regenerated-content h3 { margin-top: 0; }
 .ticket-regenerated-content .message-content { color: var(--app-text); }
