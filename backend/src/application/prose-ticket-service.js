@@ -14,7 +14,70 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
     throw new ConfigurationError("Prose ticket service requires a roadmap store.");
   }
   const validate = createValidator();
-  return Object.freeze({ parse, createFromObject });
+  async function regenerateEnglish(ticketId, { vietnameseContext, projectId, sprintLeader, ticketFileWriter, ticketStore } = {}) {
+    if (!ticketId) throw new ConfigurationError("Ticket id is required for English regeneration.");
+    const current = roadmapStore.getCurrent();
+    if (!current) throw new ConfigurationError("Roadmap not found for regeneration.");
+    const located = findTicket(current, ticketId);
+    if (!located) throw new ConfigurationError(`Ticket not found: ${ticketId}`);
+    const { ticket, sprint } = located;
+    // Preserve original identity while updating Vietnamese context.
+    const updatedVietnameseContext = vietnameseContext ?? ticket.context ?? ticket.vietnamese_context ?? "";
+    // Dispatch to sprint leader for English-localized content (injected for testability).
+    const sprintLeaderResult = sprintLeader && typeof sprintLeader.regenerateEnglish === "function"
+      ? await sprintLeader.regenerateEnglish({ ticket: { ...ticket, context: updatedVietnameseContext }, projectId, sprintId: sprint.id, vietnameseContext: updatedVietnameseContext })
+      : null;
+    const baseEnglish = sprintLeaderResult ?? { title: ticket.title, objective: ticket.objective, acceptance_criteria: ticket.acceptance_criteria };
+    // Ensure all translatable fields are English-localized and identity is preserved.
+    const regenerated = {
+      ...ticket,
+      id: ticket.id,
+      project_id: projectId ?? ticket.project_id,
+      title: String(baseEnglish.title ?? ticket.title),
+      objective: String(baseEnglish.objective ?? ticket.objective),
+      acceptance_criteria: Array.isArray(baseEnglish.acceptance_criteria) ? baseEnglish.acceptance_criteria.map(String) : ticket.acceptance_criteria,
+      context: updatedVietnameseContext,
+      vietnamese_context: updatedVietnameseContext,
+      original_vietnamese_context: updatedVietnameseContext,
+      english_content: baseEnglish.english_content ?? baseEnglish.content_en ?? null,
+      updated_at: clock().toISOString()
+    };
+    if (!validate(regenerated)) return validationResponse(validate.errors, regenerated);
+    // Persist updated Vietnamese context to database via roadmap store.
+    const nextRoadmap = updateTicketInRoadmap(current, regenerated);
+    const savedRoadmap = roadmapStore.save(nextRoadmap);
+    // Overwrite ticket file under .forge/runtime/nf/tickets for runtime propagation.
+    if (ticketFileWriter && typeof ticketFileWriter.writeTicketFile === "function") {
+      await ticketFileWriter.writeTicketFile(regenerated);
+    } else if (ticketStore && typeof ticketStore.writeTicketFile === "function") {
+      await ticketStore.writeTicketFile(regenerated);
+    }
+    // Propagate to DB ticket row if a dedicated ticketStore is available.
+    if (ticketStore && typeof ticketStore.updateContext === "function") {
+      await ticketStore.updateContext(regenerated.id, { context: updatedVietnameseContext, ticket: regenerated });
+    }
+    return { ticket: regenerated, roadmap: savedRoadmap };
+  }
+
+  function findTicket(roadmap, ticketId) {
+    for (const sprint of roadmap.sprints ?? []) {
+      for (const ticket of sprint.tickets ?? []) {
+        if (ticket.id === ticketId) return { ticket, sprint };
+      }
+    }
+    return null;
+  }
+
+  function updateTicketInRoadmap(roadmap, updatedTicket) {
+    return {
+      ...roadmap,
+      version: nextAvailableVersion(roadmap.version, roadmapStore),
+      updated_at: updatedTicket.updated_at,
+      sprints: (roadmap.sprints ?? []).map((sprint) => sprint.id === updatedTicket.sprint_id ? { ...sprint, tickets: (sprint.tickets ?? []).map((item) => item.id === updatedTicket.id ? updatedTicket : item) } : sprint)
+    };
+  }
+
+  return Object.freeze({ parse, createFromObject, regenerateEnglish });
 
   function createFromObject(ticket) {
     if (!ticket || typeof ticket !== "object" || Array.isArray(ticket)) return { create_ticket: true, status: "needs_input", error_code: "invalid_ticket_json", question: "Ticket JSON không hợp lệ." };
