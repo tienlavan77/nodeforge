@@ -509,14 +509,25 @@ function ticketEnglishContent(ticket) {
   ].filter(Boolean).join("\n\n");
 }
 
+function normalizeVietnameseContextForDiff(value) {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
 function TicketModal({ ticket, client, projectId, onRefreshed, onClose }) {
   const initialVietnameseContext = useMemo(() => ticketVietnameseContext(ticket), [ticket]);
+  const originalVietnameseContextRef = useRef(initialVietnameseContext);
   const [vietnameseContext, setVietnameseContext] = useState(initialVietnameseContext);
   const [englishContent, setEnglishContent] = useState(ticketEnglishContent(ticket));
   const [submitState, setSubmitState] = useState("idle");
   const [error, setError] = useState("");
+  useEffect(() => {
+    originalVietnameseContextRef.current = initialVietnameseContext;
+    setVietnameseContext(initialVietnameseContext);
+  }, [initialVietnameseContext]);
+  const hasVietnameseContextEdit = normalizeVietnameseContextForDiff(vietnameseContext) !== normalizeVietnameseContextForDiff(originalVietnameseContextRef.current);
   async function submitContentChange(event) {
     event.preventDefault();
+    if (!hasVietnameseContextEdit) return;
     setSubmitState("submitting");
     setError("");
     const payload = { project_id: projectId, sprint_id: ticket.sprint_id ?? ticket.sprintId ?? null, context: vietnameseContext };
@@ -537,7 +548,7 @@ function TicketModal({ ticket, client, projectId, onRefreshed, onClose }) {
       setSubmitState("error");
     }
   }
-  return <EntityDetailsModal title={ticket.id} modalClassName="ticket-language-modal" onClose={onClose}><div className="ticket-language-summary"><p className="sprint-objective">{ticket.title}</p><p><strong>Status:</strong> {ticket.status} · {ticket.progress}%</p></div>{englishContent && <section className="ticket-english-content ticket-regenerated-content" aria-live="polite"><h3>English content</h3><MessageContent text={englishContent} /></section>}<form className="ticket-content-change-panel" onSubmit={submitContentChange}><div className="ticket-language-header"><div><h3>Vietnamese context</h3><p>Edit the Vietnamese context, then regenerate the English ticket.</p></div></div><label>Vietnamese context<textarea value={vietnameseContext} onChange={(event) => setVietnameseContext(event.target.value)} rows={8} /></label><div className="ticket-regenerate-actions"><button className="sprint-run-button ticket-regenerate-button" type="submit" disabled={submitState === "submitting"}>{submitState === "submitting" ? "Regenerating…" : "Regenerate English"}</button></div>{error && <p className="dashboard-state error" role="alert">{error}</p>}</form></EntityDetailsModal>;
+  return <EntityDetailsModal title={ticket.id} modalClassName="ticket-language-modal" onClose={onClose}><div className="ticket-language-summary"><p className="sprint-objective">{ticket.title}</p><p><strong>Status:</strong> {ticket.status} · {ticket.progress}%</p></div>{englishContent && <section className="ticket-english-content ticket-regenerated-content" aria-live="polite"><h3>English content</h3><MessageContent text={englishContent} /></section>}<form className="ticket-content-change-panel" onSubmit={submitContentChange}><div className="ticket-language-header"><div><h3>Vietnamese context</h3><p>Edit the Vietnamese context, then regenerate the English ticket.</p></div></div><label>Vietnamese context<textarea value={vietnameseContext} onChange={(event) => setVietnameseContext(event.target.value)} rows={8} /></label><div className="ticket-regenerate-actions"><button className="sprint-run-button ticket-regenerate-button" type="submit" disabled={submitState === "submitting" || !hasVietnameseContextEdit}>{submitState === "submitting" ? "Regenerating…" : "Regenerate English"}</button></div>{error && <p className="dashboard-state error" role="alert">{error}</p>}</form></EntityDetailsModal>;
 }
 
 function EntityDetailsModal({ title, state, modalClassName = "", onClose, children }) {
