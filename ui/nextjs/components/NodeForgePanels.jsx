@@ -1,5 +1,5 @@
-"use client";
-/* Legacy Vite parity copy: retain dormant components until the Next UI is fully consolidated. */
+/* TICKET-PROJECT-NODEFORGE-1789479214703: English ticket regeneration via Vietnamese source context -> sprint leader */ 
+"use client";/* Legacy Vite parity copy: retain dormant components until the Next UI is fully consolidated. */
 /* eslint-disable no-unused-vars, no-undef */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
