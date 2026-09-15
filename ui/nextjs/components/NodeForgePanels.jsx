@@ -519,11 +519,11 @@ function TicketModal({ ticket, client, projectId, onRefreshed, onClose }) {
     event.preventDefault();
     setSubmitState("submitting");
     setError("");
-    const payload = { original_vietnamese_context: vietnameseContext, role: "sprint-leader", target_language: "en" };
+    const payload = { project_id: projectId, sprint_id: ticket.sprint_id ?? ticket.sprintId ?? null, context: vietnameseContext };
     try {
       const response = client?.regenerateTicketEnglish
         ? await client.regenerateTicketEnglish(projectId, ticket.id, payload)
-        : await fetch(`/forge/v1/tickets/${encodeURIComponent(ticket.id)}/regenerate-english?project=${encodeURIComponent(projectId)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, project_id: projectId, ticket_id: ticket.id }) }).then(async (res) => { if (!res.ok) throw new Error(await res.text() || `Request failed (${res.status})`); return res.json(); });
+        : await fetch(`/forge/v1/tickets/${encodeURIComponent(ticket.id)}?project=${encodeURIComponent(projectId)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then(async (res) => { if (!res.ok) throw new Error(await res.text() || `Request failed (${res.status})`); return res.json(); });
       const updatedTicket = response?.ticket ?? response?.data?.ticket ?? (response?.id ? response : null);
       const regenerated = response?.english_content ?? response?.regenerated_english_content ?? response?.content ?? response?.ticket?.english_content ?? response?.ticket?.regenerated_english_content ?? response?.ticket?.content_en ?? response?.ticket?.generated_content ?? updatedTicket?.english_content ?? updatedTicket?.content_en ?? response?.ticket?.objective;
       if (!regenerated && !updatedTicket) throw new Error("Backend did not return regenerated English ticket content.");
