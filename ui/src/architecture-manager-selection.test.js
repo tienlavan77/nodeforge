@@ -22,6 +22,11 @@ test("persists selector changes without affecting another project", () => {
   writeArchitectureManagerAgent("two", "agent-b", store);
   writeArchitectureManagerAgent("one", "agent-c", store);
 
+  assert.deepEqual(JSON.parse(store.value(ARCHITECTURE_MANAGER_STORAGE_KEY)), {
+    one: { agent: "agent-c" },
+    two: { agent: "agent-b" }
+  });
+  assert.equal(ARCHITECTURE_MANAGER_STORAGE_KEY, "arch");
   assert.equal(readArchitectureManagerAgent("one", store), "agent-c");
   assert.equal(readArchitectureManagerAgent("two", store), "agent-b");
 });
