@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { NodeForgeHeader } from "../components/NodeForgeHeader.jsx";
-import { MessageContent, SprintPlanDashboard, UploadSprintPlanDialog } from "../components/NodeForgePanels.jsx";
-import { createNodeClient, normalizeTicketInput } from "../lib/node-client.js";
+import { AgentProcessStatus, MessageContent, SprintPlanDashboard, UploadSprintPlanDialog } from "../components/NodeForgePanels.jsx";
+import { createNodeClient, MESSAGE_INTENTS } from "../lib/node-client.js";
+import { architectureManagerSelection, writeArchitectureManagerAgent } from "../../src/architecture-manager-selection.js";
 
 const PROJECT_ID = "PROJECT-NODEFORGE";
 const ARCHITECTURE_CONVERSATION_ID = "CONV-ARCHITECTURE";
@@ -39,12 +40,6 @@ function displayMessageTime(timestamp) {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-function isOwnerConversationMessage(message) {
-  const senderRole = message?.sender?.role ?? message?.from?.role ?? message?.metadata?.sender_role;
-  const senderId = String(message?.sender?.id ?? message?.from?.id ?? message?.sender_id ?? "").toLowerCase();
-  return senderRole === "project_owner" || message?.message_type === "owner.message" || senderId === "project-owner" || senderId === "owner" || senderId.startsWith("owner-");
-}
-
 export default function HomePage() {
   const client = useMemo(() => createNodeClient(), []);
   const chatMessagesRef = useRef(null);
@@ -59,6 +54,7 @@ export default function HomePage() {
   const [watcherEvents, setWatcherEvents] = useState([]);
   const [watcherState, setWatcherState] = useState("connecting");
   const [watcherPulseId, setWatcherPulseId] = useState(0);
+  const [agentProcess, setAgentProcess] = useState(null);
 
   const architectureManagers = useMemo(() => agentDirectory
     .filter((agent) => agent?.role === "architecture_manager" && agent?.enabled === true)
@@ -77,6 +73,12 @@ export default function HomePage() {
         if (!active) return;
         const agents = Array.isArray(payload) ? payload : payload?.agents ?? payload?.items ?? [];
         setAgentDirectory(agents);
+        const primary = agents.find((a) => a?.process || a?.processStatus || a?.agentProcess || a?.pid != null) ?? agents[0] ?? null;
+        if (primary) setAgentProcess(primary);
+        const storedAgentId = architectureManagerSelection(PROJECT_ID, "");
+        if (agents.some((agent) => (agent.agent_id ?? agent.id) === storedAgentId && agent.role === "architecture_manager" && agent.enabled === true)) {
+          setSelectedArchitectureManagerId(storedAgentId);
+        }
       })
       .catch(() => { if (active) setAgentDirectory([]); });
     return () => { active = false; };
@@ -108,11 +110,45 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
+    const conversationId = selectedArchitectureManager?.conversation_id ?? selectedArchitectureManager?.conversationId ?? ARCHITECTURE_CONVERSATION_ID;
     const stream = client.connectProjectStream({
       projectId: PROJECT_ID,
       onOpen: () => setWatcherState("connected"),
       onEvent: (event) => {
+        if (event.event_type.startsWith("conversation.message.")) {
+          if (event.payload?.conversation_id !== conversationId) return;
+          const payload = event.payload ?? {};
+          const key = event.event_type === "conversation.message.owner"
+            ? `owner:${payload.message_id ?? event.event_id}`
+            : `agent:${payload.correlation_id ?? payload.message_id ?? event.event_id}`;
+          const timestamp = event.timestamp ?? new Date().toISOString();
+          setMessages((current) => {
+            const index = current.findIndex((message) => message.stream_key === key);
+            if (event.event_type === "conversation.message.owner") {
+              if (current.some((message) => message.id === payload.message_id)) return current;
+              return [...current, { id: payload.message_id ?? event.event_id, stream_key: key, text: payload.text ?? "", from: "owner", nickname: "You", timestamp }];
+            }
+            if (event.event_type === "conversation.message.delta") {
+              const chunk = payload.chunk ?? payload.text ?? "";
+              if (!chunk) return current;
+              if (index < 0) return [...current, { id: payload.message_id ?? event.event_id, stream_key: key, text: chunk, from: "agent", nickname: payload.agent_id ?? "Agent", timestamp, stream: true }];
+              const next = [...current];
+              next[index] = { ...next[index], text: `${next[index].text ?? ""}${chunk}`, stream: true };
+              return next;
+            }
+            if (event.event_type === "conversation.message.received") {
+              if (index < 0) return [...current, { id: payload.message_id ?? event.event_id, stream_key: key, text: payload.text ?? "", from: "agent", nickname: payload.agent_id ?? "Agent", timestamp }];
+              const next = [...current];
+              next[index] = { ...next[index], id: payload.message_id ?? next[index].id, text: payload.text ?? next[index].text, stream: false, timestamp };
+              return next;
+            }
+            return current;
+          });
+          return;
+        }
         setWatcherEvents((current) => applyWatcherEvent(current, event));
+        const processPayload = event.payload?.agent_process ?? event.payload?.agentProcess ?? event.payload?.process ?? event.payload?.watcher?.agent_process ?? event.payload?.watcher?.agentProcess;
+        if (processPayload) setAgentProcess((current) => ({ ...(current ?? {}), process: processPayload }));
         if (["ticket.created", "ticket.updated", "ticket.status_changed", "ticket.deleted", "sprint.created", "sprint.updated", "sprint.deleted"].includes(event.event_type)) {
           loadDashboard();
         }
@@ -123,35 +159,6 @@ export default function HomePage() {
         if (event.event_type === "stream.error") setWatcherState("error");
       },
       onError: () => setWatcherState("error")
-    });
-    return () => stream.close();
-  }, [client]);
-
-  useEffect(() => {
-    if (!selectedArchitectureManager) return undefined;
-    const conversationId = selectedArchitectureManager.conversation_id ?? selectedArchitectureManager.conversationId ?? ARCHITECTURE_CONVERSATION_ID;
-    const stream = client.connectConversationStream({
-      projectId: PROJECT_ID,
-      conversationId,
-      onMessage: (message) => {
-        const text = message?.payload?.text ?? message?.payload?.content ?? message?.text ?? message?.content;
-        if (typeof text !== "string" || !text.trim()) return;
-        const id = message.message_id ?? message.id ?? `agent-${Date.now()}`;
-        const ownerMessage = isOwnerConversationMessage(message);
-        const senderName = message?.sender?.name
-          ?? message?.sender?.nickname
-          ?? message?.sender?.label
-          ?? message?.payload?.sender_name
-          ?? message?.payload?.agent_name
-          ?? message?.metadata?.agent_name;
-        setMessages((current) => current.some((item) => item.id === id) ? current : [...current, {
-          id,
-          text,
-          from: ownerMessage ? "owner" : "agent",
-          nickname: ownerMessage ? "You" : (senderName || selectedArchitectureManager.label),
-          timestamp: message.timestamp ?? new Date().toISOString()
-        }]);
-      }
     });
     return () => stream.close();
   }, [client, selectedArchitectureManager]);
@@ -165,34 +172,25 @@ export default function HomePage() {
     event.preventDefault();
     const text = draft.trim();
     if (!text) return;
-    const normalized = normalizeTicketInput(text);
-    const ticket = normalized.ticket;
-
-    const sprintId = latestSprint?.id;
-    if (!sprintId) {
-      setChatState("No sprint is available for this ticket.");
+    if (!selectedArchitectureManager) {
+      setChatState("Select an Architecture Manager before sending a message.");
       return;
     }
-
-    if (ticket) {
-      setDraft("");
-      setChatState("");
-      try {
-        await client.createTicket(PROJECT_ID, ticket, sprintId);
-        setChatState("Ticket created successfully.");
-        await loadDashboard();
-      } catch (error) {
-        setChatState(error?.message ?? "Node could not create the ticket.");
-      }
-      return;
-    }
-
+    const conversationId = selectedArchitectureManager.conversation_id ?? selectedArchitectureManager.conversationId ?? ARCHITECTURE_CONVERSATION_ID;
+    const messageId = `MSG-OWNER-${Date.now()}-architecture-manager`;
+    const correlationId = `CORR-architecture-manager-${Date.now()}`;
     setDraft("");
     setChatState("");
     try {
-      await client.createTicket(PROJECT_ID, text, sprintId);
-      setChatState("Ticket created successfully.");
-      await loadDashboard();
+      await client.postOwnerMessage({
+        projectId: PROJECT_ID,
+        conversationId,
+        agentId: selectedArchitectureManager.id,
+        messageId,
+        correlationId,
+        text,
+        intent: MESSAGE_INTENTS.normalChat
+      });
     } catch (error) {
       setChatState(error?.message ?? "Node rejected the owner message.");
     }
@@ -209,14 +207,12 @@ export default function HomePage() {
 
   const sprints = dashboard?.roadmap?.sprints ?? [];
   const tickets = sprints.flatMap((sprint) => sprint.tasks ?? []);
-  const completed = tickets.filter((ticket) => ticket.status === "done").length;
-  const latestSprint = sprints.at(-1);
 
   return <div className="app-shell app-shell-control-room home-workspace-shell">
     <NodeForgeHeader title="NODEFORGE" subtitle="Supervisor Control Room" status={<><span className="live-dot" /> node online</>} actions={<Link className="history-button" href="/agents">Agents</Link>} />
     <main className="home-workspace" aria-label="NodeForge workspace">
       <section className="home-chat-panel home-panel" aria-label="Project chat">
-        <div className="home-panel-heading"><div className="home-chat-heading"><div className="home-chat-title"><i aria-hidden="true" /><p className="eyebrow">PROJECT CHAT</p></div><div className="home-agent-select-row"><label className="home-agent-select-label" htmlFor="home-architecture-manager-selector">Architecture Manager</label><select className="home-agent-select" id="home-architecture-manager-selector" value={selectedArchitectureManagerId} onChange={(event) => setSelectedArchitectureManagerId(event.target.value)} aria-label="Architecture Manager selection"><option value="">{architectureManagers.length ? "Select an Architecture Manager" : "No enabled Architecture Manager agents available"}</option>{architectureManagers.map((agent) => <option key={agent.id} value={agent.id}>{agent.label}</option>)}</select></div></div></div>
+        <div className="home-panel-heading"><div className="home-chat-heading"><div className="home-chat-title"><i aria-hidden="true" /><p className="eyebrow">PROJECT CHAT</p></div><div className="home-agent-select-row"><label className="home-agent-select-label" htmlFor="home-architecture-manager-selector">Architecture Manager</label><select className="home-agent-select" id="home-architecture-manager-selector" value={selectedArchitectureManagerId} onChange={(event) => { const agentId = event.target.value; setSelectedArchitectureManagerId(agentId); writeArchitectureManagerAgent(PROJECT_ID, agentId); }} aria-label="Architecture Manager selection"><option value="">{architectureManagers.length ? "Select an Architecture Manager" : "No enabled Architecture Manager agents available"}</option>{architectureManagers.map((agent) => <option key={agent.id} value={agent.id}>{agent.label}</option>)}</select></div></div></div>
         <div className="home-chat-messages" ref={chatMessagesRef} role="log" aria-live="polite">{messages.length === 0 && <div className="home-empty-state"><span className="home-empty-mark">N</span><p>Send a message to start working with your project agents.</p></div>}{messages.map((message) => <div className={`home-chat-message ${message.from === "owner" ? "is-owner" : "is-agent"}`} key={message.id}><div className="home-message-meta"><span>{message.nickname ?? (message.from === "owner" ? "You" : "Agent")}</span><time dateTime={message.timestamp}>{displayMessageTime(message.timestamp)}</time></div><MessageContent text={message.text} /></div>)}</div>
         <form className="home-composer" onSubmit={sendMessage}><textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); if (draft.trim()) event.currentTarget.form?.requestSubmit(); } }} placeholder="Chat or paste a ticket..." rows="2" aria-label="Chat or ticket input" /><button type="submit" aria-label="Send message" disabled={!draft.trim()}>&#8593;</button></form>{chatState && <p className={`dashboard-state ${chatState.includes("successfully") ? "success" : "error"}`} role="alert">{chatState}</p>}
       </section>
@@ -235,7 +231,7 @@ export default function HomePage() {
           <div className="workspace-agent-process-body"><small>Waiting for agent process events...</small></div>
         </section>
         <section className="workspace-watcher" aria-label="Watcher">
-          <div className="workspace-watcher-heading"><div className="workspace-watcher-status"><i key={watcherPulseId} className={`is-${watcherState}${watcherPulseId ? " is-pulsing" : ""}`} aria-label={`Watcher ${watcherState}`} /><span>WATCHER</span></div></div>
+          <div className="workspace-watcher-heading"><div className="workspace-watcher-status"><i key={watcherPulseId} className={`is-${watcherState}${watcherPulseId ? " is-pulsing" : ""}`} aria-label={`Watcher ${watcherState}`} /><span>WATCHER</span></div><AgentProcessStatus agent={agentProcess} /></div>
           <div className="workspace-watcher-process" aria-label="Watcher indexed files">
             {watcherEvents.length === 0 && <small>{watcherState === "error" ? "Stream unavailable." : "Waiting for watcher events..."}</small>}
             {watcherEvents.map((event) => <div className="workspace-watcher-event" key={event.event_id}>{event.payload.activity.map((line) => <span key={line}>{line}</span>)}</div>)}

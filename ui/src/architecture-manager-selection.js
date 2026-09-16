@@ -1,4 +1,4 @@
-const STORAGE_KEY = "architecture-manager-selection";
+const STORAGE_KEY = "arch";
 
 function readState(storage) {
   try {
