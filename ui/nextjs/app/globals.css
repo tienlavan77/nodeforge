@@ -1484,3 +1484,19 @@ button, input { font: inherit; }
   .add-ticket-modal .settings-actions { flex-direction: column-reverse; }
   .add-ticket-modal .settings-actions button { width: 100%; }
 }
+
+/* Conversations accordion */
+.conversations-accordion { border: 1px solid var(--app-border); background: color-mix(in srgb, var(--app-surface-alt) 55%, transparent); margin-bottom: 16px; }
+.conversations-accordion-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; }
+.conversations-accordion-toggle { display: inline-flex; align-items: center; gap: 8px; border: 0; background: transparent; color: var(--app-text); cursor: pointer; font: 600 13px 'Space Grotesk', sans-serif; letter-spacing: .04em; text-transform: uppercase; }
+.conversations-accordion-title { color: var(--app-text); font: 600 12px 'Space Grotesk', sans-serif; letter-spacing: .08em; text-transform: uppercase; }
+.conversations-accordion-arrow { display: inline-block; color: var(--app-accent); font-size: 12px; line-height: 1; transition: transform .18s ease; }
+.conversations-accordion-arrow.is-open { transform: rotate(90deg); }
+.conversations-accordion-new { flex: 0 0 auto; font-size: 12px; padding: 7px 12px; }
+.conversations-accordion-panel { border-top: 1px solid var(--app-border); padding: 10px 12px; max-height: 220px; overflow: auto; }
+.conversations-accordion-empty { margin: 0; color: var(--app-muted); font-size: 13px; }
+.conversations-accordion-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.conversations-accordion-item { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--app-border); background: color-mix(in srgb, var(--app-panel) 70%, transparent); color: var(--app-text); padding: 9px 10px; cursor: pointer; text-align: left; }
+.conversations-accordion-item:hover { border-color: var(--app-accent); }
+.conversations-accordion-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.conversations-accordion-item-time { flex: 0 0 auto; color: var(--app-muted); font: 10px 'DM Mono', monospace; }
