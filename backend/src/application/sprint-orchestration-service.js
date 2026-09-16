@@ -11,9 +11,9 @@ const commonSchema = require("../../../schemas/core/common.schema.json");
 const ticketSchema = require("../../../schemas/governance/ticket.schema.json");
 const sprintPlanSchema = require("../../../schemas/governance/sprint-plan.schema.json");
 
-export function createSprintOrchestrationService({ runtimeService, sprintPlans, sprintPlanStore, ticketProvenanceTracker, agentGateway, publisher, agentRoles = ["architecture-manager", "sprint-leader", "builder", "reviewer"], streamBatchMs = 500 } = {}) {
-  if (typeof runtimeService?.startTask !== "function" || typeof sprintPlans?.getSprintById !== "function") {
-    throw new ConfigurationError("Sprint Orchestration requires Runtime Service and Sprint Plans.");
+export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore, ticketProvenanceTracker, agentGateway, publisher, agentRoles = ["architecture-manager", "sprint-leader", "builder", "reviewer"], streamBatchMs = 500 } = {}) {
+  if (typeof sprintPlans?.getSprintById !== "function") {
+    throw new ConfigurationError("Sprint Orchestration requires Sprint Plans.");
   }
   const running = new Map();
 
@@ -31,11 +31,10 @@ export function createSprintOrchestrationService({ runtimeService, sprintPlans, 
       error.statusCode = 409;
       throw error;
     }
-    const sessionId = `SESSION-${sprintId}-${randomUUID()}`;
-    const session = runtimeService.startTask({ projectId, taskId: sprintId, sessionId, query: sprint.objective, domain: "sprint", runAgent: false });
+    const sessionId = `SPRINT-${sprintId}-${randomUUID()}`;
     running.set(sprintId, sessionId);
     void runRealAgents({ projectId, sprint, sessionId }).finally(() => running.delete(sprintId));
-    return { sprint_id: sprintId, session_id: session.id, state: session.state };
+    return { sprint_id: sprintId, session_id: sessionId, state: "RUNNING" };
   }
 
   async function ingestAgentCompletion({ message, agentId, text } = {}) {
@@ -93,7 +92,6 @@ export function createSprintOrchestrationService({ runtimeService, sprintPlans, 
         publish("agent.failed", projectId, sprint.id, sessionId, agentId, correlationId, conversationId, { role, error: error.message });
       }
     }
-    runtimeService.finishTask(sessionId, { failed });
   }
 
   function conversationRole(role) {

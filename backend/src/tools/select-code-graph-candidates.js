@@ -2,6 +2,7 @@
 
 import { ConfigurationError } from "../shared/errors.js";
 import { assertExecutionScope } from "./retrieval-governance.js";
+import { discoveryNotice } from "./exploration-state.js";
 
 export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector } = {}) {
   return Object.freeze({ name: "select_code_graph_candidates", execute });
@@ -17,7 +18,7 @@ export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector } = {
     if (typeof relevantTreeSelector?.select !== "function") throw scopedError("GRAPH_INDEX_UNAVAILABLE", "Code Graph retrieval is not configured.");
     const task = context.task_context ?? {};
     const result = relevantTreeSelector.select({ title: task.title ?? "", objective: [task.objective ?? "", input.query.trim(), input.context ?? ""].filter(Boolean).join(" "), acceptance_criteria: task.acceptance_criteria ?? [], limit, scope: context.scope ?? "all", allowed_prefixes: context.allowed_prefixes });
-    return { task_id: taskId, query: input.query.trim(), index_version: result.index_version ?? null, selected: result.tree.slice(0, limit) };
+    return { task_id: taskId, query: input.query.trim(), index_version: result.index_version ?? null, selected: result.tree.slice(0, limit), discovery_budget: discoveryNotice(context) };
   }
 }
 

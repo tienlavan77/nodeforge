@@ -660,7 +660,7 @@ export function AgentProcessStatus({ agent }) {
 }
 
 export function PanelHeader({ agent, onSettings }) {
-  return <header className="agent-header" style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}><div className={`agent-avatar ${agent.tone}`}>{agent.short}</div><div className="agent-heading"><h2>{agent.label}</h2><div className="agent-status"><span className="status-dot" /> {agent.status}</div></div><AgentProcessStatus agent={agent} /><button className="panel-menu" onClick={onSettings} title="Agent Settings" aria-label={`${agent.label} Agent Settings`}>&#9881;</button></header>;
+  return <header className="agent-header" style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}><div className={`agent-avatar ${agent.tone}`}>{agent.short}</div><div className="agent-heading"><h2>{agent.agent_name ?? agent.label}</h2><div className="agent-status"><span className="status-dot" /> {agent.status}</div></div><AgentProcessStatus agent={agent} /><button className="panel-menu" onClick={onSettings} title="Agent Settings" aria-label={`${agent.agent_name ?? agent.label} Agent Settings`}>&#9881;</button></header>;
 }
 
 export function Message({ message }) {

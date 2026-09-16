@@ -1,5 +1,40 @@
 import process from "node:process";
 
+const SYMBOLS = { success: "OK", failed: "FAIL", error: "ERR", warn: "WARN", started: "GO", info: "--", debug: ".." };
+
+// The per-tool [agent]/[forge] terminal line already announces each tool call's
+// start and success, so these duplicate supervisor human lines are not printed.
+// The events are still persisted to project.log (only stdout is suppressed).
+const SUPPRESSED_HUMAN_EVENTS = new Set(["forge.tool_started", "forge.tool_success"]);
+
+// One human-readable line per event: time, status, short message, and just
+// enough context (ticket/tool/error) to follow a run without JSON parsing.
+function humanLine(entry) {
+  const time = new Date(entry.timestamp).toLocaleTimeString("en-GB", { hour12: false, timeZone: "UTC" });
+  const symbol = SYMBOLS[entry.error_code ? "error" : entry.status] ?? "--";
+  const agent = entry.payload?.agent_name ?? entry.payload?.agent_id;
+  const tool = entry.payload?.tool;
+  const ticket = shortTicket(entry.task_id);
+  if (entry.event_name === "supervisor.tool_ticket_failed" && tool) {
+    const bits = [`${agent ? `[${agent}]` : "[forge]"} ${tool} FAIL`];
+    if (entry.error_code) bits.push(`(${entry.error_code})`);
+    if (ticket) bits.push(`{${ticket}}`);
+    return `[${time}] ${symbol.padEnd(4)} ${bits.join(" ")}`;
+  }
+  const bits = [entry.message];
+  if (agent) bits.push(`<${agent}>`);
+  if (tool) bits.push(`[${tool}]`);
+  if (entry.error_code) bits.push(`(${entry.error_code})`);
+  if (ticket) bits.push(`{${ticket}}`);
+  return `[${time}] ${symbol.padEnd(4)} ${bits.join(" ")}`;
+}
+
+function shortTicket(taskId) {
+  if (typeof taskId !== "string") return null;
+  const match = taskId.match(/(?:TICKET|TASK|REQ|SUP)-?(.{3,20})$/);
+  return match ? match[1] : (taskId.length > 24 ? `${taskId.slice(0, 12)}…` : taskId);
+}
+
 export function createRuntimeLogger({ logEvent, output = process.stdout, source = "nodeforge-runtime" } = {}) {
   const emit = (entry = {}) => {
     const {
@@ -48,7 +83,13 @@ export function createRuntimeLogger({ logEvent, output = process.stdout, source 
     } catch (error) {
       normalized.log_persist_error = error.message;
     }
-    output.write(`[nodeforge] ${JSON.stringify(normalized)}\n`);
+    if (normalized.level === "debug") return normalized;
+    // The [forge]/[agent] tool line already reports started/success/failure per
+    // tool call, so suppress the duplicate supervisor forge.tool_* human lines.
+    // They are still persisted to project.log above.
+    if (SUPPRESSED_HUMAN_EVENTS.has(normalized.event_name)) return normalized;
+    const human = humanLine(normalized);
+    output.write(human.length > 220 ? `${human.slice(0, 217)}…\n` : `${human}\n`);
     return normalized;
   };
 

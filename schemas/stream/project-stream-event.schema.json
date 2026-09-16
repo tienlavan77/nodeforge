@@ -32,6 +32,9 @@
         "sprint.created",
         "sprint.updated",
         "sprint.deleted",
+        "conversation.message.delta",
+        "conversation.message.received",
+        "conversation.message.owner",
         "stream.error"
       ]
     },
@@ -113,6 +116,16 @@
           "payload": { "$ref": "#/$defs/error_payload" }
         }
       }
+    },
+    {
+      "if": {
+        "properties": { "event_type": { "enum": ["conversation.message.delta", "conversation.message.received", "conversation.message.owner"] } }
+      },
+      "then": {
+        "properties": {
+          "payload": { "$ref": "#/$defs/conversation_message_payload" }
+        }
+      }
     }
   ],
   "$defs": {
@@ -181,6 +194,22 @@
         "code": { "type": "string", "minLength": 1 },
         "message": { "type": "string", "minLength": 1 },
         "retryable": { "type": "boolean" }
+      }
+    }
+    ,
+    "conversation_message_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message_id", "conversation_id", "correlation_id", "agent_id", "sender_role", "done"],
+      "properties": {
+        "message_id": { "type": "string", "minLength": 1 },
+        "conversation_id": { "type": "string", "minLength": 1 },
+        "correlation_id": { "type": ["string", "null"] },
+        "agent_id": { "type": ["string", "null"] },
+        "sender_role": { "type": ["string", "null"] },
+        "text": { "type": ["string", "null"] },
+        "chunk": { "type": ["string", "null"] },
+        "done": { "type": "boolean" }
       }
     }
     ,

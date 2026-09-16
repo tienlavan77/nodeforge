@@ -2,11 +2,7 @@ import { createServer } from "node:http";
 
 import { ConfigurationError } from "../../shared/errors.js";
 
-export function createHttpApi({ runtimeService, ownerChatService, conversationStream, projectStream, architectureWorkspaceService, projectDashboardService, conversationAuditHistoryService, humanDecisionService, agentSettingsService, sprintPlanUploadService, sprintOrchestrationService, dispatchSprint, dispatchTicket, ticketRunner, forgeV1Router } = {}) {
-  if (!runtimeService || typeof runtimeService.startTask !== "function" || typeof runtimeService.pauseSession !== "function"
-    || typeof runtimeService.resumeSession !== "function" || typeof runtimeService.getSession !== "function" || typeof runtimeService.getProjectMemory !== "function") {
-    throw new ConfigurationError("HTTP API requires a Runtime Service.");
-  }
+export function createHttpApi({ ownerChatService, conversationStream, projectStream, architectureWorkspaceService, projectDashboardService, conversationAuditHistoryService, humanDecisionService, agentSettingsService, sprintPlanUploadService, sprintOrchestrationService, dispatchSprint, dispatchTicket, ticketRunner, forgeV1Router } = {}) {
   if (ownerChatService !== undefined && typeof ownerChatService?.submit !== "function") throw new ConfigurationError("HTTP API Owner Chat Service must provide submit().");
   if (conversationStream !== undefined && typeof conversationStream?.connect !== "function") throw new ConfigurationError("HTTP API Conversation Stream must provide connect().");
   if (architectureWorkspaceService !== undefined && typeof architectureWorkspaceService?.getWorkspace !== "function") throw new ConfigurationError("HTTP API Architecture Workspace Service must provide getWorkspace().");
@@ -172,24 +168,6 @@ export function createHttpApi({ runtimeService, ownerChatService, conversationSt
         limit: url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : undefined,
         ...(url.searchParams.has("order") ? { order: url.searchParams.get("order") } : {})
       }) };
-    }
-    if (method === "POST" && parts.length === 1 && parts[0] === "tasks") {
-      return { status: 201, body: runtimeService.startTask(await readJson(request)) };
-    }
-    if (method === "POST" && parts.length === 3 && parts[0] === "sessions" && parts[2] === "pause") {
-      return { status: 200, body: runtimeService.pauseSession(parts[1]) };
-    }
-    if (method === "POST" && parts.length === 3 && parts[0] === "sessions" && parts[2] === "resume") {
-      return { status: 200, body: runtimeService.resumeSession(parts[1]) };
-    }
-    if (method === "GET" && parts.length === 2 && parts[0] === "sessions") {
-      return { status: 200, body: runtimeService.getSession(parts[1]) };
-    }
-    if (method === "GET" && parts.length === 3 && parts[0] === "projects" && parts[2] === "memory") {
-      const taskId = url.searchParams.get("taskId") ?? parts[1];
-      const query = url.searchParams.get("query") ?? "";
-      const domain = url.searchParams.get("domain") ?? undefined;
-      return { status: 200, body: runtimeService.getProjectMemory({ projectId: parts[1], taskId, query, domain }) };
     }
     const error = new ConfigurationError("Route not found.");
     error.statusCode = 404;

@@ -104,6 +104,15 @@ test("discovery budget escalates once for a productive agent but never twice", a
   await assert.rejects(() => governance.dispatch("search_code", { query: "q7" }, current, explore), (error) => error.code === "EXPLORATION_BUDGET_EXHAUSTED");
 });
 
+test("simple discovery budgets do not escalate", async () => {
+  const governance = createRuntimeToolGovernance();
+  const current = governance.createExecutionContext(context({ capabilities: ["search_code"], retrieval_budget: { max_bytes: 1000000, max_calls: 30 }, discovery_budget: 2, allow_discovery_escalation: false }));
+  const explore = async () => ({ matches: [{ path: "src/new.js" }] });
+  await governance.dispatch("search_code", { query: "q0" }, current, explore);
+  await governance.dispatch("search_code", { query: "q1" }, current, explore);
+  await assert.rejects(() => governance.dispatch("search_code", { query: "q2" }, current, explore), (error) => error.code === "EXPLORATION_BUDGET_EXHAUSTED");
+});
+
 test("discovery budget never escalates for an unproductive agent", async () => {
   const governance = createRuntimeToolGovernance();
   const current = governance.createExecutionContext(context({ capabilities: ["search_code"], retrieval_budget: { max_bytes: 1000000, max_calls: 30 }, discovery_budget: 4 }));

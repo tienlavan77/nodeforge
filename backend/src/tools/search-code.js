@@ -2,7 +2,7 @@
 
 import { ConfigurationError } from "../shared/errors.js";
 import { assertExecutionScope, checkRetrievalBudget, recordRetrieval } from "./retrieval-governance.js";
-import { discoveryCount, recordSearch } from "./exploration-state.js";
+import { discoveryCount, discoveryNotice, recordSearch } from "./exploration-state.js";
 
 const MAX_QUERY_LENGTH = 200;
 const MAX_LIMIT = 50;
@@ -39,7 +39,7 @@ export function createSearchCodeTool({ codeSearch } = {}) {
       .map((match) => toMetadata(match, kind, projection)).slice(0, limit);
     recordSearch(context, { query, topPaths: matches.slice(0, 5).map((match) => match.path) });
     const discovery = discoveryCount(context);
-    const result = { task_id: taskId, query, kind, index_version: searchResult?.index_version ?? null, matches };
+    const result = { task_id: taskId, query, kind, index_version: searchResult?.index_version ?? null, matches, discovery_budget: discoveryNotice(context) };
     if (!discovery.edit_started && discovery.remaining <= 2) result.deadline_warning = `${discovery.used} discovery calls used. Discovery is refused after ${discovery.limit}; your next calls must be edit_diff or write_diff.`;
     // Mechanical feedback for empty results: content searches AND-join every
     // term, so a phrased or guessed query returns nothing. The hint steers the

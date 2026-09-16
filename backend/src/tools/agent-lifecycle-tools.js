@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { isProtectedPath } from "../infrastructure/filesystem/protected-path-policy.js";
 import { ConfigurationError } from "../shared/errors.js";
-import { discoveryCount, recordRead, resetExploration } from "./exploration-state.js";
+import { discoveryCount, discoveryNotice, recordRead, resetExploration } from "./exploration-state.js";
 const MAX_CONTENT = 200000;
 const WRITE_DIFF_MAX_BYTES = 8192;
 const READ_PREVIEW_LINES = 40;
@@ -36,7 +36,7 @@ export function createReadFileTool({ fileService, symbolLookup, maxChars = MAX_C
       // symbol map lets the agent aim its first window instead of blind probing.
       recordRead(context, { path, window: "preview" });
       const symbols = typeof symbolLookup === "function" ? symbolLookup(path) : [];
-      const result = { path, content: lines.slice(0, READ_PREVIEW_LINES).join("\n"), sha256, size_bytes: sizeBytes, offset: 1, limit: READ_PREVIEW_LINES, total_lines: lines.length, truncated: true, symbol_map: symbols, notice: `File has ${lines.length} lines. Re-call read_file with offset/limit windows (max 500 lines) targeting the symbol you need; symbol_map gives each symbol's line range.` };
+      const result = { path, content: lines.slice(0, READ_PREVIEW_LINES).join("\n"), sha256, size_bytes: sizeBytes, offset: 1, limit: READ_PREVIEW_LINES, total_lines: lines.length, truncated: true, symbol_map: symbols, notice: `File has ${lines.length} lines. Re-call read_file with offset/limit windows (max 500 lines) targeting the symbol you need; symbol_map gives each symbol's line range.`, discovery_budget: discoveryNotice(context) };
       const discovery = discoveryCount(context);
       if (!discovery.edit_started && discovery.remaining <= 2) result.deadline_warning = `${discovery.used} discovery calls used. Discovery is refused after ${discovery.limit}; your next calls must be edit_diff or write_diff.`;
       return result;
@@ -44,7 +44,7 @@ export function createReadFileTool({ fileService, symbolLookup, maxChars = MAX_C
     if (!hasWindow) {
       const content = file.content.slice(0, maxChars);
       recordRead(context, { path, window: "full" });
-      return { path, content, sha256, size_bytes: sizeBytes, truncated: content.length < file.content.length };
+      return { path, content, sha256, size_bytes: sizeBytes, truncated: content.length < file.content.length, discovery_budget: discoveryNotice(context) };
     }
     if (input.offset !== undefined && (!Number.isInteger(input.offset) || input.offset < 1)) throw error("INPUT_INVALID", "offset must be a positive integer (1-based line).");
     if (input.limit !== undefined && (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 500)) throw error("INPUT_INVALID", "limit must be an integer between 1 and 500.");
@@ -53,7 +53,7 @@ export function createReadFileTool({ fileService, symbolLookup, maxChars = MAX_C
     const limit = input.limit ?? 500;
     const content = lines.slice(offset - 1, offset - 1 + limit).join("\n").slice(0, maxChars);
     recordRead(context, { path, window: `${offset}-${offset - 1 + Math.min(limit, lines.length - offset + 1)}` });
-    return { path, content, sha256, size_bytes: sizeBytes, offset, limit, total_lines: lines.length, truncated: content.length === maxChars && maxChars < file.content.length };
+    return { path, content, sha256, size_bytes: sizeBytes, offset, limit, total_lines: lines.length, truncated: content.length === maxChars && maxChars < file.content.length, discovery_budget: discoveryNotice(context) };
   }});
 }
 
@@ -131,7 +131,9 @@ export function createCheckTestTool({ testService } = {}) {
   if (typeof testService?.getTestResult !== "function") throw new ConfigurationError("check_test requires Test Service getTestResult.");
   return Object.freeze({ name: "check_test", async execute(input = {}, context = {}) {
     if (typeof input?.job_id !== "string" || !input.job_id.trim()) throw error("INPUT_INVALID", "check_test requires a job_id string returned by run_test.");
-    return testService.getTestResult({ jobId: input.job_id.trim(), taskId: context.task_id });
+    const result = await testService.getTestResult({ jobId: input.job_id.trim(), taskId: context.task_id });
+    if (result && typeof result === "object") context.verify_result = result;
+    return result;
   }});
 }
 
@@ -151,11 +153,85 @@ export function createReportDoneTool({ reportService } = {}) {
     if (typeof input.summary !== "string" || !input.summary.trim()) throw error("INPUT_INVALID", "Report summary is required.");
     const ticket = context.ticket ?? context.task;
     if (!ticket?.id) throw error("SCOPE_INVALID", "Node must provide the current ticket for report_done.");
+    assertReportScope(ticket, context);
     const report = await reportService.buildFinalReport({ ticket, status: context.status ?? "completed", verifyResult: context.verify_result ?? null, filesChanged: context.changed_paths ?? [], reason: "agent_report_done" });
+    assertReportVerified(report);
     report.agent_report = { ...(report.agent_report ?? {}), summary: input.summary.trim() };
     await reportService.saveReport(ticket.id, report); await reportService.writeReportFile(ticket.id, report);
     return textResult("Completion report recorded.");
   }});
+}
+
+function assertReportScope(ticket, context) {
+  if (context.lab_mode || context.labMode) return;
+  const changed = Array.isArray(context.changed_paths) ? context.changed_paths.filter((path) => typeof path === "string" && path) : [];
+  if (changed.length === 1 && changed[0] === "backend/tool-lab-target.txt") throw error("REPORT_SCOPE_INVALID", "Tool-lab marker cannot complete a real ticket.");
+  // When the ticket names an explicit target file, completion requires that the
+  // target itself was changed. Without this, an agent could edit any other file
+  // inside an allowed prefix (observed: Codex touching an unrelated UI file to
+  // satisfy a loose "some UI file" check) and still report done off-target.
+  const target = typeof context.target_path === "string" && context.target_path ? context.target_path : null;
+  if (target && !changed.includes(target)) {
+    throw error("REPORT_SCOPE_INVALID", `Ticket target is ${target} but it was not changed; completion must touch the target file, not an unrelated file in the same prefix.`);
+  }
+  // Only demand a UI file change when the ticket actually has UI acceptance
+  // criteria. isUiTicket() is a loose keyword test (it fires on the word
+  // "page" even when the ticket is purely backend and merely mentions where an
+  // action is triggered from), so gating completion on it forced agents to
+  // fabricate an orphan UI file just to satisfy report_done.
+  if (hasUiCriteria(ticket) && !changed.some(isUiPath)) throw error("REPORT_SCOPE_INVALID", "UI ticket cannot be completed without changing a UI file.");
+  // A full-stack ticket (explicit backend acceptance criteria AND UI scope) must
+  // change real backend code too, not just the UI. Without this, an agent that
+  // only edits the frontend panel silently passes while the backend endpoint,
+  // DB persist, and error handling sit unimplemented.
+  if (isUiTicket(ticket) && hasBackendCriteria(ticket) && !changed.some(isBackendPath)) {
+    throw error("REPORT_SCOPE_INVALID", "Ticket has explicit backend acceptance criteria but no backend file was changed; UI-only work cannot complete it.");
+  }
+  if (hasBackendCriteria(ticket) && changed.some(isBackendPath) && !changed.some(isBackendImplementationPath)) {
+    throw error("REPORT_SCOPE_INVALID", "Backend acceptance criteria require a backend implementation file, not only a backend test or metadata file.");
+  }
+}
+
+function assertReportVerified(report) {
+  if (report?.status !== "completed") return;
+  const checks = Array.isArray(report.criteria_check) ? report.criteria_check : [];
+  const verifiable = checks.filter((item) => /syntax|build|compile|test|lint/i.test(item?.criterion ?? ""));
+  if (verifiable.length && verifiable.every((item) => item?.node_verified === null)) throw error("REPORT_UNVERIFIED", "Node did not verify any build/test acceptance criteria; completion report is blocked.");
+}
+
+function isUiTicket(ticket) {
+  const text = [ticket?.title, ticket?.objective, ...(ticket?.acceptance_criteria ?? [])]
+    .filter((value) => typeof value === "string")
+    .join(" ");
+  return /\b(ui|frontend|front-end|react|next(?:\.js)?|component|page|button|layout|watcher|header|screen|responsive|status(?: area| line)?|dashboard|modal)\b/i.test(text);
+}
+
+function hasBackendCriteria(ticket) {
+  return (ticket?.acceptance_criteria ?? []).some((criterion) => {
+    if (typeof criterion !== "string") return false;
+    if (/\b(backend|back-end|server|endpoint|api|database|db|sqlite|sprint leader|request payload)\b/i.test(criterion)) return true;
+    // "persist to localStorage" is a frontend requirement, not backend work.
+    // Only treat persistence as backend when the criterion names a server-side store.
+    return /\b(persist|persistence)\b/i.test(criterion) && /\b(database|db|sqlite|server|backend|back-end)\b/i.test(criterion);
+  });
+}
+
+function hasUiCriteria(ticket) {
+  return (ticket?.acceptance_criteria ?? []).some((criterion) =>
+    typeof criterion === "string" && /\b(ui|frontend|front-end|react|next(?:\.js)?|component|button|layout|watcher|header|screen|responsive|modal|dashboard)\b/i.test(criterion)
+  );
+}
+
+function isUiPath(path) {
+  return path.startsWith("ui/nextjs/") || path.startsWith("ui/src/") || path.startsWith("web/src/");
+}
+
+function isBackendPath(path) {
+  return path.startsWith("backend/src/") || path.startsWith("backend/tests/");
+}
+
+function isBackendImplementationPath(path) {
+  return path.startsWith("backend/src/");
 }
 
 function withinPrefix(path, prefix) { return path === prefix || path.startsWith(`${prefix.replace(/\/$/, "")}/`); }
