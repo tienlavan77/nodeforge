@@ -93,7 +93,7 @@ test("project stream publishes indexed files and filters project scope", () => {
 });
 
 test("forge v1 project stream route requires project query", async () => {
-  const api = createHttpApi({ runtimeService: runtimeStub(), projectStream: { connect: () => { throw new Error("should not connect"); } } });
+  const api = createHttpApi({ projectStream: { connect: () => { throw new Error("should not connect"); } } });
   const request = Object.assign({ method: "GET", url: "/forge/v1/stream" }, { once() {} });
   const response = responseStub();
   await api.handler(request, response);

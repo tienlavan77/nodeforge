@@ -24,6 +24,8 @@ test("searches files, scopes paths, preserves ranking metadata, and omits conten
   assert.equal(result.task_id, "TASK-1");
   assert.equal(result.query, "Header");
   assert.equal(result.index_version, "IDX-9");
+  assert.equal(result.discovery_budget.used, 0);
+  assert.equal(result.discovery_budget.remaining, 8);
   assert.deepEqual(result.matches.map((match) => match.path), ["frontend/src/Header.jsx", "frontend/README.md"]);
   assert.equal(result.matches[0].size_bytes, 120);
   assert.equal("content" in result.matches[0], false);

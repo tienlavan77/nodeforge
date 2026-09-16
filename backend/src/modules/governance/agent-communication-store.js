@@ -1,4 +1,3 @@
-import { closeSync, existsSync, mkdirSync, openSync, readSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 
@@ -80,7 +79,7 @@ export function createAgentCommunicationStore({ validateMessage = createAgentMes
 
   function load() {
     if (!database) return getAll();
-    ensureTable(database);
+    ensureTable(database, fileService);
     messages.splice(0, messages.length);
     messagesById.clear();
     for (const { message_id } of database.all("SELECT message_id FROM agent_communications ORDER BY sequence")) messagesById.set(message_id, true);
@@ -101,7 +100,7 @@ export function createAgentCommunicationStore({ validateMessage = createAgentMes
   function readIndexed(where = "", parameters = []) {
     return database.all(`SELECT raw_file, byte_offset, byte_length FROM agent_communications ${where} ORDER BY sequence`, parameters)
       .flatMap((row) => {
-        try { return [structuredClone(readRawMessage(storageRoot, row))]; }
+        try { return [structuredClone(readRawMessage(row, fileService))]; }
         catch (error) {
           if (error?.code !== "ENOENT") throw error;
           return [];
@@ -111,8 +110,8 @@ export function createAgentCommunicationStore({ validateMessage = createAgentMes
 
 }
 
-function ensureTable(database) {
-  migrateLegacyRawTable(database);
+function ensureTable(database, fileService) {
+  migrateLegacyRawTable(database, fileService);
   database.run(`CREATE TABLE IF NOT EXISTS agent_communications (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     message_id TEXT NOT NULL UNIQUE,
@@ -136,7 +135,7 @@ function ensureTable(database) {
   database.run("CREATE INDEX IF NOT EXISTS agent_communications_correlation ON agent_communications (correlation_id, sequence)");
 }
 
-function migrateLegacyRawTable(database) {
+function migrateLegacyRawTable(database, fileService) {
   const columns = tableColumns(database, "agent_communications");
   if (!columns.includes("message_json") || columns.includes("raw_file")) return;
   if (!database.databasePath) throw new ConfigurationError("Persistent Agent Communication Store requires databasePath for file-backed migration.");
@@ -161,7 +160,7 @@ function migrateLegacyRawTable(database) {
   )`);
   for (const row of legacyRows) {
     const stored = redact(JSON.parse(row.message_json));
-    const location = appendRawMessage(storageRoot, stored);
+    const location = appendRawMessage(storageRoot, stored, fileService);
     database.run(`INSERT INTO agent_communications (
       sequence, message_id, project_id, agent_id, sender_id, receiver_id, conversation_id, correlation_id,
       message_type, timestamp, raw_file, byte_offset, byte_length
@@ -186,29 +185,18 @@ function nextLegacyTableName(database) {
 
 function appendRawMessage(storageRoot, message, fileService) {
   if (!storageRoot) throw new ConfigurationError("Persistent Agent Communication Store requires databasePath for raw file storage.");
+  if (typeof fileService?.appendFileSync !== "function") throw new ConfigurationError("Persistent Agent Communication Store requires FileService for raw file storage.");
   const relativeFile = join(CONVERSATION_DIR, `${fileKey(message.conversation_id ?? "__unassigned")}.jsonl`);
-  const filePath = join(storageRoot, relativeFile);
   const line = `${JSON.stringify(message)}\n`;
-  if (fileService?.appendFileSync) {
-    const result = fileService.appendFileSync({ path: join(".forge", "runtime", "nf", relativeFile), content: line });
-    return { raw_file: relativeFile, byte_offset: result.byte_offset, byte_length: result.byte_length };
-  }
-  mkdirSync(dirname(filePath), { recursive: true });
-  const byte_offset = existsSync(filePath) ? statSync(filePath).size : 0;
-  writeFileSync(filePath, line, { flag: "a" });
-  return { raw_file: relativeFile, byte_offset, byte_length: Buffer.byteLength(line) };
+  const result = fileService.appendFileSync({ path: join(".forge", "runtime", "nf", relativeFile), content: line });
+  return { raw_file: relativeFile, byte_offset: result.byte_offset, byte_length: result.byte_length };
 }
 
-function readRawMessage(storageRoot, row) {
-  const filePath = join(storageRoot, row.raw_file);
-  const buffer = Buffer.alloc(row.byte_length);
-  const descriptor = openSync(filePath, "r");
-  try {
-    readSync(descriptor, buffer, 0, row.byte_length, row.byte_offset);
-  } finally {
-    closeSync(descriptor);
+function readRawMessage(row, fileService) {
+  if (fileService?.readFileRangeSync) {
+    return JSON.parse(fileService.readFileRangeSync({ path: join(".forge", "runtime", "nf", row.raw_file), offset: row.byte_offset, length: row.byte_length }).trimEnd());
   }
-  return JSON.parse(buffer.toString("utf8").trimEnd());
+  throw new ConfigurationError("Persistent Agent Communication Store requires FileService for raw file reads.");
 }
 
 function fileKey(value) {

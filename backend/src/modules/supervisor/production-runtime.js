@@ -16,6 +16,7 @@ import { createWorkerResultBus } from "./worker-result-bus.js";
 import { createWorkerStatusBus } from "./worker-status-bus.js";
 import { createForgeToolRegistry } from "../../tools/index.js";
 import { createRuntimeToolGovernance } from "../governance/runtime-tool-governance.js";
+import { createAgentExecutionCheckpointStore } from "../agent/agent-execution-checkpoint.js";
 
 const QUEUE_NAMES = ["agent.request", "sender.handoff", "collector.request", "verification.request"];
 const RESUMABLE_STATES = ["CREATED", "READY", "RUNNING", "REPAIRING"];
@@ -33,6 +34,7 @@ export function createProductionSupervisorRuntime({ fileService, projectRoot = p
   const startingTasks = new Map();
   const controlLock = createProcessMutex();
   const processedRequestStore = createProcessedRequestStore({ fileService, root: `${root}/processed-requests` });
+  const agentCheckpoints = createAgentExecutionCheckpointStore({ fileService, root: `${root}/agent-checkpoints` });
   const runtimeGovernance = toolGovernance ?? createRuntimeToolGovernance({ database: governanceDatabase, eventStore });
   const toolRegistry = protocolStorage?.get && fileService?.readForIndex ? createForgeToolRegistry({ protocolStorage, fileService, codeSearch, relevantTreeSelector, enableReadCode, testService, gitService, reportService, governance: runtimeGovernance, projectLogger }) : {};
   const supervisorManager = createSupervisorManager({ eventBus, stateStore, preparation, onCreate: (runtime) => {
@@ -52,7 +54,7 @@ export function createProductionSupervisorRuntime({ fileService, projectRoot = p
       });
     });
   } });
-  const baseIntegration = createNodeforgeTaskIntegration({ supervisorManager, eventBus, agentResolver: agentRoleResolver, handoffQueue: queues["sender.handoff"], claudeSdkGateway, openaiSdkGateway, codexSdkGateway, agentGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger });
+  const baseIntegration = createNodeforgeTaskIntegration({ supervisorManager, eventBus, agentResolver: agentRoleResolver, handoffQueue: queues["sender.handoff"], claudeSdkGateway, openaiSdkGateway, codexSdkGateway, agentGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger, checkpointStore: agentCheckpoints });
   const integration = { submitTicket: baseIntegration.submitTicket, startTask: async (request) => {
     if (!request?.task_id) throw new ConfigurationError("Production task requires task_id.");
     if (startingTasks.has(request.task_id)) {
@@ -117,7 +119,7 @@ export function createProductionSupervisorRuntime({ fileService, projectRoot = p
     }
   }
   if (autoStartWorkers) void startWorkers();
-  return Object.freeze({ governance: runtimeGovernance, queues, queueStore, stateStore, processedRequestStore, eventBus, signalBus, resultBus, statusBus, supervisorManager, integration, agentRegistry, senderWorker, collectorWorkerLoop, verificationWorkerLoop, startWorkers, recover });
+  return Object.freeze({ governance: runtimeGovernance, queues, queueStore, stateStore, processedRequestStore, eventBus, signalBus, resultBus, statusBus, supervisorManager, integration, agentRegistry, senderWorker, collectorWorkerLoop, verificationWorkerLoop, startWorkers, recover, agentCheckpoints });
 
   async function recover() {
     logger.debug?.("Supervisor recovery: queue scan started");
@@ -135,7 +137,11 @@ export function createProductionSupervisorRuntime({ fileService, projectRoot = p
       }
     }
     logger.debug?.("Supervisor recovery: pending loops resumed");
-    logger.info?.("Supervisor production runtime recovered", { supervisors, queues: recoveredQueues });
+    const pendingCheckpoints = await agentCheckpoints.listPending().catch(() => []);
+    for (const checkpoint of pendingCheckpoints) {
+      projectLogger({ event_name: "agent.checkpoint_pending", level: "info", status: "info", message: "Unfinished agent checkpoint is resumable on next RUN.", task_id: checkpoint.task_id, correlation_id: checkpoint.correlation_id, source: "production-runtime", payload: { task_id: checkpoint.task_id, agent_id: checkpoint.agent_id, last_completed_turn: checkpoint.last_completed_turn, completed_tools: checkpoint.completed_tools } });
+    }
+    logger.info?.("Supervisor production runtime recovered", { supervisors, queues: recoveredQueues, pending_checkpoints: pendingCheckpoints.map((item) => item.task_id) });
     return { supervisors, queues: recoveredQueues };
   }
 }

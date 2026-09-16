@@ -100,7 +100,67 @@ test("Supervisor dispatch runs a Codex ticket through the SDK Forge MCP path", a
   assert.equal(agentGatewayCalls, 0);
 });
 
-// Lab mode stays as the six-tool integration harness when payload.tool_test is set.
+test("Watcher header UI ticket targets frontend scope instead of tool-lab marker", async () => {
+  let forgeTools;
+  let prompt;
+  const integration = createNodeforgeTaskIntegration({
+    projectRoot: process.cwd(),
+    supervisorManager: { startTask: async () => ({}) },
+    eventBus: { publish: async () => {} },
+    agentResolver: { resolveAvailable: () => ({ agent_id: "codex-ui", agent_name: "Codex UI", role: "coder", provider: "codex" }) },
+    handoffQueue: { enqueue: async () => ({ id: "JOB-UI" }) },
+    toolRegistry: {
+      read_file: { execute: async () => ({}) },
+      write_diff: { execute: async () => ({}) },
+      commit_changes: { execute: async () => ({}) },
+      report_done: { execute: async () => ({}) }
+    },
+    runtimeGovernance: { createExecutionContext: (input) => ({ ...input, execution_id: "T-UI:REQ-UI", lifecycle: "RUNNING" }) },
+    codexSdkGateway: {
+      execute: async ({ prompt: receivedPrompt, options, onEvent }) => {
+        prompt = receivedPrompt;
+        forgeTools = options.forgeTools;
+        for (const [tool, argumentsInput] of [
+          ["read_file", { path: "ui/nextjs/components/NodeForgePanels.jsx" }],
+          ["write_diff", { path: "ui/nextjs/components/NodeForgePanels.jsx" }],
+          ["commit_changes", { message: "Add watcher header agent status" }],
+          ["report_done", { summary: "Added watcher header agent status." }]
+        ]) {
+          await onEvent({ type: "item.completed", item: { id: `${tool}-1`, type: "mcp_tool_call", server: "forge", tool, arguments: argumentsInput, result: { content: [] }, status: "completed" } });
+        }
+        return { text: "Added watcher header agent status." };
+      }
+    }
+  });
+
+  const result = await integration.submitTicket({
+    ticket: {
+      id: "TICKET-PROJECT-NODEFORGE-1789433096732",
+      project_id: "PROJECT-NODEFORGE",
+      title: "Add Agent Process Status to the Watcher Header",
+      objective: "Update the watcher UI to display an agent process status line in the right side of the header, showing PID, RAM usage, CPU percentage, and uptime.",
+      acceptance_criteria: [
+        "The watcher header includes an agent process status area aligned to the right.",
+        "The status area displays values in the format: PID | RAM | %CPU | Uptime.",
+        "PID, RAM, CPU usage, and uptime are populated from the current agent process data.",
+        "The status area remains readable and correctly aligned across supported screen sizes."
+      ]
+    },
+    task_id: "TICKET-PROJECT-NODEFORGE-1789433096732",
+    request_id: "REQ-UI",
+    correlation_id: "CORR-UI"
+  });
+
+  assert.equal(result.status, "completed");
+  assert.deepEqual(forgeTools.context.allowed_file_paths, ["ui/nextjs/components/NodeForgePanels.jsx", "backend/package.json"]);
+  assert.ok(forgeTools.context.allowed_prefixes.includes("ui/nextjs/"));
+  assert.ok(forgeTools.context.allowed_prefixes.includes("ui/src/"));
+  assert.ok(forgeTools.context.allowed_prefixes.includes("web/src/"));
+  assert.equal(forgeTools.context.allowed_prefixes.includes("backend/"), false);
+  assert.doesNotMatch(prompt, /backend\/tool-lab-target\.txt/);
+});
+
+
 test("payload.tool_test keeps the fixed six-tool Codex lab prompt", async () => {
   let prompt;
   const integration = createNodeforgeTaskIntegration({
@@ -133,6 +193,26 @@ test("payload.tool_test keeps the fixed six-tool Codex lab prompt", async () => 
   assert.match(prompt, /do not inspect or use any ticket title, objective, description, or acceptance criteria/i);
 });
 
+test("Real ticket without target path or UI intent fails instead of using tool-lab marker", async () => {
+  const integration = createNodeforgeTaskIntegration({
+    projectRoot: process.cwd(),
+    supervisorManager: { startTask: async () => ({}) },
+    eventBus: { publish: async () => {} },
+    agentResolver: { resolveAvailable: () => ({ agent_id: "codex-missing-target", agent_name: "Codex Missing Target", role: "coder", provider: "codex" }) },
+    handoffQueue: { enqueue: async () => ({ id: "JOB-MISSING-TARGET" }) },
+    toolRegistry: {},
+    runtimeGovernance: { createExecutionContext: () => { throw new Error("governance must not run without target"); } },
+    codexSdkGateway: { execute: async () => { throw new Error("gateway must not run without target"); } }
+  });
+
+  await assert.rejects(() => integration.submitTicket({
+    ticket: { id: "T-NO-TARGET", project_id: "PROJECT-1", title: "Improve docs wording", objective: "Make the copy clearer", acceptance_criteria: ["Copy is clearer"] },
+    task_id: "T-NO-TARGET",
+    request_id: "REQ-NO-TARGET",
+    correlation_id: "CORR-NO-TARGET"
+  }), (error) => error.code === "TICKET_TARGET_MISSING");
+});
+
 test("Codex run fails when the provider never emits a Forge tool call", async () => {
   const integration = createNodeforgeTaskIntegration({
     projectRoot: process.cwd(),
@@ -144,7 +224,7 @@ test("Codex run fails when the provider never emits a Forge tool call", async ()
     runtimeGovernance: { createExecutionContext: (input) => ({ ...input, execution_id: "T-MISSING:REQ-MISSING", lifecycle: "RUNNING" }) },
     codexSdkGateway: { execute: async () => ({ text: "Forge MCP tools are not available" }) }
   });
-  await assert.rejects(() => integration.submitTicket({ ticket: { id: "T-MISSING", title: "Tool lab" }, task_id: "T-MISSING" }), (error) => error.code === "CODEX_MCP_TOOL_CALLS_MISSING");
+  await assert.rejects(() => integration.submitTicket({ ticket: { id: "T-MISSING", title: "Tool lab", objective: "Run backend/scripts/validate-schemas.mjs lab", acceptance_criteria: ["Complete tool check for backend/scripts/validate-schemas.mjs"] }, task_id: "T-MISSING" }), (error) => error.code === "CODEX_MCP_TOOL_CALLS_MISSING");
 });
 
 // Claude ticket runs cap reasoning effort so a single turn cannot spend
@@ -185,7 +265,13 @@ test("Supervisor dispatch runs a Claude ticket with capped reasoning effort", as
   });
 
   const result = await integration.submitTicket({
-    ticket: { id: "T-CLAUDE", project_id: "PROJECT-1", title: "Document validate-schemas" },
+    ticket: {
+      id: "T-CLAUDE",
+      project_id: "PROJECT-1",
+      title: "Document validate-schemas",
+      objective: "Document backend/scripts/validate-schemas.mjs behavior",
+      acceptance_criteria: ["Update backend/scripts/validate-schemas.mjs documentation notes"]
+    },
     task_id: "T-CLAUDE",
     request_id: "REQ-CLAUDE",
     correlation_id: "CORR-CLAUDE"

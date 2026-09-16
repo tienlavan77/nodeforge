@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
@@ -105,6 +105,20 @@ test("appendFile serializes writes and returns byte offsets", async () => {
   assert.equal(first.byte_offset, 0);
   assert.equal(second.byte_offset, first.byte_length);
   assert.equal(await readFile(join(root, ".forge/runtime/nf/conversations/a.jsonl"), "utf8"), "first\nsecond\n");
+});
+
+test("FileService lists and removes an empty runtime directory", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-empty-runtime-dir-"));
+  const files = createFileService({ projectRoot: root });
+  try {
+    await files.atomicWrite({ path: ".forge/runtime/disposable/marker.txt", content: "x", replace: true });
+    assert.ok((await files.listDirectories({ glob: ".forge/runtime/**" })).includes(".forge/runtime/disposable"));
+    await files.deleteFile({ path: ".forge/runtime/disposable/marker.txt" });
+    await files.removeEmptyDirectory({ path: ".forge/runtime/disposable" });
+    assert.equal((await files.listDirectories({ glob: ".forge/runtime/**" })).includes(".forge/runtime/disposable"), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("createLock fails loudly on contention and releases cleanly", async () => {

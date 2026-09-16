@@ -79,11 +79,34 @@ export function createForgeToolRegistry({ protocolStorage, fileService, maxChars
     const execute = async () => governance?.dispatch ? governance.dispatch(name, input, context, (toolInput, toolContext) => tool.execute(toolInput, toolContext)) : tool.execute(input, context);
     return execute().then((result) => {
       logToolEvent("success", name, input, context, { duration_ms: Date.now() - started, result });
+      terminalToolLine(name, input, context, { duration_ms: Date.now() - started, result });
       return result;
     }, (error) => {
       logToolEvent("failed", name, input, context, { duration_ms: Date.now() - started, error });
+      terminalToolLine(name, input, context, { duration_ms: Date.now() - started, error });
       throw error;
     });
+  }
+
+  // One concise terminal line per finished tool call so an operator can watch
+  // exactly what the agent ran and what came back. stdout keeps it next to the
+  // dev-server log; never throws.
+  function terminalToolLine(name, input = {}, context = {}, extra = {}) {
+    try {
+      const agent = context?.agent_identity?.agent_name ?? context?.agent_identity?.agent_id ?? "forge";
+      const parts = [`[${agent}] ${toolDisplayName(name)}`, extra.error ? "FAIL" : "PASS"];
+      const target = toolTarget(name, input);
+      if (target) parts.push(target);
+      parts.push(`${extra.duration_ms ?? 0}ms`);
+      const count = resultCount(name, extra.result);
+      if (count !== undefined) parts.push(`results=${count}`);
+      const tail = extra.error ? (extra.error.code ?? "ERROR") : toolResultHint(name, extra.result);
+      if (tail) parts.push(tail);
+      const line = parts.join(" ").replace(/\s+/g, " ").slice(0, 180);
+      process.stdout.write(`${line}\n`);
+    } catch {
+      // Terminal logging is best-effort; never break the tool dispatch path.
+    }
   }
   function logToolEvent(status, tool, input, context = {}, extra = {}) {
     try {
@@ -94,6 +117,78 @@ export function createForgeToolRegistry({ protocolStorage, fileService, maxChars
   }
   Object.assign(registry, lifecycle);
   return Object.freeze(registry);
+}
+
+  // One concise terminal line per finished discovery tool call so an operator can
+  // watch the search scope and the returned files, not just that a search ran.
+  function toolDisplayName(name) {
+    const labels = {
+      select_code_graph_candidates: "chọn ứng viên mã nguồn",
+      search_code: "tìm kiếm mã nguồn",
+      read_file: "đọc tệp",
+      read_code: "đọc mã nguồn",
+      write_diff: "ghi tệp mới",
+      edit_diff: "sửa tệp",
+      run_test: "chạy kiểm thử",
+      check_test: "kiểm tra kiểm thử",
+      commit_changes: "commit thay đổi",
+      report_done: "báo cáo hoàn tất",
+      read_transcript_blocks: "đọc phiên bản"
+    };
+    return labels[name] ?? name;
+  }
+  function toolTarget(name, input = {}) {
+  if (name === "select_code_graph_candidates") return `q="${String(input.query ?? "").slice(0, 60)}" ctx="${String(input.context ?? "").slice(0, 60)}"`;
+  if (name === "search_code") return `q="${String(input.query ?? "").slice(0, 60)}"`;
+  const value = input.path ?? input.file_path ?? input.job_id ?? input.commit_id ?? input.query ?? input.kind;
+  return typeof value === "string" && value ? value.replace(/\s+/g, " ").slice(0, 80) : "";
+}
+
+function toolResultHint(name, result) {
+  if (result === null || result === undefined) return "";
+  if (name === "select_code_graph_candidates") return pathHint(result.selected);
+  if (name === "search_code") return pathHint(result.matches);
+  if (name === "read_file" || name === "read_code") return result.path ? `${result.path}${result.sha256 ? " checksum" : ""}` : "read";
+  if (name === "run_test" && typeof result.job_id === "string") return `job=${result.job_id}`;
+  if (name === "check_test") {
+    const status = result.status ?? result.state ?? result.result;
+    return status ? String(status).slice(0, 40) : "";
+  }
+  if (name === "commit_changes") return result.commit_id ?? result.sha ?? "committed";
+  if (name === "report_done") return result.status ?? "completed";
+  if (typeof result === "object") return Object.keys(result).slice(0, 3).join(",");
+  return String(result).slice(0, 60);
+}
+
+function resultCount(name, result) {
+  if (!result || typeof result !== "object") return undefined;
+  if (name === "select_code_graph_candidates" && Array.isArray(result.selected)) return result.selected.length;
+  if (name === "search_code" && Array.isArray(result.matches)) return result.matches.length;
+  return undefined;
+}
+
+function selectedPaths(items) {
+  if (!Array.isArray(items) || !items.length) return [];
+  return items.map((item) => item?.path).filter(Boolean);
+}
+
+function pathHint(items) {
+  const paths = selectedPaths(items);
+  if (!paths.length) return "0-results";
+  return paths.slice(0, 4).join(",").slice(0, 100);
+}
+
+// Discovery detail is shared by the terminal line and project.log so an
+// operator can audit what each search query/context actually returned.
+function discoveryDetail(name, input = {}, result) {
+  if (!result || typeof result !== "object") return null;
+  if (name === "select_code_graph_candidates") {
+    return { query: input.query ?? "", context: input.context ?? "", result_paths: selectedPaths(result.selected) };
+  }
+  if (name === "search_code") {
+    return { query: input.query ?? "", kind: input.kind ?? "", result_paths: selectedPaths(result.matches) };
+  }
+  return null;
 }
 
 function formatToolLogEvent(status, tool, input, context, extra) {
@@ -112,12 +207,19 @@ function formatToolLogEvent(status, tool, input, context, extra) {
       Object.assign(payload, extra.error.details);
     }
   }
+  const detail = status === "success" ? discoveryDetail(tool, input, extra.result) : null;
+  if (detail) {
+    payload.discovery = { ...detail, result_count: detail.result_paths.length, result_summary: detail.result_paths.length ? detail.result_paths.slice(0, 4).join(",") : "0-results" };
+  }
+  const message = detail
+    ? `Forge tool ${tool} ${status} q="${String(detail.query ?? "").slice(0, 60)}"${detail.context !== undefined ? ` ctx="${String(detail.context).slice(0, 60)}"` : ""} -> ${detail.result_paths.length ? detail.result_paths.slice(0, 4).join(", ") : "0-results"}`
+    : `Forge tool ${tool} ${status}.`;
   return {
     timestamp: new Date().toISOString(),
     event_name: `forge.tool_${status}`,
     level: status === "failed" ? "error" : "info",
     status,
-    message: `Forge tool ${tool} ${status}.`,
+    message,
     task_id: taskId,
     ...(context.ticket?.id ? { ticket_id: context.ticket.id } : {}),
     ...(context.correlation_id ? { correlation_id: context.correlation_id } : {}),

@@ -1,7 +1,7 @@
 import { ConfigurationError } from "../shared/errors.js";
 
 // Read-only Node projection; canonical roadmap and provenance remain in governance modules.
-export function createProjectDashboardService({ roadmaps, sprintPlans, provenance, logReader, relevantTreeSelector } = {}) {
+export function createProjectDashboardService({ roadmaps, sprintPlans, provenance, ticketFileStore, logReader, relevantTreeSelector } = {}) {
   if (typeof roadmaps?.getCurrent !== "function" || typeof sprintPlans?.getCurrentSprint !== "function"
     || typeof sprintPlans?.getSprintStatus !== "function" || typeof sprintPlans?.getSprintBacklog !== "function") {
     throw new ConfigurationError("Project Dashboard Service requires Roadmap and Sprint Plan projections.");
@@ -20,7 +20,16 @@ export function createProjectDashboardService({ roadmaps, sprintPlans, provenanc
     return ticket;
   }
 
-  function getTicket(projectId, ticketId) { return structuredClone(ticketView(findTicket(projectId, ticketId))); }
+  function getTicket(projectId, ticketId) {
+    const ticket = findTicket(projectId, ticketId);
+    const metadata = ticketFileStore?.getMetadata?.(ticketId);
+    return structuredClone({
+      ...ticketView(ticket),
+      // Owner context is intentionally exposed only by the ticket-detail API.
+      // Dashboard lists and agent payloads remain canonical-English only.
+      context: metadata?.project_id === projectId ? metadata.context : ""
+    });
+  }
 
   function getTicketGraph(projectId, ticketId) {
     if (!relevantTreeSelector?.select) throw new ConfigurationError("Ticket Code Graph API is not configured.");

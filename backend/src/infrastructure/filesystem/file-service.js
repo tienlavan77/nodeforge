@@ -1,5 +1,5 @@
-import { mkdir, readFile as fsReadFile, readdir, unlink, writeFile as fsWriteFile, link, rename, open as fsOpen } from "node:fs/promises";
-import { appendFileSync as fsAppendFileSync, mkdirSync, statSync, writeFileSync, renameSync, unlinkSync, openSync, closeSync } from "node:fs";
+import { mkdir, readFile as fsReadFile, readdir, unlink, writeFile as fsWriteFile, link, rename, rmdir, open as fsOpen } from "node:fs/promises";
+import { appendFileSync as fsAppendFileSync, mkdirSync, statSync, readFileSync as fsReadFileSync, writeFileSync, renameSync, unlinkSync, openSync, closeSync, readSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from "node:path";
 import picomatch from "picomatch";
@@ -15,7 +15,7 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
   const secretMatch = picomatch(secretPatterns, { dot: true });
   const ignoreMatch = picomatch(watcherIgnore, { dot: true });
   let queue = Promise.resolve();
-  return Object.freeze({ writeFile, atomicCreate, atomicWrite, atomicWriteSync, appendFile, appendFileSync, createLock, createLockSync, readFile, readForIndex, deleteFile, renameFile, listFiles });
+  return Object.freeze({ writeFile, atomicCreate, atomicWrite, atomicWriteSync, appendFile, appendFileSync, createLock, createLockSync, readFile, readFileSync, readFileRangeSync, readForIndex, deleteFile, removeEmptyDirectory, renameFile, listFiles, listDirectories });
 
   function writeFile(input) {
     const job = queue.then(() => write(input));
@@ -167,6 +167,15 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
     return Object.freeze({ path: rel, bytes: Buffer.byteLength(content) });
   }
   async function readFile({ path } = {}) { const rel = safePath(path); return fsReadFile(resolve(root, rel), "utf8"); }
+  function readFileSync({ path } = {}) { const rel = safePath(path); return fsReadFileSync(resolve(root, rel), "utf8"); }
+  function readFileRangeSync({ path, offset = 0, length } = {}) {
+    const rel = safePath(path);
+    if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(length) || length < 0) throw new ConfigurationError("FileService read range is invalid.");
+    const buffer = Buffer.alloc(length);
+    const descriptor = openSync(resolve(root, rel), "r");
+    try { readSync(descriptor, buffer, 0, length, offset); } finally { closeSync(descriptor); }
+    return buffer.toString("utf8");
+  }
   async function readForIndex({ path } = {}) {
     if (typeof path !== "string" || !path) throw new ConfigurationError("FileService indexing path is required.");
     const rel = relative(root, resolve(root, path)).split(sep).join("/");
@@ -179,6 +188,12 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
     return Object.freeze({ path: rel, content, sha256: `sha256:${sha256}`, size_bytes: Buffer.byteLength(content, "utf8"), language: languageForPath(rel) });
   }
   async function deleteFile({ path } = {}) { const rel = safePath(path, { write: true }); await unlink(resolve(root, rel)); internalBus?.emit?.("file.deleted", { path: rel }); return { path: rel, deleted: true }; }
+  async function removeEmptyDirectory({ path } = {}) {
+    const rel = safePath(path, { write: true });
+    await rmdir(resolve(root, rel));
+    internalBus?.emit?.("directory.deleted", { path: rel });
+    return { path: rel, deleted: true };
+  }
   async function renameFile({ from, to } = {}) {
     const source = safePath(from, { write: true });
     const destination = safePath(to, { write: true });
@@ -193,6 +208,9 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
   }
   async function listFiles({ glob = "**/*" } = {}) { const files = []; const runtimeListing = glob === ".forge/runtime" || glob.startsWith(".forge/runtime/"); const wildcard = glob.search(/[!*?[]/); const base = wildcard < 0 ? glob : glob.slice(0, wildcard).replace(/\/+$/, ""); const start = base ? resolve(root, base) : root; const startPrefix = base ? base : ""; try { await scan(start, startPrefix); } catch (error) { if (error?.code !== "ENOENT") throw error; } const match = picomatch(glob, { dot: true }); return files.filter((path) => match(path));
     async function scan(directory, prefix) { for (const entry of await readdir(directory, { withFileTypes: true })) { const rel = prefix ? `${prefix}/${entry.name}` : entry.name; const runtimeAncestor = runtimeListing && (rel === ".forge" || rel === ".forge/runtime" || rel.startsWith(".forge/runtime/")); if (ignoreMatch(rel) && !runtimeAncestor) continue; if (entry.isDirectory()) await scan(resolve(directory, entry.name), rel); else files.push(rel); } }
+  }
+  async function listDirectories({ glob = "**/*" } = {}) { const directories = []; const runtimeListing = glob === ".forge/runtime" || glob.startsWith(".forge/runtime/"); const start = glob.startsWith(".forge/runtime") ? resolve(root, ".forge/runtime") : root; const startPrefix = glob.startsWith(".forge/runtime") ? ".forge/runtime" : ""; const match = picomatch(glob, { dot: true }); try { await scan(start, startPrefix); } catch (error) { if (error?.code !== "ENOENT") throw error; } return directories.filter((path) => match(path));
+    async function scan(directory, prefix) { for (const entry of await readdir(directory, { withFileTypes: true })) { if (!entry.isDirectory()) continue; const rel = prefix ? `${prefix}/${entry.name}` : entry.name; const runtimeAncestor = runtimeListing && (rel === ".forge" || rel === ".forge/runtime" || rel.startsWith(".forge/runtime/")); if (ignoreMatch(rel) && !runtimeAncestor) continue; await scan(resolve(directory, entry.name), rel); directories.push(rel); } }
   }
   function safePath(path, { write = false } = {}) {
     if (typeof path !== "string" || !path) throw new ConfigurationError("FileService path is required.");

@@ -1,7 +1,5 @@
 import { EventEmitter } from "node:events";
 import { createRuntimeLogger } from "../src/core/runtime-logger.js";
-import { createRuntimeService } from "../src/application/runtime-service.js";
-import { createAgentSessionStore } from "../src/modules/agent/session-store.js";
 import { createPersistentEventStore } from "../src/modules/events/persistent-event-store.js";
 import { createMemoryRetriever } from "../src/modules/history/memory-retriever.js";
 import { createAgentCommunicationBus } from "../src/modules/governance/agent-communication-bus.js";
@@ -12,11 +10,6 @@ import { createRoadmapStore } from "../src/modules/governance/roadmap-store.js";
 import { createSprintPlanProjection } from "../src/modules/governance/sprint-plan-projection.js";
 import { createTicketProvenanceTracker } from "../src/modules/governance/ticket-provenance-tracker.js";
 import { createContextEngine } from "../src/modules/context/context-engine.js";
-import { createFilesystemAwareContextService } from "../src/modules/agent/filesystem-aware-context-service.js";
-import { createAgentContextService } from "../src/modules/agent/context-service.js";
-import { createContextBudgetManager } from "../src/modules/agent/context-budget-manager.js";
-import { createAgentRuntime } from "../src/modules/agent/agent-runtime.js";
-import { createPlanningEngine } from "../src/modules/agent/planning-engine.js";
 import { createTaskStore } from "../src/modules/projects/task-store.js";
 import { createTicketStatusStore } from "../src/modules/projects/ticket-status-store.js";
 import { createSubscriptionRegistry } from "../src/modules/events/subscription-registry.js";
@@ -33,6 +26,8 @@ import { createProseTicketService } from "../src/application/prose-ticket-servic
 import { createCodeSearch } from "../src/modules/index/code-search.js";
 import { createFileGraph } from "../src/modules/index/file-graph.js";
 import { createRelevantTreeSelector } from "../src/modules/index/relevant-tree.js";
+import { createConversationCrudService } from "../src/application/conversation-crud-service.js";
+import { createTicketFileStore } from "../src/application/ticket-file-store.js";
 
 export function createControlApiPlatform({ config, database, indexDb, fileService, agentGateway, logEvent } = {}) {
   const { projectId, cwd: projectRoot } = config;
@@ -40,6 +35,7 @@ export function createControlApiPlatform({ config, database, indexDb, fileServic
   const fileGraph = createFileGraph({ database: indexDb });
   const relevantTreeSelector = createRelevantTreeSelector({ search: codeSearch, fileGraph, maxFiles: 30, defaultDepth: 1 });
   const communications = createAgentCommunicationStore({ database, fileService });
+  const conversations = createConversationCrudService({ database });
   const bus = createAgentCommunicationBus({ store: communications });
   const decisions = createArchitectureDecisionStore({ database });
   const roadmaps = createRoadmapStore({ database });
@@ -59,16 +55,12 @@ export function createControlApiPlatform({ config, database, indexDb, fileServic
   const memory = createProjectMemoryStore({ summaries });
   const memoryRetriever = createMemoryRetriever({ memory });
   const contextEngine = createContextEngine({ database: indexDb, projectRoot, projectId });
-  const baseContext = createAgentContextService({ memoryRetriever, taskSummaries: summaries, taskStore });
-  const maxFacts = Number(process.env.NODE_AGENT_MAX_FACTS ?? 200);
-  const contextService = createFilesystemAwareContextService({ baseContextService: baseContext, contextEngine, budgetManager: createContextBudgetManager(), maxFacts, debug: (detail) => process.env.NODE_DEBUG_CONTEXT && console.debug(detail) });
-  const agentRuntime = createAgentRuntime({ contextService, budgetManager: createContextBudgetManager(), planningEngine: createPlanningEngine(), publisher: eventPublisher, summaries, memory, maxFacts });
-  const runtimeService = createRuntimeService({ sessionStore: createAgentSessionStore({ database }), eventStore, memoryRetriever, taskStore, agentRuntime, publisher: eventPublisher });
-  const sprintOrchestration = createSprintOrchestrationService({ runtimeService, sprintPlans, sprintPlanStore: roadmaps, ticketProvenanceTracker: provenance, agentGateway, publisher: eventPublisher });
+  const sprintOrchestration = createSprintOrchestrationService({ sprintPlans, sprintPlanStore: roadmaps, ticketProvenanceTracker: provenance, agentGateway, publisher: eventPublisher });
   const ticketCommandParser = createTicketCommandParser({ roadmapStore: roadmaps });
   const proseTicketService = createProseTicketService({ roadmapStore: roadmaps });
+  const ticketFileStore = createTicketFileStore({ database, fileService });
   const sprintPlanUpload = createSprintPlanUploadService({ roadmaps, publisher: eventPublisher, projectRoot, isRunning: (sprintId) => sprintOrchestration.isRunning(sprintId) });
-  return { projectId, indexDb, codeSearch, fileGraph, relevantTreeSelector, memoryRetriever, communications, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, verificationOrchestrator, testService, contextEngine, runtimeService, sprintOrchestration, ticketCommandParser, proseTicketService, sprintPlanUpload, taskSummaries: summaries, projectMemory: memory };
+  return { projectId, indexDb, codeSearch, fileGraph, relevantTreeSelector, memoryRetriever, communications, conversations, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, verificationOrchestrator, testService, contextEngine, sprintOrchestration, ticketCommandParser, proseTicketService, ticketFileStore, sprintPlanUpload, taskSummaries: summaries, projectMemory: memory };
 }
 
 function createTicketStatusLogger({ internalBus, logEvent }) {

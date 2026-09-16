@@ -4,6 +4,7 @@ import { isAbsolute } from "node:path";
 import { ConfigurationError } from "../shared/errors.js";
 import { isProtectedPath } from "../infrastructure/filesystem/protected-path-policy.js";
 import { assertExecutionScope, checkRetrievalBudget, recordRetrieval } from "./retrieval-governance.js";
+import { discoveryNotice } from "./exploration-state.js";
 
 const DEFAULT_MAX_CHARS = 50000;
 const HARD_MAX_CHARS = 100000;
@@ -44,6 +45,7 @@ export function createReadCodeTool({ fileService, maxChars = DEFAULT_MAX_CHARS }
       ...(symbol ? { symbol: symbol.name, symbol_kind: symbol.symbol_kind ?? "unknown", start_line: symbol.start_line, end_line: symbol.end_line } : {})
     };
     recordRetrieval(context, { bytes: Buffer.byteLength(returnedContent, "utf8"), tool: "read_code", kind, taskId, resource: path });
+    result.discovery_budget = discoveryNotice(context);
     return result;
   }
 }

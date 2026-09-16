@@ -11,7 +11,7 @@ const ticketSchema = require("../../../schemas/governance/ticket.schema.json");
 const agentToolSchema = require("../../../schemas/agent/agent-tool.schema.json");
 const AGENT_TOOL_PROTOCOL_UNLIMITED = "\n\nAgent tool loop protocol:\n- Use code_needed only when more context is needed; request files with files_requested and a short reason.\n- When ready to submit code, use submit_code_response and return explanation plus files[].\n- Each file entry must include path, language, format, content, exists, and before_checksum.\n- Keep representation to full_content unless a diff is explicitly required.\n- If the task is a status-style result, use the matching tool kind and keep the response minimal and structured, not prose-only.\n- Never send apply_patch syntax or a bare @@ hunk.\n- Never replace a long file with a shortened reconstruction.";
 
-export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, executeAgentTool, ticketCommandParser, proseTicketService, dispatchAgentTicket, internalBus, debug = () => {}, streamBatchMs = 500, projectLogger = logEvent, protocolStorage } = {}) {
+export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, executeAgentTool, ticketCommandParser, proseTicketService, dispatchAgentTicket, internalBus, debug = () => {}, streamBatchMs = 500, projectLogger = logEvent, protocolStorage, conversationCrudService } = {}) {
   if (typeof bus?.send !== "function") throw new ConfigurationError("Owner Chat Service requires the shared Communication Bus.");
   if (!Number.isInteger(streamBatchMs) || streamBatchMs < 1) throw new ConfigurationError("Owner Chat stream batch interval must be positive.");
   const messages = new Map();
@@ -41,6 +41,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     }
     const existing = messages.get(input.message_id);
     if (existing) return { ...structuredClone(existing), duplicate: true };
+    conversationCrudService?.ensure?.({ id: input.conversation_id, project_id: input.project_id, agent_id: agentId, title: input.payload.text });
     const isBuilder = agentId === "builder" || agentId === "builder-ex";
     const intent = input.payload.intent;
     if (intent !== undefined && !["normal_chat", "ticket_create", "ticket_dispatch"].includes(intent)) throw new ConfigurationError("Invalid owner message intent.");
