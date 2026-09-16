@@ -6,20 +6,54 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
 
   // Adds a compact `checkpoint` summary to each ticket so the UI can show a
   // Resume button when a previous run crashed mid-execution. Checkpoints are
-  // deleted on report_done, so a surviving entry means resumable progress.
-  async function withCheckpointSummary(sprints) {
-    if (typeof listResumableCheckpoints !== "function") return sprints;
+  // retained after report_done (status becomes "completed"), so only pending
+  // ones are resumable.
+  async function loadCheckpointMap() {
+    if (typeof listResumableCheckpoints !== "function") return null;
     let resumable;
-    try { resumable = await listResumableCheckpoints(); } catch { return sprints; }
-    const byTask = new Map((resumable ?? []).map((checkpoint) => [checkpoint.task_id, checkpoint]));
+    try { resumable = await listResumableCheckpoints(); } catch { return null; }
+    return new Map((resumable ?? []).map((checkpoint) => [checkpoint.task_id, checkpoint]));
+  }
+
+  function checkpointSummary(byTask, ticketId) {
+    const checkpoint = byTask?.get(ticketId);
+    if (!checkpoint) return null;
+    return { resumable: true, last_completed_turn: checkpoint.last_completed_turn ?? 0, last_tool: checkpoint.last_tool ?? null, updated_at: checkpoint.updated_at ?? null };
+  }
+
+  async function withCheckpointSummary(sprints) {
+    const byTask = await loadCheckpointMap();
+    if (!byTask) return sprints;
     return (sprints ?? []).map((sprint) => ({
       ...sprint,
       tickets: (sprint.tickets ?? []).map((ticket) => {
-        const checkpoint = byTask.get(ticket?.id);
-        if (!checkpoint) return ticket;
-        return { ...ticket, checkpoint: { resumable: true, last_completed_turn: checkpoint.last_completed_turn ?? 0, last_tool: checkpoint.last_tool ?? null, updated_at: checkpoint.updated_at ?? null } };
+        const summary = checkpointSummary(byTask, ticket?.id);
+        return summary ? { ...ticket, checkpoint: summary } : ticket;
       })
     }));
+  }
+
+  // The UI renders ticket cards from the dashboard projection
+  // (`dashboard.roadmap.sprints[].tasks`), NOT from GET /sprints, so the
+  // checkpoint summary must be decorated here too or Resume/Run fresh never
+  // appear. `taskViewSummary` strips unknown fields, so we annotate after the
+  // dashboard service returns.
+  async function withDashboardCheckpointSummary(dashboard) {
+    const byTask = await loadCheckpointMap();
+    if (!byTask || !dashboard?.roadmap?.sprints) return dashboard;
+    return {
+      ...dashboard,
+      roadmap: {
+        ...dashboard.roadmap,
+        sprints: dashboard.roadmap.sprints.map((sprint) => ({
+          ...sprint,
+          tasks: (sprint.tasks ?? []).map((task) => {
+            const summary = checkpointSummary(byTask, task?.id);
+            return summary ? { ...task, checkpoint: summary } : task;
+          })
+        }))
+      }
+    };
   }
 
   async function route(method, url, request) {
@@ -84,7 +118,8 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
 
     if (method === "GET" && parts.length === 3 && parts[0] === "projects" && parts[2] === "dashboard") {
       if (!projectDashboardService?.getDashboard) throw unavailable("Project Dashboard");
-      return { status: 200, body: await projectDashboardService.getDashboard(parts[1]) };
+      const dashboard = await projectDashboardService.getDashboard(parts[1]);
+      return { status: 200, body: await withDashboardCheckpointSummary(dashboard) };
     }
 
     if (method === "GET" && parts.length === 4 && parts[0] === "projects" && parts[2] === "tickets") {
@@ -237,6 +272,12 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
     if (method === "POST" && parts.length === 3 && parts[0] === "conversations" && parts[2] === "messages") {
       if (!ownerChatService?.submit) throw unavailable("Conversation");
       return { status: 202, body: await ownerChatService.submit({ ...body, project_id: projectId, conversation_id: parts[1] }) };
+    }
+
+    // Chat API: canonical route is POST /forge/v1/conversations (forgeV1("/conversations"))
+    if (method === "POST" && parts.length === 1 && parts[0] === "conversations") {
+      if (!ownerChatService?.submit) throw unavailable("Conversation");
+      return { status: 202, body: await ownerChatService.submit({ ...body, project_id: body.project_id ?? projectId, conversation_id: body.conversation_id ?? body.conversationId }) };
     }
 
     if (method === "POST" && parts.length === 1 && parts[0] === "tool-lab") {
