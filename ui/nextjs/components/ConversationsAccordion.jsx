@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { CreateConversationModal } from "./CreateConversationModal.jsx";
 
 async function createConversationRequest(title, { onNewConversation, projectId, agentId } = {}) {
   if (onNewConversation) return onNewConversation(title);
@@ -33,6 +34,10 @@ export function ConversationsAccordion({
     const trimmedTitle = title.trim();
     if (!trimmedTitle) {
       setError("Conversation title is required.");
+      return;
+    }
+    if (trimmedTitle.length > 120) {
+      setError("Conversation title must be 120 characters or fewer.");
       return;
     }
     setError("");
@@ -74,22 +79,15 @@ export function ConversationsAccordion({
         >
           New Conversation
         </button>
-        {modalOpen ? (
-          <div className="conversations-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setModalOpen(false); }}>
-            <div className="conversations-modal" role="dialog" aria-modal="true" aria-labelledby="conversation-modal-title">
-              <h2 id="conversation-modal-title">New Conversation</h2>
-              <form onSubmit={handleCreateConversation}>
-                <label htmlFor="conversation-title">Conversation title</label>
-                <input id="conversation-title" name="title" value={title} onChange={(event) => setTitle(event.target.value)} autoFocus required />
-                {error ? <p role="alert" className="conversations-accordion-error">{error}</p> : null}
-                <div className="conversations-modal-actions">
-                  <button type="button" onClick={() => setModalOpen(false)} disabled={creating}>Cancel</button>
-                  <button type="submit" disabled={creating}>{creating ? "Creating..." : "Create"}</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        ) : null}
+        <CreateConversationModal
+          open={modalOpen}
+          title={title}
+          error={error}
+          creating={creating}
+          onTitleChange={(next) => { setTitle(next); if (error) setError(""); }}
+          onSubmit={handleCreateConversation}
+          onClose={() => setModalOpen(false)}
+        />
         {!modalOpen && error ? <p role="alert" className="conversations-accordion-error">{error}</p> : null}
       </div>
       {open && (
