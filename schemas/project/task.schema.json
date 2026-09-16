@@ -7,6 +7,7 @@
   "required": [
     "id",
     "project_id",
+    "team",
     "type",
     "title",
     "status",
@@ -18,6 +19,11 @@
     },
     "project_id": {
       "$ref": "../core/common.schema.json#/$defs/id"
+    },
+    "team": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Team responsible for this task."
     },
     "commit_id": {
       "$ref": "../core/common.schema.json#/$defs/id",

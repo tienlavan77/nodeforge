@@ -5,6 +5,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 
 import { ConfigurationError } from "../../shared/errors.js";
+import { migrateTaskTeam } from "./task-schema-migration.js";
 
 const require = createRequire(import.meta.url);
 const commonSchema = require("../../../../schemas/core/common.schema.json");
@@ -19,6 +20,7 @@ export function createTaskStore({ database, projectId, createId = createTaskId }
   if (typeof projectId !== "string" || projectId.length === 0) throw new ConfigurationError("A project_id is required for task persistence.");
   if (typeof createId !== "function") throw new ConfigurationError("Task ID creation must be a function.");
   ensureTaskTable(database);
+  migrateTaskTeam(database);
 
   function get(taskId) {
     const row = database.all("SELECT task_json FROM project_tasks WHERE task_id = ? AND project_id = ?", [taskId, projectId])[0];
@@ -30,12 +32,20 @@ export function createTaskStore({ database, projectId, createId = createTaskId }
 
   return Object.freeze({
     create({ id = createId(), ...attributes } = {}) {
-      const task = { id, project_id: projectId, ...attributes };
+      const task = { id, project_id: projectId, team: attributes.team ?? "unassigned", ...attributes };
       validateTask(task);
-      database.run("INSERT INTO project_tasks (task_id, project_id, task_json) VALUES (?, ?, ?)", [task.id, projectId, JSON.stringify(task)]);
+      database.run("INSERT INTO project_tasks (task_id, project_id, team, task_json) VALUES (?, ?, ?, ?)", [task.id, projectId, task.team, JSON.stringify(task)]);
       return Object.freeze({ ...task });
     },
-    get
+    get,
+    update(taskId, attributes = {}) {
+      const current = get(taskId);
+      if (!current) return undefined;
+      const task = { ...current, ...attributes, id: current.id, project_id: projectId, team: attributes.team ?? current.team };
+      validateTask(task);
+      database.run("UPDATE project_tasks SET team = ?, task_json = ? WHERE task_id = ? AND project_id = ?", [task.team, JSON.stringify(task), taskId, projectId]);
+      return Object.freeze({ ...task });
+    }
   });
 }
 
@@ -43,6 +53,7 @@ function ensureTaskTable(database) {
   database.run(`CREATE TABLE IF NOT EXISTS project_tasks (
     task_id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL,
+    team TEXT NOT NULL DEFAULT 'unassigned',
     task_json TEXT NOT NULL
   )`);
   database.run("CREATE INDEX IF NOT EXISTS project_tasks_by_project ON project_tasks (project_id)");
