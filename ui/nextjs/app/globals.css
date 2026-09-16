@@ -257,6 +257,9 @@ button, input { font: inherit; }
 .composer textarea:disabled, .composer input:disabled { opacity: .45; cursor: not-allowed; }
 .composer button:disabled { opacity: .45; cursor: not-allowed; }
 .settings-modal label select { display: block; width: 100%; margin-top: 6px; border: 1px solid #343947; background: #1d2028; color: #d5d9e0; padding: 9px; font-size: 15px; }
+.agent-modal-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; width: 100vw; height: 100vh; padding: 24px; overflow-y: auto; background: rgba(7, 8, 11, .72); pointer-events: auto; }
+.agent-modal { width: min(560px, 100%); max-height: calc(100vh - 48px); overflow-y: auto; }
+
 .decision-result { margin: 12px 0; padding: 10px 12px; border: 1px solid #3a3d4a; background: #1a1d24; color: #c8d0a8; font-family: 'DM Mono', monospace; font-size: 15px; text-align: center; }
 .settings-mask { display: block; margin-top: 8px; color: #7a8290; font-family: 'DM Mono', monospace; font-size: 12px; }
 .inline-code { display: inline; padding: 1px 5px; border: 1px solid #303642; border-radius: 4px; background: #11151b; color: #dce5f2; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: break-spaces; word-break: break-word; }
