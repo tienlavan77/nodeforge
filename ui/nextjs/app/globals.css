@@ -1508,3 +1508,98 @@ button, input { font: inherit; }
 .conversations-accordion-item:hover { border-color: var(--app-accent); }
 .conversations-accordion-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .conversations-accordion-item-time { flex: 0 0 auto; color: var(--app-muted); font: 10px 'DM Mono', monospace; }
+
+/* New conversation modal */
+.conversations-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in srgb, #08111f 72%, transparent);
+  backdrop-filter: blur(4px);
+}
+.conversations-modal {
+  width: min(100%, 440px);
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  background: var(--app-panel);
+  color: var(--app-text);
+  box-shadow: 0 20px 60px color-mix(in srgb, #000 42%, transparent);
+  padding: 24px;
+}
+.conversations-modal h2 {
+  margin: 0 0 18px;
+  color: var(--app-text);
+  font: 600 20px/1.2 'Space Grotesk', sans-serif;
+  letter-spacing: -.02em;
+}
+.conversations-modal form { display: grid; gap: 8px; }
+.conversations-modal label {
+  color: var(--app-muted);
+  font: 600 11px/1.3 'Space Grotesk', sans-serif;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.conversations-modal input {
+  width: 100%;
+  min-height: 42px;
+  box-sizing: border-box;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: var(--app-surface-alt);
+  color: var(--app-text);
+  padding: 10px 12px;
+  font: 14px 'Space Grotesk', sans-serif;
+}
+.conversations-modal input:hover { border-color: color-mix(in srgb, var(--app-accent) 60%, var(--app-border)); }
+.conversations-modal input:focus-visible {
+  border-color: var(--app-accent);
+  outline: 2px solid color-mix(in srgb, var(--app-accent) 40%, transparent);
+  outline-offset: 1px;
+}
+.conversations-accordion-error {
+  margin: 4px 0 0;
+  color: var(--app-danger, #e36d78);
+  font-size: 12px;
+}
+.conversations-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+.conversations-modal-actions button {
+  min-height: 36px;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--app-text);
+  padding: 8px 14px;
+  cursor: pointer;
+  font: 500 13px 'Space Grotesk', sans-serif;
+}
+.conversations-modal-actions button[type='submit'] {
+  border-color: var(--app-accent);
+  background: var(--app-accent);
+  color: #08111f;
+}
+.conversations-modal-actions button:hover:not(:disabled),
+.conversations-modal-actions button:focus-visible {
+  border-color: var(--app-accent);
+  background: color-mix(in srgb, var(--app-button-bg) 70%, var(--app-accent));
+}
+.conversations-modal-actions button[type='submit']:hover:not(:disabled) { background: color-mix(in srgb, var(--app-accent) 82%, white); }
+.conversations-modal-actions button:focus-visible { outline: 2px solid color-mix(in srgb, var(--app-accent) 55%, transparent); outline-offset: 2px; }
+.conversations-modal-actions button:disabled { cursor: wait; opacity: .52; }
+@media (max-width: 560px) {
+  .conversations-modal-backdrop { padding: 16px; align-items: end; }
+  .conversations-modal { padding: 20px; border-radius: 10px 10px 0 0; }
+  .conversations-modal-actions { flex-direction: column-reverse; }
+  .conversations-modal-actions button { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .conversations-modal-backdrop { backdrop-filter: none; }
+}
+
