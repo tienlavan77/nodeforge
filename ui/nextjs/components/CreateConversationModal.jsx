@@ -1,8 +1,10 @@
 "use client";
 
+import { createPortal } from "react-dom";
+
 export function CreateConversationModal({ open, title, error, creating, onTitleChange, onSubmit, onClose }) {
-  if (!open) return null;
-  return (
+  if (!open || typeof document === "undefined") return null;
+  return createPortal(
     <div
       className="conversations-modal-backdrop"
       role="presentation"
@@ -40,6 +42,7 @@ export function CreateConversationModal({ open, title, error, creating, onTitleC
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

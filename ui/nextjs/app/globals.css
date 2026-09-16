@@ -227,6 +227,17 @@ button, input { font: inherit; }
 .natural-message time { display: block; margin-top: 4px; color: #626a76; font-size: 11px; }
 .natural-message.agent.streaming p::after { content: "▊"; display: inline-block; margin-left: 2px; color: #8f83fa; animation: caret-blink 0.9s step-end infinite; font-weight: 300; }
 @keyframes caret-blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
+.new-conversation-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 28px; background: rgba(7,8,11,.72); }
+.new-conversation-modal { width: min(520px, 100%); border: 1px solid #45415f; background: #171920; box-shadow: 0 25px 80px rgba(0,0,0,.45); padding: 20px; }
+.new-conversation-modal header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 18px; }
+.new-conversation-modal h2 { margin: 0; color: #e0dffd; font-size: 19px; }
+.new-conversation-modal p { color: #9ea5b2; line-height: 1.5; }
+.new-conversation-modal header p { margin: 5px 0 0; font-family: 'DM Mono', monospace; font-size: 13px; }
+.new-conversation-close { border: 0; background: transparent; color: #abb1bc; cursor: pointer; font-size: 26px; line-height: 1; }
+.new-conversation-modal label { display: block; color: #9ea5b2; font-family: 'DM Mono', monospace; font-size: 14px; }
+.new-conversation-modal input { display: block; width: 100%; margin-top: 7px; border: 1px solid #343947; background: #1d2028; color: #d5d9e0; padding: 10px; }
+.new-conversation-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+.working-status { padding: 6px 0 14px; color: #9fc6ab; font-size: 12px; font-style: italic; animation: working-pulse 1.8s ease-in-out infinite; }
 .working-status { padding: 6px 0 14px; color: #9fc6ab; font-size: 12px; font-style: italic; animation: working-pulse 1.8s ease-in-out infinite; }
 .composer textarea { display: block; width: 100%; min-width: 0; flex: 1 1 auto; resize: none; min-height: 58px; max-height: 180px; overflow-y: auto; border: 1px solid #2b3039; outline: none; color: #d9dce3; background: #1a1d23; padding: 10px 12px; font: inherit; line-height: 1.4; }
 .composer textarea:focus { border-color: #5b54a0; box-shadow: 0 0 0 2px rgba(91,84,160,.15); }
@@ -1518,13 +1529,13 @@ button, input { font: inherit; }
 }
 
 .conversations-modal-backdrop {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
   z-index: 30;
   display: grid;
   place-items: center;
-  width: min(calc(100vw - 32px), 488px);
   max-height: min(90vh, 600px);
   padding: 16px;
   box-sizing: border-box;
