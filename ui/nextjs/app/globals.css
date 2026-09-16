@@ -1510,8 +1510,12 @@ button, input { font: inherit; }
 .conversations-accordion-item-time { flex: 0 0 auto; color: var(--app-muted); font: 10px 'DM Mono', monospace; }
 
 /* New conversation modal */
+.conversations-accordion {
+  position: relative;
+}
+
 .conversations-modal-backdrop {
-  position: fixed;
+  position: absolute;
   inset: 0;
   z-index: 30;
   display: grid;
@@ -1519,6 +1523,12 @@ button, input { font: inherit; }
   padding: 24px;
   background: color-mix(in srgb, #08111f 72%, transparent);
   backdrop-filter: blur(4px);
+}
+
+.conversations-modal {
+  width: min(100%, 440px);
+  max-height: min(90vh, 520px);
+  overflow-y: auto;
 }
 .conversations-modal {
   width: min(100%, 440px);
