@@ -4,7 +4,29 @@ import Link from "next/link";
 import { NodeForgeHeader } from "./NodeForgeHeader.jsx";
 import { ArchitectureArtifacts, AgentSettingsOverlay, HistoryOverlay, InlineDecisionControls, Message, PanelHeader, SprintPlanDashboard, UploadSprintPlanDialog } from "./NodeForgePanels.jsx";
 
-export function NodeForgeShell({ app }) {
+export const ARCH_STORAGE_KEY = "arch";
+
+function readArchitectureAgent(projectId) {
+  if (typeof window === "undefined" || !projectId) return "";
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(ARCH_STORAGE_KEY) || "{}");
+    return stored?.[projectId]?.agent || "";
+  } catch {
+    return "";
+  }
+}
+
+function persistArchitectureAgent(projectId, agent) {
+  if (typeof window === "undefined" || !projectId || !agent) return;
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(ARCH_STORAGE_KEY) || "{}");
+    window.localStorage.setItem(ARCH_STORAGE_KEY, JSON.stringify({ ...stored, [projectId]: { agent } }));
+  } catch {
+    // Ignore unavailable or malformed localStorage without breaking the selector.
+  }
+}
+
+function NodeForgeShell({ app }) {
   const { AGENTS, active, activeAgent, workingByAgent, drafts, historyChat, historyHasMore, historyLoading, conversationRefs, composerRef, wasAtBottomRef, setActiveAgent, setDrafts, historyOpen, setHistoryOpen, settingsAgent, setSettingsAgent, uploadOpen, setUploadOpen, send, handleScroll, dashboard, workspace, client, loadWorkspace, loadDashboard, architectureManagers, selectedArchitectureManagerId, setSelectedArchitectureManagerId } = app;
   const dashboardSprints = dashboard?.roadmap?.sprints ?? [];
   const dashboardTickets = dashboardSprints.flatMap((sprint) => sprint.tasks ?? []);
@@ -25,7 +47,12 @@ export function NodeForgeShell({ app }) {
       <section className="chat-area panel" aria-label="Project Chat">
         <div className="project-chat-target">
           <label htmlFor="architecture-manager-selector">Architecture Manager</label>
-          <select className="architecture-manager-select" id="architecture-manager-selector" value={selectedArchitectureManagerId} onChange={(event) => setSelectedArchitectureManagerId(event.target.value)} aria-label="Architecture Manager selection">
+          <select className="architecture-manager-select" id="architecture-manager-selector"
+              defaultValue={readArchitectureAgent(projectId) || activeArchitectureManagerId}
+              onChange={(event) => {
+                persistArchitectureAgent(projectId, event.target.value);
+                onArchitectureManagerChange(event.target.value);
+              }} value={selectedArchitectureManagerId} onChange={(event) => setSelectedArchitectureManagerId(event.target.value)} aria-label="Architecture Manager selection">
             {!architectureManagers.length && <option value="">No enabled Architecture Manager agents available</option>}
             {architectureManagers.map((agent) => <option key={agent.id} value={agent.id}>{agent.label}</option>)}
           </select>
@@ -63,8 +90,8 @@ export function NodeForgeShell({ app }) {
               {agent.id === "architecture-manager" ? (
                 <header className="agent-header">
                   <div className={`agent-avatar ${agent.tone}`}>{agent.short}</div>
-                  <div className="agent-heading"><div className="agent-status"><span className="status-dot" /> {workingByAgent[agent.id]}</div></div>
-                  <button className="panel-menu" onClick={() => setSettingsAgent(agent)} title="Agent Settings" aria-label={`${agent.label} Agent Settings`}>&#9881;</button>
+                  <div className="agent-heading"><h2>{selectedArchitectureManager?.agent_name ?? selectedArchitectureManager?.label ?? agent.label}</h2><div className="agent-status"><span className="status-dot" /> {workingByAgent[agent.id]}</div></div>
+                  <button className="panel-menu" onClick={() => setSettingsAgent(agent)} title="Agent Settings" aria-label={`${selectedArchitectureManager?.agent_name ?? selectedArchitectureManager?.label ?? agent.label} Agent Settings`}>&#9881;</button>
                 </header>
               ) : (
                 <PanelHeader agent={{ ...agent, status: workingByAgent[agent.id] }} onSettings={() => setSettingsAgent(agent)} />

@@ -34,6 +34,7 @@ import { createSprintDagRunner, topologicalTicketLevels } from "../src/modules/s
 import { createCodeIndexSummaryBuilder } from "../src/modules/index/code-index-summary-builder.js";
 import { createStage1ReportService } from "../src/modules/workflows/stage1-report-service.js";
 import { createTicketCrudService } from "../src/application/ticket-crud-service.js";
+import { createAgentExecutionCheckpointStore } from "../src/modules/agent/agent-execution-checkpoint.js";
 
 const config = readControlApiConfig();
 const { port, host, dataDir } = config;
@@ -52,7 +53,7 @@ const codexSdkGateway = createCodexSdkGateway({ configuration: agentConfiguratio
 const platform = createControlApiPlatform({ config, database, indexDb, fileService, agentGateway, logEvent });
 const gitService = createGitService({ projectRoot: config.cwd });
 const reportService = createStage1ReportService({ protocolStorage, fileService, gitService });
-const { projectId, indexDb: platformIndexDb, codeSearch, fileGraph, relevantTreeSelector, memoryRetriever, communications, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, verificationOrchestrator, contextEngine, runtimeService, sprintOrchestration, ticketCommandParser, proseTicketService, sprintPlanUpload, taskSummaries, projectMemory } = platform;
+const { projectId, indexDb: platformIndexDb, codeSearch, fileGraph, relevantTreeSelector, memoryRetriever, communications, conversations, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, verificationOrchestrator, contextEngine, sprintOrchestration, ticketCommandParser, proseTicketService, ticketFileStore, sprintPlanUpload, taskSummaries, projectMemory } = platform;
 testService = platform.testService;
 const unifiedStreamOrder = createUnifiedStreamOrderer();
 const runtimeLogger = createRuntimeLogger({ logEvent });
@@ -108,7 +109,7 @@ function isSourceCandidate(entry = {}) {
 
 function isFrontendTicket(ticket = {}) { return /\bfrontend\b|\breact\b|\bnext(?:\.js)?\b|\bjsx\b/i.test([ticket.title, ticket.objective, ...(ticket.acceptance_criteria ?? [])].join(" ")); }
 
-const dispatchTask = async ({ ticket, message, required_role } = {}) => supervisorRuntime.integration.submitTicket({ ticket, task_id: ticket.id, project_id: ticket.project_id, request_id: message?.id, correlation_id: message?.correlation_id, required_role: required_role ?? ticket.required_role ?? "coder", payload: { text: `Ticket ${ticket.id}: ${ticket.title ?? ""}\nObjective: ${ticket.objective ?? ""}\nAcceptance: ${(ticket.acceptance_criteria ?? []).join("; ")}`, task: { id: ticket.id, title: ticket.title, objective: ticket.objective, dependencies: ticket.dependencies ?? [], acceptance_criteria: ticket.acceptance_criteria ?? [] }, ticket } });
+const dispatchTask = async ({ ticket, message, required_role, resume_from } = {}) => supervisorRuntime.integration.submitTicket({ ticket, task_id: ticket.id, project_id: ticket.project_id, request_id: message?.id, correlation_id: message?.correlation_id, required_role: required_role ?? ticket.required_role ?? "coder", payload: { text: `Ticket ${ticket.id}: ${ticket.title ?? ""}\nObjective: ${ticket.objective ?? ""}\nAcceptance: ${(ticket.acceptance_criteria ?? []).join("; ")}`, task: { id: ticket.id, title: ticket.title, objective: ticket.objective, dependencies: ticket.dependencies ?? [], acceptance_criteria: ticket.acceptance_criteria ?? [] }, ticket, ...(resume_from ? { resume_from } : {}) } });
 
 // Sprint execution runs one level at a time, gating each ticket on its
 // predecessors' terminal ticket status via the execution event bus.
@@ -116,18 +117,29 @@ const sprintDagRunner = createSprintDagRunner({ ticketStatusStore, eventBus: sup
 
 const runningSprints = new Set();
 
-const dispatchTicket = async ({ projectId, ticketId, conversationId } = {}) => {
+const dispatchTicket = async ({ projectId, ticketId, conversationId, fresh = false } = {}) => {
   const ticket = roadmaps.getCurrent()?.sprints?.flatMap((sprint) => sprint.tickets ?? []).find((item) => item.id === ticketId && item.project_id === projectId);
   if (!ticket) { const error = new Error(`Ticket not found: ${ticketId}`); error.statusCode = 404; throw error; }
-  // An explicit RUN is always a fresh attempt: clear prior protocol records
-  // (request/response/report/final_report) and conversation state first, so a
-  // stale final_report from an earlier attempt cannot cause STORAGE_CONFLICT
-  // or get silently reused regardless of the ticket's current status.
-  await protocolStorage.clearTask(ticketId);
-  await conversationStateStore.clear(`CONV-BUILDER-PROJECT-NODEFORGE-${ticketId}`);
+  // Resume by default: an unfinished checkpoint means a previous run crashed
+  // mid-execution, so keep protocol/conversation state and let the agent
+  // continue from the last completed turn. `fresh: true` forces the old
+  // behavior of clearing everything and starting over.
+  // A checkpoint is retained after report_done for auditing, so only resume
+  // from it while it is still unfinished (status !== "completed").
+  const checkpoint = fresh ? null : await supervisorRuntime.agentCheckpoints.load(ticketId).catch(() => null);
+  const resume = checkpoint && checkpoint.status !== "completed" ? checkpoint : null;
+
+  if (!resume) {
+    // An explicit fresh RUN clears prior protocol records
+    // (request/response/report/final_report) and conversation state first, so a
+    // stale final_report from an earlier attempt cannot cause STORAGE_CONFLICT
+    // or get silently reused regardless of the ticket's current status.
+    await protocolStorage.clearTask(ticketId);
+    await conversationStateStore.clear(`CONV-BUILDER-PROJECT-NODEFORGE-${ticketId}`);
+  }
   const correlationId = `CORR-UI-RUN-${ticketId}-${Date.now()}`;
-  const result = await dispatchTask({ ticket, message: { id: `REQ-${ticketId}-${Date.now()}`, correlation_id: correlationId } });
-  return { ticket_id: ticketId, supervisor_id: result.supervisor_id, status: result.status === "already_running" ? "already_running" : "accepted", pipeline: "supervisor" };
+  const result = await dispatchTask({ ticket, message: { id: `REQ-${ticketId}-${Date.now()}`, correlation_id: correlationId }, ...(resume ? { resume_from: resume } : {}) });
+  return { ticket_id: ticketId, supervisor_id: result.supervisor_id, status: result.status === "already_running" ? "already_running" : "accepted", pipeline: "supervisor", ...(resume ? { resumed: true, resumed_from_turn: resume.last_completed_turn ?? 0 } : {}) };
 };
 // Dedicated Codex Forge tool-lab entry point. Runs the fixed six-tool MCP
 // sequence (search_code -> read_file -> write_diff -> run_test -> commit_changes
@@ -161,14 +173,15 @@ const dispatchSprint = async ({ projectId: requestedProjectId, sprintId } = {}) 
 const publishUnifiedStreamEvent = createUnifiedStreamPublisher({ unifiedStreamOrder, internalBus, bus, projectId, logEvent });
 
 const api = createControlApiHttp({ services: {
-  runtimeService, bus, communications, eventStore, indexDb: platformIndexDb, subscriptions, knowledge, roadmaps, sprintPlans, provenance,
+  bus, communications, conversations, eventStore, indexDb: platformIndexDb, subscriptions, knowledge, roadmaps, sprintPlans, provenance,
   relevantTreeSelector, decisions, agentSettings, sprintPlanUpload, sprintOrchestration, dispatchTicket, runToolLab, internalBus,
   ticketCommandParser, proseTicketService, buildBuilderContext, protocolStorage, agentGateway, publishUnifiedStreamEvent,
-  ticketCrudService: createTicketCrudService({ roadmaps, proseTicketService, publisher: eventPublisher, agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId }), agentRoleResolver }),
+  ticketCrudService: createTicketCrudService({ roadmaps, proseTicketService, ticketFileStore, publisher: eventPublisher, agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId }), agentRoleResolver }),
   dispatchTask, dispatchSprint, logEvent, projectId,
   architectureWorkspaceService: createArchitectureWorkspaceService({ knowledge, roadmaps, sprintPlans }),
-  projectDashboardService: createProjectDashboardService({ roadmaps, sprintPlans, provenance, relevantTreeSelector, logReader: ({ ticket_id }) => readLogEvents({ project_id: projectId, ticket_id }) }),
+  projectDashboardService: createProjectDashboardService({ roadmaps, sprintPlans, provenance, ticketFileStore, relevantTreeSelector, logReader: ({ ticket_id }) => readLogEvents({ project_id: projectId, ticket_id }) }),
   conversationAuditHistoryService: createConversationAuditHistoryService({ communications, eventStore, logReader: ({ project_id, task_id, correlation_id, conversation_id, event_name }) => readLogEvents({ project_id, task_id, ticket_id: task_id, conversation_id, event_name, correlation_id }) }),
+  listResumableCheckpoints: () => supervisorRuntime.agentCheckpoints.listPending(),
   humanDecisionService: createHumanDecisionService({ decisions, bus })
 } });
 

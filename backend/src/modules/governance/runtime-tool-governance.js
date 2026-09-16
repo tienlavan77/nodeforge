@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
-import { assertDiscoveryBudget, cloneExplorationState, createExplorationState, markEditStarted } from "../../tools/exploration-state.js";
+import { assertDiscoveryBudget, cloneExplorationState, createExplorationState, discoveryKind, markEditStarted } from "../../tools/exploration-state.js";
 
 const TERMINAL_LIFECYCLES = new Set(["COMPLETED", "CANCELLED", "EXPIRED", "FAILED", "NEEDS_HUMAN_REVIEW"]);
 const DEFAULT_MAX_BYTES = 200000;
@@ -45,6 +45,12 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     const budget = normalizeBudget(budgetInput);
     const explorationState = input.exploration_state ?? createExplorationState();
     if (Number.isInteger(input.discovery_budget) && input.discovery_budget > 0) explorationState.discovery_limit = input.discovery_budget;
+    if (Number.isInteger(input.discovery_candidate_calls) && input.discovery_candidate_calls > 0) explorationState.candidate_limit = input.discovery_candidate_calls;
+    if (Number.isInteger(input.discovery_search_calls) && input.discovery_search_calls > 0) explorationState.search_limit = input.discovery_search_calls;
+    if (Number.isInteger(input.discovery_read_calls) && input.discovery_read_calls > 0) explorationState.read_limit = input.discovery_read_calls;
+    if (Number.isInteger(input.discovery_edit_must_start_by) && input.discovery_edit_must_start_by > 0) explorationState.edit_must_start_by = input.discovery_edit_must_start_by;
+    if (typeof input.discovery_target_path === "string" && input.discovery_target_path) explorationState.explicit_target = input.discovery_target_path;
+    if (input.allow_discovery_escalation !== undefined) explorationState.allow_escalation = input.allow_discovery_escalation !== false;
     const context = {
       task_id: taskId,
       execution_id: executionId,
@@ -59,6 +65,7 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
       retrieval_budget: budget,
       lifecycle: input.lifecycle ?? "RUNNING",
       exploration_state: explorationState,
+      verify_result: input.verify_result ?? input.verifyResult ?? null,
       audit_context: input.audit_context ?? {}
     };
     contexts.set(key, context);
@@ -169,7 +176,7 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     try {
       // Phase gate: discovery tools count against the exploration budget; the
       // gate opens permanently after the first edit lands.
-      if (DISCOVERY_TOOLS.has(toolName)) assertDiscoveryBudget(normalized);
+      if (DISCOVERY_TOOLS.has(toolName)) assertDiscoveryBudget(normalized, discoveryKind(toolName));
       const toolContext = buildToolContext(context, normalized);
       const result = await execute(input, toolContext);
       if (EDIT_TOOLS.has(toolName)) markEditStarted(normalized);
@@ -189,6 +196,14 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
       allowed_file_paths: normalized.allowed_resources?.allowed_file_paths ?? [],
       allowed_prefixes: normalized.allowed_resources?.allowed_prefixes ?? []
     };
+    const known = contexts.get(contextKey(normalized.task_id, normalized.execution_id));
+    if (known) {
+      Object.defineProperty(toolContext, "verify_result", {
+        enumerable: true,
+        get: () => known.verify_result,
+        set: (value) => { known.verify_result = value; }
+      });
+    }
     delete toolContext.context_budget;
     delete toolContext.retrieval_budget;
     delete toolContext.consume_retrieval;
@@ -197,6 +212,7 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     // live stored context array so write_diff/edit_diff can append to it and
     // commit_changes reads the accumulated set in the same execution.
     toolContext.changed_paths = normalized.changed_paths;
+    if (context && typeof context === "object") context.changed_paths = normalized.changed_paths;
     // Same live-reference pattern for exploration state: search_code/read_file
     // mutate it and write_diff/edit_diff reset its streak across calls in one
     // execution.

@@ -88,7 +88,7 @@ export function createAgentProfileStore({ validateProfile = createValidator(), d
   function persist(profile, sql) {
     if (!database) return;
     // Handle INSERT with team column (3 params) vs legacy sql (2 params)
-    if (sql.includes(\"team\")) database.run(sql, [profile.agent_id, profile.team ?? null, JSON.stringify(profile)]);
+    if (sql.includes("team")) database.run(sql, [profile.agent_id, profile.team ?? null, JSON.stringify(profile)]);
     else database.run(sql, [profile.agent_id, JSON.stringify(profile)]);
   }
 }

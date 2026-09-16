@@ -204,14 +204,14 @@ test("regenerates an existing ticket in English from Vietnamese context via the 
   const { createTicketCrudService: create } = await import("../../src/application/ticket-crud-service.js");
   const { createProseTicketService: createProse } = await import("../../src/application/prose-ticket-service.js");
   const prose = createProse({ roadmapStore: fileRoadmaps });
-  const svcWithStore = create({ roadmaps: fileRoadmaps, proseTicketService: prose, agentStream: async function* ({ payload }) { prompts.push(payload.text); yield { text: '```json\n{"title":"Sprint progress report","objective":"Display progress","acceptance_criteria":["Users can view progress"]}\n```' }; }, agentRoleResolver: { resolve: () => "AGENT-SL-1" }, ticketFileStore: { create: () => {}, update: (arg) => { ticketFileUpdates.push(arg.ticket.title); return true; } }, publisher: { publish: () => {} } });
+  const svcWithStore = create({ roadmaps: fileRoadmaps, proseTicketService: prose, agentStream: async function* ({ payload }) { prompts.push(payload.text); yield { text: '```json\n{"title":"Sprint progress report","objective":"Display progress","acceptance_criteria":["Users can view progress"]}\n```' }; }, agentRoleResolver: { resolve: () => "AGENT-SL-1" }, ticketFileStore: { create: () => {}, update: (arg) => { ticketFileUpdates.push({ title: arg.ticket.title, context: arg.context }); return true; } }, publisher: { publish: () => {} } });
   const result = await svcWithStore.regenerateTicketEnglish({ projectId: "P1", ticketId: "TICKET-1", context: Vietnamese });
   assert.equal(result.ticket.id, "TICKET-1");
   assert.equal(result.ticket.title, "Sprint progress report");
   assert.equal(result.updated, true);
   assert.match(prompts[0], /TICKET-1/);
   assert.match(prompts[0], /Báo cáo sprint/);
-  assert.equal(ticketFileUpdates.length, 1);
+  assert.deepEqual(ticketFileUpdates, [{ title: "Sprint progress report", context: Vietnamese }]);
   // No duplicate ticket created
   assert.equal(fileRoadmaps.getCurrent().sprints[0].tickets.length, 1);
 });

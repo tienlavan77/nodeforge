@@ -185,6 +185,7 @@ export function createNodeClient() {
     async getArchitectureWorkspace(projectId) {
       return requestJson(forgeV1(`/projects/${projectId}/architecture-workspace`, { project: projectId }), { fallbackError: "Node could not load the Architecture Workspace." });
     },
+    // Chat API canonical route: POST /forge/v1/conversations
     async postOwnerMessage({ projectId, conversationId, agentId, messageId, correlationId, text, intent, ticket }) {
       const messageIntent = intent ?? detectMessageIntent(text);
       if (!Object.values(MESSAGE_INTENTS).includes(messageIntent)) throw new Error("Invalid message intent.");
@@ -192,10 +193,10 @@ export function createNodeClient() {
       const normalized = messageIntent === MESSAGE_INTENTS.normalChat ? { text: rawText } : normalizeTicketInput(rawText);
       const ticketObject = ticket ?? normalized.ticket;
       if (messageIntent === MESSAGE_INTENTS.ticketCreate && !ticketObject) throw new Error("Ticket JSON could not be extracted from the message.");
-      return requestJson(forgeV1(`/projects/${projectId}/conversations/${conversationId}/messages`, { project: projectId }), {
+      return requestJson(forgeV1(`/conversations`, { project: projectId }), {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ project_id: projectId, agent_id: agentId, message_id: messageId, correlation_id: correlationId, timestamp: new Date().toISOString(), payload: { intent: messageIntent, ...(messageIntent === MESSAGE_INTENTS.ticketCreate ? { ticket: ticketObject } : {}), text: rawText } }),
+        body: JSON.stringify({ project_id: projectId, conversation_id: conversationId, agent_id: agentId, message_id: messageId, correlation_id: correlationId, timestamp: new Date().toISOString(), payload: { intent: messageIntent, ...(messageIntent === MESSAGE_INTENTS.ticketCreate ? { ticket: ticketObject } : {}), text: rawText } }),
         fallbackError: "Node rejected the owner message."
       });
     },

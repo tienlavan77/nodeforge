@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { createReadFileTool, createWriteDiffTool, createEditDiffTool, createCommitChangesTool } from "../../src/tools/agent-lifecycle-tools.js";
+import { createReadFileTool, createWriteDiffTool, createEditDiffTool, createCommitChangesTool, createReportDoneTool } from "../../src/tools/agent-lifecycle-tools.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -154,4 +154,46 @@ test("commit_changes without any applied change reports SCOPE_INVALID", async ()
   const context = { task_id: "T-EMPTY", changed_paths: [] };
   const commit = createCommitChangesTool({ gitService: { commit: async () => { throw new Error("must not be called"); } } });
   await assert.rejects(() => commit.execute({ message: "empty" }, context), (error) => error.code === "SCOPE_INVALID");
+});
+
+function fakeReportService({ changedPaths = [], verifyResult = { pass: true, ready_for_review: true }, criteria = ["build passes and lints cleanly"] } = {}) {
+  const ticketHolder = { criteria, changedPaths: changedPaths.slice(), verifyResult };
+  return {
+    setCriteria: (values) => { ticketHolder.criteria = values; },
+    setVerify: (value) => { ticketHolder.verifyResult = value; },
+    buildFinalReport: async ({ ticket, status, verifyResult: vr, filesChanged }) => {
+      const crit = ticket.acceptance_criteria ?? ticketHolder.criteria;
+      const verified = crit.map((criterion) => ({ criterion, node_verified: /syntax|build|compile|test|lint/i.test(criterion) && vr ? Boolean(vr.pass ?? vr.ready_for_review) : null }));
+      return { ticket, status, files_changed: filesChanged, criteria_check: verified, verify_result: vr };
+    },
+    saveReport: async () => {},
+    writeReportFile: async () => {}
+  };
+}
+
+test("report_done blocks a real ticket whose only change is the tool-lab marker", async () => {
+  const report = createReportDoneTool({ reportService: fakeReportService({ verifyResult: { pass: true, ready_for_review: true }, criteria: ["Add header status to watcher"] }) });
+  await assert.rejects(() => report.execute({ summary: "done" }, { ticket: { id: "T-WATCH", title: "Add Agent Process Status to the Watcher Header", objective: "Update the watcher UI", acceptance_criteria: ["Watcher header aligned right"] }, changed_paths: ["backend/tool-lab-target.txt"] }), (error) => error.code === "REPORT_SCOPE_INVALID");
+});
+
+test("report_done blocks a UI ticket that did not change a UI path", async () => {
+  const report = createReportDoneTool({ reportService: fakeReportService() });
+  await assert.rejects(() => report.execute({ summary: "done" }, { ticket: { id: "T-UI", title: "Add Agent Process Status to the Watcher Header", objective: "Update the watcher UI", acceptance_criteria: ["Watcher header aligned right"] }, changed_paths: ["backend/scripts/helper.mjs"] }), (error) => error.code === "REPORT_SCOPE_INVALID");
+});
+
+test("report_done allows a UI ticket that changed a ui/nextjs path", async () => {
+  const report = createReportDoneTool({ reportService: fakeReportService() });
+  const result = await report.execute({ summary: "done" }, { ticket: { id: "T-UI-OK", title: "Add Agent Process Status to the Watcher Header", objective: "Update the watcher UI", acceptance_criteria: ["build passes"] }, changed_paths: ["ui/nextjs/components/NodeForgePanels.jsx"], verify_result: { pass: true, ready_for_review: true } });
+  assert.ok(result);
+});
+
+test("report_done blocks completed when a build/test criterion is not node-verified", async () => {
+  const report = createReportDoneTool({ reportService: fakeReportService({ verifyResult: null, criteria: ["The watcher header includes an agent process status area aligned to the right.", "The UI build passes after the header change."] }) });
+  await assert.rejects(() => report.execute({ summary: "done" }, { ticket: { id: "T-UNVERIFIED", title: "Add Agent Process Status to the Watcher Header", objective: "Update the watcher UI", acceptance_criteria: ["The UI build passes after the header change."] }, changed_paths: ["ui/nextjs/components/NodeForgePanels.jsx"] }), (error) => error.code === "REPORT_UNVERIFIED");
+});
+
+test("report_done allows tool-lab mode to record backend/tool-lab-target.txt", async () => {
+  const report = createReportDoneTool({ reportService: fakeReportService({ criteria: ["Tool lab marker"] }) });
+  const result = await report.execute({ summary: "done" }, { ticket: { id: "CODEX-TOOL-LAB-1", title: "Tool lab", objective: "Run lab", acceptance_criteria: ["lab"] }, lab_mode: true, changed_paths: ["backend/tool-lab-target.txt"], verify_result: null });
+  assert.ok(result);
 });

@@ -11,12 +11,31 @@ test("checklist ticket with explicit component location classifies as simple", (
   });
   assert.equal(result.level, "simple");
   assert.equal(result.effort, "low");
-  assert.equal(result.discovery_budget, 4);
+  assert.equal(result.discovery_budget, 6);
   assert.equal(result.max_turns, 15);
   assert.deepEqual(result.thinking, { type: "enabled", budgetTokens: 2048 });
   assert.ok(result.reasoning.some((line) => line.includes("explicit component/file location")));
 });
 
+test("focused checklist with many criteria stays moderate", () => {
+  const result = classifyTicketComplexity({
+    title: "Remove effort field from Add Agent and Edit Agent modals",
+    objective: "Edit the frontend to remove the effort field from both modals so it is no longer displayed or submitted.",
+    acceptance_criteria: [
+      "The effort input field is removed from the Add Agent modal UI",
+      "The effort input field is removed from the Edit Agent modal UI",
+      "Submitting the Add Agent form does not include an effort value",
+      "Submitting the Edit Agent form does not include an effort value",
+      "No broken references to the removed effort field remain",
+      "The modals render correctly without layout issues"
+    ]
+  });
+  assert.equal(result.level, "moderate");
+  assert.equal(result.effort, "medium");
+  assert.equal(result.discovery_budget, 12);
+  assert.equal(result.max_turns, 25);
+  assert.ok(result.reasoning.some((line) => line.includes("focused single-area")));
+});
 test("open-ended redesign with many criteria classifies as complex", () => {
   const result = classifyTicketComplexity({
     title: "Redesign sprint planning",
@@ -25,7 +44,7 @@ test("open-ended redesign with many criteria classifies as complex", () => {
   });
   assert.equal(result.level, "complex");
   assert.equal(result.effort, "high");
-  assert.equal(result.discovery_budget, 12);
+  assert.equal(result.discovery_budget, 18);
   assert.deepEqual(result.thinking, { type: "adaptive" });
 });
 

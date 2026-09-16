@@ -5,25 +5,13 @@ import test from "node:test";
 import { createHttpApi } from "../../src/transport/http/server.js";
 import { createForgeV1Router } from "../../src/transport/http/forge-v1-router.js";
 
-test("routes REST requests exclusively through Runtime Service", async () => {
-  const calls = [];
-  const runtime = {
-    startTask(input) { calls.push(["startTask", input]); return { id: "SESSION-105", state: "RUNNING" }; },
-    pauseSession(id) { calls.push(["pauseSession", id]); return { id, state: "PAUSED" }; },
-    resumeSession(id) { calls.push(["resumeSession", id]); return { id, state: "RUNNING" }; },
-    getSession(id) { calls.push(["getSession", id]); return { id, state: "RUNNING" }; },
-    getProjectMemory(input) { calls.push(["getProjectMemory", input]); return { relevant_facts: ["Auth migrated to v2."] }; }
-  };
-  const api = createHttpApi({ runtimeService: runtime });
-  assert.deepEqual(await request(api, "POST", "/tasks", { projectId: "PROJECT-105", taskId: "TASK-105" }), [201, { id: "SESSION-105", state: "RUNNING" }]);
-  assert.deepEqual(await request(api, "POST", "/sessions/SESSION-105/pause"), [200, { id: "SESSION-105", state: "PAUSED" }]);
-  assert.deepEqual(await request(api, "POST", "/sessions/SESSION-105/resume"), [200, { id: "SESSION-105", state: "RUNNING" }]);
-  assert.deepEqual(await request(api, "GET", "/sessions/SESSION-105"), [200, { id: "SESSION-105", state: "RUNNING" }]);
-  assert.deepEqual(await request(api, "GET", "/projects/PROJECT-105/memory?taskId=TASK-105&query=auth&domain=security"), [200, { relevant_facts: ["Auth migrated to v2."] }]);
-  assert.deepEqual(calls, [
-    ["startTask", { projectId: "PROJECT-105", taskId: "TASK-105" }], ["pauseSession", "SESSION-105"], ["resumeSession", "SESSION-105"],
-    ["getSession", "SESSION-105"], ["getProjectMemory", { projectId: "PROJECT-105", taskId: "TASK-105", query: "auth", domain: "security" }]
-  ]);
+test("returns 404 for removed legacy runtime routes", async () => {
+  const api = createHttpApi();
+  assert.equal((await request(api, "POST", "/tasks", { projectId: "PROJECT-105", taskId: "TASK-105" }))[0], 404);
+  assert.equal((await request(api, "POST", "/sessions/SESSION-105/pause"))[0], 404);
+  assert.equal((await request(api, "POST", "/sessions/SESSION-105/resume"))[0], 404);
+  assert.equal((await request(api, "GET", "/sessions/SESSION-105"))[0], 404);
+  assert.equal((await request(api, "GET", "/projects/PROJECT-105/memory?taskId=TASK-105&query=auth&domain=security"))[0], 404);
 });
 
 test("routes the Architecture Workspace through its Node application service", async () => {
@@ -102,7 +90,7 @@ test("rejects Forge v1 ticket CRUD without a project context", async () => {
 });
 
 test("routes the Project Dashboard through its Node application service", async () => {
-  const api = createHttpApi({ runtimeService: runtimeStub(), projectDashboardService: { getDashboard: (projectId) => ({ project_id: projectId, backlog: [] }) } });
+  const api = createHttpApi({ projectDashboardService: { getDashboard: (projectId) => ({ project_id: projectId, backlog: [] }) } });
   assert.deepEqual(await request(api, "GET", "/projects/PROJECT-140/dashboard"), [200, { project_id: "PROJECT-140", backlog: [] }]);
 });
 
@@ -138,14 +126,14 @@ test("routes Sprint Run through the Supervisor dispatch hook", async () => {
 
 test("routes read-only Conversation and Audit History filters through Node", async () => {
   let received;
-  const api = createHttpApi({ runtimeService: runtimeStub(), conversationAuditHistoryService: { query: (input) => { received = input; return { items: [], next_cursor: null }; } } });
+  const api = createHttpApi({ conversationAuditHistoryService: { query: (input) => { received = input; return { items: [], next_cursor: null }; } } });
   assert.deepEqual(await request(api, "GET", "/projects/PROJECT-141/history?agent=architecture-manager&conversationId=CONV-141&correlationId=CORR-141&type=owner.message&cursor=5&limit=10"), [200, { items: [], next_cursor: null }]);
   assert.deepEqual(received, { projectId: "PROJECT-141", agentId: "architecture-manager", conversationId: "CONV-141", correlationId: "CORR-141", type: "owner.message", cursor: "5", limit: 10 });
 });
 
 test("routes Human Decisions through the Node intake service", async () => {
   let received;
-  const api = createHttpApi({ runtimeService: runtimeStub(), humanDecisionService: { submit: (input) => { received = input; return { decision: input }; } } });
+  const api = createHttpApi({ humanDecisionService: { submit: (input) => { received = input; return { decision: input }; } } });
   const body = { decision_id: "HUMAN-139B", actor: "OWNER", proposal_id: "PROPOSAL", decision: "APPROVE", correlation_id: "CORR", timestamp: "2026-08-21T15:00:00Z" };
   const [status, result] = await request(api, "POST", "/projects/PROJECT-139B/decisions", body);
   assert.equal(status, 201);
@@ -160,7 +148,7 @@ test("routes Agent Settings exclusively through the Node application service", a
     save: (input) => { calls.push(["save", input]); return { ...input, api_key_masked: "********" }; },
     testConnection: async (agentId) => { calls.push(["test", agentId]); return { agent_id: agentId, status: "CONNECTED" }; }
   };
-  const api = createHttpApi({ runtimeService: runtimeStub(), agentSettingsService: service });
+  const api = createHttpApi({ agentSettingsService: service });
   assert.deepEqual(await request(api, "GET", "/agents/settings"), [200, [{ agent_id: "builder", api_key_masked: "********" }]]);
   const [saveStatus, saved] = await request(api, "PUT", "/agents/builder/settings", { gateway_url: "https://gateway.example.test/builder", enabled: true });
   assert.equal(saveStatus, 200);

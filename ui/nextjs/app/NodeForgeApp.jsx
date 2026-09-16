@@ -421,7 +421,9 @@ function App() {
   async function send(agentId) {
     const text = drafts[agentId]?.trim();
     if (!text) return;
-    const intent = detectMessageIntent(text);
+    // Chat composer always targets the selected conversation. Ticket creation
+    // is handled by the sprint form; only an explicit /ticket command dispatches.
+    const intent = /^\/ticket(?:\s|$)/i.test(text) ? detectMessageIntent(text) : MESSAGE_INTENTS.normalChat;
     const extractedTicket = intent === MESSAGE_INTENTS.ticketCreate ? normalizeTicketInput(text).ticket : undefined;
     const isDispatch = intent === MESSAGE_INTENTS.ticketDispatch;
     const targetAgentId = intent === MESSAGE_INTENTS.normalChat
