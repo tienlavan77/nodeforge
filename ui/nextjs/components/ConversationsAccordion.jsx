@@ -2,13 +2,52 @@
 
 import { useState } from "react";
 
+async function createConversationRequest(title, { onNewConversation, projectId, agentId } = {}) {
+  if (onNewConversation) return onNewConversation(title);
+  const body = { title };
+  if (projectId) body.project_id = projectId;
+  if (agentId) body.agent_id = agentId;
+  const response = await fetch("/forge/v1/conversations", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error ?? payload.message ?? "Unable to create conversation.");
+  return payload.conversation ?? payload;
+}
+
 export function ConversationsAccordion({
   conversations = [],
   onNewConversation,
   onSelectConversation,
   defaultOpen = false,
+  projectId,
+  agentId,
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [error, setError] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  async function handleCreateConversation(event) {
+    event?.preventDefault();
+    if (creating) return;
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle) {
+      setError("Conversation title is required.");
+      return;
+    }
+    setError("");
+    setCreating(true);
+    try {
+      const conversation = await createConversationRequest(trimmedTitle, { onNewConversation, projectId, agentId });
+      setModalOpen(false);
+      setTitle("");
+      if (conversation) onSelectConversation?.(conversation);
+    } catch (requestError) {
+      setError(requestError?.message ?? "Unable to create conversation.");
+    } finally {
+      setCreating(false);
+    }
+  }
 
   return (
     <div className="conversations-accordion" data-open={open ? "true" : "false"}>
@@ -31,10 +70,27 @@ export function ConversationsAccordion({
         <button
           type="button"
           className="conversations-accordion-new" aria-label="New conversation"
-          onClick={() => onNewConversation?.()}
+          onClick={() => { setError(""); setModalOpen(true); }}
         >
           New Conversation
         </button>
+        {modalOpen ? (
+          <div className="conversations-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setModalOpen(false); }}>
+            <div className="conversations-modal" role="dialog" aria-modal="true" aria-labelledby="conversation-modal-title">
+              <h2 id="conversation-modal-title">New Conversation</h2>
+              <form onSubmit={handleCreateConversation}>
+                <label htmlFor="conversation-title">Conversation title</label>
+                <input id="conversation-title" name="title" value={title} onChange={(event) => setTitle(event.target.value)} autoFocus required />
+                {error ? <p role="alert" className="conversations-accordion-error">{error}</p> : null}
+                <div className="conversations-modal-actions">
+                  <button type="button" onClick={() => setModalOpen(false)} disabled={creating}>Cancel</button>
+                  <button type="submit" disabled={creating}>{creating ? "Creating..." : "Create"}</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        ) : null}
+        {!modalOpen && error ? <p role="alert" className="conversations-accordion-error">{error}</p> : null}
       </div>
       {open && (
         <div
