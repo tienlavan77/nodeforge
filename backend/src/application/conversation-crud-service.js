@@ -29,7 +29,15 @@ export function createConversationCrudService({ database, clock = () => new Date
     let conversationId;
     if (input.id !== undefined && input.id !== null) conversationId = requireUuid(String(input.id), "id");
     else conversationId = randomUUID();
-    const conversation = { id: conversationId, project_id: projectId, agent_id: agentId, title: String(input.title ?? "New conversation").trim() || "New conversation", status: input.status ?? "active", created_at: now, updated_at: now };
+    const title = typeof input.title === "string" ? input.title.trim() : "";
+    if (!title) throw Object.assign(new ConfigurationError("title is required."), { statusCode: 400 });
+    // Conversation creation is deliberately explicit about the three required request fields.
+    // This keeps the POST contract aligned with the frontend modal and prevents an
+    // accidentally generated conversation from being detached from its context.
+    if (!Object.prototype.hasOwnProperty.call(input, "project_id") || !Object.prototype.hasOwnProperty.call(input, "agent_id")) {
+      throw Object.assign(new ConfigurationError("project_id and agent_id are required."), { statusCode: 400 });
+    }
+    const conversation = { id: conversationId, project_id: projectId, agent_id: agentId, title, status: input.status ?? "active", created_at: now, updated_at: now };
     validateStatus(conversation.status);
     try { database.run("INSERT INTO conversations (id, project_id, agent_id, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)", Object.values(conversation)); }
     catch (error) { if (String(error.message).includes("UNIQUE")) throw Object.assign(new ConfigurationError(`Conversation already exists: ${conversation.id}.`), { statusCode: 409 }); throw error; }

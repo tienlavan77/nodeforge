@@ -79,6 +79,15 @@ function controlApiBase() {
 
 export function createNodeClient() {
   return Object.freeze({
+    async createConversation({ projectId, agentId, title }) {
+      return requestJson(forgeV1("/conversations"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ project_id: projectId, agent_id: agentId, title }),
+        fallbackError: "Node could not create the conversation."
+      });
+    },
+
     async getAgents() {
       return requestJson(forgeV1("/agents"), { fallbackError: "Node could not load Agents." });
     },
