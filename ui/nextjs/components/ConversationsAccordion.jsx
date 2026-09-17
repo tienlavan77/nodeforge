@@ -12,7 +12,7 @@ function getConversationId(conv) {
   return String(conv.id ?? conv.conversation_id ?? conv.conversationId ?? conv.title ?? Math.random());
 }
 
-// Sends a create-conversation request to the Forge API.
+// Sends a create-conversation request to the Forge API and returns the created conversation.
 async function createConversationRequest(title, { onNewConversation, projectId, agentId } = {}) {
   const body = { title, project_id: projectId, agent_id: agentId };
   const response = await fetch("/forge/v1/conversations", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
