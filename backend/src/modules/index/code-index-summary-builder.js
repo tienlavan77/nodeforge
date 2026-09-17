@@ -1,3 +1,4 @@
+// Summary: Assembles checksum-verified file summaries from File Service content and Code Index symbols/dependencies for LLM context.
 import { createHash } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 

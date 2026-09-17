@@ -10,19 +10,16 @@ export function createConversationStream({ bus, communicationStore, eventStore, 
   }
 
   return Object.freeze({ connect });
-
   function connect(options = {}) {
     if (logReader) return connectWithLog(options);
     return connectBase(options);
   }
-
   async function connectWithLog(options = {}) {
     const replayEvents = (await logReader({ project_id: options.projectId, conversation_id: options.conversationId })).events
       .filter((event) => shouldStream(event.event_name, event.conversation_id) && event.conversation_id === options.conversationId)
       .map(logEventMessage);
     return connectBase({ ...options, replayEvents });
   }
-
   function connectBase({ projectId, conversationId, response, afterMessageId, replayLimit = 100, replayEvents = [] } = {}) {
     assertId(projectId, "project");
     assertId(conversationId, "conversation");
@@ -79,7 +76,6 @@ export function createConversationStream({ bus, communicationStore, eventStore, 
         return true;
       }
     });
-
     function write(message) {
       if (seen.has(message.id)) return;
       seen.add(message.id);
@@ -90,28 +86,38 @@ export function createConversationStream({ bus, communicationStore, eventStore, 
   }
 }
 
+// Normalizes pagination limit to a positive integer.
 function normalizeLimit(value) {
   const limit = Number(value);
   return Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 100;
 }
 
+// Compares two stream events by timestamp and sequence.
 function compareStreamEvents(left, right) {
   const timestamp = String(left.timestamp ?? "").localeCompare(String(right.timestamp ?? ""));
   if (timestamp !== 0) return timestamp;
   return (left.sequence ?? left.payload?.sequence ?? Number.MAX_SAFE_INTEGER) - (right.sequence ?? right.payload?.sequence ?? Number.MAX_SAFE_INTEGER);
 }
 
+// Checks whether an event is a project log event.
 function isProjectLogEvent(eventName) { return /^(ticket\.status_change|node\.(execution_step|command|command_result)|execution\.|verification\.|git\.|index\.)/.test(eventName ?? ""); }
+// Validates that a conversation ID is non-empty.
 function validConversationId(value) { return typeof value === "string" && value.length > 0; }
+// Determines whether an event should be streamed to the conversation.
 function shouldStream(eventName, conversationId) { return !isProjectLogEvent(eventName) || validConversationId(conversationId); }
+// Extracts conversation ID from an event envelope.
 function conversationIdForEvent(event) { return event?.metadata?.conversation_id ?? event?.payload?.conversation_id ?? event?.metadata?.task_id ?? null; }
 
+// Wraps a message for stream comparison.
 function messageEnvelope(message) { return { ...message, _kind: "message" }; }
+// Maps a log event to a stream message.
 function logEventMessage(event) { return { id: event.event_id, project_id: event.project_id, conversation_id: event.conversation_id, correlation_id: event.correlation_id ?? null, message_type: event.event_name, timestamp: event.timestamp, sequence: event.sequence, sender: { id: event.source, role: "node" }, recipient: { id: "NODE", role: "node" }, payload: event.payload, _kind: "event" }; }
+// Maps a domain event to a stream message.
 function eventMessage(event) {
   return { id: event.event_id, project_id: event.project_id ?? event.metadata?.project_id, conversation_id: conversationIdForEvent(event), correlation_id: event.metadata?.correlation_id ?? event.payload?.correlation_id ?? null, message_type: event.event_type, timestamp: event.timestamp, sender: { id: event.metadata?.agent_id ?? event.source, role: "node" }, recipient: { id: "NODE", role: "node" }, payload: event.payload, _kind: "event" };
 }
 
+// Normalizes a stream message for SSE output.
 function normalize(message) {
   return {
     message_id: message.id,
@@ -126,6 +132,7 @@ function normalize(message) {
   };
 }
 
+// Validates that an audit filter ID is a non-empty string.
 function assertId(value, subject) {
   if (typeof value !== "string" || value.length === 0) throw new ConfigurationError(`Conversation SSE ${subject} id is required.`);
 }

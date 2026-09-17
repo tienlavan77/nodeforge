@@ -1,3 +1,4 @@
+// Persists and queries append-only JSONL project log events with schema validation, rotation, and filtered reads.
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import { appendFileSync, createReadStream, mkdirSync, readdirSync, statSync } from "node:fs";
@@ -14,11 +15,13 @@ const validator = createValidator();
 const taskSequences = new Map();
 let configuredFileService;
 
+// Registers an optional FileService for sandboxed log appends, validating it exposes appendFileSync.
 export function configureProjectLogFileService(fileService) {
   if (fileService !== undefined && typeof fileService?.appendFileSync !== "function") throw new ConfigurationError("Project log File Service requires appendFileSync.");
   configuredFileService = fileService;
 }
 
+// Reads and filters JSONL log events across rotated log files, collecting warnings for malformed lines and sorting by sequence/timestamp.
 export async function readLogEvents({ logPath = defaultLogPath(), project_id, task_id, ticket_id, conversation_id, correlation_id, event_name, from, to, onWarning } = {}) {
   const warnings = [];
   const events = [];
@@ -45,6 +48,7 @@ export async function readLogEvents({ logPath = defaultLogPath(), project_id, ta
   return { events: events.map(({ event }) => event), warnings };
 }
 
+// Normalizes, validates against the project log schema, appends to the rotated log file and returns the frozen event.
 export function logEvent(entry) {
   const normalized = normalize(entry);
   if (!validator(normalized)) {
@@ -54,17 +58,23 @@ export function logEvent(entry) {
   return Object.freeze(normalized);
 }
 
+// Resolves the project log file path from env or defaults to .forge/runtime/nf/project.log.
 function defaultLogPath() { return process.env.NODEFORGE_PROJECT_LOG_PATH ?? join(process.cwd(), ".forge", "runtime", "nf", "project.log"); }
+// Lists base log file and its rotated siblings (.1, .2, ...) within the log directory.
 function logFiles(basePath) {
   const directory = dirname(basePath); const base = basePath.split("/").pop();
   try { return readdirSync(directory).filter((name) => name === base || new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.\\d+$`).test(name)).map((name) => join(directory, name)); }
   catch (error) { if (error.code === "ENOENT") return []; throw error; }
 }
 
+// Returns true when an event matches all defined filter fields.
 function matches(event, filters) { return Object.entries(filters).every(([key, value]) => value === undefined || event[key] === value); }
+// Checks whether a timestamp falls within the optional from/to time window.
 function inTimeRange(timestamp, from, to) { const value = Date.parse(timestamp); if (!Number.isFinite(value)) return false; if (from !== undefined && value < parseTime(from, "from")) return false; if (to !== undefined && value > parseTime(to, "to")) return false; return true; }
+// Parses an ISO timestamp string into milliseconds since epoch, throwing on invalid input.
 function parseTime(value, label) { const parsed = Date.parse(value); if (!Number.isFinite(parsed)) throw new ConfigurationError(`Invalid ${label} timestamp.`); return parsed; }
 
+// Serializes the validated event to JSONL, selects rotation target, and appends via FileService or direct fs write.
 function appendLog(event) {
   const logPath = process.env.NODEFORGE_PROJECT_LOG_PATH ?? join(process.cwd(), ".forge", "runtime", "nf", "project.log");
   const maxBytes = Number(process.env.NODEFORGE_PROJECT_LOG_MAX_BYTES ?? 256 * 1024 * 1024);
@@ -81,6 +91,7 @@ function appendLog(event) {
   }
 }
 
+// Picks the first rotated log file with room for incomingBytes, creating new rotation siblings when the base file is full.
 function nextLogPath(basePath, maxBytes, incomingBytes) {
   let index = 1;
   while (index <= Number.MAX_SAFE_INTEGER) {
@@ -92,6 +103,7 @@ function nextLogPath(basePath, maxBytes, incomingBytes) {
   }
 }
 
+// Fills missing event fields (timestamp, project_id, event_id, sequence, correlation_id, payload) with defaults.
 function normalize(entry) {
   if (!entry || typeof entry !== "object") throw new ConfigurationError("Project log event must be an object.");
   const result = { ...entry };
@@ -104,6 +116,7 @@ function normalize(entry) {
   return result;
 }
 
+// Builds an AJV validator compiled from the project log JSON schema for event validation.
 function createValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);

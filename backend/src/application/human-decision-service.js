@@ -6,7 +6,6 @@ export function createHumanDecisionService({ decisions, bus } = {}) {
   if (typeof bus?.send !== "function") throw new ConfigurationError("Human Decision Service requires the Communication Bus.");
   const accepted = new Map();
   return Object.freeze({ submit });
-
   function submit(input) {
     const decision = normalize(input);
     if (accepted.has(decision.decision_id) || decisions.getById(decision.decision_id)) throw conflict(`Human Decision already exists: ${decision.decision_id}.`);
@@ -26,6 +25,7 @@ export function createHumanDecisionService({ decisions, bus } = {}) {
   }
 }
 
+// Normalizes a stream message for SSE output.
 function normalize(input) {
   const value = structuredClone(input ?? {});
   if (!value.project_id || !value.type || !value.decision_id || !value.actor || !value.actor_role || !value.proposal_id || !value.decision || !value.correlation_id || !value.timestamp) throw new ConfigurationError("Human Decision requires decision_id, actor, actor_role, proposal_id, decision, correlation_id, timestamp, type, and project_id.");
@@ -36,6 +36,7 @@ function normalize(input) {
   return value;
 }
 
+// Creates a 409 conflict error for duplicate decisions.
 function conflict(message) {
   const error = new ConfigurationError(message);
   error.statusCode = 409;

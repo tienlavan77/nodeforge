@@ -1,3 +1,4 @@
+// Summary: Exposes function/symbol and call-graph queries (definitions, callers, callees) from the Code Index.
 import { ConfigurationError } from "../../shared/errors.js";
 import { createFunctionUsageResult, createGraphEdge, createGraphQueryResult, createSymbolNode } from "./code-graph-contract.js";
 

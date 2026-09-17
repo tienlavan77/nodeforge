@@ -1,3 +1,4 @@
+// Summary: Receives and validates the Agent envelope response, normalizing provider payloads and emitting response logs.
 import { ConfigurationError } from "../../shared/errors.js";
 import { assertValidEnvelope } from "../protocol/envelope-validator.js";
 

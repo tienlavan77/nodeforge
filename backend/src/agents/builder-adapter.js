@@ -1,7 +1,9 @@
+// Adapter wrapping builder task handling under the agent contract.
 import { createAgentContract } from "./agent-contract.js";
 
 const BUILDER_TASK_TYPES = new Set(["feature", "bugfix", "refactor", "test", "docs", "maintenance", "custom"]);
 
+// Creates a builder agent adapter under the shared contract.
 export function createBuilderAdapter({ id = "AGENT-builder", name = "Builder Agent", perform = defaultPerform } = {}) {
   return createAgentContract({
     id,
@@ -16,6 +18,7 @@ export function createBuilderAdapter({ id = "AGENT-builder", name = "Builder Age
   });
 }
 
+// Performs the default task execution for the agent.
 async function defaultPerform({ task } = {}) {
   return { task_id: task?.id, outcome: "builder_task_completed" };
 }

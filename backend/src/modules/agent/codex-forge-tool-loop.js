@@ -4,6 +4,7 @@ import { ConfigurationError } from "../../shared/errors.js";
 
 const DEFAULT_MAX_ROUNDS = 24;
 
+// Creates the iterative loop that calls the gateway and executes tool results until done.
 export function createCodexForgeToolLoop({ agentGateway, projectLogger } = {}) {
   if (typeof agentGateway?.request !== "function") throw new ConfigurationError("Codex Forge tool loop requires an Agent Gateway.");
   return Object.freeze({ run });
@@ -93,6 +94,7 @@ export function createCodexForgeToolLoop({ agentGateway, projectLogger } = {}) {
     return { text: finalText, tool_events: toolEvents, rounds, usage: aggregateUsage(usageByRound) };
   }
 
+// Aggregates per-round token and cache usage into totals.
   function aggregateUsage(entries) {
     return entries.reduce((totals, entry) => ({
       rounds: totals.rounds + 1,
@@ -103,6 +105,7 @@ export function createCodexForgeToolLoop({ agentGateway, projectLogger } = {}) {
   }
 }
 
+// Builds the default prompt cache key config from project and task ids.
 function defaultCacheConfig(context) {
   const projectId = context?.ticket?.project_id ?? context?.task?.project_id;
   const taskId = context?.task_id;
@@ -110,12 +113,14 @@ function defaultCacheConfig(context) {
   return { prompt_cache_key: `forge:${projectId}:${taskId}`, mode: "explicit", ttl: "30m" };
 }
 
+// Converts a Forge tool definition into the Responses function-tool shape.
 function toResponsesTool(definition) {
   const parameters = definition.parameters ?? definition.input_schema;
   if (!definition?.name || !parameters) throw new ConfigurationError("Codex Forge tool definition requires a name and input schema.");
   return { type: "function", name: definition.name, description: definition.description, parameters };
 }
 
+// Normalizes a raw tool_use envelope, parsing string inputs when needed.
 function normalizeToolUse(toolUse) {
   if (!toolUse || typeof toolUse !== "object" || typeof toolUse.name !== "string") return null;
   let input = toolUse.input;

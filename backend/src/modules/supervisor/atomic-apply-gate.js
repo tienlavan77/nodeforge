@@ -1,3 +1,4 @@
+// Summary: Atomically applies verified patches via File Service and optionally commits them, rejecting unverified change-sets.
 import { ConfigurationError } from "../../shared/errors.js";
 
 export function createAtomicApplyGate({ fileService, gitService } = {}) {

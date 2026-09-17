@@ -1,7 +1,9 @@
+// Top header with branding, project label and theme toggle.
 "use client";
 
 import { ThemeToggle } from "./ThemeToggle.jsx";
 
+// Top navigation header with branding and actions.
 export function NodeForgeHeader({ title, subtitle, status, project = "NODEFORGE", actions = null, className = "" }) {
   return (
     <header className={`topbar ${className}`.trim()}>

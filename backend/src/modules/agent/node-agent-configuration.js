@@ -1,3 +1,4 @@
+// Projects agent profiles into a local Node configuration file with strict schema validation.
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { ConfigurationError } from "../../shared/errors.js";
@@ -16,6 +17,7 @@ export function createNodeAgentConfiguration({ profiles, configurationPath, file
 
   return Object.freeze({ sync, getById, getAll, reload });
 
+// Reprojects all profiles into the local config file and refreshes the cache.
   function sync() {
     const source = profiles.getAll();
     const next = source.map(project).sort((left, right) => left.agent_id.localeCompare(right.agent_id));
@@ -24,19 +26,23 @@ export function createNodeAgentConfiguration({ profiles, configurationPath, file
     return getAll();
   }
 
+// Reloads the configuration file from disk, replacing the in-memory cache.
   function reload() {
     configurations = loadFile();
     return getAll();
   }
 
+// Finds a configuration entry by agent id, returning a safe clone.
   function getById(agentId) {
     assertId(agentId);
     const value = configurations.find((item) => item.agent_id === agentId);
     return value ? structuredClone(value) : undefined;
   }
 
+// Returns cloned copies of all cached configurations.
   function getAll() { return configurations.map((item) => structuredClone(item)); }
 
+// Parses the config file or rebuilds it from profiles when parsing fails.
   function loadFile() {
     if (!existsSync(configurationPath)) return Object.freeze([]);
     try {
@@ -53,12 +59,14 @@ export function createNodeAgentConfiguration({ profiles, configurationPath, file
     }
   }
 
+// Rebuilds the config file from the current profile store when the file is corrupt.
   function rebuildFromProfiles() {
     const next = profiles.getAll().map(project).sort((left, right) => left.agent_id.localeCompare(right.agent_id));
     write(next);
     return freezeAll(next);
   }
 
+// Atomically writes the configuration array to disk with restricted permissions.
   function write(next) {
     if (fileService?.atomicWriteSync) {
       const relative = configurationPath.startsWith(`${process.cwd()}/`) ? configurationPath.slice(process.cwd().length + 1) : configurationPath;
@@ -73,6 +81,7 @@ export function createNodeAgentConfiguration({ profiles, configurationPath, file
   }
 }
 
+// Projects a full profile into the narrowed Node configuration shape.
 function project(profile) {
   if (!profile || typeof profile !== "object" || Object.keys(profile).some((key) => SECRET_FIELD.test(key))) throw new ConfigurationError("Agent Profile contains plaintext credentials.");
   const projected = Object.fromEntries(REQUIRED_FIELDS.map((field) => [field, profile[field]]));
@@ -80,6 +89,7 @@ function project(profile) {
   return validateConfiguration(projected);
 }
 
+// Validates that a configuration object satisfies all required fields and constraints.
 function validateConfiguration(value) {
   if (!value || typeof value !== "object"
     || REQUIRED_FIELDS.some((field) => value[field] === undefined)
@@ -96,5 +106,7 @@ function validateConfiguration(value) {
   return result;
 }
 
+// Freezes a list of configurations for immutable caching.
 function freezeAll(values) { return Object.freeze(values.map((value) => Object.freeze(structuredClone(value)))); }
+// Validates that a configuration id is a non-empty string.
 function assertId(value) { if (typeof value !== "string" || value.length === 0) throw new ConfigurationError("An Agent configuration id is required."); }

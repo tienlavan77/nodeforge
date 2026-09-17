@@ -1,3 +1,4 @@
+// In-memory event store with idempotent append and duplicate-conflict detection.
 import { ConfigurationError } from "../../shared/errors.js";
 import { createPersistentEventStore } from "./persistent-event-store.js";
 
@@ -9,6 +10,7 @@ export class EventIdConflictError extends ConfigurationError {
   }
 }
 
+// Creates an in-memory event store with idempotent duplicate handling.
 export function createEventStore({ database } = {}) {
   if (database) return createPersistentEventStore({ database });
   const events = [];
@@ -16,6 +18,7 @@ export function createEventStore({ database } = {}) {
 
   return Object.freeze({ append, getById, getAll, getByType });
 
+  // Appends an event or returns a duplicate result if content matches.
   function append(event) {
     const normalized = normalizeEvent(event);
     assertEventRecord(normalized);
@@ -32,22 +35,26 @@ export function createEventStore({ database } = {}) {
     return Object.freeze({ accepted: true, event: cloneRecord(stored) });
   }
 
+  // Returns an event by its event_id.
   function getById(eventId) {
     if (typeof eventId !== "string" || eventId.length === 0) throw new ConfigurationError("An event_id is required.");
     const event = eventsById.get(eventId);
     return event ? cloneRecord(event) : undefined;
   }
 
+  // Returns all stored events in order.
   function getAll() {
     return events.map(cloneRecord);
   }
 
+  // Returns events filtered by event_type.
   function getByType(eventType) {
     if (typeof eventType !== "string" || eventType.length === 0) throw new ConfigurationError("An event_type is required.");
     return events.filter((event) => event.event_type === eventType).map(cloneRecord);
   }
 }
 
+// Validates required event fields before storage.
 function assertEventRecord(event) {
   if (!event || typeof event !== "object" || typeof event.event_id !== "string" || event.event_id.length === 0
     || typeof event.event_type !== "string" || event.event_type.length === 0 || typeof event.timestamp !== "string"
@@ -58,10 +65,12 @@ function assertEventRecord(event) {
   }
 }
 
+// Fills project_id from metadata when missing.
 function normalizeEvent(event) {
   return { ...event, ...(event?.project_id ? {} : { project_id: event?.metadata?.project_id }) };
 }
 
+// Freezes a normalized event into an immutable record.
 function freezeRecord(event) {
   return Object.freeze({
     event_id: event.event_id,
@@ -74,6 +83,7 @@ function freezeRecord(event) {
   });
 }
 
+// Clones a stored event into a mutable copy.
 function cloneRecord(event) {
   return {
     event_id: event.event_id,
@@ -86,6 +96,7 @@ function cloneRecord(event) {
   };
 }
 
+// Checks whether two records are byte-identical.
 function sameRecord(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }

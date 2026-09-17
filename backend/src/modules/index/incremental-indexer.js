@@ -1,3 +1,4 @@
+// incremental indexer - provides incremental indexer functionality for NodeForge.
 import { randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { extname, resolve } from "node:path";
@@ -8,6 +9,7 @@ import { extractorRegistry } from "./parser/index.js";
 import { readContentHash } from "../watcher/debounced-watcher.js";
 import { logEvent } from "../../core/project-log-service.js";
 
+// createIncrementalIndexer - handles createIncrementalIndexer operation.
 export function createIncrementalIndexer({ database, projectRoot, registry = extractorRegistry, files = createFileRepository(database), graph = createDependencyGraph({ database, files, projectRoot }), fileService, getContentHash = readContentHash, logger = console, projectLogger = logEvent } = {}) {
   return Object.freeze({
     async handle(event) {
@@ -166,7 +168,14 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
     for (const symbol of rows) {
       const start = Math.max(1, symbol.start_line ?? 1);
       const end = Math.min(lines.length, Math.max(start, symbol.end_line ?? start));
-      database.run("INSERT INTO symbol_content_fts (symbol_id, file_id, path, name, kind, content, start_line, end_line) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [symbol.symbol_id, fileId, path, symbol.name, symbol.kind, lines.slice(start - 1, end).join("\n"), symbol.start_line, symbol.end_line]);
+      let extendedStart = start;
+      for (let idx = start - 2; idx >= Math.max(0, start - 4); idx -= 1) {
+        const trimmed = (lines[idx] ?? "").trim();
+        if (/^(?:\/\/|\/\*|\*|#|<!--)/.test(trimmed)) extendedStart = idx + 1;
+        else break;
+      }
+      const symbolContent = lines.slice(extendedStart - 1, end).join("\n");
+      database.run("INSERT INTO symbol_content_fts (symbol_id, file_id, path, name, kind, content, start_line, end_line) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [symbol.symbol_id, fileId, path, symbol.name, symbol.kind, symbolContent, symbol.start_line, symbol.end_line]);
     }
   }
 
@@ -217,11 +226,13 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
 
 }
 
+// languageForPath - handles languageForPath operation.
 function languageForPath(path) {
   const extension = extname(path).toLowerCase();
   return { ".js": "javascript", ".jsx": "javascript", ".ts": "typescript", ".tsx": "typescript", ".php": "php", ".css": "css" }[extension] ?? null;
 }
 
+// createRecordId - handles createRecordId operation.
 function createRecordId(prefix) {
   return `${prefix}-${randomUUID()}`;
 }

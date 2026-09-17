@@ -1,3 +1,4 @@
+// Summary: EventEmitter-based signal bus for waking workers by queue name with publish counting and debug logging.
 import { EventEmitter } from "node:events";
 export function createWorkerSignalBus({ debug = process.env.NODE_DEBUG_WORKER_SIGNALS ? console : null } = {}) {
   const bus = new EventEmitter();

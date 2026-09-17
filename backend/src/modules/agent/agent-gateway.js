@@ -1,9 +1,11 @@
+// Routes agent requests through provider adapters with gateway URL validation and timeout handling.
 import { ConfigurationError } from "../../shared/errors.js";
 import { getAdapter } from "./provider-adapters/index.js";
 import { agentToolDefinition } from "./agent-tool-definition.js";
 
 const SAFE_URL = /^https:\/\//;
 
+// Creates the gateway that resolves credentials and dispatches to adapters or custom transports.
 export function createAgentGateway({ configuration, credentialResolver, transport = defaultTransport, streamTransport = defaultStreamTransport, timeoutMs = 35000, adapterRegistry = getAdapter } = {}) {
   if (typeof configuration?.getById !== "function") throw new ConfigurationError("Agent Gateway requires Node Agent Configuration.");
   if (typeof credentialResolver !== "function") throw new ConfigurationError("Agent Gateway requires a credential resolver.");
@@ -87,6 +89,7 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
     } finally { clearTimeout(timeout); }
   }
 
+// Merges caller-supplied tools into the payload, defaulting to the agent tool definition.
   function withAgentTools(payload, tools) {
     return { ...structuredClone(payload), tools: tools ?? payload.tools ?? [agentToolDefinition] };
   }
@@ -113,6 +116,7 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
     return { agent_id: agentId, status: "CONNECTED", gateway_url: config.gateway_url };
   }
 
+// Resolves and validates the enabled agent profile and normalizes its gateway URL.
   function getEnabledConfig(agentId) {
     if (typeof agentId !== "string" || agentId.length === 0) throw new ConfigurationError("Agent Gateway agent_id is required.");
     const config = configuration.getById(agentId);
@@ -143,27 +147,32 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
   }
 }
 
+// Deep-clones a value while replacing undefined entries with null for JSON safety.
 function jsonSafe(value) {
   if (Array.isArray(value)) return value.map((item) => (item === undefined ? null : jsonSafe(item)));
   if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined).map(([key, item]) => [key, jsonSafe(item)]));
   return value;
 }
 
+// Emits a text_stream event through the optional event sink for streaming consumers.
 function emitText(eventSink, payload, correlationId, agentId, text, sequence) {
   if (typeof eventSink !== "function") return;
   const taskId = payload?.task_id ?? payload?.task?.id ?? correlationId;
   eventSink({ event_type: "agent.text_stream", task_id: taskId, timestamp: new Date().toISOString(), sequence: sequence + 1, payload: { chunk: text, agent_id: agentId, ...(payload?.conversation_id ? { conversation_id: payload.conversation_id } : {}), sequence, done: false } });
 }
 
+// Strips trailing slashes and normalizes the gateway URL to the /responses form.
 function normalizeGatewayUrl(value) {
   const normalized = value.replace(/\/+$/, "");
   return normalized.endsWith("/response") ? `${normalized}s` : normalized;
 }
 
+// Rejects invalid or error-flagged gateway responses.
 function validateResponse(response) {
   if (!response || typeof response !== "object" || response.ok === false || (response.statusCode !== undefined && response.statusCode >= 400)) throw new ConfigurationError("Agent Gateway response is invalid.");
 }
 
+// Ensures a non-empty correlation id is present.
 function assertCorrelation(value) {
   if (typeof value !== "string" || value.length === 0) throw new ConfigurationError("Agent Gateway correlation_id is required.");
 }
@@ -180,6 +189,7 @@ async function defaultTransport({ url, credential, payload, correlation_id: corr
   return { status: "completed", payload: body };
 }
 
+// Extracts concatenated text from a Responses API body across output variants.
 function extractResponseText(body) {
   if (typeof body?.output_text === "string") return body.output_text;
   const parts = body?.output?.flatMap((item) => item.content ?? []) ?? [];

@@ -1,3 +1,4 @@
+// Formats structured runtime events into persisted project log entries and condensed human-readable terminal lines.
 import process from "node:process";
 
 const SYMBOLS = { success: "OK", failed: "FAIL", error: "ERR", warn: "WARN", started: "GO", info: "--", debug: ".." };
@@ -7,8 +8,7 @@ const SYMBOLS = { success: "OK", failed: "FAIL", error: "ERR", warn: "WARN", sta
 // The events are still persisted to project.log (only stdout is suppressed).
 const SUPPRESSED_HUMAN_EVENTS = new Set(["forge.tool_started", "forge.tool_success"]);
 
-// One human-readable line per event: time, status, short message, and just
-// enough context (ticket/tool/error) to follow a run without JSON parsing.
+// Formats a project log entry into a single human-readable terminal line with UTC time, status symbol, and ticket/tool context.
 function humanLine(entry) {
   const time = new Date(entry.timestamp).toLocaleTimeString("en-GB", { hour12: false, timeZone: "UTC" });
   const symbol = SYMBOLS[entry.error_code ? "error" : entry.status] ?? "--";
@@ -29,12 +29,14 @@ function humanLine(entry) {
   return `[${time}] ${symbol.padEnd(4)} ${bits.join(" ")}`;
 }
 
+// Shortens a task/ticket id to a compact label for human log lines.
 function shortTicket(taskId) {
   if (typeof taskId !== "string") return null;
   const match = taskId.match(/(?:TICKET|TASK|REQ|SUP)-?(.{3,20})$/);
   return match ? match[1] : (taskId.length > 24 ? `${taskId.slice(0, 12)}…` : taskId);
 }
 
+// Creates a runtime logger that normalizes event fields, persists via logEvent, and writes filtered human lines to output.
 export function createRuntimeLogger({ logEvent, output = process.stdout, source = "nodeforge-runtime" } = {}) {
   const emit = (entry = {}) => {
     const {
@@ -101,4 +103,5 @@ export function createRuntimeLogger({ logEvent, output = process.stdout, source 
   };
 }
 
+// Maps a task status to its corresponding log level (error for failed, info otherwise).
 function statusLevel(status) { return status === "failed" ? "error" : "info"; }

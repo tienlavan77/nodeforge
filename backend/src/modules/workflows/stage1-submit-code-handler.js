@@ -1,3 +1,4 @@
+// Summary: Applies submit_code patches via unified-diff/apply-patch handlers and stages results for verification.
 import { createHash } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { applyUnifiedDiff } from "../../application/execution-handlers/unified-diff.js";

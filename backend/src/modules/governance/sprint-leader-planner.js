@@ -1,7 +1,9 @@
+// Planner that selects current sprint, generates and prioritizes tickets, and publishes them on the bus.
 import { ConfigurationError } from "../../shared/errors.js";
 
 const PRIORITY = new Map([["critical", 0], ["high", 1], ["normal", 2], ["low", 3]]);
 
+// Creates a planner that builds ticket batches from the sprint projection.
 export function createSprintLeaderPlanner({ projection, graph, provenance, bus, leaderId = "SPRINT-LEADER", nodeId = "NODE" } = {}) {
   if (typeof projection?.getCurrentSprint !== "function" || typeof projection?.getSprintBacklog !== "function" || typeof graph?.addNode !== "function" || typeof graph?.addDependency !== "function" || typeof graph?.getExecutionOrder !== "function" || typeof provenance?.registerTicket !== "function" || typeof bus?.send !== "function") {
     throw new ConfigurationError("Sprint Leader Planner requires projection, dependency graph, provenance tracker, and communication bus.");
@@ -12,10 +14,12 @@ export function createSprintLeaderPlanner({ projection, graph, provenance, bus, 
 
   return Object.freeze({ selectCurrentSprint, generateTickets, prioritizeBacklog, publishTickets });
 
+  // Returns the currently active sprint from the projection.
   function selectCurrentSprint() {
     return structuredClone(projection.getCurrentSprint());
   }
 
+  // Generates frozen ticket records for the current sprint backlog.
   function generateTickets() {
     const sprint = selectCurrentSprint();
     if (!sprint) throw new ConfigurationError("No current Sprint Plan is available.");
@@ -31,6 +35,7 @@ export function createSprintLeaderPlanner({ projection, graph, provenance, bus, 
     });
   }
 
+  // Sorts tickets by priority then lexicographic id.
   function prioritizeBacklog(tickets = generateTickets()) {
     if (!Array.isArray(tickets)) throw new ConfigurationError("Sprint backlog must be an array.");
     return tickets.map((ticket) => structuredClone(ticket)).sort((left, right) => (
@@ -38,6 +43,7 @@ export function createSprintLeaderPlanner({ projection, graph, provenance, bus, 
     ));
   }
 
+  // Publishes each ticket as a governance message on the bus.
   function publishTickets(tickets = prioritizeBacklog()) {
     if (!Array.isArray(tickets)) throw new ConfigurationError("Tickets to publish must be an array.");
     const sent = [];
@@ -58,6 +64,7 @@ export function createSprintLeaderPlanner({ projection, graph, provenance, bus, 
     return sent;
   }
 
+  // Populates the dependency graph from roadmap, sprint, and ticket relations.
   function ensureGraph(sprint, tickets) {
     const roadmapId = sprint.roadmap_id;
     addGraphNode({ id: roadmapId, type: "roadmap" });
@@ -71,6 +78,7 @@ export function createSprintLeaderPlanner({ projection, graph, provenance, bus, 
     graph.getExecutionOrder();
   }
 
+  // Adds a graph node if not already tracked.
   function addGraphNode(node) {
     if (graphNodes.has(node.id)) return;
     graph.addNode(node);
@@ -78,6 +86,7 @@ export function createSprintLeaderPlanner({ projection, graph, provenance, bus, 
   }
 }
 
+// Maps a ticket priority to its sort weight.
 function priorityOf(ticket) {
   return PRIORITY.get(ticket.priority ?? "normal") ?? PRIORITY.get("normal");
 }

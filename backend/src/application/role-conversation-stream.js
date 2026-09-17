@@ -1,7 +1,9 @@
+// Provides role-scoped conversation IDs and fan-out stream helpers.
 'use strict';
 
 const ROLES = Object.freeze(['AM', 'SL', 'BU', 'RV']);
 
+// Builds a role-scoped conversation identifier.
 function conversationId(role, projectId, ticketId) {
   const normalizedRole = String(role || '').trim().toUpperCase();
   if (!ROLES.includes(normalizedRole)) {
@@ -13,6 +15,7 @@ function conversationId(role, projectId, ticketId) {
   return `CONV-${normalizedRole}-${projectId}-${ticketId}`;
 }
 
+// Fans out role-specific conversation streams.
 function roleStreams({ projectId, ticketId, roles = ROLES, stream }) {
   if (typeof stream !== 'function') throw new TypeError('stream must be a function');
   return [...roles].map((role) => {
@@ -21,6 +24,7 @@ function roleStreams({ projectId, ticketId, roles = ROLES, stream }) {
   });
 }
 
+// Creates a deduplicator for incoming messages.
 function createMessageDeduper() {
   const seen = new Set();
   return (message) => {

@@ -1,3 +1,4 @@
+// Versioned roadmap store with ticket mutation helpers and schema validation.
 import { createRequire } from "node:module";
 
 import Ajv2020 from "ajv/dist/2020.js";
@@ -13,6 +14,7 @@ const ticketSchema = require("../../../../schemas/governance/ticket.schema.json"
 
 const SENSITIVE = /(?:api[_-]?key|credential|secret|password|token|authorization)/i;
 
+// Creates a versioned roadmap store with ticket and sprint helpers.
 export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(), validateTicket: validateTicketSchema = createTicketValidator(), database } = {}) {
   if (typeof validateRoadmap !== "function") throw new ConfigurationError("Roadmap validation must be a function.");
   if (typeof validateTicketSchema !== "function") throw new ConfigurationError("Ticket validation must be a function.");
@@ -23,6 +25,7 @@ export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(),
 
   return Object.freeze({ save, updateTicketStatus, updateTicket, removeSprint, removeTicket, getCurrent, getVersion, getAllVersions, load });
 
+  // Creates a new roadmap version with an updated ticket status.
   function updateTicketStatus({ projectId, ticketId, status, error } = {}) {
     if (!projectId || !ticketId || !["pending", "running", "reviewing", "done", "failed", "needs_human_review"].includes(status)) throw new ConfigurationError("A valid project, ticket, and status are required.");
     const current = getCurrent();
@@ -38,6 +41,7 @@ export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(),
     return save({ ...current, version, updated_at: new Date().toISOString(), sprints });
   }
 
+  // Patches whitelisted ticket fields and creates a new roadmap version.
   function updateTicket({ projectId, ticketId, patch } = {}) {
     if (!projectId || !ticketId || !patch || typeof patch !== "object" || Array.isArray(patch)) throw new ConfigurationError("A valid project, ticket, and patch are required.");
     const assignable = ["title", "objective", "acceptance_criteria", "priority", "dependencies", "status", "last_error"].filter((field) => patch[field] !== undefined);
@@ -57,6 +61,7 @@ export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(),
     return save({ ...current, version, updated_at: new Date().toISOString(), sprints });
   }
 
+  // Removes a sprint from all versions and creates updated successors.
   function removeSprint(projectId, sprintId) {
     let removed = false;
     for (let index = versions.length - 1; index >= 0; index -= 1) {
@@ -74,6 +79,7 @@ export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(),
     return removed;
   }
 
+  // Removes a ticket from the current roadmap and versions the change.
   function removeTicket(projectId, ticketId) {
     const current = getCurrent();
     if (!current || current.project_id !== projectId) return false;
@@ -88,6 +94,7 @@ export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(),
     return true;
   }
 
+  // Validates, redacts, and appends a new roadmap version.
   function save(roadmap) {
     validateRoadmap(roadmap);
     if (byVersion.has(roadmap.version)) throw new ConfigurationError(`Roadmap version already exists: ${roadmap.version}.`);
@@ -98,20 +105,24 @@ export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(),
     return structuredClone(stored);
   }
 
+  // Returns the latest roadmap version.
   function getCurrent() {
     return versions.length > 0 ? structuredClone(versions.at(-1)) : undefined;
   }
 
+  // Returns a specific roadmap version by its version string.
   function getVersion(version) {
     if (typeof version !== "string" || version.length === 0) throw new ConfigurationError("A roadmap version is required.");
     const roadmap = byVersion.get(version);
     return roadmap ? structuredClone(roadmap) : undefined;
   }
 
+  // Returns all roadmap versions in insertion order.
   function getAllVersions() {
     return versions.map((roadmap) => structuredClone(roadmap));
   }
 
+  // Reloads all roadmaps from the database.
   function load() {
     if (!database) return getAllVersions();
     ensureTable(database);
@@ -126,6 +137,7 @@ export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(),
   }
 }
 
+// Creates the roadmaps table if it does not exist.
 function ensureTable(database) {
   database.run(`CREATE TABLE IF NOT EXISTS governance_roadmaps (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -134,16 +146,19 @@ function ensureTable(database) {
   )`);
 }
 
+// Formats AJV validation errors into a readable string.
 function ajvErrorsText(validate) {
   return (validate.errors ?? []).map((error) => `${error.instancePath || "/"} ${error.message}`).join("; ");
 }
 
+// Redacts sensitive keys when persisting roadmap content.
 function redact(value) {
   if (Array.isArray(value)) return value.map(redact);
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, SENSITIVE.test(key) ? "[REDACTED]" : redact(item)]));
 }
 
+// Builds a JSON-schema validator for tickets.
 export function createTicketValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);
@@ -151,6 +166,7 @@ export function createTicketValidator() {
   return ajv.getSchema(ticketSchema.$id);
 }
 
+// Builds a JSON-schema validator for roadmaps.
 function createRoadmapValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);

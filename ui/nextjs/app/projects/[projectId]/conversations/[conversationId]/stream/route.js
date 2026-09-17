@@ -1,8 +1,10 @@
+// Proxies conversation SSE stream from the control API to the browser.
 const controlApiUrl = (process.env.NODE_CONTROL_API_URL ?? "http://127.0.0.1:3100").replace(/\/$/, "");
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Proxies an SSE stream for a specific conversation from the control API.
 export async function GET(request, { params }) {
   const { projectId, conversationId } = await params;
   const source = new URL(`${controlApiUrl}/projects/${encodeURIComponent(projectId)}/conversations/${encodeURIComponent(conversationId)}/stream`);

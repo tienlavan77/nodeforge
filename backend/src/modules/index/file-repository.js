@@ -1,3 +1,4 @@
+// Summary: Persists and queries file identity rows (path, hash, language, size) in the Code Index database.
 import { createFileId } from "../../shared/file-identity.js";
 
 export function createFileRepository(database, { createId = createFileId, now = () => new Date().toISOString() } = {}) {

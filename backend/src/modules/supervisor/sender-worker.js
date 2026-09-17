@@ -1,7 +1,9 @@
+// Summary: Sender worker that claims agent requests, resolves adapters, runs agent turns, persists responses, and publishes events.
 import { ConfigurationError } from "../../shared/errors.js";
 import { persistAgentResponse } from "../agent/response-persistence.js";
 import { readTranscriptBlocksDefinition, selectCodeGraphCandidatesDefinition, searchCodeDefinition, readCodeDefinition, readFileDefinition, writeDiffDefinition, editDiffDefinition, runTestDefinition, checkTestDefinition, commitChangesDefinition, reportDoneDefinition } from "../../tools/index.js";
 
+/** Creates the sender worker that dispatches agent requests and publishes response events. */
 export function createSenderWorker({ queue, agentRegistry, agentResolver, eventBus, processedStore, protocolStorage, conversationStateStore, conversationIdResolver = (job) => `CONV-BUILDER-${job.task_id}`, workerId = "sender-1", statusBus, signalBus, projectLogger = () => {}, toolRegistry, runtimeGovernance } = {}) {
   if (typeof queue?.claim !== "function" || typeof agentRegistry?.resolve !== "function" || typeof eventBus?.publish !== "function") throw new ConfigurationError("Sender Worker requires queue, agent registry and event bus.");
   const defaultAgentId = () => agentResolver?.resolve?.("coder") ?? "builder";

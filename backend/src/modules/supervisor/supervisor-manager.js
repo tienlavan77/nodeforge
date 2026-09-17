@@ -1,7 +1,9 @@
+// Summary: Admission and lifecycle manager for supervisors — validates tickets/paths, maps task↔supervisor, and handles recovery.
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { createSupervisorRuntime, migrateLegacyState } from "./supervisor-runtime.js";
 
+/** Creates the supervisor manager handling admission, creation, and recovery of supervisors. */
 export function createSupervisorManager({ eventBus, stateStore, idFactory = () => `SUP-${randomUUID()}`, onCreate = () => {}, admissionGuard = defaultAdmissionGuard, ticketValidator, dependencyChecker, pathPolicy, preparation = {} } = {}) {
   if (typeof eventBus?.subscribe !== "function") throw new ConfigurationError("Supervisor manager requires an event bus.");
   const byTask = new Map(); const bySupervisor = new Map();

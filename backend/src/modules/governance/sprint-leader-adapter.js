@@ -1,5 +1,7 @@
+// Adapter that handles sprint-plan requests by delegating to the planner and publishing results.
 import { ConfigurationError } from "../../shared/errors.js";
 
+// Creates a bus adapter that serves sprint-plan requests via the planner.
 export function createSprintLeaderAdapter({ planner, bus, agentId = "sprint-leader", nodeId = "NODE" } = {}) {
   if (typeof planner?.selectCurrentSprint !== "function" || typeof planner?.generateTickets !== "function" || typeof planner?.prioritizeBacklog !== "function") {
     throw new ConfigurationError("Sprint Leader Adapter requires a Sprint Leader Planner.");
@@ -11,6 +13,7 @@ export function createSprintLeaderAdapter({ planner, bus, agentId = "sprint-lead
 
   return Object.freeze({ handle, getResult });
 
+  // Generates a sprint plan for an incoming request and publishes the completion message.
   function handle(message) {
     assertMessage(message);
     const requestId = message.payload?.request_id ?? message.id;
@@ -39,11 +42,13 @@ export function createSprintLeaderAdapter({ planner, bus, agentId = "sprint-lead
     }
   }
 
+  // Returns a cached sprint plan result for a request key.
   function getResult(requestId, correlationId = "") {
     return structuredClone(results.get(`${requestId}:${correlationId}`));
   }
 }
 
+// Validates a sprint-plan request message envelope.
 function assertMessage(message) {
   if (!message || typeof message !== "object" || message.message_type !== "sprint.plan.request" || typeof message.id !== "string" || typeof message.project_id !== "string" || typeof message.timestamp !== "string" || !message.payload || typeof message.payload !== "object") {
     throw new ConfigurationError("Sprint plan request message is invalid.");

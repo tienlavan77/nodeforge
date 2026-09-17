@@ -1,3 +1,4 @@
+// Main NodeForge app orchestrating agents, chat and dashboard streams.
 "use client";
 /* Legacy Vite parity copy: retain dormant components until the Next UI is fully consolidated. */
 /* eslint-disable no-unused-vars, no-undef */
@@ -30,6 +31,7 @@ const PROVIDER_OPTIONS = [
   { value: "custom", label: "Custom / OpenAI-compatible" }
 ];
 
+// Formats a timestamp into a human-readable date label.
 function formatDateLabel(timestamp) {
   const d = new Date(timestamp);
   if (Number.isNaN(d.getTime())) return timestamp;
@@ -42,6 +44,7 @@ function formatDateLabel(timestamp) {
   return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+// Converts a persisted history record into a displayable chat message.
 function historyRecordToMessage(record) {
   const isOwner = record.kind === "owner";
   const raw = record.content;
@@ -52,11 +55,13 @@ function historyRecordToMessage(record) {
   return { id: record.id, correlation_id: record.correlation_id, message_type: record.type, from, text: String(text ?? record.type), time: d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), timestamp: ts, dateKey: Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10), dateLabel: ts ? formatDateLabel(ts) : "" };
 }
 
+// Checks whether an event type is an internal Node tool result.
 function isInternalNodeEvent(type) {
   const value = String(type ?? "");
   return value.endsWith(".tool.result");
 }
 
+// Maps internal event types to user-friendly messages.
 function eventTextForUser(type, payload = {}) {
   const value = String(type ?? "");
   const step = payload?.result?.step_name ?? payload?.step_name;
@@ -75,6 +80,7 @@ function eventTextForUser(type, payload = {}) {
   return null;
 }
 
+// Converts a step identifier into a readable label.
 function humanizeStep(step) {
   return String(step).replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (char) => char.toUpperCase());
 }
@@ -109,6 +115,7 @@ const MODEL_CATALOG = {
   ]
 };
 
+// Root app managing agents, history, and real-time streams.
 function App() {
   const client = useMemo(() => createNodeClient(), []);
   const [activeAgent, setActiveAgent] = useState("architecture-manager");

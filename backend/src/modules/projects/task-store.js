@@ -1,3 +1,4 @@
+// Persistent task store backed by SQLite with schema-validated create and update.
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 
@@ -11,10 +12,12 @@ const require = createRequire(import.meta.url);
 const commonSchema = require("../../../../schemas/core/common.schema.json");
 const taskSchema = require("../../../../schemas/project/task.schema.json");
 
+// Generates a unique task identifier.
 export function createTaskId() {
   return `TASK-${randomUUID()}`;
 }
 
+// Creates a validated, project-scoped task store over SQLite.
 export function createTaskStore({ database, projectId, createId = createTaskId } = {}) {
   if (!database?.run || !database?.all) throw new ConfigurationError("A SQLite database is required for task persistence.");
   if (typeof projectId !== "string" || projectId.length === 0) throw new ConfigurationError("A project_id is required for task persistence.");
@@ -22,6 +25,7 @@ export function createTaskStore({ database, projectId, createId = createTaskId }
   ensureTaskTable(database);
   migrateTaskTeam(database);
 
+  // Retrieves a task by id for the bound project.
   function get(taskId) {
     const row = database.all("SELECT task_json FROM project_tasks WHERE task_id = ? AND project_id = ?", [taskId, projectId])[0];
     if (!row) return undefined;
@@ -49,6 +53,7 @@ export function createTaskStore({ database, projectId, createId = createTaskId }
   });
 }
 
+// Creates the project_tasks table and project index.
 function ensureTaskTable(database) {
   database.run(`CREATE TABLE IF NOT EXISTS project_tasks (
     task_id TEXT PRIMARY KEY,
@@ -59,6 +64,7 @@ function ensureTaskTable(database) {
   database.run("CREATE INDEX IF NOT EXISTS project_tasks_by_project ON project_tasks (project_id)");
 }
 
+// Validates a task record against its JSON schema.
 function validateTask(task) {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);

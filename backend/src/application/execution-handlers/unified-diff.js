@@ -1,7 +1,9 @@
+// Applies unified diff patches to file content.
 import { readFile, writeFile } from "node:fs/promises";
 import { backupFile as createBackup } from "./backup.js";
 import { createExecutionResult } from "../execution-layer.js";
 
+// Applies a unified diff patch to a file.
 export async function applyUnifiedDiff(filePath, diffText, options = {}) {
   const startedAt = Date.now();
   const dryRun = options?.dry_run === true;
@@ -31,10 +33,10 @@ export async function applyUnifiedDiff(filePath, diffText, options = {}) {
   } catch (error) {
     return result({ success: false, errorCode: "IO_ERROR", errorMessage: error.message, detail: { backup_ref: backup.detail?.backup_ref } });
   }
-
   function result(values) { return createExecutionResult({ stepName: "applyUnifiedDiff", durationMs: Date.now() - startedAt, ...values }); }
 }
 
+// Applies an apply_patch envelope to the original content.
 function applyPatch(original, diffText) {
   if (typeof diffText !== "string" || !diffText.trim()) throw new Error("Unified diff is empty.");
   const source = splitLines(original);
@@ -83,5 +85,7 @@ function applyPatch(original, diffText) {
   return joinLines(source, original.endsWith("\n"));
 }
 
+// Splits file content into lines handling CRLF.
 function splitLines(content) { const lines = content.split("\n"); if (lines.at(-1) === "") lines.pop(); return lines; }
+// Joins lines back into file content preserving trailing newline.
 function joinLines(lines, trailingNewline) { return lines.join("\n") + (trailingNewline ? "\n" : ""); }

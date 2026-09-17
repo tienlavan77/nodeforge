@@ -1,5 +1,7 @@
+// Adapter that translates bus messages into architecture plan and roadmap creation via the manager.
 import { ConfigurationError } from "../../shared/errors.js";
 
+// Creates a bus adapter that handles architecture and owner messages.
 export function createArchitectureManagerAdapter({ manager, bus, agentId = "architecture-manager", nodeId = "NODE" } = {}) {
   if (typeof manager?.createArchitecturePlan !== "function" || typeof manager?.createRoadmap !== "function") {
     throw new ConfigurationError("Architecture Manager Adapter requires an Architecture Manager.");
@@ -11,6 +13,7 @@ export function createArchitectureManagerAdapter({ manager, bus, agentId = "arch
 
   return Object.freeze({ handle, getResult });
 
+  // Processes an incoming bus message and produces a plan or owner response.
   async function handle(message) {
     assertMessage(message);
     const requestId = message.payload?.request_id ?? message.id;
@@ -47,10 +50,12 @@ export function createArchitectureManagerAdapter({ manager, bus, agentId = "arch
     }
   }
 
+  // Returns a cached result for a previously handled request.
   function getResult(requestId, correlationId = "") {
     return structuredClone(results.get(`${requestId}:${correlationId}`));
   }
 
+  // Handles free-form owner messages by creating a minimal proposed decision.
   function handleOwnerMessage(message, requestId, key) {
     bus.send({
       id: `MSG-ARCHITECTURE-WORKING-${requestId}`,
@@ -93,6 +98,7 @@ export function createArchitectureManagerAdapter({ manager, bus, agentId = "arch
   }
 }
 
+// Validates that an incoming message has required envelope fields.
 function assertMessage(message) {
   if (!message || typeof message !== "object" || !["architecture.request", "owner.message"].includes(message.message_type) || typeof message.id !== "string" || typeof message.project_id !== "string" || typeof message.timestamp !== "string" || !message.payload || typeof message.payload !== "object") {
     throw new ConfigurationError("Architecture request message is invalid.");

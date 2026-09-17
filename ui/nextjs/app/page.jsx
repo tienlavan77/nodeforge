@@ -1,4 +1,5 @@
 "use client";
+// HomePage — main workspace with dashboard and real-time updates.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -12,16 +13,19 @@ const PROJECT_ID = "PROJECT-NODEFORGE";
 const ARCHITECTURE_CONVERSATION_ID = "CONV-ARCHITECTURE";
 const SPRINT_CACHE_KEY = `nodeforge:sprints:${PROJECT_ID}`;
 
+// Converts raw sprint plans into dashboard view data.
 function toDashboard(sprintPlans) {
   const plans = Array.isArray(sprintPlans) ? sprintPlans : sprintPlans?.items ?? sprintPlans?.sprints ?? [];
   return { project_id: PROJECT_ID, roadmap: { id: plans[0]?.roadmap_id ?? `ROADMAP-${PROJECT_ID}`, version: plans.at(-1)?.id ?? "latest", sprints: plans.map((sprint, index) => ({ id: sprint.id, objective: sprint.objective, order: index + 1, status: sprint.status ?? "planned", tasks: (sprint.tickets ?? []).map((ticket) => ({ ...ticket, status: ticket.status ?? "planned", progress: ticket.status === "done" ? 100 : ticket.status === "running" || ticket.status === "reviewing" ? 50 : 0 })) })) } };
 }
 
+// Reads cached sprint plan data from storage.
 function readSprintCache() {
   if (typeof window === "undefined") return null;
   try { return toDashboard(JSON.parse(window.sessionStorage.getItem(SPRINT_CACHE_KEY) ?? "null")); } catch { return null; }
 }
 
+// Normalizes watcher events into a consistent array format.
 function normalizeWatcherEvents(events) {
   return (Array.isArray(events) ? events : [])
     .filter((event) => Array.isArray(event?.payload?.activity) && event.payload.activity.length > 0)
@@ -29,18 +33,21 @@ function normalizeWatcherEvents(events) {
     .slice(-4);
 }
 
+// Applies a watcher event to the current state.
 function applyWatcherEvent(current, event) {
   if (event?.event_type === "stream.snapshot") return normalizeWatcherEvents(event.payload?.watcher?.recent_events);
   if (!["watcher.file_indexed", "watcher.file_removed"].includes(event?.event_type) || !Array.isArray(event.payload?.activity)) return current;
   return normalizeWatcherEvents([...current, event]);
 }
 
+// Formats a timestamp for message display.
 function displayMessageTime(timestamp) {
   const date = timestamp ? new Date(timestamp) : new Date();
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+// Main workspace page with dashboard and live event handling.
 export default function HomePage() {
   const client = useMemo(() => createNodeClient(), []);
   const chatMessagesRef = useRef(null);
@@ -90,6 +97,7 @@ export default function HomePage() {
     if (selectedArchitectureManager?.id !== selectedArchitectureManagerId) setSelectedArchitectureManagerId(selectedArchitectureManager?.id ?? "");
   }, [selectedArchitectureManager?.id, selectedArchitectureManagerId]);
 
+  // Loads dashboard data from the backend.
   async function loadDashboard() {
     try {
       const sprintPlans = await client.listSprints(PROJECT_ID);
@@ -170,6 +178,7 @@ export default function HomePage() {
     if (container) container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
+  // Sends a chat message to the backend.
   async function sendMessage(event) {
     event.preventDefault();
     const text = draft.trim();
@@ -198,6 +207,7 @@ export default function HomePage() {
     }
   }
 
+  // Handles cleanup after a ticket is deleted.
   function handleTicketDeleted(ticketId) {
     setDashboard((current) => {
       if (!current) return current;
@@ -215,7 +225,7 @@ export default function HomePage() {
     <main className="home-workspace" aria-label="NodeForge workspace">
       <section className="home-chat-panel home-panel" aria-label="Project chat">
         <div className="home-panel-heading"><div className="home-chat-heading"><div className="home-chat-title"><i aria-hidden="true" /><p className="eyebrow">PROJECT CHAT</p></div><div className="home-agent-select-row"><label className="home-agent-select-label" htmlFor="home-architecture-manager-selector">Architecture Manager</label><select className="home-agent-select" id="home-architecture-manager-selector" value={selectedArchitectureManagerId} onChange={(event) => { const agentId = event.target.value; setSelectedArchitectureManagerId(agentId); writeArchitectureManagerAgent(PROJECT_ID, agentId); }} aria-label="Architecture Manager selection"><option value="">{architectureManagers.length ? "Select an Architecture Manager" : "No enabled Architecture Manager agents available"}</option>{architectureManagers.map((agent) => <option key={agent.id} value={agent.id}>{agent.label}</option>)}</select></div></div></div>
-        <ConversationsAccordion conversations={conversations} onNewConversation={() => { setMessages([]); setChatState(""); }} />
+        <ConversationsAccordion conversations={conversations} projectId={PROJECT_ID} agentId={selectedArchitectureManager?.id} onNewConversation={() => { setMessages([]); setChatState(""); }} onSelectConversation={() => {}} />
         <div className="home-chat-messages" ref={chatMessagesRef} role="log" aria-live="polite">{messages.length === 0 && <div className="home-empty-state"><span className="home-empty-mark">N</span><p>Send a message to start working with your project agents.</p></div>}{messages.map((message) => <div className={`home-chat-message ${message.from === "owner" ? "is-owner" : "is-agent"}`} key={message.id}><div className="home-message-meta"><span>{message.nickname ?? (message.from === "owner" ? "You" : "Agent")}</span><time dateTime={message.timestamp}>{displayMessageTime(message.timestamp)}</time></div><MessageContent text={message.text} /></div>)}</div>
         <form className="home-composer" onSubmit={sendMessage}><textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); if (draft.trim()) event.currentTarget.form?.requestSubmit(); } }} placeholder="Chat or paste a ticket..." rows="2" aria-label="Chat or ticket input" /><button type="submit" aria-label="Send message" disabled={!draft.trim()}>&#8593;</button></form>{chatState && <p className={`dashboard-state ${chatState.includes("successfully") ? "success" : "error"}`} role="alert">{chatState}</p>}
       </section>

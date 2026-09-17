@@ -1,3 +1,4 @@
+// Publisher that validates domain events, persists them to the store, and fans out to subscriptions.
 import { createRequire } from "node:module";
 
 import Ajv2020 from "ajv/dist/2020.js";
@@ -9,6 +10,7 @@ const require = createRequire(import.meta.url);
 const commonSchema = require("../../../../schemas/core/common.schema.json");
 const eventSchema = require("../../../../schemas/core/event.schema.json");
 
+// Creates a publisher that validates and appends events to the store and notifies subscribers.
 export function createEventPublisher({ store, subscriptions, source = "node", validateEvent = createEventValidator() } = {}) {
   if (typeof store?.append !== "function" || (subscriptions !== undefined && typeof subscriptions?.publish !== "function") || typeof source !== "string" || source.length === 0 || typeof validateEvent !== "function") {
     throw new ConfigurationError("Event Publisher requires an Event Store, source, and validator.");
@@ -16,6 +18,7 @@ export function createEventPublisher({ store, subscriptions, source = "node", va
 
   return Object.freeze({ publish });
 
+  // Validates an event, appends it, and fans out to matched subscriptions.
   function publish(event) {
     validateEvent(event);
     const result = store.append({
@@ -32,6 +35,7 @@ export function createEventPublisher({ store, subscriptions, source = "node", va
   }
 }
 
+// Builds a JSON-schema validator for publishable events.
 export function createEventValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);

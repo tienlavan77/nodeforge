@@ -1,3 +1,4 @@
+// Stores and validates agent profiles with SQLite persistence and tombstone tracking.
 import { createRequire } from "node:module";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
@@ -11,6 +12,7 @@ if (profileSchema && typeof profileSchema === "object" && profileSchema.properti
 }
 const SECRET_FIELD = /(?:api[_-]?key|credential(?!_ref)|secret|password|token|authorization)/i;
 
+// Creates the CRUD store for agent profiles with schema validation and optional DB sync.
 export function createAgentProfileStore({ validateProfile = createValidator(), database } = {}) {
   if (typeof validateProfile !== "function") throw new ConfigurationError("Agent Profile validation must be a function.");
   if (database !== undefined && (!database?.run || !database?.all)) throw new ConfigurationError("Persistent Agent Profile Store requires a SQLite database.");
@@ -20,6 +22,7 @@ export function createAgentProfileStore({ validateProfile = createValidator(), d
 
   return Object.freeze({ create, update, delete: remove, getById, getAll, isDeleted, load });
 
+// Validates and inserts a new agent profile, clearing any prior tombstone.
   function create(input) {
     const profile = normalize(input);
     validateProfile(profile);
@@ -31,6 +34,7 @@ export function createAgentProfileStore({ validateProfile = createValidator(), d
     return clone(profile);
   }
 
+// Merges updates into an existing profile while preserving the original creation time.
   function update(input) {
     const profile = normalize(input);
     const existing = byId.get(profile.agent_id);
@@ -44,6 +48,7 @@ export function createAgentProfileStore({ validateProfile = createValidator(), d
     return clone(stored);
   }
 
+// Deletes a profile and records a tombstone to prevent stale re-sync.
   function remove(agentId) {
     assertId(agentId);
     const existing = byId.get(agentId);
@@ -57,19 +62,23 @@ export function createAgentProfileStore({ validateProfile = createValidator(), d
     return clone(existing);
   }
 
+// Checks whether a profile id has a recorded tombstone.
   function isDeleted(agentId) {
     assertId(agentId);
     return Boolean(database?.all("SELECT 1 FROM agent_profile_tombstones WHERE agent_id = ? LIMIT 1", [agentId]).length);
   }
 
+// Returns a cloned profile by id or undefined.
   function getById(agentId) {
     assertId(agentId);
     const profile = byId.get(agentId);
     return profile ? clone(profile) : undefined;
   }
 
+// Returns cloned copies of all stored profiles.
   function getAll() { return profiles.map(clone); }
 
+// Reloads all profiles from the database and reconciles any normalized differences.
   function load() {
     ensureTable(database);
     profiles.splice(0, profiles.length); byId.clear();
@@ -85,6 +94,7 @@ export function createAgentProfileStore({ validateProfile = createValidator(), d
     return getAll();
   }
 
+// Writes a profile row to the DB, adapting to the optional team column.
   function persist(profile, sql) {
     if (!database) return;
     // Handle INSERT with team column (3 params) vs legacy sql (2 params)
@@ -93,6 +103,7 @@ export function createAgentProfileStore({ validateProfile = createValidator(), d
   }
 }
 
+// Normalizes profile input, enforces secret-field bans, and applies defaults.
 function normalize(input) {
   if (!input || typeof input !== "object") throw new ConfigurationError("Agent Profile is required.");
   if (Object.keys(input).some((key) => SECRET_FIELD.test(key))) throw new ConfigurationError("Agent Profile cannot contain plaintext credentials.");
@@ -105,18 +116,24 @@ function normalize(input) {
   return profile;
 }
 
+// Compiles the AJV validator for the agent profile JSON schema.
 function createValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true }); addFormats(ajv); const validate = ajv.compile(profileSchema);
   return (profile) => { if (!validate(profile)) throw new ConfigurationError(`Invalid Agent Profile: ${ajv.errorsText(validate.errors, { separator: "; " })}`); return true; };
 }
 
+// Ensures profile and tombstone tables exist and migrates the team column.
 function ensureTable(database) {
   database.run("CREATE TABLE IF NOT EXISTS agent_profiles (sequence INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL UNIQUE, profile_json TEXT NOT NULL, team TEXT)");
   database.run("CREATE TABLE IF NOT EXISTS agent_profile_tombstones (agent_id TEXT PRIMARY KEY, deleted_at TEXT NOT NULL)");
   // Migration for existing DBs: add team column if missing
   try { database.run("ALTER TABLE agent_profiles ADD COLUMN team TEXT"); } catch {}
 }
+// Deep-clones and freezes a profile for immutable storage.
 function freeze(profile) { return Object.freeze(structuredClone(profile)); }
+// Deep-clones a profile for safe external return.
 function clone(profile) { return structuredClone(profile); }
+// Validates that an agent profile id is a non-empty string.
 function assertId(id) { if (typeof id !== "string" || id.length === 0) throw new ConfigurationError("An Agent Profile id is required."); }
+// Validates that a timestamp field is a non-empty string.
 function validateTimestamp(value, field) { if (typeof value !== "string" || value.length === 0) throw new ConfigurationError(`Agent Profile ${field} is required.`); }

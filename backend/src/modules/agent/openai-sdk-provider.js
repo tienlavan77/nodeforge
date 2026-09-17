@@ -1,3 +1,4 @@
+// Creates per-agent OpenAI provider instances from normalized profiles and resolved credentials.
 import { OpenAIProvider as DefaultOpenAIProvider } from "@openai/agents";
 import { ConfigurationError } from "../../shared/errors.js";
 
@@ -9,6 +10,7 @@ const REASONING_EFFORTS = Object.freeze(["none", "low", "medium", "high", "max"]
  * Credentials are resolved only when createForAgent() is called and are never
  * copied into the normalized profile returned by this module.
  */
+// Creates a factory that normalizes profiles and instantiates per-agent OpenAI providers.
 export function createOpenAiSdkProviderFactory({ credentialResolver, ProviderClass = DefaultOpenAIProvider, defaultUseResponses = false } = {}) {
   if (typeof credentialResolver !== "function") throw new ConfigurationError("OpenAI SDK provider requires a credential resolver.");
   if (typeof ProviderClass !== "function") throw new ConfigurationError("OpenAI SDK provider requires a provider constructor.");
@@ -16,6 +18,7 @@ export function createOpenAiSdkProviderFactory({ credentialResolver, ProviderCla
 
   return Object.freeze({ normalizeProfile, createForAgent, normalizeGatewayUrl, normalizeReasoningEffort });
 
+// Normalizes and validates a raw profile into the OpenAI SDK credential and gateway shape.
   function normalizeProfile(profile) {
     if (!profile || typeof profile !== "object") throw new ConfigurationError("OpenAI SDK agent profile is required.");
     const gatewayUrl = normalizeGatewayUrl(profile.gateway_url);
@@ -48,12 +51,14 @@ export function createOpenAiSdkProviderFactory({ credentialResolver, ProviderCla
   }
 }
 
+// Normalizes a gateway URL to the /v1 base form and validates HTTPS.
 export function normalizeGatewayUrl(value) {
   if (typeof value !== "string" || !SAFE_URL.test(value)) throw new ConfigurationError("OpenAI SDK gateway URL must use HTTPS.");
   const normalized = value.replace(/\/+$/, "").replace(/\/responses?$/, "");
   return /\/v\d+$/.test(normalized) ? normalized : `${normalized}/v1`;
 }
 
+// Validates that the reasoning effort is one of the supported levels.
 export function normalizeReasoningEffort(value) {
   if (!REASONING_EFFORTS.includes(value)) throw new ConfigurationError(`OpenAI SDK reasoning effort is invalid: ${value}.`);
   return value;
@@ -61,6 +66,7 @@ export function normalizeReasoningEffort(value) {
 
 export const OPENAI_SDK_REASONING_EFFORTS = REASONING_EFFORTS;
 
+// Requires a non-empty trimmed string for a named profile field.
 function requireString(value, label) {
   if (typeof value !== "string" || value.trim().length === 0) throw new ConfigurationError(`${label} is required.`);
   return value.trim();

@@ -1,7 +1,9 @@
+// Adapts generic agent payloads to the Anthropic Messages API with Devquote fallback.
 import { ConfigurationError } from "../../../shared/errors.js";
 import { buildAnthropicMessages, buildAnthropicSystem, buildAnthropicToolChoice, mapUsage } from "./request-builder.js";
 import * as devquote from "./devquote-adapter.js";
 
+// Sends a non-streaming Anthropic request with optional Devquote routing.
 export async function request({ url, credential, payload, model, correlationId, signal }) {
   // Profiles created as "anthropic" may point at the DevQuote-compatible gateway.
   if (isDevquoteGateway(url)) return devquote.request({ url, credential, payload, model, correlationId, signal });
@@ -28,6 +30,7 @@ export async function request({ url, credential, payload, model, correlationId, 
   return { status: data.status ?? "completed", payload: { text, response_id: data.id ?? data.response_id, usage: mapUsage(data.usage) } };
 }
 
+// Streams Anthropic deltas and tool use with Devquote fallback.
 export async function* stream({ url, credential, payload, model, correlationId, signal }) {
   if (isDevquoteGateway(url)) {
     yield* devquote.stream({ url, credential, payload, model, correlationId, signal });
@@ -74,6 +77,7 @@ export async function* stream({ url, credential, payload, model, correlationId, 
   }
 }
 
+// Extracts concatenated text from an Anthropic response content array.
 function extractText(data) {
   if (typeof data?.content === "string") return data.content;
   if (Array.isArray(data?.content)) {
@@ -89,10 +93,12 @@ function extractText(data) {
   return "";
 }
 
+// Maps generic tool definitions to Anthropic input_schema shape.
 function toAnthropicTools(tools = []) {
   return tools?.length ? tools.map((tool) => ({ name: tool.name, description: tool.description, input_schema: tool.input_schema })) : undefined;
 }
 
+// Detects whether a URL targets the Devquote gateway by hostname.
 function isDevquoteGateway(url) {
   try { return new URL(url).hostname === "sv.devquote.shop"; } catch { return false; }
 }

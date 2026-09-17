@@ -1,3 +1,4 @@
+// Read-only projection of the code index for watcher stream snapshots.
 import { ConfigurationError } from "../../shared/errors.js";
 
 const MAX_RECENT_FILES = 4;

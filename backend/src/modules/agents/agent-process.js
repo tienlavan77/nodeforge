@@ -1,3 +1,4 @@
+// Spawns and manages the child agent process with envelope validation and lifecycle events.
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
@@ -14,6 +15,7 @@ const commandSchema = require("../../../../schemas/core/command.schema.json");
 const eventSchema = require("../../../../schemas/core/event.schema.json");
 const envelopeSchema = require("../../../../schemas/core/envelope.schema.json");
 
+// Creates an AJV validator for the Node-Agent envelope schema.
 export function createEnvelopeValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);
@@ -28,6 +30,7 @@ export function createEnvelopeValidator() {
   };
 }
 
+// Creates an AJV validator for core lifecycle events.
 export function createCoreEventValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);
@@ -42,6 +45,7 @@ export function createCoreEventValidator() {
   };
 }
 
+// Spawns the agent child process and wires stdout/stderr into envelope and lifecycle events.
 export function createAgentProcess({ command, args = [], projectId, agentId, timeoutMs, terminateGraceMs = 1000, spawnProcess = spawn, validateEnvelope = createEnvelopeValidator(), validateEvent = createCoreEventValidator(), createEventId = () => `EVT-${randomUUID()}`, clock = () => new Date(), spawnOptions = {} } = {}) {
   if (typeof command !== "string" || command.length === 0 || !Array.isArray(args)) {
     throw new ConfigurationError("An agent command and argument array are required.");
@@ -76,6 +80,7 @@ export function createAgentProcess({ command, args = [], projectId, agentId, tim
   });
   if (timeoutMs !== undefined) timeoutTimer = setTimeout(handleTimeout, timeoutMs);
 
+// Handles agent timeout by emitting a lifecycle error and escalating SIGTERM to SIGKILL.
   function handleTimeout() {
     timedOut = true;
     emitLifecycleEvent("agents.error", { reason: "timeout" });
@@ -85,6 +90,7 @@ export function createAgentProcess({ command, args = [], projectId, agentId, tim
     }, terminateGraceMs);
   }
 
+// Emits a validated core lifecycle event onto the internal agent event emitter.
   function emitLifecycleEvent(type, payload) {
     const event = { event_id: createEventId(), type, project_id: projectId, timestamp: clock().toISOString(), payload };
     if (agentId !== undefined) event.agent_id = agentId;
@@ -92,6 +98,7 @@ export function createAgentProcess({ command, args = [], projectId, agentId, tim
     events.emit("event", Object.freeze(event));
   }
 
+// Clears any pending timeout and force-kill timers.
   function clearTimeouts() {
     clearTimeout(timeoutTimer);
     clearTimeout(forceKillTimer);
@@ -99,6 +106,7 @@ export function createAgentProcess({ command, args = [], projectId, agentId, tim
     forceKillTimer = undefined;
   }
 
+// Buffers stdout lines, parses each JSON envelope and validates it.
   function processStdout(chunk) {
     stdoutBuffer += chunk;
     let newlineIndex;
@@ -163,14 +171,17 @@ export function createAgentProcess({ command, args = [], projectId, agentId, tim
   }
 }
 
+// Checks whether a message is a request-based Command.
 function isCommand(message) {
   return typeof message?.request_id === "string" && !("event_id" in message);
 }
 
+// Checks whether a message is an event-based response.
 function isEvent(message) {
   return typeof message?.event_id === "string";
 }
 
+// Writes a JSON line to the child stdin and resolves on drain.
 function writeLine(stream, line) {
   return new Promise((resolve, reject) => {
     stream.write(line, (error) => error ? reject(error) : resolve());

@@ -1,3 +1,4 @@
+// Serves indexed file contents and symbol tables in response to agent context read requests.
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { readFile } from "node:fs/promises";
@@ -7,6 +8,7 @@ import { ConfigurationError } from "../../shared/errors.js";
 import { createFileRepository } from "../index/file-repository.js";
 import { createSecretPathMatcher } from "../context/secret-paths.js";
 
+// Handles agent file-context requests by serving indexed metadata and file contents.
 export function createContextReadHandler({ agent, database, projectId, projectRoot, files = createFileRepository(database), createEventId = () => `EVT-${randomUUID()}`, clock = () => new Date(), nodeId = "NODE-001", config = {} } = {}) {
   if (!agent?.on || !agent?.off || typeof agent.sendEvent !== "function" || !database?.all || !files?.findByPath) {
     throw new ConfigurationError("An agent process, SQLite database, and file repository are required for context reads.");
@@ -58,6 +60,7 @@ export function createContextReadHandler({ agent, database, projectId, projectRo
     });
   }
 
+// Validates that a requested path is relative and stays within the project root.
   function assertIndexedProjectPath(path) {
     if (typeof path !== "string" || path.length === 0) {
       throw new ConfigurationError("context.read_file requires payload.path.");

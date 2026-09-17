@@ -1,3 +1,4 @@
+// Summary: Plans a bounded, checksum-verified file context from a relevant tree, enforcing file-count and token budgets with staleness checks.
 import { ConfigurationError } from "../../shared/errors.js";
 
 /** Materialize a bounded relevant tree into fresh, checksum-verified context. */
