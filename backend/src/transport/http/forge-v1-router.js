@@ -75,7 +75,10 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
 
     if (parts[0] === "conversations" && conversationCrudService) {
       if (method === "GET" && parts.length === 1) return { status: 200, body: conversationCrudService.list({ projectId: projectId ?? url.searchParams.get("project_id") ?? undefined, agentId: url.searchParams.get("agent_id") ?? undefined }) };
-      if (method === "POST" && parts.length === 1) return { status: 201, body: conversationCrudService.create({ ...body, project_id: body.project_id ?? projectId, agent_id: body.agent_id ?? url.searchParams.get("agent_id") ?? undefined }) };
+      if (method === "POST" && parts.length === 1) {
+        const payload = { project_id: body.project_id ?? projectId, agent_id: body.agent_id ?? url.searchParams.get("agent_id") ?? undefined, title: body.title };
+        return { status: 201, body: conversationCrudService.create(payload) };
+      }
       if (parts.length === 2) {
         const conversation = conversationCrudService.get(parts[1]);
         if (!conversation) throw Object.assign(new ConfigurationError(`Conversation not found: ${parts[1]}.`), { statusCode: 404 });

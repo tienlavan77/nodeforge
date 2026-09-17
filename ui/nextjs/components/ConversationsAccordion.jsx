@@ -4,14 +4,13 @@ import { useState } from "react";
 import { CreateConversationModal } from "./CreateConversationModal.jsx";
 
 async function createConversationRequest(title, { onNewConversation, projectId, agentId } = {}) {
-  if (onNewConversation) return onNewConversation(title);
-  const body = { title };
-  if (projectId) body.project_id = projectId;
-  if (agentId) body.agent_id = agentId;
+  const body = { title, project_id: projectId, agent_id: agentId };
   const response = await fetch("/forge/v1/conversations", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error ?? payload.message ?? "Unable to create conversation.");
-  return payload.conversation ?? payload;
+  const conversation = payload.conversation ?? payload;
+  if (onNewConversation) return onNewConversation(title, conversation);
+  return conversation;
 }
 
 export function ConversationsAccordion({
