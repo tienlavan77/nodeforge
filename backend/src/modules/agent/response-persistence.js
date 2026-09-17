@@ -1,5 +1,7 @@
+// Persists provider responses to protocol storage with typed schema references.
 import { ConfigurationError } from "../../shared/errors.js";
 
+// Persists an agent provider response under a task/round storage reference.
 export async function persistAgentResponse({ protocolStorage, taskId, round, response, raw = false } = {}) {
   if (!protocolStorage?.save || !taskId || !Number.isInteger(round)) return null;
   const ref = `task/${taskId}/round_${round}/response`;

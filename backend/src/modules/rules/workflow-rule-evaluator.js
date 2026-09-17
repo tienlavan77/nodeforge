@@ -1,3 +1,4 @@
+// Evaluates workflow rules for sprint delivery with condition matching.
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 

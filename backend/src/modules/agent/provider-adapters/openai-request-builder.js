@@ -1,8 +1,10 @@
+// Constructs OpenAI Responses inputs, tool configs, cache options, and usage mapping.
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 const openAIResponseSchema = require("../../../../../schemas/agent/response-openai.schema.json");
 
+// Builds the Responses API input array from developer, transcript, and user blocks.
 export function buildResponsesInput(payload = {}) {
   const prior = Array.isArray(payload.messages) ? payload.messages : [];
   if (!Array.isArray(payload.developer_blocks) && !Array.isArray(payload.user_blocks) && !prior.length) return payload.text ?? JSON.stringify(payload);
@@ -23,6 +25,7 @@ export function buildInstructions(payload = {}) {
   return blocks.map((block) => String(block.content ?? "")).join("\n\n");
 }
 
+// Builds the resolved transcript plus user blocks as Responses input items.
 export function buildInput(payload = {}, resolvedTranscript = []) {
   if (!Array.isArray(resolvedTranscript)) throw new TypeError("resolvedTranscript must be an array.");
   const input = [...resolvedTranscript]
@@ -32,6 +35,7 @@ export function buildInput(payload = {}, resolvedTranscript = []) {
   return input;
 }
 
+// Selects response tools filtered by expected output type and formats constraints.
 export function buildToolConfig(payload = {}) {
   const suppliedTools = Array.isArray(payload.tools) && payload.tools.length ? payload.tools.map((tool) => ({ ...tool, parameters: tool.parameters ?? tool.input_schema })) : null;
   const definitions = suppliedTools ?? (Array.isArray(openAIResponseSchema.tools) ? openAIResponseSchema.tools : []);
@@ -59,6 +63,7 @@ export function buildToolConfig(payload = {}) {
 }
 
 /** Build the Responses API structured-output projection when explicitly requested. */
+// Builds the json_schema structured-output projection for single-tool responses.
 export function buildResponseFormat(payload = {}, toolConfig = buildToolConfig(payload)) {
   const transport = payload.expected_output?.transport ?? payload.expected_submission?.transport ?? "function_tool";
   if (transport !== "json_schema") return {};
@@ -67,6 +72,7 @@ export function buildResponseFormat(payload = {}, toolConfig = buildToolConfig(p
   return { text: { format: { type: "json_schema", name: tool.name, schema: tool.parameters, strict: true } } };
 }
 
+// Narrows the submit_code schema to only the formats required by the plan.
 function constrainSubmitFormats(parameters, formats) {
   if (!Array.isArray(formats) || formats.length === 0) return parameters;
   const copy = structuredClone(parameters);
@@ -83,6 +89,7 @@ function constrainSubmitFormats(parameters, formats) {
   return copy;
 }
 
+// Derives required file formats (full_content vs structured_patch) from the task plan.
 function submissionFormatsFromPlan(plan) {
   if (!Array.isArray(plan)) return [];
   const formats = new Set();
@@ -93,6 +100,7 @@ function submissionFormatsFromPlan(plan) {
   return [...formats];
 }
 
+// Maps cache_config and previous_response_id to Responses store/chaining options.
 export function buildCacheOptions(payload = {}) {
   const config = payload.cache_config;
   const previousResponseId = payload.previous_response_id;
@@ -111,10 +119,12 @@ export function buildCacheOptions(payload = {}) {
   };
 }
 
+// Normalizes usage counters from provider-specific token shapes.
 export function mapOpenAIUsage(usage = {}) {
   return { cached_tokens: Number(usage.prompt_tokens_details?.cached_tokens ?? usage.input_tokens_details?.cached_tokens ?? usage.cached_tokens ?? 0), input_tokens: Number(usage.input_tokens ?? usage.prompt_tokens ?? 0), output_tokens: Number(usage.output_tokens ?? usage.completion_tokens ?? 0) };
 }
 
+// Renders a transcript block with full refs when in-window, otherwise a short summary.
 function transcriptText(block) {
   if (!block.in_window) return block.text ?? "";
   return JSON.stringify({ round: block.round, instruction: block.instruction ?? "", request: block.full_request, response: block.full_response });

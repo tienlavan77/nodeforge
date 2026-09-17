@@ -7,7 +7,6 @@ export function createArchitectureWorkspaceService({ knowledge } = {}) {
     throw new ConfigurationError("Architecture Workspace Service requires an Architecture Knowledge Model.");
   }
   return Object.freeze({ getWorkspace });
-
   function getWorkspace(projectId) {
     assertProjectId(projectId);
     const decisions = knowledge.getDecisions().filter((decision) => decision.project_id === projectId);
@@ -21,10 +20,10 @@ export function createArchitectureWorkspaceService({ knowledge } = {}) {
       decisions
     });
   }
-
   function scoped(items, projectId) { return items.filter((item) => item.project_id === undefined || item.project_id === projectId); }
 }
 
+// Validates that a project ID is a non-empty string.
 function assertProjectId(projectId) {
   if (typeof projectId !== "string" || projectId.length === 0) throw new ConfigurationError("An Architecture Workspace project id is required.");
 }

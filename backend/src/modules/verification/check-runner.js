@@ -1,3 +1,4 @@
+// Runner that executes build, lint, and typecheck verification commands with diagnostic parsing.
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { basename, relative, resolve } from "node:path";
@@ -15,6 +16,7 @@ const checkResultSchema = require("../../../../schemas/results/check-result.sche
 const commonSchema = require("../../../../schemas/core/common.schema.json");
 const CHECK_TYPES = new Set(["build", "lint", "typecheck"]);
 
+// Builds a JSON-schema validator for verification check results.
 export function createCheckResultValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);
@@ -29,6 +31,7 @@ export function createCheckResultValidator() {
   };
 }
 
+// Creates a runner that executes build, lint, and typecheck commands.
 export function createCheckRunner({ projectRoot, projectId, spawnProcess, createId = () => `CHECK-${randomUUID()}`, clock = () => new Date(), validatePlan = createVerificationPlanValidator(), validateResult = createCheckResultValidator(), emitEvent = () => {} } = {}) {
   if (typeof projectRoot !== "string" || projectRoot.length === 0 || typeof projectId !== "string" || projectId.length === 0) {
     throw new ConfigurationError("A project root and project_id are required for check execution.");
@@ -49,6 +52,7 @@ export function createCheckRunner({ projectRoot, projectId, spawnProcess, create
     }
   });
 
+  // Executes a single check command and parses diagnostics into results.
   async function runCheck(check, { taskId, ticketId, conversationId, sessionId, timeoutMs, eventSink }) {
     const startedAt = clock();
     const effectiveTimeout = timeoutMs ?? defaultTimeout(check.type);
@@ -79,6 +83,7 @@ export function createCheckRunner({ projectRoot, projectId, spawnProcess, create
     return Object.freeze(result);
   }
 
+  // Logs and emits a node.command event for a check start.
   function emitCommand(sink, taskId, ticketId, conversationId, commandId, command, phase, startedAt) {
     if (typeof taskId !== "string") return;
     const phaseName = phase === "lint" ? "runLint" : phase === "build" ? "runBuildCheck" : phase === "test" ? "runTests" : undefined;
@@ -87,6 +92,7 @@ export function createCheckRunner({ projectRoot, projectId, spawnProcess, create
     sink({ event_type: "node.command", task_id: taskId, timestamp: startedAt.toISOString(), sequence: 1, payload: { command_id: commandId, command, conversation_id: conversationId, ...(phaseName ? { phase: phaseName } : {}) } });
   }
 
+  // Logs and emits a node.command_result event for a check completion.
   function emitCommandResult(sink, taskId, ticketId, conversationId, commandId, execution, result, finishedAt) {
     if (typeof taskId !== "string") return;
     const errorCode = result.status === "passed" ? null : result.status === "timeout" ? "IO_ERROR" : result.kind === "lint" ? "LINT_FAILED" : result.kind === "build" ? "BUILD_FAILED" : "TEST_FAILED";
@@ -95,8 +101,10 @@ export function createCheckRunner({ projectRoot, projectId, spawnProcess, create
     sink({ event_type: "node.command_result", task_id: taskId, timestamp: finishedAt.toISOString(), sequence: 2, payload: { command_id: commandId, success: result.status === "passed", result: { step_name: result.kind === "lint" ? "runLint" : result.kind === "build" ? "runBuildCheck" : "runTests", success: result.status === "passed", error_code: errorCode, duration_ms: result.duration_ms }, exit_code: execution.exitCode, stdout: summarize(execution.stdout), stderr: summarize(execution.stderr), conversation_id: conversationId } });
   }
 
+  // Truncates long command output for event payloads.
   function summarize(value) { return value.length > 4000 ? `${value.slice(0, 4000)}\n[output truncated]` : value; }
 
+  // Parses tool output into structured diagnostics.
   function parseDiagnostics(kind, stdout, stderr) {
     const output = `${stdout}\n${stderr}`;
     const diagnostics = kind === "lint" ? parseEslint(output) : kind === "typecheck" ? parseTypeScript(output) : parseBuild(output);
@@ -104,6 +112,7 @@ export function createCheckRunner({ projectRoot, projectId, spawnProcess, create
     return [{ severity: "error", message: firstNonEmptyLine(output) }];
   }
 
+  // Normalizes an absolute or relative path against the project root.
   function normalizePath(path) {
     const slashPath = path.split("\\").join("/");
     const marker = `/${basename(projectRoot)}/`;
@@ -117,6 +126,7 @@ export function createCheckRunner({ projectRoot, projectId, spawnProcess, create
     return relative(projectRoot, absolutePath).split("\\").join("/");
   }
 
+  // Parses ESLint output into diagnostic entries.
   function parseEslint(output) {
     const diagnostics = [];
     const matcher = /^\s*(\d+):(\d+)\s+(error|warning)\s+(.+?)\s{2,}(\S+)\s*$/gm;
@@ -129,6 +139,7 @@ export function createCheckRunner({ projectRoot, projectId, spawnProcess, create
     return diagnostics;
   }
 
+  // Parses TypeScript compiler output into diagnostic entries.
   function parseTypeScript(output) {
     return [...output.matchAll(/^(.+)\((\d+),(\d+)\): error (TS\d+): (.+)$/gm)].map(([, file, line, column, ruleId, message]) => ({
       severity: "error",
@@ -140,6 +151,7 @@ export function createCheckRunner({ projectRoot, projectId, spawnProcess, create
     }));
   }
 
+  // Parses generic build output into diagnostic entries.
   function parseBuild(output) {
     return [...output.matchAll(/^(.+?):(\d+):(\d+):\s*(error|warning)\s+(\S+)\s+(.+)$/gm)].map(([, file, line, column, severity, ruleId, message]) => ({
       severity,
@@ -152,10 +164,12 @@ export function createCheckRunner({ projectRoot, projectId, spawnProcess, create
   }
 }
 
+// Returns the default timeout for a given check type.
 function defaultTimeout(type) {
   return { build: 60000, lint: 30000, typecheck: 30000, integration: 300000 }[type] ?? 30000;
 }
 
+// Returns the first non-empty line from tool output.
 function firstNonEmptyLine(output) {
   return output.split("\n").map((line) => line.trim()).find(Boolean) ?? "Check command failed.";
 }

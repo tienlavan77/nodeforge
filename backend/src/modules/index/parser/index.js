@@ -1,3 +1,4 @@
+// Summary: Registry that maps file extensions to language extractors and normalizes extraction output for indexing.
 import { extname } from "node:path";
 
 import { emptyExtraction, normalizeExtraction } from "./contract.js";

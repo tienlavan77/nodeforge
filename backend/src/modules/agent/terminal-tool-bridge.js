@@ -1,3 +1,4 @@
+// Executes allowlisted project commands with approval gating and audit logging.
 import { appendFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -29,6 +30,7 @@ export function createTerminalToolBridge({ projectRoot, role = "builder", allowe
     return Object.freeze({ id, ...result });
   }
 
+// Validates command syntax, allowlist, reviewer scope, and project-root containment.
   function validateCommand(command) {
     if (typeof command !== "string" || !command.trim()) throw new ConfigurationError("Terminal command is required.");
     if (/[;&|`$<>\n\r]/.test(command)) throw new ConfigurationError("Terminal command contains disallowed shell operators.");
@@ -45,6 +47,7 @@ export function createTerminalToolBridge({ projectRoot, role = "builder", allowe
   }
 }
 
+// Creates a reviewer-scoped terminal bridge limited to read-only commands.
 export function createReviewerTerminalToolBridge(options = {}) {
   return createTerminalToolBridge({ ...options, role: "reviewer" });
 }

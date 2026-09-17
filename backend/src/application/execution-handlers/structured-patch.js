@@ -1,7 +1,9 @@
+// Applies structured line operations to file content.
 import { readFile, writeFile } from "node:fs/promises";
 import { backupFile as createBackup } from "./backup.js";
 import { createExecutionResult } from "../execution-layer.js";
 
+// Applies structured line operations to a file.
 export async function applyStructuredPatch(filePath, operations, options = {}) {
   const startedAt = Date.now();
   const dryRun = options?.dry_run === true;
@@ -23,10 +25,10 @@ export async function applyStructuredPatch(filePath, operations, options = {}) {
   const backup = await (options?.backupFile ?? ((path) => createBackup(path, { fileService: options?.fileService })))(filePath);
   if (!backup?.success) return backup;
   try { if (options?.fileService?.atomicWrite) await options.fileService.atomicWrite({ path: filePath, content: updated, replace: true }); else await writeFile(filePath, updated, "utf8"); return result({ success: true, detail: { file_path: filePath, backup_ref: backup.detail?.backup_ref, operation_count: operations.length } }); } catch (error) { return result({ success: false, errorCode: "IO_ERROR", errorMessage: error.message, detail: { backup_ref: backup.detail?.backup_ref } }); }
-
   function result(values) { return createExecutionResult({ stepName: "applyStructuredPatch", durationMs: Date.now() - startedAt, ...values }); }
 }
 
+// Validates structured patch operations against file length.
 function validateOperations(operations, lineCount) {
   for (const [index, operation] of operations.entries()) {
     if (!operation || typeof operation !== "object") return invalid(index, "operation must be an object");
@@ -41,11 +43,16 @@ function validateOperations(operations, lineCount) {
   return null;
 }
 
+// Creates an invalid operation error descriptor.
 function invalid(index, message) { return { message: `Invalid operation ${index}: ${message}`, detail: { operation_index: index } }; }
+// Returns the line number for a patch operation.
 function operationLine(operation) { return operation.type === "replace_lines" ? operation.start : operation.line; }
+// Applies a single structured operation to line buffer.
 function applyOperation(lines, operation) {
   if (operation.type === "replace_lines") lines.splice(operation.start - 1, operation.end - operation.start + 1, ...splitLines(operation.new_content));
   else lines.splice(operation.line, 0, ...splitLines(operation.content));
 }
+// Splits file content into lines handling CRLF.
 function splitLines(content) { const lines = content.replaceAll("\r\n", "\n").split("\n"); if (lines.at(-1) === "") lines.pop(); return lines; }
+// Joins lines back into file content preserving trailing newline.
 function joinLines(lines, trailingNewline) { return lines.join("\n") + (trailingNewline ? "\n" : ""); }

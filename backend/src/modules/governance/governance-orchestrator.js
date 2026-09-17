@@ -1,5 +1,7 @@
+// Orchestrator that sequences architecture and sprint-leader agents via the communication bus.
 import { ConfigurationError } from "../../shared/errors.js";
 
+// Creates an orchestrator that chains architecture and sprint agents over the bus.
 export function createGovernanceOrchestrator({ registry, bus, agentResolver, architectureManagerId, sprintLeaderId, nodeId = "NODE" } = {}) {
   if (typeof registry?.get !== "function" || typeof bus?.send !== "function" || typeof bus?.subscribe !== "function") {
     throw new ConfigurationError("Governance Orchestrator requires an Agent Registry and Communication Bus.");
@@ -16,6 +18,7 @@ export function createGovernanceOrchestrator({ registry, bus, agentResolver, arc
 
   return Object.freeze({ orchestrate, getAudit });
 
+  // Starts or joins a governance workflow for an owner request identified by correlation id.
   function orchestrate(ownerRequest) {
     assertRequest(ownerRequest);
     const existing = completed.get(ownerRequest.correlation_id);
@@ -38,14 +41,17 @@ export function createGovernanceOrchestrator({ registry, bus, agentResolver, arc
     return promise;
   }
 
+  // Forwards architecture requests to the registered architecture agent.
   function onArchitectureRequest(message) {
     return dispatchAgent(architecture, message, "createArchitecturePlan", "governance.architecture.result");
   }
 
+  // Forwards sprint requests to the registered sprint-leader agent.
   function onSprintRequest(message) {
     return dispatchAgent(sprintLeader, message, "generateTickets", "governance.sprint.result");
   }
 
+  // Routes internal node results between architecture and sprint stages.
   function onNodeMessage(message) {
     if (message.message_type === "governance.architecture.result") {
       const request = active.get(message.correlation_id);
@@ -71,6 +77,7 @@ export function createGovernanceOrchestrator({ registry, bus, agentResolver, arc
     request.resolve(structuredClone(result));
   }
 
+  // Executes an agent operation and publishes its result back on the bus.
   async function dispatchAgent(agent, message, operation, resultType) {
     try {
       const result = await agent.execute({ operation, ...(message.payload.request ?? message.payload) });
@@ -92,27 +99,32 @@ export function createGovernanceOrchestrator({ registry, bus, agentResolver, arc
     }
   }
 
+  // Resolves and validates a registered governance agent by id.
   function requireAgent(id) {
     const agent = registry.get(id);
     if (!agent || typeof agent.execute !== "function") throw new ConfigurationError(`Governance Agent is not registered: ${id}.`);
     return agent;
   }
 
+  // Returns the ordered audit trail of dispatched governance requests.
   function getAudit() {
     return audit.map((entry) => ({ ...entry }));
   }
 }
 
+// Validates the required fields of an owner request.
 function assertRequest(request) {
   if (!request || typeof request !== "object" || typeof request.id !== "string" || typeof request.project_id !== "string" || typeof request.correlation_id !== "string" || typeof request.timestamp !== "string") {
     throw new ConfigurationError("Owner Request requires id, project_id, correlation_id, and timestamp.");
   }
 }
 
+// Unwraps a nested result wrapper if present.
 function unwrap(result) {
   return result && typeof result === "object" && Object.hasOwn(result, "result") ? result.result : result;
 }
 
+// Normalizes a governance role string for bus messaging.
 function messageRole(role) {
   return role === "sprint_leader" ? "sprint_lead" : role;
 }

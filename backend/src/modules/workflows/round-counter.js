@@ -1,3 +1,4 @@
+// Summary: Round counter that tracks attempt index against a maximum and exposes limit/retry predicates.
 import { ConfigurationError } from "../../shared/errors.js";
 
 export function createRoundCounter({ maxRounds = 15 } = {}) {

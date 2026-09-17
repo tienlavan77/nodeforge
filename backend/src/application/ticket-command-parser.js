@@ -8,6 +8,7 @@ export function createTicketCommandParser({ roadmapStore } = {}) {
   if (typeof roadmapStore?.getCurrent !== "function") throw new TypeError("Ticket command parser requires roadmapStore.getCurrent.");
   return Object.freeze({ parse });
 
+  // Parses stored preferences JSON with fallback handling.
   function parse(text) {
     const raw = String(text ?? "").trim();
     if (!/^\/ticket(?:\s|$)/i.test(raw)) return { command: false };
@@ -24,7 +25,6 @@ export function createTicketCommandParser({ roadmapStore } = {}) {
     if (missing.length) return { command: true, ticket_id: ticket.id, status: "blocked", blocked_by: missing, ticket: summarize(ticket) };
     return { command: true, ticket_id: ticket.id, status: "ready", dependencies: dependencies.map((id) => ({ id, status: "done" })), ticket: summarize(ticket) };
   }
-
   function findTicket(roadmap, id) {
     // Duplicate IDs are historically allowed; dispatch the newest matching record.
     const matches = roadmap?.sprints?.flatMap((sprint) => sprint.tickets ?? []).filter((ticket) => ticket.id.toLowerCase() === String(id).toLowerCase()) ?? [];
@@ -32,6 +32,7 @@ export function createTicketCommandParser({ roadmapStore } = {}) {
   }
 }
 
+// Parses a ticket command string without store lookup.
 export function parseTicketCommand(text) {
   const raw = String(text ?? "").trim();
   if (!/^\/ticket(?:\s|$)/i.test(raw)) return { command: false };
@@ -41,6 +42,7 @@ export function parseTicketCommand(text) {
   return ticketId ? { command: true, ticket_id: ticketId } : { command: true, status: "syntax_error", error: "Không nhận diện được ticket id, vui lòng kiểm tra lại cú pháp /ticket <id>." };
 }
 
+// Summarizes a ticket for command responses.
 function summarize(ticket) {
   return {
     id: ticket.id,

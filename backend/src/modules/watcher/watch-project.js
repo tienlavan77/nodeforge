@@ -1,3 +1,4 @@
+// Starts the indexed project watcher with incremental indexing bootstrap.
 import { access } from "node:fs/promises";
 import { join, resolve } from "node:path";
 

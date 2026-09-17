@@ -1,3 +1,4 @@
+// Summary: File-backed queue store with PID-aware lock acquisition, stale-lock recovery, and JSON persistence.
 import { ConfigurationError } from "../../shared/errors.js";
 export function createFileQueueStore({ fileService, root = ".forge/runtime/supervisor-queues" } = {}) {
   if (typeof fileService?.readFile !== "function" || typeof fileService?.atomicWrite !== "function") throw new ConfigurationError("File queue store requires File Service.");

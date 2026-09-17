@@ -1,3 +1,4 @@
+// Stores versioned protocol artifacts with deterministic serialization, SHA256 checksums, and atomic FileService persistence.
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
@@ -200,6 +201,7 @@ export function createProtocolStorage({ projectRoot = process.cwd(), fileService
   }
 }
 
+// Compiles and returns an AJV validator for protocol storage metadata against its JSON schema.
 function createMetadataValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);
@@ -208,31 +210,37 @@ function createMetadataValidator() {
 
 export const protocolStorageDefaults = Object.freeze({ root: DEFAULT_ROOT });
 
+// Creates a ConfigurationError tagged as a protocol validation failure.
 function protocolError(code, message) {
   const error = new ConfigurationError(message);
   error.code = code;
   return error;
 }
 
+// Creates a ConfigurationError tagged as a storage operation failure.
 function storageError(code, message) {
   const error = new ConfigurationError(message);
   error.code = code;
   return error;
 }
 
+// Returns a STORAGE_CONFLICT error when a ref already holds different data.
 function storageConflict(ref) { return storageError("STORAGE_CONFLICT", `Storage ref already contains different data: ${ref}.`); }
 
+// Builds a STORAGE_METADATA_INVALID error summarizing AJV validation failures for the metadata.
 function metadataValidationError(errors, ref = "metadata") {
   const detail = errors?.length ? errors.map((error) => `${error.instancePath || "data"} ${error.message}`).join("; ") : "schema validation failed";
   return storageError("STORAGE_METADATA_INVALID", `Metadata is invalid for ${ref}: ${detail}.`);
 }
 
+// Compares two protocol refs by round number, then lexicographically.
 function compareRefs(left, right) {
   const round = (ref) => Number(ref.match(/\/round_(\d+)\//)?.[1] ?? 0);
   const roundDifference = round(left) - round(right);
   return roundDifference || left.localeCompare(right);
 }
 
+// Returns a deterministically sorted clone of the value with undefined stripped and circular/non-JSON values rejected.
 function sortValue(value, seen) {
   if (value === null || typeof value !== "object") {
     if (typeof value === "bigint" || typeof value === "function" || typeof value === "symbol" || value === undefined) throw new Error("unsupported JSON value");

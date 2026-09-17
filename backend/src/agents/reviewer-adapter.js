@@ -1,5 +1,7 @@
+// Adapter wrapping reviewer task handling under the agent contract.
 import { createAgentContract } from "./agent-contract.js";
 
+// Creates a reviewer agent adapter under the shared contract.
 export function createReviewerAdapter({ id = "AGENT-reviewer", name = "Reviewer Agent", perform = defaultPerform } = {}) {
   return createAgentContract({
     id,
@@ -14,6 +16,7 @@ export function createReviewerAdapter({ id = "AGENT-reviewer", name = "Reviewer 
   });
 }
 
+// Performs the default task execution for the agent.
 async function defaultPerform({ task } = {}) {
   return { task_id: task?.id, outcome: "review_completed" };
 }

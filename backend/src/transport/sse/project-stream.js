@@ -1,3 +1,4 @@
+// Provides project-scoped SSE streaming with watcher and conversation projection.
 import { randomUUID } from "node:crypto";
 
 import { ConfigurationError } from "../../shared/errors.js";
@@ -15,7 +16,6 @@ export function createProjectStream({ projectId, indexDb, watcherSnapshot, subsc
   const publisher = createProjectStreamPublisher({ projectId, indexDb: indexDb ?? { all: () => [] } });
 
   return Object.freeze({ connect, ingest });
-
   function ingest(event = {}) {
     const eventType = event.type ?? event.event_type;
     if (event.project_id !== projectId) throw Object.assign(new ConfigurationError("Project event belongs to a different project."), { statusCode: 409, code: "PROJECT_CONTEXT_CONFLICT" });
@@ -40,7 +40,6 @@ export function createProjectStream({ projectId, indexDb, watcherSnapshot, subsc
     const delivered = subscriptions.publish(normalized);
     return { accepted: true, event_id: normalized.event_id, delivered };
   }
-
   function connect({ requestedProjectId, response, afterEventId } = {}) {
     if (requestedProjectId !== projectId) throw Object.assign(new ConfigurationError("Project stream is not configured for this project."), { statusCode: 404, code: "PROJECT_NOT_FOUND" });
     if (!response?.write || typeof response.end !== "function") throw new ConfigurationError("Project SSE requires a writable response.");
@@ -122,6 +121,7 @@ export function createProjectStream({ projectId, indexDb, watcherSnapshot, subsc
   }
 }
 
+// Projects a communication message to a project stream event.
 function projectConversationMessage(message) {
   const type = String(message?.message_type ?? "");
   const payload = message?.payload && typeof message.payload === "object" ? message.payload : {};
@@ -144,6 +144,7 @@ function projectConversationMessage(message) {
   };
 }
 
+// Projects a domain event to a conversation stream event.
 function projectConversationEvent(event) {
   const type = String(event?.event_type ?? event?.type ?? "");
   const payload = event?.payload && typeof event.payload === "object" ? event.payload : {};

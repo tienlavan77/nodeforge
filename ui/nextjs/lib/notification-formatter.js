@@ -1,3 +1,4 @@
+// Formats backend notifications into safe UI messages.
 const SEVERITY_ALIASES = Object.freeze({
   fatal: "error",
   danger: "error",
@@ -37,6 +38,7 @@ const STATUS_MESSAGES = Object.freeze({
   error: "Đã xảy ra lỗi khi xử lý yêu cầu."
 });
 
+// Normalizes a token for comparison.
 function normalizeToken(value) {
   return String(value ?? "")
     .trim()
@@ -44,6 +46,7 @@ function normalizeToken(value) {
     .replace(/[.\s-]+/g, "_");
 }
 
+// Extracts a safe plain-text snippet from a value.
 function plainText(value) {
   if (typeof value !== "string") return "";
   const text = value.trim();
@@ -55,6 +58,7 @@ function plainText(value) {
   return text.split(/\r?\n/)[0].replace(/\s+/g, " ").slice(0, 280);
 }
 
+// Infers notification severity from code and status.
 function inferSeverity(notification, status, code) {
   const explicit = normalizeToken(notification?.severity);
   if (["info", "success", "warning", "error"].includes(explicit)) return explicit;
@@ -65,6 +69,7 @@ function inferSeverity(notification, status, code) {
   return "info";
 }
 
+// Extracts the notification object from a response.
 function notificationCandidate(response) {
   if (!response || typeof response !== "object") return {};
   return response.notification && typeof response.notification === "object"
@@ -72,6 +77,7 @@ function notificationCandidate(response) {
     : response;
 }
 
+// Formats a response into a UI notification.
 export function formatNotification(response, fallback = "Yêu cầu đã được cập nhật.") {
   const notification = notificationCandidate(response);
   const code = normalizeToken(notification.code ?? response?.error?.code ?? response?.error_code);
@@ -96,6 +102,7 @@ export function formatNotification(response, fallback = "Yêu cầu đã đượ
   };
 }
 
+// Returns the CSS class for a notification severity.
 export function notificationClassName(severity) {
   const safeSeverity = ["success", "warning", "error"].includes(severity) ? severity : "info";
   return `notification notification--${safeSeverity}`;

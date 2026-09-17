@@ -1,3 +1,4 @@
+// Normalizes raw OpenAI tool calls and structured outputs into validated canonical envelopes.
 import { randomUUID } from "node:crypto";
 
 import { ConfigurationError } from "../../../shared/errors.js";
@@ -19,6 +20,7 @@ const TOOL_TYPES = Object.freeze({
 });
 
 /** Convert an OpenAI Responses/tool-use result into the canonical Agent envelope. */
+// Converts an OpenAI tool output or structured output into a validated canonical envelope.
 export function normalizeResponse(rawResponse, requestContext = {}) {
   const parentId = requestContext.request_id ?? requestContext.requestId;
   if (!isUuid(parentId)) {
@@ -54,6 +56,7 @@ export function normalizeResponse(rawResponse, requestContext = {}) {
   }
 }
 
+// Normalizes json_schema structured output into a validated canonical envelope.
 function normalizeStructuredOutput(payload, parentId, expectedType) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw providerError("PROVIDER_PAYLOAD_INVALID", "OpenAI structured output must be a JSON object.");
   const type = payload.type ?? payload.kind ?? (Array.isArray(expectedType) ? expectedType[0] : expectedType);
@@ -69,12 +72,14 @@ function normalizeStructuredOutput(payload, parentId, expectedType) {
   try { return assertValidEnvelope(envelope); } catch (error) { throw providerError("PROVIDER_PAYLOAD_INVALID", `OpenAI structured output is invalid. ${error.message}`, error); }
 }
 
+// Parses the output_text field as JSON structured output when present.
 function parseStructuredOutput(response) {
   const text = response?.output_text ?? response?.payload?.text;
   if (typeof text !== "string" || !text.trim()) return null;
   try { return JSON.parse(text); } catch { return null; }
 }
 
+// Strips transport fields and maps agent_tool payloads to the canonical shape.
 function canonicalizeAgentToolPayload(payload, toolName) {
   const canonical = { ...payload };
   for (const field of ["kind", "tool", "round", "max_rounds", "next_action", "is_final", "target_dir", "file_operation", "code_kind", "module_system", "change_summary", "allowed_change_areas", "checksum"]) delete canonical[field];
@@ -99,6 +104,7 @@ function canonicalizeAgentToolPayload(payload, toolName) {
   return canonical;
 }
 
+// Finds the tool call from Responses, chat, or tool_use shapes.
 function findToolCall(response) {
   if (response?.tool_use) return normalizeTool(response.tool_use);
   if (response?.output?.length) {
@@ -110,10 +116,12 @@ function findToolCall(response) {
   return null;
 }
 
+// Normalizes a raw tool call into name and arguments form.
 function normalizeTool(tool) {
   return { name: tool.name, arguments: tool.arguments ?? tool.input ?? {} };
 }
 
+// Parses tool arguments from string or passthrough object with validation.
 function parseArguments(tool) {
   if (tool.arguments && typeof tool.arguments === "object" && !Array.isArray(tool.arguments)) return tool.arguments;
   if (typeof tool.arguments !== "string") throw providerError("PROVIDER_TOOL_ARGUMENTS_INVALID", "OpenAI tool arguments must be a JSON object.");
@@ -126,12 +134,14 @@ function parseArguments(tool) {
   }
 }
 
+// Creates a coded provider error for normalization failures.
 function providerError(code, message, cause) {
   const error = new ConfigurationError(`${code}: ${message}`, cause ? { cause } : undefined);
   error.providerCode = code;
   return error;
 }
 
+// Checks whether a value is a valid UUID string.
 function isUuid(value) {
   return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }

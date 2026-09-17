@@ -1,6 +1,8 @@
+// Routes requests to Chat Completions or Responses depending on the endpoint shape.
 import { ConfigurationError } from "../../../shared/errors.js";
 import * as codex from "./codex-adapter.js";
 
+// Dispatches to Responses or Chat Completions based on URL suffix.
 export async function request({ url, credential, payload, model, correlationId, signal }) {
   const isResponses = url.replace(/\/$/, "").endsWith("/responses");
   if (isResponses) return codex.request({ url, credential, payload, model, correlationId, signal });
@@ -27,6 +29,7 @@ export async function request({ url, credential, payload, model, correlationId, 
   return { status: data.status ?? "completed", payload: { text, response_id: data.id ?? data.response_id } };
 }
 
+// Streams Chat Completions or delegates to the Codex streaming path.
 export async function* stream({ url, credential, payload, model, correlationId, signal }) {
   const isResponses = url.replace(/\/$/, "").endsWith("/responses");
   if (isResponses) {

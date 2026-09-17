@@ -1,3 +1,4 @@
+// Summary: Adapts Forge tool definitions to Claude Agent SDK MCP servers with Zod-validated inputs.
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 

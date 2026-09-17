@@ -1,3 +1,4 @@
+// Summary: Provides read-only file-graph queries (imports, importers, transitive dependencies/dependents) over indexed Code Graph tables.
 import { ConfigurationError } from "../../shared/errors.js";
 import { createFileNode, createGraphEdge, createGraphQueryResult } from "./code-graph-contract.js";
 

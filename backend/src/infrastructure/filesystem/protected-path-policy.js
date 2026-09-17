@@ -1,3 +1,4 @@
+// Defines secret and protected path patterns and checks whether a path is disallowed for read/write/index operations.
 import picomatch from "picomatch";
 
 // One policy is shared by runtime file operations and code indexing. Runtime
@@ -22,6 +23,7 @@ export const PROTECTED_PATTERNS = Object.freeze([
 
 const matches = picomatch(PROTECTED_PATTERNS, { dot: true });
 
+// Returns true if the normalized path matches secret/protected patterns, with runtime and indexing exceptions.
 export function isProtectedPath(path, { operation = "read", forIndex = false } = {}) {
   if (typeof path !== "string" || !path) return true;
   const normalized = path.replaceAll("\\", "/").replace(/^\.\//, "");

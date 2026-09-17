@@ -1,3 +1,4 @@
+// Orchestrates NodeForge startup/shutdown including config, logging, file-watcher pipeline and agent stream bridging.
 import { EventEmitter } from "node:events";
 
 import { loadConfig } from "./config.js";
@@ -6,6 +7,7 @@ import { createLogger } from "../shared/logger.js";
 import { createNodeEventValidator } from "../modules/watcher/debounced-watcher.js";
 import { bridgeAgentStream } from "../modules/agents/agent-stream-bridge.js";
 
+// Creates a lifecycle controller that loads config, wires the watcher-to-indexer pipeline and manages start/stop state.
 export function createBootstrap({ configOptions, logger: providedLogger, loggerOptions, watcher, indexer, agentProcesses = [], internalBus = new EventEmitter(), validateEvent = createNodeEventValidator() } = {}) {
   if (!Array.isArray(agentProcesses) || !internalBus?.on || !internalBus?.emit) {
     throw new ConfigurationError("Agent processes must be an array and internalBus must be an event emitter.");
@@ -56,6 +58,7 @@ export function createBootstrap({ configOptions, logger: providedLogger, loggerO
   });
 }
 
+// Wires watcher events through validation and indexing, emitting indexed results on the internal bus and returning a teardown function.
 function startIndexPipeline({ watcher, indexer, internalBus, validateEvent, logger }) {
   if (!watcher && !indexer) return undefined;
   if (!watcher || !indexer) {

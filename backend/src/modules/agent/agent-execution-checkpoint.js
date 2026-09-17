@@ -1,5 +1,7 @@
+// Persists resumable agent execution checkpoints to the file service under .forge/runtime.
 import { ConfigurationError } from "../../shared/errors.js";
 
+// Creates a checkpoint store backed by File Service for save/load/complete lifecycle.
 export function createAgentExecutionCheckpointStore({ fileService, root = ".forge/runtime/agent-checkpoints" } = {}) {
   if (typeof fileService?.readFile !== "function" || typeof fileService?.atomicWrite !== "function") throw new ConfigurationError("Agent execution checkpoint store requires File Service persistence.");
   return Object.freeze({ save, load, complete, clear, listPending });
@@ -38,6 +40,7 @@ export function createAgentExecutionCheckpointStore({ fileService, root = ".forg
     return out;
   }
 
+// Builds the safe file path for a task checkpoint, rejecting unsafe characters.
   function pathFor(taskId) {
     if (typeof taskId !== "string" || !/^[A-Za-z0-9._:-]+$/.test(taskId)) throw new ConfigurationError("Checkpoint task_id contains unsafe characters.");
     return `${root}/${taskId}.json`;

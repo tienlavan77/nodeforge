@@ -1,3 +1,4 @@
+// Parses natural-language ticket creation requests and validates against schemas.
 import { createRequire } from "node:module";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
@@ -9,6 +10,7 @@ const ticketSchema = require("../../../schemas/governance/ticket.schema.json");
 
 const INTENT = /\b(ticket|task|công việc|yêu cầu|implement|thêm|sửa|fix|build)\b/i;
 
+// Creates a service that parses prose into validated tickets.
 export function createProseTicketService({ roadmapStore, clock = () => new Date() } = {}) {
   if (typeof roadmapStore?.getCurrent !== "function" || typeof roadmapStore?.save !== "function") {
     throw new ConfigurationError("Prose ticket service requires a roadmap store.");
@@ -58,7 +60,6 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
     }
     return { ticket: regenerated, roadmap: savedRoadmap };
   }
-
   function findTicket(roadmap, ticketId) {
     for (const sprint of roadmap.sprints ?? []) {
       for (const ticket of sprint.tickets ?? []) {
@@ -67,7 +68,6 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
     }
     return null;
   }
-
   function updateTicketInRoadmap(roadmap, updatedTicket) {
     return {
       ...roadmap,
@@ -78,13 +78,13 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
   }
 
   return Object.freeze({ parse, createFromObject, regenerateEnglish });
-
   function createFromObject(ticket) {
     if (!ticket || typeof ticket !== "object" || Array.isArray(ticket)) return { create_ticket: true, status: "needs_input", error_code: "invalid_ticket_json", question: "Ticket JSON không hợp lệ." };
     if (!validate(ticket)) return validationResponse(validate.errors, ticket);
     return persist(ticket);
   }
 
+  // Parses stored preferences JSON with fallback handling.
   function parse(text, { projectId, timestamp, sourceId } = {}) {
     const value = String(text ?? "").trim();
     if (!value || /^\/\S+/.test(value)) return { create_ticket: false };
@@ -113,7 +113,6 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
     if (!validate(ticket)) return validationResponse(validate.errors, ticket);
     return persist(ticket);
   }
-
   function persist(ticket) {
     const current = roadmapStore.getCurrent();
     const next = current
@@ -122,7 +121,6 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
     const roadmap = roadmapStore.save(next);
     return { create_ticket: true, status: "created", ticket, roadmap };
   }
-
   function appendToSprint(sprints, ticket) {
     let found = false;
     const updated = sprints.map((sprint) => {
@@ -133,11 +131,9 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
     if (!found) throw new ConfigurationError(`Sprint does not exist in roadmap: ${ticket.sprint_id}.`);
     return updated;
   }
-
   function invalidStructured(errors = [], value) {
     return validationResponse(errors, value);
   }
-
   function validationResponse(errors = [], value) {
     const missing = [...new Set(errors.filter((error) => error.keyword === "required").map((error) => error.params.missingProperty))];
     const invalid_fields = errors.filter((error) => error.keyword !== "required").map((error) => ({
@@ -155,10 +151,12 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
   }
 }
 
+// Reads a value at a JSON pointer path.
 function readPointer(value, pointer) {
   return pointer.slice(1).split("/").reduce((current, segment) => current?.[segment.replace(/~1/g, "/").replace(/~0/g, "~")], value);
 }
 
+// Attempts to parse structured ticket JSON from text.
 function parseStructured(value) {
   // Chat transport can append instructions after a valid JSON ticket. Parse only
   // the leading JSON value instead of treating those instructions as ticket text.
@@ -181,6 +179,7 @@ function parseStructured(value) {
   return null;
 }
 
+// Extracts the leading JSON object from a string.
 function leadingJsonValue(value) {
   const opening = value[0];
   const closing = opening === "{" ? "}" : opening === "[" ? "]" : null;
@@ -203,6 +202,7 @@ function leadingJsonValue(value) {
   return null;
 }
 
+// Extracts ticket fields from prose text via regex.
 function extract(text) {
   const value = (label) => text.match(new RegExp(`(?:^|\\n)\\s*(?:${label})\\s*:\\s*(.+)`, "i"))?.[1]?.trim();
   const criteria = text.match(/(?:^|\n)\s*(?:acceptance[_ ]criteria|criteria|tiêu chí)\s*:\s*([\s\S]+?)(?=\n\s*[a-z_ ]+\s*:|$)/i)?.[1]
@@ -214,6 +214,7 @@ function extract(text) {
   };
 }
 
+// Finds the next available roadmap version.
 function nextAvailableVersion(version, roadmapStore) {
   const existing = new Set(roadmapStore.getAllVersions?.().map(({ version: item }) => item) ?? []);
   let candidate = nextVersion(version);
@@ -221,12 +222,14 @@ function nextAvailableVersion(version, roadmapStore) {
   return candidate;
 }
 
+// Increments a semantic version patch number.
 export function nextVersion(version = "1.0.0") {
   const match = String(version).match(/^(\d+)\.(\d+)\.(\d+)/);
   if (!match) return "1.0.1";
   return `${Number(match[1])}.${Number(match[2])}.${Number(match[3]) + 1}`;
 }
 
+// Creates a JSON schema validator for sprint plans and tickets.
 function createValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);

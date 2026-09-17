@@ -1,3 +1,4 @@
+// NodeForge panels aggregating dashboard, chat, history and ticket modals.
 /* TICKET-PROJECT-NODEFORGE-1789479214703: English ticket regeneration via Vietnamese source context -> sprint leader */ 
 "use client";/* Legacy Vite parity copy: retain dormant components until the Next UI is fully consolidated. */
 /* eslint-disable no-unused-vars, no-undef */
@@ -30,6 +31,7 @@ const PROVIDER_OPTIONS = [
 ];
 
 
+// Formats a timestamp into a human-readable date label.
 function formatDateLabel(timestamp) {
   const d = new Date(timestamp);
   if (Number.isNaN(d.getTime())) return timestamp;
@@ -42,6 +44,7 @@ function formatDateLabel(timestamp) {
   return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+// Converts a persisted history record into a displayable chat message.
 function historyRecordToMessage(record) {
   const isOwner = record.kind === "owner";
   const raw = record.content;
@@ -52,11 +55,13 @@ function historyRecordToMessage(record) {
   return { id: record.id, correlation_id: record.correlation_id, message_type: record.type, from, text: String(text ?? record.type), time: d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), timestamp: ts, dateKey: Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10), dateLabel: ts ? formatDateLabel(ts) : "" };
 }
 
+// Checks whether an event type is an internal Node tool result.
 function isInternalNodeEvent(type) {
   const value = String(type ?? "");
   return value.endsWith(".tool.result");
 }
 
+// Maps internal event types to user-friendly messages.
 function eventTextForUser(type, payload = {}) {
   const value = String(type ?? "");
   const step = payload?.result?.step_name ?? payload?.step_name;
@@ -75,6 +80,7 @@ function eventTextForUser(type, payload = {}) {
   return null;
 }
 
+// Converts a step identifier into a readable label.
 function humanizeStep(step) {
   return String(step).replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (char) => char.toUpperCase());
 }
@@ -109,6 +115,7 @@ const MODEL_CATALOG = {
   ]
 };
 
+// Dashboard for viewing and managing sprint plans.
 export function SprintPlanDashboard({ dashboard, client, onRefresh, onTicketDeleted, hideHeading = false }) {
   const [runningId, setRunningId] = useState(null);
   const [runMessage, setRunMessage] = useState("");
@@ -197,6 +204,7 @@ export function SprintPlanDashboard({ dashboard, client, onRefresh, onTicketDele
   </section>;
 }
 
+// Inline form for adding a ticket to a sprint.
 function InlineAddTicketForm({ sprint, projectId, client, onCreated }) {
   const [content, setContent] = useState("");
   const [error, setError] = useState("");
@@ -219,6 +227,7 @@ function InlineAddTicketForm({ sprint, projectId, client, onCreated }) {
   </form>;
 }
 
+// Modal for creating a new conversation.
 export function ConversationModal({ client, projectId = PROJECT_ID, agentId, onClose, onCreated }) {
   const [title, setTitle] = useState("");
   const [state, setState] = useState("idle");
@@ -250,6 +259,7 @@ export function ConversationModal({ client, projectId = PROJECT_ID, agentId, onC
   </div>;
 }
 
+// Dialog for uploading a sprint plan JSON file.
 export function UploadSprintPlanDialog({ client, onClose, onUploaded }) {
   const [fileName, setFileName] = useState("");
   const [plan, setPlan] = useState(null);
@@ -281,6 +291,7 @@ export function UploadSprintPlanDialog({ client, onClose, onUploaded }) {
   return <div className="settings-overlay" role="dialog" aria-modal="true" aria-label="Upload Sprint Plan"><section className="settings-modal upload-modal"><header><div><h2>Upload Sprint Plan</h2><p>Select a sprint-plan JSON file and preview it before submitting.</p></div><button onClick={onClose} aria-label="Close upload dialog">&#215;</button></header><label className="upload-dropzone" onDragOver={(event) => event.preventDefault()} onDrop={drop}><input type="file" accept=".json,application/json" onChange={choose} aria-label="Sprint plan JSON file" /><strong>Drop sprint plan JSON here</strong><span>or click to browse</span></label>{fileName && <small className="upload-file">{fileName}</small>}{errors.length > 0 && <div className="upload-errors" role="alert">{errors.map((error) => <p key={error}>{error}</p>)}</div>}{plan && <div className="upload-preview"><strong>{plan.id}</strong><p>{plan.objective}</p><span>Roadmap: {plan.roadmap_id} · Project: {plan.project_id}</span><span>{plan.tickets.length} tickets · {plan.exit_criteria.length} exit criteria</span></div>}<div className="settings-actions"><button onClick={submit} disabled={!plan || state === "Uploading…"}>Upload</button><button onClick={onClose}>Cancel</button></div>{state && <p aria-live="polite">{state}</p>}</section></div>;
 }
 
+// Controls for submitting human governance decisions.
 export function InlineDecisionControls({ client, onWorkspaceChanged, workspace }) {
   const [reason, setReason] = useState("");
   const [result, setResult] = useState("");
@@ -299,12 +310,14 @@ export function InlineDecisionControls({ client, onWorkspaceChanged, workspace }
   return <section className="decision-actions" aria-label="Human Decision"><h3>Human Decision</h3><p>{pending.title ?? pending.id}</p><input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Reason for reject/change request" aria-label="Decision reason" /><div><button onClick={() => submit("APPROVE")}>Approve</button><button onClick={() => submit("CHANGE_REQUEST")}>Request Changes</button><button onClick={() => submit("REJECT")}>Reject</button></div>{result && <small>{result}</small>}</section>;
 }
 
+// Finds the pending architecture proposal awaiting decision.
 function getPendingArchitectureProposal(workspace) {
   const decisions = workspace?.decisions ?? [];
   const completed = new Set(decisions.filter((item) => item.type === "human_governance").map((item) => item.proposal_id));
   return decisions.find((item) => item.type !== "human_governance" && item.status === "proposed" && !completed.has(item.id)) ?? null;
 }
 
+// Returns a display label for a governance decision.
 function labelForDecision(decision) {
   if (decision === "APPROVE") return "✓ Approved";
   if (decision === "CHANGE_REQUEST") return "↻ Change Requested";
@@ -312,6 +325,7 @@ function labelForDecision(decision) {
   return "Decision recorded";
 }
 
+// Overlay displaying conversation and audit history.
 export function HistoryOverlay({ client, onClose }) {
   const [agentId, setAgentId] = useState("");
   const [conversationId, setConversationId] = useState("");
@@ -332,6 +346,7 @@ export function HistoryOverlay({ client, onClose }) {
   return <div className="history-overlay" role="dialog" aria-modal="true" aria-label="Conversation and Audit History"><section className="history-modal"><header><div><h2>Conversation &amp; Audit History</h2><p>Read-only Node audit trail</p></div><button onClick={onClose} aria-label="Close history">&#215;</button></header><div className="history-filters"><select value={agentId} onChange={(event) => setAgentId(event.target.value)}><option value="">All agents</option>{AGENTS.map((agent) => <option key={agent.id} value={agent.id}>{agent.label}</option>)}</select><input value={conversationId} onChange={(event) => setConversationId(event.target.value)} placeholder="conversation_id" /><input value={type} onChange={(event) => setType(event.target.value)} placeholder="message/event type" /></div><div className="history-list">{state === "loading" && <p>Loading persisted history from Node…</p>}{state === "error" && <p className="error">Node could not load history.</p>}{state === "ready" && !items.length && <p>No persisted conversation or audit records match this filter.</p>}{items.map((item) => <article key={`${item.kind}-${item.id}`} className={`history-item ${item.kind}`}><div><strong>{item.kind}</strong><span>{item.type}</span></div><p>{JSON.stringify(item.content)}</p><small>{item.timestamp} · {item.sender} → {item.receiver}{item.conversation_id ? ` · ${item.conversation_id}` : ""}{item.correlation_id ? ` · ${item.correlation_id}` : ""}</small></article>)}{nextCursor && <button className="history-more" onClick={() => load(nextCursor)}>Load more</button>}</div></section></div>;
 }
 
+// Overlay for editing agent provider and connection settings.
 export function AgentSettingsOverlay({ client, agent, onClose }) {
   const [profile, setProfile] = useState(null); const [url, setUrl] = useState(""); const [key, setKey] = useState(""); const [provider, setProvider] = useState("codex"); const [model, setModel] = useState(""); const [enabled, setEnabled] = useState(false); const [message, setMessage] = useState("");
   const models = MODEL_CATALOG[provider] ?? [];
@@ -346,6 +361,7 @@ export function AgentSettingsOverlay({ client, agent, onClose }) {
   return <div className="settings-overlay" role="dialog" aria-modal="true"><section className="settings-modal"><header><h2>{agent.label} Settings</h2><button onClick={onClose} aria-label="Close Agent Settings">&#215;</button></header><label>Provider<select value={provider} onChange={(event) => changeProvider(event.target.value)} aria-label="Provider">{PROVIDER_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</select></label><label>Model<select value={model} onChange={(event) => setModel(event.target.value)} aria-label="Model" disabled={!models.length}><option value="">{models.length ? "Select model" : "No model catalog for this provider"}</option>{models.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</select></label><label>Gateway URL<input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://..." /></label><label>API Key<input type="password" value={key} onChange={(event) => setKey(event.target.value)} placeholder="********" autoComplete="new-password" /></label><label className="settings-check"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> Enabled</label><div className="settings-actions"><button onClick={save}>Save Profile</button><button onClick={testConnection}>Test Connection</button></div>{profile?.api_key_masked && <small className="settings-mask">API key masked: {profile.api_key_masked}</small>}{message && <p aria-live="polite">{message}</p>}</section></div>;
 }
 
+// Converts a raw Node message into a displayable chat message.
 export function toDisplayMessage(message) {
   const isOwner = message.sender?.role === "project_owner";
   const text = message.payload?.text
@@ -355,6 +371,7 @@ export function toDisplayMessage(message) {
   return { id: message.message_id, correlation_id: message.correlation_id, message_type: message.message_type, from: isOwner ? "owner" : message.message_type.includes("error") ? "system" : "agent", text, time: new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
 }
 
+// Formats a ticket message payload into readable text.
 function formatTicketResponse(message) {
   const payload = message.payload ?? {};
   if (message.message_type === "ticket.creation" || message.message_type === "ticket.status") {
@@ -371,6 +388,7 @@ function formatTicketResponse(message) {
   return null;
 }
 
+// Merges a streaming message into the current message list.
 function mergeStreamMessage(messages, message) {
   if (messages.some((item) => item.id === message.message_id)) return messages;
   // Tool results and synthetic progress are private Node<->agent traffic; keep them in history/SSE replay but do not render in chat bubbles.
@@ -395,6 +413,7 @@ function enabledArchitectureManagers(agents = []) {
   return agents.filter((candidate) => candidate?.role === "Architecture Manager" && candidate.enabled === true && candidate.id);
 }
 
+// Dropdown for selecting an enabled Architecture Manager.
 export function ArchitectureManagerSelector({ agents = [], value, onChange }) {
   const managers = enabledArchitectureManagers(agents);
   const selected = managers.some((candidate) => candidate.id === value) ? value : "";
@@ -411,6 +430,7 @@ export function ArchitectureManagerSelector({ agents = [], value, onChange }) {
   </label>;
 }
 
+// Chat panel for the Architecture Manager workspace.
 function ArchitecturePanel({ client, onWorkspaceChanged, onSettings, agent, workspace, agents = workspace?.agents ?? [], messages, draft, onDraft, onSend, onActivate, active }) {
   // CODEX-DOC-002: `agent` is the fixed panel identity, not the dispatch target.
   // The Project Chat target is the Architecture Manager chosen via
@@ -442,6 +462,7 @@ function ArchitecturePanel({ client, onWorkspaceChanged, onSettings, agent, work
   </article>;
 }
 
+// Displays the proposal awaiting human decision.
 export function ArchitectureArtifacts({ workspace }) {
   const proposal = getPendingArchitectureProposal(workspace);
   if (!proposal) return null;
@@ -450,6 +471,7 @@ export function ArchitectureArtifacts({ workspace }) {
   </aside>;
 }
 
+// Actions for approving or rejecting a proposal.
 function HumanDecisionActions({ client, onWorkspaceChanged, proposal }) {
   const [reason, setReason] = useState("");
   const [result, setResult] = useState("");
@@ -464,6 +486,7 @@ function HumanDecisionActions({ client, onWorkspaceChanged, proposal }) {
   return <section className="decision-actions"><h3>Human Decision</h3><p>{proposal ? `Proposal: ${proposal.id}` : "Waiting for an architecture proposal."}</p><input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Reason for reject/change request" aria-label="Decision reason" /><div><button onClick={() => submit("APPROVE")}>Approve</button><button onClick={() => submit("REJECT")}>Reject</button><button onClick={() => submit("CHANGE_REQUEST")}>Change request</button></div>{result && <small>{result}</small>}</section>;
 }
 
+// Panel rendering the project and sprint dashboard.
 function ProjectDashboardPanel({ agent, dashboard, state, onActivate, active, onSettings, client, onRefresh }) {
   return <article className={`agent-panel dashboard-panel ${active ? "is-active" : ""}`} onClick={onActivate}>
     <PanelHeader agent={agent} onSettings={onSettings} />
@@ -475,6 +498,7 @@ function ProjectDashboardPanel({ agent, dashboard, state, onActivate, active, on
   </article>;
 }
 
+// Renders roadmap and sprint data inside the dashboard.
 function DashboardData({ dashboard, client, onRefresh, onTicketDeleted }) {
   const sprints = dashboard?.roadmap?.sprints ?? [];
   if (!dashboard?.roadmap || !sprints.length) return <p className="dashboard-state">No roadmap or sprints have been published yet.</p>;
@@ -490,6 +514,7 @@ function DashboardData({ dashboard, client, onRefresh, onTicketDeleted }) {
 }
 
 
+// Sorts tickets with incomplete items first.
 function sortSprintTickets(tickets = []) {
   return tickets
     .map((ticket, index) => ({ ticket, index }))
@@ -497,6 +522,7 @@ function sortSprintTickets(tickets = []) {
     .map(({ ticket }) => ticket);
 }
 
+// Card displaying a single ticket with run and delete actions.
 function TicketCard({ ticket, client, projectId, onRefresh, onDeleted }) {
   const [message, setMessage] = useState("");
   const [viewOpen, setViewOpen] = useState(false);
@@ -526,11 +552,13 @@ function TicketCard({ ticket, client, projectId, onRefresh, onDeleted }) {
   return <><article className="dashboard-ticket"><div><strong>{ticket.id}</strong><span className="priority">{ticket.priority}</span></div><p>{ticket.title}</p><small><span className={`ticket-status ticket-status-${ticket.status ?? "planned"}`}>{ticket.status ?? "planned"}</span> · {ticket.progress}%</small>{resumable && <small className="ticket-checkpoint">Có checkpoint dở ở turn {ticket.checkpoint.last_completed_turn ?? "?"}{ticket.checkpoint.last_tool ? ` (tool cuối: ${ticket.checkpoint.last_tool})` : ""}.</small>}<div className="ticket-actions"><button className="sprint-view-button small" onClick={view}>View</button>{resumable ? <button className="sprint-run-button small is-resume" onClick={() => run()} disabled={disabled}>Resume</button> : null}{resumable ? <button className="sprint-run-button small" onClick={() => run({ fresh: true })} disabled={disabled}>Run fresh</button> : <button className="sprint-run-button small" onClick={() => run()} disabled={disabled}>Run</button>}<button className="sprint-delete-button small" onClick={remove} disabled={disabled}>Delete</button></div>{message && <small>{message}</small>}</article>{viewOpen && <TicketModal ticket={detail ?? ticket} client={client} projectId={projectId} onRefreshed={(updatedTicket) => { setDetail(updatedTicket); onRefresh?.(); }} onClose={() => { setViewOpen(false); setDetail(null); }} />}</>;
 }
 
+// Extracts Vietnamese context from a ticket.
 function ticketVietnameseContext(ticket) {
   const context = ticket.context ?? ticket.vietnamese_context ?? ticket.original_vietnamese_context ?? ticket.content_vi;
   return context == null ? "" : typeof context === "string" ? context : JSON.stringify(context, null, 2);
 }
 
+// Builds English content text from ticket fields.
 function ticketEnglishContent(ticket) {
   const explicit = ticket.english_content ?? ticket.regenerated_english_content ?? ticket.generated_content ?? ticket.content_en;
   if (explicit) return String(explicit);
@@ -541,10 +569,12 @@ function ticketEnglishContent(ticket) {
   ].filter(Boolean).join("\n\n");
 }
 
+// Normalizes Vietnamese text for diff comparison.
 function normalizeVietnameseContextForDiff(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
 
+// Modal for editing Vietnamese context and regenerating English.
 function TicketModal({ ticket, client, projectId, onRefreshed, onClose }) {
   const initialVietnameseContext = useMemo(() => ticketVietnameseContext(ticket), [ticket]);
   const originalVietnameseContextRef = useRef(initialVietnameseContext);
@@ -615,15 +645,18 @@ function TicketModal({ ticket, client, projectId, onRefreshed, onClose }) {
   return <EntityDetailsModal title={ticket.id} modalClassName="ticket-language-modal" onClose={onClose}><div className="ticket-language-summary"><p className="sprint-objective">{generatedFields.title || ticket.title}</p><p><strong>Status:</strong> {ticket.status} · {ticket.progress}%</p><dl className="ticket-generated-fields"><dt>Objective</dt><dd>{generatedFields.objective || "—"}</dd><dt>Acceptance criteria</dt><dd>{generatedFields.acceptance_criteria.length ? <ul>{generatedFields.acceptance_criteria.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul> : "—"}</dd></dl></div><form className="ticket-content-change-panel" onSubmit={submitContentChange}><label htmlFor={`ticket-vietnamese-context-${ticket.id}`}>Vietnamese context<textarea id={`ticket-vietnamese-context-${ticket.id}`} value={vietnameseContext} onChange={(event) => setVietnameseContext(event.target.value)} rows={8} placeholder="Enter Vietnamese context..." /></label><div className="ticket-regenerate-actions"><button className="ticket-regenerate-button" type="submit" disabled={!hasVietnameseContextEdit || submitState === "submitting"}>{submitState === "submitting" ? "Generating…" : "Generate English"}</button></div>{error && <p className="dashboard-state error" role="alert">{error}</p>}{submitState === "done" && !error && <p className="dashboard-state" role="status">English ticket generated.</p>}</form></EntityDetailsModal>;
 }
 
+// Generic modal for displaying entity details.
 function EntityDetailsModal({ title, state, modalClassName = "", onClose, children }) {
   const content = <div className="sprint-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className={`sprint-modal ${modalClassName}`.trim()} role="dialog" aria-modal="true" aria-label={title}><header><h2>{title}</h2><button onClick={onClose} aria-label="Close details">&#215;</button></header><div className="sprint-modal-content">{state === "loading" && <p className="dashboard-state">Loading...</p>}{state && state !== "loading" && state !== "ready" && <p className="dashboard-state error">{state}</p>}{(!state || state === "ready") && children}</div></section></div>;
   return typeof document === "undefined" ? null : createPortal(content, document.body);
 }
 
+// Renders a titled workspace section with cards.
 function WorkspaceSection({ title, items, empty }) {
   return <section className="workspace-section"><h3>{title}</h3>{items.length ? <div className="workspace-items">{items.map((item) => <div className="workspace-card" key={item.id}><strong>{item.title ?? item.id}</strong>{item.decision && <p>{item.decision}</p>}{item.objective && <p>{item.objective}</p>}{item.status && <span>{item.status}</span>}{item.tickets && <span>{item.tickets.length} ticket{item.tickets.length === 1 ? "" : "s"}</span>}</div>)}</div> : <p className="workspace-empty">{empty}</p>}</section>;
 }
 
+// Formats a RAM value into a readable size string.
 function formatRam(value) {
   if (value == null || value === "") return "-";
   if (typeof value === "number") {
@@ -634,6 +667,7 @@ function formatRam(value) {
   return String(value);
 }
 
+// Formats a CPU value into a percentage string.
 function formatCpu(value) {
   if (value == null || value === "") return "-";
   const str = String(value).trim();
@@ -643,6 +677,7 @@ function formatCpu(value) {
   return str;
 }
 
+// Formats an uptime value into a duration string.
 function formatUptime(value) {
   if (value == null || value === "") return "-";
   if (typeof value === "number") {
@@ -657,6 +692,7 @@ function formatUptime(value) {
   return String(value);
 }
 
+// Resolves process status data from an agent object.
 function getAgentProcessData(agent) {
   if (!agent) return null;
   const proc = agent.process ?? agent.processStatus ?? agent.agentProcess ?? null;
@@ -674,6 +710,7 @@ function getAgentProcessData(agent) {
   return null;
 }
 
+// Displays agent process metrics in the header.
 export function AgentProcessStatus({ agent }) {
   const data = getAgentProcessData(agent);
   const pid = data?.pid ?? data?.PID ?? "-";
@@ -690,16 +727,19 @@ export function AgentProcessStatus({ agent }) {
   );
 }
 
+// Header for an agent panel with avatar and settings.
 export function PanelHeader({ agent, onSettings }) {
   return <header className="agent-header" style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}><div className={`agent-avatar ${agent.tone}`}>{agent.short}</div><div className="agent-heading"><h2>{agent.agent_name ?? agent.label}</h2><div className="agent-status"><span className="status-dot" /> {agent.status}</div></div><AgentProcessStatus agent={agent} /><button className="panel-menu" onClick={onSettings} title="Agent Settings" aria-label={`${agent.agent_name ?? agent.label} Agent Settings`}>&#9881;</button></header>;
 }
 
+// Renders a single chat message row.
 export function Message({ message }) {
   const streaming = message.stream === true;
   const rowClass = `message-row natural-message ${message.from === "owner" ? "owner" : `agent${streaming ? " streaming" : ""}`}`;
   return <div id={`msg-${message.id}`} className={rowClass} data-message-id={message.id} data-correlation-id={message.correlation_id ?? ""} data-message-type={message.message_type ?? ""} data-role={message.from} data-timestamp={message.timestamp ?? ""}><MessageContent text={message.text} /><time dateTime={message.timestamp ?? ""} title={message.timestamp ?? ""}>{message.time}</time></div>;
 }
 
+// Renders message content handling code blocks.
 export function MessageContent({ text }) {
   const parts = parseCodeBlocks(text);
   return <div className="message-content">{parts.map((part, index) => part.code
@@ -707,6 +747,7 @@ export function MessageContent({ text }) {
     : <TextWithInline key={`text-${index}`} text={part.text} />)}</div>;
 }
 
+// Renders text with inline code segments.
 function TextWithInline({ text }) {
   const value = String(text ?? "");
   if (!value) return null;
@@ -727,6 +768,7 @@ function TextWithInline({ text }) {
   return <p>{segments.map((seg, i) => seg.inlineCode ? <InlineCode key={i} code={seg.inlineCode} /> : <span key={i}>{seg.text}</span>)}</p>;
 }
 
+// Inline code chip with copy action.
 function InlineCode({ code }) {
   const [copied, setCopied] = useState(false);
   async function copy() {
@@ -740,6 +782,7 @@ function InlineCode({ code }) {
   return <span className="inline-code-wrap"><code className="inline-code">{code}</code><button type="button" className="inline-copy" onClick={copy} aria-label="Copy command">{copied ? "Copied" : "Copy"}</button></span>;
 }
 
+// Code block with language label and copy button.
 function CodeBlock({ language, code }) {
   const [copied, setCopied] = useState(false);
   async function copy() {
@@ -755,6 +798,7 @@ function CodeBlock({ language, code }) {
   return <div className="code-block"><div className="code-block-header"><span>{language || "code"}</span><button type="button" className={copied ? "is-copied" : ""} onClick={copy}>{copied ? "Copied" : "Copy"}</button></div><pre><code>{code}</code></pre></div>;
 }
 
+// Splits text into code and prose segments.
 function parseCodeBlocks(text) {
   const value = String(text ?? "");
   const parts = [];
@@ -779,6 +823,7 @@ function parseCodeBlocks(text) {
   return parts;
 }
 
+// Generic agent chat panel with composer.
 function AgentPanel({ agent, messages, draft, onDraft, onSend, onActivate, active, expanded, onSettings }) {
   const conversationRef = useRef(null);
   const wasAtBottom = useRef(true);

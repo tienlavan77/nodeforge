@@ -1,7 +1,9 @@
+// Modal for creating a new conversation via portal overlay.
 "use client";
 
 import { createPortal } from "react-dom";
 
+// Renders the create-conversation modal with title input and validation feedback.
 export function CreateConversationModal({ open, title, error, creating, onTitleChange, onSubmit, onClose }) {
   if (!open || typeof document === "undefined") return null;
   return createPortal(

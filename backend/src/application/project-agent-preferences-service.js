@@ -1,5 +1,6 @@
 export const PROJECT_AGENT_PREFERENCES_KEY = "architecture-manager-selection";
 
+// Creates a service for persisting per-project agent preferences.
 export function createProjectAgentPreferencesService(storage) {
   const readStored = () => {
     const value = storage.getItem("arch");
@@ -22,18 +23,17 @@ export function createProjectAgentPreferencesService(storage) {
   };
 }
 
+// Creates a service for persisting per-project agent preferences.
 function createProjectAgentPreferencesService({ storage }) {
   if (!storage || typeof storage.getItem !== "function" || typeof storage.setItem !== "function") {
     throw new TypeError("Project agent preferences require localStorage-compatible storage.");
   }
-
   function read(projectId) {
     if (projectId === undefined || projectId === null || projectId === "") return undefined;
     const state = parse(storage.getItem(PROJECT_AGENT_PREFERENCES_KEY));
     const entry = state[String(projectId)];
     return entry && typeof entry === "object" ? entry.agent : undefined;
   }
-
   function write(projectId, agentId) {
     if (projectId === undefined || projectId === null || projectId === "") return;
     const state = parse(storage.getItem(PROJECT_AGENT_PREFERENCES_KEY));
@@ -45,6 +45,7 @@ function createProjectAgentPreferencesService({ storage }) {
   return Object.freeze({ read, write });
 }
 
+// Parses stored preferences JSON with fallback handling.
 function parse(raw) {
   try {
     const value = raw ? JSON.parse(raw) : {};

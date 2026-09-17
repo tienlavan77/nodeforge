@@ -1,5 +1,7 @@
+// Node control API client and message intent utilities.
 export const MESSAGE_INTENTS = Object.freeze({ normalChat: "normal_chat", ticketCreate: "ticket_create", ticketDispatch: "ticket_dispatch" });
 
+// Detects whether a message is chat or ticket related.
 export function detectMessageIntent(input) {
   const text = String(input ?? "").trim();
   if (/^\/ticket(?:\s|$)/i.test(text)) return MESSAGE_INTENTS.ticketDispatch;
@@ -8,6 +10,7 @@ export function detectMessageIntent(input) {
   return MESSAGE_INTENTS.normalChat;
 }
 
+// Normalizes and validates ticket input text.
 export function normalizeTicketInput(input) {
   const text = String(input ?? "");
   if (!text.trim()) return { text, normalized_text: "", recognized: false };
@@ -26,6 +29,7 @@ export function normalizeTicketInput(input) {
   return { text: normalized, normalized_text: normalizedText, recognized: true, ticket: ticket ?? undefined, missing };
 }
 
+// Parses labeled ticket fields from text.
 function parseLabeledTicket(text) {
   const fields = {};
   for (const match of String(text).matchAll(/^\s*(title|objective|acceptance_criteria)\s*:\s*([\s\S]*?)(?=^\s*(?:title|objective|acceptance_criteria)\s*:|$)/gim)) fields[match[1].toLowerCase()] = match[2].trim();
@@ -33,11 +37,13 @@ function parseLabeledTicket(text) {
   return { ...fields, acceptance_criteria: fields.acceptance_criteria.split(/\n|\s*[;|]\s*/).map((item) => item.replace(/^[-*]\s*/, "").trim()).filter(Boolean) };
 }
 
+// Maps localized labels to canonical ticket field names.
 function canonicalLabel(label) {
   const key = label.toLowerCase().replace(/\s+/g, "_");
   return { "tiêu_đề": "title", "mục_tiêu": "objective", "tiêu_chí": "acceptance_criteria", criteria: "acceptance_criteria" }[key] ?? key;
 }
 
+// Extracts a JSON object embedded in text.
 function extractStructuredJson(text) {
   const start = text.search(/[{[]/);
   if (start < 0) return null;
@@ -53,12 +59,14 @@ function extractStructuredJson(text) {
   return null;
 }
 
+// Lists missing required ticket fields.
 function requiredTicketFields(value) {
   return ["title", "objective", "acceptance_criteria"].filter((field) => {
     const item = value[field]; return field === "acceptance_criteria" ? !Array.isArray(item) || item.length === 0 : typeof item !== "string" || !item.trim();
   });
 }
 
+// Builds a Forge v1 API URL with query params.
 function forgeV1(pathname, query = {}) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
@@ -68,6 +76,7 @@ function forgeV1(pathname, query = {}) {
   return `${controlApiBase()}/forge/v1${pathname}${search ? `?${search}` : ""}`;
 }
 
+// Resolves the control API base URL.
 function controlApiBase() {
   const configured = process.env.NEXT_PUBLIC_NODE_CONTROL_API_URL;
   if (configured) return configured.replace(/\/$/, "");
@@ -77,6 +86,7 @@ function controlApiBase() {
   return "http://127.0.0.1:3100";
 }
 
+// Creates the Node control API client.
 export function createNodeClient() {
   return Object.freeze({
     async createConversation({ projectId, agentId, title }) {
@@ -261,6 +271,7 @@ export function createNodeClient() {
   });
 }
 
+// Validates a project stream event shape.
 function isProjectStreamEvent(value, projectId) {
   return Boolean(value && typeof value === "object" && typeof value.event_id === "string" && value.event_id.length > 0
     && ["stream.connected", "stream.snapshot", "watcher.file_indexed", "watcher.file_removed", "ticket.created", "ticket.updated", "ticket.status_changed", "ticket.deleted", "sprint.created", "sprint.updated", "sprint.deleted", "conversation.message.delta", "conversation.message.received", "conversation.message.owner", "stream.error"].includes(value.event_type)
@@ -268,6 +279,7 @@ function isProjectStreamEvent(value, projectId) {
     && value.payload && typeof value.payload === "object" && !Array.isArray(value.payload));
 }
 
+// Fetches JSON with error handling and fallback messages.
 async function requestJson(url, { fallbackError, ...init } = {}) {
   let response;
   try {

@@ -1,7 +1,9 @@
+// Dispatches direct owner chat to isolated role conversations.
 'use strict';
 
 const ROLE_NAMES = ['AM', 'SL', 'BU', 'RV'];
 
+// Builds a role-scoped conversation identifier.
 function conversationId(role, projectId, ticketId) {
   const normalizedRole = String(role || '').trim().toUpperCase();
   if (!ROLE_NAMES.includes(normalizedRole)) throw new TypeError(`Unknown agent role: ${role}`);
@@ -9,6 +11,7 @@ function conversationId(role, projectId, ticketId) {
   return `CONV-${normalizedRole}-${projectId}-${ticketId}`;
 }
 
+// Extracts a ticket ID from free-form text.
 function extractTicketId(text) {
   const match = String(text || '').match(/\b(NF-[A-Z0-9]+-T\d+)\b/i);
   return match ? match[1].toUpperCase() : null;

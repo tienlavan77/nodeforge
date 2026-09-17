@@ -1,3 +1,4 @@
+// Links agent lifecycle messages to session store entries via capability-scoped sessions.
 import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
 
@@ -10,6 +11,7 @@ const require = createRequire(import.meta.url);
 const commonSchema = require("../../../../schemas/core/common.schema.json");
 const agentSchema = require("../../../../schemas/core/agent.schema.json");
 
+// Creates an AJV validator for AI/Node capability scope declarations.
 export function createCapabilityScopesValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);
@@ -29,6 +31,7 @@ export function createCapabilityScopesValidator() {
   };
 }
 
+// Links agent session.start/stop envelopes to the session store and emits lifecycle events.
 export function linkAgentSessions({ agent, sessionStore, validateCapabilityScopes = createCapabilityScopesValidator() } = {}) {
   if (!agent?.on || !agent?.off || !sessionStore?.create || !sessionStore?.close) {
     throw new ConfigurationError("An agent process and session store are required for session linkage.");
@@ -43,6 +46,7 @@ export function linkAgentSessions({ agent, sessionStore, validateCapabilityScope
   };
   agent.on("message", onMessage);
 
+// Creates a new session from a sessions.start command after scope validation.
   function startSession(agentId, command) {
     try {
       validateCapabilityScopes(command.payload?.capability_scopes);
@@ -56,6 +60,7 @@ export function linkAgentSessions({ agent, sessionStore, validateCapabilityScope
     events.emit("started", session);
   }
 
+// Closes the active session for an agent after validating its presence.
   function stopSession(agentId, command) {
     const sessionId = command.session_id ?? activeSessions.get(agentId);
     if (!sessionId) {

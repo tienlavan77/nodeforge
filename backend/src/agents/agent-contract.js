@@ -1,5 +1,7 @@
+// Defines the shared agent contract with validation and normalization.
 import { ConfigurationError } from "../shared/errors.js";
 
+// Creates a validated agent contract with normalized execution.
 export function createAgentContract(agent) {
   validateAgentContract(agent);
   return Object.freeze({
@@ -10,6 +12,7 @@ export function createAgentContract(agent) {
   });
 }
 
+// Validates that an agent contract has required fields.
 export function validateAgentContract(agent) {
   if (!agent || typeof agent !== "object") throw new ConfigurationError("Agent contract must be an object.");
   if (typeof agent.id !== "string" || agent.id.length === 0) throw new ConfigurationError("Agent contract requires id.");
@@ -19,6 +22,7 @@ export function validateAgentContract(agent) {
   return true;
 }
 
+// Validates and freezes an agent execution result.
 function normalizeResult(result) {
   if (!result || typeof result !== "object" || Array.isArray(result) || typeof result.status !== "string" || result.status.length === 0) {
     throw new ConfigurationError("Agent execute() must return a result object with status.");

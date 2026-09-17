@@ -1,3 +1,4 @@
+// Runtime guard for tool authorization, retrieval budgeting, and execution audit trails.
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { assertDiscoveryBudget, cloneExplorationState, createExplorationState, discoveryKind, markEditStarted } from "../../tools/exploration-state.js";
@@ -11,6 +12,7 @@ const EDIT_TOOLS = new Set(["write_diff", "edit_diff"]);
 // Runtime-owned authorization and retrieval accounting. The optional database
 // adapter makes budget/audit state survive process restarts; memory is useful for
 // isolated Tool Lab runs and remains deliberately scoped to one service instance.
+// Creates runtime guards for tool authorization, budgeting, and auditing.
 export function createRuntimeToolGovernance({ database, eventStore, clock = () => new Date() } = {}) {
   if (database && (typeof database.run !== "function" || typeof database.all !== "function")) {
     throw new ConfigurationError("Runtime governance database requires run() and all().");
@@ -32,6 +34,7 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     getBudget
   });
 
+  // Initializes a scoped execution context with budget and identity.
   function createExecutionContext(input = {}) {
     const taskId = input.task_id ?? input.taskId;
     const scope = input.execution_scope ?? input.executionScope;
@@ -73,6 +76,7 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     return cloneContext(context);
   }
 
+  // Checks capability and resource allowlist for a tool invocation.
   function authorize(toolName, context = {}, resource) {
     const normalized = resolveContext(context);
     assertActive(normalized);
@@ -81,12 +85,14 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     return true;
   }
 
+  // Ensures the execution lifecycle still permits tool calls.
   function assertActive(context = {}) {
     const lifecycle = String(context.lifecycle ?? "RUNNING").toUpperCase();
     if (TERMINAL_LIFECYCLES.has(lifecycle)) throw governanceError("TOOL_EXECUTION_INACTIVE", `Tool execution is not allowed while lifecycle is ${lifecycle}.`);
     return true;
   }
 
+  // Reserves bytes and call slots before a retrieval tool runs.
   async function reserveRetrieval(context, { tool, resource, estimatedBytes = 0 } = {}) {
     const normalized = resolveContext(context);
     authorize(tool, normalized, resource);
@@ -109,12 +115,14 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     });
   }
 
+  // Counts distinct tool kinds for call-budget enforcement.
   function distinctCalls(budget, nextTool) {
     const names = new Set(budget.used_tool_calls ?? []);
     if (nextTool) names.add(nextTool);
     return names.size;
   }
 
+  // Commits reserved budget to used and emits an audit event.
   async function commitRetrieval(context, reservation, { bytes = reservation?.estimated_bytes ?? 0, success = true, error } = {}) {
     const normalized = resolveContext(context);
     const actualBytes = nonNegativeInteger(bytes, "bytes");
@@ -137,6 +145,7 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     });
   }
 
+  // Releases a reservation after a failed retrieval.
   async function releaseRetrieval(context, reservation, { success = false, error } = {}) {
     const normalized = resolveContext(context);
     return withLock(normalized, async () => {
@@ -151,6 +160,7 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     });
   }
 
+  // Persists and emits an audit record for a tool retrieval attempt.
   async function audit(entry = {}) {
     const timestamp = clock().toISOString();
     const record = { audit_id: randomUUID(), timestamp, task_id: entry.task_id, execution_id: entry.execution_id, tool: entry.tool, resource: entry.resource ?? null, bytes: Number(entry.bytes) || 0, success: entry.success !== false, error: entry.error?.message ?? entry.error ?? null, correlation_id: entry.correlation_id ?? entry.audit_context?.correlation_id ?? null, agent_identity: entry.agent_identity };
@@ -159,6 +169,7 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     return record;
   }
 
+  // Authorizes, budgets, and executes a tool with discovery phase gates.
   async function dispatch(toolName, input, context, execute) {
     if (typeof execute !== "function") throw new ConfigurationError("Tool dispatch requires an executor.");
     const normalized = resolveContext(context);
@@ -189,6 +200,7 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     }
   }
 
+  // Builds a mutable tool context that shares live state with the stored execution.
   function buildToolContext(context, normalized) {
     const toolContext = {
       ...context,
@@ -220,11 +232,13 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     return toolContext;
   }
 
+  // Returns a snapshot of the current budget for an execution.
   function getBudget(contextOrIds = {}) {
     const normalized = resolveContext(contextOrIds);
     return cloneBudget(loadBudget(normalized));
   }
 
+  // Resolves or auto-creates the normalized execution context.
   function resolveContext(context) {
     const taskId = context?.task_id ?? context?.taskId;
     const executionId = context?.execution_id ?? context?.executionId ?? context?.execution_scope?.execution_id ?? context?.execution_scope?.executionId;
@@ -242,6 +256,7 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     return Object.assign(created, context);
   }
 
+  // Loads the budget from memory or persisted storage.
   function loadBudget(context) {
     const key = contextKey(context.task_id, context.execution_id);
     const knownBudget = contexts.get(key)?.context_budget;
@@ -253,18 +268,22 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     return normalizeBudget(context.context_budget ?? context.retrieval_budget);
   }
 
+  // Loads a previously persisted budget by task and execution id.
   function loadPersistedBudget(taskId, executionId) {
     if (!database) return undefined;
     const row = database.all("SELECT budget_json FROM runtime_tool_budget WHERE task_id = ? AND execution_id = ?", [taskId, executionId])[0];
     return row ? JSON.parse(row.budget_json) : undefined;
   }
 
+  // Validates that a reservation belongs to the given execution.
   function assertReservation(context, reservation) {
     const stored = reservation?.reservation_id ? reservations.get(reservation.reservation_id) : undefined;
     if (!stored || stored !== reservation || reservation.task_id !== context.task_id || reservation.execution_id !== context.execution_id || typeof reservation.tool !== "string") throw governanceError("TOOL_RESERVATION_INVALID", "Retrieval reservation does not belong to this execution.");
   }
 
+  // Persists the current execution budget.
   function persistBudget(context) { persistBudgetValues(context, context.context_budget); }
+  // Persists specific budget values for an execution.
   function persistBudgetValues(context, budget) {
     const value = JSON.stringify(budget);
     if (database) database.run("INSERT INTO runtime_tool_budget (task_id, execution_id, budget_json, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(task_id, execution_id) DO UPDATE SET budget_json=excluded.budget_json, updated_at=excluded.updated_at", [context.task_id, context.execution_id, value, clock().toISOString()]);
@@ -272,6 +291,7 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     if (known) { known.context_budget = budget; known.retrieval_budget = budget; }
   }
 
+  // Serializes async operations per execution key.
   function withLock(context, operation) {
     const key = contextKey(context.task_id, context.execution_id);
     const previous = locks.get(key) ?? Promise.resolve();
@@ -281,11 +301,13 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
   }
 }
 
+// Creates budget and audit tables for runtime governance.
 function ensureTables(database) {
   database.run("CREATE TABLE IF NOT EXISTS runtime_tool_budget (task_id TEXT NOT NULL, execution_id TEXT NOT NULL, budget_json TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(task_id, execution_id))");
   database.run("CREATE TABLE IF NOT EXISTS runtime_tool_audit (audit_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, execution_id TEXT NOT NULL, timestamp TEXT NOT NULL, audit_json TEXT NOT NULL)");
   database.run("CREATE INDEX IF NOT EXISTS runtime_tool_audit_scope ON runtime_tool_audit(task_id, execution_id, timestamp)");
 }
+// Normalizes raw budget values with defaults and validation.
 function normalizeBudget(value = {}) {
   if (!value || typeof value !== "object") throw governanceError("CONTEXT_BUDGET_INVALID", "Runtime retrieval budget is invalid.");
   const maxBytes = value.max_bytes ?? value.max_chars ?? DEFAULT_MAX_BYTES;
@@ -296,12 +318,21 @@ function normalizeBudget(value = {}) {
   const usedToolKinds = Array.isArray(value.used_tool_calls) ? value.used_tool_calls.filter((kind) => typeof kind === "string") : [];
   return { max_bytes: maxBytes, max_calls: maxCalls, used_bytes: usedBytes, used_calls: usedCalls, reserved_bytes: reservedBytes, reserved_calls: reservedCalls, used_tool_calls: usedToolKinds };
 }
+// Shallow-clones a budget object.
 function cloneBudget(value) { return { ...value }; }
+// Deep-clones an execution context with budget and exploration state.
 function cloneContext(value) { return { ...value, context_budget: cloneBudget(value.context_budget), retrieval_budget: cloneBudget(value.retrieval_budget), capabilities: [...value.capabilities], changed_paths: [...(value.changed_paths ?? [])], exploration_state: cloneExplorationState(value.exploration_state) }; }
+// Normalizes and validates execution scope identifiers.
 function normalizeScope(scope, taskId, executionId) { const result = { ...(scope ?? {}) }; if (result.task_id !== undefined && result.task_id !== taskId) throw governanceError("TOOL_SCOPE_INVALID", "execution_scope.task_id does not match task_id."); if (result.execution_id !== undefined && result.execution_id !== executionId) throw governanceError("TOOL_SCOPE_INVALID", "execution_scope.execution_id does not match execution_id."); result.task_id = taskId; result.execution_id = executionId; return result; }
+// Normalizes a resource argument into an array.
 function resourceList(resource) { return resource === undefined ? [] : Array.isArray(resource) ? resource : [resource]; }
+// Checks whether a resource is inside the allowed paths or prefixes.
 function resourceAllowed(resource, allowed = {}) { if (typeof resource !== "string" || !resource) return false; const paths = allowed.allowed_file_paths ?? allowed.file_paths ?? allowed.paths ?? []; const prefixes = allowed.allowed_prefixes ?? allowed.prefixes ?? []; if (!paths.length && !prefixes.length) return false; return paths.includes(resource) || prefixes.some((prefix) => resource === prefix || resource.startsWith(`${prefix.replace(/\/$/, "")}/`)); }
+// Builds a compound key for task and execution lookup.
 function contextKey(taskId, executionId) { return `${taskId}\0${executionId}`; }
+// Validates identifier format for tasks and executions.
 function isId(value) { return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value); }
+// Validates that a numeric value is a non-negative integer.
 function nonNegativeInteger(value, name) { const number = Number(value); if (!Number.isInteger(number) || number < 0) throw governanceError("CONTEXT_BUDGET_INVALID", `${name} must be a non-negative integer.`); return number; }
+// Creates a coded ConfigurationError for governance violations.
 function governanceError(code, message) { const error = new ConfigurationError(message); error.code = code; return error; }

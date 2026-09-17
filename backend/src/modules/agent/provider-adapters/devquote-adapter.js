@@ -1,3 +1,4 @@
+// Implements the Anthropic-compatible Devquote gateway for Claude models.
 /**
  * Devquote Gateway Adapter
  *
@@ -16,6 +17,7 @@ import { buildAnthropicMessages, buildAnthropicSystem, buildAnthropicToolChoice,
 /**
  * Normalize URL to ensure /v1/messages endpoint
  */
+// Normalizes a base URL to the Devquote /v1/messages endpoint.
 function normalizeUrl(url) {
   const normalized = url.replace(/\/$/, "");
   if (normalized.endsWith("/v1/messages")) return normalized;
@@ -23,6 +25,7 @@ function normalizeUrl(url) {
   return `${normalized}/v1/messages`;
 }
 
+// Sends a Devquote Anthropic-compat request and extracts text or tool_use.
 export async function request({ url, credential, payload, model, correlationId, signal }) {
   const endpoint = normalizeUrl(url);
   const requestBody = {
@@ -66,6 +69,7 @@ export async function request({ url, credential, payload, model, correlationId, 
   };
 }
 
+// Streams Devquote SSE events, reassembling tool input from partial JSON deltas.
 export async function* stream({ url, credential, payload, model, correlationId, signal }) {
   const endpoint = normalizeUrl(url);
   const requestBody = {
@@ -144,6 +148,7 @@ export async function* stream({ url, credential, payload, model, correlationId, 
   }
 }
 
+// Extracts concatenated text from a Devquote Anthropic-compat response.
 function extractText(data) {
   // Anthropic Messages API response format
   if (Array.isArray(data?.content)) {
@@ -168,6 +173,7 @@ function extractText(data) {
   return "";
 }
 
+// Finds the first tool_use block from Devquote response content or output.
 function findToolUse(data) {
   const tool = Array.isArray(data?.content) ? data.content.find((c) => c?.type === "tool_use" && c?.input && typeof c.input === "object") : null;
   if (tool) return { id: tool.id, name: tool.name, input: tool.input };
@@ -176,6 +182,7 @@ function findToolUse(data) {
   return null;
 }
 
+// Maps generic tools to Anthropic input_schema form for Devquote.
 function toAnthropicTools(tools = []) {
   return tools?.length ? tools.map((tool) => ({ name: tool.name, description: tool.description, input_schema: tool.input_schema })) : undefined;
 }

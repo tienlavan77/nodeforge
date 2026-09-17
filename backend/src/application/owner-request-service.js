@@ -1,5 +1,7 @@
+// Accepts owner requests and delegates to the governance orchestrator.
 import { ConfigurationError } from "../shared/errors.js";
 
+// Creates a service for submitting owner requests to governance.
 export function createOwnerRequestService({ governanceOrchestrator } = {}) {
   if (typeof governanceOrchestrator?.orchestrate !== "function") throw new ConfigurationError("Owner Request Service requires the Governance Orchestrator.");
   const requests = [];
@@ -7,7 +9,6 @@ export function createOwnerRequestService({ governanceOrchestrator } = {}) {
   const byCorrelation = new Map();
 
   return Object.freeze({ submit, getById, getByCorrelationId });
-
   function submit(request) {
     validateRequest(request);
     if (byId.has(request.request_id)) throw new ConfigurationError(`Owner Request already exists: ${request.request_id}.`);
@@ -30,17 +31,14 @@ export function createOwnerRequestService({ governanceOrchestrator } = {}) {
     );
     return clone(stored);
   }
-
   function getById(requestId) {
     assertId(requestId, "request");
     return clone(byId.get(requestId));
   }
-
   function getByCorrelationId(correlationId) {
     assertId(correlationId, "correlation");
     return clone(byCorrelation.get(correlationId));
   }
-
   function updateStatus(requestId, status) {
     const current = byId.get(requestId);
     if (!current) return;
@@ -52,6 +50,7 @@ export function createOwnerRequestService({ governanceOrchestrator } = {}) {
   }
 }
 
+// Validates owner request required fields.
 function validateRequest(request) {
   if (!request || typeof request !== "object" || typeof request.request_id !== "string" || request.request_id.length === 0
     || typeof request.correlation_id !== "string" || request.correlation_id.length === 0 || typeof request.timestamp !== "string"
@@ -63,10 +62,12 @@ function validateRequest(request) {
   }
 }
 
+// Validates that an audit filter ID is a non-empty string.
 function assertId(id, kind) {
   if (typeof id !== "string" || id.length === 0) throw new ConfigurationError(`An Owner ${kind} id is required.`);
 }
 
+// Clones a value via structured copy.
 function clone(value) {
   return value ? structuredClone(value) : undefined;
 }

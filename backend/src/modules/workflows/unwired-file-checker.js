@@ -1,3 +1,4 @@
+// Summary: Detects newly created files that have no indexed importers yet, flagging unwired additions.
 import { ConfigurationError } from "../../shared/errors.js";
 
 /** Finds newly-created files that have no indexed importer yet. */

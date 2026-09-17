@@ -1,8 +1,10 @@
+// Creates and restores file backups under the runtime directory.
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { createExecutionResult } from "../execution-layer.js";
 
+// Creates a backup copy of a file before mutation.
 export async function backupFile(filePath, options = {}) {
   const startedAt = Date.now();
   try {
@@ -22,6 +24,7 @@ export async function backupFile(filePath, options = {}) {
   }
 }
 
+// Restores a file from its backup.
 export async function rollbackFile(filePath, backupRef) {
   const startedAt = Date.now();
   try {

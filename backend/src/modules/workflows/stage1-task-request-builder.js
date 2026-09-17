@@ -1,3 +1,4 @@
+// Summary: Builds validated stage-1 task request envelopes with ticket context, instruction blocks, and submission format.
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { assertValidEnvelope } from "../protocol/envelope-validator.js";

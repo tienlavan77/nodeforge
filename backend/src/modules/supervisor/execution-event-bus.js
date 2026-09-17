@@ -1,3 +1,4 @@
+// Summary: Ordered, deduplicated execution event bus with persistent append, in-memory fanout, and wildcard terminal bridging.
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 

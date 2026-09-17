@@ -1,3 +1,4 @@
+// Verifies change checksums and routes to the appropriate execution handler.
 import { withExecutionResult, createExecutionResult } from "./execution-layer.js";
 import { verifyChecksum } from "./execution-handlers/verify-checksum.js";
 import { applySearchReplaceBlock } from "./execution-handlers/search-replace.js";

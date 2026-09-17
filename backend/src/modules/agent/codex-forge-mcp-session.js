@@ -1,7 +1,9 @@
+// Spawns a short-lived MCP bridge that exposes Forge tools to the Codex CLI over HTTP.
 import { createServer } from "node:http";
 import { randomBytes } from "node:crypto";
 import { createCodexToolInputAdapter } from "./codex-tool-input-adapter.js";
 
+// Starts a bearer-authenticated MCP HTTP server exposing the given Forge tools.
 export async function createCodexForgeMcpSession({ registry, context = {}, definitions = [] } = {}) {
   const token = randomBytes(24).toString("hex");
   const tools = definitions.filter((definition) => typeof registry?.[definition.name]?.execute === "function").map((definition) => ({ name: definition.name, description: definition.description, inputSchema: definition.input_schema }));
@@ -48,6 +50,7 @@ export async function createCodexForgeMcpSession({ registry, context = {}, defin
   }
 }
 
+// Reads the full request body from the incoming HTTP stream.
 function readBody(request) {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -57,6 +60,7 @@ function readBody(request) {
   });
 }
 
+// Writes a JSON response with the given status and content-type header.
 function writeJson(response, status, value) {
   response.writeHead(status, { "content-type": "application/json" });
   response.end(JSON.stringify(value));

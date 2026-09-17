@@ -1,6 +1,8 @@
+// Provides project-scoped file write operations dispatched from natural-language queries.
 import { ConfigurationError } from "../../shared/errors.js";
 import { createFileService } from "../../infrastructure/filesystem/file-service.js";
 
+// Creates a tool that writes project files directly or via natural-language query parsing.
 export function createProjectFileTool({ projectRoot, fileService } = {}) {
   if (typeof projectRoot !== "string" || projectRoot.length === 0) throw new ConfigurationError("Project file tool requires a project root.");
   const files = fileService ?? createFileService({ projectRoot });

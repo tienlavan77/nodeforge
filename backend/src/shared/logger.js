@@ -1,3 +1,4 @@
+// Summary: Structured JSON logger with level filtering and project-scoped event emission for Node observability.
 import { createRequire } from "node:module";
 
 import { ConfigurationError } from "./errors.js";

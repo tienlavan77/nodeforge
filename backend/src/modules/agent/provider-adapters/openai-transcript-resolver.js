@@ -1,5 +1,7 @@
+// Resolves transcript storage refs into hydrated blocks for OpenAI request assembly.
 import { ConfigurationError } from "../../../shared/errors.js";
 
+// Creates a resolver that hydrates transcript blocks from protocol storage.
 export function createOpenAITranscriptResolver({ storage } = {}) {
   if (typeof storage?.get !== "function") throw new ConfigurationError("OpenAI transcript resolver requires Protocol Storage.");
   return Object.freeze({ resolveTranscript });
@@ -48,6 +50,7 @@ export function createOpenAITranscriptResolver({ storage } = {}) {
   }
 }
 
+// Validates that a transcript block has the required fields and flags.
 function assertBlock(block) {
   if (!block || typeof block !== "object" || !Number.isInteger(block.round) || block.round < 1 || typeof block.block_id !== "string" || !block.block_id) {
     throw transcriptError("TRANSCRIPT_INVALID", "Transcript block requires block_id and positive round.");
@@ -60,5 +63,7 @@ function assertBlock(block) {
   }
 }
 
+// Collapses whitespace in a summary to a single-line form.
 function oneLine(value) { return value.replace(/\s+/g, " ").trim(); }
+// Creates a coded transcript error with the given code and message.
 function transcriptError(code, message) { const error = new ConfigurationError(message); error.code = code; return error; }

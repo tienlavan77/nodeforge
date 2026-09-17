@@ -1,3 +1,4 @@
+// Context pack builder that assembles indexed symbols and file excerpts within a token budget.
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { readFile } from "node:fs/promises";
@@ -21,6 +22,7 @@ export class ContextStaleError extends ConfigurationError {
   }
 }
 
+// Creates an engine that builds token-budgeted context packs from the code index.
 export function createContextEngine({ database, projectRoot, projectId, clock = () => new Date(), validatePack = createContextPackValidator(), config = {} } = {}) {
   if (!database?.all || typeof projectRoot !== "string" || projectRoot.length === 0 || typeof projectId !== "string" || projectId.length === 0) {
     throw new ConfigurationError("A Code Index database, project root, and project_id are required for Context Engine.");
@@ -30,6 +32,7 @@ export function createContextEngine({ database, projectRoot, projectId, clock = 
 
   return Object.freeze({ build });
 
+  // Assembles and validates a context pack from requested symbols, files, and ranges.
   async function build(request = {}) {
     const normalized = normalizeRequest(request);
     const initialVersion = getIndexVersion();
@@ -75,6 +78,7 @@ export function createContextEngine({ database, projectRoot, projectId, clock = 
     return Object.freeze(pack);
   }
 
+  // Selects indexed files and symbols matching the request.
   function selectIndexRecords(request) {
     const files = [];
     const symbols = [];
@@ -120,6 +124,7 @@ export function createContextEngine({ database, projectRoot, projectId, clock = 
     return { files, symbols, dependencies };
   }
 
+  // Collects outbound dependency edges for a file.
   function collectDependencies(fileId, sourcePath, addFile, dependencies) {
     const rows = database.all(
       `SELECT target.file_id, target.path, target.sha256, target_symbol.name, target_symbol.kind, target_symbol.start_line, target_symbol.end_line
@@ -139,6 +144,7 @@ export function createContextEngine({ database, projectRoot, projectId, clock = 
     return sourcePath;
   }
 
+  // Reads file contents or signatures for selected index entries.
   async function materializeFiles(entries) {
     const result = [];
     for (const entry of entries) {
@@ -155,6 +161,7 @@ export function createContextEngine({ database, projectRoot, projectId, clock = 
     return result;
   }
 
+  // Reads and hashes file content, returning full source or requested excerpt.
   async function readIndexedContent(path, expectedHash, ranges) {
     const absolutePath = resolve(projectRoot, path);
     const relativePath = relative(projectRoot, absolutePath);
@@ -173,12 +180,14 @@ export function createContextEngine({ database, projectRoot, projectId, clock = 
     return lines.slice(start - 1, end).join("\n");
   }
 
+  // Returns the current index version tag.
   function getIndexVersion() {
     const row = database.all("SELECT version FROM index_metadata LIMIT 1")[0];
     return `IDX-${row?.version ?? 0}`;
   }
 }
 
+// Builds a validator for generated context packs.
 export function createContextPackValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);
@@ -190,6 +199,7 @@ export function createContextPackValidator() {
   };
 }
 
+// Normalizes varied request shapes into a canonical context request.
 function normalizeRequest(request) {
   const symbols = (request.symbols ?? (request.symbol ? [request.symbol] : [])).map((selector) => typeof selector === "string" ? { name: selector } : selector);
   const lineRanges = request.line_ranges ?? request.lineRanges ?? [];
@@ -215,6 +225,7 @@ function normalizeRequest(request) {
   };
 }
 
+// Chooses a default token budget based on agent role.
 function defaultBudget(request) {
   const role = String(request.agent_role ?? request.agentRole ?? request.domain ?? "").toLowerCase();
   if (role.includes("reviewer")) return 30000;
@@ -222,6 +233,7 @@ function defaultBudget(request) {
   return 12000;
 }
 
+// Removes duplicate symbol entries by file and line range.
 function deduplicateSymbols(symbols) {
   const seen = new Set();
   return symbols.filter((symbol) => {
@@ -232,6 +244,7 @@ function deduplicateSymbols(symbols) {
   });
 }
 
+// Removes duplicate dependency entries by file and symbol.
 function deduplicateDependencies(dependencies) {
   const seen = new Set();
   return dependencies.filter((dependency) => {
@@ -243,12 +256,14 @@ function deduplicateDependencies(dependencies) {
 }
 
 // Approximation only: source bytes and dependency signatures divided by four.
+// Estimates token count from content and signature lengths.
 function estimateTokens(files, dependencies) {
   const contentLength = files.reduce((total, file) => total + (file.content?.length ?? 0), 0);
   const dependencyLength = dependencies.reduce((total, dependency) => total + dependency.signature.length, 0);
   return Math.ceil((contentLength + dependencyLength) / 4);
 }
 
+// Builds a human-readable summary of the selection counts.
 function summarizeSelection({ files, symbols, dependencies }) {
   return `Selected ${symbols.length} symbol(s), ${files.length} indexed file(s), and ${dependencies.length} dependency signature(s).`;
 }

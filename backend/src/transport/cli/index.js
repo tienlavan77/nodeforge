@@ -1,10 +1,12 @@
 #!/usr/bin/env node
+// CLI entry for index rebuild and project file watching.
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
 import { rebuildIndex } from "../../modules/index/index-rebuild.js";
 import { startProjectWatch } from "../../modules/watcher/watch-project.js";
 
+// Runs the Forge CLI for index rebuild or file watching.
 export async function runCli(args, { cwd = process.cwd(), stdout = process.stdout, stderr = process.stderr, signalEmitter = process, watchProject = startProjectWatch } = {}) {
   if (args[0] === "index" && args[1] === "rebuild" && args.length === 2) {
     let processed = 0;
@@ -35,6 +37,7 @@ export async function runCli(args, { cwd = process.cwd(), stdout = process.stdou
   return 1;
 }
 
+// Waits for a single process signal.
 function onceSignal(emitter, signal) {
   return new Promise((resolveSignal) => emitter.once(signal, resolveSignal));
 }

@@ -11,7 +11,6 @@ export function createProjectDashboardService({ roadmaps, sprintPlans, provenanc
   }
 
   return Object.freeze({ getDashboard, getTicket, getTicketGraph });
-
   function findTicket(projectId, ticketId) {
     assertProjectId(projectId);
     if (typeof ticketId !== "string" || !ticketId) throw httpError(400, "A ticket id is required.");
@@ -19,7 +18,6 @@ export function createProjectDashboardService({ roadmaps, sprintPlans, provenanc
     if (!ticket) throw httpError(404, `Ticket not found: ${ticketId}.`);
     return ticket;
   }
-
   function getTicket(projectId, ticketId) {
     const ticket = findTicket(projectId, ticketId);
     const metadata = ticketFileStore?.getMetadata?.(ticketId);
@@ -30,13 +28,11 @@ export function createProjectDashboardService({ roadmaps, sprintPlans, provenanc
       context: metadata?.project_id === projectId ? metadata.context : ""
     });
   }
-
   function getTicketGraph(projectId, ticketId) {
     if (!relevantTreeSelector?.select) throw new ConfigurationError("Ticket Code Graph API is not configured.");
     const ticket = findTicket(projectId, ticketId);
     return structuredClone({ project_id: projectId, ticket: ticketView(ticket), graph: relevantTreeSelector.select({ title: ticket.title, objective: ticket.objective, acceptance_criteria: ticket.acceptance_criteria ?? [], scope: "ui", allowed_prefixes: ["ui/nextjs/"] }) });
   }
-
   function getDashboard(projectId) {
     assertProjectId(projectId);
     const roadmap = roadmaps.getCurrent();
@@ -66,7 +62,6 @@ export function createProjectDashboardService({ roadmaps, sprintPlans, provenanc
       return build(grouped);
     });
   }
-
   function ticketView(ticket) {
     let chain;
     try {
@@ -98,14 +93,18 @@ export function createProjectDashboardService({ roadmaps, sprintPlans, provenanc
   }
 }
 
+// Maps a ticket to its dashboard summary view.
 function taskViewSummary(task) { return { id: task.id, title: task.title, priority: task.priority, status: task.status, progress: task.progress }; }
 
+// Returns an empty dashboard structure for a project.
 function emptyDashboard(projectId, roadmap = null) {
   return { project_id: projectId, roadmap: roadmap ? { id: roadmap.id, version: roadmap.version, sprints: [] } : null };
 }
 
+// Creates an HTTP error with a status code.
 function httpError(statusCode, message) { const error = new ConfigurationError(message); error.statusCode = statusCode; return error; }
 
+// Validates that a project ID is a non-empty string.
 function assertProjectId(projectId) {
   if (typeof projectId !== "string" || projectId.length === 0) throw new ConfigurationError("A Project Dashboard project id is required.");
 }

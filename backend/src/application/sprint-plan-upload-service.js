@@ -1,3 +1,4 @@
+// Validates and persists sprint plans from uploaded JSON payloads.
 import { createRequire } from "node:module";
 import { readFileSync, readdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
@@ -12,12 +13,12 @@ const commonSchema = require("../../../schemas/core/common.schema.json");
 const ticketSchema = require("../../../schemas/governance/ticket.schema.json");
 const sprintPlanSchema = require("../../../schemas/governance/sprint-plan.schema.json");
 
+// Creates a service for uploading and managing sprint plans.
 export function createSprintPlanUploadService({ roadmaps, publisher, projectRoot = process.cwd(), isRunning = () => false } = {}) {
   if (typeof roadmaps?.save !== "function") throw new ConfigurationError("Sprint Plan Upload requires a Roadmap Store.");
   const validate = createValidator();
 
   return Object.freeze({ upload, list, get, update, remove, removeTicket });
-
   function remove({ projectId, sprintId } = {}) {
     get({ projectId, sprintId });
     if (isRunning(sprintId)) { const error = new ConfigurationError(`Sprint is currently running: ${sprintId}.`); error.statusCode = 409; throw error; }
@@ -29,14 +30,12 @@ export function createSprintPlanUploadService({ roadmaps, publisher, projectRoot
     publish("sprint.deleted", projectId, { sprint_id: sprintId });
     return { deleted: true, sprint_id: sprintId };
   }
-
   function list({ projectId } = {}) {
     if (typeof projectId !== "string" || projectId.length === 0) throw new ConfigurationError("A project id is required.");
     const current = roadmaps.getCurrent?.();
     if (!current || current.project_id !== projectId) return [];
     return structuredClone(current.sprints ?? []);
   }
-
   function get({ projectId, sprintId } = {}) {
     const sprint = roadmaps.getAllVersions?.().flatMap((roadmap) => roadmap.project_id === projectId ? (roadmap.sprints ?? []) : []).find(({ id }) => id === sprintId);
     if (!sprint) {
@@ -46,7 +45,6 @@ export function createSprintPlanUploadService({ roadmaps, publisher, projectRoot
     }
     return structuredClone(sprint);
   }
-
   function update({ projectId, sprintId, sprintPlan } = {}) {
     const current = get({ projectId, sprintId });
     if (isRunning(sprintId)) { const error = new ConfigurationError(`Sprint is currently running: ${sprintId}.`); error.statusCode = 409; throw error; }
@@ -55,7 +53,6 @@ export function createSprintPlanUploadService({ roadmaps, publisher, projectRoot
     if (!roadmaps.removeSprint?.(projectId, sprintId)) { const error = new ConfigurationError(`Unknown Sprint Plan: ${sprintId}.`); error.statusCode = 404; throw error; }
     return upload({ projectId, sprintPlan: next }, { eventType: "sprint.updated" });
   }
-
   function removeTicket({ projectId, ticketId } = {}) {
     const ticket = roadmaps.getCurrent()?.sprints?.flatMap((sprint) => sprint.tickets ?? []).find((item) => item.id === ticketId && item.project_id === projectId);
     if (!ticket) { const error = new ConfigurationError(`Unknown ticket: ${ticketId}.`); error.statusCode = 404; throw error; }
@@ -66,7 +63,6 @@ export function createSprintPlanUploadService({ roadmaps, publisher, projectRoot
     publish("ticket.deleted", projectId, { ticket_id: ticketId, sprint_id: ticket.sprint_id });
     return { deleted: true, ticket_id: ticketId };
   }
-
   function upload({ projectId, sprintPlan } = {}, { eventType = "sprint.created" } = {}) {
     if (typeof projectId !== "string" || projectId.length === 0) throw new ConfigurationError("A project id is required.");
     if (!sprintPlan || typeof sprintPlan !== "object" || Array.isArray(sprintPlan)) throw new ConfigurationError("sprint_plan must be an object.");
@@ -92,12 +88,12 @@ export function createSprintPlanUploadService({ roadmaps, publisher, projectRoot
     publish(eventType, projectId, { sprint_id: sprintPlan.id, sprint_plan: structuredClone(sprintPlan), ticket_ids: sprintPlan.tickets.map(({ id }) => id) });
     return { sprint_id: sprintPlan.id, ticket_ids: sprintPlan.tickets.map(({ id }) => id), sprint_plan: structuredClone(sprintPlan), roadmap: saved };
   }
-
   function publish(type, projectId, payload) {
     try { publisher?.publish?.({ event_id: `EVT-${Date.now()}-${type}`, type, project_id: projectId, timestamp: new Date().toISOString(), payload, metadata: { source: "sprint-plan-service" } }); } catch { /* stream notification must not undo mutation */ }
   }
 }
 
+// Creates a JSON schema validator for sprint plans and tickets.
 function createValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);

@@ -1,3 +1,4 @@
+// Builds versioned agent request envelopes with stable-context caching and transcript windowing.
 import { createHash } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 
@@ -7,6 +8,7 @@ export function createAgentRequestBuilder({ expectedSteps = 1, transcriptStore, 
   let contextVersion = 0;
   return Object.freeze({ build });
 
+// Builds a v1.4 request envelope with caching flags and selected transcript window.
   function build({ taskId, stepId, stableContext, dynamicContext, conversationMode = "rolling_summary", hybridWindow = 2, responseSummary = "", fullResponse = "" } = {}) {
     if (typeof taskId !== "string" || !taskId || !Number.isInteger(stepId) || stepId < 1) {
       throw new ConfigurationError("Agent request requires task_id and positive step_id.");

@@ -1,3 +1,4 @@
+// Client-side validator for sprint plan JSON structure.
 const REQUIRED_FIELDS = ["id", "roadmap_id", "project_id", "objective", "tickets", "exit_criteria"];
 const TICKET_FIELDS = ["id", "project_id", "roadmap_id", "sprint_id", "title", "objective", "acceptance_criteria", "provenance"];
 

@@ -1,3 +1,4 @@
+// Builds OpenAI Responses requests from canonical payloads and normalizes the result envelope.
 import * as codex from "./codex-adapter.js";
 import { buildCacheOptions, buildInput, buildInstructions, buildResponseFormat, buildToolConfig } from "./openai-request-builder.js";
 import { createOpenAITranscriptResolver } from "./openai-transcript-resolver.js";
@@ -5,6 +6,7 @@ import { normalizeResponse } from "./openai-response-normalizer.js";
 import { ConfigurationError } from "../../../shared/errors.js";
 
 /** Public OpenAI adapter entry point for the canonical generic payload. */
+// Creates the canonical OpenAI adapter that resolves transcripts and normalizes envelopes.
 export function createOpenAIAdapter({ storage, requestFn = codex.request } = {}) {
   const resolver = storage ? createOpenAITranscriptResolver({ storage }) : null;
   return Object.freeze({ call });
@@ -48,6 +50,7 @@ export function createOpenAIAdapter({ storage, requestFn = codex.request } = {})
   }
 }
 
+// Throws for non-completed Responses statuses with typed error codes.
 function assertCompleted(response) {
   const status = response?.status ?? "completed";
   switch (status) {
@@ -67,6 +70,7 @@ function assertCompleted(response) {
   }
 }
 
+// Creates a typed error for a specific provider status with optional detail.
 function providerStatusError(code, status, response, detail) {
   const error = new ConfigurationError(`OpenAI Responses request is not complete: ${status}.`);
   error.code = code;

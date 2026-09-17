@@ -1,3 +1,4 @@
+// Debounced filesystem watcher with rename detection and event validation.
 import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";

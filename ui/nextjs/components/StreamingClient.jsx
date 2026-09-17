@@ -1,3 +1,4 @@
+// Reusable streaming client for SSE conversation events.
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";

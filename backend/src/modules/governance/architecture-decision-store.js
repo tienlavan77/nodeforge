@@ -1,3 +1,4 @@
+// Persistent store for architecture decisions with JSON-schema validation and sensitive-field redaction.
 import { createRequire } from "node:module";
 
 import Ajv2020 from "ajv/dist/2020.js";
@@ -11,6 +12,7 @@ const decisionSchema = require("../../../../schemas/governance/architecture-deci
 
 const SENSITIVE = /(?:api[_-]?key|credential|secret|password|token|authorization)/i;
 
+// Creates a validated architecture decision store with optional SQLite backing.
 export function createArchitectureDecisionStore({ validateDecision = createDecisionValidator(), database } = {}) {
   if (typeof validateDecision !== "function") throw new ConfigurationError("Architecture Decision validation must be a function.");
   if (database !== undefined && (!database?.run || !database?.all)) throw new ConfigurationError("Persistent Architecture Decision Store requires a SQLite database.");
@@ -20,6 +22,7 @@ export function createArchitectureDecisionStore({ validateDecision = createDecis
 
   return Object.freeze({ append, getById, getAll, getByType, load });
 
+  // Validates, redacts, and persists a new architecture decision.
   function append(decision) {
     validateDecision(decision);
     const id = decisionIdentity(decision);
@@ -31,21 +34,25 @@ export function createArchitectureDecisionStore({ validateDecision = createDecis
     return cloneDecision(stored);
   }
 
+  // Retrieves a decision by its identifier.
   function getById(id) {
     if (typeof id !== "string" || id.length === 0) throw new ConfigurationError("An Architecture Decision id is required.");
     const decision = decisionsById.get(id);
     return decision ? cloneDecision(decision) : undefined;
   }
 
+  // Returns all stored decisions.
   function getAll() {
     return decisions.map(cloneDecision);
   }
 
+  // Returns decisions filtered by type.
   function getByType(type) {
     if (typeof type !== "string" || type.length === 0) throw new ConfigurationError("An Architecture Decision type is required.");
     return decisions.filter((decision) => decision.type === type).map(cloneDecision);
   }
 
+  // Reloads all decisions from the database into memory.
   function load() {
     if (!database) return getAll();
     ensureTable(database);
@@ -60,10 +67,12 @@ export function createArchitectureDecisionStore({ validateDecision = createDecis
   }
 }
 
+// Resolves the canonical identifier for a decision record.
 function decisionIdentity(decision) {
   return decision.id ?? decision.decision_id;
 }
 
+// Builds a JSON-schema validator for architecture decisions.
 function createDecisionValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);
@@ -75,14 +84,17 @@ function createDecisionValidator() {
   };
 }
 
+// Returns a frozen deep clone of a decision.
 function freezeDecision(decision) {
   return Object.freeze(structuredClone(decision));
 }
 
+// Returns a mutable deep clone of a decision.
 function cloneDecision(decision) {
   return structuredClone(decision);
 }
 
+// Creates the governance decisions table and index if missing.
 function ensureTable(database) {
   database.run(`CREATE TABLE IF NOT EXISTS governance_decisions (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,6 +105,7 @@ function ensureTable(database) {
   database.run("CREATE INDEX IF NOT EXISTS governance_decisions_type ON governance_decisions (decision_type, sequence)");
 }
 
+// Recursively redacts sensitive keys in a value.
 function redact(value) {
   if (Array.isArray(value)) return value.map(redact);
   if (!value || typeof value !== "object") return value;

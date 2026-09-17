@@ -1,3 +1,4 @@
+// Summarizes ticket execution results into user-facing text.
 export function summarizeTicketResult(message) {
   const payload = message?.payload ?? {};
   if (message?.message_type === "git.commit" && payload.status !== "failed") {

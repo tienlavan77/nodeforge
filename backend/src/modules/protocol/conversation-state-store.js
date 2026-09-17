@@ -1,13 +1,16 @@
+// File-backed store that tracks conversation round, step, and lifecycle status.
 import { ConfigurationError } from "../../shared/errors.js";
 
 const TERMINAL = new Set(["completed", "failed", "needs_human_review"]);
 
 /** Tracks workflow conversation state independently from provider payloads. */
+// Creates a file-backed store for conversation state and round progression.
 export function createConversationStateStore({ fileService, root = ".forge/runtime/protocol-storage/conversations" } = {}) {
   if (typeof fileService?.readFile !== "function" || typeof fileService?.atomicWrite !== "function") throw new ConfigurationError("Conversation state store requires File Service readFile and atomicWrite.");
   const states = new Map();
   return Object.freeze({ create, get, list, listByAgent, update, advanceRound, markStatus, clear });
 
+  // Lists conversations, optionally filtered by agent id.
   async function list({ agentId } = {}) {
     if (agentId !== undefined) requireId(agentId, "agentId");
     const conversations = [...states.values()]
@@ -16,8 +19,10 @@ export function createConversationStateStore({ fileService, root = ".forge/runti
     return conversations;
   }
 
+  // Lists conversations for a specific agent.
   async function listByAgent(agentId) { return list({ agentId }); }
 
+  // Creates and persists a new conversation state, idempotent on existing id.
   async function create({ conversationId, taskId, projectId, agentId = "builder", promptCacheKey = null } = {}) {
     requireId(conversationId, "conversationId"); requireId(taskId, "taskId");
     const state = { conversation_id: conversationId, task_id: taskId, project_id: projectId ?? null, agent_id: agentId, status: "created", current_round: 0, current_step: 0, last_request_id: null, last_provider_response_id: null, last_provider_status: null, parent_request_id: null, prompt_cache_key: promptCacheKey, context_revision: null, context_checksums: {}, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
@@ -34,6 +39,7 @@ export function createConversationStateStore({ fileService, root = ".forge/runti
     return structuredClone(state);
   }
 
+  // Retrieves conversation state from cache or file storage.
   async function get(conversationId) {
     requireId(conversationId, "conversationId");
     if (states.has(conversationId)) return structuredClone(states.get(conversationId));
@@ -41,6 +47,7 @@ export function createConversationStateStore({ fileService, root = ".forge/runti
     catch (error) { if (error?.code === "ENOENT" || error instanceof SyntaxError) return null; throw error; }
   }
 
+  // Deletes state for a conversation from memory and disk.
   async function clear(conversationId) {
     requireId(conversationId, "conversationId");
     states.delete(conversationId);
@@ -48,6 +55,7 @@ export function createConversationStateStore({ fileService, root = ".forge/runti
     return true;
   }
 
+  // Merges changes into conversation state and persists them.
   async function update(conversationId, changes = {}) {
     const current = await get(conversationId); if (!current) throw new ConfigurationError(`Conversation state not found: ${conversationId}.`);
     if (changes.status && TERMINAL.has(current.status) && changes.status !== current.status) throw new ConfigurationError(`Conversation ${conversationId} is already terminal.`);
@@ -55,16 +63,21 @@ export function createConversationStateStore({ fileService, root = ".forge/runti
     states.set(conversationId, next); await persist(next); return structuredClone(next);
   }
 
+  // Advances the round and step counters for a conversation.
   async function advanceRound(conversationId, { round, step, requestId, parentId = null, providerResponseId = null, providerStatus = null, status = "round_sent" } = {}) {
     const current = await get(conversationId); if (!current) throw new ConfigurationError(`Conversation state not found: ${conversationId}.`);
     if (!Number.isInteger(round) || round < current.current_round) throw new ConfigurationError("Conversation round must advance monotonically.");
     return update(conversationId, { current_round: round, current_step: step ?? round, last_request_id: requestId ?? current.last_request_id, parent_request_id: parentId, last_provider_response_id: providerResponseId, last_provider_status: providerStatus, status });
   }
 
+  // Updates the lifecycle status for a conversation.
   async function markStatus(conversationId, status, details = {}) { return update(conversationId, { status, ...details }); }
 
+  // Writes conversation state atomically to storage.
   async function persist(state) { await fileService.atomicWrite({ path: `${root}/${safe(state.conversation_id)}/state.json`, content: `${JSON.stringify(state)}\n`, replace: true }); }
 }
 
+// Validates that a required identifier is a non-empty string.
 function requireId(value, name) { if (typeof value !== "string" || !value) throw new ConfigurationError(`Conversation state requires ${name}.`); }
+// Validates that a conversation id is filesystem safe.
 function safe(value) { if (!/^[A-Za-z0-9._-]+$/.test(value)) throw new ConfigurationError("Conversation ID contains unsafe characters."); return value; }

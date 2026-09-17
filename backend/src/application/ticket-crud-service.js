@@ -6,20 +6,19 @@ import { ConfigurationError } from "../shared/errors.js";
 const UPDATABLE = ["title", "objective", "acceptance_criteria", "priority", "dependencies", "status", "last_error"];
 const SPRINT_LEADER_ROLE = "sprint_leader";
 
+// Creates a CRUD service for tickets with sprint-leader normalization.
 export function createTicketCrudService({ roadmaps, proseTicketService, ticketFileStore, publisher, agentStream, agentRoleResolver, clock = () => new Date() } = {}) {
   if (typeof roadmaps?.getCurrent !== "function") throw new ConfigurationError("Ticket CRUD requires a Roadmap Store.");
   if (typeof proseTicketService?.createFromObject !== "function") throw new ConfigurationError("Ticket CRUD requires the Prose Ticket Service.");
   if (ticketFileStore !== undefined && typeof ticketFileStore?.create !== "function") throw new ConfigurationError("Ticket CRUD requires a valid Ticket File Store.");
 
   return Object.freeze({ listTickets, createTicket, updateTicket, regenerateTicketEnglish });
-
   function listTickets({ projectId } = {}) {
     requireProject(projectId);
     const current = roadmaps.getCurrent();
     if (!current || current.project_id !== projectId) return [];
     return structuredClone((current.sprints ?? []).flatMap((sprint) => sprint.tickets ?? []));
   }
-
   async function createTicket({ projectId, ticket, content, context, sprintId } = {}) {
     requireProject(projectId);
     const now = clock().toISOString();
@@ -66,7 +65,6 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
     }
     throw Object.assign(new ConfigurationError(`Sprint leader returned an invalid ticket: ${retry.question ?? "unknown validation failure"}`), { statusCode: 422, code: "INVALID_TICKET", ...(retry.missing?.length ? { missing: retry.missing } : {}) });
   }
-
   function tryCreate({ projectId, ticket, content, sprintId, now }) {
     const current = roadmaps.getCurrent();
     let candidateInput = ticket;
@@ -96,12 +94,10 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
     publish("ticket.created", projectId, { ticket_id: id, ticket: result.ticket, roadmap_version: result.roadmap.version });
     return { created: true, ticket: result.ticket, roadmap_version: result.roadmap.version };
   }
-
   function persistCanonical(ticket, context) {
     if (!ticketFileStore) return;
     ticketFileStore.create({ ticket, context });
   }
-
   async function requestSprintLeaderTicket({ projectId, agentId, content, ticket, feedback }) {
     const prompt = [
       "Convert the project owner request below into exactly one governance ticket.",
@@ -120,7 +116,6 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
     }
     return extractTicketJson(output);
   }
-
   async function regenerateTicketEnglish({ projectId, ticketId, context, sprintId } = {}) {
     requireProject(projectId);
     if (typeof context !== "string" || !context.trim()) throw Object.assign(new ConfigurationError("Vietnamese source context is required."), { statusCode: 400, code: "SOURCE_CONTEXT_REQUIRED" });
@@ -151,7 +146,6 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
     publish("ticket.updated", projectId, { ticket_id: ticketId, ticket: updated, reason: "english_regeneration" });
     return { updated: true, ticket: updated, english_content: ticketEnglishContent(updated), source_context: context };
   }
-
   function updateTicket({ projectId, ticketId, patch } = {}) {
     requireProject(projectId);
     const provided = patch && typeof patch === "object" && !Array.isArray(patch) ? patch : {};
@@ -163,20 +157,20 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
     publish("ticket.updated", projectId, { ticket_id: ticketId, ticket: updated, roadmap_version: saved.version, patch: filtered });
     return { updated: true, ticket: updated, roadmap_version: saved.version };
   }
-
   function attemptError(attempt) {
     return Object.assign(new ConfigurationError(attempt.question ?? "Ticket is invalid."), { statusCode: 422, code: "INVALID_TICKET", ...(attempt.invalid_fields?.length ? { invalid_fields: attempt.invalid_fields } : {}), ...(attempt.missing?.length ? { missing: attempt.missing } : {}) });
   }
-
   function publish(type, projectId, payload) {
     try { publisher?.publish?.({ event_id: `EVT-${Date.now()}-${type}`, type, project_id: projectId, timestamp: new Date().toISOString(), payload, metadata: { source: "ticket-crud-service" } }); } catch { /* stream notification must not undo mutation */ }
   }
 }
 
+// Formats ticket fields into English content string.
 function ticketEnglishContent(ticket) {
   return [ticket.title ? `Title: ${ticket.title}` : "", ticket.objective ? `Objective: ${ticket.objective}` : "", (ticket.acceptance_criteria ?? []).length ? `Acceptance criteria:\n${ticket.acceptance_criteria.map((item) => `- ${item}`).join("\n")}` : ""].filter(Boolean).join("\n\n");
 }
 
+// Validates regenerated ticket required fields.
 function validateRegeneratedTicket(ticket) {
   const errors = [];
   for (const field of ["title", "objective"]) if (typeof ticket[field] !== "string" || !ticket[field].trim()) errors.push(`${field} must be a non-empty string`);
@@ -185,12 +179,14 @@ function validateRegeneratedTicket(ticket) {
   return errors;
 }
 
+// Validates that a project ID is provided.
 function requireProject(projectId) {
   if (typeof projectId !== "string" || projectId.length === 0) {
     throw Object.assign(new ConfigurationError("A project id is required."), { statusCode: 400, code: "PROJECT_REQUIRED" });
   }
 }
 
+// Extracts ticket JSON from agent output text.
 function extractTicketJson(text) {
   const value = String(text ?? "");
   const candidates = [];
@@ -205,6 +201,7 @@ function extractTicketJson(text) {
   return undefined;
 }
 
+// Parses the leading JSON object from agent output.
 function parseLeadingJson(value) {
   const trimmed = value.trim();
   if (!trimmed.startsWith("{")) return undefined;

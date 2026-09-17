@@ -1,3 +1,4 @@
+// Formats ticket payloads for chat display.
 /**
  * Formats a structured ticket for chat without mutating or dispatching it.
  * Plain prose is returned unchanged.
@@ -15,6 +16,7 @@ export function formatTicketResponse(value) {
   return `\`\`\`json\n${JSON.stringify(json, null, 2)}\n\`\`\``;
 }
 
+// Converts a value into structured JSON if possible.
 function toStructuredJson(value) {
   if (value !== null && typeof value === 'object') {
     return value;

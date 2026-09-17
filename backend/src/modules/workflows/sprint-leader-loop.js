@@ -1,3 +1,4 @@
+// Summary: Sprint leader orchestration that validates sprint state, resolves agents, and drives ticket DAG execution.
 import { createRequire } from "node:module";
 import { randomUUID } from "node:crypto";
 
@@ -17,6 +18,7 @@ const verificationPlanSchema = require("../../../../schemas/verification/verific
 const REQUEST_TYPE = "sprints.request_plan";
 const PROPOSAL_TYPE = "sprints.plan_proposed";
 
+/** Creates the sprint leader loop that validates sprint input and drives ticket DAG levels. */
 export function createSprintLeaderLoop({ projectId, createRequestId = () => `REQ-${randomUUID()}`, createEventId = () => `EVT-${randomUUID()}`, clock = () => new Date() } = {}) {
   if (typeof projectId !== "string" || projectId.length === 0 || typeof createRequestId !== "function" || typeof createEventId !== "function" || typeof clock !== "function") {
     throw new ConfigurationError("Sprint Leader loop requires project_id and ID/time factories.");

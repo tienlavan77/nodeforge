@@ -1,7 +1,9 @@
+// Directed acyclic graph tracker for governance nodes and their execution ordering.
 import { ConfigurationError } from "../../shared/errors.js";
 
 const NODE_TYPES = new Set(["roadmap", "sprint", "ticket", "commit"]);
 
+// Creates a DAG store that tracks node dependencies and topological order.
 export function createGovernanceDependencyGraph() {
   const nodes = new Map();
   const dependencies = new Map();
@@ -9,6 +11,7 @@ export function createGovernanceDependencyGraph() {
 
   return Object.freeze({ addNode, addDependency, getDependencies, getDependents, getExecutionOrder });
 
+  // Adds a governance node with type validation.
   function addNode(node) {
     if (!node || typeof node.id !== "string" || node.id.length === 0 || !NODE_TYPES.has(node.type)) {
       throw new ConfigurationError("Governance node requires an id and a supported type.");
@@ -20,6 +23,7 @@ export function createGovernanceDependencyGraph() {
     return { ...nodes.get(node.id) };
   }
 
+  // Links a node to a dependency while preventing cycles.
   function addDependency(nodeId, dependencyId) {
     assertNode(nodeId);
     assertNode(dependencyId);
@@ -30,16 +34,19 @@ export function createGovernanceDependencyGraph() {
     dependents.get(dependencyId).add(nodeId);
   }
 
+  // Returns direct dependencies of a node.
   function getDependencies(nodeId) {
     assertNode(nodeId);
     return [...dependencies.get(nodeId)].map(cloneNode);
   }
 
+  // Returns nodes that depend on the given node.
   function getDependents(nodeId) {
     assertNode(nodeId);
     return [...dependents.get(nodeId)].map(cloneNode);
   }
 
+  // Returns nodes in topological order, failing if a cycle exists.
   function getExecutionOrder() {
     const remaining = new Map([...dependencies.entries()].map(([id, ids]) => [id, new Set(ids)]));
     const order = [];
@@ -55,6 +62,7 @@ export function createGovernanceDependencyGraph() {
     return order;
   }
 
+  // Checks whether adding an edge would introduce a cycle.
   function createsCycle(nodeId, dependencyId) {
     const visited = new Set();
     const pending = [dependencyId];
@@ -68,10 +76,12 @@ export function createGovernanceDependencyGraph() {
     return false;
   }
 
+  // Validates that a node identifier exists in the graph.
   function assertNode(id) {
     if (typeof id !== "string" || !nodes.has(id)) throw new ConfigurationError(`Unknown governance node: ${id}.`);
   }
 
+  // Returns a shallow copy of a stored node.
   function cloneNode(id) {
     return { ...nodes.get(id) };
   }

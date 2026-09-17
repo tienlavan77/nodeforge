@@ -1,3 +1,4 @@
+// Summary: File-backed idempotency store that persists processed request events and supports atomic claim per operation.
 import { ConfigurationError } from "../../shared/errors.js";
 export function createProcessedRequestStore({ fileService, root = ".forge/runtime/supervisor-processed" } = {}) {
   if (typeof fileService?.readFile !== "function" || typeof fileService?.atomicWrite !== "function") throw new ConfigurationError("Processed request store requires File Service.");

@@ -1,3 +1,4 @@
+// Routes owner requests to role-specific agent streams with batched deltas.
 'use strict';
 
 /**

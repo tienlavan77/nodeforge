@@ -1,3 +1,4 @@
+// Summary: Maintains dependency_edges for the Code Index by resolving imports to file IDs and marking broken targets.
 import { isAbsolute, posix, relative } from "node:path";
 
 export function createDependencyGraph({ database, files, projectRoot } = {}) {

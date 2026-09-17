@@ -1,6 +1,8 @@
+// SQLite-backed event store that persists sequenced events with duplicate-conflict handling.
 import { ConfigurationError } from "../../shared/errors.js";
 import { EventIdConflictError } from "./event-store.js";
 
+// Creates a SQLite-backed event store with auto-sequencing and duplicate checks.
 export function createPersistentEventStore({ database } = {}) {
   if (!database?.run || !database?.all) throw new ConfigurationError("Persistent Event Store requires a SQLite database.");
   ensureEventTable(database);
@@ -11,6 +13,7 @@ export function createPersistentEventStore({ database } = {}) {
 
   return Object.freeze({ append, getById, getAll, getByType, load });
 
+  // Persists an event to SQLite, assigning a sequence number.
   function append(event) {
     const normalized = normalizeEvent(event);
     assertEventRecord(normalized);
@@ -39,21 +42,25 @@ export function createPersistentEventStore({ database } = {}) {
     }
   }
 
+  // Retrieves an event by its identifier.
   function getById(eventId) {
     if (typeof eventId !== "string" || eventId.length === 0) throw new ConfigurationError("An event_id is required.");
     const event = eventsById.get(eventId);
     return event ? cloneRecord(event) : undefined;
   }
 
+  // Returns all events ordered by sequence.
   function getAll() {
     return events.map(cloneRecord);
   }
 
+  // Returns events filtered by type.
   function getByType(eventType) {
     if (typeof eventType !== "string" || eventType.length === 0) throw new ConfigurationError("An event_type is required.");
     return events.filter((event) => event.event_type === eventType).map(cloneRecord);
   }
 
+  // Reloads all events from the database into memory.
   function load() {
     events.splice(0, events.length);
     eventsById.clear();
@@ -67,6 +74,7 @@ export function createPersistentEventStore({ database } = {}) {
   }
 }
 
+// Creates the events table and adds missing columns.
 function ensureEventTable(database) {
   database.run(`CREATE TABLE IF NOT EXISTS events (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,6 +90,7 @@ function ensureEventTable(database) {
   database.run("CREATE INDEX IF NOT EXISTS events_by_type ON events (event_type, sequence)");
 }
 
+// Validates required event fields.
 function assertEventRecord(event) {
   if (!event || typeof event !== "object" || typeof event.event_id !== "string" || event.event_id.length === 0
     || typeof event.event_type !== "string" || event.event_type.length === 0 || typeof event.timestamp !== "string"
@@ -92,10 +101,12 @@ function assertEventRecord(event) {
   }
 }
 
+// Fills project_id from metadata when absent.
 function normalizeEvent(event) {
   return { ...event, ...(event?.project_id ? {} : { project_id: event?.metadata?.project_id }) };
 }
 
+// Freezes an event into an immutable record with optional sequence.
 function freezeRecord(event) {
   return Object.freeze({
     event_id: event.event_id,
@@ -114,6 +125,7 @@ function freezeRecord(event) {
   });
 }
 
+// Clones a stored event for return to callers.
 function cloneRecord(event) {
   return {
     event_id: event.event_id,
@@ -132,6 +144,7 @@ function cloneRecord(event) {
   };
 }
 
+// Compares two records ignoring sequence.
 function sameRecord(left, right) {
   const comparable = (record) => Object.fromEntries(Object.entries(record).filter(([key]) => key !== "sequence"));
   return JSON.stringify(comparable(left)) === JSON.stringify(comparable(right));

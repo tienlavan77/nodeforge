@@ -1,3 +1,4 @@
+// Summary: Durable leased queue with enqueue/claim/ack/reject/recover semantics backed by a pluggable store and optional file lock.
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 

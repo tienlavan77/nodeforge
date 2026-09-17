@@ -1,3 +1,4 @@
+// Summary: Bridges terminal task events to ticket/roadmap status updates and long-term memory capture.
 import { ConfigurationError } from "../../shared/errors.js";
 
 const TERMINAL_MAP = {
@@ -8,6 +9,7 @@ const TERMINAL_MAP = {
 
 const LONG_TERM_FACT = /\b(decision|architecture|migrat(?:e|ed|ion)?|standard|identity|rule engine|validator|always|must)\b/i;
 
+/** Creates a bridge that maps terminal task events to ticket/roadmap and memory updates. */
 export function createTerminalBridge({ eventBus, ticketStatusStore, roadmaps, projectId, taskSummaries, projectMemory, logger = () => {} } = {}) {
   if (typeof eventBus?.subscribe !== "function") throw new ConfigurationError("Terminal Bridge requires an execution event bus.");
   if (typeof ticketStatusStore?.updateStatus !== "function") throw new ConfigurationError("Terminal Bridge requires a Ticket Status Store.");

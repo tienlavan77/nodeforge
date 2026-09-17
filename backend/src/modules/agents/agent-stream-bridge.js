@@ -1,6 +1,8 @@
+// Bridges agent stdout/stderr streams onto the internal event bus with secret redaction.
 import { ConfigurationError } from "../../shared/errors.js";
 import { redactSensitiveText } from "../context/secret-paths.js";
 
+// Bridges agent stdout/stderr events onto the internal bus with optional redaction.
 export function bridgeAgentStream({ agent, internalBus, redact = redactSensitiveText } = {}) {
   if (!agent?.on || !agent?.off || !internalBus?.emit) {
     throw new ConfigurationError("An agent process and internal bus are required for stream bridging.");
