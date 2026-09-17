@@ -1,0 +1,131 @@
+// Conversations Block component for conversation accordion rows.
+"use client";
+
+import { useState, useRef, useEffect } from "react";
+
+// API helpers for menu actions — trigger backend without full page reload.
+async function apiDeleteConversation(id) {
+  const res = await fetch(`/forge/v1/conversations/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!res.ok) { const p = await res.json().catch(() => ({})); throw new Error(p.error ?? p.message ?? "Delete failed"); }
+  return res.json().catch(() => ({}));
+}
+async function apiRenameConversation(id, title) {
+  const res = await fetch(`/forge/v1/conversations/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title }) });
+  if (!res.ok) { const p = await res.json().catch(() => ({})); throw new Error(p.error ?? p.message ?? "Rename failed"); }
+  return res.json().catch(() => ({}));
+}
+async function apiArchiveConversation(id) {
+  const res = await fetch(`/forge/v1/conversations/${encodeURIComponent(id)}/archive`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
+  if (!res.ok) {
+    // fallback to PATCH status
+    const r2 = await fetch(`/forge/v1/conversations/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ archived: true, status: "archived" }) });
+    if (!r2.ok) { const p = await r2.json().catch(() => ({})); throw new Error(p.error ?? p.message ?? "Archive failed"); }
+    return r2.json().catch(() => ({}));
+  }
+  return res.json().catch(() => ({}));
+}
+
+// Single row block with three aligned sections: check | title | menu.
+export function ConversationsBlock({
+  conversation,
+  checked,
+  onCheckedChange,
+  onSelect,
+  onRenamed,
+  onArchived,
+  onDeleted,
+  menuOpen,
+  onMenuToggle,
+  isEditing,
+  editTitle,
+  onEditTitleChange,
+  onStartRename,
+  onConfirmRename,
+  onCancelRename,
+  draggable = true,
+  onDragStart,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onDragEnd,
+  isDragging,
+  isDragOver,
+  isArchived,
+}) {
+  const titleText = conversation.title ?? conversation.name ?? conversation.id ?? conversation.conversation_id ?? "";
+  const wrapRef = useRef(null);
+
+  // Handles delete action via API then notifies parent.
+  async function handleDelete() {
+    const id = String(conversation.id ?? conversation.conversation_id ?? "");
+    try {
+      await apiDeleteConversation(id);
+    } catch { /* allow UI update even if backend not mounted in dev */ }
+    onDeleted?.(conversation);
+    onMenuToggle?.(false);
+  }
+
+  // Handles rename action via API.
+  async function handleRenameConfirm() {
+    const t = (editTitle ?? "").trim();
+    if (!t || t.length > 120) return;
+    const id = String(conversation.id ?? conversation.conversation_id ?? "");
+    try { await apiRenameConversation(id, t); } catch { /* still update UI */ }
+    onConfirmRename?.();
+  }
+
+  // Handles archive action via API.
+  async function handleArchive() {
+    const id = String(conversation.id ?? conversation.conversation_id ?? "");
+    try { await apiArchiveConversation(id); } catch { /* still update UI */ }
+    onArchived?.(conversation);
+    onMenuToggle?.(false);
+  }
+
+  return (
+    <li
+      draggable={draggable && !isEditing}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
+      className={`conversations-block conversations-accordion-row ${isDragging ? "is-dragging" : ""} ${isDragOver ? "is-drag-over" : ""} ${isArchived ? "is-archived" : ""}`}
+      data-testid="conversations-block"
+    >
+      <input
+        type="checkbox"
+        className="conversations-block-check conversations-accordion-checkbox"
+        checked={!!checked}
+        onChange={() => onCheckedChange?.(conversation)}
+        aria-label={`Select conversation ${titleText}`}
+      />
+      {isEditing ? (
+        <input
+          className="conversations-block-title-input conversations-accordion-rename-input"
+          value={editTitle}
+          autoFocus
+          onChange={(e) => onEditTitleChange?.(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") handleRenameConfirm(); if (e.key === "Escape") onCancelRename?.(); }}
+          onBlur={handleRenameConfirm}
+          aria-label="Rename conversation"
+        />
+      ) : (
+        <button type="button" className="conversations-block-title conversations-accordion-item-main" onClick={() => onSelect?.(conversation)}>
+          <span className="conversations-block-title-text conversations-accordion-item-title">{titleText}</span>
+          {conversation.updated_at || conversation.updatedAt ? (<time className="conversations-accordion-item-time">{conversation.updated_at ?? conversation.updatedAt}</time>) : null}
+        </button>
+      )}
+      <div className="conversations-block-menu-wrap conversations-accordion-menu-wrap" ref={wrapRef}>
+        <button type="button" className="conversations-block-menu-btn conversations-accordion-menu-btn" aria-label="Conversation actions" aria-haspopup="menu" aria-expanded={!!menuOpen} onClick={() => onMenuToggle?.(!menuOpen)}>⋮</button>
+        {menuOpen && (
+          <div className="conversations-block-menu conversations-accordion-menu" role="menu">
+            <button type="button" role="menuitem" onClick={() => { onStartRename?.(); onMenuToggle?.(false); }}>Rename</button>
+            <button type="button" role="menuitem" onClick={handleArchive}>Archive</button>
+            <button type="button" role="menuitem" className="is-danger" onClick={handleDelete}>Delete</button>
+          </div>
+        )}
+      </div>
+    </li>
+  );
+}

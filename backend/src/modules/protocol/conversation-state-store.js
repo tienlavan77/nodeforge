@@ -8,7 +8,7 @@ const TERMINAL = new Set(["completed", "failed", "needs_human_review"]);
 export function createConversationStateStore({ fileService, root = ".forge/runtime/protocol-storage/conversations" } = {}) {
   if (typeof fileService?.readFile !== "function" || typeof fileService?.atomicWrite !== "function") throw new ConfigurationError("Conversation state store requires File Service readFile and atomicWrite.");
   const states = new Map();
-  return Object.freeze({ create, get, list, listByAgent, update, advanceRound, markStatus, clear });
+  return Object.freeze({ create, get, list, listByAgent, update, advanceRound, markStatus, clear, rename, archive });
 
   // Lists conversations, optionally filtered by agent id.
   async function list({ agentId } = {}) {
@@ -74,6 +74,20 @@ export function createConversationStateStore({ fileService, root = ".forge/runti
   async function markStatus(conversationId, status, details = {}) { return update(conversationId, { status, ...details }); }
 
   // Writes conversation state atomically to storage.
+  // Renames a conversation title.
+  async function rename(conversationId, title) {
+    requireId(conversationId, "conversationId");
+    if (typeof title !== "string" || !title.trim()) throw new ConfigurationError("Conversation title is required.");
+    if (title.trim().length > 120) throw new ConfigurationError("Conversation title must be 120 characters or fewer.");
+    return update(conversationId, { title: title.trim() });
+  }
+
+  // Archives a conversation.
+  async function archive(conversationId) {
+    requireId(conversationId, "conversationId");
+    return update(conversationId, { archived: true, status: "archived" });
+  }
+
   async function persist(state) { await fileService.atomicWrite({ path: `${root}/${safe(state.conversation_id)}/state.json`, content: `${JSON.stringify(state)}\n`, replace: true }); }
 }
 
