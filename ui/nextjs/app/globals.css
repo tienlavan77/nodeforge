@@ -1520,7 +1520,31 @@ button, input { font: inherit; }
 .conversations-accordion-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .conversations-accordion-item { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--app-border); background: color-mix(in srgb, var(--app-panel) 70%, transparent); color: var(--app-text); padding: 9px 10px; cursor: pointer; text-align: left; }
 .conversations-accordion-item:hover { border-color: var(--app-accent); }
-.conversations-accordion-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.conversations-accordion-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; flex: 1 1 auto; min-width: 0; text-align: left; }
+.conversations-accordion-item-time { flex: 0 0 auto; color: var(--app-muted); font: 10px 'DM Mono', monospace; }
+.conversations-accordion-row { display: flex; align-items: center; gap: 8px; width: 100%; border: 1px solid var(--app-border); background: color-mix(in srgb, var(--app-panel) 70%, transparent); padding: 6px 8px; border-radius: 6px; transition: border-color .18s ease, background .18s ease, opacity .18s ease, transform .18s ease; }
+.conversations-accordion-row:hover { border-color: var(--app-accent); }
+.conversations-accordion-row.is-dragging { opacity: .55; transform: scale(1.01); border-color: var(--app-accent); box-shadow: 0 4px 16px color-mix(in srgb, #000 30%, transparent); }
+.conversations-accordion-row.is-drag-over { border-color: var(--app-accent); background: color-mix(in srgb, var(--app-accent) 12%, var(--app-panel)); }
+.conversations-accordion-row.is-archived { opacity: .6; }
+.conversations-accordion-checkbox { flex: 0 0 auto; width: 16px; height: 16px; accent-color: var(--app-accent); cursor: pointer; }
+.conversations-accordion-item-main { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; border: 0; background: transparent; color: var(--app-text); cursor: pointer; text-align: left; padding: 2px 4px; }
+.conversations-accordion-item-main:focus-visible { outline: 2px solid color-mix(in srgb, var(--app-accent) 45%, transparent); outline-offset: 1px; border-radius: 4px; }
+.conversations-accordion-rename-input { flex: 1 1 auto; min-width: 0; border: 1px solid var(--app-accent); border-radius: 4px; background: var(--app-input); color: var(--app-text); padding: 4px 8px; font-size: 13px; }
+.conversations-accordion-menu-wrap { position: relative; flex: 0 0 auto; margin-left: auto; }
+.conversations-accordion-menu-btn { width: 28px; height: 28px; display: inline-grid; place-items: center; border: 1px solid transparent; background: transparent; color: var(--app-muted); cursor: pointer; border-radius: 6px; font-size: 16px; line-height: 1; }
+.conversations-accordion-menu-btn:hover { background: color-mix(in srgb, var(--app-surface-alt) 70%, transparent); border-color: var(--app-border); color: var(--app-text); }
+.conversations-accordion-menu-btn:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 1px; }
+.conversations-accordion-menu { position: absolute; right: 0; top: calc(100% + 4px); min-width: 140px; background: var(--app-panel); border: 1px solid var(--app-border); border-radius: 8px; box-shadow: 0 12px 32px color-mix(in srgb, #000 35%, transparent); padding: 4px; display: grid; gap: 2px; z-index: 10; }
+.conversations-accordion-menu button { width: 100%; text-align: left; border: 0; background: transparent; color: var(--app-text); padding: 7px 10px; border-radius: 6px; cursor: pointer; font: 13px 'Space Grotesk', sans-serif; }
+.conversations-accordion-menu button:hover { background: color-mix(in srgb, var(--app-surface-alt) 80%, transparent); }
+.conversations-accordion-menu button.is-danger { color: var(--app-danger, #e36d78); }
+.conversations-accordion-drag-handle { flex: 0 0 auto; cursor: grab; color: var(--app-muted); font-size: 12px; padding: 2px 4px; user-select: none; }
+.conversations-accordion-drag-handle:active { cursor: grabbing; }
+@media (max-width: 560px) {
+  .conversations-accordion-row { padding: 8px; }
+  .conversations-accordion-menu { min-width: 120px; }
+}
 .conversations-accordion-item-time { flex: 0 0 auto; color: var(--app-muted); font: 10px 'DM Mono', monospace; }
 
 /* New conversation modal */
