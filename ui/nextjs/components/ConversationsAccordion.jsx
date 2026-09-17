@@ -44,7 +44,10 @@ export function ConversationsAccordion({
   const [editTitle, setEditTitle] = useState("");
   const [dragId, setDragId] = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState("");
   const menuRef = useRef(null);
+  const fetchedKeyRef = useRef(null);
 
   useEffect(() => {
     let next = [...conversations];
@@ -63,6 +66,67 @@ export function ConversationsAccordion({
     } catch { /* ignore */ }
     setItems(next);
   }, [conversations]);
+
+  // Fetch conversations on page load filtered by project_id and agent_id
+  useEffect(() => {
+    const key = `${projectId ?? ""}::${agentId ?? ""}`;
+    if (fetchedKeyRef.current === key) return;
+    fetchedKeyRef.current = key;
+    let cancelled = false;
+    // Fetches conversations from Forge API and updates items state
+    async function fetchConversations() {
+      setLoading(true);
+      setFetchError("");
+      try {
+        const params = new URLSearchParams();
+        if (projectId != null && projectId !== "") params.set("project_id", String(projectId));
+        if (agentId != null && agentId !== "") params.set("agent_id", String(agentId));
+        const qs = params.toString();
+        const url = qs ? `/forge/v1/conversations?${qs}` : "/forge/v1/conversations";
+        const response = await fetch(url, { method: "GET", headers: { "content-type": "application/json" } });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error ?? payload.message ?? "Unable to load conversations.");
+        let fetched = payload.conversations ?? payload.data ?? payload.items ?? payload.results ?? payload;
+        if (!Array.isArray(fetched)) {
+          if (fetched && Array.isArray(fetched.conversations)) fetched = fetched.conversations;
+          else if (fetched && typeof fetched === "object" && fetched !== null) fetched = [];
+          else fetched = [];
+        }
+        if (cancelled) return;
+        // Deduplicate by id and apply stored order
+        const deduped = [];
+        const seen = new Set();
+        for (const c of fetched) {
+          const id = getConversationId(c);
+          if (seen.has(id)) continue;
+          seen.add(id);
+          deduped.push(c);
+        }
+        let next = deduped;
+        try {
+          const stored = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_ORDER_KEY) : null;
+          if (stored) {
+            const order = JSON.parse(stored);
+            if (Array.isArray(order) && order.length) {
+              const map = new Map(next.map((c) => [getConversationId(c), c]));
+              const ordered = [];
+              for (const id of order) { if (map.has(id)) { ordered.push(map.get(id)); map.delete(id); } }
+              for (const [, v] of map) ordered.push(v);
+              next = ordered;
+            }
+          }
+        } catch { /* ignore */ }
+        setItems(next);
+      } catch (err) {
+        if (cancelled) return;
+        setFetchError(err?.message ?? "Unable to load conversations.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    fetchConversations();
+    return () => { cancelled = true; };
+  }, [projectId, agentId]);
 
   // Persists current order to localStorage
   function persistOrder(list) {
@@ -176,7 +240,11 @@ export function ConversationsAccordion({
         >
           <div className="conversations-accordion-panel-inner">
 
-            {items.length === 0 ? (
+            {loading ? (
+              <p className="conversations-accordion-loading">Loading conversations...</p>
+            ) : fetchError ? (
+              <p role="alert" className="conversations-accordion-error">Unable to load conversations.</p>
+            ) : items.length === 0 ? (
               <p className="conversations-accordion-empty">No conversations yet.</p>
             ) : (
               <ul className="conversations-accordion-list">
