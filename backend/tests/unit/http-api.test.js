@@ -157,6 +157,33 @@ test("routes Agent Settings exclusively through the Node application service", a
   assert.deepEqual(calls, [["save", { agent_id: "builder", gateway_url: "https://gateway.example.test/builder", enabled: true }], ["test", "builder"]]);
 });
 
+test("creates a conversation from the Forge v1 JSON payload", async () => {
+  let received;
+  const conversationCrudService = {
+    create: (input) => { received = input; return { ...input, id: "CONV-1" }; },
+    list: () => [],
+    get: () => null,
+    update: () => ({}),
+    remove: () => ({})
+  };
+  const api = createHttpApi({
+    runtimeService: runtimeStub(),
+    forgeV1Router: createForgeV1Router({ conversationCrudService })
+  });
+  const [status, result] = await request(api, "POST", "/forge/v1/conversations", {
+    project_id: "PROJECT-1",
+    agent_id: "agent-builder",
+    title: "Release planning"
+  });
+  assert.equal(status, 201);
+  assert.deepEqual(received, {
+    project_id: "PROJECT-1",
+    agent_id: "agent-builder",
+    title: "Release planning"
+  });
+  assert.equal(result.title, "Release planning");
+});
+
 function runtimeStub() {
   return { startTask: () => ({}), pauseSession: () => ({}), resumeSession: () => ({}), getSession: () => ({}), getProjectMemory: () => ({}) };
 }
