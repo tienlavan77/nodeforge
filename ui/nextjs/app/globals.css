@@ -1541,6 +1541,17 @@ button, input { font: inherit; }
 .conversations-accordion-menu button.is-danger { color: var(--app-danger, #e36d78); }
 .conversations-accordion-drag-handle { flex: 0 0 auto; cursor: grab; color: var(--app-muted); font-size: 12px; padding: 2px 4px; user-select: none; }
 .conversations-accordion-drag-handle:active { cursor: grabbing; }
+/* Conversations Block: check left | title left truncated | menu right */
+.conversations-block { display: flex; align-items: center; gap: 8px; }
+.conversations-block-check { flex: 0 0 auto; }
+.conversations-block-title { flex: 1 1 auto; min-width: 0; justify-content: flex-start; }
+.conversations-block-title-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.conversations-block-menu-wrap { margin-left: auto; }
+.conversations-block-menu { right: 0; }
+@media (max-width: 560px) {
+  .conversations-block { gap: 6px; }
+  .conversations-block-title-text { font-size: 12px; }
+}
 @media (max-width: 560px) {
   .conversations-accordion-row { padding: 8px; }
   .conversations-accordion-menu { min-width: 120px; }

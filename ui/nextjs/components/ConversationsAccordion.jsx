@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { CreateConversationModal } from "./CreateConversationModal.jsx";
+import { ConversationsBlock } from "./ConversationsBlock.jsx";
 
 const STORAGE_ORDER_KEY = "nodeforge:conversations:order";
 
@@ -219,37 +220,32 @@ export function ConversationsAccordion({
                     setEditingId(null); setEditTitle("");
                   };
                   return (
-                    <li
+                    <ConversationsBlock
                       key={cid}
-                      draggable={!isEditing}
+                      conversation={conv}
+                      checked={selectedIds.has(cid)}
+                      onCheckedChange={() => { setSelectedIds((prev) => { const n = new Set(prev); if (n.has(cid)) n.delete(cid); else n.add(cid); return n; }); }}
+                      onSelect={onSelectConversation}
+                      menuOpen={menuOpenId === cid}
+                      onMenuToggle={(next) => setMenuOpenId(next ? cid : null)}
+                      isEditing={isEditing}
+                      editTitle={editTitle}
+                      onEditTitleChange={setEditTitle}
+                      onStartRename={onStartRename}
+                      onConfirmRename={onConfirmRename}
+                      onCancelRename={() => { setEditingId(null); setEditTitle(""); }}
+                      onDeleted={onDelete}
+                      onArchived={onArchive}
+                      onRenamed={onConfirmRename}
                       onDragStart={onDragStart}
                       onDragOver={onDragOver}
                       onDragLeave={() => setDragOverId(null)}
                       onDrop={onDrop}
                       onDragEnd={() => { setDragId(null); setDragOverId(null); }}
-                      className={`conversations-accordion-row ${dragId === cid ? "is-dragging" : ""} ${dragOverId === cid ? "is-drag-over" : ""} ${isArchived ? "is-archived" : ""}`}
-                    >
-                      <span className="conversations-accordion-drag-handle" aria-hidden="true" title="Drag to reorder">⋮⋮</span>
-                      <input type="checkbox" className="conversations-accordion-checkbox" checked={selectedIds.has(cid)} onChange={() => { setSelectedIds((prev) => { const n = new Set(prev); if (n.has(cid)) n.delete(cid); else n.add(cid); return n; }); }} aria-label={`Select conversation ${titleText}`} />
-                      {isEditing ? (
-                        <input className="conversations-accordion-rename-input" value={editTitle} autoFocus onChange={(e) => setEditTitle(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") onConfirmRename(); if (e.key === "Escape") { setEditingId(null); setEditTitle(""); } }} onBlur={onConfirmRename} aria-label="Rename conversation" />
-                      ) : (
-                        <button type="button" className="conversations-accordion-item-main" onClick={() => onSelectConversation?.(conv)}>
-                          <span className="conversations-accordion-item-title">{titleText}</span>
-                          {conv.updated_at || conv.updatedAt ? (<time className="conversations-accordion-item-time">{conv.updated_at ?? conv.updatedAt}</time>) : null}
-                        </button>
-                      )}
-                      <div className="conversations-accordion-menu-wrap">
-                        <button type="button" className="conversations-accordion-menu-btn" aria-label="Conversation actions" aria-haspopup="menu" aria-expanded={menuOpenId === cid} onClick={() => setMenuOpenId(menuOpenId === cid ? null : cid)}>⋮</button>
-                        {menuOpenId === cid && (
-                          <div className="conversations-accordion-menu" role="menu" ref={menuRef}>
-                            <button type="button" role="menuitem" onClick={onStartRename}>Rename</button>
-                            <button type="button" role="menuitem" onClick={onArchive}>Archive</button>
-                            <button type="button" role="menuitem" className="is-danger" onClick={onDelete}>Delete</button>
-                          </div>
-                        )}
-                      </div>
-                    </li>
+                      isDragging={dragId === cid}
+                      isDragOver={dragOverId === cid}
+                      isArchived={isArchived}
+                    />
                   );
                 })}
               </ul>
