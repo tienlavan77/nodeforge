@@ -78,12 +78,19 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
         const payload = { project_id: body.project_id ?? projectId, agent_id: body.agent_id ?? url.searchParams.get("agent_id") ?? undefined, title: body.title };
         return { status: 201, body: conversationCrudService.create(payload) };
       }
+      // Archive via POST /conversations/:id/archive (used by ConversationsBlock)
+      if (method === "POST" && parts.length === 3 && parts[2] === "archive") {
+        const conversation = conversationCrudService.get(parts[1]);
+        if (!conversation) throw Object.assign(new ConfigurationError(`Conversation not found: ${parts[1]}.`), { statusCode: 404 });
+        if (projectId && conversation.project_id !== projectId) throw Object.assign(new ConfigurationError("Conversation belongs to a different project."), { statusCode: 404 });
+        return { status: 200, body: conversationCrudService.update(parts[1], { status: "archived", archived: true, ...body }) };
+      }
       if (parts.length === 2) {
         const conversation = conversationCrudService.get(parts[1]);
         if (!conversation) throw Object.assign(new ConfigurationError(`Conversation not found: ${parts[1]}.`), { statusCode: 404 });
         if (projectId && conversation.project_id !== projectId) throw Object.assign(new ConfigurationError("Conversation belongs to a different project."), { statusCode: 404 });
         if (method === "GET") return { status: 200, body: conversation };
-        if (method === "PUT") return { status: 200, body: conversationCrudService.update(parts[1], body) };
+        if (method === "PUT" || method === "PATCH") return { status: 200, body: conversationCrudService.update(parts[1], body) };
         if (method === "DELETE") return { status: 200, body: conversationCrudService.remove(parts[1]) };
       }
     }
