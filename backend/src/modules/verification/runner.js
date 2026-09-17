@@ -1,3 +1,4 @@
+// Test runner that executes verification plan test commands and collects TAP results.
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 
@@ -13,6 +14,7 @@ const commonSchema = require("../../../../schemas/core/common.schema.json");
 const testResultSchema = require("../../../../schemas/results/test-result.schema.json");
 const verificationPlanSchema = require("../../../../schemas/verification/verification-plan.schema.json");
 
+// Builds a JSON-schema validator for test results.
 export function createTestResultValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);
@@ -27,6 +29,7 @@ export function createTestResultValidator() {
   };
 }
 
+// Builds a JSON-schema validator for verification plans.
 export function createVerificationPlanValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);
@@ -44,6 +47,7 @@ export function createVerificationPlanValidator() {
   };
 }
 
+// Creates a runner that executes test checks from a verification plan.
 export function createTestRunner({ projectRoot, projectId, spawnProcess, createId = () => `TEST-${randomUUID()}`, clock = () => new Date(), validatePlan = createVerificationPlanValidator(), validateResult = createTestResultValidator(), emitEvent = () => {} } = {}) {
   if (typeof projectRoot !== "string" || projectRoot.length === 0 || typeof projectId !== "string" || projectId.length === 0) {
     throw new ConfigurationError("A project root and project_id are required for test execution.");
@@ -67,6 +71,7 @@ export function createTestRunner({ projectRoot, projectId, spawnProcess, createI
     }
   });
 
+  // Executes a single test command and builds a normalized test result.
   async function runCheck(check, { taskId, ticketId, conversationId, sessionId, scope, timeoutMs, eventSink }) {
     const startedAt = clock();
     const commandId = createId();
@@ -102,6 +107,7 @@ export function createTestRunner({ projectRoot, projectId, spawnProcess, createI
     return Object.freeze(result);
   }
 
+  // Logs and emits a node.command event for a test start.
   function emitCommand(sink, taskId, ticketId, conversationId, commandId, command, startedAt) {
     if (typeof taskId !== "string") return;
     logEvent({ timestamp: startedAt.toISOString(), event_name: "verification.command", level: "info", status: "info", message: `Running test command: ${command}`, task_id: taskId, ticket_id: ticketId, conversation_id: conversationId, source: "verification-runner" });
@@ -109,6 +115,7 @@ export function createTestRunner({ projectRoot, projectId, spawnProcess, createI
     sink({ event_type: "node.command", task_id: taskId, timestamp: startedAt.toISOString(), sequence: 1, payload: { command_id: commandId, command, phase: "runTests", conversation_id: conversationId } });
   }
 
+  // Logs and emits a node.command_result event for a test completion.
   function emitCommandResult(sink, taskId, ticketId, conversationId, commandId, execution, result, finishedAt) {
     if (typeof taskId !== "string") return;
     const success = result.status === "passed";
@@ -117,14 +124,17 @@ export function createTestRunner({ projectRoot, projectId, spawnProcess, createI
     sink({ event_type: "node.command_result", task_id: taskId, timestamp: finishedAt.toISOString(), sequence: 2, payload: { command_id: commandId, success: result.status === "passed", result: { step_name: "runTests", success: result.status === "passed", error_code: result.status === "passed" ? null : result.status === "timeout" ? "IO_ERROR" : "TEST_FAILED", duration_ms: result.duration_ms }, exit_code: execution.exitCode, stdout: summarize(execution.stdout), stderr: summarize(execution.stderr), conversation_id: conversationId } });
   }
 
+  // Truncates long command output for inclusion in results.
   function summarize(value) { return value.length > 4000 ? `${value.slice(0, 4000)}\n[output truncated]` : value; }
 
 }
 
+// Returns the default timeout for a verification command type.
 function defaultTimeout(type) {
   return { build: 60000, lint: 30000, unit_test: 120000, integration: 300000 }[type] ?? 120000;
 }
 
+// Maps verification plan levels to a result scope label.
 function scopeFor(plan) {
   if (plan?.levels?.includes("full")) return "full";
   if (plan?.levels?.includes("related")) return "integration";
@@ -132,10 +142,12 @@ function scopeFor(plan) {
   return "custom";
 }
 
+// Validates that a scope label is supported.
 function isScope(scope) {
   return ["targeted", "integration", "full", "custom"].includes(scope);
 }
 
+// Extracts TAP pass, fail, and skip counts from output.
 function parseTapSummary(stdout) {
   return {
     total: tapCount(stdout, "tests"),
@@ -145,10 +157,12 @@ function parseTapSummary(stdout) {
   };
 }
 
+// Extracts a single TAP count by label.
 function tapCount(stdout, label) {
   return Number(new RegExp(`^[#ℹ]\\s+${label}\\s+(\\d+)\\s*$`, "m").exec(stdout)?.[1] ?? 0);
 }
 
+// Parses test failures from TAP and node:test output.
 function parseFailures(stdout, stderr) {
   const failures = [];
   const matcher = /^not ok\s+\d+\s+-\s+(.+?)\n\s+---\n([\s\S]*?)\n\s+\.\.\.$/gm;
@@ -176,6 +190,7 @@ function parseFailures(stdout, stderr) {
   return uniqueFailures;
 }
 
+// Normalizes a parsed failure into a result failure entry.
 function normalizeFailure({ name, file, line, message, stack }) {
   const failure = { name, message };
   if (file !== undefined) failure.file = file;
@@ -184,12 +199,14 @@ function normalizeFailure({ name, file, line, message, stack }) {
   return failure;
 }
 
+// Extracts an error message from TAP failure details.
 function parseFailureMessage(details) {
   const literal = /^\s*error:\s*\|-\s*\n([\s\S]*?)(?=^\s*[a-z_]+:|\s*$)/m.exec(details)?.[1];
   if (literal) return literal.split("\n").map((line) => line.trim()).filter(Boolean).join("\n");
   return /^\s*error:\s*(.+)$/m.exec(details)?.[1]?.trim();
 }
 
+// Returns the first non-empty line from a string.
 function firstNonEmptyLine(value) {
   return value.split("\n").map((line) => line.trim()).find(Boolean);
 }

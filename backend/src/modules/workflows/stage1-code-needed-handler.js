@@ -1,3 +1,4 @@
+// Summary: Handles code_needed responses by building relevant tree, approving file plan, and coordinating context delivery.
 import { createHash, randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { assertValidEnvelope } from "../protocol/envelope-validator.js";

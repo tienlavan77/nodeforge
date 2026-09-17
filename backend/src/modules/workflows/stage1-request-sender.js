@@ -1,3 +1,4 @@
+// Summary: Sends stage-1 task requests to the selected agent adapter and records the outbound protocol envelope.
 import { ConfigurationError } from "../../shared/errors.js";
 import { getAdapter } from "../agent/provider-adapters/index.js";
 import { CODE_REQUIRE_INSTRUCTION } from "./stage1-instructions.js";

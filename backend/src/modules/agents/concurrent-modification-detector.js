@@ -1,8 +1,10 @@
+// Detects concurrent file touches across sessions within a time window and emits warnings.
 import { randomUUID } from "node:crypto";
 
 import { ConfigurationError } from "../../shared/errors.js";
 import { createNodeEventValidator } from "../watcher/debounced-watcher.js";
 
+// Creates a detector that flags concurrent file touches across active sessions.
 export function createConcurrentModificationDetector({ database, internalBus, projectId, participants = [], windowMs = 2000, clock = () => new Date(), createEventId = () => `EVT-${randomUUID()}`, validateEvent = createNodeEventValidator() } = {}) {
   if (!database?.run || !database?.all || !internalBus?.emit || typeof projectId !== "string" || projectId.length === 0) {
     throw new ConfigurationError("A SQLite database, internal bus, and project_id are required for concurrent modification detection.");
@@ -19,6 +21,7 @@ export function createConcurrentModificationDetector({ database, internalBus, pr
   const emittedPairs = new Map();
   const bindings = participants.map(bindParticipant);
 
+// Binds an agent and session link to track touches within the detection window.
   function bindParticipant({ agent, sessionLink } = {}) {
     if (!agent?.on || !agent?.off || !sessionLink?.on || !sessionLink?.off) {
       throw new ConfigurationError("Each concurrent modification participant requires an agent and session link.");
@@ -37,6 +40,7 @@ export function createConcurrentModificationDetector({ database, internalBus, pr
     return { agent, sessionLink, onStarted, onStopped, onMessage };
   }
 
+// Records a file touch and emits a conflict event when another session touched the same path.
   function reportTouch(sessionId, path) {
     if (!sessionId || typeof path !== "string" || path.length === 0) return;
     // MVP warning only: an Agent declaration can be inaccurate and is not proof of a filesystem write.
@@ -56,6 +60,7 @@ export function createConcurrentModificationDetector({ database, internalBus, pr
     for (const otherSessionId of others) emitConflict(path, sessionId, otherSessionId, now);
   }
 
+// Emits a deduplicated concurrent_modification_detected event for a path and session pair.
   function emitConflict(path, firstSessionId, secondSessionId, now) {
     const sessionIds = [firstSessionId, secondSessionId].sort();
     const key = `${path}\u0000${sessionIds[0]}\u0000${sessionIds[1]}`;
@@ -72,6 +77,7 @@ export function createConcurrentModificationDetector({ database, internalBus, pr
     internalBus.emit("event", Object.freeze(event));
   }
 
+// Removes all touch records and emitted pairs for a closing session.
   function removeSession(sessionId) {
     for (const [agentId, activeSessionId] of sessionByAgentId) {
       if (activeSessionId === sessionId) sessionByAgentId.delete(agentId);
@@ -82,6 +88,7 @@ export function createConcurrentModificationDetector({ database, internalBus, pr
     }
   }
 
+// Prunes expired touch rows and stale emitted pairs outside the window.
   function prune(now) {
     database.run("DELETE FROM session_file_touches WHERE touched_at < ?", [now - windowMs]);
     for (const [key, detectedAt] of emittedPairs) {
@@ -103,6 +110,7 @@ export function createConcurrentModificationDetector({ database, internalBus, pr
   });
 }
 
+// Creates the session_file_touches table and index if they do not exist.
 function ensureTouchTable(database) {
   database.run(`CREATE TABLE IF NOT EXISTS session_file_touches (
     session_id TEXT NOT NULL,

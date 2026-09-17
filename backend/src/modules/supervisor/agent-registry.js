@@ -1,3 +1,4 @@
+// Summary: In-memory registry that binds agent IDs to send adapters and per-agent configuration.
 import { ConfigurationError } from "../../shared/errors.js";
 
 export function createAgentRegistry({ profiles = new Map(), adapters = new Map() } = {}) {

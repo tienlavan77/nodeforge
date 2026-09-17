@@ -4,6 +4,7 @@ import { ConfigurationError } from "../../shared/errors.js";
 // Change-set Collector: after a session completes, inspect the working tree to
 // discover what the agent actually changed. The filesystem is the source of
 // truth — no patch inspection here. Output feeds the Verifier.
+/** Creates a collector that discovers changed files via git status and computes checksums. */
 export function createCollectorWorker({ fileService, gitService } = {}) {
   if (typeof gitService?.status !== "function") throw new ConfigurationError("Collector Worker requires a Git Service.");
   if (typeof fileService?.readFile !== "function") throw new ConfigurationError("Collector Worker requires File Service.");

@@ -1,5 +1,7 @@
+// Tracker that validates ticket provenance chains from roadmap through sprint to architecture decisions.
 import { ConfigurationError } from "../../shared/errors.js";
 
+// Creates a validator that traces tickets to their roadmap and architecture decisions.
 export function createTicketProvenanceTracker({ roadmaps, decisions } = {}) {
   if (typeof roadmaps?.getAllVersions !== "function" || typeof decisions?.getById !== "function") {
     throw new ConfigurationError("Ticket Provenance Tracker requires Roadmap and Architecture Decision stores.");
@@ -8,6 +10,7 @@ export function createTicketProvenanceTracker({ roadmaps, decisions } = {}) {
 
   return Object.freeze({ registerTicket, getProvenance, validateProvenance });
 
+  // Validates and caches the full provenance chain for a ticket.
   function registerTicket(ticket) {
     const provenance = validateProvenance(ticket);
     if (tickets.has(ticket.id)) throw new ConfigurationError(`Ticket provenance already exists: ${ticket.id}.`);
@@ -16,12 +19,14 @@ export function createTicketProvenanceTracker({ roadmaps, decisions } = {}) {
     return structuredClone(stored);
   }
 
+  // Returns cached provenance for a ticket id.
   function getProvenance(ticketId) {
     if (typeof ticketId !== "string" || ticketId.length === 0) throw new ConfigurationError("A ticket id is required.");
     const provenance = tickets.get(ticketId);
     return provenance ? structuredClone(provenance) : undefined;
   }
 
+  // Validates roadmap, sprint, and architecture decision lineage for a ticket.
   function validateProvenance(ticket) {
     if (!ticket || typeof ticket !== "object" || typeof ticket.id !== "string" || typeof ticket.roadmap_id !== "string" || typeof ticket.sprint_id !== "string") {
       throw new ConfigurationError("Ticket provenance requires ticket, roadmap, and sprint identities.");
@@ -45,6 +50,7 @@ export function createTicketProvenanceTracker({ roadmaps, decisions } = {}) {
     return { architecture_decisions: architectureDecisions, roadmap, sprint, ticket: canonicalTicket };
   }
 
+  // Finds the latest roadmap version matching a given id.
   function findRoadmap(id) {
     return roadmaps.getAllVersions().findLast((roadmap) => roadmap.id === id);
   }

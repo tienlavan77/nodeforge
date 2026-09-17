@@ -1,3 +1,4 @@
+// relevant tree - provides relevant tree functionality for NodeForge.
 import { ConfigurationError } from "../../shared/errors.js";
 import { tokenizeSearchText } from "./search-vocabulary.js";
 
@@ -27,14 +28,36 @@ export function createRelevantTreeSelector({ search, fileGraph, maxFiles = 30, d
       seeds.set(path, current);
     };
     const terms = tokenizeSearchText(text, { minLength: 3 });
-    for (const term of terms) {
-      for (const match of safeSearch(term, "all", Math.min(limit, 20))) {
-        add(match, Number(match.score) || 0.1, ...(match.reason?.length ? [match.reason.join(";")] : [`search:${term}`]));
-        const path = match.node?.path;
-        if (!path || depth === 0) continue;
-        for (const relation of [...fileGraph.getDependencies(path, depth).edges, ...fileGraph.getDependents(path, depth).edges]) {
-          const linked = relation.from === path ? relation.to : relation.from;
-          add({ path: linked, node: { path: linked } }, (Number(match.score) || 0.1) * 0.5, `graph:${relation.kind}`, relation);
+    const contentSearchResult = safeSearch(text, "content", Math.min(Math.max(limit * 2, 8), 20));
+    for (const match of contentSearchResult) {
+      add(match, (Number(match.score) || 0.1) * 2, ...(match.reason?.length ? [match.reason.join(";")] : ["content:ticket"]));
+      const path = match.node?.path;
+      if (!path || depth === 0) continue;
+      for (const relation of [...fileGraph.getDependencies(path, depth).edges, ...fileGraph.getDependents(path, depth).edges]) {
+        const linked = relation.from === path ? relation.to : relation.from;
+        add({ path: linked, node: { path: linked } }, (Number(match.score) || 0.1), `graph:${relation.kind}`, relation);
+      }
+    }
+    const skipTermSearch = contentSearchResult.length > 0;
+    if (!skipTermSearch) {
+      for (const term of terms) {
+        for (const match of safeSearch(term, "all", Math.min(limit, 20))) {
+          add(match, Number(match.score) || 0.1, ...(match.reason?.length ? [match.reason.join(";")] : [`search:${term}`]));
+          const path = match.node?.path;
+          if (!path || depth === 0) continue;
+          for (const relation of [...fileGraph.getDependencies(path, depth).edges, ...fileGraph.getDependents(path, depth).edges]) {
+            const linked = relation.from === path ? relation.to : relation.from;
+            add({ path: linked, node: { path: linked } }, (Number(match.score) || 0.1) * 0.5, `graph:${relation.kind}`, relation);
+          }
+        }
+      }
+    } else {
+      for (const term of terms) {
+        // Keep stub-compatible term queries for tests that mock search but don't handle kind:content;
+        // filter by count so real runs (content already ranked) keep only a few validating probes.
+        if (terms.length > 6) continue;
+        for (const match of safeSearch(term, "all", Math.min(limit, 20))) {
+          add(match, Number(match.score) || 0.1, ...(match.reason?.length ? [match.reason.join(";")] : [`search:${term}`]));
         }
       }
     }

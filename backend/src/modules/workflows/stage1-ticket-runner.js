@@ -1,3 +1,4 @@
+// Summary: Runs a single ticket through stage-1 initializer, sender, receiver, and verification gate in sequence.
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { createStage1TaskInitializer } from "./stage1-task-initializer.js";

@@ -1,3 +1,4 @@
+// Summary: Builds cache-friendly attempt envelopes with tiered memory/context blocks and repair-round failure injection.
 import { createStage1TaskRequestBuilder } from "../workflows/stage1-task-request-builder.js";
 import { buildStage1InstructionBlocks } from "../workflows/stage1-instructions.js";
 import { ConfigurationError } from "../../shared/errors.js";
@@ -6,6 +7,7 @@ import { ConfigurationError } from "../../shared/errors.js";
 // ticket + context pack + project memory facts; attempts 2+ reuse the same
 // tiers 1+2 byte-for-byte (prefix cache) and append failure context LAST so the
 // correction never invalidates the cached prefix.
+/** Creates a builder that assembles attempt envelopes with cached tiers and repair failure injection. */
 export function createAttemptContextBuilder({ protocolStorage, requestBuilder = createStage1TaskRequestBuilder(), projectLogger = () => {}, executionContextProvider, memoryRetriever, relevantTreeSelector } = {}) {
   let attempt = 0;
   let attemptOneEnvelope = null;

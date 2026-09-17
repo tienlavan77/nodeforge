@@ -1,3 +1,4 @@
+// Summary: Hierarchy of typed Forge errors (ForgeError, ConfigurationError, etc.) with code and details support.
 export class ForgeError extends Error {
   constructor(message, { cause, code = "FORGE_ERROR", details } = {}) {
     super(message, cause === undefined ? undefined : { cause });

@@ -9,7 +9,6 @@ export function createConversationAuditHistoryService({ communications, eventSto
   if (history !== undefined && typeof history?.getByProject !== "function") throw new ConfigurationError("Conversation Audit History Store must provide getByProject().");
 
   return Object.freeze({ query });
-
   function query({ projectId, agentId, conversationId, correlationId, type, cursor, limit = 25, order = "asc" } = {}) {
     if (logReader) {
       return Promise.resolve(logReader({ project_id: projectId, task_id: correlationId, correlation_id: correlationId, conversation_id: conversationId, event_name: type })).then((result) => { const items = result.events.map((event, index) => ({ id: event.event_id, kind: event.status === "failed" ? "failure" : "system", sequence: event.sequence ?? index + 1, timestamp: event.timestamp, agent_id: event.source, sender: event.source, receiver: "NODE", conversation_id: event.conversation_id ?? null, correlation_id: event.correlation_id ?? null, type: event.event_name, content: redact(event.payload) }));
@@ -35,6 +34,7 @@ export function createConversationAuditHistoryService({ communications, eventSto
   }
 }
 
+// Maps a communication message to an audit history record.
 function messageRecord(message, index) {
   return {
     id: message.id, kind: classifyMessage(message), sequence: index, timestamp: message.timestamp,
@@ -44,6 +44,7 @@ function messageRecord(message, index) {
   };
 }
 
+// Maps an event store entry to an audit history record.
 function eventRecord(event, index) {
   return {
     id: event.event_id, kind: classifyEvent(event), sequence: 100000 + index, timestamp: event.timestamp,
@@ -53,6 +54,7 @@ function eventRecord(event, index) {
   };
 }
 
+// Maps a history entry to an audit history record.
 function historyRecord(record, index) {
   return {
     id: record.event_id, kind: record.action.includes("failed") ? "failure" : record.action.includes("completed") ? "completion" : "system",
@@ -61,6 +63,7 @@ function historyRecord(record, index) {
   };
 }
 
+// Checks whether a record matches the requested audit filters.
 function matches(record, { agentId, conversationId, correlationId, type }) {
   return (!agentId || record.agent_id === agentId || record.sender === agentId || record.receiver === agentId)
     && (!conversationId || record.conversation_id === conversationId)
@@ -68,6 +71,7 @@ function matches(record, { agentId, conversationId, correlationId, type }) {
     && (!type || record.type === type);
 }
 
+// Classifies a message by its sender and type.
 function classifyMessage(message) {
   if (message.sender.role === "project_owner") return "owner";
   if (message.message_type.includes("error") || message.message_type.includes("failed")) return "failure";
@@ -75,18 +79,21 @@ function classifyMessage(message) {
   return message.sender.role === "node" ? "system" : "agent";
 }
 
+// Classifies an event by its type.
 function classifyEvent(event) {
   if (event.event_type.includes("failed")) return "failure";
   if (event.event_type.includes("completed")) return "completion";
   return "system";
 }
 
+// Redacts sensitive fields from audit payloads.
 function redact(value) {
   if (Array.isArray(value)) return value.map(redact);
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, SENSITIVE.test(key) ? "[REDACTED]" : redact(item)]));
 }
 
+// Validates that an audit filter ID is a non-empty string.
 function assertId(value, label) {
   if (typeof value !== "string" || value.length === 0) throw new ConfigurationError(`Conversation Audit History ${label} id is required.`);
 }

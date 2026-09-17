@@ -1,3 +1,4 @@
+// Summary: Finite-state runtime for a single supervisor with locked state persistence and terminal completion semantics.
 import { ConfigurationError } from "../../shared/errors.js";
 
 export const SUPERVISOR_STATES = Object.freeze(["CREATED", "PREPARING", "READY", "RUNNING", "VERIFYING", "REPAIRING", "COMPLETED", "FAILED", "NEEDS_HUMAN_REVIEW"]);
@@ -13,6 +14,7 @@ export function migrateLegacyState(state) {
   return LEGACY_STATE_MAP[state] ?? state;
 }
 
+/** Creates a finite-state runtime for a single supervisor with transitions and persistent state. */
 export function createSupervisorRuntime({ taskId, supervisorId, eventBus, initialState = "CREATED", stateStore, preparation = {}, ownershipCreated = false } = {}) {
   if (!taskId || !supervisorId || typeof eventBus?.publish !== "function") throw new ConfigurationError("Supervisor runtime requires task_id, supervisor_id and event bus.");
   let state = initialState;

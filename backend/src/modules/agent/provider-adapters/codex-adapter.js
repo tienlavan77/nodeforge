@@ -1,6 +1,8 @@
+// Implements the OpenAI Responses API gateway for Codex including polling and streaming.
 import { ConfigurationError } from "../../../shared/errors.js";
 import { buildCacheOptions, buildResponsesInput, buildToolConfig, mapOpenAIUsage } from "./openai-request-builder.js";
 
+// Sends a Responses API request with retry and polls until a terminal status.
 export async function request({ url, credential, payload, preparedRequest, model, correlationId, signal }) {
   url = responsesUrl(url);
   const isResponses = true;
@@ -30,6 +32,7 @@ export async function request({ url, credential, payload, preparedRequest, model
   return { status: body.status ?? "completed", payload: { text: extractResponseText(body), response_id: body.id ?? body.response_id } };
 }
 
+// Streams Responses deltas and assembles incremental tool-call arguments.
 export async function* stream({ url, credential, payload, model, correlationId, signal }) {
   url = responsesUrl(url);
   const response = await fetchWithRetry(url, {
@@ -65,6 +68,7 @@ export async function* stream({ url, credential, payload, model, correlationId, 
   }
 }
 
+// Builds tool and tool_choice options for Responses or payload-supplied tools.
 function responseToolOptions(payload, requestBody = {}) {
   if (requestBody.tools) return { tools: requestBody.tools, ...(requestBody.tool_choice ? { tool_choice: requestBody.tool_choice } : {}) };
   if (!Array.isArray(payload?.tools) || payload.tools.length === 0) return {};
@@ -75,6 +79,7 @@ function responseToolOptions(payload, requestBody = {}) {
   };
 }
 
+// Normalizes a gateway URL to the /responses endpoint form.
 function responsesUrl(value) {
   const normalized = value.replace(/\/+$/, "").replace(/\/response$/, "/responses");
   if (/\/v1$/.test(normalized)) return `${normalized}/responses`;
@@ -82,6 +87,7 @@ function responsesUrl(value) {
   return normalized.endsWith("/responses") ? normalized : `${normalized}/responses`;
 }
 
+// Extracts text from Responses bodies across output, choices, and content variants.
 function extractResponseText(body, { allowEmpty = false } = {}) {
   if (typeof body?.output_text === "string") return body.output_text;
   const parts = body?.output?.flatMap((item) => item.content ?? []) ?? [];
@@ -98,6 +104,7 @@ function extractResponseText(body, { allowEmpty = false } = {}) {
   throw new ConfigurationError("Agent Gateway response is invalid.");
 }
 
+// Extracts the first function_call item from a Responses body as normalized tool use.
 function extractToolUse(body) {
   const item = body?.output?.find((entry) => entry.type === "function_call");
   if (!item) return undefined;
@@ -148,6 +155,7 @@ async function fetchWithRetry(url, options, label, { maxRetries = 2, baseDelayMs
   }
 }
 
+// Waits for a duration or until an abort signal fires.
 function delay(milliseconds, signal) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(Object.assign(new Error("The operation was aborted."), { name: "AbortError" }));

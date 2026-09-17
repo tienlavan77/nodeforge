@@ -1,3 +1,4 @@
+// Manages the SQLite index database file, WAL configuration, and incremental schema migrations for code graph storage.
 import { mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -151,6 +152,7 @@ const MIGRATIONS = [
   }
 ];
 
+// Ensures the runtime directory exists on disk and returns its resolved path for database placement.
 export async function ensureRuntimeDir(projectRoot, runtimeDir) {
   assertProjectRoot(projectRoot);
   const resolvedRuntimeDir = runtimeDir ? resolveRuntimeDir(projectRoot, runtimeDir) : join(projectRoot, ".forge", "runtime");
@@ -158,6 +160,7 @@ export async function ensureRuntimeDir(projectRoot, runtimeDir) {
   return resolvedRuntimeDir;
 }
 
+// Opens (or creates) the SQLite index database at the runtime dir, applies pragmas and runs pending migrations.
 export async function openIndexDatabase(projectRoot, { busyTimeoutMs = 10000, journalMode = "WAL", runtimeDir: configuredRuntimeDir } = {}) {
   const runtimeDir = await ensureRuntimeDir(projectRoot, configuredRuntimeDir);
   const databasePath = join(runtimeDir, DATABASE_FILE);
@@ -202,17 +205,20 @@ export async function openIndexDatabase(projectRoot, { busyTimeoutMs = 10000, jo
   });
 }
 
+// Throws if projectRoot is missing or empty.
 function assertProjectRoot(projectRoot) {
   if (typeof projectRoot !== "string" || projectRoot.length === 0) {
     throw new ConfigurationError("A project root is required for the index database.");
   }
 }
 
+// Resolves runtimeDir relative to projectRoot, validating it is a non-empty path.
 function resolveRuntimeDir(projectRoot, runtimeDir) {
   if (typeof runtimeDir !== "string" || runtimeDir.length === 0) throw new ConfigurationError("Runtime directory must be a non-empty path.");
   return resolve(projectRoot, runtimeDir);
 }
 
+// Applies pending schema migrations transactionally, recording each applied version in schema_migrations.
 function runMigrations(database) {
   database.exec("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)");
   const applied = new Set(database.prepare("SELECT version FROM schema_migrations").all().map(({ version }) => version));

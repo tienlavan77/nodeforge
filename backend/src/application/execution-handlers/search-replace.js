@@ -1,7 +1,9 @@
+// Performs single-match search-and-replace on file content.
 import { readFile, writeFile } from "node:fs/promises";
 import { backupFile as createBackup } from "./backup.js";
 import { createExecutionResult } from "../execution-layer.js";
 
+// Performs single-match search-and-replace on a file.
 export async function applySearchReplaceBlock(filePath, oldStr, newStr, options = {}) {
   const startedAt = Date.now();
   const dryRun = options?.dry_run === true;
@@ -35,12 +37,12 @@ export async function applySearchReplaceBlock(filePath, oldStr, newStr, options 
     success: true,
     detail: { file_path: filePath, dry_run: dryRun, match_count: matches, old_length: oldStr.length, new_length: newStr.length, bytes_changed: Buffer.byteLength(updated) - Buffer.byteLength(content) }
   });
-
   function result(values) {
     return createExecutionResult({ stepName: "applySearchReplaceBlock", durationMs: Date.now() - startedAt, ...values });
   }
 }
 
+// Counts occurrences of a search string in content.
 function countMatches(content, search) {
   if (search.length === 0) return content.length + 1;
   let count = 0;

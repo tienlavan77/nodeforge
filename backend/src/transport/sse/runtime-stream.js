@@ -1,3 +1,4 @@
+// Streams runtime agent lifecycle events over SSE.
 import { ConfigurationError } from "../../shared/errors.js";
 
 const STREAM_TYPES = Object.freeze([
@@ -8,13 +9,13 @@ const STREAM_TYPES = Object.freeze([
   "agent.completed"
 ]);
 
+// Creates the runtime SSE service for agent lifecycle events.
 export function createRuntimeSse({ subscriptions } = {}) {
   if (typeof subscriptions?.subscribe !== "function" || typeof subscriptions?.unsubscribe !== "function") {
     throw new ConfigurationError("Runtime SSE requires a Subscription Registry.");
   }
 
   return Object.freeze({ connect, eventTypes: STREAM_TYPES });
-
   function connect(response) {
     if (!response?.write || typeof response.end !== "function") throw new ConfigurationError("SSE connect requires a writable response.");
     response.writeHead?.(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" });

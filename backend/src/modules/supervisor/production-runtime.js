@@ -1,3 +1,4 @@
+// Summary: Wires production supervisor runtime — queue stores, event bus, supervisor manager, and worker signal/result buses.
 import { ConfigurationError } from "../../shared/errors.js";
 import { createDurableQueue } from "./durable-queue.js";
 import { createExecutionEventBus } from "./execution-event-bus.js";
@@ -21,6 +22,7 @@ import { createAgentExecutionCheckpointStore } from "../agent/agent-execution-ch
 const QUEUE_NAMES = ["agent.request", "sender.handoff", "collector.request", "verification.request"];
 const RESUMABLE_STATES = ["CREATED", "READY", "RUNNING", "REPAIRING"];
 
+/** Creates the production wiring for supervisor runtime including stores, buses, managers, and workers. */
 export function createProductionSupervisorRuntime({ fileService, projectRoot = process.cwd(), root = ".forge/runtime", eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, agentRoleResolver, logger = console, projectLogger = () => {}, preparation = {}, attemptBuilderFactory, conversationStateStore, protocolStorage, autoStartWorkers = true, toolGovernance, governanceDatabase, codeSearch, relevantTreeSelector, enableReadCode = false, testService, gitService, reportService } = {}) {
   const hasPreparation = Object.keys(preparation ?? {}).length > 0;
   const queueStore = createFileQueueStore({ fileService, root: `${root}/queues` });

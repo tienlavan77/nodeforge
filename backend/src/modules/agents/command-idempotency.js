@@ -1,9 +1,11 @@
+// Provides session-scoped idempotency for agent commands with replay caching.
 import { EventEmitter } from "node:events";
 
 import { ConfigurationError } from "../../shared/errors.js";
 
 const IDEMPOTENT_COMMAND_TYPES = new Set(["verification.run_test", "context.read_file", "workflow.transition"]);
 
+// Creates a session-scoped dispatcher that caches idempotent command results.
 export function createSessionCommandDispatcher({ executeCommand, getSessionId = (envelope) => envelope.message.session_id } = {}) {
   if (typeof executeCommand !== "function" || typeof getSessionId !== "function") {
     throw new ConfigurationError("Command execution and session lookup functions are required.");
@@ -52,6 +54,7 @@ export function createSessionCommandDispatcher({ executeCommand, getSessionId = 
   });
 }
 
+// Binds an agent process to a dispatcher, emitting handled and error events.
 export function bindAgentCommandDispatcher({ agent, dispatcher } = {}) {
   if (!agent?.on || !agent?.off || !dispatcher?.handle) {
     throw new ConfigurationError("An agent process and command dispatcher are required.");
@@ -92,6 +95,7 @@ export function bindAgentCommandDispatcher({ agent, dispatcher } = {}) {
   });
 }
 
+// Checks whether a command type is in the idempotent replay set.
 function isIdempotent(command) {
   return IDEMPOTENT_COMMAND_TYPES.has(command.type);
 }

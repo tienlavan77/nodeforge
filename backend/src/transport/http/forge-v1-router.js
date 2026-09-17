@@ -1,6 +1,8 @@
+// Routes Forge v1 API requests to domain services with checkpoint decoration.
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 
+// Creates the Forge v1 HTTP router with checkpoint decoration.
 export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab, projectStream, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, conversationCrudService, conversationAuditHistoryService, architectureWorkspaceService, humanDecisionService, agentSettingsService, listResumableCheckpoints } = {}) {
   return Object.freeze({ route });
 
@@ -14,13 +16,11 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
     try { resumable = await listResumableCheckpoints(); } catch { return null; }
     return new Map((resumable ?? []).map((checkpoint) => [checkpoint.task_id, checkpoint]));
   }
-
   function checkpointSummary(byTask, ticketId) {
     const checkpoint = byTask?.get(ticketId);
     if (!checkpoint) return null;
     return { resumable: true, last_completed_turn: checkpoint.last_completed_turn ?? 0, last_tool: checkpoint.last_tool ?? null, updated_at: checkpoint.updated_at ?? null };
   }
-
   async function withCheckpointSummary(sprints) {
     const byTask = await loadCheckpointMap();
     if (!byTask) return sprints;
@@ -55,7 +55,6 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
       }
     };
   }
-
   async function route(method, url, request) {
     const parts = normalizeParts(url.pathname);
     const requestId = request.headers?.["x-request-id"] ?? randomUUID();
@@ -300,12 +299,14 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
   }
 }
 
+// Normalizes a URL pathname into route parts.
 function normalizeParts(pathname) {
   const parts = pathname.split("/").filter(Boolean);
   if (parts[0] === "forge" && parts[1] === "v1") return parts.slice(2);
   return parts;
 }
 
+// Creates a 503 unavailable error for unconfigured services.
 function unavailable(name) {
   return Object.assign(new ConfigurationError(`${name} API is not configured.`), { statusCode: 503 });
 }
@@ -318,10 +319,12 @@ function runRequestsFresh(url, body) {
   return body?.fresh === true || body?.fresh === "true";
 }
 
+// Validates that a project ID is provided.
 function requireProject(projectId) {
   if (!projectId) throw Object.assign(new ConfigurationError("Project query parameter is required."), { statusCode: 400, code: "PROJECT_REQUIRED" });
 }
 
+// Reads and parses a JSON request body.
 async function readJson(request) {
   let raw = "";
   for await (const chunk of request) raw += chunk;

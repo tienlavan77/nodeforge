@@ -1,3 +1,4 @@
+// Utilities for detecting secret file paths and redacting sensitive text content.
 import { basename, normalize } from "node:path";
 
 export const DEFAULT_SECRET_PATTERNS = [
@@ -12,6 +13,7 @@ export const DEFAULT_SECRET_PATTERNS = [
 
 const SECRET_BASENAME = /^(?:\.env(?:\..*)?|[^.].*\.(?:key|pem|crt|pfx|keystore))$/i;
 
+// Creates a predicate that detects secret file paths against configured patterns.
 export function createSecretPathMatcher(patterns = DEFAULT_SECRET_PATTERNS) {
   const configured = Array.isArray(patterns) ? patterns.filter((pattern) => typeof pattern === "string" && pattern.trim()) : [];
   return (path) => {
@@ -23,16 +25,19 @@ export function createSecretPathMatcher(patterns = DEFAULT_SECRET_PATTERNS) {
   };
 }
 
+// Tests a normalized path against a glob-style pattern.
 function matchesPattern(path, pattern) {
   const normalized = pattern.replaceAll("\\", "/").replace(/^\.\//, "");
   const escaped = normalized.split("**").map((part) => part.split("*").map(escapeRegex).join("[^/]*")).join(".*");
   return new RegExp(`^${escaped}$`, "i").test(path) || new RegExp(`(?:^|/)${escaped}$`, "i").test(path);
 }
 
+// Escapes regex metacharacters in a pattern segment.
 function escapeRegex(value) {
   return value.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// Redacts API keys, tokens, and emails from free-form text.
 export function redactSensitiveText(value) {
   if (typeof value !== "string") return value;
   return value

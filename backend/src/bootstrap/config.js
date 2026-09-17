@@ -1,8 +1,10 @@
+// Loads and validates NodeForge bootstrap config from env/overrides with strict bounds on watcher and logging options.
 import { resolve } from "node:path";
 
 import { ConfigurationError } from "../shared/errors.js";
 import { assertSeverity } from "../shared/logger.js";
 
+// Merges cwd/env/overrides into a frozen config object, validating log level, data dir, and watcher timing constraints.
 export function loadConfig({ cwd = process.cwd(), env = process.env, overrides = {} } = {}) {
   const logLevel = overrides.logLevel ?? env.NODEFORGE_LOG_LEVEL ?? "info";
   const dataDir = overrides.dataDir ?? env.NODEFORGE_DATA_DIR ?? ".forge";
@@ -33,6 +35,7 @@ export function loadConfig({ cwd = process.cwd(), env = process.env, overrides =
   });
 }
 
+// Splits a comma-separated watcher ignore string into trimmed non-empty patterns.
 function parseWatcherIgnore(value) {
   if (!value) return [];
   return value.split(",").map((pattern) => pattern.trim()).filter(Boolean);

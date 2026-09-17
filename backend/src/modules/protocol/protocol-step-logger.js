@@ -1,25 +1,33 @@
+// Structured logger for Node-Agent protocol step lifecycle events.
 import { ConfigurationError } from "../../shared/errors.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** Operational metadata logger for one Node-Agent protocol step. */
+// Creates a structured logger for protocol step events.
 export function createProtocolStepLogger({ logger = console, clock = () => new Date() } = {}) {
   if (!logger || typeof logger.info !== "function" || typeof logger.error !== "function") throw new ConfigurationError("Protocol Step Logger requires info and error methods.");
   if (typeof clock !== "function") throw new ConfigurationError("Protocol Step Logger clock must be a function.");
 
   return Object.freeze({ requestSent, responseReceived, responsePersistFailed, failed });
 
+  // Logs a request_sent protocol step.
   function requestSent(context) { return write("request_sent", "info", context, { status: "sent" }); }
+  // Logs a response_received protocol step.
   function responseReceived(context) { return write("response_received", "info", context); }
+  // Logs a response persistence failure.
   function responsePersistFailed(context) { return write("response_persist_failed", "error", context, { status: "failed" }); }
+  // Logs a generic step failure.
   function failed(context) { return write("step_failed", "error", context, { status: "failed" }); }
 
+  // Normalizes context and writes the log entry at the chosen level.
   function write(event, level, context = {}, defaults = {}) {
     const record = normalize(event, context, defaults);
     logger[level]("Node-Agent protocol step", record);
     return record;
   }
 
+  // Validates required fields and builds a frozen log record.
   function normalize(event, context, defaults) {
     if (!context || typeof context !== "object") throw new ConfigurationError("Protocol log context must be an object.");
     for (const field of ["task_id", "step_id", "type", "role", "request_id"]) {

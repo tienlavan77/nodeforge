@@ -1,3 +1,4 @@
+// Rule registry and evaluator that decides ALLOW or DENY based on blocking conditions.
 import { createRequire } from "node:module";
 
 import Ajv2020 from "ajv/dist/2020.js";
@@ -9,6 +10,7 @@ const require = createRequire(import.meta.url);
 const commonSchema = require("../../../../schemas/core/common.schema.json");
 const governanceRuleSchema = require("../../../../schemas/governance/governance-rule.schema.json");
 
+// Creates a registry that stores governance rules and evaluates ALLOW or DENY.
 export function createGovernanceRulesEngine({ validateRule = createGovernanceRuleValidator() } = {}) {
   if (typeof validateRule !== "function") throw new ConfigurationError("Governance Rule validation must be a function.");
   const rules = [];
@@ -16,6 +18,7 @@ export function createGovernanceRulesEngine({ validateRule = createGovernanceRul
 
   return Object.freeze({ registerRule, evaluate, getRules });
 
+  // Validates and stores a new governance rule.
   function registerRule(rule) {
     validateRule(rule);
     if (rulesById.has(rule.id)) throw new ConfigurationError(`Governance Rule already exists: ${rule.id}.`);
@@ -25,6 +28,7 @@ export function createGovernanceRulesEngine({ validateRule = createGovernanceRul
     return structuredClone(stored);
   }
 
+  // Evaluates all rules against a context and returns blocking outcomes.
   function evaluate(context) {
     if (!context || typeof context !== "object" || Array.isArray(context)) {
       throw new ConfigurationError("Governance Rule evaluation requires an object context.");
@@ -39,11 +43,13 @@ export function createGovernanceRulesEngine({ validateRule = createGovernanceRul
     return Object.freeze({ decision: denied ? "DENY" : "ALLOW", outcomes: Object.freeze(outcomes) });
   }
 
+  // Returns all registered rules as cloned records.
   function getRules() {
     return rules.map((rule) => structuredClone(rule));
   }
 }
 
+// Builds a JSON-schema validator for governance rules.
 function createGovernanceRuleValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);
@@ -55,6 +61,7 @@ function createGovernanceRuleValidator() {
   };
 }
 
+// Tests whether a condition tree matches the given context.
 function matches(condition, context) {
   if (typeof condition.required_field === "string") return resolve(condition.required_field, context) !== undefined;
   if (condition.equals && typeof condition.equals.path === "string" && Object.hasOwn(condition.equals, "value")) {
@@ -66,6 +73,7 @@ function matches(condition, context) {
   return false;
 }
 
+// Resolves a dot-separated path against a context object.
 function resolve(path, context) {
   return path.split(".").reduce((value, segment) => (
     value && typeof value === "object" ? value[segment] : undefined

@@ -1,3 +1,4 @@
+// Summary: Persists and evaluates workflow stage transitions with file-locked JSON state under .forge/runtime.
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -10,6 +11,7 @@ import { createStateMachineExecutor } from "./state-machine-executor.js";
 const STATE_FILE = ".forge/runtime/state.json";
 const OWNER_APPROVAL_SCOPES = ["scope_change", "architecture_change", "api_change", "dependency_change", "acceptance_criteria_change", "owner_accepted_risk"];
 
+/** Creates a file-locked transition gate that evaluates and persists workflow stage moves. */
 export function createWorkflowTransitionGate({ workflow, projectId, projectRoot, internalBus, executor = createStateMachineExecutor({ workflow }), ruleEvaluator = createWorkflowRuleEvaluator({ projectId, internalBus }), clock = () => new Date(), createEventId = () => `EVT-${randomUUID()}`, validateEvent = createNodeEventValidator(), stateStore } = {}) {
   if (typeof projectId !== "string" || projectId.length === 0 || typeof projectRoot !== "string" || projectRoot.length === 0) {
     throw new ConfigurationError("A project_id and project root are required for workflow transitions.");

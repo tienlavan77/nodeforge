@@ -1,7 +1,9 @@
+// Routes typed agent results to workflow handlers with deduplication and audit storage.
 import { ConfigurationError } from "../../shared/errors.js";
 
 const RESULT_TYPES = new Set(["architecture.completed", "sprint.plan.completed", "ticket.completed", "review.completed", "agent.failed"]);
 
+// Creates the typed result router that deduplicates messages and invokes workflow handlers.
 export function createAgentResultRouter({ bus, resultStore = createResultStore(), nodeId = "NODE" } = {}) {
   if (typeof bus?.subscribe !== "function") throw new ConfigurationError("Agent Result Router requires a Communication Bus.");
   if (typeof resultStore?.append !== "function" || typeof resultStore?.getAll !== "function") throw new ConfigurationError("Agent Result Router requires a result store.");
@@ -11,6 +13,7 @@ export function createAgentResultRouter({ bus, resultStore = createResultStore()
 
   return Object.freeze({ registerWorkflow, route, getAudit });
 
+// Registers per-type handlers for a workflow correlation id.
   function registerWorkflow(correlationId, handlers) {
     assertId(correlationId, "correlation");
     if (!handlers || typeof handlers !== "object") throw new ConfigurationError("Workflow result handlers are required.");
@@ -22,6 +25,7 @@ export function createAgentResultRouter({ bus, resultStore = createResultStore()
     return correlationId;
   }
 
+// Deduplicates and routes an incoming result message to its workflow handler.
   function route(message) {
     assertMessage(message);
     if (processed.has(message.id)) return Object.freeze({ accepted: false, duplicate: true, correlation_id: message.correlation_id });
@@ -33,11 +37,13 @@ export function createAgentResultRouter({ bus, resultStore = createResultStore()
     return Object.freeze({ accepted: true, correlation_id: message.correlation_id, result });
   }
 
+// Returns cloned copies of all audited result messages.
   function getAudit() {
     return resultStore.getAll().map((message) => structuredClone(message));
   }
 }
 
+// Creates the in-memory append-only store for audited results.
 function createResultStore() {
   const records = [];
   const ids = new Set();
@@ -53,12 +59,14 @@ function createResultStore() {
   };
 }
 
+// Validates that a result message has the required shape and type.
 function assertMessage(message) {
   if (!message || typeof message !== "object" || typeof message.id !== "string" || typeof message.correlation_id !== "string" || !RESULT_TYPES.has(message.message_type) || !message.payload || typeof message.payload !== "object") {
     throw new ConfigurationError("Unknown or invalid Agent result message.");
   }
 }
 
+// Validates that a workflow or message id is a non-empty string.
 function assertId(id, label) {
   if (typeof id !== "string" || id.length === 0) throw new ConfigurationError(`An Agent ${label} id is required.`);
 }

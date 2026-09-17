@@ -1,3 +1,4 @@
+// Orchestrates sprint execution across role agents with streamed output.
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 
@@ -11,6 +12,7 @@ const commonSchema = require("../../../schemas/core/common.schema.json");
 const ticketSchema = require("../../../schemas/governance/ticket.schema.json");
 const sprintPlanSchema = require("../../../schemas/governance/sprint-plan.schema.json");
 
+// Creates a service that orchestrates sprint execution across agents.
 export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore, ticketProvenanceTracker, agentGateway, publisher, agentRoles = ["architecture-manager", "sprint-leader", "builder", "reviewer"], streamBatchMs = 500 } = {}) {
   if (typeof sprintPlans?.getSprintById !== "function") {
     throw new ConfigurationError("Sprint Orchestration requires Sprint Plans.");
@@ -22,7 +24,6 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
   if (!Number.isInteger(streamBatchMs) || streamBatchMs < 1) throw new ConfigurationError("Sprint Orchestration stream batch interval must be positive.");
   const validateSprintPlan = createSprintPlanValidator();
   return Object.freeze({ run, isRunning: (sprintId) => running.has(sprintId), ingestAgentCompletion });
-
   function run({ projectId, sprintId } = {}) {
     const sprint = sprintPlans.getSprintById(sprintId);
     if (!sprint || sprint.project_id !== projectId) throw new ConfigurationError(`Unknown Sprint Plan: ${sprintId}.`);
@@ -36,7 +37,6 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
     void runRealAgents({ projectId, sprint, sessionId }).finally(() => running.delete(sprintId));
     return { sprint_id: sprintId, session_id: sessionId, state: "RUNNING" };
   }
-
   async function ingestAgentCompletion({ message, agentId, text } = {}) {
     if (agentId !== "sprint-leader") return { ingested: false };
     let plan;
@@ -50,7 +50,6 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
       return { ingested: false, error: error.message };
     }
   }
-
   async function runRealAgents({ projectId, sprint, sessionId }) {
     const tickets = sprint.tickets ?? [];
     let failed = false;
@@ -93,11 +92,9 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
       }
     }
   }
-
   function conversationRole(role) {
     return { "architecture-manager": "AM", "sprint-leader": "SL", builder: "BU", reviewer: "RV" }[role] ?? role.toUpperCase();
   }
-
   function persistSprintPlan(plan, trace = {}) {
     if (typeof sprintPlanStore?.save !== "function") return;
     if (sprintPlanStore.getAllVersions?.().some((roadmap) => roadmap.sprints?.some(({ id }) => id === plan.id))) {
@@ -110,19 +107,20 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
     for (const ticket of plan.tickets) ticketProvenanceTracker?.registerTicket?.(ticket);
     publish("governance.sprint_plan.created", plan.project_id, plan.id, null, "sprint-leader", trace.correlationId ?? null, trace.conversationId ?? null, { sprint_plan: plan });
   }
-
   function publish(type, projectId, taskId, sessionId, agentId, correlationId, conversationId, payload) {
     publisher.publish({ event_id: `EVT-${randomUUID()}`, type, project_id: projectId, task_id: taskId, timestamp: new Date().toISOString(), payload, metadata: { source: "real-agent-orchestration", session_id: sessionId, agent_id: agentId, correlation_id: correlationId, conversation_id: conversationId } });
   }
 
 }
 
+// Extracts sprint plan JSON from a fenced code block.
 export function extractSprintPlanJson(text) {
   const match = String(text ?? "").match(/^\s*```json\s*([\s\S]*?)\s*```\s*$/i);
   if (!match) throw new ConfigurationError("Sprint Leader response must contain exactly one ```json fenced block.");
   try { return JSON.parse(match[1]); } catch (error) { throw new ConfigurationError(`Sprint Leader JSON block is invalid: ${error.message}`); }
 }
 
+// Creates a JSON schema validator for sprint plans.
 function createSprintPlanValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);

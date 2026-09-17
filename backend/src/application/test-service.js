@@ -1,5 +1,7 @@
+// Manages test execution jobs with async polling and timeout handling.
 import { ConfigurationError } from "../shared/errors.js";
 
+// Creates a service for running tests with async job tracking.
 export function createTestService({ verificationOrchestrator, fileService, timeoutMs = 120000, jobTimeoutMs = 300000, projectRoot, publisher, internalBus, projectLogger = () => {} } = {}) {
   if (typeof verificationOrchestrator?.run !== "function") throw new ConfigurationError("TestService requires a Verification Orchestrator.");
   if (typeof projectRoot !== "string" || !projectRoot) throw new ConfigurationError("TestService requires a project root.");
@@ -7,7 +9,6 @@ export function createTestService({ verificationOrchestrator, fileService, timeo
   const jobs = new Map();
   let jobSequence = 0;
   return Object.freeze({ runTests, runLint, runTypecheck, startTests, getTestResult });
-
   async function runTests({ commitId, levels = ["unit_test"], taskId, sessionId, command } = {}) {
     return run({ commitId, levels, taskId, sessionId, command });
   }
@@ -35,7 +36,6 @@ export function createTestService({ verificationOrchestrator, fileService, timeo
     });
     return { job_id: jobId, status: "running", started_at: job.started_at };
   }
-
   function getTestResult({ jobId, taskId } = {}) {
     if (typeof jobId !== "string" || !jobId.trim()) { const error = new ConfigurationError("getTestResult requires jobId."); error.code = "INPUT_INVALID"; throw error; }
     const job = jobs.get(jobId.trim());
@@ -49,12 +49,10 @@ export function createTestService({ verificationOrchestrator, fileService, timeo
       ...(job.error ? { error: job.error } : {})
     };
   }
-
   function pruneJobs() {
     if (jobs.size < 50) return;
     for (const [id, entry] of jobs) { if (entry.status !== "running") jobs.delete(id); if (jobs.size < 50) break; }
   }
-
   async function run({ commitId = `WORKTREE-${Date.now()}`, levels, taskId, sessionId, command, deadlineMs = timeoutMs }) {
     const plan = { commit_id: commitId, levels: ["focused"], checks: levels.map((type) => ({ type: type === "unit_test" ? "test" : type, command: command ?? commandFor(type, taskId), timeout_ms: deadlineMs })) };
     publish("verification.test_started", { commit_id: commitId, task_id: taskId, session_id: sessionId, levels });
@@ -78,7 +76,6 @@ export function createTestService({ verificationOrchestrator, fileService, timeo
     return { lint: "npm run lint", typecheck: "npm run typecheck", unit_test: "npm test" }[type] ?? "npm test";
   }
   function publish(type, payload) { const event = { type, project_root: projectRoot, payload }; publisher?.publish?.({ event_id: `EVT-${Date.now()}`, type, project_id: payload.project_id ?? "PROJECT-NODEFORGE", timestamp: new Date().toISOString(), payload, metadata: { source: "test-service", task_id: payload.task_id, session_id: payload.session_id } }); internalBus?.emit?.(type, event); }
-
   function logJobCompleted(job, { taskId, sessionId } = {}) {
     if (!taskId) return;
     const duration_ms = Date.parse(job.finished_at) - Date.parse(job.started_at);

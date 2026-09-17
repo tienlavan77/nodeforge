@@ -1,4 +1,5 @@
 "use client";
+// AgentsPage — agent management with CRUD and connection testing.
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -16,6 +17,7 @@ const PROVIDER_MODELS = {
   codex: ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.2", "gpt-5.6", "gpt-5.6-mini", "gpt-5.1"]
 };
 
+// Normalizes raw agent payload into a consistent array.
 function normalizeAgents(payload) {
   if (Array.isArray(payload)) return payload;
   if (Array.isArray(payload?.agents)) return payload.agents;
@@ -23,6 +25,7 @@ function normalizeAgents(payload) {
   return [];
 }
 
+// Resolves the display asset for a provider identifier.
 function providerAsset(provider) {
   const key = String(provider ?? "").toLowerCase();
   if (key === "anthropic" || key === "claude") return { src: "/images/anthropic.svg", alt: "Anthropic logo" };
@@ -30,6 +33,7 @@ function providerAsset(provider) {
   return { src: "/images/openai-light.svg", alt: `${provider} logo` };
 }
 
+// Returns a display-safe string for a value.
 function displayValue(value) {
   if (value === null || value === undefined || value === "") return "—";
   if (Array.isArray(value)) return value.join(", ") || "—";
@@ -37,6 +41,7 @@ function displayValue(value) {
   return String(value);
 }
 
+// Agent management page with CRUD and connection testing.
 export default function AgentsPage() {
   const [agents, setAgents] = useState([]);
   const [state, setState] = useState("loading");
@@ -52,6 +57,7 @@ export default function AgentsPage() {
   const [editingAgent, setEditingAgent] = useState(null);
   const [form, setForm] = useState({ role: "architecture_manager", team: "Backend", agent_name: "", provider: "anthropic", model: "claude-sonnet-4-6", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false });
 
+  // Updates a form field value from an input event.
   function updateField(event) {
     setForm((current) => {
       const next = { ...current, [event.target.name]: event.target.value };
@@ -60,12 +66,14 @@ export default function AgentsPage() {
     });
   }
 
+  // Tests connectivity to the agent gateway.
   async function testConnection() {
     setTestState("Testing…");
     try { const testAgentId = editingAgent?.agent_id;
       const response = await fetch(`${API_URL}/${testAgentId}/test`, { method: "POST", cache: "no-store" }); const payload = await response.json(); if (!response.ok) throw new Error(payload?.error || `HTTP ${response.status}`); setTestState(`Connected${payload.gateway_url ? `: ${payload.gateway_url}` : ""}`); } catch (error) { setTestState(error.message || "Connection failed."); }
   }
 
+  // Opens the edit modal prefilled with the selected agent data.
   function openEdit(agent) {
     setEditingAgent(agent);
     const provider = agent.provider ?? "anthropic";
@@ -78,6 +86,7 @@ export default function AgentsPage() {
   }
 
 
+  // Tests connectivity for a specific agent.
   async function testAgent(agent) {
     setTestingAgent(agent.agent_id);
     try {
@@ -90,10 +99,12 @@ export default function AgentsPage() {
     } finally { setTestingAgent(null); }
   }
 
+  // Initiates deletion flow for a selected agent.
   function deleteAgent(agent) {
     setDeleteTarget(agent);
   }
 
+  // Confirms and executes agent deletion.
   async function confirmDelete() {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -110,6 +121,7 @@ export default function AgentsPage() {
     }
   }
 
+  // Submits the add-agent form to create a new agent.
   async function addAgent(event) {
     event.preventDefault();
     setSaving(true);

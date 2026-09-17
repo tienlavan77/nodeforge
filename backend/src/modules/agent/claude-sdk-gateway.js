@@ -1,9 +1,11 @@
+// claude sdk gateway — handles claude sdk gateway logic for the agent subsystem.
 import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
 import { ConfigurationError } from "../../shared/errors.js";
 
 const SAFE_URL = /^https:\/\//;
 const SECRET_FIELD = /(?:api[_-]?key|credential|secret|password|token|authorization)/i;
 
+// createClaudeSdkGateway — create claude sdk gateway logic.
 export function createClaudeSdkGateway({
   configuration,
   credentialResolver,
@@ -21,7 +23,7 @@ export function createClaudeSdkGateway({
 
   return Object.freeze({ execute });
 
-  async function execute({ agentId, prompt, correlationId, cwd, additionalDirectories = [], options = {} } = {}) {
+  async function execute({ agentId, prompt, correlationId, cwd, additionalDirectories = [], options = {}, resumeSessionId, onSessionReady } = {}) {
     const config = getEnabledConfig(agentId);
     assertString(prompt, "Claude SDK prompt");
     assertString(correlationId, "Claude SDK correlation_id");
@@ -40,19 +42,35 @@ export function createClaudeSdkGateway({
       ...(Object.keys(options.mcpServers ?? mcpServers).length ? { mcpServers: options.mcpServers ?? mcpServers } : {}),
       ...((options.allowedTools ?? allowedTools).length ? { allowedTools: [...(options.allowedTools ?? allowedTools)] } : {}),
       tools: options.tools ?? [],
+      ...(resumeSessionId ? { resume: resumeSessionId } : {})
     };
 
     let session;
     const messages = [];
+    let sessionId = resumeSessionId ?? null;
+    let notified = false;
+    const notify = (id) => {
+      if (notified || !id || typeof onSessionReady !== "function") return;
+      notified = true;
+      try { onSessionReady(id); } catch { /* best-effort */ }
+    };
     try {
       session = queryFn({ prompt, options: queryOptions });
-      for await (const message of session) messages.push(sanitize(message, credential));
+      for await (const message of session) {
+        const clean = sanitize(message, credential);
+        messages.push(clean);
+        const sid = clean?.session_id ?? null;
+        if (sid && !sessionId) sessionId = sid;
+        if (sid) notify(sid);
+      }
+      if (sessionId) notify(sessionId);
       return {
         agent_id: config.agent_id,
         agent_name: config.agent_name,
         role: config.role,
         correlation_id: correlationId,
         status: "completed",
+        session_id: sessionId,
         messages
       };
     } catch (error) {
@@ -101,10 +119,12 @@ export function createClaudeSdkGateway({
   }
 }
 
+// assertString — assert string logic.
 function assertString(value, label) {
   if (typeof value !== "string" || value.length === 0) throw new ConfigurationError(`${label} is required.`);
 }
 
+// sanitize — sanitize logic.
 function sanitize(value, credential) {
   if (typeof value === "string") return value.split(credential).join("[REDACTED]");
   if (Array.isArray(value)) return value.map((item) => sanitize(item, credential));

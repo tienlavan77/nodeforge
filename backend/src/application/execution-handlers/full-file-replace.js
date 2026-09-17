@@ -1,7 +1,9 @@
+// Replaces entire file content with backup support.
 import { writeFile } from "node:fs/promises";
 import { backupFile as createBackup } from "./backup.js";
 import { createExecutionResult } from "../execution-layer.js";
 
+// Replaces entire file content with backup support.
 export async function applyFullFileReplace(filePath, newContent, options = {}) {
   const startedAt = Date.now();
   const dryRun = options?.dry_run === true;
@@ -21,7 +23,6 @@ export async function applyFullFileReplace(filePath, newContent, options = {}) {
   } catch (error) {
     return result({ success: false, errorCode: "IO_ERROR", errorMessage: error.message, detail: { backup_ref: backup.detail?.backup_ref } });
   }
-
   function result(values) {
     return createExecutionResult({ stepName: "applyFullFileReplace", durationMs: Date.now() - startedAt, ...values });
   }

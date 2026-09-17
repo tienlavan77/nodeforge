@@ -1,7 +1,9 @@
+// Creates the HTTP API server handling SSE streams and JSON routes.
 import { createServer } from "node:http";
 
 import { ConfigurationError } from "../../shared/errors.js";
 
+// Creates the HTTP API handler with SSE and route support.
 export function createHttpApi({ ownerChatService, conversationStream, projectStream, architectureWorkspaceService, projectDashboardService, conversationAuditHistoryService, humanDecisionService, agentSettingsService, sprintPlanUploadService, sprintOrchestrationService, dispatchSprint, dispatchTicket, ticketRunner, forgeV1Router } = {}) {
   if (ownerChatService !== undefined && typeof ownerChatService?.submit !== "function") throw new ConfigurationError("HTTP API Owner Chat Service must provide submit().");
   if (conversationStream !== undefined && typeof conversationStream?.connect !== "function") throw new ConfigurationError("HTTP API Conversation Stream must provide connect().");
@@ -15,7 +17,6 @@ export function createHttpApi({ ownerChatService, conversationStream, projectStr
   if (dispatchSprint !== undefined && typeof dispatchSprint !== "function") throw new ConfigurationError("HTTP API Sprint Dispatch must be a function.");
 
   return Object.freeze({ handler, createServer: () => createServer(handler) });
-
   async function handler(request, response) {
     try {
       const url = new URL(request.url ?? "/", "http://localhost");
@@ -80,7 +81,6 @@ export function createHttpApi({ ownerChatService, conversationStream, projectStr
       else response.destroy?.();
     }
   }
-
   async function route(method, url, request) {
     const parts = url.pathname.split("/").filter(Boolean);
     const projectId = url.searchParams.get("project") ?? undefined;
@@ -175,12 +175,14 @@ export function createHttpApi({ ownerChatService, conversationStream, projectStr
   }
 }
 
+// Writes a JSON response with CORS headers.
 function writeJson(response, status, body, origin) {
   applyCorsHeaders(response, origin);
   response.writeHead(status, { "content-type": "application/json; charset=utf-8" });
   response.end(JSON.stringify(body));
 }
 
+// Applies CORS headers to the response.
 function applyCorsHeaders(response, origin, sse = false) {
   const allowedOrigin = origin ?? "*";
   response.setHeader("access-control-allow-origin", allowedOrigin);
@@ -196,6 +198,7 @@ function applyCorsHeaders(response, origin, sse = false) {
 }
 
 
+// Reads and parses a JSON request body.
 async function readJson(request, { maxBytes = 1024 * 1024 } = {}) {
   let body = "";
   let size = 0;

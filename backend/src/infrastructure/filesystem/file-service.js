@@ -1,3 +1,4 @@
+// Provides sandboxed file I/O with secret/protected path checks, atomic writes, and optional indexing/verification hooks.
 import { mkdir, readFile as fsReadFile, readdir, unlink, writeFile as fsWriteFile, link, rename, rmdir, open as fsOpen } from "node:fs/promises";
 import { appendFileSync as fsAppendFileSync, mkdirSync, statSync, readFileSync as fsReadFileSync, writeFileSync, renameSync, unlinkSync, openSync, closeSync, readSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
@@ -9,6 +10,7 @@ import { SECRET_PATTERNS, isProtectedPath } from "./protected-path-policy.js";
 const DEFAULT_SECRETS = SECRET_PATTERNS;
 const DEFAULT_IGNORE = [".forge/**", ".node-control/**", "node_modules/**", ".git/**", "dist/**", "coverage/**", ".next/**", ".next.stale-*/**", "**/.DS_Store", "**/._*"];
 
+// Creates a sandboxed FileService scoped to projectRoot with queued writes, secret-path filtering, and atomic/lock operations.
 export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRETS, watcherIgnore = DEFAULT_IGNORE, databaseService, internalBus, onWrite } = {}) {
   if (typeof projectRoot !== "string" || !projectRoot) throw new ConfigurationError("FileService requires a project root.");
   const root = resolve(projectRoot);
@@ -234,10 +236,12 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
   }
 }
 
+// Maps a file extension to its language identifier for indexing metadata.
 function languageForPath(path) {
   return ({ ".js": "javascript", ".jsx": "javascript", ".ts": "typescript", ".tsx": "typescript", ".mjs": "javascript", ".cjs": "javascript", ".json": "json", ".css": "css", ".scss": "scss", ".md": "markdown", ".php": "php" })[extname(path).toLowerCase()] ?? null;
 }
 
+// Formats a verification breakdown array into a concise comma-separated status string.
 function formatVerificationBreakdown(breakdown) {
   return breakdown.map((step) => `${step.kind}:${step.status}${step.exit_code !== undefined ? ` (exit ${step.exit_code})` : ""}`).join(", ");
 }

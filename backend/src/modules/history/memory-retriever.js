@@ -1,10 +1,13 @@
+// Retriever that matches a query against project memory facts to find relevant entries.
 import { ConfigurationError } from "../../shared/errors.js";
 
+// Creates a retriever that ranks project facts against a query.
 export function createMemoryRetriever({ memory } = {}) {
   if (typeof memory?.get !== "function") throw new ConfigurationError("Memory Retrieval requires a Project Memory Store.");
 
   return Object.freeze({ retrieve });
 
+  // Returns project facts whose text contains all query and domain terms.
   function retrieve({ projectId, taskId, query = "", domain } = {}) {
     if (typeof projectId !== "string" || projectId.length === 0 || typeof taskId !== "string" || taskId.length === 0) {
       throw new ConfigurationError("Memory Retrieval requires project_id and task_id.");
@@ -24,6 +27,7 @@ export function createMemoryRetriever({ memory } = {}) {
   }
 }
 
+// Splits text into normalized alphanumeric tokens.
 function tokenize(value) {
   return [...new Set(value.toLowerCase().match(/[a-z0-9_]+/g) ?? [])];
 }

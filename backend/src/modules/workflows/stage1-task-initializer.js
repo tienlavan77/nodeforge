@@ -1,3 +1,4 @@
+// Summary: Initializes stage-1 task state, correlation IDs, and protocol storage entries before first agent request.
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 

@@ -1,3 +1,4 @@
+// agent lifecycle tools - provides agent lifecycle tools functionality for NodeForge.
 import { createHash } from "node:crypto";
 import { isProtectedPath } from "../infrastructure/filesystem/protected-path-policy.js";
 import { ConfigurationError } from "../shared/errors.js";
@@ -6,21 +7,27 @@ const MAX_CONTENT = 200000;
 const WRITE_DIFF_MAX_BYTES = 8192;
 const READ_PREVIEW_LINES = 40;
 const FULL_READ_LINE_LIMIT = 500;
+// safePath - handles safePath operation.
 const safePath = (value, operation = "read") => {
   if (typeof value !== "string" || !value || value.startsWith("/") || value.includes("\\") || value.split("/").some((part) => !part || part === "." || part === "..") || isProtectedPath(value, { operation })) throw error("PATH_FORBIDDEN", "Path is outside the permitted project scope.");
   return value;
 };
+// checksum - handles checksum operation.
 const checksum = (content) => `sha256:${createHash("sha256").update(content, "utf8").digest("hex")}`;
 const checksumPattern = /^sha256:[a-fA-F0-9]{64}$/;
+// error - handles error operation.
 const error = (code, message, details = {}) => Object.assign(new ConfigurationError(message), { code, details });
+// textResult - handles textResult operation.
 const textResult = (text, isError = false) => ({ content: [{ type: "text", text }], ...(isError ? { isError: true } : {}) });
 
+// checksumDiagnostics - handles checksumDiagnostics operation.
 const checksumDiagnostics = (beforeChecksum, targetExists) => ({
   target_exists: targetExists,
   before_checksum_present: beforeChecksum !== null,
   before_checksum_format_valid: typeof beforeChecksum === "string" && checksumPattern.test(beforeChecksum)
 });
 
+// createReadFileTool - handles createReadFileTool operation.
 export function createReadFileTool({ fileService, symbolLookup, maxChars = MAX_CONTENT } = {}) {
   if (typeof fileService?.readForIndex !== "function") throw new ConfigurationError("read_file requires File Service.");
   return Object.freeze({ name: "read_file", async execute(input = {}, context = {}) {
@@ -57,6 +64,7 @@ export function createReadFileTool({ fileService, symbolLookup, maxChars = MAX_C
   }});
 }
 
+// createWriteDiffTool - handles createWriteDiffTool operation.
 export function createWriteDiffTool({ fileService, maxChars = MAX_CONTENT, maxBytes = WRITE_DIFF_MAX_BYTES } = {}) {
   if (typeof fileService?.atomicWrite !== "function" || typeof fileService?.readFile !== "function") throw new ConfigurationError("write_diff requires File Service readFile and atomicWrite.");
   return Object.freeze({ name: "write_diff", async execute(input = {}, context = {}) {
@@ -83,6 +91,7 @@ export function createWriteDiffTool({ fileService, maxChars = MAX_CONTENT, maxBy
       const currentBytes = Buffer.byteLength(current, "utf8");
       if (currentBytes > maxBytes) throw error("DESTRUCTIVE_OVERWRITE", `${path} is ${currentBytes} bytes, over the ${maxBytes}-byte write_diff limit. Replace it with write_diff would drop content; use edit_diff with an exact anchor for localized changes.`, { path, current_bytes: currentBytes, limit: maxBytes });
     }
+    assertSummaryEnforced(input.content, current, context);
     await fileService.atomicWrite({ path, content: input.content, replace: true });
     recordChangedPath(context, path);
     resetExploration(context);
@@ -90,6 +99,7 @@ export function createWriteDiffTool({ fileService, maxChars = MAX_CONTENT, maxBy
   }});
 }
 
+// createEditDiffTool - handles createEditDiffTool operation.
 export function createEditDiffTool({ fileService, maxChars = MAX_CONTENT } = {}) {
   if (typeof fileService?.atomicWrite !== "function" || typeof fileService?.readFile !== "function") throw new ConfigurationError("edit_diff requires File Service readFile and atomicWrite.");
   return Object.freeze({ name: "edit_diff", async execute(input = {}, context = {}) {
@@ -111,6 +121,7 @@ export function createEditDiffTool({ fileService, maxChars = MAX_CONTENT } = {})
     if (parts.length === 1) throw error("ANCHOR_NOT_FOUND", `Anchor was not found in ${path}. Read the file again and copy the exact text.`, { path });
     if (occurrence === "first" && parts.length > 2) throw error("ANCHOR_NOT_UNIQUE", `Anchor occurs ${parts.length - 1} times in ${path}; include more surrounding lines to make it unique.`, { path, occurrences: parts.length - 1 });
     const replaced = parts.join(input.replacement);
+    assertEditSummaryEnforced(current, replaced);
     await fileService.atomicWrite({ path, content: replaced, replace: true });
     recordChangedPath(context, path);
     resetExploration(context);
@@ -118,6 +129,7 @@ export function createEditDiffTool({ fileService, maxChars = MAX_CONTENT } = {})
   }});
 }
 
+// createRunTestTool - handles createRunTestTool operation.
 export function createRunTestTool({ testService } = {}) {
   if (typeof testService?.startTests !== "function") throw new ConfigurationError("run_test requires Test Service startTests.");
   return Object.freeze({ name: "run_test", async execute(input = {}, context = {}) {
@@ -127,6 +139,7 @@ export function createRunTestTool({ testService } = {}) {
   }});
 }
 
+// createCheckTestTool - handles createCheckTestTool operation.
 export function createCheckTestTool({ testService } = {}) {
   if (typeof testService?.getTestResult !== "function") throw new ConfigurationError("check_test requires Test Service getTestResult.");
   return Object.freeze({ name: "check_test", async execute(input = {}, context = {}) {
@@ -137,6 +150,7 @@ export function createCheckTestTool({ testService } = {}) {
   }});
 }
 
+// createCommitChangesTool - handles createCommitChangesTool operation.
 export function createCommitChangesTool({ gitService } = {}) {
   if (typeof gitService?.commit !== "function") throw new ConfigurationError("commit_changes requires Git Service.");
   return Object.freeze({ name: "commit_changes", async execute(input = {}, context = {}) {
@@ -147,6 +161,7 @@ export function createCommitChangesTool({ gitService } = {}) {
   }});
 }
 
+// createReportDoneTool - handles createReportDoneTool operation.
 export function createReportDoneTool({ reportService } = {}) {
   if (!reportService?.buildFinalReport || !reportService?.saveReport || !reportService?.writeReportFile) throw new ConfigurationError("report_done requires Stage1 Report Service.");
   return Object.freeze({ name: "report_done", async execute(input = {}, context = {}) {
@@ -162,6 +177,7 @@ export function createReportDoneTool({ reportService } = {}) {
   }});
 }
 
+// assertReportScope - handles assertReportScope operation.
 function assertReportScope(ticket, context) {
   if (context.lab_mode || context.labMode) return;
   const changed = Array.isArray(context.changed_paths) ? context.changed_paths.filter((path) => typeof path === "string" && path) : [];
@@ -192,6 +208,7 @@ function assertReportScope(ticket, context) {
   }
 }
 
+// assertReportVerified - handles assertReportVerified operation.
 function assertReportVerified(report) {
   if (report?.status !== "completed") return;
   const checks = Array.isArray(report.criteria_check) ? report.criteria_check : [];
@@ -199,6 +216,7 @@ function assertReportVerified(report) {
   if (verifiable.length && verifiable.every((item) => item?.node_verified === null)) throw error("REPORT_UNVERIFIED", "Node did not verify any build/test acceptance criteria; completion report is blocked.");
 }
 
+// isUiTicket - handles isUiTicket operation.
 function isUiTicket(ticket) {
   const text = [ticket?.title, ticket?.objective, ...(ticket?.acceptance_criteria ?? [])]
     .filter((value) => typeof value === "string")
@@ -206,6 +224,7 @@ function isUiTicket(ticket) {
   return /\b(ui|frontend|front-end|react|next(?:\.js)?|component|page|button|layout|watcher|header|screen|responsive|status(?: area| line)?|dashboard|modal)\b/i.test(text);
 }
 
+// hasBackendCriteria - handles hasBackendCriteria operation.
 function hasBackendCriteria(ticket) {
   return (ticket?.acceptance_criteria ?? []).some((criterion) => {
     if (typeof criterion !== "string") return false;
@@ -216,25 +235,31 @@ function hasBackendCriteria(ticket) {
   });
 }
 
+// hasUiCriteria - handles hasUiCriteria operation.
 function hasUiCriteria(ticket) {
   return (ticket?.acceptance_criteria ?? []).some((criterion) =>
     typeof criterion === "string" && /\b(ui|frontend|front-end|react|next(?:\.js)?|component|button|layout|watcher|header|screen|responsive|modal|dashboard)\b/i.test(criterion)
   );
 }
 
+// isUiPath - handles isUiPath operation.
 function isUiPath(path) {
   return path.startsWith("ui/nextjs/") || path.startsWith("ui/src/") || path.startsWith("web/src/");
 }
 
+// isBackendPath - handles isBackendPath operation.
 function isBackendPath(path) {
   return path.startsWith("backend/src/") || path.startsWith("backend/tests/");
 }
 
+// isBackendImplementationPath - handles isBackendImplementationPath operation.
 function isBackendImplementationPath(path) {
   return path.startsWith("backend/src/");
 }
 
+// withinPrefix - handles withinPrefix operation.
 function withinPrefix(path, prefix) { return path === prefix || path.startsWith(`${prefix.replace(/\/$/, "")}/`); }
+// assertAllowed - handles assertAllowed operation.
 function assertAllowed(path, context) {
   const paths = context.allowed_file_paths ?? context.allowedFilePaths;
   const prefixes = context.allowed_prefixes ?? context.allowedPrefixes;
@@ -251,6 +276,52 @@ function assertAllowed(path, context) {
 // changed, instead of a hard-coded target. The context object travels by
 // reference through the Forge MCP session, so mutations here are visible to
 // later tool calls in the same execution.
+function assertSummaryEnforced(content, existing, context) {
+  if (!content || typeof content !== "string") return;
+  if (existing !== null && existing !== undefined) return;
+  // Enforcement applies only to newly created files. Existing overwrites are
+  // reviewed via comment-quality lint, not tool rejection.
+  if (hasFileHeaderComment(content)) return;
+  throw error("SUMMARY_REQUIRED", "New file must start with a concise summary comment describing its purpose. Add the comment at the very top of write_diff content.", { path: "write_diff.content" });
+}
+
+// assertEditSummaryEnforced - handles assertEditSummaryEnforced operation.
+function assertEditSummaryEnforced(before, after) {
+  const beforeFuncs = extractFunctionSignatures(before);
+  const afterFuncs = extractFunctionSignatures(after);
+  for (const sig of afterFuncs) {
+    if (beforeFuncs.has(sig)) continue;
+    if (hasPrecedingComment(after, sig)) continue;
+    throw error("SUMMARY_REQUIRED", `New function "${sig}" must have a concise summary comment immediately before its definition. Add the comment on the line(s) right above the function declaration in the replacement.`, { function: sig });
+  }
+}
+
+// hasFileHeaderComment - handles hasFileHeaderComment operation.
+function hasFileHeaderComment(content) {
+  const head = content.trimStart().split("\n").slice(0, 3).join("\n").trim();
+  return /^(?:\/\/|\/\*|#|<!--)/.test(head);
+}
+
+// extractFunctionSignatures - handles extractFunctionSignatures operation.
+function extractFunctionSignatures(content) {
+  const out = new Set();
+  if (!content || typeof content !== "string") return out;
+  const re = /(?:^|\n)\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*\(/g;
+  let m;
+  while ((m = re.exec(content))) out.add(m[1]);
+  return out;
+}
+
+// hasPrecedingComment - handles hasPrecedingComment operation.
+function hasPrecedingComment(content, fnName) {
+  const lines = content.split("\n");
+  const idx = lines.findIndex((l) => new RegExp(`\\bfunction\\s+${fnName}\\b`).test(l));
+  if (idx <= 0) return false;
+  const prev = lines[idx - 1]?.trim() ?? "";
+  return /^(?:\/\/|\/\*|#|<!--)/.test(prev);
+}
+
+// recordChangedPath - handles recordChangedPath operation.
 function recordChangedPath(context, path) {
   if (!context || typeof context !== "object") return;
   const paths = Array.isArray(context.changed_paths) ? context.changed_paths : [];
@@ -258,6 +329,7 @@ function recordChangedPath(context, path) {
   context.changed_paths = paths;
 }
 
+// resolveCommitPaths - handles resolveCommitPaths operation.
 function resolveCommitPaths(context) {
   const changed = Array.isArray(context.changed_paths) ? context.changed_paths.filter((path) => typeof path === "string" && path) : [];
   if (changed.length) return changed;

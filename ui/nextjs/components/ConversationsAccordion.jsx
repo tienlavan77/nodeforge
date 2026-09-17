@@ -1,8 +1,10 @@
+// Conversations accordion with modal for creating and selecting conversations.
 "use client";
 
 import { useState } from "react";
 import { CreateConversationModal } from "./CreateConversationModal.jsx";
 
+// Sends a create-conversation request to the Forge API.
 async function createConversationRequest(title, { onNewConversation, projectId, agentId } = {}) {
   const body = { title, project_id: projectId, agent_id: agentId };
   const response = await fetch("/forge/v1/conversations", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -13,6 +15,7 @@ async function createConversationRequest(title, { onNewConversation, projectId, 
   return conversation;
 }
 
+// Renders the collapsible conversations list with new-conversation action.
 export function ConversationsAccordion({
   conversations = [],
   onNewConversation,
@@ -27,6 +30,7 @@ export function ConversationsAccordion({
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
 
+  // Validates and creates a new conversation.
   async function handleCreateConversation(event) {
     event?.preventDefault();
     if (creating) return;

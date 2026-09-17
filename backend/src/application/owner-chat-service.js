@@ -1,3 +1,4 @@
+// Handles owner chat ingestion, ticket creation, and agent streaming orchestration.
 import { ConfigurationError } from "../shared/errors.js";
 import { logEvent } from "../core/project-log-service.js";
 import { createHash } from "node:crypto";
@@ -11,6 +12,7 @@ const ticketSchema = require("../../../schemas/governance/ticket.schema.json");
 const agentToolSchema = require("../../../schemas/agent/agent-tool.schema.json");
 const AGENT_TOOL_PROTOCOL_UNLIMITED = "\n\nAgent tool loop protocol:\n- Use code_needed only when more context is needed; request files with files_requested and a short reason.\n- When ready to submit code, use submit_code_response and return explanation plus files[].\n- Each file entry must include path, language, format, content, exists, and before_checksum.\n- Keep representation to full_content unless a diff is explicitly required.\n- If the task is a status-style result, use the matching tool kind and keep the response minimal and structured, not prose-only.\n- Never send apply_patch syntax or a bare @@ hunk.\n- Never replace a long file with a shortened reconstruction.";
 
+// Creates the owner chat service handling message intake and streaming.
 export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, executeAgentTool, ticketCommandParser, proseTicketService, dispatchAgentTicket, internalBus, debug = () => {}, streamBatchMs = 500, projectLogger = logEvent, protocolStorage, conversationCrudService } = {}) {
   if (typeof bus?.send !== "function") throw new ConfigurationError("Owner Chat Service requires the shared Communication Bus.");
   if (!Number.isInteger(streamBatchMs) || streamBatchMs < 1) throw new ConfigurationError("Owner Chat stream batch interval must be positive.");
@@ -27,9 +29,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
   internalBus?.on?.("node.status_change", statusListener);
 
   return Object.freeze({ submit });
-
   function safeLog(logger, entry) { try { logger?.({ timestamp: new Date().toISOString(), ...entry }); } catch (error) { debug({ event: "project-log.error", error: error.message }); } }
-
   function submit(input) {
     assertMessage(input);
     const agentId = input.agent_id ?? architectureManagerId;
@@ -115,7 +115,6 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     else if (typeof agentRequest === "function") void requestRealAgent(persisted, agentId);
     return structuredClone(persisted);
   }
-
   async function streamRealAgent(message, agentId) {
     let index = 0;
     let text = "";
@@ -218,14 +217,12 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       bus.send(responseMessage(message, streamEventType(agentId, "error"), { error: error.message, agent_status: "FAILED" }, "ERROR"));
     }
   }
-
   function emitProgress(message, agentId, text, suffix) {
     debug({ event: "agent.loop.progress", agent_id: agentId, conversation_id: message.conversation_id, text });
     bus.sendFast(responseMessage(message, streamEventType(agentId, "message.progress"), {
       text, progress: true
     }, suffix));
   }
-
   function requestInfoFingerprint(tool) {
     return JSON.stringify({
       tool: tool.tool,
@@ -233,7 +230,6 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       query: tool.query ?? null
     });
   }
-
   async function requestRealAgent(message, agentId) {
     try {
       const result = await agentRequest({ agentId, payload: { text: await enrichAgentText(message, agentId), ...(message.payload.task ? { task: message.payload.task } : {}) }, correlationId: message.correlation_id });
@@ -244,7 +240,6 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       bus.send(responseMessage(message, streamEventType(agentId, "error"), { error: error.message, agent_status: "FAILED" }));
     }
   }
-
   function persistProtocolMessage(message, round, direction) {
     if (!protocolStorage?.save || !message?.conversation_id) return;
     const taskId = message.payload?.task?.id ?? message.payload?.ticket?.id ?? message.conversation_id.replace(/[^A-Za-z0-9._-]/g, "-");
@@ -252,7 +247,6 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     Promise.resolve(protocolStorage.save(ref, message, { schemaId: direction === "request" ? "forge-envelope" : "forge-response" }))
       .catch((error) => debug({ event: "protocol-storage.persist.error", ref, error: error.message }));
   }
-
   async function enrichAgentText(message, agentId) {
     if (agentId !== "builder" || typeof buildAgentContext !== "function") return message.payload.text;
     try {
@@ -263,13 +257,11 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       return message.payload.text;
     }
   }
-
   function responseMessage(message, type, payload, suffix = type === "architecture.error" ? "ERROR" : "REAL") {
     return { id: `MSG-ARCHITECTURE-${suffix}-${message.id}`, project_id: message.project_id,
       sender: { id: message.recipient.id, role: message.recipient.role }, recipient: { id: "NODE", role: "node" }, message_type: type,
       conversation_id: message.conversation_id, correlation_id: message.correlation_id, payload, timestamp: new Date().toISOString() };
   }
-
   function validateAgentTool(value) {
     const ajv = new Ajv2020({ allErrors: true, strict: true });
     const validate = ajv.compile(agentToolSchema);
@@ -277,12 +269,15 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
   }
 }
 
+// Checks whether text contains a JSON candidate.
 function hasJsonCandidate(text) { return /[{[]/.test(String(text ?? "")); }
+// Checks whether text contains valid embedded JSON.
 function isParsableJsonCandidate(text) {
   const value = String(text ?? ""); const start = value.search(/[{[]/); if (start < 0) return false;
   try { JSON.parse(value.slice(start)); return true; } catch { return false; }
 }
 
+// Infers message intent from legacy text patterns.
 function inferLegacyIntent(text) {
   const value = String(text ?? "");
   if (/^\/ticket(?:\s|$)/i.test(value)) return "ticket_dispatch";
@@ -296,6 +291,7 @@ function inferLegacyIntent(text) {
   return "normal_chat";
 }
 
+// Validates owner message required fields.
 function assertMessage(input) {
   if (!input || typeof input !== "object" || typeof input.message_id !== "string" || input.message_id.length === 0
     || typeof input.project_id !== "string" || input.project_id.length === 0 || typeof input.conversation_id !== "string" || input.conversation_id.length === 0
@@ -312,10 +308,12 @@ function assertMessage(input) {
   }
 }
 
+// Normalizes a task payload with project defaults.
 function normalizeTask(task, input) {
   return { ...task, project_id: task.project_id ?? input.project_id, roadmap_id: task.roadmap_id ?? "ROADMAP-DIRECT", sprint_id: task.sprint_id ?? `SPRINT-DIRECT-${task.id}`, priority: task.priority ?? "normal", provenance: task.provenance ?? { source: "project_owner", source_id: task.id, created_at: input.timestamp } };
 }
 
+// Creates a JSON schema validator for tickets.
 function createTicketValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);
@@ -324,24 +322,29 @@ function createTicketValidator() {
   return (task) => ({ valid: Boolean(validate(task)), errors: validate.errors });
 }
 
+// Maps an agent ID to its role name.
 function roleForAgent(agentId) {
   return { "architecture-manager": "architecture_manager", "sprint-leader": "sprint_lead", builder: "builder", reviewer: "reviewer" }[agentId] ?? "runtime";
 }
 
+// Summarizes an agent payload for logging.
 function summarizePayload(payload) {
   const text = String(payload?.text ?? "");
   return { chars: text.length, sha256: createHash("sha256").update(text).digest("hex"), preview: redactPreview(text, 2000), has_tools: Array.isArray(payload?.tools) && payload.tools.length > 0 };
 }
 
+// Summarizes an arbitrary value for logging.
 function summarizeValue(value) {
   const text = typeof value === "string" ? value : JSON.stringify(value);
   return { chars: text.length, preview: redactPreview(text, 2000) };
 }
 
+// Redacts sensitive tokens from a text preview.
 function redactPreview(value, limit = 500) {
   return String(value ?? "").replace(/(?:api[_-]?key|credential|secret|password|token|authorization)\s*[:=]\s*[^\s,}]+/gi, "$1=[REDACTED]").slice(0, limit);
 }
 
+// Resolves the streaming event type for an agent.
 function streamEventType(agentId, suffix) {
   return agentId === "architecture-manager" ? `architecture.${suffix}` : `${agentId}.${suffix}`;
 }

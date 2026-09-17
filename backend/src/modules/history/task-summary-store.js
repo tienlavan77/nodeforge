@@ -1,5 +1,7 @@
+// Store that builds and caches per-task fact summaries from history records.
 import { ConfigurationError } from "../../shared/errors.js";
 
+// Creates a store that builds human-readable summaries per task from history.
 export function createTaskSummaryStore({ history } = {}) {
   if (typeof history?.getByTask !== "function") throw new ConfigurationError("Task Summary requires a History Store.");
   const summaries = new Map();
@@ -8,6 +10,7 @@ export function createTaskSummaryStore({ history } = {}) {
 
   // Records a summary built by Node from direct pipeline evidence (terminal
   // events), for tasks whose events never flowed through the event publisher.
+  // Directly caches a summary produced from pipeline evidence.
   function record(taskId, { project_id: recordedProjectId, facts = [] } = {}) {
     if (typeof taskId !== "string" || taskId.length === 0) throw new ConfigurationError("A task_id is required.");
     const summary = Object.freeze({ task_id: taskId, ...(recordedProjectId ? { project_id: recordedProjectId } : {}), facts: Object.freeze([...facts].filter((fact) => typeof fact === "string" && fact.trim())) });
@@ -15,6 +18,7 @@ export function createTaskSummaryStore({ history } = {}) {
     return cloneSummary(summary);
   }
 
+  // Builds a summary by mapping history records to fact strings.
   function build(taskId) {
     if (typeof taskId !== "string" || taskId.length === 0) throw new ConfigurationError("A task_id is required.");
     const records = history.getByTask(taskId);
@@ -29,12 +33,14 @@ export function createTaskSummaryStore({ history } = {}) {
     return cloneSummary(summary);
   }
 
+  // Returns the summary for a specific task.
   function getByTask(taskId) {
     if (typeof taskId !== "string" || taskId.length === 0) throw new ConfigurationError("A task_id is required.");
     const summary = summaries.get(taskId);
     return summary ? cloneSummary(summary) : undefined;
   }
 
+  // Returns all task summaries for a project, building any missing ones.
   function getByProject(projectId) {
     if (typeof projectId !== "string" || projectId.length === 0) throw new ConfigurationError("A project_id is required.");
     const taskIds = [...new Set(history.getByProject(projectId).map(({ task_id: taskId }) => taskId).filter(Boolean))];
@@ -42,6 +48,7 @@ export function createTaskSummaryStore({ history } = {}) {
   }
 }
 
+// Maps a history action to a readable fact string.
 function factFromRecord({ action, result, long_term_fact: longTermFact }) {
   if (longTermFact) return longTermFact;
   const known = {
@@ -55,6 +62,7 @@ function factFromRecord({ action, result, long_term_fact: longTermFact }) {
   return known[action] ?? (action === "watcher.file_modified" ? "Builder changed project files." : undefined);
 }
 
+// Clones a summary record for return.
 function cloneSummary(summary) {
   return { task_id: summary.task_id, ...(summary.project_id ? { project_id: summary.project_id } : {}), facts: [...summary.facts] };
 }

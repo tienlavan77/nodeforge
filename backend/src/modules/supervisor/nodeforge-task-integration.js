@@ -1,9 +1,12 @@
+// nodeforge task integration - provides nodeforge task integration functionality for NodeForge.
+import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { createForgeSdkMcpServer, forgeSdkToolNames } from "../../tools/claude-sdk-forge-tools.js";
 import { classifyTicketComplexity } from "../../tools/ticket-complexity.js";
 import { createAgentExecutionCheckpointStore } from "../agent/agent-execution-checkpoint.js";
 import { selectCodeGraphCandidatesDefinition, readFileDefinition, writeDiffDefinition, editDiffDefinition, runTestDefinition, checkTestDefinition, commitChangesDefinition, reportDoneDefinition, searchCodeDefinition } from "../../tools/index.js";
 
+// createNodeforgeTaskIntegration - handles createNodeforgeTaskIntegration operation.
 export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, agentResolver, handoffQueue, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, agentGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger = () => {}, fileService, checkpointStore } = {}) {
   if (typeof supervisorManager?.startTask !== "function" || typeof eventBus?.publish !== "function") throw new ConfigurationError("NodeForge integration requires Supervisor Manager and Event Bus.");
   if (typeof handoffQueue?.enqueue !== "function") throw new ConfigurationError("NodeForge integration requires a sender handoff queue.");
@@ -82,11 +85,15 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
     const checkpointed = checkpointedRegistry({ store: checkpoints, registry: toolRegistry, taskId: request.task_id, targetPath, allowedPrefixes, complexity, selected, correlationId: request.correlation_id });
     const mcpServers = { forge: createForgeSdkMcpServer({ registry: checkpointed, context: toolContext, includeCommit: true }) };
     const allowedTools = forgeSdkToolNames;
+    const resume = request.payload?.resume_from ?? null;
+    const resumeSessionId = resume?.session_id ?? null;
     const result = await claudeSdkGateway.execute({
       agentId: selected.agent_id,
       correlationId: request.correlation_id,
       cwd: projectRoot,
       options: { tools: [], mcpServers, allowedTools, maxTurns: complexity.max_turns, effort: complexity.effort, thinking: complexity.thinking },
+      resumeSessionId,
+      onSessionReady: (sessionId) => checkpoints?.save({ ...(resume ?? {}), task_id: request.task_id, session_id: sessionId, status: "in_progress" }).catch(() => {}),
       prompt: withResumePrefix(labMode ? buildToolTestPrompt(request.task_id, targetPath, allowedPrefixes) : buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, complexity), request.payload?.resume_from)
     });
     const toolEvents = collectToolCalls(result.messages);
@@ -205,6 +212,7 @@ function withResumePrefix(prompt, resume) {
   ].join("\n");
 }
 
+// isOpenAiProfile - handles isOpenAiProfile operation.
 function isOpenAiProfile(profile) {
   return String(profile?.provider ?? "").toLowerCase() === "openai";
 }
@@ -258,6 +266,7 @@ function checkpointedRegistry({ store, registry, taskId, targetPath, allowedPref
   return wrapped;
 }
 
+// isCodexProfile - handles isCodexProfile operation.
 function isCodexProfile(profile) {
   return String(profile?.provider ?? "").toLowerCase() === "codex";
 }
@@ -277,22 +286,26 @@ function ticketTargetPath(ticket) {
   return paths[0] ?? null;
 }
 
+// ticketText - handles ticketText operation.
 function ticketText(ticket) {
   return [ticket?.title, ticket?.objective, ...(ticket?.acceptance_criteria ?? [])]
     .filter((value) => typeof value === "string")
     .join(" ");
 }
 
+// isUiTicket - handles isUiTicket operation.
 function isUiTicket(ticket) {
   return /\b(ui|frontend|front-end|react|next(?:\.js)?|component|page|button|layout|watcher|header|screen|responsive|status(?: area| line)?|dashboard|modal)\b/i.test(ticketText(ticket));
 }
 
+// prefixForPath - handles prefixForPath operation.
 function prefixForPath(path) {
   if (typeof path !== "string") return [];
   const separator = path.lastIndexOf("/");
   return separator > 0 ? [path.slice(0, separator)] : [];
 }
 
+// isBackendTicket - handles isBackendTicket operation.
 function isBackendTicket(ticket) {
   const text = ticketText(ticket);
   // Strong backend nouns.
@@ -304,6 +317,7 @@ function isBackendTicket(ticket) {
   return /\b(persist|persistence)\b/i.test(text) && /\b(database|db|sqlite|server|backend|back-end)\b/i.test(text);
 }
 
+// ticketAllowedPrefixes - handles ticketAllowedPrefixes operation.
 function ticketAllowedPrefixes(ticket) {
   const prefixes = [];
   // JSON contracts under schemas/ are low-risk data-model files that any
@@ -317,6 +331,7 @@ function ticketAllowedPrefixes(ticket) {
   return prefixes;
 }
 
+// buildCodexTicketPrompt - handles buildCodexTicketPrompt operation.
 function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, complexity) {
   const acceptance = (ticket?.acceptance_criteria ?? []).map((item) => `- ${item}`).join("\n");
   const allowedJson = JSON.stringify(allowedPrefixes);
@@ -341,6 +356,7 @@ function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, complexity)
     "",
     ...instructions,
     "Work in English and produce all file content in English.",
+    "Code documentation rule: when creating a new file, add a concise summary comment at the top. When creating a new function, add a concise summary comment immediately before its definition. Summaries state purpose only and must not repeat obvious line-by-line behavior.",
     // Budget discipline: exploration must end and the run must finish within
     // the gateway wall-clock timeout. Past runs died exploring (15+ searches)
     // and timed out before edit_diff/commit. The budget comes from the ticket
@@ -354,6 +370,7 @@ function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, complexity)
   ].filter((line) => line !== undefined).join("\n");
 }
 
+// buildCodexToolTestPrompt - handles buildCodexToolTestPrompt operation.
 function buildCodexToolTestPrompt(taskId, targetPath, allowedPrefixes) {
   return [
     "Run the fixed six-tool Forge MCP integration test. Do not inspect or use any ticket title, objective, description, or acceptance criteria.",
@@ -368,6 +385,7 @@ function buildCodexToolTestPrompt(taskId, targetPath, allowedPrefixes) {
   ].join("\n");
 }
 
+// sdkToolEvent - handles sdkToolEvent operation.
 function sdkToolEvent(event, forgeToolNames) {
   if (event?.type !== "item.completed") return null;
   const item = event.item;
@@ -403,6 +421,7 @@ function extractResultErrorCode(item) {
   }
 }
 
+// normalizeForgeToolName - handles normalizeForgeToolName operation.
 function normalizeForgeToolName(name) {
   return typeof name === "string" ? name.replace(/^mcp__forge__/, "") : null;
 }
@@ -410,6 +429,7 @@ function normalizeForgeToolName(name) {
 // Tool-lab runs skip classification (synthetic ticket); these are the previous
 // hardcoded defaults, now also the complex-tier budget floor.
 const COMPLEXITY_FALLBACK = Object.freeze({ effort: "medium", discovery_budget: 8, max_turns: 40, thinking: { type: "enabled", budgetTokens: 4096 } });
+// diagnosticValue - handles diagnosticValue operation.
 function diagnosticValue(value) {
   if (value === undefined) return undefined;
   if (value === null) return null;
@@ -421,6 +441,7 @@ function diagnosticValue(value) {
   return value;
 }
 
+// buildToolTicketPrompt - handles buildToolTicketPrompt operation.
 function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, complexity) {
   const acceptance = (ticket?.acceptance_criteria ?? []).map((item) => `- ${item}`).join("\n");
   const allowedJson = JSON.stringify(allowedPrefixes);
@@ -454,6 +475,7 @@ function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, complexity) 
   ].join("\n");
 }
 
+// buildToolTestPrompt - handles buildToolTestPrompt operation.
 function buildToolTestPrompt(taskId, targetPath, allowedPrefixes) {
   const writeDiffInput = { path: targetPath, content: "tool-lab\n", before_checksum: null };
   return [
@@ -468,6 +490,7 @@ function buildToolTestPrompt(taskId, targetPath, allowedPrefixes) {
   ].join("\n");
 }
 
+// assertTicketExecutionCompleted - handles assertTicketExecutionCompleted operation.
 function assertTicketExecutionCompleted(toolEvents, { labMode = false, missingCode = "TOOL_EXECUTION_FAILED" } = {}) {
   if (!Array.isArray(toolEvents) || toolEvents.length === 0) throw Object.assign(new ConfigurationError("Agent did not expose Forge tool calls to the session."), { code: missingCode });
   const successful = toolEvents.filter((event) => event.status !== "failed");
@@ -499,6 +522,7 @@ function assertTicketExecutionCompleted(toolEvents, { labMode = false, missingCo
   }
 }
 
+// collectToolCalls - handles collectToolCalls operation.
 function collectToolCalls(messages) {
   const raw = messages.flatMap(extractToolEvents);
   const failedIds = new Set(raw.filter((item) => item.type === "tool_result" && item.is_error).map((item) => item.id).filter(Boolean));
@@ -513,6 +537,7 @@ function collectToolCalls(messages) {
     }));
 }
 
+// extractToolEvents - handles extractToolEvents operation.
 function extractToolEvents(message) {
   const blocks = [message?.content, message?.message?.content, message?.message, message].flatMap((value) => Array.isArray(value) ? value : [value]);
   return blocks
@@ -520,6 +545,7 @@ function extractToolEvents(message) {
     .map((item) => ({ type: item.type, id: item.id ?? item.tool_use_id ?? null, is_error: item.is_error === true, error_code: normalizeToolErrorCode(item), name: normalizeForgeToolName(item.name ?? item.tool_name), tool_name: item.name ?? item.tool_name ?? null }));
 }
 
+// normalizeToolErrorCode - handles normalizeToolErrorCode operation.
 function normalizeToolErrorCode(block) {
   if (typeof block?.error_code === "string") return block.error_code;
   if (typeof block?.error?.code === "string") return block.error.code;
@@ -534,6 +560,7 @@ function normalizeToolErrorCode(block) {
   }
 }
 
+// extractText - handles extractText operation.
 function extractText(value) {
   if (typeof value === "string") return [value];
   if (Array.isArray(value)) return value.flatMap(extractText);

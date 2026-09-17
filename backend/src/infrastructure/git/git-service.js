@@ -1,3 +1,4 @@
+// Provides validated Git operations (branches, commits, merges, diffs) via an injectable git executor with safety checks.
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { ConfigurationError } from "../../shared/errors.js";
@@ -6,6 +7,7 @@ const execFile = promisify(execFileCallback);
 const SAFE_BRANCH = /^(?!\.)(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9._/-]*[A-Za-z0-9]$/;
 const PROTECTED_BRANCHES = new Set(["main", "master", "develop"]);
 
+// Creates a Git facade that validates branch/revision/paths and delegates execution to runGit with timeout and event auditing.
 export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutMs = 30_000, onEvent = () => {} } = {}) {
   if (typeof projectRoot !== "string" || !projectRoot) throw new ConfigurationError("Git Service requires a project root.");
   if (typeof runGit !== "function") throw new ConfigurationError("Git Service requires a git executor.");
@@ -144,20 +146,25 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
   }
 }
 
+// Executes a git command via execFile, normalizing success and error results into a uniform exitCode object.
 async function defaultRunGit(args, options) {
   try { const result = await execFile("git", args, options); return { ...result, exitCode: 0 }; }
   catch (error) { return { stdout: error.stdout ?? "", stderr: error.stderr ?? "", exitCode: error.code === 1 ? 1 : undefined, error }; }
 }
 
+// Validates that a git revision string contains only safe characters and is not path-traversal.
 function validateRevision(value) {
   if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(value) || value.startsWith("-") || value.includes("..")) throw gitError("GIT_INVALID_REVISION", `Invalid Git revision: ${value ?? "<missing>"}.`);
 }
 
+// Validates a branch name against SAFE_BRANCH pattern and rejects path-traversal or trailing dots.
 function validateBranch(name) {
   if (typeof name !== "string" || !SAFE_BRANCH.test(name) || name.includes("//") || name.endsWith(".")) throw gitError("GIT_INVALID_BRANCH", `Invalid Git branch name: ${name ?? "<missing>"}.`);
 }
+// Validates that paths are non-empty safe relative strings without leading dashes or traversal.
 function validatePaths(paths) {
   if (!Array.isArray(paths) || paths.some((path) => typeof path !== "string" || !path || path.startsWith("-") || path.includes(".."))) throw new ConfigurationError("Git paths must be safe relative paths.");
   return paths;
 }
+// Creates a ConfigurationError with an attached code for categorized git failures.
 function gitError(code, message) { const error = new ConfigurationError(message); error.code = code; return error; }

@@ -1,4 +1,6 @@
+// Summary: Supervisor state machine that dispatches agent requests and routes agent/collector/verification events to transitions.
 import { ConfigurationError } from "../../shared/errors.js";
+/** Creates the supervisor loop that starts tasks and routes execution events to runtime transitions. */
 export function createSupervisorLoop({ runtime, senderQueue, collectorQueue, verificationQueue, eventBus, attemptBuilder, requestStore, agentResolver } = {}) {
   if (!runtime || typeof eventBus?.publish !== "function") throw new ConfigurationError("Supervisor loop requires runtime and event bus.");
   let started = false;

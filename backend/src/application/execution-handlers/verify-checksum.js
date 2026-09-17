@@ -1,7 +1,9 @@
+// Verifies file integrity against expected SHA-256 checksums.
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createExecutionResult } from "../execution-layer.js";
 
+// Verifies file SHA-256 checksum against expected value.
 export async function verifyChecksum(filePath, expectedChecksum) {
   const startedAt = Date.now();
   let content;

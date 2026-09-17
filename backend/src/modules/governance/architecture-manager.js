@@ -1,5 +1,7 @@
+// Domain service that creates architecture plans, roadmaps, and sprint breakdowns and publishes lifecycle events.
 import { ConfigurationError } from "../../shared/errors.js";
 
+// Creates the architecture manager that owns plan and roadmap creation.
 export function createArchitectureManager({ decisions, knowledge, roadmaps, bus, managerId = "ARCHITECTURE-MANAGER", nodeId = "NODE" } = {}) {
   if (typeof decisions?.append !== "function" || typeof roadmaps?.save !== "function" || typeof knowledge?.getDecisions !== "function" || typeof bus?.send !== "function") {
     throw new ConfigurationError("Architecture Manager requires decision, knowledge, roadmap, and communication services.");
@@ -7,6 +9,7 @@ export function createArchitectureManager({ decisions, knowledge, roadmaps, bus,
 
   return Object.freeze({ createArchitecturePlan, createRoadmap, createSprintBreakdown });
 
+  // Stores source decisions and returns an architecture plan snapshot.
   function createArchitecturePlan(input) {
     const request = assertInput(input);
     const sourceDecisions = input.decisions ?? input.architecture_decisions ?? [];
@@ -22,6 +25,7 @@ export function createArchitectureManager({ decisions, knowledge, roadmaps, bus,
     return structuredClone(plan);
   }
 
+  // Normalizes and persists a roadmap version.
   function createRoadmap(input) {
     const request = assertInput(input);
     const roadmap = normalizeRoadmap(input, request);
@@ -30,6 +34,7 @@ export function createArchitectureManager({ decisions, knowledge, roadmaps, bus,
     return structuredClone(saved);
   }
 
+  // Normalizes sprints and publishes the breakdown event.
   function createSprintBreakdown(input) {
     const request = assertInput(input);
     const roadmapId = input.roadmap_id ?? `ROADMAP-${request.project_id}`;
@@ -40,6 +45,7 @@ export function createArchitectureManager({ decisions, knowledge, roadmaps, bus,
     return structuredClone(breakdown);
   }
 
+  // Sends a governance event message over the bus.
   function publish(projectId, messageType, payload, timestamp, requestId) {
     bus.send({
       id: `MSG-${messageType}-${projectId}${requestId ? `-${requestId}` : ""}`,
@@ -53,6 +59,7 @@ export function createArchitectureManager({ decisions, knowledge, roadmaps, bus,
   }
 }
 
+// Validates that manager input contains a project identifier.
 function assertInput(input) {
   if (!input || typeof input !== "object" || typeof input.project_id !== "string" || input.project_id.length === 0) {
     throw new ConfigurationError("Architecture Manager input requires project_id.");
@@ -60,6 +67,7 @@ function assertInput(input) {
   return input;
 }
 
+// Normalizes a raw decision input into a storable record.
 function normalizeDecision(decision, input, index) {
   const source = typeof decision === "string" ? { decision } : decision;
   return {
@@ -74,6 +82,7 @@ function normalizeDecision(decision, input, index) {
   };
 }
 
+// Normalizes raw roadmap input into a versioned roadmap record.
 function normalizeRoadmap(input, request) {
   const source = input.roadmap ?? input;
   const roadmap = {
@@ -90,6 +99,7 @@ function normalizeRoadmap(input, request) {
   return roadmap;
 }
 
+// Normalizes a sprint and its tickets into canonical records.
 function normalizeSprint(sprint, input, roadmapId, index) {
   const source = sprint ?? {};
   const sprintId = source.id ?? `SPRINT-${input.project_id}-${index + 1}`;

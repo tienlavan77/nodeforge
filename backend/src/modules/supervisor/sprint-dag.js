@@ -1,3 +1,4 @@
+// Summary: Topologically levels sprint tickets by dependencies and fans out execution per DAG level.
 import { ConfigurationError } from "../../shared/errors.js";
 
 export function topologicalTicketLevels(tickets = []) {

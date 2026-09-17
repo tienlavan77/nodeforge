@@ -1,3 +1,4 @@
+// Summary: Gates workflow transition on verification plan results, merging test/lint outcomes into pass/fail decisions.
 import { ConfigurationError } from "../../shared/errors.js";
 import { buildVerificationPlan } from "../verification/verification-plan-builder.js";
 

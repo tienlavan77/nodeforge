@@ -1,3 +1,4 @@
+// Builds provider-specific message arrays and tool-choice hints for Anthropic and OpenAI.
 export function buildMessages(payload = {}, provider = payload.provider ?? payload.provider_name ?? payload.agent_provider ?? "openai") {
   if (Array.isArray(payload.messages) && payload.messages.length) return payload.messages;
   if (isAnthropicProvider(provider)) return buildAnthropicMessages(payload);
@@ -11,6 +12,7 @@ export function buildMessages(payload = {}, provider = payload.provider ?? paylo
   return messages;
 }
 
+// Builds Anthropic system blocks with optional prompt-cache breakpoints.
 export function buildAnthropicSystem(payload = {}) {
   const blocks = [];
   for (const block of payload.instruction_blocks ?? []) {
@@ -22,6 +24,7 @@ export function buildAnthropicSystem(payload = {}) {
   return blocks.length ? blocks : undefined;
 }
 
+// Builds Anthropic user/assistant messages from transcript and user blocks.
 export function buildAnthropicMessages(payload = {}) {
   const messages = [];
   for (const block of payload.transcript_blocks ?? []) {
@@ -33,11 +36,13 @@ export function buildAnthropicMessages(payload = {}) {
   return messages;
 }
 
+// Builds OpenAI messages by preferring explicit payload messages or stable/dynamic contexts.
 export function buildOpenAIMessages(payload = {}) {
   if (Array.isArray(payload.messages) && payload.messages.length) return payload.messages;
   return buildMessages(payload, "openai");
 }
 
+// Selects the forced tool choice matching the expected output type.
 export function buildAnthropicToolChoice(payload = {}, tools = []) {
   const expected = payload.expected_output?.type ?? payload.expected_submission?.type;
   const transport = payload.expected_output?.transport ?? payload.expected_submission?.transport;
@@ -49,10 +54,12 @@ export function buildAnthropicToolChoice(payload = {}, tools = []) {
   return matched ? { type: "tool", name: matched.name } : undefined;
 }
 
+// Normalizes Anthropic token usage into a common shape.
 export function mapUsage(usage = {}) {
   return { input_tokens: Number(usage.input_tokens ?? 0), output_tokens: Number(usage.output_tokens ?? 0), cache_creation_input_tokens: Number(usage.cache_creation_input_tokens ?? 0), cache_read_input_tokens: Number(usage.cache_read_input_tokens ?? 0) };
 }
 
+// Checks whether the provider name maps to the Anthropic message format.
 function isAnthropicProvider(provider) {
   return ["anthropic", "claude", "devquote"].includes(provider);
 }
@@ -70,12 +77,14 @@ function userBlocksContent(blocks = []) {
   return content;
 }
 
+// Extracts text from a content block across content and text fields.
 function blockText(block = {}) {
   if (typeof block.content === "string") return block.content;
   if (typeof block.text === "string") return block.text;
   return "";
 }
 
+// Renders a transcript block as a JSON string with round and summaries.
 function transcriptBlockText(block = {}) {
   if (typeof block.response_summary === "string") {
     return JSON.stringify({ round: block.round, instruction: block.instruction, response_summary: block.response_summary, full_request_ref: block.full_request_ref, full_response_ref: block.full_response_ref });

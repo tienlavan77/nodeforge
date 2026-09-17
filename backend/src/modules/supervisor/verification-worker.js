@@ -1,6 +1,7 @@
 // Verifier: checks the collected change-set on the real filesystem. Node stays
 // the source of truth for PASS/FAIL. Publish contract (verification.passed /
 // verification.failed) is unchanged.
+/** Creates a verification worker that runs the verify function on collected change-sets and returns pass/fail. */
 export function createVerificationWorker({ verify = async () => ({ passed: true }) } = {}) {
   return Object.freeze({ verifyChangeset, verifyPatches });
   async function verifyChangeset(input = {}) {

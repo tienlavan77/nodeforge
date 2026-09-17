@@ -1,3 +1,4 @@
+// Persistent session store for project workflow sessions with lifecycle validation.
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 
@@ -12,16 +13,19 @@ const agentSchema = require("../../../../schemas/core/agent.schema.json");
 const sessionSchema = require("../../../../schemas/project/session.schema.json");
 const CLOSED_STATUSES = new Set(["completed", "failed", "cancelled", "timeout"]);
 
+// Generates a unique session identifier.
 export function createSessionId() {
   return `SESSION-${randomUUID()}`;
 }
 
+// Creates a SQLite-backed store for project session lifecycles.
 export function createSessionStore({ database, projectId, createId = createSessionId, clock = () => new Date() } = {}) {
   if (!database?.run || !database?.all) throw new ConfigurationError("A SQLite database is required for session persistence.");
   if (typeof projectId !== "string" || projectId.length === 0) throw new ConfigurationError("A project_id is required for session persistence.");
 
   ensureSessionTable(database);
 
+  // Retrieves a session by id and project.
   function get(sessionId) {
     const row = database.all("SELECT session_json FROM project_sessions WHERE session_id = ? AND project_id = ?", [sessionId, projectId])[0];
     if (!row) return undefined;
@@ -70,6 +74,7 @@ export function createSessionStore({ database, projectId, createId = createSessi
   });
 }
 
+// Creates the sessions table and index if missing.
 function ensureSessionTable(database) {
   database.run(`CREATE TABLE IF NOT EXISTS project_sessions (
     session_id TEXT PRIMARY KEY,
@@ -82,6 +87,7 @@ function ensureSessionTable(database) {
   database.run("CREATE INDEX IF NOT EXISTS project_sessions_by_project ON project_sessions (project_id)");
 }
 
+// Validates a session record against its JSON schema.
 function validateSession(session) {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);

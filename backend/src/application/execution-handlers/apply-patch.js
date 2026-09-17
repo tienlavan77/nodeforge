@@ -1,3 +1,4 @@
+// Applies Codex-style apply_patch envelopes to file content.
 import { readFile, writeFile } from "node:fs/promises";
 import { backupFile as createBackup } from "./backup.js";
 import { createExecutionResult } from "../execution-layer.js";
@@ -19,10 +20,10 @@ export async function applyApplyPatch(filePath, patchText, options = {}) {
     else await writeFile(filePath, updated, "utf8");
     return result({ success: true, detail: { file_path: filePath, backup_ref: backup.detail?.backup_ref } });
   } catch (error) { return result({ success: false, errorCode: "PATCH_NOT_APPLICABLE", errorMessage: error.message, detail: { file_path: filePath } }); }
-
   function result(values) { return createExecutionResult({ stepName: "applyApplyPatch", durationMs: Date.now() - startedAt, ...values }); }
 }
 
+// Applies an apply_patch envelope to the original content.
 function applyPatch(original, text, expectedPath) {
   const lines = String(text ?? "").replaceAll("\r\n", "\n").split("\n");
   if (lines[0]?.trim() !== "*** Begin Patch" || lines.at(-1)?.trim() !== "*** End Patch") throw new Error("apply_patch must be wrapped by *** Begin Patch and *** End Patch.");

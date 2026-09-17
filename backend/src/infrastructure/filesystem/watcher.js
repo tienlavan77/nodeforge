@@ -1,3 +1,4 @@
+// Wraps chokidar to watch the project filesystem while filtering default and custom ignored paths.
 import chokidar from "chokidar";
 import { EventEmitter } from "node:events";
 import { relative, sep } from "node:path";
@@ -26,6 +27,7 @@ export const DEFAULT_WATCHER_IGNORE = Object.freeze([
 
 const RAW_EVENTS = ["add", "change", "unlink"];
 
+// Creates a chokidar-backed watcher that emits add/change/unlink events after applying ignored-path filtering.
 export function createFilesystemWatcher({ root, ignore = [], chokidarOptions = {} } = {}) {
   if (typeof root !== "string" || root.length === 0) {
     throw new ConfigurationError("A project root is required for filesystem watching.");
@@ -64,6 +66,7 @@ export function createFilesystemWatcher({ root, ignore = [], chokidarOptions = {
   });
 }
 
+// Builds a predicate that returns true for paths matching default or custom ignore globs relative to root.
 export function createProjectIgnoreMatcher(root, ignore = []) {
   const patterns = [...DEFAULT_WATCHER_IGNORE, ...ignore];
   // Match ignored directories at any depth (for example ui/nextjs/.next/**),

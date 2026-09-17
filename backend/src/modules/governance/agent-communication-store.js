@@ -1,3 +1,4 @@
+// File-backed agent message store with indexed DB lookup, conversation file storage, and sensitive-field redaction.
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 
@@ -14,6 +15,7 @@ const SENSITIVE = /(?:api[_-]?key|credential|secret|password|token|authorization
 const CONVERSATION_DIR = "conversations";
 const LEGACY_TABLE = "agent_communications_legacy_raw";
 
+// Creates an agent message store backed by memory or SQLite with file-based raw storage.
 export function createAgentCommunicationStore({ validateMessage = createAgentMessageValidator(), database, fileService } = {}) {
   if (typeof validateMessage !== "function") throw new ConfigurationError("Agent Message validation must be a function.");
   if (database !== undefined && (!database?.run || !database?.all)) throw new ConfigurationError("Persistent Agent Communication Store requires a SQLite database.");
@@ -26,6 +28,7 @@ export function createAgentCommunicationStore({ validateMessage = createAgentMes
 
   return Object.freeze({ append, getById, getAll, getBySender, getByReceiver, getByCorrelationId, getByConversationId, load });
 
+  // Validates, redacts, and indexes a new agent message.
   function append(message) {
     validateMessage(message);
     if (messagesById.has(message.id)) throw new ConfigurationError(`Agent Message already exists: ${message.id}.`);
@@ -45,6 +48,7 @@ export function createAgentCommunicationStore({ validateMessage = createAgentMes
     return structuredClone(stored);
   }
 
+  // Retrieves a message by its unique identifier.
   function getById(id) {
     assertId(id, "message");
     if (database) return readIndexed("WHERE message_id = ?", [id])[0];
@@ -52,31 +56,37 @@ export function createAgentCommunicationStore({ validateMessage = createAgentMes
     return message ? structuredClone(message) : undefined;
   }
 
+  // Returns all stored messages in insertion order.
   function getAll() {
     if (database) return readIndexed();
     return messages.map((message) => structuredClone(message));
   }
 
+  // Returns messages filtered by sender identifier.
   function getBySender(sender) {
     return getByParty("sender", sender);
   }
 
+  // Returns messages filtered by recipient identifier.
   function getByReceiver(receiver) {
     return getByParty("recipient", receiver);
   }
 
+  // Returns messages sharing the same correlation identifier.
   function getByCorrelationId(id) {
     assertId(id, "correlation");
     if (database) return readIndexed("WHERE correlation_id = ?", [id]);
     return messages.filter((message) => message.correlation_id === id).map((message) => structuredClone(message));
   }
 
+  // Returns messages belonging to a specific conversation.
   function getByConversationId(id) {
     assertId(id, "conversation");
     if (database) return readIndexed("WHERE conversation_id = ?", [id]);
     return messages.filter((message) => message.conversation_id === id).map((message) => structuredClone(message));
   }
 
+  // Rebuilds in-memory index from the persisted table and raw files.
   function load() {
     if (!database) return getAll();
     ensureTable(database, fileService);
@@ -91,12 +101,14 @@ export function createAgentCommunicationStore({ validateMessage = createAgentMes
     }
   }
 
+  // Filters messages by sender or recipient party field.
   function getByParty(field, party) {
     assertId(party, field);
     if (database) return readIndexed(`WHERE ${field === "sender" ? "sender_id" : "receiver_id"} = ?`, [party]);
     return messages.filter((message) => message[field].id === party).map((message) => structuredClone(message));
   }
 
+  // Reads messages via indexed DB rows and their raw file slices.
   function readIndexed(where = "", parameters = []) {
     return database.all(`SELECT raw_file, byte_offset, byte_length FROM agent_communications ${where} ORDER BY sequence`, parameters)
       .flatMap((row) => {
@@ -110,6 +122,7 @@ export function createAgentCommunicationStore({ validateMessage = createAgentMes
 
 }
 
+// Creates the communications table and migrates legacy schema if needed.
 function ensureTable(database, fileService) {
   migrateLegacyRawTable(database, fileService);
   database.run(`CREATE TABLE IF NOT EXISTS agent_communications (
@@ -135,6 +148,7 @@ function ensureTable(database, fileService) {
   database.run("CREATE INDEX IF NOT EXISTS agent_communications_correlation ON agent_communications (correlation_id, sequence)");
 }
 
+// Migrates legacy JSON-column rows to file-backed raw storage.
 function migrateLegacyRawTable(database, fileService) {
   const columns = tableColumns(database, "agent_communications");
   if (!columns.includes("message_json") || columns.includes("raw_file")) return;
@@ -172,10 +186,12 @@ function migrateLegacyRawTable(database, fileService) {
   }
 }
 
+// Returns column names for a given SQLite table.
 function tableColumns(database, table) {
   return database.all(`PRAGMA table_info(${table})`).map(({ name }) => name);
 }
 
+// Finds an unused legacy backup table name.
 function nextLegacyTableName(database) {
   if (tableColumns(database, LEGACY_TABLE).length === 0) return LEGACY_TABLE;
   let suffix = 1;
@@ -183,6 +199,7 @@ function nextLegacyTableName(database) {
   return `${LEGACY_TABLE}_${suffix}`;
 }
 
+// Appends a JSONL line to the conversation file and returns its byte location.
 function appendRawMessage(storageRoot, message, fileService) {
   if (!storageRoot) throw new ConfigurationError("Persistent Agent Communication Store requires databasePath for raw file storage.");
   if (typeof fileService?.appendFileSync !== "function") throw new ConfigurationError("Persistent Agent Communication Store requires FileService for raw file storage.");
@@ -192,6 +209,7 @@ function appendRawMessage(storageRoot, message, fileService) {
   return { raw_file: relativeFile, byte_offset: result.byte_offset, byte_length: result.byte_length };
 }
 
+// Reads and parses a single message from its raw file slice.
 function readRawMessage(row, fileService) {
   if (fileService?.readFileRangeSync) {
     return JSON.parse(fileService.readFileRangeSync({ path: join(".forge", "runtime", "nf", row.raw_file), offset: row.byte_offset, length: row.byte_length }).trimEnd());
@@ -199,16 +217,19 @@ function readRawMessage(row, fileService) {
   throw new ConfigurationError("Persistent Agent Communication Store requires FileService for raw file reads.");
 }
 
+// Encodes a conversation id into a filesystem-safe file key.
 function fileKey(value) {
   return Buffer.from(value).toString("base64url");
 }
 
+// Deep-clones a value while replacing sensitive keys with [REDACTED].
 function redact(value) {
   if (Array.isArray(value)) return value.map(redact);
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, SENSITIVE.test(key) ? "[REDACTED]" : redact(item)]));
 }
 
+// Builds a JSON-schema validator for agent messages.
 function createAgentMessageValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);
@@ -220,6 +241,7 @@ function createAgentMessageValidator() {
   };
 }
 
+// Validates that a required identifier string is present.
 function assertId(id, subject) {
   if (typeof id !== "string" || id.length === 0) throw new ConfigurationError(`An Agent Message ${subject} id is required.`);
 }

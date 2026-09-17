@@ -1,3 +1,4 @@
+// Tailwind CSS configuration for the Next.js app.
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [

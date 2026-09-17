@@ -1,6 +1,8 @@
+// Executes single-turn OpenAI Agents SDK runs with per-agent provider and timeout control.
 import { Agent, Runner } from "@openai/agents";
 import { ConfigurationError } from "../../shared/errors.js";
 
+// Creates a gateway that runs a single-turn Agent via the OpenAI Agents SDK.
 export function createOpenAiSdkGateway({ providerFactory, runner = createTracingDisabledRunner(), AgentClass = Agent, timeoutMs = 120000 } = {}) {
   if (typeof providerFactory?.createForAgent !== "function") throw new ConfigurationError("OpenAI SDK Gateway requires a provider factory.");
   if (typeof runner !== "function") throw new ConfigurationError("OpenAI SDK Gateway requires an Agent runner.");
@@ -45,11 +47,13 @@ export function createOpenAiSdkGateway({ providerFactory, runner = createTracing
   }
 }
 
+// Creates an OpenAI Runner configured with tracing disabled for Node execution.
 function createTracingDisabledRunner() {
   const sdkRunner = new Runner({ tracingDisabled: true });
   return (agent, input, options) => sdkRunner.run(agent, input, options);
 }
 
+// Extracts the textual final output from an SDK result, stringifying non-strings.
 function extractText(value) {
   if (typeof value === "string") return value;
   if (value === undefined || value === null) return "";

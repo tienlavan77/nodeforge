@@ -1,7 +1,9 @@
+// Manages per-task conversation transcripts with token-based downgrade and protocol persistence.
 export function createAgentTranscriptStore({ onDowngrade = () => {}, protocolStorage, onPersistError = () => {} } = {}) {
   const tasks = new Map();
   return Object.freeze({ append, select });
 
+// Appends a transcript entry for a task round and persists refs when storage is present.
   function append({ taskId, round, instruction = "", responseSummary = "", fullRequest = "", fullResponse = "" } = {}) {
     if (!tasks.has(taskId)) tasks.set(taskId, []);
     const fullRequestRef = `task/${taskId}/round_${round}/request`;
@@ -18,6 +20,7 @@ export function createAgentTranscriptStore({ onDowngrade = () => {}, protocolSto
     return entry;
   }
 
+// Selects the transcript window for a task, downgrading to summaries when over budget.
   function select(taskId, { mode = "rolling_summary", hybridWindow = 2, maxTokens = 30000 } = {}) {
     const list = [...(tasks.get(taskId) ?? [])].sort((a, b) => a.round - b.round);
     let selected = mode === "full_transcript" ? list : mode === "hybrid" ? list.map((entry, index) => index >= list.length - hybridWindow ? entry : summary(entry)) : list.map(summary);
@@ -34,10 +37,13 @@ export function createAgentTranscriptStore({ onDowngrade = () => {}, protocolSto
   }
 }
 
+// Parses a stored JSON string or wraps raw text for protocol persistence.
 function parseStoredValue(value) {
   if (typeof value !== "string") return value;
   try { return JSON.parse(value); } catch { return { text: value }; }
 }
 
+// Strips bulky full payloads from an entry, falling back to a truncated summary.
 function summary(entry) { return { ...entry, full_request: undefined, full_response: undefined, response_summary: entry.response_summary || entry.full_response.slice(0, 500) }; }
+// Roughly estimates token count from the serialized entry size.
 function estimate(entries) { return JSON.stringify(entries).length / 4; }

@@ -1,3 +1,4 @@
+// Validator for Node-Agent protocol envelopes and their role-specific payloads.
 import { createRequire } from "node:module";
 
 import Ajv from "ajv/dist/2020.js";
@@ -28,6 +29,7 @@ const validateShape = ajv.compile(envelopeSchema);
  * Validate the common envelope first, then its role/type-specific payload.
  * State checks are deliberately optional until the workflow state machine exists.
  */
+// Validates envelope shape, resolves payload schema, and checks protocol state.
 export function validateEnvelope(envelope, options = {}) {
   if (!validateShape(envelope)) {
     return invalid("INVALID_ENVELOPE", validateShape.errors);
@@ -52,12 +54,14 @@ export function validateEnvelope(envelope, options = {}) {
   return { valid: true, envelope, schema_id: payloadSchema.$id };
 }
 
+// Maps role and type to the canonical payload type name.
 function payloadType(role, type) {
   if (role === "agent" && (type === "code_response" || type === "submit_code_response")) return "submit_code_response";
   if (role === "node" && type === "code_provide") return "code_require";
   return type;
 }
 
+// Validates envelope type against expected protocol state.
 function validateState(envelope, state) {
   if (!state) return null;
   const allowed = state.allowedTypes ?? (state.expectedType ? [state.expectedType] : null);
@@ -67,16 +71,19 @@ function validateState(envelope, state) {
   return null;
 }
 
+// Builds a normalized invalid-result object with error details.
 function invalid(code, errors, extra = {}) {
   return { valid: false, code, errors: structuredClone(errors ?? []), ...extra };
 }
 
+// Validates an envelope or throws a ConfigurationError.
 export function assertValidEnvelope(envelope, options = {}) {
   const result = validateEnvelope(envelope, options);
   if (!result.valid) throw new ConfigurationError(`${result.code}: ${formatErrors(result.errors)}`);
   return result.envelope;
 }
 
+// Formats validation errors into a readable message.
 function formatErrors(errors) {
   return errors.map((error) => {
     const path = error.instancePath || error.dataPath || "/";
