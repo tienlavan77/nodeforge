@@ -219,6 +219,37 @@ function InlineAddTicketForm({ sprint, projectId, client, onCreated }) {
   </form>;
 }
 
+export function ConversationModal({ client, projectId = PROJECT_ID, agentId, onClose, onCreated }) {
+  const [title, setTitle] = useState("");
+  const [state, setState] = useState("idle");
+  const [error, setError] = useState("");
+  async function submit(event) {
+    event.preventDefault();
+    if (!title) return;
+    setState("creating");
+    setError("");
+    try {
+      const conversation = await client.createConversation({ projectId, agentId, title });
+      setState("created");
+      await onCreated?.(conversation);
+    } catch (failure) {
+      setState("error");
+      setError(failure?.message ?? String(failure));
+    }
+  }
+  return <div className="settings-overlay" role="dialog" aria-modal="true" aria-label="Create Conversation">
+    <section className="settings-modal">
+      <header><div><h2>Create Conversation</h2><p>Start a new conversation with the selected agent.</p></div><button type="button" onClick={onClose} aria-label="Close conversation dialog">&#215;</button></header>
+      <form onSubmit={submit}>
+        <label htmlFor="conversation-title">Conversation title<input id="conversation-title" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Enter a conversation title" /></label>
+        <div className="settings-actions"><button type="submit" disabled={!title || state === "creating"}>Create</button><button type="button" onClick={onClose}>Cancel</button></div>
+      </form>
+      {error && <p role="alert">{error}</p>}
+      {state === "created" && <p role="status">Conversation created.</p>}
+    </section>
+  </div>;
+}
+
 export function UploadSprintPlanDialog({ client, onClose, onUploaded }) {
   const [fileName, setFileName] = useState("");
   const [plan, setPlan] = useState(null);
