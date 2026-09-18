@@ -1548,6 +1548,8 @@ button, input { font: inherit; }
 .conversations-accordion-drag-handle:active { cursor: grabbing; }
 /* Conversations Block: title left truncated | three inline actions right */
 .conversations-block { display: flex; align-items: center; gap: 8px; }
+.conversations-block.is-active { background: color-mix(in srgb, var(--app-accent) 14%, transparent); border-color: var(--app-accent); box-shadow: inset 2px 0 0 var(--app-accent); }
+.conversations-block.is-active .conversations-block-title-text { color: var(--app-text); font-weight: 600; }
 .conversations-block-title { flex: 1 1 auto; min-width: 0; justify-content: flex-start; }
 .conversations-block-title-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .conversations-block-actions { flex: 0 0 auto; margin-left: auto; display: flex; flex-direction: row; align-items: center; gap: 6px; flex-shrink: 0; }
