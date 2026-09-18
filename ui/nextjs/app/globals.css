@@ -805,7 +805,10 @@ button, input { font: inherit; }
 
 /* Home workspace */
 .home-workspace-shell { min-height: 100vh; }
-.home-workspace { min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(180px, 1fr); gap: 1px; background: var(--app-border); }
+.home-workspace { min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(0, 40%) minmax(0, 30%) minmax(0, 30%); gap: 1px; background: var(--app-border); }
+.home-chat-panel { min-width: 0; width: 100%; }
+.home-sprint-panel { min-width: 0; width: 100%; }
+.workspace-panel { min-width: 0; width: 100%; }
 .home-panel, .home-open-panel { min-width: 0; background: color-mix(in srgb, var(--app-panel) 60%, transparent); backdrop-filter: blur(10px); }
 .home-panel { display: flex; flex-direction: column; min-height: 0; padding: 24px; }
 .home-panel-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-bottom: 20px; border-bottom: 1px solid var(--app-border); }
