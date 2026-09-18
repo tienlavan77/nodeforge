@@ -78,12 +78,23 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
         const payload = { project_id: body.project_id ?? projectId, agent_id: body.agent_id ?? url.searchParams.get("agent_id") ?? undefined, title: body.title };
         return { status: 201, body: conversationCrudService.create(payload) };
       }
+// Summary: Handles conversation archive and full chat history (user + agent) retrieval.
       // Archive via POST /conversations/:id/archive (used by ConversationsBlock)
       if (method === "POST" && parts.length === 3 && parts[2] === "archive") {
         const conversation = conversationCrudService.get(parts[1]);
         if (!conversation) throw Object.assign(new ConfigurationError(`Conversation not found: ${parts[1]}.`), { statusCode: 404 });
         if (projectId && conversation.project_id !== projectId) throw Object.assign(new ConfigurationError("Conversation belongs to a different project."), { statusCode: 404 });
         return { status: 200, body: conversationCrudService.update(parts[1], { status: "archived", archived: true, ...body }) };
+      }
+      // Chat history via GET /conversations/:id/messages (returns user + agent messages)
+      if (method === "GET" && parts.length === 3 && parts[2] === "messages") {
+        const conversationId = parts[1];
+        if (typeof conversationId !== "string" || conversationId.length === 0) throw Object.assign(new ConfigurationError("Conversation Audit History conversation id is required."), { statusCode: 400 });
+        const conversation = conversationCrudService.get(conversationId);
+        if (!conversation) throw Object.assign(new ConfigurationError(`Conversation not found: ${conversationId}.`), { statusCode: 404 });
+        if (projectId && conversation.project_id !== projectId) throw Object.assign(new ConfigurationError("Conversation belongs to a different project."), { statusCode: 404 });
+        if (!conversationAuditHistoryService?.query) throw unavailable("Conversation Audit History");
+        return { status: 200, body: await conversationAuditHistoryService.query({ conversationId }) };
       }
       if (parts.length === 2) {
         const conversation = conversationCrudService.get(parts[1]);
@@ -268,18 +279,29 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
       return { status: 202, body: { ...result, request_id: requestId, correlation_id: correlationId } };
     }
 
-    if (method === "POST" && parts.length === 3 && parts[0] === "projects" && parts[2] === "conversations") {
-      if (!ownerChatService?.submit) throw unavailable("Conversation");
-      return { status: 202, body: await ownerChatService.submit({ ...body, project_id: parts[1] }) };
-    }
-
-    if (method === "POST" && parts.length === 5 && parts[0] === "projects" && parts[2] === "conversations" && parts[4] === "messages") {
-      if (!ownerChatService?.submit) throw unavailable("Conversation");
-      return { status: 202, body: await ownerChatService.submit({ ...body, project_id: parts[1], conversation_id: parts[3] }) };
+    if (method === "GET" && parts.length === 3 && parts[0] === "conversations" && parts[2] === "messages") {
+      if (!conversationAuditHistoryService?.query) throw unavailable("Conversation Audit History");
+      const conversationForMessages = conversationCrudService?.get?.(parts[1]);
+      if (conversationCrudService?.get && !conversationForMessages) throw Object.assign(new ConfigurationError(`Conversation not found: ${parts[1]}.`), { statusCode: 404 });
+      if (conversationForMessages && projectId && conversationForMessages.project_id !== projectId) throw Object.assign(new ConfigurationError("Conversation belongs to a different project."), { statusCode: 404 });
+      const messagesProjectId = projectId ?? conversationForMessages?.project_id;
+      return { status: 200, body: await conversationAuditHistoryService.query({
+        projectId: messagesProjectId,
+        conversationId: parts[1],
+        limit: url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : 100,
+        ...(url.searchParams.has("cursor") ? { cursor: url.searchParams.get("cursor") } : {}),
+        order: url.searchParams.get("order") ?? "asc"
+      }) };
     }
 
     if (method === "POST" && parts.length === 3 && parts[0] === "conversations" && parts[2] === "messages") {
       if (!ownerChatService?.submit) throw unavailable("Conversation");
+      if (conversationCrudService) {
+        const conversation = conversationCrudService.get(parts[1]);
+        if (!conversation) throw Object.assign(new ConfigurationError(`Conversation not found: ${parts[1]}.`), { statusCode: 404 });
+        if (projectId && conversation.project_id !== projectId) throw Object.assign(new ConfigurationError("Conversation belongs to a different project."), { statusCode: 404 });
+        if (conversation.status !== "active") throw Object.assign(new ConfigurationError("Conversation is not active."), { statusCode: 409, code: "CONVERSATION_NOT_ACTIVE" });
+      }
       return { status: 202, body: await ownerChatService.submit({ ...body, project_id: projectId, conversation_id: parts[1] }) };
     }
 
