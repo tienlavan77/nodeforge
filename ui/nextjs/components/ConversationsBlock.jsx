@@ -1,7 +1,7 @@
 // Conversations Block component for conversation accordion rows.
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useRef } from "react";
 
 // API helpers for menu actions — trigger backend without full page reload.
 async function apiDeleteConversation(id) {
@@ -25,9 +25,10 @@ async function apiArchiveConversation(id) {
   return res.json().catch(() => ({}));
 }
 
-// Single row block with three aligned sections: check | title | menu.
+// Single row block with title left and three inline actions right.
 export function ConversationsBlock({
   conversation,
+  active = false,
   checked,
   onCheckedChange,
   onSelect,
@@ -90,16 +91,10 @@ export function ConversationsBlock({
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       onDragEnd={onDragEnd}
-      className={`conversations-block conversations-accordion-row ${isDragging ? "is-dragging" : ""} ${isDragOver ? "is-drag-over" : ""} ${isArchived ? "is-archived" : ""}`}
+      className={`conversations-block conversations-accordion-row${isDragging ? " is-dragging" : ""}${isDragOver ? " is-drag-over" : ""}${isArchived ? " is-archived" : ""}${active ? " is-active" : ""}`}
       data-testid="conversations-block"
+      aria-current={active ? "true" : undefined}
     >
-      <input
-        type="checkbox"
-        className="conversations-block-check conversations-accordion-checkbox"
-        checked={!!checked}
-        onChange={() => onCheckedChange?.(conversation)}
-        aria-label={`Select conversation ${titleText}`}
-      />
       {isEditing ? (
         <input
           className="conversations-block-title-input conversations-accordion-rename-input"
@@ -113,19 +108,15 @@ export function ConversationsBlock({
       ) : (
         <button type="button" className="conversations-block-title conversations-accordion-item-main" onClick={() => onSelect?.(conversation)}>
           <span className="conversations-block-title-text conversations-accordion-item-title">{titleText}</span>
-          {conversation.updated_at || conversation.updatedAt ? (<time className="conversations-accordion-item-time">{conversation.updated_at ?? conversation.updatedAt}</time>) : null}
         </button>
       )}
-      <div className="conversations-block-menu-wrap conversations-accordion-menu-wrap" ref={wrapRef}>
-        <button type="button" className="conversations-block-menu-btn conversations-accordion-menu-btn" aria-label="Conversation actions" aria-haspopup="menu" aria-expanded={!!menuOpen} onClick={() => onMenuToggle?.(!menuOpen)}>⋮</button>
-        {menuOpen && (
-          <div className="conversations-block-menu conversations-accordion-menu" role="menu">
-            <button type="button" role="menuitem" onClick={() => { onStartRename?.(); onMenuToggle?.(false); }}>Rename</button>
-            <button type="button" role="menuitem" onClick={handleArchive}>Archive</button>
-            <button type="button" role="menuitem" className="is-danger" onClick={handleDelete}>Delete</button>
-          </div>
-        )}
-      </div>
+      {!isEditing && (
+        <div className="conversations-block-actions" ref={wrapRef}>
+          <button type="button" className="conversations-block-action" onClick={() => onStartRename?.()}>Rename</button>
+          <button type="button" className="conversations-block-action" onClick={handleArchive}>Archive</button>
+          <button type="button" className="conversations-block-action is-danger" onClick={handleDelete}>Delete</button>
+        </div>
+      )}
     </li>
   );
 }
