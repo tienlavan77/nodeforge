@@ -29,3 +29,32 @@ function normalizeResult(result) {
   }
   return Object.freeze({ ...result });
 }
+
+// Resolves a chat role for a conversation message so clients can distinguish user from agent.
+export function resolveConversationMessageRole(message) {
+  const senderRole = typeof message?.sender === "string" ? undefined : message?.sender?.role;
+  const role = senderRole ?? message?.sender_role ?? message?.role;
+  if (role === "project_owner" || role === "user" || role === "owner") return "user";
+  if (role === "node" || role === "system") return "system";
+  return "agent";
+}
+
+// Normalizes a conversation message while preserving its existing contract fields.
+export function normalizeConversationMessage(message, index = 0) {
+  if (!message || typeof message !== "object") throw new ConfigurationError("Conversation message must be an object.");
+  const role = message.role ?? resolveConversationMessageRole(message);
+  const senderId = typeof message.sender === "string" ? message.sender : message.sender?.id;
+  const author = message.author ?? senderId ?? message.sender_role ?? null;
+  return Object.freeze({
+    ...structuredClone(message),
+    role,
+    author,
+    sequence: message.sequence ?? index,
+  });
+}
+
+// Projects stored communication messages as full chat history with user and agent roles.
+export function toConversationChatHistory(messages = []) {
+  if (!Array.isArray(messages)) throw new ConfigurationError("Conversation messages must be an array.");
+  return messages.map((message, index) => normalizeConversationMessage(message, index));
+}
