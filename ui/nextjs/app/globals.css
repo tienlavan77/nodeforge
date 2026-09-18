@@ -1547,7 +1547,11 @@ button, input { font: inherit; }
 .conversations-accordion-drag-handle { flex: 0 0 auto; cursor: grab; color: var(--app-muted); font-size: 12px; padding: 2px 4px; user-select: none; }
 .conversations-accordion-drag-handle:active { cursor: grabbing; }
 /* Conversations Block: title left truncated | three inline actions right */
-.conversations-block { display: flex; align-items: center; gap: 8px; }
+.conversations-block { display: flex; align-items: center; gap: 8px; width: 100%; }
+.conversations-block-header { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
+.conversations-block-actions { display: flex; flex-direction: row; align-items: center; justify-content: flex-end; gap: 6px; margin-left: auto; flex: 0 0 auto; }
+.conversations-accordion-checkbox, .conversations-accordion-item-time, .conversations-accordion-menu, .conversations-accordion-menu-wrap, .conversations-accordion-menu-btn { display: none !important; }
+@media (max-width: 640px) { .conversations-block { flex-wrap: wrap; } .conversations-block-actions { width: 100%; justify-content: flex-end; margin-left: 0; } }
 .conversations-block.is-active { background: color-mix(in srgb, var(--app-accent) 14%, transparent); border-color: var(--app-accent); box-shadow: inset 2px 0 0 var(--app-accent); }
 .conversations-block.is-active .conversations-block-title-text { color: var(--app-text); font-weight: 600; }
 .conversations-block-title { flex: 1 1 auto; min-width: 0; justify-content: flex-start; }
