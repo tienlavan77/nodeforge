@@ -1,5 +1,6 @@
 import { ConfigurationError } from "../shared/errors.js";
 
+// Summary: Projects communication messages as full chat history with user/agent roles.
 const SENSITIVE = /(?:api[_-]?key|credential|secret|password|token|authorization)/i;
 
 // Read-only projection over existing audit authorities. It never persists or mutates records.
@@ -10,21 +11,25 @@ export function createConversationAuditHistoryService({ communications, eventSto
 
   return Object.freeze({ query });
   function query({ projectId, agentId, conversationId, correlationId, type, cursor, limit = 25, order = "asc" } = {}) {
-    if (logReader) {
-      return Promise.resolve(logReader({ project_id: projectId, task_id: correlationId, correlation_id: correlationId, conversation_id: conversationId, event_name: type })).then((result) => { const items = result.events.map((event, index) => ({ id: event.event_id, kind: event.status === "failed" ? "failure" : "system", sequence: event.sequence ?? index + 1, timestamp: event.timestamp, agent_id: event.source, sender: event.source, receiver: "NODE", conversation_id: event.conversation_id ?? null, correlation_id: event.correlation_id ?? null, type: event.event_name, content: redact(event.payload) }));
+    if (projectId !== undefined) assertId(projectId, "project");
+    else if (conversationId === undefined && agentId === undefined && correlationId === undefined) assertId(projectId, "project");
+    if (logReader && conversationId === undefined) {
+      return Promise.resolve(logReader({ project_id: projectId, task_id: correlationId, correlation_id: correlationId, conversation_id: conversationId, event_name: type })).then((result) => { const items = result.events.map((event, index) => ({ id: event.event_id, kind: event.status === "failed" ? "failure" : "system", role: "system", author: event.source, sequence: event.sequence ?? index + 1, timestamp: event.timestamp, agent_id: event.source, sender: event.source, receiver: "NODE", conversation_id: event.conversation_id ?? null, correlation_id: event.correlation_id ?? null, type: event.event_name, content: redact(event.payload) }));
       return { items: order === "desc" ? items.reverse() : items, next_cursor: null }; });
     }
-    assertId(projectId, "project");
     for (const [value, label] of [[agentId, "agent"], [conversationId, "conversation"], [correlationId, "correlation"], [type, "type"]]) {
       if (value !== undefined) assertId(value, label);
     }
     if (cursor !== undefined && (!Number.isInteger(Number(cursor)) || Number(cursor) < 0)) throw new ConfigurationError("History cursor must be a non-negative integer.");
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new ConfigurationError("History limit must be between 1 and 100.");
     if (order !== "asc" && order !== "desc") throw new ConfigurationError("History order must be asc or desc.");
+    const conversationMessages = (conversationId !== undefined && typeof communications?.getByConversationId === "function")
+      ? communications.getByConversationId(conversationId)
+      : communications.getAll().filter((message) => projectId === undefined || message.project_id === projectId || message.project_id === undefined);
     const records = [
-      ...communications.getAll().filter((message) => message.project_id === projectId).map(messageRecord),
-    ...(eventStore?.getAll() ?? []).filter((event) => (event.project_id ?? event.metadata?.project_id) === projectId).map(eventRecord),
-      ...(history?.getByProject(projectId) ?? []).map(historyRecord)
+      ...conversationMessages.map(messageRecord),
+    ...(eventStore?.getAll() ?? []).filter((event) => projectId === undefined || (event.project_id ?? event.metadata?.project_id) === projectId).map(eventRecord),
+      ...(projectId === undefined ? [] : (history?.getByProject(projectId) ?? []).map(historyRecord))
     ].filter((record) => matches(record, { agentId, conversationId, correlationId, type }))
       .sort((left, right) => left.timestamp.localeCompare(right.timestamp) || left.sequence - right.sequence);
     const ordered = order === "desc" ? [...records].reverse() : records;
@@ -37,8 +42,8 @@ export function createConversationAuditHistoryService({ communications, eventSto
 // Maps a communication message to an audit history record.
 function messageRecord(message, index) {
   return {
-    id: message.id, kind: classifyMessage(message), sequence: index, timestamp: message.timestamp,
-    agent_id: message.sender.id, sender: message.sender.id, receiver: message.recipient.id,
+    id: message.id, kind: classifyMessage(message), role: roleForMessage(message), author: message.sender?.id ?? null, sequence: index, timestamp: message.timestamp,
+    agent_id: message.sender.id, sender: message.sender.id, sender_role: message.sender?.role ?? null, receiver: message.recipient.id,
     conversation_id: message.conversation_id ?? null, correlation_id: message.correlation_id ?? null,
     type: message.message_type, content: redact(message.payload)
   };
@@ -47,7 +52,7 @@ function messageRecord(message, index) {
 // Maps an event store entry to an audit history record.
 function eventRecord(event, index) {
   return {
-    id: event.event_id, kind: classifyEvent(event), sequence: 100000 + index, timestamp: event.timestamp,
+    id: event.event_id, kind: classifyEvent(event), role: "agent", author: event.metadata.agent_id ?? event.source, sequence: 100000 + index, timestamp: event.timestamp,
     agent_id: event.metadata.agent_id ?? event.source, sender: event.source, receiver: "NODE",
     conversation_id: event.metadata.conversation_id ?? null, correlation_id: event.metadata.correlation_id ?? null,
     type: event.event_type, content: redact(event.payload)
@@ -58,7 +63,7 @@ function eventRecord(event, index) {
 function historyRecord(record, index) {
   return {
     id: record.event_id, kind: record.action.includes("failed") ? "failure" : record.action.includes("completed") ? "completion" : "system",
-    sequence: 200000 + index, timestamp: record.timestamp, agent_id: record.actor, sender: record.actor, receiver: "NODE",
+    role: "agent", author: record.actor, sequence: 200000 + index, timestamp: record.timestamp, agent_id: record.actor, sender: record.actor, receiver: "NODE",
     conversation_id: null, correlation_id: null, type: record.action, content: redact({ result: record.result, ...(record.long_term_fact ? { long_term_fact: record.long_term_fact } : {}) })
   };
 }
@@ -77,6 +82,14 @@ function classifyMessage(message) {
   if (message.message_type.includes("error") || message.message_type.includes("failed")) return "failure";
   if (message.message_type.includes("completed")) return "completion";
   return message.sender.role === "node" ? "system" : "agent";
+}
+
+// Resolves a chat role for a communication message so clients can distinguish user from agent.
+function roleForMessage(message) {
+  const role = message.sender?.role;
+  if (role === "project_owner" || role === "user" || role === "owner") return "user";
+  if (role === "node" || role === "system") return "system";
+  return "agent";
 }
 
 // Classifies an event by its type.
