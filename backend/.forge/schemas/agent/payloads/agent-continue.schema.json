@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/agent-continue.schema.json",
+  "title": "Agent Continue Payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "next_task"],
+  "properties": {
+    "status": { "const": "continue" },
+    "next_task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description"],
+      "properties": {
+        "description": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/tools/run-test.schema.json",
+  "title": "Forge run test tool input",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {}
+}

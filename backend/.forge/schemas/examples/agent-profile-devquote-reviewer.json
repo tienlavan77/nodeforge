@@ -1,0 +1,15 @@
+{
+  "id": "NF-AGENT-REVIEWER-001",
+  "project_id": "PROJECT-114A",
+  "agent_id": "REVIEWER-001",
+  "agent_name": "Forge Reviewer (Devquote)",
+  "role": "reviewer",
+  "provider": "devquote",
+  "model": "claude-sonnet-4-6",
+  "gateway_url": "https://sv.devquote.shop",
+  "credential_ref": "DEVQUOTE_API_KEY",
+  "enabled": true,
+  "status": "configured",
+  "created_at": "2026-08-20T10:00:00+07:00",
+  "updated_at": "2026-08-20T10:00:00+07:00"
+}

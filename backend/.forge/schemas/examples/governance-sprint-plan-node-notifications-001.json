@@ -1,0 +1,90 @@
+{
+  "id": "SPRINT-FORGE-NOTIFY-001",
+  "roadmap_id": "ROADMAP-NODEFORGE",
+  "project_id": "PROJECT-NODEFORGE",
+  "objective": "Xây dựng contract thông báo và mã lỗi thống nhất cho Node, sau đó nối vào backend context/ticket flow và Next.js UI để người dùng luôn nhận được thông báo có thể hành động.",
+  "tickets": [
+    {
+      "id": "FORGE-NOTIFY-001",
+      "project_id": "PROJECT-NODEFORGE",
+      "roadmap_id": "ROADMAP-NODEFORGE",
+      "sprint_id": "SPRINT-FORGE-NOTIFY-001",
+      "title": "Define unified Node notification and error-code contract",
+      "objective": "Định nghĩa catalog mã lỗi/thông báo dùng chung, phân biệt severity, retryability, audience và suggested_action mà không thay đổi enum Execution Layer hiện có.",
+      "acceptance_criteria": [
+        "Tạo module backend/src/shared/node-notification.js chứa catalog và hàm tạo notification; không dùng chuỗi lỗi rải rác làm contract.",
+        "Contract tối thiểu gồm code, status, severity, message, retryable, audience, suggested_action và optional details.",
+        "Bao phủ nhóm ticket, context/index, path, dispatch, execution và verification; giữ nguyên 9 error_code Execution Layer hiện có.",
+        "Mã lỗi dùng SCREAMING_SNAKE_CASE và message hiển thị cho người dùng không chứa stack trace hoặc dữ liệu nhạy cảm.",
+        "Tạo backend/tests/unit/node-notification.test.js kiểm tra catalog, fallback mã lạ và tính bất biến của output.",
+        "Chạy lint, typecheck, validate:schemas, test liên quan và git diff --check; commit riêng sau khi pass."
+      ],
+      "priority": "high",
+      "dependencies": [],
+      "provenance": { "source": "sprint_plan", "source_id": "SPRINT-FORGE-NOTIFY-001", "created_at": "2026-08-28T15:30:00Z" }
+    },
+    {
+      "id": "FORGE-NOTIFY-002",
+      "project_id": "PROJECT-NODEFORGE",
+      "roadmap_id": "ROADMAP-NODEFORGE",
+      "sprint_id": "SPRINT-FORGE-NOTIFY-001",
+      "title": "Apply notification contract to indexed context scenarios",
+      "objective": "Chuẩn hóa response của Node khi agent yêu cầu context qua index để missing/stale/unavailable/invalid target không làm ticket fail mù.",
+      "acceptance_criteria": [
+        "Chỉ sửa backend/scripts/start-control-api.mjs và test liên quan trong backend/tests; agent không được đọc trực tiếp filesystem khi request_info read_file.",
+        "Context ready trả source=index và Context Pack; context missing, stale, index unavailable và invalid target trả notification contract từ FORGE-NOTIFY-001.",
+        "Path ngoài guard vẫn bị từ chối cứng bằng PATH_DENIED; không fallback filesystem.",
+        "File không tồn tại không tự động làm ticket failed; Node trả suggested_action để agent list file, chọn path khác hoặc tạo file mới.",
+        "Bổ sung regression test cho đầy đủ các nhánh và xác nhận không lộ stack trace.",
+        "Chạy lint, typecheck, validate:schemas, test liên quan và git diff --check; commit riêng sau khi pass."
+      ],
+      "priority": "high",
+      "dependencies": ["FORGE-NOTIFY-001"],
+      "provenance": { "source": "sprint_plan", "source_id": "SPRINT-FORGE-NOTIFY-001", "created_at": "2026-08-28T15:30:00Z" }
+    },
+    {
+      "id": "FORGE-NOTIFY-003",
+      "project_id": "PROJECT-NODEFORGE",
+      "roadmap_id": "ROADMAP-NODEFORGE",
+      "sprint_id": "SPRINT-FORGE-NOTIFY-001",
+      "title": "Apply notification contract to ticket create and dispatch flows",
+      "objective": "Dùng cùng notification contract cho ticket_create và ticket_dispatch, gồm schema invalid, not found, blocked, duplicate active và retry ticket failed.",
+      "acceptance_criteria": [
+        "Chỉ sửa backend/src/application/owner-chat-service.js, backend/src/application/ticket-command-parser.js và test tương ứng.",
+        "ticket_create trả mã ổn định cho missing object, invalid JSON và schema invalid; payload.ticket vẫn là nguồn canonical.",
+        "ticket_dispatch trả mã ổn định cho not_found, blocked, already_running, already_done và accepted.",
+        "Ticket failed được phép retry; running/reviewing/done không bị dispatch trùng.",
+        "Mọi response giữ message_type hiện tại để không phá client legacy nhưng thêm notification object thống nhất.",
+        "Chạy lint, typecheck, validate:schemas, test liên quan và git diff --check; commit riêng sau khi pass."
+      ],
+      "priority": "high",
+      "dependencies": ["FORGE-NOTIFY-001"],
+      "provenance": { "source": "sprint_plan", "source_id": "SPRINT-FORGE-NOTIFY-001", "created_at": "2026-08-28T15:30:00Z" }
+    },
+    {
+      "id": "FORGE-NOTIFY-004",
+      "project_id": "PROJECT-NODEFORGE",
+      "roadmap_id": "ROADMAP-NODEFORGE",
+      "sprint_id": "SPRINT-FORGE-NOTIFY-001",
+      "title": "Render unified Node notifications in Next.js UI",
+      "objective": "Hiển thị notification backend bằng ngôn ngữ dễ hiểu trong chat và ticket cards, không phụ thuộc hoàn toàn vào SSE để báo trạng thái.",
+      "acceptance_criteria": [
+        "Chỉ sửa ui/nextjs/app/NodeForgeApp.jsx, helper dưới ui/nextjs/lib và test dưới ui/nextjs/tests.",
+        "Tạo formatter dùng notification.code/status/severity/message/suggested_action, có fallback cho response legacy.",
+        "Ticket creation, dispatch, retry failed, context missing và verification failure đều hiển thị thông báo rõ ràng cho người dùng.",
+        "Nút Run hiển thị accepted/pending/error từ HTTP response ngay cả khi SSE chưa phát event; SSE vẫn cập nhật trạng thái live khi có.",
+        "Thông báo không render raw JSON hoặc stack trace; severity có styling/accessibility phù hợp.",
+        "Chạy lint, typecheck, Next build, test formatter và git diff --check; commit riêng sau khi pass."
+      ],
+      "priority": "high",
+      "dependencies": ["FORGE-NOTIFY-002", "FORGE-NOTIFY-003"],
+      "provenance": { "source": "sprint_plan", "source_id": "SPRINT-FORGE-NOTIFY-001", "created_at": "2026-08-28T15:30:00Z" }
+    }
+  ],
+  "exit_criteria": [
+    "Tất cả notification/error scenarios có code ổn định, message cho người dùng và suggested_action.",
+    "Agent context chỉ đọc qua index và không làm ticket fail mù khi file không tồn tại.",
+    "Ticket create/dispatch/retry và Next.js UI dùng chung một contract, vẫn tương thích response legacy.",
+    "Lint, typecheck, validate:schemas, backend tests, Next build và git diff --check đều pass."
+  ]
+}

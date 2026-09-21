@@ -1,0 +1,9 @@
+{
+  "id": "MSG-114A-001",
+  "project_id": "PROJECT-114A",
+  "sender": {"id": "SPRINT-LEAD-001", "role": "sprint_lead"},
+  "recipient": {"id": "NODE-001", "role": "node"},
+  "message_type": "sprint.plan_proposed",
+  "payload": {"sprint_id": "SPRINT-11"},
+  "timestamp": "2026-08-20T06:00:00Z"
+}

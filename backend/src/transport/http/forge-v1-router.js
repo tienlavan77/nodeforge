@@ -1,6 +1,7 @@
 // Routes Forge v1 API requests to domain services with checkpoint decoration.
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
+import { toConversationChatHistory } from "../../agents/agent-contract.js";
 
 // Creates the Forge v1 HTTP router with checkpoint decoration.
 export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab, projectStream, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, conversationCrudService, conversationAuditHistoryService, architectureWorkspaceService, humanDecisionService, agentSettingsService, listResumableCheckpoints } = {}) {
@@ -94,7 +95,15 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
         if (!conversation) throw Object.assign(new ConfigurationError(`Conversation not found: ${conversationId}.`), { statusCode: 404 });
         if (projectId && conversation.project_id !== projectId) throw Object.assign(new ConfigurationError("Conversation belongs to a different project."), { statusCode: 404 });
         if (!conversationAuditHistoryService?.query) throw unavailable("Conversation Audit History");
-        return { status: 200, body: await conversationAuditHistoryService.query({ conversationId }) };
+        const history = await conversationAuditHistoryService.query({
+          projectId: projectId ?? conversation.project_id,
+          conversationId,
+          limit: url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : 100,
+          ...(url.searchParams.has("cursor") ? { cursor: url.searchParams.get("cursor") } : {}),
+          order: url.searchParams.get("order") ?? "asc"
+        });
+        const items = toConversationChatHistory(history.items ?? []);
+        return { status: 200, body: { ...history, items } };
       }
       if (parts.length === 2) {
         const conversation = conversationCrudService.get(parts[1]);
@@ -280,18 +289,21 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
     }
 
     if (method === "GET" && parts.length === 3 && parts[0] === "conversations" && parts[2] === "messages") {
+      if (typeof parts[1] !== "string" || parts[1].length === 0) throw Object.assign(new ConfigurationError("Conversation Audit History conversation id is required."), { statusCode: 400 });
       if (!conversationAuditHistoryService?.query) throw unavailable("Conversation Audit History");
       const conversationForMessages = conversationCrudService?.get?.(parts[1]);
       if (conversationCrudService?.get && !conversationForMessages) throw Object.assign(new ConfigurationError(`Conversation not found: ${parts[1]}.`), { statusCode: 404 });
       if (conversationForMessages && projectId && conversationForMessages.project_id !== projectId) throw Object.assign(new ConfigurationError("Conversation belongs to a different project."), { statusCode: 404 });
       const messagesProjectId = projectId ?? conversationForMessages?.project_id;
-      return { status: 200, body: await conversationAuditHistoryService.query({
+      const history = await conversationAuditHistoryService.query({
         projectId: messagesProjectId,
         conversationId: parts[1],
         limit: url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : 100,
         ...(url.searchParams.has("cursor") ? { cursor: url.searchParams.get("cursor") } : {}),
         order: url.searchParams.get("order") ?? "asc"
-      }) };
+      });
+      const items = toConversationChatHistory(history.items ?? []);
+      return { status: 200, body: { ...history, items } };
     }
 
     if (method === "POST" && parts.length === 3 && parts[0] === "conversations" && parts[2] === "messages") {

@@ -1,0 +1,35 @@
+{
+  "id": "AGENT-BUILDER-001",
+  "type": "ai",
+  "role": "builder",
+  "project_id": "wp-static-commerce",
+  "session_id": "SESSION-001",
+  "task_id": "TASK-001",
+  "provider": "codex",
+  "model": "gpt-5.6",
+  "status": "running",
+  "capability_scopes": {
+    "filesystem": [
+      {
+        "resource": "project_source",
+        "actions": ["read", "write"]
+      }
+    ],
+    "shell": [
+      {
+        "resource": "workspace",
+        "actions": ["execute"]
+      }
+    ],
+    "agent_events": [
+      {
+        "resource": "self",
+        "actions": ["publish_lifecycle", "publish_log"]
+      },
+      {
+        "resource": "self",
+        "actions": ["subscribe"]
+      }
+    ]
+  }
+}

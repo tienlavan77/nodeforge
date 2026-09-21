@@ -8,9 +8,10 @@ import { createFileRepository } from "./file-repository.js";
 import { extractorRegistry } from "./parser/index.js";
 import { readContentHash } from "../watcher/debounced-watcher.js";
 import { logEvent } from "../../core/project-log-service.js";
+import { checksumEmbeddingText } from "./embedding-job-store.js";
 
 // createIncrementalIndexer - handles createIncrementalIndexer operation.
-export function createIncrementalIndexer({ database, projectRoot, registry = extractorRegistry, files = createFileRepository(database), graph = createDependencyGraph({ database, files, projectRoot }), fileService, getContentHash = readContentHash, logger = console, projectLogger = logEvent } = {}) {
+export function createIncrementalIndexer({ database, projectRoot, registry = extractorRegistry, files = createFileRepository(database), graph = createDependencyGraph({ database, files, projectRoot }), fileService, getContentHash = readContentHash, logger = console, projectLogger = logEvent, embeddingJobs = null, embeddingStore = null, embeddingProvider = null, embeddingModel = "text-embedding-3-small" } = {}) {
   return Object.freeze({
     async handle(event) {
       const path = event.payload?.path;
@@ -52,6 +53,7 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
       writeCalls(fileId, path, extraction);
       database.run("UPDATE index_metadata SET version = version + 1");
     });
+    // Per-symbol embeddings are queued inside indexContent (best-effort, serial).
     writeLog("index.completed", "info", "File indexed.", event, path, "success");
     return true;
   }
@@ -83,9 +85,13 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
       writeCalls(file.file_id, path, extraction);
       database.run("UPDATE index_metadata SET version = version + 1");
     });
+    // Per-symbol embeddings are queued inside indexContent (best-effort, serial).
     writeLog("index.completed", "info", "File index updated.", event, path, "success");
     return true;
   }
+
+  // Per-symbol embedding is queued inside indexContent via queueSymbolEmbedding.
+  // (File-level indexEmbedding removed: symbol granularity replaces it.)
 
   function deleteFile(path, event) {
     const file = files.findByPath(path);
@@ -158,6 +164,7 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
   function clearContentIndex(fileId) {
     database.run("DELETE FROM file_content_fts WHERE file_id = ?", [fileId]);
     database.run("DELETE FROM symbol_content_fts WHERE file_id = ?", [fileId]);
+    try { embeddingStore?.removeByFile?.(fileId); } catch { /* embedding cleanup is best-effort */ }
   }
 
   function indexContent(fileId, path, content) {
@@ -176,7 +183,34 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
       }
       const symbolContent = lines.slice(extendedStart - 1, end).join("\n");
       database.run("INSERT INTO symbol_content_fts (symbol_id, file_id, path, name, kind, content, start_line, end_line) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [symbol.symbol_id, fileId, path, symbol.name, symbol.kind, symbolContent, symbol.start_line, symbol.end_line]);
+      queueSymbolEmbedding({ symbolId: symbol.symbol_id, name: symbol.name, kind: symbol.kind, path, content: symbolContent });
     }
+  }
+
+  // Queue one symbol for embedding (serial, best-effort). Skips when the stored
+  // checksum matches so unchanged symbols are never re-embedded.
+  function queueSymbolEmbedding({ symbolId, name, kind, path, content }) {
+    if (!symbolId) return;
+    const checksum = checksumEmbeddingText(`${name}\n${kind}\n${content ?? ""}`);
+    if (embeddingJobs?.enqueue) {
+      // Queue after the index transaction commits; the job store uses its own transaction.
+      queueMicrotask(() => {
+        try { embeddingJobs.enqueue({ symbolId, contentChecksum: checksum, model: embeddingModel }); } catch (error) { logger.debug?.("Embedding job enqueue skipped.", { path, symbol: name, error: error.message }); }
+      });
+      return;
+    }
+    if (!embeddingStore || !embeddingProvider) return;
+    void (async () => {
+      try {
+        const checksum = checksumEmbeddingText(`${name}\n${kind}\n${content ?? ""}`);
+        const existing = database.all("SELECT content_checksum, embedding_model FROM symbol_embeddings WHERE symbol_id = ?", [symbolId])[0];
+        if (existing?.content_checksum === checksum && existing?.embedding_model === embeddingModel) return;
+        const vector = await embeddingProvider.embed(`${name} [${kind}]\n${content ?? ""}`.slice(0, 4000));
+        embeddingStore.upsert({ symbolId, vector, model: embeddingModel, checksum });
+      } catch (error) {
+        logger.debug?.("Symbol embedding skipped.", { path, symbol: name, error: error.message });
+      }
+    })().catch((error) => { logger.error?.("Symbol embedding task failed.", { path, symbol: name, error: error.message }); });
   }
 
   function writeRelation(fileId, path, item, name, kind) {

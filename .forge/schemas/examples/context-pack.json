@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.2.0",
+  "project_id": "wp-static-commerce",
+  "task_id": "TASK-001",
+  "session_id": "SESSION-001",
+  "purpose": "build",
+  "index_version": "IDX-2026-08-15T14:00:00Z-9f3",
+  "generated_at": "2026-08-15T14:05:30Z",
+  "files": [
+    {
+      "path": "src/session.js",
+      "reason": "target function",
+      "content_mode": "exact",
+      "start_line": 420,
+      "end_line": 468,
+      "content": "async function refreshSession(token) {\\n  const session = await sessionStore.findByToken(token);\\n  if (!session || session.expiresAt < Date.now()) return null;\\n  return session;\\n}"
+    }
+  ],
+  "symbols": [
+    {
+      "file": "src/session.js",
+      "name": "refreshSession",
+      "kind": "function",
+      "start_line": 420,
+      "end_line": 468
+    }
+  ],
+  "dependencies": [
+    {
+      "symbol": "sessionStore.findByToken",
+      "signature": "findByToken(token): Promise<Session | null>",
+      "file": "src/session-store.js"
+    }
+  ],
+  "tests": {
+    "related": [
+      "tests/session.test.js::refreshSession",
+      "tests/session.test.js::expired session"
+    ]
+  },
+  "compression": {
+    "strategy": [
+      "symbol_selection",
+      "dependency_selection",
+      "line_range_selection",
+      "deduplication",
+      "test_selection"
+    ],
+    "source_preservation": true,
+    "minify_source": false
+  },
+  "budget": {
+    "max_tokens": 12000,
+    "estimated_tokens": 700
+  }
+}

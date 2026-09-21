@@ -1,4 +1,5 @@
 import { ConfigurationError } from "../shared/errors.js";
+import { resolveConversationMessageRole } from "../agents/agent-contract.js";
 
 // Summary: Projects communication messages as full chat history with user/agent roles.
 const SENSITIVE = /(?:api[_-]?key|credential|secret|password|token|authorization)/i;
@@ -86,10 +87,7 @@ function classifyMessage(message) {
 
 // Resolves a chat role for a communication message so clients can distinguish user from agent.
 function roleForMessage(message) {
-  const role = message.sender?.role;
-  if (role === "project_owner" || role === "user" || role === "owner") return "user";
-  if (role === "node" || role === "system") return "system";
-  return "agent";
+  return resolveConversationMessageRole(message);
 }
 
 // Classifies an event by its type.

@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/node/node-event.schema.json",
+  "title": "Forge Node Event",
+  "description": "Node-internal event stream. This is a constrained profile of the canonical core/event.schema.json: same envelope and `type` enum, restricted to the subset of event types that Node's own subsystems (watcher, index, workflow engine, agent supervisor) are allowed to emit directly.",
+  "allOf": [
+    {
+      "$ref": "../core/event.schema.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "node.started",
+            "node.ready",
+            "node.degraded",
+            "node.recovered",
+            "node.stopping",
+            "node.stopped",
+            "node.error",
+            "projects.opened",
+            "projects.closed",
+            "watcher.file_created",
+            "watcher.file_modified",
+            "watcher.file_deleted",
+            "watcher.file_renamed",
+            "index.file_indexed",
+            "index.file_removed",
+            "index.rebuilt",
+            "index.inconsistent",
+            "git.diff_generated",
+            "git.changeset_created",
+            "verification.test_started",
+            "verification.test_completed",
+            "verification.check_completed",
+            "context.pack_generated",
+            "context.cache_invalidated",
+            "rules.rule_violated",
+            "rules.permission_denied",
+            "workflow.state_transitioned",
+            "workflow.started",
+            "workflow.completed",
+            "review.requested",
+            "agents.started",
+            "agents.stopped",
+            "agents.message_received",
+            "agents.error",
+            "agents.concurrent_modification_detected",
+            "agent.started",
+            "agent.plan.created",
+            "agent.step.started",
+            "agent.step.completed",
+            "agent.token_used",
+            "agent.message.delta",
+            "governance.sprint_plan.created",
+            "agent.stopped",
+            "agent.message_received",
+            "agent.error",
+            "agent.concurrent_modification_detected",
+            "agent.failed",
+            "agent.completed",
+            "history.summary_created",
+            "process.timed_out",
+            "process.cancelled"
+          ]
+        }
+      }
+    }
+  ]
+}

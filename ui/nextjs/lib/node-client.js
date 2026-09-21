@@ -98,6 +98,10 @@ export function createNodeClient() {
       });
     },
 
+    async listConversations({ projectId, agentId } = {}) {
+      return requestJson(forgeV1("/conversations", { project: projectId, ...(agentId ? { agent_id: agentId } : {}) }), { fallbackError: "Node could not load conversations." });
+    },
+
     async getAgents() {
       return requestJson(forgeV1("/agents"), { fallbackError: "Node could not load Agents." });
     },
@@ -204,7 +208,7 @@ export function createNodeClient() {
     async getArchitectureWorkspace(projectId) {
       return requestJson(forgeV1(`/projects/${projectId}/architecture-workspace`, { project: projectId }), { fallbackError: "Node could not load the Architecture Workspace." });
     },
-    // Chat API canonical route: POST /forge/v1/conversations
+    // Chat API canonical route: POST /forge/v1/conversations/:id/messages
     async postOwnerMessage({ projectId, conversationId, agentId, messageId, correlationId, text, intent, ticket }) {
       const messageIntent = intent ?? detectMessageIntent(text);
       if (!Object.values(MESSAGE_INTENTS).includes(messageIntent)) throw new Error("Invalid message intent.");
@@ -212,29 +216,31 @@ export function createNodeClient() {
       const normalized = messageIntent === MESSAGE_INTENTS.normalChat ? { text: rawText } : normalizeTicketInput(rawText);
       const ticketObject = ticket ?? normalized.ticket;
       if (messageIntent === MESSAGE_INTENTS.ticketCreate && !ticketObject) throw new Error("Ticket JSON could not be extracted from the message.");
-      return requestJson(forgeV1(`/conversations`, { project: projectId }), {
+      return requestJson(forgeV1(`/conversations/${encodeURIComponent(conversationId)}/messages`, { project: projectId }), {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ project_id: projectId, conversation_id: conversationId, agent_id: agentId, message_id: messageId, correlation_id: correlationId, timestamp: new Date().toISOString(), payload: { intent: messageIntent, ...(messageIntent === MESSAGE_INTENTS.ticketCreate ? { ticket: ticketObject } : {}), text: rawText } }),
+        body: JSON.stringify({ project_id: projectId, agent_id: agentId, message_id: messageId, correlation_id: correlationId, timestamp: new Date().toISOString(), payload: { intent: messageIntent, ...(messageIntent === MESSAGE_INTENTS.ticketCreate ? { ticket: ticketObject } : {}), text: rawText } }),
         fallbackError: "Node rejected the owner message."
       });
     },
+    async getConversationMessages({ projectId, conversationId, limit = 25, cursor, order } = {}) {
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (conversationId) params.set("conversationId", conversationId);
+      if (cursor) params.set("cursor", cursor);
+      if (order) params.set("order", order);
+      return requestJson(forgeV1(`/conversations/${encodeURIComponent(conversationId)}/messages`, { ...Object.fromEntries(params), project: projectId }), { fallbackError: "Node could not load conversation messages." });
+    },
     connectConversationStream({ projectId, conversationId, afterMessageId, onMessage, onReplayComplete, onError }) {
       if (typeof onMessage !== "function") throw new Error("Conversation stream requires an onMessage handler.");
-      const params = new URLSearchParams();
-      if (projectId) params.set("project", projectId);
-      if (afterMessageId) params.set("after", afterMessageId);
-      const query = params.toString() ? `?${params.toString()}` : "";
-      const source = new EventSource(`${controlApiBase()}/forge/v1/projects/${projectId}/conversations/${conversationId}/stream${query}`);
+      const source = new EventSource(forgeV1("/stream", { project: projectId, ...(afterMessageId ? { after: afterMessageId } : {}) }));
       const delivered = new Set();
-      const onConversationEvent = (event) => {
+      ["conversation.message.owner", "conversation.message.delta", "conversation.message.received", "conversation.tool"].forEach((eventType) => source.addEventListener(eventType, (event) => {
         const message = JSON.parse(event.data);
+        if (message.conversation_id && message.conversation_id !== conversationId) return;
         if (delivered.has(message.message_id)) return;
         delivered.add(message.message_id);
         onMessage(message);
-      };
-      source.addEventListener("conversation.message", onConversationEvent);
-      source.addEventListener("conversation.tool", onConversationEvent);
+      }));
       source.addEventListener("conversation.replay.complete", () => onReplayComplete?.());
       source.onerror = () => onError?.();
       return Object.freeze({ close: () => source.close() });
@@ -246,7 +252,7 @@ export function createNodeClient() {
       const source = new EventSource(forgeV1("/stream", { project: projectId, ...(afterEventId ? { after: afterEventId } : {}) }));
       const delivered = new Set();
       let lastEventId = afterEventId ?? null;
-      const eventTypes = ["stream.connected", "stream.snapshot", "watcher.file_indexed", "watcher.file_removed", "ticket.created", "ticket.updated", "ticket.status_changed", "ticket.deleted", "sprint.created", "sprint.updated", "sprint.deleted", "conversation.message.delta", "conversation.message.received", "conversation.message.owner", "stream.error"];
+      const eventTypes = ["stream.connected", "stream.snapshot", "watcher.file_indexed", "watcher.file_removed", "ticket.created", "ticket.updated", "ticket.status_changed", "ticket.deleted", "sprint.created", "sprint.updated", "sprint.deleted", "conversation.message.delta", "conversation.message.received", "conversation.message.owner", "conversation.message.created", "conversation.message.completed", "conversation.message.failed", "conversation.agent.status_changed", "stream.error"];
       const handleEvent = (event) => {
         if (event.lastEventId) lastEventId = event.lastEventId;
         let data;
@@ -274,7 +280,7 @@ export function createNodeClient() {
 // Validates a project stream event shape.
 function isProjectStreamEvent(value, projectId) {
   return Boolean(value && typeof value === "object" && typeof value.event_id === "string" && value.event_id.length > 0
-    && ["stream.connected", "stream.snapshot", "watcher.file_indexed", "watcher.file_removed", "ticket.created", "ticket.updated", "ticket.status_changed", "ticket.deleted", "sprint.created", "sprint.updated", "sprint.deleted", "conversation.message.delta", "conversation.message.received", "conversation.message.owner", "stream.error"].includes(value.event_type)
+    && ["stream.connected", "stream.snapshot", "watcher.file_indexed", "watcher.file_removed", "ticket.created", "ticket.updated", "ticket.status_changed", "ticket.deleted", "sprint.created", "sprint.updated", "sprint.deleted", "conversation.message.delta", "conversation.message.received", "conversation.message.owner", "conversation.message.created", "conversation.message.completed", "conversation.message.failed", "conversation.agent.status_changed", "stream.error"].includes(value.event_type)
     && value.schema_version === 1 && value.project_id === projectId && typeof value.timestamp === "string"
     && value.payload && typeof value.payload === "object" && !Array.isArray(value.payload));
 }

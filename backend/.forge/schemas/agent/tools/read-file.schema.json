@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/tools/read-file.schema.json",
+  "title": "Forge read file tool input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "path"
+  ],
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+"
+    },
+    "offset": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "1-based start line, inclusive"
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 500,
+      "description": "max lines to return"
+    }
+  }
+}

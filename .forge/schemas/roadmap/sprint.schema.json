@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.dev/schemas/roadmap/sprint.schema.json",
+  "title": "Forge Roadmap Sprint",
+  "description": "A planned grouping of ordered commits. It contains no runtime state.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "objective", "commits"],
+  "properties": {
+    "id": { "type": "string" },
+    "objective": { "type": "string", "minLength": 1 },
+    "dependencies": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true,
+      "description": "Sprint IDs that must be completed first."
+    },
+    "commits": {
+      "type": "array",
+      "items": { "$ref": "https://forge.dev/schemas/roadmap/commit.schema.json" },
+      "minItems": 1
+    }
+  }
+}

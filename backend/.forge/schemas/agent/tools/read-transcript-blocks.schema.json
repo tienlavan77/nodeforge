@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/tools/read-transcript-blocks.schema.json",
+  "title": "Forge read transcript blocks tool input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "block_ids",
+    "rounds",
+    "file_paths",
+    "include",
+    "max_chars"
+  ],
+  "properties": {
+    "block_ids": {
+      "type": "array",
+      "maxItems": 20,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "rounds": {
+      "type": "array",
+      "maxItems": 20,
+      "uniqueItems": true,
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "file_paths": {
+      "type": "array",
+      "maxItems": 20,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "include": {
+      "type": "string",
+      "enum": [
+        "request",
+        "response",
+        "both"
+      ]
+    },
+    "max_chars": {
+      "type": "integer",
+      "minimum": 1000,
+      "maximum": 50000
+    }
+  }
+}

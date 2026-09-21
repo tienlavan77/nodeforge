@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/core/command.schema.json",
+  "title": "Forge Command",
+  "description": "Canonical command envelope for the whole system. `type` uses the domain.action convention and this enum is its single source of truth. Node profiles may only narrow this set through allOf.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "request_id",
+    "project_id",
+    "payload"
+  ],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": [
+        "projects.open",
+        "projects.close",
+        "projects.get_state",
+        "sessions.start",
+        "sessions.stop",
+        "sessions.query",
+        "context.request",
+        "context.read_file",
+        "context.read_symbol",
+        "context.read_range",
+        "context.search",
+        "context.get_callers",
+        "context.get_definition",
+        "context.get_imports",
+        "context.get_diff",
+        "context.get_tests",
+        "context.build_pack",
+        "tasks.start",
+        "tasks.cancel",
+        "tasks.report_status",
+        "verification.run_test",
+        "verification.run_check",
+        "review.request",
+        "index.scan_project",
+        "index.rebuild",
+        "index.update_file",
+        "workflow.start",
+        "workflow.transition_state",
+        "workflow.assign_task",
+        "workflow.pause",
+        "workflow.resume",
+        "workflow.cancel",
+        "sprints.request_plan",
+        "agents.spawn",
+        "agents.stop",
+        "agents.cancel",
+        "agents.report_touch",
+        "history.query",
+        "node.get_status"
+      ]
+    },
+    "request_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "project_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "session_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "task_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "agent_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "timestamp": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "agents.report_touch"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "path"
+            ],
+            "properties": {
+              "path": {
+                "$ref": "common.schema.json#/$defs/path"
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      }
+    }
+  ]
+}

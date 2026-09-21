@@ -1,0 +1,20 @@
+{
+  "id": "TEST-001",
+  "project_id": "wp-static-commerce",
+  "task_id": "TASK-001",
+  "status": "passed",
+  "exit_code": 0,
+  "command": "npm test -- --run tests/session.test.js",
+  "scope": "targeted",
+  "started_at": "2026-08-15T14:06:00Z",
+  "duration_ms": 4210,
+  "tests": {
+    "total": 12,
+    "passed": 12,
+    "failed": 0,
+    "skipped": 0
+  },
+  "failures": [],
+  "stdout": "12 passed",
+  "stderr": ""
+}

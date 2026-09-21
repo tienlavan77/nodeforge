@@ -7,6 +7,9 @@ import { createDatabaseService } from "../src/infrastructure/sqlite/database-ser
 import { createFilesystemWatcher, DEFAULT_WATCHER_IGNORE } from "../src/infrastructure/filesystem/watcher.js";
 import { createDebouncedWatcher } from "../src/modules/watcher/debounced-watcher.js";
 import { createIncrementalIndexer } from "../src/modules/index/incremental-indexer.js";
+import { createEmbeddingJobStore } from "../src/modules/index/embedding-job-store.js";
+import { createEmbeddingWorker } from "../src/modules/index/embedding-worker.js";
+import { createRetrievalDependencies } from "../src/modules/index/retrieval-dependencies.js";
 import { createVerificationOrchestrator } from "../src/modules/verification/orchestrator.js";
 import { createFileService } from "../src/infrastructure/filesystem/file-service.js";
 import { createRuntimeLogger } from "../src/core/runtime-logger.js";
@@ -27,7 +30,12 @@ const rawWatcher = createFilesystemWatcher({
 });
 const logger = createRuntimeLogger({ logEvent, source: "project-watcher" });
 const watcher = createDebouncedWatcher({ rawWatcher, projectId, root: process.cwd() });
-const indexer = createIncrementalIndexer({ database: indexDb, projectRoot: process.cwd() });
+const embeddingJobs = createEmbeddingJobStore({ database: indexDb });
+const { embeddingStore, embeddingProvider, ollamaConfig } = createRetrievalDependencies({ database: indexDb });
+const embeddingModel = ollamaConfig.model;
+const embeddingWorker = createEmbeddingWorker({ database: indexDb, jobs: embeddingJobs, embeddingStore, embeddingProvider, model: embeddingModel, logger });
+const indexer = createIncrementalIndexer({ database: indexDb, projectRoot: process.cwd(), embeddingJobs, embeddingModel });
+void embeddingWorker.start({ pollMs: 1000 }).catch((error) => logger.error("Embedding worker stopped.", { event_name: "embedding_worker.failed", payload: { error: error.message } }));
 const verification = createVerificationOrchestrator({ projectRoot: process.cwd(), projectId });
 const controlApiUrl = process.env.NODE_CONTROL_API_URL ?? `http://127.0.0.1:${process.env.NODE_CONTROL_PORT ?? 3100}`;
 async function publishStreamEvent(event, indexed) {
@@ -62,6 +70,7 @@ watcher.on("event", (event) => {
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.once(signal, async () => {
     await watcher.close?.();
+    embeddingWorker.stop();
     await indexDb.close();
     processLock.release();
     process.exit(0);

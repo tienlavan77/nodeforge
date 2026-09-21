@@ -28,6 +28,7 @@ export function ConversationsAccordion({
   conversations = [],
   onNewConversation,
   onSelectConversation,
+  activeConversationId = null,
   defaultOpen = false,
   projectId,
   agentId,
@@ -291,6 +292,7 @@ export function ConversationsAccordion({
                     <ConversationsBlock
                       key={cid}
                       conversation={conv}
+                      active={activeConversationId != null && String(activeConversationId) === String(cid)}
                       checked={selectedIds.has(cid)}
                       onCheckedChange={() => { setSelectedIds((prev) => { const n = new Set(prev); if (n.has(cid)) n.delete(cid); else n.add(cid); return n; }); }}
                       onSelect={onSelectConversation}

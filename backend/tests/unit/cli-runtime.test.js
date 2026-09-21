@@ -9,5 +9,5 @@ test("rejects removed Agent CLI commands", async () => {
   const stderr = { write(value) { output.push(value); } };
 
   assert.equal(await runCli(["run", "PROJECT-107", "TASK-107"], { stderr, signalEmitter: new EventEmitter() }), 1);
-  assert.deepEqual(output, ["Usage: forge index rebuild | forge watch [path]\n"]);
+  assert.deepEqual(output, ["Usage: forge index rebuild [--force] | forge watch [path]\n"]);
 });

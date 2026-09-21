@@ -5,7 +5,7 @@ import { ConfigurationError } from "../../shared/errors.js";
 import { createProjectStreamPublisher } from "./project-stream-publisher.js";
 
 const INDEX_EVENT_TYPES = new Set(["indexer.indexed", "watcher.indexed", "watcher.file_indexed", "watcher.file_created", "watcher.file_modified", "watcher.file_deleted", "watcher.file_renamed"]);
-const PROJECT_EVENT_TYPES = new Set([...INDEX_EVENT_TYPES, "ticket.created", "ticket.updated", "ticket.status_change", "ticket.status_changed", "ticket.deleted", "ticket.creation", "sprint.created", "sprint.updated", "sprint.deleted", "conversation.message.delta", "conversation.message.received", "conversation.message.owner", "agent.text_stream", "agent.message.delta", "agent.message.received"]);
+const PROJECT_EVENT_TYPES = new Set([...INDEX_EVENT_TYPES, "ticket.created", "ticket.updated", "ticket.status_change", "ticket.status_changed", "ticket.deleted", "ticket.creation", "sprint.created", "sprint.updated", "sprint.deleted", "conversation.message.delta", "conversation.message.received", "conversation.message.owner", "conversation.message.created", "conversation.message.completed", "conversation.message.failed", "conversation.agent.status_changed", "agent.text_stream", "agent.message.delta", "agent.message.received"]);
 
 /** Project-scoped SSE projection for the initial stream contract. */
 export function createProjectStream({ projectId, indexDb, watcherSnapshot, subscriptions, eventBus, bus, heartbeatMs = 15000, clock = () => new Date().toISOString() } = {}) {
@@ -77,9 +77,9 @@ export function createProjectStream({ projectId, indexDb, watcherSnapshot, subsc
 
     const publish = (event) => {
       if (closed || !PROJECT_EVENT_TYPES.has(event?.event_type) && event?.event_type !== "watcher.indexed") return;
-      const conversation = projectConversationEvent(event);
-      if (conversation) {
-        write(envelope(conversation.event_type, conversation.payload));
+      const conversations = projectConversationEvents(event);
+      if (conversations) {
+        for (const conversation of conversations) write(envelope(conversation.event_type, conversation.payload));
         return;
       }
       const projected = publisher.project(event);
@@ -88,8 +88,8 @@ export function createProjectStream({ projectId, indexDb, watcherSnapshot, subsc
     const subscription = subscriptions.subscribe("*", publish);
     const onConversationMessage = (message) => {
       if (closed || message?.project_id !== projectId) return;
-      const projected = projectConversationMessage(message);
-      if (projected) write(envelope(projected.event_type, projected.payload));
+      const projected = projectConversationMessages(message);
+      for (const event of projected) write(envelope(event.event_type, event.payload));
     };
     bus?.subscribeAll?.(onConversationMessage);
     const onInternalEvent = (event) => publish({ ...event, event_type: "watcher.indexed", project_id: event.project_id ?? projectId });
@@ -121,14 +121,43 @@ export function createProjectStream({ projectId, indexDb, watcherSnapshot, subsc
   }
 }
 
+// Projects a communication message to project stream events.
+// Projection for conversation chat messages on the project stream.
+function projectConversationMessages(message) {
+  const primary = projectConversationMessage(message);
+  if (!primary) return [];
+  const events = [primary];
+  const status = projectConversationStatus(message);
+  if (status) events.push(status);
+  return events;
+}
+
 // Projects a communication message to a project stream event.
+// Emits both the legacy conversation.message.* type and the newer canonical
+// type (created/completed/failed) so existing UI keeps working during migration.
 function projectConversationMessage(message) {
   const type = String(message?.message_type ?? "");
   const payload = message?.payload && typeof message.payload === "object" ? message.payload : {};
   const eventType = type === "owner.message" ? "conversation.message.owner"
     : type.endsWith(".message.delta") ? "conversation.message.delta"
-      : type.endsWith(".message.received") ? "conversation.message.received" : null;
+      : type.endsWith(".message.received") ? "conversation.message.received"
+        : type.endsWith(".error") || type.endsWith(".failed") ? "conversation.message.failed" : null;
   if (!eventType || typeof message?.conversation_id !== "string") return null;
+  if (eventType === "conversation.message.failed") {
+    const code = String(payload.error_code ?? payload.code ?? "AGENT_ERROR");
+    return {
+      event_type: eventType,
+      payload: {
+        message_id: message.id,
+        conversation_id: message.conversation_id,
+        correlation_id: message.correlation_id ?? null,
+        agent_id: message.sender?.id ?? null,
+        sender_role: message.sender?.role ?? null,
+        partial_text: typeof payload.accumulated_text === "string" ? payload.accumulated_text : typeof payload.text === "string" ? payload.text : null,
+        error: { code, message: String(payload.error ?? payload.message ?? "Agent request failed."), retryable: payload.retryable ?? !["VALIDATION_FAILED", "CONVERSATION_ARCHIVED", "PROVIDER_AUTH"].includes(code) }
+      }
+    };
+  }
   return {
     event_type: eventType,
     payload: {
@@ -142,6 +171,42 @@ function projectConversationMessage(message) {
       done: eventType !== "conversation.message.delta"
     }
   };
+}
+
+// Derives an agent status event from a conversation message when the message
+// carries an explicit agent lifecycle signal (working/completed/failed).
+function projectConversationStatus(message) {
+  const type = String(message?.message_type ?? "");
+  const payload = message?.payload && typeof message.payload === "object" ? message.payload : {};
+  const agentId = message?.sender?.id ?? payload.agent_id ?? null;
+  if (typeof message?.conversation_id !== "string" || typeof agentId !== "string" || !agentId) return null;
+  const explicit = typeof payload.agent_status === "string" ? payload.agent_status.toLowerCase() : null;
+  let status = null;
+  if (type.endsWith(".working") || explicit === "working") status = "working";
+  else if (type.endsWith(".message.received") || explicit === "completed") status = "idle";
+  else if (type.endsWith(".error") || type.endsWith(".failed") || explicit === "failed") status = "failed";
+  if (!status) return null;
+  return {
+    event_type: "conversation.agent.status_changed",
+    payload: {
+      conversation_id: message.conversation_id,
+      agent_id: agentId,
+      previous_status: null,
+      status,
+      correlation_id: message.correlation_id ?? null
+    }
+  };
+}
+
+// Projects domain events to conversation stream events.
+// Emits both legacy and canonical types for agent lifecycle signals.
+function projectConversationEvents(event) {
+  const primary = projectConversationEvent(event);
+  if (!primary) return null;
+  const events = [primary];
+  const status = projectConversationEventStatus(event);
+  if (status) events.push(status);
+  return events;
 }
 
 // Projects a domain event to a conversation stream event.
@@ -163,6 +228,31 @@ function projectConversationEvent(event) {
       text: payload.text ?? null,
       chunk: payload.chunk ?? payload.text ?? null,
       done: eventType === "conversation.message.received" || payload.done === true
+    }
+  };
+}
+
+// Derives an agent status event from a domain event when it carries an
+// explicit agent lifecycle signal.
+function projectConversationEventStatus(event) {
+  const type = String(event?.event_type ?? event?.type ?? "");
+  const payload = event?.payload && typeof event.payload === "object" ? event.payload : {};
+  const conversationId = payload.conversation_id ?? event?.metadata?.conversation_id;
+  const agentId = payload.agent_id ?? event.agent_id ?? event.metadata?.agent_id ?? null;
+  if (typeof event?.project_id !== "string" || typeof conversationId !== "string") return null;
+  let status = null;
+  if (type.endsWith(".working")) status = "working";
+  else if (type === "agent.message.received") status = "idle";
+  else if (type.endsWith(".error") || type.endsWith(".failed")) status = "failed";
+  if (!status || typeof agentId !== "string" || !agentId) return null;
+  return {
+    event_type: "conversation.agent.status_changed",
+    payload: {
+      conversation_id: conversationId,
+      agent_id: agentId,
+      previous_status: null,
+      status,
+      correlation_id: payload.correlation_id ?? event.metadata?.correlation_id ?? event.task_id ?? null
     }
   };
 }

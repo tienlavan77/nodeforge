@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/node/node-agent.schema.json",
+  "title": "Forge Node Agent",
+  "description": "Node-only profile of the canonical core agent contract. Capability vocabulary and required capability_scopes are defined by core/agent.schema.json.",
+  "allOf": [
+    {
+      "$ref": "../core/agent.schema.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "system"
+        },
+        "role": {
+          "const": "orchestrator"
+        },
+        "status": {
+          "enum": [
+            "starting",
+            "initializing",
+            "watching",
+            "running",
+            "degraded",
+            "recovering",
+            "draining",
+            "stopped",
+            "failed"
+          ]
+        }
+      }
+    }
+  ]
+}

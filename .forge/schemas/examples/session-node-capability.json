@@ -1,0 +1,23 @@
+{
+  "id": "SESSION-NODE-CAPABILITY-001",
+  "project_id": "wp-static-commerce",
+  "agents": [
+    "NODE-001"
+  ],
+  "capability_scopes": {
+    "verification": [
+      {
+        "resource": "project",
+        "actions": ["run_test", "run_check"]
+      }
+    ],
+    "events": [
+      {
+        "resource": "system",
+        "actions": ["publish", "subscribe"]
+      }
+    ]
+  },
+  "status": "active",
+  "started_at": "2026-08-17T15:00:00Z"
+}

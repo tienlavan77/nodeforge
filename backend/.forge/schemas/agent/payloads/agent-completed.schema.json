@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/agent-completed.schema.json",
+  "title": "Agent Completed Payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "report"],
+  "properties": {
+    "status": { "const": "completed" },
+    "report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "files_changed", "criteria_check"],
+      "properties": {
+        "summary": { "type": "string" },
+        "files_changed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "action"],
+            "properties": {
+              "path": { "type": "string", "minLength": 1 },
+              "action": { "type": "string", "enum": ["created", "patched"] },
+              "description": { "type": "string" }
+            }
+          }
+        },
+        "criteria_check": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["criteria", "met"],
+            "properties": {
+              "criteria": { "type": "string" },
+              "met": { "type": "boolean" },
+              "note": { "type": "string" }
+            }
+          }
+        },
+        "known_limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

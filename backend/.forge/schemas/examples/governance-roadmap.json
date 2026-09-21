@@ -1,0 +1,30 @@
+{
+  "id": "ROADMAP-114A",
+  "project_id": "PROJECT-114A",
+  "version": "1.0.0",
+  "architecture_decision_ids": ["DECISION-114A-001"],
+  "goals": ["Build the governance foundation."],
+  "sprints": [
+    {
+      "id": "SPRINT-11",
+      "roadmap_id": "ROADMAP-114A",
+      "project_id": "PROJECT-114A",
+      "objective": "Create governance contracts.",
+      "tickets": [
+        {
+          "id": "NF-114A",
+          "project_id": "PROJECT-114A",
+          "roadmap_id": "ROADMAP-114A",
+          "sprint_id": "SPRINT-11",
+          "title": "Governance Schemas",
+          "objective": "Define governance contracts.",
+          "acceptance_criteria": ["Schemas validate."],
+          "priority": "high",
+          "provenance": {"source": "sprint_plan", "source_id": "SPRINT-11", "created_at": "2026-08-20T06:00:00Z"}
+        }
+      ],
+      "exit_criteria": ["validate:schemas passes"]
+    }
+  ],
+  "created_at": "2026-08-20T06:00:00Z"
+}

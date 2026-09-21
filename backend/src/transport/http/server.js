@@ -38,13 +38,6 @@ export function createHttpApi({ ownerChatService, conversationStream, projectStr
           request.once?.("close", () => connection.close());
           return;
         }
-        if (request.method === "GET" && parts.length === 5 && parts[0] === "projects" && parts[2] === "conversations" && parts[4] === "stream") {
-          if (!conversationStream) throw new ConfigurationError("Conversation SSE is not configured.");
-          applyCorsHeaders(response, origin, true);
-          const connection = await conversationStream.connect({ projectId: parts[1], conversationId: parts[3], response, afterMessageId: request.headers?.["last-event-id"] ?? url.searchParams.get("after") ?? undefined });
-          request.once?.("close", () => connection.close());
-          return;
-        }
         if (forgeV1Router) {
           const result = await forgeV1Router.route(request.method ?? "GET", url, request, {
             ownerChatService,
@@ -65,13 +58,6 @@ export function createHttpApi({ ownerChatService, conversationStream, projectStr
         }
       }
       const parts = url.pathname.split("/").filter(Boolean);
-      if (request.method === "GET" && parts.length === 5 && parts[0] === "projects" && parts[2] === "conversations" && parts[4] === "stream") {
-        if (!conversationStream) throw new ConfigurationError("Conversation SSE is not configured.");
-        applyCorsHeaders(response, origin, true);
-        const connection = await conversationStream.connect({ projectId: parts[1], conversationId: parts[3], response, afterMessageId: request.headers?.["last-event-id"] ?? url.searchParams.get("after") ?? undefined });
-        request.once?.("close", () => connection.close());
-        return;
-      }
       const result = await route(request.method ?? "GET", url, request);
       writeJson(response, result.status, result.body, origin);
     } catch (error) {
@@ -84,11 +70,6 @@ export function createHttpApi({ ownerChatService, conversationStream, projectStr
   async function route(method, url, request) {
     const parts = url.pathname.split("/").filter(Boolean);
     const projectId = url.searchParams.get("project") ?? undefined;
-    if (method === "POST" && parts.length === 5 && parts[0] === "projects" && parts[2] === "conversations" && parts[4] === "messages") {
-      if (!ownerChatService) throw new ConfigurationError("Owner Chat API is not configured.");
-      const body = await readJson(request);
-      return { status: 202, body: ownerChatService.submit({ ...body, project_id: parts[1], conversation_id: parts[3], agent_id: body.agent_id ?? body.recipient?.id }) };
-    }
     if (method === "POST" && parts.length === 3 && parts[0] === "projects" && parts[2] === "decisions") {
       if (!humanDecisionService) throw new ConfigurationError("Human Decision API is not configured.");
       return { status: 201, body: humanDecisionService.submit({ ...await readJson(request), project_id: parts[1] }) };

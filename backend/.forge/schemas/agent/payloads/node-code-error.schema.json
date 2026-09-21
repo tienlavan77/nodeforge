@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/node-code-error.schema.json",
+  "title": "Node Code Error Repair Payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "error",
+    "retryable",
+    "action"
+  ],
+  "properties": {
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "INVALID_PAYLOAD",
+            "PATCH_CONTEXT_NOT_FOUND",
+            "PATCH_CONTEXT_AMBIGUOUS",
+            "CHECKSUM_MISMATCH",
+            "FILE_NOT_FOUND",
+            "FILE_ALREADY_EXISTS",
+            "SYNTAX_ERROR",
+            "VALIDATION_ERROR"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "retryable": {
+      "type": "boolean"
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "RETRY_SUBMISSION",
+        "REQUEST_CONTEXT",
+        "RELOAD_FILE",
+        "STOP"
+      ]
+    },
+    "details": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "operation_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "field": {
+          "type": "string"
+        },
+        "expected": {
+          "type": "string"
+        },
+        "actual": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

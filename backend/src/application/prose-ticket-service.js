@@ -30,6 +30,7 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
       ? await sprintLeader.regenerateEnglish({ ticket: { ...ticket, context: updatedVietnameseContext }, projectId, sprintId: sprint.id, vietnameseContext: updatedVietnameseContext })
       : null;
     const baseEnglish = sprintLeaderResult ?? { title: ticket.title, objective: ticket.objective, acceptance_criteria: ticket.acceptance_criteria };
+    const inferredStyle = baseEnglish.style ?? inferStyle({ title: baseEnglish.title ?? ticket.title, objective: baseEnglish.objective ?? ticket.objective, acceptance_criteria: baseEnglish.acceptance_criteria ?? ticket.acceptance_criteria });
     // Ensure all translatable fields are English-localized and identity is preserved.
     const regenerated = {
       ...ticket,
@@ -38,6 +39,7 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
       title: String(baseEnglish.title ?? ticket.title),
       objective: String(baseEnglish.objective ?? ticket.objective),
       acceptance_criteria: Array.isArray(baseEnglish.acceptance_criteria) ? baseEnglish.acceptance_criteria.map(String) : ticket.acceptance_criteria,
+      style: inferredStyle,
       context: updatedVietnameseContext,
       vietnamese_context: updatedVietnameseContext,
       original_vietnamese_context: updatedVietnameseContext,
@@ -80,8 +82,9 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
   return Object.freeze({ parse, createFromObject, regenerateEnglish });
   function createFromObject(ticket) {
     if (!ticket || typeof ticket !== "object" || Array.isArray(ticket)) return { create_ticket: true, status: "needs_input", error_code: "invalid_ticket_json", question: "Ticket JSON không hợp lệ." };
-    if (!validate(ticket)) return validationResponse(validate.errors, ticket);
-    return persist(ticket);
+    const withStyle = ticket.style ? ticket : { ...ticket, style: inferStyle(ticket) };
+    if (!validate(withStyle)) return validationResponse(validate.errors, withStyle);
+    return persist(withStyle);
   }
 
   // Parses stored preferences JSON with fallback handling.
@@ -106,6 +109,7 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
     const ticket = {
       id: ticketId, project_id: projectId, roadmap_id: roadmapId, sprint_id: sprintId,
       title: fields.title, objective: fields.objective, acceptance_criteria: fields.acceptance_criteria,
+      style: inferStyle({ title: fields.title, objective: fields.objective, acceptance_criteria: fields.acceptance_criteria }),
       ...(fields.priority ? { priority: fields.priority } : {}),
       ...(fields.dependencies?.length ? { dependencies: fields.dependencies } : {}),
       provenance: { source: "project_owner", source_id: sourceId ?? ticketId, created_at: now }
@@ -235,4 +239,15 @@ function createValidator() {
   addFormats(ajv);
   ajv.addSchema(commonSchema).addSchema(ticketSchema);
   return ajv.getSchema(ticketSchema.$id);
+}
+
+function inferStyle(ticket) {
+  const text = [ticket?.title, ticket?.objective, ...(ticket?.acceptance_criteria ?? [])].filter(v => typeof v === "string").join(" ").toLowerCase();
+  const styles = new Set();
+  if (/\b(frontend|front-end|ui\b|component|page\b|accordion|modal|chat.*ui|home chat)\b/.test(text)) styles.add("frontend");
+  if (/\b(backend|back-end|api\b|endpoint|database|\bdb\b|sqlite|server\b)\b/.test(text)) styles.add("backend");
+  if (/\b(security|auth|permission|credential|secret|token)\b/.test(text)) styles.add("security");
+  if (/\b(infra|deploy|docker|ci\/cd|pipeline)\b/.test(text)) styles.add("infra");
+  if (styles.size === 0) return undefined;
+  return [...styles];
 }

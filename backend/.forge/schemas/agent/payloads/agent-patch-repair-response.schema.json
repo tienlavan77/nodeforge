@@ -1,0 +1,278 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/agent-patch-repair-response.schema.json",
+  "title": "Forge Agent Patch Repair Response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "repair_id",
+    "repaired_patches"
+  ],
+  "properties": {
+    "repair_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repaired_patches": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "patch_id",
+              "path",
+              "format",
+              "exists",
+              "before_checksum",
+              "content",
+              "summary"
+            ],
+            "properties": {
+              "patch_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "format": {
+                "const": "full_content"
+              },
+              "exists": {
+                "const": false
+              },
+              "before_checksum": {
+                "type": "null"
+              },
+              "content": {
+                "type": "string"
+              },
+              "summary": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "patch_id",
+              "path",
+              "format",
+              "exists",
+              "before_checksum",
+              "content"
+            ],
+            "properties": {
+              "patch_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "format": {
+                "const": "structured_patch"
+              },
+              "exists": {
+                "const": true
+              },
+              "before_checksum": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "content": {
+                "$ref": "#/$defs/structured_patch"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "patch_id",
+              "path",
+              "format",
+              "exists",
+              "before_checksum",
+              "content"
+            ],
+            "properties": {
+              "patch_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "format": {
+                "const": "apply_patch"
+              },
+              "exists": {
+                "const": true
+              },
+              "before_checksum": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "content": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "patch_id",
+              "path",
+              "format",
+              "exists",
+              "before_checksum",
+              "content"
+            ],
+            "properties": {
+              "patch_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "format": {
+                "const": "unified_diff"
+              },
+              "exists": {
+                "const": true
+              },
+              "before_checksum": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "content": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "structured_patch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operations"
+      ],
+      "properties": {
+        "operations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/replace_range"
+              },
+              {
+                "$ref": "#/$defs/delete_range"
+              },
+              {
+                "$ref": "#/$defs/insert_after"
+              },
+              {
+                "$ref": "#/$defs/insert_at_end"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "replace_range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "expected_content",
+        "new_content"
+      ],
+      "properties": {
+        "op": {
+          "const": "replace_range"
+        },
+        "expected_content": {
+          "type": "string",
+          "minLength": 1
+        },
+        "new_content": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "delete_range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "expected_content"
+      ],
+      "properties": {
+        "op": {
+          "const": "delete_range"
+        },
+        "expected_content": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "insert_after": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "anchor_text",
+        "new_content"
+      ],
+      "properties": {
+        "op": {
+          "const": "insert_after"
+        },
+        "anchor_text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "new_content": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "insert_at_end": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "new_content"
+      ],
+      "properties": {
+        "op": {
+          "const": "insert_at_end"
+        },
+        "new_content": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

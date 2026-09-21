@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/raw-response.schema.json",
+  "title": "Raw provider response artifact",
+  "type": ["object", "array", "string", "number", "boolean", "null"]
+}

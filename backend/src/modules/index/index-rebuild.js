@@ -6,27 +6,44 @@ import { ensureForgeLayout } from "../../infrastructure/filesystem/forge-layout.
 import { openIndexDatabase } from "../../infrastructure/sqlite/index-database.js";
 import { createIncrementalIndexer } from "./incremental-indexer.js";
 import { extractorRegistry } from "./parser/index.js";
+import { readContentHash } from "../watcher/debounced-watcher.js";
 
 const CODE_INDEX_RUNTIME_DIR = ".forge/runtime/wc";
 
-export async function rebuildIndex({ projectRoot, database, runtimeDir = CODE_INDEX_RUNTIME_DIR, ignore = [], registry = extractorRegistry, indexer, onFile = () => {} } = {}) {
+export async function rebuildIndex({ projectRoot, database, runtimeDir = CODE_INDEX_RUNTIME_DIR, ignore = [], registry = extractorRegistry, indexer, embeddingJobs = null, embeddingModel = "embeddinggemma", onFile = () => {}, force = false } = {}) {
   await ensureForgeLayout(projectRoot);
   const ownsDatabase = !database;
   const indexDatabase = database ?? await openIndexDatabase(projectRoot, { runtimeDir });
-  const incrementalIndexer = indexer ?? createIncrementalIndexer({ database: indexDatabase, projectRoot, registry });
+  const incrementalIndexer = indexer ?? createIncrementalIndexer({ database: indexDatabase, projectRoot, registry, embeddingJobs, embeddingModel });
 
   try {
-    clearIndex(indexDatabase);
+    if (force) clearIndex(indexDatabase);
     const isIgnored = createProjectIgnoreMatcher(projectRoot, ignore);
     const indexedPaths = [];
+    const seenPaths = new Set();
     let indexedFiles = 0;
     for await (const path of scanProject(projectRoot, isIgnored)) {
       if (!registry.supports(path)) continue;
-      const indexed = await incrementalIndexer.handle({ type: "watcher.file_created", payload: { path } });
+      seenPaths.add(path);
+      const existing = force ? null : indexDatabase.all("SELECT sha256 FROM files WHERE path = ?", [path])[0];
+      const currentHash = existing ? await readContentHash(join(projectRoot, path)) : null;
+      const unchanged = existing && currentHash && existing.sha256 === currentHash;
+      if (unchanged) {
+        onFile({ path, indexed: false, skipped: true, phase: "index" });
+        continue;
+      }
+      const indexed = await incrementalIndexer.handle({ type: existing ? "watcher.file_modified" : "watcher.file_created", payload: { path } });
       onFile({ path, indexed, phase: "index" });
       if (indexed) {
         indexedPaths.push(path);
         indexedFiles += 1;
+      }
+    }
+    if (!force) {
+      for (const row of indexDatabase.all("SELECT path FROM files")) {
+        if (seenPaths.has(row.path)) continue;
+        const removed = await incrementalIndexer.handle({ type: "watcher.file_deleted", payload: { path: row.path } });
+        onFile({ path: row.path, indexed: removed, phase: "delete" });
       }
     }
     // A second pass resolves imports whose target appeared later in the directory traversal.
@@ -41,7 +58,7 @@ export async function rebuildIndex({ projectRoot, database, runtimeDir = CODE_IN
 }
 
 export function clearIndex(database) {
-  for (const table of ["calls", "references", "tests_map", "imports_exports", "dependency_edges", "symbol_content_fts", "file_content_fts", "symbols", "files"]) {
+  for (const table of ["calls", "references", "tests_map", "imports_exports", "dependency_edges", "symbol_content_fts", "file_content_fts", "symbol_embeddings", "symbols", "files"]) {
     database.run(`DELETE FROM "${table}"`);
   }
 }

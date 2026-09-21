@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/stream/project-stream-event.schema.json",
+  "title": "Forge Project SSE Stream Event",
+  "description": "Canonical JSON envelope delivered through the project-scoped SSE stream.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "schema_version",
+    "project_id",
+    "timestamp",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "stream.connected",
+        "stream.snapshot",
+        "watcher.file_indexed",
+        "watcher.file_removed",
+        "stream.error"
+      ]
+    },
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "correlation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "payload": {
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "event_type": { "const": "stream.connected" } }
+      },
+      "then": {
+        "properties": {
+          "payload": { "$ref": "#/$defs/connected_payload" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "event_type": { "const": "stream.snapshot" } }
+      },
+      "then": {
+        "properties": {
+          "payload": { "$ref": "#/$defs/snapshot_payload" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "event_type": { "const": "watcher.file_indexed" } }
+      },
+      "then": {
+        "properties": {
+          "payload": { "$ref": "#/$defs/indexed_file_payload" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "event_type": { "const": "watcher.file_removed" } }
+      },
+      "then": {
+        "properties": {
+          "payload": { "$ref": "#/$defs/file_path_payload" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "event_type": { "const": "stream.error" } }
+      },
+      "then": {
+        "properties": {
+          "payload": { "$ref": "#/$defs/error_payload" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "indexed_at"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "language": { "type": ["string", "null"], "minLength": 1 },
+        "size_bytes": { "type": ["integer", "null"], "minimum": 0 },
+        "sha256": { "type": ["string", "null"], "minLength": 1 },
+        "indexed_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "connected_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stream_id"],
+      "properties": {
+        "stream_id": { "type": "string", "minLength": 1 },
+        "replay_from": { "type": ["string", "null"] }
+      }
+    },
+    "snapshot_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["watcher"],
+      "properties": {
+        "watcher": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["recent_events"],
+          "properties": {
+            "recent_events": {
+              "type": "array",
+              "maxItems": 4,
+              "items": { "$ref": "#/$defs/watcher_event" }
+            }
+          }
+        },
+        "sprints": { "type": "array" },
+        "tickets": { "type": "array" },
+        "runtime": { "type": "object" }
+      }
+    },
+    "indexed_file_payload": {
+      "$ref": "#/$defs/watcher_payload"
+    },
+    "file_path_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "indexed_at": { "type": "string", "format": "date-time" },
+        "operation": { "type": "string", "minLength": 1 },
+        "activity": { "$ref": "#/$defs/activity" }
+      }
+    },
+    "error_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 },
+        "retryable": { "type": "boolean" }
+      }
+    }
+    ,
+    "activity": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 3,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "watcher_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "indexed_at", "operation", "activity"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "language": { "type": ["string", "null"], "minLength": 1 },
+        "size_bytes": { "type": ["integer", "null"], "minimum": 0 },
+        "sha256": { "type": ["string", "null"], "minLength": 1 },
+        "indexed_at": { "type": "string", "format": "date-time" },
+        "operation": { "type": "string", "minLength": 1 },
+        "activity": { "$ref": "#/$defs/activity" }
+      }
+    },
+    "watcher_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event_id", "event_type", "timestamp", "payload"],
+      "properties": {
+        "event_id": { "type": "string", "minLength": 1 },
+        "event_type": { "enum": ["watcher.file_indexed", "watcher.file_removed"] },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "payload": { "type": "object" }
+      }
+    }
+  }
+}

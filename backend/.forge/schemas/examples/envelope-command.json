@@ -1,0 +1,27 @@
+{
+  "protocol_version": "1.2.0",
+  "message_id": "MSG-COMMAND-001",
+  "sender": {
+    "id": "AGENT-BUILDER-001",
+    "type": "ai",
+    "role": "builder"
+  },
+  "receiver": {
+    "id": "NODE-001",
+    "type": "system",
+    "role": "orchestrator"
+  },
+  "timestamp": "2026-08-15T14:06:05Z",
+  "message": {
+    "type": "context.read_symbol",
+    "request_id": "REQ-902",
+    "project_id": "wp-static-commerce",
+    "session_id": "SESSION-001",
+    "task_id": "TASK-001",
+    "timestamp": "2026-08-15T14:06:04Z",
+    "payload": {
+      "purpose": "build",
+      "symbols": ["refreshSession"]
+    }
+  }
+}

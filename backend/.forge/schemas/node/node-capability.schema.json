@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/node/node-capability.schema.json",
+  "title": "Deprecated Forge Node Capabilities",
+  "deprecated": true,
+  "description": "Deprecated: this schema no longer defines an independent Node capability model. Validate Node agents with node-agent.schema.json; capability_scopes in core/agent.schema.json is the sole capability declaration.",
+  "$ref": "node-agent.schema.json"
+}

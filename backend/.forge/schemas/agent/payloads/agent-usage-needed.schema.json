@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/agent-usage-needed.schema.json",
+  "title": "Agent Usage Needed Payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["files_requested", "reason"],
+  "properties": {
+    "files_requested": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "reason": { "type": "string", "minLength": 1 }
+  }
+}

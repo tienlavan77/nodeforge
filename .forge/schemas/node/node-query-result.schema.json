@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/node/node-query-result.schema.json",
+  "title": "Forge Node Query Result",
+  "description": "Response payload for the history.query / session.query / state.query node commands. `items` shape depends on `kind`: for 'history' each item is a raw log or event entry, for 'session' each item conforms to project/session.schema.json, for 'state' the single item is a node-state.schema.json snapshot.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "request_id",
+    "project_id",
+    "kind",
+    "items"
+  ],
+  "properties": {
+    "request_id": {
+      "$ref": "../core/common.schema.json#/$defs/id"
+    },
+    "project_id": {
+      "$ref": "../core/common.schema.json#/$defs/id"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "history",
+        "session",
+        "state"
+      ]
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "total": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total matching items server-side, independent of how many are returned in this page."
+    },
+    "next_cursor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

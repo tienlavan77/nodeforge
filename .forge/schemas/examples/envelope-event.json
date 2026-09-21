@@ -1,0 +1,27 @@
+{
+  "protocol_version": "1.2.0",
+  "message_id": "MSG-EVENT-001",
+  "sender": {
+    "id": "NODE-001",
+    "type": "system",
+    "role": "orchestrator"
+  },
+  "receiver": {
+    "id": "AGENT-BUILDER-001",
+    "type": "ai",
+    "role": "builder"
+  },
+  "timestamp": "2026-08-15T14:06:05Z",
+  "message": {
+    "event_id": "EVT-1043",
+    "type": "watcher.file_modified",
+    "project_id": "wp-static-commerce",
+    "session_id": "SESSION-001",
+    "task_id": "TASK-001",
+    "timestamp": "2026-08-15T14:06:04Z",
+    "payload": {
+      "path": "src/session.js",
+      "operation": "modify"
+    }
+  }
+}

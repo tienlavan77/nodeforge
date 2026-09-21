@@ -4,7 +4,7 @@ import { ConfigurationError } from "../../shared/errors.js";
 import { assertTicketStatus, assertTicketStatusTransition } from "./ticket-status.js";
 
 // Creates a transactional ticket status tracker with versioned transitions.
-export function createTicketStatusStore({ database, projectId, clock = () => new Date(), createId = () => `STATUS-${randomUUID()}`, onEvent = () => {}, publisher } = {}) {
+export function createTicketStatusStore({ database, projectId, clock = () => new Date(), createId = () => `STATUS-${randomUUID()}`, onEvent = () => {}, publisher, logger = console } = {}) {
   if (!database?.run || !database?.all) throw new ConfigurationError("Ticket Status Store requires a database.");
   if (typeof projectId !== "string" || !projectId) throw new ConfigurationError("Ticket Status Store requires a project_id.");
   if (typeof clock !== "function" || typeof createId !== "function" || typeof onEvent !== "function" || (publisher !== undefined && typeof publisher.publish !== "function")) throw new ConfigurationError("Invalid Ticket Status Store options.");
@@ -93,8 +93,8 @@ export function createTicketStatusStore({ database, projectId, clock = () => new
   // Emits a domain event via publisher and local observers.
   function emit(type, payload) {
     const event = { event_id: `EVT-${randomUUID()}`, project_id: projectId, type, timestamp: payload.timestamp ?? nowIso(), payload: { ...payload } };
-    try { publisher?.publish(event); } catch { /* publisher failures cannot undo persistence */ }
-    try { onEvent({ type, ...payload }); } catch { /* observers cannot break persistence */ }
+    try { publisher?.publish(event); } catch (error) { logger.error?.("Ticket status publisher failed.", { ticket_id: payload.ticket_id, event_name: type, error: error.message }); /* publisher failures cannot undo persistence */ }
+    try { onEvent({ type, ...payload }); } catch (error) { logger.error?.("Ticket status observer failed.", { ticket_id: payload.ticket_id, event_name: type, error: error.message }); /* observers cannot break persistence */ }
   }
 }
 
@@ -106,3 +106,37 @@ function parseJson(value) { try { return value ? JSON.parse(value) : {}; } catch
 function mapRow(row) { return { project_id: row.project_id, ticket_id: row.ticket_id, status: row.status, version: row.version, error: row.error, details: parseJson(row.details_json), created_at: row.created_at, updated_at: row.updated_at }; }
 // Creates a coded error for ticket status operations.
 function statusError(code, message) { const error = new ConfigurationError(message); error.code = code; return error; }
+
+// Agent presence statuses shared by supervisor-assigned coding work.
+export const AGENT_STATUSES = Object.freeze(["ready", "working", "not_connected"]);
+
+// Agent status transitions allowed during supervisor-assigned coding work.
+const AGENT_TRANSITIONS = Object.freeze({
+  ready: Object.freeze(["working", "not_connected", "ready"]),
+  working: Object.freeze(["ready", "not_connected", "working"]),
+  not_connected: Object.freeze(["ready", "not_connected"])
+});
+
+// Reports whether a value is a known agent presence status.
+export function isAgentStatus(status) {
+  return typeof status === "string" && AGENT_STATUSES.includes(status);
+}
+
+// Reports whether an agent presence transition is allowed.
+export function canTransitionAgentStatus(from, to) {
+  return isAgentStatus(from) && isAgentStatus(to) && (AGENT_TRANSITIONS[from] ?? []).includes(to);
+}
+
+// Validates an agent presence status value.
+export function assertAgentStatus(status, field = "status") {
+  if (!isAgentStatus(status)) throw statusError("AGENT_STATUS_INVALID", `Invalid agent ${field}: ${status ?? "<missing>"}.`);
+  return status;
+}
+
+// Validates an agent presence transition (ready -> working -> ready).
+export function assertAgentStatusTransition(from, to) {
+  assertAgentStatus(from, "current status");
+  assertAgentStatus(to, "next status");
+  if (!canTransitionAgentStatus(from, to)) throw statusError("AGENT_STATUS_TRANSITION_INVALID", `Invalid agent status transition: ${from} -> ${to}.`);
+  return true;
+}

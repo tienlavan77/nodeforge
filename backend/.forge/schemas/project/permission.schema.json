@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/project/permission.schema.json",
+  "title": "Forge Permission",
+  "description": "Access-control entry over the filesystem for a given actor role. Distinct from Rule: Permission answers 'is this action allowed at all' (evaluated deterministically by Node before an action runs); Rule answers 'is this change good/compliant' (evaluated by Node or a Reviewer, often needs judgement). Node evaluates permissions in `priority` order (higher first); the first matching entry wins; if nothing matches, default is deny.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "role",
+    "path",
+    "access",
+    "effect"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "../core/common.schema.json#/$defs/id"
+    },
+    "project_id": {
+      "$ref": "../core/common.schema.json#/$defs/id",
+      "description": "Omit for a global permission that applies across all projects."
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "node",
+        "builder",
+        "reviewer",
+        "planner",
+        "tester",
+        "human",
+        "custom"
+      ]
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Glob pattern relative to project root, e.g. 'src/**', '.forge/**', '.env'."
+    },
+    "access": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "enum": [
+          "read",
+          "write",
+          "create",
+          "delete",
+          "rename",
+          "execute"
+        ]
+      }
+    },
+    "effect": {
+      "type": "string",
+      "enum": [
+        "allow",
+        "deny"
+      ]
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000,
+      "default": 100
+    },
+    "reason": {
+      "type": "string"
+    },
+    "enabled": {
+      "type": "boolean",
+      "default": true
+    },
+    "metadata": {
+      "$ref": "../core/common.schema.json#/$defs/metadata"
+    }
+  }
+}

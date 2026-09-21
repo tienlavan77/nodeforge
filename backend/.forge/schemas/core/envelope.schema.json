@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/core/envelope.schema.json",
+  "title": "Forge Agent Envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol_version",
+    "message_id",
+    "sender",
+    "message",
+    "timestamp"
+  ],
+  "properties": {
+    "protocol_version": {
+      "$ref": "../core/common.schema.json#/$defs/version"
+    },
+    "message_id": {
+      "$ref": "../core/common.schema.json#/$defs/id"
+    },
+    "sender": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "role"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "../core/common.schema.json#/$defs/id"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "system",
+            "ai",
+            "ui"
+          ]
+        },
+        "role": {
+          "type": "string"
+        }
+      }
+    },
+    "receiver": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "../core/common.schema.json#/$defs/id"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "system",
+            "ai",
+            "ui"
+          ]
+        },
+        "role": {
+          "type": "string"
+        }
+      }
+    },
+    "message": {
+      "description": "A canonical Event emitted by a component or a canonical Command addressed to one. The referenced schemas own message type and payload validation.",
+      "oneOf": [
+        {
+          "$ref": "../core/event.schema.json"
+        },
+        {
+          "$ref": "../core/command.schema.json"
+        }
+      ]
+    },
+    "timestamp": {
+      "$ref": "../core/common.schema.json#/$defs/timestamp"
+    },
+    "metadata": {
+      "$ref": "../core/common.schema.json#/$defs/metadata"
+    }
+  }
+}

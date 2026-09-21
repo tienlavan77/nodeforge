@@ -1,0 +1,18 @@
+{
+  "task_id": "FORGE-UI-054",
+  "repair_id": "REPAIR-FORGE-UI-054-1",
+  "attempt": 1,
+  "max_attempts": 3,
+  "approved_plan_ref": "task/FORGE-UI-054/approved-plan",
+  "invalid_patches": [
+    {
+      "patch_id": "PATCH-LAYOUT-001",
+      "path": "frontend/src/app/layout.js",
+      "format": "structured_patch",
+      "before_checksum": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "current_content": "export default function Layout({ children }) { return children; }\n",
+      "error": { "code": "PATCH_CONTEXT_NOT_FOUND", "message": "anchor_text was not found", "operation_index": 0 }
+    }
+  ],
+  "expected_output": { "type": "patch_repair_response", "transport": "function_tool" }
+}

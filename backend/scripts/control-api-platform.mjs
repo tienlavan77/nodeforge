@@ -23,17 +23,20 @@ import { createSprintPlanUploadService } from "../src/application/sprint-plan-up
 import { createSprintOrchestrationService } from "../src/application/sprint-orchestration-service.js";
 import { createTicketCommandParser } from "../src/application/ticket-command-parser.js";
 import { createProseTicketService } from "../src/application/prose-ticket-service.js";
-import { createCodeSearch } from "../src/modules/index/code-search.js";
-import { createFileGraph } from "../src/modules/index/file-graph.js";
+import { createRetrievalDependencies } from "../src/modules/index/retrieval-dependencies.js";
 import { createRelevantTreeSelector } from "../src/modules/index/relevant-tree.js";
+import { createIndexFreshnessChecker } from "../src/modules/index/index-freshness.js";
 import { createConversationCrudService } from "../src/application/conversation-crud-service.js";
 import { createTicketFileStore } from "../src/application/ticket-file-store.js";
 
 export function createControlApiPlatform({ config, database, indexDb, fileService, agentGateway, logEvent } = {}) {
   const { projectId, cwd: projectRoot } = config;
-  const codeSearch = createCodeSearch({ database: indexDb });
-  const fileGraph = createFileGraph({ database: indexDb });
-  const relevantTreeSelector = createRelevantTreeSelector({ search: codeSearch, fileGraph, maxFiles: 30, defaultDepth: 1 });
+  const { search: codeSearch, fileGraph, embeddingStore, embeddingProvider } = createRetrievalDependencies({ database: indexDb });
+  // Freshness checker compares indexed sha with live disk reads so candidates
+  // served to agents are flagged stale instead of silently outdated. Best
+  // effort: without fileService the selector falls back to plain select().
+  const freshnessChecker = fileService?.readForIndex ? createIndexFreshnessChecker({ database: indexDb, fileService }) : null;
+  const relevantTreeSelector = createRelevantTreeSelector({ search: codeSearch, fileGraph, embeddingStore, embeddingProvider, freshnessChecker, maxFiles: 30, defaultDepth: 1 });
   const communications = createAgentCommunicationStore({ database, fileService });
   const conversations = createConversationCrudService({ database });
   const bus = createAgentCommunicationBus({ store: communications });

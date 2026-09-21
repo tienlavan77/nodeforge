@@ -1,0 +1,20 @@
+{
+  "timestamp": "2026-08-24T00:00:00.000Z",
+  "event_name": "ticket.started",
+  "level": "info",
+  "status": "info",
+  "message": "Ticket dispatch started.",
+  "task_id": "FORGE-LOG-001a",
+  "ticket_id": "FORGE-LOG-001a",
+  "conversation_id": "CONV-BUILDER",
+  "source": "owner-chat-service",
+  "project_id": "PROJECT-NODEFORGE",
+  "event_id": "LOG-EXAMPLE-001",
+  "sequence": 1,
+  "payload": {
+    "message": "Ticket dispatch started.",
+    "ticket_id": "FORGE-LOG-001a",
+    "conversation_id": "CONV-BUILDER"
+  },
+  "correlation_id": "CONV-BUILDER"
+}

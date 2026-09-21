@@ -1,0 +1,89 @@
+{
+  "id": "SPRINT-NF-UPLOAD-RUN-001",
+  "roadmap_id": "ROADMAP-114A",
+  "project_id": "PROJECT-114A",
+  "objective": "Enable sprint plan upload via UI, Node ingestion to database, owner-triggered orchestration run, and agent stream to UI for monitoring.",
+  "dependencies": ["SPRINT-NF-STAB-001"],
+  "tickets": [
+    {
+      "id": "NF-UPLOAD-T01",
+      "project_id": "PROJECT-114A",
+      "roadmap_id": "ROADMAP-114A",
+      "sprint_id": "SPRINT-NF-UPLOAD-RUN-001",
+      "title": "UI — Allow uploading sprint plan JSON to a project",
+      "objective": "Add UI for owner to upload a sprint-plan JSON file to a specific project, with client-side schema validation and preview before submit.",
+      "acceptance_criteria": [
+        "web UI adds Upload Sprint Plan button/dialog accepting .json file, shows preview of id, objective, tickets count, exit_criteria before submit",
+        "Client validates file against sprint-plan.schema.json (id, roadmap_id, project_id, objective, tickets[], exit_criteria) and shows errors inline for invalid JSON or schema mismatch",
+        "On submit calls POST /projects/:projectId/sprint-plans with multipart/form-data or JSON body { sprint_plan: <object> } and displays success or server validation error",
+        "After successful upload, UI refreshes dashboard to show new sprint in roadmap list",
+        "Unit test: frontend validation rejects invalid sprint JSON; integration test: upload of governance-sprint-plan-stabilization.json succeeds via HTTP API",
+        "Tests PASS: node --test <relevant frontend/unit tests>, npm run lint, npm run typecheck, npm run validate:schemas"
+      ],
+      "priority": "critical",
+      "dependencies": [],
+      "provenance": {"source": "sprint_plan", "source_id": "SPRINT-NF-UPLOAD-RUN-001", "created_at": "2026-08-21T07:00:00Z"}
+    },
+    {
+      "id": "NF-UPLOAD-T02",
+      "project_id": "PROJECT-114A",
+      "roadmap_id": "ROADMAP-114A",
+      "sprint_id": "SPRINT-NF-UPLOAD-RUN-001",
+      "title": "Node — Read sprint plan file, split and persist to database",
+      "objective": "Node receives uploaded sprint plan, validates via Ajv against sprint-plan/ticket/roadmap schemas, splits tickets and persists to SQLite stores for orchestration.",
+      "acceptance_criteria": [
+        "HTTP API adds POST /projects/:projectId/sprint-plans accepting JSON sprint plan; validates with Ajv against sprint-plan.schema.json, ticket.schema.json and roadmap reference; returns 400 with errors on invalid, 201 with { sprint_id, ticket_ids } on success",
+        "Server splits tickets[] and persists via roadmapStore, sprintPlanProjection, ticketProvenanceTracker into SQLite .node-control database; duplicate sprint id rejected with 409",
+        "Storage survives restart: after npm run dev:forge:stop/start, GET /projects/:projectId/dashboard and GET /projects/:projectId/history still show uploaded sprint",
+        "File path traversal and oversized payload rejected; projectId in URL must match sprint_plan.project_id",
+        "Integration test: POST the 16-ticket stabilization plan JSON, then GET /dashboard and GET /history verify persistence and provenance",
+        "Tests PASS: node --test tests/integration/sprint-plan*.test.js and tests/unit/roadmap-store.test.js, npm run lint, npm run typecheck, npm run validate:schemas, git diff --check"
+      ],
+      "priority": "critical",
+      "dependencies": ["NF-UPLOAD-T01"],
+      "provenance": {"source": "sprint_plan", "source_id": "SPRINT-NF-UPLOAD-RUN-001", "created_at": "2026-08-21T07:00:00Z"}
+    },
+    {
+      "id": "NF-UPLOAD-T03",
+      "project_id": "PROJECT-114A",
+      "roadmap_id": "ROADMAP-114A",
+      "sprint_id": "SPRINT-NF-UPLOAD-RUN-001",
+      "title": "UI + Node — Owner click Run to start orchestration",
+      "objective": "When owner clicks Run on a sprint in UI, Node starts code orchestration via runtimeService/agentRuntime with filesystem-aware context, watcher/indexer, and verification pipeline.",
+      "acceptance_criteria": [
+        "Dashboard adds Run button for current sprint; on click calls POST /projects/:projectId/sprint-plans/:sprintId/run or POST /tasks with { projectId, sprintId }; button shows running state and disables duplicate run",
+        "Node handler validates sprint exists and not already running, creates session via runtimeService.startTask with agentRuntime injected (T12), publisher events agent.started/plan.created persisted to EventStore (T02/T13)",
+        "Agent execution uses filesystem-aware contextService (T11), project-file-tool (T14) with projectRoot guard, secrets redaction (T01), context budget 40k/30k (T07), watcher/indexer (T13B) and verification (T13B) triggered after file write",
+        "Smoke test without mocks: POST sprint run for stabilization plan -> Agent writes file -> watcher emits watcher.file_created -> indexer updates indexDb -> verification runs -> history shows verification.result",
+        "Duplicate Run while running rejected with 409; idempotent run after completion succeeds",
+        "Tests PASS: node --test tests/integration/runtime*.test.js and tests/integration/agent-runtime.test.js, npm run lint, npm run typecheck, npm run validate:schemas, git diff --check; node scripts/test-e2e-flow.mjs shows RuntimeService->AgentRuntime WIRED"
+      ],
+      "priority": "critical",
+      "dependencies": ["NF-UPLOAD-T02"],
+      "provenance": {"source": "sprint_plan", "source_id": "SPRINT-NF-UPLOAD-RUN-001", "created_at": "2026-08-21T07:00:00Z"}
+    },
+    {
+      "id": "NF-UPLOAD-T04",
+      "project_id": "PROJECT-114A",
+      "roadmap_id": "ROADMAP-114A",
+      "sprint_id": "SPRINT-NF-UPLOAD-RUN-001",
+      "title": "Stream agent results to UI for owner monitoring",
+      "objective": "Stream agent lifecycle and verification events to UI in real time via SSE for owner to monitor orchestration progress.",
+      "acceptance_criteria": [
+        "conversationStream SSE at GET /projects/:projectId/conversations/:conversationId/stream emits live agent.* events (agent.started, agent.plan.created, agent.step.started/completed, agent.completed/failed) and verification.result with Last-Event-ID/?after replay (T13C)",
+        "UI subscribes via EventSource on Run, renders streaming updates without polling; history/dashboard reflect same events via GET /projects/:projectId/history and GET /projects/:projectId/dashboard (EventStore persistence T02)",
+        "Failure path streams: agent.failed and verification timeout (T09) visible via SSE without crashing Node; owner sees error message",
+        "E2E smoke without mocks: UI Run -> SSE client receives agent.started then agent.completed within timeout and verification.result appears, verified by curl history and node scripts/test-e2e-flow.mjs Agent stream->UI SSE WIRED",
+        "Tests PASS: node --test tests/unit/runtime-stream.test.js and tests/integration/memory-pipeline-e2e.test.js, npm run lint, npm run typecheck, npm run validate:schemas, git diff --check; import probe all green"
+      ],
+      "priority": "critical",
+      "dependencies": ["NF-UPLOAD-T03"],
+      "provenance": {"source": "sprint_plan", "source_id": "SPRINT-NF-UPLOAD-RUN-001", "created_at": "2026-08-21T07:00:00Z"}
+    }
+  ],
+  "exit_criteria": [
+    "Upload of a valid sprint-plan JSON via UI succeeds, persists to SQLite, survives Node restart, and appears in dashboard/history",
+    "Owner Run triggers agent orchestration that writes files, updates index, runs verification, and streams agent.* plus verification.result to UI via SSE",
+    "All 4 tickets pass acceptance with node --test relevant tests, npm run lint, npm run typecheck, npm run validate:schemas, git diff --check, and node scripts/test-e2e-flow.mjs shows WIRED for RuntimeService->AgentRuntime, ContextEngine->Agent, Watcher->Indexer, Indexer->Verification, Verification->UI, Agent stream->UI SSE"
+  ]
+}

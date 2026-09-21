@@ -1,0 +1,29 @@
+{
+  "task_id": "FORGE-UI-054",
+  "supervisor_id": "SUP-FORGE-UI-054",
+  "request_id": "REQ-MATERIAL-001",
+  "correlation_id": "CORR-FORGE-UI-054",
+  "attempt": 1,
+  "filesystem_write": false,
+  "valid_patches": [
+    {
+      "patch_id": "PATCH-HEADER-001",
+      "path": "frontend/src/components/Header.jsx",
+      "format": "structured_patch",
+      "status": "valid",
+      "file_result": "materialized",
+      "operations": [{ "operation_index": 0, "op": "replace_range", "status": "valid" }],
+      "content": "const Header = () => null;\n"
+    }
+  ],
+  "invalid_patches": [
+    {
+      "patch_id": "PATCH-LAYOUT-001",
+      "path": "frontend/src/app/layout.js",
+      "format": "structured_patch",
+      "status": "invalid",
+      "file_result": "rejected",
+      "errors": [{ "operation_index": 1, "op": "insert_after", "status": "invalid", "code": "PATCH_CONTEXT_NOT_FOUND", "message": "anchor_text was not found" }]
+    }
+  ]
+}

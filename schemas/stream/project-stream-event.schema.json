@@ -35,6 +35,10 @@
         "conversation.message.delta",
         "conversation.message.received",
         "conversation.message.owner",
+        "conversation.message.created",
+        "conversation.message.completed",
+        "conversation.message.failed",
+        "conversation.agent.status_changed",
         "stream.error"
       ]
     },
@@ -126,6 +130,36 @@
           "payload": { "$ref": "#/$defs/conversation_message_payload" }
         }
       }
+    },
+    {
+      "if": {
+        "properties": { "event_type": { "enum": ["conversation.message.created", "conversation.message.completed"] } }
+      },
+      "then": {
+        "properties": {
+          "payload": { "$ref": "#/$defs/conversation_message_payload" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "event_type": { "const": "conversation.message.failed" } }
+      },
+      "then": {
+        "properties": {
+          "payload": { "$ref": "#/$defs/conversation_message_failed_payload" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "event_type": { "const": "conversation.agent.status_changed" } }
+      },
+      "then": {
+        "properties": {
+          "payload": { "$ref": "#/$defs/conversation_agent_status_payload" }
+        }
+      }
     }
   ],
   "$defs": {
@@ -211,8 +245,42 @@
         "chunk": { "type": ["string", "null"] },
         "done": { "type": "boolean" }
       }
-    }
-    ,
+    },
+    "conversation_message_failed_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message_id", "conversation_id", "error"],
+      "properties": {
+        "message_id": { "type": "string", "minLength": 1 },
+        "conversation_id": { "type": "string", "minLength": 1 },
+        "correlation_id": { "type": ["string", "null"] },
+        "agent_id": { "type": ["string", "null"] },
+        "sender_role": { "type": ["string", "null"] },
+        "partial_text": { "type": ["string", "null"] },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message"],
+          "properties": {
+            "code": { "type": "string", "minLength": 1 },
+            "message": { "type": "string", "minLength": 1 },
+            "retryable": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "conversation_agent_status_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["conversation_id", "agent_id", "status"],
+      "properties": {
+        "conversation_id": { "type": "string", "minLength": 1 },
+        "agent_id": { "type": "string", "minLength": 1 },
+        "previous_status": { "type": ["string", "null"] },
+        "status": { "type": "string", "enum": ["idle", "queued", "working", "waiting_for_input", "completed", "failed"] },
+        "correlation_id": { "type": ["string", "null"] }
+      }
+    },
     "activity": {
       "type": "array",
       "minItems": 1,

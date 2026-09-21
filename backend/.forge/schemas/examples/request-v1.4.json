@@ -1,0 +1,66 @@
+{
+  "schema_version": "1.4",
+  "task_id": "FORGE-NOTIFY-004",
+  "step_id": 2,
+  "conversation_mode": "hybrid",
+  "hybrid_window": 2,
+  "instruction_blocks": [
+    {
+      "block_id": "objective",
+      "content": "Hoan thien luong thong bao Node de nguoi dung doc duoc trang thai va loi cua ticket.",
+      "cacheable": true
+    },
+    {
+      "block_id": "builder_rules",
+      "content": "Node phai tim file qua Code Index truoc khi doc noi dung file. Khong de Agent doan cau truc file. Chi thay doi file trong pham vi ticket.",
+      "cacheable": true
+    },
+    {
+      "block_id": "project_structure",
+      "content": "Backend source nam trong backend/src/, script khoi dong nam trong backend/scripts/, UI Next.js nam trong ui/nextjs/.",
+      "cacheable": true
+    }
+  ],
+  "user_blocks": [
+    {
+      "block_id": "file_provided",
+      "content": "File backend/scripts/start-control-api.mjs ton tai. Noi dung day du duoc luu tai task/FORGE-NOTIFY-004/step_2/files/start-control-api.mjs; sha256=d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2.",
+      "cacheable": false
+    },
+    {
+      "block_id": "current_request",
+      "content": "Day la file Agent da yeu cau. Hay sua logic thong bao va tra ve unified diff chuan.",
+      "cacheable": false
+    }
+  ],
+  "transcript_blocks": [
+    {
+      "block_id": "round_1",
+      "round": 1,
+      "instruction": "Phan tich ticket FORGE-NOTIFY-004 va bao lai file can tham khao.",
+      "response_summary": "Agent yeu cau backend/scripts/start-control-api.mjs.",
+      "full_request_ref": "task/FORGE-NOTIFY-004/round_1/request",
+      "full_response_ref": "task/FORGE-NOTIFY-004/round_1/response",
+      "in_window": true,
+      "cacheable": false
+    }
+  ],
+  "expected_submission": {
+    "type": "submit_code",
+    "format": "unified_diff",
+    "required_fields": [
+      "target_path",
+      "content",
+      "change_format"
+    ],
+    "is_final": false
+  },
+  "metadata": {
+    "retry_of_step": null,
+    "previous_error": null,
+    "agent_id": "builder",
+    "project_id": "PROJECT-NODEFORGE",
+    "conversation_id": "CONV-BUILDER",
+    "correlation_id": "CORR-FORGE-NOTIFY-004-2"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.dev/schemas/verification/verification-policy.schema.json",
+  "title": "Forge Verification Policy",
+  "description": "Configuration for deterministic Verification Engine behavior.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["focused", "related", "full", "max_retries"],
+  "$defs": {
+    "level_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "stop_on_failure"],
+      "properties": {
+        "required": { "type": "boolean" },
+        "stop_on_failure": { "type": "boolean" }
+      }
+    }
+  },
+  "properties": {
+    "focused": { "$ref": "#/$defs/level_policy" },
+    "related": { "$ref": "#/$defs/level_policy" },
+    "full": { "$ref": "#/$defs/level_policy" },
+    "max_retries": { "type": "integer", "minimum": 0 }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "id": "RULE-INVALID-ORCHESTRATOR",
+  "scope": "project",
+  "type": "workflow",
+  "severity": "error",
+  "rule": "An orchestrator rule must be machine evaluable.",
+  "enforcement": "orchestrator",
+  "enabled": true
+}

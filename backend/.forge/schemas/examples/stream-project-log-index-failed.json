@@ -1,0 +1,9 @@
+{
+  "event_type": "index.failed",
+  "task_id": "INDEX-src/example.js",
+  "timestamp": "2026-08-24T14:21:24.128Z",
+  "sequence": 16,
+  "payload": {
+    "message": "File extraction failed; prior index retained."
+  }
+}

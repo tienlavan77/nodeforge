@@ -1,0 +1,9 @@
+{
+  "type": "sprints.request_plan",
+  "request_id": "REQ-sprint-plan-001",
+  "project_id": "PROJECT-sprint-loop",
+  "payload": {
+    "completed_sprint_id": "SPRINT-6",
+    "objective": "Plan the next delivery increment."
+  }
+}

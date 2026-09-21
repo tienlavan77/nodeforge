@@ -1,0 +1,13 @@
+{
+  "id": "EVIDENCE-001",
+  "project_id": "PROJECT-001",
+  "task_id": "TASK-001",
+  "session_id": "SESSION-001",
+  "builder_id": "AGENT-BUILDER-001",
+  "evidence_type": "implementation_summary",
+  "payload": {
+    "summary": "Implemented the requested authentication guard.",
+    "changed_paths": ["src/auth.js"]
+  },
+  "created_at": "2026-08-18T08:00:00Z"
+}

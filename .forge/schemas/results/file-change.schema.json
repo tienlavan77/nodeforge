@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/results/file-change.schema.json",
+  "title": "Forge File Change",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "path",
+    "operation",
+    "source",
+    "timestamp"
+  ],
+  "properties": {
+    "path": {
+      "$ref": "../core/common.schema.json#/$defs/path"
+    },
+    "old_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "operation": {
+      "type": "string",
+      "enum": [
+        "create",
+        "modify",
+        "delete",
+        "rename",
+        "move"
+      ]
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "agent",
+        "human",
+        "script",
+        "node",
+        "git",
+        "unknown"
+      ]
+    },
+    "agent_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "task_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "timestamp": {
+      "$ref": "../core/common.schema.json#/$defs/timestamp"
+    },
+    "size_bytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "sha256": {
+      "$ref": "../core/common.schema.json#/$defs/sha256"
+    },
+    "stable": {
+      "type": "boolean"
+    }
+  }
+}

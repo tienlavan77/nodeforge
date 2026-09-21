@@ -1,0 +1,19 @@
+{
+  "project_id": "wp-static-commerce",
+  "name": "WP Static Commerce",
+  "root": "/workspace/wp-static-commerce",
+  "forge_dir": ".forge",
+  "schema_version": "1.2.0",
+  "default_branch": "main",
+  "default_workflow_id": "WF-001",
+  "created_at": "2026-08-15T14:00:00Z",
+  "language": "javascript",
+  "package_manager": "npm",
+  "watch": {
+    "include": ["src/**"],
+    "exclude": ["node_modules/**"]
+  },
+  "metadata": {
+    "owner": "forge-team"
+  }
+}
