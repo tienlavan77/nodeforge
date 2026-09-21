@@ -1,0 +1,286 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/request.schema.json",
+  "title": "Forge Canonical Node-to-Agent Request v1.4",
+  "description": "Provider-neutral request assembled by Node before projection to an OpenAI or Anthropic payload.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "task_id",
+    "step_id",
+    "conversation_mode",
+    "instruction_blocks",
+    "user_blocks",
+    "transcript_blocks",
+    "metadata",
+    "expected_output"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.4"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "step_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "conversation_mode": {
+      "type": "string",
+      "enum": [
+        "full_transcript",
+        "rolling_summary",
+        "hybrid"
+      ]
+    },
+    "hybrid_window": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "cache_config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "prompt_cache_key",
+        "mode",
+        "ttl"
+      ],
+      "properties": {
+        "prompt_cache_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "explicit",
+            "automatic"
+          ]
+        },
+        "ttl": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "instruction_blocks": {
+      "$ref": "#/$defs/blocks"
+    },
+    "user_blocks": {
+      "$ref": "#/$defs/blocks"
+    },
+    "transcript_blocks": {
+      "$ref": "#/$defs/transcript_blocks"
+    },
+    "expected_submission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "transport",
+        "required_fields"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "submit_code",
+            "request_info",
+            "usage_report",
+            "completed",
+            "continue"
+          ]
+        },
+        "transport": {
+          "type": "string",
+          "enum": [
+            "function_tool",
+            "json_schema"
+          ]
+        },
+        "required_fields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "retry_of_step",
+        "previous_error"
+      ],
+      "properties": {
+        "retry_of_step": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "previous_error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "agent_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "project_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "conversation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "correlation_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "expected_output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "representation",
+        "transport"
+      ],
+      "properties": {
+        "type": {
+          "const": "code_needed"
+        },
+        "representation": {
+          "const": "json"
+        },
+        "transport": {
+          "const": "function_tool"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "blocks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "block_id",
+          "content",
+          "cacheable"
+        ],
+        "properties": {
+          "block_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "content": {
+            "type": "string"
+          },
+          "cacheable": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "transcript_blocks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "block_id",
+          "round",
+          "instruction",
+          "response_summary",
+          "full_request_ref",
+          "full_response_ref",
+          "in_window",
+          "cacheable"
+        ],
+        "properties": {
+          "block_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "round": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "request_id": {
+            "type": ["string", "null"],
+            "minLength": 1
+          },
+          "response_id": {
+            "type": ["string", "null"],
+            "minLength": 1
+          },
+          "round_kind": {
+            "enum": ["initial", "planning_retry", "repair"]
+          },
+          "repair_round": {
+            "type": ["integer", "null"],
+            "minimum": 1
+          },
+          "instruction": {
+            "type": "string"
+          },
+          "response_summary": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": ["object", "null"]
+          },
+          "full_request_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "full_response_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "in_window": {
+            "type": "boolean"
+          },
+          "closed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "cacheable": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "conversation_mode": {
+            "const": "hybrid"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "hybrid_window"
+        ]
+      }
+    }
+  ]
+}

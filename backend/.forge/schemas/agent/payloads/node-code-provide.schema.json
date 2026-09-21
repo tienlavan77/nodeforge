@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/node-code-provide.schema.json",
+  "title": "Forge Node Code Provide Payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "step_id",
+    "plan"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "step_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "task_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "user_blocks": {
+          "type": "array"
+        },
+        "instruction_blocks": {
+          "type": "array"
+        }
+      }
+    },
+    "plan": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/plan_item"
+      }
+    },
+    "expected_output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "transport"
+      ],
+      "properties": {
+        "type": {
+          "const": "submit_code_response"
+        },
+        "transport": {
+          "enum": [
+            "function_tool",
+            "json_schema"
+          ]
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "retry_of_step": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "previous_error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "conversation_id": {
+          "type": "string"
+        },
+        "correlation_id": {
+          "type": "string"
+        }
+      }
+    },
+    "cache_config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "prompt_cache_key",
+        "mode",
+        "ttl"
+      ],
+      "properties": {
+        "prompt_cache_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mode": {
+          "enum": [
+            "explicit",
+            "automatic"
+          ]
+        },
+        "ttl": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "$defs": {
+    "plan_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "action",
+        "before_checksum",
+        "content",
+        "exists",
+        "language",
+        "size_bytes",
+        "format"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action": {
+          "enum": [
+            "NEW",
+            "MODIFY",
+            "READ_ONLY"
+          ]
+        },
+        "before_checksum": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "content": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "exists": {
+          "type": "boolean"
+        },
+        "language": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "format": {
+          "enum": [
+            "full_content",
+            "structured_patch",
+            "patch_apply",
+            "diff",
+            "none"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "current_content": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

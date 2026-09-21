@@ -1,0 +1,11 @@
+{
+  "id": "NF-114A",
+  "project_id": "PROJECT-114A",
+  "roadmap_id": "ROADMAP-114A",
+  "sprint_id": "SPRINT-11",
+  "title": "Governance Schemas",
+  "objective": "Define governance contracts.",
+  "acceptance_criteria": ["Schemas validate."],
+  "priority": "high",
+  "provenance": {"source": "sprint_plan", "source_id": "SPRINT-11", "created_at": "2026-08-20T06:00:00Z"}
+}

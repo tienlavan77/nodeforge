@@ -1,0 +1,11 @@
+{
+  "event_type": "verification.command",
+  "task_id": "TASK-verification-events",
+  "timestamp": "2026-08-24T14:21:46.495Z",
+  "sequence": 1,
+  "payload": {
+    "message": "Running test command: \"/home/tienlavan/.nvm/versions/node/v26.3.1/bin/node\" --test cases/pass-case.js",
+    "ticket_id": "TASK-verification-events",
+    "conversation_id": "CONV-TASK-verification-events"
+  }
+}

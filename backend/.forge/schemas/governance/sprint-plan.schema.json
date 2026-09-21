@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/governance/sprint-plan.schema.json",
+  "title": "Forge Governance Sprint Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "roadmap_id", "project_id", "objective", "tickets", "exit_criteria"],
+  "properties": {
+    "id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "roadmap_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "project_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "objective": { "type": "string", "minLength": 1 },
+    "dependencies": { "type": "array", "items": { "$ref": "../core/common.schema.json#/$defs/id" }, "uniqueItems": true },
+    "tickets": { "type": "array", "items": { "$ref": "ticket.schema.json" }, "minItems": 1 },
+    "exit_criteria": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+  }
+}

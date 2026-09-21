@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/governance/agent-profile.schema.json",
+  "title": "Forge Agent Profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["agent_id", "agent_name", "role", "gateway_url", "credential_ref", "enabled", "status", "created_at", "updated_at"],
+  "properties": {
+    "agent_id": { "type": "string", "format": "uuid" },
+    "agent_name": { "type": "string", "minLength": 1 },
+    "role": { "type": "string", "enum": ["coder", "reviewer", "sprint_leader", "architecture_manager"] },
+    "gateway_url": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "credential_ref": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9_.:/-]+$" },
+    "enabled": { "type": "boolean" },
+    "status": { "type": "string", "enum": ["ready", "working", "not_connected"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "provider": { "type": "string", "enum": ["codex", "claude", "openai", "anthropic", "custom"] },
+    "model": { "type": "string" },
+    "use_previous_response_id": { "type": "boolean" }
+  }
+}

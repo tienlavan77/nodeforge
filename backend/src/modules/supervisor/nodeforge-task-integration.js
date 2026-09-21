@@ -4,10 +4,11 @@ import { ConfigurationError } from "../../shared/errors.js";
 import { createForgeSdkMcpServer, forgeSdkToolNames } from "../../tools/claude-sdk-forge-tools.js";
 import { classifyTicketComplexity } from "../../tools/ticket-complexity.js";
 import { createAgentExecutionCheckpointStore } from "../agent/agent-execution-checkpoint.js";
+import { createExplorePrepass } from "./explore-pre-pass.js";
 import { selectCodeGraphCandidatesDefinition, readFileDefinition, writeDiffDefinition, editDiffDefinition, runTestDefinition, checkTestDefinition, commitChangesDefinition, reportDoneDefinition, searchCodeDefinition } from "../../tools/index.js";
 
 // createNodeforgeTaskIntegration - handles createNodeforgeTaskIntegration operation.
-export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, agentResolver, handoffQueue, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, agentGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger = () => {}, fileService, checkpointStore } = {}) {
+export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, agentResolver, agentProfiles, onAgentStatus, handoffQueue, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, agentGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger = () => {}, fileService, checkpointStore, relevantTreeSelector, protocolStorage } = {}) {
   if (typeof supervisorManager?.startTask !== "function" || typeof eventBus?.publish !== "function") throw new ConfigurationError("NodeForge integration requires Supervisor Manager and Event Bus.");
   if (typeof handoffQueue?.enqueue !== "function") throw new ConfigurationError("NodeForge integration requires a sender handoff queue.");
   const checkpoints = checkpointStore ?? (fileService ? createAgentExecutionCheckpointStore({ fileService }) : null);
@@ -57,8 +58,9 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
     const executionId = `${request.task_id}:${request.request_id}`;
     const ticket = { ...request.ticket, id: request.task_id };
     const labMode = request.payload?.tool_test;
-    const targetPath = labMode?.target_path ?? ticketTargetPath(ticket);
-    const allowedPrefixes = [...new Set([...(labMode?.allowed_prefixes ?? []), ...prefixForPath(targetPath), ...ticketAllowedPrefixes(ticket)])];
+    const prepass = relevantTreeSelector ? await createExplorePrepass({ relevantTreeSelector, protocolStorage }).run({ ticket }).catch(() => null) : null;
+    const targetPath = labMode?.target_path ?? prepass?.targetPath ?? ticketTargetPath(ticket);
+    const allowedPrefixes = [...new Set([...(labMode?.allowed_prefixes ?? []), ...(prepass?.allowedPrefixes ?? []), ...prefixForPath(targetPath), ...ticketAllowedPrefixes(ticket)])];
     if (!targetPath && !allowedPrefixes.length) throw Object.assign(new ConfigurationError("Ticket target is ambiguous; provide an implementation path in the ticket objective or acceptance criteria."), { code: "TICKET_TARGET_MISSING" });
     const allowedFilePaths = [targetPath, "backend/package.json"].filter(Boolean);
     const complexity = labMode ? { level: "moderate", ...COMPLEXITY_FALLBACK } : classifyTicketComplexity(ticket);
@@ -117,8 +119,9 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
     const executionId = `${request.task_id}:${request.request_id}`;
     const ticket = { ...request.ticket, id: request.task_id };
     const labMode = request.payload?.tool_test;
-    const targetPath = labMode?.target_path ?? ticketTargetPath(ticket);
-    const allowedPrefixes = [...new Set([...(labMode?.allowed_prefixes ?? []), ...prefixForPath(targetPath), ...ticketAllowedPrefixes(ticket)])];
+    const prepass = relevantTreeSelector ? await createExplorePrepass({ relevantTreeSelector, protocolStorage }).run({ ticket }).catch(() => null) : null;
+    const targetPath = labMode?.target_path ?? prepass?.targetPath ?? ticketTargetPath(ticket);
+    const allowedPrefixes = [...new Set([...(labMode?.allowed_prefixes ?? []), ...(prepass?.allowedPrefixes ?? []), ...prefixForPath(targetPath), ...ticketAllowedPrefixes(ticket)])];
     if (!targetPath && !allowedPrefixes.length) throw Object.assign(new ConfigurationError("Ticket target is ambiguous; provide an implementation path in the ticket objective or acceptance criteria."), { code: "TICKET_TARGET_MISSING" });
     const allowedFilePaths = [targetPath, "backend/package.json"].filter(Boolean);
     const complexity = labMode ? { level: "moderate", ...COMPLEXITY_FALLBACK } : classifyTicketComplexity(ticket);

@@ -1,0 +1,19 @@
+[
+  {
+    "id": "PERM-001",
+    "role": "builder",
+    "path": ".forge/**",
+    "access": ["read"],
+    "effect": "deny",
+    "priority": 1000,
+    "reason": "Agent must not tamper with Node-owned runtime state."
+  },
+  {
+    "id": "PERM-002",
+    "role": "builder",
+    "path": "src/**",
+    "access": ["read", "write", "create", "delete", "rename"],
+    "effect": "allow",
+    "priority": 100
+  }
+]

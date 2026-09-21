@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/tools/select-code-graph-candidates.schema.json",
+  "title": "Forge select Code Graph candidates tool input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["query"],
+  "properties": {
+    "query": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "context": { "type": "string", "maxLength": 1000 },
+    "limit": { "type": "integer", "minimum": 1, "maximum": 4 }
+  },
+  "not": {
+    "required": ["path"]
+  }
+}

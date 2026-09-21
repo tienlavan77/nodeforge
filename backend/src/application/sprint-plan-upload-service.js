@@ -14,7 +14,7 @@ const ticketSchema = require("../../../schemas/governance/ticket.schema.json");
 const sprintPlanSchema = require("../../../schemas/governance/sprint-plan.schema.json");
 
 // Creates a service for uploading and managing sprint plans.
-export function createSprintPlanUploadService({ roadmaps, publisher, projectRoot = process.cwd(), isRunning = () => false } = {}) {
+export function createSprintPlanUploadService({ roadmaps, publisher, projectRoot = process.cwd(), isRunning = () => false, logger = console } = {}) {
   if (typeof roadmaps?.save !== "function") throw new ConfigurationError("Sprint Plan Upload requires a Roadmap Store.");
   const validate = createValidator();
 
@@ -89,7 +89,7 @@ export function createSprintPlanUploadService({ roadmaps, publisher, projectRoot
     return { sprint_id: sprintPlan.id, ticket_ids: sprintPlan.tickets.map(({ id }) => id), sprint_plan: structuredClone(sprintPlan), roadmap: saved };
   }
   function publish(type, projectId, payload) {
-    try { publisher?.publish?.({ event_id: `EVT-${Date.now()}-${type}`, type, project_id: projectId, timestamp: new Date().toISOString(), payload, metadata: { source: "sprint-plan-service" } }); } catch { /* stream notification must not undo mutation */ }
+    try { publisher?.publish?.({ event_id: `EVT-${Date.now()}-${type}`, type, project_id: projectId, timestamp: new Date().toISOString(), payload, metadata: { source: "sprint-plan-service" } }); } catch (error) { logger.error?.("Sprint plan event publisher failed after persistence.", { sprint_id: payload?.sprint_id ?? payload?.sprint_plan?.id, upload_id: payload?.upload_id, event_name: type, error: error.message }); /* stream notification must not undo mutation */ }
   }
 }
 

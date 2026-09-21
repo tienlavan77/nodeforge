@@ -8,7 +8,7 @@ const SAFE_BRANCH = /^(?!\.)(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9._/-]*[A-Za-z0-9]$/;
 const PROTECTED_BRANCHES = new Set(["main", "master", "develop"]);
 
 // Creates a Git facade that validates branch/revision/paths and delegates execution to runGit with timeout and event auditing.
-export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutMs = 30_000, onEvent = () => {} } = {}) {
+export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutMs = 30_000, onEvent = () => {}, logger = console } = {}) {
   if (typeof projectRoot !== "string" || !projectRoot) throw new ConfigurationError("Git Service requires a project root.");
   if (typeof runGit !== "function") throw new ConfigurationError("Git Service requires a git executor.");
   if (typeof onEvent !== "function") throw new ConfigurationError("Git Service onEvent must be a function.");
@@ -142,7 +142,7 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
   }
 
   function emit(type, payload) {
-    try { onEvent({ type, timestamp: new Date().toISOString(), ...payload }); } catch { /* audit hooks must not break Git operations */ }
+    try { onEvent({ type, timestamp: new Date().toISOString(), ...payload }); } catch (error) { logger.warn?.("Git audit hook failed.", { event_name: type, error: error.message }); /* audit hooks must not break Git operations */ }
   }
 }
 

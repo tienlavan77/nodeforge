@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/supervisor/material-verification.schema.json",
+  "title": "NodeForge Patch Material Verification",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "supervisor_id",
+    "request_id",
+    "correlation_id",
+    "attempt",
+    "filesystem_write",
+    "valid_patches",
+    "invalid_patches"
+  ],
+  "properties": {
+    "task_id": {
+      "$ref": "execution-contract.schema.json#/$defs/id"
+    },
+    "supervisor_id": {
+      "$ref": "execution-contract.schema.json#/$defs/id"
+    },
+    "request_id": {
+      "$ref": "execution-contract.schema.json#/$defs/id"
+    },
+    "correlation_id": {
+      "$ref": "execution-contract.schema.json#/$defs/id"
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "filesystem_write": {
+      "const": false,
+      "description": "Material verification is a dry-run and never writes files."
+    },
+    "valid_patches": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/valid_patch"
+      }
+    },
+    "invalid_patches": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/invalid_patch"
+      }
+    }
+  },
+  "$defs": {
+    "patch_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "patch_id",
+        "path",
+        "format"
+      ],
+      "properties": {
+        "patch_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "format": {
+          "enum": [
+            "full_content",
+            "structured_patch",
+            "apply_patch",
+            "unified_diff"
+          ]
+        }
+      }
+    },
+    "operation_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation_index",
+        "status"
+      ],
+      "properties": {
+        "operation_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "op": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "valid",
+            "invalid"
+          ]
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "valid_patch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "patch_id",
+        "path",
+        "format",
+        "status",
+        "file_result"
+      ],
+      "properties": {
+        "patch_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "format": {
+          "enum": [
+            "full_content",
+            "structured_patch",
+            "apply_patch",
+            "unified_diff"
+          ]
+        },
+        "status": {
+          "const": "valid"
+        },
+        "file_result": {
+          "enum": [
+            "materialized",
+            "unchanged"
+          ]
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/operation_result"
+          }
+        },
+        "content": {
+          "type": "string"
+        }
+      }
+    },
+    "invalid_patch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "patch_id",
+        "path",
+        "format",
+        "status",
+        "file_result",
+        "errors"
+      ],
+      "properties": {
+        "patch_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "format": {
+          "enum": [
+            "full_content",
+            "structured_patch",
+            "apply_patch",
+            "unified_diff"
+          ]
+        },
+        "status": {
+          "const": "invalid"
+        },
+        "file_result": {
+          "const": "rejected"
+        },
+        "errors": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/operation_result"
+          }
+        }
+      }
+    }
+  }
+}

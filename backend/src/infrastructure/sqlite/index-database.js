@@ -149,6 +149,41 @@ const MIGRATIONS = [
       "CREATE TABLE IF NOT EXISTS agent_profile_tombstones (agent_id TEXT PRIMARY KEY, deleted_at TEXT NOT NULL)",
       "ALTER TABLE agent_profiles ADD COLUMN team TEXT"
     ]
+  },
+  {
+    version: 9,
+    statements: [
+      `CREATE TABLE symbol_embeddings (
+        symbol_id TEXT PRIMARY KEY,
+        embedding_model TEXT NOT NULL,
+        vector TEXT NOT NULL,
+        content_checksum TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (symbol_id) REFERENCES symbols(symbol_id) ON DELETE CASCADE
+      )`,
+      "CREATE INDEX symbol_embeddings_model ON symbol_embeddings (embedding_model)"
+    ]
+  },
+  {
+    version: 10,
+    statements: [
+      `CREATE TABLE embedding_jobs (
+        job_id TEXT PRIMARY KEY,
+        symbol_id TEXT NOT NULL,
+        content_checksum TEXT NOT NULL,
+        model TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        priority INTEGER NOT NULL DEFAULT 100,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_retry_at TEXT,
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (symbol_id) REFERENCES symbols(symbol_id) ON DELETE CASCADE
+      )`,
+      "CREATE INDEX embedding_jobs_ready ON embedding_jobs (status, priority, next_retry_at, created_at)",
+      "CREATE UNIQUE INDEX embedding_jobs_active_symbol ON embedding_jobs (symbol_id, model) WHERE status IN ('pending', 'processing', 'retry_wait')"
+    ]
   }
 ];
 

@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/core/event.schema.json",
+  "title": "Forge Event",
+  "description": "Canonical event envelope for the whole system. `type` uses the domain.action convention and this enum is its single source of truth. Node profiles may only narrow this set through allOf.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "type",
+    "project_id",
+    "timestamp",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "node.started",
+        "node.ready",
+        "node.degraded",
+        "node.recovered",
+        "node.stopping",
+        "node.stopped",
+        "node.error",
+        "projects.opened",
+        "projects.closed",
+        "sessions.started",
+        "sessions.finished",
+        "sessions.failed",
+        "tasks.created",
+        "tasks.assigned",
+        "tasks.started",
+        "tasks.blocked",
+        "tasks.completed",
+        "tasks.failed",
+        "tasks.cancelled",
+        "watcher.file_created",
+        "watcher.file_modified",
+        "watcher.file_deleted",
+        "watcher.file_renamed",
+        "index.file_indexed",
+        "index.file_removed",
+        "index.rebuilt",
+        "index.inconsistent",
+        "git.diff_generated",
+        "git.changeset_created",
+        "verification.test_started",
+        "verification.test_completed",
+        "verification.check_completed",
+        "context.pack_generated",
+        "context.cache_invalidated",
+        "rules.rule_violated",
+        "rules.permission_denied",
+        "workflow.state_transitioned",
+        "review.requested",
+        "review.started",
+        "review.completed",
+        "workflow.started",
+        "workflow.completed",
+        "sprints.plan_proposed",
+        "agents.started",
+        "agents.stopped",
+        "agents.message_received",
+        "agents.error",
+        "agents.concurrent_modification_detected",
+        "agent.started",
+        "agent.plan.created",
+        "agent.step.started",
+        "agent.step.completed",
+        "agent.token_used",
+        "agent.message.delta",
+        "governance.sprint_plan.created",
+        "agent.stopped",
+        "agent.message_received",
+        "agent.error",
+        "agent.concurrent_modification_detected",
+        "agent.failed",
+        "agent.completed",
+        "verification.result",
+        "history.summary_created",
+        "process.timed_out",
+        "process.cancelled"
+      ]
+    },
+    "project_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "session_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "task_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "agent_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "request_id": {
+      "$ref": "common.schema.json#/$defs/id",
+      "description": "The request_id of the Command that directly caused this event, if any. Enables tracing a command through to every event it produced."
+    },
+    "causation_id": {
+      "$ref": "common.schema.json#/$defs/id",
+      "description": "The event_id of the event that caused this event, when one event triggers another (event chaining, as opposed to originating from a direct command)."
+    },
+    "timestamp": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "metadata": {
+      "$ref": "common.schema.json#/$defs/metadata"
+    }
+  }
+}

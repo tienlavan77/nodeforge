@@ -11,7 +11,7 @@ const DEFAULT_SECRETS = SECRET_PATTERNS;
 const DEFAULT_IGNORE = [".forge/**", ".node-control/**", "node_modules/**", ".git/**", "dist/**", "coverage/**", ".next/**", ".next.stale-*/**", "**/.DS_Store", "**/._*"];
 
 // Creates a sandboxed FileService scoped to projectRoot with queued writes, secret-path filtering, and atomic/lock operations.
-export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRETS, watcherIgnore = DEFAULT_IGNORE, databaseService, internalBus, onWrite } = {}) {
+export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRETS, watcherIgnore = DEFAULT_IGNORE, databaseService, internalBus, onWrite, logger = console } = {}) {
   if (typeof projectRoot !== "string" || !projectRoot) throw new ConfigurationError("FileService requires a project root.");
   const root = resolve(projectRoot);
   const secretMatch = picomatch(secretPatterns, { dot: true });
@@ -21,17 +21,17 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
 
   function writeFile(input) {
     const job = queue.then(() => write(input));
-    queue = job.catch(() => {});
+    queue = job.catch((error) => { logCleanup("queued write", error); });
     return job;
   }
   function atomicCreate(input) {
     const job = queue.then(() => atomicWriteJob(input, { replace: false }));
-    queue = job.catch(() => {});
+    queue = job.catch((error) => { logCleanup("queued atomic create", error); });
     return job;
   }
   function atomicWrite(input) {
     const job = queue.then(() => atomicWriteJob(input, { replace: input?.replace === true }));
-    queue = job.catch(() => {});
+    queue = job.catch((error) => { logCleanup("queued atomic write", error); });
     return job;
   }
   async function atomicWriteJob(input = {}, { replace }) {
@@ -54,7 +54,7 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
       }
       throw error;
     } finally {
-      await unlink(temporary).catch(() => {});
+      await unlink(temporary).catch((error) => logCleanup("atomic temporary file", error));
     }
     const result = Object.freeze({ path: rel, bytes: Buffer.byteLength(content), atomic: true, replaced: replace });
     internalBus?.emit?.("file.written", { path: rel, bytes: result.bytes, atomic: true });
@@ -77,7 +77,7 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
   }
   function appendFile(input) {
     const job = queue.then(() => appendFileJob(input));
-    queue = job.catch(() => {});
+    queue = job.catch((error) => { logCleanup("queued append", error); });
     return job;
   }
   async function appendFileJob(input = {}) {
@@ -121,7 +121,7 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
       await handle.writeFile(content, "utf8");
       return Object.freeze({ path: rel, release: async () => { await handle.close(); await unlink(destination); } });
     } catch (error) {
-      await handle?.close().catch(() => {});
+      await handle?.close().catch((closeError) => logCleanup("file lock handle", closeError));
       if (error?.code === "EEXIST") {
         const conflict = new ConfigurationError(`File lock already exists: ${rel}.`);
         conflict.code = "FILE_LOCK_EXISTS";
@@ -205,7 +205,7 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
       internalBus?.emit?.("file.renamed", { old_path: source, path: destination });
       return { from: source, to: destination, renamed: true };
     });
-    queue = job.catch(() => {});
+    queue = job.catch((error) => { logCleanup("queued rename", error); });
     return job;
   }
   async function listFiles({ glob = "**/*" } = {}) { const files = []; const runtimeListing = glob === ".forge/runtime" || glob.startsWith(".forge/runtime/"); const wildcard = glob.search(/[!*?[]/); const base = wildcard < 0 ? glob : glob.slice(0, wildcard).replace(/\/+$/, ""); const start = base ? resolve(root, base) : root; const startPrefix = base ? base : ""; try { await scan(start, startPrefix); } catch (error) { if (error?.code !== "ENOENT") throw error; } const match = picomatch(glob, { dot: true }); return files.filter((path) => match(path));
@@ -227,6 +227,7 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
     if (write && basename(rel).startsWith(".") && !runtimePath) throw new ConfigurationError("Hidden project paths are not writable.");
     return rel;
   }
+  function logCleanup(operation, error) { if (error?.code === "ENOENT") return; try { logger.error?.("FileService cleanup failed.", { operation, error: error?.message, code: error?.code }); } catch { /* cleanup logging must not change file behavior */ } }
   function validateCommitTarget(commit, rel) {
     if (!commit || commit.target_path !== rel) throw new ConfigurationError("File write path does not match commit.target_path.");
     const expectedDir = dirname(rel).split(sep).join("/");

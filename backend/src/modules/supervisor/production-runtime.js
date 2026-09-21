@@ -56,7 +56,7 @@ export function createProductionSupervisorRuntime({ fileService, projectRoot = p
       });
     });
   } });
-  const baseIntegration = createNodeforgeTaskIntegration({ supervisorManager, eventBus, agentResolver: agentRoleResolver, handoffQueue: queues["sender.handoff"], claudeSdkGateway, openaiSdkGateway, codexSdkGateway, agentGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger, checkpointStore: agentCheckpoints });
+  const baseIntegration = createNodeforgeTaskIntegration({ supervisorManager, eventBus, agentResolver: agentRoleResolver, handoffQueue: queues["sender.handoff"], claudeSdkGateway, openaiSdkGateway, codexSdkGateway, agentGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger, checkpointStore: agentCheckpoints, relevantTreeSelector, protocolStorage });
   const integration = { submitTicket: baseIntegration.submitTicket, startTask: async (request) => {
     if (!request?.task_id) throw new ConfigurationError("Production task requires task_id.");
     if (startingTasks.has(request.task_id)) {

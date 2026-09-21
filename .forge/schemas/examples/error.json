@@ -1,0 +1,11 @@
+{
+  "code": "INDEX_REBUILD_FAILED",
+  "message": "The code index could not be rebuilt.",
+  "severity": "error",
+  "retryable": true,
+  "details": {
+    "project_id": "wp-static-commerce",
+    "operation": "index.rebuild"
+  },
+  "timestamp": "2026-08-15T14:06:06Z"
+}

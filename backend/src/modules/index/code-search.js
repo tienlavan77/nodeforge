@@ -20,15 +20,17 @@ export function createCodeSearch({ database } = {}) {
     const terms = tokenizeSearchText(query);
     const version = indexVersion();
     const matches = [];
-    if (kind === "content") return Object.freeze({ query: query.trim(), matches: Object.freeze(contentMatches(query, limit, version, projection)), index_version: version });
+    if (kind === "content") return Object.freeze({ query: query.trim(), matches: Object.freeze(contentMatches(query, limit, version, projection).filter((match) => !isTestPath(match.node?.path))), index_version: version });
     if (kind !== "symbol") {
       for (const row of database.all("SELECT file_id, path, language, sha256, size_bytes FROM files ORDER BY path")) {
+        if (isTestPath(row.path)) continue;
         const score = scoreFile(row, terms);
         if (score > 0) matches.push({ type: "file", score, reason: reasonsFile(row, terms), node: projectFileNode(createFileNode({ fileId: row.file_id, path: row.path, language: row.language, sha256: row.sha256, sizeBytes: row.size_bytes, indexVersion: version }), projection, version), index_version: version });
       }
     }
     if (kind !== "file") {
       for (const row of database.all("SELECT s.symbol_id, s.file_id, s.name, s.kind, s.start_line, s.end_line, f.path, f.language, f.sha256 FROM symbols s JOIN files f ON f.file_id = s.file_id ORDER BY f.path, s.start_line")) {
+        if (isTestPath(row.path)) continue;
         const score = scoreSymbol(row, terms);
         if (score > 0) matches.push({ type: "symbol", score, reason: reasonsSymbol(row, terms), node: projectSymbolNode(createSymbolNode({ symbolId: row.symbol_id, fileId: row.file_id, path: row.path, name: row.name, symbolKind: row.kind, startLine: row.start_line, endLine: row.end_line, indexVersion: version }), row, projection), index_version: version });
       }
@@ -45,8 +47,8 @@ export function createCodeSearch({ database } = {}) {
     const rows = database.all("SELECT file_id, path, language, content, snippet(file_content_fts, 3, '»', '«', '…', 40) AS snippet, bm25(file_content_fts, 8.0, 1.0, 0.5) AS rank FROM file_content_fts WHERE file_content_fts MATCH ? ORDER BY rank LIMIT ?", [expression, limit]);
     const fileNodes = new Map(rows.map((row) => [row.file_id, { ...projectFileNode(createFileNode({ fileId: row.file_id, path: row.path, language: row.language, indexVersion: version }), projection, version), snippet: row.snippet }]));
     const symbolRows = database.all("SELECT symbol_id, file_id, path, name, kind, content, start_line, end_line, snippet(symbol_content_fts, 5, '»', '«', '…', 40) AS snippet, bm25(symbol_content_fts, 6.0, 6.0, 1.5, 0.5, 0.0, 0.0) AS rank FROM symbol_content_fts WHERE symbol_content_fts MATCH ? ORDER BY rank LIMIT ?", [expression, limit]);
-    const symbolMatches = symbolRows.map((row) => ({ type: "content", score: 1 / (1 + Math.max(0, Number(row.rank) || 0)) + 0.5, reason: [`symbol_content_match:${query.trim()}`], node: { ...projectFileNode(createFileNode({ fileId: row.file_id, path: row.path, language: symbolLanguage(row.path), indexVersion: version }), "minimal", version), snippet: row.snippet, symbol_name: row.name, symbol_kind: row.kind, start_line: row.start_line, end_line: row.end_line }, index_version: version }));
-    const fileMatches = rows.map((row) => ({ type: "content", score: 1 / (1 + Math.max(0, Number(row.rank) || 0)), reason: [`content_match:${query.trim()}`], node: fileNodes.get(row.file_id), index_version: version }));
+    const symbolMatches = symbolRows.filter((row) => !isTestPath(row.path)).map((row) => ({ type: "content", score: 1 / (1 + Math.max(0, Number(row.rank) || 0)) + 0.5, reason: [`symbol_content_match:${query.trim()}`], node: { ...projectFileNode(createFileNode({ fileId: row.file_id, path: row.path, language: symbolLanguage(row.path), indexVersion: version }), "minimal", version), snippet: row.snippet, symbol_name: row.name, symbol_kind: row.kind, start_line: row.start_line, end_line: row.end_line }, index_version: version }));
+    const fileMatches = rows.filter((row) => !isTestPath(row.path)).map((row) => ({ type: "content", score: 1 / (1 + Math.max(0, Number(row.rank) || 0)), reason: [`content_match:${query.trim()}`], node: fileNodes.get(row.file_id), index_version: version }));
     return [...symbolMatches, ...fileMatches].slice(0, limit);
   }
 
@@ -76,11 +78,22 @@ export function createCodeSearch({ database } = {}) {
   function reasonsFile(row, terms) { return terms.flatMap((term) => row.path.toLowerCase() === term ? [`path_exact:${term}`] : row.path.toLowerCase().includes(term) ? [`path_match:${term}`] : (row.language ?? "").toLowerCase() === term ? [`language_match:${term}`] : []); }
   function reasonsSymbol(row, terms) { return terms.flatMap((term) => row.name.toLowerCase() === term ? [`symbol_exact:${term}`] : row.name.toLowerCase().includes(term) ? [`symbol_match:${term}`] : row.kind.toLowerCase() === term ? [`kind_match:${term}`] : row.path.toLowerCase().includes(term) ? [`path_match:${term}`] : []); }
   function ftsQuery(value) {
+    const raw = typeof value === "string" ? value.trim() : "";
     const terms = tokenizeSearchText(value);
     if (terms.length <= 1) return terms.map((term) => `"${term.replaceAll('"', '""')}"`).join("");
-    // OR-join keeps phrased queries from zeroing out; bm25 ranking still favors
+    // Detect adjacent 2-word phrases: CONVERSATION_BLOCK, conversation-block, or CONVERSATION BLOCK
+    // Keep as "conversation block" phrase instead of separate OR terms for precision.
+    // Reconstruct phrases from raw by checking _ or - or space adjacency.
+    const rawLower = raw.normalize("NFC").toLocaleLowerCase("vi-VN");
+    const phraseTokens = [];
+    const rawTokens = rawLower.split(/[\s_]+/).filter(Boolean);
+    // Not needed here; just use normal OR for long queries. Phrase only when raw explicitly has 2 adjacent meaningful tokens.
+    // Keep simple: OR-join keeps phrased queries from zeroing out; bm25 ranking still favors
     // matches containing more terms, so precision comes from ordering not AND.
     return terms.map((term) => `"${term.replaceAll('"', '""')}"`).join(" OR ");
+  }
+  function isTestPath(path) {
+    return typeof path === "string" && (/(^|\/)tests?(\/|$)/.test(path) || path.includes(".test.") || path.includes("__tests__"));
   }
   function symbolLanguage(path) { const extension = path.slice(path.lastIndexOf(".")).toLowerCase(); return { ".js": "javascript", ".jsx": "javascript", ".ts": "typescript", ".tsx": "typescript", ".php": "php", ".css": "css" }[extension] ?? null; }
   function indexVersion() { return `IDX-${database.all("SELECT version FROM index_metadata LIMIT 1")[0]?.version ?? 0}`; }

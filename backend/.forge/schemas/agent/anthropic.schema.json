@@ -1,0 +1,254 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://forge.local/schemas/agent/anthropic.schema.json",
+  "title": "Forge Node→Agent Payload — Anthropic variant",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "task_id",
+    "step_id",
+    "provider",
+    "model",
+    "conversation_mode",
+    "hybrid_window",
+    "cache_config",
+    "system_blocks",
+    "transcript_blocks",
+    "user_blocks",
+    "expected_output",
+    "metadata"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1.4-anthropic"
+    },
+    "task_id": {
+      "type": "string"
+    },
+    "step_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "provider": {
+      "const": "anthropic"
+    },
+    "model": {
+      "type": "string"
+    },
+    "conversation_mode": {
+      "enum": [
+        "hybrid",
+        "full_transcript"
+      ]
+    },
+    "hybrid_window": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "cache_config": {
+      "type": "object",
+      "required": [
+        "mode",
+        "ttl",
+        "max_breakpoints"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "const": "explicit"
+        },
+        "ttl": {
+          "enum": [
+            "5m",
+            "1h"
+          ]
+        },
+        "max_breakpoints": {
+          "const": 4
+        }
+      }
+    },
+    "system_blocks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/block"
+      }
+    },
+    "transcript_blocks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/transcript_block"
+      }
+    },
+    "user_blocks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/block"
+      }
+    },
+    "expected_output": {
+      "type": "object",
+      "required": [
+        "type",
+        "format",
+        "output_schema_ref",
+        "delivery"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "submit_code_response",
+            "usage_needed",
+            "no_wiring_needed",
+            "completed",
+            "continue"
+          ]
+        },
+        "format": {
+          "const": "json"
+        },
+        "output_schema_ref": {
+          "type": "string"
+        },
+        "delivery": {
+          "const": "forced_tool_use",
+          "description": "Claude has no JSON mode; tool_choice must be used to force a tool call matching output_schema_ref."
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "required": [
+        "retry_of_step",
+        "previous_error"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "retry_of_step": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "previous_error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  },
+  "definitions": {
+    "block": {
+      "type": "object",
+      "required": [
+        "block_id",
+        "content",
+        "cacheable"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "block_id": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "cacheable": {
+          "type": "boolean"
+        },
+        "cache_control": {
+          "type": "object",
+          "description": "Only set this on the LAST block in a contiguous cacheable sequence. The adapter computes it automatically; do not copy the cacheable flag one-to-one from a block to the marker.",
+          "required": [
+            "type",
+            "ttl"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "ephemeral"
+            },
+            "ttl": {
+              "enum": [
+                "5m",
+                "1h"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "transcript_block": {
+      "type": "object",
+      "required": [
+        "block_id",
+        "round",
+        "instruction",
+        "response_summary",
+        "full_request_ref",
+        "full_response_ref",
+        "in_window",
+        "cacheable"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "block_id": {
+          "type": "string"
+        },
+        "round": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "request_id": {
+          "type": ["string", "null"],
+          "description": "request_id of the closed round. Used as the dedup key because a round can repeat (R2 code_needed) without the round number increasing."
+        },
+        "response_id": {
+          "type": ["string", "null"]
+        },
+        "round_kind": {
+          "enum": ["initial", "planning_retry", "repair"],
+          "description": "initial = ordinary round; planning_retry = round 2 repeated because the agent returned code_needed; repair = R4, R5, ... The latter two kinds are always in_window=false: a repair round because the next request already pushes invalid/failed_operations, a planning_retry because the ref task/{id}/round_2/{request,response} is overwritten by the last exchange (save replace:true), so expanding it would resolve another round's payload."
+        },
+        "repair_round": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "Repair count: R4 = 1, R5 = 2. null when the round is not a repair round."
+        },
+        "instruction": {
+          "type": "string"
+        },
+        "response_summary": {
+          "type": "string",
+          "description": "One line summarizing the round outcome. For a block with in_window=false this is everything the agent knows about that round, so it must carry real information (file counts, plan actions, error codes) rather than only the response type."
+        },
+        "outcome": {
+          "type": ["object", "null"],
+          "description": "Verification result of a repair round (valid_count, invalid_count, codes, invalid_paths). Counts and error codes only, never content."
+        },
+        "full_request_ref": {
+          "type": "string"
+        },
+        "full_response_ref": {
+          "type": "string"
+        },
+        "in_window": {
+          "type": "boolean",
+          "description": "true = the adapter resolves full_request_ref/full_response_ref into full user/assistant messages. false = only response_summary is used, wrapped into a single user message as a context note. This flag is computed ONCE when the round closes and is immutable afterwards: a written block must never be mutated, because prompt caching keys off a prefix. The window slides with the current round (hybrid_window) by having the consumer derive it from block.round, never by changing the flag on a block."
+        },
+        "closed_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the round closed and the block was written to the index."
+        },
+        "cacheable": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

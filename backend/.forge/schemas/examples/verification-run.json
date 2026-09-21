@@ -1,0 +1,18 @@
+{
+  "run_id": "VERIFY-RUN-001",
+  "commit_id": "NF-014",
+  "level": "focused",
+  "started_at": "2026-08-16T10:00:00Z",
+  "completed_at": "2026-08-16T10:00:04Z",
+  "status": "passed",
+  "checks": [
+    {
+      "type": "test",
+      "command": "npm test",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_ms": 4000,
+      "result_ref": "TEST-RESULT-001"
+    }
+  ]
+}

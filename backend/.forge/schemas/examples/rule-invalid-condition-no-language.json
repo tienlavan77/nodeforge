@@ -1,0 +1,12 @@
+{
+  "id": "RULE-INVALID-CONDITION",
+  "scope": "project",
+  "type": "security",
+  "severity": "error",
+  "rule": "A machine condition must identify its evaluator.",
+  "condition": {
+    "deny_paths": ["**/.env"]
+  },
+  "enforcement": "advisory",
+  "enabled": true
+}

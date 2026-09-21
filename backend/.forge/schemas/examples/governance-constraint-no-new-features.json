@@ -1,0 +1,19 @@
+{
+  "id": "GR-STAB-CST-01",
+  "name": "No new features during stabilization",
+  "description": "During SPRINT-NF-STAB-001, no feature work may be merged. Only tickets from AD-NF-STABILIZE-001 are allowed.",
+  "trigger": "merge_request_created | ticket_status_changed_to_building",
+  "condition": {
+    "not_contains": {
+      "ticket_id": {
+        "pattern": "/^NF-STAB-T/"
+      },
+      "source_id": {
+        "not_equals": "AD-NF-STABILIZE-001"
+      }
+    }
+  },
+  "enforcement": "blocking",
+  "severity": "high",
+  "enabled": true
+}

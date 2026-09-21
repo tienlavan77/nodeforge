@@ -1,0 +1,11 @@
+{
+  "path": "src/session.js",
+  "operation": "modify",
+  "source": "agent",
+  "agent_id": "AGENT-BUILDER-001",
+  "task_id": "TASK-001",
+  "timestamp": "2026-08-15T14:05:00Z",
+  "size_bytes": 1820,
+  "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "stable": true
+}

@@ -1,0 +1,14 @@
+{
+  "event_id": "EVT-sprint-plan-001",
+  "type": "sprints.plan_proposed",
+  "project_id": "PROJECT-sprint-loop",
+  "request_id": "REQ-sprint-plan-001",
+  "timestamp": "2026-08-19T12:00:01Z",
+  "payload": {
+    "sprint": {
+      "id": "SPRINT-7",
+      "objective": "Build the next delivery increment.",
+      "commits": [{ "id": "NF-078", "order": 1, "objective": "Implement the next increment.", "acceptance_criteria": ["Integration passes."] }]
+    }
+  }
+}

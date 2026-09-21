@@ -1,6 +1,7 @@
 // Summary: Builds cache-friendly attempt envelopes with tiered memory/context blocks and repair-round failure injection.
 import { createStage1TaskRequestBuilder } from "../workflows/stage1-task-request-builder.js";
 import { buildStage1InstructionBlocks } from "../workflows/stage1-instructions.js";
+import { extractExplicitPaths, resolveDependencyFiles } from "../index/ticket-scope.js";
 import { ConfigurationError } from "../../shared/errors.js";
 
 // Builds the request envelope for each supervised attempt. Attempt 1 carries
@@ -86,7 +87,7 @@ export function createAttemptContextBuilder({ protocolStorage, requestBuilder = 
     const memoryFacts = typeof memoryRetriever?.retrieve === "function"
       ? await memoryRetriever.retrieve({ projectId: ticket.project_id, taskId: ticket.id, query: `${ticket.title} ${ticket.objective}` }).then((result) => result?.relevant_facts ?? []).catch(() => [])
       : [];
-    const relevantTree = origin.relevantTree ?? (typeof relevantTreeSelector?.select === "function" ? await relevantTreeSelector.select({ title: ticket.title, objective: ticket.objective, acceptanceCriteria: ticket.acceptance_criteria ?? [] }).then((result) => result?.tree ?? []).catch(() => []) : []);
+    const relevantTree = origin.relevantTree ?? (typeof relevantTreeSelector?.select === "function" ? await resolveRelevantTree().catch(() => []) : []);
     const built = requestBuilder.buildTaskRequest(ticket, {
       agentId: origin.agent_id ?? "builder",
       conversationId: `CONV-BUILDER-${ticket.project_id ?? "PROJECT"}-${ticket.id}`,
@@ -128,6 +129,15 @@ export function createAttemptContextBuilder({ protocolStorage, requestBuilder = 
     if (protocolStorage?.save) await protocolStorage.save(`task/${envelope.task_id}/round_${attemptNumber}/request`, envelope, { replace: true, schemaId: "https://forge.local/schemas/agent/envelope.schema.json" });
     projectLogger({ event_name: "supervisor.request_persisted", level: "info", status: "success", message: "Supervisor persisted attempt request before dispatch.", task_id: envelope.task_id, correlation_id: origin.correlation_id, source: "attempt-context-builder", payload: { request_id: envelope.request_id, attempt: attemptNumber, kind } });
     return envelope;
+  }
+  // Ticket-scoped select: explicit AC paths + dependency files seed tier-0.
+  async function resolveRelevantTree() {
+    const scoped = await buildTicketScope().catch(() => ({ priorFiles: [], dependencyFiles: [] }));
+    const result = await relevantTreeSelector.select({ title: ticket.title, objective: ticket.objective, acceptanceCriteria: ticket.acceptance_criteria ?? [], style: ticket.style, ...scoped });
+    return result?.tree ?? [];
+    async function buildTicketScope() {
+      return { priorFiles: extractExplicitPaths(ticket), dependencyFiles: await resolveDependencyFiles(ticket, { protocolStorage }) };
+    }
   }
 }
 
