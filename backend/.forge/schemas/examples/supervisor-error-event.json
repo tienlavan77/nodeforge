@@ -1,0 +1,13 @@
+{
+  "kind": "event",
+  "event_id": "EVT-VERIFY-001",
+  "type": "supervisor.execution_failed",
+  "task_id": "FORGE-UI-054",
+  "supervisor_id": "SUP-FORGE-UI-054",
+  "request_id": "REQ-FORGE-UI-054-2",
+  "correlation_id": "CORR-FORGE-UI-054",
+  "attempt": 1,
+  "timestamp": "2026-09-04T10:02:00Z",
+  "payload": { "state": "FAILED" },
+  "error": { "code": "PATCH_CONTEXT_NOT_FOUND", "message": "Patch context was not found.", "retryable": true, "details": { "path": "frontend/src/components/Header.jsx" } }
+}

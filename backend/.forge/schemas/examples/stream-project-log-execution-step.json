@@ -1,0 +1,23 @@
+{
+  "event_type": "execution.step",
+  "task_id": "e2e-task",
+  "timestamp": "2026-08-25T10:47:37.980Z",
+  "sequence": 4,
+  "payload": {
+    "message": "verifyChecksum failed.",
+    "ticket_id": "e2e-task",
+    "conversation_id": "CONV-e2e-task",
+    "result": {
+      "step_name": "verifyChecksum",
+      "success": false,
+      "error_code": "CHECKSUM_MISMATCH",
+      "error_message": "File checksum does not match.",
+      "detail": {
+        "expected": "sha256:invalid",
+        "actual": "sha256:9160d4be34c8695bd172a76c7c7966587ea5a4d991ad22c87b2b91af54aa9ebb"
+      },
+      "duration_ms": 1
+    },
+    "step_id": 1
+  }
+}

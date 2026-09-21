@@ -1,0 +1,13 @@
+{
+  "event_id": "EVT-CONCURRENT-MODIFICATION-001",
+  "type": "agents.concurrent_modification_detected",
+  "project_id": "PROJECT-001",
+  "timestamp": "2026-08-17T18:00:00Z",
+  "payload": {
+    "path": "src/shared.js",
+    "session_ids": [
+      "SESSION-A",
+      "SESSION-B"
+    ]
+  }
+}

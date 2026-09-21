@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/governance/roadmap.schema.json",
+  "title": "Forge Governance Roadmap",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "project_id", "version", "sprints", "created_at"],
+  "properties": {
+    "id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "project_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "version": { "type": "string", "minLength": 1 },
+    "architecture_decision_ids": { "type": "array", "items": { "$ref": "../core/common.schema.json#/$defs/id" }, "uniqueItems": true },
+    "goals": { "type": "array", "items": { "type": "string" } },
+    "sprints": { "type": "array", "items": { "$ref": "sprint-plan.schema.json" }, "minItems": 1 },
+    "created_at": { "$ref": "../core/common.schema.json#/$defs/timestamp" },
+    "updated_at": { "$ref": "../core/common.schema.json#/$defs/timestamp" }
+  }
+}

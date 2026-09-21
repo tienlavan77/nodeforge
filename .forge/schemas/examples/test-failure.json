@@ -1,0 +1,10 @@
+{
+  "test_result_id": "TEST-RESULT-002",
+  "test": "auth rejects expired sessions",
+  "file": "src/auth.test.js",
+  "line": 42,
+  "column": 7,
+  "error": { "type": "assertion", "expected": 401, "actual": 200 },
+  "message": "Expected 401, got 200",
+  "stack_excerpt": "AssertionError: Expected 401, got 200\n    at auth.test.js:42:7"
+}

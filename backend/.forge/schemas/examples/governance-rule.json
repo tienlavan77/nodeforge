@@ -1,0 +1,10 @@
+{
+  "id": "GOV-001",
+  "name": "Tickets require sprint provenance",
+  "description": "Every ticket must originate from a sprint plan.",
+  "trigger": "ticket.create",
+  "condition": {"required_field": "ticket.provenance.source"},
+  "enforcement": "blocking",
+  "severity": "high",
+  "enabled": true
+}

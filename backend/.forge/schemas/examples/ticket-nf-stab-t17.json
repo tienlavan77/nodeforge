@@ -1,0 +1,19 @@
+{
+  "id": "NF-STAB-T17",
+  "project_id": "PROJECT-114A",
+  "roadmap_id": "ROADMAP-114A",
+  "sprint_id": "SPRINT-NF-STAB-001",
+  "title": "Create queued DatabaseService for SQLite writes — single writer with ordered queue",
+  "objective": "Replace direct openIndexDatabase concurrent writes from Node Control API and Filesystem/Index Watcher with a single DatabaseService that queues all SQLite writes in order with BEGIN IMMEDIATE transaction, eliminating UNIQUE constraint failed: files.path and database access denied errors. Reads remain parallel via WAL.",
+  "acceptance_criteria": [
+    "Create src/infrastructure/sqlite/database-service.js exposing createDatabaseService({ dataDir, busyTimeoutMs, journalMode }) with methods write(sql, params), read(sql, params), transaction(fn), close() — write queue is FIFO with BEGIN IMMEDIATE -> COMMIT/ROLLBACK, busy_timeout and journal_mode=WAL set on open",
+    "Refactor eventStore, historyStore, sessionStore, roadmapStore, sprintPlanProjection, ticketProvenanceTracker, incrementalIndexer, indexMetadata to accept databaseService instead of raw database, and use service.write/read; no direct openIndexDatabase write outside service",
+    "Writes from Node server (agent profiles, secrets metadata, communication/history, event store, sessions, roadmap) and Watcher (files, symbols, imports/exports, calls/dependency edges, index metadata, watcher/verification events) all go through service queue; concurrent writes no longer cause UNIQUE constraint failed: files.path",
+    "Duplicate file path handled via INSERT OR REPLACE / ON CONFLICT upsert in service layer, verified by concurrent write test",
+    "Service survives restart: after npm run dev:forge:stop/start, GET /projects/PROJECT-114A/history still shows events and database not locked",
+    "Tests PASS: node --test tests/unit/index-database.test.js tests/unit/event-store.test.js tests/integration/persistent-event-store.test.js, npm run lint, npm run typecheck, npm run validate:schemas, git diff --check; manual smoke: parallel POST /tasks triggers concurrent file writes without UNIQUE error and tail .node-control/logs/node.log shows no database access denied"
+  ],
+  "priority": "critical",
+  "dependencies": [],
+  "provenance": {"source": "architecture_decision", "source_id": "AD-NF-STABILIZE-001", "created_at": "2026-08-21T08:00:00Z"}
+}

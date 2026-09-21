@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.dev/schemas/verification/verification-result.schema.json",
+  "title": "Forge Verification Result",
+  "description": "The normalized verification gate consumed by the Workflow Engine.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["commit_id", "run_id", "status", "ready_for_review"],
+  "$defs": {
+    "gate_status": { "$ref": "https://forge.local/schemas/core/common.schema.json#/$defs/result_status" }
+  },
+  "properties": {
+    "commit_id": { "type": "string" },
+    "run_id": { "type": "string" },
+    "evaluated_at": { "type": "string", "format": "date-time" },
+    "status": { "$ref": "#/$defs/gate_status" },
+    "scope": { "$ref": "#/$defs/gate_status" },
+    "rules": { "$ref": "#/$defs/gate_status" },
+    "tests": { "$ref": "#/$defs/gate_status" },
+    "lint": { "$ref": "#/$defs/gate_status" },
+    "typecheck": { "$ref": "#/$defs/gate_status" },
+    "build": { "$ref": "#/$defs/gate_status" },
+    "ready_for_review": { "type": "boolean" },
+    "breakdown": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "status"],
+        "properties": {
+          "kind": { "type": "string" },
+          "status": { "type": "string" },
+          "command": { "type": "string" },
+          "exit_code": { "type": ["integer", "null"] },
+          "failures": { "type": "array" },
+          "diagnostics": { "type": "array" }
+        }
+      }
+    }
+  }
+}

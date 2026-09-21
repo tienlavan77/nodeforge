@@ -3,11 +3,11 @@
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../shared/errors.js";
 
-const UPDATABLE = ["title", "objective", "acceptance_criteria", "priority", "dependencies", "status", "last_error"];
+const UPDATABLE = ["title", "objective", "acceptance_criteria", "priority", "dependencies", "status", "last_error", "style"];
 const SPRINT_LEADER_ROLE = "sprint_leader";
 
 // Creates a CRUD service for tickets with sprint-leader normalization.
-export function createTicketCrudService({ roadmaps, proseTicketService, ticketFileStore, publisher, agentStream, agentRoleResolver, clock = () => new Date() } = {}) {
+export function createTicketCrudService({ roadmaps, proseTicketService, ticketFileStore, publisher, agentStream, agentRoleResolver, clock = () => new Date(), logger = console } = {}) {
   if (typeof roadmaps?.getCurrent !== "function") throw new ConfigurationError("Ticket CRUD requires a Roadmap Store.");
   if (typeof proseTicketService?.createFromObject !== "function") throw new ConfigurationError("Ticket CRUD requires the Prose Ticket Service.");
   if (ticketFileStore !== undefined && typeof ticketFileStore?.create !== "function") throw new ConfigurationError("Ticket CRUD requires a valid Ticket File Store.");
@@ -102,8 +102,9 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
     const prompt = [
       "Convert the project owner request below into exactly one governance ticket.",
       "Write ALL ticket field values (title, objective, acceptance_criteria) in English. If the owner request is in another language (e.g. Vietnamese), translate it into clear technical English.",
+      "REQUIRED: Infer ticket style as a non-empty array of strings. Valid values: frontend (UI/component/page/accordion/modal/chat UI), backend (api/endpoint/database/server), security (auth/permission/credential), infra (deploy/docker/pipeline), docs (documentation). Every ticket MUST include style with at least one value; return e.g. [\"frontend\"] or [\"frontend\",\"backend\"]. Do NOT omit style.",
       "Respond with ONLY one ```json fenced block containing the ticket JSON object. No prose outside the block.",
-      "Ticket fields: title (string, required), objective (string, required), acceptance_criteria (array of strings, at least one, required), priority (optional: low|medium|normal|high|critical), dependencies (optional: array of ticket ids).",
+      "Ticket fields: title (string, required), objective (string, required), acceptance_criteria (array of strings, at least one, required), style (array of strings, REQUIRED, at least one: frontend|backend|security|infra|docs), priority (optional: low|medium|normal|high|critical), dependencies (optional: array of ticket ids).",
       "Do NOT include id, project_id, roadmap_id, sprint_id, status, last_error, or provenance; the system assigns them.",
       feedback ? `Previous validation feedback: ${feedback}` : undefined,
       `Project id: ${projectId}`,
@@ -150,6 +151,13 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
     requireProject(projectId);
     const provided = patch && typeof patch === "object" && !Array.isArray(patch) ? patch : {};
     const filtered = Object.fromEntries(UPDATABLE.filter((field) => provided[field] !== undefined).map((field) => [field, provided[field]]));
+    if (filtered.style === undefined && (filtered.title || filtered.objective || filtered.acceptance_criteria)) {
+      const current = roadmaps.getCurrent();
+      const existing = current?.sprints?.flatMap(s => s.tickets ?? []).find(t => t.id === ticketId);
+      const merged = { ...(existing ?? {}), ...filtered };
+      const inferred = inferStyle(merged);
+      if (inferred) filtered.style = inferred;
+    }
     const saved = roadmaps.updateTicket?.({ projectId, ticketId, patch: filtered });
     if (saved === undefined) throw Object.assign(new ConfigurationError(`Unknown ticket: ${ticketId}.`), { statusCode: 404 });
     const updated = saved.sprints?.flatMap((sprint) => sprint.tickets ?? []).find((item) => item.id === ticketId);
@@ -161,7 +169,7 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
     return Object.assign(new ConfigurationError(attempt.question ?? "Ticket is invalid."), { statusCode: 422, code: "INVALID_TICKET", ...(attempt.invalid_fields?.length ? { invalid_fields: attempt.invalid_fields } : {}), ...(attempt.missing?.length ? { missing: attempt.missing } : {}) });
   }
   function publish(type, projectId, payload) {
-    try { publisher?.publish?.({ event_id: `EVT-${Date.now()}-${type}`, type, project_id: projectId, timestamp: new Date().toISOString(), payload, metadata: { source: "ticket-crud-service" } }); } catch { /* stream notification must not undo mutation */ }
+    try { publisher?.publish?.({ event_id: `EVT-${Date.now()}-${type}`, type, project_id: projectId, timestamp: new Date().toISOString(), payload, metadata: { source: "ticket-crud-service" } }); } catch (error) { logger.error?.("Ticket event publisher failed after mutation.", { entity_id: payload?.ticket_id ?? payload?.ticket?.id, event_name: type, error: error.message }); /* stream notification must not undo mutation */ }
   }
 }
 
@@ -177,6 +185,16 @@ function validateRegeneratedTicket(ticket) {
   if (!Array.isArray(ticket.acceptance_criteria) || ticket.acceptance_criteria.length === 0 || ticket.acceptance_criteria.some((item) => typeof item !== "string" || !item.trim())) errors.push("acceptance_criteria must contain non-empty strings");
   if (ticket.priority !== undefined && !["low", "medium", "normal", "high", "critical"].includes(ticket.priority)) errors.push("priority is invalid");
   return errors;
+}
+
+function inferStyle(ticket) {
+  const text = [ticket?.title, ticket?.objective, ...(ticket?.acceptance_criteria ?? [])].filter(v => typeof v === "string").join(" ").toLowerCase();
+  const s = new Set();
+  if (/\b(frontend|front-end|ui\b|component|page\b|accordion|modal|chat.*ui|home chat)\b/.test(text)) s.add("frontend");
+  if (/\b(backend|back-end|api\b|endpoint|database|\bdb\b|sqlite|server\b)\b/.test(text)) s.add("backend");
+  if (/\b(security|auth|permission|credential|secret|token)\b/.test(text)) s.add("security");
+  if (/\b(infra|deploy|docker|ci\/cd|pipeline)\b/.test(text)) s.add("infra");
+  return s.size ? [...s] : undefined;
 }
 
 // Validates that a project ID is provided.

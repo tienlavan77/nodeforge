@@ -44,7 +44,7 @@ export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(),
   // Patches whitelisted ticket fields and creates a new roadmap version.
   function updateTicket({ projectId, ticketId, patch } = {}) {
     if (!projectId || !ticketId || !patch || typeof patch !== "object" || Array.isArray(patch)) throw new ConfigurationError("A valid project, ticket, and patch are required.");
-    const assignable = ["title", "objective", "acceptance_criteria", "priority", "dependencies", "status", "last_error"].filter((field) => patch[field] !== undefined);
+    const assignable = ["title", "objective", "acceptance_criteria", "priority", "dependencies", "status", "last_error", "style"].filter((field) => patch[field] !== undefined);
     if (!assignable.length) throw new ConfigurationError("No updatable ticket fields provided.");
     const current = getCurrent();
     if (!current || current.project_id !== projectId) return undefined;

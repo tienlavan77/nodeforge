@@ -1,0 +1,12 @@
+{
+  "type": "workflow.transition_state",
+  "request_id": "REQ-NODE-001",
+  "project_id": "wp-static-commerce",
+  "session_id": "SESSION-001",
+  "task_id": "TASK-001",
+  "payload": {
+    "from": "building",
+    "to": "testing"
+  },
+  "timestamp": "2026-08-16T09:00:00Z"
+}

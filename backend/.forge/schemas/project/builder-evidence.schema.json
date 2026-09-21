@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/project/builder-evidence.schema.json",
+  "title": "Forge Builder Evidence",
+  "description": "Node-persisted implementation evidence for a Builder handoff. It is linked to a task and the Builder session that produced it; it is not a filesystem handoff artifact.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "project_id", "task_id", "session_id", "builder_id", "evidence_type", "created_at"],
+  "oneOf": [
+    {
+      "required": ["payload"],
+      "properties": { "payload": {} },
+      "not": {
+        "required": ["reference"],
+        "properties": { "reference": {} }
+      }
+    },
+    {
+      "required": ["reference"],
+      "properties": { "reference": {} },
+      "not": {
+        "required": ["payload"],
+        "properties": { "payload": {} }
+      }
+    }
+  ],
+  "properties": {
+    "id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "project_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "task_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "session_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "builder_id": { "$ref": "../core/common.schema.json#/$defs/id" },
+    "evidence_type": {
+      "type": "string",
+      "enum": ["implementation_summary", "change_set", "handoff"]
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary"],
+      "properties": {
+        "summary": { "type": "string", "minLength": 1 },
+        "changed_paths": {
+          "type": "array",
+          "items": { "$ref": "../core/common.schema.json#/$defs/path" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "reference": { "type": "string", "minLength": 1 },
+    "created_at": { "$ref": "../core/common.schema.json#/$defs/timestamp" },
+    "metadata": { "$ref": "../core/common.schema.json#/$defs/metadata" }
+  }
+}

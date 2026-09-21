@@ -1,0 +1,15 @@
+{
+  "id": "NF-AGENT-BUILDER-001",
+  "project_id": "PROJECT-114A",
+  "agent_id": "BUILDER-001",
+  "agent_name": "Forge Builder (Devquote)",
+  "role": "builder",
+  "provider": "devquote",
+  "model": "claude-haiku-4-5",
+  "gateway_url": "https://sv.devquote.shop",
+  "credential_ref": "DEVQUOTE_API_KEY",
+  "enabled": true,
+  "status": "configured",
+  "created_at": "2026-08-20T10:00:00+07:00",
+  "updated_at": "2026-08-20T10:00:00+07:00"
+}

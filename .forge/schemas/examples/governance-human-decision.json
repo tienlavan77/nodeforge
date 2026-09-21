@@ -1,0 +1,11 @@
+{
+  "decision_id": "HUMAN-DECISION-139-1",
+  "project_id": "PROJECT-139",
+  "type": "human_governance",
+  "actor": "OWNER-139",
+  "actor_role": "project_owner",
+  "proposal_id": "PROPOSAL-139-1",
+  "decision": "APPROVE",
+  "correlation_id": "CORR-139-1",
+  "timestamp": "2026-08-21T10:00:00Z"
+}

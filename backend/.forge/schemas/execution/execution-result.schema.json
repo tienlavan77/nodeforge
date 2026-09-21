@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/execution/execution-result.schema.json",
+  "title": "Forge Execution Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["step_name", "success", "error_code"],
+  "properties": {
+    "step_name": { "type": "string", "minLength": 1 },
+    "success": { "type": "boolean" },
+    "error_code": { "type": ["string", "null"], "enum": ["CHECKSUM_MISMATCH", "PATCH_NOT_APPLICABLE", "AMBIGUOUS_MATCH", "NO_MATCH", "SYNTAX_ERROR", "LINT_FAILED", "TEST_FAILED", "BUILD_FAILED", "IO_ERROR", null] },
+    "error_message": { "type": ["string", "null"] },
+    "detail": { "type": "object" },
+    "duration_ms": { "type": "number", "minimum": 0 }
+  },
+  "allOf": [{ "if": { "properties": { "success": { "const": false } } }, "then": { "properties": { "error_code": { "type": "string" } }, "not": { "properties": { "error_code": { "const": null } } } } }, { "if": { "properties": { "success": { "const": true } } }, "then": { "properties": { "error_code": { "const": null } } } }]
+}

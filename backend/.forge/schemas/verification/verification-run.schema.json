@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.dev/schemas/verification/verification-run.schema.json",
+  "title": "Forge Verification Run",
+  "description": "An auditable Node verification execution. Checks reference results records by ID instead of duplicating their shape.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "commit_id", "level", "started_at", "checks", "status"],
+  "properties": {
+    "run_id": { "type": "string" },
+    "commit_id": { "type": "string" },
+    "level": { "$ref": "https://forge.dev/schemas/verification/verification-plan.schema.json#/$defs/verification_level" },
+    "started_at": { "type": "string", "format": "date-time" },
+    "completed_at": { "type": "string", "format": "date-time" },
+    "status": { "enum": ["passed", "failed", "error", "running"] },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "command", "status"],
+        "properties": {
+          "type": { "$ref": "https://forge.dev/schemas/verification/verification-plan.schema.json#/$defs/check_type" },
+          "command": { "type": "string" },
+          "status": { "enum": ["passed", "failed", "error", "skipped"] },
+          "exit_code": { "type": "integer" },
+          "duration_ms": { "type": "integer", "minimum": 0 },
+          "result_ref": {
+            "type": "string",
+            "description": "ID of a results/test-result.schema.json or results/check-result.schema.json record; its contents are not embedded here."
+          }
+        }
+      }
+    }
+  }
+}

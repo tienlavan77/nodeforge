@@ -1,0 +1,21 @@
+{
+  "id": "TASK-001",
+  "project_id": "wp-static-commerce",
+  "type": "bugfix",
+  "title": "Fix session timeout boundary case",
+  "description": "Sessions are treated as valid when expiresAt equals the current timestamp; should be treated as expired.",
+  "acceptance_criteria": [
+    "refreshSession returns null when expiresAt <= now"
+  ],
+  "target_paths": [
+    "src/session.js",
+    "tests/session.test.js"
+  ],
+  "owner": "AGENT-BUILDER-001",
+  "workflow_id": "WF-001",
+  "workflow_state": "building",
+  "status": "active",
+  "priority": "high",
+  "created_at": "2026-08-15T14:00:00Z",
+  "updated_at": "2026-08-15T14:05:00Z"
+}

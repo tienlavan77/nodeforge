@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/execution/execution-context.schema.json",
+  "title": "Forge Execution Context",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task_id", "step_id", "change", "trace"],
+  "properties": { "task_id": { "type": "string", "minLength": 1 }, "step_id": { "type": "number" }, "change": { "type": "object" }, "trace": { "type": "array", "items": { "$ref": "execution-result.schema.json" } } }
+}

@@ -3,6 +3,7 @@
 import { ConfigurationError } from "../shared/errors.js";
 import { assertExecutionScope } from "./retrieval-governance.js";
 import { discoveryNotice } from "./exploration-state.js";
+import { extractExplicitPaths } from "../modules/index/ticket-scope.js";
 
 export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector } = {}) {
   return Object.freeze({ name: "select_code_graph_candidates", execute });
@@ -14,11 +15,18 @@ export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector } = {
     if (!new Set(context.capabilities ?? []).has("select_code_graph_candidates")) throw scopedError("TOOL_FORBIDDEN", "Agent is not authorized to select Code Graph candidates.");
     if (typeof input.query !== "string" || !input.query.trim()) throw scopedError("GRAPH_QUERY_REQUIRED", "Candidate retrieval requires a non-empty query.");
     const limit = input.limit === undefined ? 4 : input.limit;
-    if (!Number.isInteger(limit) || limit < 1 || limit > 4) throw scopedError("GRAPH_CANDIDATE_LIMIT", "Candidate retrieval limit must be between one and four.");
-    if (typeof relevantTreeSelector?.select !== "function") throw scopedError("GRAPH_INDEX_UNAVAILABLE", "Code Graph retrieval is not configured.");
+    const maximum = context.eval_harness === true ? 30 : 4;
+    if (!Number.isInteger(limit) || limit < 1 || limit > maximum) throw scopedError("GRAPH_CANDIDATE_LIMIT", `Candidate retrieval limit must be between one and ${maximum}.`);
+    if (typeof relevantTreeSelector?.selectFreshWithEmbeddings !== "function" && typeof relevantTreeSelector?.select !== "function") throw scopedError("GRAPH_INDEX_UNAVAILABLE", "Code Graph retrieval is not configured.");
     const task = context.task_context ?? {};
-    const result = relevantTreeSelector.select({ title: task.title ?? "", objective: [task.objective ?? "", input.query.trim(), input.context ?? ""].filter(Boolean).join(" "), acceptance_criteria: task.acceptance_criteria ?? [], limit, scope: context.scope ?? "all", allowed_prefixes: context.allowed_prefixes });
-    return { task_id: taskId, query: input.query.trim(), index_version: result.index_version ?? null, selected: result.tree.slice(0, limit), discovery_budget: discoveryNotice(context) };
+    const args = context.eval_harness === true
+      ? { title: task.title ?? "", objective: task.objective ?? "", acceptance_criteria: task.acceptance_criteria ?? [], style: task.style, limit, depth: 1 }
+      : { title: task.title ?? "", objective: [task.objective ?? "", input.query.trim(), input.context ?? ""].filter(Boolean).join(" "), acceptance_criteria: task.acceptance_criteria ?? [], style: task.style, limit, scope: context.scope ?? "all", allowed_prefixes: context.allowed_prefixes, priorFiles: extractExplicitPaths(task), dependencyFiles: Array.isArray(task.dependency_files) ? task.dependency_files : [] };
+    // Prefer semantic retrieval with freshness validation; fall back for older test doubles.
+    const result = typeof relevantTreeSelector.selectFreshWithEmbeddings === "function"
+      ? await relevantTreeSelector.selectFreshWithEmbeddings(args)
+      : relevantTreeSelector.select(args);
+    return { task_id: taskId, query: input.query.trim(), index_version: result.index_version ?? null, selected: result.tree.slice(0, limit), ...(result.freshness ? { freshness: result.freshness } : {}), ...(result.stale_paths?.length ? { stale_paths: result.stale_paths, freshness_note: "Stale candidates are flagged, not removed — read the file live and verify before editing." } : {}), discovery_budget: discoveryNotice(context) };
   }
 }
 

@@ -1,0 +1,13 @@
+{
+  "commit_id": "NF-014",
+  "run_id": "VERIFY-RUN-001",
+  "evaluated_at": "2026-08-16T10:00:04Z",
+  "status": "passed",
+  "scope": "passed",
+  "rules": "passed",
+  "tests": "passed",
+  "lint": "not_applicable",
+  "typecheck": "not_applicable",
+  "build": "not_applicable",
+  "ready_for_review": true
+}

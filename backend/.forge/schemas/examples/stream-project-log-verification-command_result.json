@@ -1,0 +1,14 @@
+{
+  "event_type": "verification.command_result",
+  "task_id": "TASK-verification-events",
+  "timestamp": "2026-08-24T14:21:46.860Z",
+  "sequence": 2,
+  "payload": {
+    "message": "Verification command passed.",
+    "ticket_id": "TASK-verification-events",
+    "conversation_id": "CONV-TASK-verification-events",
+    "exit_code": 0,
+    "command_id": "LOG-LOG-e052a42b-3d6b-45ec-bff7-048d2a4361b0",
+    "success": true
+  }
+}

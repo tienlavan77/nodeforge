@@ -4,7 +4,7 @@
   "title": "Forge Governance Ticket",
   "type": "object",
   "additionalProperties": false,
-  "required": ["id", "project_id", "roadmap_id", "sprint_id", "title", "objective", "acceptance_criteria", "provenance"],
+  "required": ["id", "project_id", "roadmap_id", "sprint_id", "title", "objective", "acceptance_criteria", "style", "provenance"],
   "properties": {
     "id": { "$ref": "../core/common.schema.json#/$defs/id" },
     "project_id": { "$ref": "../core/common.schema.json#/$defs/id" },
@@ -14,6 +14,7 @@
     "objective": { "type": "string", "minLength": 1 },
     "acceptance_criteria": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
     "priority": { "type": "string", "enum": ["low", "medium", "normal", "high", "critical"] },
+    "style": { "type": "array", "items": { "type": "string", "enum": ["frontend", "backend", "security", "infra", "docs"] }, "minItems": 1, "uniqueItems": true },
     "status": { "type": "string", "enum": ["planned", "pending", "running", "reviewing", "done", "failed", "needs_human_review"] },
     "last_error": { "type": "string" },
     "dependencies": { "type": "array", "items": { "$ref": "../core/common.schema.json#/$defs/id" }, "uniqueItems": true },
