@@ -92,7 +92,7 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
       audit_context: { correlation_id: request.correlation_id }
     });
     const toolContext = { ...context, project_root: projectRoot, ticket, task: ticket, task_context: ticket, changed_paths: [...resumeState.changedPaths], allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, lab_mode: Boolean(labMode), session_id: executionId, target_path: targetPath };
-    const checkpointed = checkpointedRegistry({ store: checkpoints, registry: toolRegistry, taskId: request.task_id, targetPath, allowedPrefixes, complexity, selected, correlationId: request.correlation_id, resumeState });
+    const checkpointed = checkpointedRegistry({ store: checkpoints, registry: toolRegistry, taskId: request.task_id, targetPath, allowedPrefixes, complexity, selected, correlationId: request.correlation_id, resumeState, labMode: Boolean(labMode) });
     const mcpServers = { forge: createForgeSdkMcpServer({ registry: checkpointed, context: toolContext, includeCommit: true }) };
     const allowedTools = forgeSdkToolNames;
     const resumeSessionId = resumeState.sessionId;
@@ -187,7 +187,7 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
       audit_context: { correlation_id: request.correlation_id }
     });
     const toolContext = { ...context, project_root: projectRoot, ticket, task: ticket, task_context: ticket, changed_paths: [...resumeState.changedPaths], allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, lab_mode: Boolean(labMode), session_id: executionId, target_path: targetPath };
-    const checkpointed = checkpointedRegistry({ store: checkpoints, registry: toolRegistry, taskId: request.task_id, targetPath, allowedPrefixes, complexity, selected, correlationId: request.correlation_id, resumeState });
+    const checkpointed = checkpointedRegistry({ store: checkpoints, registry: toolRegistry, taskId: request.task_id, targetPath, allowedPrefixes, complexity, selected, correlationId: request.correlation_id, resumeState, labMode: Boolean(labMode) });
     const definitions = [selectCodeGraphCandidatesDefinition, searchCodeDefinition, readFileDefinition, writeDiffDefinition, editDiffDefinition, runTestDefinition, checkTestDefinition, commitChangesDefinition, reportDoneDefinition];
     const forgeToolNames = new Set(definitions.map((definition) => definition.name));
     const codexToolEvents = [];
