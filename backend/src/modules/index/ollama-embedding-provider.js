@@ -13,6 +13,7 @@ export function createOllamaEmbeddingProvider({ baseUrl = "http://192.168.1.180:
   function embed(text) {
     const job = tail.then(() => requestOnce(text));
     // Keep the queue alive even if one job rejects; callers still see their error.
+    // eslint-disable-next-line no-silent-catch -- Queue keep-alive; callers still receive their own job error.
     tail = job.catch(() => {});
     return job;
   }

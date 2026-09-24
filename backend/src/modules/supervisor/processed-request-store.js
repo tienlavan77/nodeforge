@@ -7,7 +7,8 @@ export function createProcessedRequestStore({ fileService, root = ".forge/runtim
   async function save(requestId, event) { await fileService.atomicWrite({ path: `${root}/${safe(requestId)}.json`, content: `${JSON.stringify(event)}\n`, replace: true }); return event; }
   async function claim(requestId, operation = "default") {
     const key = `${safe(requestId)}-${safe(operation)}`; const path = `${root}/claims/${key}.json`; const lockPath = `${root}/claims/lock-${key}.lock`;
-    for (;;) { try { const lock = await fileService.createLock({ path: lockPath }); try { try { await fileService.readFile({ path }); return false; } catch (error) { if (error?.code !== "ENOENT") throw error; } await fileService.atomicWrite({ path, content: `${JSON.stringify({ request_id: requestId, operation, claimed_at: new Date().toISOString() })}\n`, replace: false }); return true; } finally { await lock.release().catch(() => {}); } } catch (error) { if (error?.code !== "FILE_LOCK_EXISTS") throw error; await new Promise((resolve) => setTimeout(resolve, 10)); } }
+    for (;;) { try { const lock = await fileService.createLock({ path: lockPath }); try { try { await fileService.readFile({ path }); return false; } catch (error) { if (error?.code !== "ENOENT") throw error; } await fileService.atomicWrite({ path, content: `${JSON.stringify({ request_id: requestId, operation, claimed_at: new Date().toISOString() })}\n`, replace: false }); return true; } finally { // eslint-disable-next-line no-silent-catch -- Lock release is best-effort; claim result already decided.
+await lock.release().catch(() => {}); } } catch (error) { if (error?.code !== "FILE_LOCK_EXISTS") throw error; await new Promise((resolve) => setTimeout(resolve, 10)); } }
   }
 }
 function safe(value) { if (typeof value !== "string" || !/^[A-Za-z0-9._:-]+$/.test(value)) throw new ConfigurationError("Request ID contains unsafe characters."); return value; }
