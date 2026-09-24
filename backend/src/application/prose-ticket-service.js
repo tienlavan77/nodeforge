@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import { ConfigurationError } from "../shared/errors.js";
+import { backfillTicketCandidates, inferTicketStyle } from "../modules/index/ticket-scope.js";
 
 const require = createRequire(import.meta.url);
 const commonSchema = require("../../../schemas/core/common.schema.json");
@@ -30,25 +31,22 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
       ? await sprintLeader.regenerateEnglish({ ticket: { ...ticket, context: updatedVietnameseContext }, projectId, sprintId: sprint.id, vietnameseContext: updatedVietnameseContext })
       : null;
     const baseEnglish = sprintLeaderResult ?? { title: ticket.title, objective: ticket.objective, acceptance_criteria: ticket.acceptance_criteria };
-    const inferredStyle = baseEnglish.style ?? inferStyle({ title: baseEnglish.title ?? ticket.title, objective: baseEnglish.objective ?? ticket.objective, acceptance_criteria: baseEnglish.acceptance_criteria ?? ticket.acceptance_criteria });
-    // Ensure all translatable fields are English-localized and identity is preserved.
-    const regenerated = {
+    const updatedAt = clock().toISOString();
+    // Legacy regen path: keep the ticket schema-clean (no context/updated_at
+    // inside the ticket) and backfill style/candidates like the CRUD service.
+    const regenerated = backfillTicketCandidates({
       ...ticket,
       id: ticket.id,
       project_id: projectId ?? ticket.project_id,
       title: String(baseEnglish.title ?? ticket.title),
       objective: String(baseEnglish.objective ?? ticket.objective),
       acceptance_criteria: Array.isArray(baseEnglish.acceptance_criteria) ? baseEnglish.acceptance_criteria.map(String) : ticket.acceptance_criteria,
-      style: inferredStyle,
-      context: updatedVietnameseContext,
-      vietnamese_context: updatedVietnameseContext,
-      original_vietnamese_context: updatedVietnameseContext,
-      english_content: baseEnglish.english_content ?? baseEnglish.content_en ?? null,
-      updated_at: clock().toISOString()
-    };
+      style: baseEnglish.style ?? inferTicketStyle({ title: baseEnglish.title ?? ticket.title, objective: baseEnglish.objective ?? ticket.objective, acceptance_criteria: baseEnglish.acceptance_criteria ?? ticket.acceptance_criteria })
+    });
+    for (const field of ["context", "vietnamese_context", "original_vietnamese_context", "english_content", "updated_at"]) delete regenerated[field];
     if (!validate(regenerated)) return validationResponse(validate.errors, regenerated);
     // Persist updated Vietnamese context to database via roadmap store.
-    const nextRoadmap = updateTicketInRoadmap(current, regenerated);
+    const nextRoadmap = updateTicketInRoadmap(current, regenerated, updatedAt);
     const savedRoadmap = roadmapStore.save(nextRoadmap);
     // Overwrite ticket file under .forge/runtime/nf/tickets for runtime propagation.
     if (ticketFileWriter && typeof ticketFileWriter.writeTicketFile === "function") {
@@ -70,11 +68,11 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
     }
     return null;
   }
-  function updateTicketInRoadmap(roadmap, updatedTicket) {
+  function updateTicketInRoadmap(roadmap, updatedTicket, updatedAt) {
     return {
       ...roadmap,
       version: nextAvailableVersion(roadmap.version, roadmapStore),
-      updated_at: updatedTicket.updated_at,
+      updated_at: updatedAt ?? clock().toISOString(),
       sprints: (roadmap.sprints ?? []).map((sprint) => sprint.id === updatedTicket.sprint_id ? { ...sprint, tickets: (sprint.tickets ?? []).map((item) => item.id === updatedTicket.id ? updatedTicket : item) } : sprint)
     };
   }
@@ -82,9 +80,9 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
   return Object.freeze({ parse, createFromObject, regenerateEnglish });
   function createFromObject(ticket) {
     if (!ticket || typeof ticket !== "object" || Array.isArray(ticket)) return { create_ticket: true, status: "needs_input", error_code: "invalid_ticket_json", question: "Ticket JSON không hợp lệ." };
-    const withStyle = ticket.style ? ticket : { ...ticket, style: inferStyle(ticket) };
-    if (!validate(withStyle)) return validationResponse(validate.errors, withStyle);
-    return persist(withStyle);
+    const normalized = backfillTicketCandidates(ticket);
+    if (!validate(normalized)) return validationResponse(validate.errors, normalized);
+    return persist(normalized);
   }
 
   // Parses stored preferences JSON with fallback handling.
@@ -93,8 +91,9 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
     if (!value || /^\/\S+/.test(value)) return { create_ticket: false };
     const structured = parseStructured(value);
     if (structured) {
-      if (!validate(structured)) return invalidStructured(validate.errors, structured);
-      return persist(structured);
+      const normalizedStructured = backfillTicketCandidates(structured);
+      if (!validate(normalizedStructured)) return invalidStructured(validate.errors, normalizedStructured);
+      return persist(normalizedStructured);
     }
     if (!INTENT.test(value)) return { create_ticket: false };
     const fields = extract(value);
@@ -106,14 +105,13 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
     const sprint = current?.sprints?.at(-1);
     const sprintId = sprint?.id ?? `SPRINT-${projectId}-CHAT`;
     const ticketId = fields.id ?? `TICKET-${projectId}-${Date.now()}`;
-    const ticket = {
+    const ticket = backfillTicketCandidates({
       id: ticketId, project_id: projectId, roadmap_id: roadmapId, sprint_id: sprintId,
       title: fields.title, objective: fields.objective, acceptance_criteria: fields.acceptance_criteria,
-      style: inferStyle({ title: fields.title, objective: fields.objective, acceptance_criteria: fields.acceptance_criteria }),
       ...(fields.priority ? { priority: fields.priority } : {}),
       ...(fields.dependencies?.length ? { dependencies: fields.dependencies } : {}),
       provenance: { source: "project_owner", source_id: sourceId ?? ticketId, created_at: now }
-    };
+    });
     if (!validate(ticket)) return validationResponse(validate.errors, ticket);
     return persist(ticket);
   }
@@ -176,6 +174,7 @@ function parseStructured(value) {
     try {
       const parsed = JSON.parse(candidate);
       if (parsed && !Array.isArray(parsed) && (parsed.id || parsed.title)) return parsed;
+    // eslint-disable-next-line no-silent-catch -- Malformed JSON falls through to prose extraction by design.
     } catch {
       // Fall through to prose extraction so malformed JSON gets a useful response.
     }
@@ -239,15 +238,4 @@ function createValidator() {
   addFormats(ajv);
   ajv.addSchema(commonSchema).addSchema(ticketSchema);
   return ajv.getSchema(ticketSchema.$id);
-}
-
-function inferStyle(ticket) {
-  const text = [ticket?.title, ticket?.objective, ...(ticket?.acceptance_criteria ?? [])].filter(v => typeof v === "string").join(" ").toLowerCase();
-  const styles = new Set();
-  if (/\b(frontend|front-end|ui\b|component|page\b|accordion|modal|chat.*ui|home chat)\b/.test(text)) styles.add("frontend");
-  if (/\b(backend|back-end|api\b|endpoint|database|\bdb\b|sqlite|server\b)\b/.test(text)) styles.add("backend");
-  if (/\b(security|auth|permission|credential|secret|token)\b/.test(text)) styles.add("security");
-  if (/\b(infra|deploy|docker|ci\/cd|pipeline)\b/.test(text)) styles.add("infra");
-  if (styles.size === 0) return undefined;
-  return [...styles];
 }

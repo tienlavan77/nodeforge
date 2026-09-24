@@ -5,6 +5,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 
 import { ConfigurationError } from "../../shared/errors.js";
+import { backfillTicketCandidates } from "../index/ticket-scope.js";
 
 const require = createRequire(import.meta.url);
 const commonSchema = require("../../../../schemas/core/common.schema.json");
@@ -44,7 +45,7 @@ export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(),
   // Patches whitelisted ticket fields and creates a new roadmap version.
   function updateTicket({ projectId, ticketId, patch } = {}) {
     if (!projectId || !ticketId || !patch || typeof patch !== "object" || Array.isArray(patch)) throw new ConfigurationError("A valid project, ticket, and patch are required.");
-    const assignable = ["title", "objective", "acceptance_criteria", "priority", "dependencies", "status", "last_error", "style"].filter((field) => patch[field] !== undefined);
+    const assignable = ["title", "objective", "acceptance_criteria", "priority", "dependencies", "status", "last_error", "style", "candidate_files", "candidates_produced_by", "candidates_produced_at"].filter((field) => patch[field] !== undefined);
     if (!assignable.length) throw new ConfigurationError("No updatable ticket fields provided.");
     const current = getCurrent();
     if (!current || current.project_id !== projectId) return undefined;
@@ -56,7 +57,7 @@ export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(),
     }) }));
     if (!found) return undefined;
     const merged = sprints.flatMap((sprint) => sprint.tickets ?? []).find((ticket) => ticket.id === ticketId);
-    if (!validateTicketSchema(merged)) throw new ConfigurationError(`Invalid Ticket: ${ajvErrorsText(validateTicketSchema)}`);
+    if (!validateTicketSchema(backfillTicketCandidates(merged))) throw new ConfigurationError(`Invalid Ticket: ${ajvErrorsText(validateTicketSchema)}`);
     const version = `${current.version}-update-${Date.now()}`;
     return save({ ...current, version, updated_at: new Date().toISOString(), sprints });
   }
@@ -96,9 +97,10 @@ export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(),
 
   // Validates, redacts, and appends a new roadmap version.
   function save(roadmap) {
-    validateRoadmap(roadmap);
-    if (byVersion.has(roadmap.version)) throw new ConfigurationError(`Roadmap version already exists: ${roadmap.version}.`);
-    const stored = Object.freeze(redact(structuredClone(roadmap)));
+    const normalized = backfillLegacyTickets(structuredClone(roadmap));
+    validateRoadmap(normalized);
+    if (byVersion.has(normalized.version)) throw new ConfigurationError(`Roadmap version already exists: ${normalized.version}.`);
+    const stored = Object.freeze(redact(normalized));
     if (database) database.run("INSERT INTO governance_roadmaps (version, roadmap_json) VALUES (?, ?)", [stored.version, JSON.stringify(stored)]);
     versions.push(stored);
     byVersion.set(stored.version, stored);
@@ -135,6 +137,13 @@ export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(),
     }
     return getAllVersions();
   }
+}
+
+// Backfills pre-enforcement tickets on the write path so one regen/save is never
+// blocked by legacy siblings missing style or candidate_files.
+function backfillLegacyTickets(roadmap) {
+  if (!roadmap || typeof roadmap !== "object" || !Array.isArray(roadmap.sprints)) return roadmap;
+  return { ...roadmap, sprints: roadmap.sprints.map((sprint) => ({ ...sprint, tickets: (sprint.tickets ?? []).map((ticket) => backfillTicketCandidates(ticket)) })) };
 }
 
 // Creates the roadmaps table if it does not exist.

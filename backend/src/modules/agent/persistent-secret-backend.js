@@ -63,6 +63,7 @@ function normalizeKey(value) {
 function loadKeychainKey(service) {
   if (process.platform !== "darwin") throw new ConfigurationError("Secure OS keychain is unavailable; provide NODE_SECRET_ENCRYPTION_KEY for local development.");
   try { return execFileSync("security", ["find-generic-password", "-s", service, "-w"], { encoding: "utf8" }).trim(); }
+  // eslint-disable-next-line no-silent-catch -- First-run bootstrap: missing keychain entry triggers creation.
   catch { const value = randomBytes(32).toString("base64"); execFileSync("security", ["add-generic-password", "-a", "nodeforge", "-s", service, "-w", value, "-U"], { stdio: "ignore" }); return value; }
 }
 // Validates that a secret reference is a non-empty string.

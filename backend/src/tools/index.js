@@ -27,7 +27,7 @@ export const readTranscriptBlocksDefinition = Object.freeze({
   input_schema: readTranscriptInputSchema
 });
 
-export const selectCodeGraphCandidatesDefinition = Object.freeze({ name: "select_code_graph_candidates", description: "Ask Node to find up to four files related to an Agent-provided search intent.", input_schema: selectGraphInputSchema });
+export const selectCodeGraphCandidatesDefinition = Object.freeze({ name: "select_code_graph_candidates", description: "Ask Node to find up to eight files related to an Agent-provided search intent.", input_schema: selectGraphInputSchema });
 export const searchCodeDefinition = Object.freeze({ name: "search_code", description: "Search Forge Code Search by file, symbol, or content (kind=\"content\" returns text snippets from FTS with matching lines) and return scoped metadata.", input_schema: searchCodeInputSchema });
 export const readCodeDefinition = Object.freeze({ name: "read_code", description: "Read exactly one Node-approved file or symbol through Forge File Service.", input_schema: readCodeInputSchema });
 export const readFileDefinition = Object.freeze({ name: "read_file", description: "Read one approved file through Node File Service and return its checksum.", input_schema: readFileInputSchema });
@@ -38,9 +38,9 @@ export const checkTestDefinition = Object.freeze({ name: "check_test", descripti
 export const commitChangesDefinition = Object.freeze({ name: "commit_changes", description: "Ask Node to commit approved changed paths.", input_schema: commitChangesInputSchema });
 export const reportDoneDefinition = Object.freeze({ name: "report_done", description: "Record the completion summary through the existing Stage1 report service.", input_schema: reportDoneInputSchema });
 
-export function createForgeToolRegistry({ protocolStorage, fileService, maxChars, codeSearch, relevantTreeSelector, enableReadCode = false, testService, gitService, reportService, governance, projectLogger = () => {} } = {}) {
+export function createForgeToolRegistry({ protocolStorage, fileService, maxChars, codeSearch, relevantTreeSelector, freshnessChecker, enableReadCode = false, testService, gitService, reportService, onEvalCase, governance, projectLogger = () => {} } = {}) {
   const transcriptTool = createReadTranscriptBlocksTool({ protocolStorage, fileService, maxChars });
-  const graphTool = createSelectCodeGraphCandidatesTool({ relevantTreeSelector });
+  const graphTool = createSelectCodeGraphCandidatesTool({ relevantTreeSelector, freshnessChecker });
   const retrievalBudgets = new Map();
   const lifecycle = {};
   if (fileService?.readForIndex && fileService?.readFile && fileService?.atomicWrite) lifecycle.read_file = wrap(createReadFileTool({ fileService, symbolLookup: codeSearch?.symbolsForFile?.bind(codeSearch), maxChars }), "read_file");
@@ -51,7 +51,7 @@ export function createForgeToolRegistry({ protocolStorage, fileService, maxChars
   if (testService?.startTests) lifecycle.run_test = wrap(createRunTestTool({ testService }), "run_test");
   if (testService?.getTestResult) lifecycle.check_test = wrap(createCheckTestTool({ testService }), "check_test");
   if (gitService?.commit) lifecycle.commit_changes = wrap(createCommitChangesTool({ gitService }), "commit_changes");
-  if (reportService?.buildFinalReport) lifecycle.report_done = wrap(createReportDoneTool({ reportService }), "report_done");
+  if (reportService?.buildFinalReport) lifecycle.report_done = wrap(createReportDoneTool({ reportService, onEvalCase }), "report_done");
   function wrap(tool, name) { return Object.freeze({ ...tool, async execute(input, context = {}) { const scoped = withDefaultBudget(context); authorizeTool(name, scoped); return dispatch(name, tool, input, scoped); } }); }
   const registry = {
     read_transcript_blocks: Object.freeze({ ...transcriptTool, async execute(input, context = {}) { const scoped = withDefaultBudget(context); authorizeTool("read_transcript_blocks", scoped); return dispatch("read_transcript_blocks", transcriptTool, input, scoped); } }),
@@ -104,6 +104,7 @@ export function createForgeToolRegistry({ protocolStorage, fileService, maxChars
       if (tail) parts.push(tail);
       const line = parts.join(" ").replace(/\s+/g, " ").slice(0, 180);
       process.stdout.write(`${line}\n`);
+    // eslint-disable-next-line no-silent-catch -- Terminal logging is best-effort; never break tool dispatch.
     } catch {
       // Terminal logging is best-effort; never break the tool dispatch path.
     }

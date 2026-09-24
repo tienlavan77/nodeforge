@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { isProtectedPath } from "../infrastructure/filesystem/protected-path-policy.js";
 import { ConfigurationError } from "../shared/errors.js";
+import { loadAgentContextConventions } from "../modules/supervisor/agent-context-conventions.js";
 import { discoveryCount, discoveryNotice, recordRead, resetExploration } from "./exploration-state.js";
 const MAX_CONTENT = 200000;
 const WRITE_DIFF_MAX_BYTES = 8192;
@@ -95,7 +96,8 @@ export function createWriteDiffTool({ fileService, maxChars = MAX_CONTENT, maxBy
     await fileService.atomicWrite({ path, content: input.content, replace: true });
     recordChangedPath(context, path);
     resetExploration(context);
-    return textResult(`Written '${path}' (${checksum(input.content)}).`);
+    const reminder = current === null ? await buildConventionReminder(context, { newFile: true }) : "";
+    return textResult(`Written '${path}' (${checksum(input.content)}).${reminder ? `\n\n${reminder}` : ""}`);
   }});
 }
 
@@ -121,11 +123,12 @@ export function createEditDiffTool({ fileService, maxChars = MAX_CONTENT } = {})
     if (parts.length === 1) throw error("ANCHOR_NOT_FOUND", `Anchor was not found in ${path}. Read the file again and copy the exact text.`, { path });
     if (occurrence === "first" && parts.length > 2) throw error("ANCHOR_NOT_UNIQUE", `Anchor occurs ${parts.length - 1} times in ${path}; include more surrounding lines to make it unique.`, { path, occurrences: parts.length - 1 });
     const replaced = parts.join(input.replacement);
-    assertEditSummaryEnforced(current, replaced);
+    const newFunctions = assertEditSummaryEnforced(current, replaced);
     await fileService.atomicWrite({ path, content: replaced, replace: true });
     recordChangedPath(context, path);
     resetExploration(context);
-    return { path, sha256: checksum(replaced), replaced_count: occurrence === "all" ? parts.length - 1 : 1 };
+    const reminder = newFunctions.length ? await buildConventionReminder(context, { newFunctions }) : "";
+    return { path, sha256: checksum(replaced), replaced_count: occurrence === "all" ? parts.length - 1 : 1, ...(reminder ? { reminder } : {}) };
   }});
 }
 
@@ -162,26 +165,45 @@ export function createCommitChangesTool({ gitService } = {}) {
 }
 
 // createReportDoneTool - handles createReportDoneTool operation.
-export function createReportDoneTool({ reportService } = {}) {
+export function createReportDoneTool({ reportService, onEvalCase } = {}) {
   if (!reportService?.buildFinalReport || !reportService?.saveReport || !reportService?.writeReportFile) throw new ConfigurationError("report_done requires Stage1 Report Service.");
+  if (onEvalCase !== undefined && typeof onEvalCase !== "function") throw new ConfigurationError("report_done onEvalCase must be a function.");
   return Object.freeze({ name: "report_done", async execute(input = {}, context = {}) {
     if (typeof input.summary !== "string" || !input.summary.trim()) throw error("INPUT_INVALID", "Report summary is required.");
     const ticket = context.ticket ?? context.task;
     if (!ticket?.id) throw error("SCOPE_INVALID", "Node must provide the current ticket for report_done.");
-    assertReportScope(ticket, context);
+    assertReportScope(ticket, context, input.summary);
     const report = await reportService.buildFinalReport({ ticket, status: context.status ?? "completed", verifyResult: context.verify_result ?? null, filesChanged: context.changed_paths ?? [], reason: "agent_report_done" });
     assertReportVerified(report);
     report.agent_report = { ...(report.agent_report ?? {}), summary: input.summary.trim() };
     await reportService.saveReport(ticket.id, report); await reportService.writeReportFile(ticket.id, report);
+    // Eval auto-append runs after the report is safely persisted and never fails completion.
+    if (typeof onEvalCase === "function") {
+      try {
+        await onEvalCase({ ticket, report });
+      } catch (error) {
+        console.log(`[eval-append] skip ${ticket.id}: ${error?.message ?? error}`);
+      }
+    }
     return textResult("Completion report recorded.");
   }});
 }
 
-// assertReportScope - handles assertReportScope operation.
-function assertReportScope(ticket, context) {
+// assertReportScope - requires completion to cover the sprint leader PATCH files.
+function assertReportScope(ticket, context, summary) {
   if (context.lab_mode || context.labMode) return;
   const changed = Array.isArray(context.changed_paths) ? context.changed_paths.filter((path) => typeof path === "string" && path) : [];
   if (changed.length === 1 && changed[0] === "backend/tool-lab-target.txt") throw error("REPORT_SCOPE_INVALID", "Tool-lab marker cannot complete a real ticket.");
+  // Sprint leader PATCH files name the edits the ticket needs. When the ticket
+  // carries them, completion must touch each one; a coder that edits one file
+  // and skips the rest reports off-scope. Tickets without candidates keep the
+  // legacy single-target gate below.
+  const patchFiles = patchCandidatePaths(ticket);
+  const unskipped = patchFiles.filter((path) => !skipReason(summary, path));
+  const missing = unskipped.filter((path) => !changed.includes(path));
+  if (missing.length) {
+    throw error("REPORT_SCOPE_INVALID", `Ticket requires PATCH files ${missing.join(", ")} but they were not changed; edit each file or state in the summary why a file needs no change.`);
+  }
   // When the ticket names an explicit target file, completion requires that the
   // target itself was changed. Without this, an agent could edit any other file
   // inside an allowed prefix (observed: Codex touching an unrelated UI file to
@@ -222,6 +244,20 @@ function isUiTicket(ticket) {
     .filter((value) => typeof value === "string")
     .join(" ");
   return /\b(ui|frontend|front-end|react|next(?:\.js)?|component|page|button|layout|watcher|header|screen|responsive|status(?: area| line)?|dashboard|modal)\b/i.test(text);
+}
+
+// Collects sprint leader PATCH paths that completion must cover.
+function patchCandidatePaths(ticket) {
+  const candidates = Array.isArray(ticket?.candidate_files) ? ticket.candidate_files : [];
+  return candidates
+    .filter((entry) => entry?.role === "PATCH" && typeof entry?.path === "string" && entry.path)
+    .map((entry) => entry.path);
+}
+
+// Accepts a skipped PATCH file when the summary names it with a no-change reason.
+function skipReason(summary, path) {
+  if (typeof summary !== "string" || !summary.includes(path)) return false;
+  return /no change|not needed|unnecessary|already (correct|handles|supports)|out of scope/i.test(summary);
 }
 
 // hasBackendCriteria - handles hasBackendCriteria operation.
@@ -276,7 +312,7 @@ function assertAllowed(path, context) {
 // changed, instead of a hard-coded target. The context object travels by
 // reference through the Forge MCP session, so mutations here are visible to
 // later tool calls in the same execution.
-function assertSummaryEnforced(content, existing, context) {
+function assertSummaryEnforced(content, existing) {
   if (!content || typeof content !== "string") return;
   if (existing !== null && existing !== undefined) return;
   // Enforcement applies only to newly created files. Existing overwrites are
@@ -289,11 +325,34 @@ function assertSummaryEnforced(content, existing, context) {
 function assertEditSummaryEnforced(before, after) {
   const beforeFuncs = extractFunctionSignatures(before);
   const afterFuncs = extractFunctionSignatures(after);
+  const newFunctions = [];
   for (const sig of afterFuncs) {
     if (beforeFuncs.has(sig)) continue;
+    newFunctions.push(sig);
     if (hasPrecedingComment(after, sig)) continue;
     throw error("SUMMARY_REQUIRED", `New function "${sig}" must have a concise summary comment immediately before its definition. Add the comment on the line(s) right above the function declaration in the replacement.`, { function: sig });
   }
+  return newFunctions;
+}
+
+// Builds a short just-in-time reminder for code that introduces new structure.
+async function buildConventionReminder(context, { newFile = false, newFunctions = [] } = {}) {
+  const ticket = context?.ticket ?? context?.task ?? context?.task_context;
+  const projectRoot = context?.project_root ?? context?.projectRoot ?? process.cwd();
+  const conventions = await loadAgentContextConventions({ projectRoot, ticket });
+  const lines = ["Convention reminder: add a short summary comment describing the business purpose before new code."];
+  if (newFile) lines.push("This is a new file; put the summary comment at the top of the file.");
+  if (newFunctions.length) lines.push(`New function(s): ${newFunctions.join(", ")}. Put the summary comment immediately before each definition.`);
+  if (conventions.mappings.length) lines.push(`Relevant vocabulary mapping(s): ${conventions.mappings.map(formatConventionMapping).join("; ")}`);
+  return lines.join(" ");
+}
+
+// Formats the shared glossary row as the compact mapping reminder shown at edit time.
+function formatConventionMapping(raw) {
+  const cells = String(raw).split("|").map((cell) => cell.trim()).filter(Boolean);
+  const business = (cells[0] ?? "").replace(/\s*\([^)]*\)\s*$/, "");
+  const code = (cells[1] ?? "").replace(/`/g, "").replace(/\s*,\s*/g, "/");
+  return `${business} -> ${code}`;
 }
 
 // hasFileHeaderComment - handles hasFileHeaderComment operation.

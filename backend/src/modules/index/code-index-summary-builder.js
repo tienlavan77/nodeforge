@@ -15,6 +15,7 @@ export function createCodeIndexSummaryBuilder({ fileService, indexDb } = {}) {
     let content;
     try {
       content = await fileService.readFile({ path });
+    // eslint-disable-next-line no-silent-catch -- EISDIR/ENOENT paths report as non-existent placeholders; R3 still blocks MODIFY.
     } catch (error) {
       // Directories (EISDIR), missing files (ENOENT) and unreadable paths must
       // not abort the round: report them as non-existent placeholders, same

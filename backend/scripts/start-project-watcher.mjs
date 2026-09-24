@@ -34,6 +34,8 @@ const embeddingJobs = createEmbeddingJobStore({ database: indexDb });
 const { embeddingStore, embeddingProvider, ollamaConfig } = createRetrievalDependencies({ database: indexDb });
 const embeddingModel = ollamaConfig.model;
 const embeddingWorker = createEmbeddingWorker({ database: indexDb, jobs: embeddingJobs, embeddingStore, embeddingProvider, model: embeddingModel, logger });
+const recoveredEmbeddingJobs = embeddingJobs.recoverProcessing();
+if (recoveredEmbeddingJobs > 0) logger.info(`Recovered ${recoveredEmbeddingJobs} interrupted embedding job(s).`, { event_name: "embedding_worker.recovered", payload: { count: recoveredEmbeddingJobs, model: embeddingModel } });
 const indexer = createIncrementalIndexer({ database: indexDb, projectRoot: process.cwd(), embeddingJobs, embeddingModel });
 void embeddingWorker.start({ pollMs: 1000 }).catch((error) => logger.error("Embedding worker stopped.", { event_name: "embedding_worker.failed", payload: { error: error.message } }));
 const verification = createVerificationOrchestrator({ projectRoot: process.cwd(), projectId });

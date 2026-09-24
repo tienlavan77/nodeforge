@@ -13,6 +13,7 @@ export function acquireProcessLock(dataDir, role, { fileService } = {}) {
       // A crashed startup can leave a lock behind. Reclaim it only when the
       // recorded owner is definitely gone; a live owner remains protected.
       let ownerPid = null;
+      // eslint-disable-next-line no-silent-catch -- Lock-owner probe: unreadable lock means unknown owner, handled below.
       try { ownerPid = Number.parseInt(readFileSync(path, "utf8").trim(), 10); } catch {}
       if (Number.isInteger(ownerPid) && ownerPid > 0) {
         try { process.kill(ownerPid, 0); } catch (probe) {

@@ -1,16 +1,16 @@
-// File-backed store that tracks conversation round, step, and lifecycle status.
+// Chat history store: keeps each agent's chat conversations isolated so the UI shows the selected agent's history.
 import { ConfigurationError } from "../../shared/errors.js";
 
 const TERMINAL = new Set(["completed", "failed", "needs_human_review"]);
 
-/** Tracks workflow conversation state independently from provider payloads. */
-// Creates a file-backed store for conversation state and round progression.
+/** Chat history isolated per agent, independent from provider payloads. */
+// Creates the chat history store that keeps one agent's conversations separate from another's.
 export function createConversationStateStore({ fileService, root = ".forge/runtime/protocol-storage/conversations" } = {}) {
   if (typeof fileService?.readFile !== "function" || typeof fileService?.atomicWrite !== "function") throw new ConfigurationError("Conversation state store requires File Service readFile and atomicWrite.");
   const states = new Map();
   return Object.freeze({ create, get, list, listByAgent, update, advanceRound, markStatus, clear, rename, archive });
 
-  // Lists conversations, optionally filtered by agent id.
+  // Lists one agent's chat history, or every conversation when no agent is given.
   async function list({ agentId } = {}) {
     if (agentId !== undefined) requireId(agentId, "agentId");
     const conversations = [...states.values()]
@@ -19,10 +19,10 @@ export function createConversationStateStore({ fileService, root = ".forge/runti
     return conversations;
   }
 
-  // Lists conversations for a specific agent.
+  // Lists the chat history for a specific agent.
   async function listByAgent(agentId) { return list({ agentId }); }
 
-  // Creates and persists a new conversation state, idempotent on existing id.
+  // Starts a chat conversation for an agent, returning the existing one when retried.
   async function create({ conversationId, taskId, projectId, agentId = "builder", promptCacheKey = null } = {}) {
     requireId(conversationId, "conversationId"); requireId(taskId, "taskId");
     const state = { conversation_id: conversationId, task_id: taskId, project_id: projectId ?? null, agent_id: agentId, status: "created", current_round: 0, current_step: 0, last_request_id: null, last_provider_response_id: null, last_provider_status: null, parent_request_id: null, prompt_cache_key: promptCacheKey, context_revision: null, context_checksums: {}, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };

@@ -3,7 +3,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import { ConfigurationError } from "../../shared/errors.js";
 
 const DEFAULTS = Object.freeze({
-  select_code_graph_candidates: Object.freeze({ limit: 4 }),
+  select_code_graph_candidates: Object.freeze({ limit: 8 }),
   search_code: Object.freeze({ projection: "minimal" })
 });
 

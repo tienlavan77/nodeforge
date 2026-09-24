@@ -19,7 +19,7 @@ const readFileInput = {
 const selectCodeGraphCandidatesInput = {
   query: z.string().min(1),
   context: z.string().max(1000).optional(),
-  limit: z.number().int().positive().max(4).optional()
+  limit: z.number().int().positive().max(8).optional()
 };
 
 const writeDiffInput = {
@@ -55,7 +55,7 @@ const reportDoneInput = {
 // (optin "defaulted" fails the nonoptional check), so an omitted optional
 // argument like select_code_graph_candidates.limit threw MCP error -32602.
 const INPUT_DEFAULTS = Object.freeze({
-  select_code_graph_candidates: Object.freeze({ limit: 4 }),
+  select_code_graph_candidates: Object.freeze({ limit: 8 }),
   search_code: Object.freeze({ kind: "file", limit: 10, projection: "minimal" }),
   edit_diff: Object.freeze({ occurrence: "first" })
 });
@@ -64,7 +64,7 @@ export function createForgeSdkMcpServer({ registry, context = {}, includeCommit 
   if (!registry || typeof registry !== "object") throw new TypeError("Forge SDK MCP server requires a tool registry.");
 
   const definitions = [
-    ["select_code_graph_candidates", "Ask Node to find up to four candidate files related to your search intent, with import relations. Call this FIRST as your project map before searching or reading.", selectCodeGraphCandidatesInput],
+    ["select_code_graph_candidates", "Ask Node to find up to eight candidate files related to your search intent, with import relations. Call this FIRST as your project map before searching or reading.", selectCodeGraphCandidatesInput],
     ["search_code", "Search the approved project code index. kind=\"content\" returns FTS text snippets with matching lines; kind=\"file\" with projection=\"summary\" returns a file's symbol map with line ranges.", searchCodeInput],
     ["read_file", "Read one approved project file. Use offset/limit windows (max 500 lines) instead of reading whole files.", readFileInput],
     ["write_diff", "Write one approved project file after checksum validation. Content is capped at 8 KB. For a new file that does not exist, before_checksum must be the JSON value null (not a string and not omitted).", writeDiffInput],

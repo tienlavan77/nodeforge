@@ -17,6 +17,7 @@ export async function createCodexForgeMcpSession({ registry, context = {}, defin
       if (message.id !== undefined) writeJson(response, 200, { jsonrpc: "2.0", id: message.id, result });
       else writeJson(response, 202, {});
     } catch (error) {
+      // eslint-disable-next-line no-silent-catch -- Error-path id probe: unparsable body falls back to null id.
       const id = (() => { try { return JSON.parse(request.__body ?? "{}").id; } catch { return null; } })();
       writeJson(response, 200, { jsonrpc: "2.0", id, error: { code: -32603, message: error.message } });
     }

@@ -54,6 +54,7 @@ function decode(blob, logger = console, symbolId = null, checksum = null) {
     const buf = Buffer.from(String(blob), "base64");
     return Array.from(new Float32Array(buf.buffer, buf.byteOffset, Math.floor(buf.byteLength / 4)));
   } catch (error) {
+    // eslint-disable-next-line no-silent-catch -- Logging must not affect search; outer catch already returns null.
     try { logger?.warn?.("Embedding vector decode failed.", { symbol_id: symbolId, checksum, error: error.message }); } catch { /* logging must not affect search */ }
     return null;
   }

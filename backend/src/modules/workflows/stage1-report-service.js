@@ -11,6 +11,7 @@ export function createStage1ReportService({ protocolStorage, fileService, gitSer
   async function buildFinalReport({ ticket, status, verifyResult = null, filesChanged = [], reason = null, error = null } = {}) {
     if (!ticket?.id) throw new ConfigurationError("Final report requires ticket.");
     let agentReport = null;
+    // eslint-disable-next-line no-silent-catch -- Agent report is optional on abnormal stops.
     try { agentReport = (await protocolStorage.get(`task/${ticket.id}/report`)).data; } catch { /* report is optional on abnormal stops */ }
     const commits = await getCommitsForTask(ticket.id);
     const verified = (ticket.acceptance_criteria ?? []).map((criterion) => ({ criterion, node_verified: /syntax|build|compile|test|lint/i.test(criterion) && verifyResult ? Boolean(verifyResult.pass ?? verifyResult.ready_for_review) : null }));

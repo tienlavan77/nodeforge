@@ -8,14 +8,14 @@
   "properties": {
     "agent_id": { "type": "string", "format": "uuid" },
     "agent_name": { "type": "string", "minLength": 1 },
-    "role": { "type": "string", "enum": ["coder", "reviewer", "sprint_leader", "architecture_manager"] },
+    "role": { "type": "string", "enum": ["coder", "reviewer", "sprint_leader", "architecture_manager", "linguist"] },
     "gateway_url": { "type": "string", "format": "uri", "pattern": "^https://" },
     "credential_ref": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9_.:/-]+$" },
     "enabled": { "type": "boolean" },
     "status": { "type": "string", "enum": ["ready", "working", "not_connected"] },
     "created_at": { "type": "string", "format": "date-time" },
     "updated_at": { "type": "string", "format": "date-time" },
-    "provider": { "type": "string", "enum": ["codex", "claude", "openai", "anthropic", "custom"] },
+    "provider": { "type": "string", "enum": ["codex", "claude", "openai", "anthropic", "ollama", "custom"] },
     "model": { "type": "string" },
     "use_previous_response_id": { "type": "boolean" }
   }

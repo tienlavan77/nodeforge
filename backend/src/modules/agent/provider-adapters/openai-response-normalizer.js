@@ -76,6 +76,7 @@ function normalizeStructuredOutput(payload, parentId, expectedType) {
 function parseStructuredOutput(response) {
   const text = response?.output_text ?? response?.payload?.text;
   if (typeof text !== "string" || !text.trim()) return null;
+  // eslint-disable-next-line no-silent-catch -- Structured-output probe: non-JSON text means no structured output.
   try { return JSON.parse(text); } catch { return null; }
 }
 

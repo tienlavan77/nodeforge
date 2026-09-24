@@ -6,7 +6,7 @@ export function createArchitectureManagerAdapter({ manager, bus, agentId = "arch
   if (typeof manager?.createArchitecturePlan !== "function" || typeof manager?.createRoadmap !== "function") {
     throw new ConfigurationError("Architecture Manager Adapter requires an Architecture Manager.");
   }
-  if (typeof bus?.subscribe !== "function" || typeof bus?.send !== "function") throw new ConfigurationError("Architecture Manager Adapter requires a Communication Bus.");
+  if (typeof bus?.subscribe !== "function" || typeof bus?.send !== "function" || typeof bus?.sendFast !== "function") throw new ConfigurationError("Architecture Manager Adapter requires a Communication Bus with realtime delivery.");
   const handled = new Set();
   const results = new Map();
   bus.subscribe(agentId, handle);
@@ -57,7 +57,7 @@ export function createArchitectureManagerAdapter({ manager, bus, agentId = "arch
 
   // Handles free-form owner messages by creating a minimal proposed decision.
   function handleOwnerMessage(message, requestId, key) {
-    bus.send({
+    bus.sendFast({
       id: `MSG-ARCHITECTURE-WORKING-${requestId}`,
       project_id: message.project_id,
       sender: { id: agentId, role: "architecture_manager" },

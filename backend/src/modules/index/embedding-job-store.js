@@ -8,7 +8,7 @@ const ACTIVE_STATUSES = ["pending", "processing", "retry_wait"];
 export function createEmbeddingJobStore({ database, clock = () => new Date() } = {}) {
   if (!database || typeof database.all !== "function" || typeof database.run !== "function") throw new ConfigurationError("Embedding job store requires a database.");
   if (typeof clock !== "function") throw new ConfigurationError("Embedding job store clock must be a function.");
-  return Object.freeze({ enqueue, claimNext, complete, retry, supersede, counts });
+  return Object.freeze({ enqueue, claimNext, recoverProcessing, complete, retry, supersede, counts });
 
   // Enqueues only the latest checksum for a symbol and supersedes older work.
   function enqueue({ symbolId, contentChecksum, model, priority = 100 } = {}) {
@@ -62,6 +62,15 @@ export function createEmbeddingJobStore({ database, clock = () => new Date() } =
       return Number(result.changes ?? 0) === 1 ? { ...job, status: "processing", attempts: Number(job.attempts ?? 0) + 1, updated_at: now } : null;
     };
     return database.transaction?.(claim) ?? claim();
+  }
+
+  // Requeues jobs left in-flight by a watcher process that stopped unexpectedly.
+  function recoverProcessing({ now = clock().toISOString(), reason = "Recovered after embedding worker restart." } = {}) {
+    const result = database.run(
+      "UPDATE embedding_jobs SET status = 'retry_wait', next_retry_at = ?, last_error = ?, updated_at = ? WHERE status = 'processing'",
+      [now, reason, now]
+    );
+    return Number(result.changes ?? 0);
   }
 
   // Marks a successfully persisted vector as complete.
