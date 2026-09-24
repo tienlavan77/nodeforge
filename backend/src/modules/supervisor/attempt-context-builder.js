@@ -85,9 +85,12 @@ export function createAttemptContextBuilder({ protocolStorage, requestBuilder = 
     };
     const attemptNumber = attempt;
     const memoryFacts = typeof memoryRetriever?.retrieve === "function"
+      // eslint-disable-next-line no-silent-catch -- Memory retrieval is optional; missing facts must not block ticket execution.
       ? await memoryRetriever.retrieve({ projectId: ticket.project_id, taskId: ticket.id, query: `${ticket.title} ${ticket.objective}` }).then((result) => result?.relevant_facts ?? []).catch(() => [])
       : [];
-    const relevantTree = origin.relevantTree ?? (typeof relevantTreeSelector?.select === "function" ? await resolveRelevantTree().catch(() => []) : []);
+    const relevantTree = origin.relevantTree ?? (typeof relevantTreeSelector?.select === "function"
+      // eslint-disable-next-line no-silent-catch -- Optional tree selection falls back to an empty context pack.
+      ? await resolveRelevantTree().catch(() => []) : []);
     const built = requestBuilder.buildTaskRequest(ticket, {
       agentId: origin.agent_id ?? "builder",
       conversationId: `CONV-BUILDER-${ticket.project_id ?? "PROJECT"}-${ticket.id}`,
@@ -132,6 +135,7 @@ export function createAttemptContextBuilder({ protocolStorage, requestBuilder = 
   }
   // Ticket-scoped select: explicit AC paths + dependency files seed tier-0.
   async function resolveRelevantTree() {
+    // eslint-disable-next-line no-silent-catch -- Scope discovery is optional; request construction continues without dependency context.
     const scoped = await buildTicketScope().catch(() => ({ priorFiles: [], dependencyFiles: [] }));
     const result = await relevantTreeSelector.select({ title: ticket.title, objective: ticket.objective, acceptanceCriteria: ticket.acceptance_criteria ?? [], style: ticket.style, ...scoped });
     return result?.tree ?? [];

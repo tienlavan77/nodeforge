@@ -19,6 +19,7 @@ export function createExplorePrepass({ relevantTreeSelector, fileGraph, protocol
     if (!ticket || typeof ticket !== "object") throw new ConfigurationError("Explore pre-pass requires a ticket.");
     const started = Date.now();
     try {
+      // eslint-disable-next-line no-silent-catch -- Dependency probe is best-effort; empty list lets pre-pass continue without dependency context.
       const dependencyFiles = await resolveDependencyFiles(ticket, { protocolStorage }).catch(() => []);
       const explicitPaths = extractExplicitPaths(ticket);
       const args = {

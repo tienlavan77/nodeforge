@@ -139,6 +139,7 @@ export function createProductionSupervisorRuntime({ fileService, projectRoot = p
       }
     }
     logger.debug?.("Supervisor recovery: pending loops resumed");
+    // eslint-disable-next-line no-silent-catch -- Pending-checkpoint discovery is observability-only and must not block runtime recovery.
     const pendingCheckpoints = await agentCheckpoints.listPending().catch(() => []);
     for (const checkpoint of pendingCheckpoints) {
       projectLogger({ event_name: "agent.checkpoint_pending", level: "info", status: "info", message: "Unfinished agent checkpoint is resumable on next RUN.", task_id: checkpoint.task_id, correlation_id: checkpoint.correlation_id, source: "production-runtime", payload: { task_id: checkpoint.task_id, agent_id: checkpoint.agent_id, last_completed_turn: checkpoint.last_completed_turn, completed_tools: checkpoint.completed_tools } });

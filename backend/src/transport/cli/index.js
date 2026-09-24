@@ -38,6 +38,7 @@ export async function runCli(args, { cwd = process.cwd(), stdout = process.stdou
       return 0;
     } finally {
       worker.stop();
+      // eslint-disable-next-line no-silent-catch -- Worker shutdown is best-effort; rebuild result already computed.
       await workerTask.catch(() => {});
       await database.close();
     }

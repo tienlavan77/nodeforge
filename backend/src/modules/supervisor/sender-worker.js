@@ -20,6 +20,7 @@ export function createSenderWorker({ queue, agentRegistry, agentResolver, eventB
     catch (error) {
       if (error?.rawResponse !== undefined && protocolStorage) {
         const round = Number(job.payload?.step_id ?? 1);
+        // eslint-disable-next-line no-silent-catch -- Raw-response persist is best-effort; failure event still published below.
         await persistAgentResponse({ protocolStorage, taskId: job.task_id, round, response: error.rawResponse, raw: true }).catch(() => {});
       }
       const event = identityEvent(job, "agent.response.failed", { error: { code: error.code ?? "AGENT_REQUEST_FAILED", message: error.message } });
@@ -77,6 +78,7 @@ export function createSenderWorker({ queue, agentRegistry, agentResolver, eventB
           throw error;
         }
         results.push({ tool_call_id: call.id ?? null, name: call.name, result });
+        // eslint-disable-next-line no-silent-catch -- Tool-turn persist is best-effort; tool result already returned to agent.
         await protocolStorage?.save?.(`task/${job.task_id}/request_${job.request_id}/tool_${turn}_${results.length}`, { request_id: job.request_id, turn, call, result }, { replace: false, schemaId: "https://forge.local/schemas/agent/tool-turn.schema.json" }).catch?.(() => {});
         if (call.name === "report_done") return response;
       }
@@ -97,6 +99,7 @@ export function createSenderWorker({ queue, agentRegistry, agentResolver, eventB
     return conversationStateStore?.get
       ? conversationStateStore.get(conversationId)
           .then((state) => ({ ...payload, previous_response_id: state?.last_provider_response_id ?? "store_only" }))
+          // eslint-disable-next-line no-silent-catch -- Chained-id probe falls back to full input; provider still sees complete payload.
           .catch(() => payload)
       : Promise.resolve(payload);
   }
@@ -135,6 +138,7 @@ export function createSenderWorker({ queue, agentRegistry, agentResolver, eventB
     }
     if (conversationStateStore?.update) {
       const providerResponseId = response?.provider_metadata?.response_id ?? response?.response_id ?? response?.payload?.response_id ?? null;
+      // eslint-disable-next-line no-silent-catch -- Provider-response-id persist is best-effort; agent response already handled.
       await conversationStateStore.update(conversationIdResolver(job), { last_provider_response_id: providerResponseId, last_provider_status: response?.status ?? "completed" }).catch(() => {});
     }
   }
