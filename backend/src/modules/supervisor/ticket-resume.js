@@ -25,6 +25,7 @@ export function createResumeState(resume, complexity) {
     completedTools: Array.isArray(clean?.completed_tools) ? [...clean.completed_tools] : [],
     turnHistory: Array.isArray(clean?.turn_history) ? [...clean.turn_history] : [],
     changedPaths: Array.isArray(clean?.changed_paths) ? [...clean.changed_paths] : [],
+    emptyCommitSeen: clean?.empty_commit_seen === true,
     maxTurns
   };
 }
@@ -60,6 +61,7 @@ export function checkpointPayload(state, extra = {}) {
     last_completed_turn: state.turnCount,
     completed_tools: [...state.completedTools],
     turn_history: [...state.turnHistory],
+    empty_commit_seen: state.emptyCommitSeen === true,
     ...extra
   };
 }
@@ -70,7 +72,7 @@ export function checkpointPayload(state, extra = {}) {
 // so a later RUN continues the previous execution instead of restarting blind.
 // Turn counting starts from the seeded checkpoint, keeping max_turns and the
 // discovery budget valid across crashes.
-export function checkpointedRegistry({ store, registry, taskId, targetPath, allowedPrefixes, complexity, selected, correlationId, resumeState = null }) {
+export function checkpointedRegistry({ store, registry, taskId, targetPath, allowedPrefixes, complexity, selected, correlationId, resumeState = null, labMode = false }) {
   if (!store || !registry) return registry;
   const state = resumeState ?? createResumeState(null, complexity);
   const wrapped = {};
@@ -83,7 +85,14 @@ export function checkpointedRegistry({ store, registry, taskId, targetPath, allo
         if (remaining !== null && remaining <= 0 && name !== "report_done") {
           throw Object.assign(new ConfigurationError(`Turn limit reached (${state.turnCount}/${state.maxTurns}). The ONLY remaining allowed tool is report_done; use it to summarize the work performed so far, then stop.`), { code: "MAX_TURNS_EXCEEDED" });
         }
-        const result = await tool.execute(input, context);
+        let result;
+        try {
+          if (name === "report_done") assertCommitBeforeReport(state, context, labMode);
+          result = await tool.execute(input, context);
+        } catch (error) {
+          if (name === "commit_changes" && error?.code === "GIT_EMPTY_COMMIT") state.emptyCommitSeen = true;
+          throw error;
+        }
         recordTurn(state, name, input, result);
         const changedSnapshot = Array.isArray(context?.changed_paths) ? [...context.changed_paths] : [];
         for (const path of changedSnapshot) if (!state.changedPaths.includes(path)) state.changedPaths.push(path);
@@ -109,6 +118,20 @@ export function checkpointedRegistry({ store, registry, taskId, targetPath, allo
   }
   return wrapped;
 }
+
+// assertCommitBeforeReport - blocks completion until applied changes are committed.
+function assertCommitBeforeReport(state, context, labMode) {
+  if (labMode || context?.lab_mode || context?.labMode) return;
+  if (state.emptyCommitSeen) return;
+  if (state.changedPaths.length === 0) return;
+  const tools = state.completedTools;
+  const lastEdit = Math.max(tools.lastIndexOf("write_diff"), tools.lastIndexOf("edit_diff"));
+  const lastCommit = tools.lastIndexOf("commit_changes");
+  if (lastCommit === -1 || (lastEdit !== -1 && lastEdit > lastCommit)) {
+    throw Object.assign(new ConfigurationError("Changes are present but commit_changes has not succeeded after the last edit. Call commit_changes with an appropriate message before report_done."), { code: "COMMIT_MISSING", tool: "commit_changes" });
+  }
+}
+
 
 // failureDetail - compact gateway/crash error for the failure-path checkpoint.
 export function failureDetail(error) {

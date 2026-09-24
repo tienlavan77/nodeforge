@@ -78,6 +78,33 @@ test("checkpointPayload merges session ids and failure details", () => {
   assert.equal(payload.failure.code, "TIMEOUT");
 });
 
+test("report_done is blocked with COMMIT_MISSING when changes lack a commit", async () => {
+  const store = memoryStore();
+  let reported = false;
+  const registry = {
+    report_done: { execute: async () => { reported = true; return { ok: true }; } },
+    commit_changes: { execute: async () => ({ sha: "abc" }) }
+  };
+  const state = createResumeState({ status: "in_progress", changed_paths: ["a.js"] }, { max_turns: 10 });
+  const wrapped = checkpointedRegistry({ store, registry, taskId: "T-COMMIT", targetPath: "a.js", allowedPrefixes: [], complexity: { max_turns: 10 }, selected: {}, correlationId: "C-1", resumeState: state });
+  await assert.rejects(() => wrapped.report_done.execute({ summary: "done" }, { changed_paths: ["a.js"] }), /commit_changes/);
+  assert.equal(reported, false);
+  await wrapped.commit_changes.execute({ message: "save" }, { changed_paths: ["a.js"] });
+  await wrapped.report_done.execute({ summary: "done" }, { changed_paths: ["a.js"] });
+  assert.equal(reported, true);
+});
+
+test("report_done passes without a commit when nothing changed or lab mode", async () => {
+  const store = memoryStore();
+  let reported = 0;
+  const registry = { report_done: { execute: async () => { reported += 1; return { ok: true }; } } };
+  const readOnly = checkpointedRegistry({ store, registry, taskId: "T-READ", targetPath: null, allowedPrefixes: [], complexity: { max_turns: 10 }, selected: {}, correlationId: "C-1", resumeState: createResumeState(null, { max_turns: 10 }) });
+  await readOnly.report_done.execute({ summary: "read only" }, { changed_paths: [] });
+  const labChanged = checkpointedRegistry({ store, registry, taskId: "T-LAB", targetPath: "backend/tool-lab-target.txt", allowedPrefixes: [], complexity: { max_turns: 10 }, selected: {}, correlationId: "C-1", resumeState: createResumeState({ status: "in_progress", changed_paths: ["backend/tool-lab-target.txt"] }, { max_turns: 10 }), labMode: true });
+  await labChanged.report_done.execute({ summary: "lab" }, { changed_paths: ["backend/tool-lab-target.txt"] });
+  assert.equal(reported, 2);
+});
+
 test("codex gateway resumes a prior thread when resumeThreadId is given", async () => {
   let resumedId = null;
   let started = false;
