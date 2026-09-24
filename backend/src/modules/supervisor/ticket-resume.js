@@ -26,6 +26,7 @@ export function createResumeState(resume, complexity) {
     turnHistory: Array.isArray(clean?.turn_history) ? [...clean.turn_history] : [],
     changedPaths: Array.isArray(clean?.changed_paths) ? [...clean.changed_paths] : [],
     emptyCommitSeen: clean?.empty_commit_seen === true,
+    readCache: sanitizeReadCache(clean?.read_cache),
     maxTurns
   };
 }
@@ -62,6 +63,7 @@ export function checkpointPayload(state, extra = {}) {
     completed_tools: [...state.completedTools],
     turn_history: [...state.turnHistory],
     empty_commit_seen: state.emptyCommitSeen === true,
+    read_cache: snapshotReadCache(state),
     ...extra
   };
 }
@@ -88,7 +90,10 @@ export function checkpointedRegistry({ store, registry, taskId, targetPath, allo
         let result;
         try {
           if (name === "report_done") assertCommitBeforeReport(state, context, labMode);
+          if (name === "read_file") assertReadNotRepeated(state, input);
           result = await tool.execute(input, context);
+          if (name === "read_file") rememberRead(state, input, result);
+          if (name === "write_diff" || name === "edit_diff") forgetRead(state, input);
         } catch (error) {
           if (name === "commit_changes" && error?.code === "GIT_EMPTY_COMMIT") state.emptyCommitSeen = true;
           throw error;
@@ -118,6 +123,72 @@ export function checkpointedRegistry({ store, registry, taskId, targetPath, allo
   }
   return wrapped;
 }
+
+// sanitizeReadCache - rebuilds a safe read cache from a checkpoint snapshot.
+// Only compact metadata is kept (path key, sha, sizes); content is dropped so
+// checkpoints stay small and never carry file bodies. Corrupt entries are skipped.
+function sanitizeReadCache(snapshot) {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return {};
+  const clean = {};
+  for (const [key, entry] of Object.entries(snapshot)) {
+    if (typeof key !== "string" || !key || !entry || typeof entry !== "object") continue;
+    const path = typeof entry.path === "string" ? entry.path : key.split("#")[0];
+    if (!path) continue;
+    clean[key] = {
+      path,
+      ...(typeof entry.sha256 === "string" ? { sha256: entry.sha256 } : {}),
+      ...(Number.isInteger(entry.total_lines) ? { total_lines: entry.total_lines } : {}),
+      ...(Number.isInteger(entry.size_bytes) ? { size_bytes: entry.size_bytes } : {}),
+      ...(Number.isInteger(entry.offset) ? { offset: entry.offset } : {}),
+      ...(Number.isInteger(entry.limit) ? { limit: entry.limit } : {})
+    };
+  }
+  return clean;
+}
+
+// snapshotReadCache - compacts run-state reads for checkpoint persistence.
+function snapshotReadCache(state) {
+  return sanitizeReadCache(state.readCache);
+}
+
+// readCacheKey - stable address of a read: path plus window, if any.
+function readCacheKey(input) {
+  const path = typeof input?.path === "string" ? input.path : "";
+  const offset = Number.isInteger(input?.offset) ? input.offset : 0;
+  const limit = Number.isInteger(input?.limit) ? input.limit : 0;
+  return `${path}#${offset}:${limit}`;
+}
+
+// assertReadNotRepeated - refuses a read_file that repeats a cached path+window.
+// The sha256 returned by read_file doubles as edit before_checksum, so the
+// agent already holds everything it needs: content, checksum, and symbol map.
+// A repeat read with the same path and window burns a turn and a full file of
+// tokens for zero new information (observed: 7 reads of one file in 12 turns).
+// Any write_diff or edit_diff invalidates the path, forcing a genuine fresh read.
+function assertReadNotRepeated(state, input) {
+  const path = typeof input?.path === "string" ? input.path : "";
+  if (!path) return;
+  const cached = state.readCache?.[readCacheKey(input)];
+  if (!cached) return;
+  throw Object.assign(new ConfigurationError(`Repeat read refused: ${path} with this window is unchanged since your earlier read (sha ${String(cached.sha256 ?? "").slice(0, 12)}). Reuse the content and sha256 you already have; do not call read_file again for it. If you edited the file since, that read is already invalidated — otherwise move on to edit_diff, write_diff, run_test, commit_changes, or report_done.`), { code: "READ_REPEATED", tool: "read_file" });
+}
+
+// rememberRead - caches a successful read result for repeat-read serving.
+function rememberRead(state, input, result) {
+  if (!result || typeof result !== "object" || typeof result.content !== "string") return;
+  if (!state.readCache || typeof state.readCache !== "object") state.readCache = {};
+  state.readCache[readCacheKey(input)] = result;
+}
+
+// forgetRead - drops cached reads of a path after it is written or edited.
+function forgetRead(state, input) {
+  const path = typeof input?.path === "string" ? input.path : "";
+  if (!path || !state.readCache) return;
+  for (const key of Object.keys(state.readCache)) {
+    if (key === path || key.startsWith(`${path}#`)) delete state.readCache[key];
+  }
+}
+
 
 // assertCommitBeforeReport - blocks completion until applied changes are committed.
 function assertCommitBeforeReport(state, context, labMode) {

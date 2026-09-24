@@ -105,6 +105,48 @@ test("report_done passes without a commit when nothing changed or lab mode", asy
   assert.equal(reported, 2);
 });
 
+test("repeat read_file of the same path and window is refused with READ_REPEATED", async () => {
+  const store = memoryStore();
+  let disk = 0;
+  const registry = {
+    read_file: { execute: async () => { disk += 1; return { path: "a.js", content: "v1", sha256: "sha256:abc", total_lines: 10 }; } },
+    edit_diff: { execute: async () => ({ ok: true }) },
+    commit_changes: { execute: async () => ({ sha: "x" }) },
+    report_done: { execute: async () => ({ ok: true }) }
+  };
+  const state = createResumeState(null, { max_turns: 20 });
+  const wrapped = checkpointedRegistry({ store, registry, taskId: "T-READ", targetPath: "a.js", allowedPrefixes: [], complexity: { max_turns: 20 }, selected: {}, correlationId: "C-1", resumeState: state });
+  const context = { changed_paths: [] };
+  await wrapped.read_file.execute({ path: "a.js" }, context);
+  // Same path, same window: refused without touching disk.
+  await assert.rejects(() => wrapped.read_file.execute({ path: "a.js" }, context), /unchanged since your earlier read/);
+  assert.equal(disk, 1);
+  // Same path, different window: allowed, reads disk.
+  await wrapped.read_file.execute({ path: "a.js", offset: 5, limit: 10 }, context);
+  assert.equal(disk, 2);
+  // After an edit the path is invalidated: a fresh read is allowed.
+  await wrapped.edit_diff.execute({ path: "a.js" }, context);
+  await wrapped.read_file.execute({ path: "a.js" }, context);
+  assert.equal(disk, 3);
+  // And repeating that fresh read is refused again.
+  await assert.rejects(() => wrapped.read_file.execute({ path: "a.js" }, context), (error) => error.code === "READ_REPEATED");
+});
+
+test("read cache survives a restart via checkpoint without file content", async () => {
+  const store = memoryStore();
+  const registry = {
+    read_file: { execute: async () => ({ path: "a.js", content: "secret-body", sha256: "sha256:abc", total_lines: 10, size_bytes: 20 }) }
+  };
+  const first = checkpointedRegistry({ store, registry, taskId: "T-RC", targetPath: "a.js", allowedPrefixes: [], complexity: { max_turns: 20 }, selected: {}, correlationId: "C-1", resumeState: createResumeState(null, { max_turns: 20 }) });
+  await first.read_file.execute({ path: "a.js" }, { changed_paths: [] });
+  const saved = store.saved.at(-1);
+  assert.ok(saved.read_cache["a.js#0:0"]);
+  assert.equal(JSON.stringify(saved.read_cache).includes("secret-body"), false);
+  // Rebuild from the snapshot as a restarted API would, then repeat the read.
+  const resumed = checkpointedRegistry({ store, registry, taskId: "T-RC", targetPath: "a.js", allowedPrefixes: [], complexity: { max_turns: 20 }, selected: {}, correlationId: "C-1", resumeState: createResumeState({ status: "in_progress", read_cache: saved.read_cache }, { max_turns: 20 }) });
+  await assert.rejects(() => resumed.read_file.execute({ path: "a.js" }, { changed_paths: [] }), (error) => error.code === "READ_REPEATED");
+});
+
 test("codex gateway resumes a prior thread when resumeThreadId is given", async () => {
   let resumedId = null;
   let started = false;
