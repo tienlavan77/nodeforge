@@ -7,6 +7,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 
 import { ConfigurationError } from "../shared/errors.js";
+import { backfillTicketCandidates } from "../modules/index/ticket-scope.js";
 
 const require = createRequire(import.meta.url);
 const commonSchema = require("../../../schemas/core/common.schema.json");
@@ -25,6 +26,7 @@ export function createSprintPlanUploadService({ roadmaps, publisher, projectRoot
     if (!roadmaps.removeSprint?.(projectId, sprintId)) { const error = new ConfigurationError(`Unknown Sprint Plan: ${sprintId}.`); error.statusCode = 404; throw error; }
     const directory = join(projectRoot, "schemas", "examples");
     for (const file of readdirSync(directory, { withFileTypes: true })) if (file.isFile() && file.name.startsWith("governance-sprint-plan-") && file.name.endsWith(".json")) {
+      // eslint-disable-next-line no-silent-catch -- Unrelated invalid fixture cleanup is best-effort.
       try { const value = JSON.parse(readFileSync(join(directory, file.name), "utf8")); if (value.id === sprintId) unlinkSync(join(directory, file.name)); } catch { /* unrelated invalid fixture */ }
     }
     publish("sprint.deleted", projectId, { sprint_id: sprintId });
@@ -67,26 +69,29 @@ export function createSprintPlanUploadService({ roadmaps, publisher, projectRoot
     if (typeof projectId !== "string" || projectId.length === 0) throw new ConfigurationError("A project id is required.");
     if (!sprintPlan || typeof sprintPlan !== "object" || Array.isArray(sprintPlan)) throw new ConfigurationError("sprint_plan must be an object.");
     if (sprintPlan.project_id !== projectId) throw new ConfigurationError("Sprint plan project_id must match the target project.");
-    if (!validate(sprintPlan)) throw new ConfigurationError(`Invalid Sprint Plan: ${validate.errors.map((error) => `${error.instancePath || "/"} ${error.message}`).join("; ")}`);
-    const duplicate = roadmaps.getAllVersions?.().some((roadmap) => roadmap.sprints?.some((sprint) => sprint.id === sprintPlan.id));
+    // Legacy uploads predate style/candidate_files enforcement; backfill the
+    // marked placeholder so old plans validate and retrieval re-discovers.
+    const normalized = { ...sprintPlan, tickets: (sprintPlan.tickets ?? []).map((ticket) => backfillTicketCandidates(ticket)) };
+    if (!validate(normalized)) throw new ConfigurationError(`Invalid Sprint Plan: ${validate.errors.map((error) => `${error.instancePath || "/"} ${error.message}`).join("; ")}`);
+    const duplicate = roadmaps.getAllVersions?.().some((roadmap) => roadmap.sprints?.some((sprint) => sprint.id === normalized.id));
     if (duplicate) {
-      const error = new ConfigurationError(`Sprint already exists: ${sprintPlan.id}.`);
+      const error = new ConfigurationError(`Sprint already exists: ${normalized.id}.`);
       error.statusCode = 409;
       throw error;
     }
 
     const timestamp = new Date().toISOString();
     const roadmap = {
-      id: sprintPlan.roadmap_id,
+      id: normalized.roadmap_id,
       project_id: projectId,
-      version: sprintPlan.id,
+      version: normalized.id,
       created_at: timestamp,
       updated_at: timestamp,
-      sprints: [structuredClone(sprintPlan)]
+      sprints: [structuredClone(normalized)]
     };
     const saved = roadmaps.save(roadmap);
-    publish(eventType, projectId, { sprint_id: sprintPlan.id, sprint_plan: structuredClone(sprintPlan), ticket_ids: sprintPlan.tickets.map(({ id }) => id) });
-    return { sprint_id: sprintPlan.id, ticket_ids: sprintPlan.tickets.map(({ id }) => id), sprint_plan: structuredClone(sprintPlan), roadmap: saved };
+    publish(eventType, projectId, { sprint_id: normalized.id, sprint_plan: structuredClone(normalized), ticket_ids: normalized.tickets.map(({ id }) => id) });
+    return { sprint_id: normalized.id, ticket_ids: normalized.tickets.map(({ id }) => id), sprint_plan: structuredClone(normalized), roadmap: saved };
   }
   function publish(type, projectId, payload) {
     try { publisher?.publish?.({ event_id: `EVT-${Date.now()}-${type}`, type, project_id: projectId, timestamp: new Date().toISOString(), payload, metadata: { source: "sprint-plan-service" } }); } catch (error) { logger.error?.("Sprint plan event publisher failed after persistence.", { sprint_id: payload?.sprint_id ?? payload?.sprint_plan?.id, upload_id: payload?.upload_id, event_name: type, error: error.message }); /* stream notification must not undo mutation */ }

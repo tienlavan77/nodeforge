@@ -90,6 +90,7 @@ export function createTestService({ verificationOrchestrator, fileService, timeo
         ...(job.error?.code ? { error_code: job.error.code } : {}),
         payload: { job_id: job.job_id, task_id: job.task_id, job_status: job.status, duration_ms, ...(job.error ? { error: job.error } : {}), ...(sessionId ? { session_id: sessionId } : {}) }
       });
+    // eslint-disable-next-line no-silent-catch -- Completion logging is best-effort after the result was published.
     } catch {}
   }
 }

@@ -6,7 +6,7 @@ import { ConfigurationError } from "../../shared/errors.js";
 const REQUIRED_FIELDS = ["agent_id", "agent_name", "role", "gateway_url", "credential_ref", "enabled", "status", "created_at", "updated_at"];
 const OPTIONAL_FIELDS = ["provider", "model", "reasoning", "use_responses", "use_previous_response_id"];
 const FIELDS = [...REQUIRED_FIELDS, ...OPTIONAL_FIELDS];
-const PROVIDERS = ["codex", "claude", "openai", "anthropic", "custom", "devquote"];
+const PROVIDERS = ["codex", "claude", "openai", "anthropic", "ollama", "custom", "devquote"];
 const SECRET_FIELD = /(?:api[_-]?key|credential(?!_ref)|secret|password|token|authorization)/i;
 
 // A derived local Node projection; Agent Profile Store remains the authority.
@@ -51,6 +51,7 @@ export function createNodeAgentConfiguration({ profiles, configurationPath, file
       return freezeAll(parsed.map(validateConfiguration));
     } catch (error) {
       let parsed;
+      // eslint-disable-next-line no-silent-catch -- Config probe: unparsable file rebuilds from profiles below.
       try { parsed = JSON.parse(readFileSync(configurationPath, "utf8")); } catch { parsed = undefined; }
       if (Array.isArray(parsed) && parsed.some((value) => value && typeof value === "object" && Object.keys(value).some((key) => SECRET_FIELD.test(key)))) {
         throw new ConfigurationError(`Invalid Node Agent Configuration: ${error.message}`);
@@ -94,7 +95,7 @@ function validateConfiguration(value) {
   if (!value || typeof value !== "object"
     || REQUIRED_FIELDS.some((field) => value[field] === undefined)
     || Object.keys(value).some((key) => !FIELDS.includes(key))
-    || typeof value.agent_id !== "string" || typeof value.agent_name !== "string" || typeof value.role !== "string" || !["coder", "reviewer", "sprint_leader", "architecture_manager"].includes(value.role) || typeof value.gateway_url !== "string" || !value.gateway_url.startsWith("https://")
+    || typeof value.agent_id !== "string" || typeof value.agent_name !== "string" || typeof value.role !== "string" || !["coder", "reviewer", "sprint_leader", "architecture_manager", "linguist"].includes(value.role) || typeof value.gateway_url !== "string" || !value.gateway_url.startsWith("https://")
     || typeof value.credential_ref !== "string" || !value.credential_ref || typeof value.enabled !== "boolean") throw new ConfigurationError("Agent configuration is invalid.");
   if (value.provider !== undefined && !PROVIDERS.includes(value.provider)) throw new ConfigurationError("Agent configuration is invalid.");
   if (value.model !== undefined && typeof value.model !== "string") throw new ConfigurationError("Agent configuration is invalid.");

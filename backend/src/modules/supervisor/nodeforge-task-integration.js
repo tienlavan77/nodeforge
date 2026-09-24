@@ -4,11 +4,13 @@ import { ConfigurationError } from "../../shared/errors.js";
 import { createForgeSdkMcpServer, forgeSdkToolNames } from "../../tools/claude-sdk-forge-tools.js";
 import { classifyTicketComplexity } from "../../tools/ticket-complexity.js";
 import { createAgentExecutionCheckpointStore } from "../agent/agent-execution-checkpoint.js";
+import { buildResumePrompt, checkpointedRegistry, checkpointPayload, createResumeState, failureDetail } from "./ticket-resume.js";
 import { createExplorePrepass } from "./explore-pre-pass.js";
+import { isLegacyBackfillCandidate } from "../index/ticket-scope.js";
 import { selectCodeGraphCandidatesDefinition, readFileDefinition, writeDiffDefinition, editDiffDefinition, runTestDefinition, checkTestDefinition, commitChangesDefinition, reportDoneDefinition, searchCodeDefinition } from "../../tools/index.js";
 
 // createNodeforgeTaskIntegration - handles createNodeforgeTaskIntegration operation.
-export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, agentResolver, agentProfiles, onAgentStatus, handoffQueue, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, agentGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger = () => {}, fileService, checkpointStore, relevantTreeSelector, protocolStorage } = {}) {
+export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, agentResolver, agentProfiles, onAgentStatus, handoffQueue, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, agentGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger = () => {}, fileService, checkpointStore, relevantTreeSelector, protocolStorage } = {}) {
   if (typeof supervisorManager?.startTask !== "function" || typeof eventBus?.publish !== "function") throw new ConfigurationError("NodeForge integration requires Supervisor Manager and Event Bus.");
   if (typeof handoffQueue?.enqueue !== "function") throw new ConfigurationError("NodeForge integration requires a sender handoff queue.");
   const checkpoints = checkpointStore ?? (fileService ? createAgentExecutionCheckpointStore({ fileService }) : null);
@@ -43,6 +45,8 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
         ? await runOpenAiHello(selected, request)
         : isCodexProfile(selected)
           ? await runCodexTask(selected, request)
+        : isOllamaProfile(selected)
+          ? await runOllamaHello(selected, request)
         : await runToolTicket(selected, request);
     } catch (error) {
       projectLogger({ event_name: "supervisor.tool_ticket_failed", level: "error", status: "failed", message: "Ticket execution failed.", task_id: request.task_id, correlation_id: request.correlation_id, source: "nodeforge-task-integration", error_code: error.code ?? "TOOL_TICKET_FAILED", payload: { request_id: request.request_id, agent_id: selected.agent_id, agent_name: selected.agent_name, ...(error.tool ? { tool: error.tool } : {}), error: error.message } });
@@ -58,13 +62,16 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
     const executionId = `${request.task_id}:${request.request_id}`;
     const ticket = { ...request.ticket, id: request.task_id };
     const labMode = request.payload?.tool_test;
-    const prepass = relevantTreeSelector ? await createExplorePrepass({ relevantTreeSelector, protocolStorage }).run({ ticket }).catch(() => null) : null;
-    const targetPath = labMode?.target_path ?? prepass?.targetPath ?? ticketTargetPath(ticket);
-    const allowedPrefixes = [...new Set([...(labMode?.allowed_prefixes ?? []), ...(prepass?.allowedPrefixes ?? []), ...prefixForPath(targetPath), ...ticketAllowedPrefixes(ticket)])];
+    const traced = ticketCandidateScope(ticket);
+    const prepass = traced ? null : relevantTreeSelector ? await createExplorePrepass({ relevantTreeSelector, protocolStorage }).run({ ticket }).catch(() => null) : null;
+    const targetPath = labMode?.target_path ?? traced?.targetPath ?? prepass?.targetPath ?? ticketTargetPath(ticket);
+    const allowedPrefixes = [...new Set([...(labMode?.allowed_prefixes ?? []), ...(traced?.allowedPrefixes ?? []), ...(prepass?.allowedPrefixes ?? []), ...prefixForPath(targetPath), ...ticketAllowedPrefixes(ticket)])];
     if (!targetPath && !allowedPrefixes.length) throw Object.assign(new ConfigurationError("Ticket target is ambiguous; provide an implementation path in the ticket objective or acceptance criteria."), { code: "TICKET_TARGET_MISSING" });
     const allowedFilePaths = [targetPath, "backend/package.json"].filter(Boolean);
     const complexity = labMode ? { level: "moderate", ...COMPLEXITY_FALLBACK } : classifyTicketComplexity(ticket);
     projectLogger({ event_name: "supervisor.ticket_complexity", level: "info", status: "success", message: `Ticket classified as ${complexity.level}.`, task_id: request.task_id, correlation_id: request.correlation_id, source: "nodeforge-task-integration", payload: { complexity_level: complexity.level, effort: complexity.effort, discovery_budget: complexity.discovery_budget, max_turns: complexity.max_turns, reasoning: complexity.reasoning } });
+    const resumeState = createResumeState(request.payload?.resume_from ?? null, complexity);
+    const resume = resumeState.resume;
     const context = runtimeGovernance.createExecutionContext({
       task_id: request.task_id,
       execution_id: executionId,
@@ -72,6 +79,7 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
       capabilities: ["select_code_graph_candidates", "search_code", "read_file", "write_diff", "edit_diff", "run_test", "check_test", "commit_changes", "report_done"],
       allowed_file_paths: allowedFilePaths,
       allowed_prefixes: allowedPrefixes,
+      changed_paths: [...resumeState.changedPaths],
       context_budget: { max_bytes: 1000000, max_calls: 12 },
       discovery_budget: complexity.discovery_budget,
       discovery_candidate_calls: complexity.candidate_calls,
@@ -83,21 +91,42 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
       lifecycle: "RUNNING",
       audit_context: { correlation_id: request.correlation_id }
     });
-    const toolContext = { ...context, ticket, task: ticket, task_context: ticket, changed_paths: [], allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, lab_mode: Boolean(labMode), session_id: executionId, target_path: targetPath };
-    const checkpointed = checkpointedRegistry({ store: checkpoints, registry: toolRegistry, taskId: request.task_id, targetPath, allowedPrefixes, complexity, selected, correlationId: request.correlation_id });
+    const toolContext = { ...context, project_root: projectRoot, ticket, task: ticket, task_context: ticket, changed_paths: [...resumeState.changedPaths], allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, lab_mode: Boolean(labMode), session_id: executionId, target_path: targetPath };
+    const checkpointed = checkpointedRegistry({ store: checkpoints, registry: toolRegistry, taskId: request.task_id, targetPath, allowedPrefixes, complexity, selected, correlationId: request.correlation_id, resumeState });
     const mcpServers = { forge: createForgeSdkMcpServer({ registry: checkpointed, context: toolContext, includeCommit: true }) };
     const allowedTools = forgeSdkToolNames;
-    const resume = request.payload?.resume_from ?? null;
-    const resumeSessionId = resume?.session_id ?? null;
-    const result = await claudeSdkGateway.execute({
-      agentId: selected.agent_id,
-      correlationId: request.correlation_id,
-      cwd: projectRoot,
-      options: { tools: [], mcpServers, allowedTools, maxTurns: complexity.max_turns, effort: complexity.effort, thinking: complexity.thinking },
-      resumeSessionId,
-      onSessionReady: (sessionId) => checkpoints?.save({ ...(resume ?? {}), task_id: request.task_id, session_id: sessionId, status: "in_progress" }).catch(() => {}),
-      prompt: withResumePrefix(labMode ? buildToolTestPrompt(request.task_id, targetPath, allowedPrefixes) : buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, complexity), request.payload?.resume_from)
-    });
+    const resumeSessionId = resumeState.sessionId;
+    let result;
+    try {
+      result = await claudeSdkGateway.execute({
+        agentId: selected.agent_id,
+        correlationId: request.correlation_id,
+        cwd: projectRoot,
+        options: { tools: [], mcpServers, allowedTools, maxTurns: complexity.max_turns, effort: complexity.effort, thinking: complexity.thinking },
+        resumeSessionId,
+        onSessionReady: (sessionId) => {
+          if (typeof sessionId === "string" && sessionId) resumeState.sessionId = sessionId;
+          checkpoints?.save(checkpointPayload(resumeState, { task_id: request.task_id, status: "in_progress" })).catch(() => {});
+        },
+        prompt: buildResumePrompt(labMode ? buildToolTestPrompt(request.task_id, targetPath, allowedPrefixes) : buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, complexity), resumeState, { agentId: selected.agent_id, provider: selected.provider, changedPaths: toolContext.changed_paths })
+      });
+    } catch (error) {
+      if (checkpoints) {
+        await checkpoints.save(checkpointPayload(resumeState, {
+          task_id: request.task_id,
+          correlation_id: request.correlation_id,
+          agent_id: selected?.agent_id ?? null,
+          provider: selected?.provider ?? null,
+          target_path: targetPath,
+          allowed_prefixes: allowedPrefixes,
+          complexity_level: complexity?.level ?? null,
+          changed_paths: [...resumeState.changedPaths],
+          status: "in_progress",
+          failure: failureDetail(error)
+        })).catch(() => {});
+      }
+      throw error;
+    }
     const toolEvents = collectToolCalls(result.messages);
     assertTicketExecutionCompleted(toolEvents, { labMode, missingCode: "CLAUDE_MCP_TOOL_CALLS_MISSING" });
     return { summary: extractText(result.messages).filter(Boolean).join(" ").trim() || "<empty response>", tool_events: toolEvents };
@@ -113,19 +142,31 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
     return { summary: result.text || "<empty response>", tool_events: [] };
   }
 
+  async function runOllamaHello(selected, request) {
+    if (typeof ollamaSdkGateway?.execute !== "function") throw new ConfigurationError("NodeForge integration requires an Ollama SDK gateway.");
+    const result = await ollamaSdkGateway.execute({
+      agent: selected,
+      correlationId: request.correlation_id,
+      prompt: "Say hello to the NodeForge Supervisor in one short sentence."
+    });
+    return { summary: result.text || "<empty response>", tool_events: [] };
+  }
+
   async function runCodexTask(selected, request) {
     if (typeof codexSdkGateway?.execute !== "function") throw new ConfigurationError("NodeForge integration requires a Codex SDK gateway.");
     if (!toolRegistry || typeof runtimeGovernance?.createExecutionContext !== "function") throw new ConfigurationError("NodeForge integration requires governed Forge tools.");
     const executionId = `${request.task_id}:${request.request_id}`;
     const ticket = { ...request.ticket, id: request.task_id };
     const labMode = request.payload?.tool_test;
-    const prepass = relevantTreeSelector ? await createExplorePrepass({ relevantTreeSelector, protocolStorage }).run({ ticket }).catch(() => null) : null;
-    const targetPath = labMode?.target_path ?? prepass?.targetPath ?? ticketTargetPath(ticket);
-    const allowedPrefixes = [...new Set([...(labMode?.allowed_prefixes ?? []), ...(prepass?.allowedPrefixes ?? []), ...prefixForPath(targetPath), ...ticketAllowedPrefixes(ticket)])];
+    const traced = ticketCandidateScope(ticket);
+    const prepass = traced ? null : relevantTreeSelector ? await createExplorePrepass({ relevantTreeSelector, protocolStorage }).run({ ticket }).catch(() => null) : null;
+    const targetPath = labMode?.target_path ?? traced?.targetPath ?? prepass?.targetPath ?? ticketTargetPath(ticket);
+    const allowedPrefixes = [...new Set([...(labMode?.allowed_prefixes ?? []), ...(traced?.allowedPrefixes ?? []), ...(prepass?.allowedPrefixes ?? []), ...prefixForPath(targetPath), ...ticketAllowedPrefixes(ticket)])];
     if (!targetPath && !allowedPrefixes.length) throw Object.assign(new ConfigurationError("Ticket target is ambiguous; provide an implementation path in the ticket objective or acceptance criteria."), { code: "TICKET_TARGET_MISSING" });
     const allowedFilePaths = [targetPath, "backend/package.json"].filter(Boolean);
     const complexity = labMode ? { level: "moderate", ...COMPLEXITY_FALLBACK } : classifyTicketComplexity(ticket);
     projectLogger({ event_name: "supervisor.ticket_complexity", level: "info", status: "success", message: `Ticket classified as ${complexity.level}.`, task_id: request.task_id, correlation_id: request.correlation_id, source: "nodeforge-task-integration", payload: { complexity_level: complexity.level, effort: complexity.effort, discovery_budget: complexity.discovery_budget, max_turns: complexity.max_turns, reasoning: complexity.reasoning } });
+    const resumeState = createResumeState(request.payload?.resume_from ?? null, complexity);
     const context = runtimeGovernance.createExecutionContext({
       task_id: request.task_id,
       execution_id: executionId,
@@ -133,7 +174,7 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
       capabilities: ["select_code_graph_candidates", "search_code", "read_file", "write_diff", "edit_diff", "run_test", "check_test", "commit_changes", "report_done"],
       allowed_file_paths: allowedFilePaths,
       allowed_prefixes: allowedPrefixes,
-      changed_paths: [],
+      changed_paths: [...resumeState.changedPaths],
       context_budget: { max_bytes: 1000000, max_calls: 12 },
       discovery_budget: complexity.discovery_budget,
       discovery_candidate_calls: complexity.candidate_calls,
@@ -145,44 +186,69 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
       lifecycle: "RUNNING",
       audit_context: { correlation_id: request.correlation_id }
     });
-    const toolContext = { ...context, ticket, task: ticket, task_context: ticket, changed_paths: [], allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, lab_mode: Boolean(labMode), session_id: executionId, target_path: targetPath };
-    const checkpointed = checkpointedRegistry({ store: checkpoints, registry: toolRegistry, taskId: request.task_id, targetPath, allowedPrefixes, complexity, selected, correlationId: request.correlation_id });
+    const toolContext = { ...context, project_root: projectRoot, ticket, task: ticket, task_context: ticket, changed_paths: [...resumeState.changedPaths], allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, lab_mode: Boolean(labMode), session_id: executionId, target_path: targetPath };
+    const checkpointed = checkpointedRegistry({ store: checkpoints, registry: toolRegistry, taskId: request.task_id, targetPath, allowedPrefixes, complexity, selected, correlationId: request.correlation_id, resumeState });
     const definitions = [selectCodeGraphCandidatesDefinition, searchCodeDefinition, readFileDefinition, writeDiffDefinition, editDiffDefinition, runTestDefinition, checkTestDefinition, commitChangesDefinition, reportDoneDefinition];
     const forgeToolNames = new Set(definitions.map((definition) => definition.name));
     const codexToolEvents = [];
-    const result = await codexSdkGateway.execute({
-      agentId: selected.agent_id,
-      correlationId: request.correlation_id,
-      cwd: projectRoot,
-      onSessionReady: (toolNames) => projectLogger({ event_name: "supervisor.codex_mcp_session_ready", level: "info", status: "success", message: "Codex Forge MCP session ready.", task_id: request.task_id, correlation_id: request.correlation_id, source: "codex-sdk-ticket", payload: { request_id: request.request_id, agent_id: selected.agent_id, tools: toolNames } }),
-      options: {
-        model: selected.model,
-        forgeTools: { registry: checkpointed, context: toolContext, definitions },
-        approvalPolicy: labMode?.approval_policy ?? "on-request"
-      },
-      prompt: withResumePrefix(
-        labMode
-          ? buildCodexToolTestPrompt(request.task_id, targetPath, allowedPrefixes)
-          : buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, complexity),
-        request.payload?.resume_from
-      ),
-      onEvent: async (event) => {
-        const toolEvent = sdkToolEvent(event, forgeToolNames);
-        if (!toolEvent) return;
-        codexToolEvents.push(toolEvent);
-        projectLogger({
-          event_name: "supervisor.agent_tool_event",
-          level: toolEvent.status === "failed" ? "error" : "info",
-          status: toolEvent.status === "failed" ? "failed" : "success",
-          message: `Codex Forge MCP tool ${toolEvent.tool} ${toolEvent.status}.`,
+    let result;
+    try {
+      result = await codexSdkGateway.execute({
+        agentId: selected.agent_id,
+        correlationId: request.correlation_id,
+        cwd: projectRoot,
+        resumeThreadId: resumeState.threadId,
+        onSessionReady: (threadId, toolNames) => {
+          if (typeof threadId === "string" && threadId) resumeState.threadId = threadId;
+          if (Array.isArray(toolNames)) projectLogger({ event_name: "supervisor.codex_mcp_session_ready", level: "info", status: "success", message: "Codex Forge MCP session ready.", task_id: request.task_id, correlation_id: request.correlation_id, source: "codex-sdk-ticket", payload: { request_id: request.request_id, agent_id: selected.agent_id, tools: toolNames } });
+          checkpoints?.save(checkpointPayload(resumeState, { task_id: request.task_id, status: "in_progress" })).catch(() => {});
+        },
+        options: {
+          model: selected.model,
+          forgeTools: { registry: checkpointed, context: toolContext, definitions },
+          approvalPolicy: labMode?.approval_policy ?? "on-request"
+        },
+        prompt: buildResumePrompt(
+          labMode
+            ? buildCodexToolTestPrompt(request.task_id, targetPath, allowedPrefixes)
+            : buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, complexity),
+          resumeState,
+          { agentId: selected.agent_id, provider: selected.provider, changedPaths: toolContext.changed_paths }
+        ),
+        onEvent: async (event) => {
+          const toolEvent = sdkToolEvent(event, forgeToolNames);
+          if (!toolEvent) return;
+          codexToolEvents.push(toolEvent);
+          projectLogger({
+            event_name: "supervisor.agent_tool_event",
+            level: toolEvent.status === "failed" ? "error" : "info",
+            status: toolEvent.status === "failed" ? "failed" : "success",
+            message: `Codex Forge MCP tool ${toolEvent.tool} ${toolEvent.status}.`,
+            task_id: request.task_id,
+            ticket_id: request.task_id,
+            correlation_id: request.correlation_id,
+            source: labMode ? "codex-sdk-tool-lab" : "codex-sdk-ticket",
+            payload: { request_id: request.request_id, agent_id: selected.agent_id, server: "forge", tool: toolEvent.tool, item_id: toolEvent.item_id, arguments: toolEvent.arguments, result: toolEvent.result, error: toolEvent.error }
+          });
+        }
+      });
+    } catch (error) {
+      if (checkpoints) {
+        await checkpoints.save(checkpointPayload(resumeState, {
           task_id: request.task_id,
-          ticket_id: request.task_id,
           correlation_id: request.correlation_id,
-          source: labMode ? "codex-sdk-tool-lab" : "codex-sdk-ticket",
-          payload: { request_id: request.request_id, agent_id: selected.agent_id, server: "forge", tool: toolEvent.tool, item_id: toolEvent.item_id, arguments: toolEvent.arguments, result: toolEvent.result, error: toolEvent.error }
-        });
+          agent_id: selected?.agent_id ?? null,
+          provider: selected?.provider ?? null,
+          target_path: targetPath,
+          allowed_prefixes: allowedPrefixes,
+          complexity_level: complexity?.level ?? null,
+          changed_paths: [...resumeState.changedPaths],
+          status: "in_progress",
+          failure: failureDetail(error)
+        })).catch(() => {});
       }
-    });
+      throw error;
+    }
     if (codexToolEvents.length === 0) throw Object.assign(new ConfigurationError("Codex SDK did not expose Forge MCP tool calls to the session."), { code: "CODEX_MCP_TOOL_CALLS_MISSING" });
     assertTicketExecutionCompleted(codexToolEvents, { labMode, missingCode: "CODEX_MCP_TOOL_CALLS_MISSING" });
     return { summary: result.text || "<empty response>", tool_events: codexToolEvents };
@@ -198,80 +264,37 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
   }
 }
 
-// A RUN after a VPS crash resumes from the per-turn checkpoint instead of
-// restarting the agent. completed_tools ran successfully before the crash;
-// the worktree still holds their file changes, so the agent must NOT repeat
-// them — it continues with the next tool in the ticket sequence.
-function withResumePrefix(prompt, resume) {
-  if (!resume || typeof resume !== "object") return prompt;
-  const done = (resume.completed_tools ?? []).join(", ") || "(none recorded)";
-  return [
-    `RESUMED RUN: a previous execution crashed after completing turn ${resume.last_completed_turn ?? 0}.`,
-    `Tools already completed successfully (do NOT call them again for the same inputs): ${done}.`,
-    `Their file changes are already in the worktree — verify with read_file if needed, then continue with the next step.`,
-    `Previous agent: ${resume.agent_id ?? "unknown"} (${resume.provider ?? "unknown provider"}).`,
-    "",
-    prompt
-  ].join("\n");
-}
-
 // isOpenAiProfile - handles isOpenAiProfile operation.
 function isOpenAiProfile(profile) {
   return String(profile?.provider ?? "").toLowerCase() === "openai";
 }
 
-// Wraps the governed Forge tool registry so that after every successful tool
-// call the current progress is durably checkpointed. On VPS crash mid-run, the
-// next RUN loads this checkpoint and resumes from the last completed turn
-// instead of restarting the agent from scratch. Once report_done succeeds the
-// checkpoint is marked completed (retained for auditing), so resume no longer
-// applies unless the caller forces a fresh run.
-function checkpointedRegistry({ store, registry, taskId, targetPath, allowedPrefixes, complexity, selected, correlationId }) {
-  if (!store || !registry) return registry;
-  const turnCount = { value: 0 };
-  const maxTurns = Number.isInteger(complexity?.max_turns) && complexity.max_turns > 0 ? complexity.max_turns : null;
-  const completedTools = [];
-  const wrapped = {};
-  for (const [name, tool] of Object.entries(registry)) {
-    if (typeof tool?.execute !== "function") { wrapped[name] = tool; continue; }
-    wrapped[name] = Object.freeze({
-      ...tool,
-      async execute(input, context) {
-        if (maxTurns !== null && turnCount.value >= maxTurns && name !== "report_done") {
-          throw Object.assign(new ConfigurationError(`Turn limit reached (${turnCount.value}/${maxTurns}). The ONLY remaining allowed tool is report_done; use it to summarize the work performed so far, then stop.`), { code: "MAX_TURNS_EXCEEDED" });
-        }
-        const result = await tool.execute(input, context);
-        turnCount.value += 1;
-        completedTools.push(name);
-        const done = name === "report_done";
-        const changedSnapshot = Array.isArray(context?.changed_paths) ? [...context.changed_paths] : [];
-        if (done) await store.complete(taskId, { completed_tools: [...completedTools], last_tool: name, changed_paths: changedSnapshot }).catch(() => {});
-        else {
-          await store.save({
-            task_id: taskId,
-            correlation_id: correlationId,
-            agent_id: selected?.agent_id ?? null,
-            provider: selected?.provider ?? null,
-            target_path: targetPath,
-            allowed_prefixes: allowedPrefixes,
-            complexity_level: complexity?.level ?? null,
-            last_completed_turn: turnCount.value,
-            completed_tools: [...completedTools],
-            last_tool: name,
-            changed_paths: changedSnapshot,
-            status: "in_progress"
-          }).catch(() => {});
-        }
-        return result;
-      }
-    });
-  }
-  return wrapped;
-}
-
 // isCodexProfile - handles isCodexProfile operation.
 function isCodexProfile(profile) {
   return String(profile?.provider ?? "").toLowerCase() === "codex";
+}
+
+// isOllamaProfile - routes ollama provider profiles to the Ollama SDK gateway.
+function isOllamaProfile(profile) {
+  return String(profile?.provider ?? "").toLowerCase() === "ollama";
+}
+
+// When the ticket already carries sprint-leader-traced candidates, the legacy
+// explore prepass is bypassed: the first PATCH path becomes the target and the
+// prefixes derive from every real candidate path. Legacy backfill placeholders
+// do not count — those tickets still run live prepass retrieval.
+export function ticketCandidateScope(ticket) {
+  const files = Array.isArray(ticket?.candidate_files) ? ticket.candidate_files : [];
+  const real = files.filter((entry) =>
+    entry && typeof entry.path === "string" && entry.path
+    && (entry.role === "PATCH" || entry.role === "REUSE")
+    && !isLegacyBackfillCandidate(entry));
+  if (!real.length) return null;
+  const rank = (role) => role === "PATCH" ? 0 : 1;
+  const ordered = [...real].sort((a, b) => rank(a.role) - rank(b.role));
+  const targetPath = ordered[0]?.path ?? null;
+  const allowedPrefixes = [...new Set(ordered.flatMap((entry) => prefixForPath(entry.path)))];
+  return { targetPath, allowedPrefixes };
 }
 
 // The ticket schema forbids extra fields, so the target file must be named in
@@ -331,7 +354,6 @@ function ticketAllowedPrefixes(ticket) {
   if (isUiTicket(ticket)) prefixes.push("ui/nextjs/", "ui/src/", "web/src/");
   if (isBackendTicket(ticket)) prefixes.push("backend/src/", "backend/tests/");
   return prefixes;
-  return prefixes;
 }
 
 // buildCodexTicketPrompt - handles buildCodexTicketPrompt operation.
@@ -356,21 +378,42 @@ function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, complexity)
     `Ticket ${ticket?.id ?? ""}: ${ticket?.title ?? ""}`,
     `Objective: ${ticket?.objective ?? ""}`,
     ...(acceptance ? ["Acceptance criteria:", acceptance] : []),
+    ...ticketVocabularyHints(ticket),
     "",
     ...instructions,
+    ...coderProjectConventions(),
     "Work in English and produce all file content in English.",
-    "Code documentation rule: when creating a new file, add a concise summary comment at the top. When creating a new function, add a concise summary comment immediately before its definition. Summaries state purpose only and must not repeat obvious line-by-line behavior.",
     // Budget discipline: exploration must end and the run must finish within
     // the gateway wall-clock timeout. Past runs died exploring (15+ searches)
     // and timed out before edit_diff/commit. The budget comes from the ticket
     // complexity classification so simple tickets are not over-provisioned.
     `Budget discipline: you have a hard wall-clock deadline and a discovery budget of ${complexity.discovery_budget} exploration calls. The next action after identifying the target and relevant context is edit_diff or write_diff; do not spend the full budget by default. Every discovery result includes discovery_budget.remaining — start editing before it reaches 0. Simple tickets do not receive automatic discovery escalation. Re-read nothing you already read; prefer edit_diff with an exact anchor over re-reading whole files. Do not run run_test before at least one edit_diff/write_diff succeeded.`,
-    "Search discipline: select_code_graph_candidates is your map — read its candidate files first. To explore an unfamiliar file, run one kind=\"file\" search with projection=\"summary\" for its symbol map, then read targeted windows. Never search for text you are guessing at (UI labels, headings, ticket phrasing); search_code exists ONLY to verify or extend identifiers you already saw in a tool result. If a search_code call returns 0 matches, do not rephrase the same guess — read a candidate file window instead.",
+    "Search discipline: select_code_graph_candidates is your map — read its candidate files first. Each ticket-traced candidate carries a symbol field: locate by symbol name first (symbol_map or search_code kind symbol), never by line number — line numbers go stale after other tickets edit the same file. To explore an unfamiliar file, run one kind=\"file\" search with projection=\"summary\" for its symbol map, then read targeted windows. Never search for text you are guessing at (UI labels, headings, ticket phrasing); search_code exists ONLY to verify or extend identifiers you already saw in a tool result. If a search_code call returns 0 matches, do not rephrase the same guess — read a candidate file window instead.",
+    "Symbol check: if the ticket symbol is missing from the file or its content no longer matches the ticket reason, the file changed since tracing — re-discover via search_code instead of editing blind.",
     "Tool enforcement: read_file on files over 500 lines returns only a 40-line preview — always pass offset/limit windows. Exploration that yields no new information 3 times in a row is refused by the tool — act on what you have.",
     "Use the sha256 returned by read_file as before_checksum for write_diff/edit_diff. Never send the string \"null\"; use JSON null only when read_file reports the file does not exist and a new file is intentionally required.",
     ...(targetPath ? [`Completion gate: report_done is blocked until ${targetPath} appears in changed_paths. Any report_done that does not include the target file will fail with REPORT_SCOPE_INVALID. After editing the target, verify/run_test, then commit and report_done; do not continue with unrelated discovery or edits to bypass this gate.`] : []),
     `When the ticket is satisfied, call commit_changes with an appropriate commit message and then report_done with a concise summary. Stop after report_done.`
   ].filter((line) => line !== undefined).join("\n");
+}
+
+// Keeps explicit ticket vocabulary hints in the prompt while repository-wide guidance stays just-in-time.
+function ticketVocabularyHints(ticket = {}) {
+  if (!Array.isArray(ticket.vocabulary_hints) || ticket.vocabulary_hints.length === 0) return [];
+  const hints = ticket.vocabulary_hints.map((hint) => typeof hint === "string" ? hint : hint?.business_term ?? hint?.term ?? hint?.businessTerm).filter(Boolean);
+  return hints.length ? ["", `Explicit vocabulary hints from ticket: ${hints.join(", ")}`] : [];
+}
+
+// coderProjectConventions - shared AGENTS.md subset injected into coder prompts (Claude + Codex).
+function coderProjectConventions() {
+  return [
+    "Project conventions (AGENTS.md):",
+    "- New files/functions only: add a short summary comment stating the business purpose alongside the technical description, in the same language as the code, without secrets. Do not add summaries to existing files/functions.",
+    "- Before naming a new file/function/module/variable, call read_file on vocabulary/glossary.md and use the standardized term; prefer ticket vocabulary_hints when present. Never edit vocabulary/glossary.md.",
+    "- Every file must stay at or under 250 lines (check read_file total_lines); split the file instead of growing past the limit.",
+    "- Stay inside ticket scope; no unrelated refactors or while-I'm-here changes.",
+    "- Never swallow errors in catch: log, rethrow, or reference the error; best-effort probes use // eslint-disable-next-line no-silent-catch -- <reason>."
+  ];
 }
 
 // buildCodexToolTestPrompt - handles buildCodexToolTestPrompt operation.
@@ -419,6 +462,7 @@ function extractResultErrorCode(item) {
   try {
     const parsed = JSON.parse(text);
     return typeof parsed?.error_code === "string" ? parsed.error_code : null;
+  // eslint-disable-next-line no-silent-catch -- Error-code probe: non-JSON content means no structured code.
   } catch {
     return null;
   }
@@ -466,10 +510,13 @@ function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, complexity) 
     `Ticket ${ticket?.id ?? ""}: ${ticket?.title ?? ""}`,
     `Objective: ${ticket?.objective ?? ""}`,
     ...(acceptance ? ["Acceptance criteria:", acceptance] : []),
+    ...ticketVocabularyHints(ticket),
     "",
     ...instructions,
+    ...coderProjectConventions(),
     `Budget discipline: you have a hard turn limit and a discovery budget of ${complexity.discovery_budget} exploration calls. The next action after identifying the target and relevant context is edit_diff or write_diff; do not spend the full budget by default. Every discovery result includes discovery_budget.remaining — start editing before it reaches 0. Simple tickets do not receive automatic discovery escalation. Re-read nothing you already read; prefer edit_diff with an exact anchor over re-reading whole files. Do not run run_test before at least one edit_diff/write_diff succeeded.`,
-    "Search discipline: select_code_graph_candidates is your map — read its candidate files first. Never search for text you are guessing at (UI labels, headings, ticket phrasing); search_code exists ONLY to verify or extend identifiers you already saw in a tool result. If a search_code call returns 0 matches, do not rephrase the same guess — read a candidate file window instead.",
+    "Search discipline: select_code_graph_candidates is your map — read its candidate files first. Each ticket-traced candidate carries a symbol field: locate by symbol name first (symbol_map or search_code kind symbol), never by line number — line numbers go stale after other tickets edit the same file. Never search for text you are guessing at (UI labels, headings, ticket phrasing); search_code exists ONLY to verify or extend identifiers you already saw in a tool result. If a search_code call returns 0 matches, do not rephrase the same guess — read a candidate file window instead.",
+    "Symbol check: if the ticket symbol is missing from the file or its content no longer matches the ticket reason, the file changed since tracing — re-discover via search_code instead of editing blind.",
     "Tool enforcement: read_file on files over 500 lines returns only a 40-line preview — always pass offset/limit windows. Exploration that yields no new information 3 times in a row is refused by the tool — act on what you have.",
     "Use the checksum returned by read_file as before_checksum for write_diff/edit_diff; never send the string \"null\". Use JSON null only when intentionally creating a new file.",
     "For an existing file, use edit_diff with a small exact anchor and replacement. Use write_diff only for a new file or an existing file no larger than 8 KB. If write_diff returns DESTRUCTIVE_OVERWRITE or CONTENT_TOO_LARGE, retry with edit_diff; do not stop or report done.",
@@ -558,6 +605,7 @@ function normalizeToolErrorCode(block) {
   try {
     const parsed = JSON.parse(text);
     return typeof parsed?.error_code === "string" ? parsed.error_code : null;
+  // eslint-disable-next-line no-silent-catch -- Error-code probe: non-JSON content means no structured code.
   } catch {
     return null;
   }

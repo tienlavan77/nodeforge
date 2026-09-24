@@ -123,6 +123,7 @@ export function createSenderWorker({ queue, agentRegistry, agentResolver, eventB
     return single?.name && single.input ? [{ id: single.id, name: single.name, input: single.input }] : [];
   }
 
+  // eslint-disable-next-line no-silent-catch -- Arguments probe: non-JSON input defaults to null by design.
   function parseArguments(value) { if (typeof value !== "string") return value; try { return JSON.parse(value); } catch { return null; } }
 
   async function persistResponse(job, response) {

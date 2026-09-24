@@ -5,10 +5,10 @@ import { createRoadmapStore } from "../../src/modules/governance/roadmap-store.j
 import { createProseTicketService } from "../../src/application/prose-ticket-service.js";
 import { createTicketCrudService } from "../../src/application/ticket-crud-service.js";
 
-function createService({ agentStream, agentRoleResolver } = {}) {
+function createService({ agentStream, agentRoleResolver, candidateResolver, sprintLeader } = {}) {
   const roadmaps = createRoadmapStore({});
   const proseTicketService = createProseTicketService({ roadmapStore: roadmaps });
-  const service = createTicketCrudService({ roadmaps, proseTicketService, agentStream, agentRoleResolver });
+  const service = createTicketCrudService({ roadmaps, proseTicketService, agentStream, agentRoleResolver, candidateResolver, sprintLeader });
   return { roadmaps, service };
 }
 
@@ -179,50 +179,32 @@ test("prose content that parses directly never reaches the sprint leader", async
   assert.equal(agentCalls, 0);
   assert.equal(result.ticket.title, "Direct parse");
 });
-
-test("regenerates an existing ticket in English from Vietnamese context via the sprint leader", async () => {
-  const prompts = [];
-  const ticketFileUpdates = [];
-  const Vietnamese = "Tiêu đề: Báo cáo sprint\nMục tiêu: Hiển thị tiến độ\nTiêu chí: Người dùng xem được tiến độ";
-  const { roadmaps, service } = createService({
-    agentStream: async function* ({ agentId, payload }) {
-      assert.equal(agentId, "AGENT-SL-1");
-      prompts.push(payload.text);
-      yield { text: '```json\n{"title":"Sprint progress report","objective":"Display progress","acceptance_criteria":["Users can view progress"],"priority":"high"}\n```' };
+test("hallucinated leader paths are stripped and resolved server-side", async () => {
+  const seen = [];
+  const { service } = createService({
+    agentStream: async function* ({ payload }) {
+      seen.push(payload.text);
+      yield { text: '```json\n{"title":"Fix chat","objective":"Fix the chat panel.","acceptance_criteria":["Panel works."],"style":["frontend"],"candidate_files":[{"path":"web/src/components/chat/ChatPanel.tsx","role":"PATCH","reason":"made up"}]}\n```' };
     },
-    agentRoleResolver: { resolve: (role) => { assert.equal(role, "sprint_leader"); return "AGENT-SL-1"; } }
+    agentRoleResolver: { resolve: () => "AGENT-SL-1" },
+    candidateResolver: { resolve: async (draft) => ({ ...draft, candidate_files: [{ path: "ui/nextjs/components/NodeForgePanels.jsx", role: "REFERENCE", reason: "retrieval:real-file" }], candidates_produced_by: "retrieval", candidates_produced_at: "2026-09-23T00:00:00Z" }) }
   });
-  roadmaps.save({ id: "ROADMAP-P1", project_id: "P1", version: "1.0.0", created_at: "2026-09-13T00:00:00Z", sprints: [{ id: "SPRINT-P1-1", roadmap_id: "ROADMAP-P1", project_id: "P1", objective: "Sprint one", tickets: [{ id: "TICKET-1", project_id: "P1", roadmap_id: "ROADMAP-P1", sprint_id: "SPRINT-P1-1", title: "Báo cáo sprint", objective: "Hiển thị tiến độ", acceptance_criteria: ["Người dùng xem được tiến độ"], provenance: { source: "project_owner", source_id: "TICKET-1", created_at: "2026-09-13T00:00:00Z" } }], exit_criteria: ["done"] }] });
-  // Inject file store update capture by wrapping service with file store
-  const fileRoadmaps = roadmaps;
-  const fileService = createService({
-    agentStream: async function* ({ payload }) { prompts.push(payload.text); yield { text: '```json\n{"title":"Sprint progress report","objective":"Display progress","acceptance_criteria":["Users can view progress"]}\n```' }; },
-    agentRoleResolver: { resolve: () => "AGENT-SL-1" }
-  });
-  // Direct exercise of regenerateTicketEnglish on the first service after patching ticketFileStore
-  // Re-create service with ticketFileStore to verify file sync
-  const { createTicketCrudService: create } = await import("../../src/application/ticket-crud-service.js");
-  const { createProseTicketService: createProse } = await import("../../src/application/prose-ticket-service.js");
-  const prose = createProse({ roadmapStore: fileRoadmaps });
-  const svcWithStore = create({ roadmaps: fileRoadmaps, proseTicketService: prose, agentStream: async function* ({ payload }) { prompts.push(payload.text); yield { text: '```json\n{"title":"Sprint progress report","objective":"Display progress","acceptance_criteria":["Users can view progress"]}\n```' }; }, agentRoleResolver: { resolve: () => "AGENT-SL-1" }, ticketFileStore: { create: () => {}, update: (arg) => { ticketFileUpdates.push({ title: arg.ticket.title, context: arg.context }); return true; } }, publisher: { publish: () => {} } });
-  const result = await svcWithStore.regenerateTicketEnglish({ projectId: "P1", ticketId: "TICKET-1", context: Vietnamese });
-  assert.equal(result.ticket.id, "TICKET-1");
-  assert.equal(result.ticket.title, "Sprint progress report");
-  assert.equal(result.updated, true);
-  assert.match(prompts[0], /TICKET-1/);
-  assert.match(prompts[0], /Báo cáo sprint/);
-  assert.deepEqual(ticketFileUpdates, [{ title: "Sprint progress report", context: Vietnamese }]);
-  // No duplicate ticket created
-  assert.equal(fileRoadmaps.getCurrent().sprints[0].tickets.length, 1);
+  const result = await service.createTicket({ projectId: "P1", content: "fix chat panel" });
+  assert.equal(result.created, true);
+  assert.match(seen[0], /never invent file paths/);
+  assert.deepEqual(result.ticket.candidate_files, [{ path: "ui/nextjs/components/NodeForgePanels.jsx", role: "REFERENCE", reason: "retrieval:real-file" }]);
+  assert.equal(result.ticket.candidates_produced_by, "retrieval");
 });
 
-test("regeneration fails without losing ticket when leader returns invalid English content", async () => {
-  const { roadmaps } = createService();
-  roadmaps.save({ id: "ROADMAP-P1", project_id: "P1", version: "1.0.0", created_at: "2026-09-13T00:00:00Z", sprints: [{ id: "SPRINT-P1-1", roadmap_id: "ROADMAP-P1", project_id: "P1", objective: "Sprint one", tickets: [{ id: "TICKET-1", project_id: "P1", roadmap_id: "ROADMAP-P1", sprint_id: "SPRINT-P1-1", title: "Báo cáo sprint", objective: "Hiển thị tiến độ", acceptance_criteria: ["Người dùng xem được tiến độ"], provenance: { source: "project_owner", source_id: "TICKET-1", created_at: "2026-09-13T00:00:00Z" } }], exit_criteria: ["done"] }] });
-  const { createTicketCrudService: create } = await import("../../src/application/ticket-crud-service.js");
-  const { createProseTicketService: createProse } = await import("../../src/application/prose-ticket-service.js");
-  const prose = createProse({ roadmapStore: roadmaps });
-  const svc = create({ roadmaps, proseTicketService: prose, agentStream: async function* () { yield { text: '```json\n{"title":"","objective":"","acceptance_criteria":[]}\n```' }; }, agentRoleResolver: { resolve: () => "AGENT-SL-1" }, publisher: { publish: () => {} } });
-  await assert.rejects(() => svc.regenerateTicketEnglish({ projectId: "P1", ticketId: "TICKET-1", context: "Nội dung tiếng Việt" }), (e) => e.code === "INVALID_REGENERATED_TICKET");
-  assert.equal(roadmaps.getCurrent().sprints[0].tickets[0].title, "Báo cáo sprint");
+test("leader text without resolver falls back to marked placeholder candidates", async () => {
+  const { service } = createService({
+    agentStream: async function* () {
+      yield { text: '```json\n{"title":"Fix API","objective":"Fix the endpoint.","acceptance_criteria":["Endpoint works."],"style":["backend"]}\n```' };
+    },
+    agentRoleResolver: { resolve: () => "AGENT-SL-1" }
+  });
+  const result = await service.createTicket({ projectId: "P1", content: "fix api" });
+  assert.equal(result.created, true);
+  assert.equal(result.ticket.candidate_files.length, 1);
+  assert.match(result.ticket.candidate_files[0].reason, /^legacy-backfill:/);
 });

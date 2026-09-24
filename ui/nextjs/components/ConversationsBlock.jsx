@@ -14,6 +14,13 @@ async function apiRenameConversation(id, title) {
   if (!res.ok) { const p = await res.json().catch(() => ({})); throw new Error(p.error ?? p.message ?? "Rename failed"); }
   return res.json().catch(() => ({}));
 }
+// Pins or unpins a conversation from the left chat list.
+async function apiPinConversation(id, pinned) {
+  const action = pinned ? "unpin" : "pin";
+  const res = await fetch(`/forge/v1/conversations/${encodeURIComponent(id)}/${action}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
+  if (!res.ok) { const p = await res.json().catch(() => ({})); throw new Error(p.error ?? p.message ?? (pinned ? "Unpin failed" : "Pin failed")); }
+  return res.json().catch(() => ({}));
+}
 async function apiArchiveConversation(id) {
   const res = await fetch(`/forge/v1/conversations/${encodeURIComponent(id)}/archive`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
   if (!res.ok) {
@@ -25,7 +32,7 @@ async function apiArchiveConversation(id) {
   return res.json().catch(() => ({}));
 }
 
-// Single row block with title left and three inline actions right.
+// Single row block with title left and pin plus inline actions right.
 export function ConversationsBlock({
   conversation,
   active = false,
@@ -52,9 +59,24 @@ export function ConversationsBlock({
   isDragging,
   isDragOver,
   isArchived,
+  onTogglePin,
+  onPinError,
 }) {
   const titleText = conversation.title ?? conversation.name ?? conversation.id ?? conversation.conversation_id ?? "";
+  const isPinned = conversation.pinned === true || conversation.pinned === 1;
   const wrapRef = useRef(null);
+
+  // Handles pin toggle via API then notifies parent; restores prior state on failure.
+  async function handleTogglePin() {
+    const id = String(conversation.id ?? conversation.conversation_id ?? "");
+    try {
+      const updated = await apiPinConversation(id, isPinned);
+      const normalized = updated && typeof updated === "object" ? (updated.conversation ?? updated) : null;
+      onTogglePin?.(normalized && typeof normalized === "object" && "pinned" in normalized ? normalized : { ...conversation, pinned: !isPinned });
+    } catch (err) {
+      onPinError?.(err?.message ?? (isPinned ? "Unpin failed" : "Pin failed"));
+    }
+  }
 
   // Handles delete action via API then notifies parent.
   async function handleDelete() {
@@ -112,6 +134,7 @@ export function ConversationsBlock({
       )}
       {!isEditing && (
         <div className="conversations-block-actions" ref={wrapRef}>
+          <button type="button" className="conversations-block-action" aria-label={isPinned ? "Unpin conversation" : "Pin conversation"} aria-pressed={isPinned} onClick={handleTogglePin}>{isPinned ? "Unpin" : "Pin"}</button>
           <button type="button" className="conversations-block-action" onClick={() => onStartRename?.()}>Rename</button>
           <button type="button" className="conversations-block-action" onClick={handleArchive}>Archive</button>
           <button type="button" className="conversations-block-action is-danger" onClick={handleDelete}>Delete</button>

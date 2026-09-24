@@ -2,12 +2,14 @@
 /* TICKET-PROJECT-NODEFORGE-1789489861283: agent profile 'team' field supported via agent-profile-store persistence */
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../shared/errors.js";
+import { backfillTicketCandidates, inferTicketStyle } from "../modules/index/ticket-scope.js";
+import { extractTicketJson } from "./ticket-draft-parser.js";
 
-const UPDATABLE = ["title", "objective", "acceptance_criteria", "priority", "dependencies", "status", "last_error", "style"];
+const UPDATABLE = ["title", "objective", "acceptance_criteria", "priority", "dependencies", "status", "last_error", "style", "candidate_files", "candidates_produced_by", "candidates_produced_at"];
 const SPRINT_LEADER_ROLE = "sprint_leader";
 
 // Creates a CRUD service for tickets with sprint-leader normalization.
-export function createTicketCrudService({ roadmaps, proseTicketService, ticketFileStore, publisher, agentStream, agentRoleResolver, clock = () => new Date(), logger = console } = {}) {
+export function createTicketCrudService({ roadmaps, proseTicketService, ticketFileStore, publisher, agentStream, agentRoleResolver, candidateResolver, sprintLeader, clock = () => new Date(), logger = console } = {}) {
   if (typeof roadmaps?.getCurrent !== "function") throw new ConfigurationError("Ticket CRUD requires a Roadmap Store.");
   if (typeof proseTicketService?.createFromObject !== "function") throw new ConfigurationError("Ticket CRUD requires the Prose Ticket Service.");
   if (ticketFileStore !== undefined && typeof ticketFileStore?.create !== "function") throw new ConfigurationError("Ticket CRUD requires a valid Ticket File Store.");
@@ -26,12 +28,12 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
     // the canonical ticket (and any downstream coder payload) is English only.
     const ownerContext = typeof context === "string" ? context : undefined;
     if (ownerContext !== undefined) {
-      if (typeof agentStream !== "function" || typeof agentRoleResolver?.resolve !== "function") {
+      if ((typeof sprintLeader?.requestTicket !== "function" && typeof agentStream !== "function") || typeof agentRoleResolver?.resolve !== "function") {
         throw Object.assign(new ConfigurationError("Ticket normalization requires the Sprint Leader agent."), { statusCode: 503, code: "TICKET_NORMALIZER_UNAVAILABLE" });
       }
       let agentId;
       try { agentId = agentRoleResolver.resolve(SPRINT_LEADER_ROLE); } catch { throw Object.assign(new ConfigurationError("Ticket normalization requires the Sprint Leader agent."), { statusCode: 503, code: "TICKET_NORMALIZER_UNAVAILABLE" }); }
-      const converted = await requestSprintLeaderTicket({ projectId, agentId, content: ownerContext, ticket, feedback: undefined });
+      const converted = await resolveSprintLeaderTicket({ projectId, agentId, content: ownerContext, ticket, feedback: undefined });
       if (!converted || typeof converted !== "object" || Array.isArray(converted)) {
         throw Object.assign(new ConfigurationError("Sprint leader response did not contain a valid ticket JSON object."), { statusCode: 422, code: "INVALID_TICKET" });
       }
@@ -50,11 +52,11 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
     // validation (raw chat or an invalid draft) goes through the sprint
     // leader, which must return a schema-valid ticket before creation.
     // Without agent wiring the original validation error is kept.
-    if (typeof agentStream !== "function" || typeof agentRoleResolver?.resolve !== "function") throw attemptError(attempt);
+    if ((typeof sprintLeader?.requestTicket !== "function" && typeof agentStream !== "function") || typeof agentRoleResolver?.resolve !== "function") throw attemptError(attempt);
     let agentId;
     try { agentId = agentRoleResolver.resolve(SPRINT_LEADER_ROLE); } catch { throw attemptError(attempt); }
 
-    const converted = await requestSprintLeaderTicket({ projectId, agentId, content, ticket, feedback: attempt.question });
+    const converted = await resolveSprintLeaderTicket({ projectId, agentId, content, ticket, feedback: attempt.question });
     if (!converted || typeof converted !== "object" || Array.isArray(converted)) {
       throw Object.assign(new ConfigurationError("Sprint leader response did not contain a valid ticket JSON object."), { statusCode: 422, code: "INVALID_TICKET" });
     }
@@ -98,21 +100,64 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
     if (!ticketFileStore) return;
     ticketFileStore.create({ ticket, context });
   }
+  // Sprint leader drafts through the SDK with built-in search: it verifies
+  // paths with Read before citing, so its candidate_files are kept as-is.
+  // The legacy text-only path has no codebase access, so anything path-like
+  // it invents is stripped and resolved server-side instead.
+  async function resolveSprintLeaderTicket({ projectId, agentId, content, ticket, feedback }) {
+    const viaSdk = typeof sprintLeader?.requestTicket === "function";
+    const draft = await requestSprintLeaderTicket({ projectId, agentId, content, ticket, feedback });
+    if (!draft) return draft;
+    if (viaSdk) return stampSdkDraft(draft);
+    const textOnly = { ...draft };
+    delete textOnly.candidate_files;
+    delete textOnly.candidates_produced_by;
+    delete textOnly.candidates_produced_at;
+    if (typeof candidateResolver?.resolve === "function") return candidateResolver.resolve(textOnly);
+    return styleAndBackfill(draft);
+  }
+  // Stamps an SDK draft, keeping the leader's own verified candidates.
+  function stampSdkDraft(draft) {
+    const stamped = { ...draft };
+    if (!Array.isArray(stamped.style) || !stamped.style.length) {
+      const inferred = inferTicketStyle(stamped);
+      if (inferred) stamped.style = inferred;
+    }
+    if (Array.isArray(stamped.candidate_files) && stamped.candidate_files.length) {
+      if (!stamped.candidates_produced_by) stamped.candidates_produced_by = "sprint-leader-sdk";
+      if (!stamped.candidates_produced_at) stamped.candidates_produced_at = clock().toISOString();
+      return stamped;
+    }
+    if (typeof candidateResolver?.resolve === "function") return candidateResolver.resolve(stamped);
+    return backfillTicketCandidates(stamped, { now: () => clock().toISOString() });
+  }
+  // Infers style then attaches a marked placeholder for legacy drafts.
+  function styleAndBackfill(draft) {
+    const styled = { ...draft };
+    if (!Array.isArray(styled.style) || !styled.style.length) {
+      const inferred = inferTicketStyle(styled);
+      if (inferred) styled.style = inferred;
+    }
+    return backfillTicketCandidates(styled, { now: () => clock().toISOString() });
+  }
   async function requestSprintLeaderTicket({ projectId, agentId, content, ticket, feedback }) {
+    if (typeof sprintLeader?.requestTicket === "function") {
+      return sprintLeader.requestTicket({ projectId, agentId, content, ticket, feedback, correlationId: `CORR-TICKET-CREATE-${randomUUID()}` });
+    }
     const prompt = [
       "Convert the project owner request below into exactly one governance ticket.",
       "Write ALL ticket field values (title, objective, acceptance_criteria) in English. If the owner request is in another language (e.g. Vietnamese), translate it into clear technical English.",
       "REQUIRED: Infer ticket style as a non-empty array of strings. Valid values: frontend (UI/component/page/accordion/modal/chat UI), backend (api/endpoint/database/server), security (auth/permission/credential), infra (deploy/docker/pipeline), docs (documentation). Every ticket MUST include style with at least one value; return e.g. [\"frontend\"] or [\"frontend\",\"backend\"]. Do NOT omit style.",
       "Respond with ONLY one ```json fenced block containing the ticket JSON object. No prose outside the block.",
       "Ticket fields: title (string, required), objective (string, required), acceptance_criteria (array of strings, at least one, required), style (array of strings, REQUIRED, at least one: frontend|backend|security|infra|docs), priority (optional: low|medium|normal|high|critical), dependencies (optional: array of ticket ids).",
-      "Do NOT include id, project_id, roadmap_id, sprint_id, status, last_error, or provenance; the system assigns them.",
+      "You have no codebase access so never invent file paths. Do NOT include candidate_files, candidates_produced_by, candidates_produced_at, id, project_id, roadmap_id, sprint_id, status, last_error, or provenance; the system resolves real codebase files server-side and assigns identity fields.",
       feedback ? `Previous validation feedback: ${feedback}` : undefined,
       `Project id: ${projectId}`,
       content ? `Owner request (raw chat):\n${content}` : undefined,
       ticket ? `Owner draft ticket JSON that failed validation:\n${JSON.stringify(ticket, null, 2)}` : undefined
     ].filter((line) => line !== undefined).join("\n\n");
     let output = "";
-    for await (const chunk of agentStream({ agentId, payload: { text: prompt }, correlationId: `CORR-TICKET-CREATE-${randomUUID()}` })) {
+    for await (const chunk of agentStream({ agentId, payload: { text: prompt, tools: [] }, correlationId: `CORR-TICKET-CREATE-${randomUUID()}` })) {
       if (typeof chunk?.text === "string") output += chunk.text;
     }
     return extractTicketJson(output);
@@ -123,12 +168,12 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
     const current = roadmaps.getCurrent();
     const original = current?.sprints?.flatMap((sprint) => sprint.tickets ?? []).find((ticket) => ticket.id === ticketId && ticket.project_id === projectId);
     if (!original) throw Object.assign(new ConfigurationError(`Unknown ticket: ${ticketId}.`), { statusCode: 404 });
-    if (typeof agentStream !== "function" || typeof agentRoleResolver?.resolve !== "function") throw Object.assign(new ConfigurationError("English regeneration requires the Sprint Leader agent."), { statusCode: 503, code: "TICKET_REGENERATOR_UNAVAILABLE" });
+    if ((typeof sprintLeader?.requestTicket !== "function" && typeof agentStream !== "function") || typeof agentRoleResolver?.resolve !== "function") throw Object.assign(new ConfigurationError("English regeneration requires the Sprint Leader agent."), { statusCode: 503, code: "TICKET_REGENERATOR_UNAVAILABLE" });
     let agentId;
     try { agentId = agentRoleResolver.resolve(SPRINT_LEADER_ROLE); } catch { throw Object.assign(new ConfigurationError("English regeneration requires the Sprint Leader agent."), { statusCode: 503, code: "TICKET_REGENERATOR_UNAVAILABLE" }); }
     let converted;
     try {
-      converted = await requestSprintLeaderTicket({ projectId, agentId, content: context, ticket: undefined, feedback: `Regenerate ticket ${ticketId}; preserve its identity and translate every translatable field to English.` });
+      converted = await resolveSprintLeaderTicket({ projectId, agentId, content: context, ticket: undefined, feedback: `Regenerate ticket ${ticketId}; preserve its identity and translate every translatable field to English.` });
     } catch (error) {
       throw Object.assign(new ConfigurationError(`Sprint leader regeneration failed: ${error.message}`), { statusCode: 503, code: "TICKET_REGENERATOR_UNAVAILABLE", cause: error });
     }
@@ -155,7 +200,7 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
       const current = roadmaps.getCurrent();
       const existing = current?.sprints?.flatMap(s => s.tickets ?? []).find(t => t.id === ticketId);
       const merged = { ...(existing ?? {}), ...filtered };
-      const inferred = inferStyle(merged);
+      const inferred = inferTicketStyle(merged);
       if (inferred) filtered.style = inferred;
     }
     const saved = roadmaps.updateTicket?.({ projectId, ticketId, patch: filtered });
@@ -183,18 +228,12 @@ function validateRegeneratedTicket(ticket) {
   const errors = [];
   for (const field of ["title", "objective"]) if (typeof ticket[field] !== "string" || !ticket[field].trim()) errors.push(`${field} must be a non-empty string`);
   if (!Array.isArray(ticket.acceptance_criteria) || ticket.acceptance_criteria.length === 0 || ticket.acceptance_criteria.some((item) => typeof item !== "string" || !item.trim())) errors.push("acceptance_criteria must contain non-empty strings");
+  if (!Array.isArray(ticket.candidate_files) || ticket.candidate_files.length === 0) errors.push("candidate_files must contain at least one entry");
+  for (const entry of ticket.candidate_files ?? []) {
+    if ((entry?.role === "PATCH" || entry?.role === "REUSE") && (typeof entry?.symbol !== "string" || !entry.symbol.trim())) errors.push(`candidate_files entry ${entry?.path ?? "?"} with role ${entry?.role} must include a symbol`);
+  }
   if (ticket.priority !== undefined && !["low", "medium", "normal", "high", "critical"].includes(ticket.priority)) errors.push("priority is invalid");
   return errors;
-}
-
-function inferStyle(ticket) {
-  const text = [ticket?.title, ticket?.objective, ...(ticket?.acceptance_criteria ?? [])].filter(v => typeof v === "string").join(" ").toLowerCase();
-  const s = new Set();
-  if (/\b(frontend|front-end|ui\b|component|page\b|accordion|modal|chat.*ui|home chat)\b/.test(text)) s.add("frontend");
-  if (/\b(backend|back-end|api\b|endpoint|database|\bdb\b|sqlite|server\b)\b/.test(text)) s.add("backend");
-  if (/\b(security|auth|permission|credential|secret|token)\b/.test(text)) s.add("security");
-  if (/\b(infra|deploy|docker|ci\/cd|pipeline)\b/.test(text)) s.add("infra");
-  return s.size ? [...s] : undefined;
 }
 
 // Validates that a project ID is provided.
@@ -204,41 +243,3 @@ function requireProject(projectId) {
   }
 }
 
-// Extracts ticket JSON from agent output text.
-function extractTicketJson(text) {
-  const value = String(text ?? "");
-  const candidates = [];
-  const fenced = value.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1];
-  if (fenced?.trim()) candidates.push(fenced.trim());
-  const start = value.search(/[{[]/);
-  if (start >= 0) candidates.push(value.slice(start));
-  for (const candidate of candidates) {
-    const parsed = parseLeadingJson(candidate);
-    if (parsed) return parsed;
-  }
-  return undefined;
-}
-
-// Parses the leading JSON object from agent output.
-function parseLeadingJson(value) {
-  const trimmed = value.trim();
-  if (!trimmed.startsWith("{")) return undefined;
-  let depth = 0;
-  let quoted = false;
-  let escaped = false;
-  for (let index = 0; index < trimmed.length; index += 1) {
-    const character = trimmed[index];
-    if (quoted) {
-      if (escaped) escaped = false;
-      else if (character === "\\") escaped = true;
-      else if (character === '"') quoted = false;
-      continue;
-    }
-    if (character === '"') quoted = true;
-    else if (character === "{") depth += 1;
-    else if (character === "}" && --depth === 0) {
-      try { const parsed = JSON.parse(trimmed.slice(0, index + 1)); return parsed && !Array.isArray(parsed) ? parsed : undefined; } catch { return undefined; }
-    }
-  }
-  return undefined;
-}

@@ -22,10 +22,10 @@ export function createAgentCommunicationBus({ store = createAgentCommunicationSt
     return structuredClone(persisted);
   }
 
-  // Stream deltas are realtime-only. The completion path persists one canonical assistant message.
-  // Forwards realtime stream deltas without persistence, deduped by message id.
+  // Forwards realtime lifecycle/progress/delta events without persistence. The
+  // completion path persists one canonical assistant message for replay.
   function sendFast(message) {
-    if (!message?.message_type?.endsWith(".message.delta") && !message?.message_type?.endsWith(".message.progress")) throw new ConfigurationError("Fast communication is limited to agent stream progress and deltas.");
+    if (!message?.message_type?.endsWith(".message.delta") && !message?.message_type?.endsWith(".message.progress") && !message?.message_type?.endsWith(".working")) throw new ConfigurationError("Fast communication is limited to agent stream lifecycle, progress, and deltas.");
     if (!message?.id || fastIds.has(message.id)) return structuredClone(message);
     fastIds.add(message.id);
     for (const handler of observers) handler(structuredClone(message));

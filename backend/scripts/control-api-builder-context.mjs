@@ -11,6 +11,7 @@ export function createBuilderContext({ roadmaps, indexDb, contextEngine } = {}) 
         if (!indexDb.all("SELECT path FROM files WHERE path = ?", [targetPath]).length) throw new Error(`Indexed file not found: ${targetPath}`);
         const pack = await contextEngine.build({ task_id: ticket.id, line_ranges: [{ path: targetPath, start_line: 1, end_line: 2147483647 }], include_dependencies: true, agent_role: "builder" });
         for (const file of pack.files ?? []) if (file.content) sections.push(`File ${file.path}:\n${file.content}`);
+      // eslint-disable-next-line no-silent-catch -- Indexed context is optional; the agent tool loop reports stale context.
       } catch {
         // The agent tool loop reports stale or unavailable indexed context.
       }

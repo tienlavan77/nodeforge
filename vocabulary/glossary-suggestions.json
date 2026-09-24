@@ -1,0 +1,35 @@
+[
+  {
+    "business_term": "Chat",
+    "suggested_code_term": "conversation",
+    "confidence": 0.95,
+    "source_ticket_ids": [
+      "TICKET-PROJECT-NODEFORGE-1789356670440"
+    ],
+    "seen_count": 2,
+    "first_seen": "2026-09-22T03:42:06.638Z",
+    "last_seen": "2026-09-22T04:07:09.458Z"
+  },
+  {
+    "business_term": "Legacy Agent ID",
+    "suggested_code_term": "agentId",
+    "confidence": 0.9,
+    "source_ticket_ids": [
+      "TICKET-PROJECT-NODEFORGE-1789356670440"
+    ],
+    "seen_count": 1,
+    "first_seen": "2026-09-22T04:07:09.458Z",
+    "last_seen": "2026-09-22T04:07:09.458Z"
+  },
+  {
+    "business_term": "Architecture Manager",
+    "suggested_code_term": "architecture-manager",
+    "confidence": 0.88,
+    "source_ticket_ids": [
+      "TICKET-PROJECT-NODEFORGE-1789356670440"
+    ],
+    "seen_count": 1,
+    "first_seen": "2026-09-22T04:07:09.458Z",
+    "last_seen": "2026-09-22T04:07:09.458Z"
+  }
+]

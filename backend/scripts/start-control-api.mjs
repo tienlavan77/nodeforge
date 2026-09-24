@@ -24,15 +24,14 @@ import { createControlApiStorage } from "./control-api-storage.mjs";
 import { createControlApiHttp } from "./control-api-http.mjs";
 import { createProductionSupervisorRuntime } from "../src/modules/supervisor/production-runtime.js";
 import { createTerminalBridge } from "../src/modules/supervisor/terminal-bridge.js";
-import { createClaudeSdkGateway } from "../src/modules/agent/claude-sdk-gateway.js";
 import { createOpenAiSdkProviderFactory } from "../src/modules/agent/openai-sdk-provider.js";
 import { createOpenAiSdkGateway } from "../src/modules/agent/openai-sdk-gateway.js";
-import { createCodexSdkGateway } from "../src/modules/agent/codex-sdk-gateway.js";
 import { createRuntimeLogger } from "../src/core/runtime-logger.js";
 import { createAttemptContextBuilder } from "../src/modules/supervisor/attempt-context-builder.js";
 import { createSprintDagRunner, topologicalTicketLevels } from "../src/modules/supervisor/sprint-dag.js";
 import { createCodeIndexSummaryBuilder } from "../src/modules/index/code-index-summary-builder.js";
 import { createStage1ReportService } from "../src/modules/workflows/stage1-report-service.js";
+import { createEvalCaseRecorder } from "../src/modules/eval/eval-case-store.js";
 import { createTicketCrudService } from "../src/application/ticket-crud-service.js";
 import { createAgentExecutionCheckpointStore } from "../src/modules/agent/agent-execution-checkpoint.js";
 
@@ -45,22 +44,21 @@ const storage = await createControlApiStorage({
 });
 const { fileService, protocolStorage, conversationStateStore, processLock, controlDb, indexDb } = storage;
 const database = controlDb;
-const { profiles, agentConfiguration, secrets, agentGateway, agentSettings, agentRoleResolver } = createControlApiAgent({ database, fileService, config });
-const claudeSdkGateway = createClaudeSdkGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference), timeoutMs: config.sdkTimeoutMs });
+const { profiles, agentConfiguration, secrets, agentGateway, claudeSdkGateway, codexSdkGateway, ollamaSdkGateway, agentSettings, agentRoleResolver } = createControlApiAgent({ database, fileService, config });
 const openaiSdkProviderFactory = createOpenAiSdkProviderFactory({ credentialResolver: (reference) => secrets.get(reference) });
 const openaiSdkGateway = createOpenAiSdkGateway({ providerFactory: openaiSdkProviderFactory });
-const codexSdkGateway = createCodexSdkGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference), timeoutMs: config.sdkTimeoutMs });
-const platform = createControlApiPlatform({ config, database, indexDb, fileService, agentGateway, logEvent });
+const platform = createControlApiPlatform({ config, database, indexDb, fileService, agentGateway, claudeSdkGateway, codexSdkGateway, agentRoleResolver, logEvent });
 const gitService = createGitService({ projectRoot: config.cwd });
 const reportService = createStage1ReportService({ protocolStorage, fileService, gitService });
-const { projectId, indexDb: platformIndexDb, codeSearch, fileGraph, relevantTreeSelector, memoryRetriever, communications, conversations, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, verificationOrchestrator, contextEngine, sprintOrchestration, ticketCommandParser, proseTicketService, ticketFileStore, sprintPlanUpload, taskSummaries, projectMemory } = platform;
+const onEvalCase = createEvalCaseRecorder({ root: config.cwd });
+const { projectId, indexDb: platformIndexDb, codeSearch, fileGraph, relevantTreeSelector, freshnessChecker, ticketCandidateResolver, ticketSprintLeader, memoryRetriever, communications, conversations, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, verificationOrchestrator, contextEngine, sprintOrchestration, ticketCommandParser, proseTicketService, ticketFileStore, sprintPlanUpload, taskSummaries, projectMemory } = platform;
 testService = platform.testService;
 const unifiedStreamOrder = createUnifiedStreamOrderer();
 const runtimeLogger = createRuntimeLogger({ logEvent });
 const buildBuilderContext = createBuilderContext({ roadmaps, indexDb, contextEngine });
 const codeIndexSummaryBuilder = createCodeIndexSummaryBuilder({ fileService, indexDb });
-const supervisorRuntime = createProductionSupervisorRuntime({ projectRoot: config.cwd, fileService, root: ".forge/runtime", eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, agentRoleResolver, codeSearch, relevantTreeSelector, logger: runtimeLogger, projectLogger: runtimeLogger.emit,
-  conversationStateStore, protocolStorage, codeSearch, testService, gitService, reportService, enableReadCode: true, autoStartWorkers: false,
+const supervisorRuntime = createProductionSupervisorRuntime({ projectRoot: config.cwd, fileService, root: ".forge/runtime", eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, agentRoleResolver, codeSearch, relevantTreeSelector, freshnessChecker, logger: runtimeLogger, projectLogger: runtimeLogger.emit,
+  conversationStateStore, protocolStorage, codeSearch, testService, gitService, reportService, onEvalCase, enableReadCode: true, autoStartWorkers: false,
   attemptBuilderFactory: (runtime, stores) => createAttemptContextBuilder({
     protocolStorage: stores.protocolStorage, toolRegistry: stores.toolRegistry,
     memoryRetriever, relevantTreeSelector,
@@ -131,9 +129,11 @@ const dispatchTicket = async ({ projectId, ticketId, conversationId, fresh = fal
 
   if (!resume) {
     // An explicit fresh RUN clears prior protocol records
-    // (request/response/report/final_report) and conversation state first, so a
-    // stale final_report from an earlier attempt cannot cause STORAGE_CONFLICT
-    // or get silently reused regardless of the ticket's current status.
+    // (request/response/report/final_report), conversation state, and any
+    // checkpoint (including completed audit records) first, so a stale
+    // final_report from an earlier attempt cannot cause STORAGE_CONFLICT or
+    // get silently reused regardless of the ticket's current status.
+    await supervisorRuntime.agentCheckpoints.clear(ticketId).catch(() => {});
     await protocolStorage.clearTask(ticketId);
     await conversationStateStore.clear(`CONV-BUILDER-PROJECT-NODEFORGE-${ticketId}`);
   }
@@ -176,7 +176,7 @@ const api = createControlApiHttp({ services: {
   bus, communications, conversations, eventStore, indexDb: platformIndexDb, subscriptions, knowledge, roadmaps, sprintPlans, provenance,
   relevantTreeSelector, decisions, agentSettings, sprintPlanUpload, sprintOrchestration, dispatchTicket, runToolLab, internalBus,
   ticketCommandParser, proseTicketService, buildBuilderContext, protocolStorage, agentGateway, publishUnifiedStreamEvent,
-  ticketCrudService: createTicketCrudService({ roadmaps, proseTicketService, ticketFileStore, publisher: eventPublisher, agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId }), agentRoleResolver }),
+  ticketCrudService: createTicketCrudService({ roadmaps, proseTicketService, ticketFileStore, publisher: eventPublisher, agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId }), agentRoleResolver, candidateResolver: ticketCandidateResolver, sprintLeader: ticketSprintLeader }),
   dispatchTask, dispatchSprint, logEvent, projectId,
   architectureWorkspaceService: createArchitectureWorkspaceService({ knowledge, roadmaps, sprintPlans }),
   projectDashboardService: createProjectDashboardService({ roadmaps, sprintPlans, provenance, ticketFileStore, relevantTreeSelector, logReader: ({ ticket_id }) => readLogEvents({ project_id: projectId, ticket_id }) }),

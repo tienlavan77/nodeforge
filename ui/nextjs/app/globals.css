@@ -1002,13 +1002,16 @@ button, input { font: inherit; }
 .provider-anthropic { background: transparent; }
 
 .provider-codex { background: transparent; border: 0; color: var(--app-accent); }
+.provider-ollama { background: transparent; border: 0; }
 .provider-letter { font: 700 24px 'Space Grotesk', sans-serif; }
 
 :root[data-theme='light'] .provider-openai img,
-:root[data-theme='light'] .provider-codex img { filter: invert(1); }
+:root[data-theme='light'] .provider-codex img,
+:root[data-theme='light'] .provider-ollama img { filter: invert(1); }
 
 .provider-logo.provider-openai,
 .provider-logo.provider-codex,
+.provider-logo.provider-ollama,
 .provider-logo.provider-anthropic { background: transparent !important; border: 0 !important; }
 
 :root[data-theme='light'] .agent-switch { background: #dce7ec; border-color: #b5cbd3; }

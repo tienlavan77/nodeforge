@@ -134,7 +134,8 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       bus.sendFast(responseMessage(message, streamEventType(agentId, "message.delta"), payload, `DELTA-${index}`));
     };
     try {
-      bus.send(responseMessage(message, "architecture.working", { agent_status: "WORKING" }, "WORKING"));
+      // Working is a live status signal, not a replayable assistant message.
+      bus.sendFast(responseMessage(message, "architecture.working", { agent_status: "WORKING" }, "WORKING"));
       const taskId = message.payload.task?.id ?? message.id;
       const initialText = `${await enrichAgentText(message, agentId)}${AGENT_TOOL_PROTOCOL_UNLIMITED}`;
       let requestPayload = { text: initialText, ...(message.payload.task ? { task: message.payload.task } : {}) };
@@ -252,6 +253,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     try {
       const context = await buildAgentContext({ message, agentId });
       return context ? `${message.payload.text}\n\nContext:\n${context}` : message.payload.text;
+    // eslint-disable-next-line no-silent-catch -- Context lookup is best-effort; the Builder still receives the task.
     } catch (error) {
       // Context lookup is best-effort; the Builder can still receive the task.
       return message.payload.text;
@@ -274,6 +276,7 @@ function hasJsonCandidate(text) { return /[{[]/.test(String(text ?? "")); }
 // Checks whether text contains valid embedded JSON.
 function isParsableJsonCandidate(text) {
   const value = String(text ?? ""); const start = value.search(/[{[]/); if (start < 0) return false;
+  // eslint-disable-next-line no-silent-catch -- JSON probe: non-JSON text takes the normal-chat path by design.
   try { JSON.parse(value.slice(start)); return true; } catch { return false; }
 }
 
@@ -285,6 +288,7 @@ function inferLegacyIntent(text) {
   try {
     const parsed = JSON.parse(value);
     if (parsed && !Array.isArray(parsed) && ["id", "title", "objective", "acceptance_criteria"].some((field) => Object.hasOwn(parsed, field))) return "ticket_create";
+  // eslint-disable-next-line no-silent-catch -- Legacy prose stays normal chat unless it exposes ticket labels.
   } catch {
     // Legacy prose remains normal chat unless it exposes explicit ticket labels.
   }

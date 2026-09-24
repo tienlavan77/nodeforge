@@ -6,10 +6,11 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
-    "lint": "node ../node_modules/eslint/bin/eslint.js \"src/**/*.js\" \"tests/**/*.js\" --no-error-on-unmatched-pattern --max-warnings=0",
+    "lint": "node ../node_modules/eslint/bin/eslint.js --rulesdir ../eslint-rules \"src/**/*.js\" \"tests/**/*.js\" \"tests/**/*.mjs\" --no-error-on-unmatched-pattern --max-warnings=0",
     "typecheck": "node ../node_modules/typescript/bin/tsc --project ../jsconfig.json",
     "validate:schemas": "node scripts/validate-schemas.mjs",
-    "eval:retrieval": "node tests/eval/run-retrieval-eval.mjs"
+    "eval:retrieval": "node tests/eval/run-retrieval-eval.mjs",
+    "eval:backfill": "node scripts/backfill-eval-cases.mjs"
   },
   "engines": {
     "node": ">=22.5.0"

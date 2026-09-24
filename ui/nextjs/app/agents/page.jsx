@@ -2,19 +2,22 @@
 // AgentsPage — agent management with CRUD and connection testing.
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { NodeForgeHeader } from "../../components/NodeForgeHeader.jsx";
 import { AddAgentModal } from "../../components/AddAgentModal.jsx";
+import { createNodeClient } from "../../lib/node-client.js";
 
+const PROJECT_ID = "PROJECT-NODEFORGE";
 const API_URL = typeof window !== "undefined"
   ? `${window.location.protocol}//${window.location.hostname}:3100/forge/v1/agents`
   : "http://127.0.0.1:3100/forge/v1/agents";
-const ROLE_LABELS = { coder: "Coder", reviewer: "Reviewer", sprint_leader: "Sprint leader", architecture_manager: "Architecture manager" };
+const ROLE_LABELS = { coder: "Coder", reviewer: "Reviewer", sprint_leader: "Sprint leader", architecture_manager: "Architecture manager", linguist: "Linguist" };
 const PROVIDER_MODELS = {
-  claude: ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-7", "claude-opus-5", "claude-opus-4-8[1m]", "claude-sonnet-4-5", "claude-sonnet-4-0", "claude-opus-4-5", "claude-haiku-4-3", "claude-3-5-sonnet-20241022"],
-  anthropic: ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-7", "claude-opus-5", "claude-opus-4-8[1m]", "claude-sonnet-4-5", "claude-sonnet-4-0", "claude-opus-4-5", "claude-haiku-4-3", "claude-3-5-sonnet-20241022"],
-  openai: ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.2", "gpt-5.6", "gpt-5.6-mini", "gpt-5.1"],
-  codex: ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.2", "gpt-5.6", "gpt-5.6-mini", "gpt-5.1"]
+  claude: ["claude-haiku-4-5", "agentgw.cloud", "agentgw.cloud", "agentgw.cloud", "agentgw.cloud[1m]", "claude-sonnet-4-5", "claude-sonnet-4-0", "claude-opus-4-5", "claude-haiku-4-3", "claude-3-5-sonnet-20241022"],
+  anthropic: ["claude-haiku-4-5", "agentgw.cloud", "agentgw.cloud", "agentgw.cloud", "agentgw.cloud[1m]", "claude-sonnet-4-5", "claude-sonnet-4-0", "claude-opus-4-5", "claude-haiku-4-3", "claude-3-5-sonnet-20241022"],
+  openai: ["agentgw.cloud", "agentgw.cloud", "agentgw.cloud", "agentgw.cloud", "agentgw.cloud.2", "agentgw.cloud.6", "agentgw.cloud.6-mini", "agentgw.cloud.1"],
+  codex: ["agentgw.cloud", "agentgw.cloud", "agentgw.cloud", "agentgw.cloud", "agentgw.cloud.2", "agentgw.cloud.6", "agentgw.cloud.6-mini", "agentgw.cloud.1"],
+  ollama: ["gemma4:31b", "gpt-oss:120b", "gpt-oss:20b", "nemotron-3-nano:30b", "nemotron-3-super", "nemotron-3-ultra"]
 };
 
 // Normalizes raw agent payload into a consistent array.
@@ -30,6 +33,7 @@ function providerAsset(provider) {
   const key = String(provider ?? "").toLowerCase();
   if (key === "anthropic" || key === "claude") return { src: "/images/anthropic.svg", alt: "Anthropic logo" };
   if (key === "openai" || key === "codex") return { src: "/images/openai-light.svg", alt: key === "codex" ? "Codex logo" : "OpenAI logo" };
+  if (key === "ollama") return { src: "/images/ollama.svg", alt: "Ollama logo" };
   return { src: "/images/openai-light.svg", alt: `${provider} logo` };
 }
 
@@ -41,10 +45,31 @@ function displayValue(value) {
   return String(value);
 }
 
+// Maps project stream lifecycle signals onto the agent status domain.
+function streamStatusToAgentStatus(status) {
+  const value = String(status ?? "").toLowerCase();
+  if (value === "working") return "working";
+  if (value === "idle" || value === "completed" || value === "failed") return "ready";
+  return null;
+}
+
+// Applies a project stream status event to the agent list.
+function applyAgentStatusEvent(current, event) {
+  if (event?.event_type !== "conversation.agent.status_changed") return current;
+  const agentId = event.payload?.agent_id;
+  const next = streamStatusToAgentStatus(event.payload?.status);
+  if (typeof agentId !== "string" || !agentId || !next) return current;
+  if (!current.some((agent) => (agent.agent_id ?? agent.id) === agentId)) return current;
+  return current.map((agent) => ((agent.agent_id ?? agent.id) === agentId ? { ...agent, status: next } : agent));
+}
+
 // Agent management page with CRUD and connection testing.
 export default function AgentsPage() {
+  const client = useMemo(() => createNodeClient(), []);
+  const streamRef = useRef(null);
   const [agents, setAgents] = useState([]);
   const [state, setState] = useState("loading");
+  const [streamState, setStreamState] = useState("connecting");
   const [error, setError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -55,13 +80,16 @@ export default function AgentsPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [editingAgent, setEditingAgent] = useState(null);
-  const [form, setForm] = useState({ role: "architecture_manager", team: "Backend", agent_name: "", provider: "anthropic", model: "claude-sonnet-4-6", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false });
+  const [form, setForm] = useState({ role: "architecture_manager", team: "Backend", agent_name: "", provider: "anthropic", model: "agentgw.cloud", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false });
 
   // Updates a form field value from an input event.
   function updateField(event) {
     setForm((current) => {
       const next = { ...current, [event.target.name]: event.target.value };
-      if (event.target.name === "provider") next.model = (PROVIDER_MODELS[next.provider] ?? PROVIDER_MODELS.openai)[0];
+      if (event.target.name === "provider") {
+        next.model = (PROVIDER_MODELS[next.provider] ?? PROVIDER_MODELS.openai)[0];
+        if (next.provider === "ollama") next.gateway_url = "https://ollama.com";
+      }
       return next;
     });
   }
@@ -135,7 +163,7 @@ export default function AgentsPage() {
       setAgents((current) => editingAgent ? current.map((item) => item.agent_id === editingAgent.agent_id ? payload : item) : [...current, payload]);
       setModalOpen(false);
       setEditingAgent(null);
-      setForm({ role: "architecture_manager", team: "Backend", agent_name: "", provider: "anthropic", model: "claude-sonnet-4-6", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false });
+      setForm({ role: "architecture_manager", team: "Backend", agent_name: "", provider: "anthropic", model: "agentgw.cloud", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false });
     } catch (requestError) {
       setFormError(requestError.message || "Agent could not be created.");
     } finally { setSaving(false); }
@@ -161,14 +189,28 @@ export default function AgentsPage() {
     return () => { active = false; };
   }, []);
 
+  // Opens one project stream that keeps agent statuses current without refresh.
+  useEffect(() => {
+    if (streamRef.current) return undefined;
+    let active = true;
+    const stream = client.connectProjectStream({
+      projectId: PROJECT_ID,
+      onOpen: () => { if (active) setStreamState("connected"); },
+      onEvent: (event) => { if (active) setAgents((current) => applyAgentStatusEvent(current, event)); },
+      onError: () => { if (active) setStreamState("error"); }
+    });
+    streamRef.current = stream;
+    return () => { active = false; streamRef.current = null; stream.close(); };
+  }, [client]);
+
   return <div className="app-shell app-shell-control-room agent-profile-shell agents-directory-shell">
     <NodeForgeHeader title="NODEFORGE" subtitle="Supervisor Control Room" status={<><span className="live-dot" /> node online</>} actions={<Link className="history-button" href="/">Control room</Link>} />
     <main className="agents-directory" aria-label="Agents directory">
-      <div className="agents-directory-heading"><div><p className="eyebrow">NODEFORGE RUNTIME</p><h1>Agents</h1></div><div className="agents-heading-actions"><span>{state === "ready" ? `${agents.length} agents` : state === "loading" ? "Loading" : "Unavailable"}</span></div></div>
+      <div className="agents-directory-heading"><div><p className="eyebrow">NODEFORGE RUNTIME</p><h1>Agents</h1></div><div className="agents-heading-actions"><span>{state === "ready" ? `${agents.length} agents` : state === "loading" ? "Loading" : "Unavailable"}</span><span title={streamState === "error" ? "Project stream failed; showing last known statuses." : `Project stream ${streamState}.`}>{streamState === "connected" ? "live" : streamState === "error" ? "stream offline" : "connecting…"}</span></div></div>
       {state === "loading" && <p className="agents-directory-state">Loading agents from `/forge/v1/agents`…</p>}
       {state === "error" && <p className="agents-directory-state error">{error}</p>}
       {state === "ready" && agents.length === 0 && <p className="agents-directory-state">No agents returned by the API.</p>}
-      {state === "ready" && <div className="agents-card-grid"><button className="agent-directory-card agent-add-card" type="button" onClick={() => { setEditingAgent(null); setForm({ role: "architecture_manager", team: "Backend", agent_name: "", provider: "anthropic", model: "claude-sonnet-4-6", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false }); setTestState(""); setFormError(""); setModalOpen(true); }} aria-label="Add agent"><span>+</span><strong>Add agent</strong></button>{agents.map((agent, index) => {
+      {state === "ready" && <div className="agents-card-grid"><button className="agent-directory-card agent-add-card" type="button" onClick={() => { setEditingAgent(null); setForm({ role: "architecture_manager", team: "Backend", agent_name: "", provider: "anthropic", model: "agentgw.cloud", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false }); setTestState(""); setFormError(""); setModalOpen(true); }} aria-label="Add agent"><span>+</span><strong>Add agent</strong></button>{agents.map((agent, index) => {
         const id = agent.agent_id ?? agent.id ?? `agent-${index}`;
         const name = agent.agent_name ?? agent.name ?? agent.label ?? id;
         const capabilities = agent.capabilities ?? agent.tools ?? [];

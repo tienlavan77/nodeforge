@@ -14,6 +14,7 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
   async function loadCheckpointMap() {
     if (typeof listResumableCheckpoints !== "function") return null;
     let resumable;
+    // eslint-disable-next-line no-silent-catch -- Resumable checkpoints are optional; null means none.
     try { resumable = await listResumableCheckpoints(); } catch { return null; }
     return new Map((resumable ?? []).map((checkpoint) => [checkpoint.task_id, checkpoint]));
   }
@@ -81,6 +82,13 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
       }
 // Summary: Handles conversation archive and full chat history (user + agent) retrieval.
       // Archive via POST /conversations/:id/archive (used by ConversationsBlock)
+      if (method === "POST" && parts.length === 3 && (parts[2] === "pin" || parts[2] === "unpin")) {
+        const conversation = conversationCrudService.get(parts[1]);
+        if (!conversation) throw Object.assign(new ConfigurationError(`Conversation not found: ${parts[1]}.`), { statusCode: 404 });
+        if (projectId && conversation.project_id !== projectId) throw Object.assign(new ConfigurationError("Conversation belongs to a different project."), { statusCode: 404 });
+        if (parts[2] === "pin") return { status: 200, body: typeof conversationCrudService.pin === "function" ? conversationCrudService.pin(parts[1]) : conversationCrudService.update(parts[1], { pinned: true }) };
+        return { status: 200, body: typeof conversationCrudService.unpin === "function" ? conversationCrudService.unpin(parts[1]) : conversationCrudService.update(parts[1], { pinned: false }) };
+      }
       if (method === "POST" && parts.length === 3 && parts[2] === "archive") {
         const conversation = conversationCrudService.get(parts[1]);
         if (!conversation) throw Object.assign(new ConfigurationError(`Conversation not found: ${parts[1]}.`), { statusCode: 404 });

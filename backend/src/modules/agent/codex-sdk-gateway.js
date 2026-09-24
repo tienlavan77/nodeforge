@@ -19,7 +19,7 @@ export function createCodexSdkGateway({
 
   return Object.freeze({ execute });
 
-  async function execute({ agentId, agent, prompt, correlationId, cwd, options = {}, onEvent, onSessionReady } = {}) {
+  async function execute({ agentId, agent, prompt, correlationId, cwd, options = {}, resumeThreadId, onEvent, onSessionReady } = {}) {
     const profile = getEnabledConfig(agentId ?? agent?.agent_id);
     assertString(prompt, "Codex SDK prompt");
     assertString(correlationId, "Codex SDK correlation_id");
@@ -76,7 +76,7 @@ export function createCodexSdkGateway({
         env: buildCodexChildEnvironment(environment, options.env),
         ...(codexConfig ? { config: codexConfig } : {})
       });
-      const thread = codex.startThread({
+      const threadOptions = {
         model: options.model ?? profile.model ?? undefined,
         workingDirectory: cwd ?? options.workingDirectory ?? process.cwd(),
         sandboxMode: options.sandboxMode ?? "workspace-write",
@@ -90,7 +90,11 @@ export function createCodexSdkGateway({
         networkAccessEnabled: options.networkAccessEnabled ?? false,
         webSearchMode: options.webSearchMode ?? "disabled",
         skipGitRepoCheck: options.skipGitRepoCheck ?? false
-      });
+      };
+      const thread = typeof resumeThreadId === "string" && resumeThreadId && typeof codex.resumeThread === "function"
+        ? codex.resumeThread(resumeThreadId, threadOptions)
+        : codex.startThread(threadOptions);
+      onSessionReady?.(thread?.id ?? null, mcpSession?.tools?.map((tool) => tool.name) ?? []);
       const streamed = await thread.runStreamed(prompt, { signal: controller.signal, ...(options.outputSchema ? { outputSchema: options.outputSchema } : {}) });
       const items = [];
       let finalResponse = "";

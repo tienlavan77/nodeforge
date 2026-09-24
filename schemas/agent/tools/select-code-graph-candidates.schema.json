@@ -8,7 +8,7 @@
   "properties": {
     "query": { "type": "string", "minLength": 1, "maxLength": 500 },
     "context": { "type": "string", "maxLength": 1000 },
-    "limit": { "type": "integer", "minimum": 1, "maximum": 4 }
+    "limit": { "type": "integer", "minimum": 1, "maximum": 8 }
   },
   "not": {
     "required": ["path"]

@@ -2,7 +2,7 @@
 import { ConfigurationError } from "../../shared/errors.js";
 import { validateAgentContract } from "../../agents/agent-contract.js";
 
-const AGENT_ROLES = new Set(["architecture_manager", "sprint_leader", "runtime", "coder", "reviewer", "builder"]);
+const AGENT_ROLES = new Set(["architecture_manager", "sprint_leader", "runtime", "coder", "reviewer", "builder", "linguist"]);
 
 // Creates the in-memory agent registry with register/get/list semantics.
 export function createAgentRegistry() {

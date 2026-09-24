@@ -1,15 +1,15 @@
-// Persists and queries conversation records with UUID validation.
+// Persists and queries conversation records with UUID validation and pinning.
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../shared/errors.js";
 
-const UPDATABLE = new Set(["title", "status"]);
+const UPDATABLE = new Set(["title", "status", "pinned"]);
 const STATUSES = new Set(["active", "archived", "closed"]);
 
 // Creates a CRUD service for conversation persistence.
 export function createConversationCrudService({ database, clock = () => new Date() } = {}) {
   if (typeof database?.all !== "function" || typeof database?.run !== "function") throw new ConfigurationError("Conversation CRUD requires a database.");
   ensureTable(database);
-  return Object.freeze({ list, create, get, update, remove, ensure });
+  return Object.freeze({ list, create, get, update, remove, ensure, pin, unpin });
   function ensure({ id, project_id: projectId, agent_id: agentId, title } = {}) {
     const existing = get(id);
     if (existing) return existing;
@@ -19,7 +19,8 @@ export function createConversationCrudService({ database, clock = () => new Date
     const where = []; const params = [];
     if (projectId !== undefined) { requireId(projectId, "project_id"); where.push("project_id = ?"); params.push(projectId); }
     if (agentId !== undefined) { requireId(agentId, "agent_id"); where.push("agent_id = ?"); params.push(agentId); }
-    return database.all(`SELECT id, project_id, agent_id, title, status, created_at, updated_at FROM conversations${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY updated_at DESC`, params);
+    const rows = database.all(`SELECT id, project_id, agent_id, title, status, pinned, created_at, updated_at FROM conversations${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY pinned DESC, updated_at DESC, id ASC`, params);
+    return rows.map(toConversationRow);
   }
   function create(input = {}) {
     const projectId = requireId(input.project_id, "project_id");
@@ -36,31 +37,43 @@ export function createConversationCrudService({ database, clock = () => new Date
     if (!Object.prototype.hasOwnProperty.call(input, "project_id") || !Object.prototype.hasOwnProperty.call(input, "agent_id")) {
       throw Object.assign(new ConfigurationError("project_id and agent_id are required."), { statusCode: 400 });
     }
-    const conversation = { id: conversationId, project_id: projectId, agent_id: agentId, title, status: input.status ?? "active", created_at: now, updated_at: now };
+    const pinned = input.pinned === true || input.pinned === 1 ? true : false;
+    const conversation = { id: conversationId, project_id: projectId, agent_id: agentId, title, status: input.status ?? "active", pinned: pinned ? 1 : 0, created_at: now, updated_at: now };
     validateStatus(conversation.status);
-    try { database.run("INSERT INTO conversations (id, project_id, agent_id, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)", Object.values(conversation)); }
+    try { database.run("INSERT INTO conversations (id, project_id, agent_id, title, status, pinned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", Object.values(conversation)); }
     catch (error) { if (String(error.message).includes("UNIQUE")) throw Object.assign(new ConfigurationError(`Conversation already exists: ${conversation.id}.`), { statusCode: 409 }); throw error; }
-    return conversation;
+    return { ...conversation, pinned };
   }
-  function get(id) { const normalized = requireId(id, "conversation_id"); return database.all("SELECT id, project_id, agent_id, title, status, created_at, updated_at FROM conversations WHERE id = ?", [normalized])[0] ?? null; }
+  function get(id) { const normalized = requireId(id, "conversation_id"); const row = database.all("SELECT id, project_id, agent_id, title, status, pinned, created_at, updated_at FROM conversations WHERE id = ?", [normalized])[0] ?? null; return row ? toConversationRow(row) : null; }
   function update(id, patch = {}) {
     const current = get(id); if (!current) throw Object.assign(new ConfigurationError(`Conversation not found: ${id}.`), { statusCode: 404 });
     const changes = Object.fromEntries(Object.entries(patch).filter(([key, value]) => UPDATABLE.has(key) && value !== undefined));
     if (changes.status !== undefined) validateStatus(changes.status);
     if (changes.title !== undefined) changes.title = String(changes.title).trim() || current.title;
+    if (changes.pinned !== undefined) changes.pinned = changes.pinned === true || changes.pinned === 1 || changes.pinned === "true" ? true : false;
     const updated = { ...current, ...changes, updated_at: clock().toISOString() };
-    database.run("UPDATE conversations SET title = ?, status = ?, updated_at = ? WHERE id = ?", [updated.title, updated.status, updated.updated_at, id]);
+    database.run("UPDATE conversations SET title = ?, status = ?, pinned = ?, updated_at = ? WHERE id = ?", [updated.title, updated.status, updated.pinned ? 1 : 0, updated.updated_at, id]);
     return updated;
   }
-  function remove(id) { const current = get(id); if (!current) throw Object.assign(new ConfigurationError(`Conversation not found: ${id}.`), { statusCode: 404 }); database.run("DELETE FROM conversations WHERE id = ?", [id]); return { deleted: true, conversation_id: id }; }
+  // Pins a conversation so it stays at the top of the chat list.
+  function pin(id) { return update(id, { pinned: true }); }
+  // Unpins a conversation so it returns to chronological order.
+  function unpin(id) { return update(id, { pinned: false }); }
 }
 
 // Ensures the conversations table and indexes exist.
 function ensureTable(database) {
-  database.run(`CREATE TABLE IF NOT EXISTS conversations (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, agent_id TEXT NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`);
+  database.run(`CREATE TABLE IF NOT EXISTS conversations (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, agent_id TEXT NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', pinned INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`);
+  try { database.run("ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0"); }
+  // eslint-disable-next-line no-silent-catch -- Best-effort migration for databases created before pinning.
+  catch (error) { if (!String(error?.message ?? "").includes("duplicate column")) throw error; }
   database.run("CREATE INDEX IF NOT EXISTS conversations_project_agent ON conversations (project_id, agent_id, updated_at)");
   database.run("CREATE INDEX IF NOT EXISTS conversations_project ON conversations (project_id, updated_at)");
+  database.run("CREATE INDEX IF NOT EXISTS conversations_pinned ON conversations (pinned, updated_at)");
 }
+
+// Normalizes a conversation row so pinned is always a boolean with a safe default.
+function toConversationRow(row) { return { ...row, pinned: row.pinned === true || row.pinned === 1 ? true : false }; }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 

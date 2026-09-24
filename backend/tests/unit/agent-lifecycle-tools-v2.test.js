@@ -197,3 +197,30 @@ test("report_done allows tool-lab mode to record backend/tool-lab-target.txt", a
   const result = await report.execute({ summary: "done" }, { ticket: { id: "CODEX-TOOL-LAB-1", title: "Tool lab", objective: "Run lab", acceptance_criteria: ["lab"] }, lab_mode: true, changed_paths: ["backend/tool-lab-target.txt"], verify_result: null });
   assert.ok(result);
 });
+
+test("report_done blocks when a sprint leader PATCH file was not changed", async () => {
+  const report = createReportDoneTool({ reportService: fakeReportService() });
+  const ticket = { id: "T-PATCH", title: "Pin conversations", objective: "Pin conversations", acceptance_criteria: ["build passes"], candidate_files: [{ path: "backend/src/application/conversation-crud-service.js", role: "PATCH", symbol: "persistConversationPin", reason: "edit persistConversationPin" }, { path: "ui/nextjs/components/ConversationsBlock.jsx", role: "PATCH", symbol: "PinButton", reason: "edit PinButton" }] };
+  await assert.rejects(() => report.execute({ summary: "done" }, { ticket, changed_paths: ["backend/src/application/conversation-crud-service.js"] }), (error) => error.code === "REPORT_SCOPE_INVALID");
+});
+
+test("report_done allows all sprint leader PATCH files changed", async () => {
+  const report = createReportDoneTool({ reportService: fakeReportService() });
+  const ticket = { id: "T-PATCH-OK", title: "Pin conversations", objective: "Pin conversations", acceptance_criteria: ["build passes"], candidate_files: [{ path: "backend/src/application/conversation-crud-service.js", role: "PATCH", symbol: "persistConversationPin", reason: "edit persistConversationPin" }, { path: "ui/nextjs/components/ConversationsBlock.jsx", role: "PATCH", symbol: "PinButton", reason: "edit PinButton" }] };
+  const result = await report.execute({ summary: "done" }, { ticket, changed_paths: ["backend/src/application/conversation-crud-service.js", "ui/nextjs/components/ConversationsBlock.jsx"], verify_result: { pass: true, ready_for_review: true } });
+  assert.ok(result);
+});
+
+test("report_done allows a skipped PATCH file named with a no-change reason", async () => {
+  const report = createReportDoneTool({ reportService: fakeReportService() });
+  const ticket = { id: "T-PATCH-SKIP", title: "Pin conversations", objective: "Pin conversations", acceptance_criteria: ["build passes"], candidate_files: [{ path: "backend/src/application/conversation-crud-service.js", role: "PATCH", symbol: "persistConversationPin", reason: "edit persistConversationPin" }, { path: "ui/nextjs/components/ConversationsBlock.jsx", role: "PATCH", symbol: "PinButton", reason: "edit PinButton" }] };
+  const result = await report.execute({ summary: "ui/nextjs/components/ConversationsBlock.jsx needs no change: row already handles the pin state." }, { ticket, changed_paths: ["backend/src/application/conversation-crud-service.js"], verify_result: { pass: true, ready_for_review: true } });
+  assert.ok(result);
+});
+
+test("report_done ignores REUSE files when checking sprint leader scope", async () => {
+  const report = createReportDoneTool({ reportService: fakeReportService() });
+  const ticket = { id: "T-PATCH-REUSE", title: "Pin conversations", objective: "Pin conversations", acceptance_criteria: ["build passes"], candidate_files: [{ path: "backend/src/application/conversation-crud-service.js", role: "PATCH", symbol: "persistConversationPin", reason: "edit persistConversationPin" }, { path: "ui/nextjs/lib/node-client.js", role: "REUSE", symbol: "createConversation", reason: "reuse createConversation" }] };
+  const result = await report.execute({ summary: "done" }, { ticket, changed_paths: ["backend/src/application/conversation-crud-service.js"], verify_result: { pass: true, ready_for_review: true } });
+  assert.ok(result);
+});

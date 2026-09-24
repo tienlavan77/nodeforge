@@ -100,5 +100,6 @@ function toAnthropicTools(tools = []) {
 
 // Detects whether a URL targets the Devquote gateway by hostname.
 function isDevquoteGateway(url) {
+  // eslint-disable-next-line no-silent-catch -- URL probe: non-URL input means not the Devquote gateway.
   try { return new URL(url).hostname === "sv.devquote.shop"; } catch { return false; }
 }

@@ -9,6 +9,7 @@ if (!endpoint || !token) throw new Error("NodeForge Codex MCP bridge requires en
 const debugLogPath = process.env.NODEFORGE_CODEX_MCP_DEBUG_LOG;
 function debug(message, details) {
   if (!debugLogPath) return;
+  // eslint-disable-next-line no-silent-catch -- Diagnostics must never break the MCP stdio transport.
   try { mkdirSync(dirname(debugLogPath), { recursive: true }); appendFileSync(debugLogPath, `${new Date().toISOString()} ${message}${details === undefined ? "" : ` ${JSON.stringify(details)}`}\n`); } catch { /* diagnostics must never break MCP */ }
 }
 debug("started", { pid: process.pid, tool_count: definitions.length });
@@ -23,6 +24,7 @@ const input = readline.createInterface({ input: process.stdin, crlfDelay: Infini
 input.on("line", async (line) => {
   if (!line.trim()) return;
   let message;
+  // eslint-disable-next-line no-silent-catch -- Malformed input maps to a JSON-RPC error response; no server log needed.
   try { message = JSON.parse(line); } catch { return errorResult(null, -32700, "Invalid JSON."); }
   debug("request", { method: message.method, id: message.id, tool: message.params?.name });
   if (message.id === undefined) {
@@ -59,6 +61,7 @@ async function handle(message) {
     debug("node_response", { name, status: response.status });
     const raw = await response.text();
     let body;
+    // eslint-disable-next-line no-silent-catch -- Upstream error payload maps to an MCP error response; no server log needed.
     try { body = raw ? JSON.parse(raw) : {}; } catch { return { isError: true, content: [{ type: "text", text: JSON.stringify({ error_code: "MCP_INVALID_RESPONSE", message: `Forge MCP returned invalid JSON (HTTP ${response.status}).` }) }] }; }
     if (!response.ok) return { isError: true, content: [{ type: "text", text: JSON.stringify({ error_code: "MCP_HTTP_ERROR", message: body?.error ?? `Forge MCP returned HTTP ${response.status}.` }) }] };
     if (body.error) return { isError: true, content: [{ type: "text", text: body.error.message }] };

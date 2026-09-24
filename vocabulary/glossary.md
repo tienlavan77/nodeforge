@@ -15,7 +15,11 @@ Maps business terminology (how tickets/users phrase things) to standardized code
 |---|---|---|---|
 | Regenerate (response) | `retry`, `regen` | Do not use "recreate", "redo" in new function names | Miss case `1789476103218` |
 | English / response language | `locale`, `i18n` | Do not use "language" in new function names | Miss case `1789476103218` |
+| Chat (UI framework) | `conversation` | Ticket says "chat", code uses "conversation" (conversation-state-store); use "conversation" in new names | Miss case `1789356670440`, miner conf 0.95 |
+| Architecture Manager (agent) | `architecture-manager` | Kebab-case agent id used in UI + adapter; do not use "architecture_manager" for new agent ids | Miss case `1789356670440`, miner conf 0.88 |
+| Legacy Agent ID | `agentId` | Code field is `agentId`/`agent_id`; do not invent "legacyId" in new code | Miss case `1789356670440`, miner conf 0.90 |
 
 ## Update history
 
 - 2026-09-20: Initialized file; first two rows from miss case `1789476103218` ("Regenerate English"), found via retrieval eval baseline.
+- 2026-09-22: Merged 3 miner suggestions from miss case `1789356670440` (Chat->conversation, Architecture Manager->architecture-manager, Legacy Agent ID->agentId) after human approval; smoke batch 8 tickets, summary fix in `conversation-state-store.js`.

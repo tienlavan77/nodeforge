@@ -1,7 +1,7 @@
 // Resolves the best available agent profile for a given role by readiness and creation order.
 import { ConfigurationError } from "../../shared/errors.js";
 
-const ROLES = new Set(["coder", "reviewer", "sprint_leader", "architecture_manager"]);
+const ROLES = new Set(["coder", "reviewer", "sprint_leader", "architecture_manager", "linguist"]);
 const USABLE_STATUSES = new Set(["ready"]);
 
 // Creates a resolver that picks the earliest ready profile for a role.

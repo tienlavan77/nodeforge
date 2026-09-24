@@ -12,6 +12,22 @@ function getConversationId(conv) {
   return String(conv.id ?? conv.conversation_id ?? conv.conversationId ?? conv.title ?? Math.random());
 }
 
+// Checks whether a conversation is pinned.
+function isPinnedConversation(conv) {
+  return conv?.pinned === true || conv?.pinned === 1;
+}
+
+// Orders pinned conversations before unpinned while preserving deterministic order within each group.
+function sortPinnedFirst(list) {
+  const pinned = [];
+  const rest = [];
+  for (const item of list ?? []) {
+    if (isPinnedConversation(item)) pinned.push(item);
+    else rest.push(item);
+  }
+  return [...pinned, ...rest];
+}
+
 // Sends a create-conversation request to the Forge API and returns the created conversation.
 async function createConversationRequest(title, { onNewConversation, projectId, agentId } = {}) {
   const body = { title, project_id: projectId, agent_id: agentId };
@@ -47,6 +63,7 @@ export function ConversationsAccordion({
   const [dragOverId, setDragOverId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState("");
+  const [pinError, setPinError] = useState("");
   const menuRef = useRef(null);
   const fetchedKeyRef = useRef(null);
 
