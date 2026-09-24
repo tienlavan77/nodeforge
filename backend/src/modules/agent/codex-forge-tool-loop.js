@@ -80,7 +80,7 @@ export function createCodexForgeToolLoop({ agentGateway, projectLogger } = {}) {
       // after the governed tools it depends on have run (see lifecycle tools).
       messages.push({ type: "function_call", call_id: toolUse.id, name: toolUse.name, arguments: JSON.stringify(toolUse.input ?? {}) });
       messages.push({ type: "function_call_output", call_id: toolUse.id, output: JSON.stringify(result ?? null) });
-      if (toolUse.name === "report_done") {
+      if (toolUse.name === "report_done" && event.status !== "failed") {
         if (typeof result?.summary === "string" && result.summary) finalText = result.summary;
         break;
       }

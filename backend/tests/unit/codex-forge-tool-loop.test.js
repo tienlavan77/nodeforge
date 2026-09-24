@@ -195,3 +195,36 @@ test("aggregates usage rounds without leaking run-local state outside scope", as
   assert.equal(logs[0].payload.round, 1);
   assert.equal(logs[0].payload.agent_id, "codex-1");
 });
+
+// Retries after a failed report_done instead of stopping: a COMMIT_MISSING
+// rejection from the checkpoint gate returns to the model, which commits and
+// reports again in the same run.
+test("continues the loop when report_done fails and stops after a retry succeeds", async () => {
+  let reports = 0;
+  const agentGateway = {
+    request: async ({ payload }) => {
+      const calls = payload.messages.filter((message) => message.type === "function_call").length;
+      if (calls === 0) return { payload: { tool_use: { id: "c1", name: "report_done", input: { summary: "skip commit" } } } };
+      if (calls === 1) return { payload: { tool_use: { id: "c2", name: "commit_changes", input: { message: "commit before report" } } } };
+      return { payload: { tool_use: { id: "c3", name: "report_done", input: { summary: "committed then reported" } } } };
+    }
+  };
+  const registry = {
+    commit_changes: { execute: async () => ({ sha: "abc123" }) },
+    report_done: {
+      execute: async (input) => {
+        reports += 1;
+        if (reports === 1) { const error = new Error("Changes are present but commit_changes has not succeeded after the last edit."); error.code = "COMMIT_MISSING"; throw error; }
+        return { summary: input.summary };
+      }
+    }
+  };
+  const loop = createCodexForgeToolLoop({ agentGateway });
+  const result = await loop.run({ agentId: "codex-1", correlationId: "CORR-RETRY", prompt: "Run.", definitions: definitions(), registry, context: {} });
+  assert.equal(reports, 2);
+  assert.equal(result.rounds, 3);
+  assert.equal(result.text, "committed then reported");
+  assert.equal(result.tool_events.at(-1).tool, "report_done");
+  assert.equal(result.tool_events.at(-1).status, "completed");
+  assert.equal(result.tool_events[0].status, "failed");
+});
