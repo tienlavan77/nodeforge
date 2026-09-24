@@ -80,7 +80,7 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
         const payload = { project_id: body.project_id ?? projectId, agent_id: body.agent_id ?? url.searchParams.get("agent_id") ?? undefined, title: body.title };
         return { status: 201, body: conversationCrudService.create(payload) };
       }
-// Summary: Handles conversation archive and full chat history (user + agent) retrieval.
+// Pin/unpin via POST /conversations/:id/pin|unpin with project scoping (used by ConversationsBlock).
       // Archive via POST /conversations/:id/archive (used by ConversationsBlock)
       if (method === "POST" && parts.length === 3 && (parts[2] === "pin" || parts[2] === "unpin")) {
         const conversation = conversationCrudService.get(parts[1]);
