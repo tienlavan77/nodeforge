@@ -27,6 +27,7 @@ const PROVIDER_OPTIONS = [
   { value: "claude", label: "Claude" },
   { value: "openai", label: "OpenAI" },
   { value: "anthropic", label: "Anthropic" },
+  { value: "ollama", label: "Ollama" },
   { value: "custom", label: "Custom / OpenAI-compatible" }
 ];
 
@@ -112,6 +113,14 @@ const MODEL_CATALOG = {
     { value: "claude-opus-4-5", label: "Claude Opus 4.5" },
     { value: "claude-haiku-4-3", label: "Claude Haiku 4.3" },
     { value: "claude-3-5-sonnet-20241022", label: "Claude 3.5 Sonnet (2024-10-22)" }
+  ],
+  ollama: [
+    { value: "gemma4:31b", label: "gemma4:31b" },
+    { value: "gpt-oss:120b", label: "gpt-oss:120b" },
+    { value: "gpt-oss:20b", label: "gpt-oss:20b" },
+    { value: "nemotron-3-nano:30b", label: "nemotron-3-nano:30b" },
+    { value: "nemotron-3-super", label: "nemotron-3-super" },
+    { value: "nemotron-3-ultra", label: "nemotron-3-ultra" }
   ]
 };
 
@@ -354,7 +363,8 @@ export function AgentSettingsOverlay({ client, agent, onClose }) {
   function changeProvider(value) {
     const nextModels = MODEL_CATALOG[value] ?? [];
     setProvider(value);
-    setModel(nextModels.some((item) => item.value === model) ? model : "");
+    setModel(nextModels.some((item) => item.value === model) ? model : nextModels[0]?.value ?? "");
+    if (value === "ollama") setUrl("https://ollama.com/v1/chat/completions");
   }
   async function save() { try { const item = await client.saveAgentSettings(agent.id, { agent_name: profile?.agent_name ?? agent.label, gateway_url: url, provider, model: models.length ? model : "", enabled, ...(key ? { api_key: key } : {}) }); setProfile(item); setKey(""); setMessage("Saved. API key remains masked in Node."); } catch (error) { setMessage(`Error: ${error.message}`); } }
   async function testConnection() { try { const result = await client.testAgentConnection(agent.id); setMessage(`Connected: ${result.status}`); } catch (error) { setMessage(`Failed: ${error.message}`); } }

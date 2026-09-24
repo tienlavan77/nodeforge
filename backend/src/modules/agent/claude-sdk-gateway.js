@@ -41,7 +41,7 @@ export function createClaudeSdkGateway({
       env: createGatewayEnvironment({ config, credential, optionsEnv: options.env }),
       ...(Object.keys(options.mcpServers ?? mcpServers).length ? { mcpServers: options.mcpServers ?? mcpServers } : {}),
       ...((options.allowedTools ?? allowedTools).length ? { allowedTools: [...(options.allowedTools ?? allowedTools)] } : {}),
-      tools: options.tools ?? [],
+      ...(options.tools === undefined ? {} : { tools: options.tools }),
       ...(resumeSessionId ? { resume: resumeSessionId } : {})
     };
 
@@ -52,6 +52,7 @@ export function createClaudeSdkGateway({
     const notify = (id) => {
       if (notified || !id || typeof onSessionReady !== "function") return;
       notified = true;
+      // eslint-disable-next-line no-silent-catch -- Session-ready callback is best-effort; the session continues.
       try { onSessionReady(id); } catch { /* best-effort */ }
     };
     try {

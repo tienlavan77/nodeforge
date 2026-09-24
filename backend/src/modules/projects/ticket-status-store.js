@@ -101,6 +101,7 @@ export function createTicketStatusStore({ database, projectId, clock = () => new
 // Validates that a ticket identifier is present.
 function assertTicketId(id) { if (typeof id !== "string" || !id) throw new ConfigurationError("ticket_id is required."); }
 // Safely parses a JSON string or returns an empty object.
+// eslint-disable-next-line no-silent-catch -- JSON probe: corrupt details fall back to {} by design.
 function parseJson(value) { try { return value ? JSON.parse(value) : {}; } catch { return {}; } }
 // Maps a database row into a typed status object.
 function mapRow(row) { return { project_id: row.project_id, ticket_id: row.ticket_id, status: row.status, version: row.version, error: row.error, details: parseJson(row.details_json), created_at: row.created_at, updated_at: row.updated_at }; }

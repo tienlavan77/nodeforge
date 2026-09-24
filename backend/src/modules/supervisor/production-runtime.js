@@ -23,7 +23,7 @@ const QUEUE_NAMES = ["agent.request", "sender.handoff", "collector.request", "ve
 const RESUMABLE_STATES = ["CREATED", "READY", "RUNNING", "REPAIRING"];
 
 /** Creates the production wiring for supervisor runtime including stores, buses, managers, and workers. */
-export function createProductionSupervisorRuntime({ fileService, projectRoot = process.cwd(), root = ".forge/runtime", eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, agentRoleResolver, logger = console, projectLogger = () => {}, preparation = {}, attemptBuilderFactory, conversationStateStore, protocolStorage, autoStartWorkers = true, toolGovernance, governanceDatabase, codeSearch, relevantTreeSelector, enableReadCode = false, testService, gitService, reportService } = {}) {
+export function createProductionSupervisorRuntime({ fileService, projectRoot = process.cwd(), root = ".forge/runtime", eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, agentRoleResolver, logger = console, projectLogger = () => {}, preparation = {}, attemptBuilderFactory, conversationStateStore, protocolStorage, autoStartWorkers = true, toolGovernance, governanceDatabase, codeSearch, relevantTreeSelector, freshnessChecker, enableReadCode = false, testService, gitService, reportService, onEvalCase } = {}) {
   const hasPreparation = Object.keys(preparation ?? {}).length > 0;
   const queueStore = createFileQueueStore({ fileService, root: `${root}/queues` });
   const stateStore = createSupervisorStateStore({ fileService, root: `${root}/supervisors` });
@@ -38,7 +38,7 @@ export function createProductionSupervisorRuntime({ fileService, projectRoot = p
   const processedRequestStore = createProcessedRequestStore({ fileService, root: `${root}/processed-requests` });
   const agentCheckpoints = createAgentExecutionCheckpointStore({ fileService, root: `${root}/agent-checkpoints` });
   const runtimeGovernance = toolGovernance ?? createRuntimeToolGovernance({ database: governanceDatabase, eventStore });
-  const toolRegistry = protocolStorage?.get && fileService?.readForIndex ? createForgeToolRegistry({ protocolStorage, fileService, codeSearch, relevantTreeSelector, enableReadCode, testService, gitService, reportService, governance: runtimeGovernance, projectLogger }) : {};
+  const toolRegistry = protocolStorage?.get && fileService?.readForIndex ? createForgeToolRegistry({ protocolStorage, fileService, codeSearch, relevantTreeSelector, freshnessChecker, enableReadCode, testService, gitService, reportService, onEvalCase, governance: runtimeGovernance, projectLogger }) : {};
   const supervisorManager = createSupervisorManager({ eventBus, stateStore, preparation, onCreate: (runtime) => {
     const executionContextProvider = createExecutionContextProvider(runtime, runtimeGovernance, toolRegistry);
     const loop = createSupervisorLoop({ runtime, senderQueue: queues["agent.request"], collectorQueue: queues["collector.request"], verificationQueue: queues["verification.request"], eventBus, requestStore: processedRequestStore, agentResolver: agentRoleResolver, attemptBuilder: typeof attemptBuilderFactory === "function" ? attemptBuilderFactory(runtime, { conversationStateStore, protocolStorage, toolRegistry, governance: runtimeGovernance, executionContextProvider }) : undefined });
@@ -56,7 +56,7 @@ export function createProductionSupervisorRuntime({ fileService, projectRoot = p
       });
     });
   } });
-  const baseIntegration = createNodeforgeTaskIntegration({ supervisorManager, eventBus, agentResolver: agentRoleResolver, handoffQueue: queues["sender.handoff"], claudeSdkGateway, openaiSdkGateway, codexSdkGateway, agentGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger, checkpointStore: agentCheckpoints, relevantTreeSelector, protocolStorage });
+  const baseIntegration = createNodeforgeTaskIntegration({ supervisorManager, eventBus, agentResolver: agentRoleResolver, handoffQueue: queues["sender.handoff"], claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, agentGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger, checkpointStore: agentCheckpoints, relevantTreeSelector, protocolStorage });
   const integration = { submitTicket: baseIntegration.submitTicket, startTask: async (request) => {
     if (!request?.task_id) throw new ConfigurationError("Production task requires task_id.");
     if (startingTasks.has(request.task_id)) {

@@ -81,6 +81,7 @@ try {
   const egress = await fetchWithTimeout("https://api.ipify.org?format=json", { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
   const { ip } = await egress.json();
   line("Egress IP", ip + "  (gửi IP này cho DevQuote nếu gateway whitelist)");
+// eslint-disable-next-line no-silent-catch -- Egress-IP probe: failure is already shown to the user as <unknown>.
 } catch {
   line("Egress IP", "<không xác định được>");
 }

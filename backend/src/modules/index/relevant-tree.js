@@ -247,26 +247,40 @@ export function createRelevantTreeSelector({ search, fileGraph, embeddingStore =
       }
     }
     const skipTermSearch = [...seeds.values()].some((s) => s.score >= 4);
+    // Dedupe term matches per file: one generic token matching many symbols
+    // in the same file contributes its strongest single match only, so
+    // breadth across distinct tokens still scores while repetition no longer
+    // inflates.
+    const addTermMatchesDeduped = (term, matches, expandGraph) => {
+      const best = new Map();
+      for (const match of matches) {
+        const path = match?.node?.path ?? match?.path;
+        if (!path) continue;
+        const score = Number(match.score) || 0.1;
+        const reason = [...(match.reason?.length ? [match.reason.join(";")] : [`search:${term}`])];
+        const current = best.get(path);
+        if (!current || score > current.score) best.set(path, { match, score, reason });
+      }
+      for (const { match, score, reason } of best.values()) {
+        add(match, score, ...reason);
+        const path = match.node?.path;
+        if (!expandGraph || !path || depth === 0) continue;
+        for (const relation of neighborsOf(path)) {
+          const linked = relation.from === path ? relation.to : relation.from;
+          add({ path: linked, node: { path: linked } }, score * 0.5, `graph:${relation.kind}`, relation);
+        }
+      }
+    };
     if (!skipTermSearch) {
       for (const term of terms) {
-        for (const match of safeSearch(term, "all", Math.min(effectiveLimit, 20))) {
-          add(match, Number(match.score) || 0.1, ...(match.reason?.length ? [match.reason.join(";")] : [`search:${term}`]));
-          const path = match.node?.path;
-          if (!path || depth === 0) continue;
-          for (const relation of neighborsOf(path)) {
-            const linked = relation.from === path ? relation.to : relation.from;
-            add({ path: linked, node: { path: linked } }, (Number(match.score) || 0.1) * 0.5, `graph:${relation.kind}`, relation);
-          }
-        }
+        addTermMatchesDeduped(term, safeSearch(term, "all", Math.min(effectiveLimit, 20)), true);
       }
     } else {
       for (const term of terms) {
         // Keep stub-compatible term queries for tests that mock search but don't handle kind:content;
         // filter by count so real runs (content already ranked) keep only a few validating probes.
         if (terms.length > 6) continue;
-        for (const match of safeSearch(term, "all", Math.min(effectiveLimit, 20))) {
-          add(match, Number(match.score) || 0.1, ...(match.reason?.length ? [match.reason.join(";")] : [`search:${term}`]));
-        }
+        addTermMatchesDeduped(term, safeSearch(term, "all", Math.min(effectiveLimit, 20)), false);
       }
     }
     // Semantic leg removed from sync select — use selectWithEmbeddings for the
@@ -337,6 +351,7 @@ export function createRelevantTreeSelector({ search, fileGraph, embeddingStore =
     if (!Array.isArray(value) || value.length === 0 || value.some((prefix) => typeof prefix !== "string" || !prefix.trim())) throw new ConfigurationError("Relevant Tree allowed_prefixes must be a non-empty string array.");
     return Object.freeze(value.map((prefix) => { const normalized = prefix.trim(); return normalized.endsWith("/") ? normalized : `${normalized}/`; }));
   }
+  // eslint-disable-next-line no-silent-catch -- Logging must not change retrieval behavior; fallback already returned.
   function log(level, message, error, context = {}) { try { logger?.[level]?.(message, { error: error?.message, ...context }); } catch { /* logging must not change retrieval behavior */ } }
 }
 

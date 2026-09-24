@@ -2,13 +2,13 @@
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../shared/errors.js";
 
-const PROVIDERS = Object.freeze(["codex", "claude", "openai", "anthropic", "custom"]);
+const PROVIDERS = Object.freeze(["codex", "claude", "openai", "anthropic", "ollama", "custom"]);
 const STATUSES = Object.freeze(["ready", "working", "not_connected"]);
 const TEAMS = Object.freeze(["Backend", "Frontend", "Security"]);
 // Keep persisted agent.team values aligned with the Agents UI Team selector options.
 
 // Creates a service for managing agent profiles and syncing gateway configuration.
-export function createAgentSettingsService({ profiles, configuration, gateway, now = () => new Date().toISOString(), secretStore = new Map() } = {}) {
+export function createAgentSettingsService({ profiles, configuration, gateway, claudeSdkGateway, codexSdkGateway, ollamaSdkGateway, now = () => new Date().toISOString(), secretStore = new Map() } = {}) {
   if (typeof profiles?.create !== "function" || typeof profiles?.update !== "function" || typeof profiles?.delete !== "function" || typeof profiles?.getAll !== "function" || typeof profiles?.getById !== "function") throw new ConfigurationError("Agent Settings requires an Agent Profile Store.");
   if (typeof configuration?.sync !== "function") throw new ConfigurationError("Agent Settings requires Node Agent Configuration.");
   if (typeof gateway?.testConnection !== "function") throw new ConfigurationError("Agent Settings requires an Agent Gateway.");
@@ -42,6 +42,34 @@ export function createAgentSettingsService({ profiles, configuration, gateway, n
   async function testConnection(agentId) {
     const current = profiles.getById(agentId);
     const resolvedId = current?.agent_id ?? agentId;
+    const provider = String(current?.provider ?? "").toLowerCase();
+    if (provider === "claude" || provider === "anthropic") {
+      if (typeof claudeSdkGateway?.execute !== "function") throw new ConfigurationError("Claude SDK gateway is unavailable.");
+      await claudeSdkGateway.execute({
+        agentId: resolvedId,
+        correlationId: `CONNECTION-${resolvedId}`,
+        prompt: "Health check. Respond with OK."
+      });
+      return { agent_id: resolvedId, status: "CONNECTED", gateway_url: current.gateway_url };
+    }
+    if (provider === "codex") {
+      if (typeof codexSdkGateway?.execute !== "function") throw new ConfigurationError("Codex SDK gateway is unavailable.");
+      await codexSdkGateway.execute({
+        agentId: resolvedId,
+        correlationId: `CONNECTION-${resolvedId}`,
+        prompt: "Health check. Respond with OK."
+      });
+      return { agent_id: resolvedId, status: "CONNECTED", gateway_url: current.gateway_url };
+    }
+    if (provider === "ollama") {
+      if (typeof ollamaSdkGateway?.execute !== "function") throw new ConfigurationError("Ollama SDK gateway is unavailable.");
+      await ollamaSdkGateway.execute({
+        agent: current,
+        correlationId: `CONNECTION-${resolvedId}`,
+        prompt: "Health check. Respond with OK."
+      });
+      return { agent_id: resolvedId, status: "CONNECTED", gateway_url: current.gateway_url };
+    }
     const result = await gateway.testConnection(resolvedId);
     return { agent_id: resolvedId, status: result.status, gateway_url: result.gateway_url };
   }
@@ -97,7 +125,7 @@ function validateAgent(profile) {
   if (profile.reasoning !== undefined && (!profile.reasoning || typeof profile.reasoning !== "object" || Array.isArray(profile.reasoning) || !["none", "low", "medium", "high", "max"].includes(profile.reasoning.effort))) throw new ConfigurationError("Reasoning effort is invalid.");
   if (profile.use_responses !== undefined && typeof profile.use_responses !== "boolean") throw new ConfigurationError("use_responses must be boolean.");
   if (profile.use_previous_response_id !== undefined && typeof profile.use_previous_response_id !== "boolean") throw new ConfigurationError("use_previous_response_id must be boolean.");
-  if (!["coder", "reviewer", "sprint_leader", "architecture_manager"].includes(profile.role)) throw new ConfigurationError("Role is invalid.");
+  if (!["coder", "reviewer", "sprint_leader", "architecture_manager", "linguist"].includes(profile.role)) throw new ConfigurationError("Role is invalid.");
   normalizeTeam(profile.team);
 }
 
@@ -109,7 +137,7 @@ function normalizeStatus(status) {
 
 // Normalizes and validates agent role values.
 function normalizeRole(role) {
-  if (typeof role !== "string" || !["coder", "reviewer", "sprint_leader", "architecture_manager"].includes(role)) throw new ConfigurationError("Role is invalid.");
+  if (typeof role !== "string" || !["coder", "reviewer", "sprint_leader", "architecture_manager", "linguist"].includes(role)) throw new ConfigurationError("Role is invalid.");
   return role;
 }
 

@@ -1,9 +1,10 @@
 // Summary: Runs the API, watcher, and web development services under one interactive controller.
 import { execFileSync, spawn } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import { DatabaseSync } from "node:sqlite";
+import { createKeyParser } from "./dev-foreground-keys.mjs";
 
 process.chdir(new URL("../..", import.meta.url).pathname);
 
@@ -17,7 +18,7 @@ const BEL = String.fromCharCode(7);
 const ansiPattern = new RegExp(`${ESC}\\[[0-?]*[ -/]*[@-~]`, "g");
 const oscPattern = new RegExp(`${ESC}\\][^${BEL}]*(?:${BEL}|${ESC}\\\\)`, "g");
 const serviceColors = { api: "36", watcher: "35", ui: "32", SYSTEM: "33" };
-const suggestions = ["/q quit", "/r api restart", "/r watcher restart", "/r ui restart"];
+const suggestions = ["/q quit", "/r api restart", "/r watcher restart", "/r ui restart", "/copy", "/save log.txt"];
 const children = new Map();
 const serviceState = new Map(Object.keys(definitions).map((name) => [name, "starting"]));
 const logLines = [];
@@ -40,10 +41,8 @@ if (!interactive) {
 
 // Summary: Starts raw-mode input handling and the interactive redraw loop.
 function runInteractive() {
-  const state = { input: "", cursor: 0, history: [], historyIndex: -1, scrollBack: 0 };
-  process.stdout.write("\x1b[2J\x1b[H\x1b[3J\x1b[?25l");
-  // Enable SGR mouse tracking so wheel events arrive on stdin as escape sequences.
-  process.stdout.write("\x1b[?1000h\x1b[?1006h");
+  const state = { input: "", cursor: 0, history: [], historyIndex: -1, scrollBack: 0, copyMode: false };
+  process.stdout.write("\x1b[2J\x1b[H\x1b[3J\x1b[?25l\x1b[?1000l\x1b[?1002l\x1b[?1006l\x1b[?1015l\x1b[?1016l");
   process.stdin.setRawMode(true);
   process.stdin.resume();
   process.stdin.setEncoding("utf8");
@@ -56,28 +55,18 @@ function runInteractive() {
   statusTimer.unref?.();
   process.stdout.on("resize", () => render(state));
 
-  let escapeSequence = "";
+  const parser = createKeyParser({
+    onKey: (char) => handleKey(char, state),
+    onWheel: (delta) => { state.scrollBack = Math.max(0, (state.scrollBack ?? 0) + delta * 3); },
+    onEscape: (sequence) => handleEscape(sequence, state)
+  });
   process.stdin.on("data", (chunk) => {
-    for (const char of chunk) {
-      if (escapeSequence) {
-        escapeSequence += char;
-        // SGR mouse events end with M/m; arrow keys end with a letter or ~.
-        if (escapeSequence.startsWith("\x1b[<")) {
-          if (/[mM]$/.test(char)) {
-            handleMouse(escapeSequence, state);
-            escapeSequence = "";
-          } else if (escapeSequence.length > 12) escapeSequence = "";
-          continue;
-        }
-        if (/^[A-Z~]$/.test(char)) {
-          handleEscape(escapeSequence, state);
-          escapeSequence = "";
-        } else if (escapeSequence.length > 5) escapeSequence = "";
-        continue;
-      }
-      if (char === "\x1b") { escapeSequence = char; continue; }
-      handleKey(char, state);
+    if (state.copyMode) {
+      exitCopyMode(state);
+      render(state);
+      return;
     }
+    parser.push(chunk);
     render(state);
   });
 
@@ -93,7 +82,9 @@ function runInteractive() {
     if (lower === "/q" || lower === "/quit" || lower === "exit") return shutdown();
     const restart = lower.match(/^\/r\s+(api|watcher|ui)$/);
     if (restart) await restartService(restart[1]);
-    else log("SYSTEM", "Commands: /q quit · /r api|watcher|ui restart");
+    else if (lower === "/copy") enterCopyMode(state);
+    else if (lower.startsWith("/save")) saveLogs(value.slice(5).trim() || "dev-foreground.log");
+    else log("SYSTEM", "Commands: /q quit · /r api|watcher|ui restart · /copy select · /save <file>");
   }
 
   // Summary: Applies a keypress to the input buffer with editing shortcuts.
@@ -147,14 +138,33 @@ function runInteractive() {
     }
   }
 
-  // Summary: Scrolls the log view on mouse wheel events.
-  function handleMouse(sequence, state) {
-    const match = sequence.match(new RegExp(`^${ESC}\\[<(\\d+);(\\d+);(\\d+)([mM])$`));
-    if (!match) return;
-    const button = Number(match[1]);
-    // 64 = wheel up, 65 = wheel down in SGR mouse protocol.
-    if (button === 64) state.scrollBack = Math.min(state.scrollBack + 3, 500);
-    else if (button === 65) state.scrollBack = Math.max(state.scrollBack - 3, 0);
+  // Summary: Freezes the screen for terminal-native mouse selection and copying.
+  function enterCopyMode(state) {
+    state.copyMode = true;
+    renderCopyScreen();
+  }
+
+  // Summary: Redraws plain log text without positioning so selection works.
+  function renderCopyScreen() {
+    process.stdout.write("\x1b[?25l\x1b[2J\x1b[H\x1b[3J");
+    for (const entry of logLines.slice(-200)) process.stdout.write(`[${entry.name.toUpperCase()}] ${entry.line}\n`);
+    process.stdout.write("\n\x1b[30;48;5;255m COPY MODE — select with mouse, then press any key to return \x1b[0m\n");
+  }
+
+  // Summary: Leaves copy mode and restores the live view.
+  function exitCopyMode(state) {
+    state.copyMode = false;
+  }
+
+  // Summary: Dumps buffered logs to a file for later copying.
+  function saveLogs(path) {
+    try {
+      const content = logLines.map((entry) => `[${entry.name.toUpperCase()}] ${entry.line}`).join("\n");
+      writeFileSync(path, `${content}\n`);
+      log("SYSTEM", `Saved ${logLines.length} lines to ${path}`);
+    } catch (error) {
+      log("SYSTEM", `Save failed: ${error.message}`);
+    }
   }
 }
 
@@ -226,9 +236,10 @@ function render(state) {
   process.stdout.write("\x1b[?25l");
   process.stdout.write("\x1b[1;1H");
   const maxBack = Math.max(0, logLines.length - logCapacity);
-  if (state) state.scrollBack = Math.min(state.scrollBack ?? 0, maxBack);
+  if (state) state.scrollBack = Math.min(Math.max(state.scrollBack ?? 0, 0), maxBack);
   const back = state?.scrollBack ?? 0;
   const visible = logLines.slice(Math.max(0, logLines.length - logCapacity - back), logLines.length - back);
+  state.layout = { logCapacity, back, width };
   for (let row = 1; row <= logCapacity; row += 1) {
     const entry = visible[row - 1];
     process.stdout.write("\x1b[2K");
@@ -296,6 +307,7 @@ function gitInfo() {
       const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8" }).trim();
       const dirty = execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim();
       gitCache = { at: Date.now(), text: `${branch}${dirty ? "*" : ""}` };
+    // eslint-disable-next-line no-silent-catch -- Git status probe: fallback text is the designed degraded display.
     } catch { gitCache = { at: Date.now(), text: "git --" }; }
   }
   return gitCache.text;
@@ -305,6 +317,7 @@ function processStats(pid) {
   try {
     const rss = Number(readFileSync(`/proc/${pid}/status`, "utf8").match(/^VmRSS:\s+(\d+)\s+kB$/m)?.[1] ?? 0);
     return `${(rss / 1024).toFixed(0)}MB`;
+  // eslint-disable-next-line no-silent-catch -- Procfs probe: short-lived PIDs vanish mid-read by design.
   } catch { return "--"; }
 }
 
@@ -343,6 +356,7 @@ function embeddingProgressLine() {
     } finally {
       database.close();
     }
+  // eslint-disable-next-line no-silent-catch -- SQLite probe: watcher DB may not exist yet on first run.
   } catch { text = ""; }
   embeddingCache = { at: Date.now(), text, counts: embeddingCache.counts };
   return text;
@@ -351,16 +365,19 @@ function embeddingProgressLine() {
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
+  // eslint-disable-next-line no-silent-catch -- Stdin may already be closed during shutdown.
   try { process.stdin.setRawMode(false); } catch { /* stdin already closed. */ }
-  process.stdout.write("\x1b[?1000l\x1b[?1006l\x1b[?25h\n");
+  process.stdout.write("\x1b[?1000l\x1b[?1002l\x1b[?1006l\x1b[?1015l\x1b[?1016l\x1b[?25h\n");
   await Promise.all([...children.keys()].map((name) => stop(name)));
   const leftovers = Object.keys(definitions).flatMap((name) => findMatchingPids(name));
   for (const pid of leftovers) {
+    // eslint-disable-next-line no-silent-catch -- Process already exited between scan and SIGTERM.
     try { process.kill(pid, "SIGTERM"); } catch { /* Process already exited. */ }
   }
   await new Promise((resolve) => setTimeout(resolve, 750));
   for (const pid of leftovers) {
     if (alive(pid)) {
+      // eslint-disable-next-line no-silent-catch -- Process already exited between scan and SIGKILL.
       try { process.kill(pid, "SIGKILL"); } catch { /* Process already exited. */ }
     }
   }
@@ -381,9 +398,11 @@ function findMatchingPids(name) {
     try {
       const command = readFileSync(`/proc/${pid}/cmdline`, "utf8").replaceAll("\0", " ");
       if (patterns.some((pattern) => command.includes(pattern))) pids.push(pid);
+    // eslint-disable-next-line no-silent-catch -- Process may exit while the PID list is being scanned.
     } catch { /* Process may exit while the list is being scanned. */ }
   }
   return pids;
 }
 
+// eslint-disable-next-line no-silent-catch -- Liveness probe: ESRCH means not-alive, which is the answer.
 function alive(pid) { try { process.kill(pid, 0); return true; } catch { return false; } }

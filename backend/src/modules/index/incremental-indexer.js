@@ -147,6 +147,7 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
   }
 
   async function fileSize(path) {
+    // eslint-disable-next-line no-silent-catch -- Stat probe: missing file means unknown size, handled by callers.
     try { return (await stat(resolve(projectRoot, path))).size; } catch { return null; }
   }
 
@@ -164,6 +165,7 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
   function clearContentIndex(fileId) {
     database.run("DELETE FROM file_content_fts WHERE file_id = ?", [fileId]);
     database.run("DELETE FROM symbol_content_fts WHERE file_id = ?", [fileId]);
+    // eslint-disable-next-line no-silent-catch -- Embedding cleanup is best-effort; index rows are already deleted.
     try { embeddingStore?.removeByFile?.(fileId); } catch { /* embedding cleanup is best-effort */ }
   }
 

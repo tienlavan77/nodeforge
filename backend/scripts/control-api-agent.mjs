@@ -2,6 +2,10 @@ import { join } from "node:path";
 import { createAgentSettingsService } from "../src/application/agent-settings-service.js";
 import { createNodeAgentConfiguration } from "../src/modules/agent/node-agent-configuration.js";
 import { createAgentGateway } from "../src/modules/agent/agent-gateway.js";
+import { createClaudeSdkGateway } from "../src/modules/agent/claude-sdk-gateway.js";
+import { createCodexSdkGateway } from "../src/modules/agent/codex-sdk-gateway.js";
+import { createOllamaSdkProviderFactory } from "../src/modules/agent/ollama-sdk-provider.js";
+import { createOllamaSdkGateway } from "../src/modules/agent/ollama-sdk-gateway.js";
 import { createAgentProfileStore } from "../src/modules/agent/agent-profile-store.js";
 import { createAgentRoleResolver } from "../src/modules/agent/agent-role-resolver.js";
 import { createPersistentSecretBackend } from "../src/modules/agent/persistent-secret-backend.js";
@@ -21,9 +25,13 @@ export function createControlApiAgent({ database, fileService, config, env = pro
   }
   agentConfiguration.sync();
   const agentGateway = createAgentGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference), timeoutMs: config.agentTimeoutMs });
-  const agentSettings = createAgentSettingsService({ profiles, configuration: agentConfiguration, gateway: agentGateway, secretStore: secrets });
+  const claudeSdkGateway = createClaudeSdkGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference), timeoutMs: config.sdkTimeoutMs });
+  const codexSdkGateway = createCodexSdkGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference), timeoutMs: config.sdkTimeoutMs });
+  const ollamaSdkProviderFactory = createOllamaSdkProviderFactory({ credentialResolver: (reference) => secrets.get(reference) });
+  const ollamaSdkGateway = createOllamaSdkGateway({ providerFactory: ollamaSdkProviderFactory, timeoutMs: config.agentTimeoutMs });
+  const agentSettings = createAgentSettingsService({ profiles, configuration: agentConfiguration, gateway: agentGateway, claudeSdkGateway, codexSdkGateway, ollamaSdkGateway, secretStore: secrets });
   const agentRoleResolver = createAgentRoleResolver({ profiles });
-  return { profiles, agentConfiguration, secrets, agentGateway, agentSettings, agentRoleResolver };
+  return { profiles, agentConfiguration, secrets, agentGateway, claudeSdkGateway, codexSdkGateway, ollamaSdkGateway, agentSettings, agentRoleResolver };
 }
 
 function syncArchitectureProfile({ profiles, codexBaseUrl, codexCredential, env }) {

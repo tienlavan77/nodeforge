@@ -55,6 +55,7 @@ export function createProjectDashboardService({ roadmaps, sprintPlans, provenanc
         if (!latest || task.status === "failed") return { sprintId, task };
         const status = latest.payload?.to ?? (/failed|error/i.test(latest.message ?? "") ? "failed" : /completed|done/i.test(latest.message ?? "") ? "done" : /running/i.test(latest.message ?? "") ? "running" : undefined);
         return { sprintId, task: status ? { ...task, status, progress: status === "done" ? 100 : status === "running" || status === "reviewing" ? 50 : 0 } : task };
+      // eslint-disable-next-line no-silent-catch -- Dashboard degrades to the base task when log lookup fails.
       } catch { return { sprintId, task }; }
     })).then((items) => {
       const grouped = new Map(sprintEntries.map((sprint) => [sprint.id, []]));
@@ -71,6 +72,7 @@ export function createProjectDashboardService({ roadmaps, sprintPlans, provenanc
         roadmap_id: value.roadmap.id,
         sprint_id: value.sprint.id
       } : undefined;
+    // eslint-disable-next-line no-silent-catch -- Provenance is optional; dashboard renders without the chain.
     } catch {
       chain = undefined;
     }

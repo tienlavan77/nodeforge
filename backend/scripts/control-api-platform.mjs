@@ -27,9 +27,12 @@ import { createRetrievalDependencies } from "../src/modules/index/retrieval-depe
 import { createRelevantTreeSelector } from "../src/modules/index/relevant-tree.js";
 import { createIndexFreshnessChecker } from "../src/modules/index/index-freshness.js";
 import { createConversationCrudService } from "../src/application/conversation-crud-service.js";
+import { createTicketCandidateResolver } from "../src/application/ticket-candidate-resolver.js";
+import { createTicketSprintLeader } from "../src/application/ticket-sprint-leader.js";
+import { createSprintPlanLeader } from "../src/application/sprint-plan-leader.js";
 import { createTicketFileStore } from "../src/application/ticket-file-store.js";
 
-export function createControlApiPlatform({ config, database, indexDb, fileService, agentGateway, logEvent } = {}) {
+export function createControlApiPlatform({ config, database, indexDb, fileService, agentGateway, claudeSdkGateway, codexSdkGateway, agentRoleResolver, logEvent } = {}) {
   const { projectId, cwd: projectRoot } = config;
   const { search: codeSearch, fileGraph, embeddingStore, embeddingProvider } = createRetrievalDependencies({ database: indexDb });
   // Freshness checker compares indexed sha with live disk reads so candidates
@@ -37,6 +40,11 @@ export function createControlApiPlatform({ config, database, indexDb, fileServic
   // effort: without fileService the selector falls back to plain select().
   const freshnessChecker = fileService?.readForIndex ? createIndexFreshnessChecker({ database: indexDb, fileService }) : null;
   const relevantTreeSelector = createRelevantTreeSelector({ search: codeSearch, fileGraph, embeddingStore, embeddingProvider, freshnessChecker, maxFiles: 30, defaultDepth: 1 });
+  const ticketCandidateResolver = createTicketCandidateResolver({ relevantTreeSelector });
+  // Sprint leader drafts through the configured SDK with built-in search; no Forge MCP tools.
+  const sprintPlanSdkGateway = createRoleSdkGateway({ claudeSdkGateway, codexSdkGateway, agentRoleResolver });
+  const ticketSprintLeader = sprintPlanSdkGateway ? createTicketSprintLeader({ sdkGateway: sprintPlanSdkGateway, projectRoot }) : undefined;
+  const sprintPlanLeader = sprintPlanSdkGateway ? createSprintPlanLeader({ sdkGateway: sprintPlanSdkGateway, projectRoot }) : undefined;
   const communications = createAgentCommunicationStore({ database, fileService });
   const conversations = createConversationCrudService({ database });
   const bus = createAgentCommunicationBus({ store: communications });
@@ -58,15 +66,30 @@ export function createControlApiPlatform({ config, database, indexDb, fileServic
   const memory = createProjectMemoryStore({ summaries });
   const memoryRetriever = createMemoryRetriever({ memory });
   const contextEngine = createContextEngine({ database: indexDb, projectRoot, projectId });
-  const sprintOrchestration = createSprintOrchestrationService({ sprintPlans, sprintPlanStore: roadmaps, ticketProvenanceTracker: provenance, agentGateway, publisher: eventPublisher });
+  const sprintOrchestration = createSprintOrchestrationService({ sprintPlans, sprintPlanStore: roadmaps, ticketProvenanceTracker: provenance, agentGateway, publisher: eventPublisher, candidateResolver: ticketCandidateResolver, sprintPlanLeader });
   const ticketCommandParser = createTicketCommandParser({ roadmapStore: roadmaps });
   const proseTicketService = createProseTicketService({ roadmapStore: roadmaps });
   const ticketFileStore = createTicketFileStore({ database, fileService });
   const sprintPlanUpload = createSprintPlanUploadService({ roadmaps, publisher: eventPublisher, projectRoot, isRunning: (sprintId) => sprintOrchestration.isRunning(sprintId) });
-  return { projectId, indexDb, codeSearch, fileGraph, relevantTreeSelector, memoryRetriever, communications, conversations, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, verificationOrchestrator, testService, contextEngine, sprintOrchestration, ticketCommandParser, proseTicketService, ticketFileStore, sprintPlanUpload, taskSummaries: summaries, projectMemory: memory };
+  return { projectId, indexDb, codeSearch, fileGraph, relevantTreeSelector, freshnessChecker, ticketCandidateResolver, ticketSprintLeader, memoryRetriever, communications, conversations, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, verificationOrchestrator, testService, contextEngine, sprintOrchestration, ticketCommandParser, proseTicketService, ticketFileStore, sprintPlanUpload, taskSummaries: summaries, projectMemory: memory };
 }
 
+// Selects the SDK gateway for sprint leader drafting without touching gateway internals.
+function createRoleSdkGateway({ claudeSdkGateway, codexSdkGateway, agentRoleResolver }) {
+  if (!claudeSdkGateway && !codexSdkGateway) return undefined;
+  return { execute: (request) => selectSdkGateway(request?.agentId, { claudeSdkGateway, codexSdkGateway, agentRoleResolver }).execute(request) };
+}
+
+// Chooses the sprint leader provider gateway from the resolved sprint leader profile.
+function selectSdkGateway(agentId, { claudeSdkGateway, codexSdkGateway, agentRoleResolver }) {
+  const profile = agentRoleResolver?.resolveProfile?.("sprint_leader");
+  if (profile?.agent_id === agentId && profile.provider === "codex" && codexSdkGateway) return codexSdkGateway;
+  if (claudeSdkGateway) return claudeSdkGateway;
+  if (codexSdkGateway) return codexSdkGateway;
+  throw new Error("Sprint leader SDK gateway is unavailable.");
+}
 function createTicketStatusLogger({ internalBus, logEvent }) {
+  // Forwards ticket status events and records failures for operators.
   return (event) => {
     internalBus.emit(event.type, event);
     if (event.type !== "ticket.status_change" || !(event.to === "failed" || event.to === "needs_human_review" || event.details?.error)) return;

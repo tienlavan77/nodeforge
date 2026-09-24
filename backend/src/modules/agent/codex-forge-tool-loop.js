@@ -125,6 +125,7 @@ function normalizeToolUse(toolUse) {
   if (!toolUse || typeof toolUse !== "object" || typeof toolUse.name !== "string") return null;
   let input = toolUse.input;
   if (typeof input === "string") {
+    // eslint-disable-next-line no-silent-catch -- Tool-input probe: non-JSON input defaults to {} by design.
     try { input = JSON.parse(input); } catch { input = {}; }
   }
   if (input === undefined || input === null) input = {};

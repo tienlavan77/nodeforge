@@ -6,6 +6,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 
 import { ConfigurationError } from "../shared/errors.js";
+import { backfillTicketCandidates, inferTicketStyle } from "../modules/index/ticket-scope.js";
 
 const require = createRequire(import.meta.url);
 const commonSchema = require("../../../schemas/core/common.schema.json");
@@ -13,7 +14,7 @@ const ticketSchema = require("../../../schemas/governance/ticket.schema.json");
 const sprintPlanSchema = require("../../../schemas/governance/sprint-plan.schema.json");
 
 // Creates a service that orchestrates sprint execution across agents.
-export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore, ticketProvenanceTracker, agentGateway, publisher, agentRoles = ["architecture-manager", "sprint-leader", "builder", "reviewer"], streamBatchMs = 500 } = {}) {
+export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore, ticketProvenanceTracker, agentGateway, publisher, agentRoles = ["architecture-manager", "sprint-leader", "builder", "reviewer"], streamBatchMs = 500, candidateResolver, sprintPlanLeader, agentRoleResolver } = {}) {
   if (typeof sprintPlans?.getSprintById !== "function") {
     throw new ConfigurationError("Sprint Orchestration requires Sprint Plans.");
   }
@@ -42,9 +43,12 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
     let plan;
     try {
       plan = extractSprintPlanJson(text);
-      if (!validateSprintPlan(plan)) throw new ConfigurationError(`Sprint Leader returned invalid sprint plan: ${validateSprintPlan.errors.map((error) => `${error.instancePath || "/"} ${error.message}`).join("; ")}`);
-      persistSprintPlan(plan, { projectId: message.project_id, correlationId: message.correlation_id, conversationId: message.conversation_id });
-      return { ingested: true, sprint_id: plan.id };
+      // Legacy completion text has no verified paths: resolve server-side so
+      // persisted tickets reference real indexed files.
+      const resolved = await resolvePlanCandidates(plan);
+      if (!validateSprintPlan(resolved)) throw new ConfigurationError(`Sprint Leader returned invalid sprint plan: ${validateSprintPlan.errors.map((error) => `${error.instancePath || "/"} ${error.message}`).join("; ")}`);
+      persistSprintPlan(resolved, { projectId: message.project_id, correlationId: message.correlation_id, conversationId: message.conversation_id });
+      return { ingested: true, sprint_id: resolved.id };
     } catch (error) {
       publish("agent.failed", message.project_id, plan?.id ?? message.conversation_id, null, agentId, message.correlation_id, message.conversation_id, { role: agentId, error: `Sprint plan auto-ingest failed: ${error.message}` });
       return { ingested: false, error: error.message };
@@ -54,8 +58,14 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
     const tickets = sprint.tickets ?? [];
     let failed = false;
     for (const role of agentRoles) {
+      // Sprint leader drafts through the SDK with built-in search so its
+      // candidate paths are verified on disk; other roles keep the stream.
+      if (role === "sprint-leader" && typeof sprintPlanLeader?.requestPlan === "function") {
+        await runSprintLeaderSdk({ projectId, sprint, sessionId });
+        continue;
+      }
       const roleTickets = tickets.filter((ticket) => ticket.owner === role || !ticket.owner);
-      const text = `${sprint.objective}\n\nTickets:\n${roleTickets.map((ticket) => `- ${ticket.id}: ${ticket.title} — ${ticket.objective}`).join("\n")}${role === "sprint-leader" ? "\n\nReturn ONLY a ```json block containing the sprint plan JSON valid against sprint-plan.schema.json (required: id, roadmap_id, project_id, objective, tickets[], exit_criteria). No prose outside the block." : ""}`;
+      const text = `${sprint.objective}\n\nTickets:\n${roleTickets.map((ticket) => `- ${ticket.id}: ${ticket.title} — ${ticket.objective}`).join("\n")}${role === "sprint-leader" ? "\n\nReturn ONLY a ```json block containing the sprint plan JSON valid against sprint-plan.schema.json (required: id, roadmap_id, project_id, objective, tickets[], exit_criteria). Every ticket MUST include style (array, at least one: frontend|backend|security|infra|docs). You have no codebase access so never invent file paths and do NOT include candidate_files; the system resolves real codebase files server-side after you return. No prose outside the block." : ""}`;
       const correlationId = `CORR-${sprint.id}-${role}-${randomUUID()}`;
       const agentId = role;
       const conversationId = `CONV-${conversationRole(role)}-${sprint.id}`;
@@ -81,8 +91,9 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
         flush();
         if (role === "sprint-leader") {
           const plan = extractSprintPlanJson(output);
-          if (!validateSprintPlan(plan)) throw new ConfigurationError(`Sprint Leader returned invalid sprint plan: ${validateSprintPlan.errors.map((error) => `${error.instancePath || "/"} ${error.message}`).join("; ")}`);
-          persistSprintPlan(plan, { projectId, correlationId, conversationId });
+          const resolved = await resolvePlanCandidates(plan);
+          if (!validateSprintPlan(resolved)) throw new ConfigurationError(`Sprint Leader returned invalid sprint plan: ${validateSprintPlan.errors.map((error) => `${error.instancePath || "/"} ${error.message}`).join("; ")}`);
+          persistSprintPlan(resolved, { projectId, correlationId, conversationId });
         }
         publish("agent.token_used", projectId, sprint.id, sessionId, agentId, correlationId, conversationId, { input_tokens: Math.ceil(text.length / 4), output_tokens: Math.ceil(output.length / 4) });
         publish("agent.completed", projectId, sprint.id, sessionId, agentId, correlationId, conversationId, { role, text: output });
@@ -92,8 +103,95 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
       }
     }
   }
+  // Runs the sprint leader over the SDK: it searches the codebase itself with
+  // built-in tools, so its candidate_files are kept and only stamped.
+  async function runSprintLeaderSdk({ projectId, sprint, sessionId }) {
+    const correlationId = `CORR-${sprint.id}-sprint-leader-${randomUUID()}`;
+    const conversationId = `CONV-SL-${sprint.id}`;
+    publish("agent.started", projectId, sprint.id, sessionId, "sprint-leader", correlationId, conversationId, { role: "sprint-leader" });
+    try {
+      let agentId = "sprint-leader";
+      try { agentId = agentRoleResolver.resolve("sprint_leader"); } catch { /* fall back to the role id */ }
+      const plan = await sprintPlanLeader.requestPlan({ projectId, agentId, brief: buildSprintBrief(sprint), correlationId });
+      const stamped = await stampPlanCandidates(plan);
+      const identified = assignPlanTicketIdentity(stamped, { projectId });
+      if (!validateSprintPlan(identified)) throw new ConfigurationError(`Sprint Leader returned invalid sprint plan: ${validateSprintPlan.errors.map((error) => `${error.instancePath || "/"} ${error.message}`).join("; ")}`);
+      persistSprintPlan(identified, { projectId, correlationId, conversationId });
+      const text = JSON.stringify(identified);
+      publish("agent.token_used", projectId, sprint.id, sessionId, "sprint-leader", correlationId, conversationId, { input_tokens: Math.ceil(text.length / 4), output_tokens: Math.ceil(text.length / 4) });
+      publish("agent.completed", projectId, sprint.id, sessionId, "sprint-leader", correlationId, conversationId, { role: "sprint-leader", text });
+    } catch (error) {
+      publish("agent.failed", projectId, sprint.id, sessionId, "sprint-leader", correlationId, conversationId, { role: "sprint-leader", error: error.message });
+    }
+  }
+  // Summarizes the sprint so the leader can draft a plan with matching ids.
+  function buildSprintBrief(sprint) {
+    return JSON.stringify({ id: sprint.id, roadmap_id: sprint.roadmap_id, project_id: sprint.project_id, objective: sprint.objective, tickets: (sprint.tickets ?? []).map((ticket) => ({ id: ticket.id, title: ticket.title, objective: ticket.objective })), exit_criteria: sprint.exit_criteria ?? [] });
+  }
+  // Keeps the leader's own verified candidates; only tickets without any get
+  // server-side resolution or a marked placeholder like the legacy path.
+  async function stampPlanCandidates(plan) {
+    if (!plan || typeof plan !== "object") return plan;
+    const tickets = Array.isArray(plan.tickets) ? plan.tickets : [];
+    const stamped = [];
+    for (const ticket of tickets) {
+      const entry = { ...(ticket ?? {}) };
+      if (!Array.isArray(entry.style) || !entry.style.length) {
+        const inferred = inferTicketStyle(entry);
+        if (inferred) entry.style = inferred;
+      }
+      if (Array.isArray(entry.candidate_files) && entry.candidate_files.length) {
+        if (!entry.candidates_produced_by) entry.candidates_produced_by = "sprint-leader-sdk";
+        if (!entry.candidates_produced_at) entry.candidates_produced_at = new Date().toISOString();
+        stamped.push(entry);
+        continue;
+      }
+      const textOnly = { ...entry };
+      delete textOnly.candidate_files;
+      delete textOnly.candidates_produced_by;
+      delete textOnly.candidates_produced_at;
+      if (typeof candidateResolver?.resolve === "function") stamped.push(await candidateResolver.resolve(textOnly));
+      else stamped.push(backfillTicketCandidates(textOnly));
+    }
+    return { ...plan, tickets: stamped };
+  }
+  // Assigns identity fields the leader must not invent: ticket ids, parent
+  // ids, and sprint_plan provenance, mirroring the CRUD create path.
+  function assignPlanTicketIdentity(plan, { projectId } = {}) {
+    if (!plan || typeof plan !== "object") return plan;
+    const at = new Date().toISOString();
+    const tickets = (Array.isArray(plan.tickets) ? plan.tickets : []).map((ticket, index) => {
+      const entry = { ...(ticket ?? {}) };
+      const id = entry.id ?? `TICKET-${projectId}-${Date.now()}-${index}`;
+      return {
+        ...entry,
+        id,
+        project_id: projectId,
+        roadmap_id: entry.roadmap_id ?? plan.roadmap_id,
+        sprint_id: entry.sprint_id ?? plan.id,
+        provenance: entry.provenance ?? { source: "sprint_plan", source_id: plan.id, created_at: at }
+      };
+    });
+    return { ...plan, tickets };
+  }
   function conversationRole(role) {
     return { "architecture-manager": "AM", "sprint-leader": "SL", builder: "BU", reviewer: "RV" }[role] ?? role.toUpperCase();
+  }
+  // Legacy text-only plans have no codebase access: strip invented paths and
+  // resolve candidates server-side so persisted tickets reference real files.
+  async function resolvePlanCandidates(plan) {
+    if (!plan || typeof plan !== "object") return plan;
+    const tickets = Array.isArray(plan.tickets) ? plan.tickets : [];
+    const resolved = [];
+    for (const ticket of tickets) {
+      const textOnly = { ...(ticket ?? {}) };
+      delete textOnly.candidate_files;
+      delete textOnly.candidates_produced_by;
+      delete textOnly.candidates_produced_at;
+      if (typeof candidateResolver?.resolve === "function") resolved.push(await candidateResolver.resolve(textOnly));
+      else resolved.push(backfillTicketCandidates(textOnly));
+    }
+    return { ...plan, tickets: resolved };
   }
   function persistSprintPlan(plan, trace = {}) {
     if (typeof sprintPlanStore?.save !== "function") return;

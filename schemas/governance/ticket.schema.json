@@ -4,7 +4,18 @@
   "title": "Forge Governance Ticket",
   "type": "object",
   "additionalProperties": false,
-  "required": ["id", "project_id", "roadmap_id", "sprint_id", "title", "objective", "acceptance_criteria", "style", "provenance"],
+  "required": ["id", "project_id", "roadmap_id", "sprint_id", "title", "objective", "acceptance_criteria", "style", "candidate_files", "provenance"],
+  "$defs": {
+    "candidateFile": { "type": "object", "additionalProperties": false, "required": ["path", "role"], "properties": {
+      "path": { "type": "string", "minLength": 1 },
+      "role": { "type": "string", "enum": ["PATCH", "REUSE", "REFERENCE", "IGNORE"] },
+      "symbol": { "type": "string", "minLength": 1 },
+      "reason": { "type": "string" }
+    }, "allOf": [
+      { "if": { "properties": { "role": { "const": "PATCH" } }, "required": ["role"] }, "then": { "properties": { "symbol": { "type": "string", "minLength": 1 } }, "required": ["symbol"] } },
+      { "if": { "properties": { "role": { "const": "REUSE" } }, "required": ["role"] }, "then": { "properties": { "symbol": { "type": "string", "minLength": 1 } }, "required": ["symbol"] } }
+    ] }
+  },
   "properties": {
     "id": { "$ref": "../core/common.schema.json#/$defs/id" },
     "project_id": { "$ref": "../core/common.schema.json#/$defs/id" },
@@ -13,6 +24,10 @@
     "title": { "type": "string", "minLength": 1 },
     "objective": { "type": "string", "minLength": 1 },
     "acceptance_criteria": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "vocabulary_hints": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "candidate_files": { "type": "array", "items": { "$ref": "#/$defs/candidateFile" }, "minItems": 1 },
+    "candidates_produced_by": { "type": "string" },
+    "candidates_produced_at": { "$ref": "../core/common.schema.json#/$defs/timestamp" },
     "priority": { "type": "string", "enum": ["low", "medium", "normal", "high", "critical"] },
     "style": { "type": "array", "items": { "type": "string", "enum": ["frontend", "backend", "security", "infra", "docs"] }, "minItems": 1, "uniqueItems": true },
     "status": { "type": "string", "enum": ["planned", "pending", "running", "reviewing", "done", "failed", "needs_human_review"] },

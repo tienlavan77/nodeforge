@@ -139,6 +139,7 @@ async function pollUntilTerminal({ url, credential, correlationId, signal, respo
 
 async function gatewayError(response, label) {
   let body = "";
+  // eslint-disable-next-line no-silent-catch -- Error body placeholder; status code is preserved in the thrown error.
   try { body = (await response.text()).slice(0, 1000); } catch { body = "<unreadable body>"; }
   const error = new ConfigurationError(`${label} gateway returned HTTP ${response.status}: ${body || "<empty body>"}`);
   error.statusCode = response.status;
@@ -150,6 +151,7 @@ async function fetchWithRetry(url, options, label, { maxRetries = 2, baseDelayMs
   for (let attempt = 0; ; attempt += 1) {
     const response = await fetch(url, options);
     if (response.ok || response.status !== 429 || attempt >= maxRetries) return response;
+    // eslint-disable-next-line no-silent-catch -- Response already closed during 429 backoff.
     try { await response.body?.cancel(); } catch { /* response already closed */ }
     await delay(baseDelayMs * (2 ** attempt), options.signal);
   }

@@ -127,6 +127,7 @@ function ensureTable(database) {
   database.run("CREATE TABLE IF NOT EXISTS agent_profiles (sequence INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL UNIQUE, profile_json TEXT NOT NULL, team TEXT)");
   database.run("CREATE TABLE IF NOT EXISTS agent_profile_tombstones (agent_id TEXT PRIMARY KEY, deleted_at TEXT NOT NULL)");
   // Migration for existing DBs: add team column if missing
+  // eslint-disable-next-line no-silent-catch -- Idempotent migration: the team column may already exist.
   try { database.run("ALTER TABLE agent_profiles ADD COLUMN team TEXT"); } catch {}
 }
 // Deep-clones and freezes a profile for immutable storage.
