@@ -63,7 +63,7 @@ export function ConversationsBlock({
   onPinError,
 }) {
   const titleText = conversation.title ?? conversation.name ?? conversation.id ?? conversation.conversation_id ?? "";
-  const isPinned = conversation.pinned === true || conversation.pinned === 1;
+  const isPinned = conversation.pinned === true || conversation.pinned === 1 || conversation.pinned === "1" || conversation.pinned === "true";
   const wrapRef = useRef(null);
 
   // Handles pin toggle via API then notifies parent; restores prior state on failure.
