@@ -37,7 +37,7 @@ export function createConversationCrudService({ database, clock = () => new Date
     if (!Object.prototype.hasOwnProperty.call(input, "project_id") || !Object.prototype.hasOwnProperty.call(input, "agent_id")) {
       throw Object.assign(new ConfigurationError("project_id and agent_id are required."), { statusCode: 400 });
     }
-    const pinned = input.pinned === true || input.pinned === 1 ? true : false;
+    const pinned = input.pinned === true || input.pinned === 1 || input.pinned === "1" || input.pinned === "true" ? true : false;
     const conversation = { id: conversationId, project_id: projectId, agent_id: agentId, title, status: input.status ?? "active", pinned: pinned ? 1 : 0, created_at: now, updated_at: now };
     validateStatus(conversation.status);
     try { database.run("INSERT INTO conversations (id, project_id, agent_id, title, status, pinned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", Object.values(conversation)); }
@@ -50,15 +50,22 @@ export function createConversationCrudService({ database, clock = () => new Date
     const changes = Object.fromEntries(Object.entries(patch).filter(([key, value]) => UPDATABLE.has(key) && value !== undefined));
     if (changes.status !== undefined) validateStatus(changes.status);
     if (changes.title !== undefined) changes.title = String(changes.title).trim() || current.title;
-    if (changes.pinned !== undefined) changes.pinned = changes.pinned === true || changes.pinned === 1 || changes.pinned === "true" ? true : false;
+    if (changes.pinned !== undefined) changes.pinned = changes.pinned === true || changes.pinned === 1 || changes.pinned === "1" || changes.pinned === "true" ? true : false;
     const updated = { ...current, ...changes, updated_at: clock().toISOString() };
-    database.run("UPDATE conversations SET title = ?, status = ?, pinned = ?, updated_at = ? WHERE id = ?", [updated.title, updated.status, updated.pinned ? 1 : 0, updated.updated_at, id]);
+    database.run("UPDATE conversations SET title = ?, status = ?, pinned = ?, updated_at = ? WHERE id = ?", [updated.title, updated.status, updated.pinned ? 1 : 0, updated.updated_at, current.id]);
     return updated;
   }
   // Pins a conversation so it stays at the top of the chat list.
   function pin(id) { return update(id, { pinned: true }); }
   // Unpins a conversation so it returns to chronological order.
   function unpin(id) { return update(id, { pinned: false }); }
+  // Deletes a conversation by id.
+  function remove(id) {
+    const current = get(id);
+    if (!current) throw Object.assign(new ConfigurationError(`Conversation not found: ${id}.`), { statusCode: 404 });
+    database.run("DELETE FROM conversations WHERE id = ?", [current.id]);
+    return { id: current.id };
+  }
 }
 
 // Ensures the conversations table and indexes exist.
@@ -72,8 +79,8 @@ function ensureTable(database) {
   database.run("CREATE INDEX IF NOT EXISTS conversations_pinned ON conversations (pinned, updated_at)");
 }
 
-// Normalizes a conversation row so pinned is always a boolean with a safe default.
-function toConversationRow(row) { return { ...row, pinned: row.pinned === true || row.pinned === 1 ? true : false }; }
+// Normalizes a conversation row so pinned is always a boolean with a safe default of false.
+function toConversationRow(row) { const raw = row?.pinned; return { ...row, pinned: raw === true || raw === 1 || raw === "1" || raw === "true" ? true : false }; }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 

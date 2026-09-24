@@ -4,40 +4,8 @@
 import { useState, useEffect, useRef } from "react";
 import { CreateConversationModal } from "./CreateConversationModal.jsx";
 import { ConversationsBlock } from "./ConversationsBlock.jsx";
-
-const STORAGE_ORDER_KEY = "nodeforge:conversations:order";
-
-// Returns stable id for conversation
-function getConversationId(conv) {
-  return String(conv.id ?? conv.conversation_id ?? conv.conversationId ?? conv.title ?? Math.random());
-}
-
-// Checks whether a conversation is pinned.
-function isPinnedConversation(conv) {
-  return conv?.pinned === true || conv?.pinned === 1;
-}
-
-// Orders pinned conversations before unpinned while preserving deterministic order within each group.
-function sortPinnedFirst(list) {
-  const pinned = [];
-  const rest = [];
-  for (const item of list ?? []) {
-    if (isPinnedConversation(item)) pinned.push(item);
-    else rest.push(item);
-  }
-  return [...pinned, ...rest];
-}
-
-// Sends a create-conversation request to the Forge API and returns the created conversation.
-async function createConversationRequest(title, { onNewConversation, projectId, agentId } = {}) {
-  const body = { title, project_id: projectId, agent_id: agentId };
-  const response = await fetch("/forge/v1/conversations", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error ?? payload.message ?? "Unable to create conversation.");
-  const conversation = payload.conversation ?? payload;
-  if (onNewConversation) return onNewConversation(title, conversation);
-  return conversation;
-}
+import { sortPinnedFirst } from "./conversation-pinning.js";
+import { getConversationId, applyStoredOrder, dedupeConversations, persistOrder, normalizeConversationPayload, createConversationRequest } from "./conversation-list-utils.js";
 
 // Renders the collapsible conversations list with new-conversation action.
 export function ConversationsAccordion({
@@ -68,21 +36,7 @@ export function ConversationsAccordion({
   const fetchedKeyRef = useRef(null);
 
   useEffect(() => {
-    let next = [...conversations];
-    try {
-      const stored = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_ORDER_KEY) : null;
-      if (stored) {
-        const order = JSON.parse(stored);
-        if (Array.isArray(order) && order.length) {
-          const map = new Map(next.map((c) => [getConversationId(c), c]));
-          const ordered = [];
-          for (const id of order) { if (map.has(id)) { ordered.push(map.get(id)); map.delete(id); } }
-          for (const [, v] of map) ordered.push(v);
-          next = ordered;
-        }
-      }
-    } catch { /* ignore */ }
-    setItems(next);
+    setItems(sortPinnedFirst(applyStoredOrder(dedupeConversations([...conversations]))));
   }, [conversations]);
 
   // Fetch conversations on page load filtered by project_id and agent_id
@@ -104,37 +58,8 @@ export function ConversationsAccordion({
         const response = await fetch(url, { method: "GET", headers: { "content-type": "application/json" } });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload.error ?? payload.message ?? "Unable to load conversations.");
-        let fetched = payload.conversations ?? payload.data ?? payload.items ?? payload.results ?? payload;
-        if (!Array.isArray(fetched)) {
-          if (fetched && Array.isArray(fetched.conversations)) fetched = fetched.conversations;
-          else if (fetched && typeof fetched === "object" && fetched !== null) fetched = [];
-          else fetched = [];
-        }
         if (cancelled) return;
-        // Deduplicate by id and apply stored order
-        const deduped = [];
-        const seen = new Set();
-        for (const c of fetched) {
-          const id = getConversationId(c);
-          if (seen.has(id)) continue;
-          seen.add(id);
-          deduped.push(c);
-        }
-        let next = deduped;
-        try {
-          const stored = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_ORDER_KEY) : null;
-          if (stored) {
-            const order = JSON.parse(stored);
-            if (Array.isArray(order) && order.length) {
-              const map = new Map(next.map((c) => [getConversationId(c), c]));
-              const ordered = [];
-              for (const id of order) { if (map.has(id)) { ordered.push(map.get(id)); map.delete(id); } }
-              for (const [, v] of map) ordered.push(v);
-              next = ordered;
-            }
-          }
-        } catch { /* ignore */ }
-        setItems(next);
+        setItems(sortPinnedFirst(applyStoredOrder(dedupeConversations(normalizeConversationPayload(payload)))));
       } catch (err) {
         if (cancelled) return;
         setFetchError(err?.message ?? "Unable to load conversations.");
@@ -145,11 +70,6 @@ export function ConversationsAccordion({
     fetchConversations();
     return () => { cancelled = true; };
   }, [projectId, agentId]);
-
-  // Persists current order to localStorage
-  function persistOrder(list) {
-    try { window.localStorage.setItem(STORAGE_ORDER_KEY, JSON.stringify(list.map(getConversationId))); } catch { /* ignore */ }
-  }
 
   useEffect(() => {
     if (menuOpenId === null) return;
@@ -257,7 +177,7 @@ export function ConversationsAccordion({
           aria-label="Conversations list"
         >
           <div className="conversations-accordion-panel-inner">
-
+            {pinError ? <p role="alert" className="conversations-accordion-error">{pinError}</p> : null}
             {loading ? (
               <p className="conversations-accordion-loading">Loading conversations...</p>
             ) : fetchError ? (
@@ -298,6 +218,8 @@ export function ConversationsAccordion({
                     setMenuOpenId(null);
                   };
                   const onArchive = () => { setItems((prev) => prev.map((c) => getConversationId(c) === cid ? { ...c, archived: true, status: "archived" } : c)); setMenuOpenId(null); };
+                  const onTogglePin = (updated) => { setPinError(""); setItems((prev) => sortPinnedFirst(prev.map((c) => getConversationId(c) === cid ? { ...c, ...(updated && typeof updated === "object" ? updated : {}) } : c))); };
+                  const onPinError = (message) => { setPinError(message ?? "Unable to update pin state."); };
                   const onStartRename = () => { setEditingId(cid); setEditTitle(String(titleText)); setMenuOpenId(null); };
                   const onConfirmRename = () => {
                     const t = editTitle.trim();
@@ -324,6 +246,8 @@ export function ConversationsAccordion({
                       onDeleted={onDelete}
                       onArchived={onArchive}
                       onRenamed={onConfirmRename}
+                      onTogglePin={onTogglePin}
+                      onPinError={onPinError}
                       onDragStart={onDragStart}
                       onDragOver={onDragOver}
                       onDragLeave={() => setDragOverId(null)}
