@@ -64,6 +64,7 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
     const ticket = { ...request.ticket, id: request.task_id };
     const labMode = request.payload?.tool_test;
     const traced = ticketCandidateScope(ticket);
+    // eslint-disable-next-line no-silent-catch -- Explore pre-pass is optional; ticket execution falls back to explicit scope.
     const prepass = traced ? null : relevantTreeSelector ? await createExplorePrepass({ relevantTreeSelector, protocolStorage }).run({ ticket }).catch(() => null) : null;
     const targetPath = labMode?.target_path ?? traced?.targetPath ?? prepass?.targetPath ?? ticketTargetPath(ticket);
     const allowedPrefixes = [...new Set([...(labMode?.allowed_prefixes ?? []), ...(traced?.allowedPrefixes ?? []), ...(prepass?.allowedPrefixes ?? []), ...prefixForPath(targetPath), ...ticketAllowedPrefixes(ticket)])];
@@ -157,6 +158,7 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
     const ticket = { ...request.ticket, id: request.task_id };
     const labMode = request.payload?.tool_test;
     const traced = ticketCandidateScope(ticket);
+    // eslint-disable-next-line no-silent-catch -- Explore pre-pass is optional; ticket execution falls back to explicit scope.
     const prepass = traced ? null : relevantTreeSelector ? await createExplorePrepass({ relevantTreeSelector, protocolStorage }).run({ ticket }).catch(() => null) : null;
     const targetPath = labMode?.target_path ?? traced?.targetPath ?? prepass?.targetPath ?? ticketTargetPath(ticket);
     const allowedPrefixes = [...new Set([...(labMode?.allowed_prefixes ?? []), ...(traced?.allowedPrefixes ?? []), ...(prepass?.allowedPrefixes ?? []), ...prefixForPath(targetPath), ...ticketAllowedPrefixes(ticket)])];
