@@ -4,7 +4,8 @@ import { ConfigurationError } from "../../shared/errors.js";
 import { createForgeSdkMcpServer, forgeSdkToolNames } from "../../tools/claude-sdk-forge-tools.js";
 import { classifyTicketComplexity } from "../../tools/ticket-complexity.js";
 import { createAgentExecutionCheckpointStore } from "../agent/agent-execution-checkpoint.js";
-import { buildResumePrompt, checkpointedRegistry, checkpointPayload, createResumeState, failureDetail } from "./ticket-resume.js";
+import { saveProgressCheckpoint } from "./ticket-checkpoint-writer.js";
+import { buildResumePrompt, checkpointedRegistry, createResumeState, failureDetail } from "./ticket-resume.js";
 import { createExplorePrepass } from "./explore-pre-pass.js";
 import { isLegacyBackfillCandidate } from "../index/ticket-scope.js";
 import { selectCodeGraphCandidatesDefinition, readFileDefinition, writeDiffDefinition, editDiffDefinition, runTestDefinition, checkTestDefinition, commitChangesDefinition, reportDoneDefinition, searchCodeDefinition } from "../../tools/index.js";
@@ -106,25 +107,22 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
         resumeSessionId,
         onSessionReady: (sessionId) => {
           if (typeof sessionId === "string" && sessionId) resumeState.sessionId = sessionId;
-          checkpoints?.save(checkpointPayload(resumeState, { task_id: request.task_id, status: "in_progress" })).catch(() => {});
+          saveProgressCheckpoint(checkpoints, resumeState, { task_id: request.task_id });
         },
         prompt: buildResumePrompt(labMode ? buildToolTestPrompt(request.task_id, targetPath, allowedPrefixes) : buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, complexity), resumeState, { agentId: selected.agent_id, provider: selected.provider, changedPaths: toolContext.changed_paths })
       });
     } catch (error) {
-      if (checkpoints) {
-        await checkpoints.save(checkpointPayload(resumeState, {
-          task_id: request.task_id,
-          correlation_id: request.correlation_id,
-          agent_id: selected?.agent_id ?? null,
-          provider: selected?.provider ?? null,
-          target_path: targetPath,
-          allowed_prefixes: allowedPrefixes,
-          complexity_level: complexity?.level ?? null,
-          changed_paths: [...resumeState.changedPaths],
-          status: "in_progress",
-          failure: failureDetail(error)
-        })).catch(() => {});
-      }
+      await saveProgressCheckpoint(checkpoints, resumeState, {
+        task_id: request.task_id,
+        correlation_id: request.correlation_id,
+        agent_id: selected?.agent_id ?? null,
+        provider: selected?.provider ?? null,
+        target_path: targetPath,
+        allowed_prefixes: allowedPrefixes,
+        complexity_level: complexity?.level ?? null,
+        changed_paths: [...resumeState.changedPaths],
+        failure: failureDetail(error)
+      });
       throw error;
     }
     const toolEvents = collectToolCalls(result.messages);
@@ -201,7 +199,7 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
         onSessionReady: (threadId, toolNames) => {
           if (typeof threadId === "string" && threadId) resumeState.threadId = threadId;
           if (Array.isArray(toolNames)) projectLogger({ event_name: "supervisor.codex_mcp_session_ready", level: "info", status: "success", message: "Codex Forge MCP session ready.", task_id: request.task_id, correlation_id: request.correlation_id, source: "codex-sdk-ticket", payload: { request_id: request.request_id, agent_id: selected.agent_id, tools: toolNames } });
-          checkpoints?.save(checkpointPayload(resumeState, { task_id: request.task_id, status: "in_progress" })).catch(() => {});
+          saveProgressCheckpoint(checkpoints, resumeState, { task_id: request.task_id });
         },
         options: {
           model: selected.model,
@@ -233,20 +231,17 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
         }
       });
     } catch (error) {
-      if (checkpoints) {
-        await checkpoints.save(checkpointPayload(resumeState, {
-          task_id: request.task_id,
-          correlation_id: request.correlation_id,
-          agent_id: selected?.agent_id ?? null,
-          provider: selected?.provider ?? null,
-          target_path: targetPath,
-          allowed_prefixes: allowedPrefixes,
-          complexity_level: complexity?.level ?? null,
-          changed_paths: [...resumeState.changedPaths],
-          status: "in_progress",
-          failure: failureDetail(error)
-        })).catch(() => {});
-      }
+      await saveProgressCheckpoint(checkpoints, resumeState, {
+        task_id: request.task_id,
+        correlation_id: request.correlation_id,
+        agent_id: selected?.agent_id ?? null,
+        provider: selected?.provider ?? null,
+        target_path: targetPath,
+        allowed_prefixes: allowedPrefixes,
+        complexity_level: complexity?.level ?? null,
+        changed_paths: [...resumeState.changedPaths],
+        failure: failureDetail(error)
+      });
       throw error;
     }
     if (codexToolEvents.length === 0) throw Object.assign(new ConfigurationError("Codex SDK did not expose Forge MCP tool calls to the session."), { code: "CODEX_MCP_TOOL_CALLS_MISSING" });
