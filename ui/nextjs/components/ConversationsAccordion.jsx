@@ -5,7 +5,8 @@ import { useState, useEffect, useRef } from "react";
 import { CreateConversationModal } from "./CreateConversationModal.jsx";
 import { ConversationsBlock } from "./ConversationsBlock.jsx";
 import { sortPinnedFirst } from "./conversation-pinning.js";
-import { getConversationId, applyStoredOrder, dedupeConversations, persistOrder, normalizeConversationPayload, createConversationRequest } from "./conversation-list-utils.js";
+import { useConversationList } from "./use-conversation-list.js";
+import { getConversationId, persistOrder, createConversationRequest } from "./conversation-list-utils.js";
 
 // Renders the collapsible conversations list with new-conversation action.
 export function ConversationsAccordion({
@@ -22,54 +23,15 @@ export function ConversationsAccordion({
   const [title, setTitle] = useState("");
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
-  const [items, setItems] = useState(() => [...conversations]);
+  const { items, setItems, loading, fetchError } = useConversationList({ conversations, projectId, agentId });
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [menuOpenId, setMenuOpenId] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editTitle, setEditTitle] = useState("");
   const [dragId, setDragId] = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [fetchError, setFetchError] = useState("");
   const [pinError, setPinError] = useState("");
   const menuRef = useRef(null);
-  const fetchedKeyRef = useRef(null);
-
-  useEffect(() => {
-    setItems(sortPinnedFirst(applyStoredOrder(dedupeConversations([...conversations]))));
-  }, [conversations]);
-
-  // Fetch conversations on page load filtered by project_id and agent_id
-  useEffect(() => {
-    const key = `${projectId ?? ""}::${agentId ?? ""}`;
-    if (fetchedKeyRef.current === key) return;
-    fetchedKeyRef.current = key;
-    let cancelled = false;
-    // Fetches conversations from Forge API and updates items state
-    async function fetchConversations() {
-      setLoading(true);
-      setFetchError("");
-      try {
-        const params = new URLSearchParams();
-        if (projectId != null && projectId !== "") params.set("project_id", String(projectId));
-        if (agentId != null && agentId !== "") params.set("agent_id", String(agentId));
-        const qs = params.toString();
-        const url = qs ? `/forge/v1/conversations?${qs}` : "/forge/v1/conversations";
-        const response = await fetch(url, { method: "GET", headers: { "content-type": "application/json" } });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload.error ?? payload.message ?? "Unable to load conversations.");
-        if (cancelled) return;
-        setItems(sortPinnedFirst(applyStoredOrder(dedupeConversations(normalizeConversationPayload(payload)))));
-      } catch (err) {
-        if (cancelled) return;
-        setFetchError(err?.message ?? "Unable to load conversations.");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    fetchConversations();
-    return () => { cancelled = true; };
-  }, [projectId, agentId]);
 
   useEffect(() => {
     if (menuOpenId === null) return;
