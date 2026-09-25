@@ -985,6 +985,9 @@ button, input { font: inherit; }
 .agent-select-option:hover, .agent-select-option.is-selected { background: var(--app-button-bg); color: var(--app-button-text); }
 .agent-directory-card.agent-card-editable { display: grid; grid-template-rows: 1fr 2fr 1fr; padding: 0; cursor: pointer; overflow: hidden; border: 1px solid var(--app-border); background: var(--app-panel); }
 :root[data-theme='light'] .agent-directory-card { border-color: #bfd5dd; background: #f8fcfd; }
+:root[data-theme='light'] .agent-directory-card.agent-card-editable { border-color: #bfd5dd; }
+:root[data-theme='light'] .agent-card-status.ready { color: #187a4b; }
+:root[data-theme='light'] .agent-card-status.ready i { background: #187a4b; }
 :root[data-theme='light'] .agent-card-status.offline i { background: #d48b8b; }
 .agent-card-header, .agent-card-provider, .agent-card-footer { padding: 14px; }
 .agent-card-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--app-border); }
