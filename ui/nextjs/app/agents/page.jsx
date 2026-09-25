@@ -13,10 +13,10 @@ const API_URL = typeof window !== "undefined"
   : "http://127.0.0.1:3100/forge/v1/agents";
 const ROLE_LABELS = { coder: "Coder", reviewer: "Reviewer", sprint_leader: "Sprint leader", architecture_manager: "Architecture manager", linguist: "Linguist" };
 const PROVIDER_MODELS = {
-  claude: ["claude-haiku-4-5", "agentgw.cloud", "agentgw.cloud", "agentgw.cloud", "agentgw.cloud[1m]", "claude-sonnet-4-5", "claude-sonnet-4-0", "claude-opus-4-5", "claude-haiku-4-3", "claude-3-5-sonnet-20241022"],
-  anthropic: ["claude-haiku-4-5", "agentgw.cloud", "agentgw.cloud", "agentgw.cloud", "agentgw.cloud[1m]", "claude-sonnet-4-5", "claude-sonnet-4-0", "claude-opus-4-5", "claude-haiku-4-3", "claude-3-5-sonnet-20241022"],
-  openai: ["agentgw.cloud", "agentgw.cloud", "agentgw.cloud", "agentgw.cloud", "agentgw.cloud.2", "agentgw.cloud.6", "agentgw.cloud.6-mini", "agentgw.cloud.1"],
-  codex: ["agentgw.cloud", "agentgw.cloud", "agentgw.cloud", "agentgw.cloud", "agentgw.cloud.2", "agentgw.cloud.6", "agentgw.cloud.6-mini", "agentgw.cloud.1"],
+  claude: ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-7", "claude-opus-5", "claude-opus-4-8[1m]", "claude-sonnet-4-5", "claude-sonnet-4-0", "claude-opus-4-5", "claude-haiku-4-3", "claude-3-5-sonnet-20241022"],
+  anthropic: ["claude-sonnet-4.5", "claude-haiku-4.5"],
+  openai: ["gpt-5.6", "gpt-5.6-mini", "gpt-5.1"],
+  codex: ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.2"],
   ollama: ["gemma4:31b", "gpt-oss:120b", "gpt-oss:20b", "nemotron-3-nano:30b", "nemotron-3-super", "nemotron-3-ultra"]
 };
 
@@ -80,7 +80,7 @@ export default function AgentsPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [editingAgent, setEditingAgent] = useState(null);
-  const [form, setForm] = useState({ role: "architecture_manager", team: "Backend", agent_name: "", provider: "anthropic", model: "agentgw.cloud", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false });
+  const [form, setForm] = useState({ role: "architecture_manager", team: "Backend", agent_name: "", provider: "anthropic", model: PROVIDER_MODELS.anthropic[0], gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false });
 
   // Updates a form field value from an input event.
   function updateField(event) {
@@ -163,7 +163,7 @@ export default function AgentsPage() {
       setAgents((current) => editingAgent ? current.map((item) => item.agent_id === editingAgent.agent_id ? payload : item) : [...current, payload]);
       setModalOpen(false);
       setEditingAgent(null);
-      setForm({ role: "architecture_manager", team: "Backend", agent_name: "", provider: "anthropic", model: "agentgw.cloud", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false });
+      setForm({ role: "architecture_manager", team: "Backend", agent_name: "", provider: "anthropic", model: PROVIDER_MODELS.anthropic[0], gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false });
     } catch (requestError) {
       setFormError(requestError.message || "Agent could not be created.");
     } finally { setSaving(false); }
@@ -210,14 +210,14 @@ export default function AgentsPage() {
       {state === "loading" && <p className="agents-directory-state">Loading agents from `/forge/v1/agents`…</p>}
       {state === "error" && <p className="agents-directory-state error">{error}</p>}
       {state === "ready" && agents.length === 0 && <p className="agents-directory-state">No agents returned by the API.</p>}
-      {state === "ready" && <div className="agents-card-grid"><button className="agent-directory-card agent-add-card" type="button" onClick={() => { setEditingAgent(null); setForm({ role: "architecture_manager", team: "Backend", agent_name: "", provider: "anthropic", model: "agentgw.cloud", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false }); setTestState(""); setFormError(""); setModalOpen(true); }} aria-label="Add agent"><span>+</span><strong>Add agent</strong></button>{agents.map((agent, index) => {
+      {state === "ready" && <div className="agents-card-grid"><button className="agent-directory-card agent-add-card" type="button" onClick={() => { setEditingAgent(null); setForm({ role: "architecture_manager", team: "Backend", agent_name: "", provider: "anthropic", model: PROVIDER_MODELS.anthropic[0], gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false }); setTestState(""); setFormError(""); setModalOpen(true); }} aria-label="Add agent"><span>+</span><strong>Add agent</strong></button>{agents.map((agent, index) => {
         const id = agent.agent_id ?? agent.id ?? `agent-${index}`;
         const name = agent.agent_name ?? agent.name ?? agent.label ?? id;
         const capabilities = agent.capabilities ?? agent.tools ?? [];
         return <article className="agent-directory-card agent-card-editable" key={id} onClick={() => openEdit(agent)}>
           <div className="agent-card-header"><div className="agent-card-identity"><span className="agent-card-mark">{String(name).slice(0, 1).toUpperCase()}</span><div><strong>{name}</strong><small>{ROLE_LABELS[agent.role] ?? ROLE_LABELS[agent.agent_id] ?? displayValue(agent.role ?? id)}</small></div></div><div className="agent-header-actions"><button type="button" className={`agent-switch ${agent.enabled ? "is-on" : ""}`} onClick={(event) => { event.stopPropagation(); const enabled = !agent.enabled; setAgents((current) => current.map((item) => item.agent_id === id ? { ...item, enabled } : item)); fetch(`${API_URL}/${id}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...agent, enabled }) }).then((response) => response.json()).then((updated) => setAgents((current) => current.map((item) => item.agent_id === id ? updated : item))).catch(() => setAgents((current) => current.map((item) => item.agent_id === id ? { ...item, enabled: agent.enabled } : item))); }} aria-label="Toggle agent"><i /></button></div></div>
           <div className="agent-card-provider"><span className={`provider-logo provider-${String(agent.provider).toLowerCase()}`}>{providerAsset(agent.provider) ? <img src={providerAsset(agent.provider).src} alt={providerAsset(agent.provider).alt} /> : <span className="provider-letter">{String(agent.provider ?? "?").slice(0, 1).toUpperCase()}</span>}</span><span>{displayValue(agent.model)}</span></div>
-          <div className="agent-card-footer"><div className="agent-status-control"><select value={agent.status ?? "not_connected"} onClick={(event) => event.stopPropagation()} onChange={(event) => { event.stopPropagation(); fetch(`${API_URL}/${id}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...agent, status: event.target.value, enabled: agent.enabled === true }) }).then((response) => response.json()).then((updated) => setAgents((current) => current.map((item) => item.agent_id === id ? updated : item))); }}><option value="ready">READY</option><option value="working">WORKING</option><option value="not_connected">NOT CONNECTED</option></select><div className="agent-card-actions"><button type="button" className="card-action-button" onClick={(event) => { event.stopPropagation(); testAgent(agent); }} disabled={testingAgent === id}>{testingAgent === id ? "Testing…" : "Test"}</button><button type="button" className="card-action-button danger" onClick={(event) => { event.stopPropagation(); deleteAgent(agent); }}>Delete</button></div></div></div>
+          <div className="agent-card-footer"><div className="agent-status-control">{(() => { const status = agent.status ?? "not_connected"; const statusMap = { ready: { label: "READY", className: "ready" }, working: { label: "WORKING", className: "working" }, not_connected: { label: "NOT CONNECT", className: "not-connect" } }; const display = statusMap[status] || statusMap.not_connected; return <span className={`agent-status-badge agent-status-${display.className}`}>{display.label}</span>; })()}<div className="agent-card-actions"><button type="button" className="card-action-button" onClick={(event) => { event.stopPropagation(); testAgent(agent); }} disabled={testingAgent === id}>{testingAgent === id ? "Testing…" : "Test"}</button><button type="button" className="card-action-button danger" onClick={(event) => { event.stopPropagation(); deleteAgent(agent); }}>Delete</button></div></div></div>
         </article>;
       })}</div>}
     </main>
