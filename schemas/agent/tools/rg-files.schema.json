@@ -1,0 +1,15 @@
+{
+  "$comment": "Allows only flags that narrow or sort ripgrep's default project file list; omitting flags runs rg --files with inherited ripgrep config disabled.",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/tools/rg-files.schema.json",
+  "title": "Forge rg files tool input",
+  "type": "object",
+  "properties": {
+    "flags": {
+      "type": "array",
+      "description": "Optional ripgrep flags in CLI order. Supported: exclusion --glob=!PATTERN or --iglob=!PATTERN, --max-depth=N, --type=TYPE, --type-not=TYPE, --sort=path. Flags that include hidden or ignored files are rejected. Use [] for the default rg --files listing.",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "additionalProperties": false
+}

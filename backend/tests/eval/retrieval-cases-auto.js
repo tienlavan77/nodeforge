@@ -834,5 +834,109 @@ export const RETRIEVAL_EVAL_CASES_AUTO = [
     "files_changed": [
       "ui/nextjs/components/NodeForgePanels.jsx"
     ]
-  }
+  },
+{
+  "id": "TICKET-PROJECT-NODEFORGE-1790143726042",
+  "note": "Backfilled from final report TICKET-PROJECT-NODEFORGE-1790143726042.md (status=completed)",
+  "title": "Add pinning for conversations in the chat list",
+  "objective": "Implement conversation pinning across the backend and frontend so users can pin or unpin conversations from the left chat list, pinned conversations remain at the top, and the pinned state persists across page reloads.",
+  "acceptance_criteria": [
+    "The conversations data model persists a boolean pinned state for every conversation, with existing conversations receiving a safe default of false.",
+    "GET /forge/v1/conversations returns the pinned state for every conversation and orders pinned conversations before unpinned conversations while preserving a deterministic order within each group.",
+    "The backend provides authenticated, project-scoped pin and unpin API operations for a conversation, validates that the conversation exists and belongs to the active project, and returns the updated conversation.",
+    "The frontend renders a pin/unpin control for each conversation in the left conversation list with accessible labels and state.",
+    "Clicking the control calls the corresponding pin or unpin API and updates the conversation row and ordering immediately after a successful response without requiring a full page reload.",
+    "Loading or refreshing the page retrieves the persisted pinned state from the list API and displays pinned conversations at the top.",
+    "Pin and unpin failures do not falsely persist the optimistic state; the UI reports or restores the prior state when the API request fails."
+  ],
+  "style": [
+    "frontend",
+    "backend"
+  ],
+  "ground_truth": [
+    "ui/nextjs/components/ConversationsAccordion.jsx",
+    "backend/src/application/conversation-crud-service.js",
+    "ui/nextjs/components/conversation-list-utils.js"
+  ],
+  "files_changed": [
+    "ui/nextjs/components/ConversationsAccordion.jsx",
+    "backend/src/application/conversation-crud-service.js",
+    "ui/nextjs/components/conversation-list-utils.js"
+  ]
+},
+{
+  "id": "TICKET-PROJECT-NODEFORGE-1790325440606",
+  "note": "Backfilled from final report TICKET-PROJECT-NODEFORGE-1790325440606.md (status=completed)",
+  "title": "Replace agent status selector with a color-coded status badge",
+  "objective": "Update the Agents frontend page to remove the editable agent status selector and display the current status as a non-interactive badge. Use green for READY, orange for WORKING, and red for NOT CONNECT.",
+  "acceptance_criteria": [
+    "The agent card status selector is removed and no longer allows users to edit or persist agent status manually.",
+    "Each agent card displays a non-interactive status badge with one of the labels READY, WORKING, or NOT CONNECT.",
+    "READY badges use a green visual treatment, WORKING badges use an orange visual treatment, and NOT CONNECT badges use a red visual treatment.",
+    "The badge reflects status updates received from the existing project stream without requiring a page refresh.",
+    "Agents with missing, unknown, or unavailable status values are displayed as NOT CONNECT.",
+    "The existing agent enable/disable switch, edit action, test action, and delete action continue to work independently of the status badge."
+  ],
+  "style": [
+    "frontend"
+  ],
+  "ground_truth": [
+    "ui/nextjs/app/agents/page.jsx",
+    "ui/nextjs/app/globals.css",
+    "ui/nextjs/app/tailwind.css"
+  ],
+  "files_changed": [
+    "ui/nextjs/app/agents/page.jsx",
+    "ui/nextjs/app/globals.css",
+    "ui/nextjs/app/tailwind.css"
+  ]
+},
+{
+  "id": "TICKET-PROJECT-NODEFORGE-1790327458311",
+  "note": "Backfilled from final report TICKET-PROJECT-NODEFORGE-1790327458311.md (status=completed)",
+  "title": "Refine Agents page status indicators and compact UI styling",
+  "objective": "Update the Agents frontend page to use a more compact visual treatment: reduce typography size, remove card background frames, and display each agent status with a colored circular indicator and matching label color. READY must use a blue dot and blue text, WORKING must use an orange dot and orange text, and NOT CONNECT must use a red dot and red text.",
+  "acceptance_criteria": [
+    "The Agents page uses smaller typography for agent names, metadata, status labels, and related controls without reducing readability.",
+    "Agent cards no longer display framed or filled background containers; the layout remains visually clear in both light and dark themes.",
+    "READY status displays a blue circular dot followed by READY text, with both the dot and text using the same blue status color.",
+    "WORKING status displays an orange circular dot followed by WORKING text, with both the dot and text using the same orange status color.",
+    "NOT CONNECT status displays a red circular dot followed by NOT CONNECT text, with both the dot and text using the same red status color.",
+    "Status indicators preserve accessible text labels and remain visually consistent across all agent cards and supported themes.",
+    "Existing agent loading, editing, testing, deletion, and status-update behavior continues to work unchanged."
+  ],
+  "style": [
+    "frontend"
+  ],
+  "ground_truth": [
+    "ui/nextjs/app/agents/page.jsx",
+    "ui/nextjs/app/globals.css"
+  ],
+  "files_changed": [
+    "ui/nextjs/app/agents/page.jsx",
+    "ui/nextjs/app/globals.css"
+  ]
+},
+{
+  "id": "TICKET-PROJECT-NODEFORGE-1790327815866",
+  "note": "Backfilled from final report TICKET-PROJECT-NODEFORGE-1790327815866.md (status=completed)",
+  "title": "Restore agent card borders and green READY status styling",
+  "objective": "Update the Agents page frontend UI so each agent card displays a visible border again and the READY status uses green for both its indicator dot and READY label in all supported themes.",
+  "acceptance_criteria": [
+    "Agent cards on the Agents page have a visible border consistent with the existing NodeForge surface and border styling.",
+    "The READY status label is rendered in green.",
+    "The status dot accompanying READY is rendered in the same green color.",
+    "The border and READY colors remain legible in both dark and light themes.",
+    "WORKING, NOT CONNECTED, card actions, and existing agent card layout behavior are unchanged."
+  ],
+  "style": [
+    "frontend"
+  ],
+  "ground_truth": [
+    "ui/nextjs/app/globals.css"
+  ],
+  "files_changed": [
+    "ui/nextjs/app/globals.css"
+  ]
+}
 ];

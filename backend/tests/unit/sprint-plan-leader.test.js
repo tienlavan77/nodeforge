@@ -30,6 +30,13 @@ test("runner throws without an SDK gateway", async () => {
   await assert.rejects(() => leader.requestPlan({ projectId: "P1", agentId: "A", brief: "b", correlationId: "C" }), /requires an SDK gateway/);
 });
 
+// Keeps Codex sprint plans available when the SDK returns text instead of messages.
+test("runner parses a Codex SDK sprint plan from text", async () => {
+  const leader = createSprintPlanLeader({ sdkGateway: { execute: async () => ({ text: '```json\n{"id":"SPRINT-1","objective":"Ship it"}\n```', items: [] }) } });
+  const plan = await leader.requestPlan({ projectId: "P1", agentId: "AGENT-SL", brief: "ship it", correlationId: "CORR-1" });
+  assert.equal(plan.id, "SPRINT-1");
+});
+
 test("runner returns undefined when SDK messages hold no plan JSON", async () => {
   const leader = createSprintPlanLeader({ sdkGateway: { execute: async () => ({ messages: [{ text: "no json here" }] }) } });
   const plan = await leader.requestPlan({ projectId: "P1", agentId: "A", brief: "b", correlationId: "C" });

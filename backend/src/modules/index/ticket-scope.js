@@ -31,8 +31,20 @@ export function backfillTicketCandidates(ticket, { now = () => new Date().toISOS
     normalized.candidate_files = [{ path: "backend/src/application/ticket-crud-service.js", role: "REFERENCE", reason: `${LEGACY_BACKFILL_REASON_PREFIX} pre-enforcement ticket; retrieval must re-discover via live search.` }];
     if (!normalized.candidates_produced_by) normalized.candidates_produced_by = "legacy-backfill";
     if (!normalized.candidates_produced_at) normalized.candidates_produced_at = now();
+  } else {
+    normalized.candidate_files = normalized.candidate_files.map(downgradeMissingSymbol);
   }
   return normalized;
+}
+
+// Downgrades a PATCH/REUSE entry missing its schema-required symbol to REFERENCE
+// so pre-enforcement entries (saved before symbol became required) stop blocking
+// roadmap persistence for every other ticket sharing the same sprint/roadmap.
+function downgradeMissingSymbol(entry) {
+  const hasSymbol = typeof entry?.symbol === "string" && entry.symbol.trim().length > 0;
+  if ((entry?.role !== "PATCH" && entry?.role !== "REUSE") || hasSymbol) return entry;
+  const reason = typeof entry.reason === "string" && entry.reason ? entry.reason : "no symbol recorded";
+  return { ...entry, role: "REFERENCE", reason: `${LEGACY_BACKFILL_REASON_PREFIX} missing symbol for ${entry.role}; ${reason}` };
 }
 
 // Checks whether a candidate entry is a legacy-backfill placeholder.

@@ -1,0 +1,8 @@
+{
+  "$comment": "Reads the project Git Service porcelain status without agent-supplied paths or flags.",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/tools/git-status.schema.json",
+  "title": "Forge Git status tool input",
+  "type": "object",
+  "additionalProperties": false
+}

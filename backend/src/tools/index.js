@@ -6,7 +6,11 @@ import { authorizeTool } from "./tool-authorization.js";
 import { createSelectCodeGraphCandidatesTool } from "./select-code-graph-candidates.js";
 import { createSearchCodeTool } from "./search-code.js";
 import { createReadCodeTool } from "./read-code.js";
-import { createCheckTestTool, createReadFileTool, createWriteDiffTool, createEditDiffTool, createRunTestTool, createCommitChangesTool, createReportDoneTool } from "./agent-lifecycle-tools.js";
+import { createCheckTestTool, createReadFileTool, createWriteDiffTool, createEditDiffTool, createRunTestTool, createCommitChangesTool } from "./agent-lifecycle-tools.js";
+import { createReportDoneTool } from "./agent-report-tool.js";
+import { createGitReadTools } from "./git-read-tools.js";
+import { createAgentCommandTools } from "./agent-command-tools.js";
+export { rgFilesDefinition, rgSearchDefinition, sedLinesDefinition } from "./agent-command-tools.js";
 
 const require = createRequire(import.meta.url);
 const readTranscriptInputSchema = require("../../../schemas/agent/tools/read-transcript-blocks.schema.json");
@@ -20,6 +24,8 @@ const runTestInputSchema = require("../../../schemas/agent/tools/run-test.schema
 const checkTestInputSchema = require("../../../schemas/agent/tools/check-test.schema.json");
 const commitChangesInputSchema = require("../../../schemas/agent/tools/commit-changes.schema.json");
 const reportDoneInputSchema = require("../../../schemas/agent/tools/report-done.schema.json");
+const gitStatusInputSchema = require("../../../schemas/agent/tools/git-status.schema.json");
+const gitDiffInputSchema = require("../../../schemas/agent/tools/git-diff.schema.json");
 
 export const readTranscriptBlocksDefinition = Object.freeze({
   name: "read_transcript_blocks",
@@ -37,12 +43,15 @@ export const runTestDefinition = Object.freeze({ name: "run_test", description: 
 export const checkTestDefinition = Object.freeze({ name: "check_test", description: "Poll a started test job by job_id until it reports passed or failed.", input_schema: checkTestInputSchema });
 export const commitChangesDefinition = Object.freeze({ name: "commit_changes", description: "Ask Node to commit approved changed paths.", input_schema: commitChangesInputSchema });
 export const reportDoneDefinition = Object.freeze({ name: "report_done", description: "Record the completion summary through the existing Stage1 report service.", input_schema: reportDoneInputSchema });
+export const gitStatusDefinition = Object.freeze({ name: "git_status", description: "Read project Git status in porcelain format through Node Git Service.", input_schema: gitStatusInputSchema });
+export const gitDiffDefinition = Object.freeze({ name: "git_diff", description: "Read the unstaged working-tree patch through Node Git Service.", input_schema: gitDiffInputSchema });
 
-export function createForgeToolRegistry({ protocolStorage, fileService, maxChars, codeSearch, relevantTreeSelector, freshnessChecker, enableReadCode = false, testService, gitService, reportService, onEvalCase, governance, projectLogger = () => {} } = {}) {
+export function createForgeToolRegistry({ protocolStorage, fileService, projectRoot, maxChars, codeSearch, relevantTreeSelector, freshnessChecker, enableReadCode = false, testService, gitService, reportService, onEvalCase, governance, projectLogger = () => {} } = {}) {
   const transcriptTool = createReadTranscriptBlocksTool({ protocolStorage, fileService, maxChars });
   const graphTool = createSelectCodeGraphCandidatesTool({ relevantTreeSelector, freshnessChecker });
   const retrievalBudgets = new Map();
   const lifecycle = {};
+  Object.assign(lifecycle, createAgentCommandTools({ projectRoot, fileService, codeSearch, projectLogger, wrap }));
   if (fileService?.readForIndex && fileService?.readFile && fileService?.atomicWrite) lifecycle.read_file = wrap(createReadFileTool({ fileService, symbolLookup: codeSearch?.symbolsForFile?.bind(codeSearch), maxChars }), "read_file");
   if (fileService?.readFile && fileService?.atomicWrite) {
     lifecycle.write_diff = wrap(createWriteDiffTool({ fileService, maxChars }), "write_diff");
@@ -50,9 +59,14 @@ export function createForgeToolRegistry({ protocolStorage, fileService, maxChars
   }
   if (testService?.startTests) lifecycle.run_test = wrap(createRunTestTool({ testService }), "run_test");
   if (testService?.getTestResult) lifecycle.check_test = wrap(createCheckTestTool({ testService }), "check_test");
-  if (gitService?.commit) lifecycle.commit_changes = wrap(createCommitChangesTool({ gitService }), "commit_changes");
+  if (gitService?.commit) lifecycle.commit_changes = wrap(createCommitChangesTool({ gitService, logger: { emit: projectLogger } }), "commit_changes", false);
+  if (gitService?.status && gitService?.diffWorkingTree) {
+    const gitReadTools = createGitReadTools({ gitService, logger: { emit: projectLogger } });
+    lifecycle.git_status = wrap(gitReadTools.git_status, "git_status", false);
+    lifecycle.git_diff = wrap(gitReadTools.git_diff, "git_diff", false);
+  }
   if (reportService?.buildFinalReport) lifecycle.report_done = wrap(createReportDoneTool({ reportService, onEvalCase }), "report_done");
-  function wrap(tool, name) { return Object.freeze({ ...tool, async execute(input, context = {}) { const scoped = withDefaultBudget(context); authorizeTool(name, scoped); return dispatch(name, tool, input, scoped); } }); }
+  function wrap(tool, name, preauthorize = true) { return Object.freeze({ ...tool, async execute(input, context = {}) { const scoped = withDefaultBudget(context); if (preauthorize) authorizeTool(name, scoped); return dispatch(name, tool, input, scoped); } }); }
   const registry = {
     read_transcript_blocks: Object.freeze({ ...transcriptTool, async execute(input, context = {}) { const scoped = withDefaultBudget(context); authorizeTool("read_transcript_blocks", scoped); return dispatch("read_transcript_blocks", transcriptTool, input, scoped); } }),
     select_code_graph_candidates: Object.freeze({ ...graphTool, async execute(input, context = {}) { const scoped = withDefaultBudget(context); authorizeTool("select_code_graph_candidates", scoped); return dispatch("select_code_graph_candidates", graphTool, input, scoped); } })
@@ -134,6 +148,8 @@ export function createForgeToolRegistry({ protocolStorage, fileService, maxChars
       check_test: "kiểm tra kiểm thử",
       commit_changes: "commit thay đổi",
       report_done: "báo cáo hoàn tất",
+      git_status: "xem trạng thái Git",
+      git_diff: "xem thay đổi Git",
       read_transcript_blocks: "đọc phiên bản"
     };
     return labels[name] ?? name;
@@ -147,6 +163,8 @@ export function createForgeToolRegistry({ protocolStorage, fileService, maxChars
 
 function toolResultHint(name, result) {
   if (result === null || result === undefined) return "";
+  if (name === "git_status") return `${result.working_tree ?? "unknown"} files=${result.changed_files ?? 0}`;
+  if (name === "git_diff") return result.has_changes ? "changes" : "clean";
   if (name === "select_code_graph_candidates") return pathHint(result.selected);
   if (name === "search_code") return pathHint(result.matches);
   if (name === "read_file" || name === "read_code") return result.path ? `${result.path}${result.sha256 ? " checksum" : ""}` : "read";

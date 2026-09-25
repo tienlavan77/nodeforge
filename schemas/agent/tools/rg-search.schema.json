@@ -1,0 +1,14 @@
+{
+  "$comment": "Search project source text with scoped paths and prioritized safe ripgrep flags.",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/tools/rg-search.schema.json",
+  "title": "Forge rg search tool input",
+  "type": "object",
+  "required": ["pattern", "paths"],
+  "properties": {
+    "pattern": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "paths": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" } },
+    "flags": { "type": "array", "description": "Supported: -n, -i, -F, -w, --glob=!PATTERN, --iglob=!PATTERN, --type=TYPE, --type-not=TYPE, --max-count=N.", "items": { "type": "string" } }
+  },
+  "additionalProperties": false
+}

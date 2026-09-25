@@ -30,8 +30,44 @@ test("runner throws without an SDK gateway", async () => {
   await assert.rejects(() => leader.requestTicket({ projectId: "P1", agentId: "A", content: "x", correlationId: "C" }), /requires an SDK gateway/);
 });
 
-test("runner returns undefined when SDK messages hold no ticket JSON", async () => {
-  const leader = createTicketSprintLeader({ sdkGateway: { execute: async () => ({ messages: [{ text: "no json here" }] }) } });
-  const draft = await leader.requestTicket({ projectId: "P1", agentId: "A", content: "x", correlationId: "C" });
+// Keeps Codex ticket drafts available for regeneration when the SDK returns text instead of messages.
+test("runner parses a Codex SDK ticket from text", async () => {
+  const leader = createTicketSprintLeader({ sdkGateway: { execute: async () => ({ text: '```json\n{"title":"T","objective":"O","acceptance_criteria":["A"]}\n```', items: [] }) } });
+  const draft = await leader.requestTicket({ projectId: "P1", agentId: "AGENT-SL", content: "fix api", correlationId: "CORR-1" });
+  assert.equal(draft.title, "T");
+});
+
+test("runner logs safe parse diagnostics when SDK output has no ticket JSON", async () => {
+  const events = [];
+  const ownerContext = "Vietnamese owner context with credential=owner-secret";
+  let callCount = 0;
+  let request;
+  const leader = createTicketSprintLeader({
+    sdkGateway: { execute: async (args) => { request = args; callCount += 1; return { messages: [{ text: `short output token=agent-secret ${ownerContext}` }, { text: "still not JSON" }] }; } },
+    logger: { error: (message, details) => events.push({ message, details }) }
+  });
+
+  const draft = await leader.requestTicket({ projectId: "P1", agentId: "AGENT-SL", content: ownerContext, correlationId: "CORR-1" });
+
   assert.equal(draft, undefined);
+  assert.equal(callCount, 1);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].message, "SPRINT_LEADER_TICKET_PARSE_FAILED");
+  assert.deepEqual(events[0].details, {
+    agent_id: "AGENT-SL",
+    correlation_id: "CORR-1",
+    task_id: "PROJECT-P1",
+    prompt_chars: request.prompt.length,
+    response_fields: ["messages"],
+    result_text_chars: null,
+    message_count: 2,
+    output_chars: (`short output token=agent-secret ${ownerContext}\nstill not JSON`).length,
+    message_summary: [
+      { type: "unknown", content_types: [], text_lengths: [] },
+      { type: "unknown", content_types: [], text_lengths: [] }
+    ],
+    output_preview: "short output [REDACTED] [OWNER_CONTEXT]\nstill not JSON"
+  });
+  assert.ok(events[0].details.output_preview.length <= 500);
+  assert.doesNotMatch(events[0].details.output_preview, /owner-secret|agent-secret/);
 });
