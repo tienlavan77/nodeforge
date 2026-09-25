@@ -79,7 +79,7 @@ test("write_diff rejects content over 8 KB with CONTENT_TOO_LARGE", async () => 
     assert.equal(error.details.limit, 8192);
     return true;
   });
-  await tool.execute({ path: "ok.txt", content: "x".repeat(8192), before_checksum: null }, {});
+  await tool.execute({ path: "ok.txt", content: `// Boundary fixture\n${"x".repeat(8192 - Buffer.byteLength("// Boundary fixture\n"))}`, before_checksum: null }, {});
 });
 
 test("write_diff rejects replacing an existing file over 8 KB", async () => {
@@ -102,12 +102,12 @@ test("edit_diff replaces a unique anchor, verifies checksum, and reports errors"
   const read = createReadFileTool({ fileService });
   const write = createWriteDiffTool({ fileService });
   const edit = createEditDiffTool({ fileService });
-  await write.execute({ path: "code.js", content: "const a = 1;\nconst b = 2;\n", before_checksum: null }, {});
+  await write.execute({ path: "code.js", content: "// Test code file\nconst a = 1;\nconst b = 2;\n", before_checksum: null }, {});
   const before = await read.execute({ path: "code.js" }, {});
   const result = await edit.execute({ path: "code.js", before_checksum: before.sha256, anchor: "const b = 2;", replacement: "const b = 3;" }, {});
   assert.equal(result.replaced_count, 1);
   const after = await read.execute({ path: "code.js" }, {});
-  assert.equal(after.content, "const a = 1;\nconst b = 3;\n");
+  assert.equal(after.content, "// Test code file\nconst a = 1;\nconst b = 3;\n");
   assert.notEqual(after.sha256, before.sha256);
 
   await assert.rejects(() => edit.execute({ path: "code.js", before_checksum: before.sha256, anchor: "x", replacement: "y" }, {}), (error) => error.code === "CHECKSUM_MISMATCH");
@@ -134,14 +134,14 @@ test("edit_diff with occurrence=all replaces every match and skips uniqueness ch
 
 test("write_diff and edit_diff record changed paths and commit_changes uses them", async () => {
   const { fileService } = await harness();
-  const context = { task_id: "T-CHANGE", changed_paths: [] };
+  const context = { task_id: "T-CHANGE", capabilities: ["commit_changes"], changed_paths: [], allowed_file_paths: ["new-file.txt", "multi.txt"] };
   const read = createReadFileTool({ fileService });
   const write = createWriteDiffTool({ fileService });
   const edit = createEditDiffTool({ fileService });
   const committed = [];
   const commit = createCommitChangesTool({ gitService: { commit: async (message, { paths }) => { committed.push({ message, paths }); return { sha: "SHA-1" }; } } });
 
-  await write.execute({ path: "new-file.txt", content: "hello\n", before_checksum: null }, context);
+  await write.execute({ path: "new-file.txt", content: "// Test fixture\nhello\n", before_checksum: null }, context);
   await fileService.atomicWrite({ path: "multi.txt", content: "TODO\n", replace: true });
   await edit.execute({ path: "multi.txt", before_checksum: (await read.execute({ path: "multi.txt" }, {})).sha256, anchor: "TODO", replacement: "DONE" }, context);
 
@@ -151,7 +151,7 @@ test("write_diff and edit_diff record changed paths and commit_changes uses them
 });
 
 test("commit_changes without any applied change reports SCOPE_INVALID", async () => {
-  const context = { task_id: "T-EMPTY", changed_paths: [] };
+  const context = { task_id: "T-EMPTY", capabilities: ["commit_changes"], changed_paths: [] };
   const commit = createCommitChangesTool({ gitService: { commit: async () => { throw new Error("must not be called"); } } });
   await assert.rejects(() => commit.execute({ message: "empty" }, context), (error) => error.code === "SCOPE_INVALID");
 });

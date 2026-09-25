@@ -19,7 +19,7 @@ test("forge SDK MCP tools accept omitted optional arguments without the SDK nono
 
   const select = await callTool(server, "select_code_graph_candidates", { query: "find selector files" });
   assert.equal(select.isError, undefined);
-  assert.deepEqual(received[0], ["select", { query: "find selector files", limit: 4 }]);
+  assert.deepEqual(received[0], ["select", { query: "find selector files", limit: 8 }]);
 
   const search = await callTool(server, "search_code", { query: "x", allowed_prefixes: ["ui/"] });
   assert.equal(search.isError, undefined);
@@ -53,4 +53,16 @@ test("forge SDK MCP tool errors stay structured with error_code", async () => {
   const payload = JSON.parse(result.content[0].text);
   assert.equal(payload.error_code, "REPORT_INVALID");
   assert.equal(payload.message, "bad summary");
+});
+
+test("forge SDK MCP exposes read-only Git tools to the agent", async () => {
+  const calls = [];
+  const registry = {
+    git_status: { execute: async (input) => { calls.push(["status", input]); return { stdout: " M example.js\n" }; } },
+    git_diff: { execute: async (input) => { calls.push(["diff", input]); return { stdout: "diff --git a/example.js b/example.js\n" }; } }
+  };
+  const server = createForgeSdkMcpServer({ registry, context: { task_id: "T-GIT" } });
+  assert.equal((await callTool(server, "git_status", {})).isError, undefined);
+  assert.equal((await callTool(server, "git_diff", {})).isError, undefined);
+  assert.deepEqual(calls, [["status", {}], ["diff", {}]]);
 });

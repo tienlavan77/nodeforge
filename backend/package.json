@@ -25,6 +25,7 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@openai/agents": "^0.17.2",
     "@openai/codex-sdk": "0.154.0",
+    "@vscode/ripgrep": "^1.18.0",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "chokidar": "^4.0.3",

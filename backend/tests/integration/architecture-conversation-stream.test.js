@@ -27,7 +27,7 @@ test("streams real Architecture Manager work only to its conversation in persist
   assert(events.every((event) => event.conversation_id === "CONV-ARCH" && event.correlation_id === "CORR-137-1"));
   assert(events.every((event) => event.agent_id));
   assert.equal(decisions.getById("DECISION-MSG-137-1").decision, "Create a governed plan.");
-  assert.deepEqual(communications.getByConversationId("CONV-ARCH").map(({ id }) => id), events.map(({ message_id }) => message_id));
+  assert.deepEqual(communications.getByConversationId("CONV-ARCH").map(({ id }) => id), events.filter(({ message_type }) => message_type !== "architecture.working").map(({ message_id }) => message_id));
   assert.equal(connection.close(), true);
   assert.equal(connection.close(), false);
 });
@@ -45,7 +45,7 @@ test("reconnect replays only missed persisted conversation messages without exec
   const secondConnection = stream.connect({ projectId: "PROJECT-137", conversationId: "CONV-ARCH", response: second, afterMessageId: lastId });
   const replayed = parseEvents(second.chunks);
 
-  assert.deepEqual(replayed.map(({ message_id }) => message_id), ["MSG-137-RECONNECT-2", "MSG-ARCHITECTURE-WORKING-MSG-137-RECONNECT-2", "MSG-ARCHITECTURE-MESSAGE-MSG-137-RECONNECT-2"]);
+  assert.deepEqual(replayed.map(({ message_id }) => message_id), ["MSG-137-RECONNECT-2", "MSG-ARCHITECTURE-MESSAGE-MSG-137-RECONNECT-2"]);
   assert.equal(decisions.getAll().length, 2);
   secondConnection.close();
 });
@@ -184,7 +184,7 @@ function ownerMessage(message_id, conversation_id, correlation_id) {
 }
 
 function responseStub() {
-  return { chunks: [], status: 0, headers: {}, writeHead(status, headers = {}) { this.status = status; this.headers = headers; }, write(chunk) { this.chunks.push(chunk); }, end() { this.ended = true; } };
+  return { chunks: [], status: 0, headers: {}, setHeader(name, value) { this.headers[name] = value; }, writeHead(status, headers = {}) { this.status = status; Object.assign(this.headers, headers); }, write(chunk) { this.chunks.push(chunk); }, end() { this.ended = true; } };
 }
 
 function parseEvents(chunks) {

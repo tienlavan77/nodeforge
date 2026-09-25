@@ -23,9 +23,36 @@ export function createTicketSprintLeader({ sdkGateway, projectRoot, logger = con
         cwd: projectRoot ?? process.cwd(),
         options: { allowedTools: [...BUILTIN_SEARCH_TOOLS] }
       });
-      return extractTicketJson(collectText(result?.messages));
+      const messages = result?.messages;
+      const output = typeof result?.text === "string" ? result.text : collectText(messages);
+      const draft = extractTicketJson(output);
+      if (!draft) {
+        logger.error?.("SPRINT_LEADER_TICKET_PARSE_FAILED", {
+          agent_id: agentId,
+          correlation_id: correlationId,
+          ...(ticket?.id ? { ticket_id: ticket.id } : {}),
+          task_id: ticket?.id ?? `PROJECT-${projectId}`,
+          ...(result?._gateway_diagnostics ?? {}),
+          prompt_chars: prompt.length,
+          response_fields: result && typeof result === "object" ? Object.keys(result).filter((key) => !/(?:api[_-]?key|credential|secret|password|token|authorization)/i.test(key)) : [],
+          result_text_chars: typeof result?.text === "string" ? result.text.length : null,
+          message_count: Array.isArray(messages) ? messages.length : messages ? 1 : 0,
+          output_chars: output.length,
+          message_summary: summarizeMessages(messages),
+          output_preview: redactOutputPreview(output, content)
+        });
+      }
+      return draft;
     } catch (error) {
-      logger.error?.("Sprint leader ticket draft failed.", { error: error.message });
+      logger.error?.("Sprint leader ticket draft failed.", {
+        agent_id: agentId,
+        correlation_id: correlationId,
+        ...(ticket?.id ? { ticket_id: ticket.id } : {}),
+        task_id: ticket?.id ?? `PROJECT-${projectId}`,
+        ...(error.gatewayDiagnostics ?? {}),
+        prompt_chars: prompt.length,
+        error: error.message
+      });
       throw error;
     }
   }
@@ -56,4 +83,30 @@ function collectText(messages) {
   if (!messages || typeof messages !== "object") return "";
   if (typeof messages.text === "string") return messages.text;
   return ["message", "content", "output"].map((key) => collectText(messages[key])).join("\n");
+}
+
+// Summarizes SDK message structure without recording message text or prompt content.
+function summarizeMessages(messages) {
+  if (!Array.isArray(messages)) return [];
+  return messages.slice(-10).map((message) => ({
+    type: typeof message?.type === "string" ? message.type : "unknown",
+    ...(typeof message?.role === "string" ? { role: message.role } : {}),
+    ...(typeof message?.message?.stop_reason === "string" ? { stop_reason: message.message.stop_reason } : {}),
+    content_types: Array.isArray(message?.message?.content)
+      ? message.message.content.map((part) => typeof part?.type === "string" ? part.type : "unknown")
+      : [],
+    text_lengths: Array.isArray(message?.message?.content)
+      ? message.message.content.filter((part) => typeof part?.text === "string").map((part) => part.text.length)
+      : []
+  }));
+}
+
+// Redacts sensitive values and the owner's submitted context before logging output.
+function redactOutputPreview(value, content) {
+  const lines = String(value ?? "").split("\n").map((line) => {
+    let previewLine = line;
+    if (typeof content === "string" && content) previewLine = previewLine.split(content).join("[OWNER_CONTEXT]");
+    return previewLine.replace(/(?:api[_-]?key|credential|secret|password|token|authorization)\s*[:=]\s*[^\s,}]+/gi, "[REDACTED]");
+  });
+  return lines.join("\n").slice(0, 500);
 }

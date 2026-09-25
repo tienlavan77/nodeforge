@@ -1,62 +1,14 @@
 // Routes Forge v1 API requests to domain services with checkpoint decoration.
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
-import { toConversationChatHistory } from "../../agents/agent-contract.js";
+import { createForgeV1ConversationRoutes } from "./forge-v1-conversation-routes.js";
+import { normalizeParts, unavailable, runRequestsFresh, requireProject, readJson } from "./forge-v1-router-utils.js";
 
 // Creates the Forge v1 HTTP router with checkpoint decoration.
 export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab, projectStream, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, conversationCrudService, conversationAuditHistoryService, architectureWorkspaceService, humanDecisionService, agentSettingsService, listResumableCheckpoints } = {}) {
+  const conversationRoutes = createForgeV1ConversationRoutes({ conversationCrudService, conversationAuditHistoryService, ownerChatService, listResumableCheckpoints });
   return Object.freeze({ route });
 
-  // Adds a compact `checkpoint` summary to each ticket so the UI can show a
-  // Resume button when a previous run crashed mid-execution. Checkpoints are
-  // retained after report_done (status becomes "completed"), so only pending
-  // ones are resumable.
-  async function loadCheckpointMap() {
-    if (typeof listResumableCheckpoints !== "function") return null;
-    let resumable;
-    // eslint-disable-next-line no-silent-catch -- Resumable checkpoints are optional; null means none.
-    try { resumable = await listResumableCheckpoints(); } catch { return null; }
-    return new Map((resumable ?? []).map((checkpoint) => [checkpoint.task_id, checkpoint]));
-  }
-  function checkpointSummary(byTask, ticketId) {
-    const checkpoint = byTask?.get(ticketId);
-    if (!checkpoint) return null;
-    return { resumable: true, last_completed_turn: checkpoint.last_completed_turn ?? 0, last_tool: checkpoint.last_tool ?? null, updated_at: checkpoint.updated_at ?? null };
-  }
-  async function withCheckpointSummary(sprints) {
-    const byTask = await loadCheckpointMap();
-    if (!byTask) return sprints;
-    return (sprints ?? []).map((sprint) => ({
-      ...sprint,
-      tickets: (sprint.tickets ?? []).map((ticket) => {
-        const summary = checkpointSummary(byTask, ticket?.id);
-        return summary ? { ...ticket, checkpoint: summary } : ticket;
-      })
-    }));
-  }
-
-  // The UI renders ticket cards from the dashboard projection
-  // (`dashboard.roadmap.sprints[].tasks`), NOT from GET /sprints, so the
-  // checkpoint summary must be decorated here too or Resume/Run fresh never
-  // appear. `taskViewSummary` strips unknown fields, so we annotate after the
-  // dashboard service returns.
-  async function withDashboardCheckpointSummary(dashboard) {
-    const byTask = await loadCheckpointMap();
-    if (!byTask || !dashboard?.roadmap?.sprints) return dashboard;
-    return {
-      ...dashboard,
-      roadmap: {
-        ...dashboard.roadmap,
-        sprints: dashboard.roadmap.sprints.map((sprint) => ({
-          ...sprint,
-          tasks: (sprint.tasks ?? []).map((task) => {
-            const summary = checkpointSummary(byTask, task?.id);
-            return summary ? { ...task, checkpoint: summary } : task;
-          })
-        }))
-      }
-    };
-  }
   async function route(method, url, request) {
     const parts = normalizeParts(url.pathname);
     const requestId = request.headers?.["x-request-id"] ?? randomUUID();
@@ -73,55 +25,8 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
     }
 
     const projectId = bodyProject ?? queryProject;
-
-    if (parts[0] === "conversations" && conversationCrudService) {
-      if (method === "GET" && parts.length === 1) return { status: 200, body: conversationCrudService.list({ projectId: projectId ?? url.searchParams.get("project_id") ?? undefined, agentId: url.searchParams.get("agent_id") ?? undefined }) };
-      if (method === "POST" && parts.length === 1) {
-        const payload = { project_id: body.project_id ?? projectId, agent_id: body.agent_id ?? url.searchParams.get("agent_id") ?? undefined, title: body.title };
-        return { status: 201, body: conversationCrudService.create(payload) };
-      }
-// Pin/unpin via POST /conversations/:id/pin|unpin with project scoping (used by ConversationsBlock).
-      // Archive via POST /conversations/:id/archive (used by ConversationsBlock)
-      if (method === "POST" && parts.length === 3 && (parts[2] === "pin" || parts[2] === "unpin")) {
-        const conversation = conversationCrudService.get(parts[1]);
-        if (!conversation) throw Object.assign(new ConfigurationError(`Conversation not found: ${parts[1]}.`), { statusCode: 404 });
-        if (projectId && conversation.project_id !== projectId) throw Object.assign(new ConfigurationError("Conversation belongs to a different project."), { statusCode: 404 });
-        if (parts[2] === "pin") return { status: 200, body: typeof conversationCrudService.pin === "function" ? conversationCrudService.pin(parts[1]) : conversationCrudService.update(parts[1], { pinned: true }) };
-        return { status: 200, body: typeof conversationCrudService.unpin === "function" ? conversationCrudService.unpin(parts[1]) : conversationCrudService.update(parts[1], { pinned: false }) };
-      }
-      if (method === "POST" && parts.length === 3 && parts[2] === "archive") {
-        const conversation = conversationCrudService.get(parts[1]);
-        if (!conversation) throw Object.assign(new ConfigurationError(`Conversation not found: ${parts[1]}.`), { statusCode: 404 });
-        if (projectId && conversation.project_id !== projectId) throw Object.assign(new ConfigurationError("Conversation belongs to a different project."), { statusCode: 404 });
-        return { status: 200, body: conversationCrudService.update(parts[1], { status: "archived", archived: true, ...body }) };
-      }
-      // Chat history via GET /conversations/:id/messages (returns user + agent messages)
-      if (method === "GET" && parts.length === 3 && parts[2] === "messages") {
-        const conversationId = parts[1];
-        if (typeof conversationId !== "string" || conversationId.length === 0) throw Object.assign(new ConfigurationError("Conversation Audit History conversation id is required."), { statusCode: 400 });
-        const conversation = conversationCrudService.get(conversationId);
-        if (!conversation) throw Object.assign(new ConfigurationError(`Conversation not found: ${conversationId}.`), { statusCode: 404 });
-        if (projectId && conversation.project_id !== projectId) throw Object.assign(new ConfigurationError("Conversation belongs to a different project."), { statusCode: 404 });
-        if (!conversationAuditHistoryService?.query) throw unavailable("Conversation Audit History");
-        const history = await conversationAuditHistoryService.query({
-          projectId: projectId ?? conversation.project_id,
-          conversationId,
-          limit: url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : 100,
-          ...(url.searchParams.has("cursor") ? { cursor: url.searchParams.get("cursor") } : {}),
-          order: url.searchParams.get("order") ?? "asc"
-        });
-        const items = toConversationChatHistory(history.items ?? []);
-        return { status: 200, body: { ...history, items } };
-      }
-      if (parts.length === 2) {
-        const conversation = conversationCrudService.get(parts[1]);
-        if (!conversation) throw Object.assign(new ConfigurationError(`Conversation not found: ${parts[1]}.`), { statusCode: 404 });
-        if (projectId && conversation.project_id !== projectId) throw Object.assign(new ConfigurationError("Conversation belongs to a different project."), { statusCode: 404 });
-        if (method === "GET") return { status: 200, body: conversation };
-        if (method === "PUT" || method === "PATCH") return { status: 200, body: conversationCrudService.update(parts[1], body) };
-        if (method === "DELETE") return { status: 200, body: conversationCrudService.remove(parts[1]) };
-      }
-    }
+    const conversationResult = await conversationRoutes.routeConversation({ method, parts, url, body, projectId });
+    if (conversationResult) return conversationResult;
 
     if (method === "GET" && parts.length === 1 && parts[0] === "health") {
       return { status: 200, body: { status: "ok", service: "nodeforge" } };
@@ -156,7 +61,7 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
     if (method === "GET" && parts.length === 3 && parts[0] === "projects" && parts[2] === "dashboard") {
       if (!projectDashboardService?.getDashboard) throw unavailable("Project Dashboard");
       const dashboard = await projectDashboardService.getDashboard(parts[1]);
-      return { status: 200, body: await withDashboardCheckpointSummary(dashboard) };
+      return { status: 200, body: await conversationRoutes.withDashboardCheckpointSummary(dashboard) };
     }
 
     if (method === "GET" && parts.length === 4 && parts[0] === "projects" && parts[2] === "tickets") {
@@ -215,7 +120,7 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
     if (method === "GET" && parts.length === 1 && parts[0] === "sprints") {
       if (!sprintPlanUploadService?.list) throw unavailable("Sprint Plan List");
       const sprints = sprintPlanUploadService.list({ projectId });
-      return { status: 200, body: await withCheckpointSummary(sprints) };
+      return { status: 200, body: await conversationRoutes.withCheckpointSummary(sprints) };
     }
 
     if (method === "GET" && parts.length === 2 && parts[0] === "sprints") {
@@ -296,41 +201,6 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
       return { status: 202, body: { ...result, request_id: requestId, correlation_id: correlationId } };
     }
 
-    if (method === "GET" && parts.length === 3 && parts[0] === "conversations" && parts[2] === "messages") {
-      if (typeof parts[1] !== "string" || parts[1].length === 0) throw Object.assign(new ConfigurationError("Conversation Audit History conversation id is required."), { statusCode: 400 });
-      if (!conversationAuditHistoryService?.query) throw unavailable("Conversation Audit History");
-      const conversationForMessages = conversationCrudService?.get?.(parts[1]);
-      if (conversationCrudService?.get && !conversationForMessages) throw Object.assign(new ConfigurationError(`Conversation not found: ${parts[1]}.`), { statusCode: 404 });
-      if (conversationForMessages && projectId && conversationForMessages.project_id !== projectId) throw Object.assign(new ConfigurationError("Conversation belongs to a different project."), { statusCode: 404 });
-      const messagesProjectId = projectId ?? conversationForMessages?.project_id;
-      const history = await conversationAuditHistoryService.query({
-        projectId: messagesProjectId,
-        conversationId: parts[1],
-        limit: url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : 100,
-        ...(url.searchParams.has("cursor") ? { cursor: url.searchParams.get("cursor") } : {}),
-        order: url.searchParams.get("order") ?? "asc"
-      });
-      const items = toConversationChatHistory(history.items ?? []);
-      return { status: 200, body: { ...history, items } };
-    }
-
-    if (method === "POST" && parts.length === 3 && parts[0] === "conversations" && parts[2] === "messages") {
-      if (!ownerChatService?.submit) throw unavailable("Conversation");
-      if (conversationCrudService) {
-        const conversation = conversationCrudService.get(parts[1]);
-        if (!conversation) throw Object.assign(new ConfigurationError(`Conversation not found: ${parts[1]}.`), { statusCode: 404 });
-        if (projectId && conversation.project_id !== projectId) throw Object.assign(new ConfigurationError("Conversation belongs to a different project."), { statusCode: 404 });
-        if (conversation.status !== "active") throw Object.assign(new ConfigurationError("Conversation is not active."), { statusCode: 409, code: "CONVERSATION_NOT_ACTIVE" });
-      }
-      return { status: 202, body: await ownerChatService.submit({ ...body, project_id: projectId, conversation_id: parts[1] }) };
-    }
-
-    // Chat API: canonical route is POST /forge/v1/conversations (forgeV1("/conversations"))
-    if (method === "POST" && parts.length === 1 && parts[0] === "conversations") {
-      if (!ownerChatService?.submit) throw unavailable("Conversation");
-      return { status: 202, body: await ownerChatService.submit({ ...body, project_id: body.project_id ?? projectId, conversation_id: body.conversation_id ?? body.conversationId }) };
-    }
-
     if (method === "POST" && parts.length === 1 && parts[0] === "tool-lab") {
       if (typeof runToolLab !== "function") throw unavailable("Tool Lab");
       const normalizedPrefixes = body.allowed_prefixes ?? body.allowedPrefixes ?? (typeof body.allowed_prefix === "string" ? [body.allowed_prefix] : undefined);
@@ -348,39 +218,5 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
   }
 }
 
-// Normalizes a URL pathname into route parts.
-function normalizeParts(pathname) {
-  const parts = pathname.split("/").filter(Boolean);
-  if (parts[0] === "forge" && parts[1] === "v1") return parts.slice(2);
-  return parts;
-}
-
-// Creates a 503 unavailable error for unconfigured services.
-function unavailable(name) {
-  return Object.assign(new ConfigurationError(`${name} API is not configured.`), { statusCode: 503 });
-}
-
 // RUN resumes from a crash checkpoint by default; `?fresh=true` or a
 // `fresh: true` body forces a clean restart that clears prior state.
-function runRequestsFresh(url, body) {
-  const query = url?.searchParams?.get?.("fresh");
-  if (query != null) return query === "true" || query === "1";
-  return body?.fresh === true || body?.fresh === "true";
-}
-
-// Validates that a project ID is provided.
-function requireProject(projectId) {
-  if (!projectId) throw Object.assign(new ConfigurationError("Project query parameter is required."), { statusCode: 400, code: "PROJECT_REQUIRED" });
-}
-
-// Reads and parses a JSON request body.
-async function readJson(request) {
-  let raw = "";
-  for await (const chunk of request) raw += chunk;
-  if (!raw) return {};
-  try {
-    return JSON.parse(raw);
-  } catch {
-    throw new ConfigurationError("Request body must be valid JSON.");
-  }
-}

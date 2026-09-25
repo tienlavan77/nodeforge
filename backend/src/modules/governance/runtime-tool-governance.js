@@ -1,17 +1,13 @@
 // Runtime guard for tool authorization, retrieval budgeting, and execution audit trails.
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
-import { assertDiscoveryBudget, cloneExplorationState, createExplorationState, discoveryKind, markEditStarted } from "../../tools/exploration-state.js";
+import { assertDiscoveryBudget, createExplorationState, discoveryKind, markEditStarted } from "../../tools/exploration-state.js";
+import { assertReservation, buildToolContext, cloneBudget, cloneContext, contextKey, distinctCalls, ensureTables, governanceError, isId, loadBudget, loadPersistedBudget, normalizeBudget, normalizeScope, nonNegativeInteger, persistBudget, persistBudgetValues, resourceAllowed, resourceList, withLock } from "./runtime-tool-governance-state.js";
 
 const TERMINAL_LIFECYCLES = new Set(["COMPLETED", "CANCELLED", "EXPIRED", "FAILED", "NEEDS_HUMAN_REVIEW"]);
-const DEFAULT_MAX_BYTES = 200000;
-const DEFAULT_MAX_CALLS = 20;
-const DISCOVERY_TOOLS = new Set(["select_code_graph_candidates", "search_code", "read_file", "read_code"]);
+const DISCOVERY_TOOLS = new Set(["select_code_graph_candidates", "search_code", "rg_files", "rg_search", "read_file", "sed_lines", "read_code"]);
 const EDIT_TOOLS = new Set(["write_diff", "edit_diff"]);
 
-// Runtime-owned authorization and retrieval accounting. The optional database
-// adapter makes budget/audit state survive process restarts; memory is useful for
-// isolated Tool Lab runs and remains deliberately scoped to one service instance.
 // Creates runtime guards for tool authorization, budgeting, and auditing.
 export function createRuntimeToolGovernance({ database, eventStore, clock = () => new Date() } = {}) {
   if (database && (typeof database.run !== "function" || typeof database.all !== "function")) {
@@ -21,18 +17,9 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
   const contexts = new Map();
   const locks = new Map();
   const reservations = new Map();
+  const state = { database, contexts, clock };
 
-  return Object.freeze({
-    createExecutionContext,
-    authorize,
-    assertActive,
-    reserveRetrieval,
-    commitRetrieval,
-    releaseRetrieval,
-    audit,
-    dispatch,
-    getBudget
-  });
+  return Object.freeze({ createExecutionContext, authorize, assertActive, reserveRetrieval, commitRetrieval, releaseRetrieval, audit, dispatch, getBudget });
 
   // Initializes a scoped execution context with budget and identity.
   function createExecutionContext(input = {}) {
@@ -43,7 +30,7 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     if (!input.agent_identity) throw governanceError("TOOL_IDENTITY_INVALID", "Runtime context requires agent_identity.");
     const capabilities = [...new Set(input.capabilities ?? [])];
     const key = contextKey(taskId, executionId);
-    const persisted = loadPersistedBudget(taskId, executionId);
+    const persisted = loadPersistedBudget(database, taskId, executionId);
     const budgetInput = persisted ?? input.retrieval_budget ?? input.context_budget ?? {};
     const budget = normalizeBudget(budgetInput);
     const explorationState = input.exploration_state ?? createExplorationState();
@@ -55,24 +42,16 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     if (typeof input.discovery_target_path === "string" && input.discovery_target_path) explorationState.explicit_target = input.discovery_target_path;
     if (input.allow_discovery_escalation !== undefined) explorationState.allow_escalation = input.allow_discovery_escalation !== false;
     const context = {
-      task_id: taskId,
-      execution_id: executionId,
-      execution_scope: normalizeScope(scope, taskId, executionId),
+      task_id: taskId, execution_id: executionId, execution_scope: normalizeScope(scope, taskId, executionId),
       agent_identity: input.agent_identity,
-      // Mutated in place by write_diff/edit_diff (recordChangedPath) so
-      // commit_changes can commit the files this execution actually wrote.
       changed_paths: Array.isArray(input.changed_paths) ? [...input.changed_paths] : [],
-      capabilities,
-      allowed_resources: input.allowed_resources ?? { allowed_file_paths: input.allowed_file_paths ?? [], allowed_prefixes: input.allowed_prefixes ?? [] },
-      context_budget: budget,
-      retrieval_budget: budget,
-      lifecycle: input.lifecycle ?? "RUNNING",
-      exploration_state: explorationState,
-      verify_result: input.verify_result ?? input.verifyResult ?? null,
+      capabilities, allowed_resources: input.allowed_resources ?? { allowed_file_paths: input.allowed_file_paths ?? [], allowed_prefixes: input.allowed_prefixes ?? [] },
+      context_budget: budget, retrieval_budget: budget, lifecycle: input.lifecycle ?? "RUNNING",
+      exploration_state: explorationState, verify_result: input.verify_result ?? input.verifyResult ?? null,
       audit_context: input.audit_context ?? {}
     };
     contexts.set(key, context);
-    persistBudget(context);
+    persistBudget(state, context);
     return cloneContext(context);
   }
 
@@ -97,38 +76,27 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     const normalized = resolveContext(context);
     authorize(tool, normalized, resource);
     const bytes = nonNegativeInteger(estimatedBytes, "estimatedBytes");
-    return withLock(normalized, async () => {
-      const budget = loadBudget(normalized);
-      // Call accounting is per tool kind, not per invocation: the budget guards
-      // against unbounded context growth (bytes), so a repeated read of the
-      // same file does not consume a distinct call slot. distinct_calls() adds
-      // this tool's name before reserving; commitRetrieval counts identically.
+    return withLock(locks, normalized, async () => {
+      const budget = loadBudget(state, normalized);
       if (budget.used_bytes + budget.reserved_bytes + bytes > budget.max_bytes || distinctCalls(budget, tool) > budget.max_calls) {
         throw governanceError("CONTEXT_BUDGET_EXCEEDED", `${tool} retrieval exceeds the current Context Budget.`);
       }
       budget.reserved_calls += 1;
       budget.reserved_bytes += bytes;
-      persistBudgetValues(normalized, budget);
+      persistBudgetValues(state, normalized, budget);
       const reservation = { task_id: normalized.task_id, execution_id: normalized.execution_id, reservation_id: randomUUID(), tool, resource, estimated_bytes: bytes };
       reservations.set(reservation.reservation_id, reservation);
       return reservation;
     });
   }
 
-  // Counts distinct tool kinds for call-budget enforcement.
-  function distinctCalls(budget, nextTool) {
-    const names = new Set(budget.used_tool_calls ?? []);
-    if (nextTool) names.add(nextTool);
-    return names.size;
-  }
-
   // Commits reserved budget to used and emits an audit event.
   async function commitRetrieval(context, reservation, { bytes = reservation?.estimated_bytes ?? 0, success = true, error } = {}) {
     const normalized = resolveContext(context);
     const actualBytes = nonNegativeInteger(bytes, "bytes");
-    return withLock(normalized, async () => {
-      assertReservation(normalized, reservation);
-      const budget = loadBudget(normalized);
+    return withLock(locks, normalized, async () => {
+      assertReservation(reservations, normalized, reservation);
+      const budget = loadBudget(state, normalized);
       if (budget.used_bytes + budget.reserved_bytes - (reservation.estimated_bytes ?? 0) + actualBytes > budget.max_bytes) throw governanceError("CONTEXT_BUDGET_EXCEEDED", "Actual retrieval result exceeds the current Context Budget.");
       budget.reserved_calls = Math.max(0, budget.reserved_calls - 1);
       budget.reserved_bytes = Math.max(0, budget.reserved_bytes - (reservation?.estimated_bytes ?? 0));
@@ -138,7 +106,7 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
       const usedKinds = new Set(budget.used_tool_calls ?? []);
       if (typeof reservation?.tool === "string") usedKinds.add(reservation.tool);
       budget.used_tool_calls = [...usedKinds];
-      persistBudgetValues(normalized, budget);
+      persistBudgetValues(state, normalized, budget);
       reservations.delete(reservation.reservation_id);
       await audit({ ...normalized, tool: reservation?.tool, resource: reservation?.resource, bytes: actualBytes, success, error, reservation_id: reservation?.reservation_id });
       return cloneBudget(budget);
@@ -148,12 +116,12 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
   // Releases a reservation after a failed retrieval.
   async function releaseRetrieval(context, reservation, { success = false, error } = {}) {
     const normalized = resolveContext(context);
-    return withLock(normalized, async () => {
-      assertReservation(normalized, reservation);
-      const budget = loadBudget(normalized);
+    return withLock(locks, normalized, async () => {
+      assertReservation(reservations, normalized, reservation);
+      const budget = loadBudget(state, normalized);
       budget.reserved_calls = Math.max(0, budget.reserved_calls - 1);
       budget.reserved_bytes = Math.max(0, budget.reserved_bytes - (reservation?.estimated_bytes ?? 0));
-      persistBudgetValues(normalized, budget);
+      persistBudgetValues(state, normalized, budget);
       reservations.delete(reservation.reservation_id);
       await audit({ ...normalized, tool: reservation?.tool, resource: reservation?.resource, bytes: 0, success, error, reservation_id: reservation?.reservation_id });
       return cloneBudget(budget);
@@ -175,21 +143,11 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     const normalized = resolveContext(context);
     const resource = input?.path ?? input?.resource ?? input?.file_paths;
     authorize(toolName, normalized, resource);
-    // commit_changes and report_done are the run's exit path. Charging them
-    // against the budget lets an exhausted budget block the run from ever
-    // committing or reporting (observed as AGENT_REPORT_MISSING), so they are
-    // exempt from both call and byte accounting. Their results are small.
-    if (toolName === "commit_changes" || toolName === "report_done") {
-      const toolContext = buildToolContext(context, normalized);
-      return execute(input, toolContext);
-    }
+    if (toolName === "commit_changes" || toolName === "report_done") return execute(input, buildToolContext(context, normalized, contexts));
     const reservation = await reserveRetrieval(normalized, { tool: toolName, resource, estimatedBytes: input?.max_chars ?? input?.maxChars ?? 0 });
     try {
-      // Phase gate: discovery tools count against the exploration budget; the
-      // gate opens permanently after the first edit lands.
       if (DISCOVERY_TOOLS.has(toolName)) assertDiscoveryBudget(normalized, discoveryKind(toolName));
-      const toolContext = buildToolContext(context, normalized);
-      const result = await execute(input, toolContext);
+      const result = await execute(input, buildToolContext(context, normalized, contexts));
       if (EDIT_TOOLS.has(toolName)) markEditStarted(normalized);
       const bytes = Buffer.byteLength(JSON.stringify(result ?? ""), "utf8");
       await commitRetrieval(normalized, reservation, { bytes, success: true });
@@ -200,42 +158,10 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     }
   }
 
-  // Builds a mutable tool context that shares live state with the stored execution.
-  function buildToolContext(context, normalized) {
-    const toolContext = {
-      ...context,
-      ...normalized,
-      allowed_file_paths: normalized.allowed_resources?.allowed_file_paths ?? [],
-      allowed_prefixes: normalized.allowed_resources?.allowed_prefixes ?? []
-    };
-    const known = contexts.get(contextKey(normalized.task_id, normalized.execution_id));
-    if (known) {
-      Object.defineProperty(toolContext, "verify_result", {
-        enumerable: true,
-        get: () => known.verify_result,
-        set: (value) => { known.verify_result = value; }
-      });
-    }
-    delete toolContext.context_budget;
-    delete toolContext.retrieval_budget;
-    delete toolContext.consume_retrieval;
-    delete toolContext.consumeRetrieval;
-    // normalized.changed_paths is a clone; point the tool context at the
-    // live stored context array so write_diff/edit_diff can append to it and
-    // commit_changes reads the accumulated set in the same execution.
-    toolContext.changed_paths = normalized.changed_paths;
-    if (context && typeof context === "object") context.changed_paths = normalized.changed_paths;
-    // Same live-reference pattern for exploration state: search_code/read_file
-    // mutate it and write_diff/edit_diff reset its streak across calls in one
-    // execution.
-    toolContext.exploration_state = normalized.exploration_state;
-    return toolContext;
-  }
-
   // Returns a snapshot of the current budget for an execution.
   function getBudget(contextOrIds = {}) {
     const normalized = resolveContext(contextOrIds);
-    return cloneBudget(loadBudget(normalized));
+    return cloneBudget(loadBudget(state, normalized));
   }
 
   // Resolves or auto-creates the normalized execution context.
@@ -255,84 +181,4 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     const created = createExecutionContext(context);
     return Object.assign(created, context);
   }
-
-  // Loads the budget from memory or persisted storage.
-  function loadBudget(context) {
-    const key = contextKey(context.task_id, context.execution_id);
-    const knownBudget = contexts.get(key)?.context_budget;
-    if (knownBudget) return normalizeBudget(knownBudget);
-    if (database) {
-      const row = database.all("SELECT budget_json FROM runtime_tool_budget WHERE task_id = ? AND execution_id = ?", [context.task_id, context.execution_id])[0];
-      if (row) return normalizeBudget(JSON.parse(row.budget_json));
-    }
-    return normalizeBudget(context.context_budget ?? context.retrieval_budget);
-  }
-
-  // Loads a previously persisted budget by task and execution id.
-  function loadPersistedBudget(taskId, executionId) {
-    if (!database) return undefined;
-    const row = database.all("SELECT budget_json FROM runtime_tool_budget WHERE task_id = ? AND execution_id = ?", [taskId, executionId])[0];
-    return row ? JSON.parse(row.budget_json) : undefined;
-  }
-
-  // Validates that a reservation belongs to the given execution.
-  function assertReservation(context, reservation) {
-    const stored = reservation?.reservation_id ? reservations.get(reservation.reservation_id) : undefined;
-    if (!stored || stored !== reservation || reservation.task_id !== context.task_id || reservation.execution_id !== context.execution_id || typeof reservation.tool !== "string") throw governanceError("TOOL_RESERVATION_INVALID", "Retrieval reservation does not belong to this execution.");
-  }
-
-  // Persists the current execution budget.
-  function persistBudget(context) { persistBudgetValues(context, context.context_budget); }
-  // Persists specific budget values for an execution.
-  function persistBudgetValues(context, budget) {
-    const value = JSON.stringify(budget);
-    if (database) database.run("INSERT INTO runtime_tool_budget (task_id, execution_id, budget_json, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(task_id, execution_id) DO UPDATE SET budget_json=excluded.budget_json, updated_at=excluded.updated_at", [context.task_id, context.execution_id, value, clock().toISOString()]);
-    const known = contexts.get(contextKey(context.task_id, context.execution_id));
-    if (known) { known.context_budget = budget; known.retrieval_budget = budget; }
-  }
-
-  // Serializes async operations per execution key.
-  function withLock(context, operation) {
-    const key = contextKey(context.task_id, context.execution_id);
-    const previous = locks.get(key) ?? Promise.resolve();
-    const current = previous.catch(() => {}).then(operation);
-    locks.set(key, current);
-    return current.finally(() => { if (locks.get(key) === current) locks.delete(key); });
-  }
 }
-
-// Creates budget and audit tables for runtime governance.
-function ensureTables(database) {
-  database.run("CREATE TABLE IF NOT EXISTS runtime_tool_budget (task_id TEXT NOT NULL, execution_id TEXT NOT NULL, budget_json TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(task_id, execution_id))");
-  database.run("CREATE TABLE IF NOT EXISTS runtime_tool_audit (audit_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, execution_id TEXT NOT NULL, timestamp TEXT NOT NULL, audit_json TEXT NOT NULL)");
-  database.run("CREATE INDEX IF NOT EXISTS runtime_tool_audit_scope ON runtime_tool_audit(task_id, execution_id, timestamp)");
-}
-// Normalizes raw budget values with defaults and validation.
-function normalizeBudget(value = {}) {
-  if (!value || typeof value !== "object") throw governanceError("CONTEXT_BUDGET_INVALID", "Runtime retrieval budget is invalid.");
-  const maxBytes = value.max_bytes ?? value.max_chars ?? DEFAULT_MAX_BYTES;
-  const maxCalls = value.max_calls ?? DEFAULT_MAX_CALLS;
-  for (const [name, number] of [["max_bytes", maxBytes], ["max_calls", maxCalls]]) if (!Number.isInteger(number) || number < 0) throw governanceError("CONTEXT_BUDGET_INVALID", `${name} must be a non-negative integer.`);
-  const usedBytes = value.used_bytes ?? 0; const usedCalls = value.used_calls ?? 0; const reservedBytes = value.reserved_bytes ?? 0; const reservedCalls = value.reserved_calls ?? 0;
-  for (const [name, number] of [["used_bytes", usedBytes], ["used_calls", usedCalls], ["reserved_bytes", reservedBytes], ["reserved_calls", reservedCalls]]) if (!Number.isInteger(number) || number < 0) throw governanceError("CONTEXT_BUDGET_INVALID", `${name} must be a non-negative integer.`);
-  const usedToolKinds = Array.isArray(value.used_tool_calls) ? value.used_tool_calls.filter((kind) => typeof kind === "string") : [];
-  return { max_bytes: maxBytes, max_calls: maxCalls, used_bytes: usedBytes, used_calls: usedCalls, reserved_bytes: reservedBytes, reserved_calls: reservedCalls, used_tool_calls: usedToolKinds };
-}
-// Shallow-clones a budget object.
-function cloneBudget(value) { return { ...value }; }
-// Deep-clones an execution context with budget and exploration state.
-function cloneContext(value) { return { ...value, context_budget: cloneBudget(value.context_budget), retrieval_budget: cloneBudget(value.retrieval_budget), capabilities: [...value.capabilities], changed_paths: [...(value.changed_paths ?? [])], exploration_state: cloneExplorationState(value.exploration_state) }; }
-// Normalizes and validates execution scope identifiers.
-function normalizeScope(scope, taskId, executionId) { const result = { ...(scope ?? {}) }; if (result.task_id !== undefined && result.task_id !== taskId) throw governanceError("TOOL_SCOPE_INVALID", "execution_scope.task_id does not match task_id."); if (result.execution_id !== undefined && result.execution_id !== executionId) throw governanceError("TOOL_SCOPE_INVALID", "execution_scope.execution_id does not match execution_id."); result.task_id = taskId; result.execution_id = executionId; return result; }
-// Normalizes a resource argument into an array.
-function resourceList(resource) { return resource === undefined ? [] : Array.isArray(resource) ? resource : [resource]; }
-// Checks whether a resource is inside the allowed paths or prefixes.
-function resourceAllowed(resource, allowed = {}) { if (typeof resource !== "string" || !resource) return false; const paths = allowed.allowed_file_paths ?? allowed.file_paths ?? allowed.paths ?? []; const prefixes = allowed.allowed_prefixes ?? allowed.prefixes ?? []; if (!paths.length && !prefixes.length) return false; return paths.includes(resource) || prefixes.some((prefix) => resource === prefix || resource.startsWith(`${prefix.replace(/\/$/, "")}/`)); }
-// Builds a compound key for task and execution lookup.
-function contextKey(taskId, executionId) { return `${taskId}\0${executionId}`; }
-// Validates identifier format for tasks and executions.
-function isId(value) { return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value); }
-// Validates that a numeric value is a non-negative integer.
-function nonNegativeInteger(value, name) { const number = Number(value); if (!Number.isInteger(number) || number < 0) throw governanceError("CONTEXT_BUDGET_INVALID", `${name} must be a non-negative integer.`); return number; }
-// Creates a coded ConfigurationError for governance violations.
-function governanceError(code, message) { const error = new ConfigurationError(message); error.code = code; return error; }

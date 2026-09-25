@@ -1,0 +1,14 @@
+{
+  "$comment": "Read a bounded, non-ignored project file window with sed under Forge authorization.",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/tools/sed-lines.schema.json",
+  "title": "Forge sed lines tool input",
+  "type": "object",
+  "required": ["path", "start_line", "end_line"],
+  "properties": {
+    "path": { "type": "string", "minLength": 1 },
+    "start_line": { "type": "integer", "minimum": 1 },
+    "end_line": { "type": "integer", "minimum": 1 }
+  },
+  "additionalProperties": false
+}

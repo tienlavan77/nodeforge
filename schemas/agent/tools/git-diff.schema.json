@@ -1,0 +1,8 @@
+{
+  "$comment": "Reads the project Git Service unstaged working-tree diff without agent-supplied flags.",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/tools/git-diff.schema.json",
+  "title": "Forge Git diff tool input",
+  "type": "object",
+  "additionalProperties": false
+}

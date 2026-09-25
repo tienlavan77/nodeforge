@@ -4,7 +4,7 @@ import { createGitService } from "../../src/infrastructure/git/git-service.js";
 
 function fakeGit() {
   const calls = [];
-  return { calls, run: async (args) => { calls.push(args); if (args[0] === "show-ref") return { stdout: "", exitCode: 1 }; if (args[0] === "rev-parse") return { stdout: "abc123\n", exitCode: 0 }; if (args[0] === "branch" && args[1] === "--show-current") return { stdout: "main\n", exitCode: 0 }; if (args[0] === "diff") return { stdout: "src/example.js\n", exitCode: 0 }; return { stdout: "ok\n", exitCode: 0 }; } };
+  return { calls, run: async (args) => { calls.push(args); if (args[0] === "show-ref") return { stdout: "", exitCode: 1 }; if (args[0] === "rev-parse") return { stdout: `${"a".repeat(40)}\n`, exitCode: 0 }; if (args[0] === "branch" && args[1] === "--show-current") return { stdout: "main\n", exitCode: 0 }; if (args[0] === "diff") return { stdout: "src/example.js\n", exitCode: 0 }; return { stdout: "ok\n", exitCode: 0 }; } };
 }
 
 test("Git Service validates configuration and branch names", () => {
@@ -17,7 +17,7 @@ test("Git Service creates a branch through argument-array executor", async () =>
   const fake = fakeGit();
   const git = createGitService({ projectRoot: "/repo", runGit: fake.run });
   const result = await git.createBranch("task/TICKET-1");
-  assert.deepEqual(result, { name: "task/TICKET-1", base_commit: "abc123" });
+  assert.deepEqual(result, { name: "task/TICKET-1", base_commit: "a".repeat(40) });
   assert.deepEqual(fake.calls.at(-1), ["switch", "-c", "task/TICKET-1"]);
 });
 
@@ -31,9 +31,9 @@ test("Git Service commits only explicitly staged paths and returns SHA", async (
   const fake = fakeGit();
   const git = createGitService({ projectRoot: "/repo", runGit: fake.run });
   const result = await git.commit("feat: add example", { paths: ["src/example.js"] });
-  assert.equal(result.sha, "abc123");
-  assert.deepEqual(fake.calls.find((args) => args[0] === "add"), ["add", "--", "src/example.js"]);
-  assert.deepEqual(fake.calls.find((args) => args[0] === "commit"), ["commit", "-m", "feat: add example"]);
+  assert.equal(result.sha, "a".repeat(40));
+  assert.deepEqual(fake.calls.find((args) => args[0] === "add"), ["add", "--", ":(literal)src/example.js"]);
+  assert.deepEqual(fake.calls.find((args) => args[0] === "commit"), ["commit", "--only", "-m", "feat: add example", "--", ":(literal)src/example.js"]);
 });
 
 test("Git Service rejects empty commits and unsafe paths", async () => {
@@ -90,6 +90,16 @@ test("Git Service emits structured audit events without affecting operations", a
   assert.deepEqual(events.map(({ type }) => type), ["git.status", "git.add", "git.commit"]);
   assert.deepEqual(events[1].paths, ["src/example.js"]);
   assert.equal(typeof events[2].timestamp, "string");
+});
+
+test("Git Service reads the unstaged patch and rejects Git command failures", async () => {
+  const fake = fakeGit();
+  const git = createGitService({ projectRoot: "/repo", runGit: fake.run });
+  assert.equal(await git.diffWorkingTree(), "src/example.js\n");
+  assert.deepEqual(fake.calls.at(-1), ["diff", "--"]);
+  const failed = createGitService({ projectRoot: "/repo", runGit: async () => ({ stdout: "", stderr: "not a repository", exitCode: 128 }) });
+  await assert.rejects(() => failed.status(), (error) => error.code === "GIT_STATUS_FAILED");
+  await assert.rejects(() => failed.diffWorkingTree(), (error) => error.code === "GIT_DIFF_FAILED");
 });
 
 test("Git Service refuses discard of a missing branch", async () => {

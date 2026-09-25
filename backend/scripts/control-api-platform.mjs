@@ -43,7 +43,7 @@ export function createControlApiPlatform({ config, database, indexDb, fileServic
   const ticketCandidateResolver = createTicketCandidateResolver({ relevantTreeSelector });
   // Sprint leader drafts through the configured SDK with built-in search; no Forge MCP tools.
   const sprintPlanSdkGateway = createRoleSdkGateway({ claudeSdkGateway, codexSdkGateway, agentRoleResolver });
-  const ticketSprintLeader = sprintPlanSdkGateway ? createTicketSprintLeader({ sdkGateway: sprintPlanSdkGateway, projectRoot }) : undefined;
+  const ticketSprintLeader = sprintPlanSdkGateway ? createTicketSprintLeader({ sdkGateway: sprintPlanSdkGateway, projectRoot, logger: createTicketSprintLeaderLogger(logEvent) }) : undefined;
   const sprintPlanLeader = sprintPlanSdkGateway ? createSprintPlanLeader({ sdkGateway: sprintPlanSdkGateway, projectRoot }) : undefined;
   const communications = createAgentCommunicationStore({ database, fileService });
   const conversations = createConversationCrudService({ database });
@@ -77,7 +77,26 @@ export function createControlApiPlatform({ config, database, indexDb, fileServic
 // Selects the SDK gateway for sprint leader drafting without touching gateway internals.
 function createRoleSdkGateway({ claudeSdkGateway, codexSdkGateway, agentRoleResolver }) {
   if (!claudeSdkGateway && !codexSdkGateway) return undefined;
-  return { execute: (request) => selectSdkGateway(request?.agentId, { claudeSdkGateway, codexSdkGateway, agentRoleResolver }).execute(request) };
+  return {
+    async execute(request) {
+      const profile = agentRoleResolver?.resolveProfile?.("sprint_leader");
+      const gateway = selectSdkGateway(request?.agentId, { claudeSdkGateway, codexSdkGateway, agentRoleResolver });
+      const provider = profile?.provider ?? (gateway === codexSdkGateway ? "codex" : "claude");
+      try {
+        const result = await gateway.execute(request);
+        return {
+          ...result,
+          _gateway_diagnostics: {
+            provider,
+            model: profile?.model ?? null
+          }
+        };
+      } catch (error) {
+        error.gatewayDiagnostics = { provider, model: profile?.model ?? null };
+        throw error;
+      }
+    }
+  };
 }
 
 // Chooses the sprint leader provider gateway from the resolved sprint leader profile.
@@ -94,6 +113,25 @@ function createTicketStatusLogger({ internalBus, logEvent }) {
     internalBus.emit(event.type, event);
     if (event.type !== "ticket.status_change" || !(event.to === "failed" || event.to === "needs_human_review" || event.details?.error)) return;
     logEvent({ timestamp: event.timestamp ?? new Date().toISOString(), event_name: "ticket.status_error", level: "error", status: "failed", message: event.details?.error ?? `Ticket status changed to ${event.to}.`, task_id: event.ticket_id, ticket_id: event.ticket_id, source: "ticket-status-store", error_code: event.details?.error_code ?? (event.to === "needs_human_review" ? "NEEDS_HUMAN_REVIEW" : "TICKET_FAILED"), payload: { ...event } });
+  };
+}
+
+function createTicketSprintLeaderLogger(logEvent) {
+  return {
+    error(eventName, details = {}) {
+      logEvent?.({
+        timestamp: new Date().toISOString(),
+        event_name: eventName,
+        level: "error",
+        status: "failed",
+        message: eventName,
+        task_id: details.task_id ?? details.ticket_id ?? "PROJECT-NODEFORGE",
+        ticket_id: details.ticket_id,
+        correlation_id: details.correlation_id,
+        source: "ticket-sprint-leader",
+        payload: details
+      });
+    }
   };
 }
 

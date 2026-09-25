@@ -71,6 +71,8 @@ export function createForgeSdkMcpServer({ registry, context = {}, includeCommit 
     ["edit_diff", "Replace an exact anchor string in one approved file after checksum validation. Read the file first and use a unique exact anchor; use occurrence=\"all\" to replace every match.", editDiffInput],
     ["run_test", "Start the Node-owned test suite and return a job_id immediately. You MUST then call check_test with that job_id repeatedly until status is passed or failed before reporting done.", runTestInput],
     ["check_test", "Poll a started test job by job_id until it reports passed or failed.", checkTestInput],
+    ["git_status", "Read the project working-tree status through Node Git Service.", {}],
+    ["git_diff", "Read the unstaged project patch through Node Git Service.", {}],
     ...(includeCommit ? [["commit_changes", "Commit approved changed files.", commitChangesInput]] : []),
     ["report_done", "Record the final task report.", reportDoneInput]
   ];
@@ -112,6 +114,8 @@ export const forgeSdkToolNames = Object.freeze([
   "mcp__forge__edit_diff",
   "mcp__forge__run_test",
   "mcp__forge__check_test",
+  "mcp__forge__git_status",
+  "mcp__forge__git_diff",
   "mcp__forge__commit_changes",
   "mcp__forge__report_done"
 ]);

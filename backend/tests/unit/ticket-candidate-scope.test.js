@@ -97,7 +97,7 @@ test("Codex dispatch bypasses explore prepass when SL candidates exist", async (
     agentResolver: { resolveAvailable: () => ({ agent_id: "codex-sl", agent_name: "Codex Builder", role: "coder", provider: "codex" }) },
     handoffQueue: { enqueue: async () => ({ id: "JOB-SL-CODEX" }) },
     toolRegistry: {
-      read_file: { execute: async () => ({}) },
+      sed_lines: { execute: async () => ({}) },
       write_diff: { execute: async () => ({}) },
       commit_changes: { execute: async () => ({}) },
       report_done: { execute: async () => ({}) }
@@ -108,7 +108,7 @@ test("Codex dispatch bypasses explore prepass when SL candidates exist", async (
       execute: async ({ options, onEvent }) => {
         forgeTools = options.forgeTools;
         for (const [tool, argumentsInput] of [
-          ["read_file", { path: "backend/src/application/pin-service.js" }],
+          ["sed_lines", { path: "backend/src/application/pin-service.js", start_line: 1, end_line: 40 }],
           ["write_diff", { path: "backend/src/application/pin-service.js" }],
           ["commit_changes", { message: "Persist pin" }],
           ["report_done", { summary: "Done." }]
