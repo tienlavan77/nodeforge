@@ -105,7 +105,7 @@ function NodeForgeShell({ app }) {
                   <div className="date-rule"><span>{group.label || "Conversation"}</span></div>
                   {group.messages.map((message, index) => <Message key={message.id ?? `${agent.id}-${group.key}-${index}`} message={message} />)}
                 </div>)}
-                {working && <div className="working-status" role="status">{agent.label} is working…</div>}
+                {working && <div className="typing-line" role="status" aria-label={`${agent.label} is waiting for a response`}><span>{agent.label} is typing</span><span className="typing-dots" aria-hidden="true"><i /><i /><i /></span></div>}
               </div>
               {agent.id === "architecture-manager" && isActive && <InlineDecisionControls client={client} onWorkspaceChanged={loadWorkspace} workspace={workspace} />}
               <form className="composer" onSubmit={(event) => { event.preventDefault(); send(agent.id === "architecture-manager" ? (architectureManagers.some((candidate) => candidate.id === selectedArchitectureManagerId) ? selectedArchitectureManagerId : "") : agent.id); }}>
