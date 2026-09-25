@@ -1,6 +1,7 @@
 node_modules/
 dist/
 coverage/
+.forge
 .forge/runtime/
 .forge/*.db
 .node-control/

@@ -23,7 +23,7 @@ export function createSprintPlanLeader({ sdkGateway, projectRoot, logger = conso
         cwd: projectRoot ?? process.cwd(),
         options: { allowedTools: [...BUILTIN_SEARCH_TOOLS] }
       });
-      return extractTicketJson(collectText(result?.messages));
+      return extractTicketJson(typeof result?.text === "string" ? result.text : collectText(result?.messages));
     } catch (error) {
       logger.error?.("Sprint leader plan draft failed.", { error: error.message });
       throw error;

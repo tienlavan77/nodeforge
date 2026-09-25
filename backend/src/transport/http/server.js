@@ -27,6 +27,14 @@ export function createHttpApi({ ownerChatService, conversationStream, projectStr
         response.end();
         return;
       }
+      const routeParts = url.pathname.split("/").filter(Boolean);
+      if (request.method === "GET" && routeParts.length === 5 && routeParts[0] === "projects" && routeParts[2] === "conversations" && routeParts[4] === "stream") {
+        if (!conversationStream) throw new ConfigurationError("Conversation SSE is not configured.");
+        applyCorsHeaders(response, origin, true);
+        const connection = await conversationStream.connect({ projectId: routeParts[1], conversationId: routeParts[3], response, afterMessageId: request.headers?.["last-event-id"] ?? url.searchParams.get("after") ?? undefined });
+        request.once?.("close", () => connection.close());
+        return;
+      }
       if (url.pathname.startsWith("/forge/v1/")) {
         const parts = url.pathname.split("/").filter(Boolean).slice(2);
         if (request.method === "GET" && parts.length === 1 && parts[0] === "stream") {
@@ -57,7 +65,6 @@ export function createHttpApi({ ownerChatService, conversationStream, projectStr
           return;
         }
       }
-      const parts = url.pathname.split("/").filter(Boolean);
       const result = await route(request.method ?? "GET", url, request);
       writeJson(response, result.status, result.body, origin);
     } catch (error) {

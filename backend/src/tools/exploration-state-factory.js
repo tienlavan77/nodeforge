@@ -17,7 +17,10 @@ export const ESCALATION_FACTOR = 0.5;
 export const DISCOVERY_KINDS = {
   select_code_graph_candidates: "candidate",
   search_code: "search",
+  rg_files: "search",
+  rg_search: "search",
   read_file: "read",
+  sed_lines: "read",
   read_code: "read"
 };
 

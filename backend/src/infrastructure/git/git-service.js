@@ -13,12 +13,21 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
   if (typeof runGit !== "function") throw new ConfigurationError("Git Service requires a git executor.");
   if (typeof onEvent !== "function") throw new ConfigurationError("Git Service onEvent must be a function.");
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1) throw new ConfigurationError("Git Service timeout must be positive.");
-  return Object.freeze({ status, currentBranch, branchExists, createBranch, commit, merge, discardBranch, getHead, getBranchHead, abortMerge, hasConflicts, diffBetween, getChangedFiles, getCommitsForTask, deleteMergedBranch, resetTo });
+  return Object.freeze({ status, diffWorkingTree, currentBranch, branchExists, createBranch, commit, merge, discardBranch, getHead, getBranchHead, abortMerge, hasConflicts, diffBetween, getChangedFiles, getCommitsForTask, deleteMergedBranch, resetTo });
 
   async function status({ paths = [] } = {}) {
     const safePaths = validatePaths(paths);
     const result = await execute(["status", "--porcelain", ...(safePaths.length ? ["--", ...safePaths] : [])], "GIT_STATUS_FAILED");
+    if (result.exitCode !== 0) throw gitError("GIT_STATUS_FAILED", `Git status failed: ${result.stderr ?? "unknown Git error"}`);
     emit("git.status", { paths: safePaths, output: result.stdout });
+    return result.stdout;
+  }
+
+  // Reads the unstaged working-tree patch through the existing Git executor.
+  async function diffWorkingTree() {
+    const result = await execute(["diff", "--"], "GIT_DIFF_FAILED");
+    if (result.exitCode !== 0) throw gitError("GIT_DIFF_FAILED", `Git diff failed: ${result.stderr ?? "unknown Git error"}`);
+    emit("git.diff", { output_bytes: Buffer.byteLength(result.stdout) });
     return result.stdout;
   }
 
@@ -55,14 +64,21 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
     if (typeof message !== "string" || !message.trim()) throw new ConfigurationError("Git commit message is required.");
     const safePaths = validatePaths(paths);
     if (!safePaths.length) throw new ConfigurationError("Git commit requires explicit paths.");
-    await execute(["add", "--", ...safePaths], "GIT_ADD_FAILED");
+    const pathspecs = safePaths.map((path) => `:(literal)${path}`);
+    const add = await execute(["add", "--", ...pathspecs], "GIT_ADD_FAILED");
+    if (add.exitCode !== 0) throw gitError("GIT_ADD_FAILED", `Git add failed: ${add.stderr ?? "unknown Git error"}`);
     emit("git.add", { paths: safePaths });
-    const staged = await execute(["diff", "--cached", "--name-only", "--", ...safePaths], "GIT_STATUS_FAILED");
+    const staged = await execute(["diff", "--cached", "--name-only", "--", ...pathspecs], "GIT_STATUS_FAILED");
+    if (staged.exitCode !== 0) throw gitError("GIT_STATUS_FAILED", `Git staged diff failed: ${staged.stderr ?? "unknown Git error"}`);
     const stagedPaths = staged.stdout.split(/\r?\n/).map((path) => path.trim()).filter(Boolean);
     if (stagedPaths.some((path) => !safePaths.includes(path))) throw gitError("GIT_UNEXPECTED_STAGED_PATH", "Git index contains changes outside the requested commit paths.");
     if (!stagedPaths.length) throw gitError("GIT_EMPTY_COMMIT", "Git commit has no changes.");
-    const result = await execute(["commit", "-m", message], "GIT_COMMIT_FAILED");
-    const sha = (await execute(["rev-parse", "HEAD"], "GIT_COMMIT_FAILED")).stdout.trim();
+    const result = await execute(["commit", "--only", "-m", message, "--", ...pathspecs], "GIT_COMMIT_FAILED");
+    if (result.exitCode !== 0) throw gitError("GIT_COMMIT_FAILED", `Git commit failed: ${result.stderr ?? "unknown Git error"}`);
+    const head = await execute(["rev-parse", "HEAD"], "GIT_COMMIT_FAILED");
+    if (head.exitCode !== 0) throw gitError("GIT_COMMIT_FAILED", `Git commit SHA lookup failed: ${head.stderr ?? "unknown Git error"}`);
+    const sha = head.stdout.trim();
+    if (!/^[a-f0-9]{40,64}$/i.test(sha)) throw gitError("GIT_COMMIT_FAILED", "Git returned an invalid commit SHA.");
     emit("git.commit", { sha, paths: safePaths, message });
     return { sha, output: result.stdout };
   }
@@ -163,7 +179,7 @@ function validateBranch(name) {
 }
 // Validates that paths are non-empty safe relative strings without leading dashes or traversal.
 function validatePaths(paths) {
-  if (!Array.isArray(paths) || paths.some((path) => typeof path !== "string" || !path || path.startsWith("-") || path.includes(".."))) throw new ConfigurationError("Git paths must be safe relative paths.");
+  if (!Array.isArray(paths) || paths.some((path) => typeof path !== "string" || !path || path.startsWith("/") || path.includes("\\") || path.includes("\0") || path.split("/").some((part) => !part || part === "." || part === ".."))) throw new ConfigurationError("Git paths must be safe relative paths.");
   return paths;
 }
 // Creates a ConfigurationError with an attached code for categorized git failures.
