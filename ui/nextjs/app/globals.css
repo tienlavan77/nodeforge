@@ -905,7 +905,7 @@ button, input { font: inherit; }
 .agents-directory-heading { display: flex; align-items: end; justify-content: space-between; margin-bottom: 22px; color: var(--app-muted); }
 .agents-directory-heading h1 { margin: 5px 0 0; color: var(--app-text); font-size: 28px; }
 .agents-card-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; }
-.agent-directory-card { aspect-ratio: 1; min-width: 0; overflow: auto; display: flex; flex-direction: column; padding: 16px; border: 1px solid var(--app-border); background: color-mix(in srgb, var(--app-panel) 60%, transparent); backdrop-filter: blur(10px); }
+.agent-directory-card { aspect-ratio: 1; min-width: 0; overflow: auto; display: flex; flex-direction: column; padding: 16px; border: none; background: transparent; }
 .agent-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .agent-card-mark { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--app-accent); color: var(--app-accent); font: 12px 'DM Mono', monospace; }
 .agent-card-status { display: inline-flex; align-items: center; gap: 5px; font: 10px 'DM Mono', monospace; letter-spacing: .06em; }
@@ -984,12 +984,12 @@ button, input { font: inherit; }
 .agent-card-header, .agent-card-provider, .agent-card-footer { padding: 14px; }
 .agent-card-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--app-border); }
 .agent-card-identity { display: flex; align-items: center; gap: 9px; min-width: 0; }
-.agent-card-identity strong, .agent-card-role { color: var(--app-text); font-size: 12px; overflow-wrap: anywhere; }
+.agent-card-identity strong, .agent-card-role { color: var(--app-text); font-size: 10px; overflow-wrap: anywhere; }
 .agent-card-role { color: var(--app-muted); font: 10px 'DM Mono', monospace; text-align: right; }
 .agent-card-provider { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; }
 .provider-logo { display: grid; place-items: center; width: 88px; height: 88px; border: 0; border-radius: 0; background: transparent; color: var(--app-accent); font: 700 24px 'Space Grotesk', sans-serif; }
-.agent-card-provider strong { color: var(--app-text); font-size: 13px; }
-.agent-card-provider > span:last-child { color: var(--app-muted); font: 10px 'DM Mono', monospace; overflow-wrap: anywhere; }
+.agent-card-provider strong { color: var(--app-text); font-size: 11px; }
+.agent-card-provider > span:last-child { color: var(--app-muted); font: 9px 'DM Mono', monospace; overflow-wrap: anywhere; }
 .agent-card-footer { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 8px; border-top: 1px solid var(--app-border); }
 .agent-card-footer select { max-width: 75%; border: 1px solid var(--app-button-border); border-radius: 5px; background: var(--app-input); color: var(--app-text); padding: 5px; font: 10px 'DM Mono', monospace; }
 .agent-switch { width: 42px; height: 22px; padding: 2px 3px; border: 1px solid var(--app-button-border); border-radius: 999px; background: var(--app-surface-alt); cursor: pointer; text-align: left; }
@@ -1130,20 +1130,27 @@ button, input { font: inherit; }
 .agent-switch { width: 38px; height: 18px; padding: 2px; }
 .agent-switch i { width: 12px; height: 12px; }
 .agent-switch.is-on i, :root[data-theme='light'] .agent-switch.is-on i { transform: translateX(19px) !important; }
-.agent-status-badge { display: inline-flex; align-items: center; justify-content: center; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; white-space: nowrap; }
-.agent-status-badge.agent-status-ready { background: #d4edda; color: #155724; }
-.agent-status-badge.agent-status-working { background: #fff3cd; color: #856404; }
-.agent-status-badge.agent-status-not-connect { background: #f8d7da; color: #721c24; }
-:root[data-theme='light'] .agent-status-badge.agent-status-ready { background: #c1e2b3; color: #0d5d1f; }
-:root[data-theme='light'] .agent-status-badge.agent-status-working { background: #ffe8a1; color: #664d03; }
-:root[data-theme='light'] .agent-status-badge.agent-status-not-connect { background: #f5c6cb; color: #5a1e1f; }
+.agent-status-badge { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0; border-radius: 0; font-size: 10px; font-weight: 500; white-space: nowrap; background: transparent; }
+.status-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.agent-status-badge.agent-status-ready { color: #2563eb; }
+.agent-status-badge.agent-status-ready .status-dot { background: #2563eb; }
+.agent-status-badge.agent-status-working { color: #f97316; }
+.agent-status-badge.agent-status-working .status-dot { background: #f97316; }
+.agent-status-badge.agent-status-not-connect { color: #dc2626; }
+.agent-status-badge.agent-status-not-connect .status-dot { background: #dc2626; }
+:root[data-theme='light'] .agent-status-badge.agent-status-ready { color: #1d4ed8; }
+:root[data-theme='light'] .agent-status-badge.agent-status-ready .status-dot { background: #1d4ed8; }
+:root[data-theme='light'] .agent-status-badge.agent-status-working { color: #ea580c; }
+:root[data-theme='light'] .agent-status-badge.agent-status-working .status-dot { background: #ea580c; }
+:root[data-theme='light'] .agent-status-badge.agent-status-not-connect { color: #b91c1c; }
+:root[data-theme='light'] .agent-status-badge.agent-status-not-connect .status-dot { background: #b91c1c; }
 .agent-card-footer > .agent-status-control { width: 100%; justify-content: flex-start; }
 .agent-card-footer > .agent-status-control > .agent-card-actions { margin-left: auto; }
 .agent-directory-card .agent-card-footer { min-height: 34px; padding: 6px 10px; }
 .agent-directory-card .agent-card-footer .agent-status-control { min-height: 22px; }
 .agent-directory-card .agent-card-footer { min-height: 0; height: auto; padding: 4px 10px; }
 .agent-directory-card .agent-card-footer > .agent-status-control { min-height: 0; height: 24px; }
-.agent-directory-card .agent-card-footer .card-action-button { height: 22px; padding-top: 2px; padding-bottom: 2px; }
+.agent-directory-card .agent-card-footer .card-action-button { height: 22px; padding-top: 2px; padding-bottom: 2px; font-size: 9px; }
 /* Let header/footer size to content; only the provider section expands. */
 .agent-directory-card.agent-card-editable {
   grid-template-rows: auto 1fr auto !important;
