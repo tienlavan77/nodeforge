@@ -192,7 +192,7 @@ button, input { font: inherit; }
 .agent-status .status-dot { width: 5px; height: 5px; box-shadow: none; }
 .panel-menu { margin-left: auto; font-size: 19px; line-height: 1; }
 .conversation { min-height: 0; flex: 1; overflow: auto; padding: 17px 18px 12px; scrollbar-width: thin; scrollbar-color: #353a45 transparent; }
-.chat-load-more { width: auto; align-self: center; margin: 6px auto 8px; }
+.chat-load-more { width: auto; min-height: 32px; align-self: center; margin: 6px auto 8px; }
 .date-rule { display: flex; align-items: center; gap: 10px; color: #656c78; font-family: 'DM Mono', monospace; font-size: 15px; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 15px; }
 .date-rule::before, .date-rule::after { content: ''; height: 1px; background: #292e38; flex: 1; }
 .message-row { display: flex; margin: 9px 0; }
@@ -202,7 +202,7 @@ button, input { font: inherit; }
 .message-bubble p { margin: 0; color: #c8ccd4; font-size: 15px; line-height: 1.5; }
 .owner .message-bubble p { color: #d3d0ec; }
 .message-bubble time { display: block; margin-top: 7px; color: #6e7582; font-family: 'DM Mono', monospace; font-size: 15px; }
-.typing-line { display: flex; align-items: center; gap: 9px; min-height: 24px; margin: 8px 0 14px; padding: 0 2px; color: #8fa8bd; font-family: 'DM Mono', monospace; font-size: 12px; }
+.typing-line { display: flex; align-items: center; gap: 0; min-height: 24px; margin: 8px 0 14px; padding: 0 2px; }
 .typing-dots { display: inline-flex; align-items: flex-end; gap: 4px; height: 14px; }
 .typing-dots i { display: block; width: 5px; height: 5px; border-radius: 50%; background: #717987; animation: typing-dot-bounce 1s cubic-bezier(.45, 0, .55, 1) infinite; will-change: transform; }
 .typing-dots i:nth-child(2) { animation-delay: 140ms; }
@@ -1715,4 +1715,3 @@ button, input { font: inherit; }
 @media (prefers-reduced-motion: reduce) {
   .conversations-modal-backdrop { backdrop-filter: none; }
 }
-

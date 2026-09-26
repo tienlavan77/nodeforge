@@ -2,26 +2,24 @@
 
 import { isPersistedConversationId, createChatId } from "./home-page-conversation-state.js";
 
-// Creates the `sendMessage(event)` and `retryLastMessage()` handlers for the home chat composer.
+// Creates the send and retry handlers for the home chat composer.
 export function createHomeMessageHandlers({
   client,
   projectId,
   architectureConversationId,
   chatStateKey,
-  draft,
-  setDraft,
   selectedArchitectureManager,
   activeConversationId,
   setActiveConversationId,
   setChatState,
   setMessages,
+  setAgentTyping,
   sendingRef,
   lastSentRef,
   writeChatState,
   messageIntent
 }) {
-  async function sendMessage(event) {
-    event.preventDefault();
+  async function sendMessage(draft) {
     const text = draft.trim();
     if (!text) return;
     if (sendingRef.current) return;
@@ -47,10 +45,10 @@ export function createHomeMessageHandlers({
     const messageId = createChatId("MSG-OWNER");
     const correlationId = createChatId("CORR-architecture-manager");
     const timestamp = new Date().toISOString();
-    setDraft("");
     setChatState("");
     lastSentRef.current = { text, conversationId, messageId, correlationId };
     setMessages((current) => [...current, { id: messageId, stream_key: `owner:${messageId}`, text, from: "owner", nickname: "You", timestamp, correlation_id: correlationId, pending: true }]);
+    setAgentTyping(true);
     try {
       await client.postOwnerMessage({
         projectId,
@@ -62,6 +60,7 @@ export function createHomeMessageHandlers({
         intent: messageIntent
       });
     } catch (error) {
+      setAgentTyping(false);
       setMessages((current) => current.map((message) => message.id === messageId ? { ...message, pending: false, failed: true } : message));
       setChatState(error?.message ?? "Node rejected the owner message.");
     }
