@@ -33,6 +33,21 @@ test("maps submit_code alias and preserves payload", () => {
   });
 });
 
+// Keeps the supplied checksum and existence state for an existing file patch.
+test("preserves existing file state in submit_code_response", () => {
+  const checksum = `sha256:${"a".repeat(64)}`;
+  const file = { path: "src/a.js", format: "structured_patch", content: { operations: [{ op: "replace_range", expected_content: "old", new_content: "new" }] }, exists: true, before_checksum: checksum };
+  const result = normalizeResponse({ tool_use: { name: "submit_code_response", input: { explanation: "updated", files: [file] } } }, { request_id: parent });
+  assert.deepEqual(result.payload.files, [file]);
+});
+
+// Rejects incomplete file state instead of guessing whether a file already exists.
+test("rejects submit_code_response without file existence or checksum", () => {
+  const file = { path: "src/a.js", format: "full_content", content: "export {};" };
+  assert.throws(() => normalizeResponse({ tool_use: { name: "submit_code_response", input: { explanation: "added", files: [file] } } }, { request_id: parent }), /PROVIDER_PAYLOAD_INVALID/);
+  assert.throws(() => normalizeResponse({ tool_use: { name: "submit_code_response", input: { explanation: "added", files: [{ ...file, exists: true, before_checksum: null }] } } }, { request_id: parent }), /PROVIDER_PAYLOAD_INVALID/);
+});
+
 test("supports Chat Completions tool calls and requestId alias", () => {
   const result = normalizeResponse({ choices: [{ message: { tool_calls: [{ function: { name: "no_wiring_needed", arguments: JSON.stringify({ reason: "no import required" }) } }] } }] }, { requestId: parent });
   assert.equal(result.type, "no_wiring_needed");

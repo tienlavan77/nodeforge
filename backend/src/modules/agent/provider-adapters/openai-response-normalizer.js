@@ -87,8 +87,8 @@ function canonicalizeSubmitCodePayload(payload) {
     path: file.path,
     format: file.format,
     content: file.content ?? "",
-    exists: typeof file.exists === "boolean" ? file.exists : file.before_checksum === null,
-    before_checksum: file.before_checksum ?? (file.exists === false ? null : null),
+    exists: file.exists,
+    before_checksum: file.before_checksum,
     ...(typeof file.summary === "string" ? { summary: file.summary } : {})
   }));
   return { explanation: typeof payload.explanation === "string" ? payload.explanation : "", files };
