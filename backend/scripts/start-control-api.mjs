@@ -24,8 +24,6 @@ import { createControlApiStorage } from "./control-api-storage.mjs";
 import { createControlApiHttp } from "./control-api-http.mjs";
 import { createProductionSupervisorRuntime } from "../src/modules/supervisor/production-runtime.js";
 import { createTerminalBridge } from "../src/modules/supervisor/terminal-bridge.js";
-import { createOpenAiSdkProviderFactory } from "../src/modules/agent/openai-sdk-provider.js";
-import { createOpenAiSdkGateway } from "../src/modules/agent/openai-sdk-gateway.js";
 import { createRuntimeLogger } from "../src/core/runtime-logger.js";
 import { createAttemptContextBuilder } from "../src/modules/supervisor/attempt-context-builder.js";
 import { createSprintDagRunner, topologicalTicketLevels } from "../src/modules/supervisor/sprint-dag.js";
@@ -44,9 +42,7 @@ const storage = await createControlApiStorage({
 });
 const { fileService, protocolStorage, conversationStateStore, processLock, controlDb, indexDb } = storage;
 const database = controlDb;
-const { profiles, agentConfiguration, secrets, agentGateway, claudeSdkGateway, codexSdkGateway, ollamaSdkGateway, agentSettings, agentRoleResolver } = createControlApiAgent({ database, fileService, config });
-const openaiSdkProviderFactory = createOpenAiSdkProviderFactory({ credentialResolver: (reference) => secrets.get(reference) });
-const openaiSdkGateway = createOpenAiSdkGateway({ providerFactory: openaiSdkProviderFactory });
+const { profiles, agentConfiguration, secrets, agentGateway, claudeSdkGateway, codexSdkGateway, openaiSdkGateway, ollamaSdkGateway, agentSettings, agentRoleResolver } = createControlApiAgent({ database, fileService, config });
 const platform = createControlApiPlatform({ config, database, indexDb, fileService, agentGateway, claudeSdkGateway, codexSdkGateway, agentRoleResolver, logEvent });
 const gitService = createGitService({ projectRoot: config.cwd });
 const reportService = createStage1ReportService({ protocolStorage, fileService, gitService });
@@ -175,7 +171,7 @@ const publishUnifiedStreamEvent = createUnifiedStreamPublisher({ unifiedStreamOr
 const api = createControlApiHttp({ services: {
   bus, communications, conversations, eventStore, indexDb: platformIndexDb, subscriptions, knowledge, roadmaps, sprintPlans, provenance,
   relevantTreeSelector, decisions, agentSettings, sprintPlanUpload, sprintOrchestration, dispatchTicket, runToolLab, internalBus,
-  ticketCommandParser, proseTicketService, buildBuilderContext, protocolStorage, agentGateway, publishUnifiedStreamEvent,
+  ticketCommandParser, proseTicketService, buildBuilderContext, protocolStorage, conversationStateStore, fileService, agentGateway, agentConfiguration, sdkGateways: Object.fromEntries([claudeSdkGateway, codexSdkGateway, openaiSdkGateway].map((gateway) => [gateway.provider, gateway])), projectRoot: config.cwd, publishUnifiedStreamEvent,
   ticketCrudService: createTicketCrudService({ roadmaps, proseTicketService, ticketFileStore, publisher: eventPublisher, agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId }), agentRoleResolver, candidateResolver: ticketCandidateResolver, sprintLeader: ticketSprintLeader }),
   dispatchTask, dispatchSprint, logEvent, projectId,
   architectureWorkspaceService: createArchitectureWorkspaceService({ knowledge, roadmaps, sprintPlans }),

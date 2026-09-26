@@ -7,7 +7,7 @@ test("saves masked Agent Settings through Profile/Configuration and tests connec
   const profiles = { getAll: () => profile ? [profile] : [], getById: (id) => id === profile?.agent_id ? profile : undefined, create: (value) => (profile = structuredClone(value)), update: (value) => (profile = structuredClone(value)), delete: () => true };
   let synced = 0; let tested = 0;
   const service = createAgentSettingsService({ profiles, configuration: { sync: () => { synced += 1; } }, gateway: { testConnection: async () => { tested += 1; return { status: "CONNECTED", gateway_url: profile.gateway_url }; } } });
-  const saved = service.save({ agent_id: "55555555-5555-4555-8555-555555555555", agent_name: "Builder", role: "coder", gateway_url: "https://gateway.example.test/builder", enabled: true, api_key: "secret" });
+  const saved = service.save({ agent_id: "55555555-5555-4555-8555-555555555555", agent_name: "Builder", role: "coder", provider: "custom", gateway_url: "https://gateway.example.test/builder", enabled: true, api_key: "secret" });
   assert.equal(saved.api_key_masked, "********"); assert.equal(profile.api_key, undefined); assert.equal(synced, 1);
   assert.equal((await service.testConnection("55555555-5555-4555-8555-555555555555")).status, "CONNECTED"); assert.equal(tested, 1);
   assert.equal(profile.team, "Backend");
@@ -16,6 +16,31 @@ test("saves masked Agent Settings through Profile/Configuration and tests connec
   assert.equal(profile.team, "Security");
   assert.equal(updated.team, "Security");
   assert.equal(service.get(profile.agent_id).team, "Security");
+});
+
+// Confirms Anthropic API profiles use the generic Agent Gateway rather than the Claude SDK gateway.
+test("tests Anthropic connectivity through its API adapter", async () => {
+  const profile = { agent_id: "66666666-6666-4666-8666-666666666666", provider: "anthropic", role: "architecture_manager", enabled: true, status: "ready", gateway_url: "https://api.anthropic.com/v1/messages" };
+  let tested = 0;
+  const service = createAgentSettingsService({
+    profiles: { getAll: () => [profile], getById: () => profile, create: () => profile, update: () => profile, delete: () => true },
+    configuration: { sync: () => {} },
+    gateway: { testConnection: async (id) => { tested += 1; assert.equal(id, profile.agent_id); return { status: "CONNECTED", gateway_url: profile.gateway_url }; } },
+    claudeSdkGateway: { execute: async () => { throw new Error("Anthropic must not use Claude SDK"); } }
+  });
+  const result = await service.testConnection(profile.agent_id);
+  assert.equal(result.status, "CONNECTED");
+  assert.equal(tested, 1);
+});
+// Confirms OpenAI Connect uses the same SDK gateway and profile as conversation turns.
+test("tests OpenAI connectivity through its conversation SDK", async () => {
+  const profile = { agent_id: "55555555-5555-4555-8555-555555555555", provider: "openai", model: "gpt-6-sol", gateway_url: "https://gateway.example.test/v1/responses" };
+  let sdkRequest;
+  const service = createAgentSettingsService({ profiles: { getAll: () => [profile], getById: () => profile, create: () => profile, update: () => profile, delete: () => true }, configuration: { sync: () => {} }, gateway: { testConnection: async () => { throw new Error("Wrong transport"); } }, openaiSdkGateway: { execute: async (request) => { sdkRequest = request; return { text: "OK" }; } } });
+  const result = await service.testConnection(profile.agent_id);
+  assert.equal(result.status, "CONNECTED");
+  assert.equal(sdkRequest.agent, profile);
+  assert.equal(sdkRequest.correlationId, `CONNECTION-${profile.agent_id}`);
 });
 
 test("creates and returns an agent profile team", () => {

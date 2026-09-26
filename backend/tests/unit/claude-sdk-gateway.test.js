@@ -35,12 +35,30 @@ test("executes the selected agent through a third-party gateway", async () => {
   assert.deepEqual(request.options.mcpServers, { forge: { type: "sdk" } });
   assert.deepEqual(request.options.allowedTools, ["mcp__forge__say_hello"]);
   assert.equal(result.agent_id, "coder");
+  assert.equal(gateway.provider, "claude");
+  assert.equal(gateway.conversationMode, "history");
   assert.equal(result.agent_name, "Coder");
+  assert.equal(result.text, "Hello from coder.");
   assert.equal(result.correlation_id, "CORR-HELLO");
   assert.equal(result.messages[0].message.content[0].text, "Hello from coder.");
   assert(!JSON.stringify(result).includes("gateway-secret"));
 });
 
+test("does not pass Forge registry functions into structured SDK options", async () => {
+  let request;
+  const gateway = createClaudeSdkGateway({
+    configuration: { getById: () => profile() },
+    credentialResolver: () => "secret",
+    queryFn: ({ options }) => { request = options; return query([]); }
+  });
+  await gateway.execute({
+    agentId: "coder",
+    correlationId: "CORR-CLONE",
+    prompt: "hello",
+    options: { forgeTools: { registry: { read_file: { execute: () => {} } }, context: { task_id: "T" }, definitions: [] } }
+  });
+  assert.equal(request.forgeTools, undefined);
+});
 test("does not execute a disabled or non-ready agent", async () => {
   let calls = 0;
   const gateway = createClaudeSdkGateway({

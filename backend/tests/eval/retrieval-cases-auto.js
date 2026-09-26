@@ -938,5 +938,27 @@ export const RETRIEVAL_EVAL_CASES_AUTO = [
   "files_changed": [
     "ui/nextjs/app/globals.css"
   ]
+},
+{
+  "id": "TICKET-PROJECT-NODEFORGE-1790048433676",
+  "note": "Backfilled from final report TICKET-PROJECT-NODEFORGE-1790048433676.md (status=completed)",
+  "title": "Add Animated Typing Indicator While Waiting for Agent Responses",
+  "objective": "Update the chat frontend UI to display three animated dots moving vertically while the application waits for the agent's response after the user submits a message.",
+  "acceptance_criteria": [
+    "After a user sends a chat message, the frontend displays a three-dot loading indicator while waiting for the agent response.",
+    "The three dots animate with a smooth sequential up-and-down motion.",
+    "The indicator is hidden or removed when the agent response is received or an error occurs.",
+    "The indicator does not appear before a message is submitted.",
+    "The animation is visually consistent with the existing chat UI and does not disrupt message layout or interaction."
+  ],
+  "style": [
+    "frontend"
+  ],
+  "ground_truth": [
+    "ui/nextjs/app/globals.css"
+  ],
+  "files_changed": [
+    "ui/nextjs/app/globals.css"
+  ]
 }
 ];

@@ -1,7 +1,6 @@
 // Routes agent requests through provider adapters with gateway URL validation and timeout handling.
 import { ConfigurationError } from "../../shared/errors.js";
 import { getAdapter } from "./provider-adapters/index.js";
-import { agentToolDefinition } from "./agent-tool-definition.js";
 
 const SAFE_URL = /^https:\/\//;
 
@@ -91,7 +90,9 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
 
 // Merges caller-supplied tools into the payload, defaulting to the agent tool definition.
   function withAgentTools(payload, tools) {
-    return { ...structuredClone(payload), tools: tools ?? payload.tools ?? [agentToolDefinition] };
+    const cloned = structuredClone(payload);
+    if (tools !== undefined) cloned.tools = tools;
+    return cloned;
   }
 
   async function testConnection(agentId) {

@@ -6,6 +6,8 @@ import { createClaudeSdkGateway } from "../src/modules/agent/claude-sdk-gateway.
 import { createCodexSdkGateway } from "../src/modules/agent/codex-sdk-gateway.js";
 import { createOllamaSdkProviderFactory } from "../src/modules/agent/ollama-sdk-provider.js";
 import { createOllamaSdkGateway } from "../src/modules/agent/ollama-sdk-gateway.js";
+import { createOpenAiSdkProviderFactory } from "../src/modules/agent/openai-sdk-provider.js";
+import { createOpenAiSdkGateway } from "../src/modules/agent/openai-sdk-gateway.js";
 import { createAgentProfileStore } from "../src/modules/agent/agent-profile-store.js";
 import { createAgentRoleResolver } from "../src/modules/agent/agent-role-resolver.js";
 import { createPersistentSecretBackend } from "../src/modules/agent/persistent-secret-backend.js";
@@ -27,11 +29,13 @@ export function createControlApiAgent({ database, fileService, config, env = pro
   const agentGateway = createAgentGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference), timeoutMs: config.agentTimeoutMs });
   const claudeSdkGateway = createClaudeSdkGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference), timeoutMs: config.sdkTimeoutMs });
   const codexSdkGateway = createCodexSdkGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference), timeoutMs: config.sdkTimeoutMs });
+  const openaiSdkProviderFactory = createOpenAiSdkProviderFactory({ credentialResolver: (reference) => secrets.get(reference) });
+  const openaiSdkGateway = createOpenAiSdkGateway({ providerFactory: openaiSdkProviderFactory, timeoutMs: config.sdkTimeoutMs });
   const ollamaSdkProviderFactory = createOllamaSdkProviderFactory({ credentialResolver: (reference) => secrets.get(reference) });
   const ollamaSdkGateway = createOllamaSdkGateway({ providerFactory: ollamaSdkProviderFactory, timeoutMs: config.agentTimeoutMs });
-  const agentSettings = createAgentSettingsService({ profiles, configuration: agentConfiguration, gateway: agentGateway, claudeSdkGateway, codexSdkGateway, ollamaSdkGateway, secretStore: secrets });
+  const agentSettings = createAgentSettingsService({ profiles, configuration: agentConfiguration, gateway: agentGateway, claudeSdkGateway, codexSdkGateway, openaiSdkGateway, ollamaSdkGateway, secretStore: secrets });
   const agentRoleResolver = createAgentRoleResolver({ profiles });
-  return { profiles, agentConfiguration, secrets, agentGateway, claudeSdkGateway, codexSdkGateway, ollamaSdkGateway, agentSettings, agentRoleResolver };
+  return { profiles, agentConfiguration, secrets, agentGateway, claudeSdkGateway, codexSdkGateway, openaiSdkGateway, ollamaSdkGateway, agentSettings, agentRoleResolver };
 }
 
 function syncArchitectureProfile({ profiles, codexBaseUrl, codexCredential, env }) {

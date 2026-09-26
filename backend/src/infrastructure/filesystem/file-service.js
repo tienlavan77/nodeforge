@@ -228,7 +228,7 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
     return rel;
   }
   // eslint-disable-next-line no-silent-catch -- Cleanup logging must not change file behavior.
-  function logCleanup(operation, error) { if (error?.code === "ENOENT") return; try { logger.error?.("FileService cleanup failed.", { operation, error: error?.message, code: error?.code }); } catch { /* cleanup logging must not change file behavior */ } }
+  function logCleanup(operation, error) { if (error?.code === "ENOENT" || error?.code === "FILE_ALREADY_EXISTS") return; try { logger.error?.("FileService cleanup failed.", { operation, error: error?.message, code: error?.code }); } catch { /* cleanup logging must not change file behavior */ } }
   function validateCommitTarget(commit, rel) {
     if (!commit || commit.target_path !== rel) throw new ConfigurationError("File write path does not match commit.target_path.");
     const expectedDir = dirname(rel).split(sep).join("/");

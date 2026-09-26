@@ -37,10 +37,21 @@ test("creates an isolated OpenAI SDK provider from an agent profile", async () =
   });
   assert.equal(constructorOptions.apiKey, "gateway-secret");
   assert.equal(constructorOptions.baseURL, "https://gateway.example.test/v1");
-  assert.equal(constructorOptions.useResponses, false);
+  assert.equal(constructorOptions.useResponses, true);
   assert.equal(constructorOptions.strictFeatureValidation, false);
   assert.deepEqual(result.profile.reasoning, { effort: "high" });
   assert.equal(result.profile.model, "gpt-5.6-sol");
+});
+
+// Confirms a profile can use Chat Completions when its gateway requires that API.
+test("honors an explicit Chat Completions profile setting", async () => {
+  let constructorOptions;
+  const factory = createOpenAiSdkProviderFactory({ ProviderClass: class {
+    constructor(options) { constructorOptions = options; }
+  }, credentialResolver: async () => "gateway-secret" });
+  await factory.createForAgent({ agent_id: "builder", agent_name: "Builder", role: "coder",
+    gateway_url: "https://gateway.example.test/v1", credential_ref: "secret:agent:builder", model: "gpt-4o-mini", use_responses: false });
+  assert.equal(constructorOptions.useResponses, false);
 });
 
 test("does not accept an incomplete OpenAI SDK profile", async () => {

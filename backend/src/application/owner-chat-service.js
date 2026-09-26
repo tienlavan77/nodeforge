@@ -1,4 +1,4 @@
-// Handles owner chat ingestion, ticket creation, and agent streaming orchestration.
+// Handles owner chat ingestion and agent streaming orchestration.
 import { ConfigurationError } from "../shared/errors.js";
 import { logEvent } from "../core/project-log-service.js";
 import { createRequire } from "node:module";
@@ -11,7 +11,7 @@ const commonSchema = require("../../../schemas/core/common.schema.json");
 const ticketSchema = require("../../../schemas/governance/ticket.schema.json");
 
 // Creates the owner chat service handling message intake and streaming.
-export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, executeAgentTool, ticketCommandParser, proseTicketService, dispatchAgentTicket, internalBus, debug = () => {}, streamBatchMs = 500, projectLogger = logEvent, protocolStorage, conversationCrudService } = {}) {
+export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, internalBus, debug = () => {}, streamBatchMs = 500, projectLogger = logEvent, protocolStorage, conversationCrudService } = {}) {
   if (typeof bus?.send !== "function") throw new ConfigurationError("Owner Chat Service requires the shared Communication Bus.");
   if (!Number.isInteger(streamBatchMs) || streamBatchMs < 1) throw new ConfigurationError("Owner Chat stream batch interval must be positive.");
   const messages = new Map();
@@ -27,7 +27,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
   internalBus?.on?.("node.status_change", statusListener);
 
   const streamAgent = typeof agentStream === "function"
-    ? createOwnerAgentStream({ bus, agentStream, onAgentCompleted, executeAgentTool, debug, streamBatchMs, projectLogger, protocolStorage, conversationRounds, enrichAgentText: (message, agentId) => enrichAgentText(message, agentId), responseMessage: (message, type, payload, suffix) => responseMessage(message, type, payload, suffix), safeLog: (logger, entry) => safeLog(logger, entry) })
+    ? createOwnerAgentStream({ bus, agentStream, onAgentCompleted, debug, streamBatchMs, protocolStorage, conversationRounds, enrichAgentText: (message, agentId) => enrichAgentText(message, agentId), responseMessage: (message, type, payload, suffix) => responseMessage(message, type, payload, suffix) })
     : null;
 
   return Object.freeze({ submit });
@@ -44,41 +44,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     const existing = messages.get(input.message_id);
     if (existing) return { ...structuredClone(existing), duplicate: true };
     conversationCrudService?.ensure?.({ id: input.conversation_id, project_id: input.project_id, agent_id: agentId, title: input.payload.text });
-    const isBuilder = agentId === "builder" || agentId === "builder-ex";
-    const intent = input.payload.intent;
-    if (intent !== undefined && !["normal_chat", "ticket_create", "ticket_dispatch"].includes(intent)) throw new ConfigurationError("Invalid owner message intent.");
-    const resolvedIntent = intent ?? inferLegacyIntent(input.payload.text);
-    if (isBuilder && intent === "ticket_create" && (!input.payload.ticket || typeof input.payload.ticket !== "object" || Array.isArray(input.payload.ticket)) && !(hasJsonCandidate(input.payload.text) && !isParsableJsonCandidate(input.payload.text))) {
-      const missingTicket = { create_ticket: true, status: "needs_input", error_code: "missing_ticket_object", question: "payload.ticket JSON object is required for ticket_create." };
-      const notice = bus.send(responseMessage({ id: input.message_id, project_id: input.project_id, conversation_id: input.conversation_id, correlation_id: input.correlation_id, timestamp: input.timestamp, sender: { id: "NODE", role: "node" }, recipient: { id: "builder-ex", role: "builder" } }, "ticket.creation", missingTicket, `TICKET-CREATE-${input.message_id}`));
-      messages.set(input.message_id, Object.freeze(structuredClone(notice)));
-      return structuredClone(notice);
-    }
-    if (isBuilder && resolvedIntent === "ticket_create" && !input.payload.ticket && hasJsonCandidate(input.payload.text) && !isParsableJsonCandidate(input.payload.text)) {
-      const invalidJson = { create_ticket: true, status: "needs_input", error_code: "invalid_ticket_json", question: "Ticket JSON không hợp lệ; vui lòng kiểm tra dấu ngoặc kép và xuống dòng trong chuỗi." };
-      const notice = bus.send(responseMessage({ id: input.message_id, project_id: input.project_id, conversation_id: input.conversation_id, correlation_id: input.correlation_id, timestamp: input.timestamp, sender: { id: "NODE", role: "node" }, recipient: { id: "builder-ex", role: "builder" } }, "ticket.creation", invalidJson, `TICKET-CREATE-${input.message_id}`));
-      messages.set(input.message_id, Object.freeze(structuredClone(notice)));
-      return structuredClone(notice);
-    }
-    const proseResult = isBuilder && resolvedIntent === "ticket_create" && (input.payload.ticket && typeof proseTicketService?.createFromObject === "function"
-      ? proseTicketService.createFromObject(input.payload.ticket, { projectId: input.project_id, timestamp: input.timestamp, sourceId: input.message_id })
-      : proseTicketService?.parse?.(input.payload.text, { projectId: input.project_id, timestamp: input.timestamp, sourceId: input.message_id }));
-    if (proseResult?.create_ticket) {
-      const notice = bus.send(responseMessage({ id: input.message_id, project_id: input.project_id, conversation_id: input.conversation_id, correlation_id: input.correlation_id, timestamp: input.timestamp, sender: { id: "NODE", role: "node" }, recipient: { id: "builder-ex", role: "builder" } }, "ticket.creation", proseResult, `TICKET-CREATE-${input.message_id}`));
-      messages.set(input.message_id, Object.freeze(structuredClone(notice)));
-      return structuredClone(notice);
-    }
-    const commandResult = isBuilder && resolvedIntent === "ticket_dispatch" && ticketCommandParser?.parse?.(input.payload.text);
-    if (isBuilder && /^\/ticket(?:\s|$)/i.test(String(input.payload.text ?? "")) && !commandResult?.command) {
-      const notice = bus.send(responseMessage({ id: input.message_id, project_id: input.project_id, conversation_id: input.conversation_id, correlation_id: input.correlation_id, timestamp: input.timestamp, sender: { id: "NODE", role: "node" }, recipient: { id: agentId, role: roleForAgent(agentId) } }, "ticket.status", { command: true, status: "syntax_error", error: "Không nhận diện được ticket id, vui lòng kiểm tra lại cú pháp /ticket <id>." }, `TICKET-SYNTAX-${input.message_id}`));
-      messages.set(input.message_id, Object.freeze(structuredClone(notice)));
-      return structuredClone(notice);
-    }
-    if (commandResult?.command && commandResult.status !== "ready") {
-      const notice = bus.send(responseMessage({ id: input.message_id, project_id: input.project_id, conversation_id: input.conversation_id, correlation_id: input.correlation_id, timestamp: input.timestamp, sender: { id: "NODE", role: "node" }, recipient: { id: "builder", role: "builder" } }, "ticket.status", commandResult, `TICKET-${input.message_id}`));
-      messages.set(input.message_id, Object.freeze(structuredClone(notice)));
-      return structuredClone(notice);
-    }
+    if (input.payload.intent !== undefined && input.payload.intent !== "normal_chat") throw new ConfigurationError("Invalid owner message intent.");
     const round = (conversationRounds.get(input.conversation_id) ?? 0) + 1;
     conversationRounds.set(input.conversation_id, round);
     const message = {
@@ -89,31 +55,14 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       message_type: "owner.message",
       conversation_id: input.conversation_id,
       correlation_id: input.correlation_id,
-      // Preserve the canonical roadmap ticket for /ticket commands. The old
-      // reduced shape triggered the generic direct-task fallback and replaced
-      // roadmap/sprint metadata with ROADMAP-DIRECT values.
-      payload: { text: input.payload.text, intent: resolvedIntent, round, ...(commandResult?.ticket ? { task: normalizeTask(commandResult.ticket, input) } : {}), ...(input.payload.task ? { task: normalizeTask(input.payload.task, input) } : {}) },
+      payload: { text: input.payload.text, intent: "normal_chat", round, ...(input.payload.task ? { task: normalizeTask(input.payload.task, input) } : {}) },
       timestamp: input.timestamp
     };
-    // Bus persists via the canonical Communication Store before dispatching.
     const persisted = bus.send(message);
-    // Dispatches enter the canonical Stage-1 pipeline, which persists the
-    // validated task envelope at round_1/request. Do not occupy that ref with
-    // the UI command envelope; Communication Store still retains the message.
-    if (!(commandResult?.command && commandResult.status === "ready")) persistProtocolMessage(persisted, round, "request");
+    persistProtocolMessage(persisted, round, "request");
     safeLog(projectLogger, { event_name: "owner.message", level: "info", status: "info", message: "Owner message received.", task_id: message.payload.task?.id ?? message.id, ticket_id: message.payload.task?.id, conversation_id: message.conversation_id, source: "owner-chat-service" });
     messages.set(persisted.id, Object.freeze(structuredClone(persisted)));
-    if (commandResult?.command && commandResult.status === "ready" && typeof dispatchAgentTicket === "function") void dispatchAgentTicket({ task_id: commandResult.ticket_id, ticket: commandResult.ticket, required_role: commandResult.ticket?.required_role, message: persisted, eventSink: input.eventSink });
-    else if (isBuilder) {
-      // Builder coding is exclusively dispatched through Stage-1. This prevents
-      // the retired agent_tool loop from silently handling direct chat messages.
-      bus.send(responseMessage(persisted, "ticket.status", {
-        command: false,
-        status: "ticket_required",
-        error_code: "BUILDER_TICKET_REQUIRED",
-        error: "Builder coding requests must use /ticket <id>; the legacy direct coding flow is disabled."
-      }, `TICKET-REQUIRED-${input.message_id}`));
-    } else if (typeof streamAgent === "function") void streamAgent(persisted, agentId);
+    if (typeof streamAgent === "function") void streamAgent(persisted, agentId);
     else if (typeof agentRequest === "function") void requestRealAgent(persisted, agentId);
     return structuredClone(persisted);
   }
@@ -152,30 +101,6 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       sender: { id: message.recipient.id, role: message.recipient.role }, recipient: { id: "NODE", role: "node" }, message_type: type,
       conversation_id: message.conversation_id, correlation_id: message.correlation_id, payload, timestamp: new Date().toISOString() };
   }
-}
-
-// Checks whether text contains a JSON candidate.
-function hasJsonCandidate(text) { return /[{[]/.test(String(text ?? "")); }
-// Checks whether text contains valid embedded JSON.
-function isParsableJsonCandidate(text) {
-  const value = String(text ?? ""); const start = value.search(/[{[]/); if (start < 0) return false;
-  // eslint-disable-next-line no-silent-catch -- JSON probe: non-JSON text takes the normal-chat path by design.
-  try { JSON.parse(value.slice(start)); return true; } catch { return false; }
-}
-
-// Infers message intent from legacy text patterns.
-function inferLegacyIntent(text) {
-  const value = String(text ?? "");
-  if (/^\/ticket(?:\s|$)/i.test(value)) return "ticket_dispatch";
-  if (/^\s*(?:[-*+]\s+)?(?:\*\*)?\s*(?:title|objective|acceptance[_ ]criteria|criteria|tiêu đề|mục tiêu|tiêu chí)\s*(?:\*\*)?\s*:/im.test(value)) return "ticket_create";
-  try {
-    const parsed = JSON.parse(value);
-    if (parsed && !Array.isArray(parsed) && ["id", "title", "objective", "acceptance_criteria"].some((field) => Object.hasOwn(parsed, field))) return "ticket_create";
-  // eslint-disable-next-line no-silent-catch -- Legacy prose stays normal chat unless it exposes ticket labels.
-  } catch {
-    // Legacy prose remains normal chat unless it exposes explicit ticket labels.
-  }
-  return "normal_chat";
 }
 
 // Validates owner message required fields.

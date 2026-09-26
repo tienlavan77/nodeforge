@@ -54,3 +54,20 @@ test("omits reasoning settings when effort is none for gateway compatibility", a
   });
   assert.equal(Object.hasOwn(agentOptions, "modelSettings"), false);
 });
+
+// Confirms the OpenAI SDK receives only supplied Forge functions with Node execution callbacks.
+test("exposes supplied Forge tools to the OpenAI Agents SDK", async () => {
+  let agentOptions;
+  let runOptions;
+  const gateway = createOpenAiSdkGateway({
+    providerFactory: { async createForAgent(profile) { return { provider: {}, profile: { ...profile, reasoning: { effort: "none" } } }; } },
+    AgentClass: class FakeAgent { constructor(options) { agentOptions = options; } },
+    runner: async (_agent, _prompt, options) => { runOptions = options; return { finalOutput: "listed" }; }
+  });
+  await gateway.execute({ agent: { agent_id: "architect", agent_name: "Architect", role: "architecture_manager", model: "gpt-5.6-sol" }, correlationId: "CORR-FORGE", prompt: "List files",
+    options: { forgeTools: { registry: { rg_files: { execute: async () => ({ paths: ["README.md"] }) } }, context: { task_id: "CORR-FORGE" },
+      definitions: [{ name: "rg_files", description: "List files", input_schema: { type: "object", properties: { flags: { type: "array", items: { type: "string" } } }, additionalProperties: false } }] } } });
+  assert.deepEqual(agentOptions.tools.map((item) => item.name), ["rg_files"]);
+  assert.equal(agentOptions.tools[0].strict, false);
+  assert.equal(runOptions.maxTurns, 6);
+});

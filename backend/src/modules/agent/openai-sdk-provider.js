@@ -11,7 +11,7 @@ const REASONING_EFFORTS = Object.freeze(["none", "low", "medium", "high", "max"]
  * copied into the normalized profile returned by this module.
  */
 // Creates a factory that normalizes profiles and instantiates per-agent OpenAI providers.
-export function createOpenAiSdkProviderFactory({ credentialResolver, ProviderClass = DefaultOpenAIProvider, defaultUseResponses = false } = {}) {
+export function createOpenAiSdkProviderFactory({ credentialResolver, ProviderClass = DefaultOpenAIProvider, defaultUseResponses = true } = {}) {
   if (typeof credentialResolver !== "function") throw new ConfigurationError("OpenAI SDK provider requires a credential resolver.");
   if (typeof ProviderClass !== "function") throw new ConfigurationError("OpenAI SDK provider requires a provider constructor.");
   if (typeof defaultUseResponses !== "boolean") throw new ConfigurationError("OpenAI SDK provider useResponses must be boolean.");

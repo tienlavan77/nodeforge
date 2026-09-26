@@ -1,0 +1,48 @@
+{
+  "_summary": "Project model choices for agent profiles, grouped by provider so both selectors share one catalog.",
+  "updated_at": "2026-09-26",
+  "sources": {
+    "openai": "https://developers.openai.com/api/docs/models",
+    "codex": "https://learn.chatgpt.com/docs/models"
+  },
+  "providers": {
+    "openai": [
+      { "value": "gpt-6-astra", "label": "GPT-6 Astra" },
+      { "value": "gpt-6-sol", "label": "GPT-6 Sol" },
+      { "value": "gpt-6-luna", "label": "GPT-6 Luna" }
+    ],
+    "codex": [
+      { "value": "gpt-6-astra", "label": "GPT-6 Astra" },
+      { "value": "gpt-6-sol", "label": "GPT-6 Sol" },
+      { "value": "gpt-6-luna", "label": "GPT-6 Luna" },
+      { "value": "gpt-5.6-sol", "label": "GPT-5.6 Sol" },
+      { "value": "gpt-5.6-terra", "label": "GPT-5.6 Terra" },
+      { "value": "gpt-5.6-luna", "label": "GPT-5.6 Luna" },
+      { "value": "gpt-5.5", "label": "GPT-5.5" }
+    ],
+    "anthropic": [
+      { "value": "claude-sonnet-4.5", "label": "Claude Sonnet 4.5" },
+      { "value": "claude-haiku-4.5", "label": "Claude Haiku 4.5" }
+    ],
+    "claude": [
+      { "value": "claude-haiku-4-5", "label": "Claude Haiku 4.5" },
+      { "value": "claude-sonnet-4-6", "label": "Claude Sonnet 4.6" },
+      { "value": "claude-opus-4-7", "label": "Claude Opus 4.7" },
+      { "value": "claude-opus-5", "label": "Claude Opus 5" },
+      { "value": "claude-opus-4-8[1m]", "label": "Claude Opus 4.8 [1m]" },
+      { "value": "claude-sonnet-4-5", "label": "Claude Sonnet 4.5" },
+      { "value": "claude-sonnet-4-0", "label": "Claude Sonnet 4.0" },
+      { "value": "claude-opus-4-5", "label": "Claude Opus 4.5" },
+      { "value": "claude-haiku-4-3", "label": "Claude Haiku 4.3" },
+      { "value": "claude-3-5-sonnet-20241022", "label": "Claude 3.5 Sonnet (2024-10-22)" }
+    ],
+    "ollama": [
+      { "value": "gemma4:31b", "label": "gemma4:31b" },
+      { "value": "gpt-oss:120b", "label": "gpt-oss:120b" },
+      { "value": "gpt-oss:20b", "label": "gpt-oss:20b" },
+      { "value": "nemotron-3-nano:30b", "label": "nemotron-3-nano:30b" },
+      { "value": "nemotron-3-super", "label": "nemotron-3-super" },
+      { "value": "nemotron-3-ultra", "label": "nemotron-3-ultra" }
+    ]
+  }
+}

@@ -38,13 +38,14 @@ export async function* stream({ url, credential, payload, model, correlationId, 
   const response = await fetchWithRetry(url, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${credential}`, "x-correlation-id": correlationId },
-    body: JSON.stringify({ model: model || process.env.NODE_AGENT_MODEL || "gpt-5.6-terra", input: buildResponsesInput(payload), ...buildCacheOptions(payload), ...responseToolOptions(payload), stream: true }),
+    body: JSON.stringify({ model: model || process.env.NODE_AGENT_MODEL || "gpt-5.6-terra", input: buildResponsesInput(payload), ...buildCacheOptions(payload), ...responseToolOptions(payload), ...(Number.isInteger(payload.max_output_tokens) && payload.max_output_tokens > 0 ? { max_output_tokens: payload.max_output_tokens } : {}), stream: true }),
     signal
   }, "Codex Responses stream");
   if (!response.ok) throw await gatewayError(response, "Codex Responses stream");
   if (!response.body) throw new ConfigurationError("Codex Responses stream returned no body.");
   const decoder = new TextDecoder();
   let buffer = "";
+  const pendingTools = new Map();
   for await (const chunk of response.body) {
     buffer += decoder.decode(chunk, { stream: true });
     const frames = buffer.split("\n\n");
@@ -55,12 +56,18 @@ export async function* stream({ url, credential, payload, model, correlationId, 
       let event;
       try { event = JSON.parse(data); } catch { throw new ConfigurationError("Agent Gateway stream is invalid."); }
       if (event.type === "response.output_text.delta" && typeof event.delta === "string") yield { text: event.delta };
-      if (event.type === "response.output_item.added" && event.item?.type === "function_call") yield { _tool: { id: event.item.call_id ?? event.item.id, name: event.item.name }, _toolInput: "" };
-      if (event.type === "response.function_call_arguments.delta" && typeof event.delta === "string") yield { _toolInputDelta: event.delta };
+      if (event.type === "response.output_item.added" && event.item?.type === "function_call") pendingTools.set(event.item.id ?? event.item.call_id, { id: event.item.call_id ?? event.item.id, name: event.item.name, arguments: "" });
+      if (event.type === "response.function_call_arguments.delta" && typeof event.delta === "string") {
+        const pending = pendingTools.get(event.call_id ?? event.item_id);
+        if (pending) pending.arguments += event.delta;
+      }
       if (event.type === "response.function_call_arguments.done") {
+        const itemId = event.item_id ?? event.call_id;
+        const pending = pendingTools.get(itemId);
         let input = {};
-        try { input = JSON.parse(event.arguments ?? "{}"); } catch { throw new ConfigurationError("Codex tool input is invalid."); }
-        yield { tool_use: { id: event.call_id ?? event.item_id, name: event.name ?? "terminal.run", input } };
+        try { input = JSON.parse(event.arguments ?? pending?.arguments ?? "{}"); } catch { throw new ConfigurationError("Codex tool input is invalid."); }
+        pendingTools.delete(itemId);
+        yield { tool_use: { id: event.call_id ?? pending?.id ?? itemId, name: event.name ?? pending?.name ?? "terminal.run", input } };
       }
       if (event.type === "response.completed") yield { response_id: event.response?.id ?? event.response?.response_id, usage: mapOpenAIUsage(event.response?.usage ?? event.usage) };
       if (event.type === "error") throw new ConfigurationError("Agent Gateway stream failed.");

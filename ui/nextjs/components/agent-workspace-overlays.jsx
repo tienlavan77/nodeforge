@@ -2,6 +2,7 @@
 // Configure agent connections and inspect persisted conversation history.
 
 import { useCallback, useEffect, useState } from "react";
+import { getModelOptions, useModelCatalog } from "../lib/model-catalog.js";
 
 const PROJECT_ID = "PROJECT-NODEFORGE";
 const AGENTS = [
@@ -18,45 +19,6 @@ const PROVIDER_OPTIONS = [
   { value: "ollama", label: "Ollama" },
   { value: "custom", label: "Custom / OpenAI-compatible" }
 ];
-const MODEL_CATALOG = {
-  codex: [
-    { value: "gpt-5.6-sol", label: "GPT-5.6 Sol (default)" },
-    { value: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
-    { value: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
-    { value: "gpt-5.5", label: "GPT-5.5" },
-    { value: "gpt-5.2", label: "GPT-5.2" }
-  ],
-  openai: [
-    { value: "gpt-5.6", label: "GPT-5.6" },
-    { value: "gpt-5.6-mini", label: "GPT-5.6 Mini" },
-    { value: "gpt-5.1", label: "GPT-5.1" }
-  ],
-  anthropic: [
-    { value: "claude-sonnet-4.5", label: "Claude Sonnet 4.5" },
-    { value: "claude-haiku-4.5", label: "Claude Haiku 4.5" }
-  ],
-  claude: [
-    { value: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
-    { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
-    { value: "claude-opus-4-7", label: "Claude Opus 4.7" },
-    { value: "claude-opus-5", label: "Claude Opus 5" },
-    { value: "claude-opus-4-8[1m]", label: "Claude Opus 4.8 [1m]" },
-    { value: "claude-sonnet-4-5", label: "Claude Sonnet 4.5" },
-    { value: "claude-sonnet-4-0", label: "Claude Sonnet 4.0" },
-    { value: "claude-opus-4-5", label: "Claude Opus 4.5" },
-    { value: "claude-haiku-4-3", label: "Claude Haiku 4.3" },
-    { value: "claude-3-5-sonnet-20241022", label: "Claude 3.5 Sonnet (2024-10-22)" }
-  ],
-  ollama: [
-    { value: "gemma4:31b", label: "gemma4:31b" },
-    { value: "gpt-oss:120b", label: "gpt-oss:120b" },
-    { value: "gpt-oss:20b", label: "gpt-oss:20b" },
-    { value: "nemotron-3-nano:30b", label: "nemotron-3-nano:30b" },
-    { value: "nemotron-3-super", label: "nemotron-3-super" },
-    { value: "nemotron-3-ultra", label: "nemotron-3-ultra" }
-  ]
-};
-
 // Browse persisted conversation and audit records.
 export function HistoryOverlay({ client, onClose }) {
   const [agentId, setAgentId] = useState("");
@@ -84,10 +46,11 @@ export function HistoryOverlay({ client, onClose }) {
 // Edit provider credentials and connectivity for an agent.
 export function AgentSettingsOverlay({ client, agent, onClose }) {
   const [profile, setProfile] = useState(null); const [url, setUrl] = useState(""); const [key, setKey] = useState(""); const [provider, setProvider] = useState("codex"); const [model, setModel] = useState(""); const [enabled, setEnabled] = useState(false); const [message, setMessage] = useState("");
-  const models = MODEL_CATALOG[provider] ?? [];
+  const modelCatalog = useModelCatalog();
+  const models = getModelOptions(modelCatalog, provider, model);
   useEffect(() => { client.getAgentSettings().then((items) => { const item = items.find(({ agent_id: id }) => id === agent.id); if (item) { setProfile(item); setUrl(item.gateway_url ?? ""); setEnabled(Boolean(item.enabled)); setProvider(item.provider ?? "codex"); setModel(item.model ?? ""); } }).catch((error) => setMessage(`Error: ${error.message}`)); }, [agent.id, client]);
   function changeProvider(value) {
-    const nextModels = MODEL_CATALOG[value] ?? [];
+    const nextModels = getModelOptions(modelCatalog, value);
     setProvider(value);
     setModel(nextModels.some((item) => item.value === model) ? model : nextModels[0]?.value ?? "");
     if (value === "ollama") setUrl("https://ollama.com/v1/chat/completions");

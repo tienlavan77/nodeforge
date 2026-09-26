@@ -47,7 +47,7 @@ test("maps an OpenAI-compatible Responses API payload to a safe Agent response",
     const requestBody = JSON.parse(request.options.body);
     assert.equal(requestBody.model, "gpt-5.6-terra");
     assert.equal(requestBody.input, "Design the service");
-    assert.equal(Array.isArray(requestBody.tools), true);
+    assert.equal(Object.hasOwn(requestBody, "tools"), false);
     assert.equal(result.payload.text, "Real architecture response");
     assert.equal(result.correlation_id, "CORR-148");
     assert(!JSON.stringify(result).includes("secret"));
@@ -77,6 +77,21 @@ test("forwards ordered Responses API stream deltas without credential leakage", 
   assert.equal(chunks.at(-1).response_id, "resp_stream");
   assert(chunks.every((chunk) => chunk.correlation_id === "CORR-149"));
   assert(!JSON.stringify(chunks).includes("secret"));
+});
+
+// Keeps tool result replies within the Architecture Manager output budget.
+test("forwards an explicit Codex stream output limit for concise tool replies", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody;
+  globalThis.fetch = async (_url, options) => {
+    requestBody = JSON.parse(options.body);
+    return new Response('data: {"type":"response.completed","response":{"id":"resp_limit","usage":{}}}\n\n', { status: 200, headers: { "content-type": "text/event-stream" } });
+  };
+  try {
+    const gateway = createAgentGateway({ configuration: { getById: () => ({ ...config(), provider: "codex" }) }, credentialResolver: () => "secret" });
+    for await (const chunk of gateway.stream({ agentId: "architecture-manager", correlationId: "CORR-LIMIT", payload: { text: "Summarize files", max_output_tokens: 256 } })) assert.ok(chunk);
+    assert.equal(requestBody.max_output_tokens, 256);
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test("forwards normalized text events with task correlation", async () => {

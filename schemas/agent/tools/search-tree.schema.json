@@ -1,0 +1,16 @@
+{
+  "$comment": "Lets agents inspect a bounded project directory tree without disabling project ignore rules.",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/tools/search-tree.schema.json",
+  "title": "Forge search tree tool input",
+  "type": "object",
+  "properties": {
+    "path": { "type": "string", "description": "Project-relative directory to inspect. Omit or use '.', '' or '/' for the project root; absolute paths are allowed only inside the project." },
+    "flags": {
+      "type": "array",
+      "description": "Optional flags: --max-depth=N (default 2, maximum 6), --max-entries=N (default 200, maximum 500), --dirs-only. Ignore rules cannot be disabled.",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "additionalProperties": false
+}

@@ -14,7 +14,8 @@ test("streams ordered real Agent deltas realtime and persists only canonical com
   await new Promise((resolve) => setImmediate(resolve));
   const messages = store.getByConversationId("CONV-149");
   const deltas = observed.filter(({ message_type }) => message_type === "architecture.message.delta");
-  assert.deepEqual(messages.map(({ message_type }) => message_type), ["owner.message", "architecture.working", "architecture.message.received"]);
+  assert.deepEqual(messages.map(({ message_type }) => message_type), ["owner.message", "architecture.message.received"]);
+  assert.equal(observed.some(({ message_type }) => message_type === "architecture.working"), true);
   assert.deepEqual(deltas.map(({ payload }) => payload.text), ["one", " two"]);
   assert.equal(messages.at(-1).payload.text, "one two");
   assert(messages.every(({ correlation_id }) => correlation_id === "CORR-149"));

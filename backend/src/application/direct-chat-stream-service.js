@@ -19,12 +19,11 @@ function extractTicketId(text) {
 
 /** Routes one owner request to role-specific streams without sharing conversation state. */
 export class DirectChatStreamService {
-  constructor({ roadmapStore, agentGateway, agentTool, roles = ROLE_NAMES, now = Date } = {}) {
+  constructor({ roadmapStore, agentGateway, roles = ROLE_NAMES, now = Date } = {}) {
     if (!roadmapStore || typeof roadmapStore.getByTicketId !== 'function') throw new TypeError('roadmapStore.getByTicketId is required');
     if (!agentGateway || typeof agentGateway.stream !== 'function') throw new TypeError('agentGateway.stream is required');
     this.roadmapStore = roadmapStore;
     this.agentGateway = agentGateway;
-    this.agentTool = agentTool;
     this.roles = roles.map((role) => String(role).toUpperCase());
     this.now = now;
   }
@@ -35,12 +34,6 @@ export class DirectChatStreamService {
     const ticket = await this.roadmapStore.getByTicketId(ticketId);
     if (!ticket) throw new Error(`Ticket not found: ${ticketId}`);
     const request = { projectId, ticketId, text: String(text), messageId, receivedAt: new this.now().toISOString() };
-    if (this.agentTool) {
-      const validation = typeof this.agentTool.validate === 'function'
-        ? await this.agentTool.validate(request)
-        : (typeof this.agentTool.parse === 'function' ? await this.agentTool.parse(request) : true);
-      if (validation === false) throw new Error('Owner request failed agent-tool validation');
-    }
     const streams = await Promise.all(this.roles.map(async (role) => {
       const id = conversationId(role, projectId, ticketId);
       return { role, conversationId: id, stream: await this.agentGateway.stream({ ...request, ticket, role, conversation_id: id }) };
