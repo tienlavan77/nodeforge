@@ -18,7 +18,7 @@ export function createOllamaSdkGateway({
   if (typeof queryFn !== "function") throw new ConfigurationError("Ollama SDK Gateway requires a query function.");
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1) throw new ConfigurationError("Ollama SDK Gateway timeout must be a positive integer.");
 
-  return Object.freeze({ execute });
+  return Object.freeze({ execute, provider: "ollama", conversationMode: "history" });
 
   async function execute({ agent, agentId, prompt, correlationId, cwd, options = {} } = {}) {
     const input = agent ?? { agent_id: agentId };

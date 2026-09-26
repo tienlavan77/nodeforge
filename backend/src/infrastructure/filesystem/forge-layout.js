@@ -1,4 +1,4 @@
-// Ensures the .forge directory layout exists by copying bundled snapshot dirs and creating the runtime folder.
+// Ensures the .forge directory layout exists by copying active snapshots and creating the runtime folder.
 import { cp, mkdir, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,9 +6,9 @@ import { fileURLToPath } from "node:url";
 import { ensureRuntimeDir } from "../sqlite/index-database.js";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
-const SNAPSHOT_DIRECTORIES = ["schemas", "rules", "workflows"];
+const SNAPSHOT_DIRECTORIES = ["schemas", "rules"];
 
-// Initializes .forge structure by ensuring runtime dir, seeding schemas/rules/workflows snapshots and creating roadmap dir.
+// Initializes .forge structure by ensuring runtime dir, seeding schema/rule snapshots and creating roadmap dir.
 export async function ensureForgeLayout(projectRoot, { sourceRoot = repositoryRoot } = {}) {
   const runtimeDir = await ensureRuntimeDir(projectRoot);
   const forgeDir = dirname(runtimeDir);

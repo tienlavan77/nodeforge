@@ -14,10 +14,21 @@ test("streams ordered real Agent deltas realtime and persists only canonical com
   await new Promise((resolve) => setImmediate(resolve));
   const messages = store.getByConversationId("CONV-149");
   const deltas = observed.filter(({ message_type }) => message_type === "architecture.message.delta");
-  assert.deepEqual(messages.map(({ message_type }) => message_type), ["owner.message", "architecture.working", "architecture.message.received"]);
+  assert.deepEqual(messages.map(({ message_type }) => message_type), ["owner.message", "architecture.message.received"]);
   assert.deepEqual(deltas.map(({ payload }) => payload.text), ["one", " two"]);
   assert.equal(messages.at(-1).payload.text, "one two");
   assert(messages.every(({ correlation_id }) => correlation_id === "CORR-149"));
+});
+
+test("passes the conversation ID through the owner agent stream to the SDK", async () => {
+  const store = createAgentCommunicationStore();
+  const bus = createAgentCommunicationBus({ store });
+  const seen = [];
+  const chat = createOwnerChatService({ bus, agentStream: async function* (request) { seen.push(request); yield { text: "ok" }; } });
+  chat.submit({ message_id: "MSG-SDK-ID", project_id: "PROJECT-149", conversation_id: "CONV-SDK-ID", correlation_id: "CORR-SDK-ID", timestamp: "2026-08-20T00:00:00Z", payload: { text: "hello" } });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(seen[0]?.conversationId, "CONV-SDK-ID");
+  assert.equal(seen[0]?.payload.text, "hello");
 });
 
 test("flushes buffered stream batches on interval and flushes final remainder at completion", async () => {

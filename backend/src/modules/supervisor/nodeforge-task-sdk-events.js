@@ -37,7 +37,7 @@ export function assertTicketExecutionCompleted(toolEvents, { labMode = false, mi
   }
   if (labMode) return;
   const applied = names.includes("write_diff") || names.includes("edit_diff");
-  const inspected = names.includes("read_file") || names.includes("search_code");
+  const inspected = names.includes("read_file") || names.includes("search_code") || names.includes("Read") || names.includes("Glob") || names.includes("Grep");
   const emptyCommit = toolEvents.some((event) =>
     (event.name ?? event.tool) === "commit_changes" && event.status === "failed" && event.error_code === "GIT_EMPTY_COMMIT"
   );

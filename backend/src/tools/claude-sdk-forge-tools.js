@@ -1,6 +1,7 @@
 // Summary: Adapts Forge tool definitions to Claude Agent SDK MCP servers with Zod-validated inputs.
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
+import { claudeFileDefinitions } from "./claude-file-tools.js";
 
 const searchCodeInput = {
   query: z.string().min(1),
@@ -60,14 +61,15 @@ const INPUT_DEFAULTS = Object.freeze({
   edit_diff: Object.freeze({ occurrence: "first" })
 });
 
-export function createForgeSdkMcpServer({ registry, context = {}, includeCommit = false } = {}) {
+export function createForgeSdkMcpServer({ registry, context = {}, includeCommit = false, includeClaudeFileTools = false } = {}) {
   if (!registry || typeof registry !== "object") throw new TypeError("Forge SDK MCP server requires a tool registry.");
 
   const definitions = [
     ["select_code_graph_candidates", "Ask Node to find up to eight candidate files related to your search intent, with import relations. Call this FIRST as your project map before searching or reading.", selectCodeGraphCandidatesInput],
     ["search_code", "Search the approved project code index. kind=\"content\" returns FTS text snippets with matching lines; kind=\"file\" with projection=\"summary\" returns a file's symbol map with line ranges.", searchCodeInput],
     ["read_file", "Read one approved project file. Use offset/limit windows (max 500 lines) instead of reading whole files.", readFileInput],
-    ["write_diff", "Write one approved project file after checksum validation. Content is capped at 8 KB. For a new file that does not exist, before_checksum must be the JSON value null (not a string and not omitted).", writeDiffInput],
+    ...(includeClaudeFileTools ? claudeFileDefinitions.map(({ name, description, input_schema }) => [name, description, z.fromJSONSchema(input_schema).shape]) : []),
+    ["write_diff", "Write one approved project file after checksum validation. Content is limited to 250 lines. For a new file that does not exist, before_checksum must be the JSON value null (not a string and not omitted).", writeDiffInput],
     ["edit_diff", "Replace an exact anchor string in one approved file after checksum validation. Read the file first and use a unique exact anchor; use occurrence=\"all\" to replace every match.", editDiffInput],
     ["run_test", "Start the Node-owned test suite and return a job_id immediately. You MUST then call check_test with that job_id repeatedly until status is passed or failed before reporting done.", runTestInput],
     ["check_test", "Poll a started test job by job_id until it reports passed or failed.", checkTestInput],
@@ -110,6 +112,9 @@ export const forgeSdkToolNames = Object.freeze([
   "mcp__forge__select_code_graph_candidates",
   "mcp__forge__search_code",
   "mcp__forge__read_file",
+  "mcp__forge__Read",
+  "mcp__forge__Glob",
+  "mcp__forge__Grep",
   "mcp__forge__write_diff",
   "mcp__forge__edit_diff",
   "mcp__forge__run_test",

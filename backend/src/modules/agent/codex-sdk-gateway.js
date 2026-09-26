@@ -17,7 +17,7 @@ export function createCodexSdkGateway({
   if (typeof CodexClass !== "function") throw new ConfigurationError("Codex SDK Gateway requires a Codex constructor.");
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1) throw new ConfigurationError("Codex SDK Gateway timeout must be a positive integer.");
 
-  return Object.freeze({ execute });
+  return Object.freeze({ execute, provider: "codex", conversationMode: "thread" });
 
   async function execute({ agentId, agent, prompt, correlationId, cwd, options = {}, resumeThreadId, onEvent, onSessionReady } = {}) {
     const profile = getEnabledConfig(agentId ?? agent?.agent_id);

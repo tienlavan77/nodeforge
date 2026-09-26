@@ -5,7 +5,7 @@ import { ConfigurationError } from "../shared/errors.js";
 import { loadAgentContextConventions } from "../modules/supervisor/agent-context-conventions.js";
 import { discoveryCount, discoveryNotice, recordRead, resetExploration } from "./exploration-state.js";
 const MAX_CONTENT = 200000;
-const WRITE_DIFF_MAX_BYTES = 8192;
+const WRITE_DIFF_MAX_LINES = 250;
 const READ_PREVIEW_LINES = 40;
 const FULL_READ_LINE_LIMIT = 500;
 // safePath - handles safePath operation.
@@ -66,12 +66,12 @@ export function createReadFileTool({ fileService, symbolLookup, maxChars = MAX_C
 }
 
 // createWriteDiffTool - handles createWriteDiffTool operation.
-export function createWriteDiffTool({ fileService, maxChars = MAX_CONTENT, maxBytes = WRITE_DIFF_MAX_BYTES } = {}) {
+export function createWriteDiffTool({ fileService, maxLines = WRITE_DIFF_MAX_LINES } = {}) {
   if (typeof fileService?.atomicWrite !== "function" || typeof fileService?.readFile !== "function") throw new ConfigurationError("write_diff requires File Service readFile and atomicWrite.");
   return Object.freeze({ name: "write_diff", async execute(input = {}, context = {}) {
-    const path = safePath(input.path, "write"); assertAllowed(path, context); if (typeof input.content !== "string" || input.content.length > maxChars) throw error("CONTENT_INVALID", "content must be a bounded string.");
-    const byteLength = Buffer.byteLength(input.content, "utf8");
-    if (byteLength > maxBytes) throw error("CONTENT_TOO_LARGE", `write_diff content is ${byteLength} bytes, limit is ${maxBytes}. For existing files use edit_diff with an anchor; for new files split into smaller writes.`, { byte_length: byteLength, limit: maxBytes });
+    const path = safePath(input.path, "write"); assertAllowed(path, context); if (typeof input.content !== "string") throw error("CONTENT_INVALID", "content must be a string.");
+    const lineCount = input.content ? input.content.split("\n").length - Number(input.content.endsWith("\n")) : 0;
+    if (lineCount > maxLines) throw error("CONTENT_TOO_LARGE", `write_diff content has ${lineCount} lines, limit is ${maxLines}. For localized changes use edit_diff.`, { line_count: lineCount, limit: maxLines });
     let current;
     try {
       current = await fileService.readFile({ path });
@@ -87,12 +87,10 @@ export function createWriteDiffTool({ fileService, maxChars = MAX_CONTENT, maxBy
     if (current !== null) {
       const actual = checksum(current);
       if (typeof input.before_checksum !== "string" || input.before_checksum !== actual) throw error("CHECKSUM_MISMATCH", `Checksum mismatch for ${path}.`, checksumDiagnostics(input.before_checksum, true));
-      // A file too large to be a legitimate write_diff payload must be edited in
-      // place; write_diff only creates or fully rewrites a small (< maxBytes) file.
-      const currentBytes = Buffer.byteLength(current, "utf8");
-      if (currentBytes > maxBytes) throw error("DESTRUCTIVE_OVERWRITE", `${path} is ${currentBytes} bytes, over the ${maxBytes}-byte write_diff limit. Replace it with write_diff would drop content; use edit_diff with an exact anchor for localized changes.`, { path, current_bytes: currentBytes, limit: maxBytes });
+      const currentLines = current ? current.split("\n").length - Number(current.endsWith("\n")) : 0;
+      if (currentLines > maxLines) throw error("DESTRUCTIVE_OVERWRITE", `${path} has ${currentLines} lines, over the ${maxLines}-line write_diff limit. Use edit_diff with an exact anchor for localized changes.`, { path, current_lines: currentLines, limit: maxLines });
     }
-    assertSummaryEnforced(input.content, current, context);
+    assertSummaryEnforced(input.content, current, path);
     await fileService.atomicWrite({ path, content: input.content, replace: true });
     recordChangedPath(context, path);
     resetExploration(context);
@@ -154,9 +152,13 @@ function assertAllowed(path, context) {
 // changed, instead of a hard-coded target. The context object travels by
 // reference through the Forge MCP session, so mutations here are visible to
 // later tool calls in the same execution.
-function assertSummaryEnforced(content, existing) {
+function assertSummaryEnforced(content, existing, path) {
   if (!content || typeof content !== "string") return;
   if (existing !== null && existing !== undefined) return;
+  if (path.endsWith(".json")) {
+    try { JSON.parse(content); return; }
+    catch (cause) { throw error("CONTENT_INVALID", `New JSON file is invalid: ${cause.message}`); }
+  }
   // Enforcement applies only to newly created files. Existing overwrites are
   // reviewed via comment-quality lint, not tool rejection.
   if (hasFileHeaderComment(content)) return;

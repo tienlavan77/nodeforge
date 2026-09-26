@@ -3,7 +3,7 @@
 /* Legacy Vite parity copy: retain dormant components until the Next UI is fully consolidated. */
 /* eslint-disable no-unused-vars, no-undef */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createNodeClient, detectMessageIntent, normalizeTicketInput, MESSAGE_INTENTS } from "../lib/node-client.js";
+import { createNodeClient, MESSAGE_INTENTS } from "../lib/node-client.js";
 import { toDisplayMessage } from "../components/NodeForgePanels.jsx";
 import { NodeForgeShell } from "../components/NodeForgeShell.jsx";
 import { AGENTS, PROJECT_ID, CONVERSATIONS, CHAT_PAGE_SIZE } from "../lib/node-forge-app-constants.js";
@@ -43,8 +43,6 @@ function App() {
   const streamQueues = useRef({});
   const wasAtBottomRef = useRef(Object.fromEntries(AGENTS.map((a) => [a.id, true])));
   const streamingIdsRef = useRef(Object.fromEntries(AGENTS.map((a) => [a.id, null])));
-  const dispatchTimersRef = useRef({});
-  const pendingDispatchRef = useRef({});
   const architectureManagers = useMemo(() => agentDirectory
     .filter((agent) => agent?.role === "architecture_manager" && agent?.enabled === true)
     .map((agent) => ({
@@ -161,15 +159,14 @@ function App() {
   useEffect(() => { loadAgents(); }, [loadAgents]);
 
   useAgentEventStreams({
-    client, lastMessageId, pendingDispatchRef, dispatchTimersRef, setWorkingByAgent,
+    client, lastMessageId, setWorkingByAgent,
     queueHistoryDelta, finalizeHistoryDelta, pushLiveHistory, sseReplayRef,
     scheduleDashboardRefresh, loadWorkspace, loadDashboard, dashboardRefreshTimerRef
   });
 
   const send = createSendMessageHandler({
     client, drafts, setDrafts, selectedArchitectureManager, setHistoryChat, pendingLive,
-    pendingDispatchRef, dispatchTimersRef, setWorkingByAgent, loadDashboard, pushLiveHistory,
-    scrollToBottom, detectMessageIntent, normalizeTicketInput, MESSAGE_INTENTS
+    setWorkingByAgent, pushLiveHistory, scrollToBottom, MESSAGE_INTENTS
   });
 
   const isWorking = workingByAgent[activeAgent] === "WORKING";

@@ -33,7 +33,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
     const context = runtimeGovernance.createExecutionContext({
       task_id: request.task_id, execution_id: executionId,
       agent_identity: { agent_id: selected.agent_id, agent_name: selected.agent_name, role: selected.role, provider: selected.provider ?? null },
-      capabilities: ["select_code_graph_candidates", "search_code", "read_file", "write_diff", "edit_diff", "run_test", "check_test", "git_status", "git_diff", "commit_changes", "report_done"],
+      capabilities: ["select_code_graph_candidates", "search_code", "read_file", ...(selected.role === "coder" ? ["Read", "Glob", "Grep"] : []), "write_diff", "edit_diff", "run_test", "check_test", "git_status", "git_diff", "commit_changes", "report_done"],
       allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, changed_paths: [...resumeState.changedPaths],
       context_budget: { max_bytes: 1000000, max_calls: 12 }, discovery_budget: complexity.discovery_budget,
       discovery_candidate_calls: complexity.candidate_calls, discovery_search_calls: complexity.search_calls,
@@ -43,12 +43,12 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
     });
     const toolContext = { ...context, project_root: projectRoot, ticket, task: ticket, task_context: ticket, changed_paths: [...resumeState.changedPaths], allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, lab_mode: Boolean(labMode), session_id: executionId, target_path: targetPath };
     const checkpointed = checkpointedRegistry({ store: checkpoints, registry: toolRegistry, taskId: request.task_id, targetPath, allowedPrefixes, complexity, selected, correlationId: request.correlation_id, resumeState, labMode: Boolean(labMode) });
-    const mcpServers = { forge: createForgeSdkMcpServer({ registry: checkpointed, context: toolContext, includeCommit: true }) };
+    const mcpServers = { forge: createForgeSdkMcpServer({ registry: checkpointed, context: toolContext, includeCommit: true, includeClaudeFileTools: selected.role === "coder" }) };
     let result;
     try {
       result = await claudeSdkGateway.execute({
         agentId: selected.agent_id, correlationId: request.correlation_id, cwd: projectRoot,
-        options: { tools: [], mcpServers, allowedTools: forgeSdkToolNames, maxTurns: complexity.max_turns, effort: complexity.effort, thinking: complexity.thinking },
+        options: { tools: [], mcpServers, allowedTools: forgeSdkToolNames.filter((name) => selected.role === "coder" || !["mcp__forge__Read", "mcp__forge__Glob", "mcp__forge__Grep"].includes(name)), maxTurns: complexity.max_turns, effort: complexity.effort, thinking: complexity.thinking },
         resumeSessionId: resumeState.sessionId,
         onSessionReady: (sessionId) => { if (typeof sessionId === "string" && sessionId) resumeState.sessionId = sessionId; saveProgressCheckpoint(checkpoints, resumeState, { task_id: request.task_id }); },
         prompt: buildResumePrompt(labMode ? buildToolTestPrompt(request.task_id, targetPath, allowedPrefixes) : buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, complexity), resumeState, { agentId: selected.agent_id, provider: selected.provider, changedPaths: toolContext.changed_paths })

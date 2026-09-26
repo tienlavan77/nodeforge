@@ -1,10 +1,9 @@
 // Interprets chat input and validates structured ticket requests.
-export const MESSAGE_INTENTS = Object.freeze({ normalChat: "normal_chat", ticketCreate: "ticket_create", ticketDispatch: "ticket_dispatch" });
+export const MESSAGE_INTENTS = Object.freeze({ normalChat: "normal_chat", ticketCreate: "ticket_create" });
 
 // Detects whether a message is chat or ticket related.
 export function detectMessageIntent(input) {
   const text = String(input ?? "").trim();
-  if (/^\/ticket(?:\s|$)/i.test(text)) return MESSAGE_INTENTS.ticketDispatch;
   const normalized = normalizeTicketInput(text);
   if (normalized.recognized) return MESSAGE_INTENTS.ticketCreate;
   return MESSAGE_INTENTS.normalChat;

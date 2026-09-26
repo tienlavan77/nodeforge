@@ -21,7 +21,7 @@ export function createClaudeSdkGateway({
   if (typeof queryFn !== "function") throw new ConfigurationError("Claude SDK Gateway requires a query function.");
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1) throw new ConfigurationError("Claude SDK Gateway timeout must be a positive integer.");
 
-  return Object.freeze({ execute });
+  return Object.freeze({ execute, provider: "claude", conversationMode: "history" });
 
   async function execute({ agentId, prompt, correlationId, cwd, additionalDirectories = [], options = {}, resumeSessionId, onSessionReady } = {}) {
     const config = getEnabledConfig(agentId);
@@ -32,6 +32,7 @@ export function createClaudeSdkGateway({
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     const cloneableOptions = { ...options };
     delete cloneableOptions.mcpServers;
+    delete cloneableOptions.forgeTools;
     const queryOptions = {
       ...structuredClone(cloneableOptions),
       abortController: controller,
@@ -72,7 +73,8 @@ export function createClaudeSdkGateway({
         correlation_id: correlationId,
         status: "completed",
         session_id: sessionId,
-        messages
+        messages,
+        text: messages.flatMap((message) => message?.type === "assistant" ? (message.message?.content ?? []).map((block) => block?.text).filter((value) => typeof value === "string") : []).join("\n").trim()
       };
     } catch (error) {
       if (error?.name === "AbortError" || controller.signal.aborted) {

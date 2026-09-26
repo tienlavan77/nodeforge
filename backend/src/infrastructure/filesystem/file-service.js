@@ -1,5 +1,5 @@
 // Provides sandboxed file I/O with secret/protected path checks, atomic writes, and optional indexing/verification hooks.
-import { mkdir, readFile as fsReadFile, readdir, unlink, writeFile as fsWriteFile, link, rename, rmdir, open as fsOpen } from "node:fs/promises";
+import { mkdir, readFile as fsReadFile, readdir, stat, unlink, writeFile as fsWriteFile, link, rename, rmdir, open as fsOpen } from "node:fs/promises";
 import { appendFileSync as fsAppendFileSync, mkdirSync, statSync, readFileSync as fsReadFileSync, writeFileSync, renameSync, unlinkSync, openSync, closeSync, readSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from "node:path";
@@ -26,7 +26,7 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
   }
   function atomicCreate(input) {
     const job = queue.then(() => atomicWriteJob(input, { replace: false }));
-    queue = job.catch((error) => { logCleanup("queued atomic create", error); });
+    queue = job.catch((error) => { if (error?.code !== "FILE_ALREADY_EXISTS") logCleanup("queued atomic create", error); });
     return job;
   }
   function atomicWrite(input) {
@@ -178,11 +178,12 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
     try { readSync(descriptor, buffer, 0, length, offset); } finally { closeSync(descriptor); }
     return buffer.toString("utf8");
   }
-  async function readForIndex({ path } = {}) {
+  async function readForIndex({ path, maxBytes } = {}) {
     if (typeof path !== "string" || !path) throw new ConfigurationError("FileService indexing path is required.");
     const rel = relative(root, resolve(root, path)).split(sep).join("/");
     if (isAbsolute(path) || !rel || rel.startsWith("..") || secretMatch(rel) || ignoreMatch(rel)) throw new ConfigurationError("Refusing to index unsafe, ignored, or secret project path.");
     const absolute = resolve(root, rel);
+    if (maxBytes !== undefined) { if (!Number.isInteger(maxBytes) || maxBytes < 1) throw new ConfigurationError("FileService read limit is invalid."); if ((await stat(absolute)).size > maxBytes) throw Object.assign(new ConfigurationError(`File exceeds the read limit: ${rel}.`), { code: "FILE_TOO_LARGE" }); }
     let content;
     try { content = await fsReadFile(absolute, "utf8"); } catch (error) { if (error?.code === "ENOENT") throw error; throw new ConfigurationError(`Unable to read file for indexing: ${rel}.`, { cause: error }); }
     if (content.includes("\u0000")) throw new ConfigurationError(`Refusing to index binary file: ${rel}.`);

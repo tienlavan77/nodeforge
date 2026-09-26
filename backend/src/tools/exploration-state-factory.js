@@ -21,7 +21,10 @@ export const DISCOVERY_KINDS = {
   rg_search: "search",
   read_file: "read",
   sed_lines: "read",
-  read_code: "read"
+  read_code: "read",
+  Read: "read",
+  Glob: "search",
+  Grep: "search"
 };
 
 // Maps a discovery tool name to its per-kind budget category.

@@ -10,9 +10,9 @@ import { fileURLToPath } from "node:url";
 import { ensureForgeLayout } from "../../src/infrastructure/filesystem/forge-layout.js";
 
 const execFile = promisify(execFileCallback);
-const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
+const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 
-test("ignores Forge runtime state while keeping rules, workflows, and roadmap trackable", async () => {
+test("ignores generated Forge runtime and roadmap state", async () => {
   const parent = await mkdtemp(join(os.tmpdir(), "nodeforge-forge-gitignore-"));
   const projectRoot = join(parent, "project");
 
@@ -21,26 +21,15 @@ test("ignores Forge runtime state while keeping rules, workflows, and roadmap tr
     await writeFile(join(projectRoot, ".gitignore"), await readFile(join(repositoryRoot, ".gitignore"), "utf8"));
     const { forgeDir, runtimeDir } = await ensureForgeLayout(projectRoot);
     const runtimeState = join(runtimeDir, "index.db");
-    const rule = join(forgeDir, "rules", "forge-sprint-delivery.rules.json");
-    const workflow = join(forgeDir, "workflows", "forge-sprint-delivery.workflow.json");
     const roadmap = join(forgeDir, "roadmap", "plan.json");
     await Promise.all([
       writeFile(runtimeState, "runtime state\n"),
       writeFile(roadmap, "{}\n")
     ]);
 
-    assert.equal(await isIgnored(projectRoot, ".forge/runtime/index.db"), true);
-    for (const path of [".forge/rules/forge-sprint-delivery.rules.json", ".forge/workflows/forge-sprint-delivery.workflow.json", ".forge/roadmap/plan.json"]) {
-      assert.equal(await isIgnored(projectRoot, path), false, `${path} must remain trackable`);
+    for (const path of [".forge/runtime/index.db", ".forge/roadmap/plan.json"]) {
+      assert.equal(await isIgnored(projectRoot, path), true, `${path} must be ignored`);
     }
-
-    await execFile("git", ["add", "--", rule, workflow, roadmap], { cwd: projectRoot });
-    const { stdout } = await execFile("git", ["diff", "--cached", "--name-only"], { cwd: projectRoot });
-    assert.deepEqual(stdout.trim().split("\n").sort(), [
-      ".forge/roadmap/plan.json",
-      ".forge/rules/forge-sprint-delivery.rules.json",
-      ".forge/workflows/forge-sprint-delivery.workflow.json"
-    ]);
   } finally {
     await rm(parent, { recursive: true, force: true });
   }

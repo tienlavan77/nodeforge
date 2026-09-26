@@ -1,7 +1,7 @@
 "use client";
 // Keeps the project chat draft responsive without rerendering the full workspace on every keystroke.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const HISTORY_KEY = "nodeforge:project-chat-history";
 const MAX_HISTORY = 50;
@@ -11,6 +11,8 @@ export function HomeChatComposer({ onSend }) {
   const [draft, setDraft] = useState("");
   const [history, setHistory] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const composingRef = useRef(false);
+  const textareaRef = useRef(null);
 
   useEffect(() => {
     try {
@@ -34,7 +36,8 @@ export function HomeChatComposer({ onSend }) {
   // Submits the current draft and clears only the text accepted for sending.
   function submit(event) {
     event.preventDefault();
-    const text = draft.trim();
+    if (composingRef.current) return;
+    const text = textareaRef.current?.value.trim() ?? draft.trim();
     if (!text) return;
     remember(text);
     setHistoryIndex(-1);
@@ -45,6 +48,7 @@ export function HomeChatComposer({ onSend }) {
 
   // Navigates remembered messages only when the cursor is at a textarea edge.
   function navigateHistory(event) {
+    if (composingRef.current || event.nativeEvent.isComposing) return;
     if (!history.length || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
     const target = event.currentTarget;
     const atStart = target.selectionStart === 0;
@@ -63,11 +67,12 @@ export function HomeChatComposer({ onSend }) {
   }
 
   return <form className="home-composer" onSubmit={submit}>
-    <textarea value={draft} onChange={(event) => { setDraft(event.target.value); setHistoryIndex(-1); }} onKeyDown={(event) => {
+    <textarea ref={textareaRef} value={draft} onChange={(event) => { setDraft(event.target.value); setHistoryIndex(-1); }} onCompositionStart={() => { composingRef.current = true; }} onCompositionEnd={(event) => { composingRef.current = false; setDraft(event.currentTarget.value); }} onKeyDown={(event) => {
       navigateHistory(event);
       if (event.key === "Enter" && !event.shiftKey) {
+        if (composingRef.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
         event.preventDefault();
-        if (draft.trim()) event.currentTarget.form?.requestSubmit();
+        if (event.currentTarget.value.trim()) event.currentTarget.form?.requestSubmit();
       }
     }} placeholder="Chat or paste a ticket..." rows="2" aria-label="Chat or ticket input" />
     <button type="submit" aria-label="Send message" disabled={!draft.trim()}>&#8593;</button>

@@ -141,10 +141,9 @@ export function toDisplayMessage(message) {
 // Formats a ticket message payload into readable text.
 function formatTicketResponse(message) {
   const payload = message.payload ?? {};
+  if (message.message_type === "ticket.input_rejected") return payload.error ?? "Ticket đang chạy; hãy chờ hoàn tất rồi thử lại.";
   if (message.message_type === "ticket.creation" || message.message_type === "ticket.status") {
     if (payload.error) return payload.error;
-    if (message.message_type === "ticket.input_rejected") return payload.error ?? "Ticket đang chạy; hãy chờ hoàn tất rồi thử lại.";
-    if (payload.status === "syntax_error") return payload.error ?? "Không nhận diện được ticket id.";
     if (payload.status === "created" || payload.create_ticket) {
       const ticket = payload.ticket ?? payload;
       return `Ticket ${ticket.id ?? "mới"} đã được tạo và lưu vào roadmap.`;
