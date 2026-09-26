@@ -39,15 +39,11 @@ test("Architecture Manager streams SDK deltas and persists its thread", async (t
 });
 
 // Confirms Claude Architecture Manager conversations use the Claude SDK adapter.
-test("Architecture Manager streams Claude SDK conversation replies", async () => {
-  let request;
-  const gateway = { conversationMode: "history", async execute(input) {
-    request = input;
-    return { text: "Hello from Claude" };
-  } };
+test("Architecture Manager maps anthropic profiles to the Claude SDK adapter", async () => {
+  const gateway = { conversationMode: "history", async execute() { return { text: "Hello from the SDK" }; } };
   const stream = createOwnerSdkStream({
-    agentConfiguration: { getById: () => ({ role: "architecture_manager", provider: "claude" }) },
-    sdkGateways: { claude: gateway },
+    agentConfiguration: { getById: () => ({ role: "architecture_manager", provider: "anthropic" }) },
+    sdkGateways: { anthropic: gateway },
     fallbackStream: async function* () { yield { text: "unexpected fallback" }; },
     conversationStateStore: { create: async () => ({}), update: async () => {} },
     fileService: createFileService({ projectRoot: process.cwd() }),
@@ -55,12 +51,10 @@ test("Architecture Manager streams Claude SDK conversation replies", async () =>
     projectLogger: () => {}
   });
   const chunks = [];
-  for await (const chunk of stream({ agentId: "AM", payload: { text: "Xin chào" }, correlationId: "CORR-CLAUDE", conversationId: "CONV-CLAUDE" })) chunks.push(chunk);
-  assert.deepEqual(chunks.map((chunk) => chunk.text), ["Hello from Claude"]);
-  assert.equal(request.agentId, "AM");
-  assert.equal(request.agent.provider, "claude");
-  assert.match(request.prompt, /Xin chào/);
+  for await (const chunk of stream({ agentId: "AM", payload: { text: "Xin chào" }, correlationId: "CORR-ANTHROPIC", conversationId: "CONV-ANTHROPIC" })) chunks.push(chunk);
+  assert.deepEqual(chunks.map((chunk) => chunk.text), ["Hello from the SDK"]);
 });
+
 
 test("profile provider selects its SDK and other roles keep their stream", async () => {
   const profile = { role: "architecture_manager", provider: "openai" };

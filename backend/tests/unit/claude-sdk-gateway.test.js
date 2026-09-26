@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import { createClaudeSdkGateway } from "../../src/modules/agent/claude-sdk-gateway.js";
 
@@ -58,6 +60,39 @@ test("does not pass Forge registry functions into structured SDK options", async
     options: { forgeTools: { registry: { read_file: { execute: () => {} } }, context: { task_id: "T" }, definitions: [] } }
   });
   assert.equal(request.forgeTools, undefined);
+});
+
+// Confirms owner conversations expose only Forge-approved MCP tools and execute through Node.
+test("owner conversation gives Claude only its role-approved Forge tools", async () => {
+  let request;
+  const gateway = createClaudeSdkGateway({
+    configuration: { getById: () => profile() }, credentialResolver: () => "secret",
+    queryFn: ({ options }) => { request = options; return query([]); },
+    allowedTools: ["Bash"]
+  });
+  const calls = [];
+  await gateway.execute({ agentId: "coder", correlationId: "CORR-FORGE", prompt: "Inspect files", options: {
+    forgeTools: {
+      definitions: [{ name: "search_tree", description: "List project files", input_schema: { type: "object", properties: { path: { type: "string" } }, additionalProperties: false } }],
+      registry: { search_tree: { execute: async (input, context) => { calls.push({ input, context }); return { tree: ".\n└── docs/" }; } } },
+      context: { task_id: "CORR-FORGE" }
+    }
+  } });
+  assert.deepEqual(request.allowedTools, ["mcp__forge__search_tree"]);
+  assert.deepEqual(request.tools, []);
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "forge-test", version: "1.0.0" });
+  try {
+    await request.mcpServers.forge.instance.connect(serverTransport);
+    await client.connect(clientTransport);
+    assert.deepEqual((await client.listTools()).tools.map((item) => item.name), ["search_tree"]);
+    const result = await client.callTool({ name: "search_tree", arguments: { path: "." } });
+    assert.deepEqual(JSON.parse(result.content[0].text), { tree: ".\n└── docs/" });
+    assert.deepEqual(calls, [{ input: { path: "." }, context: { task_id: "CORR-FORGE" } }]);
+  } finally {
+    await client.close();
+    await request.mcpServers.forge.instance.close();
+  }
 });
 test("does not execute a disabled or non-ready agent", async () => {
   let calls = 0;

@@ -18,19 +18,20 @@ test("saves masked Agent Settings through Profile/Configuration and tests connec
   assert.equal(service.get(profile.agent_id).team, "Security");
 });
 
-// Confirms Anthropic API profiles use the generic Agent Gateway rather than the Claude SDK gateway.
-test("tests Anthropic connectivity through its API adapter", async () => {
-  const profile = { agent_id: "66666666-6666-4666-8666-666666666666", provider: "anthropic", role: "architecture_manager", enabled: true, status: "ready", gateway_url: "https://api.anthropic.com/v1/messages" };
-  let tested = 0;
+// Confirms Anthropic profiles use the Claude SDK for connection tests.
+test("tests Anthropic connectivity through the Claude SDK", async () => {
+  const profile = { agent_id: "66666666-6666-4666-8666-666666666666", provider: "anthropic", role: "architecture_manager", enabled: true, status: "ready", gateway_url: "https://gateway.example.test/anthropic" };
+  let request;
   const service = createAgentSettingsService({
     profiles: { getAll: () => [profile], getById: () => profile, create: () => profile, update: () => profile, delete: () => true },
     configuration: { sync: () => {} },
-    gateway: { testConnection: async (id) => { tested += 1; assert.equal(id, profile.agent_id); return { status: "CONNECTED", gateway_url: profile.gateway_url }; } },
-    claudeSdkGateway: { execute: async () => { throw new Error("Anthropic must not use Claude SDK"); } }
+    gateway: { testConnection: async () => { throw new Error("Anthropic must not use generic gateway"); } },
+    claudeSdkGateway: { execute: async (value) => { request = value; return { text: "OK" }; } }
   });
   const result = await service.testConnection(profile.agent_id);
   assert.equal(result.status, "CONNECTED");
-  assert.equal(tested, 1);
+  assert.equal(request.agentId, profile.agent_id);
+  assert.equal(request.correlationId, `CONNECTION-${profile.agent_id}`);
 });
 // Confirms OpenAI Connect uses the same SDK gateway and profile as conversation turns.
 test("tests OpenAI connectivity through its conversation SDK", async () => {
