@@ -6,19 +6,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { NodeForgeHeader } from "../../components/NodeForgeHeader.jsx";
 import { AddAgentModal } from "../../components/AddAgentModal.jsx";
 import { createNodeClient } from "../../lib/node-client.js";
+import { getModelOptions, useModelCatalog } from "../../lib/model-catalog.js";
 
 const PROJECT_ID = "PROJECT-NODEFORGE";
 const API_URL = typeof window !== "undefined"
   ? `${window.location.protocol}//${window.location.hostname}:3100/forge/v1/agents`
   : "http://127.0.0.1:3100/forge/v1/agents";
 const ROLE_LABELS = { coder: "Coder", reviewer: "Reviewer", sprint_leader: "Sprint leader", architecture_manager: "Architecture manager", linguist: "Linguist" };
-const PROVIDER_MODELS = {
-  claude: ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-7", "claude-opus-5", "claude-opus-4-8[1m]", "claude-sonnet-4-5", "claude-sonnet-4-0", "claude-opus-4-5", "claude-haiku-4-3", "claude-3-5-sonnet-20241022"],
-  anthropic: ["claude-sonnet-4.5", "claude-haiku-4.5"],
-  openai: ["gpt-5.6", "gpt-5.6-mini", "gpt-5.1"],
-  codex: ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.2"],
-  ollama: ["gemma4:31b", "gpt-oss:120b", "gpt-oss:20b", "nemotron-3-nano:30b", "nemotron-3-super", "nemotron-3-ultra"]
-};
 
 // Normalizes raw agent payload into a consistent array.
 function normalizeAgents(payload) {
@@ -66,6 +60,7 @@ function applyAgentStatusEvent(current, event) {
 // Agent management page with CRUD and connection testing.
 export default function AgentsPage() {
   const client = useMemo(() => createNodeClient(), []);
+  const modelCatalog = useModelCatalog();
   const streamRef = useRef(null);
   const [agents, setAgents] = useState([]);
   const [state, setState] = useState("loading");
@@ -80,14 +75,14 @@ export default function AgentsPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [editingAgent, setEditingAgent] = useState(null);
-  const [form, setForm] = useState({ role: "architecture_manager", team: "Backend", agent_name: "", provider: "anthropic", model: PROVIDER_MODELS.anthropic[0], gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false });
+  const [form, setForm] = useState({ role: "architecture_manager", team: "Backend", agent_name: "", provider: "anthropic", model: getModelOptions(modelCatalog, "anthropic")[0]?.value ?? "", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false });
 
   // Updates a form field value from an input event.
   function updateField(event) {
     setForm((current) => {
       const next = { ...current, [event.target.name]: event.target.value };
       if (event.target.name === "provider") {
-        next.model = (PROVIDER_MODELS[next.provider] ?? PROVIDER_MODELS.openai)[0];
+        next.model = getModelOptions(modelCatalog, next.provider)[0]?.value ?? "";
         if (next.provider === "ollama") next.gateway_url = "https://ollama.com";
       }
       return next;
@@ -106,8 +101,7 @@ export default function AgentsPage() {
     setEditingAgent(agent);
     const provider = agent.provider ?? "anthropic";
     const role = agent.role ?? "coder";
-    const availableModels = PROVIDER_MODELS[provider] ?? PROVIDER_MODELS.openai;
-    const model = agent.model || availableModels[0];
+    const model = agent.model || getModelOptions(modelCatalog, provider)[0]?.value || "";
     setForm({ role, team: agent.team ?? "Backend", agent_name: agent.agent_name ?? "", provider, model, gateway_url: agent.gateway_url ?? "https://gateway.example.test/agent", api_key: "", enabled: agent.enabled === true });
     setFormError("");
     setModalOpen(true);
@@ -163,7 +157,7 @@ export default function AgentsPage() {
       setAgents((current) => editingAgent ? current.map((item) => item.agent_id === editingAgent.agent_id ? payload : item) : [...current, payload]);
       setModalOpen(false);
       setEditingAgent(null);
-      setForm({ role: "architecture_manager", team: "Backend", agent_name: "", provider: "anthropic", model: PROVIDER_MODELS.anthropic[0], gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false });
+      setForm({ role: "architecture_manager", team: "Backend", agent_name: "", provider: "anthropic", model: getModelOptions(modelCatalog, "anthropic")[0]?.value ?? "", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false });
     } catch (requestError) {
       setFormError(requestError.message || "Agent could not be created.");
     } finally { setSaving(false); }
@@ -210,7 +204,7 @@ export default function AgentsPage() {
       {state === "loading" && <p className="agents-directory-state">Loading agents from `/forge/v1/agents`…</p>}
       {state === "error" && <p className="agents-directory-state error">{error}</p>}
       {state === "ready" && agents.length === 0 && <p className="agents-directory-state">No agents returned by the API.</p>}
-      {state === "ready" && <div className="agents-card-grid"><button className="agent-directory-card agent-add-card" type="button" onClick={() => { setEditingAgent(null); setForm({ role: "architecture_manager", team: "Backend", agent_name: "", provider: "anthropic", model: PROVIDER_MODELS.anthropic[0], gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false }); setTestState(""); setFormError(""); setModalOpen(true); }} aria-label="Add agent"><span>+</span><strong>Add agent</strong></button>{agents.map((agent, index) => {
+      {state === "ready" && <div className="agents-card-grid"><button className="agent-directory-card agent-add-card" type="button" onClick={() => { setEditingAgent(null); setForm({ role: "architecture_manager", team: "Backend", agent_name: "", provider: "anthropic", model: getModelOptions(modelCatalog, "anthropic")[0]?.value ?? "", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false }); setTestState(""); setFormError(""); setModalOpen(true); }} aria-label="Add agent"><span>+</span><strong>Add agent</strong></button>{agents.map((agent, index) => {
         const id = agent.agent_id ?? agent.id ?? `agent-${index}`;
         const name = agent.agent_name ?? agent.name ?? agent.label ?? id;
         const capabilities = agent.capabilities ?? agent.tools ?? [];
@@ -221,7 +215,7 @@ export default function AgentsPage() {
         </article>;
       })}</div>}
     </main>
-    {modalOpen && <AddAgentModal title={editingAgent ? "Edit agent" : "Add agent"} testState={testState} onTestConnection={testConnection} form={form} apiKeyMasked={editingAgent?.api_key_masked} modelOptions={[...new Set([form.model, ...(PROVIDER_MODELS[form.provider] ?? PROVIDER_MODELS.openai)])]} saving={saving} error={formError} onChange={updateField} onSubmit={addAgent} onClose={() => setModalOpen(false)} />}
+    {modalOpen && <AddAgentModal title={editingAgent ? "Edit agent" : "Add agent"} testState={testState} onTestConnection={testConnection} form={form} apiKeyMasked={editingAgent?.api_key_masked} modelOptions={getModelOptions(modelCatalog, form.provider, form.model)} saving={saving} error={formError} onChange={updateField} onSubmit={addAgent} onClose={() => setModalOpen(false)} />}
     {connectionResult && <div className="connection-result-backdrop" role="presentation"><section className="connection-result-modal" role="dialog" aria-modal="true" aria-labelledby="connection-result-title"><div className="connection-result-icon">{connectionResult.ok ? "✓" : "!"}</div><p className="eyebrow">AGENT CONNECTION</p><h2 id="connection-result-title">{connectionResult.agent.agent_name ?? connectionResult.agent.agent_id}</h2><strong className={connectionResult.ok ? "connection-result-ok" : "connection-result-failed"}>{connectionResult.ok ? "Connected" : "Connection failed"}</strong><p>{connectionResult.message}</p><button className="history-button" type="button" onClick={() => setConnectionResult(null)}>Close</button></section></div>}
     {deleteTarget && <div className="connection-result-backdrop" role="presentation"><section className="connection-result-modal agent-delete-modal" role="dialog" aria-modal="true" aria-labelledby="delete-agent-title"><div className="connection-result-icon">!</div><p className="eyebrow">AGENT MANAGEMENT</p><h2 id="delete-agent-title">Delete agent</h2><p>Ban muon xoa agent nay khoi he thong?</p><strong>{deleteTarget.agent_name ?? deleteTarget.agent_id}</strong><div className="agent-modal-actions"><button className="history-button" type="button" onClick={() => setDeleteTarget(null)} disabled={deleting}>No</button><button className="history-button danger" type="button" onClick={confirmDelete} disabled={deleting}>{deleting ? "Deleting..." : "Yes, delete"}</button></div></section></div>}
   </div>;
