@@ -121,9 +121,8 @@ khi chạy workflow: actor được phép chuyển trạng thái, artifact bắt
 allowlist thay đổi, bằng chứng test và Project Owner gate.
 
 `project/workflow-ruleset.schema.json` đóng gói nhiều workflow rule thành một ruleset versioned.
-Ruleset mặc định nằm tại `rules/forge-sprint-delivery.rules.json`; đồ thị trạng thái tương ứng
-nằm tại `workflows/forge-sprint-delivery.workflow.json`. Node phải kiểm tra cả rule lẫn transition
-trước khi cập nhật `status.json`.
+Ruleset mẫu nằm tại `rules/forge-sprint-delivery.rules.json`. Pipeline hiện tại điều phối
+ticket qua Supervisor và Sprint DAG; chưa nạp đồ thị trạng thái từ file workflow JSON.
 
 ## Session
 

@@ -13,7 +13,7 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
   const executors = createNodeforgeTaskExecutors({
     claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, toolRegistry,
     runtimeGovernance, projectRoot, projectLogger, checkpoints, relevantTreeSelector,
-    protocolStorage
+    protocolStorage, fileService
   });
   return Object.freeze({ startTask, submitTicket });
 

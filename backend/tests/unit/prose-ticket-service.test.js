@@ -47,13 +47,11 @@ test("rejects a ticket whose sprint is not in the current roadmap", () => {
   assert.equal(store.getCurrent().sprints[0].tickets.some(({ id }) => id === "MISSING-SPRINT"), false);
 });
 
-test("new ticket is discoverable by the ticket command parser", async () => {
+test("new ticket is persisted in the current roadmap", () => {
   const store = createRoadmapStore();
   const service = createProseTicketService({ roadmapStore: store });
   const result = service.parse("Ticket: Add tests\nTitle: Add tests\nObjective: Cover parser\nAcceptance Criteria: Unit test passes", { projectId: "PROJECT-CHAT" });
-  const { createTicketCommandParser } = await import("../../src/application/ticket-command-parser.js");
-  const parsed = createTicketCommandParser({ roadmapStore: store }).parse(`/ticket ${result.ticket.id}`);
-  assert.equal(parsed.status, "ready");
+  assert.ok(store.getCurrent().sprints.some((sprint) => sprint.tickets.some((ticket) => ticket.id === result.ticket.id)));
 });
 
 test("valid ticket JSON is validated directly and persisted", () => {

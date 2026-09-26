@@ -21,7 +21,6 @@ import { createVerificationOrchestrator } from "../src/modules/verification/orch
 import { createTestService } from "../src/application/test-service.js";
 import { createSprintPlanUploadService } from "../src/application/sprint-plan-upload-service.js";
 import { createSprintOrchestrationService } from "../src/application/sprint-orchestration-service.js";
-import { createTicketCommandParser } from "../src/application/ticket-command-parser.js";
 import { createProseTicketService } from "../src/application/prose-ticket-service.js";
 import { createRetrievalDependencies } from "../src/modules/index/retrieval-dependencies.js";
 import { createRelevantTreeSelector } from "../src/modules/index/relevant-tree.js";
@@ -67,11 +66,10 @@ export function createControlApiPlatform({ config, database, indexDb, fileServic
   const memoryRetriever = createMemoryRetriever({ memory });
   const contextEngine = createContextEngine({ database: indexDb, projectRoot, projectId });
   const sprintOrchestration = createSprintOrchestrationService({ sprintPlans, sprintPlanStore: roadmaps, ticketProvenanceTracker: provenance, agentGateway, publisher: eventPublisher, candidateResolver: ticketCandidateResolver, sprintPlanLeader });
-  const ticketCommandParser = createTicketCommandParser({ roadmapStore: roadmaps });
   const proseTicketService = createProseTicketService({ roadmapStore: roadmaps });
   const ticketFileStore = createTicketFileStore({ database, fileService });
   const sprintPlanUpload = createSprintPlanUploadService({ roadmaps, publisher: eventPublisher, projectRoot, isRunning: (sprintId) => sprintOrchestration.isRunning(sprintId) });
-  return { projectId, indexDb, codeSearch, fileGraph, relevantTreeSelector, freshnessChecker, ticketCandidateResolver, ticketSprintLeader, memoryRetriever, communications, conversations, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, verificationOrchestrator, testService, contextEngine, sprintOrchestration, ticketCommandParser, proseTicketService, ticketFileStore, sprintPlanUpload, taskSummaries: summaries, projectMemory: memory };
+  return { projectId, indexDb, codeSearch, fileGraph, relevantTreeSelector, freshnessChecker, ticketCandidateResolver, ticketSprintLeader, memoryRetriever, communications, conversations, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, verificationOrchestrator, testService, contextEngine, sprintOrchestration, proseTicketService, ticketFileStore, sprintPlanUpload, taskSummaries: summaries, projectMemory: memory };
 }
 
 // Selects the SDK gateway for sprint leader drafting without touching gateway internals.

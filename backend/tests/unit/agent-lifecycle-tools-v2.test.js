@@ -69,28 +69,29 @@ test("repeated windowed reads hit EXPLORATION_STAGNANT and a successful edit res
   await assert.rejects(() => read.execute(input2, context), (error) => error.code === "EXPLORATION_STAGNANT");
 });
 
-test("write_diff rejects content over 8 KB with CONTENT_TOO_LARGE", async () => {
+test("write_diff rejects content over 250 lines with CONTENT_TOO_LARGE", async () => {
   const { fileService } = await harness();
   const tool = createWriteDiffTool({ fileService });
-  const big = "x".repeat(8193);
+  const big = `${Array.from({ length: 251 }, () => "x").join("\n")}\n`;
   await assert.rejects(() => tool.execute({ path: "big.txt", content: big, before_checksum: null }, {}), (error) => {
     assert.equal(error.code, "CONTENT_TOO_LARGE");
-    assert.equal(error.details.byte_length, 8193);
-    assert.equal(error.details.limit, 8192);
+    assert.equal(error.details.line_count, 251);
+    assert.equal(error.details.limit, 250);
     return true;
   });
-  await tool.execute({ path: "ok.txt", content: `// Boundary fixture\n${"x".repeat(8192 - Buffer.byteLength("// Boundary fixture\n"))}`, before_checksum: null }, {});
+  await tool.execute({ path: "ok.txt", content: `// Boundary fixture\n${Array.from({ length: 249 }, () => "x").join("\n")}\n`, before_checksum: null }, {});
+  await tool.execute({ path: "wide.txt", content: `// Wide fixture\n${"x".repeat(8193)}\n`, before_checksum: null }, {});
 });
 
-test("write_diff rejects replacing an existing file over 8 KB", async () => {
+test("write_diff rejects replacing an existing file over 250 lines", async () => {
   const { fileService } = await harness();
   const tool = createWriteDiffTool({ fileService });
-  const original = "x".repeat(8193);
+  const original = `${Array.from({ length: 251 }, () => "x").join("\n")}\n`;
   await fileService.atomicWrite({ path: "large.css", content: original, replace: true });
   const before = await createReadFileTool({ fileService }).execute({ path: "large.css" }, {});
   await assert.rejects(() => tool.execute({ path: "large.css", content: "small\n", before_checksum: before.sha256 }, {}), (error) => {
     assert.equal(error.code, "DESTRUCTIVE_OVERWRITE");
-    assert.equal(error.details.current_bytes, 8193);
+    assert.equal(error.details.current_lines, 251);
     return true;
   });
   assert.equal(await fileService.readFile({ path: "large.css" }), original);

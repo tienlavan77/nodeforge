@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createForgeSdkMcpServer } from "../../src/tools/claude-sdk-forge-tools.js";
+import { createForgeSdkMcpServer, forgeSdkToolNames } from "../../src/tools/claude-sdk-forge-tools.js";
 
 async function callTool(server, name, args) {
   const handler = server.instance.server._requestHandlers.get("tools/call");
@@ -65,4 +65,15 @@ test("forge SDK MCP exposes read-only Git tools to the agent", async () => {
   assert.equal((await callTool(server, "git_status", {})).isError, undefined);
   assert.equal((await callTool(server, "git_diff", {})).isError, undefined);
   assert.deepEqual(calls, [["status", {}], ["diff", {}]]);
+});
+
+test("Claude coder receives Forge Read, Glob, and Grep with familiar arguments", async () => {
+  const received = [];
+  const registry = Object.fromEntries(["Read", "Glob", "Grep"].map((name) => [name, { execute: async (input) => { received.push([name, input]); return { ok: true }; } }]));
+  const server = createForgeSdkMcpServer({ registry, context: { task_id: "T-CLAUDE-CODER" }, includeClaudeFileTools: true });
+  for (const name of ["Read", "Glob", "Grep"]) assert.ok(forgeSdkToolNames.includes(`mcp__forge__${name}`));
+  assert.equal((await callTool(server, "Read", { file_path: "src/a.js", offset: 2, limit: 5 })).isError, undefined);
+  assert.equal((await callTool(server, "Glob", { pattern: "**/*.js", path: "src" })).isError, undefined);
+  assert.equal((await callTool(server, "Grep", { pattern: "agent", output_mode: "content", "-n": true })).isError, undefined);
+  assert.deepEqual(received.map(([name]) => name), ["Read", "Glob", "Grep"]);
 });
