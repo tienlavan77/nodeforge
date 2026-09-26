@@ -1,5 +1,5 @@
 // Executes single-turn OpenAI Agents SDK runs with per-agent provider and timeout control.
-import { Agent, Runner } from "@openai/agents";
+import { Agent, Runner, tool } from "@openai/agents";
 import { ConfigurationError } from "../../shared/errors.js";
 
 // Creates a gateway that runs a single-turn Agent via the OpenAI Agents SDK.
@@ -9,9 +9,9 @@ export function createOpenAiSdkGateway({ providerFactory, runner = createTracing
   if (typeof AgentClass !== "function") throw new ConfigurationError("OpenAI SDK Gateway requires an Agent constructor.");
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1) throw new ConfigurationError("OpenAI SDK Gateway timeout must be a positive integer.");
 
-  return Object.freeze({ execute });
+  return Object.freeze({ execute, provider: "openai", conversationMode: "history" });
 
-  async function execute({ agent, agentId, prompt, correlationId } = {}) {
+  async function execute({ agent, agentId, prompt, correlationId, options = {} } = {}) {
     const profile = agent ?? { agent_id: agentId };
     if (typeof prompt !== "string" || !prompt.trim()) throw new ConfigurationError("OpenAI SDK prompt is required.");
     if (typeof correlationId !== "string" || !correlationId) throw new ConfigurationError("OpenAI SDK correlation_id is required.");
@@ -23,11 +23,17 @@ export function createOpenAiSdkGateway({ providerFactory, runner = createTracing
         name: normalized.agent_name,
         instructions: `You are the NodeForge ${normalized.role} agent. Respond briefly and clearly.`,
         model: normalized.model,
-        tools: []
+        tools: (options.forgeTools?.definitions ?? []).map((definition) => tool({
+          name: definition.name,
+          description: definition.description,
+          parameters: definition.input_schema,
+          strict: false,
+          execute: async (input) => JSON.stringify(await options.forgeTools.registry[definition.name].execute(input, options.forgeTools.context))
+        }))
       };
       if (normalized.reasoning.effort !== "none") agentOptions.modelSettings = { reasoning: { effort: normalized.reasoning.effort } };
       const openaiAgent = new AgentClass(agentOptions);
-      const result = await runner(openaiAgent, prompt, { modelProvider: provider, signal: controller.signal, maxTurns: 1, tracingDisabled: true });
+      const result = await runner(openaiAgent, prompt, { modelProvider: provider, signal: controller.signal, maxTurns: options.forgeTools ? 12 : 1, tracingDisabled: true });
       return {
         agent_id: normalized.agent_id,
         agent_name: normalized.agent_name,

@@ -9,7 +9,7 @@ const agentToolSchema = require("../../../schemas/agent/agent-tool.schema.json")
 const AGENT_TOOL_PROTOCOL = "\n\nAgent tool loop protocol:\n- Use request_info only when more context is needed; identify the lookup tool, query, and reason.\n- When ready to submit code, use submit_code and include the target path, operation, code, and files[].\n- Each additional file must include target_path, target_dir, file_operation, code_kind, and content.\n- Do not replace a long file with a shortened reconstruction.";
 
 // Creates the streaming runner for owner conversations with tool-enabled agents.
-export function createOwnerAgentStream({ bus, agentStream, onAgentCompleted, executeAgentTool, debug, streamBatchMs, projectLogger, protocolStorage, conversationRounds, enrichAgentText, responseMessage, safeLog }) {
+export function createOwnerAgentStream({ bus, agentStream, onAgentCompleted, executeAgentTool, debug, streamBatchMs, projectLogger, protocolStorage, enrichAgentText, responseMessage, safeLog }) {
   return streamRealAgent;
 
   // Streams agent output and loops through context requests until completion.
@@ -34,7 +34,7 @@ export function createOwnerAgentStream({ bus, agentStream, onAgentCompleted, exe
     try {
       bus.sendFast(responseMessage(message, "architecture.working", { agent_status: "WORKING" }, "WORKING"));
       const taskId = message.payload.task?.id ?? message.id;
-      const initialText = `${await enrichAgentText(message, agentId)}${AGENT_TOOL_PROTOCOL}`;
+      const initialText = `${await enrichAgentText(message, agentId)}${typeof executeAgentTool === "function" ? AGENT_TOOL_PROTOCOL : ""}`;
       let requestPayload = { text: initialText, ...(message.payload.task ? { task: message.payload.task } : {}) };
       let round = 0;
       while (!submittedCode) {
@@ -42,7 +42,7 @@ export function createOwnerAgentStream({ bus, agentStream, onAgentCompleted, exe
         let requestedNextRound = false;
         debug({ event: "agent.loop.request", agent_id: agentId, task_id: taskId, round, payload: summarizePayload(requestPayload) });
         emitProgress(message, agentId, `Đang xử lý yêu cầu (vòng ${round})…`, `PROGRESS-${round}-START`);
-        for await (const chunk of agentStream({ agentId, payload: requestPayload, correlationId: message.correlation_id })) {
+        for await (const chunk of agentStream({ agentId, payload: requestPayload, correlationId: message.correlation_id, conversationId: message.conversation_id })) {
           if (chunk.usage) debug({ event: "agent.loop.usage", agent_id: agentId, task_id: taskId, round, usage: chunk.usage, cache_read_input_tokens: chunk.usage.cache_read_input_tokens ?? 0 });
           if (chunk.completed) continue;
         if (chunk.tool_use) {
@@ -101,7 +101,7 @@ export function createOwnerAgentStream({ bus, agentStream, onAgentCompleted, exe
       if (!submittedCode && !text.trim()) throw new ConfigurationError("Agent ended without submit_code or a non-empty response.");
       await bus.flush();
       bus.send(responseMessage(message, streamEventType(agentId, "message.received"), { text, agent_status: "COMPLETED" }, "COMPLETED"));
-      persistProtocolMessage({ ...message, payload: { ...message.payload, text } }, conversationRounds.get(message.conversation_id) ?? 1, "response");
+      persistProtocolMessage({ ...message, payload: { ...message.payload, text } }, message.payload.round ?? 1, "response");
       await onAgentCompleted?.({ message, agentId, text });
     } catch (error) {
       bus.send(responseMessage(message, streamEventType(agentId, "error"), { error: error.message, agent_status: "FAILED" }, "ERROR"));
@@ -120,7 +120,7 @@ export function createOwnerAgentStream({ bus, agentStream, onAgentCompleted, exe
   // Persists a protocol envelope when protocol storage is configured.
   function persistProtocolMessage(message, round, direction) {
     if (!protocolStorage?.save || !message?.conversation_id) return;
-    const taskId = message.payload?.task?.id ?? message.payload?.ticket?.id ?? message.conversation_id.replace(/[^A-Za-z0-9._-]/g, "-");
+    const taskId = message.payload?.task?.id ?? message.payload?.ticket?.id ?? message.id.replace(/[^A-Za-z0-9._-]/g, "-");
     const ref = `task/${taskId}/round_${round}/${direction}`;
     Promise.resolve(protocolStorage.save(ref, message, { schemaId: direction === "request" ? "forge-envelope" : "forge-response" }))
       .catch((error) => debug({ event: "protocol-storage.persist.error", ref, error: error.message }));

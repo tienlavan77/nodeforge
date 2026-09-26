@@ -1,9 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
+import { createRoleFileService } from "../../src/infrastructure/filesystem/file-service-role-policy.js";
+import { createReadFileTool, createWriteDiffTool } from "../../src/tools/agent-lifecycle-tools.js";
+import { createOwnerDeleteFileTool } from "../../src/tools/owner-delete-file.js";
 
 test("FileService guards paths and serializes writes", async () => {
   const root = await mkdtemp(join(tmpdir(), "forge-files-"));
@@ -17,6 +20,32 @@ test("FileService guards paths and serializes writes", async () => {
   assert.equal(events.length, 2);
 });
 
+test("Architecture Manager reads, writes, and deletes workflows through role-scoped File Service", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forge-workflows-"));
+  try {
+    const files = createFileService({ projectRoot: root });
+    const architectureFiles = createRoleFileService({ fileService: files, role: "architecture_manager", projectRoot: root });
+    const coderFiles = createRoleFileService({ fileService: files, role: "coder", projectRoot: root });
+    const write = createWriteDiffTool({ fileService: architectureFiles });
+    const read = createReadFileTool({ fileService: architectureFiles });
+    const remove = createOwnerDeleteFileTool({ fileService: architectureFiles });
+    const path = "workflows/delivery.workflow.json";
+    await write.execute({ path, content: '{"name":"Delivery"}\n', before_checksum: null }, {});
+    const current = await read.execute({ path }, {});
+    assert.match(current.sha256, /^sha256:/);
+    await assert.rejects(() => remove.execute({ path, before_checksum: "sha256:stale" }), (error) => error.code === "CHECKSUM_MISMATCH");
+    await assert.rejects(() => coderFiles.atomicWrite({ path, content: "{}", replace: true }), (error) => error.code === "FILE_ROLE_FORBIDDEN");
+    await assert.rejects(() => coderFiles.deleteFile({ path }), (error) => error.code === "FILE_ROLE_FORBIDDEN");
+    await assert.rejects(() => architectureFiles.deleteFile({ path: "docs/decision.md" }), (error) => error.code === "FILE_ROLE_FORBIDDEN");
+    await symlink(join(root, ".."), join(root, "workflows", "outside"));
+    await assert.rejects(() => architectureFiles.atomicWrite({ path: "workflows/outside/escape.json", content: "{}", replace: true }), (error) => error.code === "FILE_ROLE_FORBIDDEN");
+    assert.deepEqual(await remove.execute({ path, before_checksum: current.sha256 }), { path, deleted: true });
+    await assert.rejects(() => files.readFile({ path }), (error) => error.code === "ENOENT");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("readForIndex returns source metadata and rejects ignored, secret, and binary files", async () => {
   const root = await mkdtemp(join(tmpdir(), "forge-files-"));
   const files = createFileService({ projectRoot: root });
@@ -25,6 +54,7 @@ test("readForIndex returns source metadata and rejects ignored, secret, and bina
   assert.equal(indexed.language, "javascript");
   assert.equal(indexed.size_bytes, Buffer.byteLength(indexed.content));
   assert.match(indexed.sha256, /^sha256:[0-9a-f]{64}$/);
+  await assert.rejects(() => files.readForIndex({ path: "src/example.js", maxBytes: 5 }), (error) => error.code === "FILE_TOO_LARGE");
   await assert.rejects(() => files.readForIndex({ path: ".env" }), /unsafe|secret|ignored/i);
   await assert.rejects(() => files.readForIndex({ path: ".next/build.js" }), /unsafe|secret|ignored/i);
   await files.writeFile({ path: "src/binary.bin", content: `ok${String.fromCharCode(0)}bad` });
@@ -87,12 +117,14 @@ test("atomicCreate publishes through a completed temp file and cleans the temp a
 
 test("atomicCreate reports a stable no-overwrite error code", async () => {
   const root = await mkdtemp(join(tmpdir(), "forge-files-"));
-  const files = createFileService({ projectRoot: root });
+  const logs = [];
+  const files = createFileService({ projectRoot: root, logger: { error: (...args) => logs.push(args) } });
   await files.atomicCreate({ path: ".forge/runtime/immutable.json", content: "first\n" });
   await assert.rejects(
     () => files.atomicCreate({ path: ".forge/runtime/immutable.json", content: "second\n" }),
     (error) => error.code === "FILE_ALREADY_EXISTS" && error.path === ".forge/runtime/immutable.json"
   );
+  assert.equal(logs.length, 0);
 });
 
 test("appendFile serializes writes and returns byte offsets", async () => {

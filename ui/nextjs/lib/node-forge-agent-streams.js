@@ -7,8 +7,6 @@ import { AGENTS, PROJECT_ID, CONVERSATIONS } from "./node-forge-app-constants.js
 export function useAgentEventStreams({
   client,
   lastMessageId,
-  pendingDispatchRef,
-  dispatchTimersRef,
   setWorkingByAgent,
   queueHistoryDelta,
   finalizeHistoryDelta,
@@ -30,22 +28,10 @@ export function useAgentEventStreams({
         afterMessageId: lastMessageId.current[agent.id],
         onMessage: (message) => {
           lastMessageId.current[agent.id] = message.message_id;
-          const pendingCorrelation = pendingDispatchRef.current[agent.id];
-          const isRunningEvent = message.correlation_id === pendingCorrelation && (
-            message.message_type === "architecture.working" || message.message_type === `${agent.id}.working`
-            || message.message_type === "agent.text_stream" || message.message_type?.endsWith(".message.delta")
-            || (message.message_type === "node.status_change" && message.payload?.to === "running" && (message.correlation_id === pendingCorrelation || agent.id === "builder"))
-          );
-          if (isRunningEvent) {
-            clearTimeout(dispatchTimersRef.current[agent.id]);
-            delete dispatchTimersRef.current[agent.id];
-            delete pendingDispatchRef.current[agent.id];
+          if (message.message_type === "node.status_change" && message.payload?.to === "running" && agent.id === "builder") {
             setWorkingByAgent((prev) => ({ ...prev, [agent.id]: "WORKING" }));
           }
-          if (message.message_type === "node.status_change" && ["done", "failed", "reviewing"].includes(message.payload?.to) && (message.correlation_id === pendingCorrelation || agent.id === "builder")) {
-            clearTimeout(dispatchTimersRef.current[agent.id]);
-            delete dispatchTimersRef.current[agent.id];
-            delete pendingDispatchRef.current[agent.id];
+          if (message.message_type === "node.status_change" && ["done", "failed", "reviewing"].includes(message.payload?.to) && agent.id === "builder") {
             setWorkingByAgent((prev) => ({ ...prev, [agent.id]: message.payload.to === "failed" ? "FAILED" : message.payload.to === "reviewing" ? "REVIEWING" : "READY" }));
           }
           if (message.message_type.endsWith(".message.received") || message.message_type.endsWith(".error")) setWorkingByAgent((prev) => ({ ...prev, [agent.id]: message.payload?.agent_status ?? (message.message_type.endsWith(".error") ? "FAILED" : "COMPLETED") }));
@@ -67,14 +53,6 @@ export function useAgentEventStreams({
         onReplayComplete: () => {
           sseReplayRef.current[agent.id] = false;
           setWorkingByAgent((prev) => ({ ...prev, [agent.id]: prev[agent.id] === "WORKING" ? "READY" : prev[agent.id] }));
-        },
-        onError: () => {
-          if (pendingDispatchRef.current[agent.id]) {
-            clearTimeout(dispatchTimersRef.current[agent.id]);
-            delete dispatchTimersRef.current[agent.id];
-            delete pendingDispatchRef.current[agent.id];
-            setWorkingByAgent((prev) => ({ ...prev, [agent.id]: "FAILED" }));
-          }
         }
       });
     });

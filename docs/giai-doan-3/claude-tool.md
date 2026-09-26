@@ -184,6 +184,10 @@ Các Forge tools như `search_code`, `read_code`, `read_file`, `write_diff`, `ru
 
 ## 8. Cách kiểm tra chính xác tool đang khả dụng
 
+Trong RUN của coder dùng Claude SDK, Forge đăng ký thêm MCP tools `mcp__forge__Read`, `mcp__forge__Glob`, `mcp__forge__Grep`. Architecture Manager không nhận ba tool này; Codex vẫn nhận bộ tool Forge riêng (`rg_files`, `rg_search`, `sed_lines`), không đổi theo Claude. Built-in của Claude bị tắt bằng `tools: []`. Đường đọc và liệt kê đi qua File Service có kiểm tra role, phạm vi ticket, đường dẫn, symlink, file bí mật và thư mục ignore. Project Logger ghi trạng thái, mã lỗi và tóm tắt kết quả.
+
+Đây là bản đầu tiên của ba tool ưu tiên, **chưa đạt tương thích 100% với Claude Code**: `Read` chỉ trả văn bản UTF-8 (chưa đọc ảnh/PDF/notebook), giới hạn 1 MB và 2.000 dòng mỗi lần; `Glob` sắp theo đường dẫn thay vì thời gian sửa đổi; `Grep` dùng JavaScript RegExp có giới hạn thời gian và mới hỗ trợ các loại file thông dụng. Các nhóm built-in khác trong tài liệu chưa được dựng lại ở Forge.
+
 1. Kiểm tra version package trong `package.json` và lockfile.
 2. Đọc `sdk.d.ts` của đúng package để biết option và type được hỗ trợ.
 3. Kiểm tra runtime tool schema hoặc log `PreToolUse` để biết tool thực sự được expose.

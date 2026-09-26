@@ -10,6 +10,9 @@ import { createCheckTestTool, createReadFileTool, createWriteDiffTool, createEdi
 import { createReportDoneTool } from "./agent-report-tool.js";
 import { createGitReadTools } from "./git-read-tools.js";
 import { createAgentCommandTools } from "./agent-command-tools.js";
+import { createClaudeFileTools } from "./claude-file-tools.js";
+import { createRoleFileService } from "../infrastructure/filesystem/file-service-role-policy.js";
+import { resultCount } from "./tool-result-count.js";
 export { rgFilesDefinition, rgSearchDefinition, sedLinesDefinition } from "./agent-command-tools.js";
 
 const require = createRequire(import.meta.url);
@@ -37,7 +40,7 @@ export const selectCodeGraphCandidatesDefinition = Object.freeze({ name: "select
 export const searchCodeDefinition = Object.freeze({ name: "search_code", description: "Search Forge Code Search by file, symbol, or content (kind=\"content\" returns text snippets from FTS with matching lines) and return scoped metadata.", input_schema: searchCodeInputSchema });
 export const readCodeDefinition = Object.freeze({ name: "read_code", description: "Read exactly one Node-approved file or symbol through Forge File Service.", input_schema: readCodeInputSchema });
 export const readFileDefinition = Object.freeze({ name: "read_file", description: "Read one approved file through Node File Service and return its checksum.", input_schema: readFileInputSchema });
-export const writeDiffDefinition = Object.freeze({ name: "write_diff", description: "Write a complete file through Node File Service after checksum validation. Content is capped at 8 KB; for larger or localized changes use edit_diff.", input_schema: writeDiffInputSchema });
+export const writeDiffDefinition = Object.freeze({ name: "write_diff", description: "Write a complete file through Node File Service after checksum validation. Content is limited to 250 lines; for localized changes use edit_diff.", input_schema: writeDiffInputSchema });
 export const editDiffDefinition = Object.freeze({ name: "edit_diff", description: "Replace an exact anchor string in one approved file after checksum validation. Use read_file {offset,limit} to find the anchor; anchor must be unique unless occurrence=\"all\".", input_schema: editDiffInputSchema });
 export const runTestDefinition = Object.freeze({ name: "run_test", description: "Start the Node-owned test suite and return a job_id immediately; poll check_test with that job_id for the result.", input_schema: runTestInputSchema });
 export const checkTestDefinition = Object.freeze({ name: "check_test", description: "Poll a started test job by job_id until it reports passed or failed.", input_schema: checkTestInputSchema });
@@ -52,6 +55,10 @@ export function createForgeToolRegistry({ protocolStorage, fileService, projectR
   const retrievalBudgets = new Map();
   const lifecycle = {};
   Object.assign(lifecycle, createAgentCommandTools({ projectRoot, fileService, codeSearch, projectLogger, wrap }));
+  if (fileService?.readForIndex && fileService?.listFiles && fileService?.readFile && fileService?.atomicWrite && fileService?.deleteFile && projectRoot) {
+    const scopedFiles = createRoleFileService({ fileService, role: "coder", projectRoot });
+    for (const [name, tool] of Object.entries(createClaudeFileTools({ fileService: scopedFiles, projectRoot }))) lifecycle[name] = wrap(tool, name);
+  }
   if (fileService?.readForIndex && fileService?.readFile && fileService?.atomicWrite) lifecycle.read_file = wrap(createReadFileTool({ fileService, symbolLookup: codeSearch?.symbolsForFile?.bind(codeSearch), maxChars }), "read_file");
   if (fileService?.readFile && fileService?.atomicWrite) {
     lifecycle.write_diff = wrap(createWriteDiffTool({ fileService, maxChars }), "write_diff");
@@ -179,13 +186,6 @@ function toolResultHint(name, result) {
   return String(result).slice(0, 60);
 }
 
-function resultCount(name, result) {
-  if (!result || typeof result !== "object") return undefined;
-  if (name === "select_code_graph_candidates" && Array.isArray(result.selected)) return result.selected.length;
-  if (name === "search_code" && Array.isArray(result.matches)) return result.matches.length;
-  return undefined;
-}
-
 function selectedPaths(items) {
   if (!Array.isArray(items) || !items.length) return [];
   return items.map((item) => item?.path).filter(Boolean);
@@ -226,6 +226,7 @@ function formatToolLogEvent(status, tool, input, context, extra) {
       Object.assign(payload, extra.error.details);
     }
   }
+  if (status === "success" && ["Read", "Glob", "Grep"].includes(tool)) payload.result = { count: resultCount(tool, extra.result) ?? 0, truncated: extra.result?.truncated === true };
   const detail = status === "success" ? discoveryDetail(tool, input, extra.result) : null;
   if (detail) {
     payload.discovery = { ...detail, result_count: detail.result_paths.length, result_summary: detail.result_paths.length ? detail.result_paths.slice(0, 4).join(",") : "0-results" };

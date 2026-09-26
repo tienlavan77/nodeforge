@@ -13,7 +13,6 @@ const SEVERITY_ALIASES = Object.freeze({
 const CODE_MESSAGES = Object.freeze({
   ticket_created: "Ticket đã được tạo.",
   ticket_creation_failed: "Không thể tạo ticket.",
-  ticket_dispatched: "Ticket đã được nhận và đang chờ xử lý.",
   dispatch_accepted: "Yêu cầu chạy ticket đã được chấp nhận.",
   dispatch_pending: "Ticket đang chờ được xử lý.",
   dispatch_failed: "Không thể chạy ticket.",
