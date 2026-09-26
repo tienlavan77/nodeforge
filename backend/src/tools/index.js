@@ -42,7 +42,7 @@ export const editDiffDefinition = Object.freeze({ name: "edit_diff", description
 export const runTestDefinition = Object.freeze({ name: "run_test", description: "Start the Node-owned test suite and return a job_id immediately; poll check_test with that job_id for the result.", input_schema: runTestInputSchema });
 export const checkTestDefinition = Object.freeze({ name: "check_test", description: "Poll a started test job by job_id until it reports passed or failed.", input_schema: checkTestInputSchema });
 export const commitChangesDefinition = Object.freeze({ name: "commit_changes", description: "Ask Node to commit approved changed paths.", input_schema: commitChangesInputSchema });
-export const reportDoneDefinition = Object.freeze({ name: "report_done", description: "Record the completion summary through the existing Stage1 report service.", input_schema: reportDoneInputSchema });
+export const reportDoneDefinition = Object.freeze({ name: "report_done", description: "Record the completion summary through the Supervisor completion report service.", input_schema: reportDoneInputSchema });
 export const gitStatusDefinition = Object.freeze({ name: "git_status", description: "Read project Git status in porcelain format through Node Git Service.", input_schema: gitStatusInputSchema });
 export const gitDiffDefinition = Object.freeze({ name: "git_diff", description: "Read the unstaged working-tree patch through Node Git Service.", input_schema: gitDiffInputSchema });
 

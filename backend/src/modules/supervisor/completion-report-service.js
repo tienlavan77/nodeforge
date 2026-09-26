@@ -1,7 +1,8 @@
+// Builds and persists Supervisor completion reports from Node-owned ticket artifacts.
 import { ConfigurationError } from "../../shared/errors.js";
 
 /** Builds and persists the owner-facing report from Node-owned artifacts. */
-export function createStage1ReportService({ protocolStorage, fileService, gitService } = {}) {
+export function createCompletionReportService({ protocolStorage, fileService, gitService } = {}) {
   if (typeof protocolStorage?.save !== "function" || typeof protocolStorage?.get !== "function") throw new ConfigurationError("Report service requires Protocol Storage.");
   if (typeof fileService?.atomicWrite !== "function") throw new ConfigurationError("Report service requires File Service.");
   return Object.freeze({ buildFinalReport, saveReport, writeReportFile, getCommitsForTask });

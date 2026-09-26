@@ -152,7 +152,7 @@ quyết định: node chịu trách nhiệm commit và trả kết quả cho age
 
 Node đọc `summary` qua transcript message chứa tool call `report_done`, không cần xử lý gì thêm từ phía tool.
 
-quyết định: tái sử dụng được phần report hoàn toàn. Chỉ cần thêm một adapter terminal cho report_done nối vào stage1-report-service, không cần xây lại Giai đoạn 6.
+quyết định: tái sử dụng được phần report hoàn toàn. Tool report_done nối vào backend/src/modules/supervisor/completion-report-service.js, không cần xây lại Giai đoạn 6.
 ---
 
 ## Quy tắc nhất quán

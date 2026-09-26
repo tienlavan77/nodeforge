@@ -9,7 +9,7 @@ import { createControlApiStorage } from "./control-api-storage.mjs";
 import { createControlApiAgent } from "./control-api-agent.mjs";
 import { createControlApiPlatform } from "./control-api-platform.mjs";
 import { createGitService } from "../src/infrastructure/git/git-service.js";
-import { createStage1ReportService } from "../src/modules/workflows/stage1-report-service.js";
+import { createCompletionReportService } from "../src/modules/supervisor/completion-report-service.js";
 import { createClaudeSdkGateway } from "../src/modules/agent/claude-sdk-gateway.js";
 import { createRuntimeToolGovernance } from "../src/modules/governance/runtime-tool-governance.js";
 import { createForgeToolRegistry } from "../src/tools/index.js";
@@ -39,7 +39,7 @@ const platform = createControlApiPlatform({
   logEvent: () => {}
 });
 const gitService = createGitService({ projectRoot: config.cwd });
-const reportService = createStage1ReportService({
+const reportService = createCompletionReportService({
   protocolStorage: storage.protocolStorage,
   fileService: storage.fileService,
   gitService
