@@ -97,16 +97,16 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     };
     // Bus persists via the canonical Communication Store before dispatching.
     const persisted = bus.send(message);
-    // Dispatches enter the canonical Stage-1 pipeline, which persists the
-    // validated task envelope at round_1/request. Do not occupy that ref with
-    // the UI command envelope; Communication Store still retains the message.
+    // Ticket commands enter the Supervisor, which owns the task request.
+    // Keep the UI command envelope out of its protocol request slot;
+    // Communication Store still retains the message.
     if (!(commandResult?.command && commandResult.status === "ready")) persistProtocolMessage(persisted, round, "request");
     safeLog(projectLogger, { event_name: "owner.message", level: "info", status: "info", message: "Owner message received.", task_id: message.payload.task?.id ?? message.id, ticket_id: message.payload.task?.id, conversation_id: message.conversation_id, source: "owner-chat-service" });
     messages.set(persisted.id, Object.freeze(structuredClone(persisted)));
     if (commandResult?.command && commandResult.status === "ready" && typeof dispatchAgentTicket === "function") void dispatchAgentTicket({ task_id: commandResult.ticket_id, ticket: commandResult.ticket, required_role: commandResult.ticket?.required_role, message: persisted, eventSink: input.eventSink });
     else if (isBuilder) {
-      // Builder coding is exclusively dispatched through Stage-1. This prevents
-      // the retired agent_tool loop from silently handling direct chat messages.
+      // Builder coding requires a ticket dispatched through the Supervisor.
+      // Direct chat must not enter the retired agent_tool loop.
       bus.send(responseMessage(persisted, "ticket.status", {
         command: false,
         status: "ticket_required",

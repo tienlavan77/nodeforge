@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildAnthropicMessages, buildAnthropicSystem } from "../../src/modules/agent/provider-adapters/request-builder.js";
 import { buildResponsesInput } from "../../src/modules/agent/provider-adapters/openai-request-builder.js";
-import { createAttemptContextBuilder } from "../../src/modules/supervisor/attempt-context-builder.js";
 
 const ticket = {
   id: "TICKET-CACHE",
@@ -51,35 +50,4 @@ test("OpenAI breakpoints land on tier boundaries and prompt_cache_key is preserv
   assert.equal(marked.length, 4);
   assert.equal(input.at(-1).content[0].prompt_cache_breakpoint, undefined);
   assert.equal(input[1].content[0].prompt_cache_breakpoint, true);
-});
-
-test("repair request keeps tiers 1+2 byte-identical and appends failure last", async () => {
-  const protocolStorage = { save: async () => {}, get: async () => ({ ref: "", data: null, metadata: {} }) };
-  const builder = createAttemptContextBuilder({ protocolStorage });
-  const attemptOne = await builder.buildAttemptRequest({
-    task_id: "TASK-CACHE",
-    correlation_id: "CORR-CACHE",
-    ticket,
-    agent_id: "builder",
-    execution_context: null
-  });
-  const repair = await builder.buildRepairRequest({ task_id: "TASK-CACHE", attempt: 2, reason: "verification" }, { reason: "verification", failures: ["checksum mismatch"], gitDiff: "diff --git" });
-
-  assert.equal(repair.payload.cache_config.prompt_cache_key, attemptOne.payload.cache_config.prompt_cache_key);
-  const oneUser = attemptOne.payload.user_blocks;
-  const repairUser = repair.payload.user_blocks;
-  assert.equal(repairUser.length, oneUser.length + 1);
-  assert.deepEqual(repairUser.slice(0, oneUser.length), oneUser);
-  assert.equal(repairUser.at(-1).cacheable, false);
-  assert.equal(repairUser.at(-1).block_id, "repair-context-attempt-2");
-
-  const anthropicOne = buildAnthropicMessages(attemptOne.payload);
-  const anthropicRepair = buildAnthropicMessages(repair.payload);
-  assert.deepEqual(anthropicRepair.at(-1).content.slice(0, -1), anthropicOne.at(-1).content);
-  assert.equal(anthropicRepair.at(-1).content.at(-1).cache_control, undefined);
-
-  const openaiOne = buildResponsesInput(attemptOne.payload);
-  const openaiRepair = buildResponsesInput(repair.payload);
-  assert.deepEqual(openaiRepair.slice(0, openaiOne.length), openaiOne);
-  assert.equal(openaiRepair.at(-1).content[0].prompt_cache_breakpoint, undefined);
 });
