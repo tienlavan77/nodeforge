@@ -19,7 +19,7 @@ export function AddAgentModal({ title = "Add agent", form, modelOptions, apiKeyM
   const roles = [{ value: "architecture_manager", label: "Architecture Manager" }, { value: "sprint_leader", label: "Sprint Leader" }, { value: "coder", label: "Coder" }, { value: "reviewer", label: "Reviewer" }, { value: "linguist", label: "Linguist" }];
   const teams = [{ value: "Backend", label: "Backend" }, { value: "Frontend", label: "Frontend" }, { value: "Security", label: "Security" }];
   const providers = [{ value: "anthropic", label: "Anthropic" }, { value: "claude", label: "Claude" }, { value: "openai", label: "OpenAI" }, { value: "codex", label: "Codex" }, { value: "ollama", label: "Ollama" }];
-  const models = (modelOptions ?? []).map((model) => ({ value: model, label: model }));
+  const models = modelOptions ?? [];
   return <div className="agent-modal-backdrop" role="presentation">
     <section className="agent-modal" onClick={() => setOpenName(null)} role="dialog" aria-modal="true" aria-labelledby="add-agent-title">
       <header><div><p className="eyebrow">NODEFORGE RUNTIME</p><h2 id="add-agent-title">{title}</h2></div><button className="agent-modal-close" type="button" onClick={onClose} aria-label="Close">×</button></header>
