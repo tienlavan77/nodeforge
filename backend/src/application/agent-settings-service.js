@@ -43,7 +43,7 @@ export function createAgentSettingsService({ profiles, configuration, gateway, c
     const current = profiles.getById(agentId);
     const resolvedId = current?.agent_id ?? agentId;
     const provider = String(current?.provider ?? "").toLowerCase();
-    if (provider === "claude") {
+    if (provider === "claude" || provider === "anthropic") {
       if (typeof claudeSdkGateway?.execute !== "function") throw new ConfigurationError("Claude SDK gateway is unavailable.");
       await claudeSdkGateway.execute({
         agentId: resolvedId,
@@ -51,10 +51,6 @@ export function createAgentSettingsService({ profiles, configuration, gateway, c
         prompt: "Health check. Respond with OK."
       });
       return { agent_id: resolvedId, status: "CONNECTED", gateway_url: current.gateway_url };
-    }
-    if (provider === "anthropic") {
-      const result = await gateway.testConnection(resolvedId);
-      return { agent_id: resolvedId, status: result.status, gateway_url: result.gateway_url };
     }
     if (provider === "codex") {
       if (typeof codexSdkGateway?.execute !== "function") throw new ConfigurationError("Codex SDK gateway is unavailable.");

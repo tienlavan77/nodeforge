@@ -1,6 +1,7 @@
 // claude sdk gateway — handles claude sdk gateway logic for the agent subsystem.
 import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
 import { ConfigurationError } from "../../shared/errors.js";
+import { createOwnerClaudeSdkTools } from "../../tools/owner-claude-sdk-tools.js";
 
 const SAFE_URL = /^https:\/\//;
 const SECRET_FIELD = /(?:api[_-]?key|credential|secret|password|token|authorization)/i;
@@ -33,6 +34,7 @@ export function createClaudeSdkGateway({
     const cloneableOptions = { ...options };
     delete cloneableOptions.mcpServers;
     delete cloneableOptions.forgeTools;
+    const ownerTools = options.forgeTools ? createOwnerClaudeSdkTools(options.forgeTools) : null;
     const queryOptions = {
       ...structuredClone(cloneableOptions),
       abortController: controller,
@@ -40,9 +42,12 @@ export function createClaudeSdkGateway({
       additionalDirectories: [...additionalDirectories],
       ...(config.model || options.model ? { model: options.model ?? config.model } : {}),
       env: createGatewayEnvironment({ config, credential, optionsEnv: options.env }),
-      ...(Object.keys(options.mcpServers ?? mcpServers).length ? { mcpServers: options.mcpServers ?? mcpServers } : {}),
-      ...((options.allowedTools ?? allowedTools).length ? { allowedTools: [...(options.allowedTools ?? allowedTools)] } : {}),
-      ...(options.tools === undefined ? {} : { tools: options.tools }),
+      ...(ownerTools ? { mcpServers: { forge: ownerTools.server }, allowedTools: ownerTools.allowedTools, tools: [] }
+        : {
+          ...(Object.keys(options.mcpServers ?? mcpServers).length ? { mcpServers: options.mcpServers ?? mcpServers } : {}),
+          ...((options.allowedTools ?? allowedTools).length ? { allowedTools: [...(options.allowedTools ?? allowedTools)] } : {}),
+          ...(options.tools === undefined ? {} : { tools: options.tools })
+        }),
       ...(resumeSessionId ? { resume: resumeSessionId } : {})
     };
 
