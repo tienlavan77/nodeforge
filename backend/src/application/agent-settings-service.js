@@ -8,7 +8,7 @@ const TEAMS = Object.freeze(["Backend", "Frontend", "Security"]);
 // Keep persisted agent.team values aligned with the Agents UI Team selector options.
 
 // Creates a service for managing agent profiles and syncing gateway configuration.
-export function createAgentSettingsService({ profiles, configuration, gateway, claudeSdkGateway, codexSdkGateway, ollamaSdkGateway, now = () => new Date().toISOString(), secretStore = new Map() } = {}) {
+export function createAgentSettingsService({ profiles, configuration, gateway, claudeSdkGateway, codexSdkGateway, openaiSdkGateway, ollamaSdkGateway, now = () => new Date().toISOString(), secretStore = new Map() } = {}) {
   if (typeof profiles?.create !== "function" || typeof profiles?.update !== "function" || typeof profiles?.delete !== "function" || typeof profiles?.getAll !== "function" || typeof profiles?.getById !== "function") throw new ConfigurationError("Agent Settings requires an Agent Profile Store.");
   if (typeof configuration?.sync !== "function") throw new ConfigurationError("Agent Settings requires Node Agent Configuration.");
   if (typeof gateway?.testConnection !== "function") throw new ConfigurationError("Agent Settings requires an Agent Gateway.");
@@ -43,7 +43,7 @@ export function createAgentSettingsService({ profiles, configuration, gateway, c
     const current = profiles.getById(agentId);
     const resolvedId = current?.agent_id ?? agentId;
     const provider = String(current?.provider ?? "").toLowerCase();
-    if (provider === "claude" || provider === "anthropic") {
+    if (provider === "claude") {
       if (typeof claudeSdkGateway?.execute !== "function") throw new ConfigurationError("Claude SDK gateway is unavailable.");
       await claudeSdkGateway.execute({
         agentId: resolvedId,
@@ -52,10 +52,23 @@ export function createAgentSettingsService({ profiles, configuration, gateway, c
       });
       return { agent_id: resolvedId, status: "CONNECTED", gateway_url: current.gateway_url };
     }
+    if (provider === "anthropic") {
+      const result = await gateway.testConnection(resolvedId);
+      return { agent_id: resolvedId, status: result.status, gateway_url: result.gateway_url };
+    }
     if (provider === "codex") {
       if (typeof codexSdkGateway?.execute !== "function") throw new ConfigurationError("Codex SDK gateway is unavailable.");
       await codexSdkGateway.execute({
         agentId: resolvedId,
+        correlationId: `CONNECTION-${resolvedId}`,
+        prompt: "Health check. Respond with OK."
+      });
+      return { agent_id: resolvedId, status: "CONNECTED", gateway_url: current.gateway_url };
+    }
+    if (provider === "openai") {
+      if (typeof openaiSdkGateway?.execute !== "function") throw new ConfigurationError("OpenAI SDK gateway is unavailable.");
+      await openaiSdkGateway.execute({
+        agent: current,
         correlationId: `CONNECTION-${resolvedId}`,
         prompt: "Health check. Respond with OK."
       });

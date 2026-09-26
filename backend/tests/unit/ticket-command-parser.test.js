@@ -35,75 +35,47 @@ test("allows retrying a failed ticket", () => {
   assert.equal(result.ticket.id, "NF-FAILED");
 });
 
-test("owner chat dispatches only ready commands with the ticket id as task id", async () => {
+test("owner chat forwards /ticket text without parsing or dispatching", async () => {
   const { createOwnerChatService } = await import("../../src/application/owner-chat-service.js");
-  const sent = [];
-  const dispatched = [];
+  const sent = []; const requests = [];
   const bus = { send: (message) => { sent.push(message); return message; }, sendFast: () => {}, flush: async () => {} };
-  const chat = createOwnerChatService({ bus, ticketCommandParser: parser([{ id: "NF-1", status: "pending" }]), dispatchAgentTicket: (value) => dispatched.push(value) });
-  const input = { message_id: "MSG-1", project_id: "P", conversation_id: "CONV-BU", correlation_id: "CORR-1", timestamp: "2026-08-23T10:00:00Z", agent_id: "builder", payload: { text: "/ticket NF-1" } };
-  chat.submit(input);
+  const parserService = { parse: () => { throw new Error("owner chat must not parse commands"); } };
+  const chat = createOwnerChatService({
+    bus,
+    ticketCommandParser: parserService,
+    dispatchAgentTicket: () => { throw new Error("owner chat must not dispatch tickets"); },
+    agentRequest: async ({ payload }) => { requests.push(payload); return { payload: { text: "ok" } }; }
+  });
+  const text = "/ticket NF-1";
+  chat.submit({ message_id: "MSG-1", project_id: "P", conversation_id: "CONV-BU", correlation_id: "CORR-1", timestamp: "2026-08-23T10:00:00Z", agent_id: "builder", payload: { text } });
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(dispatched[0].task_id, "NF-1");
-  assert.equal(dispatched[0].agent_id, undefined);
-  assert.equal(sent[0].payload.task.id, "NF-1");
+  assert.equal(sent[0].payload.text, text);
+  assert.equal(sent[0].payload.intent, "normal_chat");
+  assert.equal(requests[0].text, text);
 });
 
-test("owner chat preserves canonical roadmap metadata for /ticket dispatch", async () => {
+test("owner chat forwards ticket-shaped prose and JSON as ordinary text", async () => {
+  const { createOwnerChatService } = await import("../../src/application/owner-chat-service.js");
+  const sent = []; const requests = [];
+  const bus = { send: (message) => { sent.push(message); return message; }, sendFast: () => {}, flush: async () => {} };
+  const proseTicketService = { parse: () => { throw new Error("owner chat must not parse prose"); }, createFromObject: () => { throw new Error("owner chat must not create tickets"); } };
+  const chat = createOwnerChatService({ bus, proseTicketService, agentRequest: async ({ payload }) => { requests.push(payload); return { payload: { text: "ok" } }; } });
+  const texts = [
+    "Title: Demo\nObjective: Discuss the ticket shape",
+    '{"id":"NF-1","title":"Demo","objective":"Discuss","acceptance_criteria":["Works"]}'
+  ];
+  texts.forEach((text, index) => chat.submit({ message_id: `MSG-TEXT-${index}`, project_id: "P", conversation_id: `CONV-${index}`, correlation_id: `CORR-${index}`, timestamp: "2026-08-23T10:00:00Z", agent_id: "builder", payload: { text } }));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(sent.filter((message) => message.message_type === "owner.message").map((message) => message.payload.text), texts);
+  assert.deepEqual(requests.map((payload) => payload.text), texts);
+});
+
+test("owner chat accepts only the normal_chat intent", async () => {
   const { createOwnerChatService } = await import("../../src/application/owner-chat-service.js");
   const sent = [];
   const bus = { send: (message) => { sent.push(message); return message; }, sendFast: () => {}, flush: async () => {} };
-  const ticket = { id: "NF-ROADMAP-1", title: "Roadmap ticket", objective: "Run it", status: "pending", project_id: "P", roadmap_id: "ROADMAP-P", sprint_id: "SPRINT-P" };
-  const chat = createOwnerChatService({ bus, ticketCommandParser: parser([ticket]), dispatchAgentTicket: () => {} });
-  chat.submit({ message_id: "MSG-ROADMAP-1", project_id: "P", conversation_id: "CONV-BU", correlation_id: "CORR-ROADMAP-1", timestamp: "2026-08-23T10:00:00Z", agent_id: "builder", payload: { text: "/ticket NF-ROADMAP-1" } });
-  assert.equal(sent[0].payload.task.roadmap_id, "ROADMAP-P");
-  assert.equal(sent[0].payload.task.sprint_id, "SPRINT-P");
-  assert.notEqual(sent[0].payload.task.roadmap_id, "ROADMAP-DIRECT");
-});
-
-test("normalizes whitespace inside ticket ids", () => {
-  const result = parser([{ id: "FORGE-VALIDATE-001", status: "pending" }]).parse("/ticket FORGE-\n  VALIDATE-001");
-  assert.equal(result.status, "ready");
-  assert.equal(result.ticket_id, "FORGE-VALIDATE-001");
-});
-
-test("malformed ticket commands return syntax errors instead of falling back", () => {
-  assert.equal(parseTicketCommand("/ticket" ).status, "syntax_error");
-  assert.equal(parser([]).parse("/ticket ???").status, "not_found");
-});
-
-test("owner chat honors explicit normal_chat intent", async () => {
-  const { createOwnerChatService } = await import("../../src/application/owner-chat-service.js");
-  const sent = [];
-  const bus = { send: (message) => { sent.push(message); return message; }, sendFast: () => {}, flush: async () => {} };
-  const chat = createOwnerChatService({ bus, proseTicketService: { parse: () => { throw new Error("must not parse normal chat"); } }, agentRequest: async () => ({ payload: { text: "ok" } }) });
+  const chat = createOwnerChatService({ bus, agentRequest: async () => ({ payload: { text: "ok" } }) });
   chat.submit({ message_id: "MSG-INTENT-1", project_id: "P", conversation_id: "CONV-A", correlation_id: "CORR-INTENT-1", timestamp: "2026-08-23T10:00:00Z", agent_id: "builder", payload: { text: "Technical payload: {}", intent: "normal_chat" } });
   assert.equal(sent[0].payload.intent, "normal_chat");
-});
-
-test("legacy normal chat bypasses prose ticket parsing", async () => {
-  const { createOwnerChatService } = await import("../../src/application/owner-chat-service.js");
-  const sent = [];
-  const bus = { send: (message) => { sent.push(message); return message; }, sendFast: () => {}, flush: async () => {} };
-  const chat = createOwnerChatService({ bus, proseTicketService: { parse: () => { throw new Error("must not parse legacy normal chat"); } }, agentRequest: async () => ({ payload: { text: "ok" } }) });
-  chat.submit({ message_id: "MSG-LEGACY-1", project_id: "P", conversation_id: "CONV-A", correlation_id: "CORR-LEGACY-1", timestamp: "2026-08-23T10:00:00Z", agent_id: "builder", payload: { text: "Please discuss this JSON: {}" } });
-  assert.equal(sent[0].payload.intent, "normal_chat");
-});
-
-test("returns invalid_ticket_json for malformed ticket_create JSON", async () => {
-  const { createOwnerChatService } = await import("../../src/application/owner-chat-service.js");
-  const sent = []; const bus = { send: (message) => { sent.push(message); return message; }, sendFast: () => {}, flush: async () => {} };
-  const chat = createOwnerChatService({ bus, proseTicketService: { parse: () => { throw new Error("must not parse malformed JSON"); } } });
-  chat.submit({ message_id: "MSG-BAD-JSON", project_id: "P", conversation_id: "C", correlation_id: "R", timestamp: "2026-08-23T10:00:00Z", agent_id: "builder", payload: { intent: "ticket_create", text: '{"title":"Demo","objective":"line one\nline two","acceptance_criteria":["Works"]}' } });
-  assert.equal(sent[0].payload.error_code, "invalid_ticket_json");
-});
-
-test("ticket object takes precedence over malformed ticket text", async () => {
-  const { createOwnerChatService } = await import("../../src/application/owner-chat-service.js");
-  const sent = []; const bus = { send: (message) => { sent.push(message); return message; }, sendFast: () => {}, flush: async () => {} };
-  const ticket = { id: "T-OBJECT", project_id: "P", roadmap_id: "R", sprint_id: "S", title: "Demo", objective: "Run", acceptance_criteria: ["Works"], provenance: { source: "project_owner", source_id: "T-OBJECT", created_at: "2026-08-23T10:00:00Z" } };
-  const chat = createOwnerChatService({ bus, proseTicketService: { createFromObject: (value) => ({ create_ticket: true, status: "created", ticket: value }), parse: () => { throw new Error("text must be ignored"); } } });
-  chat.submit({ message_id: "MSG-OBJECT", project_id: "P", conversation_id: "C", correlation_id: "R", timestamp: "2026-08-23T10:00:00Z", agent_id: "builder", payload: { intent: "ticket_create", ticket, text: '{"objective":"broken\nvalue"}' } });
-  assert.equal(sent[0].payload.status, "created");
-  assert.equal(sent[0].payload.ticket.id, "T-OBJECT");
+  assert.throws(() => chat.submit({ message_id: "MSG-INTENT-2", project_id: "P", conversation_id: "CONV-A", correlation_id: "CORR-INTENT-2", timestamp: "2026-08-23T10:00:00Z", agent_id: "builder", payload: { text: "old ticket intent", intent: "ticket_create" } }), /Invalid owner message intent/);
 });

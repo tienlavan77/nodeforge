@@ -8,10 +8,12 @@ const require = createRequire(import.meta.url);
 const rgFilesInputSchema = require("../../../schemas/agent/tools/rg-files.schema.json");
 const rgSearchInputSchema = require("../../../schemas/agent/tools/rg-search.schema.json");
 const sedLinesInputSchema = require("../../../schemas/agent/tools/sed-lines.schema.json");
+const searchTreeInputSchema = require("../../../schemas/agent/tools/search-tree.schema.json");
 
 export const rgFilesDefinition = Object.freeze({ name: "rg_files", description: "List non-ignored project files with approved ripgrep flags.", input_schema: rgFilesInputSchema });
 export const rgSearchDefinition = Object.freeze({ name: "rg_search", description: "Search project source text with approved ripgrep flags.", input_schema: rgSearchInputSchema });
 export const sedLinesDefinition = Object.freeze({ name: "sed_lines", description: "Read a bounded project file window and whole-file checksum.", input_schema: sedLinesInputSchema });
+export const searchTreeDefinition = Object.freeze({ name: "search_tree", description: "Inspect real project directories and files, including empty directories, with Git ignore and bounded depth.", input_schema: searchTreeInputSchema });
 
 // Registers scoped command tools with the same governance wrapper as other Forge agent tools.
 export function createAgentCommandTools({ projectRoot, fileService, codeSearch, projectLogger, wrap }) {

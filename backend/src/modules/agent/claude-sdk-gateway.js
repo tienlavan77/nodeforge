@@ -21,7 +21,7 @@ export function createClaudeSdkGateway({
   if (typeof queryFn !== "function") throw new ConfigurationError("Claude SDK Gateway requires a query function.");
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1) throw new ConfigurationError("Claude SDK Gateway timeout must be a positive integer.");
 
-  return Object.freeze({ execute });
+  return Object.freeze({ execute, provider: "claude", conversationMode: "history" });
 
   async function execute({ agentId, prompt, correlationId, cwd, additionalDirectories = [], options = {}, resumeSessionId, onSessionReady } = {}) {
     const config = getEnabledConfig(agentId);
@@ -32,6 +32,7 @@ export function createClaudeSdkGateway({
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     const cloneableOptions = { ...options };
     delete cloneableOptions.mcpServers;
+    delete cloneableOptions.forgeTools;
     const queryOptions = {
       ...structuredClone(cloneableOptions),
       abortController: controller,
@@ -71,6 +72,7 @@ export function createClaudeSdkGateway({
         role: config.role,
         correlation_id: correlationId,
         status: "completed",
+        text: extractText(messages),
         session_id: sessionId,
         messages
       };
@@ -118,6 +120,16 @@ export function createClaudeSdkGateway({
     if (typeof value !== "string" || value.length === 0) throw new ConfigurationError("Claude SDK credential is unavailable.");
     return value;
   }
+}
+
+// Extracts assistant text from Claude SDK message envelopes for conversation responses.
+function extractText(messages) {
+  return messages.flatMap((message) => {
+    if (typeof message?.text === "string") return [message.text];
+    const content = message?.message?.content ?? message?.content;
+    if (!Array.isArray(content)) return [];
+    return content.flatMap((item) => typeof item?.text === "string" ? [item.text] : []);
+  }).join("").trim();
 }
 
 // assertString — assert string logic.

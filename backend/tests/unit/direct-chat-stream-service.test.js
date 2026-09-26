@@ -9,11 +9,10 @@ test('extracts natural-language NF ticket ids and builds isolated conversations'
   assert.equal(conversationId('bu', 'PROJECT-114A', 'NF-SVC-T01'), 'CONV-BU-PROJECT-114A-NF-SVC-T01');
 });
 
-test('validates and streams one request per role with distinct conversation ids', async () => {
+test('streams one request per role with distinct conversation ids', async () => {
   const calls = [];
   const service = new DirectChatStreamService({
     roadmapStore: { getByTicketId: async () => ({ title: 'ticket' }) },
-    agentTool: { validate: async () => true },
     agentGateway: { stream: async (request) => { calls.push(request); return request.conversation_id; } },
     roles: ['AM', 'BU']
   });

@@ -19,10 +19,8 @@ test("normalizes OpenAI json_schema output text", () => {
   assert.equal(result.payload.reason, payload.reason);
 });
 
-test("unwraps the provider-neutral agent_tool wrapper by kind", () => {
-  const result = normalizeResponse({ tool_use: { name: "agent_tool", input: { kind: "request_info", tool: "read_context", files_requested: ["src/a.js"], reason: "inspect" } } }, { request_id: parent });
-  assert.equal(result.type, "code_needed");
-  assert.deepEqual(result.payload.files_requested, ["src/a.js"]);
+test("rejects the removed agent_tool wrapper", () => {
+  assert.throws(() => normalizeResponse({ tool_use: { name: "agent_tool", input: { kind: "request_info", files_requested: ["src/a.js"], reason: "inspect" } } }, { request_id: parent }), /PROVIDER_TOOL_UNSUPPORTED/);
 });
 
 test("maps submit_code alias and preserves payload", () => {
