@@ -27,7 +27,6 @@ import { createTerminalBridge } from "../src/modules/supervisor/terminal-bridge.
 import { createOpenAiSdkProviderFactory } from "../src/modules/agent/openai-sdk-provider.js";
 import { createOpenAiSdkGateway } from "../src/modules/agent/openai-sdk-gateway.js";
 import { createRuntimeLogger } from "../src/core/runtime-logger.js";
-import { createAttemptContextBuilder } from "../src/modules/supervisor/attempt-context-builder.js";
 import { createSprintDagRunner, topologicalTicketLevels } from "../src/modules/supervisor/sprint-dag.js";
 import { createCodeIndexSummaryBuilder } from "../src/modules/index/code-index-summary-builder.js";
 import { createCompletionReportService } from "../src/modules/supervisor/completion-report-service.js";
@@ -59,12 +58,6 @@ const buildBuilderContext = createBuilderContext({ roadmaps, indexDb, contextEng
 const codeIndexSummaryBuilder = createCodeIndexSummaryBuilder({ fileService, indexDb });
 const supervisorRuntime = createProductionSupervisorRuntime({ projectRoot: config.cwd, fileService, root: ".forge/runtime", eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, agentRoleResolver, codeSearch, relevantTreeSelector, freshnessChecker, logger: runtimeLogger, projectLogger: runtimeLogger.emit,
   conversationStateStore, protocolStorage, codeSearch, testService, gitService, reportService, onEvalCase, enableReadCode: true, autoStartWorkers: false,
-  attemptBuilderFactory: (runtime, stores) => createAttemptContextBuilder({
-    protocolStorage: stores.protocolStorage, toolRegistry: stores.toolRegistry,
-    memoryRetriever, relevantTreeSelector,
-    projectLogger: runtimeLogger.emit,
-    executionContextProvider: stores.executionContextProvider
-  }),
   preparation: {
     createTaskSession: async ({ task_id, project_id, ticket } = {}) => {
       const existing = taskStore.get(task_id);
