@@ -30,7 +30,7 @@ import { createRuntimeLogger } from "../src/core/runtime-logger.js";
 import { createAttemptContextBuilder } from "../src/modules/supervisor/attempt-context-builder.js";
 import { createSprintDagRunner, topologicalTicketLevels } from "../src/modules/supervisor/sprint-dag.js";
 import { createCodeIndexSummaryBuilder } from "../src/modules/index/code-index-summary-builder.js";
-import { createStage1ReportService } from "../src/modules/workflows/stage1-report-service.js";
+import { createCompletionReportService } from "../src/modules/supervisor/completion-report-service.js";
 import { createEvalCaseRecorder } from "../src/modules/eval/eval-case-store.js";
 import { createTicketCrudService } from "../src/application/ticket-crud-service.js";
 import { createAgentExecutionCheckpointStore } from "../src/modules/agent/agent-execution-checkpoint.js";
@@ -49,7 +49,7 @@ const openaiSdkProviderFactory = createOpenAiSdkProviderFactory({ credentialReso
 const openaiSdkGateway = createOpenAiSdkGateway({ providerFactory: openaiSdkProviderFactory });
 const platform = createControlApiPlatform({ config, database, indexDb, fileService, agentGateway, claudeSdkGateway, codexSdkGateway, agentRoleResolver, logEvent });
 const gitService = createGitService({ projectRoot: config.cwd });
-const reportService = createStage1ReportService({ protocolStorage, fileService, gitService });
+const reportService = createCompletionReportService({ protocolStorage, fileService, gitService });
 const onEvalCase = createEvalCaseRecorder({ root: config.cwd });
 const { projectId, indexDb: platformIndexDb, codeSearch, fileGraph, relevantTreeSelector, freshnessChecker, ticketCandidateResolver, ticketSprintLeader, memoryRetriever, communications, conversations, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, verificationOrchestrator, contextEngine, sprintOrchestration, ticketCommandParser, proseTicketService, ticketFileStore, sprintPlanUpload, taskSummaries, projectMemory } = platform;
 testService = platform.testService;

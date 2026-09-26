@@ -5,7 +5,7 @@ const error = (code, message, details = {}) => Object.assign(new ConfigurationEr
 
 // Creates the governed completion-report tool.
 export function createReportDoneTool({ reportService, onEvalCase } = {}) {
-  if (!reportService?.buildFinalReport || !reportService?.saveReport || !reportService?.writeReportFile) throw new ConfigurationError("report_done requires Stage1 Report Service.");
+  if (!reportService?.buildFinalReport || !reportService?.saveReport || !reportService?.writeReportFile) throw new ConfigurationError("report_done requires the Supervisor completion report service.");
   if (onEvalCase !== undefined && typeof onEvalCase !== "function") throw new ConfigurationError("report_done onEvalCase must be a function.");
   return Object.freeze({ name: "report_done", async execute(input = {}, context = {}) {
     if (typeof input.summary !== "string" || !input.summary.trim()) throw error("INPUT_INVALID", "Report summary is required.");
