@@ -59,14 +59,14 @@ export function useProjectEventStream({
               const chunk = payload.chunk ?? payload.text ?? "";
               if (!chunk) return current;
               setAgentTyping(true);
-              if (index < 0) return [...current, { id: payload.message_id ?? event.event_id, stream_key: key, text: chunk, from: "agent", nickname: agentDisplayName(payload.agent_id, agentDirectoryRef.current), timestamp, stream: true }];
+              if (index < 0) return [...current, { id: payload.message_id ?? event.event_id, stream_key: key, text: chunk, from: "agent", nickname: agentDisplayName(payload.agent_id, agentDirectoryRef.current), timestamp, stream: true, reveal: true }];
               const next = [...current];
-              next[index] = { ...next[index], text: `${next[index].text ?? ""}${chunk}`, stream: true };
+              next[index] = { ...next[index], text: `${next[index].text ?? ""}${chunk}`, stream: true, reveal: true };
               return next;
             }
             if (event.event_type === "conversation.message.received" || event.event_type === "conversation.message.completed") {
               setAgentTyping(false);
-              if (index < 0) return [...current, { id: payload.message_id ?? event.event_id, stream_key: key, text: payload.text ?? "", from: "agent", nickname: agentDisplayName(payload.agent_id, agentDirectoryRef.current), timestamp }];
+              if (index < 0) return [...current, { id: payload.message_id ?? event.event_id, stream_key: key, text: payload.text ?? "", from: "agent", nickname: agentDisplayName(payload.agent_id, agentDirectoryRef.current), timestamp, reveal: true }];
               const next = [...current];
               next[index] = { ...next[index], id: payload.message_id ?? next[index].id, text: payload.text ?? next[index].text, stream: false, timestamp };
               return next;

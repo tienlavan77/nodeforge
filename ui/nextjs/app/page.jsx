@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { NodeForgeHeader } from "../components/NodeForgeHeader.jsx";
-import { AgentProcessStatus, MessageContent, SprintPlanDashboard, UploadSprintPlanDialog } from "../components/NodeForgePanels.jsx";
+import { AgentProcessStatus, SprintPlanDashboard, UploadSprintPlanDialog } from "../components/NodeForgePanels.jsx";
 import { ConversationsAccordion } from "../components/ConversationsAccordion.jsx";
 import { createNodeClient, MESSAGE_INTENTS } from "../lib/node-client.js";
 import { architectureManagerSelection, writeArchitectureManagerAgent } from "../../src/architecture-manager-selection.js";
@@ -14,13 +14,14 @@ import { readChatState, writeChatState } from "../lib/home-page-conversation-sta
 import { displayMessageTime, agentDisplayName } from "../lib/home-page-watcher-events.js";
 import { useProjectEventStream } from "../lib/home-page-event-stream.js";
 import { createHomeMessageHandlers } from "../lib/home-page-message-handlers.js";
+import { ConversationResponseReveal } from "../components/conversation-response-reveal.jsx";
+import { HomeChatComposer } from "../components/home-chat-composer.jsx";
+import { useConversationMessageHistory } from "../lib/use-conversation-message-history.js";
 
 // Main workspace page with dashboard and live event handling.
 export default function HomePage() {
   const client = useMemo(() => createNodeClient(), []);
   const chatMessagesRef = useRef(null);
-  const [draft, setDraft] = useState("");
-  const [messages, setMessages] = useState([]);
   const [agentDirectory, setAgentDirectory] = useState([]);
   const [selectedArchitectureManagerId, setSelectedArchitectureManagerId] = useState("");
   const [chatState, setChatState] = useState("");
@@ -35,7 +36,6 @@ export default function HomePage() {
   const [activeConversationId, setActiveConversationId] = useState(null);
   const activeConversationIdRef = useRef(null);
   const agentDirectoryRef = useRef([]);
-  const [messagesLoading, setMessagesLoading] = useState(false);
   const [agentTyping, setAgentTyping] = useState(false);
   const lastSentRef = useRef(null);
   const sendingRef = useRef(false);
@@ -53,6 +53,10 @@ export default function HomePage() {
   const streamConversationId = activeConversationId ?? selectedArchitectureManager?.conversation_id ?? selectedArchitectureManager?.conversationId ?? ARCHITECTURE_CONVERSATION_ID;
   activeConversationIdRef.current = streamConversationId;
   agentDirectoryRef.current = agentDirectory;
+  const { messages, setMessages, messagesLoading, setMessagesLoading, olderLoading, hasOlder, historyError,
+    loadConversationMessages, loadEarlierMessages, handleMessageScroll, followLatest } = useConversationMessageHistory({
+    client, projectId: PROJECT_ID, chatMessagesRef, agentDirectoryRef, agentDisplayName
+  });
 
   useEffect(() => {
     let active = true;
@@ -116,8 +120,7 @@ export default function HomePage() {
           void loadConversationMessages(conversationId);
         }
       })
-      .catch(() => { if (active) setConversations([]); })
-      .finally(() => { if (active) setMessagesLoading(false); });
+      .catch(() => { if (active) { setConversations([]); setMessagesLoading(false); } });
     return () => { active = false; };
   }, [client, selectedArchitectureManager?.id]);
 
@@ -126,38 +129,6 @@ export default function HomePage() {
     setMessages, setAgentTyping, setWatcherEvents, setWatcherPulseId, setWatcherState,
     setAgentProcess, loadDashboard, agentDisplayName
   });
-
-  useEffect(() => {
-    const container = chatMessagesRef.current;
-    if (container) container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
-  }, [messages]);
-
-  // Loads messages for the active conversation from the backend.
-  async function loadConversationMessages(conversationId) {
-    if (!conversationId) return;
-    setMessagesLoading(true);
-    try {
-      const result = await client.getConversationMessages({ projectId: PROJECT_ID, conversationId, limit: 10, order: "desc" });
-      const items = Array.isArray(result) ? result : result?.items ?? [];
-      setMessages([...items].reverse().map((record, index) => {
-        const content = record.content ?? {};
-        const text = typeof content === "string" ? content : content.text ?? content.content ?? "";
-        const isOwner = record.kind === "owner";
-        return {
-          id: record.id ?? `HIST-${index}`,
-          stream_key: `${isOwner ? "owner" : "agent"}:${record.id ?? index}`,
-          text: String(text ?? ""),
-          from: isOwner ? "owner" : record.kind === "failure" ? "system" : "agent",
-          nickname: isOwner ? "You" : agentDisplayName(record.agent_id, agentDirectoryRef.current),
-          timestamp: record.timestamp ?? new Date().toISOString()
-        };
-      }));
-    } catch {
-      setMessages([]);
-    } finally {
-      setMessagesLoading(false);
-    }
-  }
 
   // Handles conversation selection: binds chat to the chosen conversation.
   function handleSelectConversation(conversation) {
@@ -173,8 +144,8 @@ export default function HomePage() {
 
   const { sendMessage, retryLastMessage } = createHomeMessageHandlers({
     client, projectId: PROJECT_ID, architectureConversationId: ARCHITECTURE_CONVERSATION_ID, chatStateKey: CHAT_STATE_KEY,
-    draft, setDraft, selectedArchitectureManager, activeConversationId, setActiveConversationId,
-    setChatState, setMessages, sendingRef, lastSentRef, writeChatState, messageIntent: MESSAGE_INTENTS.normalChat
+    selectedArchitectureManager, activeConversationId, setActiveConversationId,
+    setChatState, setMessages, setAgentTyping, sendingRef, lastSentRef, writeChatState, messageIntent: MESSAGE_INTENTS.normalChat
   });
 
   // Handles cleanup after a ticket is deleted.
@@ -196,8 +167,8 @@ export default function HomePage() {
       <section className="home-chat-panel home-panel" aria-label="Project chat">
         <div className="home-panel-heading"><div className="home-chat-heading"><div className="home-chat-title"><i aria-hidden="true" /><p className="eyebrow">PROJECT CHAT</p></div><div className="home-agent-select-row"><label className="home-agent-select-label" htmlFor="home-architecture-manager-selector">Architecture Manager</label><select className="home-agent-select" id="home-architecture-manager-selector" value={selectedArchitectureManagerId} onChange={(event) => { const agentId = event.target.value; setSelectedArchitectureManagerId(agentId); writeArchitectureManagerAgent(PROJECT_ID, agentId); }} aria-label="Architecture Manager selection"><option value="">{architectureManagers.length ? "Select an Architecture Manager" : "No enabled Architecture Manager agents available"}</option>{architectureManagers.map((agent) => <option key={agent.id} value={agent.id}>{agent.label}</option>)}</select></div></div></div>
         <ConversationsAccordion conversations={conversations} projectId={PROJECT_ID} agentId={selectedArchitectureManager?.id} activeConversationId={activeConversationId} onNewConversation={(_title, conversation) => { const id = conversation?.id ?? conversation?.conversation_id; if (id) { setActiveConversationId(id); writeChatState(CHAT_STATE_KEY, selectedArchitectureManager?.id, id); void loadConversationMessages(id); } setMessages([]); setChatState(""); }} onSelectConversation={handleSelectConversation} />
-        <div className="home-chat-messages" ref={chatMessagesRef} role="log" aria-live="polite">{messagesLoading && <p className="dashboard-state">Loading messages…</p>}{!messagesLoading && messages.length === 0 && <div className="home-empty-state"><span className="home-empty-mark">N</span><p>Send a message to start working with your project agents.</p></div>}{messages.map((message) => <div className={`home-chat-message ${message.from === "owner" ? "is-owner" : "is-agent"}`} key={message.id}><div className="home-message-meta"><span>{message.nickname ?? (message.from === "owner" ? "You" : "Agent")}</span><time dateTime={message.timestamp}>{displayMessageTime(message.timestamp)}</time></div><MessageContent text={message.text} />{message.from === "system" && message.retryable !== false && <button type="button" className="history-button" onClick={retryLastMessage}>Retry</button>}</div>)}{agentTyping && <p className="dashboard-state" role="status">Agent is typing…</p>}</div>
-        <form className="home-composer" onSubmit={sendMessage}><textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); if (draft.trim()) event.currentTarget.form?.requestSubmit(); } }} placeholder="Chat or paste a ticket..." rows="2" aria-label="Chat or ticket input" /><button type="submit" aria-label="Send message" disabled={!draft.trim()}>&#8593;</button></form>{chatState && <p className={`dashboard-state ${chatState.includes("successfully") ? "success" : "error"}`} role="alert">{chatState}</p>}
+        <div className="home-chat-messages" ref={chatMessagesRef} onScroll={handleMessageScroll} role="log" aria-live="polite">{messagesLoading && <p className="dashboard-state">Loading messages…</p>}{hasOlder && messages.length > 0 && <button className="history-more chat-load-more" type="button" disabled={olderLoading} onClick={loadEarlierMessages}>{olderLoading ? "Loading earlier messages…" : "Load earlier messages"}</button>}{historyError && <p className="dashboard-state error" role="alert">{historyError}</p>}{!messagesLoading && messages.length === 0 && <div className="home-empty-state"><span className="home-empty-mark">N</span><p>Send a message to start working with your project agents.</p></div>}{messages.map((message) => <div className={`home-chat-message ${message.from === "owner" ? "is-owner" : "is-agent"}`} key={message.stream_key ?? message.id}><div className="home-message-meta"><span>{message.nickname ?? (message.from === "owner" ? "You" : "Agent")}</span><time dateTime={message.timestamp}>{displayMessageTime(message.timestamp)}</time></div><ConversationResponseReveal text={message.text} reveal={message.from === "agent" && message.reveal === true} onReveal={() => { const container = chatMessagesRef.current; if (container && container.scrollHeight - container.scrollTop - container.clientHeight < 72) container.scrollTop = container.scrollHeight; }} />{message.from === "system" && message.retryable !== false && <button type="button" className="history-button" onClick={retryLastMessage}>Retry</button>}</div>)}{agentTyping && <div className="typing-line" role="status" aria-label="Waiting for agent response"><span className="typing-dots" aria-hidden="true"><i /><i /><i /></span></div>}</div>
+        <HomeChatComposer onSend={(text) => { followLatest(); return sendMessage(text); }} />{chatState && <p className={`dashboard-state ${chatState.includes("successfully") ? "success" : "error"}`} role="alert">{chatState}</p>}
       </section>
       <section className="home-sprint-panel home-panel" aria-label="Project sprints">
         <div className="home-panel-heading"><div><p className="eyebrow">PROJECT DELIVERY</p><h2>Sprints</h2></div><button className="history-button" type="button" onClick={() => setUploadOpen(true)}>Upload plan</button></div>
