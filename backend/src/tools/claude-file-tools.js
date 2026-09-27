@@ -6,7 +6,7 @@ import { ConfigurationError } from "../shared/errors.js";
 
 const MAX_FILES = 3000;
 const MAX_OUTPUT = 500;
-const MAX_READ_LINES = 2000;
+const MAX_READ_LINES = 80;
 const pathSchema = { type: "string", minLength: 1 };
 
 export const claudeFileDefinitions = Object.freeze([
@@ -16,7 +16,7 @@ export const claudeFileDefinitions = Object.freeze([
 ]);
 
 // Creates governed Claude-shaped readers without exposing direct filesystem calls to an agent.
-export function createClaudeFileTools({ fileService, projectRoot }) {
+export function createClaudeFileTools({ fileService, projectRoot, codeCache }) {
   if (!fileService?.readForIndex || !fileService?.listFiles || !projectRoot) throw new ConfigurationError("Claude file tools require File Service and project root.");
   return {
     Read: { execute: (input, context) => read(input, context) },
@@ -31,10 +31,10 @@ export function createClaudeFileTools({ fileService, projectRoot }) {
     const offset = input.offset ?? 1;
     const limit = input.limit ?? MAX_READ_LINES;
     if (!Number.isInteger(offset) || offset < 1 || !Number.isInteger(limit) || limit < 1 || limit > MAX_READ_LINES) throw invalid("Read offset or limit is invalid.");
-    const file = await fileService.readForIndex({ path, maxBytes: 1_000_000 });
+    const file = codeCache ? await codeCache.read({ path }) : await fileService.readForIndex({ path, maxBytes: 1_000_000 });
     const lines = file.content.split("\n");
     const slice = lines.slice(offset - 1, offset - 1 + limit);
-    return { file_path: path, content: slice.map((line, index) => `${String(offset + index).padStart(6)}→${line}`).join("\n"), sha256: file.sha256, total_lines: lines.length, truncated: offset - 1 + limit < lines.length };
+    return { file_path: path, content: slice.map((line, index) => `${String(offset + index).padStart(6)}→${line}`).join("\n"), sha256: file.sha256, total_lines: lines.length, truncated: offset - 1 + limit < lines.length, ...(codeCache ? { cache: file.cache, index_status: file.index_status } : {}) };
   }
 
   // Matches visible project files using Claude's pattern and optional search directory.
@@ -65,7 +65,7 @@ export function createClaudeFileTools({ fileService, projectRoot }) {
     for (const path of await visibleFiles(directory)) {
       if (!within(path, directory) || !inScope(path, context) || (filter && !filter(path)) || (extensions && !extensions.some((ext) => path.endsWith(ext)))) continue;
       let file;
-      try { file = await fileService.readForIndex({ path, maxBytes: 1_000_000 }); }
+      try { file = codeCache ? await codeCache.read({ path }) : await fileService.readForIndex({ path, maxBytes: 1_000_000 }); }
       catch (error) { if (["FILE_ROLE_FORBIDDEN", "ENOENT", "FILE_TOO_LARGE"].includes(error.code) || /Refusing to index binary file/.test(error.message)) continue; throw error; }
       const lines = file.content.split("\n");
       const matches = matchLines(file.content, pattern, flags, input.multiline === true);

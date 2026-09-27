@@ -1,6 +1,7 @@
 {
   "id": "TASK-001",
   "project_id": "wp-static-commerce",
+  "team": "commerce",
   "type": "bugfix",
   "title": "Fix session timeout boundary case",
   "description": "Sessions are treated as valid when expiresAt equals the current timestamp; should be treated as expired.",

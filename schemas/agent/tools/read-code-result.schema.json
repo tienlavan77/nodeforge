@@ -14,6 +14,21 @@
     "sha256": { "type": ["string", "null"] },
     "size_bytes": { "type": "integer", "minimum": 0 },
     "truncated": { "type": "boolean" },
+    "cache": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "cached_at", "expires_at"],
+      "properties": {
+        "status": { "type": "string", "enum": ["hit", "miss", "bypass"] },
+        "cached_at": { "type": ["string", "null"], "format": "date-time" },
+        "expires_at": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "content_sha256": { "type": ["string", "null"], "pattern": "^sha256:[a-fA-F0-9]{64}$" },
+    "indexed_sha256": { "type": ["string", "null"], "pattern": "^sha256:[a-fA-F0-9]{64}$" },
+    "index_status": { "type": "string", "enum": ["fresh", "stale", "unavailable"] },
+    "index_version": { "type": ["string", "integer", "null"] },
+    "discovery_budget": { "type": "object" },
     "symbol": { "type": "string", "minLength": 1 },
     "symbol_kind": { "type": "string", "minLength": 1 },
     "start_line": { "type": "integer", "minimum": 1 },

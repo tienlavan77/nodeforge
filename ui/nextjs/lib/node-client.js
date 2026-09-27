@@ -134,6 +134,18 @@ export function createNodeClient() {
     async runTicket(projectId, ticketId, { fresh = false } = {}) {
       return requestJson(forgeV1(`/tickets/${ticketId}:run`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, ...(fresh ? { fresh: true } : {}) }), fallbackError: `Node rejected Ticket Run: ${ticketId}.` });
     },
+    // Sends the dashboard's coding request to Supervisor without creating a sprint ticket.
+    async runCode(projectId, sprintId, text) {
+      return requestJson(forgeV1("/code/run", { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, sprint_id: sprintId, text }), fallbackError: "Node could not run the coder." });
+    },
+    // Lists unfinished coding sessions for the selected sprint's Resume control.
+    async listCodeCheckpoints(projectId, sprintId) {
+      return requestJson(forgeV1("/code/checkpoints", { project: projectId, sprint_id: sprintId }), { fallbackError: "Node could not load coding checkpoints." });
+    },
+    // Continues the original coding request with its saved provider session.
+    async resumeCode(projectId, taskId) {
+      return requestJson(forgeV1(`/code/${encodeURIComponent(taskId)}/resume`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId }), fallbackError: "Node could not resume the coder." });
+    },
     async runSprint(projectId, sprintId) {
       return requestJson(forgeV1(`/sprints/${sprintId}/run`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId }), fallbackError: "Node could not start the sprint." });
     },
@@ -189,7 +201,7 @@ export function createNodeClient() {
       const source = new EventSource(forgeV1("/stream", { project: projectId, ...(afterEventId ? { after: afterEventId } : {}) }));
       const delivered = new Set();
       let lastEventId = afterEventId ?? null;
-      const eventTypes = ["stream.connected", "stream.snapshot", "watcher.file_indexed", "watcher.file_removed", "ticket.created", "ticket.updated", "ticket.status_changed", "ticket.deleted", "sprint.created", "sprint.updated", "sprint.deleted", "conversation.message.delta", "conversation.message.received", "conversation.message.owner", "conversation.message.created", "conversation.message.completed", "conversation.message.failed", "conversation.agent.status_changed", "stream.error"];
+      const eventTypes = ["stream.connected", "stream.snapshot", "watcher.file_indexed", "watcher.file_removed", "ticket.created", "ticket.updated", "ticket.status_changed", "ticket.deleted", "sprint.created", "sprint.updated", "sprint.deleted", "conversation.message.delta", "conversation.message.received", "conversation.message.owner", "conversation.message.created", "conversation.message.completed", "conversation.message.failed", "conversation.agent.status_changed", "agent.checkpoint.updated", "stream.error"];
       const handleEvent = (event) => {
         if (event.lastEventId) lastEventId = event.lastEventId;
         let data;
@@ -217,7 +229,7 @@ export function createNodeClient() {
 // Validates a project stream event shape.
 function isProjectStreamEvent(value, projectId) {
   return Boolean(value && typeof value === "object" && typeof value.event_id === "string" && value.event_id.length > 0
-    && ["stream.connected", "stream.snapshot", "watcher.file_indexed", "watcher.file_removed", "ticket.created", "ticket.updated", "ticket.status_changed", "ticket.deleted", "sprint.created", "sprint.updated", "sprint.deleted", "conversation.message.delta", "conversation.message.received", "conversation.message.owner", "conversation.message.created", "conversation.message.completed", "conversation.message.failed", "conversation.agent.status_changed", "stream.error"].includes(value.event_type)
+    && ["stream.connected", "stream.snapshot", "watcher.file_indexed", "watcher.file_removed", "ticket.created", "ticket.updated", "ticket.status_changed", "ticket.deleted", "sprint.created", "sprint.updated", "sprint.deleted", "conversation.message.delta", "conversation.message.received", "conversation.message.owner", "conversation.message.created", "conversation.message.completed", "conversation.message.failed", "conversation.agent.status_changed", "agent.checkpoint.updated", "stream.error"].includes(value.event_type)
     && value.schema_version === 1 && value.project_id === projectId && typeof value.timestamp === "string"
     && value.payload && typeof value.payload === "object" && !Array.isArray(value.payload));
 }

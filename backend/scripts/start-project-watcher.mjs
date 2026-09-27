@@ -42,8 +42,17 @@ const verification = createVerificationOrchestrator({ projectRoot: process.cwd()
 const controlApiUrl = process.env.NODE_CONTROL_API_URL ?? `http://127.0.0.1:${process.env.NODE_CONTROL_PORT ?? 3100}`;
 async function publishStreamEvent(event, indexed) {
   try {
-    const response = await fetch(`${controlApiUrl}/forge/v1/stream/events`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...event, indexed, project_id: projectId }) });
-    if (!response.ok) logger.info(`Stream publish failed (${response.status}): ${event.type}`);
+    const indexedFile = indexed && event.type !== "watcher.file_deleted" ? indexDb.all("SELECT sha256 FROM files WHERE path = ? LIMIT 1", [event.payload?.path])[0] : null;
+    const body = JSON.stringify({ ...event, payload: { ...event.payload, ...(indexedFile?.sha256 ? { sha256: indexedFile.sha256 } : {}) }, indexed, project_id: projectId });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const response = await fetch(`${controlApiUrl}/forge/v1/stream/events`, { method: "POST", headers: { "content-type": "application/json" }, signal: AbortSignal.timeout(2000), body });
+        if (response.ok) return;
+        if (attempt === 1) logger.info(`Stream publish failed (${response.status}): ${event.type}`);
+      } catch (error) {
+        if (attempt === 1) throw error;
+      }
+    }
   } catch (error) { logger.info(`Stream publish unavailable: ${error.message}`); }
 }
 
@@ -54,6 +63,7 @@ watcher.on("event", (event) => {
   void indexer.handle(event)
     .then((indexed) => {
       logger.debug(indexed ? "Indexer updated file." : "Indexer skipped file.", { event_name: "watcher.indexed", status: indexed ? "success" : "info", payload: { path: event.payload?.path ?? null, event_id: event.event_id } });
+      // Publish independently so a slow Control API never holds the index/verification chain.
       void publishStreamEvent(event, indexed);
       return indexed ? verification.run({
       schema_version: "1.0",

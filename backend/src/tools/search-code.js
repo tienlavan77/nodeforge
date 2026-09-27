@@ -9,7 +9,7 @@ const MAX_LIMIT = 50;
 const SEARCH_KINDS = new Set(["file", "symbol", "content"]);
 const IGNORED_PREFIXES = [".git/", ".forge/runtime/", ".next/", ".next.stale-", "agent-tool/"];
 
-export function createSearchCodeTool({ codeSearch } = {}) {
+export function createSearchCodeTool({ codeSearch, codeCache, projectLogger = () => {} } = {}) {
   if (typeof codeSearch?.search !== "function") throw new ConfigurationError("Search Code tool requires Forge Code Search.");
   return Object.freeze({ name: "search_code", execute });
 
@@ -36,7 +36,26 @@ export function createSearchCodeTool({ codeSearch } = {}) {
     catch (error) { throw scopedError("SEARCH_BACKEND_ERROR", "Forge Code Search failed.", error); }
     const matches = (Array.isArray(searchResult?.matches) ? searchResult.matches : [])
       .filter((match) => isPathAllowed(match?.node?.path, requestedPrefixes) && !isIgnoredPath(match?.node?.path))
-      .map((match) => toMetadata(match, kind, projection)).slice(0, limit);
+      .map((match) => toMetadata(match, kind, projection, requestedPrefixes)).slice(0, limit);
+    if (codeCache && matches.length) {
+      let cached;
+      try { cached = await codeCache.prewarm(matches.map((match) => match.path)); }
+      catch (error) {
+        projectLogger({ event_name: "search_code.prewarm_failed", level: "error", status: "failed", message: "Code cache prewarm failed; search metadata remains available.", task_id: taskId, source: "search-code-tool", error_code: error.code ?? "CACHE_PREWARM_FAILED", payload: { match_count: matches.length } });
+        cached = new Map();
+      }
+      for (const match of matches) {
+        const file = cached.get(match.path);
+        if (!file) {
+          hideUnverifiedIndex(match, "unavailable");
+          continue;
+        }
+        match.indexed_sha256 = file.indexed_sha256;
+        match.content_sha256 = file.content_sha256;
+        match.index_status = file.index_status;
+        if (file.index_status !== "fresh") hideUnverifiedIndex(match, file.index_status);
+      }
+    }
     recordSearch(context, { query, topPaths: matches.slice(0, 5).map((match) => match.path) });
     const discovery = discoveryCount(context);
     const result = { task_id: taskId, query, kind, index_version: searchResult?.index_version ?? null, matches, discovery_budget: discoveryNotice(context) };
@@ -50,7 +69,14 @@ export function createSearchCodeTool({ codeSearch } = {}) {
   }
 }
 
-function toMetadata(match, expectedKind, projection = "minimal") {
+// Hides index-derived source locations until live content has been verified.
+function hideUnverifiedIndex(match, status) {
+  match.index_status = status;
+  delete match.symbols; delete match.graph; delete match.snippet;
+  delete match.start_line; delete match.end_line;
+}
+
+function toMetadata(match, expectedKind, projection = "minimal", allowedPrefixes = []) {
   const node = match?.node ?? {};
   const metadata = { kind: expectedKind, path: node.path, score: Number(match?.score) || 0, reason: Array.isArray(match?.reason) ? [...match.reason] : [] };
   if (expectedKind === "file") {
@@ -62,7 +88,16 @@ function toMetadata(match, expectedKind, projection = "minimal") {
       metadata.snippet = typeof node.snippet === "string" ? node.snippet : null;
       metadata.symbols = Array.isArray(node.symbols) ? node.symbols : [];
     }
-    if (projection === "graph") metadata.graph = node.graph ?? { imports: [], imported_by: [], calls: [] };
+    if (projection === "graph") {
+      const graph = node.graph ?? {};
+      const allowed = (path) => isPathAllowed(path, allowedPrefixes) && !isIgnoredPath(path);
+      metadata.graph = {
+        imports: (graph.imports ?? []).filter((link) => allowed(link.path)),
+        imported_by: (graph.imported_by ?? []).filter((link) => allowed(link.path)),
+        calls: (graph.calls ?? []).filter((call) => allowed(call.caller?.path) && allowed(call.target?.path)),
+        index_version: graph.index_version ?? null
+      };
+    }
   } else if (expectedKind === "content") {
     metadata.language = node.language ?? null;
     metadata.sha256 = node.sha256 ?? null;

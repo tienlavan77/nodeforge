@@ -39,6 +39,7 @@
         "conversation.message.completed",
         "conversation.message.failed",
         "conversation.agent.status_changed",
+        "agent.checkpoint.updated",
         "stream.error"
       ]
     },
@@ -71,96 +72,15 @@
     }
   },
   "allOf": [
-    {
-      "if": {
-        "properties": { "event_type": { "const": "stream.connected" } }
-      },
-      "then": {
-        "properties": {
-          "payload": { "$ref": "#/$defs/connected_payload" }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": { "event_type": { "const": "stream.snapshot" } }
-      },
-      "then": {
-        "properties": {
-          "payload": { "$ref": "#/$defs/snapshot_payload" }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": { "event_type": { "const": "watcher.file_indexed" } }
-      },
-      "then": {
-        "properties": {
-          "payload": { "$ref": "#/$defs/indexed_file_payload" }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": { "event_type": { "const": "watcher.file_removed" } }
-      },
-      "then": {
-        "properties": {
-          "payload": { "$ref": "#/$defs/file_path_payload" }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": { "event_type": { "const": "stream.error" } }
-      },
-      "then": {
-        "properties": {
-          "payload": { "$ref": "#/$defs/error_payload" }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": { "event_type": { "enum": ["conversation.message.delta", "conversation.message.received", "conversation.message.owner"] } }
-      },
-      "then": {
-        "properties": {
-          "payload": { "$ref": "#/$defs/conversation_message_payload" }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": { "event_type": { "enum": ["conversation.message.created", "conversation.message.completed"] } }
-      },
-      "then": {
-        "properties": {
-          "payload": { "$ref": "#/$defs/conversation_message_payload" }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": { "event_type": { "const": "conversation.message.failed" } }
-      },
-      "then": {
-        "properties": {
-          "payload": { "$ref": "#/$defs/conversation_message_failed_payload" }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": { "event_type": { "const": "conversation.agent.status_changed" } }
-      },
-      "then": {
-        "properties": {
-          "payload": { "$ref": "#/$defs/conversation_agent_status_payload" }
-        }
-      }
-    }
+    {"if": {"properties": {"event_type": {"const": "stream.connected"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/connected_payload"}}}},
+    {"if": {"properties": {"event_type": {"const": "stream.snapshot"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/snapshot_payload"}}}},
+    {"if": {"properties": {"event_type": {"const": "watcher.file_indexed"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/indexed_file_payload"}}}},
+    {"if": {"properties": {"event_type": {"const": "watcher.file_removed"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/file_path_payload"}}}},
+    {"if": {"properties": {"event_type": {"const": "stream.error"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/error_payload"}}}},
+    {"if": {"properties": {"event_type": {"enum": ["conversation.message.delta", "conversation.message.received", "conversation.message.owner"]}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/conversation_message_payload"}}}},
+    {"if": {"properties": {"event_type": {"enum": ["conversation.message.created", "conversation.message.completed"]}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/conversation_message_payload"}}}},
+    {"if": {"properties": {"event_type": {"const": "conversation.message.failed"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/conversation_message_failed_payload"}}}},
+    {"if": {"properties": {"event_type": {"const": "conversation.agent.status_changed"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/conversation_agent_status_payload"}}}}
   ],
   "$defs": {
     "file": {

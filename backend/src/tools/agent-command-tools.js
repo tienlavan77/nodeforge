@@ -14,12 +14,12 @@ export const rgSearchDefinition = Object.freeze({ name: "rg_search", description
 export const sedLinesDefinition = Object.freeze({ name: "sed_lines", description: "Read a bounded project file window and whole-file checksum.", input_schema: sedLinesInputSchema });
 
 // Registers scoped command tools with the same governance wrapper as other Forge agent tools.
-export function createAgentCommandTools({ projectRoot, fileService, codeSearch, projectLogger, wrap }) {
+export function createAgentCommandTools({ projectRoot, fileService, codeSearch, codeCache, projectLogger, wrap }) {
   if (!projectRoot) return {};
   const logger = { emit: projectLogger };
   return {
     rg_files: wrap(createRgFilesTool({ projectRoot, logger }), "rg_files", false),
-    rg_search: wrap(createRgSearchTool({ projectRoot, logger }), "rg_search", false),
-    sed_lines: wrap(createSedLinesTool({ projectRoot, fileService, symbolLookup: codeSearch?.symbolsForFile?.bind(codeSearch), logger }), "sed_lines", false)
+    rg_search: wrap(createRgSearchTool({ projectRoot, codeCache, logger }), "rg_search", false),
+    sed_lines: wrap(createSedLinesTool({ projectRoot, fileService, codeCache, symbolLookup: codeSearch?.symbolsForFile?.bind(codeSearch), logger }), "sed_lines", false)
   };
 }

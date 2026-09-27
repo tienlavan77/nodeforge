@@ -20,7 +20,7 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
   async function submitTicket({ ticket, task_id, project_id, request_id, correlation_id, attempt = 1, payload = {}, required_role } = {}) {
     if (!ticket || typeof ticket !== "object") throw new ConfigurationError("Node Supervisor ticket is required.");
     if (typeof agentResolver?.resolveAvailable !== "function") throw new ConfigurationError("NodeForge integration requires an agent resolver.");
-    const selected = agentResolver.resolveAvailable(required_role ?? ticket.required_role);
+    const selected = payload.direct_code === true ? selectDirectCoder(agentResolver, payload.resume_from) : agentResolver.resolveAvailable(required_role ?? ticket.required_role);
     if (!selected) throw Object.assign(new ConfigurationError("No enabled and ready Agent Profile is available."), { code: "AGENT_NOT_AVAILABLE" });
     const request = {
       task_id: task_id ?? ticket.id,
@@ -64,6 +64,13 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
     }
     return { task_id, supervisor_id: runtime.supervisorId, status: runtime.ownershipCreated || restart || runtime.wasReset ? "started" : "already_running" };
   }
+}
+
+// Selects a ready coder whose SDK implements the governed code execution path.
+function selectDirectCoder(resolver, checkpoint) {
+  const providers = new Set(["codex", "claude", "anthropic"]);
+  return (resolver.list?.("coder") ?? []).filter((profile) => profile.enabled && profile.status === "ready" && providers.has(profile.provider) && (!checkpoint || profile.agent_id === checkpoint.agent_id && profile.provider === checkpoint.provider))
+    .sort((left, right) => String(left.created_at ?? "").localeCompare(String(right.created_at ?? "")) || String(left.agent_id).localeCompare(String(right.agent_id)))[0];
 }
 
 // Selects profiles that use the OpenAI SDK greeting flow.

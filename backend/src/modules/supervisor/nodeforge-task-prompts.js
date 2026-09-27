@@ -4,7 +4,7 @@ import { isBackendTicket } from "./nodeforge-task-scope.js";
 export const COMPLEXITY_FALLBACK = Object.freeze({ effort: "medium", discovery_budget: 8, max_turns: 40, thinking: { type: "enabled", budgetTokens: 4096 } });
 
 // Builds the Codex ticket instructions for governed implementation work.
-export function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, complexity) {
+export function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, complexity, directCode = false) {
   const acceptance = (ticket?.acceptance_criteria ?? []).map((item) => `- ${item}`).join("\n");
   const allowedJson = JSON.stringify(allowedPrefixes);
   const backendRequired = isBackendTicket(ticket);
@@ -19,8 +19,10 @@ export function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, comp
         `Discovery convergence rule: identify the target file/symbol first, then read only the minimum surrounding context needed to edit safely. Call rg_files or rg_search ONLY to locate a file or identifier you have not yet seen in a prior tool result — do not re-search a path already returned, and do not run verification searches before the first edit. Once the target and its relevant context are identified, begin edit_diff or write_diff on the next turn. Respect the discovery budget and start editing promptly.`,
         ...(backendRequired ? ["Backend requirement: this ticket has explicit backend acceptance criteria. Discover and read the backend route/service/store files and backend tests. You must modify or verify a backend implementation file and cover it with tests; do not call report_done unless a backend file appears in changed_paths."] : [])
       ];
+  if (directCode) instructions.splice(0, 2, `This is a direct coding request. Do not use graph candidate retrieval. Discover files only with rg_files and rg_search inside the approved prefixes ${allowedJson}, then read targeted windows with sed_lines.`);
   return [
     `Complete the following ticket using Forge tools only; do not use built-in shell, file, patch, or search tools.`,
+    "Before editing code, read workflows/agents/coder.md with sed_lines; this workflows path is read-only for coders.",
     "",
     `Ticket ${ticket?.id ?? ""}: ${ticket?.title ?? ""}`,
     `Objective: ${ticket?.objective ?? ""}`,
@@ -31,9 +33,9 @@ export function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, comp
     ...coderProjectConventions("sed_lines"),
     "Work in English and produce all file content in English.",
     `Budget discipline: you have a hard wall-clock deadline and a discovery budget of ${complexity.discovery_budget} exploration calls. The next action after identifying the target and relevant context is edit_diff or write_diff; do not spend the full budget by default. Respect the discovery budget and start editing promptly. Simple tickets do not receive automatic discovery escalation. Re-read nothing you already read; prefer edit_diff with an exact anchor over re-reading whole files. Do not run run_test before at least one edit_diff/write_diff succeeded.`,
-    "Search discipline: use rg_files to list project files and rg_search with pattern, top-level paths (for example [\"backend\",\"ui\"]), and optional [\"-n\"] to locate identifiers. Read targeted windows with sed_lines. Do not repeat a search that returned no matches without new evidence.",
+    directCode ? "Direct code search discipline: graph candidate retrieval is unavailable. Use rg_files and rg_search with approved prefixes, then sed_lines; do not call candidate retrieval." : "Search discipline: use rg_files to list project files and rg_search with pattern, top-level paths (for example [\"backend\",\"ui\"]), and optional [\"-n\"] to locate identifiers. Read targeted windows with sed_lines. Do not repeat a search that returned no matches without new evidence.",
     "Symbol check: if the ticket symbol is missing from the file or no longer matches the ticket reason, re-discover via rg_search instead of editing blind.",
-    "Tool enforcement: sed_lines requires path, start_line, and end_line; read at most 500 lines per call and stay within the ticket scope.",
+    "Tool enforcement: sed_lines requires path, start_line, and end_line; read at most 80 lines per call and stay within the ticket scope.",
     "Use the whole-file sha256 returned by sed_lines as before_checksum for write_diff/edit_diff. Use JSON null only when creating a new file.",
     ...(targetPath ? [`Completion gate: report_done is blocked until ${targetPath} appears in changed_paths. Any report_done that does not include the target file will fail with REPORT_SCOPE_INVALID. After editing the target, verify/run_test, then commit and report_done; do not continue with unrelated discovery or edits to bypass this gate.`] : []),
     `When the ticket is satisfied, call commit_changes with an appropriate commit message and then report_done with a concise summary. Stop after report_done.`
@@ -82,7 +84,7 @@ export function buildToolTestPrompt(taskId, targetPath, allowedPrefixes) {
     "Use only Forge MCP tools; do not use built-in shell, file, patch, or search tools.",
     "Call exactly these Forge MCP tools in order: search_code, read_file, write_diff, run_test, check_test, report_done.",
     `Call search_code once for backend/package.json with kind file, limit 5, and allowed_prefixes ${JSON.stringify(allowedPrefixes)}.`,
-    "Then call read_file once for backend/package.json.",
+    "Then call read_file with offset:1 and limit:80 for backend/package.json.",
     `Then call write_diff once with exactly this JSON input: ${JSON.stringify(writeDiffInput)}.`,
     "Then call run_test once with no arguments, check the returned job, and report the final status.",
     "Finally call report_done once with a concise summary. Stop after report_done."
@@ -90,7 +92,7 @@ export function buildToolTestPrompt(taskId, targetPath, allowedPrefixes) {
 }
 
 // Builds Claude's governed ticket prompt for implementation work.
-export function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, complexity) {
+export function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, complexity, directCode = false) {
   const acceptance = (ticket?.acceptance_criteria ?? []).map((item) => `- ${item}`).join("\n");
   const allowedJson = JSON.stringify(allowedPrefixes);
   const backendRequired = isBackendTicket(ticket);
@@ -105,8 +107,10 @@ export function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, compl
         `Discovery convergence rule: identify the target file/symbol first, then read only the minimum surrounding context needed to edit safely. Call select_code_graph_candidates or search_code ONLY to locate a file or identifier you have not yet seen in a prior tool result — do not re-search a path already returned, and do not run verification searches before the first edit. Once the target and its relevant context are identified, begin edit_diff or write_diff on the next turn. Every discovery result includes discovery_budget.remaining; respect it and start editing before it reaches 0.`,
         ...(backendRequired ? ["Backend requirement: this ticket has explicit backend acceptance criteria. Discover and read the backend route/service/store files and backend tests. You must modify or verify a backend implementation file and cover it with tests; do not call report_done unless a backend file appears in changed_paths."] : [])
       ];
+  if (directCode) instructions.splice(0, 2, `This is a direct coding request. Do not use graph candidate retrieval. Discover files only with search_code or Claude Read/Glob/Grep inside the approved prefixes ${allowedJson}, then read targeted windows.`);
   return [
     "Complete the following ticket using Forge tools only; do not use built-in shell, file, patch, or search tools.",
+    "Before editing code, read workflows/agents/coder.md source with Forge Read or read_file using offset:1 and limit:80; this workflows path is read-only for coders.",
     "",
     `Ticket ${ticket?.id ?? ""}: ${ticket?.title ?? ""}`,
     `Objective: ${ticket?.objective ?? ""}`,
@@ -116,9 +120,9 @@ export function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, compl
     ...instructions,
     ...coderProjectConventions(),
     `Budget discipline: you have a hard turn limit and a discovery budget of ${complexity.discovery_budget} exploration calls. The next action after identifying the target and relevant context is edit_diff or write_diff; do not spend the full budget by default. Every discovery result includes discovery_budget.remaining — start editing before it reaches 0. Simple tickets do not receive automatic discovery escalation. Re-read nothing you already read; prefer edit_diff with an exact anchor over re-reading whole files. Do not run run_test before at least one edit_diff/write_diff succeeded.`,
-    "Search discipline: select_code_graph_candidates is your map — read its candidate files first. Each ticket-traced candidate carries a symbol field: locate by symbol name first (symbol_map or search_code kind symbol), never by line number — line numbers go stale after other tickets edit the same file. Never search for text you are guessing at (UI labels, headings, ticket phrasing); search_code exists ONLY to verify or extend identifiers you already saw in a tool result. If a search_code call returns 0 matches, do not rephrase the same guess — read a candidate file window instead.",
+    directCode ? "Direct code search discipline: graph candidate retrieval is unavailable. Use search_code or Claude Read/Glob/Grep within approved prefixes to discover the implementation, then edit promptly." : "Search discipline: select_code_graph_candidates is your map — read its candidate files first. Each ticket-traced candidate carries a symbol field: locate by symbol name first (symbol_map or search_code kind symbol), never by line number — line numbers go stale after other tickets edit the same file. Never search for text you are guessing at (UI labels, headings, ticket phrasing); search_code exists ONLY to verify or extend identifiers you already saw in a tool result. If a search_code call returns 0 matches, do not rephrase the same guess — read a candidate file window instead.",
     "Symbol check: if the ticket symbol is missing from the file or its content no longer matches the ticket reason, the file changed since tracing — re-discover via search_code instead of editing blind.",
-    "Tool enforcement: read_file on files over 500 lines returns only a 40-line preview — always pass offset/limit windows. Exploration that yields no new information 3 times in a row is refused by the tool — act on what you have.",
+    "Tool enforcement: read_file with only path returns metadata and graph, never source. Use symbol or offset/limit to read source. Read windows may contain at most 80 lines. Exploration that yields no new information 3 times in a row is refused by the tool — act on what you have.",
     "Claude coder may use Forge Read, Glob, and Grep for familiar file discovery. These are Forge MCP tools; native built-ins remain disabled. Use the checksum returned by Read or read_file as before_checksum for write_diff/edit_diff; never send the string \"null\". Use JSON null only when intentionally creating a new file.",
     "For an existing file, use edit_diff with a small exact anchor and replacement. Use write_diff only for a new file or an existing file within the 250-line limit. If write_diff returns DESTRUCTIVE_OVERWRITE or CONTENT_TOO_LARGE, retry with edit_diff; do not stop or report done.",
     "If a governed tool call fails, fix the inputs and retry — do not continue with write_diff/commit_changes on an unknown target.",

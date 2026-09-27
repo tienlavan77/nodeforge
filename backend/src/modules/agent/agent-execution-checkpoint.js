@@ -2,7 +2,7 @@
 import { ConfigurationError } from "../../shared/errors.js";
 
 // Creates a checkpoint store backed by File Service for save/load/complete lifecycle.
-export function createAgentExecutionCheckpointStore({ fileService, root = ".forge/runtime/agent-checkpoints" } = {}) {
+export function createAgentExecutionCheckpointStore({ fileService, root = ".forge/runtime/agent-checkpoints", onSaved } = {}) {
   if (typeof fileService?.readFile !== "function" || typeof fileService?.atomicWrite !== "function") throw new ConfigurationError("Agent execution checkpoint store requires File Service persistence.");
   return Object.freeze({ save, load, complete, clear, listPending });
 
@@ -10,6 +10,7 @@ export function createAgentExecutionCheckpointStore({ fileService, root = ".forg
     if (!checkpoint?.task_id) throw new ConfigurationError("Agent execution checkpoint requires task_id.");
     const record = { ...checkpoint, updated_at: new Date().toISOString() };
     await fileService.atomicWrite({ path: pathFor(checkpoint.task_id), content: `${JSON.stringify(record)}\n`, replace: true });
+    await onSaved?.(record);
     return record;
   }
 

@@ -9,7 +9,7 @@ import { ConfigurationError } from "../shared/errors.js";
 import { authorizeTool } from "./tool-authorization.js";
 
 // Creates a scoped content search tool with the project's runtime logger.
-export function createRgSearchTool({ projectRoot, logger = createRuntimeLogger({ logEvent }), environment = process.env } = {}) {
+export function createRgSearchTool({ projectRoot, codeCache, logger = createRuntimeLogger({ logEvent }), environment = process.env } = {}) {
   if (typeof projectRoot !== "string" || !isAbsolute(projectRoot)) throw new ConfigurationError("rg_search requires an absolute project root.");
   return Object.freeze({ name: "rg_search", execute });
 
@@ -28,7 +28,7 @@ export function createRgSearchTool({ projectRoot, logger = createRuntimeLogger({
     emit("started", context, { command: safeCommand(args), cwd: projectRoot });
     let result;
     try {
-      result = await runRipgrep(projectRoot, args, environment);
+      result = codeCache ? await searchCached(projectRoot, args, codeCache, environment, (error, path) => emit("cache_read_skipped", context, { error_code: error.code ?? "RG_SEARCH_CACHE_READ_FAILED", path })) : await runRipgrep(projectRoot, args, environment);
     } catch (error) {
       emit("failed", context, { command: safeCommand(args), cwd: projectRoot, error_code: error.code ?? "RG_SEARCH_SPAWN_FAILED", error: error.message, duration_ms: Date.now() - started });
       throw error;
@@ -52,6 +52,37 @@ export function createRgSearchTool({ projectRoot, logger = createRuntimeLogger({
       payload: { agent_id: context?.agent_identity?.agent_id, execution_id: context?.execution_id, ...payload }
     });
   }
+}
+
+// Searches content supplied by the shared cache while ripgrep still selects files and matches lines.
+async function searchCached(cwd, args, codeCache, environment, onSkipped) {
+  const expression = args.indexOf("--regexp");
+  const flags = args.slice(0, expression);
+  const scopes = args.slice(expression + 3);
+  const selectors = flags.filter((flag) => flag.startsWith("--glob=") || flag.startsWith("--iglob=") || flag.startsWith("--type=") || flag.startsWith("--type-not="));
+  const matchFlags = flags.filter((flag) => !selectors.includes(flag));
+  const listing = await runRipgrep(cwd, ["--files", "-0", ...selectors, "--", ...scopes], environment);
+  if (listing.exit_code > 1 || listing.signal) return listing;
+  const syntax = await runRipgrep(cwd, [...matchFlags, "--regexp", args[expression + 1], "--", "-"], environment, "");
+  if (syntax.exit_code > 1 || syntax.signal) return syntax;
+  let stdout = "";
+  let stderr = "";
+  let matched = false;
+  for (const path of listing.stdout.split("\0").filter(Boolean)) {
+    let source;
+    try { source = await codeCache.read({ path }); }
+    catch (error) {
+      // A file may disappear or be protected after listing; never bypass File Service.
+      if (error.code === "ENOENT" || error.code === "FILE_TOO_LARGE" || error.name === "ConfigurationError") { onSkipped(error, path); continue; }
+      throw error;
+    }
+    const result = await runRipgrep(cwd, [...matchFlags, "--no-filename", "--regexp", args[expression + 1], "--", "-"], environment, source.content);
+    if (result.stdout) stdout += result.stdout.split("\n").map((line, index, lines) => index === lines.length - 1 && !line ? "" : `${path}:${line}`).join("\n");
+    stderr += result.stderr;
+    if (result.exit_code === 0) matched = true;
+    if (result.exit_code > 1 || result.signal) return { stdout, stderr, exit_code: result.exit_code, signal: result.signal };
+  }
+  return { stdout, stderr, exit_code: matched ? 0 : 1, signal: null };
 }
 
 // Records the command structure without persisting owner source search text.
@@ -100,17 +131,21 @@ function invalidInput(message) {
 }
 
 // Captures native ripgrep output while disabling inherited config and shell expansion.
-function runRipgrep(cwd, args, environment) {
+function runRipgrep(cwd, args, environment, input) {
   return new Promise((resolve, reject) => {
     const env = { ...environment };
     delete env.RIPGREP_CONFIG_PATH;
     delete env.RG_CONFIG_PATH;
-    const child = spawn(rgPath, args, { cwd, env, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(rgPath, args, { cwd, env, shell: false, stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"] });
     const stdout = [];
     const stderr = [];
     child.stdout.on("data", (chunk) => stdout.push(chunk));
     child.stderr.on("data", (chunk) => stderr.push(chunk));
     child.once("error", reject);
+    if (input !== undefined) {
+      child.stdin.on("error", (error) => { if (error.code !== "EPIPE") reject(error); });
+      child.stdin.end(input);
+    }
     child.once("close", (code, signal) => resolve({ stdout: Buffer.concat(stdout).toString("utf8"), stderr: Buffer.concat(stderr).toString("utf8"), exit_code: code, signal }));
   });
 }

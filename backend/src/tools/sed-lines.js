@@ -9,11 +9,11 @@ import { createRuntimeLogger } from "../core/runtime-logger.js";
 import { ConfigurationError } from "../shared/errors.js";
 import { authorizeTool } from "./tool-authorization.js";
 
-const MAX_LINES = 500;
+const MAX_LINES = 80;
 const MAX_OUTPUT_BYTES = 200000;
 
 // Creates a read-only sed tool that can reuse read_file's symbol lookup.
-export function createSedLinesTool({ projectRoot, fileService, symbolLookup, logger = createRuntimeLogger({ logEvent }), environment = process.env } = {}) {
+export function createSedLinesTool({ projectRoot, fileService, codeCache, symbolLookup, logger = createRuntimeLogger({ logEvent }), environment = process.env } = {}) {
   if (typeof projectRoot !== "string" || !isAbsolute(projectRoot)) throw new ConfigurationError("sed_lines requires an absolute project root.");
   return Object.freeze({ name: "sed_lines", execute });
 
@@ -33,7 +33,7 @@ export function createSedLinesTool({ projectRoot, fileService, symbolLookup, log
     emit("started", context, { command: ["sed", ...args], cwd: projectRoot });
     let result;
     try {
-      result = await runSed(projectRoot, args, environment);
+      result = codeCache ? await readCachedLines(codeCache, input) : await runSed(projectRoot, args, environment);
     } catch (error) {
       emit("failed", context, { command: ["sed", ...args], cwd: projectRoot, error_code: error.code ?? "SED_LINES_SPAWN_FAILED", error: error.message, duration_ms: Date.now() - started });
       throw error;
@@ -48,7 +48,7 @@ export function createSedLinesTool({ projectRoot, fileService, symbolLookup, log
     let metadata = {};
     if (fileService) {
       try {
-        const file = await fileService.readForIndex({ path: input.path });
+        const file = codeCache ? await codeCache.read({ path: input.path }) : await fileService.readForIndex({ path: input.path });
         if (typeof file?.content !== "string") throw invalidInput("sed_lines could not verify the file checksum.");
         metadata = { sha256: file.sha256 ?? `sha256:${createHash("sha256").update(file.content, "utf8").digest("hex")}`, total_lines: file.content.split("\n").length };
       } catch (error) {
@@ -76,6 +76,13 @@ export function createSedLinesTool({ projectRoot, fileService, symbolLookup, log
       payload: { agent_id: context?.agent_identity?.agent_id, execution_id: context?.execution_id, ...payload }
     });
   }
+}
+
+// Returns sed-compatible line output from the shared current-source cache.
+async function readCachedLines(codeCache, input) {
+  const file = await codeCache.read({ path: input.path });
+  const lines = file.content.split("\n");
+  return { stdout: lines.slice(input.start_line - 1, input.end_line).join("\n") + (input.start_line <= lines.length ? "\n" : ""), stderr: "", exit_code: 0, signal: null, cache: file.cache, index_status: file.index_status };
 }
 
 // Allows agent reads only inside the file scope issued by Node for the task.

@@ -35,6 +35,13 @@ test("runs File Service, incremental index, graph, search, relevant tree, and co
 
     const search = createCodeSearch({ database });
     assert.ok(search.search({ query: "publish", kind: "content" }).matches.some((match) => match.node.path === "src/events.js"));
+    const eventsGraph = search.search({ query: "src/events.js", kind: "file", limit: 1, projection: "graph" }).matches[0].node.graph;
+    assert.equal(eventsGraph.imported_by[0].path, "src/runner.js");
+    assert.deepEqual(eventsGraph.calls, []);
+    const runnerGraph = search.search({ query: "src/runner.js", kind: "file", limit: 1, projection: "graph" }).matches[0].node.graph;
+    assert.ok(runnerGraph.imports.some((link) => link.path === "src/events.js"));
+    assert.deepEqual(runnerGraph.calls[0], { caller: { path: "src/runner.js", name: "run" }, target: { path: "src/events.js", name: "publish" }, line: 2 });
+    assert.equal(JSON.stringify(runnerGraph).includes("symbol_id"), false);
     const selector = createRelevantTreeSelector({ search, fileGraph, maxFiles: 10 });
     const tree = selector.select({ title: "Publish notification", objective: "publish notification" });
     assert.ok(tree.tree.some((entry) => entry.path === "src/events.js"));

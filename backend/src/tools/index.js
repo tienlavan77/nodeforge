@@ -39,7 +39,8 @@ export const readTranscriptBlocksDefinition = Object.freeze({
 export const selectCodeGraphCandidatesDefinition = Object.freeze({ name: "select_code_graph_candidates", description: "Ask Node to find up to eight files related to an Agent-provided search intent.", input_schema: selectGraphInputSchema });
 export const searchCodeDefinition = Object.freeze({ name: "search_code", description: "Search Forge Code Search by file, symbol, or content (kind=\"content\" returns text snippets from FTS with matching lines) and return scoped metadata.", input_schema: searchCodeInputSchema });
 export const readCodeDefinition = Object.freeze({ name: "read_code", description: "Read exactly one Node-approved file or symbol through Forge File Service.", input_schema: readCodeInputSchema });
-export const readFileDefinition = Object.freeze({ name: "read_file", description: "Read one approved file through Node File Service and return its checksum.", input_schema: readFileInputSchema });
+// read_file validates its input schema; the tool registry does not apply a strict result schema.
+export const readFileDefinition = Object.freeze({ name: "read_file", description: "Get indexed metadata and graph for one file; pass symbol or offset/limit to receive current source code (at most 80 lines) and whole-file checksum.", input_schema: readFileInputSchema });
 export const writeDiffDefinition = Object.freeze({ name: "write_diff", description: "Write a complete file through Node File Service after checksum validation. Content is limited to 250 lines; for localized changes use edit_diff.", input_schema: writeDiffInputSchema });
 export const editDiffDefinition = Object.freeze({ name: "edit_diff", description: "Replace an exact anchor string in one approved file after checksum validation. Use read_file {offset,limit} to find the anchor; anchor must be unique unless occurrence=\"all\".", input_schema: editDiffInputSchema });
 export const runTestDefinition = Object.freeze({ name: "run_test", description: "Start the Node-owned test suite and return a job_id immediately; poll check_test with that job_id for the result.", input_schema: runTestInputSchema });
@@ -49,20 +50,21 @@ export const reportDoneDefinition = Object.freeze({ name: "report_done", descrip
 export const gitStatusDefinition = Object.freeze({ name: "git_status", description: "Read project Git status in porcelain format through Node Git Service.", input_schema: gitStatusInputSchema });
 export const gitDiffDefinition = Object.freeze({ name: "git_diff", description: "Read the unstaged working-tree patch through Node Git Service.", input_schema: gitDiffInputSchema });
 
-export function createForgeToolRegistry({ protocolStorage, fileService, projectRoot, maxChars, codeSearch, relevantTreeSelector, freshnessChecker, enableReadCode = false, testService, gitService, reportService, onEvalCase, governance, projectLogger = () => {} } = {}) {
+export function createForgeToolRegistry({ protocolStorage, fileService, projectRoot, maxChars, codeSearch, codeCache, relevantTreeSelector, freshnessChecker, enableReadCode = false, testService, gitService, reportService, onEvalCase, governance, projectLogger = () => {} } = {}) {
   const transcriptTool = createReadTranscriptBlocksTool({ protocolStorage, fileService, maxChars });
   const graphTool = createSelectCodeGraphCandidatesTool({ relevantTreeSelector, freshnessChecker });
   const retrievalBudgets = new Map();
   const lifecycle = {};
-  Object.assign(lifecycle, createAgentCommandTools({ projectRoot, fileService, codeSearch, projectLogger, wrap }));
+  Object.assign(lifecycle, createAgentCommandTools({ projectRoot, fileService, codeSearch, codeCache, projectLogger, wrap }));
   if (fileService?.readForIndex && fileService?.listFiles && fileService?.readFile && fileService?.atomicWrite && fileService?.deleteFile && projectRoot) {
     const scopedFiles = createRoleFileService({ fileService, role: "coder", projectRoot });
-    for (const [name, tool] of Object.entries(createClaudeFileTools({ fileService: scopedFiles, projectRoot }))) lifecycle[name] = wrap(tool, name);
+    const scopedCache = codeCache && { ...codeCache, read: async ({ path }) => { await scopedFiles.assertReadPath(path); return codeCache.read({ path }); } };
+    for (const [name, tool] of Object.entries(createClaudeFileTools({ fileService: scopedFiles, projectRoot, codeCache: scopedCache }))) lifecycle[name] = wrap(tool, name);
   }
-  if (fileService?.readForIndex && fileService?.readFile && fileService?.atomicWrite) lifecycle.read_file = wrap(createReadFileTool({ fileService, symbolLookup: codeSearch?.symbolsForFile?.bind(codeSearch), maxChars }), "read_file");
+  if (fileService?.readForIndex && fileService?.readFile && fileService?.atomicWrite) lifecycle.read_file = wrap(createReadFileTool({ fileService, codeCache, symbolLookup: codeSearch?.symbolsForFile?.bind(codeSearch), maxChars }), "read_file");
   if (fileService?.readFile && fileService?.atomicWrite) {
-    lifecycle.write_diff = wrap(createWriteDiffTool({ fileService, maxChars }), "write_diff");
-    lifecycle.edit_diff = wrap(createEditDiffTool({ fileService, maxChars }), "edit_diff");
+    lifecycle.write_diff = wrap(createWriteDiffTool({ fileService, codeCache, maxChars }), "write_diff");
+    lifecycle.edit_diff = wrap(createEditDiffTool({ fileService, codeCache, maxChars }), "edit_diff");
   }
   if (testService?.startTests) lifecycle.run_test = wrap(createRunTestTool({ testService }), "run_test");
   if (testService?.getTestResult) lifecycle.check_test = wrap(createCheckTestTool({ testService }), "check_test");
@@ -79,11 +81,11 @@ export function createForgeToolRegistry({ protocolStorage, fileService, projectR
     select_code_graph_candidates: Object.freeze({ ...graphTool, async execute(input, context = {}) { const scoped = withDefaultBudget(context); authorizeTool("select_code_graph_candidates", scoped); return dispatch("select_code_graph_candidates", graphTool, input, scoped); } })
   };
   if (codeSearch?.search) {
-    const searchTool = createSearchCodeTool({ codeSearch });
+    const searchTool = createSearchCodeTool({ codeSearch, codeCache, projectLogger });
     registry.search_code = Object.freeze({ ...searchTool, async execute(input, context = {}) { const scoped = withDefaultBudget(context); authorizeTool("search_code", scoped); return dispatch("search_code", searchTool, input, scoped); } });
   }
   if (enableReadCode) {
-    const readCodeTool = createReadCodeTool({ fileService, maxChars });
+    const readCodeTool = createReadCodeTool({ fileService, codeCache, maxChars });
     registry.read_code = Object.freeze({ ...readCodeTool, async execute(input, context = {}) { const scoped = withDefaultBudget(context); authorizeTool("read_code", scoped); return dispatch("read_code", readCodeTool, input, scoped); } });
   }
   function withDefaultBudget(context = {}) { if (governance) return context;

@@ -5,12 +5,13 @@ import { ConfigurationError } from "../shared/errors.js";
 import { isProtectedPath } from "../infrastructure/filesystem/protected-path-policy.js";
 import { assertExecutionScope, checkRetrievalBudget, recordRetrieval } from "./retrieval-governance.js";
 import { discoveryNotice } from "./exploration-state.js";
+import { resolveSymbolWindow } from "./agent-file-index-view.js";
 
 const DEFAULT_MAX_CHARS = 50000;
 const HARD_MAX_CHARS = 100000;
 const IGNORED_PREFIXES = [".git/", ".forge/", ".next/", ".next.stale-", "agent-tool/"];
 
-export function createReadCodeTool({ fileService, maxChars = DEFAULT_MAX_CHARS } = {}) {
+export function createReadCodeTool({ fileService, codeCache, maxChars = DEFAULT_MAX_CHARS } = {}) {
   if (typeof fileService?.readForIndex !== "function") throw new ConfigurationError("Read Code tool requires Forge File Service readForIndex.");
   if (!Number.isInteger(maxChars) || maxChars < 1000 || maxChars > HARD_MAX_CHARS) throw new ConfigurationError("Read Code service maxChars is invalid.");
   return Object.freeze({ name: "read_code", execute });
@@ -27,21 +28,28 @@ export function createReadCodeTool({ fileService, maxChars = DEFAULT_MAX_CHARS }
     if (!allowedFiles.has(path)) throw scopedError("READ_PATH_FORBIDDEN", "Read path is outside the exact Node-approved file allowlist.");
     const requestedMax = input.max_chars;
     if (!Number.isInteger(requestedMax) || requestedMax < 1000 || requestedMax > maxChars) throw scopedError("READ_LIMIT_INVALID", `max_chars must be an integer between 1000 and ${maxChars}.`);
-    const symbol = kind === "symbol" ? validateSymbol(input, context.allowed_symbols ?? context.allowedSymbols, path) : null;
+    const approvedSymbol = kind === "symbol" ? validateSymbol(input, context.allowed_symbols ?? context.allowedSymbols, path) : null;
     checkRetrievalBudget(context, requestedMax, "read_code");
     let file;
-    try { file = await fileService.readForIndex({ path }); }
+    try { file = codeCache ? await codeCache.read({ path }) : await fileService.readForIndex({ path }); }
     catch (error) {
       if (error?.code === "ENOENT") throw scopedError("READ_FILE_NOT_FOUND", `Approved file was not found: ${path}.`, error);
       throw scopedError("READ_BACKEND_ERROR", "Forge File Service failed to read the approved file.", error);
     }
     if (!file || typeof file.content !== "string") throw scopedError("READ_BACKEND_ERROR", "Forge File Service returned invalid file content.");
+    let symbol = approvedSymbol;
+    if (symbol && file.index_status && file.index_status !== "fresh") {
+      const current = resolveSymbolWindow(file, path, symbol.name ?? input.symbol);
+      if (!current) throw scopedError("READ_SYMBOL_STALE", "Approved symbol is absent from current source; discover the symbol again.");
+      symbol = { ...current, name: current.name ?? symbol.name, symbol_kind: current.symbol_kind ?? current.kind ?? symbol.symbol_kind };
+    }
     const content = symbol ? sliceSymbol(file.content, symbol) : file.content;
     const returnedContent = content.slice(0, requestedMax);
     const result = {
       task_id: taskId, kind, path, content: returnedContent, language: file.language ?? null,
       sha256: file.sha256 ?? null, size_bytes: Number.isInteger(file.size_bytes) ? file.size_bytes : Buffer.byteLength(file.content, "utf8"),
       truncated: content.length > requestedMax,
+      ...(codeCache ? { cache: file.cache, content_sha256: file.content_sha256, indexed_sha256: file.indexed_sha256, index_status: file.index_status, index_version: file.index_version } : {}),
       ...(symbol ? { symbol: symbol.name, symbol_kind: symbol.symbol_kind ?? "unknown", start_line: symbol.start_line, end_line: symbol.end_line } : {})
     };
     recordRetrieval(context, { bytes: Buffer.byteLength(returnedContent, "utf8"), tool: "read_code", kind, taskId, resource: path });

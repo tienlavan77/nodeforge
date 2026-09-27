@@ -11,11 +11,13 @@ export const ownerDeleteFileDefinition = Object.freeze({
 });
 
 // Creates a checksum-guarded delete operation for approved workflow files.
-export function createOwnerDeleteFileTool({ fileService }) {
+export function createOwnerDeleteFileTool({ fileService, codeCache }) {
   return Object.freeze({ name: "delete_file", async execute(input = {}) {
     const content = await fileService.readFile({ path: input.path });
     const current = `sha256:${createHash("sha256").update(content, "utf8").digest("hex")}`;
     if (input.before_checksum !== current) throw Object.assign(new ConfigurationError("Workflow file changed since it was read."), { code: "CHECKSUM_MISMATCH" });
-    return fileService.deleteFile({ path: input.path });
+    const result = await fileService.deleteFile({ path: input.path });
+    codeCache?.invalidate({ path: input.path });
+    return result;
   } });
 }
