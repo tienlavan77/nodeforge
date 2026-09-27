@@ -4,7 +4,7 @@
 import { ThemeToggle } from "./ThemeToggle.jsx";
 
 // Top navigation header with branding and actions.
-export function NodeForgeHeader({ title, subtitle, status, project = "NODEFORGE", branch = "main", actions = null, className = "" }) {
+export function NodeForgeHeader({ title, subtitle, status, project = "NODEFORGE", actions = null, className = "" }) {
   return (
     <header className={`topbar ${className}`.trim()}>
       <div className="brand">
@@ -19,7 +19,6 @@ export function NodeForgeHeader({ title, subtitle, status, project = "NODEFORGE"
         {status && <span className="node-status">{status}</span>}
         <div className="project-meta" style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.2rem" }}>
           <span className="project-label">PROJECT <strong>{project}</strong></span>
-          <span className="branch-label">BRANCH <strong>{branch}</strong></span>
         </div>
         <div className="topbar-actions">
           {actions}
