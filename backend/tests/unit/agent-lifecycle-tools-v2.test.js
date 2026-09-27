@@ -20,17 +20,18 @@ test("read_file returns a bounded line window with whole-file checksum", async (
   const big = Array.from({ length: 30 }, (_, i) => `line-${i + 1}`).join("\n");
   await fileService.atomicWrite({ path: "big.txt", content: big, replace: true });
   const full = await tool.execute({ path: "big.txt" }, {});
-  assert.equal(full.total_lines, undefined);
-  const window = await tool.execute({ path: "big.txt", offset: 28, limit: 500 }, {});
+  assert.equal(full.total_lines, 30);
+  assert.equal(full.content, undefined);
+  const window = await tool.execute({ path: "big.txt", offset: 28, limit: 80 }, {});
   assert.equal(window.content, "line-28\nline-29\nline-30");
   assert.equal(window.total_lines, 30);
   assert.equal(window.truncated, false);
   assert.equal(window.sha256, full.sha256, "checksum must be the whole-file hash");
   await assert.rejects(() => tool.execute({ path: "big.txt", offset: 31 }, {}), /OFFSET_OUT_OF_RANGE|beyond the last line/);
-  await assert.rejects(() => tool.execute({ path: "big.txt", offset: 1, limit: 501 }, {}), /limit must be an integer/);
+  await assert.rejects(() => tool.execute({ path: "big.txt", offset: 1, limit: 81 }, {}), /limit must be an integer/);
 });
 
-test("read_file previews files over 500 lines with a symbol map and requires a window", async () => {
+test("read_file returns metadata for large files and requires a source window", async () => {
   const { fileService } = await harness();
   const symbolCalls = [];
   const tool = createReadFileTool({ fileService, symbolLookup: (path) => { symbolCalls.push(path); return [{ name: "Header", kind: "component", start_line: 410, end_line: 480 }]; } });
@@ -38,16 +39,38 @@ test("read_file previews files over 500 lines with a symbol map and requires a w
   await fileService.atomicWrite({ path: "large.txt", content: big, replace: true });
   const full = await tool.execute({ path: "large.txt" }, {});
   assert.equal(full.total_lines, 600);
-  assert.equal(full.truncated, true);
-  assert.equal(full.content, Array.from({ length: 40 }, (_, i) => `line-${i + 1}`).join("\n"));
+  assert.equal(full.content, undefined);
   assert.match(full.notice, /offset\/limit/);
-  assert.deepEqual(full.symbol_map, [{ name: "Header", kind: "component", start_line: 410, end_line: 480 }]);
-  assert.deepEqual(symbolCalls, ["large.txt"]);
+  assert.deepEqual(full.symbol_map, []);
+  assert.deepEqual(symbolCalls, []);
   assert.equal(full.sha256, `sha256:${createHash("sha256").update(big).digest("hex")}`);
-  const window = await tool.execute({ path: "large.txt", offset: 590, limit: 500 }, {});
+  const window = await tool.execute({ path: "large.txt", offset: 590, limit: 80 }, {});
   assert.equal(window.content, "line-590\nline-591\nline-592\nline-593\nline-594\nline-595\nline-596\nline-597\nline-598\nline-599\nline-600");
   assert.equal(window.truncated, false);
-  assert.equal("symbol_map" in window, false);
+  assert.equal(Array.isArray(window.symbol_map), true);
+});
+
+test("read_file returns metadata for an 81-line project file", async () => {
+  const { fileService } = await harness();
+  const content = Array.from({ length: 81 }, (_, index) => `line-${index + 1}`).join("\n");
+  await fileService.atomicWrite({ path: "project.js", content, replace: true });
+  const read = createReadFileTool({ fileService });
+  const metadata = await read.execute({ path: "project.js" }, {});
+  assert.equal(metadata.content, undefined);
+  assert.equal(metadata.total_lines, 81);
+  const window = await read.execute({ path: "project.js", offset: 41, limit: 80 }, {});
+  assert.equal(window.content.split("\n").length, 41);
+  assert.equal(window.sha256, metadata.sha256);
+});
+
+test("coder can read workflow rules but cannot edit workflow files", async () => {
+  const { fileService } = await harness();
+  await fileService.atomicWrite({ path: "workflows/agents/coder.md", content: "Coder rules\n", replace: true });
+  const context = { agent_identity: { role: "coder" }, allowed_prefixes: ["workflows/"] };
+  const read = await createReadFileTool({ fileService }).execute({ path: "workflows/agents/coder.md", offset: 1, limit: 80 }, context);
+  assert.equal(read.content, "Coder rules\n");
+  await assert.rejects(() => createEditDiffTool({ fileService }).execute({ path: "workflows/agents/coder.md", before_checksum: read.sha256, anchor: "Coder", replacement: "Other" }, context), (error) => error.code === "FILE_ROLE_FORBIDDEN");
+  await assert.rejects(() => createWriteDiffTool({ fileService }).execute({ path: "workflows/new.md", before_checksum: null, content: "Rules\n" }, context), (error) => error.code === "FILE_ROLE_FORBIDDEN");
 });
 
 test("repeated windowed reads hit EXPLORATION_STAGNANT and a successful edit resets the streak", async () => {
@@ -56,14 +79,14 @@ test("repeated windowed reads hit EXPLORATION_STAGNANT and a successful edit res
   const edit = createEditDiffTool({ fileService });
   await fileService.atomicWrite({ path: "code.js", content: "const a = 1;\nconst b = 2;\n", replace: true });
   const context = { task_id: "T-STAG" };
-  const input = { path: "code.js", offset: 1, limit: 500 };
+  const input = { path: "code.js", offset: 1, limit: 80 };
   await read.execute(input, context);
   await read.execute(input, context);
   await read.execute(input, context);
   await assert.rejects(() => read.execute(input, context), (error) => error.code === "EXPLORATION_STAGNANT");
   const before = await read.execute({ path: "code.js" }, context);
   await edit.execute({ path: "code.js", before_checksum: before.sha256, anchor: "const b = 2;", replacement: "const b = 3;" }, context);
-  const input2 = { path: "code.js", offset: 1, limit: 500 };
+  const input2 = { path: "code.js", offset: 1, limit: 80 };
   await read.execute(input2, context);
   await read.execute(input2, context);
   await assert.rejects(() => read.execute(input2, context), (error) => error.code === "EXPLORATION_STAGNANT");
@@ -97,7 +120,6 @@ test("write_diff rejects replacing an existing file over 250 lines", async () =>
   assert.equal(await fileService.readFile({ path: "large.css" }), original);
 });
 
-
 test("edit_diff replaces a unique anchor, verifies checksum, and reports errors", async () => {
   const { fileService } = await harness();
   const read = createReadFileTool({ fileService });
@@ -107,7 +129,7 @@ test("edit_diff replaces a unique anchor, verifies checksum, and reports errors"
   const before = await read.execute({ path: "code.js" }, {});
   const result = await edit.execute({ path: "code.js", before_checksum: before.sha256, anchor: "const b = 2;", replacement: "const b = 3;" }, {});
   assert.equal(result.replaced_count, 1);
-  const after = await read.execute({ path: "code.js" }, {});
+  const after = await read.execute({ path: "code.js", offset: 1, limit: 80 }, {});
   assert.equal(after.content, "// Test code file\nconst a = 1;\nconst b = 3;\n");
   assert.notEqual(after.sha256, before.sha256);
 
@@ -129,7 +151,7 @@ test("edit_diff with occurrence=all replaces every match and skips uniqueness ch
   const before = await read.execute({ path: "multi.txt" }, {});
   const result = await edit.execute({ path: "multi.txt", before_checksum: before.sha256, anchor: "TODO", replacement: "DONE", occurrence: "all" }, {});
   assert.equal(result.replaced_count, 2);
-  const after = await read.execute({ path: "multi.txt" }, {});
+  const after = await read.execute({ path: "multi.txt", offset: 1, limit: 80 }, {});
   assert.equal(after.content, "DONE\nkeep\nDONE\n");
 });
 

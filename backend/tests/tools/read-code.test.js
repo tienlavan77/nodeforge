@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createReadCodeTool } from "../../src/tools/read-code.js";
 import { createForgeToolRegistry } from "../../src/tools/index.js";
+import { readFile } from "node:fs/promises";
+import Ajv2020 from "ajv/dist/2020.js";
+import addFormats from "ajv-formats";
 
 const source = "one\ntwo\nthree\nfour";
 const context = {
@@ -31,6 +34,26 @@ test("reads only the exact approved symbol range", async () => {
   assert.equal(result.symbol_kind, "function");
   assert.equal(result.start_line, 2);
   assert.equal(result.end_line, 3);
+});
+
+test("re-resolves an approved symbol against live source when the index checksum is stale", async () => {
+  const staleFile = { content: "const before = 0;\nfunction Example() {\n  return 42;\n}\n", language: "javascript", sha256: "sha256:new", size_bytes: 55, index_status: "stale", content_sha256: "sha256:new", indexed_sha256: "sha256:old", cache: { status: "hit", cached_at: null, expires_at: null } };
+  const result = await createReadCodeTool({ fileService: fileService(), codeCache: { read: async () => staleFile } }).execute({ kind: "symbol", path: "src/example.js", symbol: "Example", start_line: 2, end_line: 3, max_chars: 50000 }, context);
+  assert.match(result.content, /return 42/);
+  assert.equal(result.start_line, 2);
+  assert.equal(result.end_line, 4);
+  assert.equal(result.index_status, "stale");
+});
+
+test("read_code cache result passes its strict JSON schema", async () => {
+  const content = "function Example() { return 42; }\n";
+  const sha256 = `sha256:${(await import("node:crypto")).createHash("sha256").update(content).digest("hex")}`;
+  const cached = { content, sha256, size_bytes: Buffer.byteLength(content), language: "javascript", cache: { status: "hit", cached_at: new Date().toISOString(), expires_at: new Date().toISOString() }, content_sha256: sha256, indexed_sha256: null, index_status: "unavailable", index_version: null };
+  const result = await createReadCodeTool({ fileService: fileService(), codeCache: { read: async () => cached } }).execute(fileInput, context);
+  const schema = JSON.parse(await readFile(new URL("../../../schemas/agent/tools/read-code-result.schema.json", import.meta.url), "utf8"));
+  const ajv = new Ajv2020({ strict: false }); addFormats(ajv);
+  const validate = ajv.compile(schema);
+  assert.equal(validate(result), true, JSON.stringify(validate.errors));
 });
 
 test("rejects resources outside Node exact allowlists", async () => {

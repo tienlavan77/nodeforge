@@ -144,6 +144,13 @@ test("project stream normalizes ticket status payloads to the agreed contract", 
   assert.deepEqual(explicit.payload, { ticket_id: "FORGE-UI-052", previous_status: "pending", status: "running", updated_at: "2026-09-14T11:00:01.000Z" });
 });
 
+test("project stream emits a direct-code checkpoint update for Resume", () => {
+  const publisher = createProjectStreamPublisher({ projectId: "PROJECT-STREAM-NORM", indexDb: { all: () => [] } });
+  const projected = publisher.project({ type: "agent.checkpoint.updated", project_id: "PROJECT-STREAM-NORM", timestamp: "2026-09-27T05:00:00.000Z", payload: { task_id: "CODE-1", sprint_id: "SPRINT-1", status: "resumable", last_completed_turn: 25, last_tool: "read_file", session_id: "private-session" } });
+  assert.equal(projected.event_type, "agent.checkpoint.updated");
+  assert.deepEqual(projected.payload, { task_id: "CODE-1", sprint_id: "SPRINT-1", status: "resumable", last_completed_turn: 25, last_tool: "read_file", updated_at: "2026-09-27T05:00:00.000Z" });
+});
+
 test("project stream keeps ticket and sprint snapshots but drops internal fields", () => {
   const publisher = createProjectStreamPublisher({ projectId: "PROJECT-STREAM-NORM", indexDb: { all: () => [] } });
   const created = publisher.project({ type: "ticket.created", project_id: "PROJECT-STREAM-NORM", timestamp: "2026-09-14T10:00:00.000Z", payload: { ticket_id: "TICKET-C", ticket: { id: "TICKET-C", title: "C" }, roadmap_version: "1.0.0", sprint_id: "SPRINT-C", patch: { hidden: true } } });

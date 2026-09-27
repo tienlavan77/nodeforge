@@ -68,7 +68,7 @@ test("sed_lines rejects unsafe paths, line windows, and agent authorization", as
     for (const path of ["../outside.js", "backend/ignored.js", "backend/linked.js", ".git/config"]) {
       await assert.rejects(() => tool.execute({ path, start_line: 1, end_line: 1 }, context));
     }
-    await assert.rejects(() => tool.execute({ path: "backend/safe.js", start_line: 1, end_line: 501 }, context), /at most 500 lines/);
+    await assert.rejects(() => tool.execute({ path: "backend/safe.js", start_line: 1, end_line: 81 }, context), /at most 80 lines/);
     await assert.rejects(() => tool.execute({ path: "backend/safe.js", start_line: 1, end_line: 1 }, { task_id: "SED-1", capabilities: [] }), (error) => error.code === "TOOL_FORBIDDEN");
     assert.ok(events.every((event) => event.event_name === "forge.sed_lines_rejected" && event.status === "failed"));
   } finally {

@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createSearchCodeTool } from "../../src/tools/search-code.js";
 import { createForgeToolRegistry } from "../../src/tools/index.js";
+import { readFile } from "node:fs/promises";
+import Ajv2020 from "ajv/dist/2020.js";
+import addFormats from "ajv-formats";
 
 const searchResult = {
   index_version: "IDX-9",
@@ -43,6 +46,58 @@ test("returns content matches with FTS snippet", async () => {
   assert.equal(result.matches[0].path, "frontend/src/Header.jsx");
   assert.equal(result.matches[0].snippet, "»Header« renders title");
   assert.equal(result.matches[0].sha256, "abc");
+});
+
+test("prewarms approved search results and hides indexed ranges when source changed", async () => {
+  const paths = [];
+  const codeCache = { prewarm: async (items) => {
+    paths.push(...items);
+    return new Map([["frontend/src/Header.jsx", { indexed_sha256: "sha256:old", content_sha256: "sha256:new", index_status: "stale" }]]);
+  } };
+  const result = await createSearchCodeTool({ codeSearch: { search: async () => ({ index_version: "IDX-2", matches: [{ score: 1, node: { path: "frontend/src/Header.jsx", snippet: "old source", symbol_name: "Header", start_line: 2, end_line: 5 } }] }) }, codeCache })
+    .execute({ query: "Header", kind: "content", limit: 5, allowed_prefixes: ["frontend/"] }, { task_id: "TASK-CACHE-SEARCH", capabilities: ["search_code"], allowed_prefixes: ["frontend/"] });
+  assert.deepEqual(paths, ["frontend/src/Header.jsx"]);
+  assert.equal(result.matches[0].index_status, "stale");
+  assert.equal(result.matches[0].snippet, undefined);
+  assert.equal(result.matches[0].start_line, undefined);
+});
+
+test("search_code returns results when cache prewarm fails and logs the failure", async () => {
+  const logs = [];
+  const result = await createSearchCodeTool({ codeSearch: { search: async () => searchResult }, codeCache: { prewarm: async () => { throw new Error("cache stopped"); } }, projectLogger: (entry) => logs.push(entry) }).execute(input, { task_id: "TASK-PREWARM-ERROR", capabilities: ["search_code"], allowed_prefixes: ["frontend/"] });
+  assert.equal(result.matches.length, 2);
+  assert.equal(result.matches[0].index_status, "unavailable");
+  assert.equal(logs[0].event_name, "search_code.prewarm_failed");
+  assert.equal(JSON.stringify(logs).includes("Header"), false);
+});
+
+test("search_code freshness results validate against the strict result schema", async () => {
+  const schema = JSON.parse(await readFile(new URL("../../../schemas/agent/tools/search-code-result.schema.json", import.meta.url), "utf8"));
+  const ajv = new Ajv2020({ strict: false }); addFormats(ajv); const validate = ajv.compile(schema);
+  const source = { index_version: "IDX-3", matches: [
+    { score: 1, node: { path: "frontend/src/Header.jsx", name: "Header", symbol_kind: "function", start_line: 1, end_line: 3 } }
+  ] };
+  const codeCache = { prewarm: async () => new Map([["frontend/src/Header.jsx", { indexed_sha256: `sha256:${"a".repeat(64)}`, content_sha256: `sha256:${"b".repeat(64)}`, index_status: "stale" }]]) };
+  const result = await createSearchCodeTool({ codeSearch: { search: async () => source }, codeCache }).execute({ query: "Header", kind: "symbol", limit: 5, allowed_prefixes: ["frontend/"] }, { task_id: "TASK-STRICT-SCHEMA", capabilities: ["search_code"], allowed_prefixes: ["frontend/"] });
+  assert.equal(validate(result), true, JSON.stringify(validate.errors));
+  const fileResult = await createSearchCodeTool({ codeSearch: { search: async () => searchResult }, codeCache: { prewarm: async () => new Map() } }).execute(input, { task_id: "TASK-STRICT-FILE", capabilities: ["search_code"], allowed_prefixes: ["frontend/"] });
+  assert.equal(validate(fileResult), true, JSON.stringify(validate.errors));
+  const contentResult = await createSearchCodeTool({ codeSearch: { search: async () => ({ index_version: "IDX-3", matches: [{ score: 1, node: { path: "frontend/src/Header.jsx", language: "javascript", snippet: "old", symbol_name: "Header", start_line: 1, end_line: 3 } }] }) }, codeCache }).execute({ query: "Header", kind: "content", limit: 5, allowed_prefixes: ["frontend/"] }, { task_id: "TASK-STRICT-CONTENT", capabilities: ["search_code"], allowed_prefixes: ["frontend/"] });
+  assert.equal(validate(contentResult), true, JSON.stringify(validate.errors));
+});
+
+test("shows only readable graph relations inside the approved search scope", async () => {
+  const graph = {
+    imports: [{ path: "frontend/src/helper.js", name: "helper", kind: "import", broken: false }, { path: "backend/private.js", name: "secret", kind: "import", broken: false }],
+    imported_by: [{ path: "frontend/src/App.jsx", name: "Header", kind: "import", broken: false }, { path: ".forge/runtime/hidden.js", name: "hidden", kind: "import", broken: false }],
+    calls: [{ caller: { path: "frontend/src/Header.jsx", name: "render" }, target: { path: "frontend/src/helper.js", name: "format" }, line: 4 }, { caller: { path: "frontend/src/Header.jsx", name: "render" }, target: { path: "backend/private.js", name: "secret" }, line: 5 }],
+    index_version: "IDX-9"
+  };
+  const result = await makeTool({ index_version: "IDX-9", matches: [{ type: "file", score: 1, node: { path: "frontend/src/Header.jsx", graph } }] })
+    .execute({ ...input, projection: "graph" }, { task_id: "TASK-GRAPH-SCOPE", capabilities: ["search_code"], allowed_prefixes: ["frontend/"] });
+  assert.deepEqual(result.matches[0].graph, {
+    imports: [graph.imports[0]], imported_by: [graph.imported_by[0]], calls: [graph.calls[0]], index_version: "IDX-9"
+  });
 });
 
 test("attaches a hint when no matches survive scoping", async () => {

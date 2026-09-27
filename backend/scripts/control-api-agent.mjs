@@ -15,9 +15,7 @@ export function createControlApiAgent({ database, fileService, config, env = pro
   const agentConfiguration = createNodeAgentConfiguration({ profiles, configurationPath: join(config.dataDir, "agent-config.json"), fileService });
   const secrets = createPersistentSecretBackend({ filePath: join(config.dataDir, "secrets.vault"), encryptionKey: env.NODE_SECRET_ENCRYPTION_KEY, fileService });
   const codexBaseUrl = env.OPENAI_BASE_URL?.replace(/\/$/, "");
-  const codexCredential = env.OPENAI_API_KEY;
-  if (codexCredential && !secrets.get("env:OPENAI_API_KEY")) secrets.set("env:OPENAI_API_KEY", codexCredential);
-  if (codexBaseUrl && codexCredential) syncArchitectureProfile({ profiles, codexBaseUrl, codexCredential, env });
+  syncArchitectureProfile({ profiles, secrets, codexBaseUrl, bootstrapCredential: env.OPENAI_API_KEY, env });
   for (const existing of profiles.getAll()) {
     if (existing.provider === undefined || existing.model === undefined) {
       profiles.update({ ...existing, provider: existing.provider ?? "codex", model: existing.model ?? "", updated_at: existing.updated_at });
@@ -34,10 +32,21 @@ export function createControlApiAgent({ database, fileService, config, env = pro
   return { profiles, agentConfiguration, secrets, agentGateway, claudeSdkGateway, codexSdkGateway, ollamaSdkGateway, agentSettings, agentRoleResolver };
 }
 
-function syncArchitectureProfile({ profiles, codexBaseUrl, codexCredential, env }) {
+// Migrates the bootstrap architecture credential to its own profile reference.
+export function syncArchitectureProfile({ profiles, secrets, codexBaseUrl, bootstrapCredential, env }) {
   const current = profiles.getAll().find((profile) => profile.role === "architecture_manager");
-  const gatewayUrl = codexBaseUrl.endsWith("/responses") ? codexBaseUrl : codexBaseUrl.endsWith("/v1") ? `${codexBaseUrl}/responses` : `${codexBaseUrl}/v1/responses`;
+  if (!current) return;
+  const legacyReference = current.credential_ref === "env:OPENAI_API_KEY";
+  const placeholderGateway = Boolean(codexBaseUrl && bootstrapCredential && current.gateway_url.includes("gateway.example.test"));
+  if (!legacyReference && !placeholderGateway) return;
+  const profileReference = legacyReference ? `runtime:${current.agent_id}:api-key` : current.credential_ref;
+  if (!secrets.get(profileReference) && (legacyReference || profileReference.startsWith("runtime:"))) {
+    const credential = legacyReference ? secrets.get(current.credential_ref) ?? bootstrapCredential : bootstrapCredential;
+    if (!credential) return;
+    secrets.set(profileReference, credential);
+  }
+  const gatewayUrl = placeholderGateway ? codexBaseUrl.endsWith("/responses") ? codexBaseUrl : codexBaseUrl.endsWith("/v1") ? `${codexBaseUrl}/responses` : `${codexBaseUrl}/v1/responses` : current.gateway_url;
   const model = env.NODE_AGENT_MODEL ?? "gpt-5.6-terra";
   const now = new Date().toISOString();
-  if (current && (current.gateway_url.includes("gateway.example.test") || current.credential_ref.startsWith("runtime:"))) profiles.update({ ...current, gateway_url: gatewayUrl, credential_ref: "env:OPENAI_API_KEY", enabled: true, status: "ready", provider: current.provider ?? "codex", model: current.model ?? model, updated_at: now });
+  profiles.update({ ...current, gateway_url: gatewayUrl, credential_ref: profileReference, enabled: placeholderGateway ? true : current.enabled, status: placeholderGateway ? "ready" : current.status, provider: current.provider ?? "codex", model: current.model ?? model, updated_at: now });
 }

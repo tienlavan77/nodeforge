@@ -13,6 +13,11 @@
       "minLength": 1,
       "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+"
     },
+    "symbol": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Current symbol name to read (exclusive with offset and limit)"
+    },
     "offset": {
       "type": "integer",
       "minimum": 1,
@@ -21,7 +26,7 @@
     "limit": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 500,
+      "maximum": 80,
       "description": "max lines to return"
     }
   }

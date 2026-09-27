@@ -1,13 +1,16 @@
 // agent lifecycle tools - provides agent lifecycle tools functionality for NodeForge.
 import { createHash } from "node:crypto";
 import { isProtectedPath } from "../infrastructure/filesystem/protected-path-policy.js";
+import { assertCoderWorkflowReadOnly } from "../infrastructure/filesystem/file-service-role-policy.js";
 import { ConfigurationError } from "../shared/errors.js";
 import { loadAgentContextConventions } from "../modules/supervisor/agent-context-conventions.js";
-import { discoveryCount, discoveryNotice, recordRead, resetExploration } from "./exploration-state.js";
+import { resolveSymbolWindow, scopedGraph } from "./agent-file-index-view.js";
+import { extractorRegistry } from "../modules/index/parser/index.js";
+import { hasFileHeaderComment, extractFunctionSignatures, hasPrecedingComment } from "./agent-code-conventions.js";
+import { discoveryNotice, recordRead, resetExploration } from "./exploration-state.js";
 const MAX_CONTENT = 200000;
 const WRITE_DIFF_MAX_LINES = 250;
-const READ_PREVIEW_LINES = 40;
-const FULL_READ_LINE_LIMIT = 500;
+const READ_WINDOW_LINE_LIMIT = 80;
 // safePath - handles safePath operation.
 const safePath = (value, operation = "read") => {
   if (typeof value !== "string" || !value || value.startsWith("/") || value.includes("\\") || value.split("/").some((part) => !part || part === "." || part === "..") || isProtectedPath(value, { operation })) throw error("PATH_FORBIDDEN", "Path is outside the permitted project scope.");
@@ -29,47 +32,50 @@ const checksumDiagnostics = (beforeChecksum, targetExists) => ({
 });
 
 // createReadFileTool - handles createReadFileTool operation.
-export function createReadFileTool({ fileService, symbolLookup, maxChars = MAX_CONTENT } = {}) {
+export function createReadFileTool({ fileService, codeCache, maxChars = MAX_CONTENT } = {}) {
   if (typeof fileService?.readForIndex !== "function") throw new ConfigurationError("read_file requires File Service.");
   return Object.freeze({ name: "read_file", async execute(input = {}, context = {}) {
-    const path = safePath(input.path); assertAllowed(path, context); const file = await fileService.readForIndex({ path });
+    const path = safePath(input.path); assertAllowed(path, context); const file = codeCache ? await codeCache.read({ path }) : await fileService.readForIndex({ path });
     if (!file || typeof file.content !== "string") throw error("READ_FAILED", `File could not be read: ${path}`);
     const sha256 = file.sha256 ?? checksum(file.content);
     const sizeBytes = file.size_bytes ?? Buffer.byteLength(file.content);
     const hasWindow = input.offset !== undefined || input.limit !== undefined;
     const lines = file.content.split("\n");
-    if (!hasWindow && lines.length > FULL_READ_LINE_LIMIT) {
-      // Refusing full reads of large files forces windowed navigation; the
-      // sha256 stays whole-file so edit_diff before_checksum still works. The
-      // symbol map lets the agent aim its first window instead of blind probing.
-      recordRead(context, { path, window: "preview" });
-      const symbols = typeof symbolLookup === "function" ? symbolLookup(path) : [];
-      const result = { path, content: lines.slice(0, READ_PREVIEW_LINES).join("\n"), sha256, size_bytes: sizeBytes, offset: 1, limit: READ_PREVIEW_LINES, total_lines: lines.length, truncated: true, symbol_map: symbols, notice: `File has ${lines.length} lines. Re-call read_file with offset/limit windows (max 500 lines) targeting the symbol you need; symbol_map gives each symbol's line range.`, discovery_budget: discoveryNotice(context) };
-      const discovery = discoveryCount(context);
-      if (!discovery.edit_started && discovery.remaining <= 2) result.deadline_warning = `${discovery.used} discovery calls used. Discovery is refused after ${discovery.limit}; your next calls must be edit_diff or write_diff.`;
-      return result;
+    const symbols = codeCache ? file.code_index?.symbols ?? [] : extractorRegistry.extract(path, file.content).symbols;
+    const metadata = { path, sha256, size_bytes: sizeBytes, total_lines: lines.length,
+      cache: file.cache ?? { status: "bypass", cached_at: null, expires_at: null }, content_sha256: file.content_sha256 ?? sha256,
+      indexed_sha256: file.indexed_sha256 ?? null, index_version: file.index_version ?? null,
+      index_status: file.index_status ?? "unavailable", code_index: file.code_index ?? { path, symbols },
+      code_graph: scopedGraph(file.code_graph, context), symbol_map: symbols, discovery_budget: discoveryNotice(context) };
+    if (!hasWindow && input.symbol === undefined) {
+      recordRead(context, { path, window: "metadata" });
+      return { ...metadata, notice: "Metadata only. To read source, call read_file with symbol or offset/limit (at most 80 lines)." };
     }
-    if (!hasWindow) {
-      const content = file.content.slice(0, maxChars);
-      recordRead(context, { path, window: "full" });
-      return { path, content, sha256, size_bytes: sizeBytes, truncated: content.length < file.content.length, discovery_budget: discoveryNotice(context) };
+    let offset = input.offset ?? 1;
+    let limit = input.limit ?? READ_WINDOW_LINE_LIMIT;
+    if (input.symbol !== undefined) {
+      if (hasWindow || typeof input.symbol !== "string" || !input.symbol) throw error("INPUT_INVALID", "symbol cannot be combined with offset/limit and must be a name.");
+      const current = resolveSymbolWindow(file, path, input.symbol);
+      if (!current) throw error("SYMBOL_STALE", `Symbol ${input.symbol} is absent from current source; search again or read an explicit window.`);
+      offset = current.start_line;
+      limit = current.end_line - current.start_line + 1;
+      if (limit > READ_WINDOW_LINE_LIMIT) throw error("SYMBOL_TOO_LARGE", `Symbol ${input.symbol} spans ${limit} lines; read explicit windows of at most ${READ_WINDOW_LINE_LIMIT} lines.`);
     }
-    if (input.offset !== undefined && (!Number.isInteger(input.offset) || input.offset < 1)) throw error("INPUT_INVALID", "offset must be a positive integer (1-based line).");
-    if (input.limit !== undefined && (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 500)) throw error("INPUT_INVALID", "limit must be an integer between 1 and 500.");
-    const offset = input.offset ?? 1;
+    if (!Number.isInteger(offset) || offset < 1) throw error("INPUT_INVALID", "offset must be a positive integer (1-based line).");
     if (offset > lines.length) throw error("OFFSET_OUT_OF_RANGE", `offset ${offset} is beyond the last line (${lines.length}) of ${path}.`);
-    const limit = input.limit ?? 500;
+    if (!Number.isInteger(limit) || limit < 1 || limit > READ_WINDOW_LINE_LIMIT) throw error("INPUT_INVALID", `limit must be an integer between 1 and ${READ_WINDOW_LINE_LIMIT}.`);
     const content = lines.slice(offset - 1, offset - 1 + limit).join("\n").slice(0, maxChars);
-    recordRead(context, { path, window: `${offset}-${offset - 1 + Math.min(limit, lines.length - offset + 1)}` });
-    return { path, content, sha256, size_bytes: sizeBytes, offset, limit, total_lines: lines.length, truncated: content.length === maxChars && maxChars < file.content.length, discovery_budget: discoveryNotice(context) };
+    recordRead(context, { path, window: input.symbol ?? `${offset}-${offset + limit - 1}` });
+    return { ...metadata, content, offset, limit, truncated: offset + limit - 1 < lines.length || content.length === maxChars, ...(input.symbol ? { symbol: input.symbol } : {}) };
   }});
 }
 
+
 // createWriteDiffTool - handles createWriteDiffTool operation.
-export function createWriteDiffTool({ fileService, maxLines = WRITE_DIFF_MAX_LINES } = {}) {
+export function createWriteDiffTool({ fileService, codeCache, maxLines = WRITE_DIFF_MAX_LINES } = {}) {
   if (typeof fileService?.atomicWrite !== "function" || typeof fileService?.readFile !== "function") throw new ConfigurationError("write_diff requires File Service readFile and atomicWrite.");
   return Object.freeze({ name: "write_diff", async execute(input = {}, context = {}) {
-    const path = safePath(input.path, "write"); assertAllowed(path, context); if (typeof input.content !== "string") throw error("CONTENT_INVALID", "content must be a string.");
+    const path = safePath(input.path, "write"); assertAllowed(path, context); assertCoderWorkflowReadOnly(context.agent_identity?.role, "write", path); if (typeof input.content !== "string") throw error("CONTENT_INVALID", "content must be a string.");
     const lineCount = input.content ? input.content.split("\n").length - Number(input.content.endsWith("\n")) : 0;
     if (lineCount > maxLines) throw error("CONTENT_TOO_LARGE", `write_diff content has ${lineCount} lines, limit is ${maxLines}. For localized changes use edit_diff.`, { line_count: lineCount, limit: maxLines });
     let current;
@@ -92,6 +98,7 @@ export function createWriteDiffTool({ fileService, maxLines = WRITE_DIFF_MAX_LIN
     }
     assertSummaryEnforced(input.content, current, path);
     await fileService.atomicWrite({ path, content: input.content, replace: true });
+    codeCache?.invalidate({ path });
     recordChangedPath(context, path);
     resetExploration(context);
     const reminder = current === null ? await buildConventionReminder(context, { newFile: true }) : "";
@@ -100,10 +107,10 @@ export function createWriteDiffTool({ fileService, maxLines = WRITE_DIFF_MAX_LIN
 }
 
 // createEditDiffTool - handles createEditDiffTool operation.
-export function createEditDiffTool({ fileService, maxChars = MAX_CONTENT } = {}) {
+export function createEditDiffTool({ fileService, codeCache, maxChars = MAX_CONTENT } = {}) {
   if (typeof fileService?.atomicWrite !== "function" || typeof fileService?.readFile !== "function") throw new ConfigurationError("edit_diff requires File Service readFile and atomicWrite.");
   return Object.freeze({ name: "edit_diff", async execute(input = {}, context = {}) {
-    const path = safePath(input.path, "write"); assertAllowed(path, context);
+    const path = safePath(input.path, "write"); assertAllowed(path, context); assertCoderWorkflowReadOnly(context.agent_identity?.role, "write", path);
     if (typeof input.anchor !== "string" || !input.anchor.length) throw error("INPUT_INVALID", "anchor must be a non-empty string.");
     if (typeof input.replacement !== "string") throw error("INPUT_INVALID", "replacement must be a string.");
     if (input.anchor.length + input.replacement.length > maxChars) throw error("CONTENT_TOO_LARGE", `anchor + replacement exceeds ${maxChars} chars.`, { limit: maxChars });
@@ -123,6 +130,7 @@ export function createEditDiffTool({ fileService, maxChars = MAX_CONTENT } = {})
     const replaced = parts.join(input.replacement);
     const newFunctions = assertEditSummaryEnforced(current, replaced);
     await fileService.atomicWrite({ path, content: replaced, replace: true });
+    codeCache?.invalidate({ path });
     recordChangedPath(context, path);
     resetExploration(context);
     const reminder = newFunctions.length ? await buildConventionReminder(context, { newFunctions }) : "";
@@ -197,31 +205,6 @@ function formatConventionMapping(raw) {
   const business = (cells[0] ?? "").replace(/\s*\([^)]*\)\s*$/, "");
   const code = (cells[1] ?? "").replace(/`/g, "").replace(/\s*,\s*/g, "/");
   return `${business} -> ${code}`;
-}
-
-// hasFileHeaderComment - handles hasFileHeaderComment operation.
-function hasFileHeaderComment(content) {
-  const head = content.trimStart().split("\n").slice(0, 3).join("\n").trim();
-  return /^(?:\/\/|\/\*|#|<!--)/.test(head);
-}
-
-// extractFunctionSignatures - handles extractFunctionSignatures operation.
-function extractFunctionSignatures(content) {
-  const out = new Set();
-  if (!content || typeof content !== "string") return out;
-  const re = /(?:^|\n)\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*\(/g;
-  let m;
-  while ((m = re.exec(content))) out.add(m[1]);
-  return out;
-}
-
-// hasPrecedingComment - handles hasPrecedingComment operation.
-function hasPrecedingComment(content, fnName) {
-  const lines = content.split("\n");
-  const idx = lines.findIndex((l) => new RegExp(`\\bfunction\\s+${fnName}\\b`).test(l));
-  if (idx <= 0) return false;
-  const prev = lines[idx - 1]?.trim() ?? "";
-  return /^(?:\/\/|\/\*|#|<!--)/.test(prev);
 }
 
 // recordChangedPath - handles recordChangedPath operation.

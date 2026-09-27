@@ -15,9 +15,9 @@ export function normalizeResume(resume) {
 }
 
 // createResumeState - mutable per-run state seeded from a prior checkpoint.
-export function createResumeState(resume, complexity) {
+export function createResumeState(resume, complexity, { freshTurns = false } = {}) {
   const clean = normalizeResume(resume);
-  const maxTurns = Number.isInteger(complexity?.max_turns) && complexity.max_turns > 0 ? complexity.max_turns : null;
+  const maxTurns = Number.isInteger(complexity?.max_turns) && complexity.max_turns > 0 ? (freshTurns && Number.isInteger(clean?.last_completed_turn) ? clean.last_completed_turn : 0) + complexity.max_turns : null;
   return {
     resume: clean,
     sessionId: typeof clean?.session_id === "string" ? clean.session_id : null,
@@ -28,6 +28,7 @@ export function createResumeState(resume, complexity) {
     changedPaths: Array.isArray(clean?.changed_paths) ? [...clean.changed_paths] : [],
     emptyCommitSeen: clean?.empty_commit_seen === true,
     readCache: sanitizeReadCache(clean?.read_cache),
+    coderRulesRead: clean?.coder_rules_read === true || Object.keys(clean?.read_cache ?? {}).some((key) => key.startsWith("workflows/agents/coder.md#")),
     maxTurns
   };
 }
@@ -65,6 +66,7 @@ export function checkpointPayload(state, extra = {}) {
     turn_history: [...state.turnHistory],
     empty_commit_seen: state.emptyCommitSeen === true,
     read_cache: snapshotReadCache(state.readCache),
+    coder_rules_read: state.coderRulesRead === true,
     ...extra
   };
 }
@@ -90,9 +92,13 @@ export function checkpointedRegistry({ store, registry, taskId, targetPath, allo
         }
         let result;
         try {
+          if (selected?.role === "coder" && !labMode && (name === "write_diff" || name === "edit_diff") && !state.coderRulesRead) {
+            throw Object.assign(new ConfigurationError("Read workflows/agents/coder.md with a Forge file tool before editing code."), { code: "CODER_RULES_REQUIRED" });
+          }
           if (name === "report_done") assertCommitBeforeReport(state, context, labMode);
           if (name === "read_file") assertReadNotRepeated(state.readCache, input);
           result = await tool.execute(input, context);
+          if (selected?.role === "coder" && ["read_file", "Read", "sed_lines"].includes(name) && (input?.path === "workflows/agents/coder.md" || input?.file_path === "workflows/agents/coder.md" || input?.file_path?.endsWith("/workflows/agents/coder.md")) && (name === "sed_lines" ? result?.exit_code === 0 : typeof result?.content === "string")) state.coderRulesRead = true;
           if (name === "read_file") rememberRead(state.readCache, input, result);
           if (name === "write_diff" || name === "edit_diff") forgetRead(state.readCache, input);
         } catch (error) {

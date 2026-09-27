@@ -39,6 +39,18 @@ test("Read, Glob, and Grep use governed files and record success or rejection", 
   }
 });
 
+test("Claude Read defaults to at most 80 lines", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-claude-read-window-"));
+  try {
+    await writeFile(join(root, "code.js"), Array.from({ length: 81 }, (_, index) => `line-${index + 1}`).join("\n"));
+    const files = createRoleFileService({ fileService: createFileService({ projectRoot: root }), role: "coder", projectRoot: root });
+    const read = await createClaudeFileTools({ fileService: files, projectRoot: root }).Read.execute({ file_path: "code.js" }, { allowed_file_paths: ["code.js"] });
+    assert.equal(read.content.split("\n").length, 80);
+    assert.equal(read.total_lines, 81);
+    assert.equal(read.truncated, true);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("Claude coder file calls use Forge registry logging and deny missing capability", async () => {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-claude-registry-"));
   try {

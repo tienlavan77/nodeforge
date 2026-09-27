@@ -6,7 +6,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 
 const require = createRequire(import.meta.url);
-const ruleset = require("../../rules/forge-sprint-delivery.rules.json");
+const ruleset = require("../../../rules/forge-sprint-delivery.rules.json");
 const commonSchema = require("../../../schemas/core/common.schema.json");
 const workflowRuleSchema = require("../../../schemas/project/workflow-rule.schema.json");
 const rulesetSchema = require("../../../schemas/project/workflow-ruleset.schema.json");
