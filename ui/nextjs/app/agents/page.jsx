@@ -49,7 +49,7 @@ function streamStatusToAgentStatus(status) {
 
 // Applies a project stream status event to the agent list.
 function applyAgentStatusEvent(current, event) {
-  if (event?.event_type !== "conversation.agent.status_changed") return current;
+  if (event?.event_type !== "agent.status_changed" && event?.event_type !== "conversation.agent.status_changed") return current;
   const agentId = event.payload?.agent_id;
   const next = streamStatusToAgentStatus(event.payload?.status);
   if (typeof agentId !== "string" || !agentId || !next) return current;

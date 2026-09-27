@@ -1,7 +1,7 @@
 // Summary: Supervisor state machine that dispatches agent requests and routes agent/collector/verification events to transitions.
 import { ConfigurationError } from "../../shared/errors.js";
 /** Creates the supervisor loop that starts tasks and routes execution events to runtime transitions. */
-export function createSupervisorLoop({ runtime, senderQueue, collectorQueue, verificationQueue, eventBus, attemptBuilder, requestStore, agentResolver } = {}) {
+export function createSupervisorLoop({ runtime, senderQueue, collectorQueue, verificationQueue, eventBus, attemptBuilder, requestStore, agentResolver, projectId } = {}) {
   if (!runtime || typeof eventBus?.publish !== "function") throw new ConfigurationError("Supervisor loop requires runtime and event bus.");
   let started = false;
   return Object.freeze({ start, reset, onEvent });
@@ -12,8 +12,21 @@ export function createSupervisorLoop({ runtime, senderQueue, collectorQueue, ver
     started = true;
     const selected = selectAgent(request);
     await runtime.transition("RUNNING", selected);
+    await emitAgentWorking(selected);
     await senderQueue.enqueue(selected);
     return selected;
+  }
+  // Emits agent status WORKING so project stream can update agents page.
+  async function emitAgentWorking(selected) {
+    const agentId = selected?.agent_id ?? selected?.selected_agent_id;
+    if (!agentId || typeof eventBus?.publish !== "function") return;
+    const resolvedProjectId = selected?.project_id ?? selected?.payload?.project_id ?? selected?.ticket?.project_id ?? projectId ?? null;
+    try {
+      await eventBus.publish({ type: "agent.status_changed", event_type: "agent.status_changed", project_id: resolvedProjectId, task_id: selected?.task_id ?? runtime.taskId ?? null, supervisor_id: runtime.supervisorId, request_id: selected?.request_id ?? `REQ-${agentId}-${Date.now()}`, correlation_id: selected?.correlation_id ?? null, attempt: selected?.attempt ?? 1, timestamp: new Date().toISOString(), payload: { agent_id: agentId, status: "WORKING", previous_status: null }, metadata: resolvedProjectId ? { project_id: resolvedProjectId } : {} });
+    } catch (error) {
+      // eslint-disable-next-line no-console -- supervisor agent status publish should not break dispatch
+      console.error("supervisor agent status publish failed", error);
+    }
   }
   function selectAgent(request, { fallback = request } = {}) {
     if (request?.agent_id) return request;
