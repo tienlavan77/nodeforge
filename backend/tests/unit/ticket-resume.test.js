@@ -37,6 +37,14 @@ test("createResumeState seeds turn count, tools, and paths from checkpoint", () 
   assert.equal(remainingTurns(state), 21);
 });
 
+test("direct code resume gets fresh tool turns while retaining previous progress", () => {
+  const state = createResumeState({ status: "in_progress", last_completed_turn: 25, session_id: "sess-25", changed_paths: ["ui/a.jsx"] }, { max_turns: 25 }, { freshTurns: true });
+  assert.equal(state.turnCount, 25);
+  assert.equal(state.sessionId, "sess-25");
+  assert.equal(remainingTurns(state), 25);
+  assert.deepEqual(state.changedPaths, ["ui/a.jsx"]);
+});
+
 test("checkpoint saves keep session identity across every turn", async () => {
   const store = memoryStore();
   const registry = { read_file: { execute: async () => ({ ok: true, total_lines: 10 }) } };
@@ -145,6 +153,21 @@ test("read cache survives a restart via checkpoint without file content", async 
   // Rebuild from the snapshot as a restarted API would, then repeat the read.
   const resumed = checkpointedRegistry({ store, registry, taskId: "T-RC", targetPath: "a.js", allowedPrefixes: [], complexity: { max_turns: 20 }, selected: {}, correlationId: "C-1", resumeState: createResumeState({ status: "in_progress", read_cache: saved.read_cache }, { max_turns: 20 }) });
   await assert.rejects(() => resumed.read_file.execute({ path: "a.js" }, { changed_paths: [] }), (error) => error.code === "READ_REPEATED");
+});
+
+test("coder must read workflow rules before editing, including after Resume", async () => {
+  const store = memoryStore();
+  const registry = {
+    read_file: { execute: async () => ({ path: "workflows/agents/coder.md", content: "Coder rules", sha256: "sha256:abc" }) },
+    edit_diff: { execute: async () => ({ ok: true }) }
+  };
+  const context = { changed_paths: [] };
+  const first = checkpointedRegistry({ store, registry, taskId: "T-CODER-RULES", complexity: { max_turns: 20 }, selected: { role: "coder" }, resumeState: createResumeState(null, { max_turns: 20 }) });
+  await assert.rejects(() => first.edit_diff.execute({ path: "src/a.js" }, context), (error) => error.code === "CODER_RULES_REQUIRED");
+  await first.read_file.execute({ path: "workflows/agents/coder.md" }, context);
+  assert.equal(store.saved.at(-1).coder_rules_read, true);
+  const resumed = checkpointedRegistry({ store, registry, taskId: "T-CODER-RULES", complexity: { max_turns: 20 }, selected: { role: "coder" }, resumeState: createResumeState(store.saved.at(-1), { max_turns: 20 }) });
+  await resumed.edit_diff.execute({ path: "src/a.js" }, context);
 });
 
 test("codex gateway resumes a prior thread when resumeThreadId is given", async () => {

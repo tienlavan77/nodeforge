@@ -7,6 +7,7 @@ import { createOwnerSearchTreeTool } from "../../src/tools/owner-search-tree.js"
 import { RunContext } from "@openai/agents";
 import { createClaudeSdkGateway } from "../../src/modules/agent/claude-sdk-gateway.js";
 import { authorizeOwnerTool, ownerWritePrefixes } from "../../src/tools/owner-role-tool-policy.js";
+import { createOwnerDeleteFileTool } from "../../src/tools/owner-delete-file.js";
 
 // Builds a minimal project file service so Owner tools can be registered without touching disk.
 function fileService() { return { readFile() {}, readForIndex() {}, atomicWrite() {}, deleteFile() {}, listDirectories: async () => [], listFiles: async () => [] }; }
@@ -75,4 +76,22 @@ test("Claude gateway passes the owner MCP server without cloning its live instan
       assert.ok(options.allowedTools.includes("mcp__forge__rg_files"));
   assert.equal(options.forgeTools, undefined);
   assert.deepEqual(chunks, ["Found file."]);
+});
+
+test("Architecture Manager delete invalidates the shared code cache after File Service success", async () => {
+  const content = "old\n";
+  const invalidations = [];
+  const tool = createOwnerDeleteFileTool({
+    fileService: { readFile: async () => content, deleteFile: async () => ({ deleted: true }) },
+    codeCache: { invalidate: (input) => invalidations.push(input) }
+  });
+  const checksum = `sha256:${(await import("node:crypto")).createHash("sha256").update(content).digest("hex")}`;
+  assert.deepEqual(await tool.execute({ path: "workflows/old.md", before_checksum: checksum }), { deleted: true });
+  assert.deepEqual(invalidations, [{ path: "workflows/old.md" }]);
+  const failing = createOwnerDeleteFileTool({
+    fileService: { readFile: async () => content, deleteFile: async () => { throw new Error("delete failed"); } },
+    codeCache: { invalidate: (input) => invalidations.push(input) }
+  });
+  await assert.rejects(failing.execute({ path: "workflows/old.md", before_checksum: checksum }), /delete failed/);
+  assert.equal(invalidations.length, 1);
 });

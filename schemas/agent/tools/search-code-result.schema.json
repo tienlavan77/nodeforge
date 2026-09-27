@@ -10,6 +10,8 @@
     "query": { "type": "string" },
     "kind": { "type": "string", "enum": ["file", "symbol", "content"] },
     "hint": { "type": "string" },
+    "deadline_warning": { "type": "string" },
+    "discovery_budget": { "type": "object" },
     "projection": { "type": "string", "enum": ["minimal", "summary", "graph"] },
     "index_version": { "type": ["string", "null"] },
     "matches": {
@@ -26,7 +28,10 @@
               "reason": { "type": "array", "items": { "type": "string" } },
               "snippet": { "type": ["string", "null"] },
               "symbols": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["name", "kind", "start_line", "end_line"], "properties": { "name": { "type": "string" }, "kind": { "type": "string" }, "start_line": { "type": ["integer", "null"] }, "end_line": { "type": ["integer", "null"] } } } },
-              "graph": { "type": "object", "additionalProperties": true }
+              "graph": { "type": "object", "additionalProperties": true },
+              "indexed_sha256": { "type": ["string", "null"], "pattern": "^sha256:[a-fA-F0-9]{64}$" },
+              "content_sha256": { "type": ["string", "null"], "pattern": "^sha256:[a-fA-F0-9]{64}$" },
+              "index_status": { "type": "string", "enum": ["fresh", "stale", "unavailable"] }
             }
           },
           {
@@ -41,18 +46,24 @@
               "symbol_name": { "type": "string", "minLength": 1 },
               "symbol_kind": { "type": "string" },
               "start_line": { "type": ["integer", "null"], "minimum": 1 },
-              "end_line": { "type": ["integer", "null"], "minimum": 1 }
+              "end_line": { "type": ["integer", "null"], "minimum": 1 },
+              "indexed_sha256": { "type": ["string", "null"], "pattern": "^sha256:[a-fA-F0-9]{64}$" },
+              "content_sha256": { "type": ["string", "null"], "pattern": "^sha256:[a-fA-F0-9]{64}$" },
+              "index_status": { "type": "string", "enum": ["fresh", "stale", "unavailable"] }
             }
           },
           {
             "type": "object", "additionalProperties": false,
-            "required": ["kind", "path", "name", "symbol_kind", "start_line", "end_line", "score", "reason"],
+            "required": ["kind", "path", "name", "symbol_kind", "score", "reason"],
             "properties": {
               "kind": { "const": "symbol" }, "path": { "type": "string", "minLength": 1 },
               "name": { "type": "string", "minLength": 1 }, "symbol_kind": { "type": "string" },
               "start_line": { "type": ["integer", "null"], "minimum": 1 }, "end_line": { "type": ["integer", "null"], "minimum": 1 },
               "score": { "type": "number" }, "reason": { "type": "array", "items": { "type": "string" } },
-              "language": { "type": ["string", "null"] }, "sha256": { "type": ["string", "null"] }, "size_bytes": { "type": ["integer", "null"], "minimum": 0 }
+              "language": { "type": ["string", "null"] }, "sha256": { "type": ["string", "null"] }, "size_bytes": { "type": ["integer", "null"], "minimum": 0 },
+              "indexed_sha256": { "type": ["string", "null"], "pattern": "^sha256:[a-fA-F0-9]{64}$" },
+              "content_sha256": { "type": ["string", "null"], "pattern": "^sha256:[a-fA-F0-9]{64}$" },
+              "index_status": { "type": "string", "enum": ["fresh", "stale", "unavailable"] }
             }
           }
         ]

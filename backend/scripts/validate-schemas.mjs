@@ -8,13 +8,15 @@
  * its main helpers are readJson, loadSchemas, and atPointer.
  */
 import Ajv2020 from "ajv/dist/2020.js";
-import draft7MetaSchema from "ajv/dist/refs/json-schema-draft-07.json" with { type: "json" };
 import addFormats from "ajv-formats";
 import { readdir, readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const require = createRequire(import.meta.url);
+const draft7MetaSchema = require("ajv/dist/refs/json-schema-draft-07.json");
 const schemaDirectories = [join(repositoryRoot, "schemas")];
 const fixtures = [
   ["https://forge.local/schemas/supervisor/execution-contract.schema.json", "schemas/examples/supervisor-task-execution.json"],
@@ -173,7 +175,7 @@ try {
 
   const schemaBreakdown = new Map();
   for (const schema of schemas) {
-    const directory = schema.$id.split("/schemas/")[1].split("/")[0];
+    const directory = schema.$id.includes("/schemas/") ? schema.$id.split("/schemas/")[1].split("/")[0] : "other";
     schemaBreakdown.set(directory, (schemaBreakdown.get(directory) ?? 0) + 1);
   }
   const fixtureBreakdown = new Map();

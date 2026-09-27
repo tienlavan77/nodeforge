@@ -5,7 +5,16 @@ import { tokenizeSearchText } from "./search-vocabulary.js";
 /** Minimal lexical search over indexed paths, metadata, and symbol names. */
 export function createCodeSearch({ database } = {}) {
   if (!database || typeof database.all !== "function") throw new ConfigurationError("Code Search requires an index database.");
-  return Object.freeze({ search, symbolsForFile });
+  return Object.freeze({ search, symbolsForFile, fileMetadata });
+
+  // Looks up one exact indexed file for cache freshness and agent file maps.
+  function fileMetadata(path) {
+    const row = database.all("SELECT file_id, path, language, sha256, size_bytes FROM files WHERE path = ? LIMIT 1", [path])[0];
+    if (!row) return null;
+    const version = indexVersion();
+    const node = projectFileNode(createFileNode({ fileId: row.file_id, path: row.path, language: row.language, sha256: row.sha256, sizeBytes: row.size_bytes, indexVersion: version }), "graph", version);
+    return { path: node.path, language: node.language ?? null, sha256: node.sha256 ?? null, size_bytes: node.size_bytes ?? null, symbols: node.symbols, graph: node.graph, index_version: version };
+  }
 
   function symbolsForFile(path) {
     if (typeof path !== "string" || !path.trim()) throw new ConfigurationError("Code Search symbolsForFile requires a path.");
@@ -67,9 +76,22 @@ export function createCodeSearch({ database } = {}) {
   }
 
   function fileGraph(fileId, version) {
-    const links = database.all("SELECT related_file_id, kind, is_broken FROM imports_exports WHERE file_id = ?", [fileId]).map((row) => ({ file_id: row.related_file_id, kind: row.kind, broken: Boolean(row.is_broken) }));
-    const importedBy = database.all("SELECT file_id, kind, is_broken FROM imports_exports WHERE related_file_id = ?", [fileId]).map((row) => ({ file_id: row.file_id, kind: row.kind, broken: Boolean(row.is_broken) }));
-    const calls = database.all("SELECT caller_symbol_id, target_symbol_id, line FROM calls WHERE source_file_id = ?", [fileId]).map((row) => ({ caller_symbol_id: row.caller_symbol_id, target_symbol_id: row.target_symbol_id, line: row.line }));
+    const links = database.all(`SELECT target.path, rel.name, rel.kind, rel.is_broken
+      FROM imports_exports rel LEFT JOIN files target ON target.file_id = rel.related_file_id
+      WHERE rel.file_id = ? ORDER BY target.path, rel.name`, [fileId])
+      .map((row) => ({ path: row.path ?? null, name: row.name, kind: row.kind, broken: Boolean(row.is_broken) }));
+    const importedBy = database.all(`SELECT source.path, rel.name, rel.kind, rel.is_broken
+      FROM imports_exports rel JOIN files source ON source.file_id = rel.file_id
+      WHERE rel.related_file_id = ? ORDER BY source.path, rel.name`, [fileId])
+      .map((row) => ({ path: row.path, name: row.name, kind: row.kind, broken: Boolean(row.is_broken) }));
+    const calls = database.all(`SELECT source.path AS caller_path, caller.name AS caller_name,
+        target_file.path AS target_path, target.name AS target_name, calls.line
+      FROM calls JOIN files source ON source.file_id = calls.source_file_id
+      LEFT JOIN symbols caller ON caller.symbol_id = calls.caller_symbol_id
+      JOIN symbols target ON target.symbol_id = calls.target_symbol_id
+      JOIN files target_file ON target_file.file_id = target.file_id
+      WHERE calls.source_file_id = ? ORDER BY calls.line, target_file.path, target.name`, [fileId])
+      .map((row) => ({ caller: { path: row.caller_path, name: row.caller_name ?? null }, target: { path: row.target_path, name: row.target_name }, line: row.line }));
     return { imports: links, imported_by: importedBy, calls, index_version: version };
   }
 

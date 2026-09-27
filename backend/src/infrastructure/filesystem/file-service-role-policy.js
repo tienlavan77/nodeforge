@@ -9,6 +9,12 @@ const ARCHITECTURE_WRITE_PREFIXES = Object.freeze(["docs/", "Skills/", "workflow
 // Lists project areas where a role may create or edit files.
 export function roleWritePrefixes(role) { return role === "architecture_manager" ? [...ARCHITECTURE_WRITE_PREFIXES] : []; }
 
+// Keeps coder workflow instructions readable while reserving workflow edits for Architecture Manager.
+export function assertCoderWorkflowReadOnly(role, operation, path) {
+  if (role !== "coder" || operation === "read" || typeof path !== "string" || !path.startsWith("workflows/")) return;
+  throw Object.assign(new ConfigurationError(`Coder cannot ${operation} workflow files: ${path}.`), { code: "FILE_ROLE_FORBIDDEN" });
+}
+
 // Checks role permissions before File Service reads, writes, or deletes a path.
 export function assertRoleFileAccess(role, operation, path) {
   const safe = typeof path === "string" && path.length > 0 && !path.startsWith("/") && !path.includes("\\") && !path.includes("\0")
@@ -37,6 +43,7 @@ export function createRoleFileService({ fileService, role, projectRoot }) {
     }
   }
   return Object.freeze({
+    assertReadPath: async (path) => checkPath("read", path),
     readFile: async (input) => { await checkPath("read", input?.path); return fileService.readFile(input); },
     readForIndex: async (input) => { await checkPath("read", input?.path); return fileService.readForIndex(input); },
     atomicWrite: async (input) => { await checkPath("write", input?.path); return fileService.atomicWrite(input); },

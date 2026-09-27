@@ -10,17 +10,18 @@ import { createRoleFileService } from "../infrastructure/filesystem/file-service
 import { createOwnerDeleteFileTool, ownerDeleteFileDefinition } from "./owner-delete-file.js";
 
 // Creates the role-scoped Forge tool registry used by owner SDK conversations.
-export function createOwnerConversationTools({ role, projectRoot, fileService, codeSearch, projectLogger, context }) {
+export function createOwnerConversationTools({ role, projectRoot, fileService, codeCache, codeSearch, projectLogger, context }) {
   const allowed = ownerRoleTools(role);
   const scopedFiles = createRoleFileService({ fileService, role, projectRoot });
-  const base = createAgentCommandTools({ projectRoot, fileService: scopedFiles, codeSearch, projectLogger, wrap: (tool) => tool });
+  const scopedCache = codeCache && { ...codeCache, read: async ({ path }) => { await scopedFiles.assertReadPath(path); return codeCache.read({ path }); } };
+  const base = createAgentCommandTools({ projectRoot, fileService: scopedFiles, codeSearch, codeCache: scopedCache, projectLogger, wrap: (tool) => tool });
   const implementations = {
     ...base,
     search_tree: createOwnerSearchTreeTool({ fileService: scopedFiles }),
-    read_file: createReadFileTool({ fileService: scopedFiles, symbolLookup: codeSearch?.symbolsForFile?.bind(codeSearch) }),
-    write_diff: createWriteDiffTool({ fileService: scopedFiles }),
-    edit_diff: createEditDiffTool({ fileService: scopedFiles }),
-    delete_file: createOwnerDeleteFileTool({ fileService: scopedFiles })
+    read_file: createReadFileTool({ fileService: scopedFiles, codeCache: scopedCache, symbolLookup: codeSearch?.symbolsForFile?.bind(codeSearch) }),
+    write_diff: createWriteDiffTool({ fileService: scopedFiles, codeCache }),
+    edit_diff: createEditDiffTool({ fileService: scopedFiles, codeCache }),
+    delete_file: createOwnerDeleteFileTool({ fileService: scopedFiles, codeCache: scopedCache })
   };
   const definitions = [ownerSearchTreeDefinition, rgFilesDefinition, rgSearchDefinition, sedLinesDefinition, readFileDefinition, writeDiffDefinition, editDiffDefinition, ownerDeleteFileDefinition]
     .filter(({ name }) => allowed.includes(name) && typeof implementations[name]?.execute === "function");

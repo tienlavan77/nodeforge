@@ -41,6 +41,29 @@ test("serves the parallel Forge v1 ticket run route", async () => {
   assert.deepEqual(received, { projectId: "PROJECT-1", ticketId: "FORGE-1", conversationId: "CONV-BUILDER" });
 });
 
+test("routes dashboard Code text to the direct Supervisor request", async () => {
+  let received;
+  const api = createHttpApi({ forgeV1Router: createForgeV1Router({ directCodeRequest: { run: async (input) => { received = input; return { task_id: "CODE-1", agent_id: "coder-1", status: "completed" }; } } }) });
+  const [status, result] = await request(api, "POST", "/forge/v1/code/run?project=PROJECT-1", { project_id: "PROJECT-1", sprint_id: "SPRINT-1", text: "sửa UI" });
+  assert.equal(status, 200);
+  assert.equal(result.agent_id, "coder-1");
+  assert.deepEqual(received, { projectId: "PROJECT-1", sprintId: "SPRINT-1", text: "sửa UI" });
+});
+
+test("lists and resumes an unfinished dashboard Code task", async () => {
+  const calls = [];
+  const api = createHttpApi({ forgeV1Router: createForgeV1Router({ directCodeRequest: {
+    listPending: async (input) => { calls.push(["list", input]); return [{ task_id: "CODE-1", sprint_id: "SPRINT-1" }]; },
+    resume: async (input) => { calls.push(["resume", input]); return { task_id: input.taskId, status: "completed" }; }
+  } }) });
+  const [listStatus, list] = await request(api, "GET", "/forge/v1/code/checkpoints?project=PROJECT-1&sprint_id=SPRINT-1");
+  const [resumeStatus, result] = await request(api, "POST", "/forge/v1/code/CODE-1/resume?project=PROJECT-1", { project_id: "PROJECT-1" });
+  assert.equal(listStatus, 200);
+  assert.equal(resumeStatus, 200);
+  assert.equal(list.checkpoints[0].task_id, result.task_id);
+  assert.deepEqual(calls, [["list", { projectId: "PROJECT-1", sprintId: "SPRINT-1" }], ["resume", { projectId: "PROJECT-1", taskId: "CODE-1" }]]);
+});
+
 test("serves the Forge v1 ticket CRUD collection and item routes", async () => {
   const calls = [];
   const ticket = { id: "TICKET-1", project_id: "PROJECT-1", title: "T", objective: "O", acceptance_criteria: ["A"] };

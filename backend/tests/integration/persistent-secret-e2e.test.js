@@ -19,7 +19,7 @@ test("persists a real Agent credential across Node restart and keeps it out of r
   child.kill("SIGTERM"); await waitForExit(child);
   child = start(env); await waitForOutput(child.stdout, "Node Control API listening", 20000);
   const settings = await request(base, "GET", "/agents/settings");
-  assert.equal(settings.find((item) => item.agent_id === "architecture-manager").credential_ref, "env:OPENAI_API_KEY");
+  assert.equal(settings.find((item) => item.agent_id === "architecture-manager").credential_ref, `runtime:${saved.agent_id}:api-key`);
   assert.equal(JSON.stringify(settings).includes(secret), false);
   assert.equal((await request(base, "POST", "/agents/architecture-manager/settings/test")).status, "CONNECTED");
   const vault = await readFile(join(dataDir, "secrets.vault"), "utf8"); assert.equal(vault.includes(secret), false);

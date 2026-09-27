@@ -3,7 +3,7 @@ import { Agent, Runner, tool } from "@openai/agents";
 import { ConfigurationError } from "../../shared/errors.js";
 
 // Creates a gateway that runs a single-turn Agent via the OpenAI Agents SDK.
-export function createOpenAiSdkGateway({ providerFactory, runner = createTracingDisabledRunner(), AgentClass = Agent, timeoutMs = 120000 } = {}) {
+export function createOpenAiSdkGateway({ providerFactory, runner = createTracingDisabledRunner(), AgentClass = Agent, timeoutMs = 600000 } = {}) {
   if (typeof providerFactory?.createForAgent !== "function") throw new ConfigurationError("OpenAI SDK Gateway requires a provider factory.");
   if (typeof runner !== "function") throw new ConfigurationError("OpenAI SDK Gateway requires an Agent runner.");
   if (typeof AgentClass !== "function") throw new ConfigurationError("OpenAI SDK Gateway requires an Agent constructor.");

@@ -5,7 +5,7 @@ import { createForgeV1ConversationRoutes } from "./forge-v1-conversation-routes.
 import { normalizeParts, unavailable, runRequestsFresh, requireProject, readJson } from "./forge-v1-router-utils.js";
 
 // Creates the Forge v1 HTTP router with checkpoint decoration.
-export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab, projectStream, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, conversationCrudService, conversationAuditHistoryService, architectureWorkspaceService, humanDecisionService, agentSettingsService, listResumableCheckpoints } = {}) {
+export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab, directCodeRequest, projectStream, onWatcherEvent, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, conversationCrudService, conversationAuditHistoryService, architectureWorkspaceService, humanDecisionService, agentSettingsService, listResumableCheckpoints } = {}) {
   const conversationRoutes = createForgeV1ConversationRoutes({ conversationCrudService, conversationAuditHistoryService, ownerChatService, listResumableCheckpoints });
   return Object.freeze({ route });
 
@@ -40,6 +40,7 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
       if (!projectStream?.ingest) throw unavailable("Project Stream");
       if (!body.project_id) throw Object.assign(new ConfigurationError("project_id is required."), { statusCode: 400, code: "PROJECT_REQUIRED" });
       const result = projectStream.ingest(body);
+      if (typeof onWatcherEvent === "function" && String(body.type ?? "").startsWith("watcher.file_")) await onWatcherEvent(body);
       return { status: 202, body: { ...result, request_id: requestId, correlation_id: correlationId } };
     }
 
@@ -207,6 +208,24 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
       const toolTest = typeof body.tool_test === "object" && body.tool_test !== null ? body.tool_test : {};
       const result = await runToolLab({ projectId, targetPath: toolTest.target_path ?? body.target_path ?? body.targetPath, allowedPrefixes: toolTest.allowed_prefixes ?? normalizedPrefixes, approvalPolicy: toolTest.approval_policy, taskId: body.task_id ?? body.taskId });
       return { status: 202, body: { ...result, request_id: requestId, correlation_id: correlationId } };
+    }
+
+    if (method === "POST" && parts.length === 2 && parts[0] === "code" && parts[1] === "run") {
+      if (typeof directCodeRequest?.run !== "function") throw unavailable("Direct Code");
+      requireProject(projectId);
+      return { status: 200, body: await directCodeRequest.run({ projectId, sprintId: body.sprint_id, text: body.text }) };
+    }
+
+    if (method === "GET" && parts.length === 2 && parts[0] === "code" && parts[1] === "checkpoints") {
+      if (typeof directCodeRequest?.listPending !== "function") throw unavailable("Direct Code");
+      requireProject(projectId);
+      return { status: 200, body: { checkpoints: await directCodeRequest.listPending({ projectId, sprintId: url.searchParams.get("sprint_id") ?? undefined }) } };
+    }
+
+    if (method === "POST" && parts.length === 3 && parts[0] === "code" && parts[2] === "resume") {
+      if (typeof directCodeRequest?.resume !== "function") throw unavailable("Direct Code");
+      requireProject(projectId);
+      return { status: 200, body: await directCodeRequest.resume({ projectId, taskId: parts[1] }) };
     }
 
     if (method === "POST" && parts.length === 5 && parts[0] === "projects" && parts[2] === "tickets" && parts[4].endsWith(":run")) {
