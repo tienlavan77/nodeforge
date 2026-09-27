@@ -13,6 +13,7 @@ export function createProjectStreamPublisher({ projectId, indexDb } = {}) {
     if (typeof operation !== "string" || !operation) return null;
     if (operation.startsWith("ticket.")) return projectTicket(event, operation);
     if (operation.startsWith("sprint.")) return projectSprint(event, operation);
+    if (operation.startsWith("agent.")) return projectAgent(event, operation);
     const path = event.payload?.path;
     if (typeof path !== "string" || !path) return null;
 
@@ -55,6 +56,16 @@ export function createProjectStreamPublisher({ projectId, indexDb } = {}) {
       if (payload.updated_at !== undefined || event.timestamp !== undefined) projected.updated_at = payload.updated_at ?? event.timestamp ?? null;
     }
     return { event_type: eventType, payload: projected };
+  }
+
+  // Projects agent status change onto project stream for agents page.
+  function projectAgent(event, operation) {
+    const payload = event.payload && typeof event.payload === "object" ? event.payload : {};
+    if (operation === "agent.checkpoint.updated") return { event_type: operation, payload: { task_id: payload.task_id, sprint_id: payload.sprint_id ?? null, status: payload.status, last_completed_turn: payload.last_completed_turn ?? 0, last_tool: payload.last_tool ?? null, updated_at: payload.updated_at ?? event.timestamp ?? null } };
+    const agentId = payload.agent_id ?? event.agent_id ?? payload.agentId ?? event.task_id ?? null;
+    if (typeof agentId !== "string" || !agentId) return null;
+    if (operation !== "agent.status_changed") return null;
+    return { event_type: "agent.status_changed", payload: { agent_id: agentId, previous_status: payload.previous_status ?? payload.previousStatus ?? null, status: payload.status ?? "working", updated_at: payload.updated_at ?? event.timestamp ?? null, correlation_id: payload.correlation_id ?? event.correlation_id ?? null } };
   }
 
   function projectSprint(event, operation) {

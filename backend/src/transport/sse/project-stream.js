@@ -6,7 +6,7 @@ import { createProjectStreamPublisher } from "./project-stream-publisher.js";
 import { projectConversationEvents, projectConversationMessages } from "./project-stream-conversation.js";
 
 const INDEX_EVENT_TYPES = new Set(["indexer.indexed", "watcher.indexed", "watcher.file_indexed", "watcher.file_created", "watcher.file_modified", "watcher.file_deleted", "watcher.file_renamed"]);
-const PROJECT_EVENT_TYPES = new Set([...INDEX_EVENT_TYPES, "ticket.created", "ticket.updated", "ticket.status_change", "ticket.status_changed", "ticket.deleted", "ticket.creation", "sprint.created", "sprint.updated", "sprint.deleted", "conversation.message.delta", "conversation.message.received", "conversation.message.owner", "conversation.message.created", "conversation.message.completed", "conversation.message.failed", "conversation.agent.status_changed", "agent.text_stream", "agent.message.delta", "agent.message.received"]);
+const PROJECT_EVENT_TYPES = new Set([...INDEX_EVENT_TYPES, "ticket.created", "ticket.updated", "ticket.status_change", "ticket.status_changed", "ticket.deleted", "ticket.creation", "sprint.created", "sprint.updated", "sprint.deleted", "conversation.message.delta", "conversation.message.received", "conversation.message.owner", "conversation.message.created", "conversation.message.completed", "conversation.message.failed", "conversation.agent.status_changed", "agent.status_changed", "agent.checkpoint.updated", "agent.text_stream", "agent.message.delta", "agent.message.received"]);
 
 /** Project-scoped SSE projection for the initial stream contract. */
 export function createProjectStream({ projectId, indexDb, watcherSnapshot, subscriptions, eventBus, bus, heartbeatMs = 15000, clock = () => new Date().toISOString() } = {}) {
@@ -95,7 +95,7 @@ export function createProjectStream({ projectId, indexDb, watcherSnapshot, subsc
     bus?.subscribeAll?.(onConversationMessage);
     const onInternalEvent = (event) => publish({ ...event, event_type: "watcher.indexed", project_id: event.project_id ?? projectId });
     eventBus?.on?.("watcher.indexed", onInternalEvent);
-    const conversationEventTypes = ["agent.text_stream", "agent.message.delta", "agent.message.received"];
+    const conversationEventTypes = ["agent.text_stream", "agent.message.delta", "agent.message.received", "agent.status_changed", "agent.checkpoint.updated"];
     const conversationListeners = conversationEventTypes.map((eventType) => {
       const listener = (event) => publish({ ...event, event_type: event.event_type ?? eventType, project_id: event.project_id ?? event.metadata?.project_id ?? projectId });
       eventBus?.on?.(eventType, listener);

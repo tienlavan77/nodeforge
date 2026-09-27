@@ -23,7 +23,7 @@ const QUEUE_NAMES = ["agent.request", "sender.handoff", "collector.request", "ve
 const RESUMABLE_STATES = ["CREATED", "READY", "RUNNING", "REPAIRING"];
 
 /** Creates the production wiring for supervisor runtime including stores, buses, managers, and workers. */
-export function createProductionSupervisorRuntime({ fileService, projectRoot = process.cwd(), root = ".forge/runtime", eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, agentRoleResolver, logger = console, projectLogger = () => {}, preparation = {}, attemptBuilderFactory, conversationStateStore, protocolStorage, autoStartWorkers = true, toolGovernance, governanceDatabase, codeSearch, relevantTreeSelector, freshnessChecker, enableReadCode = false, testService, gitService, reportService, onEvalCase } = {}) {
+export function createProductionSupervisorRuntime({ fileService, projectRoot = process.cwd(), root = ".forge/runtime", eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, agentRoleResolver, logger = console, projectLogger = () => {}, checkpointSaved, preparation = {}, attemptBuilderFactory, conversationStateStore, protocolStorage, autoStartWorkers = true, toolGovernance, governanceDatabase, codeSearch, relevantTreeSelector, freshnessChecker, enableReadCode = false, testService, gitService, reportService, onEvalCase, projectId = "PROJECT-NODEFORGE" } = {}) {
   const hasPreparation = Object.keys(preparation ?? {}).length > 0;
   const queueStore = createFileQueueStore({ fileService, root: `${root}/queues` });
   const stateStore = createSupervisorStateStore({ fileService, root: `${root}/supervisors` });
@@ -36,12 +36,12 @@ export function createProductionSupervisorRuntime({ fileService, projectRoot = p
   const startingTasks = new Map();
   const controlLock = createProcessMutex();
   const processedRequestStore = createProcessedRequestStore({ fileService, root: `${root}/processed-requests` });
-  const agentCheckpoints = createAgentExecutionCheckpointStore({ fileService, root: `${root}/agent-checkpoints` });
+  const agentCheckpoints = createAgentExecutionCheckpointStore({ fileService, root: `${root}/agent-checkpoints`, onSaved: checkpointSaved });
   const runtimeGovernance = toolGovernance ?? createRuntimeToolGovernance({ database: governanceDatabase, eventStore });
   const toolRegistry = protocolStorage?.get && fileService?.readForIndex ? createForgeToolRegistry({ protocolStorage, fileService, projectRoot, codeSearch, relevantTreeSelector, freshnessChecker, enableReadCode, testService, gitService, reportService, onEvalCase, governance: runtimeGovernance, projectLogger }) : {};
   const supervisorManager = createSupervisorManager({ eventBus, stateStore, preparation, onCreate: (runtime) => {
     const executionContextProvider = createExecutionContextProvider(runtime, runtimeGovernance, toolRegistry);
-    const loop = createSupervisorLoop({ runtime, senderQueue: queues["agent.request"], collectorQueue: queues["collector.request"], verificationQueue: queues["verification.request"], eventBus, requestStore: processedRequestStore, agentResolver: agentRoleResolver, attemptBuilder: typeof attemptBuilderFactory === "function" ? attemptBuilderFactory(runtime, { conversationStateStore, protocolStorage, toolRegistry, governance: runtimeGovernance, executionContextProvider }) : undefined });
+    const loop = createSupervisorLoop({ runtime, senderQueue: queues["agent.request"], collectorQueue: queues["collector.request"], verificationQueue: queues["verification.request"], eventBus, requestStore: processedRequestStore, agentResolver: agentRoleResolver, projectId, attemptBuilder: typeof attemptBuilderFactory === "function" ? attemptBuilderFactory(runtime, { conversationStateStore, protocolStorage, toolRegistry, governance: runtimeGovernance, executionContextProvider }) : undefined });
     loops.set(runtime.supervisorId, loop);
     // Keep event handling off the publish call stack so control operations can
     // safely publish their own state events without re-entrant lock deadlocks.

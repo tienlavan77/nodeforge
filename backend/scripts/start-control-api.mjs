@@ -33,6 +33,7 @@ import { createCompletionReportService } from "../src/modules/supervisor/complet
 import { createEvalCaseRecorder } from "../src/modules/eval/eval-case-store.js";
 import { createTicketCrudService } from "../src/application/ticket-crud-service.js";
 import { createAgentExecutionCheckpointStore } from "../src/modules/agent/agent-execution-checkpoint.js";
+import { createDirectCodeRequest } from "../src/application/direct-code-request.js";
 
 const config = readControlApiConfig();
 const { port, host, dataDir } = config;
@@ -56,7 +57,14 @@ const unifiedStreamOrder = createUnifiedStreamOrderer();
 const runtimeLogger = createRuntimeLogger({ logEvent });
 const buildBuilderContext = createBuilderContext({ roadmaps, indexDb, contextEngine });
 const codeIndexSummaryBuilder = createCodeIndexSummaryBuilder({ fileService, indexDb });
-const supervisorRuntime = createProductionSupervisorRuntime({ projectRoot: config.cwd, fileService, root: ".forge/runtime", eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, agentRoleResolver, codeSearch, relevantTreeSelector, freshnessChecker, logger: runtimeLogger, projectLogger: runtimeLogger.emit,
+const supervisorRuntime = createProductionSupervisorRuntime({ projectRoot: config.cwd, fileService, root: ".forge/runtime", eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, agentRoleResolver, codeSearch, relevantTreeSelector, freshnessChecker, logger: runtimeLogger, projectLogger: runtimeLogger.emit, projectId,
+  checkpointSaved: async (checkpoint) => {
+    if (!checkpoint.task_id?.startsWith("CODE-")) return;
+    try {
+      const input = JSON.parse(await fileService.readFile({ path: `.forge/runtime/nf/code-requests/${checkpoint.task_id}.json` }));
+      internalBus.emit("agent.checkpoint.updated", { type: "agent.checkpoint.updated", project_id: input.project_id, payload: { task_id: checkpoint.task_id, sprint_id: input.sprint_id ?? null, status: checkpoint.status === "completed" ? "completed" : "resumable", last_completed_turn: checkpoint.last_completed_turn ?? 0, last_tool: checkpoint.last_tool ?? null, updated_at: checkpoint.updated_at } });
+    } catch (error) { runtimeLogger.emit({ event_name: "agent.checkpoint_publish_failed", level: "error", status: "failed", message: "Could not publish direct code checkpoint.", task_id: checkpoint.task_id, source: "control-api", error_code: error.code ?? "CHECKPOINT_PUBLISH_FAILED", payload: { error: error.message } }); }
+  },
   conversationStateStore, protocolStorage, codeSearch, testService, gitService, reportService, onEvalCase, enableReadCode: true, autoStartWorkers: false,
   preparation: {
     createTaskSession: async ({ task_id, project_id, ticket } = {}) => {
@@ -76,6 +84,17 @@ const terminalBridge = createTerminalBridge({
   eventBus: supervisorRuntime.eventBus, ticketStatusStore, roadmaps, projectId,
   taskSummaries, projectMemory,
   logger: runtimeLogger.emit
+});
+// Bridge supervisor agent status to project stream so agents page receives WORKING updates.
+supervisorRuntime.eventBus.subscribe("*", (event) => {
+  if (event?.type !== "agent.status_changed" && event?.event_type !== "agent.status_changed") return undefined;
+  const payload = event.payload ?? {};
+  const agentId = payload.agent_id ?? event.agent_id;
+  if (typeof agentId !== "string" || !agentId) return undefined;
+  const projectStreamEvent = { type: "agent.status_changed", event_type: "agent.status_changed", project_id: event.project_id ?? projectId, event_id: event.event_id, timestamp: event.timestamp, payload: { agent_id: agentId, status: payload.status ?? "WORKING", previous_status: payload.previous_status ?? null, correlation_id: payload.correlation_id ?? event.correlation_id ?? null }, metadata: { project_id: event.project_id ?? projectId } };
+  try { internalBus.emit("agent.status_changed", projectStreamEvent); } catch (error) { runtimeLogger.emit({ event_name: "agent.status_bridge_failed", level: "error", status: "failed", message: "Agent status bridge failed.", payload: { error: error.message } }); }
+  try { eventPublisher.publish(projectStreamEvent); } catch (error) { runtimeLogger.emit({ event_name: "agent.status_publish_failed", level: "error", status: "failed", message: "Agent status publish failed.", payload: { error: error.message } }); }
+  return undefined;
 });
 await supervisorRuntime.recover();
 await supervisorRuntime.startWorkers();
@@ -101,6 +120,7 @@ function isSourceCandidate(entry = {}) {
 function isFrontendTicket(ticket = {}) { return /\bfrontend\b|\breact\b|\bnext(?:\.js)?\b|\bjsx\b/i.test([ticket.title, ticket.objective, ...(ticket.acceptance_criteria ?? [])].join(" ")); }
 
 const dispatchTask = async ({ ticket, message, required_role, resume_from } = {}) => supervisorRuntime.integration.submitTicket({ ticket, task_id: ticket.id, project_id: ticket.project_id, request_id: message?.id, correlation_id: message?.correlation_id, required_role: required_role ?? ticket.required_role ?? "coder", payload: { text: `Ticket ${ticket.id}: ${ticket.title ?? ""}\nObjective: ${ticket.objective ?? ""}\nAcceptance: ${(ticket.acceptance_criteria ?? []).join("; ")}`, task: { id: ticket.id, title: ticket.title, objective: ticket.objective, dependencies: ticket.dependencies ?? [], acceptance_criteria: ticket.acceptance_criteria ?? [] }, ticket, ...(resume_from ? { resume_from } : {}) } });
+const directCodeRequest = createDirectCodeRequest({ fileService, integration: supervisorRuntime.integration, checkpoints: supervisorRuntime.agentCheckpoints, projectId, projectLogger: logEvent });
 
 // Sprint execution runs one level at a time, gating each ticket on its
 // predecessors' terminal ticket status via the execution event bus.
@@ -167,7 +187,7 @@ const publishUnifiedStreamEvent = createUnifiedStreamPublisher({ unifiedStreamOr
 
 const api = createControlApiHttp({ services: {
   bus, communications, conversations, eventStore, indexDb: platformIndexDb, subscriptions, knowledge, roadmaps, sprintPlans, provenance,
-  relevantTreeSelector, decisions, agentSettings, sprintPlanUpload, sprintOrchestration, dispatchTicket, runToolLab, internalBus,
+  relevantTreeSelector, decisions, agentSettings, sprintPlanUpload, sprintOrchestration, dispatchTicket, runToolLab, directCodeRequest, internalBus,
   proseTicketService, buildBuilderContext, protocolStorage, conversationStateStore, fileService, agentGateway, agentConfiguration, sdkGateways: Object.fromEntries([claudeSdkGateway, { ...claudeSdkGateway, provider: "anthropic" }, codexSdkGateway, openaiSdkGateway].map((gateway) => [gateway.provider, gateway])), projectRoot: config.cwd, publishUnifiedStreamEvent,
   ticketCrudService: createTicketCrudService({ roadmaps, proseTicketService, ticketFileStore, publisher: eventPublisher, agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId }), agentRoleResolver, candidateResolver: ticketCandidateResolver, sprintLeader: ticketSprintLeader }),
   dispatchTask, dispatchSprint, logEvent, projectId,
