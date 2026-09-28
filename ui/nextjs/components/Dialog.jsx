@@ -3,45 +3,23 @@
 
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { installDialogBehavior, shouldCloseOnOutsideClick } from "./DialogBehavior";
 
-// Return the interactive elements eligible for keyboard focus within a dialog.
-function getFocusableElements(container) {
-  return [...container.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
-    .filter((element) => !element.hidden && element.getAttribute("aria-hidden") !== "true");
-}
-
-// Keep keyboard focus inside an open dialog and restore it to the invoking control.
 // Render an accessible portal dialog with modal, confirmation, or drawer presentation.
 export function Dialog({ open, onClose, children, labelledBy, describedBy, label, variant = "modal", closeOnOutsideClick = true, className = "" }) {
   const dialogRef = useRef(null);
   const previousFocus = useRef(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return undefined;
-    previousFocus.current = document.activeElement;
-    const dialog = dialogRef.current;
-    const focusable = getFocusableElements(dialog);
-    (focusable[0] ?? dialog).focus();
-    const onKeyDown = (event) => {
-      if (event.key === "Escape") { event.preventDefault(); onClose?.(); return; }
-      if (event.key !== "Tab") return;
-      const items = getFocusableElements(dialog);
-      if (!items.length) { event.preventDefault(); dialog.focus(); return; }
-      const first = items[0];
-      const last = items[items.length - 1];
-      if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) { event.preventDefault(); first.focus(); }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("keydown", onKeyDown);
-      if (previousFocus.current?.isConnected) previousFocus.current.focus();
-    };
-  }, [open, onClose]);
+    return installDialogBehavior({ dialog: dialogRef.current, documentRef: document, onCloseRef, previousFocus });
+  }, [open]);
 
   if (!open || typeof document === "undefined") return null;
   return createPortal(<div className={`shared-dialog-backdrop ${variant} ${className}`} onMouseDown={(event) => {
-    if (closeOnOutsideClick && event.target === event.currentTarget) onClose?.();
+    if (shouldCloseOnOutsideClick(event, closeOnOutsideClick)) onCloseRef.current?.();
   }}>
     <section ref={dialogRef} className="shared-dialog-panel" role="dialog" aria-modal="true" aria-labelledby={labelledBy} aria-describedby={describedBy} aria-label={label} tabIndex={-1}>
       {children}
