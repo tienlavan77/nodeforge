@@ -67,8 +67,9 @@ test("coder can read workflow rules but cannot edit workflow files", async () =>
   const { fileService } = await harness();
   await fileService.atomicWrite({ path: "workflows/agents/coder.md", content: "Coder rules\n", replace: true });
   const context = { agent_identity: { role: "coder" }, allowed_prefixes: ["workflows/"] };
-  const read = await createReadFileTool({ fileService }).execute({ path: "workflows/agents/coder.md", offset: 1, limit: 80 }, context);
+  const read = await createReadFileTool({ fileService }).execute({ path: "workflows/agents/coder.md" }, context);
   assert.equal(read.content, "Coder rules\n");
+  await assert.rejects(() => createReadFileTool({ fileService }).execute({ path: "workflows/agents/coder.md", offset: 1, limit: 80 }, context), (error) => error.code === "INPUT_INVALID");
   await assert.rejects(() => createEditDiffTool({ fileService }).execute({ path: "workflows/agents/coder.md", before_checksum: read.sha256, anchor: "Coder", replacement: "Other" }, context), (error) => error.code === "FILE_ROLE_FORBIDDEN");
   await assert.rejects(() => createWriteDiffTool({ fileService }).execute({ path: "workflows/new.md", before_checksum: null, content: "Rules\n" }, context), (error) => error.code === "FILE_ROLE_FORBIDDEN");
 });
@@ -207,6 +208,12 @@ test("report_done blocks a UI ticket that did not change a UI path", async () =>
 test("report_done allows a UI ticket that changed a ui/nextjs path", async () => {
   const report = createReportDoneTool({ reportService: fakeReportService() });
   const result = await report.execute({ summary: "done" }, { ticket: { id: "T-UI-OK", title: "Add Agent Process Status to the Watcher Header", objective: "Update the watcher UI", acceptance_criteria: ["build passes"] }, changed_paths: ["ui/nextjs/components/NodeForgePanels.jsx"], verify_result: { pass: true, ready_for_review: true } });
+  assert.ok(result);
+});
+
+test("report_done accepts a directory target when a file inside it changed", async () => {
+  const report = createReportDoneTool({ reportService: fakeReportService() });
+  const result = await report.execute({ summary: "done" }, { ticket: { id: "T-DIR", title: "Add modal dialog", objective: "Update ui/nextjs/components", acceptance_criteria: ["build passes"] }, target_path: "ui/nextjs/components", changed_paths: ["ui/nextjs/components/Dialog.jsx"], verify_result: { pass: true, ready_for_review: true } });
   assert.ok(result);
 });
 

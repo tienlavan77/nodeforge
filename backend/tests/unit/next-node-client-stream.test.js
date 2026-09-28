@@ -21,7 +21,9 @@ test("Node client opens the project SSE stream and validates project events", ()
     source.emit("stream.connected", { event_id: "EVT-1", event_type: "stream.connected", schema_version: 1, project_id: "PROJECT-STREAM-CLIENT", timestamp: "2026-09-11T00:00:00.000Z", payload: { stream_id: "STREAM-1", replay_from: "EVT-0" } }, "EVT-1");
     source.emit("stream.connected", { event_id: "EVT-1", event_type: "stream.connected", schema_version: 1, project_id: "PROJECT-STREAM-CLIENT", timestamp: "2026-09-11T00:00:00.000Z", payload: { stream_id: "STREAM-1", replay_from: "EVT-0" } }, "EVT-1");
     source.emit("watcher.file_indexed", { event_id: "EVT-2", event_type: "watcher.file_indexed", schema_version: 1, project_id: "OTHER", timestamp: "2026-09-11T00:00:00.000Z", payload: { path: "ignored.js", indexed_at: "2026-09-11T00:00:00.000Z" } });
-    assert.equal(events.length, 1);
+    source.emit("agent.status_changed", { event_id: "EVT-3", event_type: "agent.status_changed", schema_version: 1, project_id: "PROJECT-STREAM-CLIENT", timestamp: "2026-09-11T00:00:01.000Z", payload: { agent_id: "coder-1", status: "working" } });
+    assert.equal(events.length, 2);
+    assert.equal(events[1].payload.status, "working");
     assert.equal(stream.getLastEventId(), "EVT-1");
     assert.equal(errors.length, 1);
     stream.close();

@@ -13,7 +13,7 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
   if (typeof runGit !== "function") throw new ConfigurationError("Git Service requires a git executor.");
   if (typeof onEvent !== "function") throw new ConfigurationError("Git Service onEvent must be a function.");
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1) throw new ConfigurationError("Git Service timeout must be positive.");
-  return Object.freeze({ status, diffWorkingTree, currentBranch, branchExists, createBranch, commit, merge, discardBranch, getHead, getBranchHead, abortMerge, hasConflicts, diffBetween, getChangedFiles, getCommitsForTask, deleteMergedBranch, resetTo });
+  return Object.freeze({ status, diffWorkingTree, diffPatchFrom, currentBranch, branchExists, createBranch, commit, merge, discardBranch, getHead, getBranchHead, getCommitParent, abortMerge, hasConflicts, diffBetween, getChangedFiles, getCommitsForTask, deleteMergedBranch, resetTo });
 
   async function status({ paths = [] } = {}) {
     const safePaths = validatePaths(paths);
@@ -24,15 +24,37 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
   }
 
   // Reads the unstaged working-tree patch through the existing Git executor.
-  async function diffWorkingTree() {
-    const result = await execute(["diff", "--"], "GIT_DIFF_FAILED");
+  async function diffWorkingTree({ paths = [] } = {}) {
+    const safePaths = validatePaths(paths);
+    const result = await execute(["diff", "--", ...safePaths], "GIT_DIFF_FAILED");
     if (result.exitCode !== 0) throw gitError("GIT_DIFF_FAILED", `Git diff failed: ${result.stderr ?? "unknown Git error"}`);
     emit("git.diff", { output_bytes: Buffer.byteLength(result.stdout) });
     return result.stdout;
   }
 
+  // Shows reviewed paths since the ticket's starting commit, including committed edits.
+  async function diffPatchFrom(baseCommit, { paths = [] } = {}) {
+    validateRevision(baseCommit);
+    const safePaths = validatePaths(paths);
+    if (!safePaths.length) throw new ConfigurationError("Review diff requires explicit paths.");
+    const result = await execute(["diff", "--no-ext-diff", "--unified=3", baseCommit, "--", ...safePaths], "GIT_DIFF_FAILED");
+    if (result.exitCode !== 0) throw gitError("GIT_DIFF_FAILED", `Git review diff failed: ${result.stderr ?? "unknown Git error"}`);
+    emit("git.review_diff", { paths: safePaths, output_bytes: Buffer.byteLength(result.stdout) });
+    return result.stdout;
+  }
+
   async function getHead() {
     return (await execute(["rev-parse", "HEAD"], "GIT_HEAD_FAILED")).stdout.trim();
+  }
+
+  // Resolves the parent commit used as the review baseline for a target commit.
+  async function getCommitParent(commit) {
+    validateRevision(commit);
+    const result = await execute(["rev-list", "--parents", "-n", "1", commit], "GIT_COMMIT_PARENT_FAILED");
+    if (result.exitCode !== 0) throw gitError("GIT_COMMIT_PARENT_FAILED", `Git commit parent lookup failed: ${result.stderr ?? "unknown Git error"}`);
+    const commits = result.stdout.trim().split(/\s+/).filter(Boolean);
+    if (commits.length < 2) throw gitError("GIT_COMMIT_PARENT_FAILED", `Commit has no parent: ${commit}`);
+    return commits[1];
   }
 
   async function getBranchHead(name) {

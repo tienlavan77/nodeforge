@@ -87,6 +87,7 @@
         "agent.concurrent_modification_detected",
         "agent.failed",
         "agent.completed",
+        "agent.status_changed",
         "verification.result",
         "history.summary_created",
         "process.timed_out",

@@ -14,20 +14,20 @@
       "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+"
     },
     "symbol": {
-      "type": "string",
+      "type": ["string", "null"],
       "minLength": 1,
       "description": "Current symbol name to read (exclusive with offset and limit)"
     },
     "offset": {
-      "type": "integer",
+      "type": ["integer", "null"],
       "minimum": 1,
       "description": "1-based start line, inclusive"
     },
     "limit": {
-      "type": "integer",
+      "type": ["integer", "null"],
       "minimum": 1,
-      "maximum": 80,
-      "description": "max lines to return"
+      "maximum": 250,
+      "description": "max lines to return: 250 for Markdown, 80 for source files"
     }
   }
 }

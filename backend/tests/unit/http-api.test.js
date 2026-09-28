@@ -41,6 +41,33 @@ test("serves the parallel Forge v1 ticket run route", async () => {
   assert.deepEqual(received, { projectId: "PROJECT-1", ticketId: "FORGE-1", conversationId: "CONV-BUILDER" });
 });
 
+test("routes review-only through the compact Forge v1 ticket route", async () => {
+  let received;
+  const api = createHttpApi({
+    runtimeService: runtimeStub(),
+    forgeV1Router: createForgeV1Router({
+      reviewTicket: async (input) => { received = input; return { task_id: input.ticketId, status: "approved", verdict: "approved" }; }
+    })
+  });
+  const [status, result] = await request(api, "POST", "/forge/v1/tickets/NF-UI-CONV-001/review?project=PROJECT-NODEFORGE", {
+    commit: "4fdf8226504629ab42668b5fe3b75f631b72c895",
+    changed_paths: ["ui/nextjs/README.md"]
+  });
+  assert.equal(status, 202);
+  assert.equal(result.verdict, "approved");
+  assert.match(result.request_id, /^[0-9a-f-]{36}$/);
+  assert.equal(result.correlation_id, result.request_id);
+  assert.deepEqual(received, {
+    projectId: "PROJECT-NODEFORGE",
+    ticketId: "NF-UI-CONV-001",
+    body: {
+      project_id: "PROJECT-NODEFORGE",
+      commit: "4fdf8226504629ab42668b5fe3b75f631b72c895",
+      changed_paths: ["ui/nextjs/README.md"]
+    }
+  });
+});
+
 test("routes dashboard Code text to the direct Supervisor request", async () => {
   let received;
   const api = createHttpApi({ forgeV1Router: createForgeV1Router({ directCodeRequest: { run: async (input) => { received = input; return { task_id: "CODE-1", agent_id: "coder-1", status: "completed" }; } } }) });

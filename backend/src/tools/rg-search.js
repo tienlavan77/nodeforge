@@ -6,7 +6,7 @@ import { rgPath } from "@vscode/ripgrep";
 import { logEvent } from "../core/project-log-service.js";
 import { createRuntimeLogger } from "../core/runtime-logger.js";
 import { ConfigurationError } from "../shared/errors.js";
-import { authorizeTool } from "./tool-authorization.js";
+import { authorizeTool, isAgentPathAllowed } from "./tool-authorization.js";
 
 // Creates a scoped content search tool with the project's runtime logger.
 export function createRgSearchTool({ projectRoot, codeCache, logger = createRuntimeLogger({ logEvent }), environment = process.env } = {}) {
@@ -20,6 +20,7 @@ export function createRgSearchTool({ projectRoot, codeCache, logger = createRunt
     try {
       authorizeTool("rg_search", context);
       args = buildArgs(input);
+      if (input.paths.some((path) => !isAgentPathAllowed(path, context))) throw invalidInput("rg_search path is outside the approved task scope.");
       await validatePaths(projectRoot, input.paths, environment);
     } catch (error) {
       emit("rejected", context, { error_code: error.code ?? "RG_SEARCH_INPUT_INVALID", error: error.message, duration_ms: Date.now() - started });

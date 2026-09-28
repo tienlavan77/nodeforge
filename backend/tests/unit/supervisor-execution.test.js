@@ -42,6 +42,7 @@ test("production recovery restores supervisor and queue state across restart sta
   const states = ["RUNNING", "VERIFYING", "REPAIRING"];
   for (const state of states) {
     const first = createProductionSupervisorRuntime({ fileService, root: "runtime", agentGateway: gateway, logger: { info() {} }, autoStartWorkers: false, gitService: { status: async () => "" } });
+    assert.equal(typeof first.integration.reviewOnly, "function");
     const started = await first.integration.startTask({ task_id: `TASK-${state}`, project_id: "PROJECT", request_id: `REQ-${state}`, correlation_id: `CORR-${state}` });
     const runtime = first.supervisorManager.getByTask(`TASK-${state}`);
     await runtime.transition(state, { request_id: `REQ-${state}`, correlation_id: `CORR-${state}`, attempt: 1 });
@@ -54,6 +55,28 @@ test("production recovery restores supervisor and queue state across restart sta
     assert.equal(recovered?.getState(), state);
     second.senderWorker.stop(); second.collectorWorkerLoop.stop(); second.verificationWorkerLoop.stop();
   }
+});
+
+test("recovery releases terminal claims and replays a completed Reviewer verdict", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-review-recovery-"));
+  const fileService = createFileService({ projectRoot: root });
+  const active = new Map([
+    ["TASK-DONE", { claim_id: "CLAIM-DONE", agent_id: "coder-1", task_id: "TASK-DONE", supervisor_id: "SUP-DONE" }],
+    ["TASK-REVIEW", { claim_id: "CLAIM-REVIEW", agent_id: "coder-2", task_id: "TASK-REVIEW", supervisor_id: "SUP-REVIEW" }],
+    ["TASK-ORPHAN", { claim_id: "CLAIM-ORPHAN", agent_id: "coder-3", task_id: "TASK-ORPHAN", supervisor_id: "SUP-TASK-ORPHAN" }]
+  ]);
+  const released = [];
+  const occupancy = { listActive: () => [...active.values()], getByTask: (taskId) => active.get(taskId), release: async (input) => { released.push(input); active.delete(input.taskId); } };
+  const runtime = createProductionSupervisorRuntime({ fileService, root: "runtime", agentOccupancy: occupancy, logger: { info() {}, debug() {} }, gitService: { status: async () => "" }, autoStartWorkers: false });
+  await runtime.stateStore.save({ task_id: "TASK-DONE", supervisor_id: "SUP-DONE", state: "COMPLETED", pending_request: {}, updated_at: new Date().toISOString() });
+  await runtime.stateStore.save({ task_id: "TASK-REVIEW", supervisor_id: "SUP-REVIEW", state: "REVIEWING", pending_request: {}, updated_at: new Date().toISOString() });
+  await runtime.agentCheckpoints.save({ task_id: "TASK-ORPHAN", status: "completed", changed_paths: ["backend/src/a.js"] });
+  await runtime.queueStore.save("review.request", { id: "JOB-REVIEW", queue: "review.request", status: "completed", task_id: "TASK-REVIEW", supervisor_id: "SUP-REVIEW", request_id: "REVIEW-1", correlation_id: "CORR-1", attempt: 1, review_result: { type: "review.approved", payload: { verdict: "approved", reviewer_id: "reviewer-1" } } });
+  await runtime.recover();
+  assert.equal((await runtime.queueStore.list("agent.request")).find((job) => job.id === "JOB-REVIEW")?.operation, "review");
+  assert.deepEqual(released.map((item) => item.taskId).sort(), ["TASK-DONE", "TASK-ORPHAN", "TASK-REVIEW"]);
+  assert.equal(released.find((item) => item.taskId === "TASK-ORPHAN").reason, "review_interrupted");
+  assert.equal((await runtime.stateStore.get("SUP-REVIEW")).state, "COMPLETED");
 });
 
 test("persistent task ownership resolves concurrent managers to one supervisor", async () => {

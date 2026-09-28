@@ -1,7 +1,7 @@
 // Verifies agent Git inspection reuses the project Git Service and logs failures.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -37,6 +37,29 @@ test("git_status and git_diff return real Git Service results", async () => {
     assert.deepEqual(events.map((event) => event.event_name), ["forge.git_status_started", "forge.git_status_completed", "forge.git_diff_started", "forge.git_diff_completed"]);
     assert.equal(events[3].payload.stdout_bytes, Buffer.byteLength(diff.stdout));
     assert.equal(events[1].payload.working_tree, "dirty");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+// Keeps coder Git inspection inside approved directories so patches do not reveal docs.
+test("coder Git reads exclude docs and include schema changes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-git-coder-"));
+  try {
+    execFileSync("git", ["init", "-q"], { cwd: root });
+    for (const dir of ["docs", "schemas"]) await mkdir(join(root, dir));
+    await writeFile(join(root, "docs", "guide.md"), "before\n");
+    await writeFile(join(root, "schemas", "contract.json"), "before\n");
+    execFileSync("git", ["add", "."], { cwd: root });
+    execFileSync("git", ["-c", "user.name=NodeForge Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "initial"], { cwd: root });
+    await writeFile(join(root, "docs", "guide.md"), "secret change\n");
+    await writeFile(join(root, "schemas", "contract.json"), "schema change\n");
+    const tools = createGitReadTools({ gitService: createGitService({ projectRoot: root }), logger: captureLogger([]) });
+    const scoped = { ...context, agent_identity: { role: "coder" }, allowed_prefixes: ["docs/", "schemas/"] };
+    const status = await tools.git_status.execute({}, scoped);
+    const diff = await tools.git_diff.execute({}, scoped);
+    assert.match(status.stdout, /schemas\/contract\.json/);
+    assert.doesNotMatch(status.stdout, /docs\//);
+    assert.match(diff.stdout, /schema change/);
+    assert.doesNotMatch(diff.stdout, /secret change|docs\//);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

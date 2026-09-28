@@ -24,7 +24,7 @@ export function createControlApiAgent({ database, fileService, config, env = pro
   agentConfiguration.sync();
   const agentGateway = createAgentGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference), timeoutMs: config.agentTimeoutMs });
   const claudeSdkGateway = createClaudeSdkGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference), timeoutMs: config.sdkTimeoutMs });
-  const codexSdkGateway = createCodexSdkGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference), timeoutMs: config.sdkTimeoutMs });
+  const codexSdkGateway = createCodexSdkGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference), timeoutMs: config.sdkTimeoutMs, codexHomeRoot: join(config.dataDir, "codex-homes") });
   const ollamaSdkProviderFactory = createOllamaSdkProviderFactory({ credentialResolver: (reference) => secrets.get(reference) });
   const ollamaSdkGateway = createOllamaSdkGateway({ providerFactory: ollamaSdkProviderFactory, timeoutMs: config.agentTimeoutMs });
   const agentSettings = createAgentSettingsService({ profiles, configuration: agentConfiguration, gateway: agentGateway, claudeSdkGateway, codexSdkGateway, ollamaSdkGateway, secretStore: secrets });

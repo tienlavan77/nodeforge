@@ -39,3 +39,25 @@ test("session request excludes capability-gated Forge tools not advertised", asy
   assert.equal(names.includes("submit_code_response"), false);
   assert.equal(names.includes("code_needed"), false);
 });
+
+test("sender keeps processing tool calls beyond the former eight-turn cap", async () => {
+  let sends = 0;
+  let calls = 0;
+  const job = {
+    task_id: "TASK-LONG", supervisor_id: "SUP-LONG", request_id: "REQ-LONG", correlation_id: "CORR-LONG", agent_id: "builder",
+    payload: { type: "task", step_id: 1, execution_context: { task_id: "TASK-LONG" } }
+  };
+  const worker = createSenderWorker({
+    queue: { claim: async () => job, ack: async () => {} },
+    agentRegistry: { resolve: () => ({ adapter: { send: async () => {
+      sends += 1;
+      return sends <= 9 ? { tool_calls: [{ id: `call-${sends}`, name: "ping", input: {} }] } : { summary: "done" };
+    } } }) },
+    eventBus: { publish: async () => {} },
+    toolRegistry: { ping: { execute: async () => { calls += 1; return { ok: true }; } } }
+  });
+  const result = await worker.processOnce();
+  assert.equal(result.type, "agent.response.received");
+  assert.equal(sends, 10);
+  assert.equal(calls, 9);
+});

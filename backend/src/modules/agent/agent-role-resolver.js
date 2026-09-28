@@ -8,7 +8,10 @@ const USABLE_STATUSES = new Set(["ready"]);
 export function createAgentRoleResolver({ profiles } = {}) {
   if (typeof profiles?.getAll !== "function") throw new ConfigurationError("Agent Role Resolver requires an Agent Profile Store.");
 
-  return Object.freeze({ resolve, resolveProfile, resolveAvailable, list });
+  return Object.freeze({ resolve, resolveProfile, resolveAvailable, list, refresh });
+
+  // Refreshes persisted profiles before scheduling a Coder after another process changed occupancy.
+  function refresh() { return profiles.load?.() ?? profiles.getAll(); }
 
 // Resolves an agent id for the given role, throwing when none is available.
   function resolve(role) {
