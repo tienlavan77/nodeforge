@@ -84,11 +84,24 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
 // Accepts only a structured verdict, never treating free-form praise as approval.
 function parseVerdict(text) {
   let value;
-  try { value = JSON.parse(String(text ?? "").trim().replace(/^```(?:json)?\s*|\s*```$/g, "")); }
+  try { value = JSON.parse(extractVerdictJson(text)); }
   catch (error) { throw reviewError("REVIEW_VERDICT_INVALID", `Reviewer returned invalid JSON: ${error.message}`); }
   if (!["approved", "request_changes"].includes(value?.verdict) || !Array.isArray(value.findings) || value.findings.some((item) => typeof item !== "string" || !item.trim())) throw reviewError("REVIEW_VERDICT_INVALID", "Reviewer returned an invalid verdict or findings.");
   if (value.verdict === "request_changes" && !value.findings.length) throw reviewError("REVIEW_VERDICT_INVALID", "Requested changes require specific findings.");
   return { verdict: value.verdict, findings: value.findings };
+}
+
+// Extracts one JSON object from an SDK response that may wrap it in prose or a fenced block.
+function extractVerdictJson(text) {
+  const source = String(text ?? "").trim().replace(/^```(?:json)?\s*|\s*```$/g, "");
+  if (!source) throw new Error("empty reviewer response");
+  try { JSON.parse(source); return source; } catch (error) { if (!error) throw new Error("invalid JSON"); }
+  const start = source.indexOf("{");
+  const end = source.lastIndexOf("}");
+  if (start < 0 || end <= start) throw new Error("no JSON object found");
+  const candidate = source.slice(start, end + 1);
+  JSON.parse(candidate);
+  return candidate;
 }
 
 // Labels review failures so the Supervisor can escalate without accepting unreviewed work.
