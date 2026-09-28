@@ -5,6 +5,7 @@ import { Dialog } from "./Dialog";
 
 const DIALOG_TITLE_ID = "add-agent-title";
 const DIALOG_VARIANT = "modal";
+const CLOSE_ON_OUTSIDE_CLICK = true;
 
 function SelectMenu({ label, name, value, options, openName, setOpenName, onChange }) {
   const open = openName === name;
@@ -25,7 +26,7 @@ export function AddAgentModal({ title = "Add agent", form, modelOptions, apiKeyM
   const teams = [{ value: "Backend", label: "Backend" }, { value: "Frontend", label: "Frontend" }, { value: "Security", label: "Security" }];
   const providers = [{ value: "anthropic", label: "Anthropic" }, { value: "claude", label: "Claude" }, { value: "openai", label: "OpenAI" }, { value: "codex", label: "Codex" }, { value: "ollama", label: "Ollama" }];
   const models = modelOptions ?? [];
-  return <Dialog open onClose={onClose} labelledBy={DIALOG_TITLE_ID} variant={DIALOG_VARIANT} closeOnOutsideClick className="agent-modal-backdrop">
+  return <Dialog open onClose={onClose} labelledBy={DIALOG_TITLE_ID} variant={DIALOG_VARIANT} closeOnOutsideClick={CLOSE_ON_OUTSIDE_CLICK} className="agent-modal-backdrop">
     <div className="agent-modal" onClick={() => setOpenName(null)}>
       <header><div><p className="eyebrow">NODEFORGE RUNTIME</p><h2 id="add-agent-title">{title}</h2></div><button className="agent-modal-close" type="button" onClick={onClose} aria-label="Close">×</button></header>
       <form onSubmit={onSubmit}>
