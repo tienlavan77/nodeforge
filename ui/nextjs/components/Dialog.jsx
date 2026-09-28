@@ -21,7 +21,7 @@ export function Dialog({ open, onClose, children, labelledBy, describedBy, label
   return createPortal(<div className={`shared-dialog-backdrop ${variant} ${className}`} onMouseDown={(event) => {
     if (shouldCloseOnOutsideClick(event, closeOnOutsideClick)) onCloseRef.current?.();
   }}>
-    <section ref={dialogRef} className="shared-dialog-panel" role="dialog" aria-modal="true" aria-labelledby={labelledBy} aria-describedby={describedBy} aria-label={label} tabIndex={-1}>
+    <section ref={dialogRef} className="shared-dialog-panel" role="dialog" aria-modal="true" aria-labelledby={labelledBy} aria-describedby={describedBy} aria-label={label || (labelledBy ? undefined : "Dialog")} tabIndex={-1}>
       {children}
     </section>
   </div>, document.body);
