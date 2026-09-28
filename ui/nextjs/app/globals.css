@@ -932,7 +932,16 @@ button, input { font: inherit; }
 .agents-directory-state.error { color: #ee8f9b; }
 @media (max-width: 1200px) { .agents-card-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 @media (max-width: 760px) { .agents-directory { padding: 16px; } .agents-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 460px) { .agents-card-grid { grid-template-columns: 1fr; } .agent-directory-card { aspect-ratio: auto; min-height: 280px; } }
+@media (max-width: 460px) {
+  .agents-card-grid { grid-template-columns: 1fr; }
+  .agent-directory-card { aspect-ratio: auto; min-height: 280px; }
+  .agent-directory-card.agent-card-editable { grid-template-rows: auto minmax(120px, 1fr) auto; }
+  .agent-directory-card .agent-card-header { align-items: flex-start; }
+  .agent-directory-card .agent-card-footer { align-items: flex-start; }
+  .agent-directory-card .agent-card-footer > .agent-status-control { height: auto; flex-wrap: wrap; }
+  .agent-directory-card .agent-card-actions { width: 100%; margin-left: 0; }
+  .agent-directory-card .card-action-button { flex: 1; }
+}
 
 .agents-heading-actions { display: flex; align-items: center; gap: 12px; }
 .agent-modal-backdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: start center; padding: 20px; background: rgba(3, 10, 18, .72); }
