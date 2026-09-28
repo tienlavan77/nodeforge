@@ -9,4 +9,4 @@
 | Create conversation | Conversation page that supplies `open`, title, validation, create, and close props; `components/CreateConversationModal.jsx` renders the modal | Replace its portal/backdrop/dialog wrapper with `Dialog`; retain conversation form and open state in the page. |
 | Ticket detail/edit | `TicketCard` in `components/ticket-detail-modal.jsx` owns `viewOpen`, ticket detail, and refresh lifecycle; `TicketModal` renders the detail editor | Replace the modal shell with `Dialog`; keep detail/edit state in `TicketCard` and its existing callbacks, with no second open-state store. |
 
-All listed modal presentations have an identified owner and path to the shared primitive. The conversation page is identified by the modal's caller contract; migration of those legacy callers is separate from introducing the primitive.
+All listed modal presentations have an identified owner and path to the shared primitive. `CreateConversationModal.jsx` and `ticket-detail-modal.jsx` are confirmed modal users because their indexed JSX includes modal backdrops and dialog/presentation roles; migration of those legacy callers is separate from introducing the primitive.
