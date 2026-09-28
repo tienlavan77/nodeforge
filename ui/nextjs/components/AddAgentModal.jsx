@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { Dialog } from "./Dialog";
 
+const DIALOG_TITLE_ID = "add-agent-title";
+
 function SelectMenu({ label, name, value, options, openName, setOpenName, onChange }) {
   const open = openName === name;
   const selected = options.find((option) => option.value === value) ?? options[0];
