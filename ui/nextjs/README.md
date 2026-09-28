@@ -11,7 +11,7 @@ pnpm --filter @nodeforge/ui-nextjs dev
 pnpm --filter @nodeforge/ui-nextjs build
 ```
 
-The migrated Dashboard, HistoryView, SprintSummary, ProjectLogPreview, and formatTicketResponse modules Dashboard/SprintSummary/ProjectLogPreview are presentational Server Components; HistoryView is a Client Component because it owns interactive state.
+The active `/` route is a Client Component. Its direct imports are the components and `lib` modules shown below; the route also imports architecture-manager selection persistence from `ui/src`. Keep this graph aligned with actual imports in `app/page.jsx`.
 
 ## Canonical route and import graph
 
@@ -35,7 +35,7 @@ The migrated Dashboard, HistoryView, SprintSummary, ProjectLogPreview, and forma
 └── ../../src/architecture-manager-selection.js (selection persistence)
 ```
 
-The route owns workspace composition and agent selection. Conversation selection is owned by `HomePage` (`activeConversationId` and its ref); message history and pagination are owned by `useConversationMessageHistory`. Project SSE subscription and stream lifecycle are owned by `useProjectEventStream`. Workspace dashboard/upload and agent process state remain in `HomePage`. Responsive drawer state is owned by `NodeForgeHeader` and its responsive navigation implementation, not by the conversation history or stream modules.
+`HomePage` owns workspace composition, agent selection, dashboard/upload data, and agent-process state. Conversation selection is represented by `activeConversationId` (with a ref for current stream correlation) in `HomePage`; `useConversationMessageHistory` owns messages and pagination; `useProjectEventStream` owns project SSE subscription/lifecycle. Responsive drawer state is delegated to `NodeForgeHeader` and its responsive navigation implementation. The legacy `NodeForgeApp` also imports `NodeForgeShell`; this is an active edge inside the dormant legacy subtree, not an import into the canonical route.
 
 ## Behavior contract to preserve
 
@@ -51,11 +51,13 @@ The route owns workspace composition and agent selection. Conversation selection
 | --- | --- | --- |
 | `app/page.jsx` / `HomePage` | Active `/` route and canonical composition | Canonical |
 | `components/*` and `lib/*` imported by `HomePage` | Active UI, state, API, history, and SSE ownership | Keep and evolve |
-| `NodeForgeApp` | Dormant legacy application path; not imported by the canonical App Router page | Migrate only deliberately; do not remove yet |
-| `NodeForgeShell` | Dormant legacy shell path; not imported by the canonical App Router page | Deprecate after import consumers are migrated; do not remove yet |
+| `app/NodeForgeApp.jsx` → `components/NodeForgeShell.jsx` | Legacy app imports shell; neither is imported from canonical route | Migrate only deliberately; deprecate, then remove only when repository-wide references are absent |
+| `components/NodeForgeShell.jsx` | Legacy shell component; currently consumed by `NodeForgeApp` | Keep while legacy consumer remains |
+| `app/NodeForgeApp.jsx` | Legacy app composition; retained, no active route import | Deprecate; remove only after repository-wide import-reference search is clear |
+| `components/NodeForgeShell.jsx` | Legacy shell; retained, no active route import | Migrate any remaining consumers, then deprecate and remove only after repository-wide import-reference search is clear |
 | Migrated presentational modules named above | Supporting components documented in this README | Keep; migrate remaining consumers incrementally |
 
-No legacy file is deleted as part of establishing this baseline. Before removing `NodeForgeApp` or `NodeForgeShell`, verify an import-reference search has no remaining consumers and update this table.
+No legacy file is deleted as part of establishing this baseline. No legacy file is deleted as part of this baseline. The legacy app-to-shell edge exists; confirm repository-wide references are absent before any eventual removal. Preserve canonical switch, optimistic send, retry, correlation and project/conversation scope behavior above during migration.
 
 ## LAN development
 
