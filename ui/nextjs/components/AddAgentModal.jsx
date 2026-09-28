@@ -14,6 +14,7 @@ function SelectMenu({ label, name, value, options, openName, setOpenName, onChan
   </label>;
 }
 
+// Render the agent form through the shared accessible dialog owner.
 export function AddAgentModal({ title = "Add agent", form, modelOptions, apiKeyMasked, saving, error, testState, onTestConnection, onChange, onSubmit, onClose }) {
   // Team selector rendered below Role with options: Backend, Frontend, Security
   const [openName, setOpenName] = useState(null);
