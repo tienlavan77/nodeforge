@@ -26,7 +26,7 @@ export function AddAgentModal({ title = "Add agent", form, modelOptions, apiKeyM
   const teams = [{ value: "Backend", label: "Backend" }, { value: "Frontend", label: "Frontend" }, { value: "Security", label: "Security" }];
   const providers = [{ value: "anthropic", label: "Anthropic" }, { value: "claude", label: "Claude" }, { value: "openai", label: "OpenAI" }, { value: "codex", label: "Codex" }, { value: "ollama", label: "Ollama" }];
   const models = modelOptions ?? [];
-  return <Dialog open onClose={onClose} labelledBy={DIALOG_TITLE_ID} variant={DIALOG_VARIANT} closeOnOutsideClick={CLOSE_ON_OUTSIDE_CLICK} className="agent-modal-backdrop">
+  return <Dialog open onClose={onClose} labelledBy={DIALOG_TITLE_ID} describedBy={error ? "agent-form-error" : undefined} variant={DIALOG_VARIANT} closeOnOutsideClick={CLOSE_ON_OUTSIDE_CLICK} className="agent-modal-backdrop">
     <div className="agent-modal" onClick={() => setOpenName(null)}>
       <header><div><p className="eyebrow">NODEFORGE RUNTIME</p><h2 id="add-agent-title">{title}</h2></div><button className="agent-modal-close" type="button" onClick={onClose} aria-label="Close">×</button></header>
       <form onSubmit={onSubmit}>
@@ -37,7 +37,7 @@ export function AddAgentModal({ title = "Add agent", form, modelOptions, apiKeyM
         <SelectMenu label="Model" name="model" value={form.model} options={models} openName={openName} setOpenName={setOpenName} onChange={onChange} />
         <label>Gateway URL<input name="gateway_url" value={form.gateway_url} onChange={onChange} required placeholder="https://..." /></label>
         <label>API key<input name="api_key" type="password" value={form.api_key} onChange={onChange} placeholder={apiKeyMasked || "Optional"} /></label>
-        {error && <p className="agent-form-error">{error}</p>}
+        {error && <p id="agent-form-error" className="agent-form-error">{error}</p>}
         {testState && <p className="agent-test-state">{testState}</p>}
         <div className="agent-modal-actions"><button className="history-button" type="button" onClick={onClose}>Cancel</button><button className="history-button agent-submit-button" type="submit" disabled={saving}>{saving ? "Saving…" : title === "Edit agent" ? "Save" : "Add agent"}</button></div>
       </form>
