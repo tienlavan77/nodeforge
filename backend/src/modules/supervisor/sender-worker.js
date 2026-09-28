@@ -4,7 +4,7 @@ import { persistAgentResponse } from "../agent/response-persistence.js";
 import { readTranscriptBlocksDefinition, selectCodeGraphCandidatesDefinition, searchCodeDefinition, readCodeDefinition, readFileDefinition, writeDiffDefinition, editDiffDefinition, runTestDefinition, checkTestDefinition, gitStatusDefinition, gitDiffDefinition, commitChangesDefinition, reportDoneDefinition } from "../../tools/index.js";
 
 /** Creates the sender worker that dispatches agent requests and publishes response events. */
-export function createSenderWorker({ queue, agentRegistry, agentResolver, eventBus, processedStore, protocolStorage, conversationStateStore, conversationIdResolver = (job) => `CONV-BUILDER-${job.task_id}`, workerId = "sender-1", statusBus, signalBus, projectLogger = () => {}, toolRegistry, runtimeGovernance } = {}) {
+export function createSenderWorker({ queue, agentRegistry, agentResolver, eventBus, processedStore, protocolStorage, conversationStateStore, conversationIdResolver = (job) => `CONV-BUILDER-${job.task_id}`, workerId = "sender-1", statusBus, signalBus, projectLogger = () => {}, toolRegistry, runtimeGovernance, reviewHandler } = {}) {
   if (typeof queue?.claim !== "function" || typeof agentRegistry?.resolve !== "function" || typeof eventBus?.publish !== "function") throw new ConfigurationError("Sender Worker requires queue, agent registry and event bus.");
   const defaultAgentId = () => agentResolver?.resolve?.("coder") ?? "builder";
   const processed = new Map();
@@ -14,6 +14,10 @@ export function createSenderWorker({ queue, agentRegistry, agentResolver, eventB
   function stop() { if (timer) clearInterval(timer); if (heartbeat) clearInterval(heartbeat); unsubscribe?.(); unsubscribe = undefined; timer = undefined; heartbeat = undefined; statusBus?.publish({ worker_id: workerId, worker_type: "sender", status: "stopped", sequence: Date.now() }); }
   async function processOnce() {
     const job = await queue.claim(workerId); if (!job) return null;
+    if (job.operation === "review") {
+      if (typeof reviewHandler !== "function") throw new ConfigurationError("Review request handler is unavailable.");
+      return reviewHandler(job);
+    }
     const stored = await processedStore?.get?.(job.request_id);
     if (stored || processed.has(job.request_id)) { const result = stored ?? processed.get(job.request_id); await queue.ack(job.id); return result; }
     try { const agentId = job.agent_id ?? defaultAgentId(); projectLogger({ event_name: "sender.request_started", level: "info", status: "info", message: "Sender Worker started agent request.", task_id: job.task_id, correlation_id: job.correlation_id, source: "sender-worker", payload: { request_id: job.request_id, worker_id: workerId, agent_id: agentId } }); const { adapter, config } = agentRegistry.resolve(agentId); const response = await runAgentTurns(adapter, config, { ...job, agent_id: agentId }); const event = identityEvent(job, "agent.response.received", { response }); await persistResponse(job, response); projectLogger({ event_name: "sender.response_persisted", level: "info", status: "success", message: "Sender Worker persisted agent response before publishing.", task_id: job.task_id, correlation_id: job.correlation_id, source: "sender-worker", payload: { request_id: job.request_id, worker_id: workerId } }); processed.set(job.request_id, event); await processedStore?.save?.(job.request_id, event); await eventBus.publish(event); projectLogger({ event_name: "sender.response_received", level: "info", status: "success", message: "Sender Worker published agent response.", task_id: job.task_id, correlation_id: job.correlation_id, source: "sender-worker", payload: { request_id: job.request_id, worker_id: workerId } }); await queue.ack(job.id); return event; }
@@ -52,8 +56,7 @@ export function createSenderWorker({ queue, agentRegistry, agentResolver, eventB
 
   async function runAgentTurns(adapter, adapterConfig, job) {
     let payload = job.payload;
-    const maxTurns = Number(payload?.tool_context?.max_turns ?? payload?.max_tool_turns ?? 8);
-    for (let turn = 0; turn < maxTurns; turn += 1) {
+    for (let turn = 0; ; turn += 1) {
       const response = await adapter.send({ agentId: job.agent_id ?? defaultAgentId(), payload: await withChainedResponseId(adapterConfig, job, payload), correlationId: job.correlation_id, tools: job.tools ?? toolsForRequest(job) });
       await persistResponse(job, response);
       const calls = extractToolCalls(response);
@@ -86,7 +89,6 @@ export function createSenderWorker({ queue, agentRegistry, agentResolver, eventB
       }
       payload = appendToolExchange(payload, response, results);
     }
-    throw Object.assign(new ConfigurationError("Agent exceeded the maximum tool turns."), { code: "TOOL_TURN_LIMIT" });
   }
 
   // previous_response_id probe: opt-in per profile (use_previous_response_id).

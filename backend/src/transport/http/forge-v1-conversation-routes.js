@@ -113,6 +113,6 @@ export function createForgeV1ConversationRoutes({ conversationCrudService, conve
   function checkpointSummary(byTask, ticketId) {
     const checkpoint = byTask?.get(ticketId);
     if (!checkpoint) return null;
-    return { resumable: true, last_completed_turn: checkpoint.last_completed_turn ?? 0, last_tool: checkpoint.last_tool ?? null, updated_at: checkpoint.updated_at ?? null };
+    return { resumable: true, phase: checkpoint.phase ?? "code", last_completed_turn: checkpoint.last_completed_turn ?? 0, last_tool: checkpoint.last_tool ?? null, updated_at: checkpoint.updated_at ?? null };
   }
 }

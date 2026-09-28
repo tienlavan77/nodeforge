@@ -2,7 +2,7 @@
 import { logEvent } from "../core/project-log-service.js";
 import { createRuntimeLogger } from "../core/runtime-logger.js";
 import { ConfigurationError } from "../shared/errors.js";
-import { authorizeTool } from "./tool-authorization.js";
+import { authorizeTool, isCoderBlockedPath } from "./tool-authorization.js";
 
 const MAX_OUTPUT_BYTES = 256000;
 
@@ -28,7 +28,10 @@ export function createGitReadTools({ gitService, logger = createRuntimeLogger({ 
       emit(name, "started", context, { operation: method });
       let stdout;
       try {
-        stdout = await gitService[method]();
+        const scoped = Array.isArray(context.allowed_file_paths ?? context.allowedFilePaths) || Array.isArray(context.allowed_prefixes ?? context.allowedPrefixes);
+        const scope = [...new Set([...(context.allowed_file_paths ?? context.allowedFilePaths ?? []), ...(context.allowed_prefixes ?? context.allowedPrefixes ?? [])])].filter((path) => !isCoderBlockedPath(path, context)).map((path) => path.replace(/\/$/, ""));
+        if (scoped && !scope.length) throw invalidInput(`${name} has no approved paths.`);
+        stdout = await gitService[method](scoped ? { paths: scope } : undefined);
         if (typeof stdout !== "string") throw invalidInput("Git Service returned invalid output.");
         if (Buffer.byteLength(stdout) > MAX_OUTPUT_BYTES) {
           const error = invalidInput(`${name} output exceeds ${MAX_OUTPUT_BYTES} bytes.`);

@@ -109,7 +109,7 @@ export function createClaudeSdkGateway({
     const config = configuration.getById(agentId);
     if (!config) throw new ConfigurationError(`Unknown Claude SDK profile: ${agentId}.`);
     if (!config.enabled) throw new ConfigurationError(`Claude SDK agent is disabled: ${agentId}.`);
-    if (config.status !== "ready") throw new ConfigurationError(`Claude SDK agent is not ready: ${agentId}.`);
+    if (config.status !== "ready" && config.status !== "working") throw new ConfigurationError(`Claude SDK agent is not ready: ${agentId}.`);
     if (config.gateway_url !== undefined && (typeof config.gateway_url !== "string" || !SAFE_URL.test(config.gateway_url))) throw new ConfigurationError(`Claude SDK gateway URL is invalid for ${agentId}.`);
     return structuredClone(config);
   }

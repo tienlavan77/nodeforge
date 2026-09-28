@@ -175,6 +175,14 @@ test("project stream framing validates every emitted event against the v1 schema
   });
   const connection = stream.connect({ requestedProjectId: "PROJECT-STREAM-SCHEMA", response });
   const frames = response.chunks.filter((chunk) => chunk.startsWith("id: "));
+  let publishStatus;
+  const statusResponse = responseStub();
+  const statusStream = createProjectStream({ projectId: "PROJECT-STREAM-SCHEMA", indexDb: { all: () => [] }, subscriptions: { subscribe: (_pattern, callback) => { publishStatus = callback; return { id: "SUB-STATUS" }; }, unsubscribe: () => {} }, heartbeatMs: 1000, clock: () => "2026-09-11T00:00:00.000Z" });
+  const statusConnection = statusStream.connect({ requestedProjectId: "PROJECT-STREAM-SCHEMA", response: statusResponse });
+  publishStatus({ event_id: "EVT-AGENT-STREAM-1", event_type: "agent.status_changed", project_id: "PROJECT-STREAM-SCHEMA", timestamp: "2026-09-11T00:00:00.000Z", payload: { agent_id: "CODER-1", previous_status: "ready", status: "working", updated_at: "2026-09-11T00:00:00.000Z" } });
+  const statusFrame = statusResponse.chunks.filter((chunk) => chunk.startsWith("id: ")).at(-1);
+  assert.equal(validate(JSON.parse(statusFrame.split("data: ")[1])), true, ajv.errorsText(validate.errors));
+  statusConnection.close();
   assert.ok(frames.every((frame) => frame.endsWith("\n\n")));
   for (const frame of frames) {
     const event = JSON.parse(frame.split("data: ")[1]);

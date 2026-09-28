@@ -42,19 +42,26 @@ function displayValue(value) {
 // Maps project stream lifecycle signals onto the agent status domain.
 function streamStatusToAgentStatus(status) {
   const value = String(status ?? "").toLowerCase();
-  if (value === "working") return "working";
-  if (value === "idle" || value === "completed" || value === "failed") return "ready";
+  if (value === "working" || value === "ready" || value === "not_connected") return value;
   return null;
 }
 
 // Applies a project stream status event to the agent list.
 function applyAgentStatusEvent(current, event) {
-  if (event?.event_type !== "agent.status_changed" && event?.event_type !== "conversation.agent.status_changed") return current;
+  if (event?.event_type !== "agent.status_changed") return current;
   const agentId = event.payload?.agent_id;
   const next = streamStatusToAgentStatus(event.payload?.status);
   if (typeof agentId !== "string" || !agentId || !next) return current;
   if (!current.some((agent) => (agent.agent_id ?? agent.id) === agentId)) return current;
-  return current.map((agent) => ((agent.agent_id ?? agent.id) === agentId ? { ...agent, status: next } : agent));
+  return current.map((agent) => ((agent.agent_id ?? agent.id) === agentId && String(event.payload?.updated_at ?? event.timestamp ?? "") >= String(agent.updated_at ?? "") ? { ...agent, status: next, updated_at: event.payload?.updated_at ?? event.timestamp } : agent));
+}
+
+// Reconciles a refreshed API snapshot with newer live status events.
+function mergeAgentProfiles(current, incoming) {
+  return incoming.map((agent) => {
+    const existing = current.find((item) => (item.agent_id ?? item.id) === (agent.agent_id ?? agent.id));
+    return existing && String(existing.updated_at ?? "") > String(agent.updated_at ?? "") ? { ...agent, status: existing.status, updated_at: existing.updated_at } : agent;
+  });
 }
 
 // Agent management page with CRUD and connection testing.
@@ -172,7 +179,7 @@ export default function AgentsPage() {
       })
       .then((payload) => {
         if (!active) return;
-        setAgents(normalizeAgents(payload));
+        setAgents((current) => mergeAgentProfiles(current, normalizeAgents(payload)));
         setState("ready");
       })
       .catch((requestError) => {
@@ -189,7 +196,7 @@ export default function AgentsPage() {
     let active = true;
     const stream = client.connectProjectStream({
       projectId: PROJECT_ID,
-      onOpen: () => { if (active) setStreamState("connected"); },
+      onOpen: () => { if (active) { setStreamState("connected"); void fetch(API_URL).then((response) => response.ok ? response.json() : null).then((payload) => { if (active && payload) setAgents((current) => mergeAgentProfiles(current, normalizeAgents(payload))); }).catch((error) => { if (active) setStreamState("error"); console.error("Agent status refresh failed", error); }); } },
       onEvent: (event) => { if (active) setAgents((current) => applyAgentStatusEvent(current, event)); },
       onError: () => { if (active) setStreamState("error"); }
     });

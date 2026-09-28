@@ -8,8 +8,7 @@ import {
   createResumeState,
   failureDetail,
   normalizeResume,
-  recordTurn,
-  remainingTurns
+  recordTurn
 } from "../../src/modules/supervisor/ticket-resume.js";
 import { createCodexSdkGateway } from "../../src/modules/agent/codex-sdk-gateway.js";
 
@@ -34,14 +33,14 @@ test("createResumeState seeds turn count, tools, and paths from checkpoint", () 
   assert.equal(state.sessionId, "sess-1");
   assert.equal(state.threadId, "thread-1");
   assert.deepEqual(state.changedPaths, ["a.js"]);
-  assert.equal(remainingTurns(state), 21);
+  assert.equal(Object.hasOwn(state, "maxTurns"), false);
 });
 
-test("direct code resume gets fresh tool turns while retaining previous progress", () => {
+test("direct code resume retains previous progress without a turn cap", () => {
   const state = createResumeState({ status: "in_progress", last_completed_turn: 25, session_id: "sess-25", changed_paths: ["ui/a.jsx"] }, { max_turns: 25 }, { freshTurns: true });
   assert.equal(state.turnCount, 25);
   assert.equal(state.sessionId, "sess-25");
-  assert.equal(remainingTurns(state), 25);
+  assert.equal(Object.hasOwn(state, "maxTurns"), false);
   assert.deepEqual(state.changedPaths, ["ui/a.jsx"]);
 });
 
@@ -59,22 +58,23 @@ test("checkpoint saves keep session identity across every turn", async () => {
   assert.ok(store.saved[1].turn_history.length >= 2);
 });
 
-test("resume restarts turn counting from the checkpoint, not zero", async () => {
+test("resume continues tool calls after the former turn limit", async () => {
   const store = memoryStore();
   const registry = { read_file: { execute: async () => ({ ok: true }) } };
   const state = createResumeState({ status: "in_progress", last_completed_turn: 19 }, { max_turns: 20 });
   const wrapped = checkpointedRegistry({ store, registry, taskId: "T-BUDGET", targetPath: "a.js", allowedPrefixes: [], complexity: { max_turns: 20 }, selected: {}, correlationId: "C-1", resumeState: state });
   await wrapped.read_file.execute({ path: "a.js" }, {});
   assert.equal(state.turnCount, 20);
-  await assert.rejects(() => wrapped.read_file.execute({ path: "a.js" }, {}), /Turn limit reached/);
+  await wrapped.read_file.execute({ path: "a.js" }, {});
+  assert.equal(state.turnCount, 21);
 });
 
-test("buildResumePrompt carries turn history and remaining budget", () => {
+test("buildResumePrompt carries turn history without a turn budget", () => {
   const state = createResumeState({ status: "in_progress", last_completed_turn: 2, completed_tools: ["read_file"], session_id: "sess-2" }, { max_turns: 10 });
   recordTurn(state, "edit_diff", { path: "ui/nextjs/app/page.jsx" }, { ok: true });
   const prompt = buildResumePrompt("BASE-TICKET", state, { agentId: "agent-1", provider: "claude", changedPaths: ["ui/nextjs/app/page.jsx"] });
-  assert.match(prompt, /turn 3 of 10/);
-  assert.match(prompt, /7 turns remain/);
+  assert.match(prompt, /turn 3\./);
+  assert.doesNotMatch(prompt, /turns remain/);
   assert.match(prompt, /edit_diff ui\/nextjs\/app\/page\.jsx/);
   assert.match(prompt, /BASE-TICKET/);
 });

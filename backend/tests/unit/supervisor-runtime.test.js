@@ -2,20 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { SUPERVISOR_STATES, migrateLegacyState, createSupervisorRuntime } from "../../src/modules/supervisor/supervisor-runtime.js";
 
-function runtimeStub(initialState = "CREATED") {
-  const published = [];
-  const runtime = createSupervisorRuntime({
-    taskId: "TASK-1",
-    supervisorId: "SUP-1",
-    eventBus: { publish: async (event) => published.push(event) }
-  });
-  if (initialState !== "CREATED") awaitHydrate(runtime, initialState);
-  return { runtime, published };
-  function awaitHydrate() {}
-}
-
-test("supervisor state machine has exactly the 8 pipeline states", () => {
-  assert.deepEqual([...SUPERVISOR_STATES], ["CREATED", "PREPARING", "READY", "RUNNING", "VERIFYING", "REPAIRING", "COMPLETED", "FAILED", "NEEDS_HUMAN_REVIEW"]);
+test("supervisor state machine includes independent review before acceptance", () => {
+  assert.deepEqual([...SUPERVISOR_STATES], ["CREATED", "PREPARING", "READY", "RUNNING", "VERIFYING", "REVIEWING", "REPAIRING", "COMPLETED", "FAILED", "NEEDS_HUMAN_REVIEW"]);
 });
 
 test("happy path transitions CREATED to COMPLETED", async () => {
@@ -24,6 +12,7 @@ test("happy path transitions CREATED to COMPLETED", async () => {
   assert.equal(await runtime.transition("READY"), "READY");
   assert.equal(await runtime.transition("RUNNING"), "RUNNING");
   assert.equal(await runtime.transition("VERIFYING"), "VERIFYING");
+  assert.equal(await runtime.transition("REVIEWING"), "REVIEWING");
   assert.equal(await runtime.transition("COMPLETED"), "COMPLETED");
 });
 

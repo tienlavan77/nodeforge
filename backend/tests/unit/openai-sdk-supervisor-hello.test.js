@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createNodeforgeTaskIntegration } from "../../src/modules/supervisor/nodeforge-task-integration.js";
+import { extractFinalAgentReport } from "../../src/modules/supervisor/nodeforge-task-sdk-events.js";
 
 test("Supervisor dispatch sends an OpenAI profile through the SDK hello path", async () => {
   const logs = [];
@@ -53,7 +54,7 @@ test("Supervisor dispatch runs a Claude ticket with capped reasoning effort", as
     },
     runtimeGovernance: { createExecutionContext: (input) => ({ ...input, execution_id: "T-CLAUDE:REQ-CLAUDE", lifecycle: "RUNNING" }) },
     claudeSdkGateway: {
-      execute: async ({ prompt, options }) => {
+      execute: async ({ options }) => {
         receivedOptions = options;
         return {
           agent_id: "claude-1",
@@ -62,10 +63,13 @@ test("Supervisor dispatch runs a Claude ticket with capped reasoning effort", as
           correlation_id: "CORR-CLAUDE",
           status: "completed",
           messages: [
+            { type: "assistant", message: { content: [{ type: "text", text: "Inspecting source." }] } },
             { role: "assistant", content: [{ type: "tool_use", name: "mcp__forge__read_file", input: { path: "backend/scripts/validate-schemas.mjs" } }] },
+            { type: "user", message: { content: [{ type: "tool_result", content: [{ type: "text", text: "SOURCE_CONTENT_MUST_NOT_REACH_UI" }] }] } },
             { role: "assistant", content: [{ type: "tool_use", name: "mcp__forge__write_diff", input: { path: "backend/scripts/validate-schemas.mjs", content: "// summary", before_checksum: "abc" } }] },
             { role: "assistant", content: [{ type: "tool_use", name: "mcp__forge__commit_changes", input: { message: "Document validate-schemas" } }] },
-            { role: "assistant", content: [{ type: "tool_use", name: "mcp__forge__report_done", input: { summary: "Done." } }] }
+            { role: "assistant", content: [{ type: "tool_use", name: "mcp__forge__report_done", input: { summary: "Done." } }] },
+            { type: "assistant", message: { content: [{ type: "text", text: "Final agent report." }] } }
           ]
         };
       }
@@ -89,6 +93,11 @@ test("Supervisor dispatch runs a Claude ticket with capped reasoning effort", as
   // "Document validate-schemas" (no explicit component location, backend path
   // mention) classifies as moderate.
   assert.equal(receivedOptions.effort, "medium");
-  assert.equal(receivedOptions.maxTurns, 25);
+  assert.equal(Object.hasOwn(receivedOptions, "maxTurns"), false);
   assert.deepEqual(receivedOptions.thinking, { type: "enabled", budgetTokens: 4096 });
+  assert.equal(result.response, "Final agent report.");
+  assert.equal(extractFinalAgentReport([
+    { type: "assistant", message: { content: [{ type: "tool_use", name: "mcp__forge__report_done", input: { summary: "Done." } }] } },
+    { type: "user", message: { content: [{ type: "tool_result", content: [{ type: "text", text: "SOURCE_CONTENT_MUST_NOT_REACH_UI" }] }] } }
+  ]), "Done.");
 });

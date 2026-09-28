@@ -1,5 +1,5 @@
 // Resume context for crash recovery — keeps provider session identity, per-turn
-// history, and remaining budget across RUNs so a resumed ticket continues the
+// history across RUNs so a resumed ticket continues the
 // previous execution instead of restarting blind. Only compact turn summaries
 // are persisted; file contents never go through the checkpoint.
 import { ConfigurationError } from "../../shared/errors.js";
@@ -15,9 +15,8 @@ export function normalizeResume(resume) {
 }
 
 // createResumeState - mutable per-run state seeded from a prior checkpoint.
-export function createResumeState(resume, complexity, { freshTurns = false } = {}) {
+export function createResumeState(resume) {
   const clean = normalizeResume(resume);
-  const maxTurns = Number.isInteger(complexity?.max_turns) && complexity.max_turns > 0 ? (freshTurns && Number.isInteger(clean?.last_completed_turn) ? clean.last_completed_turn : 0) + complexity.max_turns : null;
   return {
     resume: clean,
     sessionId: typeof clean?.session_id === "string" ? clean.session_id : null,
@@ -28,15 +27,8 @@ export function createResumeState(resume, complexity, { freshTurns = false } = {
     changedPaths: Array.isArray(clean?.changed_paths) ? [...clean.changed_paths] : [],
     emptyCommitSeen: clean?.empty_commit_seen === true,
     readCache: sanitizeReadCache(clean?.read_cache),
-    coderRulesRead: clean?.coder_rules_read === true || Object.keys(clean?.read_cache ?? {}).some((key) => key.startsWith("workflows/agents/coder.md#")),
-    maxTurns
+    coderRulesRead: clean?.coder_rules_read === true || Object.keys(clean?.read_cache ?? {}).some((key) => key.startsWith("workflows/agents/coder.md#"))
   };
-}
-
-// remainingTurns - turns left before the wall-clock/turn budget is exhausted.
-export function remainingTurns(state) {
-  if (!state || state.maxTurns === null) return null;
-  return Math.max(state.maxTurns - state.turnCount, 0);
 }
 
 // recordTurn - appends a compact turn entry; returns the entry for checkpointing.
@@ -75,21 +67,16 @@ export function checkpointPayload(state, extra = {}) {
 // successful tool call progress is durably checkpointed. Session identity,
 // compact turn history, and changed paths survive in the shared resume state,
 // so a later RUN continues the previous execution instead of restarting blind.
-// Turn counting starts from the seeded checkpoint, keeping max_turns and the
-// discovery budget valid across crashes.
+// Turn counting starts from the seeded checkpoint for accurate progress.
 export function checkpointedRegistry({ store, registry, taskId, targetPath, allowedPrefixes, complexity, selected, correlationId, resumeState = null, labMode = false }) {
   if (!store || !registry) return registry;
-  const state = resumeState ?? createResumeState(null, complexity);
+  const state = resumeState ?? createResumeState(null);
   const wrapped = {};
   for (const [name, tool] of Object.entries(registry)) {
     if (typeof tool?.execute !== "function") { wrapped[name] = tool; continue; }
     wrapped[name] = Object.freeze({
       ...tool,
       async execute(input, context) {
-        const remaining = remainingTurns(state);
-        if (remaining !== null && remaining <= 0 && name !== "report_done") {
-          throw Object.assign(new ConfigurationError(`Turn limit reached (${state.turnCount}/${state.maxTurns}). The ONLY remaining allowed tool is report_done; use it to summarize the work performed so far, then stop.`), { code: "MAX_TURNS_EXCEEDED" });
-        }
         let result;
         try {
           if (selected?.role === "coder" && !labMode && (name === "write_diff" || name === "edit_diff") && !state.coderRulesRead) {
@@ -159,17 +146,17 @@ export function failureDetail(error) {
 // buildResumePrompt - prefixes the ticket prompt with compact resume context.
 export function buildResumePrompt(prompt, state, meta = {}) {
   if (!state?.resume) return prompt;
-  const remaining = remainingTurns(state);
   const history = state.turnHistory.length
     ? state.turnHistory.map((entry) => `- turn ${entry.turn} ${entry.tool} ${entry.target} -> ${entry.outcome}`.trim()).join("\n")
     : `Tools already completed successfully (do NOT call them again for the same inputs): ${(state.completedTools ?? []).join(", ") || "(none recorded)"}.`;
   return [
-    `RESUMED RUN: a previous execution stopped after completing turn ${state.turnCount}${state.maxTurns !== null ? ` of ${state.maxTurns} (${remaining} turns remain, including the final report_done)` : ""}.`,
+    `RESUMED RUN: a previous execution stopped after completing turn ${state.turnCount}.`,
     state.sessionId ? "Provider session resumed; earlier assistant context may be available, but the worktree is the source of truth." : "No provider session survived; the worktree below is the source of truth.",
     "Completed turns (do NOT repeat these tool calls with the same inputs):",
     history,
     `Files already changed in the worktree: ${[...new Set([...state.changedPaths, ...(meta.changedPaths ?? [])])].join(", ") || "(none)"} — verify with read_file if needed, then continue with the next unfinished step.`,
     `Previous agent: ${meta.agentId ?? state.resume.agent_id ?? "unknown"} (${meta.provider ?? state.resume.provider ?? "unknown provider"}).`,
+    ...(Array.isArray(state.resume.review_findings) && state.resume.review_findings.length ? ["Reviewer requested a revision of this same ticket. Address these findings before report_done:", ...state.resume.review_findings.map((finding) => `- ${finding}`), "Read the current code and coder rules, make the required changes, run relevant verification, commit, and report_done."] : []),
     "",
     prompt
   ].join("\n");

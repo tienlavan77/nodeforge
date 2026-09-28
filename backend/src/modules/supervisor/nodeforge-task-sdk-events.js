@@ -27,11 +27,17 @@ export function assertTicketExecutionCompleted(toolEvents, { labMode = false, mi
   const successful = toolEvents.filter((event) => event.status !== "failed");
   const names = successful.map((event) => event.name ?? event.tool);
   const failedReport = [...toolEvents].reverse().find((event) => (event.name ?? event.tool) === "report_done" && event.status === "failed");
+  const failedCommit = [...toolEvents].reverse().find((event) => (event.name ?? event.tool) === "commit_changes" && event.status === "failed");
   if (!names.includes("report_done")) {
     if (failedReport) {
       const code = failedReport.error_code ?? failedReport.error?.code ?? "REPORT_FAILED";
       const message = failedReport.error?.message ?? `Agent completion report failed (${code}).`;
       throw Object.assign(new ConfigurationError(message), { code });
+    }
+    if (failedCommit) {
+      const message = failedCommit.error?.message ?? "Agent commit failed before the completion report.";
+      const rejected = /rejected due to unacceptable risk/i.test(message);
+      throw Object.assign(new ConfigurationError(message), { code: failedCommit.error_code ?? (rejected ? "COMMIT_APPROVAL_REJECTED" : "COMMIT_FAILED"), tool: "commit_changes" });
     }
     throw Object.assign(new ConfigurationError("Agent ended without recording a completion report."), { code: "AGENT_REPORT_MISSING", tool: "report_done" });
   }
@@ -114,11 +120,30 @@ function diagnosticValue(value) {
   return value;
 }
 
-// Reads text from nested SDK response structures.
-export function extractText(value) {
-  if (typeof value === "string") return [value];
-  if (Array.isArray(value)) return value.flatMap(extractText);
-  if (!value || typeof value !== "object") return [];
-  if (typeof value.text === "string") return [value.text];
-  return Object.entries(value).flatMap(([key, item]) => ["message", "content", "output"].includes(key) ? extractText(item) : []);
+// Returns only the coder's final report, excluding intermediate text and tool results from the UI response.
+export function extractFinalAgentReport(messages) {
+  if (!Array.isArray(messages)) return "";
+  let reportIndex = -1;
+  let recordedSummary = "";
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index];
+    if (message?.type !== "assistant" && message?.role !== "assistant") continue;
+    const blocks = message.message?.content ?? message.content;
+    if (!Array.isArray(blocks)) continue;
+    for (const block of blocks) {
+      if (block?.type !== "tool_use" || normalizeForgeToolName(block.name) !== "report_done") continue;
+      reportIndex = index;
+      recordedSummary = typeof block.input?.summary === "string" ? block.input.summary.trim() : "";
+    }
+  }
+  for (let index = messages.length - 1; index > reportIndex; index -= 1) {
+    const message = messages[index];
+    if (message?.type !== "assistant" && message?.role !== "assistant") continue;
+    const blocks = message.message?.content ?? message.content;
+    if (!Array.isArray(blocks)) continue;
+    const text = blocks.filter((block) => block?.type === "text" && typeof block.text === "string")
+      .map((block) => block.text.trim()).filter(Boolean).join("\n");
+    if (text) return text;
+  }
+  return recordedSummary;
 }

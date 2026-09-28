@@ -22,11 +22,25 @@ function humanLine(entry) {
     return `[${time}] ${symbol.padEnd(4)} ${bits.join(" ")}`;
   }
   const bits = [entry.message];
+  const detail = humanPayloadDetail(entry);
+  if (detail) bits.push(detail);
   if (agent) bits.push(`<${agent}>`);
   if (tool) bits.push(`[${tool}]`);
   if (entry.error_code) bits.push(`(${entry.error_code})`);
   if (ticket) bits.push(`{${ticket}}`);
   return `[${time}] ${symbol.padEnd(4)} ${bits.join(" ")}`;
+}
+
+// Formats high-volume cache events with the path and freshness details needed to diagnose agent discovery.
+function humanPayloadDetail(entry) {
+  const payload = entry.payload;
+  if (!payload || typeof payload !== "object") return null;
+  const parts = [];
+  if (typeof payload.path === "string") parts.push(`path=${payload.path}`);
+  if (typeof payload.cache_status === "string") parts.push(`cache=${payload.cache_status}`);
+  if (typeof payload.index_status === "string") parts.push(`index=${payload.index_status}`);
+  if (Number.isFinite(payload.size_bytes)) parts.push(`size=${payload.size_bytes}B`);
+  return parts.length ? `{${parts.join(" ")}}` : null;
 }
 
 // Shortens a task/ticket id to a compact label for human log lines.

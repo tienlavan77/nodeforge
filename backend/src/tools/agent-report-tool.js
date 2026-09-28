@@ -37,7 +37,7 @@ function assertReportScope(ticket, context, summary) {
   const missing = unskipped.filter((path) => !changed.includes(path));
   if (missing.length) throw error("REPORT_SCOPE_INVALID", `Ticket requires PATCH files ${missing.join(", ")} but they were not changed; edit each file or state in the summary why a file needs no change.`);
   const target = typeof context.target_path === "string" && context.target_path ? context.target_path : null;
-  if (target && !changed.includes(target)) throw error("REPORT_SCOPE_INVALID", `Ticket target is ${target} but it was not changed; completion must touch the target file, not an unrelated file in the same prefix.`);
+  if (target && !changed.some((path) => path === target || path.startsWith(`${target.replace(/\/$/, "")}/`))) throw error("REPORT_SCOPE_INVALID", `Ticket target is ${target} but it was not changed; completion must touch the target file or a file inside the target directory.`);
   if (hasUiCriteria(ticket) && !changed.some(isUiPath)) throw error("REPORT_SCOPE_INVALID", "UI ticket cannot be completed without changing a UI file.");
   if (isUiTicket(ticket) && hasBackendCriteria(ticket) && !changed.some(isBackendPath)) throw error("REPORT_SCOPE_INVALID", "Ticket has explicit backend acceptance criteria but no backend file was changed; UI-only work cannot complete it.");
   if (hasBackendCriteria(ticket) && changed.some(isBackendPath) && !changed.some(isBackendImplementationPath)) throw error("REPORT_SCOPE_INVALID", "Backend acceptance criteria require a backend implementation file, not only a backend test or metadata file.");

@@ -1,7 +1,7 @@
 // Summary: Finite-state runtime for a single supervisor with locked state persistence and terminal completion semantics.
 import { ConfigurationError } from "../../shared/errors.js";
 
-export const SUPERVISOR_STATES = Object.freeze(["CREATED", "PREPARING", "READY", "RUNNING", "VERIFYING", "REPAIRING", "COMPLETED", "FAILED", "NEEDS_HUMAN_REVIEW"]);
+export const SUPERVISOR_STATES = Object.freeze(["CREATED", "PREPARING", "READY", "RUNNING", "VERIFYING", "REVIEWING", "REPAIRING", "COMPLETED", "FAILED", "NEEDS_HUMAN_REVIEW"]);
 
 const LEGACY_STATE_MAP = Object.freeze({
   REQUESTING: "RUNNING",
@@ -40,7 +40,7 @@ export function createSupervisorRuntime({ taskId, supervisorId, eventBus, initia
     return eventBus.publish({ type, task_id: taskId, supervisor_id: supervisorId, request_id: context.request_id, correlation_id: context.correlation_id, attempt: context.attempt ?? 1, payload });
   }
   async function prepare(context = {}) {
-    if (["READY", "RUNNING", "VERIFYING", "REPAIRING", "COMPLETED"].includes(state)) return { state, reused: true };
+    if (["READY", "RUNNING", "VERIFYING", "REVIEWING", "REPAIRING", "COMPLETED"].includes(state)) return { state, reused: true };
     await transition("PREPARING", context);
     try {
       const result = {};
@@ -59,12 +59,13 @@ export function createSupervisorRuntime({ taskId, supervisorId, eventBus, initia
 
 const ALLOWED_TRANSITIONS = Object.freeze({
   CREATED: ["PREPARING", "RUNNING", "FAILED"], PREPARING: ["READY", "FAILED"], READY: ["RUNNING", "FAILED"],
-  RUNNING: ["VERIFYING", "REPAIRING", "NEEDS_HUMAN_REVIEW", "FAILED"], VERIFYING: ["COMPLETED", "REPAIRING", "FAILED"],
+  RUNNING: ["VERIFYING", "REPAIRING", "NEEDS_HUMAN_REVIEW", "FAILED"], VERIFYING: ["REVIEWING", "COMPLETED", "REPAIRING", "FAILED"],
+  REVIEWING: ["COMPLETED", "REPAIRING", "NEEDS_HUMAN_REVIEW", "FAILED"],
   REPAIRING: ["RUNNING", "NEEDS_HUMAN_REVIEW", "FAILED"],
   COMPLETED: [], FAILED: [], NEEDS_HUMAN_REVIEW: []
 });
 
 function compactContext(context = {}, taskId) {
   const ticket = context.ticket ?? context.payload?.ticket ?? context.payload?.task;
-  return { task_id: taskId, request_id: context.request_id, correlation_id: context.correlation_id, attempt: context.attempt ?? 1, project_id: context.project_id ?? ticket?.project_id, ticket_id: ticket?.id ?? taskId, round: context.payload?.step_id ?? context.step_id, queue_job_id: context.job_id };
+  return { task_id: taskId, request_id: context.request_id, correlation_id: context.correlation_id, attempt: context.attempt ?? 1, project_id: context.project_id ?? ticket?.project_id, ticket_id: ticket?.id ?? taskId, ...(ticket ? { ticket } : {}), ...(context.review_base_commit ? { review_base_commit: context.review_base_commit } : {}), ...(context.agent_id ? { agent_id: context.agent_id, selected_agent_role: context.selected_agent_role } : {}), ...(ticket && context.payload ? { payload: context.payload } : {}), round: context.payload?.step_id ?? context.step_id, queue_job_id: context.job_id };
 }

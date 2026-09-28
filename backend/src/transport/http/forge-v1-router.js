@@ -5,7 +5,7 @@ import { createForgeV1ConversationRoutes } from "./forge-v1-conversation-routes.
 import { normalizeParts, unavailable, runRequestsFresh, requireProject, readJson } from "./forge-v1-router-utils.js";
 
 // Creates the Forge v1 HTTP router with checkpoint decoration.
-export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab, directCodeRequest, projectStream, onWatcherEvent, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, conversationCrudService, conversationAuditHistoryService, architectureWorkspaceService, humanDecisionService, agentSettingsService, listResumableCheckpoints } = {}) {
+export function createForgeV1Router({ dispatchTicket, dispatchSprint, reviewTicket, runToolLab, directCodeRequest, projectStream, onWatcherEvent, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, conversationCrudService, conversationAuditHistoryService, architectureWorkspaceService, humanDecisionService, agentSettingsService, listResumableCheckpoints } = {}) {
   const conversationRoutes = createForgeV1ConversationRoutes({ conversationCrudService, conversationAuditHistoryService, ownerChatService, listResumableCheckpoints });
   return Object.freeze({ route });
 
@@ -68,6 +68,13 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, runToolLab
     if (method === "GET" && parts.length === 4 && parts[0] === "projects" && parts[2] === "tickets") {
       if (!projectDashboardService?.getTicket) throw unavailable("Ticket Detail");
       return { status: 200, body: await projectDashboardService.getTicket(parts[1], parts[3]) };
+    }
+
+    if (method === "POST" && parts.length === 3 && parts[0] === "tickets" && parts[2] === "review") {
+      if (typeof reviewTicket !== "function") throw unavailable("Review-only Dispatch");
+      requireProject(projectId);
+      const result = await reviewTicket({ projectId, ticketId: parts[1], body: { ...body, project_id: projectId } });
+      return { status: 202, body: { ...result, request_id: requestId, correlation_id: correlationId } };
     }
 
     if (method === "GET" && parts.length === 5 && parts[0] === "projects" && parts[2] === "tickets" && parts[4] === "graph") {

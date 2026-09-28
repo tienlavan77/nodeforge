@@ -1,8 +1,8 @@
-// Executes single-turn OpenAI Agents SDK runs with per-agent provider and timeout control.
+// Executes OpenAI Agents SDK runs with per-agent provider and timeout control.
 import { Agent, Runner, tool } from "@openai/agents";
 import { ConfigurationError } from "../../shared/errors.js";
 
-// Creates a gateway that runs a single-turn Agent via the OpenAI Agents SDK.
+// Creates a gateway that runs an Agent via the OpenAI Agents SDK.
 export function createOpenAiSdkGateway({ providerFactory, runner = createTracingDisabledRunner(), AgentClass = Agent, timeoutMs = 600000 } = {}) {
   if (typeof providerFactory?.createForAgent !== "function") throw new ConfigurationError("OpenAI SDK Gateway requires a provider factory.");
   if (typeof runner !== "function") throw new ConfigurationError("OpenAI SDK Gateway requires an Agent runner.");
@@ -26,14 +26,14 @@ export function createOpenAiSdkGateway({ providerFactory, runner = createTracing
         tools: (options.forgeTools?.definitions ?? []).map((definition) => tool({
           name: definition.name,
           description: definition.description,
-          parameters: definition.input_schema,
+          parameters: compatibleToolParameters(definition.input_schema),
           strict: false,
           execute: async (input) => JSON.stringify(await options.forgeTools.registry[definition.name].execute(input, options.forgeTools.context))
         }))
       };
       if (normalized.reasoning.effort !== "none") agentOptions.modelSettings = { reasoning: { effort: normalized.reasoning.effort } };
       const openaiAgent = new AgentClass(agentOptions);
-      const result = await runner(openaiAgent, prompt, { modelProvider: provider, signal: controller.signal, maxTurns: options.forgeTools ? 12 : 1, tracingDisabled: true });
+      const result = await runner(openaiAgent, prompt, { modelProvider: provider, signal: controller.signal, maxTurns: null, tracingDisabled: true });
       return {
         agent_id: normalized.agent_id,
         agent_name: normalized.agent_name,
@@ -53,10 +53,22 @@ export function createOpenAiSdkGateway({ providerFactory, runner = createTracing
   }
 }
 
+// Removes unsupported path regex from model-facing tools while Forge still validates paths on execution.
+function compatibleToolParameters(schema) {
+  const parameters = structuredClone(schema);
+  if (typeof parameters.properties?.path?.pattern === "string" && parameters.properties.path.pattern.includes("(?!")) {
+    delete parameters.properties.path.pattern;
+  }
+  return parameters;
+}
+
 // Creates an OpenAI Runner configured with tracing disabled for Node execution.
 function createTracingDisabledRunner() {
-  const sdkRunner = new Runner({ tracingDisabled: true });
-  return (agent, input, options) => sdkRunner.run(agent, input, options);
+  return (agent, input, options) => {
+    const { modelProvider, ...runOptions } = options;
+    const sdkRunner = new Runner({ modelProvider, tracingDisabled: true });
+    return sdkRunner.run(agent, input, runOptions);
+  };
 }
 
 // Extracts the textual final output from an SDK result, stringifying non-strings.
