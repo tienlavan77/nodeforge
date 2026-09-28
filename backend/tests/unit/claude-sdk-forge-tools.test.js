@@ -72,7 +72,8 @@ test("Claude coder receives Forge Read, Glob, and Grep with familiar arguments",
   const registry = Object.fromEntries(["Read", "Glob", "Grep"].map((name) => [name, { execute: async (input) => { received.push([name, input]); return { ok: true }; } }]));
   const server = createForgeSdkMcpServer({ registry, context: { task_id: "T-CLAUDE-CODER" }, includeClaudeFileTools: true });
   for (const name of ["Read", "Glob", "Grep"]) assert.ok(forgeSdkToolNames.includes(`mcp__forge__${name}`));
-  assert.equal((await callTool(server, "Read", { file_path: "src/a.js", offset: 2, limit: 5 })).isError, undefined);
+  assert.equal((await callTool(server, "Read", { file_path: "src/a.js", start_line: 2, end_line: 6 })).isError, undefined);
+  assert.equal((await callTool(server, "Read", { file_path: "src/a.js", offset: 2, limit: 5 })).isError, true);
   assert.equal((await callTool(server, "Glob", { pattern: "**/*.js", path: "src" })).isError, undefined);
   assert.equal((await callTool(server, "Grep", { pattern: "agent", output_mode: "content", "-n": true })).isError, undefined);
   assert.deepEqual(received.map(([name]) => name), ["Read", "Glob", "Grep"]);

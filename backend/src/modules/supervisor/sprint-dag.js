@@ -68,7 +68,7 @@ export function createSprintDagRunner({ ticketStatusStore, eventBus, dispatchTas
       let unsubscribe;
       const finish = (error) => { unsubscribe?.(); if (error) reject(error); else resolve(); };
       unsubscribe = eventBus.subscribe("*", (event) => {
-        if (event?.task_id !== ticketId || !["task.completed", "task.failed"].includes(event.type)) return;
+        if (event?.task_id !== ticketId || !["task.completed", "task.failed", "task.needs_human_review"].includes(event.type)) return;
         if (event.type === "task.completed") finish();
         else finish(Object.assign(new Error(`Ticket failed: ${ticketId}.`), { code: "SPRINT_DEPENDENCY_FAILED" }));
       });

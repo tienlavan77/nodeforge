@@ -1,6 +1,8 @@
 # Kế hoạch Code Cache cho `read_file` / `read_code`
 
-> **Trạng thái: PLANNED — chưa triển khai.**
+> **Trạng thái: CLOSED — đã nghiệm thu trong phạm vi Code Cache.**
+>
+> Bằng chứng: `docs/giai-doan-3/code-cache-validation.md` (18/18 test liên quan, typecheck, schema validation, lint mục tiêu và `git diff --check` đều đạt). `pnpm lint` toàn repo còn 44 lỗi ngoài phạm vi Code Cache; theo dõi riêng, không chặn việc đóng plan này.
 >
 > Đây là kế hoạch ticket triển khai, không phải mô tả code đã tồn tại. Cache nội dung nằm trong RAM của Control API; `search_code` có thể nạp trước các file kết quả trong giới hạn quota.
 

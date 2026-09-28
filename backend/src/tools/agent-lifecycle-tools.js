@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { isProtectedPath } from "../infrastructure/filesystem/protected-path-policy.js";
 import { assertCoderWorkflowReadOnly } from "../infrastructure/filesystem/file-service-role-policy.js";
+import { isAgentPathAllowed } from "./tool-authorization.js";
 import { ConfigurationError } from "../shared/errors.js";
 import { loadAgentContextConventions } from "../modules/supervisor/agent-context-conventions.js";
 import { resolveSymbolWindow, scopedGraph } from "./agent-file-index-view.js";
@@ -11,6 +12,7 @@ import { discoveryNotice, recordRead, resetExploration } from "./exploration-sta
 const MAX_CONTENT = 200000;
 const WRITE_DIFF_MAX_LINES = 250;
 const READ_WINDOW_LINE_LIMIT = 80;
+const DOCUMENT_LINE_LIMIT = 250;
 // safePath - handles safePath operation.
 const safePath = (value, operation = "read") => {
   if (typeof value !== "string" || !value || value.startsWith("/") || value.includes("\\") || value.split("/").some((part) => !part || part === "." || part === "..") || isProtectedPath(value, { operation })) throw error("PATH_FORBIDDEN", "Path is outside the permitted project scope.");
@@ -35,11 +37,17 @@ const checksumDiagnostics = (beforeChecksum, targetExists) => ({
 export function createReadFileTool({ fileService, codeCache, maxChars = MAX_CONTENT } = {}) {
   if (typeof fileService?.readForIndex !== "function") throw new ConfigurationError("read_file requires File Service.");
   return Object.freeze({ name: "read_file", async execute(input = {}, context = {}) {
-    const path = safePath(input.path); assertAllowed(path, context); const file = codeCache ? await codeCache.read({ path }) : await fileService.readForIndex({ path });
+    const path = safePath(input.path);
+    const markdown = /\.md$/i.test(path);
+    const symbol = markdown || input.symbol === "" ? undefined : input.symbol ?? undefined;
+    const requestedOffset = input.offset ?? undefined;
+    const requestedLimit = input.limit ?? undefined;
+    if (context.agent_identity?.role === "coder" && (symbol !== undefined || requestedOffset !== undefined || requestedLimit !== undefined)) throw error("INPUT_INVALID", "Coder read_file returns metadata only; use Read or sed_lines with start_line/end_line for source.");
+    assertAllowed(path, context); const file = codeCache ? await codeCache.read({ path }) : await fileService.readForIndex({ path });
     if (!file || typeof file.content !== "string") throw error("READ_FAILED", `File could not be read: ${path}`);
     const sha256 = file.sha256 ?? checksum(file.content);
     const sizeBytes = file.size_bytes ?? Buffer.byteLength(file.content);
-    const hasWindow = input.offset !== undefined || input.limit !== undefined;
+    const hasWindow = requestedOffset !== undefined || requestedLimit !== undefined;
     const lines = file.content.split("\n");
     const symbols = codeCache ? file.code_index?.symbols ?? [] : extractorRegistry.extract(path, file.content).symbols;
     const metadata = { path, sha256, size_bytes: sizeBytes, total_lines: lines.length,
@@ -47,26 +55,35 @@ export function createReadFileTool({ fileService, codeCache, maxChars = MAX_CONT
       indexed_sha256: file.indexed_sha256 ?? null, index_version: file.index_version ?? null,
       index_status: file.index_status ?? "unavailable", code_index: file.code_index ?? { path, symbols },
       code_graph: scopedGraph(file.code_graph, context), symbol_map: symbols, discovery_budget: discoveryNotice(context) };
-    if (!hasWindow && input.symbol === undefined) {
+    if (!hasWindow && symbol === undefined) {
+      if (markdown) {
+        const content = lines.slice(0, DOCUMENT_LINE_LIMIT).join("\n");
+        recordRead(context, { path, window: `document-1-${Math.min(lines.length, DOCUMENT_LINE_LIMIT)}` });
+        return { ...metadata, content, offset: 1, limit: Math.min(lines.length, DOCUMENT_LINE_LIMIT), truncated: lines.length > DOCUMENT_LINE_LIMIT,
+          notice: lines.length > DOCUMENT_LINE_LIMIT ? `Document continues after line ${DOCUMENT_LINE_LIMIT}; use a line-reading tool for the remainder.` : "Complete Markdown document content." };
+      }
       recordRead(context, { path, window: "metadata" });
-      return { ...metadata, notice: "Metadata only. To read source, call read_file with symbol or offset/limit (at most 80 lines)." };
+      return { ...metadata, notice: context.agent_identity?.role === "coder"
+        ? "Metadata only. Read source with Read({file_path,start_line,end_line}) or sed_lines({path,start_line,end_line}), at most 80 lines."
+        : "Metadata only. To read source, call read_file with symbol or offset/limit (at most 80 lines)." };
     }
-    let offset = input.offset ?? 1;
-    let limit = input.limit ?? READ_WINDOW_LINE_LIMIT;
-    if (input.symbol !== undefined) {
-      if (hasWindow || typeof input.symbol !== "string" || !input.symbol) throw error("INPUT_INVALID", "symbol cannot be combined with offset/limit and must be a name.");
-      const current = resolveSymbolWindow(file, path, input.symbol);
-      if (!current) throw error("SYMBOL_STALE", `Symbol ${input.symbol} is absent from current source; search again or read an explicit window.`);
+    let offset = requestedOffset ?? 1;
+    let limit = requestedLimit ?? READ_WINDOW_LINE_LIMIT;
+    const maxWindowLines = markdown ? DOCUMENT_LINE_LIMIT : READ_WINDOW_LINE_LIMIT;
+    if (symbol !== undefined) {
+      if (hasWindow || typeof symbol !== "string" || !symbol) throw error("INPUT_INVALID", "symbol cannot be combined with offset/limit and must be a name.");
+      const current = resolveSymbolWindow(file, path, symbol);
+      if (!current) throw error("SYMBOL_STALE", `Symbol ${symbol} is absent from current source; search again or read an explicit window.`);
       offset = current.start_line;
       limit = current.end_line - current.start_line + 1;
-      if (limit > READ_WINDOW_LINE_LIMIT) throw error("SYMBOL_TOO_LARGE", `Symbol ${input.symbol} spans ${limit} lines; read explicit windows of at most ${READ_WINDOW_LINE_LIMIT} lines.`);
+      if (limit > maxWindowLines) throw error("SYMBOL_TOO_LARGE", `Symbol ${symbol} spans ${limit} lines; read explicit windows of at most ${maxWindowLines} lines.`);
     }
     if (!Number.isInteger(offset) || offset < 1) throw error("INPUT_INVALID", "offset must be a positive integer (1-based line).");
     if (offset > lines.length) throw error("OFFSET_OUT_OF_RANGE", `offset ${offset} is beyond the last line (${lines.length}) of ${path}.`);
-    if (!Number.isInteger(limit) || limit < 1 || limit > READ_WINDOW_LINE_LIMIT) throw error("INPUT_INVALID", `limit must be an integer between 1 and ${READ_WINDOW_LINE_LIMIT}.`);
+    if (!Number.isInteger(limit) || limit < 1 || limit > maxWindowLines) throw error("INPUT_INVALID", `limit must be an integer between 1 and ${maxWindowLines}.`);
     const content = lines.slice(offset - 1, offset - 1 + limit).join("\n").slice(0, maxChars);
-    recordRead(context, { path, window: input.symbol ?? `${offset}-${offset + limit - 1}` });
-    return { ...metadata, content, offset, limit, truncated: offset + limit - 1 < lines.length || content.length === maxChars, ...(input.symbol ? { symbol: input.symbol } : {}) };
+    recordRead(context, { path, window: symbol ?? `${offset}-${offset + limit - 1}` });
+    return { ...metadata, content, offset, limit, truncated: offset + limit - 1 < lines.length || content.length === maxChars, ...(symbol ? { symbol } : {}) };
   }});
 }
 
@@ -75,7 +92,7 @@ export function createReadFileTool({ fileService, codeCache, maxChars = MAX_CONT
 export function createWriteDiffTool({ fileService, codeCache, maxLines = WRITE_DIFF_MAX_LINES } = {}) {
   if (typeof fileService?.atomicWrite !== "function" || typeof fileService?.readFile !== "function") throw new ConfigurationError("write_diff requires File Service readFile and atomicWrite.");
   return Object.freeze({ name: "write_diff", async execute(input = {}, context = {}) {
-    const path = safePath(input.path, "write"); assertAllowed(path, context); assertCoderWorkflowReadOnly(context.agent_identity?.role, "write", path); if (typeof input.content !== "string") throw error("CONTENT_INVALID", "content must be a string.");
+    const path = safePath(input.path, "write"); assertCoderWorkflowReadOnly(context.agent_identity?.role, "write", path); assertAllowed(path, context); if (typeof input.content !== "string") throw error("CONTENT_INVALID", "content must be a string.");
     const lineCount = input.content ? input.content.split("\n").length - Number(input.content.endsWith("\n")) : 0;
     if (lineCount > maxLines) throw error("CONTENT_TOO_LARGE", `write_diff content has ${lineCount} lines, limit is ${maxLines}. For localized changes use edit_diff.`, { line_count: lineCount, limit: maxLines });
     let current;
@@ -110,7 +127,7 @@ export function createWriteDiffTool({ fileService, codeCache, maxLines = WRITE_D
 export function createEditDiffTool({ fileService, codeCache, maxChars = MAX_CONTENT } = {}) {
   if (typeof fileService?.atomicWrite !== "function" || typeof fileService?.readFile !== "function") throw new ConfigurationError("edit_diff requires File Service readFile and atomicWrite.");
   return Object.freeze({ name: "edit_diff", async execute(input = {}, context = {}) {
-    const path = safePath(input.path, "write"); assertAllowed(path, context); assertCoderWorkflowReadOnly(context.agent_identity?.role, "write", path);
+    const path = safePath(input.path, "write"); assertCoderWorkflowReadOnly(context.agent_identity?.role, "write", path); assertAllowed(path, context);
     if (typeof input.anchor !== "string" || !input.anchor.length) throw error("INPUT_INVALID", "anchor must be a non-empty string.");
     if (typeof input.replacement !== "string") throw error("INPUT_INVALID", "replacement must be a string.");
     if (input.anchor.length + input.replacement.length > maxChars) throw error("CONTENT_TOO_LARGE", `anchor + replacement exceeds ${maxChars} chars.`, { limit: maxChars });
@@ -141,17 +158,9 @@ export function createEditDiffTool({ fileService, codeCache, maxChars = MAX_CONT
 export { createRunTestTool, createCheckTestTool, createCommitChangesTool } from "./agent-verification-tools.js";
 export { createReportDoneTool } from "./agent-report-tool.js";
 
-// withinPrefix - handles withinPrefix operation.
-function withinPrefix(path, prefix) { return path === prefix || path.startsWith(`${prefix.replace(/\/$/, "")}/`); }
 // assertAllowed - handles assertAllowed operation.
 function assertAllowed(path, context) {
-  const paths = context.allowed_file_paths ?? context.allowedFilePaths;
-  const prefixes = context.allowed_prefixes ?? context.allowedPrefixes;
-  const exactOk = !Array.isArray(paths) || paths.includes(path);
-  const prefixOk = Array.isArray(prefixes) && prefixes.some((prefix) => withinPrefix(path, prefix));
-  // A path is approved if it matches the exact allowlist OR falls inside an
-  // approved prefix; otherwise reject with PATH_FORBIDDEN.
-  if (exactOk || prefixOk) return;
+  if (isAgentPathAllowed(path, context)) return;
   throw error("PATH_FORBIDDEN", `Path is not approved: ${path}`);
 }
 

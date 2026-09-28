@@ -19,14 +19,20 @@ export function ticketCandidateScope(ticket) {
 
 // Finds an explicit implementation path in ticket objective text.
 export function ticketTargetPath(ticket) {
+  return ticketExplicitTargetPath(ticket) ?? inferredUiTargetPath(ticket);
+}
+
+// Finds a concrete target explicitly named in the ticket text.
+export function ticketExplicitTargetPath(ticket) {
   const candidates = [ticket?.objective, ...(ticket?.acceptance_criteria ?? [])];
   const paths = candidates.flatMap((text) => {
     if (typeof text !== "string") return [];
     return text
       .split(/[^A-Za-z0-9._/-]+/)
+      .map((token) => token.replace(/[.,;:]+$/, ""))
       .filter((token) => /^(?:backend|schemas|ui|web)\/(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+$/.test(token) && !token.startsWith(".") && token.includes("/"));
   });
-  return paths[0] ?? inferredUiTargetPath(ticket);
+  return paths[0] ?? null;
 }
 
 // Combines ticket text fields for scope classification.
@@ -50,9 +56,17 @@ export function prefixForPath(path) {
 
 // Detects server-side tickets that require backend implementation access.
 export function isBackendTicket(ticket) {
-  const text = ticketText(ticket);
+  const text = ticketScopeText(ticket);
   if (/\b(backend|back-end|server|endpoint|api|database|sqlite|request payload)\b/i.test(text)) return true;
   return /\b(persist|persistence)\b/i.test(text) && /\b(database|db|sqlite|server|backend|back-end)\b/i.test(text);
+}
+
+// Excludes explicit out-of-scope clauses before deriving implementation permissions.
+export function ticketScopeText(ticket) {
+  return [ticket?.title, ticket?.objective, ...(ticket?.acceptance_criteria ?? [])]
+    .filter((value) => typeof value === "string")
+    .map((value) => value.replace(/\b(?:out of scope|excluded)\s*:[^.!?\n]*(?:[.!?]|$)/gi, " "))
+    .join(" ");
 }
 
 // Derives governed prefixes from ticket language and file scope.

@@ -17,6 +17,13 @@ function captureLogger(events) {
   return createRuntimeLogger({ logEvent: (event) => events.push(event), output: { write() {} } });
 }
 
+test("runtime cache logs include path and freshness details", () => {
+  let line = "";
+  const logger = createRuntimeLogger({ logEvent: () => {}, output: { write: (value) => { line += value; } } });
+  logger.emit({ event_name: "code_cache.read", status: "success", message: "Code Cache read.", task_id: "CACHE-PROJECT-NODEFORGE", payload: { path: "ui/app/page.jsx", cache_status: "hit", index_status: "fresh", size_bytes: 1234 } });
+  assert.match(line, /Code Cache read\. \{path=ui\/app\/page\.jsx cache=hit index=fresh size=1234B\}/);
+});
+
 // Matches source text with line numbers and verifies exact native output.
 test("rg_search runs prioritized flags inside approved project paths", async () => {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-rg-search-"));
@@ -37,6 +44,23 @@ test("rg_search runs prioritized flags inside approved project paths", async () 
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+// Rejects forbidden coder paths before ripgrep or Code Cache can read their contents.
+test("rg_search blocks coder docs and allows schema search", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-rg-coder-"));
+  try {
+    for (const dir of ["docs", "schemas"]) await mkdir(join(root, dir));
+    await writeFile(join(root, "docs", "guide.md"), "needle\n");
+    await writeFile(join(root, "schemas", "contract.json"), "needle\n");
+    const events = [];
+    const tool = createRgSearchTool({ projectRoot: root, logger: captureLogger(events) });
+    const scoped = { ...context, agent_identity: { role: "coder" }, allowed_prefixes: ["docs/", "schemas/"] };
+    await assert.rejects(() => tool.execute({ pattern: "needle", paths: ["docs"] }, scoped), (error) => error.code === "RG_SEARCH_INPUT_INVALID");
+    assert.deepEqual(events.map((event) => event.event_name), ["forge.rg_search_rejected"]);
+    const result = await tool.execute({ pattern: "needle", paths: ["schemas"] }, scoped);
+    assert.match(result.stdout, /schemas\/contract\.json/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("rg_search reads shared source cache and leaves it available for sed_lines", async () => {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-rg-cache-"));
   try {
@@ -47,7 +71,7 @@ test("rg_search reads shared source cache and leaves it available for sed_lines"
     const fileService = { ...base, readForIndex: async (input) => { reads += 1; return base.readForIndex(input); } };
     const codeCache = createCodeCacheService({ projectId: "P", fileService });
     const logger = captureLogger([]);
-    const scoped = { ...context, capabilities: ["rg_search", "sed_lines"], allowed_file_paths: ["backend/one.js"] };
+    const scoped = { ...context, capabilities: ["rg_search", "sed_lines"], allowed_file_paths: ["backend/one.js"], allowed_prefixes: ["backend/"] };
     const search = await createRgSearchTool({ projectRoot: root, codeCache, logger }).execute({ pattern: "symbol", paths: ["backend"], flags: ["-n"] }, scoped);
     assert.equal(search.stdout, "backend/one.js:1:const symbol = 1;\n");
     assert.equal(reads, 1);

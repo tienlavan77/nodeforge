@@ -12,7 +12,7 @@ test("checklist ticket with explicit component location classifies as simple", (
   assert.equal(result.level, "simple");
   assert.equal(result.effort, "low");
   assert.equal(result.discovery_budget, 6);
-  assert.equal(result.max_turns, 15);
+  assert.equal(Object.hasOwn(result, "max_turns"), false);
   assert.deepEqual(result.thinking, { type: "enabled", budgetTokens: 2048 });
   assert.ok(result.reasoning.some((line) => line.includes("explicit component/file location")));
 });
@@ -33,7 +33,7 @@ test("focused checklist with many criteria stays moderate", () => {
   assert.equal(result.level, "moderate");
   assert.equal(result.effort, "medium");
   assert.equal(result.discovery_budget, 12);
-  assert.equal(result.max_turns, 25);
+  assert.equal(Object.hasOwn(result, "max_turns"), false);
   assert.ok(result.reasoning.some((line) => line.includes("focused single-area")));
 });
 test("open-ended redesign with many criteria classifies as complex", () => {
@@ -68,12 +68,22 @@ test("path prefix mentions do not count as backend scope", () => {
   assert.ok(!result.reasoning.some((line) => line.includes("open-ended")));
 });
 
+test("out-of-scope backend text does not classify a documentation ticket as backend work", () => {
+  const result = classifyTicketComplexity({
+    title: "Baseline canonical UI and import graph",
+    objective: "Document the active route in ui/nextjs/README.md. Target path: ui/nextjs/README.md. Out of scope: unrelated backend/auth/dispatch changes unless this ticket explicitly requires a contract change.",
+    acceptance_criteria: ["README includes the route and import graph."],
+    style: ["frontend", "docs"]
+  });
+  assert.ok(!result.reasoning.some((line) => line.includes("backend scope")));
+});
+
 test("every complexity level exposes a complete budget config", () => {
   for (const level of ["simple", "moderate", "complex"]) {
     const config = COMPLEXITY_CONFIG[level];
     assert.ok(["low", "medium", "high"].includes(config.effort));
     assert.ok(Number.isInteger(config.discovery_budget) && config.discovery_budget > 0);
-    assert.ok(Number.isInteger(config.max_turns) && config.max_turns > 0);
+    assert.equal(Object.hasOwn(config, "max_turns"), false);
     assert.ok(config.thinking && typeof config.thinking.type === "string");
   }
 });

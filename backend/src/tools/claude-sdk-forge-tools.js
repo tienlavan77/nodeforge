@@ -12,10 +12,7 @@ const searchCodeInput = {
 };
 
 const readFileInput = {
-  path: z.string().min(1),
-  symbol: z.string().min(1).optional(),
-  offset: z.number().int().positive().optional(),
-  limit: z.number().int().positive().max(80).optional()
+  path: z.string().min(1)
 };
 
 const selectCodeGraphCandidatesInput = {
@@ -68,7 +65,7 @@ export function createForgeSdkMcpServer({ registry, context = {}, includeCommit 
   const definitions = [
     ["select_code_graph_candidates", "Ask Node to find up to eight candidate files related to your search intent, with import relations. Call this FIRST as your project map before searching or reading.", selectCodeGraphCandidatesInput],
     ["search_code", "Search the approved project code index. kind=\"content\" returns FTS text snippets with matching lines; kind=\"file\" with projection=\"summary\" returns a file's symbol map with line ranges.", searchCodeInput],
-    ["read_file", "A path alone returns file metadata, symbol map and graph without source. Pass symbol or offset/limit to read current source (at most 80 lines).", readFileInput],
+    ["read_file", "Read one file's metadata, current symbol map and scoped graph without source. Use Read with start_line/end_line to read code.", readFileInput],
     ...(includeClaudeFileTools ? claudeFileDefinitions.map(({ name, description, input_schema }) => [name, description, z.fromJSONSchema(input_schema).shape]) : []),
     ["write_diff", "Write one approved project file after checksum validation. Content is limited to 250 lines. For a new file that does not exist, before_checksum must be the JSON value null (not a string and not omitted).", writeDiffInput],
     ["edit_diff", "Replace an exact anchor string in one approved file after checksum validation. Read the file first and use a unique exact anchor; use occurrence=\"all\" to replace every match.", editDiffInput],

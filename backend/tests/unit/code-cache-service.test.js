@@ -4,8 +4,11 @@ import test from "node:test";
 import { createHash } from "node:crypto";
 import { createCodeCacheService } from "../../src/modules/context/code-cache-service.js";
 import { createReadFileTool } from "../../src/tools/agent-lifecycle-tools.js";
+import { createSearchCodeTool } from "../../src/tools/search-code.js";
+import { createClaudeFileTools } from "../../src/tools/claude-file-tools.js";
+import { createSedLinesTool } from "../../src/tools/sed-lines.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -104,6 +107,40 @@ test("read_file keeps metadata-only contract without a cache dependency", async 
   assert.equal(metadata.symbol_map[0].name, "sample");
   const source = await reader.execute({ path: "sample.js", symbol: "sample" });
   assert.match(source.content, /return 1/);
+});
+
+test("search prewarm serves metadata and both coder source readers from one cached File Service read", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forge-coder-cache-"));
+  const path = "backend/example.js";
+  const content = "function example() {\n  return 42;\n}\n";
+  const sha256 = `sha256:${createHash("sha256").update(content).digest("hex")}`;
+  try {
+    await mkdir(join(root, "backend"));
+    await writeFile(join(root, path), content);
+    const files = createFileService({ projectRoot: root });
+    let reads = 0;
+    const fileService = { ...files, readForIndex: async (input) => { reads += 1; return files.readForIndex(input); } };
+    const codeSearch = {
+      search: async () => ({ matches: [{ node: { path, language: "js", sha256, symbols: [{ name: "example", start_line: 1, end_line: 3 }] }, score: 1, reason: [] }] }),
+      fileMetadata: () => ({ sha256, symbols: [{ name: "example", start_line: 1, end_line: 3 }], graph: {} })
+    };
+    const cache = createCodeCacheService({ projectId: "CODER", fileService, codeSearch });
+    const context = { task_id: "CODER-CACHE", agent_identity: { role: "coder" }, capabilities: ["search_code", "sed_lines"], allowed_file_paths: [path], allowed_prefixes: ["backend/"] };
+    const search = await createSearchCodeTool({ codeSearch, codeCache: cache }).execute({ query: "example", kind: "file", limit: 1, allowed_prefixes: ["backend/"] }, context);
+    assert.equal(search.matches[0].index_status, "fresh");
+    assert.equal(reads, 1);
+    const metadata = await createReadFileTool({ fileService, codeCache: cache }).execute({ path }, context);
+    assert.equal(metadata.cache.status, "hit");
+    assert.equal(metadata.content, undefined);
+    assert.equal(metadata.symbol_map[0].name, "example");
+    const claude = await createClaudeFileTools({ fileService, projectRoot: root, codeCache: cache }).Read.execute({ file_path: path, start_line: 1, end_line: 3 }, context);
+    assert.equal(claude.cache.status, "hit");
+    assert.match(claude.content, /return 42/);
+    const codex = await createSedLinesTool({ projectRoot: root, fileService, codeCache: cache, logger: { emit() {} } }).execute({ path, start_line: 1, end_line: 3 }, context);
+    assert.equal(codex.cache.status, "hit");
+    assert.match(codex.stdout, /return 42/);
+    assert.equal(reads, 1);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("refresh invalidates instead of caching content that changes during the refresh read", async () => {

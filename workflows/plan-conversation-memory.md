@@ -4,6 +4,10 @@
 **Trạng thái:** `PLANNED — CHƯA CODE`
 **Phạm vi:** đặc tả runtime cho transcript, retrieval, checkpoint summary và forget trong workspace hiện tại. Đây là kế hoạch kiến trúc; không phải xác nhận đã triển khai.
 
+**Baseline đã xác minh:** hệ thống hiện có `conversation-state-store` để giữ metadata/state và `conversation-audit-history-service` chỉ là projection đọc từ communication/event/history stores. Chưa có persistence/search riêng cho conversation memory, cũng chưa có `memory.search/get/summarize/forget` runtime contract.
+
+**Sẵn sàng triển khai theo thứ tự:** bắt đầu NF-MEM-001 trên SQLite runtime hiện có; không mở rộng `project-memory-store` thành conversation memory và không dùng audit projection làm source of truth.
+
 ## Mục tiêu và bất biến
 
 - Transcript gốc là nguồn sự thật append-only. Summary chỉ là snapshot có provenance, không sửa hoặc thay transcript.

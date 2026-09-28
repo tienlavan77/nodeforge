@@ -39,9 +39,16 @@ export function createAgentProfileStore({ validateProfile = createValidator(), d
     const profile = normalize(input);
     const existing = byId.get(profile.agent_id);
     if (!existing) throw new ConfigurationError(`Unknown Agent Profile: ${profile.agent_id}.`);
-    const updated = { ...profile, created_at: existing.created_at };
-    validateProfile(updated);
-    if (database) database.run("UPDATE agent_profiles SET team = ?, profile_json = ? WHERE agent_id = ?", [updated.team, JSON.stringify(updated), updated.agent_id]);
+    let updated;
+    // Preserve a live ticket's WORKING state while applying profile edits atomically.
+    const persistUpdate = () => {
+      const active = database?.all("SELECT claim_id FROM agent_occupancy WHERE agent_id = ? AND released_at IS NULL", [profile.agent_id])?.[0];
+      updated = { ...profile, status: active ? "working" : profile.status, created_at: existing.created_at };
+      validateProfile(updated);
+      if (database) database.run("UPDATE agent_profiles SET team = ?, profile_json = ? WHERE agent_id = ?", [updated.team, JSON.stringify(updated), updated.agent_id]);
+    };
+    if (database?.transaction) database.transaction(persistUpdate);
+    else persistUpdate();
     const stored = freeze(updated);
     profiles[profiles.findIndex(({ agent_id: id }) => id === updated.agent_id)] = stored;
     byId.set(updated.agent_id, stored);
@@ -53,10 +60,11 @@ export function createAgentProfileStore({ validateProfile = createValidator(), d
     assertId(agentId);
     const existing = byId.get(agentId);
     if (!existing) return undefined;
-    if (database) {
+    if (database) database.transaction(() => {
+      if (database.all("SELECT claim_id FROM agent_occupancy WHERE agent_id = ? AND released_at IS NULL", [agentId]).length) throw new ConfigurationError("Cannot delete an agent while a ticket owns its claim.");
       database.run("DELETE FROM agent_profiles WHERE agent_id = ?", [agentId]);
       database.run("INSERT OR IGNORE INTO agent_profile_tombstones (agent_id, deleted_at) VALUES (?, ?)", [agentId, new Date().toISOString()]);
-    }
+    });
     byId.delete(agentId);
     profiles.splice(profiles.findIndex(({ agent_id: id }) => id === agentId), 1);
     return clone(existing);
@@ -125,10 +133,10 @@ function createValidator() {
 // Ensures profile and tombstone tables exist and migrates the team column.
 function ensureTable(database) {
   database.run("CREATE TABLE IF NOT EXISTS agent_profiles (sequence INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL UNIQUE, profile_json TEXT NOT NULL, team TEXT)");
+  database.run("CREATE TABLE IF NOT EXISTS agent_occupancy (claim_id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, task_id TEXT NOT NULL, supervisor_id TEXT NOT NULL, claimed_at TEXT NOT NULL, released_at TEXT, release_reason TEXT)");
   database.run("CREATE TABLE IF NOT EXISTS agent_profile_tombstones (agent_id TEXT PRIMARY KEY, deleted_at TEXT NOT NULL)");
-  // Migration for existing DBs: add team column if missing
-  // eslint-disable-next-line no-silent-catch -- Idempotent migration: the team column may already exist.
-  try { database.run("ALTER TABLE agent_profiles ADD COLUMN team TEXT"); } catch {}
+  // Migrate older profiles only when SQLite reports the team column absent.
+  if (!database.all("PRAGMA table_info(agent_profiles)").some((column) => column.name === "team")) database.run("ALTER TABLE agent_profiles ADD COLUMN team TEXT");
 }
 // Deep-clones and freezes a profile for immutable storage.
 function freeze(profile) { return Object.freeze(structuredClone(profile)); }

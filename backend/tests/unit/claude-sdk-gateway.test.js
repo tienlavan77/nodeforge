@@ -44,7 +44,7 @@ test("executes the selected agent through a third-party gateway", async () => {
 test("does not execute a disabled or non-ready agent", async () => {
   let calls = 0;
   const gateway = createClaudeSdkGateway({
-    configuration: { getById: (id) => ({ ...profile(), agent_id: id, enabled: id !== "disabled", status: id === "waiting" ? "working" : "ready" }) },
+    configuration: { getById: (id) => ({ ...profile(), agent_id: id, enabled: id !== "disabled", status: id === "waiting" ? "not_connected" : "ready" }) },
     credentialResolver: () => "secret",
     queryFn: () => { calls += 1; return query([]); }
   });

@@ -3,6 +3,7 @@ import picomatch from "picomatch";
 import { runInNewContext } from "node:vm";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { ConfigurationError } from "../shared/errors.js";
+import { isAgentPathAllowed } from "./tool-authorization.js";
 
 const MAX_FILES = 3000;
 const MAX_OUTPUT = 500;
@@ -10,7 +11,7 @@ const MAX_READ_LINES = 80;
 const pathSchema = { type: "string", minLength: 1 };
 
 export const claudeFileDefinitions = Object.freeze([
-  { name: "Read", description: "Read a project file by file_path, optionally from a 1-based line offset with a line limit. Returns numbered lines and a whole-file checksum.", input_schema: { type: "object", required: ["file_path"], additionalProperties: false, properties: { file_path: pathSchema, offset: { type: "integer", minimum: 1 }, limit: { type: "integer", minimum: 1, maximum: MAX_READ_LINES } } } },
+  { name: "Read", description: "Read project source between inclusive start_line and end_line from Code Cache and return numbered lines and a whole-file checksum. Use read_file first for the current symbol map.", input_schema: { type: "object", required: ["file_path", "start_line", "end_line"], additionalProperties: false, properties: { file_path: pathSchema, start_line: { type: "integer", minimum: 1 }, end_line: { type: "integer", minimum: 1 } } } },
   { name: "Glob", description: "Find project files matching a glob pattern under an optional directory path. Ignored and private files are excluded.", input_schema: { type: "object", required: ["pattern"], additionalProperties: false, properties: { pattern: pathSchema, path: pathSchema } } },
   { name: "Grep", description: "Search project file contents with a regular expression. Supports Claude-style output_mode, context, file filters, and pagination.", input_schema: { type: "object", required: ["pattern"], additionalProperties: false, properties: { pattern: pathSchema, path: pathSchema, glob: pathSchema, type: pathSchema, output_mode: { type: "string", enum: ["content", "files_with_matches", "count"] }, "-A": { type: "integer", minimum: 0, maximum: 100 }, "-B": { type: "integer", minimum: 0, maximum: 100 }, "-C": { type: "integer", minimum: 0, maximum: 100 }, "-n": { type: "boolean" }, "-i": { type: "boolean" }, head_limit: { type: "integer", minimum: 1, maximum: MAX_OUTPUT }, offset: { type: "integer", minimum: 0 }, multiline: { type: "boolean" } } } }
 ]);
@@ -28,13 +29,14 @@ export function createClaudeFileTools({ fileService, projectRoot, codeCache }) {
   async function read(input = {}, context = {}) {
     const path = scopedPath(input.file_path, false);
     assertScope(path, context);
-    const offset = input.offset ?? 1;
-    const limit = input.limit ?? MAX_READ_LINES;
-    if (!Number.isInteger(offset) || offset < 1 || !Number.isInteger(limit) || limit < 1 || limit > MAX_READ_LINES) throw invalid("Read offset or limit is invalid.");
+    const start = input.start_line;
+    const end = input.end_line;
+    if (!Number.isInteger(start) || start < 1 || !Number.isInteger(end) || end < start || end - start + 1 > MAX_READ_LINES || input.offset !== undefined || input.limit !== undefined) throw invalid("Read start_line or end_line is invalid (maximum 80 lines).");
     const file = codeCache ? await codeCache.read({ path }) : await fileService.readForIndex({ path, maxBytes: 1_000_000 });
     const lines = file.content.split("\n");
-    const slice = lines.slice(offset - 1, offset - 1 + limit);
-    return { file_path: path, content: slice.map((line, index) => `${String(offset + index).padStart(6)}→${line}`).join("\n"), sha256: file.sha256, total_lines: lines.length, truncated: offset - 1 + limit < lines.length, ...(codeCache ? { cache: file.cache, index_status: file.index_status } : {}) };
+    if (start > lines.length) throw invalid(`Read start_line exceeds the file (${lines.length} lines).`);
+    const slice = lines.slice(start - 1, end);
+    return { file_path: path, content: slice.map((line, index) => `${String(start + index).padStart(6)}→${line}`).join("\n"), sha256: file.sha256, total_lines: lines.length, truncated: end < lines.length, ...(codeCache ? { cache: file.cache, index_status: file.index_status } : {}) };
   }
 
   // Matches visible project files using Claude's pattern and optional search directory.
@@ -103,9 +105,7 @@ export function createClaudeFileTools({ fileService, projectRoot, codeCache }) {
 
 // Limits Claude coder discovery to the ticket's approved files and directory prefixes.
 function inScope(path, context) {
-  const paths = context.allowed_file_paths ?? context.allowedFilePaths ?? [];
-  const prefixes = context.allowed_prefixes ?? context.allowedPrefixes ?? [];
-  return paths.includes(path) || prefixes.some((prefix) => path === prefix.replace(/\/$/, "") || path.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`));
+  return isAgentPathAllowed(path, context);
 }
 
 // Refuses direct reads beyond the ticket scope even when the path is inside the project.

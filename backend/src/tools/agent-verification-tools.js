@@ -2,7 +2,7 @@
 import { ConfigurationError } from "../shared/errors.js";
 import { logEvent } from "../core/project-log-service.js";
 import { createRuntimeLogger } from "../core/runtime-logger.js";
-import { authorizeTool } from "./tool-authorization.js";
+import { authorizeTool, isAgentPathAllowed } from "./tool-authorization.js";
 
 const error = (code, message, details = {}) => Object.assign(new ConfigurationError(message), { code, details });
 
@@ -11,9 +11,17 @@ export function createRunTestTool({ testService } = {}) {
   if (typeof testService?.startTests !== "function") throw new ConfigurationError("run_test requires Test Service startTests.");
   return Object.freeze({ name: "run_test", async execute(input = {}, context = {}) {
     if (Object.keys(input).length) throw error("INPUT_INVALID", "run_test accepts no arguments.");
-    const started = testService.startTests({ commitId: context.commit_id ?? `WORKTREE-${context.task_id ?? Date.now()}`, taskId: context.task_id, sessionId: context.session_id, command: "node --test backend/tests/tools/*.test.js" });
+    const started = testService.startTests({ commitId: context.commit_id ?? `WORKTREE-${context.task_id ?? Date.now()}`, taskId: context.task_id, sessionId: context.session_id, command: verificationCommand(context) });
     return { ...started, message: "Test job started. Poll check_test with this job_id until status is passed or failed." };
   }});
+}
+
+// Selects Node-owned checks for changed UI files so review receives relevant verification evidence.
+function verificationCommand(context) {
+  const changed = Array.isArray(context.changed_paths) ? context.changed_paths : [];
+  if (!changed.some((path) => typeof path === "string" && path.startsWith("ui/nextjs/"))) return "node --test backend/tests/tools/*.test.js";
+  const tests = [...new Set(changed.filter((path) => typeof path === "string" && /^ui\/nextjs\/tests\/[A-Za-z0-9_.-]+\.test\.js$/.test(path)))];
+  return `${tests.length ? `node --test ${tests.join(" ")} && ` : ""}pnpm --dir ui/nextjs build`;
 }
 
 // Returns Node-owned verification results to the current agent execution.
@@ -74,6 +82,6 @@ function resolveCommitPaths(context) {
   const allowed = context.allowed_file_paths ?? context.allowedFilePaths;
   const prefixes = context.allowed_prefixes ?? context.allowedPrefixes;
   if (paths.length && !Array.isArray(allowed) && !Array.isArray(prefixes)) throw error("SCOPE_INVALID", "Node-approved file scope is missing.");
-  if (paths.some((path) => !allowed?.includes(path) && !prefixes?.some((prefix) => path === prefix || path.startsWith(`${prefix.replace(/\/$/, "")}/`)))) throw error("SCOPE_INVALID", "Changed path is outside the Node-approved file scope.");
+  if (paths.some((path) => !isAgentPathAllowed(path, context) || (context.agent_identity?.role === "coder" && path.startsWith("workflows/")))) throw error("SCOPE_INVALID", "Changed path is outside the Node-approved file scope.");
   return paths;
 }

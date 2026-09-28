@@ -1,5 +1,6 @@
 // Node control API client and message intent utilities.
 import { detectMessageIntent, MESSAGE_INTENTS, normalizeTicketInput } from "./ticket-input.js";
+import { isProjectStreamEvent, PROJECT_EVENT_TYPES } from "./project-stream-event.js";
 
 export { detectMessageIntent, MESSAGE_INTENTS, normalizeTicketInput };
 
@@ -201,7 +202,6 @@ export function createNodeClient() {
       const source = new EventSource(forgeV1("/stream", { project: projectId, ...(afterEventId ? { after: afterEventId } : {}) }));
       const delivered = new Set();
       let lastEventId = afterEventId ?? null;
-      const eventTypes = ["stream.connected", "stream.snapshot", "watcher.file_indexed", "watcher.file_removed", "ticket.created", "ticket.updated", "ticket.status_changed", "ticket.deleted", "sprint.created", "sprint.updated", "sprint.deleted", "conversation.message.delta", "conversation.message.received", "conversation.message.owner", "conversation.message.created", "conversation.message.completed", "conversation.message.failed", "conversation.agent.status_changed", "agent.checkpoint.updated", "stream.error"];
       const handleEvent = (event) => {
         if (event.lastEventId) lastEventId = event.lastEventId;
         let data;
@@ -211,7 +211,7 @@ export function createNodeClient() {
         delivered.add(data.event_id);
         onEvent(data);
       };
-      eventTypes.forEach((eventType) => source.addEventListener(eventType, handleEvent));
+      PROJECT_EVENT_TYPES.forEach((eventType) => source.addEventListener(eventType, handleEvent));
       source.onopen = () => onOpen?.();
       source.onerror = (error) => onError?.(error instanceof Error ? error : new Error("Project stream connection failed."));
       return Object.freeze({
@@ -224,14 +224,6 @@ export function createNodeClient() {
     },
     stream: null
   });
-}
-
-// Validates a project stream event shape.
-function isProjectStreamEvent(value, projectId) {
-  return Boolean(value && typeof value === "object" && typeof value.event_id === "string" && value.event_id.length > 0
-    && ["stream.connected", "stream.snapshot", "watcher.file_indexed", "watcher.file_removed", "ticket.created", "ticket.updated", "ticket.status_changed", "ticket.deleted", "sprint.created", "sprint.updated", "sprint.deleted", "conversation.message.delta", "conversation.message.received", "conversation.message.owner", "conversation.message.created", "conversation.message.completed", "conversation.message.failed", "conversation.agent.status_changed", "agent.checkpoint.updated", "stream.error"].includes(value.event_type)
-    && value.schema_version === 1 && value.project_id === projectId && typeof value.timestamp === "string"
-    && value.payload && typeof value.payload === "object" && !Array.isArray(value.payload));
 }
 
 // Fetches JSON with error handling and fallback messages.

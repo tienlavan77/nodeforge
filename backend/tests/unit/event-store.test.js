@@ -30,6 +30,14 @@ test("preserves event source metadata and rejects invalid publication", () => {
   assert.equal(store.getAll().length, 1);
 });
 
+test("publishes agent occupancy status transitions into the audit stream", () => {
+  const store = createEventStore();
+  const publisher = createEventPublisher({ store });
+  const transition = event("EVT-AGENT-001", "agent.status_changed", { agent_id: "CODER-1", status: "working", previous_status: "ready" });
+  assert.equal(publisher.publish(transition).accepted, true);
+  assert.equal(store.getByType("agent.status_changed")[0].payload.status, "working");
+});
+
 test("accepts one Event identity and ignores exact duplicate publication", () => {
   const store = createEventStore();
   const publisher = createEventPublisher({ store });

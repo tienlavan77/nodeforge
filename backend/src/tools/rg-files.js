@@ -5,7 +5,7 @@ import { rgPath } from "@vscode/ripgrep";
 import { logEvent } from "../core/project-log-service.js";
 import { createRuntimeLogger } from "../core/runtime-logger.js";
 import { ConfigurationError } from "../shared/errors.js";
-import { authorizeTool } from "./tool-authorization.js";
+import { authorizeTool, isAgentPathAllowed } from "./tool-authorization.js";
 
 // Creates a scoped Forge tool that lists files from the approved project root.
 export function createRgFilesTool({ projectRoot, logger = createRuntimeLogger({ logEvent }), environment = process.env } = {}) {
@@ -27,6 +27,8 @@ export function createRgFilesTool({ projectRoot, logger = createRuntimeLogger({ 
     let result;
     try {
       result = await runRipgrep(projectRoot, args, environment);
+      result.stdout = result.stdout.split("\n").filter((path) => path && isAgentPathAllowed(path.replace(/^\.\//, ""), context)).join("\n");
+      if (result.stdout) result.stdout += "\n";
     } catch (error) {
       emit("forge.rg_files_failed", "failed", context, { command: ["rg", ...args], cwd: projectRoot, error_code: error.code ?? "RG_FILES_SPAWN_FAILED", error: error.message, duration_ms: Date.now() - started });
       throw error;

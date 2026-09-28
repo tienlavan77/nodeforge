@@ -8,6 +8,12 @@ import { RunContext } from "@openai/agents";
 import { createClaudeSdkGateway } from "../../src/modules/agent/claude-sdk-gateway.js";
 import { authorizeOwnerTool, ownerWritePrefixes } from "../../src/tools/owner-role-tool-policy.js";
 import { createOwnerDeleteFileTool } from "../../src/tools/owner-delete-file.js";
+import { createReadFileTool } from "../../src/tools/agent-lifecycle-tools.js";
+import { createOwnerConversationTools } from "../../src/tools/owner-conversation-tools.js";
+import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // Builds a minimal project file service so Owner tools can be registered without touching disk.
 function fileService() { return { readFile() {}, readForIndex() {}, atomicWrite() {}, deleteFile() {}, listDirectories: async () => [], listFiles: async () => [] }; }
@@ -94,4 +100,54 @@ test("Architecture Manager delete invalidates the shared code cache after File S
   });
   await assert.rejects(failing.execute({ path: "workflows/old.md", before_checksum: checksum }), /delete failed/);
   assert.equal(invalidations.length, 1);
+});
+
+test("read_file returns cached Markdown content for Architecture and Coder while code stays metadata-only", async () => {
+  const reads = [];
+  const markdown = Array.from({ length: 193 }, (_, index) => `plan line ${index + 1}`).join("\n");
+  const codeCache = { read: async ({ path }) => { reads.push(path); return { path, content: path.endsWith(".md") ? markdown : "const value = 1;\n", code_index: { path, symbols: [] } }; } };
+  const read = createReadFileTool({ fileService: { readForIndex: async () => { throw new Error("Cache should serve this read."); } }, codeCache });
+  for (const role of ["architecture_manager", "coder"]) {
+    const result = await read.execute({ path: "workflows/plan.md" }, { agent_identity: { role } });
+    assert.equal(result.content, markdown);
+    assert.equal(result.truncated, false);
+    assert.equal(result.total_lines, 193);
+  }
+  const code = await read.execute({ path: "backend/src/example.js" }, { agent_identity: { role: "architecture_manager" } });
+  assert.equal(code.content, undefined);
+  assert.deepEqual(reads, ["workflows/plan.md", "workflows/plan.md", "backend/src/example.js"]);
+});
+
+test("read_file permits a 250-line Markdown window and keeps source windows at 80 lines", async () => {
+  const markdown = Array.from({ length: 300 }, (_, index) => `line ${index + 1}`).join("\n");
+  const read = createReadFileTool({ fileService: { readForIndex: async ({ path }) => ({ path, content: path.endsWith(".md") ? markdown : "const value = 1;\n" }) } });
+  const context = { agent_identity: { role: "architecture_manager" } };
+  const first = await read.execute({ path: "workflows/long.md" }, context);
+  assert.equal(first.content.split("\n").length, 250);
+  assert.equal(first.truncated, true);
+  const remainder = await read.execute({ path: "workflows/long.md", offset: 251, limit: 250 }, context);
+  assert.equal(remainder.content.split("\n").length, 50);
+  const sdkWindow = await read.execute({ path: "workflows/long.md", offset: 1, limit: 250, symbol: null }, context);
+  assert.equal(sdkWindow.content.split("\n").length, 250);
+  const emptySymbol = await read.execute({ path: "workflows/long.md", offset: 1, limit: 250, symbol: "" }, context);
+  assert.equal(emptySymbol.content, sdkWindow.content);
+  const unusedSymbol = await read.execute({ path: "workflows/long.md", offset: 1, limit: 250, symbol: "target" }, context);
+  assert.equal(unusedSymbol.content, sdkWindow.content);
+  await assert.rejects(() => read.execute({ path: "backend/code.js", offset: 1, limit: 10, symbol: "target" }, context), (error) => error.code === "INPUT_INVALID");
+  await assert.rejects(() => read.execute({ path: "backend/code.js", offset: 1, limit: 250 }, context), (error) => error.code === "INPUT_INVALID");
+});
+
+test("Architecture reads Markdown checksum through its Forge registry and edits that document", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "nodeforge-owner-markdown-"));
+  try {
+    const fileService = createFileService({ projectRoot });
+    await fileService.atomicWrite({ path: "workflows/plan.md", content: "# Plan\nOld decision\n", replace: true });
+    const context = { task_id: "TASK-ARCH-MD", agent_identity: { role: "architecture_manager", agent_id: "architect" }, capabilities: ["read_file", "edit_diff"], allowed_write_prefixes: ["workflows/"] };
+    const { registry } = createOwnerConversationTools({ role: "architecture_manager", projectRoot, fileService, context, projectLogger: () => {} });
+    const read = await registry.read_file.execute({ path: "workflows/plan.md", offset: 1, limit: 250, symbol: "unused" });
+    assert.equal(read.content, "# Plan\nOld decision\n");
+    assert.match(read.sha256, /^sha256:[a-f0-9]{64}$/);
+    await registry.edit_diff.execute({ path: "workflows/plan.md", before_checksum: read.sha256, anchor: "Old decision", replacement: "New decision" });
+    assert.equal(await fileService.readFile({ path: "workflows/plan.md" }), "# Plan\nNew decision\n");
+  } finally { await rm(projectRoot, { recursive: true, force: true }); }
 });

@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { createCodexSdkGateway, normalizeBaseUrl } from "../../src/modules/agent/codex-sdk-gateway.js";
 
@@ -73,7 +76,7 @@ test("does not leak the parent Codex session into the MCP child", async () => {
   const gateway = createCodexSdkGateway({
     configuration: { getById: () => ({ agent_id: "codex-env", agent_name: "Codex Env", role: "coder", gateway_url: "https://gateway.test/v1/responses", credential_ref: "secret", enabled: true, status: "ready" }) },
     credentialResolver: () => "gateway-key",
-    environment: { CODEX_SESSION_ID: "parent", CODEX_THREAD_ID: "parent-thread", CODEX_PERMISSION_PROFILE: ":workspace-write", KEEP_ME: "yes" },
+    environment: { CODEX_SESSION_ID: "parent", CODEX_THREAD_ID: "parent-thread", CODEX_PERMISSION_PROFILE: ":workspace-write", OPENAI_API_KEY: "cli-key", CODEX_API_KEY: "stale-key", KEEP_ME: "yes" },
     CodexClass: class FakeCodex {
       constructor(options) { codexOptions = options; }
       startThread() { return { id: "thread-env", runStreamed: async () => ({ events: (async function* () { yield { type: "turn.completed", usage: null }; })() }) }; }
@@ -83,5 +86,36 @@ test("does not leak the parent Codex session into the MCP child", async () => {
   assert.equal(codexOptions.env.CODEX_SESSION_ID, undefined);
   assert.equal(codexOptions.env.CODEX_THREAD_ID, undefined);
   assert.equal(codexOptions.env.CODEX_PERMISSION_PROFILE, undefined);
+  assert.equal(codexOptions.env.OPENAI_API_KEY, undefined);
+  assert.equal(codexOptions.env.CODEX_API_KEY, undefined);
+  assert.equal(codexOptions.apiKey, "gateway-key");
   assert.equal(codexOptions.env.KEEP_ME, "yes");
+});
+
+test("uses each profile key and a separate Codex home instead of CLI credentials", async () => {
+  const homeRoot = mkdtempSync(join(tmpdir(), "nodeforge-codex-home-test-"));
+  const captured = [];
+  const profiles = Object.fromEntries(["agent-one", "agent-two"].map((agent_id) => [agent_id, {
+    agent_id, agent_name: agent_id, role: "coder", gateway_url: "https://gateway.test/v1/responses",
+    credential_ref: `runtime:${agent_id}:api-key`, enabled: true, status: "ready"
+  }]));
+  try {
+    const gateway = createCodexSdkGateway({
+      configuration: { getById: (agentId) => profiles[agentId] },
+      credentialResolver: (reference) => ({ "runtime:agent-one:api-key": "profile-key-one", "runtime:agent-two:api-key": "profile-key-two" })[reference],
+      environment: { CODEX_HOME: "/cli/home", OPENAI_API_KEY: "cli-key", CODEX_API_KEY: "cli-key" },
+      codexHomeRoot: homeRoot,
+      CodexClass: class FakeCodex {
+        constructor(options) { captured.push(options); }
+        startThread() { return { id: "thread", runStreamed: async () => ({ events: (async function* () { yield { type: "turn.completed" }; })() }) }; }
+      }
+    });
+    await gateway.execute({ agentId: "agent-one", correlationId: "ONE", prompt: "one" });
+    await gateway.execute({ agentId: "agent-two", correlationId: "TWO", prompt: "two" });
+    assert.deepEqual(captured.map((options) => options.apiKey), ["profile-key-one", "profile-key-two"]);
+    assert.deepEqual(captured.map((options) => options.env.CODEX_HOME), [join(homeRoot, "agent-one"), join(homeRoot, "agent-two")]);
+    assert.equal(captured.every((options) => options.env.OPENAI_API_KEY === undefined && options.env.CODEX_API_KEY === undefined), true);
+  } finally {
+    rmSync(homeRoot, { recursive: true, force: true });
+  }
 });

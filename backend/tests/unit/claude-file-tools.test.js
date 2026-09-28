@@ -22,7 +22,7 @@ test("Read, Glob, and Grep use governed files and record success or rejection", 
     const context = { task_id: "CORR-CLAUDE-FILES", agent_identity: { agent_id: "coder", role: "coder" }, allowed_file_paths: ["src/agent.js"], allowed_prefixes: [] };
     const files = createRoleFileService({ fileService: createFileService({ projectRoot: root }), role: "coder", projectRoot: root });
     const registry = createClaudeFileTools({ fileService: files, projectRoot: root });
-    const read = await registry.Read.execute({ file_path: join(root, "src", "agent.js"), offset: 2, limit: 1 }, context);
+    const read = await registry.Read.execute({ file_path: join(root, "src", "agent.js"), start_line: 2, end_line: 2 }, context);
     assert.match(read.content, /2→agent contract/);
     assert.match(read.sha256, /^sha256:/);
     const glob = await registry.Glob.execute({ pattern: "**/*.js" }, context);
@@ -39,12 +39,16 @@ test("Read, Glob, and Grep use governed files and record success or rejection", 
   }
 });
 
-test("Claude Read defaults to at most 80 lines", async () => {
+test("Claude Read requires a bounded inclusive line range", async () => {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-claude-read-window-"));
   try {
     await writeFile(join(root, "code.js"), Array.from({ length: 81 }, (_, index) => `line-${index + 1}`).join("\n"));
     const files = createRoleFileService({ fileService: createFileService({ projectRoot: root }), role: "coder", projectRoot: root });
-    const read = await createClaudeFileTools({ fileService: files, projectRoot: root }).Read.execute({ file_path: "code.js" }, { allowed_file_paths: ["code.js"] });
+    const tool = createClaudeFileTools({ fileService: files, projectRoot: root }).Read;
+    await assert.rejects(() => tool.execute({ file_path: "code.js" }, { allowed_file_paths: ["code.js"] }), /start_line/);
+    await assert.rejects(() => tool.execute({ file_path: "code.js", offset: 1, limit: 80 }, { allowed_file_paths: ["code.js"] }), /start_line/);
+    await assert.rejects(() => tool.execute({ file_path: "code.js", start_line: 1, end_line: 81 }, { allowed_file_paths: ["code.js"] }), /maximum 80/);
+    const read = await tool.execute({ file_path: "code.js", start_line: 1, end_line: 80 }, { allowed_file_paths: ["code.js"] });
     assert.equal(read.content.split("\n").length, 80);
     assert.equal(read.total_lines, 81);
     assert.equal(read.truncated, true);
@@ -59,7 +63,7 @@ test("Claude coder file calls use Forge registry logging and deny missing capabi
     const events = [];
     const registry = createForgeToolRegistry({ projectRoot: root, fileService: createFileService({ projectRoot: root }), protocolStorage: { get: async () => null }, projectLogger: (event) => events.push(event) });
     const context = { task_id: "T-CLAUDE-CODER", capabilities: ["Read", "Glob", "Grep"], allowed_file_paths: ["src/agent.js"], allowed_prefixes: ["src/"] };
-    assert.match((await registry.Read.execute({ file_path: "src/agent.js" }, context)).content, /agent contract/);
+    assert.match((await registry.Read.execute({ file_path: "src/agent.js", start_line: 1, end_line: 1 }, context)).content, /agent contract/);
     assert.deepEqual((await registry.Glob.execute({ pattern: "**/*.js" }, context)).files, ["src/agent.js"]);
     await assert.rejects(() => registry.Read.execute({ file_path: ".env" }, context));
     await assert.rejects(() => registry.Grep.execute({ pattern: "agent" }, { ...context, capabilities: ["Read"] }), (error) => error.code === "TOOL_FORBIDDEN");

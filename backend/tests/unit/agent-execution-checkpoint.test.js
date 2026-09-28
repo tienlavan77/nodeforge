@@ -64,3 +64,19 @@ test("rejects unsafe task ids", async () => {
   await assert.rejects(() => store.save({ task_id: "../evil" }), /unsafe/);
   await assert.rejects(() => store.save({}), /task_id/);
 });
+
+test("lists failed and pending Reviewer checkpoints separately from completed Coder work", async () => {
+  const store = createAgentExecutionCheckpointStore({ fileService: memoryFileService() });
+  await store.complete("T-REVIEW", { agent_id: "coder-1" });
+  await store.saveReview({ task_id: "T-REVIEW", status: "failed", phase: "review", review_attempt: 1 });
+  await store.saveReview({ task_id: "T-DONE", status: "completed", verdict: "approved" });
+  assert.deepEqual((await store.listReviewPending()).map((item) => item.task_id), ["T-REVIEW"]);
+  assert.deepEqual(await store.listPending(), []);
+});
+
+test("blocked commit checkpoint remains stored but is not offered for automatic resume", async () => {
+  const store = createAgentExecutionCheckpointStore({ fileService: memoryFileService() });
+  await store.save({ task_id: "T-BLOCKED", status: "blocked", phase: "commit_approval" });
+  assert.equal((await store.load("T-BLOCKED")).status, "blocked");
+  assert.deepEqual(await store.listPending(), []);
+});

@@ -7,7 +7,7 @@ import { rgPath } from "@vscode/ripgrep";
 import { logEvent } from "../core/project-log-service.js";
 import { createRuntimeLogger } from "../core/runtime-logger.js";
 import { ConfigurationError } from "../shared/errors.js";
-import { authorizeTool } from "./tool-authorization.js";
+import { authorizeTool, isAgentPathAllowed } from "./tool-authorization.js";
 
 const MAX_LINES = 80;
 const MAX_OUTPUT_BYTES = 200000;
@@ -24,7 +24,7 @@ export function createSedLinesTool({ projectRoot, fileService, codeCache, symbol
     try {
       authorizeTool("sed_lines", context);
       args = buildArgs(input);
-      if (fileService && !approvedPath(input.path, context)) throw invalidInput("sed_lines path is outside the Node-approved file scope.");
+      if (!isAgentPathAllowed(input.path, context) || (fileService && !approvedPath(input.path, context))) throw invalidInput("sed_lines path is outside the Node-approved file scope.");
       await validatePath(projectRoot, input.path, environment);
     } catch (error) {
       emit("rejected", context, { error_code: error.code ?? "SED_LINES_INPUT_INVALID", error: error.message, duration_ms: Date.now() - started });

@@ -81,6 +81,14 @@ test("Git Service exposes safe branch/revision and merge recovery primitives", a
   await assert.rejects(() => git.resetTo("../escape", { hard: true }), (error) => error.code === "GIT_INVALID_REVISION");
 });
 
+test("Git Service reads a path-scoped patch across committed and working-tree edits", async () => {
+  const fake = fakeGit();
+  const git = createGitService({ projectRoot: "/repo", runGit: fake.run });
+  assert.match(await git.diffPatchFrom("abc123", { paths: ["src/example.js"] }), /src\/example.js/);
+  assert.deepEqual(fake.calls.at(-1), ["diff", "--no-ext-diff", "--unified=3", "abc123", "--", "src/example.js"]);
+  await assert.rejects(() => git.diffPatchFrom("../unsafe", { paths: ["src/example.js"] }), (error) => error.code === "GIT_INVALID_REVISION");
+});
+
 test("Git Service emits structured audit events without affecting operations", async () => {
   const fake = fakeGit();
   const events = [];

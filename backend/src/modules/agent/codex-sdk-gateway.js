@@ -1,4 +1,6 @@
 import { Codex as DefaultCodex } from "@openai/codex-sdk";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ConfigurationError } from "../../shared/errors.js";
 import { createCodexForgeMcpSession } from "./codex-forge-mcp-session.js";
@@ -10,12 +12,14 @@ export function createCodexSdkGateway({
   credentialResolver,
   CodexClass = DefaultCodex,
   timeoutMs = 120000,
-  environment = process.env
+  environment = process.env,
+  codexHomeRoot = join(process.cwd(), ".forge", "runtime", "nf", "codex-homes")
 } = {}) {
   if (typeof configuration?.getById !== "function") throw new ConfigurationError("Codex SDK Gateway requires Node Agent Configuration.");
   if (typeof credentialResolver !== "function") throw new ConfigurationError("Codex SDK Gateway requires a credential resolver.");
   if (typeof CodexClass !== "function") throw new ConfigurationError("Codex SDK Gateway requires a Codex constructor.");
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1) throw new ConfigurationError("Codex SDK Gateway timeout must be a positive integer.");
+  if (typeof codexHomeRoot !== "string" || !codexHomeRoot) throw new ConfigurationError("Codex SDK Gateway home root is required.");
 
   return Object.freeze({ execute, provider: "codex", conversationMode: "thread" });
 
@@ -24,6 +28,8 @@ export function createCodexSdkGateway({
     assertString(prompt, "Codex SDK prompt");
     assertString(correlationId, "Codex SDK correlation_id");
     const credential = await resolveCredential(profile.credential_ref);
+    const codexHome = join(codexHomeRoot, profile.agent_id);
+    mkdirSync(codexHome, { recursive: true, mode: 0o700 });
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     let mcpSession;
@@ -73,7 +79,7 @@ export function createCodexSdkGateway({
       const codex = new CodexClass({
         apiKey: credential,
         baseUrl: normalizeBaseUrl(profile.gateway_url),
-        env: buildCodexChildEnvironment(environment, options.env),
+        env: { ...buildCodexChildEnvironment(environment, options.env), CODEX_HOME: codexHome },
         ...(codexConfig ? { config: codexConfig } : {})
       });
       const threadOptions = {
@@ -140,7 +146,7 @@ export function createCodexSdkGateway({
     const config = configuration.getById(id);
     if (!config) throw new ConfigurationError(`Unknown Codex SDK profile: ${id}.`);
     if (!config.enabled) throw new ConfigurationError(`Codex SDK agent is disabled: ${id}.`);
-    if (config.status !== "ready") throw new ConfigurationError(`Codex SDK agent is not ready: ${id}.`);
+    if (config.status !== "ready" && config.status !== "working") throw new ConfigurationError(`Codex SDK agent is not ready: ${id}.`);
     if (typeof config.gateway_url !== "string" || !SAFE_URL.test(config.gateway_url)) throw new ConfigurationError(`Codex SDK gateway URL is invalid for ${id}.`);
     return structuredClone(config);
   }
@@ -182,6 +188,8 @@ function buildCodexChildEnvironment(baseEnvironment, overrides) {
   // MCP discovery before the first turn.  The SDK sets its own API key and
   // originator; these values must be fresh for the agent process.
   for (const name of [
+    "OPENAI_API_KEY",
+    "CODEX_API_KEY",
     "CODEX_SESSION_ID",
     "CODEX_THREAD_ID",
     "CODEX_PERMISSION_PROFILE",
@@ -191,5 +199,8 @@ function buildCodexChildEnvironment(baseEnvironment, overrides) {
     "CODEX_INTERNAL_ORIGINATOR_OVERRIDE"
   ]) delete env[name];
   if (overrides && typeof overrides === "object") Object.assign(env, overrides);
+  // The SDK injects the selected profile credential as CODEX_API_KEY after this environment is built.
+  delete env.OPENAI_API_KEY;
+  delete env.CODEX_API_KEY;
   return env;
 }
