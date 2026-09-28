@@ -15,27 +15,28 @@ The active `/` route is a Client Component. Its direct imports are the component
 
 ## Canonical route and import graph
 
-`app/page.jsx` is the canonical home route (`/`). It is the client-owned workspace composition:
+`app/page.jsx` is the canonical home route (`/`), marked `use client`. Its direct imports (and ownership) are:
 
 ```text
-/app/page.jsx (HomePage, /)
-├── components/NodeForgeHeader.jsx
-├── components/NodeForgePanels.jsx
-├── components/ConversationsAccordion.jsx
-├── components/conversation-response-reveal.jsx
-├── components/home-chat-composer.jsx
-├── lib/node-client.js                 API client and message intents
-├── lib/use-conversation-message-history.js  conversation history owner
-├── lib/home-page-event-stream.js      project SSE owner
-├── lib/home-page-message-handlers.js  send/retry/stream handlers
-├── lib/home-page-conversation-state.js persisted chat state
-├── lib/home-page-dashboard.js         dashboard projection/cache
-├── lib/home-page-watcher-events.js    event display helpers
-├── lib/home-page-constants.js         project and storage identifiers
-└── ../../src/architecture-manager-selection.js (selection persistence)
+/app/page.jsx (HomePage, active route /)
+├── next/link
+├── components/NodeForgeHeader.jsx              responsive navigation/drawer UI
+├── components/NodeForgePanels.jsx              dashboard/process/upload UI
+├── components/ConversationsAccordion.jsx        conversation list and selection UI
+├── lib/node-client.js                           API client and message intents
+├── ../../src/architecture-manager-selection.js architecture-manager selection persistence
+├── lib/home-page-constants.js                  project and storage identifiers
+├── lib/home-page-dashboard.js                  dashboard projection/cache
+├── lib/home-page-conversation-state.js         persisted conversation selection/chat state
+├── lib/home-page-watcher-events.js             event display helpers
+├── lib/home-page-event-stream.js               project SSE subscription/lifecycle
+├── lib/home-page-message-handlers.js           send/retry/stream handlers
+├── components/conversation-response-reveal.jsx streamed response presentation
+├── components/home-chat-composer.jsx            message composer UI
+└── lib/use-conversation-message-history.js      conversation history and pagination
 ```
 
-`HomePage` owns workspace composition, agent selection, dashboard/upload data, and agent-process state. Conversation selection is represented by `activeConversationId` (with a ref for current stream correlation) in `HomePage`; `useConversationMessageHistory` owns messages and pagination; `useProjectEventStream` owns project SSE subscription/lifecycle. Responsive drawer state is delegated to `NodeForgeHeader` and its responsive navigation implementation. The legacy `NodeForgeApp` also imports `NodeForgeShell`; this is an active edge inside the dormant legacy subtree, not an import into the canonical route.
+`HomePage` composes the workspace, agent selection, dashboard/upload data, and agent-process state. It owns `conversations`, `activeConversationId` and the active-conversation ref used for stream correlation. `useConversationMessageHistory` owns message history, pagination and loading/error state; `useProjectEventStream` owns project SSE subscription/lifecycle. `NodeForgeHeader` owns responsive navigation and its drawer state. The separate `app/NodeForgeApp.jsx` directly imports the legacy `components/NodeForgeShell.jsx`; that edge remains confined to the dormant legacy subtree and neither is imported by the active route. The shell imports `NodeForgeHeader` and `NodeForgePanels`.
 
 ## Behavior contract to preserve
 
