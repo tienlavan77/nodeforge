@@ -74,8 +74,9 @@ export function createSupervisorLoop({ runtime, senderQueue, collectorQueue, ver
   async function startRepairRound(event, reason) {
     if (typeof attemptBuilder?.requestRepair !== "function") throw new ConfigurationError("Supervisor attempt builder does not support repair attempts.");
     const request = await attemptBuilder.requestRepair({ ...event, reason });
-    await senderQueue.enqueue(request);
     await runtime.transition("RUNNING", request);
+    await emitAgentWorking(request);
+    await senderQueue.enqueue(request);
     return request;
   }
   async function terminal(type, event, payload = {}) { await eventBus.publish({ type, task_id: runtime.taskId, supervisor_id: runtime.supervisorId, request_id: event.request_id, correlation_id: event.correlation_id, attempt: event.attempt ?? 1, payload }); }
