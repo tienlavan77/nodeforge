@@ -11,6 +11,7 @@ function getFocusableElements(container) {
 }
 
 // Keep keyboard focus inside an open dialog and restore it to the invoking control.
+// Render an accessible portal dialog with modal, confirmation, or drawer presentation.
 export function Dialog({ open, onClose, children, labelledBy, describedBy, label, variant = "modal", closeOnOutsideClick = true, className = "" }) {
   const dialogRef = useRef(null);
   const previousFocus = useRef(null);
