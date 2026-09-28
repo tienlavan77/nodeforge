@@ -51,13 +51,12 @@ The active `/` route is a Client Component. Its direct imports are the component
 | --- | --- | --- |
 | `app/page.jsx` / `HomePage` | Active `/` route and canonical composition | Canonical |
 | `components/*` and `lib/*` imported by `HomePage` | Active UI, state, API, history, and SSE ownership | Keep and evolve |
-| `app/NodeForgeApp.jsx` → `components/NodeForgeShell.jsx` | Legacy app imports shell; neither is imported from canonical route | Migrate only deliberately; deprecate, then remove only when repository-wide references are absent |
-| `components/NodeForgeShell.jsx` | Legacy shell component; currently consumed by `NodeForgeApp` | Keep while legacy consumer remains |
-| `app/NodeForgeApp.jsx` | Legacy app composition; retained, no active route import | Deprecate; remove only after repository-wide import-reference search is clear |
-| `components/NodeForgeShell.jsx` | Legacy shell; retained, no active route import | Migrate any remaining consumers, then deprecate and remove only after repository-wide import-reference search is clear |
+| `app/NodeForgeApp.jsx` → `components/NodeForgeShell.jsx` | Dormant legacy edge: `NodeForgeApp` imports `NodeForgeShell`; neither is imported by `app/page.jsx` | Migrate deliberately; deprecate, then remove only when repository-wide references are absent |
+| `app/NodeForgeApp.jsx` | Dormant legacy app composition; retained and not imported by the canonical route | Deprecate; remove only after repository-wide import-reference search is clear |
+| `components/NodeForgeShell.jsx` | Dormant legacy shell; retained because `NodeForgeApp` imports it | Keep while the legacy consumer remains; then deprecate and remove after migration |
 | Migrated presentational modules named above | Supporting components documented in this README | Keep; migrate remaining consumers incrementally |
 
-No legacy file is deleted as part of establishing this baseline. No legacy file is deleted as part of this baseline. The legacy app-to-shell edge exists; confirm repository-wide references are absent before any eventual removal. Preserve canonical switch, optimistic send, retry, correlation and project/conversation scope behavior above during migration.
+No legacy file is deleted as part of establishing this baseline. The app-to-shell edge is a real import within the dormant legacy subtree; confirm repository-wide references are absent before any eventual removal. Preserve canonical switch, optimistic send, retry, correlation and project/conversation scope behavior above during migration.
 
 ## LAN development
 
