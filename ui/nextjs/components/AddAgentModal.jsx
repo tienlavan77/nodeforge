@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Dialog } from "./Dialog";
 
 function SelectMenu({ label, name, value, options, openName, setOpenName, onChange }) {
   const open = openName === name;
@@ -20,8 +21,8 @@ export function AddAgentModal({ title = "Add agent", form, modelOptions, apiKeyM
   const teams = [{ value: "Backend", label: "Backend" }, { value: "Frontend", label: "Frontend" }, { value: "Security", label: "Security" }];
   const providers = [{ value: "anthropic", label: "Anthropic" }, { value: "claude", label: "Claude" }, { value: "openai", label: "OpenAI" }, { value: "codex", label: "Codex" }, { value: "ollama", label: "Ollama" }];
   const models = modelOptions ?? [];
-  return <div className="agent-modal-backdrop" role="presentation">
-    <section className="agent-modal" onClick={() => setOpenName(null)} role="dialog" aria-modal="true" aria-labelledby="add-agent-title">
+  return <Dialog open onClose={onClose} labelledBy="add-agent-title" variant="modal" className="agent-modal-backdrop">
+    <div className="agent-modal" onClick={() => setOpenName(null)}>
       <header><div><p className="eyebrow">NODEFORGE RUNTIME</p><h2 id="add-agent-title">{title}</h2></div><button className="agent-modal-close" type="button" onClick={onClose} aria-label="Close">×</button></header>
       <form onSubmit={onSubmit}>
         <label>Agent name<input name="agent_name" value={form.agent_name} onChange={onChange} required placeholder="Architecture Manager" /></label>
@@ -35,6 +36,6 @@ export function AddAgentModal({ title = "Add agent", form, modelOptions, apiKeyM
         {testState && <p className="agent-test-state">{testState}</p>}
         <div className="agent-modal-actions"><button className="history-button" type="button" onClick={onClose}>Cancel</button><button className="history-button agent-submit-button" type="submit" disabled={saving}>{saving ? "Saving…" : title === "Edit agent" ? "Save" : "Add agent"}</button></div>
       </form>
-    </section>
-  </div>;
+    </div>
+  </Dialog>;
 }
