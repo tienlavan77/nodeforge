@@ -42,3 +42,9 @@ test("free-form or unsupported review evidence cannot approve a ticket", async (
   await assert.rejects(() => worker.review(job), (error) => error.code === "REVIEW_VERDICT_INVALID");
   await assert.rejects(() => worker.review({ ...job, payload: { ...job.payload, changed_paths: [] } }), (error) => error.code === "REVIEW_EVIDENCE_INVALID");
 });
+
+test("accepts a JSON verdict wrapped in reviewer prose", async () => {
+  const { worker } = harness({ text: "I'll review the supplied evidence.\n\n{\"verdict\":\"approved\",\"findings\":[]}\n\nReview complete." });
+  const result = await worker.review({ task_id: "TASK-1", correlation_id: "CORR-1", request_id: "REVIEW-1", agent_id: "coder-1", payload: { ticket: { id: "TASK-1" }, changed_paths: ["src/a.js"] } });
+  assert.equal(result.verdict, "approved");
+});
