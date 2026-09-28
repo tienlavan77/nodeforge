@@ -26,8 +26,8 @@ export function AddAgentModal({ title = "Add agent", form, modelOptions, apiKeyM
   const teams = [{ value: "Backend", label: "Backend" }, { value: "Frontend", label: "Frontend" }, { value: "Security", label: "Security" }];
   const providers = [{ value: "anthropic", label: "Anthropic" }, { value: "claude", label: "Claude" }, { value: "openai", label: "OpenAI" }, { value: "codex", label: "Codex" }, { value: "ollama", label: "Ollama" }];
   const models = modelOptions ?? [];
-  return <Dialog open onClose={onClose} labelledBy={DIALOG_TITLE_ID} label={title} describedBy={error ? "agent-form-error" : undefined} variant={DIALOG_VARIANT} closeOnOutsideClick={CLOSE_ON_OUTSIDE_CLICK} className="agent-modal-backdrop">
-    <div className="agent-modal" onClick={() => setOpenName(null)}>
+  return <Dialog open onClose={onClose} labelledBy={DIALOG_TITLE_ID} label={title} describedBy={error ? "agent-form-error" : undefined} variant={DIALOG_VARIANT} closeOnOutsideClick={CLOSE_ON_OUTSIDE_CLICK} className="agent-modal-backdrop" panelStyle={{ width: "min(520px, calc(100vw - 40px))", maxHeight: "min(82vh, calc(100vh - 40px))", borderRadius: 0, background: "var(--app-panel)" }}>
+    <div className="agent-modal" style={{ width: "100%", maxHeight: "none", marginTop: 0, border: 0, boxShadow: "none" }} onClick={() => setOpenName(null)}>
       <header><div><p className="eyebrow">NODEFORGE RUNTIME</p><h2 id="add-agent-title">{title}</h2></div><button className="agent-modal-close" type="button" onClick={onClose} aria-label="Close">×</button></header>
       <form onSubmit={onSubmit}>
         <label>Agent name<input name="agent_name" value={form.agent_name} onChange={onChange} required placeholder="Architecture Manager" /></label>

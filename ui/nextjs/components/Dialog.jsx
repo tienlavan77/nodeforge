@@ -28,14 +28,13 @@ export function getDialogPresentation(variant = "modal") {
 }
 
 // Render an accessible portal dialog with modal, confirmation, or drawer presentation.
-export function Dialog({ open, onClose, children, labelledBy, describedBy, label, variant = "modal", closeOnOutsideClick = true, className = "" }) {
+export function Dialog({ open, onClose, children, labelledBy, describedBy, label, variant = "modal", closeOnOutsideClick = true, className = "", panelStyle = {} }) {
   const dialogRef = useRef(null);
   const previousFocus = useRef(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const { variant: resolvedVariant, backdrop, panel } = getDialogPresentation(variant);
   const presentation = backdrop;
-  const panelStyle = panel;
 
   useEffect(() => {
     if (!open) return undefined;
@@ -63,7 +62,7 @@ export function Dialog({ open, onClose, children, labelledBy, describedBy, label
         aria-describedby={describedBy}
         aria-label={label || (labelledBy ? undefined : "Dialog")}
         tabIndex={-1}
-        style={{ ...panelStyle, overflowY: "auto", background: "var(--dialog-surface, #fff)" }}
+        style={{ ...panel, overflowY: "auto", background: "var(--dialog-surface, #fff)", ...panelStyle }}
       >
         {children}
       </section>
