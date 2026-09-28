@@ -5,12 +5,37 @@ import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { installDialogBehavior, shouldCloseOnOutsideClick } from "./DialogBehavior";
 
+const PRESENTATION_STYLES = {
+  modal: { alignItems: "center", justifyContent: "center" },
+  confirmation: { alignItems: "center", justifyContent: "center" },
+  drawer: { alignItems: "stretch", justifyContent: "flex-end" },
+};
+
+const PANEL_STYLES = {
+  modal: { width: "min(92vw, 720px)", maxHeight: "90vh", borderRadius: "12px" },
+  confirmation: { width: "min(92vw, 440px)", maxHeight: "90vh", borderRadius: "12px" },
+  drawer: { width: "min(92vw, 420px)", height: "100vh", maxHeight: "100vh", borderRadius: "0" },
+};
+
+// Resolve the business presentation contract for each shared dialog variant.
+export function getDialogPresentation(variant = "modal") {
+  const resolvedVariant = PRESENTATION_STYLES[variant] ? variant : "modal";
+  return {
+    variant: resolvedVariant,
+    backdrop: PRESENTATION_STYLES[resolvedVariant],
+    panel: PANEL_STYLES[resolvedVariant],
+  };
+}
+
 // Render an accessible portal dialog with modal, confirmation, or drawer presentation.
 export function Dialog({ open, onClose, children, labelledBy, describedBy, label, variant = "modal", closeOnOutsideClick = true, className = "" }) {
   const dialogRef = useRef(null);
   const previousFocus = useRef(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const { variant: resolvedVariant, backdrop, panel } = getDialogPresentation(variant);
+  const presentation = backdrop;
+  const panelStyle = panel;
 
   useEffect(() => {
     if (!open) return undefined;
@@ -18,13 +43,33 @@ export function Dialog({ open, onClose, children, labelledBy, describedBy, label
   }, [open]);
 
   if (!open || typeof document === "undefined") return null;
-  return createPortal(<div className={`shared-dialog-backdrop ${variant} ${className}`} onMouseDown={(event) => {
-    if (shouldCloseOnOutsideClick(event, closeOnOutsideClick)) onCloseRef.current?.();
-  }}>
-    <section ref={dialogRef} className="shared-dialog-panel" role="dialog" aria-modal="true" aria-labelledby={labelledBy} aria-describedby={describedBy} aria-label={label || (labelledBy ? undefined : "Dialog")} tabIndex={-1}>
-      {children}
-    </section>
-  </div>, document.body);
+  return createPortal(
+    <div
+      className={`shared-dialog-backdrop ${resolvedVariant} ${className}`}
+      data-dialog-variant={resolvedVariant}
+      data-dialog-layout={resolvedVariant === "drawer" ? "drawer" : "centered"}
+      onMouseDown={(event) => {
+        if (shouldCloseOnOutsideClick(event, closeOnOutsideClick)) onCloseRef.current?.();
+      }}
+      style={{ ...presentation, position: "fixed", inset: 0, display: "flex", zIndex: 1000 }}
+    >
+      <section
+        ref={dialogRef}
+        className={`shared-dialog-panel shared-dialog-panel--${resolvedVariant}`}
+        data-dialog-variant={resolvedVariant}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={labelledBy}
+        aria-describedby={describedBy}
+        aria-label={label || (labelledBy ? undefined : "Dialog")}
+        tabIndex={-1}
+        style={{ ...panelStyle, overflowY: "auto", background: "var(--dialog-surface, #fff)" }}
+      >
+        {children}
+      </section>
+    </div>,
+    document.body,
+  );
 }
 
 // Present a confirmation dialog with explicit confirm and cancel actions.

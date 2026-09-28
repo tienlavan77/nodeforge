@@ -1,4 +1,4 @@
-// Exercise shared dialog behavior with a lightweight browser-like DOM harness.
+// Verify shared dialog keyboard behavior and the rendered component contract.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { installDialogBehavior, shouldCloseOnOutsideClick } from "../components/DialogBehavior.js";
@@ -73,4 +73,18 @@ test("dialog behavior wraps forward focus and recognizes outside clicks", () => 
   assert.equal(shouldCloseOnOutsideClick({ target: backdrop, currentTarget: backdrop }, true), true);
   assert.equal(shouldCloseOnOutsideClick({ target: {}, currentTarget: backdrop }, true), false);
   cleanup();
+});
+
+test("Dialog component contract renders distinct portal variants with accessible wiring", async () => {
+  const source = await import("node:fs/promises").then((fs) => fs.readFile("ui/nextjs/components/Dialog.jsx", "utf8"));
+  assert.match(source, /createPortal\(/);
+  assert.match(source, /data-dialog-layout=\{resolvedVariant === "drawer" \? "drawer" : "centered"\}/);
+  assert.match(source, /shared-dialog-panel--\$\{resolvedVariant\}/);
+  assert.match(source, /role="dialog"/);
+  assert.match(source, /aria-modal="true"/);
+  assert.match(source, /shouldCloseOnOutsideClick\(event, closeOnOutsideClick\)/);
+  assert.match(source, /drawer: \{[^}]*height: "100vh"[^}]*borderRadius: "0"/);
+  assert.match(source, /confirmation: \{[^}]*width: "min\(92vw, 440px\)/);
+  assert.match(source, /variant="confirmation"/);
+  assert.match(source, /variant="drawer"/);
 });
