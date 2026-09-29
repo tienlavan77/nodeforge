@@ -96,12 +96,31 @@ function extractVerdictJson(text) {
   const source = String(text ?? "").trim().replace(/^```(?:json)?\s*|\s*```$/g, "");
   if (!source) throw new Error("empty reviewer response");
   try { JSON.parse(source); return source; } catch (error) { if (!error) throw new Error("invalid JSON"); }
-  const start = source.indexOf("{");
-  const end = source.lastIndexOf("}");
-  if (start < 0 || end <= start) throw new Error("no JSON object found");
-  const candidate = source.slice(start, end + 1);
-  JSON.parse(candidate);
-  return candidate;
+  const candidates = [];
+  for (let start = source.indexOf("{"); start >= 0; start = source.indexOf("{", start + 1)) {
+    const end = matchingObjectEnd(source, start);
+    if (end < 0) continue;
+    const candidate = source.slice(start, end + 1);
+    try { const value = JSON.parse(candidate); if (value && typeof value === "object") candidates.push({ candidate, value }); } catch (error) { if (!error) throw new Error("invalid JSON candidate"); }
+  }
+  const verdict = candidates.find(({ value }) => typeof value.verdict === "string" && Array.isArray(value.findings));
+  if (verdict) return verdict.candidate;
+  throw new Error("no valid verdict object found");
+}
+
+// Finds the closing brace for one JSON object while respecting quoted strings.
+function matchingObjectEnd(source, start) {
+  let depth = 0;
+  let quoted = false;
+  let escaped = false;
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index];
+    if (quoted) { if (escaped) escaped = false; else if (char === "\\") escaped = true; else if (char === '"') quoted = false; continue; }
+    if (char === '"') quoted = true;
+    else if (char === "{") depth += 1;
+    else if (char === "}" && --depth === 0) return index;
+  }
+  return -1;
 }
 
 // Labels review failures so the Supervisor can escalate without accepting unreviewed work.
