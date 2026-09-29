@@ -36,6 +36,20 @@ test("approval is rejected when source changes while the Reviewer is reading", a
   await assert.rejects(() => worker.review({ task_id: "TASK-1", correlation_id: "CORR-1", request_id: "REVIEW-1", agent_id: "coder-1", payload: { ticket: { id: "TASK-1" }, changed_paths: ["src/a.js"] } }), (error) => error.code === "REVIEW_EVIDENCE_STALE");
 });
 
+test("approved review verifies the requested path when Code Cache omits path", async () => {
+  const reads = [];
+  const worker = createReviewWorker({
+    agentResolver: { resolveAvailable: () => ({ agent_id: "reviewer-1", agent_name: "Leader", provider: "openai", role: "reviewer" }) },
+    openaiSdkGateway: { execute: async () => ({ text: '{"verdict":"approved","findings":[]}' }) },
+    fileService: { readForIndex: async () => { throw new Error("Cache should serve the review."); } },
+    codeCache: { read: async ({ path }) => { reads.push(path); return { sha256: "sha256:abc", size_bytes: 12, content: path.endsWith("reviewer.md") ? "Review evidence." : "const ok = 1;" }; } },
+    projectRoot: "/project"
+  });
+  const result = await worker.review({ task_id: "TASK-1", correlation_id: "CORR-1", request_id: "REVIEW-1", agent_id: "coder-1", payload: { ticket: { id: "TASK-1" }, changed_paths: ["src/a.js"] } });
+  assert.equal(result.verdict, "approved");
+  assert.deepEqual(reads, ["src/a.js", "workflows/agents/reviewer.md", "src/a.js"]);
+});
+
 test("free-form or unsupported review evidence cannot approve a ticket", async () => {
   const { worker } = harness({ text: "looks good" });
   const job = { task_id: "TASK-1", correlation_id: "CORR-1", request_id: "REVIEW-1", agent_id: "coder-1", payload: { ticket: { id: "TASK-1" }, changed_paths: ["src/a.js"] } };
@@ -53,4 +67,20 @@ test("selects the valid verdict object when response contains another malformed 
   const { worker } = harness({ text: "Tool note: {invalid}\nFinal: {\"verdict\":\"approved\",\"findings\":[]}" });
   const result = await worker.review({ task_id: "TASK-1", correlation_id: "CORR-1", request_id: "REVIEW-1", agent_id: "coder-1", payload: { ticket: { id: "TASK-1" }, changed_paths: ["src/a.js"] } });
   assert.equal(result.verdict, "approved");
+});
+
+test("Claude Reviewer receives the same Forge-only SDK boundary as other roles", async () => {
+  let request;
+  const content = "const ok = true;";
+  const worker = createReviewWorker({
+    agentResolver: { resolveAvailable: () => ({ agent_id: "reviewer-1", agent_name: "Leader", provider: "claude", role: "reviewer" }) },
+    claudeSdkGateway: { execute: async (input) => { request = input; return { text: '{"verdict":"request_changes","findings":["Inspect the dialog behavior"]}' }; } },
+    fileService: { readForIndex: async ({ path }) => ({ path, sha256: "sha256:abc", size_bytes: content.length, content: path.endsWith("reviewer.md") ? "Review the changed source." : content }), listFiles: async () => ["src/a.js"], listDirectories: async () => ["src"] },
+    codeCache: { read: async ({ path }) => ({ path, sha256: "sha256:abc", size_bytes: content.length, content: path.endsWith("reviewer.md") ? "Review the changed source." : content }) },
+    projectRoot: "/project"
+  });
+  await worker.review({ task_id: "TASK-1", correlation_id: "CORR-1", request_id: "REVIEW-1", agent_id: "coder-1", payload: { ticket: { id: "TASK-1" }, changed_paths: ["src/a.js"] } });
+  assert.deepEqual(request.options.tools, []);
+  assert.deepEqual(request.options.allowedTools, ["mcp__forge__read_file", "mcp__forge__Read", "mcp__forge__Glob", "mcp__forge__Grep", "mcp__forge__search_tree"]);
+  assert.equal(request.options.mcpServers.forge.type, "sdk");
 });

@@ -40,12 +40,12 @@ test("Reviewer definitions expose only the fixed search scope and metadata read"
   assert.deepEqual(result.matches, []);
 });
 
-test("Claude Reviewer Read accepts the shared path spelling and rejects a missing path clearly", async () => {
+test("Claude Reviewer Read uses the Coder file_path schema and rejects a missing path", async () => {
   const tools = createReviewerForgeTools({ fileService: files(), projectRoot: "/project", job, reviewer: { agent_id: "reviewer-1", provider: "claude" }, includeClaudeFileTools: true, codeCache: { read: async ({ path }) => ({ path, content: "one\ntwo", sha256: "sha256:x" }) } });
   const read = tools.definitions.find(({ name }) => name === "Read");
-  assert.equal(read.input_schema.properties.path.type, "string");
-  assert.match((await tools.registry.Read.execute({ path: "src/a.js", start_line: 1, end_line: 1 })).content, /one/);
-  await assert.rejects(() => tools.registry.Read.execute({ start_line: 1, end_line: 1 }), (error) => error.code === "REVIEW_TOOL_INPUT");
+  assert.deepEqual(read.input_schema.required, ["file_path", "start_line", "end_line"]);
+  assert.match((await tools.registry.Read.execute({ file_path: "src/a.js", start_line: 1, end_line: 1 })).content, /one/);
+  await assert.rejects(() => tools.registry.Read.execute({ start_line: 1, end_line: 1 }), (error) => error.code === "CLAUDE_FILE_INPUT_INVALID");
 });
 
 test("review tools allow more than 12 calls while enforcing output byte budgets", async () => {

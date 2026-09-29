@@ -33,6 +33,12 @@ test("stores Vietnamese owner context in SQLite and canonical English ticket in 
     store.update({ ticket: updatedTicket, context: updatedContext });
     assert.equal(store.getMetadata(ticket.id).context, updatedContext);
     assert.equal(store.readLatest(ticket.id).title, "Support Google sign-in");
+
+    const planned = { ...ticket, id: "TICKET-P1-PLANNED", status: "done", provenance: { source: "sprint_plan", source_id: "SPRINT-P1-1", created_at: "2026-09-15T00:00:00.000Z" } };
+    const plannedMetadata = store.update({ ticket: planned });
+    assert.equal(plannedMetadata.status, "done");
+    assert.equal(plannedMetadata.context, "");
+    assert.deepEqual(store.readLatest(planned.id), planned);
   } finally {
     await database.close();
     await rm(root, { recursive: true, force: true });

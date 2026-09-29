@@ -3,10 +3,11 @@ import { ConfigurationError } from "../../shared/errors.js";
 import { createAgentExecutionCheckpointStore } from "../agent/agent-execution-checkpoint.js";
 import { createNodeforgeTaskExecutors } from "./nodeforge-task-executors.js";
 import { createReviewWorker } from "./review-worker.js";
+import { ensureReviewStatusReady } from "./review-only-status.js";
 export { ticketCandidateScope } from "./nodeforge-task-scope.js";
 
 // createNodeforgeTaskIntegration - handles createNodeforgeTaskIntegration operation.
-export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, agentResolver, agentOccupancy, handoffQueue, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger = () => {}, fileService, gitService, checkpointStore, codeSearch, codeCache, relevantTreeSelector, protocolStorage } = {}) {
+export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, agentResolver, agentOccupancy, ticketStatusStore, handoffQueue, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger = () => {}, fileService, gitService, checkpointStore, codeSearch, codeCache, relevantTreeSelector, protocolStorage } = {}) {
   if (typeof supervisorManager?.startTask !== "function" || typeof eventBus?.publish !== "function") throw new ConfigurationError("NodeForge integration requires Supervisor Manager and Event Bus.");
   if (typeof handoffQueue?.enqueue !== "function") throw new ConfigurationError("NodeForge integration requires a sender handoff queue.");
   const checkpoints = checkpointStore ?? (fileService ? createAgentExecutionCheckpointStore({ fileService }) : null);
@@ -43,9 +44,17 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
         correlation_id: correlation_id ?? `CORR-REVIEW-${ticket.id}-${Date.now()}`, agent_id: coder_agent_id ?? "review-only-coder", reviewer_id: reviewClaim?.agent_id,
         payload: { ticket, commit, base_commit: reviewBase, changed_paths: paths, verification: evidence }
       });
+      const priorReview = await checkpoints?.loadReview?.(reviewTaskId);
+      await checkpoints?.completeReview?.(reviewTaskId, {
+        phase: "review", review_only: true, reviewer_id: result.reviewer_id, reviewer_name: reviewProfile.agent_name,
+        provider: reviewProfile.provider, review_attempt: (priorReview?.review_attempt ?? 0) + 1,
+        request_id: request_id ?? `REVIEW-${ticket.id}`, correlation_id: correlation_id ?? `CORR-REVIEW-${ticket.id}`,
+        changed_paths: paths, base_commit: reviewBase, commit, verdict: result.verdict, findings: result.findings, last_error: null
+      });
     } finally {
       if (reviewClaim) await agentOccupancy.release({ claimId: reviewClaim.claim_id, taskId: reviewTaskId, supervisorId: reviewOwnerId, reason: "review_only_completed" });
     }
+    ensureReviewStatusReady(ticketStatusStore, reviewTaskId);
     const outcomeType = result.verdict === "approved" ? "task.completed" : "task.needs_human_review";
     await publishTicketOutcome(outcomeType, { task_id: task_id ?? ticket.id, request_id: request_id ?? `REVIEW-${ticket.id}`, correlation_id: correlation_id ?? `CORR-REVIEW-${ticket.id}` }, `SUP-REVIEW-${ticket.id}`, { review_only: true, commit, verdict: result.verdict, findings: result.findings, reviewer_id: result.reviewer_id, evidence });
     return { task_id: task_id ?? ticket.id, commit, verdict: result.verdict, findings: result.findings, reviewer_id: result.reviewer_id, status: result.verdict === "approved" ? "approved" : "needs_human_review" };

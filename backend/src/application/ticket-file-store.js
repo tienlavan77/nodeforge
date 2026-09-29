@@ -26,7 +26,8 @@ export function createTicketFileStore({ database, fileService, clock = () => new
   function update({ ticket, context } = {}) {
     assertTicket(ticket);
     const existing = getMetadata(ticket.id);
-    if (!existing) throw new ConfigurationError(`Unknown ticket metadata: ${ticket.id}.`);
+    // Sprint-plan tickets exist in the roadmap before they have a separate metadata row.
+    if (!existing) return create({ ticket, context });
     const now = clock().toISOString();
     append(existing.ticket_file, { type: "ticket.updated", ticket, timestamp: now });
     const nextContext = context === undefined ? existing.context : String(context ?? "");
