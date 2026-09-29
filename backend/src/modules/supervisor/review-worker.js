@@ -55,13 +55,7 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
       forgeTools = undefined;
       projectLogger({ event_name: "review.tools_unavailable", level: "error", status: "failed", message: "Reviewer tools unavailable; using bounded review evidence.", task_id: job.task_id, correlation_id: job.correlation_id, source: "review-worker", error_code: error.code ?? "REVIEW_TOOLS_UNAVAILABLE", payload: { request_id: job.request_id, agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, reviewer_id: reviewer.agent_id } });
     }
-    const options = ["codex", "openai"].includes(reviewer.provider) ? { ...(forgeTools ? { forgeTools } : {}) } : {
-      // Reviewer Claude must use only the governed Forge MCP surface. Empty
-      // built-in tools alone is not enough when the SDK applies defaults.
-      tools: [],
-      disallowedTools: ["Read", "Glob", "Grep", "Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"],
-      ...(claudeTools ?? { allowedTools: [] })
-    };
+    const options = ["codex", "openai"].includes(reviewer.provider) ? { ...(forgeTools ? { forgeTools } : {}) } : { tools: [], ...(claudeTools ?? { allowedTools: [] }) };
     const toolInstruction = forgeTools ? `Forge review tools: ${forgeTools.definitions.map((item) => item.name).join(", ")}. Start with search_code for indexed symbols/content, then read_file for metadata and graph${["claude", "anthropic"].includes(reviewer.provider) ? ", and Read(file_path,start_line,end_line) for source windows of at most 80 lines" : "; use sed_lines(path,start_line,end_line) for source windows of at most 80 lines"}. All reads use Forge File Service and Code Cache. Never use built-in shell, file, write, network, or ticket tools.` : "Forge review tools are unavailable. Decide only from the supplied bounded evidence; request changes when evidence is insufficient.";
     const reviewProfile = reviewer;
     projectLogger({ event_name: "review.started", level: "info", status: "started", message: "Independent Reviewer started ticket review.", task_id: job.task_id, correlation_id: job.correlation_id, source: "review-worker", payload: { request_id: job.request_id, agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, reviewer_id: reviewer.agent_id, provider: reviewer.provider, changed_count: paths.length, tools: forgeTools?.definitions.map(({ name }) => name) ?? [] } });
