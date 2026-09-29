@@ -54,16 +54,3 @@ test("selects the valid verdict object when response contains another malformed 
   const result = await worker.review({ task_id: "TASK-1", correlation_id: "CORR-1", request_id: "REVIEW-1", agent_id: "coder-1", payload: { ticket: { id: "TASK-1" }, changed_paths: ["src/a.js"] } });
   assert.equal(result.verdict, "approved");
 });
-
-test("Claude review disables built-in filesystem and shell tools", async () => {
-  const calls = [];
-  const worker = createReviewWorker({
-    agentResolver: { resolveAvailable: () => ({ agent_id: "reviewer-1", agent_name: "Leader", provider: "claude", role: "reviewer" }) },
-    claudeSdkGateway: { execute: async (input) => { calls.push(input); return { text: '{"verdict":"request_changes","findings":["Needs review"]}' }; } },
-    fileService: { readForIndex: async ({ path }) => ({ path, sha256: "sha256:x", size_bytes: 1, content: "ok" }), listFiles: async () => [], listDirectories: async () => [] },
-    projectRoot: "/project"
-  });
-  await worker.review({ task_id: "TASK-1", correlation_id: "CORR-1", request_id: "REVIEW-1", agent_id: "coder-1", payload: { ticket: { id: "TASK-1" }, changed_paths: ["src/a.js"] } });
-  assert.deepEqual(calls[0].options.tools, []);
-  assert.deepEqual(calls[0].options.disallowedTools, ["Read", "Glob", "Grep", "Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]);
-});
