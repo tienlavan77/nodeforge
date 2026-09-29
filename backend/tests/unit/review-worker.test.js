@@ -48,3 +48,9 @@ test("accepts a JSON verdict wrapped in reviewer prose", async () => {
   const result = await worker.review({ task_id: "TASK-1", correlation_id: "CORR-1", request_id: "REVIEW-1", agent_id: "coder-1", payload: { ticket: { id: "TASK-1" }, changed_paths: ["src/a.js"] } });
   assert.equal(result.verdict, "approved");
 });
+
+test("selects the valid verdict object when response contains another malformed object", async () => {
+  const { worker } = harness({ text: "Tool note: {invalid}\nFinal: {\"verdict\":\"approved\",\"findings\":[]}" });
+  const result = await worker.review({ task_id: "TASK-1", correlation_id: "CORR-1", request_id: "REVIEW-1", agent_id: "coder-1", payload: { ticket: { id: "TASK-1" }, changed_paths: ["src/a.js"] } });
+  assert.equal(result.verdict, "approved");
+});
