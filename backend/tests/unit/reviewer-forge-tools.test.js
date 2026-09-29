@@ -40,6 +40,14 @@ test("Reviewer definitions expose only the fixed search scope and metadata read"
   assert.deepEqual(result.matches, []);
 });
 
+test("Claude Reviewer Read accepts the shared path spelling and rejects a missing path clearly", async () => {
+  const tools = createReviewerForgeTools({ fileService: files(), projectRoot: "/project", job, reviewer: { agent_id: "reviewer-1", provider: "claude" }, includeClaudeFileTools: true, codeCache: { read: async ({ path }) => ({ path, content: "one\ntwo", sha256: "sha256:x" }) } });
+  const read = tools.definitions.find(({ name }) => name === "Read");
+  assert.equal(read.input_schema.properties.path.type, "string");
+  assert.match((await tools.registry.Read.execute({ path: "src/a.js", start_line: 1, end_line: 1 })).content, /one/);
+  await assert.rejects(() => tools.registry.Read.execute({ start_line: 1, end_line: 1 }), (error) => error.code === "REVIEW_TOOL_INPUT");
+});
+
 test("review tools allow more than 12 calls while enforcing output byte budgets", async () => {
   const tools = createReviewerForgeTools({ fileService: files(), projectRoot: "/project", job, reviewer: { agent_id: "reviewer-1" } });
   for (let index = 0; index < 13; index += 1) await tools.registry.read_file.execute({ path: "src/a.js", offset: 1, limit: 1 });

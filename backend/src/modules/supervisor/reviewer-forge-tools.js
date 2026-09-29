@@ -17,6 +17,7 @@ const MAX_WINDOW_LINES = 80;
 const MAX_FILES = 80;
 const reviewerReadFileDefinition = { ...readFileDefinition, description: "Read metadata and graph for one approved file. Use sed_lines or Read to inspect source lines.", input_schema: { type: "object", additionalProperties: false, required: ["path"], properties: { path: { type: "string", minLength: 1 } } } };
 const reviewerSearchCodeDefinition = { ...searchCodeDefinition, description: "Search indexed code inside the fixed Reviewer scope selected by Node. Supply a query; the tool applies allowed prefixes automatically.", input_schema: { type: "object", additionalProperties: false, required: ["query"], properties: { query: { type: "string", minLength: 1, maxLength: 200 }, kind: { type: "string", enum: ["file", "symbol", "content"] }, limit: { type: "integer", minimum: 1, maximum: 20 }, projection: { type: "string", enum: ["minimal", "summary", "graph"] } } } };
+const reviewerReadDefinition = { ...claudeFileDefinitions.find(({ name }) => name === "Read"), description: "Read an approved file source window. Use file_path (or path), start_line, and end_line; maximum 80 lines. Never call Read without a concrete path and line range.", input_schema: { type: "object", additionalProperties: false, required: ["start_line", "end_line"], properties: { file_path: { type: "string", minLength: 1 }, path: { type: "string", minLength: 1 }, start_line: { type: "integer", minimum: 1 }, end_line: { type: "integer", minimum: 1 } } } };
 
 // Applies the Reviewer role policy and rejects symlink traversal for all review reads.
 export async function assertReviewerReadPath(projectRoot, path) {
@@ -46,10 +47,10 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
     read_file: createReadFileTool({ fileService: scopedFiles, codeCache, maxChars: MAX_RESULT_BYTES }),
     ...(codeSearch?.search ? { search_code: createSearchCodeTool({ codeSearch, codeCache, projectLogger }) } : {}),
     ...((codeCache && ["codex", "openai"].includes(reviewer.provider)) ? { sed_lines: createSedLinesTool({ projectRoot, fileService: scopedFiles, codeCache, logger: { emit: projectLogger } }) } : {}),
-    ...(includeClaudeFileTools && codeCache ? Object.fromEntries(Object.entries(createClaudeFileTools({ fileService: scopedFiles, projectRoot, codeCache })).map(([name, tool]) => [name, tool])) : {})
+    ...(includeClaudeFileTools && codeCache ? Object.fromEntries(Object.entries(createClaudeFileTools({ fileService: scopedFiles, projectRoot, codeCache })).map(([name, tool]) => [name, name === "Read" ? { execute: (input, context) => tool.execute(normalizeReviewerReadInput(input), context) } : tool])) : {})
   };
   if (typeof fileService.listFiles === "function" && typeof fileService.listDirectories === "function") implementations.search_tree = createOwnerSearchTreeTool({ fileService: scopedFiles });
-  const definitions = [reviewerReadFileDefinition, ...(implementations.search_code ? [reviewerSearchCodeDefinition] : []), ...(implementations.sed_lines ? [sedLinesDefinition] : []), ...(includeClaudeFileTools && codeCache ? claudeFileDefinitions : []), ...(implementations.search_tree ? [ownerSearchTreeDefinition] : [])];
+  const definitions = [reviewerReadFileDefinition, ...(implementations.search_code ? [reviewerSearchCodeDefinition] : []), ...(implementations.sed_lines ? [sedLinesDefinition] : []), ...(includeClaudeFileTools && codeCache ? claudeFileDefinitions.map((definition) => definition.name === "Read" ? reviewerReadDefinition : definition) : []), ...(implementations.search_tree ? [ownerSearchTreeDefinition] : [])];
   const context = { ...toolContext, capabilities: definitions.map(({ name }) => name) };
   let outputBytes = 0;
   const registry = Object.fromEntries(definitions.map(({ name }) => [name, { execute: async (input) => {
@@ -105,6 +106,13 @@ function boundedTreeInput(input) {
 function boundedSearchInput(input, context) {
   if (!input || typeof input.query !== "string" || !input.query.trim()) throw toolError("REVIEW_TOOL_INPUT", "Reviewer search_code requires a query.");
   return { ...input, query: input.query.trim(), kind: input.kind ?? "content", limit: Math.min(input.limit ?? 10, 20), allowed_prefixes: context.allowed_prefixes, projection: input.projection ?? "summary" };
+}
+
+// Accepts Claude's file_path and the shared Forge path spelling without widening review scope.
+function normalizeReviewerReadInput(input) {
+  const path = input?.file_path ?? input?.path;
+  if (typeof path !== "string" || !path.trim()) throw toolError("REVIEW_TOOL_INPUT", "Reviewer Read requires file_path (or path).");
+  return { ...input, file_path: path };
 }
 
 // Marks Reviewer policy failures with stable codes for SDK adapters.
