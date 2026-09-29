@@ -1,6 +1,7 @@
 // Runs Claude, Codex, OpenAI, and Ollama SDK flows for governed ticket work.
 import { ConfigurationError } from "../../shared/errors.js";
 import { createForgeSdkMcpServer, forgeSdkToolNames } from "../../tools/claude-sdk-forge-tools.js";
+import { createClaudeForgeOptions } from "../../tools/claude-forge-options.js";
 import { classifyTicketComplexity } from "../../tools/ticket-complexity.js";
 import { selectCodeGraphCandidatesDefinition, searchCodeDefinition, readFileDefinition, rgFilesDefinition, rgSearchDefinition, sedLinesDefinition, writeDiffDefinition, editDiffDefinition, runTestDefinition, checkTestDefinition, commitChangesDefinition, reportDoneDefinition, gitStatusDefinition, gitDiffDefinition } from "../../tools/index.js";
 import { saveProgressCheckpoint } from "./ticket-checkpoint-writer.js";
@@ -51,7 +52,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
     try {
       result = await claudeSdkGateway.execute({
         agentId: selected.agent_id, correlationId: request.correlation_id, cwd: projectRoot,
-        options: { tools: [], mcpServers, allowedTools: forgeSdkToolNames.filter((name) => !((directCode && name === "mcp__forge__select_code_graph_candidates") || (selected.role !== "coder" && ["mcp__forge__Read", "mcp__forge__Glob", "mcp__forge__Grep"].includes(name)))), effort: complexity.effort, thinking: complexity.thinking },
+        options: createClaudeForgeOptions({ mcpServers, allowedTools: forgeSdkToolNames.filter((name) => !((directCode && name === "mcp__forge__select_code_graph_candidates") || (selected.role !== "coder" && ["mcp__forge__Read", "mcp__forge__Glob", "mcp__forge__Grep"].includes(name)))) }, { effort: complexity.effort, thinking: complexity.thinking }),
         resumeSessionId: resumeState.sessionId,
         onSessionReady: (sessionId) => { if (typeof sessionId === "string" && sessionId) resumeState.sessionId = sessionId; saveProgressCheckpoint(checkpoints, resumeState, { task_id: request.task_id }); },
         prompt: buildResumePrompt(labMode ? buildToolTestPrompt(request.task_id, targetPath, allowedPrefixes) : buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, complexity, directCode), resumeState, { agentId: selected.agent_id, provider: selected.provider, changedPaths: toolContext.changed_paths })
