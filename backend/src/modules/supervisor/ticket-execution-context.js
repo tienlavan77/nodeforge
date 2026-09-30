@@ -108,6 +108,7 @@ export function createTicketExecutionContextStore({ fileService, projectId, proj
 export async function prepareTicketExecutionContext({ workspace, taskId, supervisorId, ticket }) {
   if (!workspace?.executionContexts) return null;
   const existing = await workspace.executionContexts.load(taskId);
+  if (existing?.state === "terminal") throw fail("TICKET_CONTEXT_TERMINAL", "Terminal ticket context cannot dispatch another Coder.");
   const manifest = await workspace.changeLedger.snapshot();
   const baseline = taskId === "NF-PIPE-ERR-005-A5-R2" ? await verifyTicketBaseline({ workspace, taskId, supervisorId, ticket, existing }) : null;
   if (!existing && (manifest.revision > 0 || Object.keys(manifest.commits).length)) throw fail("TICKET_CONTEXT_MIGRATION_REQUIRED", "Existing ticket changes require explicit context migration before dispatch.");
