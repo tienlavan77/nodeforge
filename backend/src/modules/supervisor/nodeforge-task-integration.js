@@ -82,7 +82,7 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
       ? agentResolver.list?.("coder")?.find((profile) => profile.agent_id === reviewResume.agent_id && profile.provider === reviewResume.provider && profile.enabled)
       : payload.direct_code === true ? selectDirectCoder(agentResolver, payload.resume_from) : agentResolver.resolveAvailable(required_role ?? ticket.required_role);
     const ownerId = supervisorManager.getByTask?.(taskId)?.supervisorId ?? `SUP-${taskId}`;
-    const executionContext = await prepareTicketExecutionContext({ workspace, taskId, supervisorId: ownerId });
+    const executionContext = await prepareTicketExecutionContext({ workspace, taskId, supervisorId: ownerId, ticket });
     let claim = null;
     if (agentOccupancy && (required_role ?? ticket.required_role) === "coder") {
       const existing = agentOccupancy.getByTask(taskId);

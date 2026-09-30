@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { acquireTicketFileLock } from "./ticket-file-lock.js";
+import { verifyTicketBaseline } from "./ticket-baseline-guard.js";
 
 const ROOT = ".forge/runtime/ticket-execution-contexts";
 const STATES = new Set(["created", "coding", "committed", "verified", "reviewing", "integrating", "terminal"]);
@@ -26,17 +27,17 @@ export function createTicketExecutionContextStore({ fileService, projectId, proj
   }
 
   // Creates the context once before dispatch, rejecting a changed owner or baseline.
-  async function create({ taskId, supervisorId, baseSha }) {
+  async function create({ taskId, supervisorId, baseSha, baseline = null }) {
     if (!supervisorId || !/^[a-f0-9]{40,64}$/i.test(baseSha ?? "")) throw fail("TICKET_CONTEXT_INPUT", "Context requires Supervisor ownership and a Git baseline SHA.");
     return locked(taskId, async () => {
       const existing = await load(taskId);
       if (existing) {
-        if (existing.supervisor_id !== supervisorId || existing.base_sha !== baseSha || existing.project_id !== projectId) throw fail("TICKET_CONTEXT_CONFLICT", "Ticket context owner or baseline changed.");
+        if (existing.supervisor_id !== supervisorId || existing.base_sha !== baseSha || existing.project_id !== projectId || JSON.stringify(existing.approved_baseline ?? null) !== JSON.stringify(baseline)) throw fail("TICKET_CONTEXT_CONFLICT", "Ticket context owner or baseline changed.");
         return existing;
       }
       const now = new Date().toISOString();
       const identity = manifestIdentity({ revision: 0, entries: {} });
-      const record = { task_id: taskId, project_id: projectId, supervisor_id: supervisorId, base_sha: baseSha, execution_root: "project-root", source_revision: identity.source_revision, manifest_paths: [], manifest_sha: identity.manifest_sha, verification_artifact_id: null, review_commit_sha: null, state: "created", version: 1, created_at: now, updated_at: now };
+      const record = { task_id: taskId, project_id: projectId, supervisor_id: supervisorId, base_sha: baseSha, execution_root: "project-root", ...(baseline ? { approved_baseline: baseline } : {}), source_revision: identity.source_revision, manifest_paths: [], manifest_sha: identity.manifest_sha, verification_artifact_id: null, review_commit_sha: null, state: "created", version: 1, created_at: now, updated_at: now };
       await fileService.atomicWrite({ path: pathFor(taskId), content: `${JSON.stringify(record)}\n`, replace: false });
       log("created", record);
       return record;
@@ -65,6 +66,7 @@ export function createTicketExecutionContextStore({ fileService, projectId, proj
     return locked(taskId, async () => {
       const current = await load(taskId);
       if (!current) throw fail("TICKET_CONTEXT_MISSING", "Ticket context does not exist.");
+      if (current.approved_baseline && Object.keys(manifest.entries).some((path) => !(path in current.approved_baseline.file_checksums))) throw fail("TICKET_BASELINE_SCOPE", "Ticket ledger includes a path outside the approved baseline manifest.");
       if (current.source_revision === identity.source_revision && current.manifest_sha === identity.manifest_sha) return current;
       if (["integrating", "terminal"].includes(current.state)) throw fail("TICKET_CONTEXT_FROZEN", "Ticket manifest is frozen.");
       const next = { ...current, ...identity, state: "coding", verification_artifact_id: null, review_commit_sha: null, version: current.version + 1, updated_at: new Date().toISOString() };
@@ -96,11 +98,12 @@ export function createTicketExecutionContextStore({ fileService, projectId, proj
 }
 
 // Creates a context before Coder dispatch while refusing silent migration of old ticket changes.
-export async function prepareTicketExecutionContext({ workspace, taskId, supervisorId }) {
+export async function prepareTicketExecutionContext({ workspace, taskId, supervisorId, ticket }) {
   if (!workspace?.executionContexts) return null;
   const existing = await workspace.executionContexts.load(taskId);
   const manifest = await workspace.changeLedger.snapshot();
+  const baseline = taskId === "NF-PIPE-ERR-005-A5-R2" ? await verifyTicketBaseline({ workspace, taskId, supervisorId, ticket, existing }) : null;
   if (!existing && (manifest.revision > 0 || Object.keys(manifest.commits).length)) throw fail("TICKET_CONTEXT_MIGRATION_REQUIRED", "Existing ticket changes require explicit context migration before dispatch.");
-  await workspace.executionContexts.create({ taskId, supervisorId, baseSha: workspace.base_commit });
+  await workspace.executionContexts.create({ taskId, supervisorId, baseSha: workspace.base_commit, baseline });
   return workspace.executionContexts.syncManifest(taskId, manifest);
 }
