@@ -1,4 +1,5 @@
 // Provides Reviewer-only cached code discovery with path, budget, and audit governance.
+import { createHash } from "node:crypto";
 import { lstat } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { ConfigurationError } from "../../shared/errors.js";
@@ -60,7 +61,7 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
       const toolInput = name === "search_tree" ? boundedTreeInput(input) : name === "search_code" ? boundedSearchInput(input, context) : input;
       // The shared read_file discovery state is Coder-oriented; each Reviewer read is independent.
       const result = await implementations[name].execute(toolInput, { ...context });
-      const verifiedResult = bindReviewEvidence(name, toolInput, result, ticketEvidence);
+      const verifiedResult = await bindReviewEvidence(name, toolInput, result, ticketEvidence, fileService, projectRoot);
       const bytes = Buffer.byteLength(JSON.stringify(verifiedResult), "utf8");
       if (bytes > MAX_RESULT_BYTES || outputBytes + bytes > MAX_OUTPUT_BYTES) throw toolError("REVIEW_TOOL_BUDGET", "Reviewer read output budget exceeded.");
       outputBytes += bytes;
@@ -98,21 +99,36 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
   }
 }
 
-// Binds a source window to the committed verification artifact or rejects stale content.
-function bindReviewEvidence(name, input, result, ticketEvidence) {
-  if (!ticketEvidence || !["sed_lines", "Read"].includes(name)) return result;
+// Binds a canonical source window to the verified artifact after checking live source integrity.
+async function bindReviewEvidence(name, input, result, ticketEvidence, fileService, projectRoot) {
+  if (!ticketEvidence || !["sed_lines", "Read", "read_file"].includes(name)) return result;
   const path = name === "Read" ? result.file_path : input.path;
   const file = ticketEvidence.files.find((item) => item.path === path);
   if (!file || file.deleted) return result;
-  const { start_line: start, end_line: end } = input;
-  const lines = file.content.split("\n");
+  await assertReviewerReadPath(projectRoot, path);
+  let live;
+  try { live = await fileService.readForIndex({ path, maxBytes: MAX_FILE_BYTES }); }
+  catch (error) { throw Object.assign(toolError("REVIEW_SOURCE_MISMATCH", `Reviewer source could not be verified: ${path}.`), { cause: error }); }
+  const liveSha = typeof live?.content === "string" ? `sha256:${createHash("sha256").update(live.content, "utf8").digest("hex")}` : null;
+  if (liveSha !== file.sha256 || ticketEvidence.artifact.file_checksums[path] !== file.sha256) throw toolError("REVIEW_SOURCE_MISMATCH", `Reviewer source differs from verified commit: ${path}.`);
+  let source = {};
+  if (name === "read_file" && typeof result.content === "string") {
+    const start = result.offset;
+    const end = start + result.limit - 1;
+    source = { content: canonicalReviewWindow(file.content, start, end, false, input.offset === undefined ? 250 : MAX_WINDOW_LINES, false) };
+  } else if (name === "Read" || name === "sed_lines") {
+    const content = canonicalReviewWindow(file.content, input.start_line, input.end_line, name === "Read");
+    source = name === "Read" ? { content } : { stdout: content };
+  }
+  return { ...result, ...source, sha256: file.sha256, ...(name === "read_file" ? { content_sha256: file.sha256, size_bytes: Buffer.byteLength(file.content), total_lines: file.content.split("\n").length } : {}), review_evidence: { artifact_id: ticketEvidence.artifact.artifact_id, commit_sha: ticketEvidence.context.review_commit_sha, manifest_sha: ticketEvidence.context.manifest_sha, sha256: file.sha256 } };
+}
+
+// Formats committed source with the exact line boundaries used by Reviewer tools.
+function canonicalReviewWindow(content, start, end, numbered, maxLines = MAX_WINDOW_LINES, trailingNewline = true) {
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start || end - start + 1 > maxLines) throw toolError("REVIEW_TOOL_INPUT", "Reviewer source window exceeds its line limit.");
+  const lines = content.split("\n");
   const selected = lines.slice(start - 1, end);
-  const expected = name === "Read"
-    ? selected.map((line, index) => `${String(start + index).padStart(6)}→${line}`).join("\n")
-    : selected.join("\n") + (start <= lines.length ? "\n" : "");
-  const actual = name === "Read" ? result.content : result.stdout;
-  if (result.sha256 !== file.sha256 || actual !== expected) throw toolError("REVIEW_SOURCE_MISMATCH", `Reviewer source differs from verified commit: ${path}.`);
-  return { ...result, review_evidence: { artifact_id: ticketEvidence.artifact.artifact_id, commit_sha: ticketEvidence.context.review_commit_sha, manifest_sha: ticketEvidence.context.manifest_sha, sha256: file.sha256 } };
+  return numbered ? selected.map((line, index) => `${String(start + index).padStart(6)}→${line}`).join("\n") : selected.join("\n") + (trailingNewline && start <= lines.length ? "\n" : "");
 }
 
 // Bounds existing read_file windows while allowing live symbol resolution.
