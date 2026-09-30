@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { ensureRuntimeDir } from "../sqlite/index-database.js";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
-const SNAPSHOT_DIRECTORIES = ["schemas", "rules"];
+const SNAPSHOT_DIRECTORIES = ["schemas", "rules", "workflows"];
 
 // Initializes .forge structure by ensuring runtime dir, seeding schema/rule snapshots and creating roadmap dir.
 export async function ensureForgeLayout(projectRoot, { sourceRoot = repositoryRoot } = {}) {
