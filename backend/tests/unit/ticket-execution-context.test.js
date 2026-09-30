@@ -68,6 +68,8 @@ test("context preparation rejects pre-context changes and preserves the root ide
     assert.equal(prepared.execution_root, "project-root");
     assert.equal(prepared.base_sha, baseSha);
     assert.notEqual(prepared.execution_root, fresh.path);
+    await store.update("TICKET-FRESH", prepared.version, { state: "terminal" });
+    await assert.rejects(prepareTicketExecutionContext({ workspace: fresh, taskId: "TICKET-FRESH", supervisorId: "SUP-FRESH" }), { code: "TICKET_CONTEXT_TERMINAL" });
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
