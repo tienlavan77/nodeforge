@@ -27,7 +27,7 @@ export function normalizeErrorContract({ error, statusCode, requestId, fallbackM
   const retryable = typeof explicit === "boolean" ? explicit : RETRYABLE_CODES.has(code) || RETRYABLE_STATUSES.has(status);
   const rawScope = token(error?.scope);
   const scope = ["field", "scoped", "global"].includes(rawScope) ? rawScope : SCOPE_BY_CODE[code] ?? (retryable ? "scoped" : "global");
-  const id = String(requestId ?? error?.requestId ?? "").trim() || null;
+  const id = String((typeof requestId === "string" && requestId.trim() ? requestId : error?.requestId) ?? "").trim() || null;
   return { code, message, retryable, scope, requestId: id };
 }
 
