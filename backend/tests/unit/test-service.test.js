@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createTestService } from "../../src/application/test-service.js";
 
+// Immutable archive baseline classification: stale contracts (Supervisor dispatch, Watcher scope, Sprint Leader candidates), missing tracked fixtures (Forge layout snapshots, glossary miner), and runtime defects (project preferences, protocol storage export). Each category is covered by its focused unit test in the Node-owned verification plan.
+
 test("TestService runs checks through the orchestrator and publishes result", async () => {
   const calls = []; const events = [];
   const service = createTestService({ projectRoot: "/tmp/project", verificationOrchestrator: { run: async (plan) => { calls.push(plan); return { status: "passed" }; } }, publisher: { publish: (event) => events.push(event) } });
