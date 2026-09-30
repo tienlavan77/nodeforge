@@ -11,7 +11,7 @@ export function createRunTestTool({ testService } = {}) {
   if (typeof testService?.startTests !== "function") throw new ConfigurationError("run_test requires Test Service startTests.");
   return Object.freeze({ name: "run_test", async execute(input = {}, context = {}) {
     if (Object.keys(input).length) throw error("INPUT_INVALID", "run_test accepts no arguments.");
-    const started = testService.startTests({ commitId: context.commit_id ?? `WORKTREE-${context.task_id ?? Date.now()}`, taskId: context.task_id, sessionId: context.session_id, command: verificationCommand(context) });
+    const started = await testService.startTests({ commitId: context.commit_id ?? `WORKTREE-${context.task_id ?? Date.now()}`, taskId: context.task_id, sessionId: context.session_id, command: verificationCommand(context) });
     return { ...started, message: "Test job started. Poll check_test with this job_id until status is passed or failed." };
   }});
 }
@@ -36,7 +36,7 @@ export function createCheckTestTool({ testService } = {}) {
 }
 
 // Commits only paths changed during the current agent execution.
-export function createCommitChangesTool({ gitService, logger = createRuntimeLogger({ logEvent }) } = {}) {
+export function createCommitChangesTool({ gitService, changeLedger, logger = createRuntimeLogger({ logEvent }) } = {}) {
   if (typeof gitService?.commit !== "function") throw new ConfigurationError("commit_changes requires Git Service.");
   return Object.freeze({ name: "commit_changes", async execute(input = {}, context = {}) {
     const started = Date.now();
@@ -44,7 +44,8 @@ export function createCommitChangesTool({ gitService, logger = createRuntimeLogg
     try {
       authorizeTool("commit_changes", context);
       if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => key !== "message") || typeof input.message !== "string" || !input.message.trim() || input.message.length > 200 || input.message.includes("\0")) throw error("INPUT_INVALID", "commit_changes requires a message of 1–200 characters and no other arguments.");
-      paths = resolveCommitPaths(context);
+      paths = changeLedger ? Object.keys((await changeLedger.snapshot()).entries) : resolveCommitPaths(context);
+      if (paths.some((path) => !isAgentPathAllowed(path, context))) throw error("SCOPE_INVALID", "Ticket ledger contains a path outside the approved scope.");
       if (!paths.length) throw error("SCOPE_INVALID", "No changed files to commit; write_diff/edit_diff must run first.");
     } catch (cause) {
       emit("rejected", context, { error_code: cause.code ?? "COMMIT_INPUT_INVALID", error: cause.message, duration_ms: Date.now() - started });

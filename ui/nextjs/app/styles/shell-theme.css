@@ -1,0 +1,223 @@
+/* shell-theme: preserve the NodeForge UI styles for this domain. */
+:root[data-theme='light'] .app-shell-control-room .theme-toggle,
+:root[data-theme='light'] .agent-profile-shell .theme-toggle,
+:root[data-theme='light'] .app-shell button:not(.tab-button):not(.icon-button):not(.panel-menu),
+:root[data-theme='light'] .agent-profile-shell button:not(.agent-profile-list-item) {
+  border-color: var(--app-button-border);
+  background: var(--app-button-bg);
+  color: var(--app-button-text);
+}
+
+:root[data-theme='light'] .app-shell-control-room .panel,
+:root[data-theme='light'] .agent-profile-shell .panel {
+  background: var(--app-panel);
+}
+
+:root[data-theme='light'] .app-shell-control-room .workspace,
+:root[data-theme='light'] .agent-profile-shell .workspace {
+  background: var(--app-border);
+}
+
+.app-shell-control-room .theme-toggle {
+  border-color: rgba(143, 131, 250, 0.62);
+  background: linear-gradient(135deg, rgba(143, 131, 250, 0.2), rgba(111, 179, 197, 0.14));
+  color: #e0dcff;
+}
+
+.app-shell-control-room .theme-toggle:hover {
+  background: linear-gradient(135deg, rgba(143, 131, 250, 0.28), rgba(111, 179, 197, 0.18));
+}
+
+.app-shell-control-room .history-button:hover,
+.app-shell-control-room .icon-button:hover {
+  background: rgba(31, 36, 46, 0.96);
+}
+
+.app-shell-control-room .icon-button {
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(70, 77, 92, 0.9);
+  background: rgba(22, 26, 34, 0.9);
+  color: #d0d4dd;
+}
+
+.app-shell-control-room .ops-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  padding: 0 24px 16px;
+}
+
+.app-shell-control-room .ops-strip div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(55, 62, 75, 0.9);
+  border-radius: 12px;
+  background: rgba(22, 25, 33, 0.88);
+}
+
+.app-shell-control-room .ops-strip span {
+  color: #8a92a0;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.app-shell-control-room .ops-strip strong {
+  color: #e8ebf1;
+  font-size: 15px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell-control-room .workspace {
+  grid-template-columns: minmax(0, 1.35fr) minmax(340px, 0.95fr);
+  gap: 14px;
+  padding: 0 16px 16px;
+  background: transparent;
+}
+
+.app-shell-control-room .chat-area,
+.app-shell-control-room .info-panel {
+  border: 1px solid rgba(53, 59, 72, 0.9);
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgba(16, 19, 26, 0.92);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.18);
+}
+
+.app-shell-control-room .tab-bar {
+  gap: 8px;
+  padding: 10px;
+  background: rgba(18, 22, 29, 0.96);
+}
+
+.app-shell-control-room .tab-button {
+  flex: 1 1 0;
+  border: 1px solid rgba(52, 58, 71, 0.9);
+  border-radius: 12px;
+  background: rgba(25, 29, 37, 0.95);
+}
+
+.app-shell-control-room .tab-button.is-active {
+  border-bottom-width: 1px;
+  border-color: rgba(143, 131, 250, 0.55);
+  background: rgba(33, 37, 48, 0.98);
+}
+
+.app-shell-control-room .active-chat-panel,
+.app-shell-control-room .info-panel,
+.app-shell-control-room .architecture-artifacts,
+.app-shell-control-room .dashboard-content {
+  min-height: 0;
+}
+
+.app-shell-control-room .panel {
+  background: transparent;
+}
+
+.app-shell-control-room .conversation {
+  padding: 18px;
+}
+
+.app-shell-control-room .message-bubble {
+  border-radius: 14px;
+  background: rgba(24, 28, 36, 0.96);
+}
+
+.app-shell-control-room .owner .message-bubble {
+  background: rgba(35, 33, 56, 0.98);
+}
+
+.app-shell-control-room .composer {
+  background: rgba(14, 16, 22, 0.98);
+  border-top-color: rgba(41, 47, 59, 0.95);
+}
+
+.app-shell-control-room .info-artifacts {
+  padding: 16px;
+}
+
+.app-shell-control-room .dashboard-content {
+  padding: 0;
+}
+
+.app-shell-control-room .dashboard-state,
+.app-shell-control-room .dashboard-overview,
+.app-shell-control-room .dashboard-section,
+.app-shell-control-room .sprint-plan-dashboard,
+.app-shell-control-room .architecture-artifacts {
+  color: #d7dbe3;
+}
+
+.app-shell-control-room .sprint-plan-dashboard {
+  padding: 0;
+  border-bottom: 0;
+}
+
+.app-shell-control-room .sprint-plan-dashboard h2,
+.app-shell-control-room .workspace-section h3,
+.app-shell-control-room .dashboard-section h3 {
+  color: #d9d5ff;
+}
+
+.app-shell-control-room .sprint-item,
+.app-shell-control-room .dashboard-ticket,
+.app-shell-control-room .workspace-card,
+.app-shell-control-room .decision-actions {
+  border-radius: 12px;
+}
+
+.app-shell-control-room .sprint-item {
+  padding: 12px;
+  border: 1px solid rgba(49, 55, 67, 0.95);
+  background: rgba(21, 24, 31, 0.96);
+}
+
+.app-shell-control-room .dashboard-ticket {
+  border: 1px solid rgba(49, 55, 67, 0.95);
+  background: rgba(18, 21, 28, 0.96);
+}
+
+.app-shell-control-room .workspace-card {
+  border-color: rgba(49, 55, 67, 0.95);
+  background: rgba(18, 21, 28, 0.96);
+}
+
+.app-shell-control-room .decision-actions {
+  border-color: rgba(79, 71, 126, 0.8);
+  background: rgba(31, 28, 46, 0.94);
+}
+
+.app-shell-control-room .history-overlay,
+.app-shell-control-room .settings-overlay,
+.app-shell-control-room .sprint-modal-backdrop {
+  backdrop-filter: blur(10px);
+}
+
+.app-shell-control-room .history-modal,
+.app-shell-control-room .settings-modal,
+.app-shell-control-room .sprint-modal {
+  border-radius: 16px;
+}
+
+.app-shell-control-room .statusbar {
+  background: rgba(13, 16, 21, 0.96);
+}
+
+@media (max-width: 1100px) {
+  .app-shell-control-room .workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-shell-control-room .ops-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+

@@ -46,7 +46,8 @@ const commitChangesInput = {
 };
 
 const reportDoneInput = {
-  summary: z.string().trim().min(1).max(4000)
+  summary: z.string().trim().min(1).max(4000),
+  finding_resolutions: z.array(z.object({ finding_id: z.string().regex(/^REV-[1-9][0-9]*$/), status: z.enum(["fixed", "not_fixed", "not_applicable"]), changed_paths: z.array(z.string().min(1)).max(12) })).max(30).optional()
 };
 
 // Input defaults live here rather than in zod .default(): the Claude Agent SDK

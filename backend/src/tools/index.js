@@ -13,6 +13,7 @@ import { createAgentCommandTools } from "./agent-command-tools.js";
 import { createClaudeFileTools } from "./claude-file-tools.js";
 import { createRoleFileService } from "../infrastructure/filesystem/file-service-role-policy.js";
 import { resultCount } from "./tool-result-count.js";
+import { pathHint, formatToolLogEvent } from "./tool-log-event.js";
 export { rgFilesDefinition, rgSearchDefinition, sedLinesDefinition } from "./agent-command-tools.js";
 
 const require = createRequire(import.meta.url);
@@ -50,7 +51,7 @@ export const reportDoneDefinition = Object.freeze({ name: "report_done", descrip
 export const gitStatusDefinition = Object.freeze({ name: "git_status", description: "Read project Git status in porcelain format through Node Git Service.", input_schema: gitStatusInputSchema });
 export const gitDiffDefinition = Object.freeze({ name: "git_diff", description: "Read the unstaged working-tree patch through Node Git Service.", input_schema: gitDiffInputSchema });
 
-export function createForgeToolRegistry({ protocolStorage, fileService, projectRoot, maxChars, codeSearch, codeCache, relevantTreeSelector, freshnessChecker, enableReadCode = false, testService, gitService, reportService, onEvalCase, governance, projectLogger = () => {} } = {}) {
+export function createForgeToolRegistry({ protocolStorage, fileService, projectRoot, maxChars, codeSearch, codeCache, relevantTreeSelector, freshnessChecker, enableReadCode = false, testService, gitService, changeLedger, executionContexts, reviewFindings, reportService, onEvalCase, governance, projectLogger = () => {} } = {}) {
   const transcriptTool = createReadTranscriptBlocksTool({ protocolStorage, fileService, maxChars });
   const graphTool = createSelectCodeGraphCandidatesTool({ relevantTreeSelector, freshnessChecker });
   const retrievalBudgets = new Map();
@@ -63,18 +64,18 @@ export function createForgeToolRegistry({ protocolStorage, fileService, projectR
   }
   if (fileService?.readForIndex && fileService?.readFile && fileService?.atomicWrite) lifecycle.read_file = wrap(createReadFileTool({ fileService, codeCache, symbolLookup: codeSearch?.symbolsForFile?.bind(codeSearch), maxChars }), "read_file");
   if (fileService?.readFile && fileService?.atomicWrite) {
-    lifecycle.write_diff = wrap(createWriteDiffTool({ fileService, codeCache, maxChars }), "write_diff");
-    lifecycle.edit_diff = wrap(createEditDiffTool({ fileService, codeCache, maxChars }), "edit_diff");
+    lifecycle.write_diff = wrap(createWriteDiffTool({ fileService, codeCache, changeLedger, maxChars }), "write_diff");
+    lifecycle.edit_diff = wrap(createEditDiffTool({ fileService, codeCache, changeLedger, maxChars }), "edit_diff");
   }
   if (testService?.startTests) lifecycle.run_test = wrap(createRunTestTool({ testService }), "run_test");
   if (testService?.getTestResult) lifecycle.check_test = wrap(createCheckTestTool({ testService }), "check_test");
-  if (gitService?.commit) lifecycle.commit_changes = wrap(createCommitChangesTool({ gitService, logger: { emit: projectLogger } }), "commit_changes", false);
+  if (gitService?.commit) lifecycle.commit_changes = wrap(createCommitChangesTool({ gitService, changeLedger, logger: { emit: projectLogger } }), "commit_changes", false);
   if (gitService?.status && gitService?.diffWorkingTree) {
     const gitReadTools = createGitReadTools({ gitService, logger: { emit: projectLogger } });
     lifecycle.git_status = wrap(gitReadTools.git_status, "git_status", false);
     lifecycle.git_diff = wrap(gitReadTools.git_diff, "git_diff", false);
   }
-  if (reportService?.buildFinalReport) lifecycle.report_done = wrap(createReportDoneTool({ reportService, onEvalCase }), "report_done");
+  if (reportService?.buildFinalReport) lifecycle.report_done = wrap(createReportDoneTool({ reportService, verificationService: testService?.assertPassedArtifact ? testService : null, reviewFindings, onEvalCase }), "report_done");
   function wrap(tool, name, preauthorize = true) { return Object.freeze({ ...tool, async execute(input, context = {}) { const scoped = withDefaultBudget(context); if (preauthorize) authorizeTool(name, scoped); return dispatch(name, tool, input, scoped); } }); }
   const registry = {
     read_transcript_blocks: Object.freeze({ ...transcriptTool, async execute(input, context = {}) { const scoped = withDefaultBudget(context); authorizeTool("read_transcript_blocks", scoped); return dispatch("read_transcript_blocks", transcriptTool, input, scoped); } }),
@@ -100,15 +101,25 @@ export function createForgeToolRegistry({ protocolStorage, fileService, projectR
     const started = Date.now();
     logToolEvent("started", name, input, context);
     const execute = async () => governance?.dispatch ? governance.dispatch(name, input, context, (toolInput, toolContext) => tool.execute(toolInput, toolContext)) : tool.execute(input, context);
-    return execute().then((result) => {
-      logToolEvent("success", name, input, context, { duration_ms: Date.now() - started, result });
-      terminalToolLine(name, input, context, { duration_ms: Date.now() - started, result });
-      return result;
-    }, (error) => {
-      logToolEvent("failed", name, input, context, { duration_ms: Date.now() - started, error });
-      terminalToolLine(name, input, context, { duration_ms: Date.now() - started, error });
-      throw error;
-    });
+    return (async () => {
+      try {
+        const result = await execute();
+        if (executionContexts && changeLedger && ["write_diff", "edit_diff", "commit_changes"].includes(name)) {
+          const taskId = context.task_id ?? context.taskId;
+          const manifest = await changeLedger.snapshot();
+          let current = await executionContexts.syncManifest(taskId, manifest);
+          if (name === "commit_changes" && (current.state !== "verified" || current.review_commit_sha !== result.sha)) current = await executionContexts.update(taskId, current.version, { state: "committed", review_commit_sha: result.sha, verification_artifact_id: null });
+          context.execution_context = current;
+        }
+        logToolEvent("success", name, input, context, { duration_ms: Date.now() - started, result });
+        terminalToolLine(name, input, context, { duration_ms: Date.now() - started, result });
+        return result;
+      } catch (error) {
+        logToolEvent("failed", name, input, context, { duration_ms: Date.now() - started, error });
+        terminalToolLine(name, input, context, { duration_ms: Date.now() - started, error });
+        throw error;
+      }
+    })();
   }
 
   // One concise terminal line per finished tool call so an operator can watch
@@ -186,67 +197,4 @@ function toolResultHint(name, result) {
   if (name === "report_done") return result.status ?? "completed";
   if (typeof result === "object") return Object.keys(result).slice(0, 3).join(",");
   return String(result).slice(0, 60);
-}
-
-function selectedPaths(items) {
-  if (!Array.isArray(items) || !items.length) return [];
-  return items.map((item) => item?.path).filter(Boolean);
-}
-
-function pathHint(items) {
-  const paths = selectedPaths(items);
-  if (!paths.length) return "0-results";
-  return paths.slice(0, 4).join(",").slice(0, 100);
-}
-
-// Discovery detail is shared by the terminal line and project.log so an
-// operator can audit what each search query/context actually returned.
-function discoveryDetail(name, input = {}, result) {
-  if (!result || typeof result !== "object") return null;
-  if (name === "select_code_graph_candidates") {
-    return { query: input.query ?? "", context: input.context ?? "", result_paths: selectedPaths(result.selected) };
-  }
-  if (name === "search_code") {
-    return { query: input.query ?? "", kind: input.kind ?? "", result_paths: selectedPaths(result.matches) };
-  }
-  return null;
-}
-
-function formatToolLogEvent(status, tool, input, context, extra) {
-  const taskId = context.task_id ?? context.taskId ?? `TOOL-${tool}`;
-  const executionId = context.execution_id ?? context.executionId;
-  const payload = {
-    tool,
-    ...(executionId ? { execution_id: executionId } : {}),
-    ...(context.agent_identity?.agent_id ? { agent_id: context.agent_identity.agent_id } : {}),
-    ...(context.session_id ? { session_id: context.session_id } : {}),
-    ...(extra.duration_ms !== undefined ? { duration_ms: extra.duration_ms } : {})
-  };
-  if (status === "failed") {
-    payload.error_code = extra.error?.code ?? "TOOL_EXECUTION_FAILED";
-    if (extra.error?.details && typeof extra.error.details === "object") {
-      Object.assign(payload, extra.error.details);
-    }
-  }
-  if (status === "success" && ["Read", "Glob", "Grep"].includes(tool)) payload.result = { count: resultCount(tool, extra.result) ?? 0, truncated: extra.result?.truncated === true };
-  const detail = status === "success" ? discoveryDetail(tool, input, extra.result) : null;
-  if (detail) {
-    payload.discovery = { ...detail, result_count: detail.result_paths.length, result_summary: detail.result_paths.length ? detail.result_paths.slice(0, 4).join(",") : "0-results" };
-  }
-  const message = detail
-    ? `Forge tool ${tool} ${status} q="${String(detail.query ?? "").slice(0, 60)}"${detail.context !== undefined ? ` ctx="${String(detail.context).slice(0, 60)}"` : ""} -> ${detail.result_paths.length ? detail.result_paths.slice(0, 4).join(", ") : "0-results"}`
-    : `Forge tool ${tool} ${status}.`;
-  return {
-    timestamp: new Date().toISOString(),
-    event_name: `forge.tool_${status}`,
-    level: status === "failed" ? "error" : "info",
-    status,
-    message,
-    task_id: taskId,
-    ...(context.ticket?.id ? { ticket_id: context.ticket.id } : {}),
-    ...(context.correlation_id ? { correlation_id: context.correlation_id } : {}),
-    source: "forge-tool-registry",
-    ...(status === "failed" ? { error_code: payload.error_code } : {}),
-    payload
-  };
 }

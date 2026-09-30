@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { fork } from "node:child_process";
-import { mkdtemp, readdir, readFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createSupervisorStateStore } from "../../src/modules/supervisor/supervisor-state-store.js";
 import { createExecutionEventBus } from "../../src/modules/supervisor/execution-event-bus.js";
+import { createDatabaseService } from "../../src/infrastructure/sqlite/database-service.js";
+import { createPersistentEventStore } from "../../src/modules/events/persistent-event-store.js";
 
 function runWorker(root) {
   return new Promise((resolve, reject) => {
@@ -36,4 +38,25 @@ test("duplicate event_id is delivered once after persistent claim", async () => 
   const bus = createExecutionEventBus({ eventStore: store }); let deliveries = 0; bus.subscribe("SUP-E2E", () => { deliveries += 1; });
   const event = { event_id: "EVT-DUP-E2E", type: "agent.response.received", task_id: "TASK-E2E", supervisor_id: "SUP-E2E", request_id: "REQ-E2E", correlation_id: "CORR-E2E", attempt: 1, payload: {} };
   await Promise.all([bus.publish(event), bus.publish(event)]); assert.equal(deliveries, 1); assert.equal(records.size, 1);
+});
+
+test("duplicate execution event remains rejected by the SQLite store after process restart", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-event-replay-"));
+  const event = { event_id: "EVT-A1-DUPLICATE", type: "review.approved", task_id: "TICKET-A1", supervisor_id: "SUP-A1", request_id: "REVIEW-A1", correlation_id: "CORR-A1", attempt: 1, payload: { verdict: "approved", reviewer_id: "REVIEWER-A1" } };
+  try {
+    const first = await createDatabaseService({ dataDir: root, runtimeDir: "." });
+    try {
+      const bus = createExecutionEventBus({ eventStore: createPersistentEventStore({ database: first }) });
+      assert.equal((await bus.publish(event)).accepted, true);
+    } finally { await first.close(); }
+    const restarted = await createDatabaseService({ dataDir: root, runtimeDir: "." });
+    try {
+      const bus = createExecutionEventBus({ eventStore: createPersistentEventStore({ database: restarted }) });
+      let deliveries = 0;
+      bus.subscribe("SUP-A1", () => { deliveries += 1; });
+      const replay = await bus.publish(event);
+      assert.deepEqual({ accepted: replay.accepted, duplicate: replay.duplicate, deliveries }, { accepted: false, duplicate: true, deliveries: 0 });
+      assert.equal(restarted.all("SELECT COUNT(*) AS count FROM events WHERE event_id = ?", [event.event_id])[0].count, 1);
+    } finally { await restarted.close(); }
+  } finally { await rm(root, { recursive: true, force: true }); }
 });

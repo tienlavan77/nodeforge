@@ -10,7 +10,7 @@ export function createTicketStatusStore({ database, projectId, clock = () => new
   if (typeof clock !== "function" || typeof createId !== "function" || typeof onEvent !== "function" || (publisher !== undefined && typeof publisher.publish !== "function")) throw new ConfigurationError("Invalid Ticket Status Store options.");
   ensureTables();
 
-  return Object.freeze({ create, get, getStatus, updateStatus, listByStatus, getHistory, dependenciesReady, retry, resetDoneForRetry, reconcileTerminalStatus });
+  return Object.freeze({ create, get, getStatus, updateStatus, completeByHumanReview, listByStatus, getHistory, dependenciesReady, retry, resetDoneForRetry, reconcileTerminalStatus });
 
   // Creates a pending status entry for a ticket.
   function create(ticketId, details = {}) {
@@ -52,6 +52,15 @@ export function createTicketStatusStore({ database, projectId, clock = () => new
     emit("ticket.status_change", { project_id: projectId, ticket_id: ticketId, from: current.status, to: nextStatus, version, reason, details, timestamp: now });
     if (nextStatus === "blocked") emit("ticket.dependency_blocked", { project_id: projectId, ticket_id: ticketId, details, timestamp: now });
     if (nextStatus === "pending" && current.status === "failed") emit("ticket.retry", { project_id: projectId, ticket_id: ticketId, timestamp: now });
+    return updated;
+  }
+
+  // Records a distinct owner approval even when legacy runs lack a status row.
+  function completeByHumanReview(ticketId, details) {
+    const current = get(ticketId) ?? create(ticketId);
+    if (current.status === "done" || !["pending", "needs_human_review"].includes(current.status)) throw statusError("HUMAN_REVIEW_STATUS_INVALID", `Ticket cannot be approved from ${current.status}.`);
+    const updated = transitionWithoutGuard(ticketId, current, "done", details);
+    emit("ticket.status_change", { project_id: projectId, ticket_id: ticketId, from: current.status, to: "done", version: updated.version, reason: details.reason, details, timestamp: updated.updated_at });
     return updated;
   }
 

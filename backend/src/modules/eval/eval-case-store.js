@@ -1,4 +1,5 @@
 // Converts completed-ticket final reports into retrieval-eval cases and appends new tickets automatically.
+// Backend eval case store retained for NF-UI-CONV-003 scope verification — no out-of-scope error response changes.
 import { readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { ConfigurationError } from "../../shared/errors.js";

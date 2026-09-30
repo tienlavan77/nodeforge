@@ -1,0 +1,147 @@
+/* ticket-dialogs: preserve the NodeForge UI styles for this domain. */
+
+/* Add-ticket controls use the same quiet action hierarchy as the sprint toolbar. */
+.sprint-actions .sprint-add-ticket-button {
+  border: 1px solid var(--app-button-border);
+  border-radius: 6px;
+  background: var(--app-button-bg);
+  color: var(--app-button-text);
+  font: 500 12px 'Space Grotesk', sans-serif;
+  letter-spacing: .01em;
+  padding: 7px 11px;
+  cursor: pointer;
+  transition: background-color .16s ease, border-color .16s ease, color .16s ease, transform .16s ease;
+}
+
+.sprint-actions .sprint-add-ticket-button:hover,
+.sprint-actions .sprint-add-ticket-button:focus-visible {
+  border-color: var(--app-accent);
+  background: color-mix(in srgb, var(--app-button-bg) 72%, var(--app-accent));
+  color: var(--app-text);
+}
+
+.sprint-actions .sprint-add-ticket-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--app-accent) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.sprint-actions .sprint-add-ticket-button:active { transform: translateY(1px); }
+
+.sprint-modal.add-ticket-modal {
+  width: min(620px, 100%);
+  max-height: min(720px, 88vh);
+}
+
+.sprint-modal.add-ticket-modal .sprint-modal-content {
+  padding: 20px 22px 22px;
+}
+
+.add-ticket-modal form {
+  display: grid;
+  gap: 10px;
+}
+
+.add-ticket-modal form > label {
+  color: var(--app-muted);
+  font: 11px 'DM Mono', monospace;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.add-ticket-modal textarea {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  box-sizing: border-box;
+  border: 1px solid var(--app-button-border);
+  border-radius: 6px;
+  background: var(--app-input);
+  color: var(--app-text);
+  padding: 12px;
+  font: 13px/1.5 'DM Mono', monospace;
+}
+
+.add-ticket-modal textarea::placeholder { color: var(--app-muted); opacity: .75; }
+.add-ticket-modal textarea:hover { border-color: var(--app-accent); }
+.add-ticket-modal textarea:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--app-accent) 45%, transparent);
+  outline-offset: 1px;
+  border-color: var(--app-accent);
+}
+
+.add-ticket-modal .dashboard-state.error {
+  margin: 0;
+  border-left: 3px solid #ee8f9b;
+  border-radius: 4px;
+  background: color-mix(in srgb, #ee8f9b 10%, transparent);
+  color: #eea6ae;
+  padding: 9px 11px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.add-ticket-modal .settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.add-ticket-modal .settings-actions button {
+  min-height: 36px;
+  border: 1px solid var(--app-button-border);
+  border-radius: 6px;
+  background: var(--app-button-bg);
+  color: var(--app-button-text);
+  padding: 8px 14px;
+  cursor: pointer;
+  font: 500 13px 'Space Grotesk', sans-serif;
+}
+
+.add-ticket-modal .settings-actions button[type='submit'] {
+  border-color: var(--app-accent);
+  background: var(--app-accent);
+  color: #08111f;
+}
+
+.add-ticket-modal .settings-actions button:hover:not(:disabled),
+.add-ticket-modal .settings-actions button:focus-visible {
+  border-color: var(--app-accent);
+  background: color-mix(in srgb, var(--app-button-bg) 70%, var(--app-accent));
+}
+
+.add-ticket-modal .settings-actions button[type='submit']:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--app-accent) 82%, white);
+}
+
+.add-ticket-modal .settings-actions button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--app-accent) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.add-ticket-modal .settings-actions button:disabled { cursor: not-allowed; opacity: .48; }
+
+:root[data-theme='light'] .add-ticket-modal .dashboard-state.error {
+  background: #fff1f2;
+  color: #8f2637;
+}
+
+:root[data-theme='light'] .add-ticket-modal .settings-actions button[type='submit'] {
+  background: #173044;
+  border-color: #173044;
+  color: #ffffff;
+}
+
+:root[data-theme='light'] .add-ticket-modal .settings-actions button[type='submit']:hover:not(:disabled) {
+  background: #247f98;
+  border-color: #247f98;
+}
+
+@media (max-width: 560px) {
+  .inline-add-ticket button { min-height: 38px; }
+  .sprint-modal.add-ticket-modal .sprint-modal-content { padding: 16px; }
+  .add-ticket-modal textarea { min-height: 180px; }
+  .add-ticket-modal .settings-actions { flex-direction: column-reverse; }
+  .add-ticket-modal .settings-actions button { width: 100%; }
+}
+

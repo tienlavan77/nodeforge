@@ -3,26 +3,24 @@ import test from "node:test";
 
 import { createTicketSprintLeader } from "../../src/application/ticket-sprint-leader.js";
 
-// Covers the SDK sprint-leader runner: built-in search tools only, no Forge
-// MCP, and the final ticket JSON parsed from SDK message text.
-test("runner executes with built-in search tools and no Forge MCP", async () => {
+// Covers ticket drafting without file-search tools or candidate requirements.
+test("runner drafts a ticket without source-file candidates", async () => {
   const calls = [];
   const sdkGateway = {
     execute: async (args) => {
       calls.push(args);
-      return { messages: [{ text: '```json\n{"title":"T","objective":"O","acceptance_criteria":["A"],"style":["backend"],"candidate_files":[{"path":"backend/a.js","role":"PATCH","symbol":"handleRequest","reason":"edit handleRequest"}]}\n```' }] };
+      return { messages: [{ text: '```json\n{"title":"T","objective":"O","acceptance_criteria":["A"],"style":["backend"]}\n```' }] };
     }
   };
   const leader = createTicketSprintLeader({ sdkGateway, projectRoot: "/repo" });
   const draft = await leader.requestTicket({ projectId: "P1", agentId: "AGENT-SL", content: "fix api", feedback: undefined, correlationId: "CORR-1" });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].cwd, "/repo");
-  assert.deepEqual(calls[0].options.allowedTools, ["Read", "Grep", "Glob"]);
+  assert.deepEqual(calls[0].options.allowedTools, []);
   assert.equal(calls[0].options.mcpServers, undefined);
-  assert.match(calls[0].prompt, /built-in tools only/);
-  assert.match(calls[0].prompt, /Do NOT use any Forge MCP tools/);
+  assert.match(calls[0].prompt, /Do not identify source files or symbols/);
   assert.equal(draft.title, "T");
-  assert.equal(draft.candidate_files[0].path, "backend/a.js");
+  assert.equal(draft.candidate_files, undefined);
 });
 
 test("runner throws without an SDK gateway", async () => {

@@ -1,0 +1,152 @@
+/* agents-actions: preserve the NodeForge UI styles for this domain. */
+:root:not([data-theme='light']) .agent-switch i,
+:root:not([data-theme='light']) .agent-switch.is-on i { background: #dbe8ef !important; }
+/* Light theme only: enabled ON is navy, disabled OFF is pale blue. */
+:root[data-theme='light'] .agent-switch:not(.is-on) { background: #d8edf2 !important; border-color: #b5d5df !important; }
+:root[data-theme='light'] .agent-switch.is-on { background: #173044 !important; border-color: #173044 !important; }
+:root[data-theme='light'] .agent-switch i,
+:root[data-theme='light'] .agent-switch.is-on i { background: #ffffff !important; }
+:root[data-theme='light'] .agent-switch.is-on i { transform: translateX(19px) !important; }
+.agent-switch {
+  transition: background-color .22s ease, border-color .22s ease;
+}
+.agent-switch i {
+  transition: transform .22s ease, background-color .22s ease;
+}
+/* Dark theme toggle: navy OFF, bright cyan ON. */
+:root:not([data-theme='light']) .agent-switch:not(.is-on) {
+  background: #173044 !important;
+  border-color: #29485d !important;
+}
+:root:not([data-theme='light']) .agent-switch.is-on {
+  background: #55c2d8 !important;
+  border-color: #72d4e2 !important;
+}
+:root:not([data-theme='light']) .agent-switch i,
+:root:not([data-theme='light']) .agent-switch.is-on i {
+  background: #08111f !important;
+}
+
+.agent-card-identity > div { min-width: 0; display: grid; gap: 3px; }
+.agent-card-identity small { color: var(--app-muted); font: 10px 'DM Mono', monospace; text-transform: none; }
+.agent-card-connection { display: flex; align-items: center; gap: 5px; min-width: 0; color: var(--app-muted); font: 10px 'DM Mono', monospace; }
+.connection-indicator { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: #ee8f9b; }
+.connection-indicator.is-connected { background: #62d39b; }
+.agent-card-actions { display: flex; gap: 4px; margin-left: auto; }
+.card-action-button { border: 1px solid var(--app-button-border); border-radius: 4px; background: var(--app-button-bg); color: var(--app-button-text); padding: 4px 6px; cursor: pointer; font: 9px 'DM Mono', monospace; }
+.card-action-button.danger { border-color: #a86670; color: #eea6ae; }
+.card-action-button:disabled { opacity: .55; cursor: wait; }
+.agent-card-controls { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+.agent-card-footer { display: grid; grid-template-rows: 1fr 1fr; align-items: center; gap: 7px; }
+.agent-card-footer-row { display: flex; align-items: center; justify-content: space-between; min-width: 0; }
+.agent-status-control { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 8px; }
+.agent-card-connection-row .agent-card-connection { width: 100%; justify-content: space-between; }
+
+.agent-header-connection { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; color: var(--app-muted); font: 9px 'DM Mono', monospace; white-space: nowrap; }
+.agent-header-connection i { width: 6px; height: 6px; border-radius: 50%; background: #ee8f9b; }
+.agent-header-connection.is-connected i { background: #62d39b; }
+
+.agent-card-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.agent-status-control { display: flex; align-items: center; width: auto; gap: 7px; }
+.agent-card-control-group { display: flex; align-items: center; gap: 7px; }
+.agent-card-actions { margin-left: auto; }
+.agent-header-actions { display: inline-flex; align-items: center; gap: 8px; }
+
+.agent-switch { width: 38px; height: 18px; padding: 2px; }
+.agent-switch i { width: 12px; height: 12px; }
+.agent-switch.is-on i, :root[data-theme='light'] .agent-switch.is-on i { transform: translateX(19px) !important; }
+.agent-status-badge { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0; border-radius: 0; font-size: 10px; font-weight: 500; white-space: nowrap; background: transparent; }
+.status-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.agent-status-badge.agent-status-ready { color: #2563eb; }
+.agent-status-badge.agent-status-ready .status-dot { background: #2563eb; }
+.agent-status-badge.agent-status-working { color: #f97316; }
+.agent-status-badge.agent-status-working .status-dot { background: #f97316; }
+.agent-status-badge.agent-status-not-connect { color: #dc2626; }
+.agent-status-badge.agent-status-not-connect .status-dot { background: #dc2626; }
+:root[data-theme='light'] .agent-status-badge.agent-status-ready { color: #1d4ed8; }
+:root[data-theme='light'] .agent-status-badge.agent-status-ready .status-dot { background: #1d4ed8; }
+:root[data-theme='light'] .agent-status-badge.agent-status-working { color: #ea580c; }
+:root[data-theme='light'] .agent-status-badge.agent-status-working .status-dot { background: #ea580c; }
+:root[data-theme='light'] .agent-status-badge.agent-status-not-connect { color: #b91c1c; }
+:root[data-theme='light'] .agent-status-badge.agent-status-not-connect .status-dot { background: #b91c1c; }
+.agent-card-footer > .agent-status-control { width: 100%; justify-content: flex-start; }
+.agent-card-footer > .agent-status-control > .agent-card-actions { margin-left: auto; }
+.agent-directory-card .agent-card-footer { min-height: 34px; padding: 6px 10px; }
+.agent-directory-card .agent-card-footer .agent-status-control { min-height: 22px; }
+.agent-directory-card .agent-card-footer { min-height: 0; height: auto; padding: 4px 10px; }
+.agent-directory-card .agent-card-footer > .agent-status-control { min-height: 0; height: 24px; }
+.agent-directory-card .agent-card-footer .card-action-button { height: 22px; padding-top: 2px; padding-bottom: 2px; font-size: 9px; }
+/* Let header/footer size to content; only the provider section expands. */
+.agent-directory-card.agent-card-editable {
+  grid-template-rows: auto 1fr auto !important;
+}
+.agent-directory-card .agent-card-footer { padding-top: 10px; padding-bottom: 10px; }
+
+:root[data-theme='light'] .agent-directory-card .card-action-button:not(.danger) {
+  background: #d8edf2;
+  border-color: #75aebe;
+  color: #173044;
+}
+
+:root[data-theme='light'] .agent-directory-card .card-action-button.danger {
+  background: #f8dfe2;
+  border-color: #cf6b78;
+  color: #8f2637;
+}
+
+:root[data-theme='light'] .agent-directory-card .card-action-button:not(.danger):hover {
+  background: #c0e2ea;
+}
+
+:root[data-theme='light'] .agent-directory-card .card-action-button.danger:hover {
+  background: #f2c9ce;
+}
+
+
+.connection-result-backdrop { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 20px; background: rgba(3, 10, 18, .72); }
+.connection-result-modal { width: min(400px, 100%); padding: 24px; border: 1px solid var(--app-border); background: var(--app-panel); box-shadow: 0 24px 80px rgba(0,0,0,.4); }
+.connection-result-icon { display: grid; place-items: center; width: 42px; height: 42px; margin-bottom: 14px; border: 1px solid var(--app-accent); color: var(--app-accent); font-size: 24px; }
+.connection-result-modal h2 { margin: 5px 0 10px; color: var(--app-text); }
+.connection-result-modal > p:not(.eyebrow) { color: var(--app-muted); line-height: 1.5; }
+.connection-result-ok { color: #62d39b; }
+.connection-result-failed { color: #ee8f9b; }
+.connection-result-modal .history-button { margin-top: 12px; }
+
+.agent-delete-modal { text-align: center; }
+.agent-delete-modal .agent-modal-actions { justify-content: center; margin-top: 18px; }
+.agent-delete-modal .danger { border-color: #c45c69; background: #8f2637; color: #fff; }
+
+.home-sprint-tickets { display: grid; gap: 12px; margin-top: 18px; }
+.home-sprint-group { padding-top: 12px; border-top: 1px solid var(--app-border); }
+.home-sprint-group-heading { display: flex; justify-content: space-between; gap: 10px; color: var(--app-text); font: 12px 'DM Mono', monospace; }
+.home-sprint-group-heading span { color: var(--app-muted); }
+.home-ticket-list { display: grid; gap: 6px; margin-top: 8px; }
+.home-ticket-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; border: 1px solid var(--app-border); background: color-mix(in srgb, var(--app-surface-alt) 70%, transparent); }
+.home-ticket-item > div { min-width: 0; display: grid; gap: 3px; }
+.home-ticket-item strong { color: var(--app-accent); font: 11px 'DM Mono', monospace; }
+.home-ticket-item span { overflow: hidden; color: var(--app-text); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.home-ticket-item small { flex: 0 0 auto; font: 10px 'DM Mono', monospace; text-transform: uppercase; }
+.home-ticket-empty { margin: 8px 0 0; color: var(--app-muted); font-size: 12px; }
+
+/* Keep the Sprint list scrollable while the home panel stays fixed to the viewport. */
+.home-sprint-panel { overflow: hidden; }
+.home-sprint-panel .home-sprint-content { min-height: 0; overflow-y: auto; overflow-x: hidden; padding-right: 8px; }
+.home-sprint-panel .sprint-plan-dashboard { padding: 18px 0 0; }
+
+.home-sprint-panel .sprint-plan-dashboard { padding-top: 0; background: transparent; }
+.home-sprint-panel .sprint-plan-dashboard .sprint-row { padding-top: 0; }
+
+.home-sprint-panel .home-sprint-content { padding-right: 0; }
+.home-sprint-panel .sprint-item { background: transparent; }
+
+.sprint-inline-detail { margin-top: 10px; padding: 12px; border-top: 1px solid var(--app-border); background: transparent; }
+.sprint-inline-detail h3 { margin: 12px 0 7px; color: var(--app-text); font-size: 12px; }
+.sprint-inline-detail .sprint-ticket-table { display: grid; gap: 6px; }
+
+/* Final light-theme action colors: keep Test and Delete visually distinct. */
+:root[data-theme='light'] .agent-directory-card .agent-card-footer .card-action-button:not(.danger) {
+  background-color: #d8edf2 !important;
+  border-color: #75aebe !important;
+  color: #173044 !important;
+}
+

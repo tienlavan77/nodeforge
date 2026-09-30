@@ -5,13 +5,14 @@ import { ConfigurationError } from "../../shared/errors.js";
 // discover what the agent actually changed. The filesystem is the source of
 // truth — no patch inspection here. Output feeds the Verifier.
 /** Creates a collector that discovers changed files via git status and computes checksums. */
-export function createCollectorWorker({ fileService, gitService } = {}) {
+export function createCollectorWorker({ fileService, gitService, changeLedger, executionContexts } = {}) {
   if (typeof gitService?.status !== "function") throw new ConfigurationError("Collector Worker requires a Git Service.");
   if (typeof fileService?.readFile !== "function") throw new ConfigurationError("Collector Worker requires File Service.");
   return Object.freeze({ collect });
   async function collect(input = {}) {
-    const statusOutput = await gitService.status();
-    const changedPaths = parsePorcelain(statusOutput);
+    const manifest = changeLedger ? await changeLedger.snapshot() : null;
+    const changedPaths = manifest ? Object.keys(manifest.entries) : parsePorcelain(await gitService.status());
+    const executionContext = executionContexts ? await executionContexts.syncManifest(input.task_id, manifest) : input.execution_context ?? null;
     const checksums = {};
     for (const path of changedPaths) {
       checksums[path] = await checksumFor(path);
@@ -22,6 +23,7 @@ export function createCollectorWorker({ fileService, gitService } = {}) {
       request_id: input.request_id,
       correlation_id: input.correlation_id,
       attempt: input.attempt,
+      execution_context: executionContext,
       changed_paths: changedPaths,
       checksums,
       empty: changedPaths.length === 0

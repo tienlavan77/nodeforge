@@ -1,0 +1,187 @@
+/* shell-layout: preserve the NodeForge UI styles for this domain. */
+:root { --workspace-gutter: 24px; --workspace-panel-min: 0px; }
+@media (max-width: 767px) { :root { --workspace-gutter: 16px; } }
+@media (max-width: 767px) {
+  body { min-width: 0; }
+  .topbar { height: 60px; flex-basis: 60px; padding: 0 12px; }
+  .topbar-meta { gap: 8px; min-width: 0; }
+  .topbar-meta .project-label, .topbar-meta .divider, .status-right { display: none; }
+  .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(360px, 52vh) minmax(420px, 1fr); overflow: auto; }
+  .architecture-columns { grid-template-columns: minmax(0, 1fr); }
+  .architecture-artifacts { padding: 14px 12px 20px; }
+  .agent-header { padding: 12px 14px; }
+  .conversation { padding: 14px 12px 10px; }
+  .message-bubble { max-width: 100%; overflow-wrap: anywhere; }
+  .composer { gap: 6px; padding: 8px 10px; }
+  .composer button { flex: 0 0 auto; }
+  .tab-button { gap: 5px; padding: 9px 8px; font-size: 12px; }
+  .history-overlay, .sprint-modal-backdrop { padding: 12px; }
+  .history-filters { grid-template-columns: minmax(0, 1fr); padding: 10px 12px; }
+  .sprint-ticket-table article { grid-template-columns: minmax(0, 1fr); }
+  .ticket-regenerate-button { width: auto; }
+  .statusbar { padding: 0 10px; }
+  .statusbar .status-right { display: none; }
+}
+
+
+/* Control-room shell refresh */
+.app-shell-control-room {
+  min-height: 100vh;
+  background: var(--app-shell-bg);
+}
+
+.agent-profile-shell {
+  min-height: 100vh;
+  background: var(--app-shell-bg);
+}
+
+.app-shell-control-room .topbar {
+  height: 72px;
+  flex: 0 0 72px;
+  gap: 20px;
+  padding: 0 28px;
+  background: color-mix(in srgb, var(--app-surface) 88%, transparent);
+  border-bottom-color: rgba(62, 69, 82, 0.75);
+  backdrop-filter: blur(12px);
+}
+
+/* Keep secondary routes on the same header system as the control room. */
+.agent-profile-shell .topbar {
+  height: 72px;
+  flex: 0 0 72px;
+  gap: 20px;
+  padding: 0 28px;
+  background: color-mix(in srgb, var(--app-surface) 88%, transparent);
+  border-bottom-color: rgba(62, 69, 82, 0.75);
+  backdrop-filter: blur(12px);
+}
+
+.agent-profile-shell .brand {
+  gap: 14px;
+}
+
+.agent-profile-shell .brand-mark {
+  border-radius: 10px;
+  border-color: rgba(111, 179, 197, 0.75);
+  color: #9fd9e5;
+  background: rgba(15, 19, 28, 0.96);
+}
+
+.agent-profile-shell .brand-name {
+  font-size: 14px;
+  letter-spacing: 0.18em;
+}
+
+.agent-profile-shell .brand-sub {
+  margin-top: 4px;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: #8d96a3;
+}
+
+.agent-profile-shell .topbar-meta,
+.agent-profile-shell .topbar-actions {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.agent-profile-shell .history-button {
+  border-radius: 999px;
+  border-color: rgba(70, 77, 92, 0.9);
+  background: rgba(22, 26, 34, 0.9);
+  color: #d0d4dd;
+  text-decoration: none;
+}
+
+/* Deep/Navy palette overrides for legacy component colors. */
+.app-shell-control-room .history-button,
+.agent-profile-shell .history-button,
+.app-shell-control-room .theme-toggle {
+  border-color: var(--cyan-600);
+  background: var(--navy-700);
+  color: var(--cyan-300);
+}
+
+.app-shell-control-room .history-button:hover,
+.agent-profile-shell .history-button:hover,
+.app-shell-control-room .theme-toggle:hover {
+  border-color: var(--cyan-400);
+  background: var(--navy-800);
+  color: #e7f8fb;
+}
+
+.app-shell-control-room .brand-mark,
+.agent-profile-shell .brand-mark {
+  border-color: var(--cyan-500);
+  color: var(--cyan-300);
+  background: var(--navy-950);
+}
+
+.app-shell-control-room .panel,
+.agent-profile-shell .panel { background: var(--navy-900); }
+
+.app-shell-control-room .tab-button { background: var(--navy-800); color: var(--app-muted); }
+.app-shell-control-room .tab-button.is-active { background: var(--navy-700); color: var(--app-text); }
+
+.app-shell-control-room .brand {
+  gap: 14px;
+}
+
+.app-shell-control-room .brand-mark {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  border-color: rgba(111, 179, 197, 0.75);
+  color: #9fd9e5;
+  background: rgba(15, 19, 28, 0.96);
+}
+
+.app-shell-control-room .brand-name {
+  font-size: 14px;
+  letter-spacing: 0.18em;
+}
+
+.app-shell-control-room .brand-sub {
+  margin-top: 4px;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: #8d96a3;
+}
+
+.app-shell-control-room .topbar-meta { flex-wrap: nowrap; gap: 12px; align-items: center; min-width: 0; white-space: nowrap; justify-self: end; }
+
+.app-shell-control-room .topbar-actions { gap: 8px; flex-wrap: nowrap; white-space: nowrap; }
+
+.app-shell-control-room .history-button,
+.app-shell-control-room .icon-button {
+  border-radius: 999px;
+}
+
+.app-shell-control-room .history-button {
+  border: 1px solid rgba(70, 77, 92, 0.9);
+  background: rgba(22, 26, 34, 0.9);
+  color: #d0d4dd;
+  padding: 8px 12px;
+  text-decoration: none;
+}
+
+:root[data-theme='light'] .app-shell-control-room .topbar,
+:root[data-theme='light'] .agent-profile-shell .topbar {
+  border-bottom-color: var(--app-border);
+}
+
+:root[data-theme='light'] .app-shell-control-room .history-button,
+:root[data-theme='light'] .agent-profile-shell .history-button {
+  background: var(--app-button-bg);
+  border-color: var(--app-button-border);
+  color: var(--app-button-text);
+}
+
+:root[data-theme='light'] .app-shell-control-room .brand-mark,
+:root[data-theme='light'] .agent-profile-shell .brand-mark {
+  background: var(--app-surface-alt);
+  border-color: var(--app-accent);
+  color: var(--app-accent);
+}
+
+/* Shared semantic colors keep both themes readable across every action control. */

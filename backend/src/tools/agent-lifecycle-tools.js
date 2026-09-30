@@ -89,7 +89,7 @@ export function createReadFileTool({ fileService, codeCache, maxChars = MAX_CONT
 
 
 // createWriteDiffTool - handles createWriteDiffTool operation.
-export function createWriteDiffTool({ fileService, codeCache, maxLines = WRITE_DIFF_MAX_LINES } = {}) {
+export function createWriteDiffTool({ fileService, codeCache, changeLedger, maxLines = WRITE_DIFF_MAX_LINES } = {}) {
   if (typeof fileService?.atomicWrite !== "function" || typeof fileService?.readFile !== "function") throw new ConfigurationError("write_diff requires File Service readFile and atomicWrite.");
   return Object.freeze({ name: "write_diff", async execute(input = {}, context = {}) {
     const path = safePath(input.path, "write"); assertCoderWorkflowReadOnly(context.agent_identity?.role, "write", path); assertAllowed(path, context); if (typeof input.content !== "string") throw error("CONTENT_INVALID", "content must be a string.");
@@ -114,7 +114,8 @@ export function createWriteDiffTool({ fileService, codeCache, maxLines = WRITE_D
       if (currentLines > maxLines) throw error("DESTRUCTIVE_OVERWRITE", `${path} has ${currentLines} lines, over the ${maxLines}-line write_diff limit. Use edit_diff with an exact anchor for localized changes.`, { path, current_lines: currentLines, limit: maxLines });
     }
     assertSummaryEnforced(input.content, current, path);
-    await fileService.atomicWrite({ path, content: input.content, replace: true });
+    if (changeLedger) await changeLedger.write({ path, before: current, after: input.content });
+    else await fileService.atomicWrite({ path, content: input.content, replace: true });
     codeCache?.invalidate({ path });
     recordChangedPath(context, path);
     resetExploration(context);
@@ -124,7 +125,7 @@ export function createWriteDiffTool({ fileService, codeCache, maxLines = WRITE_D
 }
 
 // createEditDiffTool - handles createEditDiffTool operation.
-export function createEditDiffTool({ fileService, codeCache, maxChars = MAX_CONTENT } = {}) {
+export function createEditDiffTool({ fileService, codeCache, changeLedger, maxChars = MAX_CONTENT } = {}) {
   if (typeof fileService?.atomicWrite !== "function" || typeof fileService?.readFile !== "function") throw new ConfigurationError("edit_diff requires File Service readFile and atomicWrite.");
   return Object.freeze({ name: "edit_diff", async execute(input = {}, context = {}) {
     const path = safePath(input.path, "write"); assertCoderWorkflowReadOnly(context.agent_identity?.role, "write", path); assertAllowed(path, context);
@@ -146,7 +147,8 @@ export function createEditDiffTool({ fileService, codeCache, maxChars = MAX_CONT
     if (occurrence === "first" && parts.length > 2) throw error("ANCHOR_NOT_UNIQUE", `Anchor occurs ${parts.length - 1} times in ${path}; include more surrounding lines to make it unique.`, { path, occurrences: parts.length - 1 });
     const replaced = parts.join(input.replacement);
     const newFunctions = assertEditSummaryEnforced(current, replaced);
-    await fileService.atomicWrite({ path, content: replaced, replace: true });
+    if (changeLedger) await changeLedger.write({ path, before: current, after: replaced });
+    else await fileService.atomicWrite({ path, content: replaced, replace: true });
     codeCache?.invalidate({ path });
     recordChangedPath(context, path);
     resetExploration(context);
