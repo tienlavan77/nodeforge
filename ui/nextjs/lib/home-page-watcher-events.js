@@ -23,7 +23,7 @@ export function displayMessageTime(timestamp) {
 }
 
 // Resolves an agent id to the configured display name used by the chat UI.
-export function agentDisplayName(agentId, agents = []) {
+export function agentDisplayName(agentId, agents) {
   const agent = agents.find((item) => (item.agent_id ?? item.id) === agentId);
   return agent?.agent_name ?? agent?.name ?? agent?.label ?? agentId ?? "Agent";
 }
