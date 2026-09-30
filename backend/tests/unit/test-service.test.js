@@ -24,6 +24,13 @@ test("TestService runs archived verification without a live project root", async
   assert.equal(result.status, "passed");
 });
 
+test("TestService rejects a blank optional project root", () => {
+  assert.throws(
+    () => createTestService({ projectRoot: "   ", verificationOrchestrator: { run: async () => ({ status: "passed" }) } }),
+    /project root must be a non-empty string/
+  );
+});
+
 test("startTests uses the unit-test baseline when callers provide empty levels", async () => {
   const calls = [];
   const service = createTestService({
