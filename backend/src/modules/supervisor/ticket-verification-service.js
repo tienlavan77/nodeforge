@@ -200,7 +200,7 @@ async function verificationPlan(paths, root) {
     const entries = await readdir(join(root, "ui/nextjs/tests"), { withFileTypes: true });
     const tests = entries.filter((entry) => entry.isFile() && entry.name.endsWith(".test.js")).map((entry) => `ui/nextjs/tests/${entry.name}`);
     if (tests.length) checks.push({ kind: "test", argv: [process.execPath, "--test", ...tests] });
-    checks.push({ kind: "build", argv: [process.execPath, "ui/nextjs/node_modules/next/dist/bin/next", "build", "--webpack"] });
+    checks.push({ kind: "build", argv: [process.execPath, "ui/nextjs/node_modules/next/dist/bin/next", "build", "ui/nextjs", "--webpack"] });
   }
   if (!checks.length) checks.push({ kind: "typecheck", argv: [process.execPath, "node_modules/typescript/bin/tsc", "--project", "jsconfig.json"] });
   return checks;
