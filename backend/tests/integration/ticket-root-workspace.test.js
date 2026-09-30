@@ -82,3 +82,25 @@ test("root-only preparation refuses an old Coder checkpoint without migrating it
     assert.equal(JSON.parse(await fileService.readFile({ path: ".forge/runtime/agent-checkpoints/TICKET-OLD.json" })).status, "in_progress");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+// Keeps an out-of-scope Coder edit out of both the project source and ticket ledger.
+test("root-only workspace checks the approved path before writing source", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-root-scope-"));
+  try {
+    await git(root, "init", "-q");
+    await git(root, "config", "user.name", "NodeForge Test");
+    await git(root, "config", "user.email", "nodeforge-test@localhost");
+    await writeFile(join(root, ".gitignore"), ".forge/\n");
+    await writeFile(join(root, "outside.js"), "const value = 1;\n");
+    await git(root, "add", ".gitignore", "outside.js");
+    await git(root, "commit", "-qm", "baseline");
+    const fileService = createFileService({ projectRoot: root });
+    const service = createTicketWorkspaceService({ projectRoot: root, projectId: "P-ROOT-SCOPE", protocolStorage: { save: async () => {}, get: async () => ({ data: {} }) }, stateFileService: fileService, indexDatabase: { all: () => [] }, codeSearch: { search: async () => [] }, fileGraph: { getDependencies: () => [], getDependents: () => [] }, rootOnly: true });
+    const workspace = await service.open("TICKET-SCOPE");
+    await workspace.executionContexts.create({ taskId: "TICKET-SCOPE", supervisorId: "SUP-SCOPE", baseSha: workspace.base_commit, baseline: { file_checksums: { "inside.js": "sha256:approved" } } });
+    await assert.rejects(workspace.changeLedger.write({ path: "outside.js", before: "const value = 1;\n", after: "const value = 2;\n" }), { code: "TICKET_BASELINE_SCOPE" });
+    assert.equal(await readFile(join(root, "outside.js"), "utf8"), "const value = 1;\n");
+    assert.deepEqual((await workspace.changeLedger.snapshot()).entries, {});
+    await service.close();
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
