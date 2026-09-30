@@ -45,7 +45,6 @@ import { migrateConversationErrors } from "../src/modules/governance/conversatio
 import { createSprintLeaderIntakeService } from "../src/application/sprint-leader-intake-service.js";
 import { createTicketHumanReviewService } from "../src/application/ticket-human-review-service.js";
 import { reviewPhaseResume, reviewRevisionResume } from "../src/modules/supervisor/review-revision-resume.js";
-import { migrateConversationErrors } from "../src/modules/governance/conversation-error-migration.js";
 
 const config = readControlApiConfig();
 const { port, host, dataDir } = config;
@@ -58,7 +57,6 @@ const { fileService, protocolStorage, conversationStateStore, processLock, contr
 const database = controlDb;
 const { profiles, agentConfiguration, agentGateway, claudeSdkGateway, codexSdkGateway, openaiSdkGateway, ollamaSdkGateway, agentSettings, agentRoleResolver } = createControlApiAgent({ database, fileService, config });
 const platform = createControlApiPlatform({ config, database, indexDb, fileService, agentGateway, claudeSdkGateway, codexSdkGateway, agentRoleResolver, logEvent });
-await migrateConversationErrors({ database, fileService, projectId: config.projectId });
 await migrateConversationErrors({ database, fileService, projectId: config.projectId });
 const gitService = createGitService({ projectRoot: config.cwd, mutationLock: (action) => withTicketProjectCommitLock({ fileService, projectId: platform.projectId }, action) });
 const reportService = createCompletionReportService({ protocolStorage, fileService, gitService });
