@@ -1,6 +1,11 @@
 // Verifies bounded Reviewer reads and provider-specific tool registration.
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createReviewerForgeTools } from "../../src/modules/supervisor/reviewer-forge-tools.js";
 import { createReviewWorker } from "../../src/modules/supervisor/review-worker.js";
 
@@ -90,4 +95,37 @@ test("Reviewer falls back to supplied evidence when Forge tools cannot initializ
   assert.equal(request.options.forgeTools, undefined);
   assert.match(request.prompt, /tools are unavailable/i);
   assert.equal(events.some((event) => event.event_name === "review.tools_unavailable"), true);
+});
+
+test("Reviewer source windows use committed content despite stale cache formatting and reject real drift", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-review-window-"));
+  const path = "backend/src/sample.js";
+  const content = "first\nsecond\n";
+  const sha256 = `sha256:${createHash("sha256").update(content).digest("hex")}`;
+  const evidence = { files: [{ path, content, sha256 }], artifact: { artifact_id: "ARTIFACT-1", file_checksums: { [path]: sha256 } }, context: { review_commit_sha: "COMMIT-1", manifest_sha: "MANIFEST-1" } };
+  try {
+    await mkdir(join(root, "backend/src"), { recursive: true });
+    await writeFile(join(root, path), content);
+    const cache = { read: async () => ({ path, content: "stale\r\nsource", sha256: "sha256:stale", cache: { status: "hit" } }) };
+    const reviewJob = { ...job, payload: { changed_paths: [path] } };
+    const options = { fileService: createFileService({ projectRoot: root }), projectRoot: root, job: reviewJob, reviewer: { agent_id: "reviewer-1", provider: "codex" }, codeCache: cache, ticketEvidence: evidence };
+    const codex = createReviewerForgeTools(options);
+    const metadata = await codex.registry.read_file.execute({ path });
+    assert.equal(metadata.sha256, sha256);
+    assert.equal(metadata.review_evidence.manifest_sha, "MANIFEST-1");
+    const offsetWindow = await codex.registry.read_file.execute({ path, offset: 2, limit: 2 });
+    assert.equal(offsetWindow.content, "second\n");
+    const lines = await codex.registry.sed_lines.execute({ path, start_line: 1, end_line: 2 });
+    assert.equal(lines.stdout, "first\nsecond\n");
+    assert.equal(lines.sha256, sha256);
+    assert.equal(lines.review_evidence.commit_sha, "COMMIT-1");
+    const claude = createReviewerForgeTools({ ...options, reviewer: { agent_id: "reviewer-1", provider: "claude" }, includeClaudeFileTools: true });
+    assert.equal((await claude.registry.Read.execute({ file_path: path, start_line: 2, end_line: 3 })).content, "     2→second\n     3→");
+    await writeFile(join(root, path), "changed\n");
+    await assert.rejects(() => codex.registry.sed_lines.execute({ path, start_line: 1, end_line: 2 }), (error) => error.code === "REVIEW_SOURCE_MISMATCH");
+    await assert.rejects(() => claude.registry.Read.execute({ file_path: path, start_line: 1, end_line: 1 }), (error) => error.code === "REVIEW_SOURCE_MISMATCH");
+    await writeFile(join(root, path), content);
+    evidence.artifact.file_checksums[path] = "sha256:wrong";
+    await assert.rejects(() => codex.registry.sed_lines.execute({ path, start_line: 1, end_line: 2 }), (error) => error.code === "REVIEW_SOURCE_MISMATCH");
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
