@@ -20,3 +20,4 @@ ui/nextjs/.next/
 .claude
 /docs/
 /workflows/
+.vscode/
