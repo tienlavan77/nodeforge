@@ -59,7 +59,12 @@ export function createProtocolStorage({ projectRoot = process.cwd(), fileService
     try {
       await (replace ? fileService.atomicWrite({ path: metadataPath, content: serialize(metadata), replace: true }) : fileService.atomicCreate({ path: metadataPath, content: serialize(metadata) }));
     } catch (error) {
-      await fileService.deleteFile({ path: dataPath }).catch(() => {});
+      try {
+        await fileService.deleteFile({ path: dataPath });
+      } catch (cleanupError) {
+        // eslint-disable-next-line no-console -- cleanup failure must not hide the metadata persistence error.
+        console.warn("Unable to remove incomplete protocol data", cleanupError);
+      }
       if (error.code === "FILE_ALREADY_EXISTS") throw storageConflict(normalizedRef);
       throw error;
     }

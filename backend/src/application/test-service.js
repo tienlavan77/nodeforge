@@ -110,7 +110,7 @@ export function createTestService({ verificationOrchestrator, fileService, timeo
   }
   function commandFor(type, taskId) {
     if (type === "unit_test" && typeof taskId === "string" && /^(tests|test)\//.test(taskId)) return `node --test ${taskId}`;
-    return { lint: "npm run lint", typecheck: "npm run typecheck", unit_test: "npm test" }[type] ?? "npm test";
+    return { lint: "npm run lint", schema_validation: "npm run validate:schemas", typecheck: "npm run typecheck", unit_test: "npm test" }[type] ?? "npm test";
   }
   function publish(type, payload) { const event = { type, project_root: projectRoot, payload }; publisher?.publish?.({ event_id: `EVT-${Date.now()}`, type, project_id: payload.project_id ?? "PROJECT-NODEFORGE", timestamp: new Date().toISOString(), payload, metadata: { source: "test-service", task_id: payload.task_id, session_id: payload.session_id } }); internalBus?.emit?.(type, event); }
   function logJobCompleted(job, { taskId, sessionId } = {}) {
