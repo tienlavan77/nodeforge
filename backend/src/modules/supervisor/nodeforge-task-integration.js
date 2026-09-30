@@ -6,7 +6,7 @@ import { createReviewWorker } from "./review-worker.js";
 import { ensureReviewStatusReady } from "./review-only-status.js";
 import { createTicketWorkspaceRuntime } from "./ticket-workspace-runtime.js";
 import { completeApprovedTicket } from "./ticket-approved-integration.js";
-import { selectDirectCoder, isOpenAiProfile, isCodexProfile, isOllamaProfile } from "./ticket-agent-provider-routing.js";
+import { selectTicketCoder, selectTicketReviewer, isOpenAiProfile, isCodexProfile, isOllamaProfile } from "./ticket-agent-provider-routing.js";
 import { prepareTicketExecutionContext } from "./ticket-execution-context.js";
 import { createCodeCacheService } from "../context/code-cache-service.js";
 export { ticketCandidateScope } from "./nodeforge-task-scope.js";
@@ -40,8 +40,7 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
     const paths = [...new Set(changed_paths ?? ["ui/nextjs/README.md"])];
     const reviewBase = base_commit ?? await reviewGitService?.getCommitParent?.(commit);
     const reviewOwnerId = `SUP-REVIEW-${reviewTaskId}`;
-    const reviewProfile = agentResolver.resolveAvailable("reviewer");
-    if (!reviewProfile) throw Object.assign(new ConfigurationError("No enabled and ready Reviewer is available."), { code: "REVIEWER_NOT_AVAILABLE" });
+    const reviewProfile = selectTicketReviewer(agentResolver, ticket);
     const reviewClaim = await agentOccupancy?.claim?.({ agentId: reviewProfile.agent_id, taskId: reviewTaskId, supervisorId: reviewOwnerId, role: "reviewer" });
     if (agentOccupancy && !reviewClaim) throw Object.assign(new ConfigurationError("Reviewer is already working on another ticket."), { code: "REVIEWER_NOT_AVAILABLE" });
     let result;
@@ -78,22 +77,9 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
     const standalone = payload.direct_code === true || Boolean(payload.tool_test);
     const reviewResume = payload.review_resume ?? null;
     const baseCommit = standalone ? null : reviewResume ? reviewResume.base_commit ?? workspace?.base_commit ?? null : workspace?.base_commit ?? payload.review_base_commit ?? await gitService?.getHead?.() ?? null;
-    let selected = reviewResume
-      ? agentResolver.list?.("coder")?.find((profile) => profile.agent_id === reviewResume.agent_id && profile.provider === reviewResume.provider && profile.enabled)
-      : payload.direct_code === true ? selectDirectCoder(agentResolver, payload.resume_from) : agentResolver.resolveAvailable(required_role ?? ticket.required_role);
     const ownerId = supervisorManager.getByTask?.(taskId)?.supervisorId ?? `SUP-${taskId}`;
     const executionContext = await prepareTicketExecutionContext({ workspace, taskId, supervisorId: ownerId, ticket });
-    let claim = null;
-    if (agentOccupancy && (required_role ?? ticket.required_role) === "coder") {
-      const existing = agentOccupancy.getByTask(taskId);
-      const candidates = existing ? [existing.agent_id] : reviewResume ? [selected?.agent_id] : [selected?.agent_id, ...(agentResolver.list?.("coder") ?? []).filter((profile) => profile.enabled && profile.status === "ready").map((profile) => profile.agent_id)];
-      for (const agentId of [...new Set(candidates.filter(Boolean))]) {
-        if (payload.resume_from?.agent_id && agentId !== payload.resume_from.agent_id) continue;
-        claim = await agentOccupancy.claim({ agentId, taskId, supervisorId: ownerId });
-        if (claim) { selected = agentResolver.list?.("coder")?.find((profile) => profile.agent_id === agentId) ?? selected; break; }
-      }
-    }
-    if (agentOccupancy && (required_role ?? ticket.required_role) === "coder" && !claim) throw Object.assign(new ConfigurationError("No unclaimed READY Coder is available."), { code: "AGENT_NOT_AVAILABLE" });
+    const { selected, claim } = await selectTicketCoder({ resolver: agentResolver, occupancy: agentOccupancy, ticket, taskId, ownerId, role: required_role ?? ticket.required_role, payload });
     if (!selected) throw Object.assign(new ConfigurationError("No enabled and ready Agent Profile is available."), { code: "AGENT_NOT_AVAILABLE" });
     const request = {
       task_id: task_id ?? ticket.id,
@@ -146,25 +132,19 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
           if (!ticketRuntime.reviewer) throw Object.assign(new ConfigurationError("Independent review is unavailable."), { code: "REVIEW_WORKER_UNAVAILABLE" });
           if (!reviewerClaim && agentOccupancy) {
             const existingReviewClaim = agentOccupancy.getByTask(taskId, "reviewer");
-            const reviewerProfile = existingReviewClaim
-              ? agentResolver.list?.("reviewer")?.find((profile) => profile.agent_id === existingReviewClaim.agent_id && profile.enabled)
-              : agentResolver.resolveAvailable("reviewer");
-            if (!reviewerProfile) throw Object.assign(new ConfigurationError("No enabled and ready Reviewer is available."), { code: "REVIEWER_NOT_AVAILABLE" });
+            const reviewerProfile = selectTicketReviewer(agentResolver, ticket, existingReviewClaim);
             reviewerClaim = await agentOccupancy.claim({ agentId: reviewerProfile.agent_id, taskId, supervisorId: ownerId, role: "reviewer" });
-            if (!reviewerClaim) throw Object.assign(new ConfigurationError("Reviewer is already working on another ticket."), { code: "REVIEWER_NOT_AVAILABLE" });
+            if (!reviewerClaim || ticket.execution_contract?.reviewer && reviewerClaim.agent_id !== ticket.execution_contract.reviewer) throw Object.assign(new ConfigurationError("Reviewer is already working on another ticket."), { code: "REVIEWER_NOT_AVAILABLE" });
             projectLogger({ event_name: "supervisor.reviewer_claimed", level: "info", status: "started", message: "Supervisor claimed Reviewer for ticket review.", task_id: taskId, correlation_id: request.correlation_id, source: "nodeforge-task-integration", payload: { request_id: reviewCheckpoint.request_id, agent_id: reviewerProfile.agent_id, agent_name: reviewerProfile.agent_name, role: "reviewer", claim_id: reviewerClaim.claim_id } });
           }
-          const claimedReviewer = reviewerClaim
-            ? agentResolver.list?.("reviewer")?.find((profile) => profile.agent_id === reviewerClaim.agent_id)
-            : agentResolver.resolveAvailable("reviewer");
-          if (!claimedReviewer) throw Object.assign(new ConfigurationError("Claimed Reviewer profile is unavailable."), { code: "REVIEWER_NOT_AVAILABLE" });
+          const claimedReviewer = selectTicketReviewer(agentResolver, ticket, reviewerClaim);
           reviewCheckpoint.reviewer_id = claimedReviewer?.agent_id ?? null;
           reviewCheckpoint.reviewer_name = claimedReviewer?.agent_name ?? null;
           reviewCheckpoint.provider = claimedReviewer?.provider ?? null;
           reviewCheckpoint.changed_paths = reviewedPaths;
           await checkpoints?.saveReview?.(reviewCheckpoint);
           projectLogger({ event_name: "review.checkpoint_saved", level: "info", status: "started", message: "Reviewer checkpoint saved before SDK dispatch.", task_id: taskId, correlation_id: request.correlation_id, source: "nodeforge-task-integration", payload: { request_id: reviewCheckpoint.request_id, agent_id: reviewCheckpoint.reviewer_id, agent_name: reviewCheckpoint.reviewer_name, reviewer_id: reviewCheckpoint.reviewer_id, provider: reviewCheckpoint.provider, attempt: revision } });
-          verdict = await ticketRuntime.reviewer.review({ task_id: taskId, correlation_id: request.correlation_id, request_id: `${request.request_id}-REVIEW-${revision}`, attempt: attempt + revision, agent_id: selected.agent_id, reviewer_id: reviewerClaim?.agent_id, payload: { ticket, execution_context: reviewedContext, changed_paths: reviewedPaths, base_commit: baseCommit, verification: reviewEvidence ?? { coder_summary: result.summary, tool_events: result.tool_events } } });
+          verdict = await ticketRuntime.reviewer.review({ task_id: taskId, correlation_id: request.correlation_id, request_id: `${request.request_id}-REVIEW-${revision}`, attempt: attempt + revision, agent_id: selected.agent_id, reviewer_id: claimedReviewer.agent_id, payload: { ticket, execution_context: reviewedContext, changed_paths: reviewedPaths, base_commit: baseCommit, verification: reviewEvidence ?? { coder_summary: result.summary, tool_events: result.tool_events } } });
           if (workspace?.reviewFindings) await workspace.reviewFindings.recordReview({ verdict: verdict.verdict, findings: verdict.findings, artifactId: reviewEvidence.artifact_id, commitSha: reviewEvidence.commit_sha });
           await checkpoints?.completeReview?.(taskId, { ...reviewCheckpoint, status: "completed", verdict: verdict.verdict, findings: verdict.findings, reviewer_id: verdict.reviewer_id });
           if (verdict.verdict === "approved") await recordShadow("review.approved", taskId, request, { ...verdict, verification: reviewEvidence, reviewer_id: verdict.reviewer_id });

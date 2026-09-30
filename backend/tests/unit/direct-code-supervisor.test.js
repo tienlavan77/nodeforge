@@ -71,7 +71,9 @@ test("direct Code resume selects the original provider profile", async () => {
 
 for (const retainedReviewer of [false, true]) test(`ticket Coder remains claimed through review and approval with ${retainedReviewer ? "a retained" : "a ready"} Reviewer`, async () => {
   const coder = { agent_id: "coder-1", agent_name: "Coder", role: "coder", provider: "codex", enabled: true, status: "ready" };
+  const otherCoder = { ...coder, agent_id: "coder-earlier" };
   const reviewer = { agent_id: "reviewer-1", agent_name: "Reviewer", role: "reviewer", provider: "codex", enabled: true, status: retainedReviewer ? "working" : "ready" };
+  const otherReviewer = { ...reviewer, agent_id: "reviewer-earlier", status: "ready" };
   const published = []; const releases = []; const coderRequests = []; const reviewCheckpoints = [];
   let active = null; let reviewerClaim = retainedReviewer ? { claim_id: "REVIEW-CLAIM-1", agent_id: reviewer.agent_id, task_id: "TASK-REVIEW", supervisor_id: "SUP-TASK-REVIEW" } : null; let reviews = 0;
   const gateway = { execute: async (input) => {
@@ -86,15 +88,16 @@ for (const retainedReviewer of [false, true]) test(`ticket Coder remains claimed
   } };
   const integration = createNodeforgeTaskIntegration({
     projectRoot: process.cwd(), supervisorManager: { startTask: async () => ({}) }, eventBus: { publish: async (event) => published.push(event) },
-    agentResolver: { list: (role) => role === "coder" ? [coder] : [coder, reviewer], resolveAvailable: (role) => role === "reviewer" ? retainedReviewer ? undefined : reviewer : coder },
+    agentResolver: { list: (role) => role === "coder" ? [otherCoder, coder] : [otherReviewer, reviewer], resolveAvailable: (role) => role === "reviewer" ? otherReviewer : otherCoder },
     agentOccupancy: { getByTask: (_taskId, role) => role === "reviewer" ? reviewerClaim : active, claim: async ({ agentId, taskId, supervisorId, role }) => { if (role === "reviewer") { reviewerClaim ??= { claim_id: "REVIEW-CLAIM-1", agent_id: agentId, task_id: taskId, supervisor_id: supervisorId }; return reviewerClaim; } active ??= { claim_id: "CLAIM-1", agent_id: agentId, task_id: taskId, supervisor_id: supervisorId }; return active; }, release: async (input) => { releases.push(input); if (input.claimId === "REVIEW-CLAIM-1") reviewerClaim = null; else active = null; } },
     handoffQueue: { enqueue: async () => ({ id: "JOB-1" }) }, toolRegistry: { write_diff: { execute: async () => ({}) }, commit_changes: { execute: async () => ({}) }, report_done: { execute: async () => ({}) } },
     runtimeGovernance: { createExecutionContext: (input) => input }, checkpointStore: { load: async () => ({ changed_paths: ["backend/src/a.js"], status: "completed" }), save: async () => {}, saveReview: async (entry) => reviewCheckpoints.push(entry), completeReview: async () => {} },
     fileService: { readForIndex: async ({ path }) => ({ path, content: "export const value = true;", sha256: "sha256:abc", size_bytes: 26 }) }, codexSdkGateway: gateway
   });
-  const ticket = { id: "TASK-REVIEW", project_id: "PROJECT", objective: "Update backend/src/a.js", acceptance_criteria: ["Handle empty input"], required_role: "coder" };
+  const ticket = { id: "TASK-REVIEW", project_id: "PROJECT", objective: "Update backend/src/a.js", acceptance_criteria: ["Handle empty input"], required_role: "coder", execution_contract: { coder: coder.agent_id, reviewer: reviewer.agent_id } };
   const result = await integration.submitTicket({ ticket, task_id: ticket.id, request_id: "REQ-1", correlation_id: "CORR-1", required_role: "coder", payload: { text: ticket.objective } });
   assert.equal(result.status, "completed");
+  assert.equal(result.agent_id, coder.agent_id);
   assert.equal(coderRequests.length, 2);
   assert.match(coderRequests[1].prompt, /Handle empty input/);
   assert.equal(releases.length, 2);
