@@ -1,6 +1,6 @@
 // Provides sandboxed file I/O with secret/protected path checks, atomic writes, and optional indexing/verification hooks.
-import { mkdir, readFile as fsReadFile, readdir, stat, unlink, writeFile as fsWriteFile, link, rename, rmdir, open as fsOpen } from "node:fs/promises";
-import { appendFileSync as fsAppendFileSync, mkdirSync, statSync, readFileSync as fsReadFileSync, writeFileSync, renameSync, unlinkSync, openSync, closeSync, readSync } from "node:fs";
+import { chmod, mkdir, readFile as fsReadFile, readdir, stat, unlink, writeFile as fsWriteFile, link, rename, rmdir, open as fsOpen } from "node:fs/promises";
+import { appendFileSync as fsAppendFileSync, chmodSync, mkdirSync, statSync, readFileSync as fsReadFileSync, writeFileSync, renameSync, unlinkSync, openSync, closeSync, readSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from "node:path";
 import picomatch from "picomatch";
@@ -18,7 +18,6 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
   const ignoreMatch = picomatch(watcherIgnore, { dot: true });
   let queue = Promise.resolve();
   return Object.freeze({ writeFile, atomicCreate, atomicWrite, atomicWriteSync, appendFile, appendFileSync, createLock, createLockSync, readFile, readFileSync, readFileRangeSync, readForIndex, deleteFile, removeEmptyDirectory, renameFile, listFiles, listDirectories });
-
   function writeFile(input) {
     const job = queue.then(() => write(input));
     queue = job.catch((error) => { logCleanup("queued write", error); });
@@ -42,7 +41,8 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
     const temporary = `${destination}.tmp-${randomUUID()}`;
     await mkdir(dirname(destination), { recursive: true });
     try {
-      await fsWriteFile(temporary, content, { encoding: "utf8", mode: 0o600, flag: "wx" });
+      let mode = 0o600; if (replace) try { mode = (await stat(destination)).mode & 0o7777; } catch (error) { if (error.code !== "ENOENT") throw error; }
+      await fsWriteFile(temporary, content, { encoding: "utf8", mode, flag: "wx" }); await chmod(temporary, mode);
       if (replace) await rename(temporary, destination);
       else await link(temporary, destination);
     } catch (error) {
@@ -68,7 +68,8 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
     const temporary = `${destination}.tmp-${randomUUID()}`;
     mkdirSync(dirname(destination), { recursive: true });
     try {
-      writeFileSync(temporary, content, { encoding: "utf8", mode: input.mode ?? 0o600, flag: "wx" });
+      let mode = input.mode ?? 0o600; try { mode = statSync(destination).mode & 0o7777; } catch (error) { if (error.code !== "ENOENT") throw error; }
+      writeFileSync(temporary, content, { encoding: "utf8", mode, flag: "wx" }); chmodSync(temporary, mode);
       renameSync(temporary, destination);
     } finally {
       try { unlinkSync(temporary); } catch (error) { if (error.code !== "ENOENT") process.stderr.write(`FileService temp cleanup failed: ${error.message}\n`); }
@@ -238,7 +239,6 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
     if (Array.isArray(commit.allowed_change_areas) && !commit.allowed_change_areas.some((pattern) => picomatch.isMatch(rel, pattern, { dot: true }))) throw new ConfigurationError("File path is outside commit allowed_change_areas.");
   }
 }
-
 // Maps a file extension to its language identifier for indexing metadata.
 function languageForPath(path) {
   return ({ ".js": "javascript", ".jsx": "javascript", ".ts": "typescript", ".tsx": "typescript", ".mjs": "javascript", ".cjs": "javascript", ".json": "json", ".css": "css", ".scss": "scss", ".md": "markdown", ".php": "php" })[extname(path).toLowerCase()] ?? null;
