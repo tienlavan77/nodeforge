@@ -11,6 +11,13 @@ test("TestService runs checks through the orchestrator and publishes result", as
   assert.equal(events.at(-1).type, "verification.result");
 });
 
+test("runTests uses the unit-test baseline when callers provide no levels", async () => {
+  const calls = [];
+  const service = createTestService({ projectRoot: "/tmp/project", verificationOrchestrator: { run: async (plan) => { calls.push(plan); return { status: "passed" }; } } });
+  await service.runTests({ commitId: "COMMIT-1", levels: [] });
+  assert.equal(calls[0].checks[0].type, "unit_test");
+});
+
 const settle = async () => { for (let i = 0; i < 10; i += 1) await new Promise((resolve) => setTimeout(resolve, 0)); };
 
 test("startTests returns a job_id immediately and getTestResult reports running then passed", async () => {
