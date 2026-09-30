@@ -118,7 +118,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       bus.send(responseMessage(message, streamEventType(agentId, "message.received"), { text: result.payload?.text, response_id: result.payload?.response_id, agent_status: "COMPLETED" }));
       await onAgentCompleted?.({ message, agentId, text: result.payload?.text ?? "" });
     } catch (error) {
-      bus.send(responseMessage(message, streamEventType(agentId, "error"), { error: error.message, agent_status: "FAILED" }));
+      bus.send(responseMessage(message, streamEventType(agentId, "error"), { error: { code: error.code ?? "AGENT_ERROR", message: error.message }, agent_status: "FAILED" }));
     }
   }
   function persistProtocolMessage(message, round, direction) {

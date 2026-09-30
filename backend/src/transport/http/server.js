@@ -2,6 +2,7 @@
 import { createServer } from "node:http";
 
 import { ConfigurationError } from "../../shared/errors.js";
+import { formatErrorBody } from "../../shared/error-contract.js";
 
 // Creates the HTTP API handler with SSE and route support.
 export function createHttpApi({ ownerChatService, conversationStream, projectStream, architectureWorkspaceService, projectDashboardService, conversationAuditHistoryService, humanDecisionService, agentSettingsService, sprintPlanUploadService, sprintOrchestrationService, dispatchSprint, dispatchTicket, ticketRunner, forgeV1Router } = {}) {
@@ -68,10 +69,13 @@ export function createHttpApi({ ownerChatService, conversationStream, projectStr
       const result = await route(request.method ?? "GET", url, request);
       writeJson(response, result.status, result.body, origin);
     } catch (error) {
-      // SSE may have already sent headers before a disconnect/error; never
-      // attempt a second response that would crash the Control API process.
-      if (!response.headersSent && !response.writableEnded) writeJson(response, error.statusCode ?? 400, { error: error.message }, request.headers?.origin);
-      else response.destroy?.();
+      if (!response.headersSent && !response.writableEnded) {
+        const status = error.statusCode ?? 400;
+        const body = formatErrorBody({ error, statusCode: status, requestId: request.headers?.["x-request-id"], correlationId: request.headers?.["x-correlation-id"], fallbackMessage: error.message });
+        writeJson(response, status, body, request.headers?.origin);
+      } else {
+        response.destroy?.();
+      }
     }
   }
   async function route(method, url, request) {

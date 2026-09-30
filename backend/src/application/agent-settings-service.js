@@ -1,14 +1,42 @@
 // Manages agent profiles, validation, and gateway connectivity.
+// Aligns agent error retry semantics with UI normalization and redacts sensitive diagnostics.
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../shared/errors.js";
+import { normalizeErrorContract } from "../shared/error-contract.js";
 
-const PROVIDERS = Object.freeze(["codex", "claude", "openai", "anthropic", "ollama", "custom"]);
+// Aligned with frontend ui-error and backend test-service retry semantics (non-retryable = client/config errors).
+const NON_RETRYABLE_AGENT_CODES = new Set(["INPUT_INVALID", "TEST_JOB_NOT_FOUND", "TEST_JOB_FORBIDDEN", "CONFIGURATION_ERROR", "VALIDATION_ERROR"]);
+
+// Redacts secrets, URLs and stack traces from agent error messages for safe display.
+function redactAgentMessage(raw) {
+  if (typeof raw !== "string") return raw ?? "Agent operation failed.";
+  let text = raw.trim();
+  if (!text) return "Agent operation failed.";
+  text = text.split(/\n\s*at\s+/)[0].split(/stack trace/i)[0].trim();
+  text = text.replace(/https?:\/\/[^\s]+/gi, "[REDACTED_URL]");
+  text = text.replace(/(api[_-]?key|secret|token|password|authorization)[=:]\\s*[^\s]+/gi, "$1=[REDACTED]");
+  text = text.replace(/Bearer [A-Za-z0-9._-]+/gi, "Bearer [REDACTED]");
+  if ((text.startsWith("{") || text.startsWith("[")) && text.length > 280) text = text.slice(0, 280);
+  text = text.split(/\r?\n/)[0].replace(/\s+/g, " ").slice(0, 280);
+  return text || "Agent operation failed.";
+}
+
+// Normalizes agent errors to a safe contract preserving request IDs and retry semantics aligned with UI.
+export function normalizeAgentError(error, { requestId } = {}) {
+  const source = typeof error === "string" ? { message: error } : error ?? {};
+  const code = String(source.code ?? (typeof error === "string" ? "UNKNOWN" : "CONFIGURATION_ERROR")).toUpperCase();
+  const retryable = source.retryable ?? !NON_RETRYABLE_AGENT_CODES.has(code);
+  return normalizeErrorContract({ error: { ...source, code, message: redactAgentMessage(source.message ?? String(error ?? "")), retryable: Boolean(retryable) }, requestId: requestId ?? source.requestId, fallbackMessage: "Agent operation failed." });
+}
+
+const PROVIDERS = Object.freeze(["codex", "claude", "openai", "anthropic", "ollama", "custom", "xai", "alibaba", "zhipu", "deepseek"]);
+const OPENAI_COMPATIBLE_PROVIDERS = new Set(["xai", "alibaba", "zhipu", "deepseek"]);
 const STATUSES = Object.freeze(["ready", "working", "not_connected"]);
 const TEAMS = Object.freeze(["Backend", "Frontend", "Security"]);
 // Keep persisted agent.team values aligned with the Agents UI Team selector options.
 
 // Creates a service for managing agent profiles and syncing gateway configuration.
-export function createAgentSettingsService({ profiles, configuration, gateway, claudeSdkGateway, codexSdkGateway, ollamaSdkGateway, now = () => new Date().toISOString(), secretStore = new Map() } = {}) {
+export function createAgentSettingsService({ profiles, configuration, gateway, claudeSdkGateway, codexSdkGateway, openaiSdkGateway, ollamaSdkGateway, now = () => new Date().toISOString(), secretStore = new Map() } = {}) {
   if (typeof profiles?.create !== "function" || typeof profiles?.update !== "function" || typeof profiles?.delete !== "function" || typeof profiles?.getAll !== "function" || typeof profiles?.getById !== "function") throw new ConfigurationError("Agent Settings requires an Agent Profile Store.");
   if (typeof configuration?.sync !== "function") throw new ConfigurationError("Agent Settings requires Node Agent Configuration.");
   if (typeof gateway?.testConnection !== "function") throw new ConfigurationError("Agent Settings requires an Agent Gateway.");
@@ -68,6 +96,11 @@ export function createAgentSettingsService({ profiles, configuration, gateway, c
         correlationId: `CONNECTION-${resolvedId}`,
         prompt: "Health check. Respond with OK."
       });
+      return { agent_id: resolvedId, status: "CONNECTED", gateway_url: current.gateway_url };
+    }
+    if (OPENAI_COMPATIBLE_PROVIDERS.has(provider)) {
+      if (typeof openaiSdkGateway?.execute !== "function") throw new ConfigurationError("OpenAI-compatible SDK gateway is unavailable.");
+      await openaiSdkGateway.execute({ agent: current, correlationId: `CONNECTION-${resolvedId}`, prompt: "Health check. Respond with OK." });
       return { agent_id: resolvedId, status: "CONNECTED", gateway_url: current.gateway_url };
     }
     const result = await gateway.testConnection(resolvedId);
@@ -148,7 +181,7 @@ function normalizeTeam(team) {
 }
 
 // Resolves or generates a UUID for the agent profile.
-function resolveAgentId(agentId, role) {
+function resolveAgentId(agentId) {
   if (agentId !== undefined && (typeof agentId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(agentId))) {
     throw new ConfigurationError("Agent id must be a UUID.");
   }
