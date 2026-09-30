@@ -41,7 +41,9 @@ export function createTestService({ verificationOrchestrator, fileService, timeo
   void fileService;
   const jobs = new Map();
   let jobSequence = 0;
-  return Object.freeze({ runTests, runLint, runTypecheck, startTests, getTestResult });
+  return Object.freeze({ runTests, runLint, runTypecheck, runSchemaValidation, startTests, getTestResult });
+  // Runs schema validation so immutable archive verification covers API contracts without a checkout.
+  async function runSchemaValidation({ commitId, taskId, sessionId } = {}) { return run({ commitId, levels: ["schema_validation"], taskId, sessionId }); }
   async function runTests({ commitId, levels = ["unit_test"], taskId, sessionId, command } = {}) {
     const verificationLevels = Array.isArray(levels) && levels.length > 0 ? levels : ["unit_test"];
     return run({ commitId, levels: verificationLevels, taskId, sessionId, command });
