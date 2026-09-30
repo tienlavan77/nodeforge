@@ -26,6 +26,15 @@ test("signed Coder unavailable prevents claim or fallback dispatch", async () =>
   assert.equal(claims, 0);
 });
 
+test("resume reuses the signed Coder's retained working claim", async () => {
+  const retained = { claim_id: "retained", agent_id: signedCoder.agent_id };
+  const resolver = { list: () => [earlyCoder, { ...signedCoder, status: "working" }], resolveAvailable: () => earlyCoder };
+  const occupancy = { getByTask: () => retained, claim: async ({ agentId }) => agentId === signedCoder.agent_id ? retained : null };
+  const result = await selectTicketCoder({ resolver, occupancy, ticket, taskId: "A5", ownerId: "SUP-A5", role: "coder", payload: { resume_from: { agent_id: signedCoder.agent_id } } });
+  assert.equal(result.selected.agent_id, signedCoder.agent_id);
+  assert.equal(result.claim.claim_id, retained.claim_id);
+});
+
 test("review binds to its signed Reviewer and rejects another retained claim", () => {
   const resolver = { list: () => [earlyReviewer, signedReviewer], resolveAvailable: () => earlyReviewer };
   assert.equal(selectTicketReviewer(resolver, ticket).agent_id, signedReviewer.agent_id);
