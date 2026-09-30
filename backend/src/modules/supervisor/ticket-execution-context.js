@@ -18,12 +18,19 @@ export function createTicketExecutionContextStore({ fileService, projectId, proj
     if (!SAFE_ID.test(taskId ?? "")) throw fail("TICKET_CONTEXT_ID_INVALID", "Ticket context task ID is unsafe.");
     return `${directory}/${taskId}.json`;
   };
-  return Object.freeze({ create, load, update, syncManifest, manifestIdentity });
+  return Object.freeze({ create, load, update, syncManifest, assertApprovedPath, manifestIdentity });
 
   // Loads a persisted context after retry or process restart.
   async function load(taskId) {
     try { return JSON.parse(await fileService.readFile({ path: pathFor(taskId) })); }
     catch (error) { if (error.code === "ENOENT") return null; throw error; }
+  }
+
+  // Rejects writes outside the approved source scope before the root ledger changes a file.
+  async function assertApprovedPath(taskId, path) {
+    const current = await load(taskId);
+    if (!current) throw fail("TICKET_CONTEXT_MISSING", "Ticket context does not exist.");
+    if (current.approved_baseline && !Object.hasOwn(current.approved_baseline.file_checksums, path)) throw fail("TICKET_BASELINE_SCOPE", "Ticket write path is outside the approved baseline manifest.");
   }
 
   // Creates the context once before dispatch, rejecting a changed owner or baseline.

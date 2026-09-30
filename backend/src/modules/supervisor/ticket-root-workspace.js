@@ -110,7 +110,7 @@ export function createTicketRootWorkspace({ projectRoot, projectId, protocolStor
     const identity = await ensure(taskId);
     const committedFiles = createTicketCommitFileService({ taskId, projectRoot, executionContexts });
     const rootGit = createTicketRootCommitService({ taskId, projectId, projectRoot, fileService: stateFileService, ledger, gitService: git, expectedBranch: identity.branch, projectLogger });
-    const changeLedger = { write: (change) => ledger.write({ ...change, taskId }), snapshot: () => ledger.snapshot(taskId), release: () => ledger.release(taskId) };
+    const changeLedger = { write: async (change) => { await executionContexts.assertApprovedPath(taskId, change.path); return ledger.write({ ...change, taskId }); }, snapshot: () => ledger.snapshot(taskId), release: () => ledger.release(taskId) };
     const freshnessChecker = createIndexFreshnessChecker({ database: indexDatabase, fileService: stateFileService });
     const relevantTreeSelector = createRelevantTreeSelector({ search: codeSearch, fileGraph, freshnessChecker });
     const testService = createTicketVerificationService({ taskId, projectId, projectRoot, worktreeRoot: projectRoot, worktreeFileService: stateFileService, stateFileService, gitService: rootGit, ledger, executionContexts, rootOnly: true, projectLogger });
