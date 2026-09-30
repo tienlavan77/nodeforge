@@ -13,7 +13,7 @@ const taskId = "NF-PIPE-ERR-005-A5-R2";
 const sha = (value) => createHash("sha256").update(value).digest("hex");
 
 // Creates a real clean checkout and a durable receipt for context and retry tests.
-async function fixture(action) {
+async function fixture(action, ticketId = taskId) {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-a5-baseline-"));
   const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
   try {
@@ -23,14 +23,14 @@ async function fixture(action) {
     git("init", "-q", "-b", "ui-chat");
     git("add", ".gitignore", "source.js");
     git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "baseline");
-    const contract = { supervisor: `SUP-${taskId}`, human_authority: "PROJECT-OWNER", gate: "shadow", ledger_revision: "revision-1", idempotency_key: "a5-r2", verification_plan: ["Verify"] };
+    const contract = { supervisor: `SUP-${ticketId}`, human_authority: "PROJECT-OWNER", gate: "shadow", ledger_revision: "revision-1", idempotency_key: "a5-r2", verification_plan: ["Verify"] };
     const checksums = { "source.js": sha("export const value = 1;\n") };
-    const receipt = { status: "approved", ticket_id: taskId, project_id: "PROJECT-TEST", branch: "ui-chat", source_sha: git("rev-parse", "HEAD"), source_tree_sha: git("rev-parse", "HEAD^{tree}"), execution_root: root, file_checksums: checksums, manifest_sha256: sha(`source.js\t${checksums["source.js"]}\n`), contract, verification_plan: contract.verification_plan, migration_manifest_path: ".forge/runtime/migration.json", migration_manifest_sha256: sha("{}"), approved_by: "PROJECT-OWNER", approval_recorded_at: "2026-09-30T00:00:00Z" };
+    const receipt = { status: "approved", ticket_id: ticketId, project_id: "PROJECT-TEST", branch: "ui-chat", source_sha: git("rev-parse", "HEAD"), source_tree_sha: git("rev-parse", "HEAD^{tree}"), execution_root: root, file_checksums: checksums, manifest_sha256: sha(`source.js\t${checksums["source.js"]}\n`), contract, verification_plan: contract.verification_plan, migration_manifest_path: ".forge/runtime/migration.json", migration_manifest_sha256: sha("{}"), approved_by: "PROJECT-OWNER", approval_recorded_at: "2026-09-30T00:00:00Z" };
     await fileService.atomicWrite({ path: receipt.migration_manifest_path, content: "{}", replace: true });
-    await fileService.atomicWrite({ path: `.forge/runtime/ticket-baselines/${taskId}.json`, content: JSON.stringify(receipt), replace: true });
+    await fileService.atomicWrite({ path: `.forge/runtime/ticket-baselines/${ticketId}.json`, content: JSON.stringify(receipt), replace: true });
     const open = () => createTicketExecutionContextStore({ fileService, projectId: "PROJECT-TEST", projectRoot: root });
     const workspace = (store = open()) => ({ root_only: true, projectRoot: root, fileService, branch: "ui-chat", base_commit: receipt.source_sha, executionContexts: store, changeLedger: { snapshot: async () => ({ revision: 0, entries: {}, commits: {} }) } });
-    await action({ root, git, fileService, receipt, workspace, ticket: { id: taskId, project_id: "PROJECT-TEST", rollout_package: "A5", execution_contract: contract } });
+    await action({ root, git, fileService, receipt, workspace, ticket: { id: ticketId, project_id: "PROJECT-TEST", rollout_package: "A5", execution_contract: contract } });
   } finally { await rm(root, { recursive: true, force: true }); }
 }
 
@@ -42,6 +42,19 @@ test("A5-R2 baseline persists and resumes with an immutable file scope", () => f
   assert.deepEqual(resumed, first);
   await assert.rejects(workspace().executionContexts.syncManifest(taskId, { revision: 1, entries: { "other.js": { initial_sha: null, latest_sha: "sha256:new" } } }), { code: "TICKET_BASELINE_SCOPE" });
 }));
+
+// Binds the retry context to the blocked predecessor rather than recycling its evidence.
+test("A5 retry requires a blocked predecessor receipt", () => fixture(async ({ fileService, receipt, workspace, ticket }) => {
+  const retryId = "NF-PIPE-ERR-005-A5-R3";
+  const predecessor = "NF-PIPE-ERR-005-A5-R2";
+  const retryTicket = { ...ticket, provenance: { source_id: predecessor } };
+  await assert.rejects(prepareTicketExecutionContext({ workspace: workspace(), taskId: retryId, supervisorId: receipt.contract.supervisor, ticket: retryTicket }), { code: "TICKET_BASELINE_PREVIOUS_RUN" });
+  const previous_run = { task_id: predecessor, status: "blocked", context_version: 2, ledger_revision: 2 };
+  await fileService.atomicWrite({ path: `.forge/runtime/ticket-baselines/${retryId}.json`, content: JSON.stringify({ ...receipt, previous_run }), replace: true });
+  await fileService.atomicWrite({ path: `.forge/runtime/ticket-run-dispositions/${predecessor}-run1.json`, content: JSON.stringify({ run_status: "blocked", reason: "invalid-before-review", accepted_change: false }), replace: true });
+  const context = await prepareTicketExecutionContext({ workspace: workspace(), taskId: retryId, supervisorId: receipt.contract.supervisor, ticket: retryTicket });
+  assert.deepEqual(context.approved_baseline.previous_run, previous_run);
+}, "NF-PIPE-ERR-005-A5-R3"));
 
 // Rejects a dirty checkout and altered contract without creating an execution context.
 test("A5-R2 baseline fails closed on Git or ticket drift", () => fixture(async ({ root, receipt, workspace, ticket }) => {
