@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createReviewWorker } from "../../src/modules/supervisor/review-worker.js";
+import { createTicketWorkspaceRuntime } from "../../src/modules/supervisor/ticket-workspace-runtime.js";
 
 // Supplies a read-only Reviewer and captures the prompt sent through the SDK.
 function harness({ text = '{"verdict":"approved","findings":[]}', sourceSize = 12, staleOnSecondRead = false, patch = "" } = {}) {
@@ -45,6 +46,25 @@ test("Reviewer reads local role rules while source remains bound to the committe
   });
   await worker.review({ task_id: "TASK-1", agent_id: "coder-1", payload: { ticket: { id: "TASK-1" }, changed_paths: ["src/a.js"] } });
   assert.deepEqual(sourceReads, ["src/a.js", "src/a.js"]);
+  assert.deepEqual(rulesReads, ["workflows/agents/reviewer.md"]);
+  assert.match(prompt, /Review the verified commit/);
+});
+
+// Ensures the Supervisor's ticket runtime passes local policy to its Reviewer.
+test("ticket runtime wires local Reviewer policy separately from committed source", async () => {
+  const sourceReads = [];
+  const rulesReads = [];
+  let prompt;
+  const source = { readForIndex: async ({ path }) => { sourceReads.push(path); return { path, sha256: "sha256:source", size_bytes: 12, content: "const ok = 1;" }; } };
+  const rules = { readForIndex: async ({ path }) => { rulesReads.push(path); return { path, content: "Review the verified commit." }; } };
+  const runtime = createTicketWorkspaceRuntime({
+    workspace: { projectRoot: "/project", path: "/project", base_commit: "a".repeat(40), branch: "ui-chat", worktreeFileService: source, fileService: rules, toolRegistry: {}, gitService: {}, executionContexts: null, testService: null },
+    gateways: { openaiSdkGateway: { execute: async ({ prompt: value }) => { prompt = value; return { text: '{"verdict":"approved","findings":[]}' }; } } },
+    agentResolver: { resolveAvailable: () => ({ agent_id: "reviewer-1", agent_name: "Leader", provider: "openai", role: "reviewer" }) },
+    runtimeGovernance: {}, projectLogger: () => {}
+  });
+  await runtime.reviewer.review({ task_id: "TASK-1", agent_id: "coder-1", payload: { ticket: { id: "TASK-1" }, changed_paths: ["src/a.js"] } });
+  assert.deepEqual(sourceReads, ["src/a.js"]);
   assert.deepEqual(rulesReads, ["workflows/agents/reviewer.md"]);
   assert.match(prompt, /Review the verified commit/);
 });
