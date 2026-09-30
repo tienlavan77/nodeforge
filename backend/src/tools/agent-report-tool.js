@@ -89,6 +89,7 @@ function hasBackendCriteria(ticket) {
 
 // Detects UI-specific acceptance criteria.
 function hasUiCriteria(ticket) {
+  if (Array.isArray(ticket?.style) && ticket.style.length && !ticket.style.includes("frontend")) return false;
   return (ticket?.acceptance_criteria ?? []).some((criterion) => typeof criterion === "string" && /\b(ui|frontend|front-end|react|next(?:\.js)?|component|button|layout|watcher|header|screen|responsive|modal|dashboard)\b/i.test(criterion));
 }
 
