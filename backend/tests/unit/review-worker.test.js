@@ -31,6 +31,24 @@ test("independent Reviewer approves only an explicit structured verdict", async 
   for (const event of events.filter(({ event_name }) => event_name.startsWith("review."))) assert.equal(event.payload.agent_name, "Leader");
 });
 
+// Loads local Reviewer policy when committed source omits ignored workflow files.
+test("Reviewer reads local role rules while source remains bound to the committed File Service", async () => {
+  const sourceReads = [];
+  const rulesReads = [];
+  let prompt;
+  const worker = createReviewWorker({
+    agentResolver: { resolveAvailable: () => ({ agent_id: "reviewer-1", agent_name: "Leader", provider: "openai", role: "reviewer" }) },
+    openaiSdkGateway: { execute: async ({ prompt: value }) => { prompt = value; return { text: '{"verdict":"approved","findings":[]}' }; } },
+    fileService: { readForIndex: async ({ path }) => { sourceReads.push(path); return { path, sha256: "sha256:source", size_bytes: 12, content: "const ok = 1;" }; } },
+    rulesFileService: { readForIndex: async ({ path }) => { rulesReads.push(path); return { path, content: "Review the verified commit." }; } },
+    projectRoot: "/project"
+  });
+  await worker.review({ task_id: "TASK-1", agent_id: "coder-1", payload: { ticket: { id: "TASK-1" }, changed_paths: ["src/a.js"] } });
+  assert.deepEqual(sourceReads, ["src/a.js", "src/a.js"]);
+  assert.deepEqual(rulesReads, ["workflows/agents/reviewer.md"]);
+  assert.match(prompt, /Review the verified commit/);
+});
+
 test("approval is rejected when source changes while the Reviewer is reading", async () => {
   const { worker } = harness({ staleOnSecondRead: true });
   await assert.rejects(() => worker.review({ task_id: "TASK-1", correlation_id: "CORR-1", request_id: "REVIEW-1", agent_id: "coder-1", payload: { ticket: { id: "TASK-1" }, changed_paths: ["src/a.js"] } }), (error) => error.code === "REVIEW_EVIDENCE_STALE");
