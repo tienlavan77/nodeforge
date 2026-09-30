@@ -10,14 +10,14 @@ function unavailable(role) {
 export async function selectTicketCoder({ resolver, occupancy, ticket, taskId, ownerId, role, payload }) {
   const pinnedId = payload.direct_code || payload.tool_test ? null : ticket.execution_contract?.coder;
   const resume = payload.review_resume;
+  const existing = occupancy && role === "coder" ? occupancy.getByTask(taskId) : null;
   let selected = resume
     ? resolver.list?.("coder")?.find((profile) => profile.agent_id === resume.agent_id && profile.provider === resume.provider && profile.enabled)
     : payload.direct_code ? selectDirectCoder(resolver, payload.resume_from)
-      : pinnedId ? resolver.list?.("coder")?.find((profile) => profile.agent_id === pinnedId && profile.enabled && profile.role === "coder" && profile.status === "ready")
+      : pinnedId ? resolver.list?.("coder")?.find((profile) => profile.agent_id === pinnedId && profile.enabled && profile.role === "coder" && (profile.status === "ready" || existing?.agent_id === pinnedId && profile.status === "working"))
         : resolver.resolveAvailable(role);
   if (pinnedId && selected?.agent_id !== pinnedId) throw unavailable("Coder");
   if (!occupancy || role !== "coder") return { selected, claim: null };
-  const existing = occupancy.getByTask(taskId);
   if (pinnedId && existing && existing.agent_id !== pinnedId) throw unavailable("Coder");
   const candidates = existing ? [existing.agent_id] : pinnedId || resume ? [selected?.agent_id]
     : [selected?.agent_id, ...(resolver.list?.("coder") ?? []).filter((profile) => profile.enabled && profile.status === "ready").map((profile) => profile.agent_id)];
