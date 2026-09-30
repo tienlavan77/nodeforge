@@ -51,12 +51,13 @@ export function createTestService({ verificationOrchestrator, fileService, timeo
   // Async job store: run_test starts a job and returns immediately so long suites
   // do not collide with the SDK per-turn timeout; check_test polls getTestResult.
   function startTests({ commitId, levels = ["unit_test"], taskId, sessionId, command } = {}) {
+    const verificationLevels = Array.isArray(levels) && levels.length > 0 ? levels : ["unit_test"];
     pruneJobs();
     jobSequence += 1;
     const jobId = `TEST-JOB-${jobSequence}`;
     const job = { job_id: jobId, task_id: taskId ?? null, status: "running", started_at: new Date().toISOString() };
     jobs.set(jobId, job);
-    run({ commitId, levels, taskId, sessionId, command, deadlineMs: jobTimeoutMs }).then((result) => {
+    run({ commitId, levels: verificationLevels, taskId, sessionId, command, deadlineMs: jobTimeoutMs }).then((result) => {
       job.status = result?.status === "failed" ? "failed" : "passed";
       job.result = result;
       job.finished_at = new Date().toISOString();
