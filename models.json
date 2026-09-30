@@ -1,0 +1,142 @@
+{
+  "anthropic": [
+    {
+      "name": "Claude Fable 5.1",
+      "id": "claude-fable-5"
+    },
+    {
+      "name": "Claude Opus 5.5",
+      "id": "claude-opus-5-5"
+    },
+    {
+      "name": "Claude Opus 5",
+      "id": "claude-opus-5"
+    },
+    {
+      "name": "Claude Opus 4.8",
+      "id": "claude-opus-4-8"
+    },
+    {
+      "name": "Claude Opus 4.7",
+      "id": "claude-opus-4-7"
+    },
+    {
+      "name": "Claude Opus 4.6",
+      "id": "claude-opus-4-6"
+    },
+    {
+      "name": "Claude Sonnet 5.5",
+      "id": "claude-sonnet-5-5"
+    },
+    {
+      "name": "Claude Sonnet 5",
+      "id": "claude-sonnet-5"
+    },
+    {
+      "name": "Claude Sonnet 5 Standard",
+      "id": "claude-sonnet-5-standard"
+    },
+    {
+      "name": "Claude Sonnet 4.6",
+      "id": "claude-sonnet-4-6"
+    },
+    {
+      "name": "Claude Sonnet 4.5",
+      "id": "claude-sonnet-4-5"
+    },
+    {
+      "name": "Claude Haiku 4.5",
+      "id": "claude-haiku-4-5"
+    }
+  ],
+  "openai": [
+    {
+      "name": "gpt 6 astra",
+      "id": "gpt-6-astra"
+    },
+    {
+      "name": "gpt 6 sol",
+      "id": "gpt-6-sol"
+    },
+    {
+      "name": "gpt 6 luna",
+      "id": "gpt-6-luna"
+    },
+    {
+      "name": "gpt 5.6 sol",
+      "id": "gpt-5.6-sol"
+    },
+    {
+      "name": "gpt 5.6 terra",
+      "id": "gpt-5.6-terra"
+    },
+    {
+      "name": "gpt 5.6 luna",
+      "id": "gpt-5.6-luna"
+    },
+    {
+      "name": "gpt 5.5",
+      "id": "gpt-5.5"
+    },
+    {
+      "name": "gpt 5.5 pro",
+      "id": "gpt-5.5-pro"
+    },
+    {
+      "name": "gpt 5.4",
+      "id": "gpt-5.4"
+    },
+    {
+      "name": "gpt 5.4 mini",
+      "id": "gpt-5.4-mini"
+    },
+    {
+      "name": "gpt 5.4 nano",
+      "id": "gpt-5.4-nano"
+    },
+    {
+      "name": "gpt 5.4 pro",
+      "id": "gpt-5.4-pro"
+    }
+  ],
+  "xai": [
+    {
+      "name": "grok 4.6",
+      "id": "grok-4.6"
+    },
+    {
+      "name": "grok 4.7",
+      "id": "grok-4.7"
+    }
+  ],
+  "alibaba": [
+    {
+      "name": "qwen 3.8 max",
+      "id": "qwen-3.8-max"
+    }
+  ],
+  "zhipu": [
+    {
+      "name": "glm 5.3",
+      "id": "glm-5.3"
+    },
+    {
+      "name": "glm 5.3 flash",
+      "id": "glm-5.3-flash"
+    }
+  ],
+  "deepseek": [
+    {
+      "name": "deepseek v4 flash",
+      "id": "deepseek-v4-flash"
+    },
+    {
+      "name": "deepseek v4 flash vision exp",
+      "id": "deepseek-v4-flash-vision-exp"
+    },
+    {
+      "name": "deepseek v4 pro",
+      "id": "deepseek-v4-pro"
+    }
+  ]
+}

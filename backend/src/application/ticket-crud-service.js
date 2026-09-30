@@ -2,14 +2,14 @@
 /* TICKET-PROJECT-NODEFORGE-1789489861283: agent profile 'team' field supported via agent-profile-store persistence */
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../shared/errors.js";
-import { backfillTicketCandidates, inferTicketStyle } from "../modules/index/ticket-scope.js";
+import { inferTicketStyle } from "../modules/index/ticket-scope.js";
 import { extractTicketJson } from "./ticket-draft-parser.js";
 
 const UPDATABLE = ["title", "objective", "acceptance_criteria", "priority", "dependencies", "status", "last_error", "style", "candidate_files", "candidates_produced_by", "candidates_produced_at"];
 const SPRINT_LEADER_ROLE = "sprint_leader";
 
 // Creates a CRUD service for tickets with sprint-leader normalization.
-export function createTicketCrudService({ roadmaps, proseTicketService, ticketFileStore, publisher, agentStream, agentRoleResolver, candidateResolver, sprintLeader, clock = () => new Date(), logger = console } = {}) {
+export function createTicketCrudService({ roadmaps, proseTicketService, ticketFileStore, publisher, agentStream, agentRoleResolver, sprintLeader, clock = () => new Date(), logger = console } = {}) {
   if (typeof roadmaps?.getCurrent !== "function") throw new ConfigurationError("Ticket CRUD requires a Roadmap Store.");
   if (typeof proseTicketService?.createFromObject !== "function") throw new ConfigurationError("Ticket CRUD requires the Prose Ticket Service.");
   if (ticketFileStore !== undefined && typeof ticketFileStore?.create !== "function") throw new ConfigurationError("Ticket CRUD requires a valid Ticket File Store.");
@@ -100,45 +100,23 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
     if (!ticketFileStore) return;
     ticketFileStore.create({ ticket, context });
   }
-  // Sprint leader drafts through the SDK with built-in search: it verifies
-  // paths with Read before citing, so its candidate_files are kept as-is.
-  // The legacy text-only path has no codebase access, so anything path-like
-  // it invents is stripped and resolved server-side instead.
+  // Drops source-file guesses from every Sprint Leader ticket draft.
   async function resolveSprintLeaderTicket({ projectId, agentId, content, ticket, feedback }) {
-    const viaSdk = typeof sprintLeader?.requestTicket === "function";
     const draft = await requestSprintLeaderTicket({ projectId, agentId, content, ticket, feedback });
     if (!draft) return draft;
-    if (viaSdk) return stampSdkDraft(draft);
-    const textOnly = { ...draft };
-    delete textOnly.candidate_files;
-    delete textOnly.candidates_produced_by;
-    delete textOnly.candidates_produced_at;
-    if (typeof candidateResolver?.resolve === "function") return candidateResolver.resolve(textOnly);
     return styleAndBackfill(draft);
   }
-  // Stamps an SDK draft, keeping the leader's own verified candidates.
-  function stampSdkDraft(draft) {
-    const stamped = { ...draft };
-    if (!Array.isArray(stamped.style) || !stamped.style.length) {
-      const inferred = inferTicketStyle(stamped);
-      if (inferred) stamped.style = inferred;
-    }
-    if (Array.isArray(stamped.candidate_files) && stamped.candidate_files.length) {
-      if (!stamped.candidates_produced_by) stamped.candidates_produced_by = "sprint-leader-sdk";
-      if (!stamped.candidates_produced_at) stamped.candidates_produced_at = clock().toISOString();
-      return stamped;
-    }
-    if (typeof candidateResolver?.resolve === "function") return candidateResolver.resolve(stamped);
-    return backfillTicketCandidates(stamped, { now: () => clock().toISOString() });
-  }
-  // Infers style then attaches a marked placeholder for legacy drafts.
+  // Infers style without creating file candidates.
   function styleAndBackfill(draft) {
     const styled = { ...draft };
+    delete styled.candidate_files;
+    delete styled.candidates_produced_by;
+    delete styled.candidates_produced_at;
     if (!Array.isArray(styled.style) || !styled.style.length) {
       const inferred = inferTicketStyle(styled);
       if (inferred) styled.style = inferred;
     }
-    return backfillTicketCandidates(styled, { now: () => clock().toISOString() });
+    return styled;
   }
   async function requestSprintLeaderTicket({ projectId, agentId, content, ticket, feedback }) {
     if (typeof sprintLeader?.requestTicket === "function") {
@@ -150,7 +128,7 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
       "REQUIRED: Infer ticket style as a non-empty array of strings. Valid values: frontend (UI/component/page/accordion/modal/chat UI), backend (api/endpoint/database/server), security (auth/permission/credential), infra (deploy/docker/pipeline), docs (documentation). Every ticket MUST include style with at least one value; return e.g. [\"frontend\"] or [\"frontend\",\"backend\"]. Do NOT omit style.",
       "Respond with ONLY one ```json fenced block containing the ticket JSON object. No prose outside the block.",
       "Ticket fields: title (string, required), objective (string, required), acceptance_criteria (array of strings, at least one, required), style (array of strings, REQUIRED, at least one: frontend|backend|security|infra|docs), priority (optional: low|medium|normal|high|critical), dependencies (optional: array of ticket ids).",
-      "You have no codebase access so never invent file paths. Do NOT include candidate_files, candidates_produced_by, candidates_produced_at, id, project_id, roadmap_id, sprint_id, status, last_error, or provenance; the system resolves real codebase files server-side and assigns identity fields.",
+      "Do NOT include candidate_files, candidates_produced_by, candidates_produced_at, id, project_id, roadmap_id, sprint_id, status, last_error, or provenance; implementation discovery belongs to the Coder and the system assigns identity fields.",
       feedback ? `Previous validation feedback: ${feedback}` : undefined,
       `Project id: ${projectId}`,
       content ? `Owner request (raw chat):\n${content}` : undefined,
@@ -228,10 +206,6 @@ function validateRegeneratedTicket(ticket) {
   const errors = [];
   for (const field of ["title", "objective"]) if (typeof ticket[field] !== "string" || !ticket[field].trim()) errors.push(`${field} must be a non-empty string`);
   if (!Array.isArray(ticket.acceptance_criteria) || ticket.acceptance_criteria.length === 0 || ticket.acceptance_criteria.some((item) => typeof item !== "string" || !item.trim())) errors.push("acceptance_criteria must contain non-empty strings");
-  if (!Array.isArray(ticket.candidate_files) || ticket.candidate_files.length === 0) errors.push("candidate_files must contain at least one entry");
-  for (const entry of ticket.candidate_files ?? []) {
-    if ((entry?.role === "PATCH" || entry?.role === "REUSE") && (typeof entry?.symbol !== "string" || !entry.symbol.trim())) errors.push(`candidate_files entry ${entry?.path ?? "?"} with role ${entry?.role} must include a symbol`);
-  }
   if (ticket.priority !== undefined && !["low", "medium", "normal", "high", "critical"].includes(ticket.priority)) errors.push("priority is invalid");
   return errors;
 }
@@ -242,4 +216,3 @@ function requireProject(projectId) {
     throw Object.assign(new ConfigurationError("A project id is required."), { statusCode: 400, code: "PROJECT_REQUIRED" });
   }
 }
-

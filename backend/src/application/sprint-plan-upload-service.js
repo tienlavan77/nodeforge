@@ -69,8 +69,7 @@ export function createSprintPlanUploadService({ roadmaps, publisher, projectRoot
     if (typeof projectId !== "string" || projectId.length === 0) throw new ConfigurationError("A project id is required.");
     if (!sprintPlan || typeof sprintPlan !== "object" || Array.isArray(sprintPlan)) throw new ConfigurationError("sprint_plan must be an object.");
     if (sprintPlan.project_id !== projectId) throw new ConfigurationError("Sprint plan project_id must match the target project.");
-    // Legacy uploads predate style/candidate_files enforcement; backfill the
-    // marked placeholder so old plans validate and retrieval re-discovers.
+    // Legacy uploads may lack style; preserve their optional file candidates.
     const normalized = { ...sprintPlan, tickets: (sprintPlan.tickets ?? []).map((ticket) => backfillTicketCandidates(ticket)) };
     if (!validate(normalized)) throw new ConfigurationError(`Invalid Sprint Plan: ${validate.errors.map((error) => `${error.instancePath || "/"} ${error.message}`).join("; ")}`);
     const duplicate = roadmaps.getAllVersions?.().some((roadmap) => roadmap.sprints?.some((sprint) => sprint.id === normalized.id));

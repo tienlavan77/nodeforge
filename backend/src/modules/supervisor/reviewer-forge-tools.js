@@ -34,7 +34,7 @@ export async function assertReviewerReadPath(projectRoot, path) {
 }
 
 // Creates per-review wrappers around existing read_file and search_tree implementations.
-export function createReviewerForgeTools({ fileService, projectRoot, job, reviewer, codeSearch, codeCache, includeClaudeFileTools = false, projectLogger = () => {} }) {
+export function createReviewerForgeTools({ fileService, projectRoot, job, reviewer, codeSearch, codeCache, ticketEvidence, includeClaudeFileTools = false, projectLogger = () => {} }) {
   if (typeof fileService?.readForIndex !== "function" || !isAbsolute(projectRoot ?? "")) throw new ConfigurationError("Reviewer Forge tools require File Service and an absolute project root.");
   const scopedFiles = {
     readForIndex: async (input) => { await assertReviewerReadPath(projectRoot, input?.path); return fileService.readForIndex({ ...input, maxBytes: MAX_FILE_BYTES }); },
@@ -42,7 +42,7 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
     listDirectories: async (input) => filterPaths(await fileService.listDirectories(input))
   };
   const allowedPrefixes = [...new Set((job.payload?.changed_paths ?? []).map((path) => path.split("/").slice(0, -1).join("/")).filter(Boolean).concat(["workflows/agents/"]))];
-  const toolContext = { task_id: job.task_id, correlation_id: job.correlation_id, request_id: job.request_id, agent_identity: { agent_id: reviewer.agent_id, role: "reviewer", provider: reviewer.provider }, capabilities: ["read_file", "search_code", "Read", "Glob", "Grep", "search_tree"], project_root: projectRoot, allowed_prefixes: allowedPrefixes.length ? allowedPrefixes : ["backend/", "ui/", "schemas/", "workflows/"] };
+  const toolContext = { task_id: job.task_id, correlation_id: job.correlation_id, request_id: job.request_id, agent_identity: { agent_id: reviewer.agent_id, role: "reviewer", provider: reviewer.provider }, capabilities: ["read_file", "search_code", "Read", "Glob", "Grep", "search_tree"], project_root: projectRoot, allowed_file_paths: job.payload?.changed_paths ?? [], allowed_prefixes: allowedPrefixes.length ? allowedPrefixes : ["backend/", "ui/", "schemas/", "workflows/"] };
   const implementations = {
     read_file: createReadFileTool({ fileService: scopedFiles, codeCache, maxChars: MAX_RESULT_BYTES }),
     ...(codeSearch?.search ? { search_code: createSearchCodeTool({ codeSearch, codeCache, projectLogger }) } : {}),
@@ -60,13 +60,23 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
       const toolInput = name === "search_tree" ? boundedTreeInput(input) : name === "search_code" ? boundedSearchInput(input, context) : input;
       // The shared read_file discovery state is Coder-oriented; each Reviewer read is independent.
       const result = await implementations[name].execute(toolInput, { ...context });
-      const bytes = Buffer.byteLength(JSON.stringify(result), "utf8");
+      const verifiedResult = bindReviewEvidence(name, toolInput, result, ticketEvidence);
+      const bytes = Buffer.byteLength(JSON.stringify(verifiedResult), "utf8");
       if (bytes > MAX_RESULT_BYTES || outputBytes + bytes > MAX_OUTPUT_BYTES) throw toolError("REVIEW_TOOL_BUDGET", "Reviewer read output budget exceeded.");
       outputBytes += bytes;
-      audit(name, "success", { duration_ms: Date.now() - started, output_bytes: bytes });
-      return result;
+      audit(name, "success", { duration_ms: Date.now() - started, output_bytes: bytes, ...(verifiedResult.review_evidence ? { review_evidence: verifiedResult.review_evidence } : {}) });
+      return verifiedResult;
     } catch (error) {
-      audit(name, "failed", { duration_ms: Date.now() - started, error_code: error.code ?? "REVIEW_TOOL_FAILED" });
+      audit(name, "failed", {
+        duration_ms: Date.now() - started,
+        error: {
+          code: error.code ?? "REVIEW_TOOL_FAILED",
+          message: error.message ?? "Reviewer Forge tool failed.",
+          retryable: false,
+          scope: "reviewer-forge-tools",
+          requestId: job.request_id
+        }
+      });
       throw error;
     }
   } }]));
@@ -84,8 +94,25 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
 
   // Records Reviewer tool use without saving input paths, queries, or source text.
   function audit(tool, status, payload) {
-    projectLogger({ event_name: "review.tool_call", level: status === "failed" ? "error" : "info", status, message: `Reviewer Forge tool ${tool} ${status}.`, task_id: job.task_id, correlation_id: job.correlation_id, source: "reviewer-forge-tools", ...(payload.error_code ? { error_code: payload.error_code } : {}), payload: { request_id: job.request_id, agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, reviewer_id: reviewer.agent_id, tool, ...payload } });
+    projectLogger({ event_name: "review.tool_call", level: status === "failed" ? "error" : "info", status, message: `Reviewer Forge tool ${tool} ${status}.`, task_id: job.task_id, correlation_id: job.correlation_id, source: "reviewer-forge-tools", payload: { request_id: job.request_id, agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, reviewer_id: reviewer.agent_id, tool, ...payload } });
   }
+}
+
+// Binds a source window to the committed verification artifact or rejects stale content.
+function bindReviewEvidence(name, input, result, ticketEvidence) {
+  if (!ticketEvidence || !["sed_lines", "Read"].includes(name)) return result;
+  const path = name === "Read" ? result.file_path : input.path;
+  const file = ticketEvidence.files.find((item) => item.path === path);
+  if (!file || file.deleted) return result;
+  const { start_line: start, end_line: end } = input;
+  const lines = file.content.split("\n");
+  const selected = lines.slice(start - 1, end);
+  const expected = name === "Read"
+    ? selected.map((line, index) => `${String(start + index).padStart(6)}→${line}`).join("\n")
+    : selected.join("\n") + (start <= lines.length ? "\n" : "");
+  const actual = name === "Read" ? result.content : result.stdout;
+  if (result.sha256 !== file.sha256 || actual !== expected) throw toolError("REVIEW_SOURCE_MISMATCH", `Reviewer source differs from verified commit: ${path}.`);
+  return { ...result, review_evidence: { artifact_id: ticketEvidence.artifact.artifact_id, commit_sha: ticketEvidence.context.review_commit_sha, manifest_sha: ticketEvidence.context.manifest_sha, sha256: file.sha256 } };
 }
 
 // Bounds existing read_file windows while allowing live symbol resolution.

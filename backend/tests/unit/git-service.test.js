@@ -36,6 +36,17 @@ test("Git Service commits only explicitly staged paths and returns SHA", async (
   assert.deepEqual(fake.calls.find((args) => args[0] === "commit"), ["commit", "--only", "-m", "feat: add example", "--", ":(literal)src/example.js"]);
 });
 
+test("Git Service holds the project mutation lock across staging and commit", async () => {
+  const calls = [];
+  const fake = fakeGit();
+  const git = createGitService({ projectRoot: "/repo", runGit: async (args) => { calls.push(`git:${args[0]}`); return fake.run(args); }, mutationLock: async (action) => { calls.push("lock"); try { return await action(); } finally { calls.push("unlock"); } } });
+  await git.commit("ticket", { paths: ["src/example.js"] });
+  assert.deepEqual(calls, ["lock", "git:add", "git:diff", "git:commit", "git:rev-parse", "unlock"]);
+  calls.length = 0;
+  await git.getHead();
+  assert.deepEqual(calls, ["git:rev-parse"]);
+});
+
 test("Git Service rejects empty commits and unsafe paths", async () => {
   const fake = fakeGit();
   fake.run = async (args) => args[0] === "diff" ? { stdout: "", exitCode: 0 } : fakeGit().run(args);

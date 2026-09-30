@@ -61,3 +61,18 @@ test("sender keeps processing tool calls beyond the former eight-turn cap", asyn
   assert.equal(sends, 10);
   assert.equal(calls, 9);
 });
+
+test("sender resolves Forge tools from the ticket worktree", async () => {
+  const job = { task_id: "TICKET-A", supervisor_id: "SUP-A", request_id: "REQ-A", correlation_id: "CORR-A", agent_id: "builder", payload: { execution_context: { task_id: "TICKET-A" } } };
+  let calls = 0;
+  let turns = 0;
+  const worker = createSenderWorker({
+    queue: { claim: async () => job, ack: async () => {} },
+    agentRegistry: { resolve: () => ({ adapter: { send: async () => ++turns === 1 ? { tool_calls: [{ id: "read-A", name: "read_file", input: { path: "backend/src/a.js" } }] } : { summary: "done" } } }) },
+    eventBus: { publish: async () => {} },
+    toolRegistry: { read_file: { execute: async () => { throw new Error("Shared checkout tool used"); } } },
+    resolveToolRegistry: async (request) => { assert.equal(request.task_id, "TICKET-A"); return { read_file: { execute: async () => { calls += 1; return { content: "ticket A" }; } } }; }
+  });
+  assert.equal((await worker.processOnce()).type, "agent.response.received");
+  assert.equal(calls, 1);
+});

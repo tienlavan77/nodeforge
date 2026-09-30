@@ -1,0 +1,45 @@
+/* Keep canonical conversation, chat, sprint, and workspace regions usable at every viewport. */
+.workspace-region-actions { display: none; }
+.home-workspace {
+  grid-template-columns: minmax(180px, 19fr) minmax(0, 38fr) minmax(0, 23fr) minmax(0, 20fr);
+  overflow: hidden;
+}
+.responsive-region, .responsive-region-panel { min-width: 0; min-height: 0; height: 100%; }
+.responsive-region-panel { display: flex; flex-direction: column; }
+.responsive-region-panel > .home-panel,
+.responsive-region-panel > .home-open-panel { flex: 1; min-height: 0; }
+.home-conversations-panel { min-width: 0; overflow: auto; }
+.home-conversations-panel .conversations-accordion { margin-top: 16px; }
+.home-sprint-content { min-height: 0; overflow-y: auto; }
+.home-chat-panel { overflow: hidden; }
+.home-chat-messages { overflow-y: auto; }
+.home-open-panel { overflow: hidden; }
+.workspace-agent-process-body { overflow-y: auto; }
+.responsive-region-heading { display: none; }
+
+@media (max-width: 900px) {
+  .home-workspace { grid-template-columns: minmax(160px, 24fr) minmax(0, 52fr) minmax(160px, 24fr); }
+  .workspace-region-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 8px var(--workspace-gutter); background: var(--app-surface); }
+  .region-action { display: none; border: 1px solid var(--app-button-border); border-radius: 6px; background: var(--app-button-bg); color: var(--app-button-text); padding: 8px 12px; cursor: pointer; }
+  .region-action--workspace { display: inline-flex; }
+  .responsive-region--workspace:not(.is-open) { display: none; }
+  .responsive-region.is-drawer:not(.is-open) { display: none; }
+  .responsive-region.is-drawer.is-open { position: fixed; inset: 0; z-index: 900; display: flex; justify-content: flex-end; background: rgba(3, 10, 18, .72); }
+  .responsive-region.is-drawer .responsive-region-panel { width: min(90vw, 440px); height: 100%; background: var(--app-panel); border-left: 1px solid var(--app-border); overflow-y: auto; }
+  .responsive-region-heading { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--app-border); color: var(--app-text); }
+  .responsive-region-heading button { border: 0; background: transparent; color: var(--app-text); font-size: 26px; cursor: pointer; }
+}
+@media (max-width: 640px) {
+  .home-workspace { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .home-chat-panel { min-height: 0; }
+  .region-action--conversations, .region-action--sprint { display: inline-flex; }
+  .responsive-region--conversations:not(.is-open) { display: none; }
+  .responsive-region--sprint:not(.is-open) { display: none; }
+  .responsive-region.is-drawer.is-open { display: flex; }
+}
+.workspace-git-status { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; color: var(--app-muted); font: 10px 'DM Mono', monospace; }
+.workspace-git-status strong { color: var(--app-text); font-weight: 500; }
+.workspace-git-status small { color: var(--app-muted); }
+.workspace-git-status.is-dirty strong { color: #e7bc76; }
+.workspace-git-status.is-unavailable strong { color: #ee8f9b; }
+.workspace-git-status button { border: 1px solid var(--app-button-border); background: transparent; color: var(--app-text); padding: 3px 6px; cursor: pointer; font: inherit; }

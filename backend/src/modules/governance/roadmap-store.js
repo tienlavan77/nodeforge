@@ -53,7 +53,13 @@ export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(),
     const sprints = current.sprints.map((sprint) => ({ ...sprint, tickets: (sprint.tickets ?? []).map((ticket) => {
       if (ticket.id !== ticketId || ticket.project_id !== projectId) return ticket;
       found = true;
-      return { ...ticket, ...Object.fromEntries(assignable.map((field) => [field, patch[field]])) };
+      const updated = { ...ticket, ...Object.fromEntries(assignable.filter((field) => field !== "candidate_files" || patch[field] !== null).map((field) => [field, patch[field]])) };
+      if (patch.candidate_files === null) {
+        delete updated.candidate_files;
+        delete updated.candidates_produced_by;
+        delete updated.candidates_produced_at;
+      }
+      return updated;
     }) }));
     if (!found) return undefined;
     const merged = sprints.flatMap((sprint) => sprint.tickets ?? []).find((ticket) => ticket.id === ticketId);
@@ -139,8 +145,7 @@ export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(),
   }
 }
 
-// Backfills pre-enforcement tickets on the write path so one regen/save is never
-// blocked by legacy siblings missing style or candidate_files.
+// Infers style for older tickets while preserving any optional candidates.
 function backfillLegacyTickets(roadmap) {
   if (!roadmap || typeof roadmap !== "object" || !Array.isArray(roadmap.sprints)) return roadmap;
   return { ...roadmap, sprints: roadmap.sprints.map((sprint) => ({ ...sprint, tickets: (sprint.tickets ?? []).map((ticket) => backfillTicketCandidates(ticket)) })) };

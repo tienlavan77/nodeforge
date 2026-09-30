@@ -40,7 +40,7 @@ test("startTests captures orchestrator failure as a failed job with error code a
   await settle();
   const finished = service.getTestResult({ jobId: started.job_id, taskId: "TASK-1" });
   assert.equal(finished.status, "failed");
-  assert.equal(finished.error.code, "TEST_EXECUTION_FAILED");
+  assert.equal(finished.error.code, "test_execution_failed");
   assert.equal(finished.error.message, "suite exploded");
 });
 
@@ -54,7 +54,41 @@ test("startTests reports TEST_TIMEOUT through getTestResult when the job deadlin
   await new Promise((resolve) => setTimeout(resolve, 30));
   const finished = service.getTestResult({ jobId: started.job_id, taskId: "TASK-1" });
   assert.equal(finished.status, "failed");
-  assert.equal(finished.error.code, "TEST_TIMEOUT");
+  assert.equal(finished.error.code, "test_timeout");
+});
+
+test("normalizeError preserves string-error compatibility and is retryable", async () => {
+  const { normalizeError } = await import("../../src/application/test-service.js");
+  const fromString = normalizeError("plain failure");
+  assert.equal(fromString.code, "test_execution_failed");
+  assert.equal(fromString.retryable, true);
+  assert.ok(fromString.message.includes("plain failure"));
+});
+
+test("normalizeError redacts secrets, URLs, stack traces and preserves requestId", async () => {
+  const { normalizeError } = await import("../../src/application/test-service.js");
+  const raw = "oops https://example.com/hook token=secret123\n  at foo (/a/b.js:1:1)\nstack trace: boom {\"raw\":123}";
+  const out = normalizeError({ code: "TEST_EXECUTION_FAILED", message: raw, requestId: "REQ-1" });
+  assert.ok(!out.message.includes("https://"));
+  assert.ok(out.message.includes("[REDACTED_URL]"));
+  assert.ok(!out.message.includes("secret123"));
+  assert.ok(out.retryable === true);
+  assert.equal(out.requestId, "REQ-1");
+  assert.deepEqual(Object.keys(out).sort(), ["code", "message", "requestId", "retryable", "scope"]);
+  // raw JSON truncation
+  const longJson = JSON.stringify({ a: "x".repeat(400) });
+  const out2 = normalizeError({ code: "TEST_EXECUTION_FAILED", message: longJson });
+  assert.ok(out2.message.length <= 280);
+});
+
+test("normalizeError marks non-retryable codes as not retryable", async () => {
+  const { normalizeError } = await import("../../src/application/test-service.js");
+  for (const code of ["INPUT_INVALID", "TEST_JOB_NOT_FOUND", "TEST_JOB_FORBIDDEN", "CONFIGURATION_ERROR"]) {
+    const out = normalizeError({ code, message: "bad" });
+    assert.equal(out.retryable, false, code);
+  }
+  const retryable = normalizeError({ code: "TEST_TIMEOUT", message: "timeout" });
+  assert.equal(retryable.retryable, true);
 });
 
 test("getTestResult rejects unknown jobs and jobs from another task", async () => {

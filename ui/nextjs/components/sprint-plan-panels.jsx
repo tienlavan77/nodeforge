@@ -105,12 +105,14 @@ function InlineAddTicketForm({ sprint, projectId, client }) {
   const [checkpoint, setCheckpoint] = useState(null);
   useEffect(() => {
     let active = true;
-    client.listCodeCheckpoints(projectId, sprint.id).then((response) => { if (active) setCheckpoint(response.checkpoints?.[0] ?? null); }).catch((failure) => { if (active) setError(failure.message); });
+    // Reload durable checkpoints after reconnect so missed events cannot hide Resume.
+    const refreshCheckpoint = () => client.listCodeCheckpoints(projectId, sprint.id).then((response) => { if (active) { setCheckpoint(response.checkpoints?.[0] ?? null); setError(""); } }).catch((failure) => { if (active) setError(failure.message); });
+    void refreshCheckpoint();
     const stream = client.connectProjectStream({ projectId, onEvent: (event) => {
       if (event.event_type !== "agent.checkpoint.updated" || event.payload?.sprint_id !== sprint.id) return;
       const update = event.payload;
       setCheckpoint((current) => update.status === "completed" ? current?.task_id === update.task_id ? null : current : !current || current.task_id === update.task_id || String(update.updated_at) >= String(current.updated_at) ? update : current);
-    }, onError: (failure) => { if (active) console.error("Code checkpoint stream failed", failure); } });
+    }, onOpen: () => { if (active) void refreshCheckpoint(); }, onError: (failure) => { if (active && failure.code !== "STREAM_RECONNECTING") { console.error("Code checkpoint stream failed", failure); setError("Live checkpoint updates are unavailable. Retry the page to reconnect."); } } });
     return () => { active = false; stream.close(); };
   }, [client, projectId, sprint.id]);
   async function submit(event) {

@@ -59,6 +59,22 @@ The active `/` route is a Client Component. Its direct imports are the component
 
 No legacy file is deleted as part of establishing this baseline. The app-to-shell edge is a real import within the dormant legacy subtree; confirm repository-wide references are absent before any eventual removal. Preserve canonical switch, optimistic send, retry, correlation and project/conversation scope behavior above during migration.
 
+## CSS migration map
+
+`app/globals.css` imports the domain sheets in cascade order. The compatibility selectors remain active until the canonical UI and responsive smoke checks pass.
+
+| Stylesheet | Current ownership | Migration status |
+| --- | --- | --- |
+| `styles/foundation.css` | Theme tokens and common controls; still contains older conversation, composer, history and workspace selectors | Compatibility selectors to move or remove after import audit |
+| `styles/legacy-workspace.css` | Dormant `NodeForgeApp` workspace and older composer, sprint and dialog selectors | Remove only after ticket 009 smoke and ticket 010 import audit |
+| `styles/shell-layout.css`, `styles/shell-theme.css` | Shared shell, layout and theme | Keep; mobile overrides remain scoped here |
+| `styles/home-workspace.css`, `styles/responsive-workspace.css` | Canonical conversation, chat, workspace and Sprint layout | Keep; verify desktop, tablet and mobile overflow before closing migration |
+| `styles/agents-directory.css`, `styles/agents-actions.css` | Agent directory and actions | Keep; verify mobile card and dialog behavior |
+| `styles/sprint-ticket.css`, `styles/ticket-dialogs.css` | Sprint and ticket surfaces | Keep |
+| `styles/conversations.css`, `styles/conversation-dialogs.css` | Conversation list and dialogs | Keep; remove overlapping legacy rules after smoke |
+
+The migration is incomplete while legacy and cross-domain selectors remain in `foundation.css` and `legacy-workspace.css`. Keep both sheets in the import chain until their consumers are removed and visual checks are recorded.
+
 ## LAN development
 
 The dev server binds to `0.0.0.0`. For access from another LAN device, keep its host IP/network in `allowedDevOrigins` in `next.config.js`; update the list when DHCP or the LAN subnet changes.

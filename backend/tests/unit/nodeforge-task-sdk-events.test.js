@@ -14,3 +14,8 @@ test("blocked commit takes precedence over a missing completion report", () => {
 test("an absent report without a failed commit keeps its existing error", () => {
   assert.throws(() => assertTicketExecutionCompleted([{ tool: "edit_diff", status: "success" }]), (error) => error.code === "AGENT_REPORT_MISSING");
 });
+
+test("a resumed report accepts persisted successful edit and commit turns", () => {
+  assert.doesNotThrow(() => assertTicketExecutionCompleted([{ tool: "report_done", status: "success" }], { priorTools: ["edit_diff", "commit_changes", "run_test"] }));
+  assert.throws(() => assertTicketExecutionCompleted([{ tool: "read_file", status: "success" }], { priorTools: ["edit_diff", "commit_changes", "report_done"] }), (error) => error.code === "AGENT_REPORT_MISSING");
+});

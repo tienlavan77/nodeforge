@@ -32,3 +32,28 @@ test("Node client opens the project SSE stream and validates project events", ()
     globalThis.EventSource = previous;
   }
 });
+
+test("Sprint panels share one project SSE connection until the last subscriber closes", () => {
+  const previous = globalThis.EventSource;
+  const sources = [];
+  globalThis.EventSource = class MockEventSource {
+    constructor(url) { this.url = url; this.listeners = new Map(); this.readyState = 0; sources.push(this); }
+    addEventListener(type, listener) { this.listeners.set(type, listener); }
+    close() { this.closed = true; }
+    emit(type, data) { this.listeners.get(type)?.({ data: JSON.stringify(data), lastEventId: data.event_id }); }
+  };
+  try {
+    const client = createNodeClient();
+    const received = [[], []];
+    const first = client.connectProjectStream({ projectId: "PROJECT-SHARED", onEvent: (event) => received[0].push(event) });
+    const second = client.connectProjectStream({ projectId: "PROJECT-SHARED", onEvent: (event) => received[1].push(event) });
+    assert.equal(sources.length, 1);
+    const event = { event_id: "EVT-SHARED", event_type: "agent.checkpoint.updated", schema_version: 1, project_id: "PROJECT-SHARED", timestamp: "2026-09-30T00:00:00.000Z", payload: { task_id: "TASK-1" } };
+    sources[0].emit(event.event_type, event);
+    assert.deepEqual(received.map((items) => items.length), [1, 1]);
+    first.close();
+    assert.equal(sources[0].closed, undefined);
+    second.close();
+    assert.equal(sources[0].closed, true);
+  } finally { globalThis.EventSource = previous; }
+});

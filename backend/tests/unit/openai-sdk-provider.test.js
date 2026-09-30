@@ -5,6 +5,7 @@ import { createOpenAiSdkProviderFactory, normalizeGatewayUrl, normalizeReasoning
 test("normalizes OpenAI SDK gateway base URLs", () => {
   assert.equal(normalizeGatewayUrl("https://gateway.example.test"), "https://gateway.example.test/v1");
   assert.equal(normalizeGatewayUrl("https://gateway.example.test/v1/responses"), "https://gateway.example.test/v1");
+  assert.equal(normalizeGatewayUrl("https://gateway.example.test/v1/chat/completions"), "https://gateway.example.test/v1");
   assert.equal(normalizeGatewayUrl("https://gateway.example.test/v2/"), "https://gateway.example.test/v2");
   assert.throws(() => normalizeGatewayUrl("http://insecure.example.test"), /HTTPS/);
 });
@@ -46,4 +47,14 @@ test("creates an isolated OpenAI SDK provider from an agent profile", async () =
 test("does not accept an incomplete OpenAI SDK profile", async () => {
   const factory = createOpenAiSdkProviderFactory({ ProviderClass: class {}, credentialResolver: () => "secret" });
   await assert.rejects(() => factory.createForAgent({ agent_id: "builder" }), /gateway URL/);
+});
+
+test("OpenAI-compatible providers default to Chat Completions without reasoning", () => {
+  const factory = createOpenAiSdkProviderFactory({ ProviderClass: class {}, credentialResolver: () => "secret", defaultUseResponses: true });
+  for (const provider of ["xai", "alibaba", "zhipu", "deepseek"]) {
+    const profile = factory.normalizeProfile({ agent_id: provider, agent_name: provider, role: "architecture_manager", provider, gateway_url: "https://gateway.example.test/v1/chat/completions", credential_ref: `runtime:${provider}:api-key`, model: `${provider}-model` });
+    assert.equal(profile.gateway_url, "https://gateway.example.test/v1");
+    assert.equal(profile.use_responses, false);
+    assert.deepEqual(profile.reasoning, { effort: "none" });
+  }
 });

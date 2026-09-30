@@ -32,3 +32,27 @@ test("Sender Worker dispatches review jobs from agent.request to the review hand
   assert.deepEqual(await worker.processOnce(), { type: "review.approved" });
   assert.equal(handled, 1);
 });
+
+test("review handler chooses the ticket worktree reviewer", async () => {
+  const job = { id: "JOB-A", task_id: "TICKET-A", supervisor_id: "SUP-A", request_id: "REVIEW-A", correlation_id: "CORR-A" };
+  const handler = createReviewRequestHandler({
+    reviewWorker: { review: async () => { throw new Error("Shared checkout reviewer used"); } },
+    resolveReviewWorker: async (request) => { assert.equal(request.task_id, "TICKET-A"); return { review: async () => ({ verdict: "approved", reviewer_id: "REVIEWER-A", findings: [] }) }; },
+    queueStore: { save: async () => {} }, queue: { ack: async () => {} }, eventBus: { publish: async () => {} }
+  });
+  assert.equal((await handler(job)).type, "review.approved");
+});
+
+test("queued approval persists Reviewer checkpoint before Supervisor can integrate", async () => {
+  const order = [];
+  const job = { id: "JOB-CHECKPOINT", task_id: "TICKET-CHECKPOINT", supervisor_id: "SUP-CHECKPOINT", request_id: "REVIEW-CHECKPOINT", correlation_id: "CORR-CHECKPOINT", payload: { verification: { artifact_id: "ARTIFACT-1" }, changed_paths: ["backend/src/a.js"] } };
+  const handler = createReviewRequestHandler({
+    reviewWorker: { review: async () => ({ verdict: "approved", reviewer_id: "REVIEWER-1", findings: [] }) },
+    queueStore: { save: async () => { order.push("queue"); } },
+    checkpointStore: { completeReview: async (taskId, details) => { assert.equal(taskId, job.task_id); assert.equal(details.verdict, "approved"); assert.equal(details.verification.artifact_id, "ARTIFACT-1"); order.push("checkpoint"); } },
+    queue: { ack: async () => { order.push("ack"); } },
+    eventBus: { publish: async () => { order.push("publish"); } }
+  });
+  await handler(job);
+  assert.deepEqual(order, ["queue", "checkpoint", "publish", "ack"]);
+});

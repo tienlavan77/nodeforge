@@ -7,7 +7,7 @@ import { NodeForgeHeader } from "../components/NodeForgeHeader.jsx";
 import { AgentProcessStatus, SprintPlanDashboard, UploadSprintPlanDialog } from "../components/NodeForgePanels.jsx";
 import { ConversationsAccordion } from "../components/ConversationsAccordion.jsx";
 import { createNodeClient, MESSAGE_INTENTS } from "../lib/node-client.js";
-import { architectureManagerSelection, writeArchitectureManagerAgent } from "../../src/architecture-manager-selection.js";
+import { architectureManagerSelection, writeArchitectureManagerAgent } from "../lib/architecture-manager-selection.js";
 import { PROJECT_ID, ARCHITECTURE_CONVERSATION_ID, SPRINT_CACHE_KEY, CHAT_STATE_KEY } from "../lib/home-page-constants.js";
 import { toDashboard, readSprintCache } from "../lib/home-page-dashboard.js";
 import { readChatState, writeChatState } from "../lib/home-page-conversation-state.js";
@@ -17,6 +17,11 @@ import { createHomeMessageHandlers } from "../lib/home-page-message-handlers.js"
 import { ConversationResponseReveal } from "../components/conversation-response-reveal.jsx";
 import { HomeChatComposer } from "../components/home-chat-composer.jsx";
 import { useConversationMessageHistory } from "../lib/use-conversation-message-history.js";
+import { GlobalToast } from "../components/GlobalToast.jsx";
+import { InlineError } from "../components/InlineError.jsx";
+import { ResponsiveWorkspaceRegion } from "../components/responsive-workspace-region.jsx";
+import { GitStatusIndicator } from "../components/git-status-indicator.jsx";
+import { normalizeUiError } from "../lib/ui-error.js";
 
 // Main workspace page with dashboard and live event handling.
 export default function HomePage() {
@@ -28,6 +33,7 @@ export default function HomePage() {
   const [dashboard, setDashboard] = useState(null);
   const [dashboardState, setDashboardState] = useState("loading");
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [openRegion, setOpenRegion] = useState(null);
   const [watcherEvents, setWatcherEvents] = useState([]);
   const [watcherState, setWatcherState] = useState("connecting");
   const [watcherPulseId, setWatcherPulseId] = useState(0);
@@ -80,6 +86,8 @@ export default function HomePage() {
     if (selectedArchitectureManager?.id !== selectedArchitectureManagerId) setSelectedArchitectureManagerId(selectedArchitectureManager?.id ?? "");
   }, [selectedArchitectureManager?.id, selectedArchitectureManagerId]);
 
+  const [globalError, setGlobalError] = useState(null);
+
   // Loads dashboard data from the backend.
   async function loadDashboard() {
     try {
@@ -88,8 +96,11 @@ export default function HomePage() {
       setDashboard(nextDashboard);
       try { window.sessionStorage.setItem(SPRINT_CACHE_KEY, JSON.stringify(sprintPlans)); } catch { /* cache is optional */ }
       setDashboardState("ready");
-    } catch {
+      setGlobalError(null);
+    } catch (rawError) {
+      const normalized = normalizeUiError(rawError, { fallback: "Could not load sprint data." });
       setDashboardState("error");
+      setGlobalError({ ...normalized, _retry: () => loadDashboard() });
     }
   }
 
@@ -105,11 +116,14 @@ export default function HomePage() {
   useEffect(() => {
     if (!selectedArchitectureManager?.id) return undefined;
     let active = true;
-    client.listConversations({ projectId: PROJECT_ID, agentId: selectedArchitectureManager.id })
-      .then((payload) => {
+    // Reload the selected agent's conversations after a recoverable request failure.
+    async function loadConversations() {
+      try {
+        const payload = await client.listConversations({ projectId: PROJECT_ID, agentId: selectedArchitectureManager.id });
         if (!active) return;
         const items = Array.isArray(payload) ? payload : payload?.items ?? payload?.conversations ?? [];
         setConversations(items);
+        setGlobalError(null);
         const saved = readChatState(CHAT_STATE_KEY);
         const savedId = saved?.agent_id === selectedArchitectureManager.id ? saved.conversation_id : null;
         const selected = items.find((item) => (item.id ?? item.conversation_id) === savedId) ?? items[0] ?? null;
@@ -119,8 +133,15 @@ export default function HomePage() {
           writeChatState(CHAT_STATE_KEY, selectedArchitectureManager.id, conversationId);
           void loadConversationMessages(conversationId);
         }
-      })
-      .catch(() => { if (active) { setConversations([]); setMessagesLoading(false); } });
+      } catch (rawError) {
+        if (!active) return;
+        setConversations([]);
+        setMessagesLoading(false);
+        const normalized = normalizeUiError(rawError, { fallback: "Could not load conversations." });
+        setGlobalError({ ...normalized, _retry: loadConversations });
+      }
+    }
+    void loadConversations();
     return () => { active = false; };
   }, [client, selectedArchitectureManager?.id]);
 
@@ -159,17 +180,27 @@ export default function HomePage() {
   }
 
   const sprints = dashboard?.roadmap?.sprints ?? [];
-  const tickets = sprints.flatMap((sprint) => sprint.tasks ?? []);
 
+  const globalToastError = globalError ?? (chatState && !chatState.includes("successfully") ? chatState : null);
   return <div className="app-shell app-shell-control-room home-workspace-shell">
     <NodeForgeHeader title="NODEFORGE" subtitle="Supervisor Control Room" status={<><span className="live-dot" /> node online</>} actions={<Link className="history-button" href="/agents">Agents</Link>} />
+    {globalToastError && <GlobalToast error={globalToastError} onRetry={globalError?._retry ?? retryLastMessage} onDismiss={() => { setGlobalError(null); setChatState(""); }} />}
+    <nav className="workspace-region-actions" aria-label="Workspace regions">
+      {[["conversations", "Conversations"], ["workspace", "Workspace"], ["sprint", "Sprint"]].map(([name, title]) => <button key={name} type="button" className={`region-action region-action--${name}`} onClick={() => setOpenRegion(name)} aria-expanded={openRegion === name}>{title}</button>)}
+    </nav>
     <main className="home-workspace" aria-label="NodeForge workspace">
+      <ResponsiveWorkspaceRegion name="conversations" title="Conversations" breakpoint={640} open={openRegion === "conversations"} onClose={() => setOpenRegion(null)}>
+        <section className="home-conversations-panel home-panel" aria-label="Conversations">
+          <div className="home-panel-heading"><h2>Conversations</h2></div>
+        <ConversationsAccordion conversations={conversations} projectId={PROJECT_ID} agentId={selectedArchitectureManager?.id} activeConversationId={activeConversationId} onNewConversation={(_title, conversation) => { const id = conversation?.id ?? conversation?.conversation_id; if (id) { setActiveConversationId(id); writeChatState(CHAT_STATE_KEY, selectedArchitectureManager?.id, id); void loadConversationMessages(id); } setMessages([]); setChatState(""); }} onSelectConversation={handleSelectConversation} />
+        </section>
+      </ResponsiveWorkspaceRegion>
       <section className="home-chat-panel home-panel" aria-label="Project chat">
         <div className="home-panel-heading"><div className="home-chat-heading"><div className="home-chat-title"><i aria-hidden="true" /><p className="eyebrow">PROJECT CHAT</p></div><div className="home-agent-select-row"><label className="home-agent-select-label" htmlFor="home-architecture-manager-selector">Architecture Manager</label><select className="home-agent-select" id="home-architecture-manager-selector" value={selectedArchitectureManagerId} onChange={(event) => { const agentId = event.target.value; setSelectedArchitectureManagerId(agentId); writeArchitectureManagerAgent(PROJECT_ID, agentId); }} aria-label="Architecture Manager selection"><option value="">{architectureManagers.length ? "Select an Architecture Manager" : "No enabled Architecture Manager agents available"}</option>{architectureManagers.map((agent) => <option key={agent.id} value={agent.id}>{agent.label}</option>)}</select></div></div></div>
-        <ConversationsAccordion conversations={conversations} projectId={PROJECT_ID} agentId={selectedArchitectureManager?.id} activeConversationId={activeConversationId} onNewConversation={(_title, conversation) => { const id = conversation?.id ?? conversation?.conversation_id; if (id) { setActiveConversationId(id); writeChatState(CHAT_STATE_KEY, selectedArchitectureManager?.id, id); void loadConversationMessages(id); } setMessages([]); setChatState(""); }} onSelectConversation={handleSelectConversation} />
-        <div className="home-chat-messages" ref={chatMessagesRef} onScroll={handleMessageScroll} role="log" aria-live="polite">{messagesLoading && <p className="dashboard-state">Loading messages…</p>}{hasOlder && messages.length > 0 && <button className="history-more chat-load-more" type="button" disabled={olderLoading} onClick={loadEarlierMessages}>{olderLoading ? "Loading earlier messages…" : "Load earlier messages"}</button>}{historyError && <p className="dashboard-state error" role="alert">{historyError}</p>}{!messagesLoading && messages.length === 0 && <div className="home-empty-state"><span className="home-empty-mark">N</span><p>Send a message to start working with your project agents.</p></div>}{messages.map((message) => <div className={`home-chat-message ${message.from === "owner" ? "is-owner" : "is-agent"}`} key={message.stream_key ?? message.id}><div className="home-message-meta"><span>{message.nickname ?? (message.from === "owner" ? "You" : "Agent")}</span><time dateTime={message.timestamp}>{displayMessageTime(message.timestamp)}</time></div><ConversationResponseReveal text={message.text} reveal={message.from === "agent" && message.reveal === true} onReveal={() => { const container = chatMessagesRef.current; if (container && container.scrollHeight - container.scrollTop - container.clientHeight < 72) container.scrollTop = container.scrollHeight; }} />{message.from === "system" && message.retryable !== false && <button type="button" className="history-button" onClick={retryLastMessage}>Retry</button>}</div>)}{agentTyping && <div className="typing-line" role="status" aria-label="Waiting for agent response"><span className="typing-dots" aria-hidden="true"><i /><i /><i /></span></div>}</div>
-        <HomeChatComposer onSend={(text) => { followLatest(); return sendMessage(text); }} />{chatState && <p className={`dashboard-state ${chatState.includes("successfully") ? "success" : "error"}`} role="alert">{chatState}</p>}
+        <div className="home-chat-messages" ref={chatMessagesRef} onScroll={handleMessageScroll} role="log" aria-live="polite">{messagesLoading && <p className="dashboard-state">Loading messages…</p>}{hasOlder && messages.length > 0 && <button className="history-more chat-load-more" type="button" disabled={olderLoading} onClick={loadEarlierMessages}>{olderLoading ? "Loading earlier messages…" : "Load earlier messages"}</button>}{historyError && <InlineError error={historyError} onRetry={() => void loadEarlierMessages()} />}{!messagesLoading && messages.length === 0 && <div className="home-empty-state"><span className="home-empty-mark">N</span><p>Send a message to start working with your project agents.</p></div>}{messages.map((message) => <div className={`home-chat-message ${message.from === "owner" ? "is-owner" : "is-agent"}`} key={message.stream_key ?? message.id}><div className="home-message-meta"><span>{message.nickname ?? (message.from === "owner" ? "You" : "Agent")}</span><time dateTime={message.timestamp}>{displayMessageTime(message.timestamp)}</time></div><ConversationResponseReveal text={message.text} reveal={message.from === "agent" && message.reveal === true} onReveal={() => { const container = chatMessagesRef.current; if (container && container.scrollHeight - container.scrollTop - container.clientHeight < 72) container.scrollTop = container.scrollHeight; }} />{message.from === "system" && message.retryable !== false && <button type="button" className="history-button" onClick={retryLastMessage}>Retry</button>}</div>)}{agentTyping && <div className="typing-line" role="status" aria-label="Waiting for agent response"><span className="typing-dots" aria-hidden="true"><i /><i /><i /></span></div>}</div>
+        <HomeChatComposer onSend={(text) => { followLatest(); return sendMessage(text).catch((rawError) => { const n = normalizeUiError(rawError, { fallback: "Node rejected the owner message." }); setGlobalError({ ...n, _retry: () => retryLastMessage() }); throw rawError; }); }} />{chatState && chatState.includes("successfully") && <p className="dashboard-state success" role="alert">{chatState}</p>}{chatState && !chatState.includes("successfully") && <InlineError error={chatState} onRetry={retryLastMessage} />}
       </section>
+      <ResponsiveWorkspaceRegion name="sprint" title="Sprint" breakpoint={640} open={openRegion === "sprint"} onClose={() => setOpenRegion(null)}>
       <section className="home-sprint-panel home-panel" aria-label="Project sprints">
         <div className="home-panel-heading"><div><p className="eyebrow">PROJECT DELIVERY</p><h2>Sprints</h2></div><button className="history-button" type="button" onClick={() => setUploadOpen(true)}>Upload plan</button></div>
         {dashboardState === "loading" && <p className="dashboard-state">Loading sprint data...</p>}
@@ -178,8 +209,10 @@ export default function HomePage() {
           <SprintPlanDashboard dashboard={dashboard} client={client} onRefresh={loadDashboard} onTicketDeleted={handleTicketDeleted} hideHeading />
         </div>}
       </section>
+      </ResponsiveWorkspaceRegion>
+      <ResponsiveWorkspaceRegion name="workspace" title="Workspace" breakpoint={900} open={openRegion === "workspace"} onClose={() => setOpenRegion(null)}>
       <section className="home-open-panel workspace-panel" aria-label="Workspace">
-        <div className="workspace-overview"><span>WORKSPACE</span><p>{dashboard?.roadmap?.id ?? "Project workspace"}</p><small>{sprints.length ? `${sprints.length} sprint${sprints.length === 1 ? "" : "s"} connected` : "No roadmap published yet."}</small></div>
+        <div className="workspace-overview"><span>WORKSPACE</span><p>{dashboard?.roadmap?.id ?? "Project workspace"}</p><small>{sprints.length ? `${sprints.length} sprint${sprints.length === 1 ? "" : "s"} connected` : "No roadmap published yet."}</small><GitStatusIndicator client={client} projectId={PROJECT_ID} /></div>
         <section className="workspace-agent-process" aria-label="Agent process">
           <div className="workspace-agent-process-heading"><div className="workspace-agent-process-status"><i aria-hidden="true" /><span>AGENT PROCESS</span></div></div>
           <div className="workspace-agent-process-body"><small>Waiting for agent process events...</small></div>
@@ -192,6 +225,7 @@ export default function HomePage() {
           </div>
         </section>
       </section>
+      </ResponsiveWorkspaceRegion>
     </main>
     {uploadOpen && <UploadSprintPlanDialog client={client} onClose={() => setUploadOpen(false)} onUploaded={() => { setUploadOpen(false); loadDashboard(); }} />}
   </div>;
