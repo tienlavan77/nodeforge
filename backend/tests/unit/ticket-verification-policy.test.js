@@ -55,5 +55,12 @@ test("failed schema validation persists a failed artifact and blocks acceptance"
     assert.equal(artifact.commands.at(-1).kind, "schema_validation");
     assert.equal(artifact.commands.at(-1).exit_code, 1);
     await assert.rejects(service.assertPassedArtifact(), (error) => error.code === "VERIFY_ARTIFACT_MISMATCH");
+    context.verification_artifact_id = "ARTIFACT-LEGACY";
+    const legacy = { ...artifact, artifact_id: context.verification_artifact_id, status: "passed", policy_version: "ticket-verification-v2", commands: [{ kind: "typecheck", argv: ["node", "check"], exit_code: 0, output_sha256: checksum }], planned_commands: [{ kind: "typecheck", argv: ["node", "check"] }] };
+    const artifactPath = `.forge/runtime/ticket-verification/T-SCHEMA/artifacts/${context.verification_artifact_id}.json`;
+    await files.atomicWrite({ path: artifactPath, content: JSON.stringify(legacy), replace: true });
+    await assert.rejects(service.assertPassedArtifact(), (error) => error.code === "VERIFY_ARTIFACT_MISMATCH");
+    await files.atomicWrite({ path: artifactPath, content: JSON.stringify({ ...legacy, policy_version: "ticket-verification-v3" }), replace: true });
+    await assert.rejects(service.assertPassedArtifact(), (error) => error.code === "VERIFY_ARTIFACT_MISMATCH");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
