@@ -71,6 +71,7 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
     const context = await executionContexts.load(taskId);
     const artifact = context?.verification_artifact_id ? await loadArtifact(context.verification_artifact_id) : null;
     if (!artifact || artifact.status !== "passed" || artifact.commit_sha !== context.review_commit_sha || artifact.source_revision !== context.source_revision || artifact.manifest_sha !== context.manifest_sha || artifact.base_sha !== context.base_sha) throw fail("VERIFY_ARTIFACT_MISMATCH", "A passed verification artifact for the current ticket commit is required.");
+    if (!coversVerificationPolicy(artifact, context.manifest_paths)) throw fail("VERIFY_ARTIFACT_MISMATCH", "Verification artifact lacks current policy or complete command evidence.");
     if (rootOnly && artifact.tree_sha !== (await rootGit.run(["rev-parse", `${context.review_commit_sha}^{tree}`])).trim()) throw fail("VERIFY_ARTIFACT_MISMATCH", "Verification artifact tree differs from the ticket commit.");
     await assertIdentity(context);
     return artifact;
@@ -171,6 +172,25 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
     }
     return null;
   }
+}
+
+// Rejects old or incomplete command receipts before any ticket can reuse a passed artifact.
+function coversVerificationPolicy(artifact, paths) {
+  if (artifact.policy_version !== POLICY_VERSION || !Array.isArray(artifact.planned_commands) || !Array.isArray(artifact.commands) || !artifact.planned_commands.length || artifact.commands.length !== artifact.planned_commands.length) return false;
+  const required = new Set();
+  if (paths.some((path) => path.startsWith("backend/"))) {
+    required.add("typecheck");
+    required.add("backend_tests");
+    if (paths.some((path) => /^backend\/.*\.[cm]?js$/.test(path))) required.add("lint");
+  }
+  if (requiresSchemaVerification(paths)) required.add("schema_validation");
+  if (paths.some((path) => path.startsWith("ui/nextjs/"))) required.add("build");
+  for (const [index, planned] of artifact.planned_commands.entries()) {
+    const actual = artifact.commands[index];
+    if (!planned?.kind || !Array.isArray(planned.argv) || !planned.argv.length || actual?.kind !== planned.kind || JSON.stringify(actual.argv) !== JSON.stringify(planned.argv) || actual.exit_code !== 0 || typeof actual.output_sha256 !== "string" || !/^sha256:[a-f0-9]{64}$/.test(actual.output_sha256)) return false;
+    required.delete(planned.kind);
+  }
+  return required.size === 0;
 }
 
 // Ignores only dependency links created by the ticket workspace; every other Git change invalidates evidence.
