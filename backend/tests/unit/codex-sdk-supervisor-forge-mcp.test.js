@@ -63,7 +63,7 @@ test("Supervisor dispatch runs a Codex ticket through the SDK Forge MCP path", a
   assert.match(prompts[0], /Document validate-schemas/);
   assert.match(prompts[0], /Read backend\/scripts\/validate-schemas\.mjs/);
   assert.doesNotMatch(prompts[0], /fixed six-tool/i);
-  assert.deepEqual(forgeTools.definitions.map((tool) => tool.name), ["select_code_graph_candidates", "rg_files", "rg_search", "sed_lines", "write_diff", "edit_diff", "run_test", "check_test", "git_status", "git_diff", "commit_changes", "report_done"]);
+  assert.deepEqual(forgeTools.definitions.map((tool) => tool.name), ["select_code_graph_candidates", "search_code", "read_file", "rg_files", "rg_search", "sed_lines", "write_diff", "edit_diff", "run_test", "check_test", "git_status", "git_diff", "commit_changes", "report_done"]);
   assert.equal(agentGatewayCalls, 0);
 });
 
@@ -119,7 +119,7 @@ test("Watcher header UI ticket targets frontend scope instead of tool-lab marker
   });
 
   assert.equal(result.status, "completed");
-  assert.deepEqual(forgeTools.context.allowed_file_paths, ["ui/nextjs/components/NodeForgePanels.jsx", "backend/package.json"]);
+  assert.deepEqual(forgeTools.context.allowed_file_paths, ["ui/nextjs/components/NodeForgePanels.jsx", "backend/package.json", "workflows/agents/coder.md"]);
   assert.ok(forgeTools.context.allowed_prefixes.includes("ui/nextjs/"));
   assert.ok(forgeTools.context.allowed_prefixes.includes("ui/src/"));
   assert.ok(forgeTools.context.allowed_prefixes.includes("web/src/"));

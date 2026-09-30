@@ -6,6 +6,7 @@ import { ConfigurationError } from "../../shared/errors.js";
 import { compareRefs, createMetadataValidator, metadataValidationError, protocolError, sortValue, storageConflict, storageError } from "./protocol-storage-helpers.js";
 
 const DEFAULT_ROOT = ".forge/runtime/protocol-storage";
+export const protocolStorageDefaults = Object.freeze({ root: DEFAULT_ROOT });
 
 /**
  * Protocol Storage facade. Serialization, checksums, and persistence policy are
