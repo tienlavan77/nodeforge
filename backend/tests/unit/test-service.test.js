@@ -24,6 +24,17 @@ test("TestService runs archived verification without a live project root", async
   assert.equal(result.status, "passed");
 });
 
+test("startTests uses the unit-test baseline when callers provide empty levels", async () => {
+  const calls = [];
+  const service = createTestService({
+    verificationOrchestrator: { run: async (plan) => { calls.push(plan); return { status: "passed" }; } }
+  });
+  const job = service.startTests({ commitId: "ARCHIVE-COMMIT", levels: [] });
+  await settle();
+  assert.equal(job.status, "running");
+  assert.equal(calls[0].checks[0].type, "unit_test");
+});
+
 const settle = async () => { for (let i = 0; i < 10; i += 1) await new Promise((resolve) => setTimeout(resolve, 0)); };
 
 test("startTests returns a job_id immediately and getTestResult reports running then passed", async () => {
