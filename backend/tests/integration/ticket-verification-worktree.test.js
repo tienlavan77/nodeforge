@@ -36,11 +36,12 @@ test("backend ticket worktree verification executes named test files", { timeout
   let database;
   let workspaces;
   try {
-    for (const directory of ["backend/src", "backend/tests/unit", "eslint-rules"]) await mkdir(join(root, directory), { recursive: true });
+    for (const directory of ["backend/src", "backend/tests/unit", "backend/scripts", "eslint-rules"]) await mkdir(join(root, directory), { recursive: true });
     await writeFile(join(root, ".gitignore"), ".forge/\nnode_modules/\n");
     await writeFile(join(root, "jsconfig.json"), JSON.stringify({ compilerOptions: { allowJs: true, checkJs: false, noEmit: true }, include: ["backend/src/**/*.js"] }));
     await writeFile(join(root, "backend/src/witness.js"), "// Supplies a disposable backend value for ticket verification.\nexport const witness = 'before';\n");
     await writeFile(join(root, "backend/tests/unit/witness.test.js"), "// Checks that the disposable backend module can be loaded.\nimport assert from 'node:assert/strict';\nimport test from 'node:test';\nimport { witness } from '../../src/witness.js';\ntest('witness value is text', () => assert.equal(typeof witness, 'string'));\n");
+    await writeFile(join(root, "backend/scripts/validate-schemas.mjs"), "// Validates the disposable archive contract.\nprocess.stdout.write('schema fixture passed\\n');\n");
     for (const path of [".eslintrc.json", "eslint-rules/package.json", "eslint-rules/no-silent-catch.js"]) await writeFile(join(root, path), await readFile(join(sourceRoot, path)));
     await git(root, "init");
     await git(root, "config", "user.email", "test@example.invalid");
@@ -62,8 +63,11 @@ test("backend ticket worktree verification executes named test files", { timeout
     const result = await finished(workspace.testService, started.job_id);
     assert.equal(result.status, "passed", JSON.stringify(result.error ?? result.result));
     const artifact = await workspace.testService.assertPassedArtifact();
-    assert.deepEqual(artifact.commands.map(({ kind, exit_code }) => [kind, exit_code]), [["typecheck", 0], ["lint", 0], ["test", 0]]);
-    assert.ok(artifact.commands[2].argv.some((item) => item.endsWith("backend/tests/unit/witness.test.js")));
+    assert.deepEqual(artifact.commands.map(({ kind, exit_code }) => [kind, exit_code]), [["typecheck", 0], ["lint", 0], ["schema_validation", 0], ["backend_tests", 0]]);
+    assert.ok(artifact.commands[3].argv.some((item) => item.endsWith("backend/tests/unit/witness.test.js")));
+    assert.equal(artifact.policy_version, "ticket-verification-v3");
+    assert.equal(artifact.commands.every((command) => /^sha256:[a-f0-9]{64}$/.test(command.output_sha256)), true);
+    assert.ok(artifact.commit_sha && artifact.base_sha && artifact.source_revision && artifact.manifest_sha);
   } finally {
     await workspaces?.close();
     await database?.close();
