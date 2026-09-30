@@ -1,5 +1,36 @@
 // Manages test execution jobs with async polling and timeout handling.
+// Normalizes UI errors to safe messages while preserving diagnostics.
+// Aligned with UI retry semantics and redaction for NF-UI-CONV-003.
 import { ConfigurationError } from "../shared/errors.js";
+import { normalizeErrorContract } from "../shared/error-contract.js";
+
+// Redacts secrets, URLs, stack traces and raw events from error messages while preserving request IDs.
+function redactMessage(raw) {
+  if (typeof raw !== "string") return raw ?? "Test execution failed.";
+  let text = raw.trim();
+  if (!text) return "Test execution failed.";
+  // Remove stack traces
+  text = text.split(/\n\s*at\s+/)[0].split(/stack trace/i)[0].trim();
+  // Redact URLs
+  text = text.replace(/https?:\/\/[^\s]+/gi, "[REDACTED_URL]");
+  // Redact secrets/tokens
+  text = text.replace(/(api[_-]?key|secret|token|password|authorization)[=:]\s*[^\s]+/gi, "$1=[REDACTED]");
+  text = text.replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]");
+  // Remove raw JSON payloads
+  if (/^[[{]/.test(text) && text.length > 280) text = text.slice(0, 280);
+  // Keep first line only for user-visible message
+  text = text.split(/\r?\n/)[0].replace(/\s+/g, " ").slice(0, 280);
+  return text || "Test execution failed.";
+}
+
+// Normalizes an error into a safe contract: {code, message, retryable, requestId}
+// Exported for contract tests and UI retry semantics alignment — preserves string error compatibility.
+export function normalizeError(error, { requestId } = {}) {
+  const source = typeof error === "string" ? { message: error } : error ?? {};
+  const code = source.code ?? "TEST_EXECUTION_FAILED";
+  const retryable = source.retryable ?? !["INPUT_INVALID", "TEST_JOB_NOT_FOUND", "TEST_JOB_FORBIDDEN", "CONFIGURATION_ERROR", "VALIDATION_ERROR"].includes(code);
+  return normalizeErrorContract({ error: { ...source, code, message: redactMessage(source.message), retryable }, requestId: requestId ?? source.requestId, fallbackMessage: "Test execution failed." });
+}
 
 // Creates a service for running tests with async job tracking.
 export function createTestService({ verificationOrchestrator, fileService, timeoutMs = 120000, jobTimeoutMs = 300000, projectRoot, publisher, internalBus, projectLogger = () => {} } = {}) {
@@ -30,7 +61,7 @@ export function createTestService({ verificationOrchestrator, fileService, timeo
       logJobCompleted(job, { taskId, sessionId });
     }, (error) => {
       job.status = "failed";
-      job.error = { code: error.code ?? "TEST_EXECUTION_FAILED", message: error.message };
+      job.error = normalizeError(error);
       job.finished_at = new Date().toISOString();
       logJobCompleted(job, { taskId, sessionId });
     });
@@ -90,7 +121,6 @@ export function createTestService({ verificationOrchestrator, fileService, timeo
         ...(job.error?.code ? { error_code: job.error.code } : {}),
         payload: { job_id: job.job_id, task_id: job.task_id, job_status: job.status, duration_ms, ...(job.error ? { error: job.error } : {}), ...(sessionId ? { session_id: sessionId } : {}) }
       });
-    // eslint-disable-next-line no-silent-catch -- Completion logging is best-effort after the result was published.
-    } catch {}
+    } catch (error) { console.warn("Test completion logging failed.", { error: error.message, task_id: taskId }); }
   }
 }

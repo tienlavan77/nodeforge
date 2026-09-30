@@ -1,4 +1,5 @@
 // Summary: Projects conversation messages and agent lifecycle events onto the project SSE contract.
+import { normalizeErrorContract } from "../../shared/error-contract.js";
 
 // Projects a communication message to project stream events.
 export function projectConversationMessages(message) {
@@ -20,7 +21,7 @@ function projectConversationMessage(message) {
         : type.endsWith(".error") || type.endsWith(".failed") ? "conversation.message.failed" : null;
   if (!eventType || typeof message?.conversation_id !== "string") return null;
   if (eventType === "conversation.message.failed") {
-    const code = String(payload.error_code ?? payload.code ?? "AGENT_ERROR");
+    const sourceError = payload.error && typeof payload.error === "object" ? payload.error : { code: payload.code ?? "AGENT_ERROR", message: payload.error ?? payload.message ?? "Agent request failed.", retryable: payload.retryable };
     return {
       event_type: eventType,
       payload: {
@@ -30,7 +31,7 @@ function projectConversationMessage(message) {
         agent_id: message.sender?.id ?? null,
         sender_role: message.sender?.role ?? null,
         partial_text: typeof payload.accumulated_text === "string" ? payload.accumulated_text : typeof payload.text === "string" ? payload.text : null,
-        error: { code, message: String(payload.error ?? payload.message ?? "Agent request failed."), retryable: payload.retryable ?? !["VALIDATION_FAILED", "CONVERSATION_ARCHIVED", "PROVIDER_AUTH"].includes(code) }
+        error: normalizeErrorContract({ error: sourceError, requestId: message.correlation_id ?? null })
       }
     };
   }
