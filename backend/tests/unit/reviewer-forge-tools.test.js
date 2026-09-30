@@ -118,9 +118,17 @@ test("Reviewer source windows use committed content despite stale cache formatti
     const lines = await codex.registry.sed_lines.execute({ path, start_line: 1, end_line: 2 });
     assert.equal(lines.stdout, "first\nsecond\n");
     assert.equal(lines.sha256, sha256);
+    assert.equal(lines.total_lines, 3);
     assert.equal(lines.review_evidence.commit_sha, "COMMIT-1");
     const claude = createReviewerForgeTools({ ...options, reviewer: { agent_id: "reviewer-1", provider: "claude" }, includeClaudeFileTools: true });
+    const lastLine = await claude.registry.Read.execute({ file_path: path, start_line: 3, end_line: 3 });
+    assert.equal(lastLine.content, "     3→");
+    assert.equal(lastLine.total_lines, 3);
     assert.equal((await claude.registry.Read.execute({ file_path: path, start_line: 2, end_line: 3 })).content, "     2→second\n     3→");
+    evidence.files[0].content = "tampered\n";
+    await assert.rejects(() => codex.registry.read_file.execute({ path, offset: 2, limit: 1 }), (error) => error.code === "REVIEW_SOURCE_MISMATCH");
+    await assert.rejects(() => claude.registry.Read.execute({ file_path: path, start_line: 3, end_line: 3 }), (error) => error.code === "REVIEW_SOURCE_MISMATCH");
+    evidence.files[0].content = content;
     await writeFile(join(root, path), "changed\n");
     await assert.rejects(() => codex.registry.sed_lines.execute({ path, start_line: 1, end_line: 2 }), (error) => error.code === "REVIEW_SOURCE_MISMATCH");
     await assert.rejects(() => claude.registry.Read.execute({ file_path: path, start_line: 1, end_line: 1 }), (error) => error.code === "REVIEW_SOURCE_MISMATCH");

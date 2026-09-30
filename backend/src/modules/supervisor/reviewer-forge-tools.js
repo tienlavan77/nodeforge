@@ -42,13 +42,19 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
     listFiles: async (input) => filterPaths(await fileService.listFiles(input)),
     listDirectories: async (input) => filterPaths(await fileService.listDirectories(input))
   };
+  const reviewCache = codeCache && ticketEvidence ? { ...codeCache, read: async ({ path }) => {
+    const file = ticketEvidence.files.find((item) => item.path === path);
+    if (!file || file.deleted) return codeCache.read({ path });
+    const live = await verifiedReviewFile(file, ticketEvidence, fileService, projectRoot);
+    return { ...live, content: file.content, sha256: file.sha256, content_sha256: file.sha256, size_bytes: Buffer.byteLength(file.content), cache: { status: "bypass", cached_at: null, expires_at: null }, index_status: "unavailable" };
+  } } : codeCache;
   const allowedPrefixes = [...new Set((job.payload?.changed_paths ?? []).map((path) => path.split("/").slice(0, -1).join("/")).filter(Boolean).concat(["workflows/agents/"]))];
   const toolContext = { task_id: job.task_id, correlation_id: job.correlation_id, request_id: job.request_id, agent_identity: { agent_id: reviewer.agent_id, role: "reviewer", provider: reviewer.provider }, capabilities: ["read_file", "search_code", "Read", "Glob", "Grep", "search_tree"], project_root: projectRoot, allowed_file_paths: job.payload?.changed_paths ?? [], allowed_prefixes: allowedPrefixes.length ? allowedPrefixes : ["backend/", "ui/", "schemas/", "workflows/"] };
   const implementations = {
-    read_file: createReadFileTool({ fileService: scopedFiles, codeCache, maxChars: MAX_RESULT_BYTES }),
-    ...(codeSearch?.search ? { search_code: createSearchCodeTool({ codeSearch, codeCache, projectLogger }) } : {}),
-    ...((codeCache && ["codex", "openai"].includes(reviewer.provider)) ? { sed_lines: createSedLinesTool({ projectRoot, fileService: scopedFiles, codeCache, logger: { emit: projectLogger } }) } : {}),
-    ...(includeClaudeFileTools && codeCache ? createClaudeFileTools({ fileService: scopedFiles, projectRoot, codeCache }) : {})
+    read_file: createReadFileTool({ fileService: scopedFiles, codeCache: reviewCache, maxChars: MAX_RESULT_BYTES }),
+    ...(codeSearch?.search ? { search_code: createSearchCodeTool({ codeSearch, codeCache: reviewCache, projectLogger }) } : {}),
+    ...((codeCache && ["codex", "openai"].includes(reviewer.provider)) ? { sed_lines: createSedLinesTool({ projectRoot, fileService: scopedFiles, codeCache: reviewCache, logger: { emit: projectLogger } }) } : {}),
+    ...(includeClaudeFileTools && codeCache ? createClaudeFileTools({ fileService: scopedFiles, projectRoot, codeCache: reviewCache }) : {})
   };
   if (typeof fileService.listFiles === "function" && typeof fileService.listDirectories === "function") implementations.search_tree = createOwnerSearchTreeTool({ fileService: scopedFiles });
   const definitions = [reviewerReadFileDefinition, ...(implementations.search_code ? [reviewerSearchCodeDefinition] : []), ...(implementations.sed_lines ? [sedLinesDefinition] : []), ...(includeClaudeFileTools && codeCache ? claudeFileDefinitions.map((definition) => definition.name === "Read" ? reviewerReadDefinition : definition) : []), ...(implementations.search_tree ? [ownerSearchTreeDefinition] : [])];
@@ -105,12 +111,7 @@ async function bindReviewEvidence(name, input, result, ticketEvidence, fileServi
   const path = name === "Read" ? result.file_path : input.path;
   const file = ticketEvidence.files.find((item) => item.path === path);
   if (!file || file.deleted) return result;
-  await assertReviewerReadPath(projectRoot, path);
-  let live;
-  try { live = await fileService.readForIndex({ path, maxBytes: MAX_FILE_BYTES }); }
-  catch (error) { throw Object.assign(toolError("REVIEW_SOURCE_MISMATCH", `Reviewer source could not be verified: ${path}.`), { cause: error }); }
-  const liveSha = typeof live?.content === "string" ? `sha256:${createHash("sha256").update(live.content, "utf8").digest("hex")}` : null;
-  if (liveSha !== file.sha256 || ticketEvidence.artifact.file_checksums[path] !== file.sha256) throw toolError("REVIEW_SOURCE_MISMATCH", `Reviewer source differs from verified commit: ${path}.`);
+  await verifiedReviewFile(file, ticketEvidence, fileService, projectRoot);
   let source = {};
   if (name === "read_file" && typeof result.content === "string") {
     const start = result.offset;
@@ -120,7 +121,18 @@ async function bindReviewEvidence(name, input, result, ticketEvidence, fileServi
     const content = canonicalReviewWindow(file.content, input.start_line, input.end_line, name === "Read");
     source = name === "Read" ? { content } : { stdout: content };
   }
-  return { ...result, ...source, sha256: file.sha256, ...(name === "read_file" ? { content_sha256: file.sha256, size_bytes: Buffer.byteLength(file.content), total_lines: file.content.split("\n").length } : {}), review_evidence: { artifact_id: ticketEvidence.artifact.artifact_id, commit_sha: ticketEvidence.context.review_commit_sha, manifest_sha: ticketEvidence.context.manifest_sha, sha256: file.sha256 } };
+  return { ...result, ...source, sha256: file.sha256, total_lines: file.content.split("\n").length, ...(name === "Read" ? { truncated: input.end_line < file.content.split("\n").length } : {}), ...(name === "read_file" ? { content_sha256: file.sha256, size_bytes: Buffer.byteLength(file.content) } : {}), review_evidence: { artifact_id: ticketEvidence.artifact.artifact_id, commit_sha: ticketEvidence.context.review_commit_sha, manifest_sha: ticketEvidence.context.manifest_sha, sha256: file.sha256 } };
+}
+
+// Verifies artifact bytes against the current file before a Reviewer sees ticket source.
+async function verifiedReviewFile(file, evidence, fileService, projectRoot) {
+  await assertReviewerReadPath(projectRoot, file.path);
+  let live;
+  try { live = await fileService.readForIndex({ path: file.path, maxBytes: MAX_FILE_BYTES }); }
+  catch (error) { throw Object.assign(toolError("REVIEW_SOURCE_MISMATCH", `Reviewer source could not be verified: ${file.path}.`), { cause: error }); }
+  const hash = (content) => typeof content === "string" ? `sha256:${createHash("sha256").update(content, "utf8").digest("hex")}` : null;
+  if (hash(live?.content) !== file.sha256 || hash(file.content) !== file.sha256 || evidence.artifact.file_checksums[file.path] !== file.sha256) throw toolError("REVIEW_SOURCE_MISMATCH", `Reviewer source differs from verified commit: ${file.path}.`);
+  return live;
 }
 
 // Formats committed source with the exact line boundaries used by Reviewer tools.
