@@ -26,8 +26,7 @@ export function selectMissCases(rows, { maxK, semanticThreshold = 1 } = {}) {
 // Builds the mismatch-analysis prompt from ticket text and ground-truth excerpts.
 export function buildMinerPrompt(caseItem, fileSnippets) {
   const files = fileSnippets.map(({ path, excerpt }) => `File: ${path}\n${excerpt}`).join("\n\n---\n\n");
-  return `Ticket title: ${caseItem.title}\nObjective: ${caseItem.objective}\nAcceptance: ${(caseItem.acceptance_criteria ?? []).join("; ")}\n\nCorrect files (retrieval missed these):\n${files}\n\nWhich words or phrases in the ticket name a business concept whose code uses a different term (visible in filenames, function names, or symbols above)? Reply ONLY as a JSON array: [{"business_term":"...","suggested_code_term":"...","confidence":0.0-1.0}]. Max 3 items; empty array if none. Prefer generic reusable terms over ticket-specific nouns.`;,
-  candidate_files: [{ path: 'backend/src/application/ticket-crud-service.js', role: 'REFERENCE', reason: 'Ticket persistence entry point.' }],
+  return `Ticket title: ${caseItem.title}\nObjective: ${caseItem.objective}\nAcceptance: ${(caseItem.acceptance_criteria ?? []).join("; ")}\n\nCorrect files (retrieval missed these):\n${files}\n\nWhich words or phrases in the ticket name a business concept whose code uses a different term (visible in filenames, function names, or symbols above)? Reply ONLY as a JSON array: [{"business_term":"...","suggested_code_term":"...","confidence":0.0-1.0}]. Max 3 items; empty array if none. Prefer generic reusable terms over ticket-specific nouns.`;
 }
 
 // Queries the lightweight chat model once for a single miss case.
