@@ -20,6 +20,14 @@ test("runTests uses the unit-test baseline when callers provide no levels", asyn
   assert.equal(calls[0].checks[0].type, "test");
 });
 
+test("TestService runs schema validation without a live project root", async () => {
+  const calls = [];
+  const service = createTestService({ verificationOrchestrator: { run: async (plan) => { calls.push(plan); return { status: "passed" }; } } });
+  const result = await service.runSchemaValidation({ commitId: "ARCHIVE-COMMIT" });
+  assert.equal(result.status, "passed");
+  assert.equal(calls[0].checks[0].type, "schema_validation");
+});
+
 test("TestService runs archived verification without a live project root", async () => {
   const service = createTestService({ verificationOrchestrator: { run: async () => ({ status: "passed" }) } });
   const result = await service.runTests({ commitId: "ARCHIVE-COMMIT" });
