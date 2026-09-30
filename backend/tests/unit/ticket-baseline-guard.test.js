@@ -30,7 +30,7 @@ async function fixture(action) {
     await fileService.atomicWrite({ path: `.forge/runtime/ticket-baselines/${taskId}.json`, content: JSON.stringify(receipt), replace: true });
     const open = () => createTicketExecutionContextStore({ fileService, projectId: "PROJECT-TEST", projectRoot: root });
     const workspace = (store = open()) => ({ root_only: true, projectRoot: root, fileService, branch: "ui-chat", base_commit: receipt.source_sha, executionContexts: store, changeLedger: { snapshot: async () => ({ revision: 0, entries: {}, commits: {} }) } });
-    await action({ root, git, fileService, receipt, workspace, ticket: { id: taskId, project_id: "PROJECT-TEST", execution_contract: contract } });
+    await action({ root, git, fileService, receipt, workspace, ticket: { id: taskId, project_id: "PROJECT-TEST", rollout_package: "A5", execution_contract: contract } });
   } finally { await rm(root, { recursive: true, force: true }); }
 }
 
