@@ -37,6 +37,7 @@ export function createTestService({ verificationOrchestrator, fileService, timeo
   if (typeof verificationOrchestrator?.run !== "function") throw new ConfigurationError("TestService requires a Verification Orchestrator.");
   // Archive verification has no live checkout, so project root remains optional metadata.
   if (projectRoot != null && (typeof projectRoot !== "string" || !projectRoot.trim())) throw new ConfigurationError("TestService project root must be a non-empty string when provided.");
+  // File service is intentionally optional because immutable archive verification has no live project checkout.
   void fileService;
   const jobs = new Map();
   let jobSequence = 0;
