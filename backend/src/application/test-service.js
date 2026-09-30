@@ -41,7 +41,8 @@ export function createTestService({ verificationOrchestrator, fileService, timeo
   let jobSequence = 0;
   return Object.freeze({ runTests, runLint, runTypecheck, startTests, getTestResult });
   async function runTests({ commitId, levels = ["unit_test"], taskId, sessionId, command } = {}) {
-    return run({ commitId, levels, taskId, sessionId, command });
+    const verificationLevels = Array.isArray(levels) && levels.length > 0 ? levels : ["unit_test"];
+    return run({ commitId, levels: verificationLevels, taskId, sessionId, command });
   }
   async function runLint({ commitId, taskId, sessionId } = {}) { return run({ commitId, levels: ["lint"], taskId, sessionId }); }
   async function runTypecheck({ commitId, taskId, sessionId } = {}) { return run({ commitId, levels: ["typecheck"], taskId, sessionId }); }
