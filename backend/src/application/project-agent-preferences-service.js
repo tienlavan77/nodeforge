@@ -27,7 +27,8 @@ function parse(raw) {
   try {
     const value = raw ? JSON.parse(raw) : {};
     return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  } catch {
+  } catch (error) {
+    console.warn("Invalid project agent preferences JSON.", { error: error.message });
     return {};
   }
 }
