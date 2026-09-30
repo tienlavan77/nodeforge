@@ -1,9 +1,11 @@
 // Node control API client and message intent utilities.
 import { detectMessageIntent, MESSAGE_INTENTS, normalizeTicketInput } from "./ticket-input.js";
-import { isProjectStreamEvent, PROJECT_EVENT_TYPES } from "./project-stream-event.js";
+import { createProjectStreamClient } from "./project-stream-client.js";
+import { normalizeBackendError } from "./error-normalizer.js";
+import { requestJson } from "./node-client-request.js";
+import { createTicketHumanReviewClient } from "./ticket-human-review-client.js";
 
 export { detectMessageIntent, MESSAGE_INTENTS, normalizeTicketInput };
-
 // Builds a Forge v1 API URL with query params.
 function forgeV1(pathname, query = {}) {
   const params = new URLSearchParams();
@@ -26,7 +28,9 @@ function controlApiBase() {
 
 // Creates the Node control API client.
 export function createNodeClient() {
+  const connectProjectStream = createProjectStreamClient(forgeV1);
   return Object.freeze({
+    ...createTicketHumanReviewClient({ forgeV1, requestJson }),
     async createConversation({ projectId, agentId, title }) {
       return requestJson(forgeV1("/conversations"), {
         method: "POST",
@@ -42,6 +46,10 @@ export function createNodeClient() {
 
     async getAgents() {
       return requestJson(forgeV1("/agents"), { fallbackError: "Node could not load Agents." });
+    },
+
+    async getGitStatus(projectId) {
+      return requestJson(forgeV1("/git/status", { project: projectId }), { fallbackError: "Git status is unavailable." });
     },
 
     async getAgent(agentId) {
@@ -195,30 +203,7 @@ export function createNodeClient() {
       source.onerror = () => onError?.();
       return Object.freeze({ close: () => source.close() });
     },
-    connectProjectStream({ projectId, afterEventId, onEvent, onOpen, onError } = {}) {
-      if (typeof projectId !== "string" || !projectId.trim()) throw new Error("Project stream requires a project id.");
-      if (typeof onEvent !== "function") throw new Error("Project stream requires an onEvent handler.");
-      if (typeof EventSource !== "function") throw new Error("Project stream requires EventSource support.");
-      const source = new EventSource(forgeV1("/stream", { project: projectId, ...(afterEventId ? { after: afterEventId } : {}) }));
-      const delivered = new Set();
-      let lastEventId = afterEventId ?? null;
-      const handleEvent = (event) => {
-        if (event.lastEventId) lastEventId = event.lastEventId;
-        let data;
-        try { data = JSON.parse(event.data); } catch { onError?.(new Error("Project stream returned invalid JSON.")); return; }
-        if (!isProjectStreamEvent(data, projectId)) { onError?.(new Error("Project stream returned an invalid event.")); return; }
-        if (delivered.has(data.event_id)) return;
-        delivered.add(data.event_id);
-        onEvent(data);
-      };
-      PROJECT_EVENT_TYPES.forEach((eventType) => source.addEventListener(eventType, handleEvent));
-      source.onopen = () => onOpen?.();
-      source.onerror = (error) => onError?.(error instanceof Error ? error : new Error("Project stream connection failed."));
-      return Object.freeze({
-        close: () => source.close(),
-        getLastEventId: () => lastEventId
-      });
-    },
+    connectProjectStream,
     sendOwnerMessage(agentId, text) {
       return { id: `local-${Date.now()}`, agentId, text, timestamp: new Date().toISOString() };
     },
@@ -226,24 +211,9 @@ export function createNodeClient() {
   });
 }
 
-// Fetches JSON with error handling and fallback messages.
-async function requestJson(url, { fallbackError, ...init } = {}) {
-  let response;
-  try {
-    response = await fetch(url, init);
-  } catch {
-    throw new Error("Node is unavailable. Check that the Node service is running.");
-  }
-  const text = response.status === 204 ? "" : await response.text();
-  let body = null;
-  if (text.trim()) {
-    try {
-      body = JSON.parse(text);
-    } catch {
-      if (response.ok) throw new Error("Node returned an invalid response.");
-      throw new Error(fallbackError ?? `Node request failed with HTTP ${response.status}.`);
-    }
-  }
-  if (!response.ok) { const error = new Error(body?.error ?? fallbackError ?? `Node request failed with HTTP ${response.status}.`); error.status = response.status; throw error; }
-  return body;
+// Returns a normalized error-like object for UI toast and inline display.
+export function toDisplayError(error) {
+  if (!error) return null;
+  if (error.code && error.message !== undefined) return error;
+  return normalizeBackendError({ body: { error: { message: error.message, code: error.code } }, status: error.status, fallbackError: error.message });
 }

@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { EventEmitter } from "node:events";
 import { loadNodeforgeEnv } from "./nodeforge-env.mjs";
 
-process.chdir(resolve(new URL("../..", import.meta.url).pathname));
+process.chdir(resolve(process.env.NODE_CONTROL_PROJECT_ROOT ?? new URL("../..", import.meta.url).pathname));
 loadNodeforgeEnv();
 
 import { createArchitectureWorkspaceService } from "../src/application/architecture-workspace-service.js";
@@ -25,8 +25,6 @@ import { createControlApiStorage } from "./control-api-storage.mjs";
 import { createControlApiHttp } from "./control-api-http.mjs";
 import { createProductionSupervisorRuntime } from "../src/modules/supervisor/production-runtime.js";
 import { createTerminalBridge } from "../src/modules/supervisor/terminal-bridge.js";
-import { createOpenAiSdkProviderFactory } from "../src/modules/agent/openai-sdk-provider.js";
-import { createOpenAiSdkGateway } from "../src/modules/agent/openai-sdk-gateway.js";
 import { createRuntimeLogger } from "../src/core/runtime-logger.js";
 import { createSprintDagRunner, topologicalTicketLevels } from "../src/modules/supervisor/sprint-dag.js";
 import { createCodeIndexSummaryBuilder } from "../src/modules/index/code-index-summary-builder.js";
@@ -37,8 +35,17 @@ import { createAgentExecutionCheckpointStore } from "../src/modules/agent/agent-
 import { createDirectCodeRequest } from "../src/application/direct-code-request.js";
 import { createCodeCacheService } from "../src/modules/context/code-cache-service.js";
 import { createAgentOccupancyStore } from "../src/modules/agent/agent-occupancy-store.js";
+import { createTicketWorkspaceService } from "../src/modules/supervisor/ticket-workspace-service.js";
+import { withTicketProjectCommitLock } from "../src/modules/supervisor/ticket-project-commit-lock.js";
+import { createTicketPipelineInventory } from "../src/modules/supervisor/ticket-pipeline-inventory.js";
+import { createTicketPipelineRollout } from "../src/modules/supervisor/ticket-pipeline-rollout.js";
+import { createTicketPipelineShadow } from "../src/modules/supervisor/ticket-pipeline-shadow.js";
+import { createTicketPipelineDisposition } from "../src/modules/supervisor/ticket-pipeline-disposition.js";
+import { migrateConversationErrors } from "../src/modules/governance/conversation-error-migration.js";
 import { createSprintLeaderIntakeService } from "../src/application/sprint-leader-intake-service.js";
+import { createTicketHumanReviewService } from "../src/application/ticket-human-review-service.js";
 import { reviewPhaseResume, reviewRevisionResume } from "../src/modules/supervisor/review-revision-resume.js";
+import { migrateConversationErrors } from "../src/modules/governance/conversation-error-migration.js";
 
 const config = readControlApiConfig();
 const { port, host, dataDir } = config;
@@ -49,11 +56,11 @@ const storage = await createControlApiStorage({
 });
 const { fileService, protocolStorage, conversationStateStore, processLock, controlDb, indexDb } = storage;
 const database = controlDb;
-const { profiles, agentConfiguration, secrets, agentGateway, claudeSdkGateway, codexSdkGateway, ollamaSdkGateway, agentSettings, agentRoleResolver } = createControlApiAgent({ database, fileService, config });
-const openaiSdkProviderFactory = createOpenAiSdkProviderFactory({ credentialResolver: (reference) => secrets.get(reference) });
-const openaiSdkGateway = createOpenAiSdkGateway({ providerFactory: openaiSdkProviderFactory, timeoutMs: config.sdkTimeoutMs });
+const { profiles, agentConfiguration, agentGateway, claudeSdkGateway, codexSdkGateway, openaiSdkGateway, ollamaSdkGateway, agentSettings, agentRoleResolver } = createControlApiAgent({ database, fileService, config });
 const platform = createControlApiPlatform({ config, database, indexDb, fileService, agentGateway, claudeSdkGateway, codexSdkGateway, agentRoleResolver, logEvent });
-const gitService = createGitService({ projectRoot: config.cwd });
+await migrateConversationErrors({ database, fileService, projectId: config.projectId });
+await migrateConversationErrors({ database, fileService, projectId: config.projectId });
+const gitService = createGitService({ projectRoot: config.cwd, mutationLock: (action) => withTicketProjectCommitLock({ fileService, projectId: platform.projectId }, action) });
 const reportService = createCompletionReportService({ protocolStorage, fileService, gitService });
 const onEvalCase = createEvalCaseRecorder({ root: config.cwd });
 const { projectId, indexDb: platformIndexDb, codeSearch, fileGraph, relevantTreeSelector, freshnessChecker, ticketCandidateResolver, ticketSprintLeader, memoryRetriever, communications, conversations, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, verificationOrchestrator, contextEngine, sprintOrchestration, proseTicketService, ticketFileStore, sprintPlanUpload, taskSummaries, projectMemory } = platform;
@@ -67,6 +74,17 @@ testService = platform.testService;
 const unifiedStreamOrder = createUnifiedStreamOrderer();
 const runtimeLogger = createRuntimeLogger({ logEvent });
 const codeCache = createCodeCacheService({ projectId, fileService, codeSearch, logger: runtimeLogger.emit });
+const ticketWorkspaceService = createTicketWorkspaceService({ projectRoot: config.cwd, projectId, protocolStorage, stateFileService: fileService, indexDatabase: indexDb, codeSearch, fileGraph, codeCache, rootOnly: process.env.NODEFORGE_TICKET_EXECUTION_MODE === "root-only", projectLogger: runtimeLogger.emit });
+const ticketPipelineInventory = createTicketPipelineInventory({ projectRoot: config.cwd, projectId, fileService });
+const ticketPipelineDisposition = createTicketPipelineDisposition({ projectId, fileService, inventory: ticketPipelineInventory, projectLogger: runtimeLogger.emit });
+const ticketPipelineRollout = createTicketPipelineRollout({ projectId, fileService, inventory: ticketPipelineInventory, disposition: ticketPipelineDisposition, projectLogger: runtimeLogger.emit });
+const ticketPipelineShadow = createTicketPipelineShadow({ projectId, fileService, rollout: ticketPipelineRollout, projectLogger: runtimeLogger.emit });
+let ticketPipelineMode = await ticketPipelineRollout.load();
+if (ticketPipelineMode.version === 0) ticketPipelineMode = await ticketPipelineRollout.setMode("shadow", 0);
+if (ticketPipelineMode.mode === "shadow") {
+  try { await ticketPipelineRollout.shadowAudit(); }
+  catch (error) { runtimeLogger.emit({ event_name: "ticket.pipeline_shadow_audit_failed", level: "error", status: "failed", message: "Ticket pipeline inventory audit failed; existing workspace gates remain active.", source: "control-api", error_code: error.code ?? "TICKET_PIPELINE_AUDIT_FAILED", payload: { error: error.message } }); }
+}
 const buildBuilderContext = createBuilderContext({ roadmaps, indexDb, contextEngine });
 const codeIndexSummaryBuilder = createCodeIndexSummaryBuilder({ fileService, indexDb });
 const supervisorRuntime = createProductionSupervisorRuntime({ projectRoot: config.cwd, fileService, root: ".forge/runtime", eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, agentRoleResolver, agentOccupancy, ticketStatusStore, codeSearch, codeCache, relevantTreeSelector, freshnessChecker, logger: runtimeLogger, projectLogger: runtimeLogger.emit, projectId,
@@ -77,17 +95,14 @@ const supervisorRuntime = createProductionSupervisorRuntime({ projectRoot: confi
       internalBus.emit("agent.checkpoint.updated", { type: "agent.checkpoint.updated", project_id: input.project_id, payload: { task_id: checkpoint.task_id, sprint_id: input.sprint_id ?? null, status: checkpoint.status === "completed" ? "completed" : "resumable", last_completed_turn: checkpoint.last_completed_turn ?? 0, last_tool: checkpoint.last_tool ?? null, updated_at: checkpoint.updated_at } });
     } catch (error) { runtimeLogger.emit({ event_name: "agent.checkpoint_publish_failed", level: "error", status: "failed", message: "Could not publish direct code checkpoint.", task_id: checkpoint.task_id, source: "control-api", error_code: error.code ?? "CHECKPOINT_PUBLISH_FAILED", payload: { error: error.message } }); }
   },
-  conversationStateStore, protocolStorage, testService, gitService, reportService, onEvalCase, enableReadCode: true, autoStartWorkers: false,
+  conversationStateStore, protocolStorage, testService, gitService, reportService, ticketWorkspaceService, shadowComparison: ticketPipelineShadow, onEvalCase, enableReadCode: true, autoStartWorkers: false,
   preparation: {
     createTaskSession: async ({ task_id, project_id, ticket } = {}) => {
       const existing = taskStore.get(task_id);
       if (!existing) taskStore.create({ id: task_id, type: "custom", title: ticket?.title ?? task_id, description: ticket?.objective ?? "", acceptance_criteria: ticket?.acceptance_criteria ?? [], status: "pending", created_at: new Date().toISOString() });
       return { session_id: `SESSION-${task_id}` };
     },
-    createBranch: async ({ task_id, branch } = {}) => {
-      if (await gitService.branchExists(branch)) return { branch, reused: true };
-      return gitService.createBranch(branch);
-    },
+    createBranch: async ({ task_id } = {}) => ticketWorkspaceService.ensure(task_id),
     resolveCodeIndex: async () => `IDX-${indexDb.all("SELECT version FROM index_metadata LIMIT 1")[0]?.version ?? 0}`,
     persist: async () => ({ persisted: true })
   }
@@ -122,6 +137,7 @@ function isFrontendTicket(ticket = {}) { return /\bfrontend\b|\breact\b|\bnext(?
 
 const dispatchTask = async ({ ticket, message, required_role, resume_from, review_resume } = {}) => supervisorRuntime.integration.submitTicket({ ticket, task_id: ticket.id, project_id: ticket.project_id, request_id: message?.id, correlation_id: message?.correlation_id, required_role: required_role ?? ticket.required_role ?? "coder", payload: { text: `Ticket ${ticket.id}: ${ticket.title ?? ""}\nObjective: ${ticket.objective ?? ""}\nAcceptance: ${(ticket.acceptance_criteria ?? []).join("; ")}`, task: { id: ticket.id, title: ticket.title, objective: ticket.objective, dependencies: ticket.dependencies ?? [], acceptance_criteria: ticket.acceptance_criteria ?? [] }, ticket, ...(resume_from ? { resume_from } : {}), ...(review_resume ? { review_resume, review_base_commit: review_resume.base_commit } : {}) } });
 const directCodeRequest = createDirectCodeRequest({ fileService, integration: supervisorRuntime.integration, checkpoints: supervisorRuntime.agentCheckpoints, projectId, projectLogger: logEvent });
+const ticketHumanReviewService = createTicketHumanReviewService({ projectId, roadmaps, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, agentOccupancy, ticketWorkspaceService, publisher: eventPublisher, projectLogger: runtimeLogger.emit });
 
 // Sprint execution runs one level at a time, gating each ticket on its
 // predecessors' terminal ticket status via the execution event bus.
@@ -130,8 +146,24 @@ const sprintLeaderIntake = createSprintLeaderIntakeService({ fileService, roadma
 
 const runningSprints = new Set();
 
+// Enforces the persisted A5 execution contract before any restart-resume or RUN dispatch.
+function assertA5ExecutionContract(ticket) {
+  if (ticket?.rollout_package !== "A5") return;
+  const contract = ticket.execution_contract;
+  const required = ["scope", "owner", "supervisor", "coder", "reviewer", "gate", "ledger_revision", "idempotency_key"];
+  if (!contract || required.some((field) => typeof contract[field] !== "string" || !contract[field].trim())
+    || contract.gate !== "shadow" || !Array.isArray(contract.acceptance_criteria) || !contract.acceptance_criteria.length
+    || !Array.isArray(contract.verification_plan) || !contract.verification_plan.length || !Array.isArray(contract.dependencies)
+    || !(contract.human_authority === null || typeof contract.human_authority === "string")) {
+    throw Object.assign(new Error("A5 RUN requires a persisted execution contract with scope, acceptance, verification, authorities, shadow gate, ledger revision, and idempotency key."), { code: "A5_EXECUTION_CONTRACT_REQUIRED", statusCode: 409 });
+  }
+}
+
 const dispatchTicket = async ({ projectId, ticketId, conversationId, fresh = false } = {}) => {
+  if ((await ticketPipelineDisposition.get(ticketId))?.disposition === "cancelled") throw Object.assign(new Error("This historical ticket was cancelled by the project owner and cannot be resumed."), { code: "TICKET_CANCELLED", statusCode: 409 });
   const { ticket } = await sprintLeaderIntake.open({ projectId, ticketId });
+  assertA5ExecutionContract(ticket);
+  if (ticketStatusStore.get(ticketId)?.details?.reason === "human_review_approved") return { ticket_id: ticketId, status: "accepted", pipeline: "human_review", resumed: true };
   // Resume by default: an unfinished checkpoint means a previous run crashed
   // mid-execution, so keep protocol/conversation state and let the agent
   // continue from the last completed turn. `fresh: true` forces the old
@@ -197,11 +229,11 @@ const dispatchSprint = async ({ projectId: requestedProjectId, sprintId } = {}) 
 const publishUnifiedStreamEvent = createUnifiedStreamPublisher({ unifiedStreamOrder, internalBus, bus, projectId, logEvent });
 
 const api = createControlApiHttp({ services: {
-  bus, communications, conversations, eventStore, indexDb: platformIndexDb, subscriptions, knowledge, roadmaps, sprintPlans, provenance,
+  bus, communications, conversations, eventStore, indexDb: platformIndexDb, subscriptions, knowledge, roadmaps, sprintPlans, provenance, gitService,
   relevantTreeSelector, decisions, agentSettings, sprintPlanUpload, sprintOrchestration, dispatchTicket, runToolLab, directCodeRequest, internalBus,
-  proseTicketService, buildBuilderContext, protocolStorage, conversationStateStore, fileService, codeCache, codeSearch, agentGateway, agentConfiguration, sdkGateways: Object.fromEntries([claudeSdkGateway, { ...claudeSdkGateway, provider: "anthropic" }, codexSdkGateway, openaiSdkGateway].map((gateway) => [gateway.provider, gateway])), projectRoot: config.cwd, publishUnifiedStreamEvent,
+  proseTicketService, buildBuilderContext, protocolStorage, conversationStateStore, fileService, codeCache, codeSearch, agentGateway, agentConfiguration, sdkGateways: Object.fromEntries([claudeSdkGateway, { ...claudeSdkGateway, provider: "anthropic" }, codexSdkGateway, openaiSdkGateway, ...["xai", "alibaba", "zhipu", "deepseek"].map((provider) => ({ ...openaiSdkGateway, provider }))].map((gateway) => [gateway.provider, gateway])), projectRoot: config.cwd, publishUnifiedStreamEvent,
   ticketCrudService: createTicketCrudService({ roadmaps, proseTicketService, ticketFileStore, publisher: eventPublisher, agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId }), agentRoleResolver, candidateResolver: ticketCandidateResolver, sprintLeader: ticketSprintLeader }),
-  dispatchTask, dispatchSprint, reviewTicket, logEvent, projectId,
+  dispatchTask, dispatchSprint, reviewTicket, ticketHumanReviewService, logEvent, projectId,
   architectureWorkspaceService: createArchitectureWorkspaceService({ knowledge, roadmaps, sprintPlans }),
   projectDashboardService: createProjectDashboardService({ roadmaps, sprintPlans, provenance, ticketFileStore, relevantTreeSelector, logReader: ({ ticket_id }) => readLogEvents({ project_id: projectId, ticket_id }) }),
   conversationAuditHistoryService: createConversationAuditHistoryService({ communications, eventStore, logReader: ({ project_id, task_id, correlation_id, conversation_id, event_name }) => readLogEvents({ project_id, task_id, ticket_id: task_id, conversation_id, event_name, correlation_id }) }),
@@ -217,5 +249,4 @@ const api = createControlApiHttp({ services: {
   },
   humanDecisionService: createHumanDecisionService({ decisions, bus })
 } });
-
-startControlApi({ api, port, host, indexDb, controlDb, processLock, codeCache, workers: [supervisorRuntime.senderWorker, supervisorRuntime.collectorWorkerLoop, supervisorRuntime.verificationWorkerLoop].filter(Boolean) });
+startControlApi({ api, port, host, indexDb, controlDb, processLock, codeCache, ticketWorkspaceService, workers: [supervisorRuntime.senderWorker, supervisorRuntime.collectorWorkerLoop, supervisorRuntime.verificationWorkerLoop].filter(Boolean) });
