@@ -7,7 +7,7 @@ import { assertReviewerReadPath, createReviewerForgeTools } from "./reviewer-for
 import { assertTicketReviewEvidence } from "./ticket-review-evidence.js";
 
 // Creates a reviewer that receives bounded source evidence through Forge File Service.
-export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, fileService, gitService, codeSearch, codeCache, projectRoot, executionContexts, verificationService, projectLogger = () => {} } = {}) {
+export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, fileService, rulesFileService, gitService, codeSearch, codeCache, projectRoot, executionContexts, verificationService, projectLogger = () => {} } = {}) {
   if (typeof agentResolver?.resolveAvailable !== "function" || typeof fileService?.readForIndex !== "function" || typeof projectRoot !== "string" || !isAbsolute(projectRoot)) throw new ConfigurationError("Review Worker requires profiles, File Service, and an absolute project root.");
   return Object.freeze({ review });
 
@@ -83,7 +83,7 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
   // Loads the canonical Reviewer role contract through Forge File Service before every verdict.
   async function readReviewerRules() {
     await assertReviewerReadPath(projectRoot, "workflows/agents/reviewer.md");
-    const file = codeCache?.read ? await codeCache.read({ path: "workflows/agents/reviewer.md" }) : await fileService.readForIndex({ path: "workflows/agents/reviewer.md", maxBytes: 32_000 });
+    const file = rulesFileService?.readForIndex ? await rulesFileService.readForIndex({ path: "workflows/agents/reviewer.md", maxBytes: 32_000 }) : codeCache?.read ? await codeCache.read({ path: "workflows/agents/reviewer.md" }) : await fileService.readForIndex({ path: "workflows/agents/reviewer.md", maxBytes: 32_000 });
     if (!file?.content) throw reviewError("REVIEWER_RULES_UNAVAILABLE", "Reviewer role rules could not be loaded.");
     return file.content;
   }
