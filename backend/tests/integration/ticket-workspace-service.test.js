@@ -1,0 +1,171 @@
+// Verifies ticket writes use root source while commits replay only owned changes in Git worktrees.
+import assert from "node:assert/strict";
+import { execFile as execFileCallback } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { promisify } from "node:util";
+import { test } from "node:test";
+import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
+import { openIndexDatabase } from "../../src/infrastructure/sqlite/index-database.js";
+import { rebuildIndex } from "../../src/modules/index/index-rebuild.js";
+import { createCodeSearch } from "../../src/modules/index/code-search.js";
+import { createFileGraph } from "../../src/modules/index/file-graph.js";
+import { createTicketWorkspaceService } from "../../src/modules/supervisor/ticket-workspace-service.js";
+import { createTicketIntegrationService } from "../../src/modules/supervisor/ticket-integration-service.js";
+import { createEditDiffTool } from "../../src/tools/agent-lifecycle-tools.js";
+import { createHash } from "node:crypto";
+
+const execFile = promisify(execFileCallback);
+
+// Runs Git in a disposable project without a shell.
+async function git(root, ...args) { return (await execFile("git", ["-C", root, ...args])).stdout.trim(); }
+
+test("ticket root writes claim files and worktree commits contain only ticket deltas", async () => {
+  const temp = await mkdtemp(join(tmpdir(), "nodeforge-ticket-workspace-"));
+  const root = join(temp, "project");
+  const firstPath = "backend/src/feature.js";
+  const secondPath = "backend/src/other.js";
+  const dirtyPath = "backend/src/dirty.js";
+  await mkdir(join(root, "backend", "src"), { recursive: true });
+  await writeFile(join(root, firstPath), "export const value = 'base';\n");
+  await writeFile(join(root, secondPath), "export const other = 'base';\n");
+  await writeFile(join(root, dirtyPath), "export const first = 'base';\nexport const second = 'base';\n");
+  await writeFile(join(root, ".gitignore"), ".forge/\nnode_modules/\n");
+  await git(root, "init");
+  await git(root, "config", "user.email", "test@example.invalid");
+  await git(root, "config", "user.name", "NodeForge Test");
+  await git(root, "add", ".");
+  await git(root, "commit", "-m", "base");
+  const base = await git(root, "rev-parse", "HEAD");
+  const stateFileService = createFileService({ projectRoot: root });
+  const indexDatabase = await openIndexDatabase(root);
+  await rebuildIndex({ projectRoot: root, database: indexDatabase });
+  const codeSearch = createCodeSearch({ database: indexDatabase });
+  const fileGraph = createFileGraph({ database: indexDatabase });
+  const options = { projectRoot: root, projectId: "PROJECT-TEST", protocolStorage: { save() {}, get() {} }, stateFileService, indexDatabase, codeSearch, fileGraph };
+  let service;
+  let restarted;
+  let first;
+  let second;
+  let third;
+  let fourth;
+  let legacy;
+  let migrationProbe;
+  try {
+    service = createTicketWorkspaceService(options);
+    [first, second] = await Promise.all([service.open("TICKET-A"), service.open("TICKET-B")]);
+    assert.equal(first.fileService, stateFileService);
+    assert.equal(first.codeCache, second.codeCache);
+    assert.equal(first.projectRoot, root);
+    assert.equal(first.base_commit, base);
+    const beforeSha = `sha256:${createHash("sha256").update("export const value = 'base';\n").digest("hex")}`;
+    const edit = createEditDiffTool({ fileService: first.fileService, codeCache: first.codeCache, changeLedger: first.changeLedger });
+    await edit.execute({ path: firstPath, before_checksum: beforeSha, anchor: "'base'", replacement: "'ticketA'" }, { task_id: "TICKET-A", agent_identity: { role: "coder" } });
+    assert.equal(await readFile(join(root, firstPath), "utf8"), "export const value = 'ticketA';\n");
+    await assert.rejects(second.changeLedger.write({ path: firstPath, before: "export const value = 'ticketA';\n", after: "export const value = 'ticketB';\n" }), { code: "FILE_CLAIM_CONFLICT" });
+    await second.changeLedger.write({ path: secondPath, before: "export const other = 'base';\n", after: "export const other = 'ticketB';\n" });
+    const stale = await first.codeCache.read({ path: firstPath });
+    assert.equal(stale.index_status, "stale");
+    assert.match(stale.content, /ticketA/);
+    const commitA = await first.gitService.commit("Ticket A change", { paths: [firstPath] });
+    const commitB = await second.gitService.commit("Ticket B change", { paths: [secondPath] });
+    assert.match(commitA.sha, /^[a-f0-9]{40}$/);
+    assert.match(commitB.sha, /^[a-f0-9]{40}$/);
+    assert.deepEqual((await git(first.path, "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD")).split("\n"), [firstPath]);
+    assert.deepEqual((await git(second.path, "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD")).split("\n"), [secondPath]);
+    // Locates the durable ticket journal to simulate an interrupted commit receipt.
+    const digest = (value) => createHash("sha256").update(value).digest("hex");
+    const manifestPath = `.forge/runtime/ticket-changes/${digest("PROJECT-TEST")}/tickets/${digest("TICKET-A")}.json`;
+    const interrupted = JSON.parse(await stateFileService.readFile({ path: manifestPath }));
+    interrupted.commits = {};
+    interrupted.pending_commit = { revision: interrupted.revision, base_head: base };
+    await stateFileService.atomicWrite({ path: manifestPath, content: JSON.stringify(interrupted), replace: true });
+    assert.deepEqual(await first.gitService.commit("Retry", { paths: [firstPath] }), { sha: commitA.sha, recovered: true });
+    const branch = await git(root, "branch", "--show-current");
+    await stateFileService.atomicWrite({ path: ".forge/runtime/ticket-integrations/TICKET-A.json", content: JSON.stringify({ task_id: "TICKET-A", branch, previous_head: base, reviewed_commit: commitA.sha, commit: commitA.sha, status: "prepared" }), replace: true });
+    await git(root, "update-ref", `refs/heads/${branch}`, commitA.sha, base);
+    assert.equal((await first.integrate()).sha, commitA.sha);
+    await first.changeLedger.release();
+    await assert.rejects(first.changeLedger.write({ path: firstPath, before: "export const value = 'ticketA';\n", after: "export const value = 'late';\n" }), { code: "TICKET_CHANGE_CLOSED" });
+    await assert.rejects(second.integrate(), { code: "TICKET_REVALIDATION_REQUIRED" });
+    const integratedB = await createTicketIntegrationService({ projectRoot: root, fileService: stateFileService }).integrate({ taskId: "TICKET-B", worktree: second.path, ledger: { snapshot: second.changeLedger.snapshot } });
+    assert.notEqual(integratedB.sha, commitB.sha);
+    const worktreeReceipt = JSON.parse(await stateFileService.readFile({ path: ".forge/runtime/ticket-integrations/TICKET-B.json" }));
+    assert.equal(worktreeReceipt.status, "completed");
+    assert.equal(worktreeReceipt.workspace_mode, "worktree");
+    assert.equal(worktreeReceipt.branch, branch);
+    assert.equal(await git(root, "rev-parse", "HEAD"), integratedB.sha);
+    assert.equal(await git(root, "status", "--porcelain"), "");
+    await second.changeLedger.release();
+    const rootOnlyPath = "backend/src/root-only.js";
+    await stateFileService.atomicWrite({ path: rootOnlyPath, content: "export const rootOnly = 'before';\n", replace: true });
+    fourth = await service.open("TICKET-ROOT-ONLY");
+    await fourth.changeLedger.write({ path: rootOnlyPath, before: "export const rootOnly = 'before';\n", after: "export const rootOnly = 'after';\n" });
+    const rootOnlyCommit = await fourth.gitService.commit("Root-only source", { paths: [rootOnlyPath] });
+    assert.match(rootOnlyCommit.sha, /^[a-f0-9]{40}$/);
+    assert.equal(await readFile(join(fourth.path, rootOnlyPath), "utf8"), "export const rootOnly = 'after';\n");
+    third = await service.open("TICKET-C");
+    const unrelated = "export const first = 'external';\nexport const second = 'base';\n";
+    await stateFileService.atomicWrite({ path: dirtyPath, content: unrelated, replace: true });
+    await third.changeLedger.write({ path: dirtyPath, before: unrelated, after: "export const first = 'external';\nexport const second = 'ticketC';\n" });
+    await assert.rejects(third.gitService.commit("Ticket C delta", { paths: [dirtyPath] }), { code: "TICKET_BASELINE_CONFLICT" });
+    assert.equal(await readFile(join(root, dirtyPath), "utf8"), "export const first = 'external';\nexport const second = 'ticketC';\n");
+    assert.equal(await git(third.path, "status", "--porcelain", "--", dirtyPath), "");
+    const reconciliationPath = `.forge/runtime/ticket-changes/${digest("PROJECT-TEST")}/tickets/${digest("TICKET-C")}.json`;
+    const reconciled = JSON.parse(await stateFileService.readFile({ path: reconciliationPath }));
+    const worktreeSource = await readFile(join(third.path, dirtyPath), "utf8");
+    reconciled.baseline_reconciliation = { approved: true, actor: "PROJECT-OWNER", base_sha: await git(third.path, "rev-parse", "HEAD"),
+      initial_sha: reconciled.entries[dirtyPath].initial_sha,
+      worktree_sha: `sha256:${createHash("sha256").update(worktreeSource).digest("hex")}`,
+      paths: [dirtyPath] };
+    await stateFileService.atomicWrite({ path: reconciliationPath, content: JSON.stringify(reconciled), replace: true });
+    const reconciledCommit = await third.gitService.commit("Ticket C approved baseline", { paths: [dirtyPath] });
+    assert.match(reconciledCommit.sha, /^[a-f0-9]{40}$/);
+    assert.equal(await readFile(join(third.path, dirtyPath), "utf8"), "export const first = 'external';\nexport const second = 'ticketC';\n");
+    legacy = await service.open("TICKET-LEGACY");
+    await writeFile(join(legacy.path, firstPath), "export const value = 'old-worktree';\n");
+    await git(legacy.path, "add", firstPath);
+    await git(legacy.path, "commit", "-m", "Legacy ticket commit");
+    migrationProbe = createTicketWorkspaceService(options);
+    assert.equal((await migrationProbe.open("TICKET-LEGACY")).migrationRequired, true);
+    await assert.rejects(migrationProbe.migrateLegacy("TICKET-LEGACY"), { code: "TICKET_MIGRATION_CONFLICT" });
+    restarted = createTicketWorkspaceService(options);
+    assert.equal((await restarted.open("TICKET-A")).path, first.path);
+    await rebuildIndex({ projectRoot: root, database: indexDatabase });
+    assert.equal((await first.codeCache.read({ path: firstPath })).index_status, "fresh");
+    await stateFileService.atomicWrite({ path: firstPath, content: "export const value = 'old-worktree';\n", replace: true });
+    await writeFile(join(legacy.path, secondPath), "export const other = 'legacy-dirty';\n");
+    await stateFileService.atomicWrite({ path: secondPath, content: "export const other = 'legacy-dirty';\n", replace: true });
+    const legacyNewPath = "backend/src/legacy-new.js";
+    await writeFile(join(legacy.path, legacyNewPath), "export const migrated = true;\n");
+    await stateFileService.atomicWrite({ path: legacyNewPath, content: "export const migrated = true;\n", replace: true });
+    const imported = await migrationProbe.migrateLegacy("TICKET-LEGACY");
+    assert.deepEqual(imported.pending_paths.sort(), [legacyNewPath, secondPath].sort());
+    assert.equal((await migrationProbe.open("TICKET-LEGACY")).migrationRequired, false);
+    const resumed = createTicketWorkspaceService(options);
+    try {
+      const workspace = await resumed.open("TICKET-LEGACY");
+      assert.equal(workspace.migrationRequired, false);
+      await workspace.changeLedger.write({ path: legacyNewPath, before: "export const migrated = true;\n", after: "export const migrated = 'revised';\n" });
+      await workspace.changeLedger.write({ path: secondPath, before: "export const other = 'legacy-dirty';\n", after: "export const other = 'revised';\n" });
+      const committed = await workspace.gitService.commit("Legacy revision", { paths: [secondPath, legacyNewPath] });
+      assert.match(committed.sha, /^[a-f0-9]{40}$/);
+      assert.equal(await readFile(join(legacy.path, legacyNewPath), "utf8"), "export const migrated = 'revised';\n");
+      assert.equal(await readFile(join(legacy.path, secondPath), "utf8"), "export const other = 'revised';\n");
+      const migratedSnapshot = await workspace.changeLedger.snapshot();
+      assert.equal(migratedSnapshot.commits[migratedSnapshot.revision], committed.sha);
+    } finally { await resumed.close(); }
+  } finally {
+    await restarted?.close();
+    await migrationProbe?.close();
+    await service?.close();
+    await indexDatabase.close();
+    if (first) await git(root, "worktree", "remove", "--force", first.path);
+    if (second) await git(root, "worktree", "remove", "--force", second.path);
+    if (third) await git(root, "worktree", "remove", "--force", third.path);
+    if (fourth) await git(root, "worktree", "remove", "--force", fourth.path);
+    if (legacy) await git(root, "worktree", "remove", "--force", legacy.path);
+    await rm(temp, { recursive: true, force: true });
+  }
+});

@@ -12,6 +12,20 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 4000
+    },
+    "finding_resolutions": {
+      "type": "array",
+      "maxItems": 30,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["finding_id", "status", "changed_paths"],
+        "properties": {
+          "finding_id": { "type": "string", "pattern": "^REV-[1-9][0-9]*$" },
+          "status": { "enum": ["fixed", "not_fixed", "not_applicable"] },
+          "changed_paths": { "type": "array", "maxItems": 12, "items": { "type": "string", "minLength": 1 } }
+        }
+      }
     }
   }
 }

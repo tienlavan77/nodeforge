@@ -8,12 +8,29 @@ const SAFE_BRANCH = /^(?!\.)(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9._/-]*[A-Za-z0-9]$/;
 const PROTECTED_BRANCHES = new Set(["main", "master", "develop"]);
 
 // Creates a Git facade that validates branch/revision/paths and delegates execution to runGit with timeout and event auditing.
-export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutMs = 30_000, onEvent = () => {}, logger = console } = {}) {
+export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutMs = 30_000, onEvent = () => {}, logger = console, mutationLock } = {}) {
   if (typeof projectRoot !== "string" || !projectRoot) throw new ConfigurationError("Git Service requires a project root.");
   if (typeof runGit !== "function") throw new ConfigurationError("Git Service requires a git executor.");
   if (typeof onEvent !== "function") throw new ConfigurationError("Git Service onEvent must be a function.");
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1) throw new ConfigurationError("Git Service timeout must be positive.");
-  return Object.freeze({ status, diffWorkingTree, diffPatchFrom, currentBranch, branchExists, createBranch, commit, merge, discardBranch, getHead, getBranchHead, getCommitParent, abortMerge, hasConflicts, diffBetween, getChangedFiles, getCommitsForTask, deleteMergedBranch, resetTo });
+  if (mutationLock !== undefined && typeof mutationLock !== "function") throw new ConfigurationError("Git mutation lock must be a function.");
+  // Keeps every Forge mutation under the same project lock as root ticket commits.
+  const guard = (action) => (...args) => mutationLock ? mutationLock(() => action(...args)) : action(...args);
+  return Object.freeze({ status, statusSummary, diffWorkingTree, diffPatchFrom, currentBranch, branchExists, createBranch: guard(createBranch), commit: guard(commit), merge: guard(merge), discardBranch: guard(discardBranch), getHead, getBranchHead, getCommitParent, abortMerge: guard(abortMerge), hasConflicts, diffBetween, getChangedFiles, getCommitsForTask, deleteMergedBranch: guard(deleteMergedBranch), resetTo: guard(resetTo) });
+
+  // Summarizes Git for the workspace indicator without exposing paths or remote URLs.
+  async function statusSummary() {
+    const porcelain = await status();
+    const branch = await currentBranch();
+    if (!branch) return { state: "detached", changed_files: porcelain.split(/\r?\n/).filter(Boolean).length, branch: null, ahead: 0, behind: 0 };
+    const upstream = await execute(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], "GIT_UPSTREAM_FAILED");
+    const changedFiles = porcelain.split(/\r?\n/).filter(Boolean).length;
+    if (upstream.exitCode !== 0) return { state: "no-upstream", changed_files: changedFiles, branch, ahead: 0, behind: 0 };
+    const counts = await execute(["rev-list", "--left-right", "--count", "HEAD...@{upstream}"], "GIT_UPSTREAM_FAILED");
+    if (counts.exitCode !== 0) throw gitError("GIT_UPSTREAM_FAILED", "Git upstream status is unavailable.");
+    const [ahead, behind] = counts.stdout.trim().split(/\s+/).map(Number);
+    return { state: changedFiles ? "dirty" : ahead || behind ? "ahead-behind" : "clean", changed_files: changedFiles, branch, ahead, behind };
+  }
 
   async function status({ paths = [] } = {}) {
     const safePaths = validatePaths(paths);

@@ -22,10 +22,9 @@ async function freePort() {
   await new Promise((done) => listener.close(done));
   return port;
 }
-
 // Starts the production composition with fixture-specific storage and no inherited provider keys.
 async function startApi(root, port) {
-  const env = { PATH: process.env.PATH, HOME: process.env.HOME, NODE_CONTROL_PROJECT_ROOT: root, NODE_CONTROL_DATA_DIR: join(root, ".forge/runtime/nf"), NODE_CONTROL_PROJECT_ID: projectId, NODE_CONTROL_PORT: String(port), NODE_CONTROL_HOST: "127.0.0.1", NODE_SECRET_ENCRYPTION_KEY: "disposable-real-provider-fixture-key", NODE_SDK_AGENT_TIMEOUT_MS: "600000", NODEFORGE_ENV_FILE: join(root, "no-deployment-env"), ...(process.env.NODEFORGE_REAL_PROVIDER_ROOT_CODER === "1" ? { NODEFORGE_TICKET_EXECUTION_MODE: "root-only" } : {}) };
+  const env = { PATH: process.env.PATH, HOME: process.env.HOME, NODE_CONTROL_PROJECT_ROOT: root, NODE_CONTROL_DATA_DIR: join(root, ".forge/runtime/nf"), NODE_CONTROL_PROJECT_ID: projectId, NODE_CONTROL_PORT: String(port), NODE_CONTROL_HOST: "127.0.0.1", NODE_SECRET_ENCRYPTION_KEY: "disposable-real-provider-fixture-key", NODE_SDK_AGENT_TIMEOUT_MS: "600000", NODEFORGE_ENV_FILE: join(root, "no-deployment-env"), ...(process.env.NODEFORGE_REAL_PROVIDER_ROOT_ONLY === "1" || process.env.NODEFORGE_REAL_PROVIDER_ROOT_CODER === "1" ? { NODEFORGE_TICKET_EXECUTION_MODE: "root-only" } : {}) };
   const child = spawn(process.execPath, [join(sourceRoot, "backend/scripts/start-control-api.mjs")], { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });
   let diagnostics = "";
   child.stderr.setEncoding("utf8");
@@ -48,7 +47,6 @@ async function stopApi(child) {
     child.once("exit", () => { clearTimeout(timer); done(); });
   });
 }
-
 // Sends a structured Forge request while retaining the public error envelope for assertions.
 async function request(base, method, path, body) {
   const response = await fetch(`${base}${path}`, { method, headers: { "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(240_000) });
@@ -72,7 +70,7 @@ async function waitForArtifact(root) {
     const artifacts = await readdir(artifactRoot).catch((error) => error.code === "ENOENT" ? [] : Promise.reject(error));
     for (const file of artifacts) {
       const artifact = JSON.parse(await readFile(join(artifactRoot, file), "utf8"));
-      if (artifact.status === "failed") throw new Error(`Provider verification failed: ${JSON.stringify(artifact.commands.map(({ kind, exit_code, stderr_redacted }) => ({ kind, exit_code, stderr_redacted })))}`);
+      if (artifact.status === "failed") throw new Error(`Provider verification failed: ${JSON.stringify(artifact.commands.map(({ kind, exit_code, stdout_redacted, stderr_redacted }) => ({ kind, exit_code, stdout_redacted, stderr_redacted })))}`);
     }
     await new Promise((done) => setTimeout(done, 1000));
   }
@@ -80,8 +78,6 @@ async function waitForArtifact(root) {
   const checkpoint = await readFile(checkpointPath, "utf8").then(JSON.parse).catch((error) => error.code === "ENOENT" ? null : Promise.reject(error));
   throw new Error(`Real provider did not produce a passed artifact within six minutes: ${JSON.stringify({ status: checkpoint?.status ?? null, turn: checkpoint?.last_completed_turn ?? null, last_tool: checkpoint?.last_tool ?? null, failure_code: checkpoint?.failure?.code ?? null })}`);
 }
-
-
 // Waits for a reviewed integration receipt after the restarted production API resumes the ticket.
 async function waitForIntegration(root) {
   const receiptPath = join(root, ".forge/runtime/ticket-integrations", `${ticketId}.json`);
@@ -102,7 +98,6 @@ async function waitForIntegration(root) {
   }).slice(-12);
   throw new Error(`Reviewer/integration did not complete after restart: ${JSON.stringify({ reviewStatus, events })}`);
 }
-
 // Waits for the approved ticket to reach a durable terminal context and release both agent claims.
 async function waitForTerminal(root) {
   const contextRoot = join(root, ".forge/runtime/ticket-execution-contexts");
@@ -158,6 +153,7 @@ async function createProject(root) {
   await mkdir(join(root, "backend/tests/unit"), { recursive: true });
   await mkdir(join(root, "eslint-rules"), { recursive: true });
   await writeFile(join(root, ".gitignore"), ".forge/\nnode_modules/\n");
+  await writeFile(join(root, "package.json"), JSON.stringify({ private: true, type: "module" }));
   await writeFile(join(root, "jsconfig.json"), JSON.stringify({ compilerOptions: { allowJs: true, checkJs: false, noEmit: true }, include: ["backend/src/**/*.js"] }));
   await writeFile(join(root, "backend/src/witness.js"), "// Holds the disposable ticket value for a real provider verification witness.\nexport const witness = 'Baseline';\n");
   await writeFile(join(root, "backend/tests/unit/witness.test.js"), "// Verifies that the disposable ticket source remains importable after a provider edit.\nimport assert from 'node:assert/strict';\nimport test from 'node:test';\nimport { witness } from '../../src/witness.js';\ntest('witness is text', () => assert.equal(typeof witness, 'string'));\n");
@@ -188,7 +184,7 @@ test("real provider ticket dispatch persists an artifact across Control API rest
       const created = await request(base, "POST", "/forge/v1/agents", { agent_id: agentId, agent_name: `${role} fixture`, role, provider: "codex", model: "gpt-6-sol", gateway_url: gateway, api_key: process.env.OPENAI_API_KEY, enabled: true, status: "ready" });
       assert.equal(created.status, 201, JSON.stringify(created.body));
     }
-    const ticket = await request(base, "POST", `/forge/v1/tickets?project=${projectId}`, { ticket: { id: ticketId, title: "Update disposable backend witness", objective: "Change backend/src/witness.js so exported witness equals 'Real provider witness'. Use only Forge tools.", acceptance_criteria: ["backend/src/witness.js exports witness as 'Real provider witness'."], style: ["backend"] } });
+    const ticket = await request(base, "POST", `/forge/v1/tickets?project=${projectId}`, { ticket: { id: ticketId, title: "Update disposable backend witness", objective: "Change the named ESM export witness in backend/src/witness.js to 'Real provider witness'. Preserve the export style and use only Forge tools.", acceptance_criteria: ["backend/src/witness.js keeps its named ESM export and exports witness as 'Real provider witness'."], style: ["backend"] } });
     assert.equal(ticket.status, 201, JSON.stringify(ticket.body));
     const dispatch = fetch(`${base}/forge/v1/tickets/${ticketId}:run`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId }) }).then(async (response) => ({ status: response.status, body: await response.json() })).catch((error) => ({ interrupted: error.code ?? error.name }));
     if (coderOnly) {
@@ -208,6 +204,8 @@ test("real provider ticket dispatch persists an artifact across Control API rest
     await waitForShadowReceipts(root, before.artifact, before.context.review_commit_sha, ["verification.passed"]);
     await stopApi(child);
     await dispatch;
+    let advancedHeadSha = null;
+    if (process.env.NODEFORGE_REAL_PROVIDER_ADVANCED_HEAD === "1") { await writeFile(join(root, "README.md"), "Out-of-ticket change after verification.\n"); await execFile("git", ["-C", root, "add", "README.md"]); await execFile("git", ["-C", root, "commit", "-m", "Advance HEAD outside ticket"]); advancedHeadSha = (await execFile("git", ["-C", root, "rev-parse", "HEAD"])).stdout.trim(); }
     child = await startApi(root, port);
     assert.equal((await request(base, "GET", "/forge/v1/health")).status, 200);
     const after = await waitForArtifact(root);
@@ -226,11 +224,13 @@ test("real provider ticket dispatch persists an artifact across Control API rest
       catch (error) { resumeController.abort(); throw error; }
       const { receipt, reviewStatus } = resumed;
       assert.equal(receipt.reviewed_commit, (await waitForArtifact(root)).artifact.commit_sha);
+      if (process.env.NODEFORGE_REAL_PROVIDER_ROOT_ONLY === "1") assert.equal(receipt.workspace_mode, "root-only");
       assert.equal(reviewStatus.reviewer_id, "a2222222-2222-4222-8222-222222222222");
       assert.equal(reviewStatus.artifact_id, before.artifact.artifact_id);
       const terminal = await waitForTerminal(root);
       const shadowReceipts = await waitForShadowReceipts(root, before.artifact, receipt.reviewed_commit);
-      assert.equal((await execFile("git", ["-C", root, "rev-parse", "HEAD"])).stdout.trim(), receipt.commit);
+      assert.equal((await execFile("git", ["-C", root, "rev-parse", "HEAD"])).stdout.trim(), advancedHeadSha ?? receipt.commit);
+      if (advancedHeadSha) { assert.notEqual(advancedHeadSha, receipt.commit); assert.equal((await execFile("git", ["-C", root, "diff", "--name-only", receipt.commit, advancedHeadSha])).stdout.trim(), "README.md"); assert.equal((await readFile(join(root, ".forge/runtime/nf/project.log"), "utf8")).includes('"error_code":"REVIEW_COMMIT_STALE"'), false); t.diagnostic(JSON.stringify({ package_id: "A2", phase: "advanced_head_review", reviewed_commit: receipt.commit, advanced_head: advancedHeadSha, artifact_id: before.artifact.artifact_id, manifest_sha: before.context.manifest_sha, receipt_status: receipt.status, review_status: reviewStatus.status, review_verdict: reviewStatus.verdict })); }
       resumeController.abort();
       await resumeRequest;
       const duplicateResult = await request(base, "POST", `/forge/v1/tickets/${ticketId}:run`, { project_id: projectId });

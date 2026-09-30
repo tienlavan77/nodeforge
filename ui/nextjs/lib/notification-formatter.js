@@ -1,4 +1,5 @@
 // Formats backend notifications into safe UI messages.
+import { safeMessage } from "./ui-error.js";
 const SEVERITY_ALIASES = Object.freeze({
   fatal: "error",
   danger: "error",
@@ -53,8 +54,8 @@ function plainText(value) {
 
   // Backend messages may contain exception details. Keep only the useful lead
   // sentence and never expose serialized payloads or stack frames in the UI.
-  if (/^[\[{]/.test(text) || /\n\s*at\s+\S+|traceback|stack trace/i.test(text)) return "";
-  return text.split(/\r?\n/)[0].replace(/\s+/g, " ").slice(0, 280);
+  if (text.startsWith("{") || text.startsWith("[") || /\n\s*at\s+\S+|traceback|stack trace/i.test(text)) return "";
+  return safeMessage(text, "");
 }
 
 // Infers notification severity from code and status.
@@ -79,7 +80,7 @@ function notificationCandidate(response) {
 // Formats a response into a UI notification.
 export function formatNotification(response, fallback = "Yêu cầu đã được cập nhật.") {
   const notification = notificationCandidate(response);
-  const code = normalizeToken(notification.code ?? response?.error?.code ?? response?.error_code);
+  const code = normalizeToken(notification.code ?? response?.error?.code);
   const status = normalizeToken(notification.status ?? response?.status);
   const severity = inferSeverity(notification, status, code);
   const safeMessage = plainText(notification.message)

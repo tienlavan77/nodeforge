@@ -1,0 +1,151 @@
+/* sprint-ticket: preserve the NodeForge UI styles for this domain. */
+:root[data-theme='light'] .agent-directory-card .agent-card-footer .card-action-button.danger {
+  background-color: #f8dfe2 !important;
+  border-color: #cf6b78 !important;
+  color: #8f2637 !important;
+}
+
+/* Sprint plan light theme: replace the legacy dark palette with the shared light tokens. */
+:root[data-theme='light'] .sprint-plan-dashboard {
+  border-bottom-color: var(--app-border);
+  color: var(--app-text);
+}
+
+:root[data-theme='light'] .sprint-plan-dashboard h2,
+:root[data-theme='light'] .sprint-plan-dashboard h3 {
+  color: var(--app-accent) !important;
+}
+
+:root[data-theme='light'] .sprint-plan-dashboard article,
+:root[data-theme='light'] .sprint-ticket-list {
+  border-color: var(--app-border) !important;
+}
+
+:root[data-theme='light'] .sprint-plan-dashboard .sprint-item {
+  border: 1px solid var(--app-border) !important;
+  background: transparent !important;
+  box-shadow: 0 8px 24px rgba(42, 85, 101, .08);
+}
+
+:root[data-theme='light'] .sprint-plan-dashboard strong,
+:root[data-theme='light'] .sprint-plan-dashboard .dashboard-ticket strong {
+  color: var(--app-text) !important;
+}
+
+:root[data-theme='light'] .sprint-plan-dashboard p,
+:root[data-theme='light'] .sprint-plan-dashboard .dashboard-ticket p,
+:root[data-theme='light'] .sprint-objective {
+  color: var(--app-muted) !important;
+}
+
+:root[data-theme='light'] .sprint-plan-dashboard small,
+:root[data-theme='light'] .sprint-plan-dashboard .dashboard-ticket small,
+:root[data-theme='light'] .sprint-plan-dashboard .dashboard-state {
+  color: var(--app-muted) !important;
+}
+
+:root[data-theme='light'] .sprint-ticket-list {
+  background: transparent !important;
+}
+
+:root[data-theme='light'] .sprint-ticket-list .dashboard-ticket,
+:root[data-theme='light'] .sprint-ticket-list .dashboard-ticket + .dashboard-ticket {
+  border-color: var(--app-border) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+:root[data-theme='light'] .sprint-collapse-button,
+:root[data-theme='light'] .sprint-view-button {
+  border-color: var(--app-button-border) !important;
+  background: var(--app-button-bg) !important;
+  color: var(--app-button-text) !important;
+}
+
+:root[data-theme='light'] .sprint-collapse-button:hover,
+:root[data-theme='light'] .sprint-view-button:hover {
+  border-color: var(--light-cyan-300) !important;
+  background: var(--ice-300) !important;
+}
+
+:root[data-theme='light'] .sprint-run-button {
+  border-color: #173044 !important;
+  background: #173044 !important;
+  color: #ffffff !important;
+}
+
+:root[data-theme='light'] .sprint-run-button:hover:not(:disabled) {
+  border-color: #247f98 !important;
+  background: #247f98 !important;
+}
+
+:root[data-theme='light'] .sprint-run-button.is-running {
+  border-color: #3e7656 !important;
+  background: #dff2e5 !important;
+  color: #28633f !important;
+}
+
+:root[data-theme='light'] .sprint-delete-button {
+  border-color: #cf6b78 !important;
+  background: #f8dfe2 !important;
+  color: #8f2637 !important;
+}
+
+:root[data-theme='light'] .sprint-delete-button:hover:not(:disabled) {
+  background: #f1c9cf !important;
+}
+
+:root[data-theme='light'] .sprint-run-message,
+:root[data-theme='light'] .sprint-run-events {
+  border-color: var(--app-border) !important;
+  background: var(--app-surface-alt) !important;
+  color: #28633f !important;
+}
+
+:root[data-theme='light'] .sprint-run-events {
+  border-left-color: #3e7656 !important;
+}
+
+:root[data-theme='light'] .sprint-modal-backdrop {
+  background: rgba(23, 48, 68, .28) !important;
+}
+
+:root[data-theme='light'] .sprint-modal {
+  border-color: var(--app-border) !important;
+  background: var(--app-surface) !important;
+  box-shadow: 0 25px 80px rgba(42, 85, 101, .2);
+}
+
+:root[data-theme='light'] .sprint-modal header {
+  border-bottom-color: var(--app-border) !important;
+}
+
+:root[data-theme='light'] .sprint-modal h2 {
+  color: var(--app-text) !important;
+}
+
+:root[data-theme='light'] .sprint-modal header button {
+  color: var(--app-muted) !important;
+}
+
+:root[data-theme='light'] .sprint-ticket-table article {
+  border-color: var(--app-border) !important;
+  background: var(--app-surface-alt) !important;
+}
+
+:root[data-theme='light'] .sprint-ticket-table strong,
+:root[data-theme='light'] .sprint-ticket-table span,
+:root[data-theme='light'] .sprint-modal-content li {
+  color: var(--app-text) !important;
+}
+
+:root[data-theme='light'] .sprint-ticket-table small {
+  color: #8a641f !important;
+}
+
+/* Sprint and ticket rows stay flat inside the panel in both themes. */
+.sprint-plan-dashboard .sprint-item,
+.sprint-plan-dashboard .sprint-ticket-list .dashboard-ticket {
+  border-radius: 0 !important;
+  background: transparent !important;
+}

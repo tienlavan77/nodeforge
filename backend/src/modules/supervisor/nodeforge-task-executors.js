@@ -34,6 +34,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
     if (!labMode && ticket.style?.includes("docs")) complexity.read_calls = Math.max(complexity.read_calls, 5);
     projectLogger({ event_name: "supervisor.ticket_complexity", level: "info", status: "success", message: `Ticket classified as ${complexity.level}.`, task_id: request.task_id, correlation_id: request.correlation_id, source: "nodeforge-task-integration", payload: { complexity_level: complexity.level, effort: complexity.effort, discovery_budget: complexity.discovery_budget, reasoning: complexity.reasoning } });
     const resumeState = createResumeState(request.payload?.resume_from ?? null);
+    const priorCompletedTools = [...resumeState.completedTools];
     const context = runtimeGovernance.createExecutionContext({
       task_id: request.task_id, execution_id: executionId,
       agent_identity: { agent_id: selected.agent_id, agent_name: selected.agent_name, role: selected.role, provider: selected.provider ?? null },
@@ -45,7 +46,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
       discovery_target_path: targetPath, allow_discovery_escalation: complexity.allow_escalation ?? complexity.level !== "simple",
       lifecycle: "RUNNING", audit_context: { correlation_id: request.correlation_id }
     });
-    const toolContext = { ...context, project_root: projectRoot, ticket, task: ticket, task_context: ticket, changed_paths: [...resumeState.changedPaths], allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, lab_mode: Boolean(labMode), session_id: executionId, target_path: targetPath };
+    const toolContext = { ...context, project_root: projectRoot, execution_context: request.execution_context ?? null, ticket, task: ticket, task_context: ticket, changed_paths: [...resumeState.changedPaths], allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, lab_mode: Boolean(labMode), session_id: executionId, target_path: targetPath };
     const checkpointed = checkpointedRegistry({ store: checkpoints, registry: toolRegistry, taskId: request.task_id, targetPath, allowedPrefixes, complexity, selected, correlationId: request.correlation_id, resumeState, labMode: Boolean(labMode) });
     const mcpServers = { forge: createForgeSdkMcpServer({ registry: checkpointed, context: toolContext, includeCommit: true, includeClaudeFileTools: selected.role === "coder", excludeTools: directCode ? ["select_code_graph_candidates"] : [] }) };
     let result;
@@ -54,7 +55,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
         agentId: selected.agent_id, correlationId: request.correlation_id, cwd: projectRoot,
         options: createClaudeForgeOptions({ mcpServers, allowedTools: forgeSdkToolNames.filter((name) => !((directCode && name === "mcp__forge__select_code_graph_candidates") || (selected.role !== "coder" && ["mcp__forge__Read", "mcp__forge__Glob", "mcp__forge__Grep"].includes(name)))) }, { effort: complexity.effort, thinking: complexity.thinking }),
         resumeSessionId: resumeState.sessionId,
-        onSessionReady: (sessionId) => { if (typeof sessionId === "string" && sessionId) resumeState.sessionId = sessionId; saveProgressCheckpoint(checkpoints, resumeState, { task_id: request.task_id }); },
+        onSessionReady: (sessionId) => { if (typeof sessionId === "string" && sessionId) resumeState.sessionId = sessionId; saveProgressCheckpoint(checkpoints, resumeState, { task_id: request.task_id, execution_context: toolContext.execution_context }); },
         prompt: buildResumePrompt(labMode ? buildToolTestPrompt(request.task_id, targetPath, allowedPrefixes) : buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, complexity, directCode), resumeState, { agentId: selected.agent_id, provider: selected.provider, changedPaths: toolContext.changed_paths })
       });
     } catch (error) {
@@ -62,7 +63,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
       throw error;
     }
     const toolEvents = collectToolCalls(result.messages);
-    assertTicketExecutionCompleted(toolEvents, { labMode, missingCode: "CLAUDE_MCP_TOOL_CALLS_MISSING" });
+    assertTicketExecutionCompleted(toolEvents, { labMode, missingCode: "CLAUDE_MCP_TOOL_CALLS_MISSING", priorTools: priorCompletedTools });
     return { summary: extractFinalAgentReport(result.messages) || "<empty response>", tool_events: toolEvents };
   }
 
@@ -100,6 +101,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
     if (!labMode && ticket.style?.includes("docs")) complexity.read_calls = Math.max(complexity.read_calls, 5);
     projectLogger({ event_name: "supervisor.ticket_complexity", level: "info", status: "success", message: `Ticket classified as ${complexity.level}.`, task_id: request.task_id, correlation_id: request.correlation_id, source: "nodeforge-task-integration", payload: { complexity_level: complexity.level, effort: complexity.effort, discovery_budget: complexity.discovery_budget, reasoning: complexity.reasoning } });
     const resumeState = createResumeState(request.payload?.resume_from ?? null);
+    const priorCompletedTools = [...resumeState.completedTools];
     const context = runtimeGovernance.createExecutionContext({
       task_id: request.task_id, execution_id: executionId,
       agent_identity: { agent_id: selected.agent_id, agent_name: selected.agent_name, role: selected.role, provider: selected.provider ?? null },
@@ -111,7 +113,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
       discovery_target_path: targetPath, allow_discovery_escalation: complexity.allow_escalation ?? complexity.level !== "simple",
       lifecycle: "RUNNING", audit_context: { correlation_id: request.correlation_id }
     });
-    const toolContext = { ...context, project_root: projectRoot, ticket, task: ticket, task_context: ticket, changed_paths: [...resumeState.changedPaths], allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, lab_mode: Boolean(labMode), session_id: executionId, target_path: targetPath };
+    const toolContext = { ...context, project_root: projectRoot, execution_context: request.execution_context ?? null, ticket, task: ticket, task_context: ticket, changed_paths: [...resumeState.changedPaths], allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, lab_mode: Boolean(labMode), session_id: executionId, target_path: targetPath };
     const checkpointed = checkpointedRegistry({ store: checkpoints, registry: toolRegistry, taskId: request.task_id, targetPath, allowedPrefixes, complexity, selected, correlationId: request.correlation_id, resumeState, labMode: Boolean(labMode) });
     const definitions = [...(directCode ? [] : [selectCodeGraphCandidatesDefinition]), searchCodeDefinition, { ...readFileDefinition, description: "Read one file's cached metadata, symbol map and scoped graph without source; use sed_lines for code.", input_schema: { type: "object", additionalProperties: false, required: ["path"], properties: { path: { type: "string", minLength: 1 } } } }, rgFilesDefinition, rgSearchDefinition, sedLinesDefinition, writeDiffDefinition, { ...editDiffDefinition, description: "Replace an exact anchor in one approved file after checksum validation. Use sed_lines to inspect source and find a unique anchor." }, runTestDefinition, checkTestDefinition, gitStatusDefinition, gitDiffDefinition, commitChangesDefinition, reportDoneDefinition];
     const forgeToolNames = new Set(definitions.map((definition) => definition.name));
@@ -123,7 +125,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
         onSessionReady: (threadId, toolNames) => {
           if (typeof threadId === "string" && threadId) resumeState.threadId = threadId;
           if (Array.isArray(toolNames)) projectLogger({ event_name: "supervisor.codex_mcp_session_ready", level: "info", status: "success", message: "Codex Forge MCP session ready.", task_id: request.task_id, correlation_id: request.correlation_id, source: "codex-sdk-ticket", payload: { request_id: request.request_id, agent_id: selected.agent_id, tools: toolNames } });
-          saveProgressCheckpoint(checkpoints, resumeState, { task_id: request.task_id });
+          saveProgressCheckpoint(checkpoints, resumeState, { task_id: request.task_id, execution_context: toolContext.execution_context });
         },
         options: { model: selected.model, forgeTools: { registry: checkpointed, context: toolContext, definitions }, approvalPolicy: labMode?.approval_policy ?? "on-request" },
         prompt: buildResumePrompt(labMode ? buildCodexToolTestPrompt(request.task_id, targetPath, allowedPrefixes) : buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, complexity, directCode), resumeState, { agentId: selected.agent_id, provider: selected.provider, changedPaths: toolContext.changed_paths }),
@@ -139,7 +141,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
       throw error;
     }
     if (codexToolEvents.length === 0) throw Object.assign(new ConfigurationError("Codex SDK did not expose Forge MCP tool calls to the session."), { code: "CODEX_MCP_TOOL_CALLS_MISSING" });
-    assertTicketExecutionCompleted(codexToolEvents, { labMode, missingCode: "CODEX_MCP_TOOL_CALLS_MISSING" });
+    assertTicketExecutionCompleted(codexToolEvents, { labMode, missingCode: "CODEX_MCP_TOOL_CALLS_MISSING", priorTools: priorCompletedTools });
     return { summary: result.text || "<empty response>", tool_events: codexToolEvents };
   }
 }

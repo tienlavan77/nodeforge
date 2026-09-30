@@ -938,5 +938,38 @@ export const RETRIEVAL_EVAL_CASES_AUTO = [
   "files_changed": [
     "ui/nextjs/app/globals.css"
   ]
+},
+{
+  "id": "TICKET-PROJECT-NODEFORGE-1790660105591",
+  "note": "Backfilled from final report TICKET-PROJECT-NODEFORGE-1790660105591.md (status=completed)",
+  "title": "Integrate and correct UI error normalization and retry notifications from NF-UI-CONV-003",
+  "objective": "Before NF-UI-CONV-003 closes, repair and integrate the error normalization and notification implementation from branch task/NF-UI-CONV-003 (commit 0a93f19) into the project branch. Limit scope to UI error and notification consumers, revert out-of-scope backend error response changes unless separately approved by the Architecture Manager, preserve compatibility with existing string error consumers, align frontend/backend retry semantics for any approved compatibility work, connect GlobalToast and InlineError to real UI flows with recoverable Retry actions, and verify safe redaction and build/test evidence before independent Reviewer approval.",
+  "acceptance_criteria": [
+    "This repair ticket may run before NF-UI-CONV-003 is closed; its completed, independently reviewed result is a dependency for closing NF-UI-CONV-003.",
+    "NF-UI-CONV-003 error normalization and notification behavior from commit 0a93f19 is integrated into the project branch, with out-of-scope backend error response changes reverted unless separately approved by the Architecture Manager.",
+    "Existing consumers that provide string errors continue to render and behave compatibly.",
+    "GlobalToast and InlineError are wired into real UI error flows, and recoverable failures expose a functional Retry action with consistent frontend/backend retry semantics where backend compatibility work is approved.",
+    "User-visible and logged error handling redacts secrets, URLs, stack traces, and raw events while preserving safe request IDs for diagnostics.",
+    "Targeted UI tests and backend contract tests pass, a clean frontend build passes, and reproducible command/output evidence is attached.",
+    "An independent Reviewer verifies the implementation and approves the completed ticket."
+  ],
+  "style": [
+    "frontend",
+    "backend"
+  ],
+  "ground_truth": [
+    "backend/src/application/test-service.js",
+    "ui/nextjs/lib/ui-error.js",
+    "ui/nextjs/components/GlobalToast.jsx",
+    "ui/nextjs/components/InlineError.jsx",
+    "ui/nextjs/app/page.jsx"
+  ],
+  "files_changed": [
+    "backend/src/application/test-service.js",
+    "ui/nextjs/lib/ui-error.js",
+    "ui/nextjs/components/GlobalToast.jsx",
+    "ui/nextjs/components/InlineError.jsx",
+    "ui/nextjs/app/page.jsx"
+  ]
 }
 ];

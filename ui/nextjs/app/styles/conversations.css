@@ -1,0 +1,75 @@
+/* conversations: preserve the NodeForge UI styles for this domain. */
+/* Conversations accordion */
+.conversations-accordion { border: 1px solid var(--app-border); background: color-mix(in srgb, var(--app-surface-alt) 55%, transparent); margin-bottom: 16px; }
+.conversations-accordion-header { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; }
+.conversations-accordion-toggle { display: inline-flex; align-items: center; gap: 8px; border: 0; background: transparent; color: var(--app-text); cursor: pointer; font: 600 13px 'Space Grotesk', sans-serif; letter-spacing: .04em; text-transform: uppercase; }
+.conversations-accordion-title { color: var(--app-text); font: 600 12px 'Space Grotesk', sans-serif; letter-spacing: .08em; text-transform: uppercase; }
+.conversations-accordion-arrow { display: inline-block; color: var(--app-accent); font-size: 12px; line-height: 1; transition: transform .18s ease; }
+.conversations-accordion-arrow.is-open { transform: rotate(90deg); }
+.conversations-accordion-new { flex: 0 0 auto; font-size: 12px; font-weight: 500; letter-spacing: .04em; padding: 6px 10px; border: 1px solid var(--app-border); background: transparent; color: var(--app-text); border-radius: 6px; box-shadow: none; }
+.conversations-accordion-new:hover { background: color-mix(in srgb, var(--app-surface-alt) 70%, transparent); border-color: var(--app-accent); }
+.conversations-accordion-new:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
+.conversations-accordion-panel { border-top: 1px solid var(--app-border); padding: 10px 12px; max-height: 220px; overflow: auto; display: grid; grid-template-rows: 0fr; opacity: 0; overflow: hidden; padding-top: 0; padding-bottom: 0; border-top-width: 0; transition: grid-template-rows 300ms ease, opacity 250ms ease, padding 300ms ease, border-width 300ms ease; }
+.conversations-accordion-panel.is-open { grid-template-rows: 1fr; opacity: 1; padding-top: 10px; padding-bottom: 10px; border-top-width: 1px; }
+.conversations-accordion-panel-inner { min-height: 0; overflow: auto; max-height: 220px; }
+@media (prefers-reduced-motion: reduce) {
+  .conversations-accordion-panel { transition: none; }
+  .conversations-accordion-arrow { transition: none; }
+}
+.conversations-accordion-empty { margin: 0; color: var(--app-muted); font-size: 13px; }
+.conversations-accordion-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.conversations-accordion-item { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--app-border); background: color-mix(in srgb, var(--app-panel) 70%, transparent); color: var(--app-text); padding: 9px 10px; cursor: pointer; text-align: left; }
+.conversations-accordion-item:hover { border-color: var(--app-accent); }
+.conversations-accordion-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; flex: 1 1 auto; min-width: 0; text-align: left; }
+.conversations-accordion-item-time { flex: 0 0 auto; color: var(--app-muted); font: 10px 'DM Mono', monospace; }
+.conversations-accordion-row { display: flex; align-items: center; gap: 8px; width: 100%; border: 1px solid var(--app-border); background: color-mix(in srgb, var(--app-panel) 70%, transparent); padding: 6px 8px; border-radius: 6px; transition: border-color .18s ease, background .18s ease, opacity .18s ease, transform .18s ease; }
+.conversations-accordion-row:hover { border-color: var(--app-accent); }
+.conversations-accordion-row.is-dragging { opacity: .55; transform: scale(1.01); border-color: var(--app-accent); box-shadow: 0 4px 16px color-mix(in srgb, #000 30%, transparent); }
+.conversations-accordion-row.is-drag-over { border-color: var(--app-accent); background: color-mix(in srgb, var(--app-accent) 12%, var(--app-panel)); }
+.conversations-accordion-row.is-archived { opacity: .6; }
+.conversations-accordion-checkbox { flex: 0 0 auto; width: 16px; height: 16px; accent-color: var(--app-accent); cursor: pointer; }
+.conversations-accordion-item-main { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; border: 0; background: transparent; color: var(--app-text); cursor: pointer; text-align: left; padding: 2px 4px; }
+.conversations-accordion-item-main:focus-visible { outline: 2px solid color-mix(in srgb, var(--app-accent) 45%, transparent); outline-offset: 1px; border-radius: 4px; }
+.conversations-accordion-rename-input { flex: 1 1 auto; min-width: 0; border: 1px solid var(--app-accent); border-radius: 4px; background: var(--app-input); color: var(--app-text); padding: 4px 8px; font-size: 13px; }
+.conversations-accordion-menu-wrap { position: relative; flex: 0 0 auto; margin-left: auto; }
+.conversations-accordion-menu-btn { width: 28px; height: 28px; display: inline-grid; place-items: center; border: 1px solid transparent; background: transparent; color: var(--app-muted); cursor: pointer; border-radius: 6px; font-size: 16px; line-height: 1; }
+.conversations-accordion-menu-btn:hover { background: color-mix(in srgb, var(--app-surface-alt) 70%, transparent); border-color: var(--app-border); color: var(--app-text); }
+.conversations-accordion-menu-btn:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 1px; }
+.conversations-accordion-menu { position: absolute; right: 0; top: calc(100% + 4px); min-width: 140px; background: var(--app-panel); border: 1px solid var(--app-border); border-radius: 8px; box-shadow: 0 12px 32px color-mix(in srgb, #000 35%, transparent); padding: 4px; display: grid; gap: 2px; z-index: 10; }
+.conversations-accordion-menu button { width: 100%; text-align: left; border: 0; background: transparent; color: var(--app-text); padding: 7px 10px; border-radius: 6px; cursor: pointer; font: 13px 'Space Grotesk', sans-serif; }
+.conversations-accordion-menu button:hover { background: color-mix(in srgb, var(--app-surface-alt) 80%, transparent); }
+.conversations-accordion-menu button.is-danger { color: var(--app-danger, #e36d78); }
+.conversations-accordion-drag-handle { flex: 0 0 auto; cursor: grab; color: var(--app-muted); font-size: 12px; padding: 2px 4px; user-select: none; }
+.conversations-accordion-drag-handle:active { cursor: grabbing; }
+/* Conversations Block: title left truncated | three inline actions right */
+.conversations-block { display: flex; align-items: center; gap: 8px; width: 100%; }
+.conversations-block-header { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
+.conversations-block-actions { display: flex; flex-direction: row; align-items: center; justify-content: flex-end; gap: 6px; margin-left: auto; flex: 0 0 auto; }
+.conversations-accordion-checkbox, .conversations-accordion-item-time, .conversations-accordion-menu, .conversations-accordion-menu-wrap, .conversations-accordion-menu-btn { display: none !important; }
+@media (max-width: 640px) { .conversations-block { flex-wrap: wrap; } .conversations-block-actions { width: 100%; justify-content: flex-end; margin-left: 0; } }
+.conversations-block.is-active { background: color-mix(in srgb, var(--app-accent) 14%, transparent); border-color: var(--app-accent); box-shadow: inset 2px 0 0 var(--app-accent); }
+.conversations-block.is-active .conversations-block-title-text { color: var(--app-text); font-weight: 600; }
+.conversations-block-title { flex: 1 1 auto; min-width: 0; justify-content: flex-start; }
+.conversations-block-title-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.conversations-block-actions { flex: 0 0 auto; margin-left: auto; display: flex; flex-direction: row; align-items: center; gap: 6px; flex-shrink: 0; }
+.conversations-block-action { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-height: 28px; border: 1px solid var(--app-border); background: transparent; color: var(--app-text); padding: 5px 10px; border-radius: 6px; cursor: pointer; font: 500 12px/1.2 'Space Grotesk', sans-serif; letter-spacing: .02em; white-space: nowrap; transition: background .18s ease, border-color .18s ease, color .18s ease; }
+.conversations-block-action:hover { background: color-mix(in srgb, var(--app-surface-alt) 70%, transparent); border-color: var(--app-accent); }
+.conversations-block-action:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
+.conversations-block-action:active { background: color-mix(in srgb, var(--app-surface-alt) 90%, transparent); border-color: var(--app-accent); transform: translateY(1px); }
+.conversations-block-action:disabled, .conversations-block-action[aria-disabled="true"] { opacity: .5; cursor: not-allowed; background: transparent; border-color: var(--app-border); color: var(--app-muted); transform: none; }
+.conversations-block-action.is-danger { color: var(--app-danger, #e36d78); }
+.conversations-block-action.is-danger:hover { background: color-mix(in srgb, var(--app-danger, #e36d78) 12%, transparent); border-color: var(--app-danger, #e36d78); }
+.conversations-block-action.is-danger:active { background: color-mix(in srgb, var(--app-danger, #e36d78) 18%, transparent); border-color: var(--app-danger, #e36d78); }
+@media (max-width: 560px) {
+  .conversations-block { gap: 6px; }
+  .conversations-block-title-text { font-size: 12px; }
+  .conversations-block-actions { gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+  .conversations-block-action { min-height: 26px; padding: 4px 8px; font-size: 11px; }
+}
+@media (max-width: 560px) {
+  .conversations-accordion-row { padding: 8px; }
+  .conversations-accordion-menu { min-width: 120px; }
+}
+.conversations-accordion-item-time { flex: 0 0 auto; color: var(--app-muted); font: 10px 'DM Mono', monospace; }
+
+/* New conversation modal */

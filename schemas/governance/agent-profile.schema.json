@@ -15,7 +15,7 @@
     "status": { "type": "string", "enum": ["ready", "working", "not_connected"] },
     "created_at": { "type": "string", "format": "date-time" },
     "updated_at": { "type": "string", "format": "date-time" },
-    "provider": { "type": "string", "enum": ["codex", "claude", "openai", "anthropic", "ollama", "custom"] },
+    "provider": { "type": "string", "enum": ["codex", "claude", "openai", "anthropic", "ollama", "custom", "xai", "alibaba", "zhipu", "deepseek"] },
     "model": { "type": "string" },
     "use_previous_response_id": { "type": "boolean" }
   }

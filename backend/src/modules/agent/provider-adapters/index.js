@@ -10,7 +10,7 @@ export function getAdapter(provider) {
   if (provider === "claude") return claude;
   if (provider === "anthropic") return anthropic;
   if (provider === "devquote") return devquote;
-  if (provider === "custom") return custom;
+  if (provider === "custom" || ["xai", "alibaba", "zhipu", "deepseek"].includes(provider)) return custom;
   if (provider === "openai") return openai;
   if (provider === "ollama") return ollama;
   return codex;

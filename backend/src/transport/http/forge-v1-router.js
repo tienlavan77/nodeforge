@@ -2,10 +2,11 @@
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { createForgeV1ConversationRoutes } from "./forge-v1-conversation-routes.js";
+import { routeTicketReview } from "./forge-v1-ticket-review-routes.js";
 import { normalizeParts, unavailable, runRequestsFresh, requireProject, readJson } from "./forge-v1-router-utils.js";
 
 // Creates the Forge v1 HTTP router with checkpoint decoration.
-export function createForgeV1Router({ dispatchTicket, dispatchSprint, reviewTicket, runToolLab, directCodeRequest, projectStream, onWatcherEvent, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, conversationCrudService, conversationAuditHistoryService, architectureWorkspaceService, humanDecisionService, agentSettingsService, listResumableCheckpoints } = {}) {
+export function createForgeV1Router({ dispatchTicket, dispatchSprint, reviewTicket, ticketHumanReviewService, runToolLab, directCodeRequest, projectStream, onWatcherEvent, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, conversationCrudService, conversationAuditHistoryService, architectureWorkspaceService, humanDecisionService, agentSettingsService, listResumableCheckpoints, gitService, expectedProjectId } = {}) {
   const conversationRoutes = createForgeV1ConversationRoutes({ conversationCrudService, conversationAuditHistoryService, ownerChatService, listResumableCheckpoints });
   return Object.freeze({ route });
 
@@ -27,6 +28,8 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, reviewTick
     const projectId = bodyProject ?? queryProject;
     const conversationResult = await conversationRoutes.routeConversation({ method, parts, url, body, projectId });
     if (conversationResult) return conversationResult;
+    const reviewResult = await routeTicketReview({ method, parts, projectId, body, requestId, correlationId, reviewTicket, ticketHumanReviewService });
+    if (reviewResult) return reviewResult;
 
     if (method === "GET" && parts.length === 1 && parts[0] === "health") {
       return { status: 200, body: { status: "ok", service: "nodeforge" } };
@@ -34,6 +37,12 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, reviewTick
 
     if (method === "GET" && parts.length === 1 && parts[0] === "version") {
       return { status: 200, body: { api: "forge/v1", service: "nodeforge" } };
+    }
+    if (method === "GET" && parts.length === 2 && parts[0] === "git" && parts[1] === "status") {
+      requireProject(projectId);
+      if (projectId !== expectedProjectId) throw Object.assign(new ConfigurationError("Git status project is unavailable."), { statusCode: 404, code: "PROJECT_NOT_FOUND" });
+      if (!gitService?.statusSummary) throw unavailable("Git Status");
+      return { status: 200, body: await gitService.statusSummary() };
     }
 
     if (method === "POST" && parts.length === 2 && parts[0] === "stream" && parts[1] === "events") {
@@ -68,13 +77,6 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, reviewTick
     if (method === "GET" && parts.length === 4 && parts[0] === "projects" && parts[2] === "tickets") {
       if (!projectDashboardService?.getTicket) throw unavailable("Ticket Detail");
       return { status: 200, body: await projectDashboardService.getTicket(parts[1], parts[3]) };
-    }
-
-    if (method === "POST" && parts.length === 3 && parts[0] === "tickets" && parts[2] === "review") {
-      if (typeof reviewTicket !== "function") throw unavailable("Review-only Dispatch");
-      requireProject(projectId);
-      const result = await reviewTicket({ projectId, ticketId: parts[1], body: { ...body, project_id: projectId } });
-      return { status: 202, body: { ...result, request_id: requestId, correlation_id: correlationId } };
     }
 
     if (method === "GET" && parts.length === 5 && parts[0] === "projects" && parts[2] === "tickets" && parts[4] === "graph") {

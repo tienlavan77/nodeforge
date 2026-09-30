@@ -4,13 +4,13 @@ import { persistAgentResponse } from "../agent/response-persistence.js";
 import { readTranscriptBlocksDefinition, selectCodeGraphCandidatesDefinition, searchCodeDefinition, readCodeDefinition, readFileDefinition, writeDiffDefinition, editDiffDefinition, runTestDefinition, checkTestDefinition, gitStatusDefinition, gitDiffDefinition, commitChangesDefinition, reportDoneDefinition } from "../../tools/index.js";
 
 /** Creates the sender worker that dispatches agent requests and publishes response events. */
-export function createSenderWorker({ queue, agentRegistry, agentResolver, eventBus, processedStore, protocolStorage, conversationStateStore, conversationIdResolver = (job) => `CONV-BUILDER-${job.task_id}`, workerId = "sender-1", statusBus, signalBus, projectLogger = () => {}, toolRegistry, runtimeGovernance, reviewHandler } = {}) {
+export function createSenderWorker({ queue, agentRegistry, agentResolver, eventBus, processedStore, protocolStorage, conversationStateStore, conversationIdResolver = (job) => `CONV-BUILDER-${job.task_id}`, workerId = "sender-1", statusBus, signalBus, projectLogger = () => {}, toolRegistry, resolveToolRegistry, reviewHandler } = {}) {
   if (typeof queue?.claim !== "function" || typeof agentRegistry?.resolve !== "function" || typeof eventBus?.publish !== "function") throw new ConfigurationError("Sender Worker requires queue, agent registry and event bus.");
   const defaultAgentId = () => agentResolver?.resolve?.("coder") ?? "builder";
   const processed = new Map();
   let timer; let heartbeat; let unsubscribe;
   return Object.freeze({ processOnce, start, stop });
-  function start(intervalMs = 250) { if (timer) return; statusBus?.publish({ worker_id: workerId, worker_type: "sender", status: "ready", sequence: Date.now() }); heartbeat = setInterval(() => statusBus?.publish({ worker_id: workerId, worker_type: "sender", status: "ready", sequence: Date.now() }), 15000); heartbeat.unref?.(); unsubscribe = signalBus?.onWakeup?.((message) => { if (message.target === "agent.request" || message.queue === "agent.request") void processOnce(); }); }
+  function start() { if (timer) return; statusBus?.publish({ worker_id: workerId, worker_type: "sender", status: "ready", sequence: Date.now() }); heartbeat = setInterval(() => statusBus?.publish({ worker_id: workerId, worker_type: "sender", status: "ready", sequence: Date.now() }), 15000); heartbeat.unref?.(); unsubscribe = signalBus?.onWakeup?.((message) => { if (message.target === "agent.request" || message.queue === "agent.request") void processOnce(); }); }
   function stop() { if (timer) clearInterval(timer); if (heartbeat) clearInterval(heartbeat); unsubscribe?.(); unsubscribe = undefined; timer = undefined; heartbeat = undefined; statusBus?.publish({ worker_id: workerId, worker_type: "sender", status: "stopped", sequence: Date.now() }); }
   async function processOnce() {
     const job = await queue.claim(workerId); if (!job) return null;
@@ -55,6 +55,7 @@ export function createSenderWorker({ queue, agentRegistry, agentResolver, eventB
   }
 
   async function runAgentTurns(adapter, adapterConfig, job) {
+    const requestToolRegistry = resolveToolRegistry ? await resolveToolRegistry(job) : toolRegistry;
     let payload = job.payload;
     for (let turn = 0; ; turn += 1) {
       const response = await adapter.send({ agentId: job.agent_id ?? defaultAgentId(), payload: await withChainedResponseId(adapterConfig, job, payload), correlationId: job.correlation_id, tools: job.tools ?? toolsForRequest(job) });
@@ -63,7 +64,7 @@ export function createSenderWorker({ queue, agentRegistry, agentResolver, eventB
       if (!calls.length) return response;
       const results = [];
       for (const call of calls) {
-        const tool = toolRegistry?.[call.name];
+        const tool = requestToolRegistry?.[call.name];
         if (!tool?.execute) throw Object.assign(new ConfigurationError(`Unknown Agent tool: ${call.name}.`), { code: "TOOL_NOT_FOUND" });
         const baseContext = job.payload?.execution_context ?? job.execution_context ?? {};
         // Tools authorize against the request context: transcript blocks and the

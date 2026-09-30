@@ -1,4 +1,4 @@
-export function startControlApi({ api, port, host, indexDb, controlDb, processLock, codeCache, workers = [], logger = console } = {}) {
+export function startControlApi({ api, port, host, indexDb, controlDb, processLock, codeCache, ticketWorkspaceService, workers = [], logger = console } = {}) {
   const server = api.createServer().listen(port, host, () => {
     process.stdout.write(`Node Control API listening on http://${host}:${port}\n`);
   });
@@ -8,6 +8,7 @@ export function startControlApi({ api, port, host, indexDb, controlDb, processLo
     closing = true;
     for (const worker of workers) worker?.stop?.();
     codeCache?.close?.();
+    await ticketWorkspaceService?.close?.();
     // Do not let keep-alive or long-lived HTTP connections block Ctrl-C/r restart.
     server.closeIdleConnections?.();
     await Promise.race([

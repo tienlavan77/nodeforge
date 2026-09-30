@@ -53,8 +53,7 @@ test("isRealChangedPath drops markers, empty entries, and prose", () => {
   assert.equal(isRealChangedPath("schemas/project/task.schema.json"), true);
   assert.equal(isRealChangedPath("backend/tool-lab-target.txt"), false);
   assert.equal(isRealChangedPath("None"), false);
-  assert.equal(isRealChangedPath("title/objective/acceptance_criteria"), false);,
-  candidate_files: [{ path: 'backend/src/application/ticket-crud-service.js', role: 'REFERENCE', reason: 'Ticket persistence entry point.' }]
+  assert.equal(isRealChangedPath("title/objective/acceptance_criteria"), false);
   assert.equal(isRealChangedPath("teams/organisation"), false);
   assert.equal(isRealChangedPath(""), false);
   assert.equal(isRealChangedPath(null), false);
@@ -66,10 +65,8 @@ test("parseFinalReport extracts ticket text and filtered files", () => {
   assert.equal(parsed.title, "Update conversation messages API");
   assert.match(parsed.objective, /Modify the backend endpoint/);
   assert.deepEqual(parsed.realFiles, ["backend/src/application/conversation-audit-history-service.js", "backend/src/transport/http/forge-v1-router.js"]);
-  assert.equal(parsed.acceptance_criteria.length, 2);,
-  candidate_files: [{ path: 'backend/src/application/ticket-crud-service.js', role: 'REFERENCE', reason: 'Ticket persistence entry point.' }]
-  assert.ok(!parsed.acceptance_criteria.some((criterion) => criterion.includes("not measured by Node")));,
-  candidate_files: [{ path: 'backend/src/application/ticket-crud-service.js', role: 'REFERENCE', reason: 'Ticket persistence entry point.' }],
+  assert.equal(parsed.acceptance_criteria.length, 2);
+  assert.ok(!parsed.acceptance_criteria.some((criterion) => criterion.includes("not measured by Node")));
 });
 
 test("inferStyle maps ground-truth prefixes to style filters", () => {
@@ -128,8 +125,7 @@ test("appendAutoCase skips duplicates and writeAutoFile round-trips", () => {
 test("recorder appends completed tickets and never rejects non-tickets", async () => {
   const root = mkdtempSync(join(tmpdir(), "eval-case-record-"));
   const record = createEvalCaseRecorder({ root });
-  const ticket = { id: "TICKET-PROJECT-NODEFORGE-1", title: "Update conversation messages API", objective: "Modify the endpoint.", acceptance_criteria: ["Returns messages."] };,
-  candidate_files: [{ path: 'backend/src/application/ticket-crud-service.js', role: 'REFERENCE', reason: 'Ticket persistence entry point.' }]
+  const ticket = { id: "TICKET-PROJECT-NODEFORGE-1", title: "Update conversation messages API", objective: "Modify the endpoint.", acceptance_criteria: ["Returns messages."] };
   const report = { status: "completed", files_changed: ["backend/src/application/service.js"] };
   const first = await record({ ticket, report });
   assert.equal(first.appended, true);

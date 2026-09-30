@@ -106,7 +106,7 @@ test("Supervisor retains its Coder claim until the Reviewer approves", async () 
     claim: async ({ agentId, taskId, supervisorId }) => { active ??= { claim_id: "CLAIM-1", agent_id: agentId, task_id: taskId, supervisor_id: supervisorId }; return active; },
     release: async (input) => { releases.push(input); active = null; }
   };
-  const loop = createSupervisorLoop({ runtime: h.runtime, senderQueue: { enqueue: async (request) => { h.sent.push(request); if (request.operation === "review") reviews.push(request); } }, collectorQueue: { enqueue: async () => {} }, verificationQueue: { enqueue: async () => {} }, sourceRequest: async () => ({ ticket: { id: "TASK-1", objective: "Fix issue" }, agent_id: "coder-1" }), eventBus: { publish: async (event) => h.published.push(event) }, attemptBuilder: h.attemptBuilder, agentOccupancy });
+  const loop = createSupervisorLoop({ runtime: h.runtime, senderQueue: { enqueue: async (request) => { h.sent.push(request); if (request.operation === "review") reviews.push(request); } }, collectorQueue: { enqueue: async () => {} }, verificationQueue: { enqueue: async () => {} }, sourceRequest: async () => ({ ticket: { id: "TASK-1", objective: "Fix issue" }, agent_id: "coder-1" }), eventBus: { publish: async (event) => h.published.push(event) }, attemptBuilder: h.attemptBuilder, agentOccupancy, integrateTicket: async (taskId) => { assert.equal(taskId, "TASK-1"); reviews.push("integrated"); } });
   await loop.start({ task_id: "TASK-1", request_id: "REQ-1", correlation_id: "CORR-1", agent_id: "coder-1", required_role: "coder" });
   assert.equal(h.sent[0].claim_id, "CLAIM-1");
   await loop.onEvent(baseEvent({ type: "agent.response.received" }));
@@ -128,6 +128,42 @@ test("Supervisor retains its Coder claim until the Reviewer approves", async () 
   assert.equal(releases.length, 1);
   assert.equal(releases[0].claimId, "CLAIM-1");
   assert.equal(releases[0].reason, "accepted");
+  assert.equal(reviews.at(-1), "integrated");
+});
+
+// Prevents acceptance when the reviewed worktree commit cannot reach the root branch.
+test("Supervisor escalates approved review when ticket integration fails", async () => {
+  const h = harness({ initialState: "REVIEWING" });
+  const releases = [];
+  const agentOccupancy = { getByTask: () => ({ claim_id: "CLAIM-1", agent_id: "coder-1" }), release: async (input) => releases.push(input) };
+  const loop = createSupervisorLoop({ runtime: h.runtime, eventBus: { publish: async (event) => h.published.push(event) }, agentOccupancy, integrateTicket: async () => { throw Object.assign(new Error("conflict"), { code: "TICKET_INTEGRATION_CONFLICT" }); } });
+  await loop.onEvent(baseEvent({ type: "review.approved", request_id: "REVIEW-1", payload: { reviewer_id: "reviewer-1", verdict: "approved" } }));
+  assert.equal(h.stateOf(), "NEEDS_HUMAN_REVIEW");
+  assert.equal(h.published[0].type, "task.needs_human_review");
+  assert.equal(h.published[0].payload.reason, "TICKET_INTEGRATION_CONFLICT");
+  assert.equal(releases[0].reason, "TICKET_INTEGRATION_CONFLICT");
+});
+
+// Keeps a repeated approved event from integrating or releasing the same ticket twice.
+test("duplicate Reviewer approval event has one terminal effect", async () => {
+  const h = harness({ initialState: "REVIEWING" });
+  const seen = new Set();
+  let integrations = 0;
+  let releases = 0;
+  const loop = createSupervisorLoop({
+    runtime: h.runtime,
+    eventBus: { publish: async (event) => h.published.push(event) },
+    requestStore: { claim: async (requestId, type) => { const key = `${requestId}:${type}`; if (seen.has(key)) return false; seen.add(key); return true; } },
+    agentOccupancy: { getByTask: () => ({ claim_id: "CLAIM-1", agent_id: "coder-1" }), release: async () => { releases += 1; } },
+    integrateTicket: async () => { integrations += 1; }
+  });
+  const approval = baseEvent({ type: "review.approved", request_id: "REVIEW-SAME", payload: { reviewer_id: "reviewer-1", verdict: "approved" } });
+  await loop.onEvent(approval);
+  await loop.onEvent(approval);
+  assert.equal(h.stateOf(), "COMPLETED");
+  assert.equal(integrations, 1);
+  assert.equal(releases, 1);
+  assert.equal(h.published.filter((event) => event.type === "task.completed").length, 1);
 });
 
 // A waiting ticket can retry when a Coder becomes ready without losing its request id.

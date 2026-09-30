@@ -4,9 +4,10 @@ import { isAbsolute } from "node:path";
 import { createOwnerClaudeMcpTools } from "../../tools/owner-claude-mcp-tools.js";
 import { createClaudeForgeOptions } from "../../tools/claude-forge-options.js";
 import { assertReviewerReadPath, createReviewerForgeTools } from "./reviewer-forge-tools.js";
+import { assertTicketReviewEvidence } from "./ticket-review-evidence.js";
 
 // Creates a reviewer that receives bounded source evidence through Forge File Service.
-export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, fileService, gitService, codeSearch, codeCache, projectRoot, projectLogger = () => {} } = {}) {
+export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, fileService, gitService, codeSearch, codeCache, projectRoot, executionContexts, verificationService, projectLogger = () => {} } = {}) {
   if (typeof agentResolver?.resolveAvailable !== "function" || typeof fileService?.readForIndex !== "function" || typeof projectRoot !== "string" || !isAbsolute(projectRoot)) throw new ConfigurationError("Review Worker requires profiles, File Service, and an absolute project root.");
   return Object.freeze({ review });
 
@@ -18,13 +19,15 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
       : agentResolver.resolveAvailable("reviewer");
     if (!reviewer || reviewer.agent_id === job.agent_id) throw reviewError("REVIEWER_NOT_AVAILABLE", "An independent ready Reviewer is required.");
     // Codex review uses the OpenAI Agents SDK tool allowlist: Codex CLI cannot disable built-in shell tools.
-    const gateway = reviewer.provider === "codex" ? codexSdkGateway : reviewer.provider === "openai" ? openaiSdkGateway : ["claude", "anthropic"].includes(reviewer.provider) ? claudeSdkGateway : null;
+    const gateway = reviewer.provider === "codex" ? codexSdkGateway : ["openai", "xai", "alibaba", "zhipu", "deepseek"].includes(reviewer.provider) ? openaiSdkGateway : ["claude", "anthropic"].includes(reviewer.provider) ? claudeSdkGateway : null;
     if (!gateway?.execute) throw reviewError("REVIEWER_PROVIDER_UNAVAILABLE", "The Reviewer provider has no SDK review path.");
-    const paths = [...new Set(job.payload?.changed_paths ?? [])];
+    const ticketEvidence = executionContexts ? await assertTicketReviewEvidence({ job, executionContexts, verificationService, gitService, fileService, projectRoot }) : null;
+    if (ticketEvidence?.context.state === "verified") await executionContexts.update(job.task_id, ticketEvidence.context.version, { state: "reviewing" });
+    const paths = ticketEvidence?.paths ?? [...new Set(job.payload?.changed_paths ?? [])];
     if (!paths.length || paths.length > 12) throw reviewError("REVIEW_EVIDENCE_INVALID", "Review requires one to twelve changed source files.");
-    const files = [];
+    const files = ticketEvidence?.files ?? [];
     let totalBytes = 0;
-    for (const path of paths) {
+    for (const path of ticketEvidence ? [] : paths) {
       await assertReviewerReadPath(projectRoot, path);
       const file = codeCache?.read ? await codeCache.read({ path }) : await fileService.readForIndex({ path, maxBytes: 64_000 });
       totalBytes += file.size_bytes;
@@ -41,7 +44,8 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
       "Return only JSON: {\"verdict\":\"approved\"|\"request_changes\",\"findings\":[\"specific finding\"]}.",
       "Approve only when the supplied evidence establishes every acceptance criterion. Request changes if evidence is insufficient.",
       `Ticket: ${JSON.stringify(job.payload?.ticket ?? {})}`,
-      `Verification: ${JSON.stringify(job.payload?.verification ?? {})}`,
+      `Execution context identity: ${JSON.stringify(job.payload?.execution_context ?? null)}`,
+      `Verification: ${JSON.stringify(ticketEvidence?.artifact ?? job.payload?.verification ?? {})}`,
       `Patch since ticket start (new untracked files may appear only in Changed files): ${patch || "<no tracked patch available>"}`,
       `Changed files: ${JSON.stringify(files)}`,
       job.review_only ? `Review-only target commit: ${job.payload?.commit ?? "<missing>"}` : ""
@@ -49,22 +53,25 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
     let forgeTools;
     let claudeTools;
     try {
-      forgeTools = createReviewerForgeTools({ fileService, projectRoot, job, reviewer, codeSearch, codeCache, includeClaudeFileTools: ["claude", "anthropic"].includes(reviewer.provider), projectLogger });
+      forgeTools = createReviewerForgeTools({ fileService, projectRoot, job, reviewer, codeSearch, codeCache, ticketEvidence, includeClaudeFileTools: ["claude", "anthropic"].includes(reviewer.provider), projectLogger });
       if (["claude", "anthropic"].includes(reviewer.provider)) claudeTools = createOwnerClaudeMcpTools(forgeTools);
     }
     catch (error) {
       forgeTools = undefined;
-      projectLogger({ event_name: "review.tools_unavailable", level: "error", status: "failed", message: "Reviewer tools unavailable; using bounded review evidence.", task_id: job.task_id, correlation_id: job.correlation_id, source: "review-worker", error_code: error.code ?? "REVIEW_TOOLS_UNAVAILABLE", payload: { request_id: job.request_id, agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, reviewer_id: reviewer.agent_id } });
+      projectLogger({ event_name: "review.tools_unavailable", level: "error", status: "failed", message: ticketEvidence ? "Ticket review tools unavailable; review blocked." : "Reviewer tools unavailable; using bounded review evidence.", task_id: job.task_id, correlation_id: job.correlation_id, source: "review-worker", error_code: error.code ?? "REVIEW_TOOLS_UNAVAILABLE", payload: { request_id: job.request_id, agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, reviewer_id: reviewer.agent_id } });
+      if (ticketEvidence) throw reviewError("REVIEW_TOOLS_UNAVAILABLE", "Ticket review tools are unavailable; approval requires committed source access.");
     }
-    const options = ["codex", "openai"].includes(reviewer.provider) ? { ...(forgeTools ? { forgeTools } : {}) } : claudeTools ? createClaudeForgeOptions(claudeTools) : { tools: [] };
-    const toolInstruction = forgeTools ? `Forge review tools: ${forgeTools.definitions.map((item) => item.name).join(", ")}. Start with search_code for indexed symbols/content, then read_file for metadata and graph${["claude", "anthropic"].includes(reviewer.provider) ? ", and Read(file_path,start_line,end_line) for source windows of at most 80 lines" : "; use sed_lines(path,start_line,end_line) for source windows of at most 80 lines"}. All reads use Forge File Service and Code Cache. Never use built-in shell, file, write, network, or ticket tools.` : "Forge review tools are unavailable. Decide only from the supplied bounded evidence; request changes when evidence is insufficient.";
+    if (ticketEvidence && !forgeTools?.definitions.some((item) => item.name === (["claude", "anthropic"].includes(reviewer.provider) ? "Read" : "sed_lines"))) throw reviewError("REVIEW_TOOLS_UNAVAILABLE", "Ticket review requires a Forge source-window read tool.");
+    const options = ["codex", "openai", "xai", "alibaba", "zhipu", "deepseek"].includes(reviewer.provider) ? { ...(forgeTools ? { forgeTools } : {}) } : claudeTools ? createClaudeForgeOptions(claudeTools) : { tools: [] };
+    const toolInstruction = forgeTools ? `Forge review tools: ${forgeTools.definitions.map((item) => item.name).join(", ")}. ${forgeTools.definitions.some((item) => item.name === "search_code") ? "Use search_code to discover indexed symbols when useful. " : "Use the supplied committed file list for discovery. "}Use read_file for metadata and graph${["claude", "anthropic"].includes(reviewer.provider) ? ", and Read(file_path,start_line,end_line) for source windows of at most 80 lines" : "; use sed_lines(path,start_line,end_line) for source windows of at most 80 lines"}. For manifest files, source results carry review_evidence bound to the passed artifact and commit; reads fail if current source differs. Other reads carry no verified provenance. All reads use Forge File Service and Code Cache. Never use built-in shell, file, write, network, or ticket tools.` : "Forge review tools are unavailable. Decide only from the supplied bounded evidence; request changes when evidence is insufficient.";
     const reviewProfile = reviewer;
     projectLogger({ event_name: "review.started", level: "info", status: "started", message: "Independent Reviewer started ticket review.", task_id: job.task_id, correlation_id: job.correlation_id, source: "review-worker", payload: { request_id: job.request_id, agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, reviewer_id: reviewer.agent_id, provider: reviewer.provider, changed_count: paths.length, tools: forgeTools?.definitions.map(({ name }) => name) ?? [] } });
     projectLogger({ event_name: "review.sdk_dispatch", level: "info", status: "started", message: "Reviewer SDK request dispatched.", task_id: job.task_id, correlation_id: job.correlation_id, source: "review-worker", payload: { request_id: job.request_id, agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, reviewer_id: reviewer.agent_id, provider: reviewer.provider } });
     const response = await gateway.execute({ agent: reviewProfile, agentId: reviewer.agent_id, prompt: `${prompt}\n\n${toolInstruction}`, correlationId: job.correlation_id, cwd: projectRoot, options });
     projectLogger({ event_name: "review.sdk_completed", level: "info", status: "success", message: "Reviewer SDK request completed.", task_id: job.task_id, correlation_id: job.correlation_id, source: "review-worker", payload: { request_id: job.request_id, agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, reviewer_id: reviewer.agent_id, provider: reviewer.provider, response_chars: String(response?.text ?? "").length } });
     const verdict = parseVerdict(response?.text);
-    if (verdict.verdict === "approved") for (const file of files) {
+    if (verdict.verdict === "approved" && ticketEvidence) await assertTicketReviewEvidence({ job, executionContexts, verificationService, gitService, fileService, projectRoot });
+    if (verdict.verdict === "approved" && !ticketEvidence) for (const file of files) {
       await assertReviewerReadPath(projectRoot, file.path);
       const current = codeCache?.read ? await codeCache.read({ path: file.path }) : await fileService.readForIndex({ path: file.path, maxBytes: 64_000 });
       if (current.sha256 !== file.sha256) throw reviewError("REVIEW_EVIDENCE_STALE", `Source changed during review: ${file.path}.`);

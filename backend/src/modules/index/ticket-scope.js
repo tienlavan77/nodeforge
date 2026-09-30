@@ -18,20 +18,14 @@ export function extractExplicitPaths(ticket) {
   return found;
 }
 
-// Builds a schema-valid ticket from a pre-enforcement legacy ticket by inferring
-// style and attaching a marked placeholder candidate. Marked entries are ignored
-// by retrieval, so the next real run re-discovers candidates via live search.
-export function backfillTicketCandidates(ticket, { now = () => new Date().toISOString() } = {}) {
+// Preserves legacy candidates while inferring the required style for older tickets.
+export function backfillTicketCandidates(ticket) {
   if (!ticket || typeof ticket !== "object" || Array.isArray(ticket)) return ticket;
   const normalized = { ...ticket };
   if (!Array.isArray(normalized.style) || normalized.style.length === 0) {
     normalized.style = inferTicketStyle(normalized) ?? ["backend"];
   }
-  if (!Array.isArray(normalized.candidate_files) || normalized.candidate_files.length === 0) {
-    normalized.candidate_files = [{ path: "backend/src/application/ticket-crud-service.js", role: "REFERENCE", reason: `${LEGACY_BACKFILL_REASON_PREFIX} pre-enforcement ticket; retrieval must re-discover via live search.` }];
-    if (!normalized.candidates_produced_by) normalized.candidates_produced_by = "legacy-backfill";
-    if (!normalized.candidates_produced_at) normalized.candidates_produced_at = now();
-  } else {
+  if (Array.isArray(normalized.candidate_files)) {
     normalized.candidate_files = normalized.candidate_files.map(downgradeMissingSymbol);
   }
   return normalized;

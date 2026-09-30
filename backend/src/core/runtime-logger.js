@@ -15,6 +15,14 @@ function humanLine(entry) {
   const agent = entry.payload?.agent_name ?? entry.payload?.agent_id;
   const tool = entry.payload?.tool;
   const ticket = shortTicket(entry.task_id);
+  if (entry.event_name === "owner.tool_call" && tool) {
+    const provider = entry.payload?.provider;
+    const actor = agent ? `[${agent}]` : "[owner]";
+    const detail = provider ? ` (${provider})` : "";
+    const state = entry.status === "success" ? "PASS" : entry.status === "started" ? "START" : "FAIL";
+    const error = entry.error_code ? ` (${entry.error_code})` : "";
+    return `[${time}] ${symbol.padEnd(4)} ${actor}${detail} ${tool} ${state}${error}${ticket ? ` {${ticket}}` : ""}`;
+  }
   if (entry.event_name === "supervisor.tool_ticket_failed" && tool) {
     const bits = [`${agent ? `[${agent}]` : "[forge]"} ${tool} FAIL`];
     if (entry.error_code) bits.push(`(${entry.error_code})`);

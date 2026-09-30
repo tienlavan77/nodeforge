@@ -29,6 +29,17 @@ test("collector reports an empty changeset when the tree is clean", async () => 
   assert.equal(result.empty, true);
 });
 
+// Keeps a ticket's committed files visible to verification after Git status becomes clean.
+test("collector uses the ticket ledger after worktree commit", async () => {
+  const root = await mkdtemp(join(tmpdir(), "collector-ledger-"));
+  const fileService = createFileService({ projectRoot: root });
+  await fileService.atomicWrite({ path: "src/ticket.js", content: "const value = 2;\n", replace: true });
+  const worker = createCollectorWorker({ fileService, gitService: { status: async () => "" }, changeLedger: { snapshot: async () => ({ entries: { "src/ticket.js": {} } }) } });
+  const result = await worker.collect({ task_id: "TASK-1" });
+  assert.deepEqual(result.changed_paths, ["src/ticket.js"]);
+  assert.equal(result.empty, false);
+});
+
 test("collector returns null checksum for deleted files", async () => {
   const root = await mkdtemp(join(tmpdir(), "collector-deleted-"));
   const fileService = createFileService({ projectRoot: root });

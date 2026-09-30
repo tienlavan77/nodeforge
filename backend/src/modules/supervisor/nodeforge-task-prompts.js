@@ -38,8 +38,8 @@ export function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, comp
     "Symbol check: if the ticket symbol is missing from the file or no longer matches the ticket reason, re-discover via rg_search instead of editing blind.",
     "Tool enforcement: sed_lines requires path, start_line, and end_line; read at most 80 lines per call and stay within the ticket scope.",
     "Use the whole-file sha256 returned by sed_lines as before_checksum for write_diff/edit_diff. Use JSON null only when creating a new file.",
-    ...(targetPath ? [`Completion gate: report_done is blocked until ${targetPath} appears in changed_paths. Any report_done that does not include the target file will fail with REPORT_SCOPE_INVALID. After editing the target, verify/run_test, then commit and report_done; do not continue with unrelated discovery or edits to bypass this gate.`] : []),
-    `When the ticket is satisfied, call commit_changes with an appropriate commit message and then report_done with a concise summary. Stop after report_done.`
+    ...(targetPath ? [`Completion gate: report_done is blocked until ${targetPath} appears in changed_paths. Any report_done that does not include the target file will fail with REPORT_SCOPE_INVALID. After editing the target, commit, run_test, check_test and report_done; do not continue with unrelated discovery or edits to bypass this gate.`] : []),
+    `When the ticket is satisfied, call commit_changes, then run_test and poll check_test until passed, then report_done with a concise summary. Stop after report_done.`
   ].filter((line) => line !== undefined).join("\n");
 }
 
@@ -127,6 +127,6 @@ export function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, compl
     "Claude coder may use Forge Read, Glob, and Grep; native built-ins remain disabled. Use the whole-file checksum returned by Read or read_file as before_checksum for write_diff/edit_diff; never send the string \"null\". Use JSON null only when intentionally creating a new file.",
     "For an existing file, use edit_diff with a small exact anchor and replacement. Use write_diff only for a new file or an existing file within the 250-line limit. If write_diff returns DESTRUCTIVE_OVERWRITE or CONTENT_TOO_LARGE, retry with edit_diff; do not stop or report done.",
     "If a governed tool call fails, fix the inputs and retry — do not continue with write_diff/commit_changes on an unknown target.",
-    "Mandatory completion sequence: when the ticket is satisfied, call commit_changes with an appropriate commit message AND THEN call report_done with a concise summary. report_done is the only valid final action — never end your turn with a text-only summary, and never stop before report_done succeeds. If report_done fails, fix the reason and call it again until it succeeds."
+    "Mandatory completion sequence: call commit_changes, then run_test and poll check_test until passed, then call report_done with a concise summary. report_done is the only valid final action. If verification fails, fix the code, commit a new revision, and verify it before reporting."
   ].join("\n");
 }

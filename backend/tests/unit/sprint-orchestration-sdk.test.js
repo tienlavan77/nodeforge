@@ -3,8 +3,7 @@ import test from "node:test";
 
 import { createSprintOrchestrationService } from "../../src/application/sprint-orchestration-service.js";
 
-// Covers the SDK sprint-leader path: the leader drafts via built-in search,
-// its verified candidates are stamped, and no legacy stream runs for it.
+// Covers SDK sprint planning without source candidates or the legacy stream.
 function makeSprint() {
   return {
     id: "SPRINT-1",
@@ -16,7 +15,7 @@ function makeSprint() {
   };
 }
 
-test("sdk sprint leader plan keeps verified candidates without legacy stream", async () => {
+test("sdk sprint leader plan discards supplied candidates without legacy stream", async () => {
   const published = [];
   const streams = [];
   const requests = [];
@@ -50,11 +49,11 @@ test("sdk sprint leader plan keeps verified candidates without legacy stream", a
   const completed = published.filter((event) => event.type === "agent.completed");
   assert.equal(completed.length, 1);
   const savedPlan = JSON.parse(completed[0].payload.text);
-  assert.equal(savedPlan.tickets[0].candidate_files[0].path, "backend/a.js");
-  assert.equal(savedPlan.tickets[0].candidates_produced_by, "sprint-leader-sdk");
+  assert.equal(savedPlan.tickets[0].candidate_files, undefined);
+  assert.equal(savedPlan.tickets[0].candidates_produced_by, undefined);
 });
 
-test("sdk plan ticket without candidates falls back to server-side resolve", async () => {
+test("sdk plan ticket without candidates stays without candidates", async () => {
   const published = [];
   const sprint = makeSprint();
   const service = createSprintOrchestrationService({
@@ -80,6 +79,6 @@ test("sdk plan ticket without candidates falls back to server-side resolve", asy
   const completed = published.filter((event) => event.type === "agent.completed");
   assert.equal(completed.length, 1);
   const savedPlan = JSON.parse(completed[0].payload.text);
-  assert.equal(savedPlan.tickets[0].candidate_files[0].path, "backend/b.js");
-  assert.equal(savedPlan.tickets[0].candidates_produced_by, "retrieval");
+  assert.equal(savedPlan.tickets[0].candidate_files, undefined);
+  assert.equal(savedPlan.tickets[0].candidates_produced_by, undefined);
 });

@@ -74,6 +74,15 @@ test("lists failed and pending Reviewer checkpoints separately from completed Co
   assert.deepEqual(await store.listPending(), []);
 });
 
+test("approved Reviewer checkpoint cannot be downgraded by a later in-progress retry", async () => {
+  const store = createAgentExecutionCheckpointStore({ fileService: memoryFileService() });
+  await store.saveReview({ task_id: "T-APPROVED", status: "in_progress", request_id: "first" });
+  await store.completeReview("T-APPROVED", { request_id: "first", verdict: "approved", reviewer_id: "reviewer-1", findings: [] });
+  const saved = await store.saveReview({ task_id: "T-APPROVED", status: "in_progress", request_id: "retry" });
+  assert.equal(saved.status, "completed");
+  assert.equal((await store.loadReview("T-APPROVED")).verdict, "approved");
+});
+
 test("blocked commit checkpoint remains stored but is not offered for automatic resume", async () => {
   const store = createAgentExecutionCheckpointStore({ fileService: memoryFileService() });
   await store.save({ task_id: "T-BLOCKED", status: "blocked", phase: "commit_approval" });

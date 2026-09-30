@@ -22,9 +22,9 @@ export function sdkToolEvent(event, forgeToolNames) {
 }
 
 // Validates that governed tools completed a ticket and reports stable errors.
-export function assertTicketExecutionCompleted(toolEvents, { labMode = false, missingCode = "TOOL_EXECUTION_FAILED" } = {}) {
+export function assertTicketExecutionCompleted(toolEvents, { labMode = false, missingCode = "TOOL_EXECUTION_FAILED", priorTools = [] } = {}) {
   if (!Array.isArray(toolEvents) || toolEvents.length === 0) throw Object.assign(new ConfigurationError("Agent did not expose Forge tool calls to the session."), { code: missingCode });
-  const successful = toolEvents.filter((event) => event.status !== "failed");
+  const successful = [...priorTools.filter((name) => typeof name === "string" && name !== "report_done").map((tool) => ({ tool, status: "success" })), ...toolEvents.filter((event) => event.status !== "failed")];
   const names = successful.map((event) => event.name ?? event.tool);
   const failedReport = [...toolEvents].reverse().find((event) => (event.name ?? event.tool) === "report_done" && event.status === "failed");
   const failedCommit = [...toolEvents].reverse().find((event) => (event.name ?? event.tool) === "commit_changes" && event.status === "failed");

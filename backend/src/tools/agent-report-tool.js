@@ -4,13 +4,22 @@ import { ConfigurationError } from "../shared/errors.js";
 const error = (code, message, details = {}) => Object.assign(new ConfigurationError(message), { code, details });
 
 // Creates the governed completion-report tool.
-export function createReportDoneTool({ reportService, onEvalCase } = {}) {
+export function createReportDoneTool({ reportService, verificationService, reviewFindings, onEvalCase } = {}) {
   if (!reportService?.buildFinalReport || !reportService?.saveReport || !reportService?.writeReportFile) throw new ConfigurationError("report_done requires the Supervisor completion report service.");
   if (onEvalCase !== undefined && typeof onEvalCase !== "function") throw new ConfigurationError("report_done onEvalCase must be a function.");
   return Object.freeze({ name: "report_done", async execute(input = {}, context = {}) {
     if (typeof input.summary !== "string" || !input.summary.trim()) throw error("INPUT_INVALID", "Report summary is required.");
     const ticket = context.ticket ?? context.task;
     if (!ticket?.id) throw error("SCOPE_INVALID", "Node must provide the current ticket for report_done.");
+    if (verificationService && !context.lab_mode && !context.labMode) {
+      const artifact = await verificationService.assertPassedArtifact();
+      if (reviewFindings) {
+        if (input.finding_resolutions !== undefined) await reviewFindings.recordResolutions(input.finding_resolutions, artifact);
+        await reviewFindings.assertResolved();
+      }
+      context.verify_result = { status: "passed", ready_for_review: true, artifact_id: artifact.artifact_id, commit_id: artifact.commit_sha };
+      context.changed_paths = Object.keys(artifact.file_checksums);
+    }
     assertReportScope(ticket, context, input.summary);
     const report = await reportService.buildFinalReport({ ticket, status: context.status ?? "completed", verifyResult: context.verify_result ?? null, filesChanged: context.changed_paths ?? [], reason: "agent_report_done" });
     assertReportVerified(report);

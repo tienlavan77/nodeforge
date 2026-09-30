@@ -9,7 +9,7 @@ import { createOwnerSdkStream } from "../src/application/owner-sdk-stream.js";
 import { createWatcherCacheEvents } from "../src/modules/context/watcher-cache-events.js";
 
 export function createControlApiHttp({ services } = {}) {
-  const { bus, communications, conversations, eventStore, indexDb, subscriptions, agentSettings, sprintPlanUpload, sprintOrchestration, dispatchSprint, dispatchTicket, reviewTicket, runToolLab, directCodeRequest, codeCache, internalBus, ticketCrudService, buildBuilderContext, protocolStorage, agentGateway, agentConfiguration, sdkGateways, conversationStateStore, fileService, projectRoot, publishUnifiedStreamEvent, logEvent, projectId } = services;
+  const { bus, communications, conversations, eventStore, indexDb, subscriptions, agentSettings, sprintPlanUpload, sprintOrchestration, dispatchSprint, dispatchTicket, reviewTicket, runToolLab, directCodeRequest, codeCache, internalBus, ticketCrudService, buildBuilderContext, protocolStorage, agentGateway, agentConfiguration, sdkGateways, conversationStateStore, fileService, projectRoot, publishUnifiedStreamEvent, logEvent, projectId, gitService } = services;
   const agentLoopLogger = createRuntimeLogger({ logEvent, source: "owner-chat-agent-loop" });
   const sdkStream = createOwnerSdkStream({ agentConfiguration, sdkGateways, fallbackStream: (input) => agentGateway.stream(input), conversationStateStore, conversationMessages: communications, fileService, codeCache, codeSearch: services.codeSearch, projectRoot, projectLogger: agentLoopLogger.emit });
   const ownerChatService = createOwnerChatService({ bus, projectLogger: logEvent, internalBus, buildAgentContext: buildBuilderContext, protocolStorage, conversationCrudService: conversations, debug: (detail) => agentLoopLogger.emit({ event_name: detail?.event ?? "agent.loop", level: detail?.event === "project-log.error" ? "error" : "debug", status: "info", message: detail?.event ?? "Agent loop debug event.", task_id: detail?.task_id, correlation_id: detail?.correlation_id, payload: detail }), agentStream: ({ agentId, payload, correlationId, conversationId }) => sdkStream({ agentId, payload, correlationId, conversationId, eventSink: publishUnifiedStreamEvent }), onAgentCompleted: sprintOrchestration.ingestAgentCompletion });
@@ -35,6 +35,7 @@ export function createControlApiHttp({ services } = {}) {
       dispatchTicket,
       dispatchSprint,
       reviewTicket,
+      ticketHumanReviewService: services.ticketHumanReviewService,
       runToolLab,
       directCodeRequest,
       onWatcherEvent,
@@ -47,6 +48,8 @@ export function createControlApiHttp({ services } = {}) {
       architectureWorkspaceService: services.architectureWorkspaceService,
       humanDecisionService: services.humanDecisionService,
       agentSettingsService: agentSettings,
+      gitService,
+      expectedProjectId: projectId,
       listResumableCheckpoints: services.listResumableCheckpoints
       ,projectStream
     })

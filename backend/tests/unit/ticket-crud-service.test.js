@@ -34,6 +34,15 @@ test("creates a ticket into the last sprint of an existing roadmap", async () =>
   assert.equal(roadmaps.getCurrent().sprints.find((sprint) => sprint.id === "SPRINT-P1-1").tickets.length, 2);
 });
 
+test("requires a persisted execution contract for A5 rollout tickets", async () => {
+  const { service } = createService();
+  await assert.rejects(() => service.createTicket({ projectId: "P1", ticket: { id: "A5-MISSING", rollout_package: "A5", ...ticketPatch() } }), (error) => error.code === "INVALID_TICKET" && /execution_contract/.test(error.message));
+  const execution_contract = { scope: "HTTP, SSE, Node client, UI, and historical error corpus.", acceptance_criteria: ["Canonical error envelope only."], verification_plan: ["Run consumer and replay audit."], owner: "SPRINT-LEADER", supervisor: "SUP-A5", coder: "CODER-A5", reviewer: "REVIEWER-A5", human_authority: null, dependencies: ["A3"], gate: "shadow", ledger_revision: "ROADMAP-1", idempotency_key: "A5-IDEMPOTENCY-1" };
+  const result = await service.createTicket({ projectId: "P1", ticket: { id: "A5-VALID", rollout_package: "A5", execution_contract, ...ticketPatch() } });
+  assert.equal(result.created, true);
+  assert.equal(result.ticket.execution_contract.gate, "shadow");
+});
+
 test("bootstraps a roadmap when none exists and rejects duplicate ids with invalid tickets", async () => {
   const { roadmaps, service } = createService();
   const result = await service.createTicket({ projectId: "P1", ticket: { id: "TICKET-X", ...ticketPatch() } });
@@ -72,6 +81,17 @@ test("updates ticket fields in a new roadmap version and preserves identity fiel
   assert.notEqual(result.roadmap_version, before);
   assert.match(result.roadmap_version, /-update-/);
   assert.equal(roadmaps.getCurrent().sprints.flatMap((sprint) => sprint.tickets)[0].title, "Renamed");
+});
+
+// Removes stale Sprint Leader file guesses without changing a ticket's scope or dependency.
+test("update removes candidate metadata when candidate_files is null", () => {
+  const { service } = createService();
+  service.createTicket({ projectId: "P1", ticket: { id: "TICKET-CANDIDATES", ...ticketPatch({ dependencies: ["TICKET-SEED"], candidate_files: [{ path: "frontend/src/App.tsx", role: "REFERENCE" }], candidates_produced_by: "sprint-leader-sdk", candidates_produced_at: "2026-09-29T05:35:05Z" }) } });
+  const result = service.updateTicket({ projectId: "P1", ticketId: "TICKET-CANDIDATES", patch: { candidate_files: null } });
+  assert.equal(Object.hasOwn(result.ticket, "candidate_files"), false);
+  assert.equal(Object.hasOwn(result.ticket, "candidates_produced_by"), false);
+  assert.equal(Object.hasOwn(result.ticket, "candidates_produced_at"), false);
+  assert.deepEqual(result.ticket.dependencies, ["TICKET-SEED"]);
 });
 
 test("update rejects empty patches and unknown tickets", () => {
@@ -179,7 +199,7 @@ test("prose content that parses directly never reaches the sprint leader", async
   assert.equal(agentCalls, 0);
   assert.equal(result.ticket.title, "Direct parse");
 });
-test("hallucinated leader paths are stripped and resolved server-side", async () => {
+test("hallucinated leader paths are stripped without adding other candidates", async () => {
   const seen = [];
   const { service } = createService({
     agentStream: async function* ({ payload }) {
@@ -191,12 +211,12 @@ test("hallucinated leader paths are stripped and resolved server-side", async ()
   });
   const result = await service.createTicket({ projectId: "P1", content: "fix chat panel" });
   assert.equal(result.created, true);
-  assert.match(seen[0], /never invent file paths/);
-  assert.deepEqual(result.ticket.candidate_files, [{ path: "ui/nextjs/components/NodeForgePanels.jsx", role: "REFERENCE", reason: "retrieval:real-file" }]);
-  assert.equal(result.ticket.candidates_produced_by, "retrieval");
+  assert.match(seen[0], /implementation discovery belongs to the Coder/);
+  assert.equal(result.ticket.candidate_files, undefined);
+  assert.equal(result.ticket.candidates_produced_by, undefined);
 });
 
-test("leader text without resolver falls back to marked placeholder candidates", async () => {
+test("leader text without a resolver creates a ticket without candidates", async () => {
   const { service } = createService({
     agentStream: async function* () {
       yield { text: '```json\n{"title":"Fix API","objective":"Fix the endpoint.","acceptance_criteria":["Endpoint works."],"style":["backend"]}\n```' };
@@ -205,6 +225,5 @@ test("leader text without resolver falls back to marked placeholder candidates",
   });
   const result = await service.createTicket({ projectId: "P1", content: "fix api" });
   assert.equal(result.created, true);
-  assert.equal(result.ticket.candidate_files.length, 1);
-  assert.match(result.ticket.candidate_files[0].reason, /^legacy-backfill:/);
+  assert.equal(result.ticket.candidate_files, undefined);
 });

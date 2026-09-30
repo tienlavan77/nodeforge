@@ -11,6 +11,7 @@ import { createOwnerDeleteFileTool } from "../../src/tools/owner-delete-file.js"
 import { createReadFileTool } from "../../src/tools/agent-lifecycle-tools.js";
 import { createOwnerConversationTools } from "../../src/tools/owner-conversation-tools.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
+import { createRuntimeLogger } from "../../src/core/runtime-logger.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -36,6 +37,20 @@ test("owner exposes the same approved Forge tools to OpenAI, Codex, Claude, and 
       assert.deepEqual(request.options.tools, []);
     }
   }
+});
+
+test("Anthropic owner Forge calls announce start and completion in the API terminal", async () => {
+  const lines = [];
+  const events = [];
+  const logger = createRuntimeLogger({ logEvent: (event) => events.push(event), output: { write: (line) => lines.push(line) } });
+  let request;
+  const profile = { agent_id: "architect", agent_name: "Architect", role: "architecture_manager", provider: "anthropic" };
+  const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => profile }, sdkGateways: { anthropic: { conversationMode: "history", execute: async (input) => { request = input; return { text: "ok" }; } } }, fallbackStream: async function* () {}, fileService: fileService(), projectRoot: process.cwd(), projectLogger: logger.emit });
+  for await (const chunk of stream({ agentId: "architect", payload: { text: "list project" }, correlationId: "CORR-ANTHROPIC-TOOLS", conversationId: "CONV-ANTHROPIC-TOOLS" })) assert.equal(chunk.text, "ok");
+  await request.options.forgeTools.registry.search_tree.execute({ path: ".", max_depth: 1 }, request.options.forgeTools.context);
+  assert.deepEqual(events.map((event) => event.status), ["started", "success"]);
+  assert.ok(lines.some((line) => line.includes("[Architect] (anthropic) search_tree START")));
+  assert.ok(lines.some((line) => line.includes("[Architect] (anthropic) search_tree PASS")));
 });
 
 test("Architecture Manager may write documentation in chat while private and code paths stay blocked", async () => {

@@ -24,7 +24,8 @@ export function createOpenAiSdkProviderFactory({ credentialResolver, ProviderCla
     const gatewayUrl = normalizeGatewayUrl(profile.gateway_url);
     const model = requireString(profile.model, "OpenAI SDK model");
     const credentialRef = requireString(profile.credential_ref, "OpenAI SDK credential_ref");
-    const effort = normalizeReasoningEffort(profile.reasoning?.effort ?? profile.reasoning_effort ?? "medium");
+    const compatibleProvider = ["xai", "alibaba", "zhipu", "deepseek"].includes(profile.provider);
+    const effort = normalizeReasoningEffort(profile.reasoning?.effort ?? profile.reasoning_effort ?? (compatibleProvider ? "none" : "medium"));
     return Object.freeze({
       agent_id: requireString(profile.agent_id, "OpenAI SDK agent_id"),
       agent_name: requireString(profile.agent_name, "OpenAI SDK agent_name"),
@@ -33,7 +34,7 @@ export function createOpenAiSdkProviderFactory({ credentialResolver, ProviderCla
       credential_ref: credentialRef,
       model,
       reasoning: Object.freeze({ effort }),
-      use_responses: profile.use_responses ?? defaultUseResponses
+      use_responses: profile.use_responses ?? (compatibleProvider ? false : defaultUseResponses)
     });
   }
 
@@ -54,7 +55,7 @@ export function createOpenAiSdkProviderFactory({ credentialResolver, ProviderCla
 // Normalizes a gateway URL to the /v1 base form and validates HTTPS.
 export function normalizeGatewayUrl(value) {
   if (typeof value !== "string" || !SAFE_URL.test(value)) throw new ConfigurationError("OpenAI SDK gateway URL must use HTTPS.");
-  const normalized = value.replace(/\/+$/, "").replace(/\/responses?$/, "");
+  const normalized = value.replace(/\/+$/, "").replace(/\/(?:responses?|chat\/completions)$/, "");
   return /\/v\d+$/.test(normalized) ? normalized : `${normalized}/v1`;
 }
 

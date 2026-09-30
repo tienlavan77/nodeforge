@@ -1,5 +1,6 @@
 // Persists resumable agent execution checkpoints to the file service under .forge/runtime.
 import { ConfigurationError } from "../../shared/errors.js";
+import { acquireTicketFileLock } from "../supervisor/ticket-file-lock.js";
 
 // Creates a checkpoint store backed by File Service for save/load/complete lifecycle.
 export function createAgentExecutionCheckpointStore({ fileService, root = ".forge/runtime/agent-checkpoints", reviewRoot = ".forge/runtime/reviewer-checkpoints", onSaved } = {}) {
@@ -42,7 +43,16 @@ export function createAgentExecutionCheckpointStore({ fileService, root = ".forg
   }
 
   // Persists the independent Reviewer lifecycle separately from the Coder checkpoint.
-  async function saveReview(checkpoint) { return saveAt(checkpoint, reviewRoot); }
+  async function saveReview(checkpoint) {
+    if (!checkpoint?.task_id) throw new ConfigurationError("Agent execution checkpoint requires task_id.");
+    const path = pathFor(checkpoint.task_id, reviewRoot);
+    const lock = fileService.createLock ? await acquireTicketFileLock(fileService, `${path}.lock`) : null;
+    try {
+      const current = await loadReview(checkpoint.task_id);
+      if (current?.status === "completed" && current.verdict === "approved") return current;
+      return await saveAt(checkpoint, reviewRoot);
+    } finally { await lock?.release(); }
+  }
   async function loadReview(taskId) { return loadAt(taskId, reviewRoot); }
   async function completeReview(taskId, details = {}) { return saveReview({ ...(await loadReview(taskId) ?? { task_id: taskId }), ...details, task_id: taskId, status: "completed", completed_at: new Date().toISOString() }); }
   async function clearReview(taskId) { return clearAt(taskId, reviewRoot); }

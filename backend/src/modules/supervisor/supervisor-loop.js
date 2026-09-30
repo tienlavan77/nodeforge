@@ -1,7 +1,7 @@
 // Summary: Supervisor state machine that dispatches agent requests and routes agent/collector/verification events to transitions.
 import { ConfigurationError } from "../../shared/errors.js";
 /** Creates the supervisor loop that starts tasks and routes execution events to runtime transitions. */
-export function createSupervisorLoop({ runtime, senderQueue, collectorQueue, verificationQueue, sourceRequest, eventBus, attemptBuilder, requestStore, agentResolver, agentOccupancy } = {}) {
+export function createSupervisorLoop({ runtime, senderQueue, collectorQueue, verificationQueue, sourceRequest, eventBus, attemptBuilder, requestStore, agentResolver, agentOccupancy, integrateTicket } = {}) {
   if (!runtime || typeof eventBus?.publish !== "function") throw new ConfigurationError("Supervisor loop requires runtime and event bus.");
   let started = false;
   return Object.freeze({ start, reset, onEvent });
@@ -72,12 +72,14 @@ export function createSupervisorLoop({ runtime, senderQueue, collectorQueue, ver
       const source = await sourceRequest?.(runtime.taskId);
       if (!source?.ticket) return escalate(event, "review_context_unavailable");
       await runtime.transition("REVIEWING", event);
-      await senderQueue.enqueue({ operation: "review", role: "reviewer", task_id: runtime.taskId, supervisor_id: runtime.supervisorId, request_id: `REVIEW-${event.request_id}`, correlation_id: event.correlation_id, attempt: event.attempt ?? 1, agent_id: agentOccupancy.getByTask(runtime.taskId)?.agent_id ?? source.agent_id, payload: { ticket: source.ticket, changed_paths: event.payload?.passed_paths?.map((item) => item.path) ?? event.payload?.changed_paths ?? [], base_commit: source.review_base_commit ?? source.payload?.review_base_commit ?? null, verification: event.payload } });
+      await senderQueue.enqueue({ operation: "review", role: "reviewer", task_id: runtime.taskId, supervisor_id: runtime.supervisorId, request_id: `REVIEW-${event.request_id}`, correlation_id: event.correlation_id, attempt: event.attempt ?? 1, agent_id: agentOccupancy.getByTask(runtime.taskId)?.agent_id ?? source.agent_id, payload: { ticket: source.ticket, execution_context: event.payload?.execution_context ?? source.execution_context ?? null, changed_paths: event.payload?.passed_paths?.map((item) => item.path) ?? event.payload?.changed_paths ?? [], base_commit: source.review_base_commit ?? source.payload?.review_base_commit ?? null, verification: event.payload } });
       return true;
     }
     if (event.type === "verification.failed") { await runtime.transition("REPAIRING", event); const request = await startRepairRound(event, "verification"); return { handled: true, request }; }
     if (event.type === "review.approved") {
       if (event.payload?.verdict !== "approved" || !event.payload?.reviewer_id || event.payload.reviewer_id === agentOccupancy?.getByTask(runtime.taskId)?.agent_id) return escalate(event, "review_verdict_invalid");
+      try { await integrateTicket?.(runtime.taskId); }
+      catch (error) { return escalate(event, error.code ?? "TICKET_INTEGRATION_FAILED"); }
       await runtime.transition("COMPLETED", event); await terminal("task.completed", event, { review: event.payload }); await releaseCoder("accepted"); return true;
     }
     if (event.type === "review.request_changes") {

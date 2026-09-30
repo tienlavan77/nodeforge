@@ -104,6 +104,7 @@ export function checkpointedRegistry({ store, registry, taskId, targetPath, allo
           target_path: targetPath,
           allowed_prefixes: allowedPrefixes,
           complexity_level: complexity?.level ?? null,
+          execution_context: context?.execution_context ?? null,
           last_tool: name,
           changed_paths: changedSnapshot,
           status: done ? "completed" : "in_progress",
@@ -156,7 +157,7 @@ export function buildResumePrompt(prompt, state, meta = {}) {
     history,
     `Files already changed in the worktree: ${[...new Set([...state.changedPaths, ...(meta.changedPaths ?? [])])].join(", ") || "(none)"} — verify with read_file if needed, then continue with the next unfinished step.`,
     `Previous agent: ${meta.agentId ?? state.resume.agent_id ?? "unknown"} (${meta.provider ?? state.resume.provider ?? "unknown provider"}).`,
-    ...(Array.isArray(state.resume.review_findings) && state.resume.review_findings.length ? ["Reviewer requested a revision of this same ticket. Address these findings before report_done:", ...state.resume.review_findings.map((finding) => `- ${finding}`), "Read the current code and coder rules, make the required changes, run relevant verification, commit, and report_done."] : []),
+    ...(Array.isArray(state.resume.review_findings) && state.resume.review_findings.length ? ["Reviewer requested a revision of this same ticket. Address these findings before report_done:", ...state.resume.review_findings.map((finding) => typeof finding === "string" ? `- ${finding}` : `- ${finding.finding_id}: ${finding.message}`), "Read the current code and coder rules, make the required changes, commit, run_test/check_test, and report_done with finding_resolutions for every open ID; each fixed finding needs a changed path from the verified manifest."] : []),
     "",
     prompt
   ].join("\n");

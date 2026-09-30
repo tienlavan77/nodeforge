@@ -3,6 +3,8 @@
 
 import { useMemo, useRef, useState, useEffect } from "react";
 import { createPortal } from "react-dom";
+// eslint-disable-next-line no-unused-vars -- The component is rendered as JSX below.
+import { TicketHumanReview } from "./ticket-human-review.jsx";
 
 // Sorts tickets with incomplete items first.
 export function sortSprintTickets(tickets = []) {
@@ -16,14 +18,20 @@ export function sortSprintTickets(tickets = []) {
 export function TicketCard({ ticket, client, projectId, onRefresh, onDeleted }) {
   const [message, setMessage] = useState("");
   const [viewOpen, setViewOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [detail, setDetail] = useState(null);
-  async function view() {
+  // Opens either the ticket editor or its separate owner review dialog.
+  async function openDetails(showReview = false) {
     try { setDetail(await client.getTicket(projectId, ticket.id)); }
     catch (error) {
       console.error("Unable to load ticket details", error);
       setDetail(ticket);
     }
-    setViewOpen(true);
+    setReviewOpen(showReview);
+    setViewOpen(!showReview);
+  }
+  async function view() {
+    await openDetails();
   }
   async function run({ fresh = false } = {}) {
     try {
@@ -42,7 +50,7 @@ export function TicketCard({ ticket, client, projectId, onRefresh, onDeleted }) 
   }
   const resumable = ticket.checkpoint?.resumable === true;
   const disabled = ticket.status === "done" || ticket.status === "running";
-  return <><article className="dashboard-ticket"><div><strong>{ticket.id}</strong><span className="priority">{ticket.priority}</span></div><p>{ticket.title}</p><small><span className={`ticket-status ticket-status-${ticket.status ?? "planned"}`}>{ticket.status ?? "planned"}</span> · {ticket.progress}%</small>{resumable && <small className="ticket-checkpoint">{ticket.checkpoint.phase === "review" ? "Coder đã hoàn tất; review cần tiếp tục." : `Có checkpoint dở ở turn ${ticket.checkpoint.last_completed_turn ?? "?"}${ticket.checkpoint.last_tool ? ` (tool cuối: ${ticket.checkpoint.last_tool})` : ""}.`}</small>}<div className="ticket-actions"><button className="sprint-view-button small" onClick={view}>View</button>{resumable ? <button className="sprint-run-button small is-resume" onClick={() => run()} disabled={disabled}>Resume</button> : null}{resumable ? <button className="sprint-run-button small" onClick={() => run({ fresh: true })} disabled={disabled}>Run fresh</button> : <button className="sprint-run-button small" onClick={() => run()} disabled={disabled}>Run</button>}<button className="sprint-delete-button small" onClick={remove} disabled={disabled}>Delete</button></div>{message && <small>{message}</small>}</article>{viewOpen && <TicketModal ticket={detail ?? ticket} client={client} projectId={projectId} onRefreshed={(updatedTicket) => { setDetail(updatedTicket); onRefresh?.(); }} onClose={() => { setViewOpen(false); setDetail(null); }} />}</>;
+  return <><article className="dashboard-ticket"><div><strong>{ticket.id}</strong><span className="priority">{ticket.priority}</span></div><p>{ticket.title}</p><small><span className={`ticket-status ticket-status-${ticket.status ?? "planned"}`}>{ticket.status ?? "planned"}</span> · {ticket.progress}%</small>{resumable && <small className="ticket-checkpoint">{ticket.checkpoint.phase === "review" ? "Coder đã hoàn tất; review cần tiếp tục." : `Có checkpoint dở ở turn ${ticket.checkpoint.last_completed_turn ?? "?"}${ticket.checkpoint.last_tool ? ` (tool cuối: ${ticket.checkpoint.last_tool})` : ""}.`}</small>}<div className="ticket-actions"><button className="sprint-view-button small" onClick={view}>View</button>{!disabled && <button className="sprint-view-button small" onClick={() => openDetails(true)}>Human Approve</button>}{resumable ? <button className="sprint-run-button small is-resume" onClick={() => run()} disabled={disabled}>Resume</button> : null}{resumable ? <button className="sprint-run-button small" onClick={() => run({ fresh: true })} disabled={disabled}>Run fresh</button> : <button className="sprint-run-button small" onClick={() => run()} disabled={disabled}>Run</button>}<button className="sprint-delete-button small" onClick={remove} disabled={disabled}>Delete</button></div>{message && <small>{message}</small>}</article>{viewOpen && <TicketModal ticket={detail ?? ticket} client={client} projectId={projectId} onRefreshed={(updatedTicket) => { setDetail(updatedTicket); onRefresh?.(); }} onClose={() => { setViewOpen(false); setDetail(null); }} />}{reviewOpen && <EntityDetailsModal title={`Human Review · ${ticket.id}`} modalClassName="ticket-language-modal" onClose={() => { setReviewOpen(false); setDetail(null); }}><TicketHumanReview ticket={detail ?? ticket} client={client} projectId={projectId} autoOpen onApproved={(updatedTicket) => { setDetail(updatedTicket); onRefresh?.(); }} /></EntityDetailsModal>}</>;
 }
 
 // Extracts Vietnamese context from a ticket.

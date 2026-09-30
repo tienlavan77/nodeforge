@@ -7,7 +7,7 @@ test("saves masked Agent Settings through Profile/Configuration and tests connec
   const profiles = { getAll: () => profile ? [profile] : [], getById: (id) => id === profile?.agent_id ? profile : undefined, create: (value) => (profile = structuredClone(value)), update: (value) => (profile = structuredClone(value)), delete: () => true };
   let synced = 0; let tested = 0;
   const service = createAgentSettingsService({ profiles, configuration: { sync: () => { synced += 1; } }, gateway: { testConnection: async () => { tested += 1; return { status: "CONNECTED", gateway_url: profile.gateway_url }; } } });
-  const saved = service.save({ agent_id: "55555555-5555-4555-8555-555555555555", agent_name: "Builder", role: "coder", gateway_url: "https://gateway.example.test/builder", enabled: true, api_key: "secret" });
+  const saved = service.save({ agent_id: "55555555-5555-4555-8555-555555555555", agent_name: "Builder", role: "coder", provider: "custom", gateway_url: "https://gateway.example.test/builder", enabled: true, api_key: "secret" });
   assert.equal(saved.api_key_masked, "********"); assert.equal(profile.api_key, undefined); assert.equal(synced, 1);
   assert.equal((await service.testConnection("55555555-5555-4555-8555-555555555555")).status, "CONNECTED"); assert.equal(tested, 1);
   assert.equal(profile.team, "Backend");
@@ -26,6 +26,22 @@ test("creates and returns an agent profile team", () => {
   assert.equal(profile.team, "Frontend");
   assert.equal(created.team, "Frontend");
   assert.equal(service.list()[0].team, "Frontend");
+});
+
+test("saves new provider profiles and tests their OpenAI-compatible connection", async () => {
+  const stored = new Map();
+  const profiles = { getAll: () => [...stored.values()], getById: (id) => stored.get(id), create: (value) => (stored.set(value.agent_id, structuredClone(value)), value), update: (value) => (stored.set(value.agent_id, structuredClone(value)), value), delete: (id) => stored.delete(id) };
+  const calls = [];
+  const service = createAgentSettingsService({ profiles, configuration: { sync: () => {} }, gateway: { testConnection: () => { throw new Error("Wrong gateway"); } }, openaiSdkGateway: { execute: async (input) => { calls.push(input); return { text: "OK" }; } } });
+  for (const [index, provider] of ["xai", "alibaba", "zhipu", "deepseek"].entries()) {
+    const agentId = `88888888-8888-4888-8888-${String(index + 1).padStart(12, "0")}`;
+    const profile = service.save({ agent_id: agentId, agent_name: provider, role: "architecture_manager", provider, model: `${provider}-model`, gateway_url: "https://gateway.example.test/v1", enabled: true, api_key: "profile-secret" });
+    assert.equal(profile.provider, provider);
+    assert.equal(profile.api_key, undefined);
+    assert.equal((await service.testConnection(agentId)).status, "CONNECTED");
+    assert.equal(calls.at(-1).agent.credential_ref, `runtime:${agentId}:api-key`);
+  }
+  assert.equal(calls.length, 4);
 });
 
 test("rejects invalid agent teams", () => {
