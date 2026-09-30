@@ -8,7 +8,7 @@ import { createTicketRootGit } from "./ticket-root-git.js";
 import { materializeTicketArchive } from "./ticket-archive-materialization.js";
 
 const ROOT = ".forge/runtime/ticket-verification";
-const POLICY_VERSION = "ticket-verification-v1";
+const POLICY_VERSION = "ticket-verification-v2";
 const fail = (code, message) => Object.assign(new ConfigurationError(message), { code });
 const sha = (content) => `sha256:${createHash("sha256").update(content).digest("hex")}`;
 
@@ -40,7 +40,7 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
       throw fail("VERIFY_RETRY_UNCHANGED", "Verification was interrupted for this commit. Commit a new source revision before run_test.");
     }
     const id = `VERIFY-${randomUUID()}`;
-    const job = { job_id: id, task_id: taskId, status: "running", source_revision: context.source_revision, commit_sha: context.review_commit_sha, started_at: new Date().toISOString() };
+    const job = { job_id: id, task_id: taskId, status: "running", source_revision: context.source_revision, commit_sha: context.review_commit_sha, policy_version: POLICY_VERSION, started_at: new Date().toISOString() };
     await saveJob(job);
     const run = verify(context, job).catch(async (error) => {
       const failed = { ...job, status: "failed", error: { code: error.code ?? "VERIFY_FAILED", message: safeOutput(error.message) }, finished_at: new Date().toISOString() };
@@ -163,7 +163,7 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
     catch (error) { if (error.code === "ENOENT") return null; throw error; }
     for (const name of names.filter((item) => /^VERIFY-[A-Za-z0-9-]+\.json$/.test(item)).sort().reverse()) {
       const job = await loadJson(`${ROOT}/${taskId}/jobs/${name}`);
-      if (job?.commit_sha === context.review_commit_sha && job.source_revision === context.source_revision && ["failed", "running"].includes(job.status)) return job;
+      if (job?.commit_sha === context.review_commit_sha && job.source_revision === context.source_revision && job.policy_version === POLICY_VERSION && ["failed", "running"].includes(job.status)) return job;
     }
     return null;
   }
