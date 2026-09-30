@@ -1,30 +1,7 @@
 export const PROJECT_AGENT_PREFERENCES_KEY = "architecture-manager-selection";
 
 // Creates a service for persisting per-project agent preferences.
-export function createProjectAgentPreferencesService(storage) {
-  const readStored = () => {
-    const value = storage.getItem("arch");
-    if (!value) return {};
-    try {
-      const parsed = JSON.parse(value);
-      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-    } catch {
-      return {};
-    }
-  };
-
-  const writeStored = (projectId, agent) => {
-    storage.setItem("arch", JSON.stringify({ ...readStored(), [projectId]: { agent } }));
-  };
-
-  return {
-    read: (projectId) => readStored()[projectId]?.agent || null,
-    write: writeStored
-  };
-}
-
-// Creates a service for persisting per-project agent preferences.
-function createProjectAgentPreferencesService({ storage }) {
+export function createProjectAgentPreferencesService({ storage }) {
   if (!storage || typeof storage.getItem !== "function" || typeof storage.setItem !== "function") {
     throw new TypeError("Project agent preferences require localStorage-compatible storage.");
   }

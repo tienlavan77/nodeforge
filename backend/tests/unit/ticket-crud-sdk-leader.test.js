@@ -14,7 +14,7 @@ function createService({ agentStream, agentRoleResolver, candidateResolver, spri
   return { roadmaps, service };
 }
 
-test("sdk sprint leader candidates are kept without server-side resolve", async () => {
+test("sdk sprint leader drops source-file guesses without server-side resolve", async () => {
   let streamCalls = 0;
   let resolveCalls = 0;
   const seen = [];
@@ -35,11 +35,11 @@ test("sdk sprint leader candidates are kept without server-side resolve", async 
   assert.equal(resolveCalls, 0);
   assert.equal(seen.length, 1);
   assert.match(seen[0].correlationId, /^CORR-TICKET-CREATE-/);
-  assert.deepEqual(result.ticket.candidate_files, [{ path: "ui/nextjs/components/NodeForgePanels.jsx", role: "PATCH", symbol: "NodeForgePanels", reason: "edit NodeForgePanels" }]);
-  assert.equal(result.ticket.candidates_produced_by, "sprint-leader-sdk");
+  assert.equal(result.ticket.candidate_files, undefined);
+  assert.equal(result.ticket.candidates_produced_by, undefined);
 });
 
-test("sdk sprint leader regen keeps verified candidates on the ticket", async () => {
+test("sdk sprint leader regen preserves existing ticket candidates without accepting new guesses", async () => {
   const { roadmaps } = createService();
   roadmaps.save({ id: "ROADMAP-P1", project_id: "P1", version: "1.0.0", created_at: "2026-09-13T00:00:00Z", sprints: [{ id: "SPRINT-P1-1", roadmap_id: "ROADMAP-P1", project_id: "P1", objective: "Sprint one", tickets: [{ id: "TICKET-1", project_id: "P1", roadmap_id: "ROADMAP-P1", sprint_id: "SPRINT-P1-1", title: "Báo cáo sprint", objective: "Hiển thị tiến độ", acceptance_criteria: ["Người dùng xem được tiến độ"], style: ["frontend"], candidate_files: [{ path: "ui/nextjs/components/NodeForgePanels.jsx", role: "REFERENCE", reason: "old" }], provenance: { source: "project_owner", source_id: "TICKET-1", created_at: "2026-09-13T00:00:00Z" } }], exit_criteria: ["done"] }] });
   const { createTicketCrudService: create } = await import("../../src/application/ticket-crud-service.js");
@@ -49,5 +49,5 @@ test("sdk sprint leader regen keeps verified candidates on the ticket", async ()
   const result = await svc.regenerateTicketEnglish({ projectId: "P1", ticketId: "TICKET-1", context: "Tiêu đề: Báo cáo sprint" });
   assert.equal(result.updated, true);
   assert.equal(result.ticket.title, "Sprint progress report");
-  assert.deepEqual(result.ticket.candidate_files, [{ path: "ui/nextjs/components/NodeForgePanels.jsx", role: "PATCH", symbol: "NodeForgePanels", reason: "edit NodeForgePanels" }]);
+  assert.deepEqual(result.ticket.candidate_files, [{ path: "ui/nextjs/components/NodeForgePanels.jsx", role: "REFERENCE", reason: "old" }]);
 });
