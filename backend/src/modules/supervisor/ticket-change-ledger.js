@@ -80,7 +80,7 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
   // Claims a discovered path and atomically journals one Forge write to the project root.
   async function write({ taskId, path, before, after, operationId } = {}) {
     if (!taskId || !path || (typeof after !== "string" && after !== null) || (after === null && typeof before !== "string")) throw failure("TICKET_WRITE_INVALID", "Ticket write requires task, path, and content or an existing file to delete.");
-    const id = operationId ?? key(`${taskId}\0${path}\0${sha(before)}\0${sha(after)}`);
+    const contentId = operationId ?? key(`${taskId}\0${path}\0${sha(before)}\0${sha(after)}`);
     return locked(`ticket:${taskId}`, () => locked(`path:${path}`, async () => {
       const owned = await claim(path);
       if (owned?.task_id !== undefined && owned.task_id !== taskId) throw failure("FILE_CLAIM_CONFLICT", `${path} is owned by ticket ${owned.task_id}.`);
@@ -88,11 +88,14 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
       if (manifest.state === "closed") throw failure("TICKET_CHANGE_CLOSED", `Ticket ${taskId} has already integrated its changes.`);
       manifest = await recover(taskId, path, manifest);
       const existing = manifest.entries[path];
-      const repeated = existing?.operations.find((item) => item.id === id);
+      const repeated = existing?.operations.find((item) => item.id === contentId);
       if (repeated) {
         if (repeated.after_sha !== sha(after)) throw failure("TICKET_OPERATION_CONFLICT", `Ticket write ID was reused for different content: ${path}.`);
-        return { path, sha256: repeated.after_sha, repeated: true };
+        const live = await readOptional(path);
+        if (existing.latest_sha === repeated.after_sha && sha(live) === repeated.after_sha) return { path, sha256: repeated.after_sha, repeated: true };
+        if (operationId) throw failure("TICKET_OPERATION_CONFLICT", `Ticket write ID was reused after source changed: ${path}.`);
       }
+      const id = repeated ? key(`${contentId}\0${manifest.revision + 1}`) : contentId;
       const live = await readOptional(path);
       if (sha(live) !== sha(before)) throw failure("CHECKSUM_MISMATCH", `Root source changed before writing ${path}.`);
       if (existing && existing.latest_sha !== sha(live)) throw failure("TICKET_SOURCE_CHANGED", `Root source changed outside ticket ${taskId}: ${path}.`);

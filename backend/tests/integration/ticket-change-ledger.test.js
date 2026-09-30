@@ -47,3 +47,22 @@ test("two ticket ledgers racing for one root file produce one owner", async () =
     assert.equal((await restarted.write({ taskId: owner, path, before, after, operationId: "INTERRUPTED-WRITE" })).repeated, true);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("ticket reapplies a reverted file change instead of claiming a stale repeat", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-ticket-reapply-"));
+  const path = "backend/src/shared.js";
+  const original = "// original\n";
+  const changed = "// changed\n";
+  const files = createFileService({ projectRoot: root });
+  try {
+    await files.atomicWrite({ path, content: original, replace: true });
+    const ledger = createTicketChangeLedger({ projectId: "PROJECT-TEST", fileService: files });
+    await ledger.write({ taskId: "TICKET-A", path, before: original, after: changed });
+    await ledger.write({ taskId: "TICKET-A", path, before: changed, after: original });
+    const result = await ledger.write({ taskId: "TICKET-A", path, before: original, after: changed });
+    assert.equal(result.repeated, undefined);
+    assert.equal(result.revision, 3);
+    assert.equal(await readFile(join(root, path), "utf8"), changed);
+    assert.equal((await ledger.write({ taskId: "TICKET-A", path, before: original, after: changed })).repeated, true);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
