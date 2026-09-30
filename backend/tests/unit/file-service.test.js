@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm, symlink } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, readdir, rm, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
@@ -104,6 +104,23 @@ test("FileService exposes atomicCreate and atomicWrite", async () => {
   await assert.rejects(() => files.atomicCreate({ path: ".forge/runtime/protocol.json", content: "{\"v\":2}\n" }), /already exists/i);
   await files.atomicWrite({ path: ".forge/runtime/protocol.json", content: "{\"v\":2}\n", replace: true });
   assert.equal(await readFile(join(root, ".forge/runtime/protocol.json"), "utf8"), "{\"v\":2}\n");
+});
+
+test("atomic replacements preserve executable mode and keep new files private", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forge-file-mode-"));
+  try {
+    const files = createFileService({ projectRoot: root });
+    await files.atomicCreate({ path: "src/tool.js", content: "before\n" });
+    await chmod(join(root, "src/tool.js"), 0o755);
+    await files.atomicWrite({ path: "src/tool.js", content: "after\n", replace: true });
+    assert.equal((await stat(join(root, "src/tool.js"))).mode & 0o777, 0o755);
+    files.atomicWriteSync({ path: "src/tool.js", content: "again\n" });
+    assert.equal((await stat(join(root, "src/tool.js"))).mode & 0o777, 0o755);
+    await files.atomicWrite({ path: "src/new.js", content: "new\n", replace: true });
+    assert.equal((await stat(join(root, "src/new.js"))).mode & 0o111, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("atomicCreate publishes through a completed temp file and cleans the temp artifact", async () => {
