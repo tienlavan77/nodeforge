@@ -30,6 +30,12 @@ test("serializes ForgeError instances with exactly the canonical five fields", a
   assert.deepEqual(serialized, { code: "UPSTREAM_FAILED", message: "failed", retryable: true, scope: "scoped", requestId: "REQ-1" });
 });
 
+test("ForgeError serialization falls back to canonical defaults for missing fields", async () => {
+  const { ForgeError } = await import("../../src/shared/errors.js");
+  const serialized = new ForgeError("", { code: "", scope: "" }).toJSON();
+  assert.deepEqual(serialized, { code: "FORGE_ERROR", message: "An unexpected error occurred", retryable: false, scope: "application", requestId: null });
+});
+
 test("preserves requestId and exposes stable contract via formatErrorBody", () => {
   const body = formatErrorBody({ error: { code: "dispatch_failed", message: "fail" }, statusCode: 502, requestId: "req-123", correlationId: "corr-1", fallbackMessage: "fallback" });
   assert.equal(body.error.code, "dispatch_failed");

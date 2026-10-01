@@ -11,11 +11,11 @@ export class ForgeError extends Error {
 
   toJSON() {
     return {
-      code: this.code,
-      message: this.message,
-      retryable: this.retryable,
-      scope: this.scope,
-      requestId: this.requestId
+      code: typeof this.code === "string" && this.code ? this.code : "FORGE_ERROR",
+      message: typeof this.message === "string" && this.message ? this.message : "An unexpected error occurred",
+      retryable: Boolean(this.retryable),
+      scope: typeof this.scope === "string" && this.scope ? this.scope : "application",
+      requestId: typeof this.requestId === "string" && this.requestId ? this.requestId : null
     };
   }
 }
