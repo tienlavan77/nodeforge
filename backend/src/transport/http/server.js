@@ -71,7 +71,7 @@ export function createHttpApi({ ownerChatService, conversationStream, projectStr
     } catch (error) {
       if (!response.headersSent && !response.writableEnded) {
         const status = error.statusCode ?? 400;
-        const body = formatErrorBody({ error, statusCode: status, requestId: request.headers?.["x-request-id"], correlationId: request.headers?.["x-correlation-id"], fallbackMessage: error.message });
+        const body = formatErrorBody({ error, statusCode: status, requestId: request.headers?.["x-request-id"], fallbackMessage: error.message });
         writeJson(response, status, body, request.headers?.origin);
       } else {
         response.destroy?.();
