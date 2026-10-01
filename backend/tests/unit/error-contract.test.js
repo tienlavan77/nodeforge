@@ -43,5 +43,13 @@ test("preserves requestId and exposes stable contract via formatErrorBody", () =
   assert.equal(body.error.scope, "scoped");
   assert.equal(body.error.requestId, "req-123");
   assert.deepEqual(Object.keys(body.error).sort(), ["code", "message", "requestId", "retryable", "scope"]);
-  assert.ok(!body.error.message.includes("stack"));\n});\n\ntest("approved compatibility alias accepts correlationId input without emitting legacy fields", () => {\n  const body = formatErrorBody({ error: { code: "dispatch_failed", message: "fail", status: 502, details: "legacy" }, correlationId: "corr-9" });\n  assert.equal(body.error.requestId, "corr-9");\n  assert.deepEqual(Object.keys(body.error).sort(), ["code", "message", "requestId", "retryable", "scope"]);\n  assert.equal("status" in body.error, false);\n  assert.equal("details" in body.error, false);\n});
+  assert.ok(!body.error.message.includes("stack"));
+});
+
+test("approved compatibility alias accepts correlationId input without emitting legacy fields", () => {
+  const body = formatErrorBody({ error: { code: "dispatch_failed", message: "fail", status: 502, details: "legacy" }, correlationId: "corr-9" });
+  assert.equal(body.error.requestId, "corr-9");
+  assert.deepEqual(Object.keys(body.error).sort(), ["code", "message", "requestId", "retryable", "scope"]);
+  assert.equal("status" in body.error, false);
+  assert.equal("details" in body.error, false);
 });
