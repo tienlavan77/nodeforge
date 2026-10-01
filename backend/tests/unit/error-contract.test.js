@@ -52,4 +52,6 @@ test("does not consume legacy correlationId input or emit legacy fields", () => 
   assert.deepEqual(Object.keys(body.error).sort(), ["code", "message", "requestId", "retryable", "scope"]);
   assert.equal("status" in body.error, false);
   assert.equal("details" in body.error, false);
+  const statusAlias = formatErrorBody({ error: { status: 502, message: "legacy status" } });
+  assert.equal(statusAlias.error.code, "unknown_error");
 });
