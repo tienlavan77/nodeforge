@@ -23,7 +23,7 @@ export function safeMessage(raw, fallback) {
 export function normalizeUiError(input, { requestId, fallback = "Request failed.", status } = {}) {
   const body = input && typeof input === "object" ? input.error && typeof input.error === "object" ? input.error : input : {};
   const code = token(body.code) || (status ? `http_${status}` : "unknown_error");
-  const raw = typeof input === "string" ? input : body.message ?? body.error ?? body.msg;
+  const raw = typeof input === "string" ? input : body.message;
   const message = safeMessage(raw, safeMessage(fallback, "Request failed."));
   const explicit = body.retryable;
   const retryable = typeof explicit === "boolean" ? explicit : typeof input === "string" ? true : NON_RETRYABLE_CODES.has(code) ? false : RETRYABLE_CODES.has(code) || RETRYABLE_STATUSES.has(status);
