@@ -24,10 +24,8 @@ export function useModelCatalog() {
   return catalog;
 }
 
-// Returns models for one provider and keeps an existing profile model selectable.
-export function getModelOptions(catalog, provider, currentModel) {
+// Returns the supported model choices for one agent provider.
+export function getModelOptions(catalog, provider) {
   const models = Array.isArray(catalog?.[provider]) ? catalog[provider] : [];
-  const options = models.filter((model) => typeof model?.value === "string" && model.value && typeof model.label === "string");
-  if (currentModel && !options.some((model) => model.value === currentModel)) return [{ value: currentModel, label: currentModel }, ...options];
-  return options;
+  return models.filter((model) => typeof model?.value === "string" && model.value && typeof model.label === "string");
 }
