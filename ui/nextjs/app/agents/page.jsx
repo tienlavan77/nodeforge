@@ -117,7 +117,8 @@ export default function AgentsPage() {
     setEditingAgent(agent);
     const provider = agent.provider ?? "anthropic";
     const role = agent.role ?? "coder";
-    const model = agent.model || getModelOptions(modelCatalog, provider)[0]?.value || "";
+    const models = getModelOptions(modelCatalog, provider);
+    const model = models.some((item) => item.value === agent.model) ? agent.model : models[0]?.value ?? "";
     setForm({ role, team: agent.team ?? "Backend", agent_name: agent.agent_name ?? "", provider, model, gateway_url: agent.gateway_url ?? "https://gateway.example.test/agent", api_key: "", enabled: agent.enabled === true });
     setFormError("");
     setModalOpen(true);
@@ -165,6 +166,8 @@ export default function AgentsPage() {
     setSaving(true);
     setFormError("");
     try {
+      const models = getModelOptions(modelCatalog, form.provider);
+      if (models.length && !models.some((item) => item.value === form.model)) throw new Error("Select an available model for this provider.");
       const formPayload = { ...form };
       const requestPayload = form.api_key ? formPayload : Object.fromEntries(Object.entries(formPayload).filter(([key]) => key !== "api_key"));
       const response = await fetch(editingAgent ? `${API_URL}/${editingAgent.agent_id}` : API_URL, { method: editingAgent ? "PUT" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(requestPayload) });
@@ -231,7 +234,7 @@ export default function AgentsPage() {
         </article>;
       })}</div>}
     </main>
-    {modalOpen && <AddAgentModal title={editingAgent ? "Edit agent" : "Add agent"} testState={testState} onTestConnection={testConnection} form={form} apiKeyMasked={editingAgent?.api_key_masked} modelOptions={getModelOptions(modelCatalog, form.provider, form.model)} saving={saving} error={formError} onChange={updateField} onSubmit={addAgent} onClose={() => setModalOpen(false)} />}
+    {modalOpen && <AddAgentModal title={editingAgent ? "Edit agent" : "Add agent"} testState={testState} onTestConnection={testConnection} form={form} apiKeyMasked={editingAgent?.api_key_masked} modelOptions={getModelOptions(modelCatalog, form.provider)} saving={saving} error={formError} onChange={updateField} onSubmit={addAgent} onClose={() => setModalOpen(false)} />}
     <Dialog open={Boolean(connectionResult)} onClose={() => setConnectionResult(null)} labelledBy="connection-result-title" variant="confirmation" panelStyle={{ background: "var(--app-panel)" }}>
       {connectionResult && <div className="connection-result-modal"><div className="connection-result-icon">{connectionResult.ok ? "✓" : "!"}</div><p className="eyebrow">AGENT CONNECTION</p><h2 id="connection-result-title">{connectionResult.agent.agent_name ?? connectionResult.agent.agent_id}</h2><strong className={connectionResult.ok ? "connection-result-ok" : "connection-result-failed"}>{connectionResult.ok ? "Connected" : "Connection failed"}</strong><p>{connectionResult.message}</p><button className="history-button" type="button" onClick={() => setConnectionResult(null)}>Close</button></div>}
     </Dialog>
