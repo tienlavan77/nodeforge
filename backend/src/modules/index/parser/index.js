@@ -3,7 +3,6 @@ import { extname } from "node:path";
 
 import { emptyExtraction, normalizeExtraction } from "./contract.js";
 import { extractJavaScript } from "./javascript.js";
-import { createJsxUiWalker } from "./jsx-ui.js";
 import { extractPhp } from "./php.js";
 import { extractCss } from "./css.js";
 

@@ -102,14 +102,14 @@ export function collectAutoCases({ root, ticketFilter = null, limit = 0, exists 
 
 // Renders the generated auto-cases file content from a case list.
 export function renderAutoFile(cases) {
-  return `${AUTO_FILE_HEADER}export const RETRIEVAL_EVAL_CASES_AUTO = ${JSON.stringify(cases, null, 2)};\n`;
+  return `${AUTO_FILE_HEADER}export const RETRIEVAL_EVAL_CASES_AUTO = ${JSON.stringify(cases)};\n`;
 }
 
 // Reads the ticket ids already present in the generated auto-cases file.
 export function loadAutoCaseIds({ root }) {
   try {
     const text = readFileSync(join(root, AUTO_EVAL_FILE), "utf8");
-    return new Set([...text.matchAll(/^\s*"id":\s*"([^"]+)"/gm)].map((match) => match[1]));
+    return new Set([...text.matchAll(/"id":\s*"([^"]+)"/g)].map((match) => match[1]));
   // eslint-disable-next-line no-silent-catch -- Generated auto file may not exist before the first append.
   } catch {
     return new Set();
@@ -128,16 +128,16 @@ export function appendAutoCase({ root, caseItem }) {
   } catch {
     text = null;
   }
-  if (text && text.includes(`"id": "${caseItem.id}"`)) return false;
+  if (text && loadAutoCaseIds({ root }).has(caseItem.id)) return false;
   if (!text) {
     writeFileSync(path, renderAutoFile([caseItem]));
     return true;
   }
   const closing = text.lastIndexOf("];");
   if (closing < 0) throw new ConfigurationError("Eval auto-cases file has an unexpected shape; regenerate it with backfill-eval-cases.mjs.");
-  const prefix = text.slice(0, closing).trimEnd();
-  const entry = JSON.stringify(caseItem, null, 2);
-  writeFileSync(path, `${prefix}${prefix.endsWith("[") ? "" : ","}\n${entry}\n];\n`);
+  const start = text.indexOf("=", text.indexOf("RETRIEVAL_EVAL_CASES_AUTO"));
+  const cases = JSON.parse(text.slice(start + 1, closing + 1).trim());
+  writeFileSync(path, renderAutoFile([...cases, caseItem]));
   return true;
 }
 

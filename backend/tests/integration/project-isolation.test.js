@@ -61,7 +61,7 @@ async function readProjectId(projectRoot) {
 }
 
 async function readSnapshot(projectRoot) {
-  const database = await openIndexDatabase(projectRoot);
+  const database = await openIndexDatabase(projectRoot, { runtimeDir: ".forge/runtime/wc" });
   try {
     return {
       files: database.all("SELECT path, file_id FROM files ORDER BY path"),

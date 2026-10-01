@@ -1,61 +1,65 @@
-import test from "node:test";
+// Verifies indexed context never falls back to unindexed or unsafe source content.
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
 
-// Regression coverage for the indexed-context notification contract. These tests
-// exercise the control API through its public HTTP surface so filesystem access
-// cannot be used as an implicit fallback.
-const baseUrl = process.env.NODE_CONTROL_TEST_URL ?? "http://127.0.0.1:3100";
+import { createFileService } from "../src/infrastructure/filesystem/file-service.js";
+import { createContextPlanner } from "../src/modules/index/context-planner.js";
 
-async function requestContext(target) {
-  const response = await fetch(`${baseUrl}/api/agent/context`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ target })
-  });
-  const body = await response.json();
-  return { response, body };
+// Creates a disposable index and file-service pair for indexed-context checks.
+async function fixture(t, { indexed = true, stale = false, unavailable = false } = {}) {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-index-context-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, "src"), { recursive: true });
+  const content = "export function example() {}\n";
+  await writeFile(join(root, "src", "example.js"), content);
+  const sha256 = createHash("sha256").update(stale ? "old content" : content).digest("hex");
+  let reads = 0;
+  const source = createFileService({ projectRoot: root });
+  const fileService = { readForIndex(input) { reads += 1; return source.readForIndex(input); } };
+  const database = { all(query, params) {
+    if (unavailable) throw new Error("index unavailable");
+    if (query.includes("FROM files")) return indexed ? [{ file_id: "FILE-1", path: params[0], language: "javascript", sha256, size_bytes: content.length }] : [];
+    return [{ version: 1 }];
+  } };
+  return { planner: createContextPlanner({ fileService, database }), reads: () => reads };
 }
 
-function assertNotification(result, expectedCode) {
-  assert.equal(result.body.notification?.code, expectedCode);
-  assert.equal(typeof result.body.notification?.suggested_action, "string");
-  assert.equal(result.body.notification?.stack, undefined);
-  assert.equal(result.body.notification?.stack_trace, undefined);
-  assert.doesNotMatch(JSON.stringify(result.body), /\\bat .*\\([^)]*\\)|node:internal/);
-}
-
-test("indexed context ready returns index source and Context Pack", async () => {
-  const result = await requestContext("backend/scripts/start-control-api.mjs");
-  assert.equal(result.response.status, 200);
-  assert.equal(result.body.source, "index");
-  assert.ok(result.body.context_pack ?? result.body.contextPack);
+test("fresh indexed context returns checksum-verified File Service content", async (t) => {
+  const { planner, reads } = await fixture(t);
+  const result = await planner.plan({ relevantTree: ["src/example.js"] });
+  assert.equal(result.source, "file-service");
+  assert.equal(result.files[0].content, "export function example() {}\n");
+  assert.equal(reads(), 1);
 });
 
-test("missing indexed context returns a notification instead of failing the ticket", async () => {
-  const result = await requestContext("backend/tests/does-not-exist.mjs");
-  assertNotification(result, "CONTEXT_MISSING");
-  assert.match(result.body.notification.suggested_action, /list|path|create/i);
+test("missing index rejects before reading source", async (t) => {
+  const { planner, reads } = await fixture(t, { indexed: false });
+  await assert.rejects(planner.plan({ relevantTree: ["src/example.js"] }), /Indexed file not found/);
+  assert.equal(reads(), 0);
 });
 
-test("stale indexed context returns a notification without a stack trace", async () => {
-  const result = await requestContext("backend/scripts/start-control-api.mjs?stale=1");
-  assertNotification(result, "CONTEXT_STALE");
+test("stale index rejects mismatched source checksum", async (t) => {
+  const { planner } = await fixture(t, { stale: true });
+  await assert.rejects(planner.plan({ relevantTree: ["src/example.js"] }), (error) => error.code === "CONTEXT_STALE");
 });
 
-test("unavailable index returns a notification without filesystem fallback", async () => {
-  const result = await requestContext("backend/scripts/start-control-api.mjs?index=unavailable");
-  assertNotification(result, "INDEX_UNAVAILABLE");
+test("unavailable index never reads source as fallback", async (t) => {
+  const { planner, reads } = await fixture(t, { unavailable: true });
+  await assert.rejects(planner.plan({ relevantTree: ["src/example.js"] }), /index unavailable/);
+  assert.equal(reads(), 0);
 });
 
-test("invalid target returns the notification contract", async () => {
-  const result = await requestContext("");
-  assertNotification(result, "INVALID_TARGET");
+test("empty relevant tree rejects without source access", async (t) => {
+  const { planner, reads } = await fixture(t);
+  await assert.rejects(planner.plan({ relevantTree: [] }), /requires a relevant tree/);
+  assert.equal(reads(), 0);
 });
 
-test("paths outside the project guard remain hard denied", async () => {
-  const result = await requestContext("../outside-project.txt");
-  assert.equal(result.response.status, 403);
-  assert.equal(result.body.error?.code ?? result.body.code, "PATH_DENIED");
-  assert.equal(result.body.notification, undefined);
-  assert.doesNotMatch(JSON.stringify(result.body), /\\bat .*\\([^)]*\\)|node:internal/);
+test("path outside project remains denied by File Service", async (t) => {
+  const { planner } = await fixture(t);
+  await assert.rejects(planner.plan({ relevantTree: ["../outside.js"] }), /unsafe|protected|denied/i);
 });

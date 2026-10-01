@@ -13,10 +13,6 @@ import { createWatcherSnapshotService } from "../../src/modules/watcher/watcher-
 import { createProjectStreamPublisher } from "../../src/transport/sse/project-stream-publisher.js";
 import { createHttpApi } from "../../src/transport/http/server.js";
 
-function runtimeStub() {
-  return { startTask: () => ({}), pauseSession: () => ({}), resumeSession: () => ({}), getSession: () => ({}), getProjectMemory: () => ({}) };
-}
-
 function responseStub() {
   return {
     status: 0,

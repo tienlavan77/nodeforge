@@ -8,6 +8,7 @@ import { AddAgentModal } from "../../components/AddAgentModal.jsx";
 import { Dialog } from "../../components/Dialog.jsx";
 import { createNodeClient } from "../../lib/node-client.js";
 import { getModelOptions, useModelCatalog } from "../../lib/model-catalog.js";
+import { normalizeBackendError } from "../../lib/error-normalizer.js";
 
 const PROJECT_ID = "PROJECT-NODEFORGE";
 const API_URL = typeof window !== "undefined"
@@ -43,6 +44,9 @@ function displayValue(value) {
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
+
+// Shows the Control API's safe error message when an Agent connection check fails.
+function connectionError(payload, status) { return normalizeBackendError({ body: payload, status, fallbackError: `Connection failed (HTTP ${status}).` }).message; }
 
 // Maps project stream lifecycle signals onto the agent status domain.
 function streamStatusToAgentStatus(status) {
@@ -105,7 +109,7 @@ export default function AgentsPage() {
   async function testConnection() {
     setTestState("Testing…");
     try { const testAgentId = editingAgent?.agent_id;
-      const response = await fetch(`${API_URL}/${testAgentId}/test`, { method: "POST", cache: "no-store" }); const payload = await response.json(); if (!response.ok) throw new Error(payload?.error || `HTTP ${response.status}`); setTestState(`Connected${payload.gateway_url ? `: ${payload.gateway_url}` : ""}`); } catch (error) { setTestState(error.message || "Connection failed."); }
+      const response = await fetch(`${API_URL}/${testAgentId}/test`, { method: "POST", cache: "no-store" }); const payload = await response.json(); if (!response.ok) throw new Error(connectionError(payload, response.status)); setTestState(`Connected${payload.gateway_url ? `: ${payload.gateway_url}` : ""}`); } catch (error) { setTestState(error.message || "Connection failed."); }
   }
 
   // Opens the edit modal prefilled with the selected agent data.
@@ -126,7 +130,7 @@ export default function AgentsPage() {
     try {
       const response = await fetch(`${API_URL}/${agent.agent_id}/test`, { method: "POST", cache: "no-store" });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || `HTTP ${response.status}`);
+      if (!response.ok) throw new Error(connectionError(payload, response.status));
       setConnectionResult({ agent, ok: true, message: payload?.gateway_url ? `Connected to ${payload.gateway_url}` : "Agent connection succeeded." });
     } catch (error) {
       setConnectionResult({ agent, ok: false, message: error.message || "Connection failed." });
