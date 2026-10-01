@@ -6,7 +6,7 @@ import { createVerificationOrchestrator } from "../../src/modules/verification/o
 
 const projectRoot = fileURLToPath(new URL("../fixtures/verification-project", import.meta.url));
 const nodeCommand = JSON.stringify(process.execPath);
-const eslintCommand = `${nodeCommand} ${JSON.stringify(fileURLToPath(new URL("../../node_modules/eslint/bin/eslint.js", import.meta.url)))}`;
+const eslintCommand = `${nodeCommand} ${JSON.stringify(fileURLToPath(new URL("../../node_modules/eslint/bin/eslint.js", import.meta.url)))} --rulesdir ${JSON.stringify(fileURLToPath(new URL("../../../eslint-rules", import.meta.url)))}`;
 const typeScriptCommand = `${nodeCommand} ${JSON.stringify(fileURLToPath(new URL("../../node_modules/typescript/bin/tsc", import.meta.url)))}`;
 
 test("orchestrates test and build/lint/typecheck passes into a review-ready gate", async () => {

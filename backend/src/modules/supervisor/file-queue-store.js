@@ -15,7 +15,7 @@ export function createFileQueueStore({ fileService, root = ".forge/runtime/super
         if (error?.code !== "FILE_LOCK_EXISTS") throw error;
         let ownerPid = null;
         // eslint-disable-next-line no-silent-catch -- Lock-owner probe: unreadable lock is treated as unknown owner below.
-        try { ownerPid = Number.parseInt(await fileService.readFile({ path: lockPath }), 10); } catch {}
+        try { ownerPid = Number.parseInt(await fileService.readFile({ path: lockPath }), 10); } catch { /* Unknown lock owner remains protected. */ }
         if (Number.isInteger(ownerPid) && ownerPid > 0) {
           trace(`wait owner=${ownerPid}`);
           try { process.kill(ownerPid, 0); await new Promise((resolve) => setTimeout(resolve, 25)); continue; }
@@ -25,7 +25,7 @@ export function createFileQueueStore({ fileService, root = ".forge/runtime/super
         await new Promise((resolve) => setTimeout(resolve, 100));
         let retryOwner = null;
         // eslint-disable-next-line no-silent-catch -- Lock-owner re-probe before stale cleanup; unknown owner waits.
-        try { retryOwner = Number.parseInt(await fileService.readFile({ path: lockPath }), 10); } catch {}
+        try { retryOwner = Number.parseInt(await fileService.readFile({ path: lockPath }), 10); } catch { /* Unknown lock owner remains protected. */ }
         if (!Number.isInteger(retryOwner) || retryOwner <= 0) await fileService.deleteFile({ path: lockPath }).catch(() => {}); // eslint-disable-line no-silent-catch -- Stale-lock cleanup is best-effort; loop retries acquisition.
         continue;
       }

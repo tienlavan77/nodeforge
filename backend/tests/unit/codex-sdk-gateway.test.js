@@ -92,6 +92,23 @@ test("does not leak the parent Codex session into the MCP child", async () => {
   assert.equal(codexOptions.env.KEEP_ME, "yes");
 });
 
+// Classifies an upstream model-channel outage as retryable without exposing gateway diagnostics.
+test("reports an unavailable model channel as a safe upstream outage", async () => {
+  const gateway = createCodexSdkGateway({
+    configuration: { getById: () => ({ agent_id: "codex-outage", agent_name: "Codex", role: "architecture_manager", gateway_url: "https://gateway.test/v1", credential_ref: "secret", enabled: true, status: "ready", model: "gpt-5.4" }) },
+    credentialResolver: () => "gateway-key",
+    CodexClass: class FakeCodex {
+      startThread() { return { id: "thread-outage", runStreamed: async () => { throw new Error("Codex Exec exited with code 1: Reading prompt from stdin...\nunexpected status 503 Service Unavailable: No available channel for model gpt-5.4, url: https://gateway.test/v1/responses"); } }; }
+    }
+  });
+  await assert.rejects(gateway.execute({ agentId: "codex-outage", correlationId: "OUTAGE", prompt: "Health check" }), (error) => {
+    assert.equal(error.code, "SERVICE_UNAVAILABLE");
+    assert.equal(error.statusCode, 503);
+    assert.equal(error.message, "Gateway has no available channel for the selected model.");
+    return true;
+  });
+});
+
 test("uses each profile key and a separate Codex home instead of CLI credentials", async () => {
   const homeRoot = mkdtempSync(join(tmpdir(), "nodeforge-codex-home-test-"));
   const captured = [];

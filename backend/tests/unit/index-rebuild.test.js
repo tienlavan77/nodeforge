@@ -25,7 +25,7 @@ test("forge index rebuild restores the file and symbol snapshot after index.db i
     await unlink(databasePath);
 
     const output = [];
-    assert.equal(await runCli(["index", "rebuild"], { cwd: projectRoot, stdout: { write: (value) => output.push(value) } }), 0);
+    assert.equal(await runCli(["index", "rebuild"], { cwd: projectRoot, stdout: { write: (value) => output.push(value) }, embeddingProvider: { embed: async () => [0.1, 0.2] } }), 0);
     assert.deepEqual(output, ["[1] indexed src/auth.js\n", "[2] indexed src/main.php\n", "[3] indexed ui/globals.css\n", "Rebuilt index for 3 files.\n"]);
 
     const rebuiltDatabase = await openIndexDatabase(projectRoot, { runtimeDir: ".forge/runtime/wc" });

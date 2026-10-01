@@ -2,7 +2,7 @@ import { Codex as DefaultCodex } from "@openai/codex-sdk";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ConfigurationError } from "../../shared/errors.js";
+import { ConfigurationError, ForgeError } from "../../shared/errors.js";
 import { createCodexForgeMcpSession } from "./codex-forge-mcp-session.js";
 
 const SAFE_URL = /^https:\/\//;
@@ -132,6 +132,11 @@ export function createCodexSdkGateway({
       };
     } catch (error) {
       if (error?.name === "AbortError" || controller.signal.aborted) throw new ConfigurationError(`Codex SDK request timed out for ${profile.agent_id}.`, { cause: error });
+      if (/No available channel for model/i.test(String(error?.message ?? ""))) {
+        const unavailable = new ForgeError("Gateway has no available channel for the selected model.", { cause: error, code: "SERVICE_UNAVAILABLE" });
+        unavailable.statusCode = 503;
+        throw unavailable;
+      }
       if (error instanceof ConfigurationError) throw error;
       const message = typeof error?.message === "string" && error.message ? error.message.replaceAll(credential, "[REDACTED]") : "unknown SDK error";
       throw new ConfigurationError(`Codex SDK request failed for ${profile.agent_id}: ${message}`, { cause: error });

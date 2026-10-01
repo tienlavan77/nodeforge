@@ -22,7 +22,7 @@ for (const entry of await directoryEntries(binDirectory)) {
   }
 
   const relativeTarget = relative(binDirectory, targetPath).split(sep).join("/");
-  const wrapper = `#!/bin/sh\nexec "\$(dirname "\$0")/${relativeTarget}" "\$@"\n`;
+  const wrapper = `#!/bin/sh\nexec "$(dirname "$0")/${relativeTarget}" "$@"\n`;
   try {
     await writeFile(launcherPath, wrapper, { mode: 0o775 });
     await chmod(launcherPath, 0o775);

@@ -1,7 +1,6 @@
 // One-shot backfill: embed all indexed symbols missing vectors (or stale checksum).
 // Reuses the same per-symbol text + checksum rule as the Watcher hook.
 // Usage: node backend/scripts/backfill-symbol-embeddings.mjs [--limit=N] [--model=embeddinggemma] [--timeout=120000] [--retries=1]
-import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import readline from "node:readline";

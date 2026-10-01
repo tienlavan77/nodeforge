@@ -64,7 +64,7 @@ test("production Control API composition restarts on a disposable project", { ti
     await mkdir(join(root, "workflows/agents"), { recursive: true });
     await writeFile(join(root, ".gitignore"), ".forge/\n");
     await writeFile(join(root, "README.md"), "Disposable project\n");
-    await writeFile(join(root, "workflows/agents/sprint-leader.md"), await readFile(resolve("workflows/agents/sprint-leader.md")));
+    await writeFile(join(root, "workflows/agents/sprint-leader.md"), "# Sprint Leader\nCreate tickets only from the approved sprint plan.\n");
     await execFile("git", ["init", root]);
     await execFile("git", ["-C", root, "config", "user.email", "test@example.invalid"]);
     await execFile("git", ["-C", root, "config", "user.name", "NodeForge Test"]);

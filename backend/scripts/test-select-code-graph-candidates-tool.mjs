@@ -2,7 +2,6 @@
 
 import process from "node:process";
 import { randomUUID } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
 import { loadNodeforgeEnv } from "./nodeforge-env.mjs";
 import { readControlApiConfig } from "./control-api-config.mjs";
 import { createControlApiStorage } from "./control-api-storage.mjs";

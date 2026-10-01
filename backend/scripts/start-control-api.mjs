@@ -1,7 +1,6 @@
 import process from "node:process";
 import { randomUUID } from "node:crypto";
-import { join, resolve } from "node:path";
-import { EventEmitter } from "node:events";
+import { resolve } from "node:path";
 import { loadNodeforgeEnv } from "./nodeforge-env.mjs";
 
 process.chdir(resolve(process.env.NODE_CONTROL_PROJECT_ROOT ?? new URL("../..", import.meta.url).pathname));
@@ -27,11 +26,9 @@ import { createProductionSupervisorRuntime } from "../src/modules/supervisor/pro
 import { createTerminalBridge } from "../src/modules/supervisor/terminal-bridge.js";
 import { createRuntimeLogger } from "../src/core/runtime-logger.js";
 import { createSprintDagRunner, topologicalTicketLevels } from "../src/modules/supervisor/sprint-dag.js";
-import { createCodeIndexSummaryBuilder } from "../src/modules/index/code-index-summary-builder.js";
 import { createCompletionReportService } from "../src/modules/supervisor/completion-report-service.js";
 import { createEvalCaseRecorder } from "../src/modules/eval/eval-case-store.js";
 import { createTicketCrudService } from "../src/application/ticket-crud-service.js";
-import { createAgentExecutionCheckpointStore } from "../src/modules/agent/agent-execution-checkpoint.js";
 import { createDirectCodeRequest } from "../src/application/direct-code-request.js";
 import { createCodeCacheService } from "../src/modules/context/code-cache-service.js";
 import { createAgentOccupancyStore } from "../src/modules/agent/agent-occupancy-store.js";
@@ -47,7 +44,7 @@ import { createTicketHumanReviewService } from "../src/application/ticket-human-
 import { reviewPhaseResume, reviewRevisionResume } from "../src/modules/supervisor/review-revision-resume.js";
 
 const config = readControlApiConfig();
-const { port, host, dataDir } = config;
+const { port, host } = config;
 let testService;
 const storage = await createControlApiStorage({
   config,
@@ -61,7 +58,7 @@ await migrateConversationErrors({ database, fileService, projectId: config.proje
 const gitService = createGitService({ projectRoot: config.cwd, mutationLock: (action) => withTicketProjectCommitLock({ fileService, projectId: platform.projectId }, action) });
 const reportService = createCompletionReportService({ protocolStorage, fileService, gitService });
 const onEvalCase = createEvalCaseRecorder({ root: config.cwd });
-const { projectId, indexDb: platformIndexDb, codeSearch, fileGraph, relevantTreeSelector, freshnessChecker, ticketCandidateResolver, ticketSprintLeader, memoryRetriever, communications, conversations, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, verificationOrchestrator, contextEngine, sprintOrchestration, proseTicketService, ticketFileStore, sprintPlanUpload, taskSummaries, projectMemory } = platform;
+const { projectId, indexDb: platformIndexDb, codeSearch, fileGraph, relevantTreeSelector, freshnessChecker, ticketCandidateResolver, ticketSprintLeader, communications, conversations, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, contextEngine, sprintOrchestration, proseTicketService, ticketFileStore, sprintPlanUpload, taskSummaries, projectMemory } = platform;
 const agentOccupancy = createAgentOccupancyStore({ database, profiles, configuration: agentConfiguration, logger: { error: (_message, details) => logEvent({ timestamp: new Date().toISOString(), event_name: "agent.occupancy_notification_failed", level: "error", status: "failed", message: "Agent occupancy post-commit notification failed.", task_id: details.task_id, project_id: projectId, source: "agent-occupancy-store", error_code: "OCCUPANCY_NOTIFICATION_FAILED", payload: details }) }, onChanged: async (claim) => {
   const timestamp = new Date().toISOString();
   const event = { event_id: `EVT-${randomUUID()}`, type: "agent.status_changed", project_id: projectId, timestamp, task_id: claim.task_id, agent_id: claim.agent_id, payload: { agent_id: claim.agent_id, status: claim.status, previous_status: claim.previous_status, task_id: claim.task_id, supervisor_id: claim.supervisor_id, claim_id: claim.claim_id, reason: claim.release_reason ?? null, updated_at: timestamp }, metadata: { project_id: projectId, source: "agent-occupancy-store" } };
@@ -84,7 +81,6 @@ if (ticketPipelineMode.mode === "shadow") {
   catch (error) { runtimeLogger.emit({ event_name: "ticket.pipeline_shadow_audit_failed", level: "error", status: "failed", message: "Ticket pipeline inventory audit failed; existing workspace gates remain active.", source: "control-api", error_code: error.code ?? "TICKET_PIPELINE_AUDIT_FAILED", payload: { error: error.message } }); }
 }
 const buildBuilderContext = createBuilderContext({ roadmaps, indexDb, contextEngine });
-const codeIndexSummaryBuilder = createCodeIndexSummaryBuilder({ fileService, indexDb });
 const supervisorRuntime = createProductionSupervisorRuntime({ projectRoot: config.cwd, fileService, root: ".forge/runtime", eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, agentRoleResolver, agentOccupancy, ticketStatusStore, codeSearch, codeCache, relevantTreeSelector, freshnessChecker, logger: runtimeLogger, projectLogger: runtimeLogger.emit, projectId,
   checkpointSaved: async (checkpoint) => {
     if (!checkpoint.task_id?.startsWith("CODE-")) return;
@@ -95,7 +91,7 @@ const supervisorRuntime = createProductionSupervisorRuntime({ projectRoot: confi
   },
   conversationStateStore, protocolStorage, testService, gitService, reportService, ticketWorkspaceService, shadowComparison: ticketPipelineShadow, onEvalCase, enableReadCode: true, autoStartWorkers: false,
   preparation: {
-    createTaskSession: async ({ task_id, project_id, ticket } = {}) => {
+    createTaskSession: async ({ task_id, ticket } = {}) => {
       const existing = taskStore.get(task_id);
       if (!existing) taskStore.create({ id: task_id, type: "custom", title: ticket?.title ?? task_id, description: ticket?.objective ?? "", acceptance_criteria: ticket?.acceptance_criteria ?? [], status: "pending", created_at: new Date().toISOString() });
       return { session_id: `SESSION-${task_id}` };
@@ -105,34 +101,13 @@ const supervisorRuntime = createProductionSupervisorRuntime({ projectRoot: confi
     persist: async () => ({ persisted: true })
   }
 });
-const terminalBridge = createTerminalBridge({
+createTerminalBridge({
   eventBus: supervisorRuntime.eventBus, ticketStatusStore, roadmaps, projectId,
   taskSummaries, projectMemory,
   logger: runtimeLogger.emit
 });
 await supervisorRuntime.recover();
 await supervisorRuntime.startWorkers();
-async function buildFileContext(response = {}, options = {}) {
-  const plan = options.plan ?? response.plan ?? response.payload?.plan ?? [];
-  const requested = response.files_requested ?? response.payload?.files_requested ?? plan.map((item) => item.path) ?? [];
-  const newPaths = new Set(plan.filter((item) => item?.action === "NEW").map((item) => item.path));
-  const readOnlyPaths = new Set(plan.filter((item) => item?.action === "READ_ONLY").map((item) => item.path));
-  const existing = requested.filter((path) => !newPaths.has(path) && !readOnlyPaths.has(path));
-  const files = await codeIndexSummaryBuilder.build(existing, { ...options, summary: options.summary !== false });
-  return [
-    ...files,
-    ...[...newPaths].map((path) => ({ path, exists: false, before_checksum: null, language: path.split(".").pop() ?? null, size_bytes: 0, content: null })),
-    ...[...readOnlyPaths].map((path) => ({ path, exists: false, before_checksum: null, language: path.split(".").pop() ?? null, size_bytes: 0, content: null }))
-  ];
-}
-
-function isSourceCandidate(entry = {}) {
-  const path = String(entry.path ?? "");
-  return !path.split("/").some((segment) => segment.startsWith(".")) && /\.(?:js|jsx|ts|tsx|css|scss)$/.test(path);
-}
-
-function isFrontendTicket(ticket = {}) { return /\bfrontend\b|\breact\b|\bnext(?:\.js)?\b|\bjsx\b/i.test([ticket.title, ticket.objective, ...(ticket.acceptance_criteria ?? [])].join(" ")); }
-
 const dispatchTask = async ({ ticket, message, required_role, resume_from, review_resume } = {}) => supervisorRuntime.integration.submitTicket({ ticket, task_id: ticket.id, project_id: ticket.project_id, request_id: message?.id, correlation_id: message?.correlation_id, required_role: required_role ?? ticket.required_role ?? "coder", payload: { text: `Ticket ${ticket.id}: ${ticket.title ?? ""}\nObjective: ${ticket.objective ?? ""}\nAcceptance: ${(ticket.acceptance_criteria ?? []).join("; ")}`, task: { id: ticket.id, title: ticket.title, objective: ticket.objective, dependencies: ticket.dependencies ?? [], acceptance_criteria: ticket.acceptance_criteria ?? [] }, ticket, ...(resume_from ? { resume_from } : {}), ...(review_resume ? { review_resume, review_base_commit: review_resume.base_commit } : {}) } });
 const directCodeRequest = createDirectCodeRequest({ fileService, integration: supervisorRuntime.integration, checkpoints: supervisorRuntime.agentCheckpoints, projectId, projectLogger: logEvent });
 const ticketHumanReviewService = createTicketHumanReviewService({ projectId, roadmaps, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, agentOccupancy, ticketWorkspaceService, publisher: eventPublisher, projectLogger: runtimeLogger.emit });
@@ -157,7 +132,7 @@ function assertA5ExecutionContract(ticket) {
   }
 }
 
-const dispatchTicket = async ({ projectId, ticketId, conversationId, fresh = false } = {}) => {
+const dispatchTicket = async ({ projectId, ticketId, fresh = false } = {}) => {
   if ((await ticketPipelineDisposition.get(ticketId))?.disposition === "cancelled") throw Object.assign(new Error("This historical ticket was cancelled by the project owner and cannot be resumed."), { code: "TICKET_CANCELLED", statusCode: 409 });
   const { ticket } = await sprintLeaderIntake.open({ projectId, ticketId });
   assertA5ExecutionContract(ticket);

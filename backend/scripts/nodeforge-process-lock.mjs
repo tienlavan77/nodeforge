@@ -1,4 +1,4 @@
-import { closeSync, existsSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export function acquireProcessLock(dataDir, role, { fileService } = {}) {
@@ -14,7 +14,7 @@ export function acquireProcessLock(dataDir, role, { fileService } = {}) {
       // recorded owner is definitely gone; a live owner remains protected.
       let ownerPid = null;
       // eslint-disable-next-line no-silent-catch -- Lock-owner probe: unreadable lock means unknown owner, handled below.
-      try { ownerPid = Number.parseInt(readFileSync(path, "utf8").trim(), 10); } catch {}
+      try { ownerPid = Number.parseInt(readFileSync(path, "utf8").trim(), 10); } catch { /* Unknown lock owner remains protected. */ }
       if (Number.isInteger(ownerPid) && ownerPid > 0) {
         try { process.kill(ownerPid, 0); } catch (probe) {
           if (probe.code === "ESRCH") {

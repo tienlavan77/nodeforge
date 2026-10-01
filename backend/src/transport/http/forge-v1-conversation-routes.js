@@ -41,13 +41,15 @@ export function createForgeV1ConversationRoutes({ conversationCrudService, conve
     if (method === "GET" && parts.length === 3 && parts[0] === "conversations" && parts[2] === "messages") return queryConversationHistory(parts[1], url, projectId, false);
     if (method === "POST" && parts.length === 3 && parts[0] === "conversations" && parts[2] === "messages") {
       if (!ownerChatService?.submit) throw unavailable("Conversation");
+      let conversationAgentId;
       if (conversationCrudService) {
         const conversation = conversationCrudService.get(parts[1]);
         if (!conversation) throw Object.assign(new ConfigurationError(`Conversation not found: ${parts[1]}.`), { statusCode: 404 });
         if (projectId && conversation.project_id !== projectId) throw Object.assign(new ConfigurationError("Conversation belongs to a different project."), { statusCode: 404 });
         if (conversation.status !== "active") throw Object.assign(new ConfigurationError("Conversation is not active."), { statusCode: 409, code: "CONVERSATION_NOT_ACTIVE" });
+        conversationAgentId = conversation.agent_id;
       }
-      return { status: 202, body: await ownerChatService.submit({ ...body, project_id: projectId, conversation_id: parts[1] }) };
+      return { status: 202, body: await ownerChatService.submit({ ...body, project_id: projectId, conversation_id: parts[1], ...(conversationAgentId ? { agent_id: conversationAgentId } : {}) }) };
     }
     if (method === "POST" && parts.length === 1 && parts[0] === "conversations") {
       if (!ownerChatService?.submit) throw unavailable("Conversation");

@@ -11,7 +11,7 @@ const PROJECT_MAP = Object.freeze({
 
 // Runs the structure-aware pre-pass: FTS candidates filtered by ticket.style,
 // confirmed via import graph, returning exact targets for the coder.
-export function createExplorePrepass({ relevantTreeSelector, fileGraph, protocolStorage } = {}) {
+export function createExplorePrepass({ relevantTreeSelector, protocolStorage } = {}) {
   if (typeof relevantTreeSelector?.select !== "function") throw new ConfigurationError("Explore pre-pass requires Relevant Tree selector.");
   return Object.freeze({ run });
 

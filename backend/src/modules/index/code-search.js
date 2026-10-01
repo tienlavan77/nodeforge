@@ -100,15 +100,11 @@ export function createCodeSearch({ database } = {}) {
   function reasonsFile(row, terms) { return terms.flatMap((term) => row.path.toLowerCase() === term ? [`path_exact:${term}`] : row.path.toLowerCase().includes(term) ? [`path_match:${term}`] : (row.language ?? "").toLowerCase() === term ? [`language_match:${term}`] : []); }
   function reasonsSymbol(row, terms) { return terms.flatMap((term) => row.name.toLowerCase() === term ? [`symbol_exact:${term}`] : row.name.toLowerCase().includes(term) ? [`symbol_match:${term}`] : row.kind.toLowerCase() === term ? [`kind_match:${term}`] : row.path.toLowerCase().includes(term) ? [`path_match:${term}`] : []); }
   function ftsQuery(value) {
-    const raw = typeof value === "string" ? value.trim() : "";
     const terms = tokenizeSearchText(value);
     if (terms.length <= 1) return terms.map((term) => `"${term.replaceAll('"', '""')}"`).join("");
     // Detect adjacent 2-word phrases: CONVERSATION_BLOCK, conversation-block, or CONVERSATION BLOCK
     // Keep as "conversation block" phrase instead of separate OR terms for precision.
     // Reconstruct phrases from raw by checking _ or - or space adjacency.
-    const rawLower = raw.normalize("NFC").toLocaleLowerCase("vi-VN");
-    const phraseTokens = [];
-    const rawTokens = rawLower.split(/[\s_]+/).filter(Boolean);
     // Not needed here; just use normal OR for long queries. Phrase only when raw explicitly has 2 adjacent meaningful tokens.
     // Keep simple: OR-join keeps phrased queries from zeroing out; bm25 ranking still favors
     // matches containing more terms, so precision comes from ordering not AND.

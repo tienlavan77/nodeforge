@@ -23,7 +23,7 @@ test("requests a next sprint and accepts a schema-valid Sprint Leader proposal",
       sprint: {
         id: "SPRINT-7",
         objective: "Build the next delivery increment.",
-        commits: [{ id: "NF-078", order: 1, objective: "Implement the next increment.", acceptance_criteria: ["Integration passes."] }]
+        commits: [{ id: "NF-078", order: 1, objective: "Implement the next increment.", acceptance_criteria: ["Integration passes."], target_path: "backend/src/increment.js", target_dir: "backend/src", file_operation: "create" }]
       }
     }
   });
