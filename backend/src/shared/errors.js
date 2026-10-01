@@ -1,10 +1,23 @@
-// Summary: Hierarchy of typed Forge errors (ForgeError, ConfigurationError, etc.) with code and details support.
+// Summary: Defines canonical application errors so HTTP, streams, clients, and UI share one failure contract.
 export class ForgeError extends Error {
-  constructor(message, { cause, code = "FORGE_ERROR", details } = {}) {
+  constructor(message, { cause, code = "FORGE_ERROR", details, retryable = false, scope = "application", requestId = null } = {}) {
     super(message, cause === undefined ? undefined : { cause });
     this.name = this.constructor.name;
     this.code = code;
+    this.retryable = Boolean(retryable);
+    this.scope = scope;
+    this.requestId = requestId;
     this.details = details;
+  }
+
+  toJSON() {
+    return {
+      code: this.code,
+      message: this.message,
+      retryable: this.retryable,
+      scope: this.scope,
+      requestId: this.requestId
+    };
   }
 }
 
