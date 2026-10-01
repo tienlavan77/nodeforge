@@ -18,9 +18,7 @@ test("extracts a fenced sprint plan JSON block", () => {
 
 test("sprint leader without a JSON fence publishes agent.failed", async () => {
   const published = [];
-  let finished;
   const service = createSprintOrchestrationService({
-    runtimeService: { startTask: ({ sessionId }) => ({ id: sessionId, state: "RUNNING" }), finishTask: (id, result) => { finished = { id, result }; } },
     sprintPlans: { getSprintById: () => plan },
     agentGateway: { async *stream() { yield { text: "plain prose" }; } },
     publisher: { publish: (event) => { published.push(event); return event; } },
@@ -30,5 +28,5 @@ test("sprint leader without a JSON fence publishes agent.failed", async () => {
   await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(published.at(-1).type, "agent.failed");
   assert.match(published.at(-1).payload.error, /fenced block/);
-  assert.equal(finished.result.failed, true);
+  assert.equal(service.isRunning(plan.id), false);
 });

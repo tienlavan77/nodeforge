@@ -12,13 +12,13 @@ import { createEmbeddingWorker } from "../../modules/index/embedding-worker.js";
 import { createOllamaEmbeddingProvider } from "../../modules/index/ollama-embedding-provider.js";
 
 // Runs the Forge CLI for index rebuild or file watching.
-export async function runCli(args, { cwd = process.cwd(), stdout = process.stdout, stderr = process.stderr, signalEmitter = process, watchProject = startProjectWatch } = {}) {
+export async function runCli(args, { cwd = process.cwd(), stdout = process.stdout, stderr = process.stderr, signalEmitter = process, watchProject = startProjectWatch, embeddingProvider } = {}) {
   if (args[0] === "index" && args[1] === "rebuild" && (args.length === 2 || (args.length === 3 && args[2] === "--force"))) {
     let processed = 0;
     const database = await openIndexDatabase(cwd, { runtimeDir: ".forge/runtime/wc" });
     const model = process.env.OLLAMA_EMBED_MODEL ?? "embeddinggemma";
     const jobs = createEmbeddingJobStore({ database });
-    const worker = createEmbeddingWorker({ database, jobs, embeddingStore: createEmbeddingStore({ database }), embeddingProvider: createOllamaEmbeddingProvider({ baseUrl: process.env.OLLAMA_BASE_URL ?? "http://192.168.1.180:11434", model, timeoutMs: 300000 }), model });
+    const worker = createEmbeddingWorker({ database, jobs, embeddingStore: createEmbeddingStore({ database }), embeddingProvider: embeddingProvider ?? createOllamaEmbeddingProvider({ baseUrl: process.env.OLLAMA_BASE_URL ?? "http://192.168.1.180:11434", model, timeoutMs: 300000 }), model });
     const workerTask = worker.start({ pollMs: 500 });
     try {
       const { indexedFiles } = await rebuildIndex({
