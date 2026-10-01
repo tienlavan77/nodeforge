@@ -10,7 +10,7 @@ function token(value) { return String(value ?? "").trim().toLowerCase().replace(
 function safeMessage(raw, fallback) {
   if (typeof raw !== "string" || !raw.trim()) return fallback;
   let value = raw.trim();
-  if (/^[[{]/.test(value) || /\n\s*at\s+\S+|traceback|stack trace/i.test(value)) return fallback;
+  if (/^[{[]/.test(value) || /\n\s*at\s+\S+|traceback|stack trace/i.test(value)) return fallback;
   value = value.split(/\r?\n/)[0].replace(/\s+/g, " ").slice(0, 280);
   value = value.replace(/https?:\/\/[^\s]+/gi, "[redacted-url]");
   value = value.replace(/(api[_-]?key|token|secret|password|authorization)[=:]\s*[^\s]+/gi, "$1=[redacted]");
@@ -31,5 +31,8 @@ export function normalizeErrorContract({ error, statusCode, requestId, fallbackM
   return { code, message, retryable, scope, requestId: id };
 }
 
-// Formats every HTTP error with only canonical public fields.
-// Formats every HTTP error with only canonical public fields; correlationId is an input-only compatibility alias for requestId.\nexport function formatErrorBody(input = {}) {\n  const requestId = input.requestId ?? input.correlationId;\n  return { error: normalizeErrorContract({ ...input, requestId }) };\n}
+// Formats every HTTP error with only canonical public fields; correlationId is an input-only compatibility alias for requestId.
+export function formatErrorBody(input = {}) {
+  const requestId = input.requestId ?? input.correlationId;
+  return { error: normalizeErrorContract({ ...input, requestId }) };
+}
