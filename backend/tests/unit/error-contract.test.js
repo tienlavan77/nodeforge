@@ -23,6 +23,13 @@ test("maps recoverable codes and statuses to retry semantics", () => {
   assert.equal(r3.retryable, true);
 });
 
+test("serializes ForgeError instances with exactly the canonical five fields", async () => {
+  const { ForgeError } = await import("../../src/shared/errors.js");
+  const serialized = JSON.parse(JSON.stringify(new ForgeError("failed", { code: "UPSTREAM_FAILED", retryable: true, scope: "scoped", requestId: "REQ-1" })));
+  assert.deepEqual(Object.keys(serialized).sort(), ["code", "message", "requestId", "retryable", "scope"]);
+  assert.deepEqual(serialized, { code: "UPSTREAM_FAILED", message: "failed", retryable: true, scope: "scoped", requestId: "REQ-1" });
+});
+
 test("preserves requestId and exposes stable contract via formatErrorBody", () => {
   const body = formatErrorBody({ error: { code: "dispatch_failed", message: "fail" }, statusCode: 502, requestId: "req-123", correlationId: "corr-1", fallbackMessage: "fallback" });
   assert.equal(body.error.code, "dispatch_failed");
