@@ -7,7 +7,7 @@ export function createOwnerClaudeMcpTools({ definitions, registry, context }) {
   const tools = definitions.map((definition) => tool(
     definition.name,
     definition.description,
-    z.fromJSONSchema(definition.input_schema).shape,
+    z.fromJSONSchema(claudeToolInputSchema(definition.input_schema)).shape,
     async (input) => {
       try {
         const result = await registry[definition.name].execute(input, context);
@@ -18,4 +18,15 @@ export function createOwnerClaudeMcpTools({ definitions, registry, context }) {
     }
   ));
   return { mcpServers: { forge: createSdkMcpServer({ name: "forge", version: "1.0.0", tools, alwaysLoad: true }) }, allowedTools: definitions.map(({ name }) => `mcp__forge__${name}`) };
+}
+
+// Keeps Forge path validation in the service while avoiding gateway-incompatible regex lookaheads in Claude tool declarations.
+export function claudeToolInputSchema(schema) {
+  const input = structuredClone(schema);
+  const path = input?.properties?.path;
+  if (typeof path?.pattern === "string" && path.pattern.includes("(?!")) {
+    delete path.pattern;
+    path.description = `${path.description ? `${path.description} ` : ""}Use a project-relative path without parent-directory segments.`;
+  }
+  return input;
 }
