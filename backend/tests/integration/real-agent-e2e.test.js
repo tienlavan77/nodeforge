@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const controlApiEntry = fileURLToPath(new URL("../../scripts/start-control-api.mjs", import.meta.url));
 
-test("Owner request reaches the real Agent and persisted stream is replayable", { timeout: 90000 }, async (t) => {
+test("Owner request reaches the real Agent and persisted stream is replayable", { timeout: 120000 }, async (t) => {
   if (!process.env.OPENAI_BASE_URL || !process.env.OPENAI_API_KEY) return t.skip("Real gateway credential is not configured.");
   await mkdir(join(process.cwd(), ".forge/runtime"), { recursive: true });
   const dataDir = await mkdtemp(join(process.cwd(), ".forge/runtime/nf150-"));
@@ -27,7 +27,7 @@ test("Owner request reaches the real Agent and persisted stream is replayable", 
   const sent = await fetch(`${base}/forge/v1/conversations/${conversationId}/messages`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: "PROJECT-NF150", message_id: "MSG-NF150", correlation_id: correlation, timestamp: new Date().toISOString(), payload: { text: "Reply with exactly three words: system ready status." } }) });
   assert.equal(sent.status, 202);
   let history;
-  for (let attempt = 0; attempt < 30; attempt += 1) {
+  for (let attempt = 0; attempt < 70; attempt += 1) {
     history = await fetch(`${base}/forge/v1/projects/PROJECT-NF150/history?conversationId=${conversationId}&correlationId=${correlation}&limit=100`).then((response) => response.json());
     if (history.items.some((item) => item.type === `${agentId}.message.received` || item.type === `${agentId}.error`)) break;
     await new Promise((resolve) => setTimeout(resolve, 1000));
