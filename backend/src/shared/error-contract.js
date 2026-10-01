@@ -20,7 +20,7 @@ function safeMessage(raw, fallback) {
 
 // Normalizes canonical application errors at the HTTP egress boundary.
 export function normalizeErrorContract({ error, statusCode, requestId, fallbackMessage } = {}) {
-  const status = statusCode ?? error?.statusCode ?? error?.status ?? null;
+  const status = statusCode ?? error?.statusCode ?? null;
   const code = token(error?.code) || (status ? `http_${status}` : "unknown_error");
   const message = safeMessage(error?.message, safeMessage(fallbackMessage, "Yêu cầu không thành công."));
   const explicit = error?.retryable;
