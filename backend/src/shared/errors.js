@@ -1,13 +1,12 @@
 // Summary: Defines canonical application errors so HTTP, streams, clients, and UI share one failure contract.
 export class ForgeError extends Error {
-  constructor(message, { cause, code = "FORGE_ERROR", details, retryable = false, scope = "application", requestId = null } = {}) {
+  constructor(message, { cause, code = "FORGE_ERROR", retryable = false, scope = "application", requestId = null } = {}) {
     super(message, cause === undefined ? undefined : { cause });
     this.name = this.constructor.name;
     this.code = code;
     this.retryable = Boolean(retryable);
     this.scope = scope;
     this.requestId = requestId;
-    this.details = details;
   }
 
   toJSON() {
