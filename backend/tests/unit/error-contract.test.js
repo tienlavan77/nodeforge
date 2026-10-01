@@ -37,11 +37,11 @@ test("ForgeError serialization falls back to canonical defaults for missing fiel
 });
 
 test("preserves requestId and exposes stable contract via formatErrorBody", () => {
-  const body = formatErrorBody({ error: { code: "dispatch_failed", message: "fail" }, statusCode: 502, requestId: "req-123", correlationId: "corr-1", fallbackMessage: "fallback" });
+  const body = formatErrorBody({ error: { code: "dispatch_failed", message: "fail" }, statusCode: 502, requestId: "req-123", fallbackMessage: "fallback" });
   assert.equal(body.error.code, "dispatch_failed");
   assert.equal(body.error.retryable, true);
   assert.equal(body.error.scope, "scoped");
   assert.equal(body.error.requestId, "req-123");
   assert.deepEqual(Object.keys(body.error).sort(), ["code", "message", "requestId", "retryable", "scope"]);
-  assert.ok(!body.error.message.includes("stack"));
+  assert.ok(!body.error.message.includes("stack"));\n});\n\ntest("approved compatibility alias accepts correlationId input without emitting legacy fields", () => {\n  const body = formatErrorBody({ error: { code: "dispatch_failed", message: "fail", status: 502, details: "legacy" }, correlationId: "corr-9" });\n  assert.equal(body.error.requestId, "corr-9");\n  assert.deepEqual(Object.keys(body.error).sort(), ["code", "message", "requestId", "retryable", "scope"]);\n  assert.equal("status" in body.error, false);\n  assert.equal("details" in body.error, false);\n});
 });
