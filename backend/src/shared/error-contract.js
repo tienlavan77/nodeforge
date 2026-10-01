@@ -31,8 +31,7 @@ export function normalizeErrorContract({ error, statusCode, requestId, fallbackM
   return { code, message, retryable, scope, requestId: id };
 }
 
-// Formats every HTTP error with only canonical public fields; correlationId is an input-only compatibility alias for requestId.
+// Formats every HTTP error with only canonical public fields.
 export function formatErrorBody(input = {}) {
-  const requestId = input.requestId ?? input.correlationId;
-  return { error: normalizeErrorContract({ ...input, requestId }) };
+  return { error: normalizeErrorContract(input) };
 }
