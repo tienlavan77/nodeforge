@@ -14,7 +14,7 @@ function redactAgentMessage(raw) {
   if (!text) return "Agent operation failed.";
   text = text.split(/\n\s*at\s+/)[0].split(/stack trace/i)[0].trim();
   text = text.replace(/https?:\/\/[^\s]+/gi, "[REDACTED_URL]");
-  text = text.replace(/(api[_-]?key|secret|token|password|authorization)[=:]\\s*[^\s]+/gi, "$1=[REDACTED]");
+  text = text.replace(/(api[_-]?key|secret|token|password|authorization)[=:]\s*(?:Bearer\s+)?[^\s]+/gi, "$1=[REDACTED]");
   text = text.replace(/Bearer [A-Za-z0-9._-]+/gi, "Bearer [REDACTED]");
   if ((text.startsWith("{") || text.startsWith("[")) && text.length > 280) text = text.slice(0, 280);
   text = text.split(/\r?\n/)[0].replace(/\s+/g, " ").slice(0, 280);
