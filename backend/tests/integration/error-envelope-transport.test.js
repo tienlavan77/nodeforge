@@ -57,3 +57,16 @@ test("legacy error field aliases are not accepted by live HTTP and UI adapters",
   assert.deepEqual(normalizeErrorContract({ error: legacy }), { code: "unknown_error", message: "failed", retryable: false, scope: "global", requestId: null });
   assert.deepEqual(normalizeBackendError({ body: { error: legacy } }), { code: "unknown_error", message: "failed", retryable: false, scope: "global", requestId: null });
 });
+
+
+test("owner chat rejection and Agent failure use the canonical envelope", async () => {
+  const sent = [];
+  const bus = { send: (message) => { sent.push(message); return message; } };
+  const internalBus = { on: () => {} };
+  const chat = createOwnerChatService({ bus, internalBus, agentRequest: async () => { throw Object.assign(new Error("upstream unavailable"), { code: "UPSTREAM_FAILED", retryable: true, scope: "scoped" }); } });
+  chat.submit({ message_id: "MSG-OWNER-ERROR", project_id: "P", conversation_id: "C", correlation_id: "CORR-OWNER-ERROR", timestamp: "2026-08-20T00:00:00Z", agent_id: "architecture-manager", payload: { text: "hello" } });
+  await new Promise((resolve) => setImmediate(resolve));
+  const failure = sent.find((message) => message.message_type === "architecture.error");
+  assert.deepEqual(Object.keys(failure.payload.error).sort(), ["code", "message", "requestId", "retryable", "scope"]);
+  assert.equal(failure.payload.error.requestId, "CORR-OWNER-ERROR");
+});
