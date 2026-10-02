@@ -24,6 +24,8 @@ test("application error remains canonical across HTTP, SSE, and UI ingress", asy
     assert.equal(body.error.code, "upstream_failed");
     assert.equal(body.error.retryable, false);
     assert.equal(body.error.requestId, "REQ-HTTP");
+    assert.equal(response.headers.get("access-control-expose-headers"), "content-type,x-request-id");
+    assert.doesNotMatch(response.headers.get("access-control-expose-headers") ?? "", /x-correlation-id/);
     assert.ok(!JSON.stringify(body).includes("private123"));
     assert.deepEqual(normalizeBackendError({ body, status: response.status }), body.error);
     await assert.rejects(requestJson(`http://127.0.0.1:${server.address().port}/forge/v1/legacy`), (error) => {

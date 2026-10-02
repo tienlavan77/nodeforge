@@ -179,8 +179,8 @@ function applyCorsHeaders(response, origin, sse = false) {
   const allowedOrigin = origin ?? "*";
   response.setHeader("access-control-allow-origin", allowedOrigin);
   response.setHeader("access-control-allow-methods", "GET,POST,PUT,DELETE,OPTIONS");
-  response.setHeader("access-control-allow-headers", "content-type,authorization,x-request-id,x-correlation-id,last-event-id");
-  response.setHeader("access-control-expose-headers", "content-type,x-request-id,x-correlation-id");
+  response.setHeader("access-control-allow-headers", "content-type,authorization,x-request-id,last-event-id");
+  response.setHeader("access-control-expose-headers", "content-type,x-request-id");
   response.setHeader("vary", "Origin");
   if (sse) {
     response.setHeader("cache-control", "no-cache, no-transform");
