@@ -34,7 +34,7 @@ export async function requestJson(url, { fallbackError, ...init } = {}) {
     }
   }
   if (!response.ok) {
-    const requestId = response.headers?.get?.("x-request-id") ?? response.headers?.get?.("x-correlation-id") ?? null;
+    const requestId = response.headers?.get?.("x-request-id") ?? null;
     const normalized = normalizeBackendError({ body, status: response.status, fallbackError, requestId });
     const notification = formatNotification({ notification: { message: normalized.message, code: normalized.code }, error: { code: normalized.code, message: normalized.message }, status: response.status }, normalized.message);
     const err = new Error(notification.message || normalized.message);
