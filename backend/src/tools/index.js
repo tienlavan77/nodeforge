@@ -8,6 +8,7 @@ import { createSearchCodeTool } from "./search-code.js";
 import { createReadCodeTool } from "./read-code.js";
 import { createCheckTestTool, createReadFileTool, createWriteDiffTool, createEditDiffTool, createRunTestTool, createCommitChangesTool } from "./agent-lifecycle-tools.js";
 import { createReportDoneTool } from "./agent-report-tool.js";
+import { createRespondToReviewTool } from "./respond-to-review-tool.js";
 import { createGitReadTools } from "./git-read-tools.js";
 import { createAgentCommandTools } from "./agent-command-tools.js";
 import { createClaudeFileTools } from "./claude-file-tools.js";
@@ -28,6 +29,7 @@ const runTestInputSchema = require("../../../schemas/agent/tools/run-test.schema
 const checkTestInputSchema = require("../../../schemas/agent/tools/check-test.schema.json");
 const commitChangesInputSchema = require("../../../schemas/agent/tools/commit-changes.schema.json");
 const reportDoneInputSchema = require("../../../schemas/agent/tools/report-done.schema.json");
+const respondToReviewInputSchema = require("../../../schemas/agent/tools/respond-to-review.schema.json");
 const gitStatusInputSchema = require("../../../schemas/agent/tools/git-status.schema.json");
 const gitDiffInputSchema = require("../../../schemas/agent/tools/git-diff.schema.json");
 
@@ -48,6 +50,7 @@ export const runTestDefinition = Object.freeze({ name: "run_test", description: 
 export const checkTestDefinition = Object.freeze({ name: "check_test", description: "Poll a started test job by job_id until it reports passed or failed.", input_schema: checkTestInputSchema });
 export const commitChangesDefinition = Object.freeze({ name: "commit_changes", description: "Ask Node to commit approved changed paths.", input_schema: commitChangesInputSchema });
 export const reportDoneDefinition = Object.freeze({ name: "report_done", description: "Record the completion summary through the Supervisor completion report service.", input_schema: reportDoneInputSchema });
+export const respondToReviewDefinition = Object.freeze({ name: "respond_to_review", description: "Submit a Coder response to open Reviewer findings without closing them.", input_schema: respondToReviewInputSchema });
 export const gitStatusDefinition = Object.freeze({ name: "git_status", description: "Read project Git status in porcelain format through Node Git Service.", input_schema: gitStatusInputSchema });
 export const gitDiffDefinition = Object.freeze({ name: "git_diff", description: "Read the unstaged working-tree patch through Node Git Service.", input_schema: gitDiffInputSchema });
 
@@ -76,6 +79,7 @@ export function createForgeToolRegistry({ protocolStorage, fileService, projectR
     lifecycle.git_diff = wrap(gitReadTools.git_diff, "git_diff", false);
   }
   if (reportService?.buildFinalReport) lifecycle.report_done = wrap(createReportDoneTool({ reportService, verificationService: testService?.assertPassedArtifact ? testService : null, reviewFindings, onEvalCase }), "report_done");
+  if (reviewFindings?.recordResponse && testService?.assertPassedArtifact) lifecycle.respond_to_review = wrap(createRespondToReviewTool({ reviewFindings, verificationService: testService }), "respond_to_review");
   function wrap(tool, name, preauthorize = true) { return Object.freeze({ ...tool, async execute(input, context = {}) { const scoped = withDefaultBudget(context); if (preauthorize) authorizeTool(name, scoped); return dispatch(name, tool, input, scoped); } }); }
   const registry = {
     read_transcript_blocks: Object.freeze({ ...transcriptTool, async execute(input, context = {}) { const scoped = withDefaultBudget(context); authorizeTool("read_transcript_blocks", scoped); return dispatch("read_transcript_blocks", transcriptTool, input, scoped); } }),
@@ -168,6 +172,7 @@ export function createForgeToolRegistry({ protocolStorage, fileService, projectR
       check_test: "kiểm tra kiểm thử",
       commit_changes: "commit thay đổi",
       report_done: "báo cáo hoàn tất",
+      respond_to_review: "phản hồi review",
       git_status: "xem trạng thái Git",
       git_diff: "xem thay đổi Git",
       read_transcript_blocks: "đọc phiên bản"

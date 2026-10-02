@@ -52,6 +52,9 @@ test("root-only workspace uses the project source and leaves historical worktree
     assert.equal(receipt.workspace_mode, "root-only");
     assert.equal(receipt.reviewed_commit, result.sha);
     assert.equal(receipt.commit, result.sha);
+    assert.equal(receipt.artifact_id, artifact.artifact_id);
+    assert.equal(receipt.tree_sha, artifact.tree_sha);
+    assert.equal(receipt.manifest_sha, artifact.manifest_sha);
     assert.equal(receipt.branch, await git(root, "branch", "--show-current"));
     assert.equal(receipt.previous_head, result.sha);
     assert.match(receipt.recorded_at, /^\d{4}-\d{2}-\d{2}T/);

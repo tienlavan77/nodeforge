@@ -8,6 +8,6 @@ export function createTicketWorkspaceRuntime({ workspace, gateways, agentResolve
   const projectRoot = workspace.projectRoot;
   const executors = createNodeforgeTaskExecutors({ ...gateways, toolRegistry: workspace.toolRegistry, runtimeGovernance, projectRoot, projectLogger, checkpoints, relevantTreeSelector: workspace.relevantTreeSelector, protocolStorage });
   const reviewCache = createCodeCacheService({ projectId: `${workspace.base_commit}:${workspace.branch}`, fileService: workspace.worktreeFileService, logger: projectLogger });
-  const reviewer = createReviewWorker({ agentResolver, ...gateways, fileService: workspace.worktreeFileService, rulesFileService: workspace.fileService, gitService: workspace.gitService, codeCache: reviewCache, projectRoot: workspace.path, executionContexts: workspace.executionContexts, verificationService: workspace.testService, projectLogger });
+  const reviewer = createReviewWorker({ agentResolver, ...gateways, fileService: workspace.worktreeFileService, rulesFileService: workspace.fileService, gitService: workspace.gitService, codeCache: reviewCache, projectRoot: workspace.path, executionContexts: workspace.executionContexts, verificationService: workspace.testService, reviewFindings: workspace.reviewFindings, projectLogger });
   return { executors, reviewer };
 }

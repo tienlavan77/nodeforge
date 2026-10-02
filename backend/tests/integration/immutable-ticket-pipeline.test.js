@@ -153,7 +153,9 @@ test("approved ticket commit integrates once with deleted and renamed files", { 
     await symlink(resolve("node_modules"), join(root, "node_modules"), "dir");
     const fileService = createFileService({ projectRoot: root });
     database = await openIndexDatabase(root);
-    service = createTicketWorkspaceService({ projectRoot: root, projectId: "PROJECT-INTEGRATE", stateFileService: fileService, protocolStorage: { get() {}, save() {} }, indexDatabase: database, codeSearch: createCodeSearch({ database }), fileGraph: createFileGraph({ database }) });
+    const reports = new Map([["task/TICKET-INTEGRATE/final_report", { status: "submitted_for_review", ticket: { id: "TICKET-INTEGRATE", title: "Rename", objective: "Revise destination" }, criteria_check: [], files_changed: [], commits: [] }]]);
+    const protocolStorage = { get: async (key) => ({ data: reports.get(key) }), save: async (key, value) => { reports.set(key, value); } };
+    service = createTicketWorkspaceService({ projectRoot: root, projectId: "PROJECT-INTEGRATE", stateFileService: fileService, protocolStorage, indexDatabase: database, codeSearch: createCodeSearch({ database }), fileGraph: createFileGraph({ database }) });
     const profiles = createAgentProfileStore({ database });
     const coderId = "66666666-6666-4666-8666-666666666666";
     profiles.create({ agent_id: coderId, agent_name: "Coder", role: "coder", gateway_url: "https://gateway.test/v1", credential_ref: "runtime:coder:api-key", enabled: true, status: "ready", created_at: "2026-09-29T00:00:00Z", updated_at: "2026-09-29T00:00:00Z" });
@@ -182,10 +184,11 @@ test("approved ticket commit integrates once with deleted and renamed files", { 
     const revisedJob = await workspace.testService.startTests();
     assert.equal((await finished(workspace.testService, revisedJob.job_id)).status, "passed");
     const finalArtifact = await workspace.testService.assertPassedArtifact();
-    const unavailable = createReviewWorker({ agentResolver: { resolveAvailable: () => ({ agent_id: "REVIEWER-E2E", agent_name: "Reviewer", provider: "codex", enabled: true, status: "ready" }) }, codexSdkGateway: { execute: async () => { throw new Error("SDK must not run without source tools."); } }, fileService: workspace.worktreeFileService, gitService: workspace.worktreeGitService, projectRoot: workspace.path, executionContexts: workspace.executionContexts, verificationService: workspace.testService });
+    await workspace.reviewFindings.recordCoderReport({ report: { summary: "The rename requires a revised destination.", acceptance_criteria: ["Renamed source is updated"], implementation_scope: { changed_files: ["new.md"], not_changed_files: [], scope_rationale: "Only the destination needs a revision." }, evidence: [{ type: "verification", reference: finalArtifact.artifact_id, result: "passed" }], reviewer_notes: [] }, artifact: finalArtifact, idempotencyKey: `${finalArtifact.artifact_id}:report` });
+    const unavailable = createReviewWorker({ agentResolver: { resolveAvailable: () => ({ agent_id: "REVIEWER-E2E", agent_name: "Reviewer", provider: "codex", enabled: true, status: "ready" }) }, codexSdkGateway: { execute: async () => { throw new Error("SDK must not run without source tools."); } }, fileService: workspace.worktreeFileService, gitService: workspace.worktreeGitService, projectRoot: workspace.path, executionContexts: workspace.executionContexts, verificationService: workspace.testService, reviewFindings: workspace.reviewFindings });
     await assert.rejects(unavailable.review({ task_id: "TICKET-INTEGRATE", agent_id: "CODER-E2E", payload: { ticket: { id: "TICKET-INTEGRATE" }, commit: finalCommit.sha, base_commit: workspace.base_commit, changed_paths: ["old.md", "new.md"], verification: { artifact_id: finalArtifact.artifact_id } } }), { code: "REVIEW_TOOLS_UNAVAILABLE" });
     await workspace.reviewFindings.recordResolutions([{ finding_id: "REV-1", status: "fixed", changed_paths: ["new.md"] }], finalArtifact);
-    await workspace.reviewFindings.recordReview({ verdict: "approved", findings: [], artifactId: finalArtifact.artifact_id, commitSha: finalCommit.sha });
+    await workspace.reviewFindings.recordReview({ verdict: "approved", findings: [], adjudications: [{ finding_id: "REV-1", decision: "fixed", reason: "Reviewer confirmed the revised destination against the new artifact.", evidence_refs: [finalArtifact.artifact_id] }], reviewerId: "REVIEWER-E2E", artifactId: finalArtifact.artifact_id, commitSha: finalCommit.sha });
     const completion = { workspace, reviewerClaim: null, agentOccupancy: occupancy, coderClaim, taskId: "TICKET-INTEGRATE", ownerId: "SUP-INTEGRATE", request: { request_id: "REQUEST-INTEGRATE" }, projectLogger: () => {}, publishTicketOutcome: async () => {}, selected: { agent_id: coderId }, result: { summary: "done", tool_events: [] } };
     const completed = await completeApprovedTicket(completion);
     assert.equal(completed, null);

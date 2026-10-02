@@ -29,6 +29,7 @@ export function assertTicketExecutionCompleted(toolEvents, { labMode = false, mi
   const failedReport = [...toolEvents].reverse().find((event) => (event.name ?? event.tool) === "report_done" && event.status === "failed");
   const failedCommit = [...toolEvents].reverse().find((event) => (event.name ?? event.tool) === "commit_changes" && event.status === "failed");
   if (!names.includes("report_done")) {
+    if (!labMode && names.includes("respond_to_review")) return;
     if (failedReport) {
       const code = failedReport.error_code ?? failedReport.error?.code ?? "REPORT_FAILED";
       const message = failedReport.error?.message ?? `Agent completion report failed (${code}).`;

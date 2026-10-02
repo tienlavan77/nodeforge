@@ -17,6 +17,7 @@ export async function completeApprovedTicket({ workspace, reviewerClaim, agentOc
     return { task_id: taskId, request_id: request.request_id, agent_id: selected.agent_id, status: "needs_human_review", reason: error.code ?? "TICKET_INTEGRATION_FAILED", response: result.summary, tool_events: result.tool_events };
   }
   if (workspace) await workspace.changeLedger.release();
+  await workspace?.reportService?.completeAcceptedReport?.(taskId);
   if (reviewerClaim) await agentOccupancy.release({ claimId: reviewerClaim.claim_id, taskId, supervisorId: ownerId, reason: "review_completed" });
   await agentOccupancy.release({ claimId: coderClaim.claim_id, taskId, supervisorId: ownerId, reason: "accepted" });
   return null;

@@ -1,6 +1,7 @@
 // claude sdk gateway — handles claude sdk gateway logic for the agent subsystem.
 import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
 import { ConfigurationError } from "../../shared/errors.js";
+import process from "node:process";
 
 const SAFE_URL = /^https:\/\//;
 const SECRET_FIELD = /(?:api[_-]?key|credential|secret|password|token|authorization)/i;
@@ -14,7 +15,8 @@ export function createClaudeSdkGateway({
   environment = process.env,
   gatewayBaseUrl = environment.FORGE_GATEWAY_BASE_URL,
   mcpServers = {},
-  allowedTools = []
+  allowedTools = [],
+  terminalOutput = process.stdout
 } = {}) {
   if (typeof configuration?.getById !== "function") throw new ConfigurationError("Claude SDK Gateway requires Node Agent Configuration.");
   if (typeof credentialResolver !== "function") throw new ConfigurationError("Claude SDK Gateway requires a credential resolver.");
@@ -50,6 +52,7 @@ export function createClaudeSdkGateway({
     const messages = [];
     let sessionId = resumeSessionId ?? null;
     let notified = false;
+    writeTerminal(`START ${config.agent_name ?? config.agent_id} (${config.provider ?? "claude"}) model=${config.model ?? options.model ?? "default"} correlation=${correlationId}`);
     const notify = (id) => {
       if (notified || !id || typeof onSessionReady !== "function") return;
       notified = true;
@@ -66,6 +69,7 @@ export function createClaudeSdkGateway({
         if (sid) notify(sid);
       }
       if (sessionId) notify(sessionId);
+      writeTerminal(`DONE ${config.agent_name ?? config.agent_id} messages=${messages.length} correlation=${correlationId}`);
       return {
         agent_id: config.agent_id,
         agent_name: config.agent_name,
@@ -83,11 +87,18 @@ export function createClaudeSdkGateway({
       const message = typeof error?.message === "string" && error.message
         ? error.message.replace(credential, "[REDACTED]")
         : "unknown SDK error";
+      writeTerminal(`FAIL ${config.agent_name ?? config.agent_id} ${message.slice(0, 240)} correlation=${correlationId}`);
       throw new ConfigurationError(`Claude SDK request failed for ${config.agent_id}: ${message}`, { cause: error });
     } finally {
       clearTimeout(timeout);
       if (typeof session?.close === "function") session.close();
     }
+  }
+
+  // Writes bounded Claude lifecycle lines to the API terminal without exposing prompt or credential data.
+  function writeTerminal(message) {
+    if (!terminalOutput || typeof terminalOutput.write !== "function") return;
+    terminalOutput.write(`[Claude SDK] ${new Date().toISOString()} ${message}\n`);
   }
 
   function createGatewayEnvironment({ config, credential, optionsEnv }) {
