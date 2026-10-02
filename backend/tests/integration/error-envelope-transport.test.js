@@ -59,6 +59,12 @@ test("legacy error field aliases are not accepted by live HTTP and UI adapters",
   assert.deepEqual(normalizeBackendError({ body: { error: legacy } }), { code: "unknown_error", message: "failed", retryable: false, scope: "global", requestId: null });
 });
 
+test("agent error messages redact secrets after assignment whitespace", () => {
+  const normalized = normalizeAgentError({ code: "AGENT_ERROR", message: "token= secret123 authorization: Bearer abc123" });
+  assert.doesNotMatch(normalized.message, /secret123|abc123|Bearer/i);
+  assert.match(normalized.message, /redacted/i);
+});
+
 
 test("owner chat rejection and Agent failure use the canonical envelope", async () => {
   const sent = [];
