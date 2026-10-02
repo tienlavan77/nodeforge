@@ -50,7 +50,8 @@ test("two disjoint ticket commits serialize and an overlapping write loses its f
     const hash = (value) => createHash("sha256").update(value).digest("hex");
     const claimPath = `.forge/runtime/ticket-changes/${hash(projectId)}/claims/${hash("a.md")}.json`;
     await files.atomicWrite({ path: claimPath, content: JSON.stringify({ task_id: "TICKET-C", path: "a.md" }), replace: true });
-    await assert.rejects(service("TICKET-A").commit("ticket A"), { code: "FILE_CLAIM_CONFLICT" });
+    assert.equal((await service("TICKET-A").commit("ticket A")).sha, a.sha);
+    await assert.rejects(ledger.write({ taskId: "TICKET-A", path: "a.md", before: "A after\n", after: "A revised\n" }), { code: "FILE_CLAIM_CONFLICT" });
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
