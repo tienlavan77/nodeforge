@@ -1,5 +1,6 @@
 // Handles owner chat ingestion, ticket creation, and agent streaming orchestration.
 import { ConfigurationError } from "../shared/errors.js";
+import { normalizeErrorContract } from "../shared/error-contract.js";
 import { logEvent } from "../core/project-log-service.js";
 import { createRequire } from "node:module";
 import Ajv2020 from "ajv/dist/2020.js";
@@ -37,7 +38,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     const agentId = input.agent_id ?? architectureManagerId;
     const lockedTask = lockedConversations.get(input.conversation_id);
     if (lockedTask) {
-      const rejected = responseMessage({ id: input.message_id, project_id: input.project_id, conversation_id: input.conversation_id, correlation_id: input.correlation_id, timestamp: input.timestamp, sender: { id: "NODE", role: "node" }, recipient: { id: agentId, role: roleForAgent(agentId) } }, "ticket.input_rejected", { status: "running", task_id: lockedTask, error: "Ticket is still running; input is locked until reviewing, done, or failed." }, `REJECTED-${input.message_id}`);
+      const rejected = responseMessage({ id: input.message_id, project_id: input.project_id, conversation_id: input.conversation_id, correlation_id: input.correlation_id, timestamp: input.timestamp, sender: { id: "NODE", role: "node" }, recipient: { id: agentId, role: roleForAgent(agentId) } }, "ticket.input_rejected", { status: "running", task_id: lockedTask, error: normalizeErrorContract({ error: Object.assign(new Error("Ticket is still running; input is locked until reviewing, done, or failed."), { code: "ticket_input_locked", retryable: true, scope: "scoped", requestId: input.correlation_id }) }) }, `REJECTED-${input.message_id}`);
       bus.send(rejected);
       return structuredClone(rejected);
     }
@@ -118,7 +119,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       bus.send(responseMessage(message, streamEventType(agentId, "message.received"), { text: result.payload?.text, response_id: result.payload?.response_id, agent_status: "COMPLETED" }));
       await onAgentCompleted?.({ message, agentId, text: result.payload?.text ?? "" });
     } catch (error) {
-      bus.send(responseMessage(message, streamEventType(agentId, "error"), { error: { code: error.code ?? "AGENT_ERROR", message: error.message }, agent_status: "FAILED" }));
+      bus.send(responseMessage(message, streamEventType(agentId, "error"), { error: normalizeErrorContract({ error, requestId: message.correlation_id }), agent_status: "FAILED" }));
     }
   }
   function persistProtocolMessage(message, round, direction) {
