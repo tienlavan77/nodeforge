@@ -1,6 +1,6 @@
 // Selects the complete immutable checks required to accept a ticket commit.
-import { readdir } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile, readdir } from "node:fs/promises";
+import { basename, dirname, join, relative } from "node:path";
 import { ConfigurationError } from "../../shared/errors.js";
 
 // Requires schema validation for backend, schema, and API client contract changes.
@@ -9,7 +9,7 @@ export function requiresSchemaVerification(paths) {
 }
 
 // Builds a reproducible command list against the committed source archive.
-export async function buildTicketVerificationPlan(paths, root) {
+export async function buildTicketVerificationPlan(paths, root, { fullBackend = false } = {}) {
   const checks = [];
   const backend = paths.some((path) => path.startsWith("backend/"));
   if (backend) {
@@ -19,17 +19,38 @@ export async function buildTicketVerificationPlan(paths, root) {
   }
   if (requiresSchemaVerification(paths)) checks.push({ kind: "schema_validation", argv: [process.execPath, "backend/scripts/validate-schemas.mjs"] });
   if (backend) {
-    const tests = (await readdir(join(root, "backend/tests"), { recursive: true }))
+    const allTests = (await readdir(join(root, "backend/tests"), { recursive: true }))
       .filter((path) => /\.test\.[cm]?js$/.test(path)).sort().map((path) => `backend/tests/${path}`);
-    if (!tests.length) throw Object.assign(new ConfigurationError("Backend verification has no tests to run."), { code: "VERIFY_PLAN_EMPTY" });
+    const tests = fullBackend ? allTests : await selectRelatedTests(paths, allTests, root);
+    if (!tests.length) throw Object.assign(new ConfigurationError("No backend test covers the ticket paths; add or identify a ticket test before verification."), { code: "VERIFY_TEST_SCOPE_EMPTY" });
     checks.push({ kind: "backend_tests", argv: [process.execPath, "--test", ...tests] });
   }
   if (paths.some((path) => path.startsWith("ui/nextjs/"))) {
     const entries = await readdir(join(root, "ui/nextjs/tests"), { withFileTypes: true });
-    const tests = entries.filter((entry) => entry.isFile() && entry.name.endsWith(".test.js")).map((entry) => `ui/nextjs/tests/${entry.name}`);
+    const available = entries.filter((entry) => entry.isFile() && entry.name.endsWith(".test.js")).map((entry) => `ui/nextjs/tests/${entry.name}`);
+    const tests = await selectRelatedTests(paths, available, root, "ui/nextjs/");
     if (tests.length) checks.push({ kind: "test", argv: [process.execPath, "--test", ...tests] });
     checks.push({ kind: "build", argv: [process.execPath, "ui/nextjs/node_modules/next/dist/bin/next", "build", "ui/nextjs", "--webpack"] });
   }
   if (!checks.length) checks.push({ kind: "typecheck", argv: [process.execPath, "node_modules/typescript/bin/tsc", "--project", "jsconfig.json"] });
   return checks;
+}
+
+// Selects ticket tests and direct source importers so unrelated backend suites do not delay review.
+async function selectRelatedTests(paths, tests, root, sourcePrefix = "backend/src/") {
+  const changedTests = new Set(paths.filter((path) => tests.includes(path)));
+  const sourcePaths = paths.filter((path) => path.startsWith(sourcePrefix) && !path.includes("/tests/") && /\.(?:[cm]?js|jsx|[cm]?ts|tsx)$/.test(path));
+  if (!sourcePaths.length) return [...changedTests].sort();
+  for (const test of tests) {
+    if (changedTests.has(test)) continue;
+    const name = basename(test).replace(/\.test\.[cm]?js$/, "");
+    if (sourcePaths.some((path) => basename(path).replace(/\.(?:[cm]?js|jsx|[cm]?ts|tsx)$/, "") === name)) { changedTests.add(test); continue; }
+    const imports = sourcePaths.map((path) => {
+      const value = relative(dirname(join(root, test)), join(root, path));
+      return value.startsWith(".") ? value : `./${value}`;
+    });
+    const content = await readFile(join(root, test), "utf8");
+    if (imports.some((value) => content.includes(`"${value}"`) || content.includes(`'${value}'`))) changedTests.add(test);
+  }
+  return [...changedTests].sort();
 }

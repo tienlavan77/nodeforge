@@ -12,11 +12,12 @@ test("terminal receipt writer persists phases and excludes unfinished receipts f
   try {
     const fileService = createFileService({ projectRoot: root });
     const writer = createTerminalReceiptWriter({ fileService });
-    const state = { task_id: "TICKET-A", branch: "ui-chat", previous_head: "before", reviewed_commit: "reviewed", commit: "reviewed", workspace_mode: "root-only", supervisor_id: null, recorded_at: new Date().toISOString() };
+    const state = { task_id: "TICKET-A", branch: "ui-chat", previous_head: "before", reviewed_commit: "reviewed", commit: "reviewed", artifact_id: "ARTIFACT-A", tree_sha: "tree", manifest_sha: "manifest", source_revision: "revision", base_sha: "base", workspace_mode: "root-only", supervisor_id: null, recorded_at: new Date().toISOString() };
     assert.equal(await writer.load("TICKET-A"), null);
     await writer.savePrepared("TICKET-A", state);
     assert.equal((await writer.load("TICKET-A")).status, "prepared");
     assert.equal(await writer.loadIfCompleted("TICKET-A"), null);
+    await assert.rejects(writer.saveCompleted("TICKET-A", { ...state, manifest_sha: "different" }), { code: "TICKET_RECEIPT_CONFLICT" });
     await writer.saveCompleted("TICKET-A", state);
     assert.equal((await writer.loadIfCompleted("TICKET-A")).reviewed_commit, "reviewed");
     await assert.rejects(writer.saveCompleted("TICKET-B", state), { code: "TICKET_RECEIPT_INVALID" });

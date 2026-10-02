@@ -79,6 +79,14 @@ test("buildResumePrompt carries turn history without a turn budget", () => {
   assert.match(prompt, /BASE-TICKET/);
 });
 
+// A resumed Coder must complete the current artifact report before petitioning Reviewer.
+test("buildResumePrompt prioritizes a missing durable Coder report", () => {
+  const state = createResumeState({ status: "in_progress", phase: "coder_report_required", review_findings: [{ finding_id: "REV-1", message: "Review this change" }] });
+  const prompt = buildResumePrompt("BASE-TICKET", state);
+  assert.match(prompt, /Call report_done for this artifact before respond_to_review/);
+  assert.match(prompt, /preserve its summary/);
+});
+
 test("checkpointPayload merges session ids and failure details", () => {
   const state = createResumeState({ status: "in_progress", session_id: "sess-fail" }, { max_turns: 10 });
   const payload = checkpointPayload(state, { task_id: "T-FAIL", status: "in_progress", failure: failureDetail(Object.assign(new Error("boom"), { code: "TIMEOUT" })) });

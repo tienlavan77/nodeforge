@@ -45,6 +45,12 @@ export function createTerminalReceiptWriter({ fileService, projectLogger = () =>
   async function save(taskId, receipt, status) {
     const next = { ...receipt, status };
     validate(taskId, next);
+    const current = await load(taskId);
+    if (current) {
+      const identity = ["task_id", "branch", "previous_head", "reviewed_commit", "commit", "workspace_mode", "artifact_id", "tree_sha", "manifest_sha", "source_revision", "base_sha"];
+      if (identity.some((field) => current[field] !== next[field]) || (current.status === "completed" && status !== "completed")) throw fail("TICKET_RECEIPT_CONFLICT", "Terminal receipt identity cannot change after preparation.");
+      if (current.status === "completed") return current;
+    }
     await fileService.atomicWrite({ path: path(taskId), content: `${JSON.stringify(next)}\n`, replace: true });
     projectLogger({ event_name: "ticket.integration_receipt_saved", level: "info", status: "success", message: "Ticket integration receipt persisted.", task_id: taskId, source: "terminal-receipt-writer", payload: { phase: status, workspace_mode: next.workspace_mode ?? "worktree", commit: next.commit } });
     return next;
@@ -53,7 +59,8 @@ export function createTerminalReceiptWriter({ fileService, projectLogger = () =>
   // Reject incomplete or mismatched receipts before a terminal gate trusts them.
   function validate(taskId, receipt) {
     if (!receipt || typeof receipt !== "object" || receipt.task_id !== taskId || !["prepared", "completed"].includes(receipt.status)
-      || ![receipt.branch, receipt.previous_head, receipt.reviewed_commit, receipt.commit].every((value) => typeof value === "string" && value.length > 0)) {
+      || ![receipt.branch, receipt.previous_head, receipt.reviewed_commit, receipt.commit].every((value) => typeof value === "string" && value.length > 0)
+      || (receipt.workspace_mode === "root-only" && ![receipt.artifact_id, receipt.tree_sha, receipt.manifest_sha, receipt.source_revision, receipt.base_sha].every((value) => typeof value === "string" && value.length > 0))) {
       throw fail("TICKET_RECEIPT_INVALID", "Terminal receipt does not match its ticket or reviewed commit.");
     }
   }

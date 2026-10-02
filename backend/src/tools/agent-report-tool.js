@@ -8,24 +8,32 @@ export function createReportDoneTool({ reportService, verificationService, revie
   if (!reportService?.buildFinalReport || !reportService?.saveReport || !reportService?.writeReportFile) throw new ConfigurationError("report_done requires the Supervisor completion report service.");
   if (onEvalCase !== undefined && typeof onEvalCase !== "function") throw new ConfigurationError("report_done onEvalCase must be a function.");
   return Object.freeze({ name: "report_done", async execute(input = {}, context = {}) {
-    if (typeof input.summary !== "string" || !input.summary.trim()) throw error("INPUT_INVALID", "Report summary is required.");
     const ticket = context.ticket ?? context.task;
     if (!ticket?.id) throw error("SCOPE_INVALID", "Node must provide the current ticket for report_done.");
-    if (verificationService && !context.lab_mode && !context.labMode) {
-      const artifact = await verificationService.assertPassedArtifact();
-      if (reviewFindings) {
-        if (input.finding_resolutions !== undefined) await reviewFindings.recordResolutions(input.finding_resolutions, artifact);
-        await reviewFindings.assertResolved();
+    const governed = Boolean(verificationService && !context.lab_mode && !context.labMode);
+    const requiresExplanation = Boolean(reviewFindings?.recordCoderReport);
+    let artifact = null;
+    if (governed) {
+      artifact = await verificationService.assertPassedArtifact();
+      if (input.finding_resolutions !== undefined) throw error("REVIEW_RESPONSE_REQUIRED", "Use respond_to_review for findings; a Coder report cannot decide their status.");
+      context.changed_paths = [...(artifact.changed_paths ?? Object.keys(artifact.file_checksums))];
+      if (requiresExplanation) {
+        input = await reviewFindings.recordCoderReportDraft({ report: input, artifact });
+        const missing = missingExplanation(input);
+        if (missing.length) throw error("CODER_EXPLANATION_REQUIRED", `Coder report saved. Supplement only these missing fields with report_done: ${missing.join(", ")}.`, { missing_fields: missing, artifact_id: artifact.artifact_id });
+        assertExplanation(input, artifact, ticket);
+        validateGovernedScope(input, artifact);
+        await reviewFindings.recordCoderReport({ report: input, artifact, idempotencyKey: `${artifact.artifact_id}:report` });
       }
       context.verify_result = { status: "passed", ready_for_review: true, artifact_id: artifact.artifact_id, commit_id: artifact.commit_sha };
-      context.changed_paths = Object.keys(artifact.file_checksums);
     }
-    assertReportScope(ticket, context, input.summary);
-    const report = await reportService.buildFinalReport({ ticket, status: context.status ?? "completed", verifyResult: context.verify_result ?? null, filesChanged: context.changed_paths ?? [], reason: "agent_report_done" });
-    assertReportVerified(report);
-    report.agent_report = { ...(report.agent_report ?? {}), summary: input.summary.trim() };
+    if (typeof input.summary !== "string" || !input.summary.trim()) throw error("INPUT_INVALID", "Report summary is required.");
+    if (!governed) assertReportScope(ticket, context, input.summary);
+    const report = await reportService.buildFinalReport({ ticket, status: governed ? "submitted_for_review" : context.status ?? "completed", verifyResult: context.verify_result ?? null, filesChanged: context.changed_paths ?? [], reason: "agent_report_done" });
+    if (!governed) assertReportVerified(report);
+    report.agent_report = { ...(report.agent_report ?? {}), ...input, summary: input.summary.trim() };
     await reportService.saveReport(ticket.id, report); await reportService.writeReportFile(ticket.id, report);
-    if (typeof onEvalCase === "function") {
+    if (!governed && typeof onEvalCase === "function") {
       try {
         await onEvalCase({ ticket, report });
       } catch (error) {
@@ -34,6 +42,35 @@ export function createReportDoneTool({ reportService, verificationService, revie
     }
     return { content: [{ type: "text", text: "Completion report recorded." }] };
   }});
+}
+
+// Lists only the explanation fields that still need a supplement before review.
+function missingExplanation(input) {
+  return [
+    ...(!Array.isArray(input.acceptance_criteria) || !input.acceptance_criteria.length ? ["acceptance_criteria"] : []),
+    ...(!Array.isArray(input.implementation_scope?.changed_files) || !Array.isArray(input.implementation_scope?.not_changed_files) || !input.implementation_scope?.scope_rationale?.trim() ? ["implementation_scope"] : []),
+    ...(!Array.isArray(input.evidence) || !input.evidence.length ? ["evidence"] : []),
+    ...(!Array.isArray(input.reviewer_notes) ? ["reviewer_notes"] : [])
+  ];
+}
+
+// Requires a concrete scope explanation before the first independent review.
+function assertExplanation(input, artifact, ticket) {
+  const scope = input.implementation_scope;
+  if (!Array.isArray(input.acceptance_criteria) || !input.acceptance_criteria.length || !scope || !Array.isArray(scope.changed_files) || !Array.isArray(scope.not_changed_files) || !scope.scope_rationale?.trim() || !Array.isArray(input.evidence) || !input.evidence.length || !Array.isArray(input.reviewer_notes)) throw error("CODER_EXPLANATION_REQUIRED", "Coder must submit acceptance coverage, implementation scope, evidence and Reviewer notes.");
+  if (input.acceptance_criteria.some((item) => !(ticket.acceptance_criteria ?? []).includes(item))) throw error("CODER_EXPLANATION_CRITERIA", "Acceptance coverage must cite the ticket criteria verbatim. The draft is saved; correct only acceptance_criteria without rewriting the summary.", { acceptance_criteria: ticket.acceptance_criteria ?? [] });
+  if (input.evidence.some((item) => !item?.type?.trim() || !item.reference?.trim() || !item.result?.trim()) || input.reviewer_notes.some((item) => !item?.topic?.trim() || !item.position?.trim() || !item.rationale?.trim() || !Array.isArray(item.evidence_refs) || !item.evidence_refs.length || item.evidence_refs.some((ref) => !String(ref).trim()))) throw error("CODER_EXPLANATION_INVALID", "Coder evidence and Reviewer notes must include typed references, results and evidence references.");
+  const changed = [...(artifact.changed_paths ?? Object.keys(artifact.file_checksums))].sort();
+  if (JSON.stringify([...scope.changed_files].sort()) !== JSON.stringify(changed)) throw error("CODER_EXPLANATION_SCOPE", "Use the passed artifact changed_paths for implementation_scope.changed_files; correct only implementation_scope in the saved draft.", { expected_changed_files: changed, artifact_id: artifact.artifact_id });
+}
+
+// Validates actual commit scope without forcing the Coder to edit every allowed file.
+function validateGovernedScope(input, artifact) {
+  const scope = input.implementation_scope;
+  const changed = [...(artifact.changed_paths ?? Object.keys(artifact.file_checksums))].sort();
+  if (scope.not_changed_files.some((path) => changed.includes(path))) throw error("CODER_EXPLANATION_SCOPE", "A file cannot be listed as unchanged when it is in the committed delta.");
+  if (new Set(scope.changed_files).size !== scope.changed_files.length || new Set(scope.not_changed_files).size !== scope.not_changed_files.length || scope.changed_files.some((path) => scope.not_changed_files.includes(path))) throw error("CODER_EXPLANATION_SCOPE", "Changed and unchanged file lists must be disjoint and duplicate-free.");
+  if (scope.changed_files.some((path) => !Object.hasOwn(artifact.file_checksums, path)) || JSON.stringify([...scope.changed_files].sort()) !== JSON.stringify(changed)) throw error("CODER_EXPLANATION_SCOPE", "Use the passed artifact changed_paths for implementation_scope.changed_files; correct only implementation_scope in the saved draft.", { expected_changed_files: changed, artifact_id: artifact.artifact_id });
 }
 
 // Requires completion to cover the sprint leader PATCH files.

@@ -1,9 +1,9 @@
 // Builds isolated root Git commits so ticket changes never stage unrelated project files.
 import { execFile as callback } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { lstat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, posix } from "node:path";
 import { promisify } from "node:util";
 import { ConfigurationError } from "../../shared/errors.js";
 
@@ -14,7 +14,18 @@ const fail = (code, message) => Object.assign(new ConfigurationError(message), {
 // Provides bounded Git commands with an optional transaction-private index.
 export function createTicketRootGit({ projectRoot } = {}) {
   if (!projectRoot || !isAbsolute(projectRoot)) throw fail("CONFIGURATION_ERROR", "Root ticket Git requires an absolute project root.");
-  return Object.freeze({ run, optional, fileAt, modeAt, indexIdentity, checkedBranch, assertAncestor, buildTree, verifyTree, findTransactionCommit });
+  return Object.freeze({ run, optional, fileAt, modeAt, checkedBranch, assertAncestor, assertSafePath, buildTree, verifyTree, findTransactionCommit });
+
+  // Rejects path aliases and symbolic links before a ticket stages source from the shared root.
+  async function assertSafePath(path) {
+    if (typeof path !== "string" || !path || path.startsWith("/") || path.includes("\\") || path.includes("\0") || path.startsWith("-") || posix.normalize(path) !== path || path.split("/").some((part) => !part || part === "." || part === ".." || part === ".git" || part === ".forge" || part === "node_modules")) throw fail("TICKET_PATH_CONFLICT", "Ticket commit path is not canonical.");
+    let current = projectRoot;
+    for (const part of path.split("/")) {
+      current = join(current, part);
+      try { if ((await lstat(current)).isSymbolicLink()) throw fail("TICKET_PATH_CONFLICT", "Ticket commit path traverses a symbolic link."); }
+      catch (error) { if (error.code !== "ENOENT") throw error; }
+    }
+  }
 
   // Runs one Git command without a shell and preserves stderr on failure.
   async function run(args, { indexFile, maxBuffer = 16 * 1024 * 1024 } = {}) {
@@ -41,16 +52,6 @@ export function createTicketRootGit({ projectRoot } = {}) {
     const result = await run(["ls-tree", tree, "--", `:(literal)${path}`]);
     const line = result.split("\n").find((item) => item.endsWith(`\t${path}`));
     return line?.split(" ", 1)[0] ?? null;
-  }
-
-  // Fingerprints the shared index before a commit can synchronize it.
-  async function indexIdentity() {
-    const raw = (await run(["rev-parse", "--git-path", "index"])).trim();
-    const path = isAbsolute(raw) ? raw : join(projectRoot, raw);
-    let bytes;
-    try { bytes = await readFile(path); }
-    catch (error) { if (error.code === "ENOENT") return null; throw error; }
-    return sha(bytes);
   }
 
   // Requires a named branch for compare-and-swap advancement.
@@ -83,22 +84,24 @@ export function createTicketRootGit({ projectRoot } = {}) {
 
   // Stages manifest paths in a private index and returns the exact candidate tree.
   async function buildTree(parent, paths, indexFile) {
+    for (const path of paths) await assertSafePath(path);
     await run(["read-tree", parent], { indexFile });
     await run(["add", "-A", "--", ...paths.map((path) => `:(literal)${path}`)], { indexFile });
     const changed = (await run(["diff", "--cached", "--name-only", parent, "--"], { indexFile })).split("\n").filter(Boolean).sort();
-    if (JSON.stringify(changed) !== JSON.stringify([...paths].sort())) throw fail("TICKET_COMMIT_SCOPE_CONFLICT", "Candidate tree paths differ from the frozen ticket manifest.");
+    if (JSON.stringify(changed) !== JSON.stringify([...paths].sort())) throw fail("TICKET_PATH_CONFLICT", "Candidate tree paths differ from the frozen ticket manifest.");
     return (await run(["write-tree"], { indexFile })).trim();
   }
 
   // Checks every candidate blob and mode against the ledger before creating a commit.
   async function verifyTree(parent, tree, entries, expectedPaths) {
     for (const path of expectedPaths) {
+      await assertSafePath(path);
       const entry = entries[path];
       const content = await fileAt(tree, path);
-      if (sha(content) !== entry.latest_sha) throw fail("TICKET_COMMIT_SCOPE_CONFLICT", `Candidate blob differs from the ticket ledger: ${path}.`);
+      if (sha(content) !== entry.latest_sha) throw fail("TICKET_PATH_CONFLICT", `Candidate blob differs from the ticket ledger: ${path}.`);
       const beforeMode = await modeAt(parent, path);
       const afterMode = await modeAt(tree, path);
-      if (afterMode && afterMode !== (beforeMode ?? "100644")) throw fail("TICKET_COMMIT_SCOPE_CONFLICT", `Candidate file mode is not journaled: ${path}.`);
+      if (afterMode && afterMode !== (beforeMode ?? "100644")) throw fail("TICKET_PATH_CONFLICT", `Candidate file mode is not journaled: ${path}.`);
     }
   }
 }

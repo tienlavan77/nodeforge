@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createNodeforgeTaskIntegration, ticketCandidateScope } from "../../src/modules/supervisor/nodeforge-task-integration.js";
-import { isBackendTicket, ticketExplicitTargetPath } from "../../src/modules/supervisor/nodeforge-task-scope.js";
+import { isBackendTicket, ticketAllowedPrefixes, ticketExplicitTargetPath } from "../../src/modules/supervisor/nodeforge-task-scope.js";
 
 // SL-traced tickets bypass the legacy explore prepass: the first PATCH path
 // becomes the target and prefixes derive from every real candidate path.
@@ -33,6 +33,10 @@ test("explicit ticket target beats backend terms in an out-of-scope clause", () 
   };
   assert.equal(ticketExplicitTargetPath(ticket), "ui/nextjs/README.md");
   assert.equal(isBackendTicket(ticket), false);
+});
+
+test("backend style permits backend tests even when the objective omits the word backend", () => {
+  assert.ok(ticketAllowedPrefixes({ style: ["backend"], objective: "Standardize the canonical error envelope" }).includes("backend/tests/"));
 });
 
 test("Claude dispatch bypasses explore prepass when SL candidates exist", async () => {

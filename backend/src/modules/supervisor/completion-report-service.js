@@ -5,7 +5,7 @@ import { ConfigurationError } from "../../shared/errors.js";
 export function createCompletionReportService({ protocolStorage, fileService, gitService } = {}) {
   if (typeof protocolStorage?.save !== "function" || typeof protocolStorage?.get !== "function") throw new ConfigurationError("Report service requires Protocol Storage.");
   if (typeof fileService?.atomicWrite !== "function") throw new ConfigurationError("Report service requires File Service.");
-  return Object.freeze({ buildFinalReport, saveReport, writeReportFile, getCommitsForTask });
+  return Object.freeze({ buildFinalReport, saveReport, writeReportFile, completeAcceptedReport, getCommitsForTask });
 
   async function getCommitsForTask(taskId) { return typeof gitService?.getCommitsForTask === "function" ? gitService.getCommitsForTask(taskId) : []; }
 
@@ -20,6 +20,16 @@ export function createCompletionReportService({ protocolStorage, fileService, gi
   }
 
   async function saveReport(taskId, report) { return protocolStorage.save(`task/${taskId}/final_report`, report, { schemaId: "https://forge.local/schemas/agent/final-report.schema.json", replace: true }); }
+  // Promotes a submitted Coder explanation only after independent approval and integration.
+  async function completeAcceptedReport(taskId) {
+    const current = (await protocolStorage.get(`task/${taskId}/final_report`)).data;
+    if (current.status === "completed") return current;
+    if (current.status !== "submitted_for_review") throw new ConfigurationError("Accepted report requires a submitted Coder explanation.");
+    const completed = { ...current, status: "completed", reason: "reviewer_approved", generated_at: new Date().toISOString() };
+    await saveReport(taskId, completed);
+    await writeReportFile(taskId, completed);
+    return completed;
+  }
   async function writeReportFile(taskId, report) {
     const markdown = renderMarkdown(report);
     return fileService.atomicWrite({ path: `.forge/runtime/reports/${taskId}.md`, content: markdown, replace: true });

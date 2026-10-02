@@ -25,7 +25,7 @@ export function createSedLinesTool({ projectRoot, fileService, codeCache, symbol
       authorizeTool("sed_lines", context);
       args = buildArgs(input);
       if (!isAgentPathAllowed(input.path, context) || (fileService && !approvedPath(input.path, context))) throw invalidInput("sed_lines path is outside the Node-approved file scope.");
-      await validatePath(projectRoot, input.path, environment);
+      await validatePath(projectRoot, input.path, environment, context);
     } catch (error) {
       emit("rejected", context, { error_code: error.code ?? "SED_LINES_INPUT_INVALID", error: error.message, duration_ms: Date.now() - started });
       throw error;
@@ -101,7 +101,7 @@ function buildArgs(input) {
 }
 
 // Checks every path segment and ripgrep's baseline listing before sed reads it.
-async function validatePath(projectRoot, path, environment) {
+async function validatePath(projectRoot, path, environment, context = {}) {
   const root = await realpath(projectRoot);
   let current = projectRoot;
   for (const part of path.split("/")) {
@@ -112,6 +112,10 @@ async function validatePath(projectRoot, path, environment) {
   const target = await realpath(current);
   const within = relative(root, target);
   if (!within || within.startsWith("..") || isAbsolute(within) || !(await lstat(current)).isFile()) throw invalidInput("sed_lines path must be a regular project file.");
+  // Explicit Node-issued file grants may include internal workflow files that
+  // stay Git-ignored. The grant is already checked by isAgentPathAllowed and
+  // approvedPath, so do not let ripgrep's ignore rules reject that exact file.
+  if (approvedPath(path, context)) return;
   const listed = await listProjectFiles(projectRoot, environment);
   if (!listed.has(path)) throw invalidInput("sed_lines path is hidden or ignored by project rules.");
 }

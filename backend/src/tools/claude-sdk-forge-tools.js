@@ -46,8 +46,17 @@ const commitChangesInput = {
 };
 
 const reportDoneInput = {
-  summary: z.string().trim().min(1).max(4000),
+  summary: z.string().trim().min(1).max(4000).optional(),
+  acceptance_criteria: z.array(z.string().min(1)).max(50).optional(),
+  implementation_scope: z.object({ changed_files: z.array(z.string().min(1)).max(100), not_changed_files: z.array(z.string().min(1)).max(100), scope_rationale: z.string().min(1).max(4000) }).optional(),
+  evidence: z.array(z.object({ type: z.string().min(1), reference: z.string().min(1), result: z.string().min(1) })).max(100).optional(),
+  reviewer_notes: z.array(z.object({ topic: z.string().min(1), position: z.string().min(1), rationale: z.string().min(1), evidence_refs: z.array(z.string().min(1)) })).max(30).optional(),
   finding_resolutions: z.array(z.object({ finding_id: z.string().regex(/^REV-[1-9][0-9]*$/), status: z.enum(["fixed", "not_fixed", "not_applicable"]), changed_paths: z.array(z.string().min(1)).max(12) })).max(30).optional()
+};
+
+const respondToReviewInput = {
+  responses: z.array(z.object({ finding_id: z.string().regex(/^REV-[1-9][0-9]*$/), position: z.enum(["accept", "dispute"]), rationale: z.string().min(1).max(4000), files: z.array(z.string().min(1)).max(30), evidence_refs: z.array(z.string().min(1)).max(30) })).min(1).max(30),
+  review_commit_sha: z.string().min(1), artifact_id: z.string().min(1), source_revision: z.string().min(1), idempotency_key: z.string().min(1).max(200)
 };
 
 // Input defaults live here rather than in zod .default(): the Claude Agent SDK
@@ -75,7 +84,8 @@ export function createForgeSdkMcpServer({ registry, context = {}, includeCommit 
     ["git_status", "Read the project working-tree status through Node Git Service.", {}],
     ["git_diff", "Read the unstaged project patch through Node Git Service.", {}],
     ...(includeCommit ? [["commit_changes", "Commit approved changed files.", commitChangesInput]] : []),
-    ["report_done", "Record the final task report.", reportDoneInput]
+    ["report_done", "Record the final task report.", reportDoneInput],
+    ["respond_to_review", "Submit a reasoned response to open Reviewer findings; this does not close them.", respondToReviewInput]
   ];
 
   const excluded = new Set(excludeTools);
@@ -123,5 +133,6 @@ export const forgeSdkToolNames = Object.freeze([
   "mcp__forge__git_status",
   "mcp__forge__git_diff",
   "mcp__forge__commit_changes",
-  "mcp__forge__report_done"
+  "mcp__forge__report_done",
+  "mcp__forge__respond_to_review"
 ]);

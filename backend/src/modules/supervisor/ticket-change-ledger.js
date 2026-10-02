@@ -1,5 +1,5 @@
 // Records ticket-owned root writes so watcher indexing and later commits use the same source.
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { acquireTicketFileLock } from "./ticket-file-lock.js";
 
@@ -26,8 +26,12 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
   async function withCommitTransaction(taskId, action) {
     return locked(`ticket:${taskId}`, async () => {
       let manifest = await load(taskId);
+      const lastCommitted = Math.max(0, ...Object.keys(manifest.commits).map(Number));
       for (const [path, entry] of Object.entries(manifest.entries)) {
+        if (!entry.operations.some((operation) => operation.revision > lastCommitted)) continue;
         if (entry.pending) manifest = await locked(`path:${path}`, () => recover(taskId, path, manifest));
+        const owner = await claim(path);
+        if (owner?.task_id !== taskId || (manifest.entries[path].claim_id && owner.claim_id !== manifest.entries[path].claim_id)) throw failure("FILE_CLAIM_CONFLICT", `Ticket no longer owns ${path}.`);
         if (sha(await readOptional(path)) !== manifest.entries[path].latest_sha) throw failure("TICKET_SOURCE_DRIFT", `Root source changed outside ticket ${taskId}: ${path}.`);
       }
       const record = async (revision, commitSha) => {
@@ -99,8 +103,9 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
       const live = await readOptional(path);
       if (sha(live) !== sha(before)) throw failure("CHECKSUM_MISMATCH", `Root source changed before writing ${path}.`);
       if (existing && existing.latest_sha !== sha(live)) throw failure("TICKET_SOURCE_CHANGED", `Root source changed outside ticket ${taskId}: ${path}.`);
-      if (!owned) await fileService.atomicWrite({ path: claimPath(path), content: JSON.stringify({ task_id: taskId, path }), replace: false });
-      const entry = existing ?? { path, initial_sha: sha(before), initial_content: before, latest_sha: sha(before), operations: [], pending: null };
+      const owner = owned ?? { task_id: taskId, path, claim_id: randomUUID() };
+      if (!owned) await fileService.atomicWrite({ path: claimPath(path), content: JSON.stringify(owner), replace: false });
+      const entry = existing ?? { path, claim_id: owner.claim_id ?? null, initial_sha: sha(before), initial_content: before, latest_sha: sha(before), operations: [], pending: null };
       const operation = { id, before_sha: sha(before), after_sha: sha(after), before, after };
       entry.pending = operation;
       manifest.entries[path] = entry;

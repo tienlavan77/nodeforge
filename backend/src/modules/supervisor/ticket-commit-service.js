@@ -20,10 +20,7 @@ export function createTicketCommitService({ taskId, ledger, worktreeFileService,
     if (manifest.commits[manifest.revision]) return { sha: manifest.commits[manifest.revision], repeated: true };
     const headBefore = await gitService.getHead();
     if (manifest.pending_commit?.revision === manifest.revision && headBefore !== manifest.pending_commit.base_head) {
-      const changed = await gitService.getChangedFiles({ baseCommit: manifest.pending_commit.base_head, headCommit: headBefore });
-      if (!changed.length || changed.some((path) => !expected.includes(path)) || (await gitService.status({ paths: expected })).trim()) throw failure("TICKET_COMMIT_RECOVERY_CONFLICT", "Worktree changed unexpectedly after ticket commit preparation.");
-      await ledger.recordCommit(taskId, manifest.revision, headBefore);
-      return { sha: headBefore, recovered: true };
+      throw failure("TICKET_COMMIT_RECOVERY_CONFLICT", "Legacy pending commit has no transaction identity; review its commit and ledger before recovery.");
     }
     const operations = Object.values(manifest.entries).flatMap((entry) => entry.operations.map((item) => ({ ...item, path: entry.path })))
       .filter((item) => item.revision > lastCommitted).sort((a, b) => a.revision - b.revision);

@@ -4,15 +4,25 @@
   "title": "Forge report done tool input",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "summary"
-  ],
+  "required": [],
   "properties": {
     "summary": {
       "type": "string",
       "minLength": 1,
       "maxLength": 4000
     },
+    "acceptance_criteria": { "type": "array", "maxItems": 50, "items": { "type": "string", "minLength": 1 } },
+    "implementation_scope": {
+      "type": "object", "additionalProperties": false,
+      "required": ["changed_files", "not_changed_files", "scope_rationale"],
+      "properties": {
+        "changed_files": { "type": "array", "maxItems": 100, "items": { "type": "string", "minLength": 1 } },
+        "not_changed_files": { "type": "array", "maxItems": 100, "items": { "type": "string", "minLength": 1 } },
+        "scope_rationale": { "type": "string", "minLength": 1, "maxLength": 4000 }
+      }
+    },
+    "evidence": { "type": "array", "maxItems": 100, "items": { "type": "object", "additionalProperties": false, "required": ["type", "reference", "result"], "properties": { "type": { "type": "string", "minLength": 1 }, "reference": { "type": "string", "minLength": 1 }, "result": { "type": "string", "minLength": 1 } } } },
+    "reviewer_notes": { "type": "array", "maxItems": 30, "items": { "type": "object", "additionalProperties": false, "required": ["topic", "position", "rationale", "evidence_refs"], "properties": { "topic": { "type": "string", "minLength": 1 }, "position": { "type": "string", "minLength": 1 }, "rationale": { "type": "string", "minLength": 1 }, "evidence_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } } } } },
     "finding_resolutions": {
       "type": "array",
       "maxItems": 30,

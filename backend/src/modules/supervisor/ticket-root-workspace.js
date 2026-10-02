@@ -76,7 +76,7 @@ export function createTicketRootWorkspace({ projectRoot, projectId, protocolStor
       if (branch !== identity.branch) throw fail("TICKET_INTEGRATION_CONFLICT", "Project branch changed since the root ticket began.");
       const prior = await receipts.load(taskId);
       if (prior) {
-        if (prior.task_id !== taskId || prior.workspace_mode !== "root-only" || prior.branch !== branch || prior.commit !== artifact.commit_sha || prior.reviewed_commit !== artifact.commit_sha) throw fail("TICKET_INTEGRATION_CONFLICT", "Root integration receipt differs from the reviewed ticket commit.");
+        if (prior.task_id !== taskId || prior.workspace_mode !== "root-only" || prior.branch !== branch || prior.commit !== artifact.commit_sha || prior.reviewed_commit !== artifact.commit_sha || prior.artifact_id !== artifact.artifact_id || prior.tree_sha !== artifact.tree_sha || prior.manifest_sha !== artifact.manifest_sha || prior.source_revision !== artifact.source_revision) throw fail("TICKET_INTEGRATION_CONFLICT", "Root integration receipt differs from the reviewed ticket evidence.");
         await rootGit.assertAncestor(prior.commit);
         if (prior.status === "completed") return { sha: prior.commit, repeated: true };
         if (prior.status !== "prepared") throw fail("TICKET_INTEGRATION_CONFLICT", "Root integration receipt has an unknown phase.");
@@ -85,7 +85,7 @@ export function createTicketRootWorkspace({ projectRoot, projectId, protocolStor
       }
       const commit = artifact.commit_sha;
       // Root-only commits are on HEAD before integration; previous_head is HEAD at receipt time.
-      const state = { task_id: taskId, branch, previous_head: (await git.getHead()).trim(), reviewed_commit: commit, commit,
+      const state = { task_id: taskId, branch, previous_head: (await git.getHead()).trim(), reviewed_commit: commit, commit, artifact_id: artifact.artifact_id, tree_sha: artifact.tree_sha, manifest_sha: artifact.manifest_sha, source_revision: artifact.source_revision, base_sha: artifact.base_sha,
         workspace_mode: "root-only", supervisor_id: null, recorded_at: new Date().toISOString() };
       await receipts.savePrepared(taskId, state);
       await rootGit.assertAncestor(commit);

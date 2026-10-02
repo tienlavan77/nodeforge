@@ -16,7 +16,7 @@ export function createReviewRequestHandler({ reviewWorker, resolveReviewWorker, 
         payload = await worker.review(job);
         if (resolveReviewFindings) {
           const findingsStore = await resolveReviewFindings(job);
-          await findingsStore.recordReview({ verdict: payload.verdict, findings: payload.findings, artifactId: job.payload?.verification?.artifact_id ?? job.payload?.verification_artifact_id, commitSha: job.payload?.verification?.commit_sha ?? job.payload?.commit_sha });
+          await findingsStore.recordReview({ verdict: payload.verdict, findings: payload.findings, adjudications: payload.adjudications, artifactId: job.payload?.verification?.artifact_id ?? job.payload?.verification_artifact_id, commitSha: job.payload?.verification?.commit_sha ?? job.payload?.commit_sha, reviewerId: payload.reviewer_id, sourceRevision: payload.source_revision });
         }
         type = payload.verdict === "approved" ? "review.approved" : "review.request_changes";
       }
@@ -26,7 +26,7 @@ export function createReviewRequestHandler({ reviewWorker, resolveReviewWorker, 
     }
     await queueStore.save("agent.request", { ...job, review_result: { type, payload } });
     if (type === "review.approved" || type === "review.request_changes") {
-      await checkpointStore?.completeReview?.(job.task_id, { phase: "review", request_id: job.request_id, correlation_id: job.correlation_id, reviewer_id: payload.reviewer_id, verdict: payload.verdict, findings: payload.findings, verification: job.payload?.verification ?? null, changed_paths: job.payload?.changed_paths ?? [] });
+      await checkpointStore?.completeReview?.(job.task_id, { phase: "review", request_id: job.request_id, correlation_id: job.correlation_id, reviewer_id: payload.reviewer_id, verdict: payload.verdict, findings: payload.findings, adjudications: payload.adjudications ?? [], verification: job.payload?.verification ?? null, changed_paths: job.payload?.changed_paths ?? [] });
     } else {
       await checkpointStore?.saveReview?.({ task_id: job.task_id, phase: "review", status: "failed", request_id: job.request_id, correlation_id: job.correlation_id, last_error: payload.error ?? { code: "REVIEW_FAILED" } });
     }
