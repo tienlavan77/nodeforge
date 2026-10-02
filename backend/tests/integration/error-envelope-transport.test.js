@@ -9,6 +9,7 @@ import { normalizeAgentError } from "../../src/application/agent-settings-servic
 import { normalizeBackendError } from "../../../ui/nextjs/lib/error-normalizer.js";
 import { requestJson } from "../../../ui/nextjs/lib/node-client-request.js";
 import { normalizeErrorContract } from "../../src/shared/error-contract.js";
+import { createOwnerChatService } from "../../src/application/owner-chat-service.js";
 
 // Starts a real HTTP listener and checks only canonical fields reach consumers.
 test("application error remains canonical across HTTP, SSE, and UI ingress", async () => {
