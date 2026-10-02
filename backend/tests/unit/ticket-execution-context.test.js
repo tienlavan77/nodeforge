@@ -85,14 +85,14 @@ test("ticket verification persists evidence for the exact ledger and commit", as
     const content = "export const feature = true;\n";
     await worktreeFileService.atomicWrite({ path, content, replace: true });
     await mkdir(join(worktreeRoot, "backend/tests/unit"), { recursive: true });
-    await writeFile(join(worktreeRoot, "backend/tests/unit/witness.test.js"), "// Provides a verification-plan test fixture.\n");
+    await writeFile(join(worktreeRoot, "backend/tests/unit/feature.test.js"), "// Provides a verification-plan test fixture.\n");
     const checksum = `sha256:${createHash("sha256").update(content).digest("hex")}`;
     const manifest = { revision: 1, entries: { [path]: { initial_sha: null, latest_sha: checksum } }, commits: { 1: "b".repeat(40) } };
     const executionContexts = createTicketExecutionContextStore({ fileService: stateFileService, projectId: "PROJECT-TEST", projectRoot: root });
     await executionContexts.create({ taskId: "TICKET-VERIFY", supervisorId: "SUP-VERIFY", baseSha });
     const coding = await executionContexts.syncManifest("TICKET-VERIFY", manifest);
     await executionContexts.update("TICKET-VERIFY", coding.version, { state: "committed", review_commit_sha: "b".repeat(40) });
-    const inputs = { taskId: "TICKET-VERIFY", projectId: "PROJECT-TEST", projectRoot: root, worktreeRoot, worktreeFileService, stateFileService, gitService: { getHead: async () => "b".repeat(40), status: async () => "" }, ledger: { snapshot: async () => manifest }, executionContexts, runCommand: async () => ({ exit_code: 0, stdout: "token=secret123\npass", stderr: "" }) };
+    const inputs = { taskId: "TICKET-VERIFY", projectId: "PROJECT-TEST", projectRoot: root, worktreeRoot, worktreeFileService, stateFileService, gitService: { getHead: async () => "b".repeat(40), getCommitParent: async () => baseSha, getChangedFiles: async () => [path], status: async () => "" }, ledger: { snapshot: async () => manifest }, executionContexts, runCommand: async () => ({ exit_code: 0, stdout: "token=secret123\npass", stderr: "" }) };
     const service = createTicketVerificationService(inputs);
     const started = await service.startTests();
     let job;
@@ -129,7 +129,7 @@ test("failed verification cannot rerun on an unchanged ticket commit", async () 
     await contexts.update("TICKET-RETRY", coding.version, { state: "committed", review_commit_sha: "b".repeat(40) });
     let runs = 0;
     const options = { taskId: "TICKET-RETRY", projectId: "PROJECT-TEST", projectRoot: root, worktreeRoot: root,
-      worktreeFileService: files, stateFileService: files, gitService: { getHead: async () => "b".repeat(40), status: async () => "" },
+      worktreeFileService: files, stateFileService: files, gitService: { getHead: async () => "b".repeat(40), getCommitParent: async () => baseSha, getChangedFiles: async () => [path], status: async () => "" },
       ledger: { snapshot: async () => manifest }, executionContexts: contexts,
       runCommand: async () => { runs += 1; return { exit_code: 1, stdout: "failed", stderr: "" }; } };
     const service = createTicketVerificationService(options);

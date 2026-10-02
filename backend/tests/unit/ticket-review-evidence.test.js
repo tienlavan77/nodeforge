@@ -18,7 +18,7 @@ test("review evidence requires the verified committed source", async () => {
     await fileService.atomicWrite({ path, content: source, replace: true });
     const checksum = `sha256:${createHash("sha256").update(source).digest("hex")}`;
     const context = { task_id: "TICKET-A", state: "verified", verification_artifact_id: "ARTIFACT-A", review_commit_sha: "a".repeat(40), source_revision: "source-1", manifest_sha: "manifest-1", base_sha: "b".repeat(40), manifest_paths: [path] };
-    const artifact = { artifact_id: "ARTIFACT-A", commit_sha: context.review_commit_sha, source_revision: context.source_revision, manifest_sha: context.manifest_sha, base_sha: context.base_sha, file_checksums: { [path]: checksum }, status: "passed" };
+    const artifact = { artifact_id: "ARTIFACT-A", commit_sha: context.review_commit_sha, source_revision: context.source_revision, manifest_sha: context.manifest_sha, base_sha: context.base_sha, changed_paths: [path], file_checksums: { [path]: checksum }, status: "passed" };
     const job = { task_id: "TICKET-A", payload: { changed_paths: [path], base_commit: context.base_sha, commit: context.review_commit_sha, verification: { artifact_id: artifact.artifact_id } } };
     let head = context.review_commit_sha;
     let status = "";
