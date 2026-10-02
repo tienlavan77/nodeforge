@@ -4,7 +4,7 @@ import { isBackendTicket } from "./nodeforge-task-scope.js";
 export const COMPLEXITY_FALLBACK = Object.freeze({ effort: "medium", discovery_budget: 8, thinking: { type: "enabled", budgetTokens: 4096 } });
 
 // Builds the Codex ticket instructions for governed implementation work.
-export function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, complexity, directCode = false) {
+export function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, complexity, directCode = false, immutableScope = false) {
   const acceptance = (ticket?.acceptance_criteria ?? []).map((item) => `- ${item}`).join("\n");
   const allowedJson = JSON.stringify(allowedPrefixes);
   const backendRequired = isBackendTicket(ticket);
@@ -20,6 +20,7 @@ export function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, comp
         ...(backendRequired ? ["Backend requirement: this ticket has explicit backend acceptance criteria. Discover and read the backend route/service/store files and backend tests. You must modify or verify a backend implementation file and cover it with tests; do not call report_done unless a backend file appears in changed_paths."] : [])
       ];
   if (directCode) instructions.splice(0, 2, `This is a direct coding request. Do not use graph candidate retrieval. Discover with search_code or rg_files/rg_search inside approved prefixes ${allowedJson}; use read_file for metadata and symbol ranges, then sed_lines for source. You may read and edit schemas/, read workflows/ only, and must not access docs/.`);
+  if (immutableScope) instructions.splice(0, 2, `This ticket has a signed immutable manifest. Work only on these exact paths ${allowedJson}; do not use prepass or candidate retrieval and do not infer a target_path. Read each relevant manifest file with read_file and sed_lines, then edit only manifest paths.`);
   return [
     `Complete the following ticket using Forge tools only; do not use built-in shell, file, patch, or search tools.`,
     "Before editing code, read workflows/agents/coder.md with sed_lines; this workflows path is read-only for coders.",
@@ -33,13 +34,13 @@ export function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, comp
     ...coderProjectConventions("sed_lines"),
     "Work in English and produce all file content in English.",
     `Budget discipline: you have a hard wall-clock deadline and a discovery budget of ${complexity.discovery_budget} exploration calls. The next action after identifying the target and relevant context is edit_diff or write_diff; do not spend the full budget by default. Respect the discovery budget and start editing promptly. Simple tickets do not receive automatic discovery escalation. Re-read nothing you already read; prefer edit_diff with an exact anchor over re-reading whole files. Do not run run_test before at least one edit_diff/write_diff succeeded.`,
-    directCode ? "Direct code search discipline: graph candidate retrieval is unavailable. Use search_code or rg_files/rg_search with approved prefixes; do not call candidate retrieval." : "Search discipline: use search_code for indexed file and symbol discovery, rg_files for paths, and rg_search for live text. Do not repeat a search that returned no matches without new evidence.",
+    directCode || immutableScope ? "Direct or immutable-manifest search discipline: candidate retrieval is unavailable. Read only approved paths and use search tools only within the exact manifest scope." : "Search discipline: use search_code for indexed file and symbol discovery, rg_files for paths, and rg_search for live text. Do not repeat a search that returned no matches without new evidence.",
     "Call read_file({path}) for cached metadata, current symbol start_line/end_line and scoped graph; it never returns source for coders. Read source with sed_lines({path,start_line,end_line}), at most 80 lines.",
     "Symbol check: if the ticket symbol is missing from the file or no longer matches the ticket reason, re-discover via rg_search instead of editing blind.",
     "Tool enforcement: sed_lines requires path, start_line, and end_line; read at most 80 lines per call and stay within the ticket scope.",
     "Use the whole-file sha256 returned by sed_lines as before_checksum for write_diff/edit_diff. Use JSON null only when creating a new file.",
     ...(targetPath ? [`Completion gate: report_done is blocked until ${targetPath} appears in changed_paths. Any report_done that does not include the target file will fail with REPORT_SCOPE_INVALID. After editing the target, commit, run_test, check_test and report_done; do not continue with unrelated discovery or edits to bypass this gate.`] : []),
-    `When the ticket is satisfied, call commit_changes, then run_test and poll check_test until passed, then report_done with a concise summary. Stop after report_done.`
+    `When the ticket is satisfied, commit changes, run_test and poll check_test until passed, then call report_done with summary, acceptance_criteria quoted verbatim from the ticket, implementation_scope (actual changed_files, not_changed_files, scope_rationale), typed evidence and reviewer_notes. Explain why other allowed files did not need changes. If report_done says fields are missing or invalid, the original report is saved: call report_done again with only the named missing or corrected fields for the same artifact; do not rewrite the summary. After a new commit/artifact, finish report_done before respond_to_review. For an open finding, use respond_to_review with the exact REV-n ID, passed commit/artifact/source revision and an idempotency key to accept or dispute with evidence; this does not close the finding. Stop after the complete response or report. Do not claim a finding is fixed without Reviewer confirmation.`
   ].filter((line) => line !== undefined).join("\n");
 }
 
@@ -93,7 +94,7 @@ export function buildToolTestPrompt(taskId, targetPath, allowedPrefixes) {
 }
 
 // Builds Claude's governed ticket prompt for implementation work.
-export function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, complexity, directCode = false) {
+export function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, complexity, directCode = false, immutableScope = false) {
   const acceptance = (ticket?.acceptance_criteria ?? []).map((item) => `- ${item}`).join("\n");
   const allowedJson = JSON.stringify(allowedPrefixes);
   const backendRequired = isBackendTicket(ticket);
@@ -109,6 +110,7 @@ export function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, compl
         ...(backendRequired ? ["Backend requirement: this ticket has explicit backend acceptance criteria. Discover and read the backend route/service/store files and backend tests. You must modify or verify a backend implementation file and cover it with tests; do not call report_done unless a backend file appears in changed_paths."] : [])
       ];
   if (directCode) instructions.splice(0, 2, `This is a direct coding request. Do not use graph candidate retrieval. Discover files with search_code or Claude Glob/Grep inside approved prefixes ${allowedJson}; use read_file for metadata and symbol ranges, then Read for source. You may read and edit schemas/, read workflows/ only, and must not access docs/.`);
+  if (immutableScope) instructions.splice(0, 2, `This ticket has a signed immutable manifest. Work only on these exact paths ${allowedJson}; do not use prepass or candidate retrieval and do not infer a target_path. Read each relevant manifest file with read_file and Read, then edit only manifest paths.`);
   return [
     "Complete the following ticket using Forge tools only; do not use built-in shell, file, patch, or search tools.",
     "Before editing code, read workflows/agents/coder.md source with Forge Read using start_line:1 and end_line up to 80; this workflows path is read-only for coders.",
@@ -121,12 +123,12 @@ export function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, compl
     ...instructions,
     ...coderProjectConventions("Read"),
     `Budget discipline: you have a discovery budget of ${complexity.discovery_budget} exploration calls. The next action after identifying the target and relevant context is edit_diff or write_diff; do not spend the full budget by default. Every discovery result includes discovery_budget.remaining — start editing before it reaches 0. Simple tickets do not receive automatic discovery escalation. Re-read nothing you already read; prefer edit_diff with an exact anchor over re-reading whole files. Do not run run_test before at least one edit_diff/write_diff succeeded.`,
-    directCode ? "Direct code search discipline: graph candidate retrieval is unavailable. Use search_code or Claude Read/Glob/Grep within approved prefixes to discover the implementation, then edit promptly." : "Search discipline: select_code_graph_candidates is your map — read its candidate files first. Each ticket-traced candidate carries a symbol field: locate by symbol name first (symbol_map or search_code kind symbol), never by line number — line numbers go stale after other tickets edit the same file. Never search for text you are guessing at (UI labels, headings, ticket phrasing); search_code exists ONLY to verify or extend identifiers you already saw in a tool result. If a search_code call returns 0 matches, do not rephrase the same guess — read a candidate file window instead.",
+    directCode || immutableScope ? "Direct or immutable-manifest search discipline: candidate retrieval is unavailable. Read only approved paths and use search tools only within the exact manifest scope, then edit promptly." : "Search discipline: select_code_graph_candidates is your map — read its candidate files first. Each ticket-traced candidate carries a symbol field: locate by symbol name first (symbol_map or search_code kind symbol), never by line number — line numbers go stale after other tickets edit the same file. Never search for text you are guessing at (UI labels, headings, ticket phrasing); search_code exists ONLY to verify or extend identifiers you already saw in a tool result. If a search_code call returns 0 matches, do not rephrase the same guess — read a candidate file window instead.",
     "Symbol check: if the ticket symbol is missing from the file or its content no longer matches the ticket reason, the file changed since tracing — re-discover via search_code instead of editing blind.",
     "Tool enforcement: read_file({path}) returns cached metadata, symbol ranges and scoped graph, never source for coders. Read source with Read({file_path,start_line,end_line}), at most 80 lines. If a symbol exceeds 80 lines, read successive ranges. Exploration that yields no new information 3 times in a row is refused by the tool — act on what you have.",
     "Claude coder may use Forge Read, Glob, and Grep; native built-ins remain disabled. Use the whole-file checksum returned by Read or read_file as before_checksum for write_diff/edit_diff; never send the string \"null\". Use JSON null only when intentionally creating a new file.",
     "For an existing file, use edit_diff with a small exact anchor and replacement. Use write_diff only for a new file or an existing file within the 250-line limit. If write_diff returns DESTRUCTIVE_OVERWRITE or CONTENT_TOO_LARGE, retry with edit_diff; do not stop or report done.",
     "If a governed tool call fails, fix the inputs and retry — do not continue with write_diff/commit_changes on an unknown target.",
-    "Mandatory completion sequence: call commit_changes, then run_test and poll check_test until passed, then call report_done with a concise summary. report_done is the only valid final action. If verification fails, fix the code, commit a new revision, and verify it before reporting."
+    "Mandatory completion sequence: commit changes, run_test and poll check_test until passed, then call report_done with summary, acceptance_criteria quoted verbatim from the ticket, implementation_scope (actual changed_files, not_changed_files, scope_rationale), typed evidence and reviewer_notes. Explain unchanged allowed files. If report_done reports missing or invalid fields, the original report is saved; supplement only those fields in another report_done call for the same artifact without repeating the summary. After a new commit/artifact, finish report_done before respond_to_review. For an open finding, respond_to_review may submit an accept or dispute position with the exact REV-n ID and passed commit/artifact/source revision, without making a fake edit. It does not close the finding. Stop after a complete response or report. If verification fails, fix code and verify a new revision."
   ].join("\n");
 }

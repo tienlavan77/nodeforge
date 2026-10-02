@@ -38,13 +38,15 @@ test("root ticket commit excludes unrelated dirt and rejects a dirty claimed bas
     const ledger = createTicketChangeLedger({ fileService: files, projectId: "P-ROOT" });
     const service = (taskId) => createTicketRootCommitService({ taskId, projectId: "P-ROOT", projectRoot: root, fileService: files, ledger, gitService: createGitService({ projectRoot: root }) });
     await writeFile(join(root, "b.js"), "const b = 2;\n");
+    await git(root, "add", "b.js");
+    const indexBefore = await readFile(join(root, ".git/index"));
     await ledger.write({ taskId: "TICKET-A", path: "a.js", before: "const a = 1;\n", after: "const a = 2;\n" });
     const result = await service("TICKET-A").commit("ticket A");
     assert.deepEqual(await service("TICKET-A").getCommitsForTask("TICKET-A"), [{ sha: result.sha, subject: "ticket A" }]);
     assert.equal(await git(root, "rev-list", "--parents", "-n", "1", result.sha), `${result.sha} ${parent}`);
     assert.equal(await git(root, "diff-tree", "--no-commit-id", "--name-only", "-r", result.sha), "a.js");
     assert.equal(await readFile(join(root, "b.js"), "utf8"), "const b = 2;\n");
-    assert.equal(await git(root, "diff", "--cached", "--name-only"), "");
+    assert.deepEqual(await readFile(join(root, ".git/index")), indexBefore);
     assert.equal((await service("TICKET-A").commit("ticket A")).repeated, true);
     await ledger.write({ taskId: "TICKET-B", path: "b.js", before: "const b = 2;\n", after: "const b = 3;\n" });
     await assert.rejects(service("TICKET-B").commit("ticket B"), (error) => error.code === "TICKET_BASELINE_CONFLICT");
@@ -117,6 +119,7 @@ test("restart recovers a ref-advanced transaction once without staging unrelated
     const taskId = "T-RECOVERY";
     const ledger = createTicketChangeLedger({ fileService: files, projectId });
     const service = createTicketRootCommitService({ taskId, projectId, projectRoot: root, fileService: files, ledger, gitService: createGitService({ projectRoot: root }) });
+    const indexBefore = await readFile(join(root, ".git/index"));
     await ledger.write({ taskId, path: "a.md", before: "before\n", after: "after\n" });
     const beforeReceipt = await ledger.load(taskId);
     const committed = await service.commit("recoverable ticket");
@@ -130,7 +133,7 @@ test("restart recovers a ref-advanced transaction once without staging unrelated
     assert.equal(recovered.sha, committed.sha);
     assert.equal(recovered.recovered, true);
     assert.equal(await git(root, "rev-list", "--count", "HEAD"), count);
-    assert.equal(await git(root, "diff", "--cached", "--name-only"), "");
+    assert.deepEqual(await readFile(join(root, ".git/index")), indexBefore);
     assert.equal((await ledger.load(taskId)).commits[beforeReceipt.revision], committed.sha);
     assert.equal(JSON.parse(await files.readFile({ path: journalPath })).phase, "receipt_persisted");
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -165,7 +168,7 @@ test("object-created recovery advances the same commit and an unproven prepared 
     await writeFile(join(root, ".git/index"), indexBefore);
     assert.equal((await service.commit("ticket phase")).sha, committed.sha);
     assert.equal(await git(root, "rev-parse", "HEAD"), committed.sha);
-    assert.equal(await git(root, "diff", "--cached", "--name-only"), "");
+    assert.deepEqual(await readFile(join(root, ".git/index")), indexBefore);
     await git(root, "update-ref", journal.branch, parent, committed.sha);
     await writeFile(join(root, ".git/index"), indexBefore);
     await files.atomicWrite({ path: ledgerPath, content: JSON.stringify(beforeReceipt), replace: true });
@@ -176,6 +179,15 @@ test("object-created recovery advances the same commit and an unproven prepared 
     await files.atomicWrite({ path: journalPath, content: JSON.stringify({ ...journal, commit_sha: undefined, tree_sha: parent, phase: "prepared" }), replace: true });
     await assert.rejects(service.commit("ticket phase"), (error) => error.code === "TICKET_COMMIT_RECOVERY_CONFLICT");
     assert.equal(await git(root, "rev-parse", "HEAD"), committed.sha);
+    const quarantinePath = `.forge/runtime/ticket-root-commits/${key(projectId)}/${key(taskId)}-${beforeReceipt.revision}-${key(journal.transaction_id)}-${key("transaction_object_missing")}-quarantine.json`;
+    const quarantine = JSON.parse(await files.readFile({ path: quarantinePath }));
+    assert.equal(quarantine.disposition, "quarantined");
+    assert.equal(quarantine.reason, "transaction_object_missing");
+    const missingTree = { ...journal, transaction_id: `${journal.transaction_id}-missing`, tree_sha: undefined, commit_sha: undefined, phase: "prepared" };
+    await files.atomicWrite({ path: journalPath, content: JSON.stringify(missingTree), replace: true });
+    await assert.rejects(service.commit("ticket phase"), { code: "TICKET_COMMIT_RECOVERY_CONFLICT" });
+    const missingAuditPath = `.forge/runtime/ticket-root-commits/${key(projectId)}/${key(taskId)}-${beforeReceipt.revision}-${key(missingTree.transaction_id)}-${key("candidate_tree_missing")}-quarantine.json`;
+    assert.equal(JSON.parse(await files.readFile({ path: missingAuditPath })).reason, "candidate_tree_missing");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

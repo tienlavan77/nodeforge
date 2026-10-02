@@ -77,6 +77,21 @@ test("closes the SDK session and sanitizes SDK failures", async () => {
   assert.equal(closed, true);
 });
 
+// Emits bounded lifecycle lines so a foreground Control API shows SDK start, events, and failures.
+test("writes Claude lifecycle events to the configured terminal output", async () => {
+  let output = "";
+  const gateway = createClaudeSdkGateway({
+    configuration: { getById: () => profile() },
+    credentialResolver: () => "secret",
+    terminalOutput: { write: (line) => { output += line; } },
+    queryFn: () => query([{ type: "assistant", session_id: "SESSION-1", message: { content: [{ type: "text", text: "hidden" }] } }])
+  });
+  await gateway.execute({ agentId: "coder", correlationId: "CORR-LOG", prompt: "hello" });
+  assert.match(output, /\[Claude SDK\].*START Coder/);
+  assert.match(output, /DONE Coder messages=1 correlation=CORR-LOG/);
+  assert.doesNotMatch(output, /hidden|secret/);
+});
+
 function profile() {
   return {
     agent_id: "coder",

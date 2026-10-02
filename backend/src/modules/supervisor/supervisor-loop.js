@@ -83,7 +83,7 @@ export function createSupervisorLoop({ runtime, senderQueue, collectorQueue, ver
       await runtime.transition("COMPLETED", event); await terminal("task.completed", event, { review: event.payload }); await releaseCoder("accepted"); return true;
     }
     if (event.type === "review.request_changes") {
-      if (event.payload?.verdict !== "request_changes" || !event.payload?.reviewer_id || !Array.isArray(event.payload?.findings) || !event.payload.findings.length) return escalate(event, "review_verdict_invalid");
+      if (event.payload?.verdict !== "request_changes" || !event.payload?.reviewer_id || !Array.isArray(event.payload?.findings) || (!event.payload.findings.length && !(event.payload.adjudications ?? []).some((item) => ["retain", "refine"].includes(item.decision)))) return escalate(event, "review_verdict_invalid");
       const source = await sourceRequest?.(runtime.taskId);
       const limit = source?.ticket?.execution_policy?.max_review_revisions ?? 2;
       if ((event.attempt ?? 1) > limit) return escalate(event, "review_revision_limit");

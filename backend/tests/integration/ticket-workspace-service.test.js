@@ -81,7 +81,10 @@ test("ticket root writes claim files and worktree commits contain only ticket de
     interrupted.commits = {};
     interrupted.pending_commit = { revision: interrupted.revision, base_head: base };
     await stateFileService.atomicWrite({ path: manifestPath, content: JSON.stringify(interrupted), replace: true });
-    assert.deepEqual(await first.gitService.commit("Retry", { paths: [firstPath] }), { sha: commitA.sha, recovered: true });
+    await assert.rejects(first.gitService.commit("Retry", { paths: [firstPath] }), { code: "TICKET_COMMIT_RECOVERY_CONFLICT" });
+    interrupted.commits[interrupted.revision] = commitA.sha;
+    interrupted.pending_commit = null;
+    await stateFileService.atomicWrite({ path: manifestPath, content: JSON.stringify(interrupted), replace: true });
     const branch = await git(root, "branch", "--show-current");
     await stateFileService.atomicWrite({ path: ".forge/runtime/ticket-integrations/TICKET-A.json", content: JSON.stringify({ task_id: "TICKET-A", branch, previous_head: base, reviewed_commit: commitA.sha, commit: commitA.sha, status: "prepared" }), replace: true });
     await git(root, "update-ref", `refs/heads/${branch}`, commitA.sha, base);

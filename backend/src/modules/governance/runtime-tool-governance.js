@@ -143,7 +143,7 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     const normalized = resolveContext(context);
     const resource = ["Read", "Glob", "Grep"].includes(toolName) ? undefined : input?.path ?? input?.resource ?? input?.file_paths;
     authorize(toolName, normalized, resource);
-    if (toolName === "commit_changes" || toolName === "report_done") return execute(input, buildToolContext(context, normalized, contexts));
+    if (toolName === "commit_changes" || toolName === "report_done" || toolName === "respond_to_review") return execute(input, buildToolContext(context, normalized, contexts));
     const reservation = await reserveRetrieval(normalized, { tool: toolName, resource, estimatedBytes: input?.max_chars ?? input?.maxChars ?? 0 });
     try {
       if (DISCOVERY_TOOLS.has(toolName)) assertDiscoveryBudget(normalized, discoveryKind(toolName));

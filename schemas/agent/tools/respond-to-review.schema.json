@@ -1,0 +1,21 @@
+{
+  "$comment": "Records a Coder petition against Reviewer findings without changing ticket acceptance.",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/agent/tools/respond-to-review.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["responses", "review_commit_sha", "artifact_id", "source_revision", "idempotency_key"],
+  "properties": {
+    "responses": { "type": "array", "minItems": 1, "maxItems": 30, "items": { "type": "object", "additionalProperties": false, "required": ["finding_id", "position", "rationale", "files", "evidence_refs"], "properties": {
+      "finding_id": { "type": "string", "pattern": "^REV-[1-9][0-9]*$" },
+      "position": { "enum": ["accept", "dispute"] },
+      "rationale": { "type": "string", "minLength": 1, "maxLength": 4000 },
+      "files": { "type": "array", "maxItems": 30, "items": { "type": "string", "minLength": 1 } },
+      "evidence_refs": { "type": "array", "maxItems": 30, "items": { "type": "string", "minLength": 1 } }
+    } } },
+    "review_commit_sha": { "type": "string", "minLength": 1 },
+    "artifact_id": { "type": "string", "minLength": 1 },
+    "source_revision": { "type": "string", "minLength": 1 },
+    "idempotency_key": { "type": "string", "minLength": 1, "maxLength": 200 }
+  }
+}

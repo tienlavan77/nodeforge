@@ -22,7 +22,7 @@ export async function assertTicketReviewEvidence({ job, executionContexts, verif
   await verificationService.assertCleanWorktree?.();
   const paths = [...context.manifest_paths].sort();
   if (JSON.stringify(paths) !== JSON.stringify(Object.keys(artifact.file_checksums).sort())) throw fail("REVIEW_EVIDENCE_MISMATCH", "Verified file manifest differs from ticket context.");
-  if (job.payload?.changed_paths && JSON.stringify([...job.payload.changed_paths].sort()) !== JSON.stringify(paths)) throw fail("REVIEW_EVIDENCE_MISMATCH", "Queued review paths differ from verified manifest.");
+  if (job.payload?.changed_paths && JSON.stringify([...job.payload.changed_paths].sort()) !== JSON.stringify([...artifact.changed_paths].sort())) throw fail("REVIEW_EVIDENCE_MISMATCH", "Queued review delta differs from the verified commit.");
   const files = [];
   let totalBytes = 0;
   for (const path of paths) {

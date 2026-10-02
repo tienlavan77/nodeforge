@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createNodeforgeTaskIntegration } from "../../src/modules/supervisor/nodeforge-task-integration.js";
+import { createNodeforgeTaskExecutors } from "../../src/modules/supervisor/nodeforge-task-executors.js";
 
 // Ticket mode is delegated to the Codex SDK, with Forge tools exposed through MCP.
 test("Supervisor dispatch runs a Codex ticket through the SDK Forge MCP path", async () => {
@@ -63,7 +64,7 @@ test("Supervisor dispatch runs a Codex ticket through the SDK Forge MCP path", a
   assert.match(prompts[0], /Document validate-schemas/);
   assert.match(prompts[0], /Read backend\/scripts\/validate-schemas\.mjs/);
   assert.doesNotMatch(prompts[0], /fixed six-tool/i);
-  assert.deepEqual(forgeTools.definitions.map((tool) => tool.name), ["select_code_graph_candidates", "search_code", "read_file", "rg_files", "rg_search", "sed_lines", "write_diff", "edit_diff", "run_test", "check_test", "git_status", "git_diff", "commit_changes", "report_done"]);
+  assert.deepEqual(forgeTools.definitions.map((tool) => tool.name), ["select_code_graph_candidates", "search_code", "read_file", "rg_files", "rg_search", "sed_lines", "write_diff", "edit_diff", "run_test", "check_test", "git_status", "git_diff", "commit_changes", "report_done", "respond_to_review"]);
   assert.equal(agentGatewayCalls, 0);
 });
 
@@ -180,15 +181,69 @@ test("Real ticket without target path or UI intent fails instead of using tool-l
 });
 
 test("Codex run fails when the provider never emits a Forge tool call", async () => {
+  const checkpoints = [];
   const integration = createNodeforgeTaskIntegration({
     projectRoot: process.cwd(),
     supervisorManager: { startTask: async () => ({}) },
     eventBus: { publish: async () => {} },
     agentResolver: { resolveAvailable: () => ({ agent_id: "codex-missing", agent_name: "Codex Missing", role: "coder", provider: "codex" }) },
     handoffQueue: { enqueue: async () => ({ id: "JOB-MISSING" }) },
+    agentOccupancy: { claim: async () => ({ claim_id: "CLAIM-MISSING" }), release: async () => {} },
+    checkpointStore: { save: async (record) => checkpoints.push(record), load: async () => null },
     toolRegistry: {},
     runtimeGovernance: { createExecutionContext: (input) => ({ ...input, execution_id: "T-MISSING:REQ-MISSING", lifecycle: "RUNNING" }) },
     codexSdkGateway: { execute: async () => ({ text: "Forge MCP tools are not available" }) }
   });
   await assert.rejects(() => integration.submitTicket({ ticket: { id: "T-MISSING", title: "Tool lab", objective: "Run backend/scripts/validate-schemas.mjs lab", acceptance_criteria: ["Complete tool check for backend/scripts/validate-schemas.mjs"] }, task_id: "T-MISSING" }), (error) => error.code === "CODEX_MCP_TOOL_CALLS_MISSING");
+  assert.equal(checkpoints.at(-1).status, "blocked");
+  assert.equal(checkpoints.at(-1).failure.code, "AGENT_PROCESS_EXITED");
+});
+
+test("immutable baseline manifest controls all Coder paths and disables prepass target selection", async () => {
+  let received;
+  const executors = createNodeforgeTaskExecutors({
+    projectRoot: process.cwd(),
+    projectLogger: () => {},
+    toolRegistry: {},
+    runtimeGovernance: { createExecutionContext: (input) => ({ ...input, execution_id: "T-MANIFEST:REQ-MANIFEST", lifecycle: "RUNNING" }) },
+    codexSdkGateway: { execute: async (request) => {
+      received = request;
+      for (const tool of ["sed_lines", "write_diff", "commit_changes", "report_done"]) await request.onEvent({ type: "item.completed", item: { id: tool, type: "mcp_tool_call", server: "forge", tool, status: "completed" } });
+      return { text: "done" };
+    } }
+  });
+  await executors.runCodexTask({ agent_id: "codex-manifest", agent_name: "Manifest Coder", role: "coder", provider: "codex", model: "test" }, {
+    task_id: "T-MANIFEST", request_id: "REQ-MANIFEST", correlation_id: "CORR-MANIFEST",
+    ticket: { id: "T-MANIFEST", title: "Fix service", objective: "Inspect backend/src/outside.js" },
+    execution_context: { approved_baseline: { file_checksums: { "backend/src/allowed.js": "sha256:abc", "backend/tests/allowed.test.js": "sha256:def" } } },
+    payload: {}
+  });
+  assert.equal(received.options.forgeTools.context.target_path, null);
+  assert.deepEqual(received.options.forgeTools.context.allowed_file_paths, ["backend/src/allowed.js", "backend/tests/allowed.test.js", "workflows/agents/coder.md"]);
+  assert.deepEqual(received.options.forgeTools.context.allowed_prefixes, ["backend/src/allowed.js", "backend/tests/allowed.test.js"]);
+  assert.equal(received.options.forgeTools.definitions.some((tool) => tool.name === "select_code_graph_candidates"), false);
+  assert.doesNotMatch(received.prompt, /select_code_graph_candidates/);
+});
+
+test("Codex resume keeps its checkpoint target when candidate discovery is unavailable", async () => {
+  let received;
+  const executors = createNodeforgeTaskExecutors({
+    projectRoot: process.cwd(), projectLogger: () => {}, toolRegistry: {},
+    relevantTreeSelector: { select: () => { throw new Error("prepass must not run on resume"); } },
+    runtimeGovernance: { createExecutionContext: (input) => ({ ...input, lifecycle: "RUNNING" }) },
+    codexSdkGateway: { execute: async (request) => {
+      received = request;
+      for (const tool of ["sed_lines", "write_diff", "commit_changes", "report_done"]) await request.onEvent({ type: "item.completed", item: { id: tool, type: "mcp_tool_call", server: "forge", tool, status: "completed" } });
+      return { text: "done" };
+    } }
+  });
+  await executors.runCodexTask({ agent_id: "coder", role: "coder", provider: "codex" }, {
+    task_id: "T-RESUME", request_id: "REQ-RESUME", correlation_id: "CORR-RESUME",
+    ticket: { id: "T-RESUME", title: "Canonical errors", objective: "Normalize errors across the application" },
+    execution_context: { task_id: "T-RESUME", manifest_paths: ["backend/src/shared/errors.js", "backend/tests/unit/error-contract.test.js"] },
+    payload: { resume_from: { status: "in_progress", target_path: "backend/src/shared/errors.js", last_completed_turn: 5 } }
+  });
+  assert.equal(received.options.forgeTools.context.target_path, "backend/src/shared/errors.js");
+  assert.ok(received.options.forgeTools.context.allowed_file_paths.includes("backend/tests/unit/error-contract.test.js"));
+  assert.match(received.prompt, /Primary target is "backend\/src\/shared\/errors\.js"/);
 });
