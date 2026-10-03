@@ -53,6 +53,7 @@ export function createSprintPlanUploadService({ roadmaps, publisher, projectRoot
     const current = get({ projectId, sprintId });
     if (isRunning(sprintId)) { const error = new ConfigurationError(`Sprint is currently running: ${sprintId}.`); error.statusCode = 409; throw error; }
     const next = { ...sprintPlan, id: sprintId, project_id: projectId, roadmap_id: sprintPlan?.roadmap_id ?? current.roadmap_id };
+    if (Array.isArray(next.tickets) && next.tickets.some((ticket) => ticket.style !== undefined)) throw new ConfigurationError("style is obsolete; use implementation_type for every ticket.");
     if (!validate(next)) throw new ConfigurationError(`Invalid Sprint Plan: ${validate.errors.map((error) => `${error.instancePath || "/"} ${error.message}`).join("; ")}`);
     if (!roadmaps.removeSprint?.(projectId, sprintId)) { const error = new ConfigurationError(`Unknown Sprint Plan: ${sprintId}.`); error.statusCode = 404; throw error; }
     return upload({ projectId, sprintPlan: next }, { eventType: "sprint.updated" });
@@ -71,7 +72,8 @@ export function createSprintPlanUploadService({ roadmaps, publisher, projectRoot
     if (typeof projectId !== "string" || projectId.length === 0) throw new ConfigurationError("A project id is required.");
     if (!sprintPlan || typeof sprintPlan !== "object" || Array.isArray(sprintPlan)) throw new ConfigurationError("sprint_plan must be an object.");
     if (sprintPlan.project_id !== projectId) throw new ConfigurationError("Sprint plan project_id must match the target project.");
-    // Legacy uploads may lack style; preserve their optional file candidates.
+    if (Array.isArray(sprintPlan.tickets) && sprintPlan.tickets.some((ticket) => ticket.style !== undefined)) throw new ConfigurationError("style is obsolete; use implementation_type for every ticket.");
+    // Preserve optional file candidates while filling missing execution types.
     const normalized = { ...sprintPlan, tickets: (sprintPlan.tickets ?? []).map((ticket) => backfillTicketCandidates(ticket)) };
     if (!validate(normalized)) throw new ConfigurationError(`Invalid Sprint Plan: ${validate.errors.map((error) => `${error.instancePath || "/"} ${error.message}`).join("; ")}`);
     const duplicate = roadmaps.getAllVersions?.().some((roadmap) => roadmap.sprints?.some((sprint) => sprint.id === normalized.id));

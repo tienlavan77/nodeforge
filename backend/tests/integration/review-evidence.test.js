@@ -20,8 +20,8 @@ test("Reviewer sees a committed patch and an untracked new file in one ticket", 
     await git("config", "user.name", "NodeForge Test");
     await git("config", "user.email", "nodeforge-test@example.invalid");
     await mkdir(join(root, "src"));
-    await mkdir(join(root, "workflows/agents"), { recursive: true });
-    await writeFile(join(root, "workflows/agents/reviewer.md"), "Review the supplied source and verification evidence.\n");
+    await mkdir(join(root, "workflows/agents/reviewer"), { recursive: true });
+    await writeFile(join(root, "workflows/agents/reviewer/README.md"), "Review the supplied source and verification evidence.\n");
     await writeFile(join(root, "src/existing.js"), "export const value = 1;\n");
     await git("add", "--", "src/existing.js");
     await git("commit", "--quiet", "-m", "baseline");

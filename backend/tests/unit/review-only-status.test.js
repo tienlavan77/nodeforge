@@ -23,7 +23,7 @@ test("review-only saves an approved checkpoint before publishing the terminal ou
     ticketStatusStore,
     handoffQueue: { enqueue: async () => ({}) },
     claudeSdkGateway: { execute: async () => ({ text: '{"verdict":"approved","findings":[]}' }) },
-    fileService: { readForIndex: async ({ path }) => ({ path, content: path.endsWith("reviewer.md") ? "Review source." : "const ready = true;", sha256: "sha256:abc", size_bytes: 20 }) },
+    fileService: { readForIndex: async ({ path }) => ({ path, content: path === "workflows/agents/reviewer/README.md" ? "Review source." : "const ready = true;", sha256: "sha256:abc", size_bytes: 20 }) },
     gitService: { getHead: async () => "HEAD-1", diffPatchFrom: async () => "" },
     checkpointStore: { loadReview: async () => ({ review_attempt: 1, verdict: "request_changes" }), completeReview: async (_taskId, details) => { saved = details; return details; } },
     projectRoot: "/project"

@@ -29,6 +29,7 @@ test("owner exposes the same approved Forge tools to OpenAI, Codex, Claude, and 
     assert.deepEqual(request.options.forgeTools.definitions.map(({ name }) => name), ["search_tree", "rg_files", "rg_search", "sed_lines", "read_file", "write_diff", "edit_diff", "delete_file"]);
     assert.deepEqual(request.options.forgeTools.context.allowed_write_prefixes, ["docs/", "Skills/", "workflows/"]);
     assert.match(request.prompt, /ARCHITECTURE\.md, docs\/, Skills\/, or workflows\//);
+    assert.match(request.prompt, /workflows\/agents\/architecture\/README\.md/);
     if (provider === "codex" || provider === "openai") assert.equal(request.options.forgeTools.registry.rg_files.execute instanceof Function, true);
     else {
       assert.equal(request.options.mcpServers.forge.type, "sdk");

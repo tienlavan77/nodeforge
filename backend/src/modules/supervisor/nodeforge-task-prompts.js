@@ -23,7 +23,7 @@ export function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, comp
   if (immutableScope) instructions.splice(0, 2, `This ticket has a signed immutable manifest. Work only on these exact paths ${allowedJson}; do not use prepass or candidate retrieval and do not infer a target_path. Read each relevant manifest file with read_file and sed_lines, then edit only manifest paths.`);
   return [
     `Complete the following ticket using Forge tools only; do not use built-in shell, file, patch, or search tools.`,
-    "Before editing code, read workflows/agents/coder.md with sed_lines; this workflows path is read-only for coders.",
+    "Before editing code, read workflows/agents/coder/README.md with sed_lines; this workflows path is read-only for coders.",
     "",
     `Ticket ${ticket?.id ?? ""}: ${ticket?.title ?? ""}`,
     `Objective: ${ticket?.objective ?? ""}`,
@@ -115,7 +115,7 @@ export function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, compl
   if (immutableScope) instructions.splice(0, 2, `This ticket has a signed immutable manifest. Work only on these exact paths ${allowedJson}; do not use prepass or candidate retrieval and do not infer a target_path. Read each relevant manifest file with read_file and Read, then edit only manifest paths.`);
   return [
     "Complete the following ticket using Forge tools only; do not use built-in shell, file, patch, or search tools.",
-    "Before editing code, read workflows/agents/coder.md source with Forge Read using start_line:1 and end_line up to 80; this workflows path is read-only for coders.",
+    "Before editing code, read workflows/agents/coder/README.md source with Forge Read using start_line:1 and end_line up to 80; this workflows path is read-only for coders.",
     "",
     `Ticket ${ticket?.id ?? ""}: ${ticket?.title ?? ""}`,
     `Objective: ${ticket?.objective ?? ""}`,

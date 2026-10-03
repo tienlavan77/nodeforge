@@ -42,11 +42,11 @@ test("real SDK Reviewer reads the verified commit through Forge tools", { timeou
   let workspaces;
   try {
     await mkdir(join(root, "backend/src"), { recursive: true });
-    await mkdir(join(root, "workflows/agents"), { recursive: true });
+    await mkdir(join(root, "workflows/agents/reviewer"), { recursive: true });
     await writeFile(join(root, ".gitignore"), ".forge/\nnode_modules/\n");
     await writeFile(join(root, "jsconfig.json"), JSON.stringify({ compilerOptions: { allowJs: true, noEmit: true }, include: ["backend/src/**/*.js"] }));
     await writeFile(join(root, "backend/src/check.js"), "export const check = true;\n");
-    await writeFile(join(root, "workflows/agents/reviewer.md"), "Review the exact committed source.\n");
+    await writeFile(join(root, "workflows/agents/reviewer/README.md"), "Review the exact committed source.\n");
     await writeFile(join(root, "README.md"), "Baseline\n");
     await git(root, "init");
     await git(root, "config", "user.email", "test@example.invalid");

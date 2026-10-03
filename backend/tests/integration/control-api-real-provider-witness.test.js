@@ -148,6 +148,9 @@ async function waitForShadowReceipts(root, artifact, reviewedCommit, required = 
 // Creates a minimal ticket project with the role contracts required by the real Coder and Reviewer.
 async function createProject(root) {
   await mkdir(join(root, "workflows/agents"), { recursive: true });
+  await mkdir(join(root, "workflows/agents/coder"), { recursive: true });
+  await mkdir(join(root, "workflows/agents/reviewer"), { recursive: true });
+  await mkdir(join(root, "workflows/agents/sprint-leader"), { recursive: true });
   await mkdir(join(root, "vocabulary"), { recursive: true });
   await mkdir(join(root, "backend/src"), { recursive: true });
   await mkdir(join(root, "backend/tests/unit"), { recursive: true });
@@ -157,7 +160,7 @@ async function createProject(root) {
   await writeFile(join(root, "jsconfig.json"), JSON.stringify({ compilerOptions: { allowJs: true, checkJs: false, noEmit: true }, include: ["backend/src/**/*.js"] }));
   await writeFile(join(root, "backend/src/witness.js"), "// Holds the disposable ticket value for a real provider verification witness.\nexport const witness = 'Baseline';\n");
   await writeFile(join(root, "backend/tests/unit/witness.test.js"), "// Verifies that the disposable ticket source remains importable after a provider edit.\nimport assert from 'node:assert/strict';\nimport test from 'node:test';\nimport { witness } from '../../src/witness.js';\ntest('witness is text', () => assert.equal(typeof witness, 'string'));\n");
-  for (const path of ["AGENTS.md", ".eslintrc.json", "eslint-rules/package.json", "eslint-rules/no-silent-catch.js", "vocabulary/glossary.md", "workflows/agents/coder.md", "workflows/agents/reviewer.md", "workflows/agents/sprint-leader.md"]) await writeFile(join(root, path), await readFile(join(sourceRoot, path)));
+  for (const path of ["AGENTS.md", ".eslintrc.json", "eslint-rules/package.json", "eslint-rules/no-silent-catch.js", "vocabulary/glossary.md", "workflows/agents/coder/README.md", "workflows/agents/reviewer/README.md", "workflows/agents/sprint-leader/README.md"]) await writeFile(join(root, path), await readFile(join(sourceRoot, path)));
   await execFile("git", ["init", root]);
   await execFile("git", ["-C", root, "config", "user.email", "test@example.invalid"]);
   await execFile("git", ["-C", root, "config", "user.name", "NodeForge Test"]);

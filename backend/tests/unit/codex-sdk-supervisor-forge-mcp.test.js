@@ -120,7 +120,7 @@ test("Watcher header UI ticket targets frontend scope instead of tool-lab marker
   });
 
   assert.equal(result.status, "completed");
-  assert.deepEqual(forgeTools.context.allowed_file_paths, ["ui/nextjs/components/NodeForgePanels.jsx", "backend/package.json", "workflows/agents/coder.md"]);
+  assert.deepEqual(forgeTools.context.allowed_file_paths, ["ui/nextjs/components/NodeForgePanels.jsx", "backend/package.json", "workflows/agents/coder/README.md"]);
   assert.ok(forgeTools.context.allowed_prefixes.includes("ui/nextjs/"));
   assert.ok(forgeTools.context.allowed_prefixes.includes("ui/src/"));
   assert.ok(forgeTools.context.allowed_prefixes.includes("web/src/"));
@@ -219,7 +219,7 @@ test("immutable baseline manifest controls all Coder paths and disables prepass 
     payload: {}
   });
   assert.equal(received.options.forgeTools.context.target_path, null);
-  assert.deepEqual(received.options.forgeTools.context.allowed_file_paths, ["backend/src/allowed.js", "backend/tests/allowed.test.js", "workflows/agents/coder.md"]);
+  assert.deepEqual(received.options.forgeTools.context.allowed_file_paths, ["backend/src/allowed.js", "backend/tests/allowed.test.js", "workflows/agents/coder/README.md"]);
   assert.deepEqual(received.options.forgeTools.context.allowed_prefixes, ["backend/src/allowed.js", "backend/tests/allowed.test.js"]);
   assert.equal(received.options.forgeTools.definitions.some((tool) => tool.name === "select_code_graph_candidates"), false);
   assert.doesNotMatch(received.prompt, /select_code_graph_candidates/);

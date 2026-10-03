@@ -130,7 +130,7 @@ export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(),
     versions.splice(0, versions.length);
     byVersion.clear();
     for (const { roadmap_json } of database.all("SELECT roadmap_json FROM governance_roadmaps ORDER BY sequence")) {
-      const stored = Object.freeze(JSON.parse(roadmap_json));
+      const stored = Object.freeze(backfillLegacyTickets(JSON.parse(roadmap_json)));
       versions.push(stored);
       byVersion.set(stored.version, stored);
     }
@@ -138,7 +138,7 @@ export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(),
   }
 }
 
-// Infers style for older tickets while preserving any optional candidates.
+// Presents historical roadmaps with canonical ticket execution types.
 function backfillLegacyTickets(roadmap) {
   if (!roadmap || typeof roadmap !== "object" || !Array.isArray(roadmap.sprints)) return roadmap;
   return { ...roadmap, sprints: roadmap.sprints.map((sprint) => ({ ...sprint, tickets: (sprint.tickets ?? []).map((ticket) => backfillTicketCandidates(ticket)) })) };

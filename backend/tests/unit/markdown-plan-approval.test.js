@@ -41,6 +41,11 @@ test("approved Markdown produces one executable JSON projection without a second
     assert.equal(child.source_sha256, parent.sha256);
     assert.equal(child.decision, null);
     assert.equal(child.approval_basis, "approved_markdown_projection");
+    database.run("CREATE TABLE IF NOT EXISTS governance_roadmaps (sequence INTEGER PRIMARY KEY, version TEXT NOT NULL, roadmap_json TEXT NOT NULL)");
+    database.run("INSERT INTO markdown_plan_handoffs(plan_id,revision,project_id,sha256,status,sprint_id,updated_at) VALUES (?,?,?,?,?,?,?)", [parent.plan_id, parent.revision, "PROJECT-A", parent.sha256, "completed", "SPRINT-A", new Date().toISOString()]);
+    assert.equal((await markdownPlans.getRevision({ planId: parent.plan_id, revision: 1 })).handoff_status, "recovery_required");
+    database.run("INSERT INTO governance_roadmaps(version,roadmap_json) VALUES (?,?)", ["with-sprint", JSON.stringify({ id: "ROADMAP-A", project_id: "PROJECT-A", sprints: [{ id: "SPRINT-A" }] })]);
+    assert.equal((await markdownPlans.getRevision({ planId: parent.plan_id, revision: 1 })).handoff_status, "completed");
     const router = createForgeV1Router({ planStore: plans, sprintRegistry: registry, expectedProjectId: "PROJECT-A", sprintOrchestrationService: { run: () => { throw new Error("Draft must remain blocked"); } } });
     const request = (method, route, body = {}) => {
       const input = Readable.from([JSON.stringify(body)]);

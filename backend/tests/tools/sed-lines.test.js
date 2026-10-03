@@ -54,13 +54,13 @@ test("sed_lines returns a scoped whole-file checksum for Codex edits", async () 
 test("sed_lines reads an explicitly approved Git-ignored workflow file", async () => {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-sed-workflow-"));
   try {
-    await mkdir(join(root, "workflows", "agents"), { recursive: true });
+    await mkdir(join(root, "workflows", "agents", "coder"), { recursive: true });
     await writeFile(join(root, ".gitignore"), "/workflows/\n");
-    await writeFile(join(root, "workflows", "agents", "coder.md"), "# Coder rules\nUse Forge tools.\n");
+    await writeFile(join(root, "workflows", "agents", "coder", "README.md"), "# Coder rules\nUse Forge tools.\n");
     const tool = createSedLinesTool({ projectRoot: root, logger: captureLogger([]) });
-    const result = await tool.execute({ path: "workflows/agents/coder.md", start_line: 1, end_line: 2 }, {
+    const result = await tool.execute({ path: "workflows/agents/coder/README.md", start_line: 1, end_line: 2 }, {
       ...context,
-      allowed_file_paths: ["workflows/agents/coder.md"]
+      allowed_file_paths: ["workflows/agents/coder/README.md"]
     });
     assert.equal(result.stdout, "# Coder rules\nUse Forge tools.\n");
   } finally { await rm(root, { recursive: true, force: true }); }

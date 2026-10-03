@@ -4,10 +4,11 @@ import { useEffect, useState } from "react";
 import { PlanReviewModal } from "./plan-review-modal.jsx";
 
 // Loads the latest pending plan and opens its full revision for owner review.
-export function PendingPlanApproval({ client, projectId, messages, conversationId, agentId }) {
+export function PendingPlanApproval({ client, projectId, messages, conversationId, agentId, onHandoffCompleted }) {
   const [pending, setPending] = useState(null);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
+  const [handoffNotice, setHandoffNotice] = useState("");
   const messageKey = messages.map((message) => message.id).join("|");
 
   useEffect(() => {
@@ -21,7 +22,8 @@ export function PendingPlanApproval({ client, projectId, messages, conversationI
         let next = null;
         for (const head of ordered) {
           if (head.sprint_id && !currentSprintIds.has(head.sprint_id)) continue;
-          const revision = await client.getPlanRevision(projectId, head.plan_id, head.revision);
+          const loaded = await client.getPlanRevision(projectId, head.plan_id, head.revision);
+          const revision = loaded.format === "markdown" && loaded.handoff_status === "completed" && loaded.sprint_id && !currentSprintIds.has(loaded.sprint_id) ? { ...loaded, handoff_status: "recovery_required" } : loaded;
           if (revision.status === "awaiting_human_approval" || revision.format === "markdown" && revision.status === "approved" && revision.handoff_status !== "completed") { next = revision; break; }
         }
         if (active) { setPending(next); setError(""); }
@@ -32,8 +34,9 @@ export function PendingPlanApproval({ client, projectId, messages, conversationI
   }, [client, projectId, messageKey, open]);
 
   return <>
-    {pending && <div className="home-plan-approval-notice" role="status"><span>Bạn có 1 kế hoạch cần xác nhận</span><button type="button" onClick={() => setOpen(true)}>Approve</button></div>}
+    {pending && <div className="home-plan-approval-notice" role="status"><span>{pending.handoff_status === "recovery_required" ? "Sprint Plan chưa được thêm vào roadmap" : pending.status === "approved" ? "Kế hoạch đang chờ handoff" : "Bạn có 1 kế hoạch cần xác nhận"}</span><button type="button" onClick={() => setOpen(true)}>{pending.status === "approved" ? "Continue handoff" : "Approve"}</button></div>}
+    {handoffNotice && <p className="home-plan-handoff-notice" role="status">{handoffNotice}</p>}
     {error && <p className="home-plan-approval-error" role="alert">Không tải được kế hoạch cần duyệt: {error}</p>}
-    {open && pending && <PlanReviewModal client={client} projectId={projectId} sprintId={pending.sprint_id} planId={pending.plan_id} conversationId={conversationId} agentId={agentId} onClose={() => setOpen(false)} onChanged={() => setOpen(false)} />}
+    {open && pending && <PlanReviewModal client={client} projectId={projectId} sprintId={pending.sprint_id} planId={pending.plan_id} initialPlan={pending} conversationId={conversationId} agentId={agentId} onClose={() => setOpen(false)} onChanged={async ({ handoff } = {}) => { setOpen(false); if (handoff?.sprint_id) { setHandoffNotice(`Sprint Plan ${handoff.sprint_id} đã tạo. Chưa RUN.`); await onHandoffCompleted?.(); } }} />}
   </>;
 }

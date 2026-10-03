@@ -33,6 +33,29 @@ test("persists ticket status transitions in a new roadmap version", () => {
   assert.equal(store.getCurrent().sprints[0].tickets[0].status, "done");
 });
 
+// Projects old roadmap tickets as canonical types without rewriting stored history.
+test("reads historical multi-style tickets with only one implementation type", () => {
+  const first = roadmap("legacy-1");
+  first.sprints[0].tickets[0].style = ["frontend", "docs"];
+  const rows = [{ roadmap_json: JSON.stringify(first) }];
+  const store = createRoadmapStore({ database: { run: () => {}, all: () => rows } });
+  const next = store.getCurrent();
+  assert.equal(next.sprints[0].tickets[0].style, undefined);
+  assert.deepEqual(next.sprints[0].tickets[0].implementation_type, ["frontend"]);
+  next.version = "typed-2";
+  const sprint = structuredClone(next.sprints[0]);
+  sprint.id = "SPRINT-12";
+  sprint.tickets[0] = { ...sprint.tickets[0], id: "NF-116", sprint_id: sprint.id, implementation_type: ["backend"] };
+  delete sprint.tickets[0].style;
+  next.sprints.push(sprint);
+  const saved = store.save(next);
+  assert.equal(saved.sprints[0].tickets[0].style, undefined);
+  assert.deepEqual(saved.sprints[0].tickets[0].implementation_type, ["frontend"]);
+  assert.deepEqual(saved.sprints[1].tickets[0].implementation_type, ["backend"]);
+  assert.equal(store.getVersion("legacy-1").sprints[0].tickets[0].style, undefined);
+  assert.deepEqual(JSON.parse(rows[0].roadmap_json).sprints[0].tickets[0].style, ["frontend", "docs"]);
+});
+
 // Confirms deleting a sprint changes only the current roadmap and preserves its audit history.
 test("removes a sprint through a new version without deleting prior versions", () => {
   const store = createRoadmapStore();

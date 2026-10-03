@@ -16,13 +16,20 @@ test("Sprint Leader Forge session searches indexed code and reads only safe proj
     const fileService = createFileService({ projectRoot: root });
     const codeSearch = { search: async () => ({ matches: [{ node: { path: "backend/src/example.js", language: "javascript" }, score: 1 }, { node: { path: "backend/secrets/token.js" }, score: 0.5 }] }) };
     const profile = { agent_id: "SL-1", agent_name: "Leader", role: "sprint_leader", provider: "codex" };
-    const tools = createSprintLeaderForgeTools({ projectRoot: root, fileService, codeSearch, profile, correlationId: "CORR-1" });
+    const events = [];
+    const projectLogger = (entry) => { assert.ok(Number.isFinite(Date.parse(entry.timestamp)), "Project log events require a timestamp"); events.push(entry); };
+    const tools = createSprintLeaderForgeTools({ projectRoot: root, fileService, codeSearch, profile, correlationId: "CORR-1", projectLogger });
     assert.deepEqual(tools.definitions.map(({ name }) => name), ["search_tree", "read_file", "search_code"]);
     assert.equal(tools.registry.write_diff, undefined);
+    const tree = await tools.registry.search_tree.execute({ path: "backend", max_depth: 2, limit: 10 });
+    assert.ok(tree.entries.some((entry) => entry.path === "backend/src/example.js"));
     const found = await tools.registry.search_code.execute({ query: "example", kind: "file" });
     assert.deepEqual(found.matches.map((match) => match.path), ["backend/src/example.js"]);
     const file = await tools.registry.read_file.execute({ path: "backend/src/example.js", offset: 1, limit: 2 });
     assert.match(file.content, /Example source/);
+    assert.ok(events.some((entry) => entry.event_name === "owner.tool_call" && entry.status === "started"));
+    assert.ok(events.some((entry) => entry.event_name === "sprint_leader.tool_call" && entry.payload.tool === "search_code"));
+    assert.ok(events.some((entry) => entry.event_name === "sprint_leader.tool_call" && entry.payload.tool === "search_tree"));
     await assert.rejects(tools.registry.read_file.execute({ path: "backend/secrets/token.js" }), { code: "FILE_ROLE_FORBIDDEN" });
     await assert.rejects(tools.registry.read_file.execute({ path: "../outside.js" }), { code: "PATH_FORBIDDEN" });
   } finally { await rm(root, { recursive: true, force: true }); }

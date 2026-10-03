@@ -4,8 +4,8 @@ import { ConfigurationError } from "../../shared/errors.js";
 // Reports a missing or expanded approved work group before Sprint persistence.
 function fail(message) { return Object.assign(new ConfigurationError(message), { code: "SPRINT_MARKDOWN_SCOPE", statusCode: 422 }); }
 
-// Compares reviewed work descriptions despite harmless case and spacing differences.
-function normalized(value) { return String(value ?? "").replace(/\s+/g, " ").trim().toLocaleLowerCase("en"); }
+// Compares reviewed work descriptions while ignoring harmless formatting punctuation.
+function normalized(value) { return String(value ?? "").replace(/\s+/g, " ").trim().replace(/[.!?]+$/, "").toLocaleLowerCase("en"); }
 
 // Extracts the ordered work groups from section 5 of an owner-reviewed Markdown plan.
 export function readMarkdownSprintScope(markdown) {
@@ -24,6 +24,30 @@ export function readMarkdownSprintScope(markdown) {
   });
 }
 
+// Builds Sprint tickets from the owner-approved work groups while retaining leader-assigned IDs.
+export function projectMarkdownSprintScope(markdown, sprint) {
+  const approved = readMarkdownSprintScope(markdown);
+  const tickets = sprint?.tickets;
+  if (!Array.isArray(tickets) || tickets.length !== approved.length) throw fail("Sprint ticket count differs from approved Markdown work groups.");
+  const ids = tickets.map((ticket) => ticket?.id);
+  if (ids.some((id) => typeof id !== "string" || !/^TICKET-[A-Za-z0-9._-]+$/.test(id))) throw fail("Sprint Leader must create valid ticket IDs for every approved work group.");
+  if (new Set(ids).size !== ids.length) throw fail("Sprint Leader ticket IDs must be unique.");
+  const projected = approved.map((row, index) => {
+    const dependencies = row.dependency_labels.flatMap((label) => {
+      const prior = approved.findIndex((candidate, position) => position < index && (normalized(candidate.title) === normalized(label) || String(candidate.position) === label || normalized(`ticket ${candidate.position}`) === normalized(label)));
+      if (prior >= 0) return [ids[prior]];
+      if (/\b(decision|confirmation)$/i.test(label)) return [];
+      throw fail(`Approved work group ${index + 1} has an unknown dependency.`);
+    });
+    const priority = tickets[index].priority;
+    if (priority !== undefined && !["low", "medium", "normal", "high", "critical"].includes(priority)) throw fail(`Sprint ticket ${index + 1} has an invalid priority.`);
+    return { id: ids[index], title: row.title, objective: row.objective, implementation_type: [row.implementation_type], file_budget: row.file_budget, acceptance_criteria: [...row.acceptance_criteria], dependencies, ...(priority === undefined ? {} : { priority }) };
+  });
+  const result = { ...sprint, tickets: projected };
+  assertMarkdownSprintScope(markdown, result);
+  return result;
+}
+
 // Rejects ticket scope or sequencing that differs from the approved work-group table.
 export function assertMarkdownSprintScope(markdown, sprint) {
   const approved = readMarkdownSprintScope(markdown);
@@ -32,12 +56,14 @@ export function assertMarkdownSprintScope(markdown, sprint) {
   for (let index = 0; index < approved.length; index += 1) {
     const ticket = tickets[index];
     const row = approved[index];
-    if (normalized(ticket?.title) !== normalized(row.title) || normalized(ticket?.objective) !== normalized(row.objective) || ticket?.implementation_type?.length !== 1 || ticket.implementation_type[0] !== row.implementation_type || !Number.isInteger(ticket.file_budget) || ticket.file_budget > row.file_budget) throw fail(`Sprint ticket ${index + 1} changes an approved work-group title, objective, implementation type, or file budget.`);
+    const implementationType = ticket?.implementation_type?.length === 1 ? String(ticket.implementation_type[0]).trim().toLocaleLowerCase("en") : "";
+    if (normalized(ticket?.title) !== normalized(row.title) || normalized(ticket?.objective) !== normalized(row.objective) || implementationType !== row.implementation_type || !Number.isInteger(ticket.file_budget) || ticket.file_budget > row.file_budget) throw fail(`Sprint ticket ${index + 1} changes an approved work-group title, objective, implementation type, or file budget.`);
     if (!Array.isArray(ticket.acceptance_criteria) || ticket.acceptance_criteria.length !== row.acceptance_criteria.length || row.acceptance_criteria.some((criterion, criterionIndex) => normalized(ticket.acceptance_criteria[criterionIndex]) !== normalized(criterion))) throw fail(`Sprint ticket ${index + 1} changes approved acceptance criteria.`);
-    const expectedDependencies = row.dependency_labels.map((label) => {
+    const expectedDependencies = row.dependency_labels.flatMap((label) => {
       const prior = approved.findIndex((candidate, position) => position < index && (normalized(candidate.title) === normalized(label) || String(candidate.position) === label || normalized(`ticket ${candidate.position}`) === normalized(label)));
-      if (prior < 0) throw fail(`Approved work group ${index + 1} has an unknown dependency.`);
-      return tickets[prior].id;
+      if (prior >= 0) return [tickets[prior].id];
+      if (/\b(decision|confirmation)$/i.test(label)) return [];
+      throw fail(`Approved work group ${index + 1} has an unknown dependency.`);
     });
     const actualDependencies = ticket.dependencies ?? [];
     if (!Array.isArray(actualDependencies) || expectedDependencies.length !== actualDependencies.length || expectedDependencies.some((id) => !actualDependencies.includes(id))) throw fail(`Sprint ticket ${index + 1} changes approved dependencies.`);

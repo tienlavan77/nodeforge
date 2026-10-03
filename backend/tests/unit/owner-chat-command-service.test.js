@@ -18,8 +18,8 @@ test("summary and plan commands persist opaque references without running work",
   const fileService = createFileService({ projectRoot: root, allowPlanStorage: true, watcherIgnore: [".forge/**", "node_modules/**"] });
   const plans = createHumanPlanStore({ projectId: "PROJECT-A", database, fileService });
   const markdownPlans = createMarkdownPlanStore({ projectId: "PROJECT-A", database, fileService });
-  await mkdir(join(root, "workflows"));
-  await writeFile(join(root, "workflows/frame-plan.md"), "# Khung kế hoạch\n\n## 1. Mục tiêu\n\n## 7. Nghiệm thu\n");
+  await mkdir(join(root, "workflows/agents/architecture"), { recursive: true });
+  await writeFile(join(root, "workflows/agents/architecture/README.md"), "# Khung kế hoạch\n\n## 1. Mục tiêu\n\n## 7. Nghiệm thu\n");
   const service = createOwnerChatCommandService({ projectId: "PROJECT-A", fileService, communications: { getByConversationId: () => [{ project_id: "PROJECT-A", sender: { id: "owner" }, payload: { text: "Build the feature" } }] }, planStore: plans, markdownPlanStore: markdownPlans });
   const summary = await service.execute({ text: "/summary", conversationId: "CONV-A", project_id: "PROJECT-A", requestArchitecture: async () => "# Agreed summary\n\nOwner objective" });
   assert.equal(summary.execution_authorized, false);
@@ -29,6 +29,7 @@ test("summary and plan commands persist opaque references without running work",
   const draft = await service.execute({ text: `/plan ${summary.summary_id}`, conversationId: "CONV-A", project_id: "PROJECT-A", requestArchitecture: async (value) => { prompt = value; return markdown; } });
   assert.match(prompt, /Owner objective/);
   assert.match(prompt, /# Khung kế hoạch/);
+  assert.match(prompt, /workflows\/agents\/architecture\/README\.md/);
   assert.equal(draft.status, "awaiting_human_approval");
   assert.equal(draft.text, `Đã tạo kế hoạch ${draft.plan_id}. Chờ duyệt.`);
   assert.ok(!draft.text.includes(draft.path));

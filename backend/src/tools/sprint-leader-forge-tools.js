@@ -39,7 +39,7 @@ export function createSprintLeaderForgeTools({ projectRoot, fileService, codeSea
     const bytes = Buffer.byteLength(JSON.stringify(result), "utf8");
     if (bytes > MAX_RESULT_BYTES || outputBytes + bytes > MAX_TOTAL_BYTES) throw fail("SPRINT_LEADER_TOOL_BUDGET", "Sprint Leader read output budget is exhausted.");
     outputBytes += bytes;
-    projectLogger({ event_name: "sprint_leader.tool_call", level: "info", status: "success", message: `Sprint Leader used ${name}.`, task_id: correlationId, correlation_id: correlationId, source: "sprint-leader-forge-tools", payload: { agent_id: profile.agent_id, tool: name, output_bytes: bytes } });
+    projectLogger({ timestamp: new Date().toISOString(), event_name: "sprint_leader.tool_call", level: "info", status: "success", message: `Sprint Leader used ${name}.`, task_id: correlationId, correlation_id: correlationId, source: "sprint-leader-forge-tools", payload: { agent_id: profile.agent_id, tool: name, output_bytes: bytes } });
     return result;
   } }]));
   return { definitions, registry, context };
