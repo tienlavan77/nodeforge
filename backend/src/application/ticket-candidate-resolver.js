@@ -20,7 +20,7 @@ export function createTicketCandidateResolver({ relevantTreeSelector, clock = ()
         title: base.title ?? "",
         objective: base.objective ?? "",
         acceptance_criteria: base.acceptance_criteria ?? [],
-        style: base.style,
+        style: base.implementation_type ?? base.style,
         limit: 5,
         depth: 1
       };

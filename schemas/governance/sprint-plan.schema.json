@@ -10,6 +10,23 @@
     "roadmap_id": { "$ref": "../core/common.schema.json#/$defs/id" },
     "project_id": { "$ref": "../core/common.schema.json#/$defs/id" },
     "objective": { "type": "string", "minLength": 1 },
+    "human_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "in_scope", "out_of_scope", "approach", "components", "risks", "assumptions", "open_questions", "evidence_refs", "acceptance_criteria"],
+      "properties": {
+        "outcome": { "type": "string", "minLength": 1 },
+        "in_scope": { "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }] },
+        "out_of_scope": { "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }] },
+        "approach": { "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }] },
+        "components": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "risks": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "assumptions": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "open_questions": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "evidence_refs": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "acceptance_criteria": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+      }
+    },
     "dependencies": { "type": "array", "items": { "$ref": "../core/common.schema.json#/$defs/id" }, "uniqueItems": true },
     "tickets": { "type": "array", "items": { "$ref": "ticket.schema.json" }, "minItems": 1 },
     "exit_criteria": { "type": "array", "items": { "type": "string" }, "minItems": 1 }

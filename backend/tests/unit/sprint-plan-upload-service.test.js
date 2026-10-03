@@ -31,3 +31,13 @@ test("rejects malformed plans and project mismatches", () => {
   assert.throws(() => service.upload({ projectId: plan.project_id, sprintPlan: { ...plan, tickets: [] } }), /Invalid Sprint Plan/);
   assert.throws(() => service.upload({ projectId: "OTHER", sprintPlan: plan }), /project_id must match/);
 });
+
+test("uploading a canary sprint retains the current project sprint projection", () => {
+  const roadmaps = createRoadmapStore();
+  const service = createSprintPlanUploadService({ roadmaps });
+  service.upload({ projectId: plan.project_id, sprintPlan: plan });
+  const canary = { ...plan, id: "SPRINT-UPLOAD-2", tickets: [{ ...plan.tickets[0], id: "TICKET-UPLOAD-2", sprint_id: "SPRINT-UPLOAD-2" }] };
+  service.upload({ projectId: plan.project_id, sprintPlan: canary });
+  assert.deepEqual(roadmaps.getCurrent().sprints.map((sprint) => sprint.id), ["SPRINT-UPLOAD-1", "SPRINT-UPLOAD-2"]);
+  assert.equal(service.get({ projectId: plan.project_id, sprintId: canary.id }).tickets[0].id, "TICKET-UPLOAD-2");
+});

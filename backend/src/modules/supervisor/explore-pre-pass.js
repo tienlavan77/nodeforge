@@ -26,7 +26,7 @@ export function createExplorePrepass({ relevantTreeSelector, protocolStorage } =
         title: ticket.title ?? "",
         objective: ticket.objective ?? "",
         acceptance_criteria: ticket.acceptance_criteria ?? [],
-        style: ticket.style,
+        style: ticket.implementation_type ?? ticket.style,
         limit,
         depth: 1,
         priorFiles: explicitPaths,

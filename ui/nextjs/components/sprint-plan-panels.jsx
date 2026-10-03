@@ -4,23 +4,34 @@
 import { useEffect, useRef, useState } from "react";
 import { PanelHeader } from "./agent-panel-header.jsx";
 import { EntityDetailsModal, TicketCard, sortSprintTickets } from "./ticket-detail-modal.jsx";
+import { PlanReviewModal } from "./plan-review-modal.jsx";
 
 const PROJECT_ID = "PROJECT-NODEFORGE";
 
 // Dashboard for viewing and managing sprint plans.
 export function SprintPlanDashboard({ dashboard, client, onRefresh, onTicketDeleted, hideHeading = false }) {
   const [runningId, setRunningId] = useState(null);
+  const [draftingId, setDraftingId] = useState(null);
   const [runMessage, setRunMessage] = useState("");
   const [runEvents, setRunEvents] = useState([]);
   const runStreamRef = useRef(null);
   const [viewSprint, setViewSprint] = useState(null);
+  const [reviewSprintId, setReviewSprintId] = useState(null);
   const [viewState, setViewState] = useState("idle");
   const [deleteMessage, setDeleteMessage] = useState("");
   const [highlightSprint, setHighlightSprint] = useState(null);
   const [collapsedSprints, setCollapsedSprints] = useState({});
+  const [markdownSprints, setMarkdownSprints] = useState([]);
   const knownSprintIds = useRef(null);
   useEffect(() => () => runStreamRef.current?.close?.(), []);
   const sprints = dashboard?.roadmap?.sprints ?? [];
+  useEffect(() => {
+    let active = true;
+    client.listPlans(dashboard?.project_id ?? PROJECT_ID).then((plans) => {
+      if (active) setMarkdownSprints(plans.filter((plan) => plan.sprint_id && plan.source_path?.endsWith(".md")).map((plan) => plan.sprint_id));
+    }).catch((error) => { if (active) setRunMessage(`Plan list unavailable: ${error.message}`); });
+    return () => { active = false; };
+  }, [client, dashboard?.project_id, dashboard?.roadmap?.version]);
   useEffect(() => {
     const ids = new Set(sprints.map((sprint) => sprint.id));
     if (knownSprintIds.current) {
@@ -65,6 +76,14 @@ export function SprintPlanDashboard({ dashboard, client, onRefresh, onTicketDele
     }
   }
 
+  // Starts Sprint Leader planning without granting permission to execute tickets.
+  async function handleDraft(sprintId) {
+    setDraftingId(sprintId); setRunMessage("");
+    try { const result = await client.draftSprintPlan(dashboard.project_id ?? PROJECT_ID, sprintId); setRunMessage(`Sprint Leader draft started: ${result.session_id}. Open Review plan after the agent completes.`); }
+    catch (error) { setRunMessage(`Draft failed: ${error.message}`); }
+    finally { setDraftingId(null); }
+  }
+
   async function handleView(sprintId) {
     setViewState("loading");
     setViewSprint(null);
@@ -87,12 +106,13 @@ export function SprintPlanDashboard({ dashboard, client, onRefresh, onTicketDele
       {!collapsedSprints[sprint.id] && <div className="sprint-ticket-list" aria-label={`Tasks in ${sprint.id}`}>
         {sprint.tasks?.length ? sortSprintTickets(sprint.tasks).map((ticket) => <TicketCard key={ticket.id} ticket={{ ...ticket, sprint_id: sprint.id }} client={client} projectId={dashboard.project_id} onRefresh={onRefresh} onDeleted={onTicketDeleted} />) : <p className="dashboard-state">No tasks in this sprint.</p>}
       </div>}
-      <div className="sprint-actions"><button className="sprint-view-button small" onClick={() => handleView(sprint.id)}>{viewSprint?.id === sprint.id && viewState === "ready" ? "Hide" : "View"}</button><button className="sprint-delete-button small" onClick={() => handleDelete(sprint.id)} disabled={Boolean(runningId) || sprint.status === "done"}>Delete</button><button className={`sprint-run-button small ${runningId === sprint.id ? "is-running" : ""}`} onClick={() => handleRun(sprint.id)} disabled={Boolean(runningId) || sprint.status === "done"}>{runningId === sprint.id ? "Running…" : "Run"}</button></div>
+      <div className="sprint-actions"><button className="sprint-view-button small" onClick={() => handleView(sprint.id)}>{viewSprint?.id === sprint.id && viewState === "ready" ? "Hide" : "View"}</button><button className="sprint-view-button small" onClick={() => handleDraft(sprint.id)} disabled={Boolean(draftingId) || Boolean(runningId) || markdownSprints.includes(sprint.id)} title={markdownSprints.includes(sprint.id) ? "Create a new Markdown plan revision to replan this Sprint." : undefined}>{draftingId === sprint.id ? "Drafting…" : "Draft plan"}</button><button className="sprint-view-button small" onClick={() => setReviewSprintId(sprint.id)}>Review plan</button><button className="sprint-delete-button small" onClick={() => handleDelete(sprint.id)} disabled={Boolean(runningId) || sprint.status === "done"}>Delete</button><button className={`sprint-run-button small ${runningId === sprint.id ? "is-running" : ""}`} onClick={() => handleRun(sprint.id)} disabled={Boolean(runningId) || sprint.status === "done"}>{runningId === sprint.id ? "Running…" : "Run"}</button></div>
       {viewSprint?.id === sprint.id && <EntityDetailsModal title={viewSprint.id} state={viewState} onClose={() => { setViewState("idle"); setViewSprint(null); }}>{viewState === "ready" && <><p className="sprint-objective">{viewSprint.objective}</p><h3>Tickets ({viewSprint.tickets?.length ?? 0})</h3><div className="sprint-ticket-table">{(viewSprint.tickets ?? []).map((ticket) => <article key={ticket.id}><strong>{ticket.id}</strong><span>{ticket.title}</span><small>{ticket.priority ?? "normal"}</small></article>)}</div><h3>Exit Criteria</h3><ul>{(viewSprint.exit_criteria ?? []).map((item) => <li key={item}>{item}</li>)}</ul></>}</EntityDetailsModal>}
     </article>)}
     {runMessage && <p className="sprint-run-message" role="status" aria-live="polite">{runMessage}</p>}
     {runEvents.length > 0 && <div className="sprint-run-events" role="log" aria-label="Sprint run events">{runEvents.map((event, index) => <div key={`${index}-${event}`}><strong>Run</strong> {event}</div>)}</div>}
     {deleteMessage && <p className="sprint-run-message" role="status">{deleteMessage}</p>}
+    {reviewSprintId && <PlanReviewModal client={client} projectId={dashboard.project_id ?? PROJECT_ID} sprintId={reviewSprintId} onClose={() => setReviewSprintId(null)} onChanged={onRefresh} />}
   </section>;
 }
 

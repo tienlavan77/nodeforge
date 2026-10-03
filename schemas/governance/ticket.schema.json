@@ -4,7 +4,7 @@
   "title": "Forge Governance Ticket",
   "type": "object",
   "additionalProperties": false,
-  "required": ["id", "project_id", "roadmap_id", "sprint_id", "title", "objective", "acceptance_criteria", "style", "provenance"],
+  "required": ["id", "project_id", "roadmap_id", "sprint_id", "title", "objective", "acceptance_criteria", "provenance"],
   "$defs": {
     "candidateFile": { "type": "object", "additionalProperties": false, "required": ["path", "role"], "properties": {
       "path": { "type": "string", "minLength": 1 },
@@ -48,7 +48,10 @@
     "candidates_produced_by": { "type": "string" },
     "candidates_produced_at": { "$ref": "../core/common.schema.json#/$defs/timestamp" },
     "priority": { "type": "string", "enum": ["low", "medium", "normal", "high", "critical"] },
-    "style": { "type": "array", "items": { "type": "string", "enum": ["frontend", "backend", "security", "infra", "docs"] }, "minItems": 1, "uniqueItems": true },
+    "style": { "type": "array", "items": { "type": "string", "enum": ["frontend", "backend", "security", "infra", "docs"] }, "minItems": 1, "maxItems": 1, "uniqueItems": true },
+    "implementation_type": { "type": "array", "items": { "type": "string", "enum": ["frontend", "backend", "security"] }, "minItems": 1, "maxItems": 1, "uniqueItems": true },
+    "change_nature": { "type": "string", "enum": ["presentation-only"] },
+    "file_budget": { "type": "integer", "minimum": 1, "maximum": 4 },
     "status": { "type": "string", "enum": ["planned", "pending", "running", "reviewing", "done", "failed", "needs_human_review"] },
     "last_error": { "type": "string" },
     "dependencies": { "type": "array", "items": { "$ref": "../core/common.schema.json#/$defs/id" }, "uniqueItems": true },
@@ -61,5 +64,12 @@
   "allOf": [{
     "if": { "properties": { "rollout_package": { "const": "A5" } }, "required": ["rollout_package"] },
     "then": { "required": ["execution_contract"], "properties": { "execution_contract": {} } }
-  }]
+  }, {
+    "if": { "properties": { "change_nature": { "const": "presentation-only" } }, "required": ["change_nature"] },
+    "then": { "properties": { "implementation_type": { "const": ["frontend"] } }, "required": ["implementation_type"] }
+  }],
+  "oneOf": [
+    { "properties": { "implementation_type": true }, "required": ["implementation_type"] },
+    { "properties": { "style": true }, "required": ["style"] }
+  ]
 }

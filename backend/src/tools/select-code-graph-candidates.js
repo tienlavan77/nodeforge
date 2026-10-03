@@ -25,8 +25,8 @@ export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector, fres
     const cached = await cachedTicketCandidates(task, limit, freshnessChecker);
     if (cached) return { task_id: taskId, query: input.query.trim(), index_version: cached.index_version ?? null, selected: cached.selected, candidate_source: "ticket", ...(cached.freshness ? { freshness: cached.freshness } : {}), ...(cached.stale_paths?.length ? { stale_paths: cached.stale_paths, freshness_note: "Stale candidates are flagged, not removed — read the file live and verify before editing." } : {}), discovery_budget: discoveryNotice(context) };
     const args = context.eval_harness === true
-      ? { title: task.title ?? "", objective: task.objective ?? "", acceptance_criteria: task.acceptance_criteria ?? [], style: task.style, limit, depth: 1 }
-      : { title: task.title ?? "", objective: [task.objective ?? "", input.query.trim(), input.context ?? ""].filter(Boolean).join(" "), acceptance_criteria: task.acceptance_criteria ?? [], style: task.style, limit, scope: context.scope ?? "all", allowed_prefixes: context.allowed_prefixes, priorFiles: extractExplicitPaths(task), dependencyFiles: Array.isArray(task.dependency_files) ? task.dependency_files : [] };
+      ? { title: task.title ?? "", objective: task.objective ?? "", acceptance_criteria: task.acceptance_criteria ?? [], style: task.implementation_type ?? task.style, limit, depth: 1 }
+      : { title: task.title ?? "", objective: [task.objective ?? "", input.query.trim(), input.context ?? ""].filter(Boolean).join(" "), acceptance_criteria: task.acceptance_criteria ?? [], style: task.implementation_type ?? task.style, limit, scope: context.scope ?? "all", allowed_prefixes: context.allowed_prefixes, priorFiles: extractExplicitPaths(task), dependencyFiles: Array.isArray(task.dependency_files) ? task.dependency_files : [] };
     // Prefer semantic retrieval with freshness validation; fall back for older test doubles.
     const result = typeof relevantTreeSelector.selectFreshWithEmbeddings === "function"
       ? await relevantTreeSelector.selectFreshWithEmbeddings(args)

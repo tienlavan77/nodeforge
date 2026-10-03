@@ -44,7 +44,7 @@ export function ticketText(ticket) {
 
 // Detects UI-oriented tickets that need frontend prefixes.
 export function isUiTicket(ticket) {
-  if (ticket?.style?.includes("frontend")) return true;
+  if ((ticket?.implementation_type ?? ticket?.style)?.includes("frontend")) return true;
   return /\b(ui|frontend|front-end|react|next(?:\.js)?|component|page|button|layout|watcher|header|screen|responsive|status(?: area| line)?|dashboard|modal)\b/i.test(ticketText(ticket));
 }
 
@@ -57,7 +57,7 @@ export function prefixForPath(path) {
 
 // Detects server-side tickets that require backend implementation access.
 export function isBackendTicket(ticket) {
-  if (ticket?.style?.includes("backend")) return true;
+  if ((ticket?.implementation_type ?? ticket?.style)?.includes("backend")) return true;
   const text = ticketScopeText(ticket);
   if (/\b(backend|back-end|server|endpoint|api|database|sqlite|request payload)\b/i.test(text)) return true;
   return /\b(persist|persistence)\b/i.test(text) && /\b(database|db|sqlite|server|backend|back-end)\b/i.test(text);

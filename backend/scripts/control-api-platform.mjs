@@ -30,8 +30,10 @@ import { createTicketCandidateResolver } from "../src/application/ticket-candida
 import { createTicketSprintLeader } from "../src/application/ticket-sprint-leader.js";
 import { createSprintPlanLeader } from "../src/application/sprint-plan-leader.js";
 import { createTicketFileStore } from "../src/application/ticket-file-store.js";
+import { createSprintLeaderToolOptions } from "../src/tools/sprint-leader-forge-tools.js";
+import { ConfigurationError } from "../src/shared/errors.js";
 
-export function createControlApiPlatform({ config, database, indexDb, fileService, agentGateway, claudeSdkGateway, codexSdkGateway, agentRoleResolver, logEvent } = {}) {
+export function createControlApiPlatform({ config, database, indexDb, fileService, agentGateway, claudeSdkGateway, codexSdkGateway, openaiSdkGateway, agentRoleResolver, logEvent, draftPlan } = {}) {
   const { projectId, cwd: projectRoot } = config;
   const { search: codeSearch, fileGraph, embeddingStore, embeddingProvider } = createRetrievalDependencies({ database: indexDb });
   // Freshness checker compares indexed sha with live disk reads so candidates
@@ -40,10 +42,16 @@ export function createControlApiPlatform({ config, database, indexDb, fileServic
   const freshnessChecker = fileService?.readForIndex ? createIndexFreshnessChecker({ database: indexDb, fileService }) : null;
   const relevantTreeSelector = createRelevantTreeSelector({ search: codeSearch, fileGraph, embeddingStore, embeddingProvider, freshnessChecker, maxFiles: 30, defaultDepth: 1 });
   const ticketCandidateResolver = createTicketCandidateResolver({ relevantTreeSelector });
-  // Sprint leader drafts through the configured SDK with built-in search; no Forge MCP tools.
-  const sprintPlanSdkGateway = createRoleSdkGateway({ claudeSdkGateway, codexSdkGateway, agentRoleResolver });
-  const ticketSprintLeader = sprintPlanSdkGateway ? createTicketSprintLeader({ sdkGateway: sprintPlanSdkGateway, projectRoot, logger: createTicketSprintLeaderLogger(logEvent) }) : undefined;
-  const sprintPlanLeader = sprintPlanSdkGateway ? createSprintPlanLeader({ sdkGateway: sprintPlanSdkGateway, projectRoot }) : undefined;
+  // Sprint Leader planning uses its configured SDK provider and Forge read tools.
+  const sprintPlanSdkGateway = createRoleSdkGateway({ claudeSdkGateway, codexSdkGateway, openaiSdkGateway, agentRoleResolver });
+  // Grants the resolved Sprint Leader an isolated read-only Forge session per planning request.
+  const toolOptions = ({ agentId, correlationId }) => {
+    const profile = agentRoleResolver.resolveProfile("sprint_leader");
+    if (profile.agent_id !== agentId) throw new ConfigurationError("Sprint Leader profile changed before tool dispatch.");
+    return createSprintLeaderToolOptions({ profile, correlationId, projectRoot, fileService, codeSearch, projectLogger: logEvent });
+  };
+  const ticketSprintLeader = sprintPlanSdkGateway ? createTicketSprintLeader({ sdkGateway: sprintPlanSdkGateway, projectRoot, toolOptions, logger: createTicketSprintLeaderLogger(logEvent) }) : undefined;
+  const sprintPlanLeader = sprintPlanSdkGateway ? createSprintPlanLeader({ sdkGateway: sprintPlanSdkGateway, projectRoot, toolOptions }) : undefined;
   const communications = createAgentCommunicationStore({ database, fileService });
   const conversations = createConversationCrudService({ database });
   const bus = createAgentCommunicationBus({ store: communications });
@@ -65,23 +73,23 @@ export function createControlApiPlatform({ config, database, indexDb, fileServic
   const memory = createProjectMemoryStore({ summaries });
   const memoryRetriever = createMemoryRetriever({ memory });
   const contextEngine = createContextEngine({ database: indexDb, projectRoot, projectId });
-  const sprintOrchestration = createSprintOrchestrationService({ sprintPlans, sprintPlanStore: roadmaps, ticketProvenanceTracker: provenance, agentGateway, publisher: eventPublisher, candidateResolver: ticketCandidateResolver, sprintPlanLeader });
+  const sprintOrchestration = createSprintOrchestrationService({ sprintPlans, sprintPlanStore: roadmaps, ticketProvenanceTracker: provenance, agentGateway, publisher: eventPublisher, candidateResolver: ticketCandidateResolver, sprintPlanLeader, agentRoleResolver, draftPlan });
   const proseTicketService = createProseTicketService({ roadmapStore: roadmaps });
   const ticketFileStore = createTicketFileStore({ database, fileService });
   const sprintPlanUpload = createSprintPlanUploadService({ roadmaps, publisher: eventPublisher, projectRoot, isRunning: (sprintId) => sprintOrchestration.isRunning(sprintId) });
-  return { projectId, indexDb, codeSearch, fileGraph, relevantTreeSelector, freshnessChecker, ticketCandidateResolver, ticketSprintLeader, memoryRetriever, communications, conversations, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, verificationOrchestrator, testService, contextEngine, sprintOrchestration, proseTicketService, ticketFileStore, sprintPlanUpload, taskSummaries: summaries, projectMemory: memory };
+  return { projectId, indexDb, codeSearch, fileGraph, relevantTreeSelector, freshnessChecker, ticketCandidateResolver, ticketSprintLeader, sprintPlanLeader, memoryRetriever, communications, conversations, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, verificationOrchestrator, testService, contextEngine, sprintOrchestration, proseTicketService, ticketFileStore, sprintPlanUpload, taskSummaries: summaries, projectMemory: memory };
 }
 
 // Selects the SDK gateway for sprint leader drafting without touching gateway internals.
-function createRoleSdkGateway({ claudeSdkGateway, codexSdkGateway, agentRoleResolver }) {
-  if (!claudeSdkGateway && !codexSdkGateway) return undefined;
+export function createRoleSdkGateway({ claudeSdkGateway, codexSdkGateway, openaiSdkGateway, agentRoleResolver }) {
+  if (!claudeSdkGateway && !codexSdkGateway && !openaiSdkGateway) return undefined;
   return {
     async execute(request) {
       const profile = agentRoleResolver?.resolveProfile?.("sprint_leader");
-      const gateway = selectSdkGateway(request?.agentId, { claudeSdkGateway, codexSdkGateway, agentRoleResolver });
+      const gateway = selectSdkGateway(request?.agentId, { claudeSdkGateway, codexSdkGateway, openaiSdkGateway, agentRoleResolver });
       const provider = profile?.provider ?? (gateway === codexSdkGateway ? "codex" : "claude");
       try {
-        const result = await gateway.execute(request);
+        const result = await gateway.execute({ ...request, ...(gateway === openaiSdkGateway ? { agent: profile } : {}), ...(gateway === codexSdkGateway ? { onEvent: async (event) => { assertSprintLeaderCodexEvent(event); await request.onEvent?.(event); } } : {}) });
         return {
           ...result,
           _gateway_diagnostics: {
@@ -98,12 +106,17 @@ function createRoleSdkGateway({ claudeSdkGateway, codexSdkGateway, agentRoleReso
 }
 
 // Chooses the sprint leader provider gateway from the resolved sprint leader profile.
-function selectSdkGateway(agentId, { claudeSdkGateway, codexSdkGateway, agentRoleResolver }) {
+export function selectSdkGateway(agentId, { claudeSdkGateway, codexSdkGateway, openaiSdkGateway, agentRoleResolver }) {
   const profile = agentRoleResolver?.resolveProfile?.("sprint_leader");
-  if (profile?.agent_id === agentId && profile.provider === "codex" && codexSdkGateway) return codexSdkGateway;
-  if (claudeSdkGateway) return claudeSdkGateway;
-  if (codexSdkGateway) return codexSdkGateway;
-  throw new Error("Sprint leader SDK gateway is unavailable.");
+  if (profile?.agent_id !== agentId) throw new ConfigurationError("Sprint Leader agent ID does not match the configured profile.");
+  const gateway = profile.provider === "codex" ? codexSdkGateway : profile.provider === "openai" ? openaiSdkGateway : ["claude", "anthropic"].includes(profile.provider) ? claudeSdkGateway : null;
+  if (!gateway) throw new ConfigurationError(`Sprint Leader SDK gateway is unavailable for ${profile.provider}.`);
+  return gateway;
+}
+
+// Prevents Codex built-in file, shell, and network actions during Sprint Leader planning.
+function assertSprintLeaderCodexEvent(event) {
+  if (event?.type === "item.started" && ["command_execution", "file_change", "web_search"].includes(event.item?.type)) throw Object.assign(new ConfigurationError(`Sprint Leader attempted an unapproved built-in tool: ${event.item.type}.`), { code: "TOOL_FORBIDDEN" });
 }
 function createTicketStatusLogger({ internalBus, logEvent }) {
   // Forwards ticket status events and records failures for operators.
