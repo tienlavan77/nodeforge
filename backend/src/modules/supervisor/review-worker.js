@@ -87,8 +87,8 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
 
   // Loads the canonical Reviewer role contract through Forge File Service before every verdict.
   async function readReviewerRules() {
-    await assertReviewerReadPath(projectRoot, "workflows/agents/reviewer.md");
-    const file = rulesFileService?.readForIndex ? await rulesFileService.readForIndex({ path: "workflows/agents/reviewer.md", maxBytes: 32_000 }) : codeCache?.read ? await codeCache.read({ path: "workflows/agents/reviewer.md" }) : await fileService.readForIndex({ path: "workflows/agents/reviewer.md", maxBytes: 32_000 });
+    await assertReviewerReadPath(projectRoot, "workflows/agents/reviewer/README.md");
+    const file = rulesFileService?.readForIndex ? await rulesFileService.readForIndex({ path: "workflows/agents/reviewer/README.md", maxBytes: 32_000 }) : codeCache?.read ? await codeCache.read({ path: "workflows/agents/reviewer/README.md" }) : await fileService.readForIndex({ path: "workflows/agents/reviewer/README.md", maxBytes: 32_000 });
     if (!file?.content) throw reviewError("REVIEWER_RULES_UNAVAILABLE", "Reviewer role rules could not be loaded.");
     return file.content;
   }

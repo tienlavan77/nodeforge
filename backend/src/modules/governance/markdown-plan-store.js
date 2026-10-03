@@ -49,7 +49,14 @@ export function createMarkdownPlanStore({ projectId, database, fileService, cloc
     const latest = database.all("SELECT MAX(revision) AS revision FROM markdown_plan_revisions WHERE plan_id=? AND project_id=?", [planId, projectId])[0]?.revision;
     const decision = database.all("SELECT * FROM markdown_plan_decisions WHERE plan_id=? AND revision=? ORDER BY decided_at DESC, rowid DESC LIMIT 1", [planId, revision])[0] ?? null;
     const handoff = database.all("SELECT status,sprint_id FROM markdown_plan_handoffs WHERE plan_id=? AND revision=?", [planId, revision])[0] ?? null;
-    return { plan_id: planId, revision, project_id: projectId, file_path: row.file_path, sha256: row.sha256, source_path: row.summary_path, source_sha256: row.summary_sha256, conversation_id: row.conversation_id, created_at: row.created_at, format: "markdown", markdown, status: latest !== revision ? "superseded" : decision?.decision ?? "awaiting_human_approval", decision, handoff_status: handoff?.status ?? null, sprint_id: handoff?.sprint_id ?? null };
+    const handoffStatus = handoff?.status === "completed" && !isSprintInRoadmap(handoff.sprint_id) ? "recovery_required" : handoff?.status ?? null;
+    return { plan_id: planId, revision, project_id: projectId, file_path: row.file_path, sha256: row.sha256, source_path: row.summary_path, source_sha256: row.summary_sha256, conversation_id: row.conversation_id, created_at: row.created_at, format: "markdown", markdown, status: latest !== revision ? "superseded" : decision?.decision ?? "awaiting_human_approval", decision, handoff_status: handoffStatus, sprint_id: handoff?.sprint_id ?? null };
+  }
+
+  // Exposes incomplete handoffs for recovery when the Sprint never reached the roadmap.
+  function isSprintInRoadmap(sprintId) {
+    const row = database.all("SELECT roadmap_json FROM governance_roadmaps ORDER BY sequence DESC LIMIT 1")[0];
+    return Boolean(row && JSON.parse(row.roadmap_json).sprints?.some((sprint) => sprint.id === sprintId));
   }
 
   // Lists current readable drafts without presenting them as executable JSON plans.

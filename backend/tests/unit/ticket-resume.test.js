@@ -166,13 +166,13 @@ test("read cache survives a restart via checkpoint without file content", async 
 test("coder must read workflow rules before editing, including after Resume", async () => {
   const store = memoryStore();
   const registry = {
-    read_file: { execute: async () => ({ path: "workflows/agents/coder.md", content: "Coder rules", sha256: "sha256:abc" }) },
+    read_file: { execute: async () => ({ path: "workflows/agents/coder/README.md", content: "Coder rules", sha256: "sha256:abc" }) },
     edit_diff: { execute: async () => ({ ok: true }) }
   };
   const context = { changed_paths: [] };
   const first = checkpointedRegistry({ store, registry, taskId: "T-CODER-RULES", complexity: { max_turns: 20 }, selected: { role: "coder" }, resumeState: createResumeState(null, { max_turns: 20 }) });
   await assert.rejects(() => first.edit_diff.execute({ path: "src/a.js" }, context), (error) => error.code === "CODER_RULES_REQUIRED");
-  await first.read_file.execute({ path: "workflows/agents/coder.md" }, context);
+  await first.read_file.execute({ path: "workflows/agents/coder/README.md" }, context);
   assert.equal(store.saved.at(-1).coder_rules_read, true);
   const resumed = checkpointedRegistry({ store, registry, taskId: "T-CODER-RULES", complexity: { max_turns: 20 }, selected: { role: "coder" }, resumeState: createResumeState(store.saved.at(-1), { max_turns: 20 }) });
   await resumed.edit_diff.execute({ path: "src/a.js" }, context);

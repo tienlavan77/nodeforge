@@ -12,7 +12,7 @@ function harness({ text = '{"verdict":"approved","findings":[]}', sourceSize = 1
   const worker = createReviewWorker({
     agentResolver: { resolveAvailable: () => ({ agent_id: "reviewer-1", agent_name: "Leader", provider: "openai", role: "reviewer" }) },
     openaiSdkGateway: { execute: async (input) => { calls.push(input); return { text }; } },
-    fileService: { readForIndex: async ({ path, maxBytes }) => ({ path, sha256: staleOnSecondRead && ++reads > 1 ? "sha256:changed" : "sha256:abc", size_bytes: sourceSize, content: path === "workflows/agents/reviewer.md" ? "Reviewer rules: inspect evidence and return a verdict." : "const ok = true;", maxBytes }) },
+    fileService: { readForIndex: async ({ path, maxBytes }) => ({ path, sha256: staleOnSecondRead && ++reads > 1 ? "sha256:changed" : "sha256:abc", size_bytes: sourceSize, content: path === "workflows/agents/reviewer/README.md" ? "Reviewer rules: inspect evidence and return a verdict." : "const ok = true;", maxBytes }) },
     gitService: { diffPatchFrom: async () => patch },
     projectRoot: "/project",
     projectLogger: (entry) => events.push(entry)
@@ -46,7 +46,7 @@ test("Reviewer reads local role rules while source remains bound to the committe
   });
   await worker.review({ task_id: "TASK-1", agent_id: "coder-1", payload: { ticket: { id: "TASK-1" }, changed_paths: ["src/a.js"] } });
   assert.deepEqual(sourceReads, ["src/a.js", "src/a.js"]);
-  assert.deepEqual(rulesReads, ["workflows/agents/reviewer.md"]);
+  assert.deepEqual(rulesReads, ["workflows/agents/reviewer/README.md"]);
   assert.match(prompt, /Review the verified commit/);
 });
 
@@ -65,7 +65,7 @@ test("ticket runtime wires local Reviewer policy separately from committed sourc
   });
   await runtime.reviewer.review({ task_id: "TASK-1", agent_id: "coder-1", payload: { ticket: { id: "TASK-1" }, changed_paths: ["src/a.js"] } });
   assert.deepEqual(sourceReads, ["src/a.js"]);
-  assert.deepEqual(rulesReads, ["workflows/agents/reviewer.md"]);
+  assert.deepEqual(rulesReads, ["workflows/agents/reviewer/README.md"]);
   assert.match(prompt, /Review the verified commit/);
 });
 
@@ -80,12 +80,12 @@ test("approved review verifies the requested path when Code Cache omits path", a
     agentResolver: { resolveAvailable: () => ({ agent_id: "reviewer-1", agent_name: "Leader", provider: "openai", role: "reviewer" }) },
     openaiSdkGateway: { execute: async () => ({ text: '{"verdict":"approved","findings":[]}' }) },
     fileService: { readForIndex: async () => { throw new Error("Cache should serve the review."); } },
-    codeCache: { read: async ({ path }) => { reads.push(path); return { sha256: "sha256:abc", size_bytes: 12, content: path.endsWith("reviewer.md") ? "Review evidence." : "const ok = 1;" }; } },
+    codeCache: { read: async ({ path }) => { reads.push(path); return { sha256: "sha256:abc", size_bytes: 12, content: path === "workflows/agents/reviewer/README.md" ? "Review evidence." : "const ok = 1;" }; } },
     projectRoot: "/project"
   });
   const result = await worker.review({ task_id: "TASK-1", correlation_id: "CORR-1", request_id: "REVIEW-1", agent_id: "coder-1", payload: { ticket: { id: "TASK-1" }, changed_paths: ["src/a.js"] } });
   assert.equal(result.verdict, "approved");
-  assert.deepEqual(reads, ["src/a.js", "workflows/agents/reviewer.md", "src/a.js"]);
+  assert.deepEqual(reads, ["src/a.js", "workflows/agents/reviewer/README.md", "src/a.js"]);
 });
 
 test("free-form or unsupported review evidence cannot approve a ticket", async () => {
@@ -113,8 +113,8 @@ test("Claude Reviewer receives the same Forge-only SDK boundary as other roles",
   const worker = createReviewWorker({
     agentResolver: { resolveAvailable: () => ({ agent_id: "reviewer-1", agent_name: "Leader", provider: "claude", role: "reviewer" }) },
     claudeSdkGateway: { execute: async (input) => { request = input; return { text: '{"verdict":"request_changes","findings":["Inspect the dialog behavior"]}' }; } },
-    fileService: { readForIndex: async ({ path }) => ({ path, sha256: "sha256:abc", size_bytes: content.length, content: path.endsWith("reviewer.md") ? "Review the changed source." : content }), listFiles: async () => ["src/a.js"], listDirectories: async () => ["src"] },
-    codeCache: { read: async ({ path }) => ({ path, sha256: "sha256:abc", size_bytes: content.length, content: path.endsWith("reviewer.md") ? "Review the changed source." : content }) },
+    fileService: { readForIndex: async ({ path }) => ({ path, sha256: "sha256:abc", size_bytes: content.length, content: path === "workflows/agents/reviewer/README.md" ? "Review the changed source." : content }), listFiles: async () => ["src/a.js"], listDirectories: async () => ["src"] },
+    codeCache: { read: async ({ path }) => ({ path, sha256: "sha256:abc", size_bytes: content.length, content: path === "workflows/agents/reviewer/README.md" ? "Review the changed source." : content }) },
     projectRoot: "/project"
   });
   await worker.review({ task_id: "TASK-1", correlation_id: "CORR-1", request_id: "REVIEW-1", agent_id: "coder-1", payload: { ticket: { id: "TASK-1" }, changed_paths: ["src/a.js"] } });

@@ -18,7 +18,7 @@ test("opens a ticket after all dependencies are done", async () => {
   const result = await service.open({ projectId: "PROJECT-1", ticketId: "NF-002" });
   assert.equal(result.ticket.id, "NF-002");
   assert.deepEqual(result.dependencies, ["NF-001"]);
-  assert.equal(result.rules_path, "workflows/agents/sprint-leader.md");
+  assert.equal(result.rules_path, "workflows/agents/sprint-leader/README.md");
 });
 
 test("blocks a ticket while a dependency is unfinished", async () => {

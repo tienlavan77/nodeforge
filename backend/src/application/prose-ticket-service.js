@@ -32,8 +32,7 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
       : null;
     const baseEnglish = sprintLeaderResult ?? { title: ticket.title, objective: ticket.objective, acceptance_criteria: ticket.acceptance_criteria };
     const updatedAt = clock().toISOString();
-    // Legacy regen path: keep the ticket schema-clean (no context/updated_at
-    // inside the ticket) and backfill style/candidates like the CRUD service.
+    // Legacy regen path keeps ticket source context outside the canonical ticket.
     const regenerated = backfillTicketCandidates({
       ...ticket,
       id: ticket.id,
@@ -41,7 +40,7 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
       title: String(baseEnglish.title ?? ticket.title),
       objective: String(baseEnglish.objective ?? ticket.objective),
       acceptance_criteria: Array.isArray(baseEnglish.acceptance_criteria) ? baseEnglish.acceptance_criteria.map(String) : ticket.acceptance_criteria,
-      ...(baseEnglish.implementation_type ? { implementation_type: baseEnglish.implementation_type } : ticket.implementation_type ? { implementation_type: ticket.implementation_type } : { style: baseEnglish.style ?? ticket.style ?? inferTicketStyle({ title: baseEnglish.title ?? ticket.title, objective: baseEnglish.objective ?? ticket.objective, acceptance_criteria: baseEnglish.acceptance_criteria ?? ticket.acceptance_criteria }) })
+      ...(baseEnglish.implementation_type ? { implementation_type: baseEnglish.implementation_type } : ticket.implementation_type ? { implementation_type: ticket.implementation_type } : { implementation_type: [((baseEnglish.style ?? ticket.style ?? inferTicketStyle({ title: baseEnglish.title ?? ticket.title, objective: baseEnglish.objective ?? ticket.objective, acceptance_criteria: baseEnglish.acceptance_criteria ?? ticket.acceptance_criteria }) ?? []).find((value) => ["frontend", "backend", "security"].includes(value)) ?? "backend")] })
     });
     if (regenerated.implementation_type) delete regenerated.style;
     for (const field of ["context", "vietnamese_context", "original_vietnamese_context", "english_content", "updated_at"]) delete regenerated[field];
@@ -81,6 +80,7 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
   return Object.freeze({ parse, createFromObject, regenerateEnglish });
   function createFromObject(ticket) {
     if (!ticket || typeof ticket !== "object" || Array.isArray(ticket)) return { create_ticket: true, status: "needs_input", error_code: "invalid_ticket_json", question: "Ticket JSON không hợp lệ." };
+    if (ticket.style !== undefined) return { create_ticket: true, status: "needs_input", question: "style is obsolete; use implementation_type." };
     const normalized = backfillTicketCandidates(ticket);
     if (!validate(normalized)) return validationResponse(validate.errors, normalized);
     return persist(normalized);
@@ -92,6 +92,7 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
     if (!value || /^\/\S+/.test(value)) return { create_ticket: false };
     const structured = parseStructured(value);
     if (structured) {
+      if (structured.style !== undefined) return { create_ticket: true, status: "needs_input", question: "style is obsolete; use implementation_type." };
       const normalizedStructured = backfillTicketCandidates(structured);
       if (!validate(normalizedStructured)) return invalidStructured(validate.errors, normalizedStructured);
       return persist(normalizedStructured);

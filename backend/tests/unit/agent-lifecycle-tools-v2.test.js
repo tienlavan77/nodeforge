@@ -65,12 +65,12 @@ test("read_file returns metadata for an 81-line project file", async () => {
 
 test("coder can read workflow rules but cannot edit workflow files", async () => {
   const { fileService } = await harness();
-  await fileService.atomicWrite({ path: "workflows/agents/coder.md", content: "Coder rules\n", replace: true });
+  await fileService.atomicWrite({ path: "workflows/agents/coder/README.md", content: "Coder rules\n", replace: true });
   const context = { agent_identity: { role: "coder" }, allowed_prefixes: ["workflows/"] };
-  const read = await createReadFileTool({ fileService }).execute({ path: "workflows/agents/coder.md" }, context);
+  const read = await createReadFileTool({ fileService }).execute({ path: "workflows/agents/coder/README.md" }, context);
   assert.equal(read.content, "Coder rules\n");
-  await assert.rejects(() => createReadFileTool({ fileService }).execute({ path: "workflows/agents/coder.md", offset: 1, limit: 80 }, context), (error) => error.code === "INPUT_INVALID");
-  await assert.rejects(() => createEditDiffTool({ fileService }).execute({ path: "workflows/agents/coder.md", before_checksum: read.sha256, anchor: "Coder", replacement: "Other" }, context), (error) => error.code === "FILE_ROLE_FORBIDDEN");
+  await assert.rejects(() => createReadFileTool({ fileService }).execute({ path: "workflows/agents/coder/README.md", offset: 1, limit: 80 }, context), (error) => error.code === "INPUT_INVALID");
+  await assert.rejects(() => createEditDiffTool({ fileService }).execute({ path: "workflows/agents/coder/README.md", before_checksum: read.sha256, anchor: "Coder", replacement: "Other" }, context), (error) => error.code === "FILE_ROLE_FORBIDDEN");
   await assert.rejects(() => createWriteDiffTool({ fileService }).execute({ path: "workflows/new.md", before_checksum: null, content: "Rules\n" }, context), (error) => error.code === "FILE_ROLE_FORBIDDEN");
 });
 

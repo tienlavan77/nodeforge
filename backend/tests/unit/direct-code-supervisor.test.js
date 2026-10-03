@@ -27,7 +27,7 @@ for (const provider of ["codex", "claude"]) {
     assert.equal(result.agent_id, profile.agent_id);
     assert.equal(result.status, "completed");
     assert.match(received.prompt, /chỉnh sửa UI để nhả chữ mượt/);
-    assert.match(received.prompt, /workflows\/agents\/coder\.md/);
+    assert.match(received.prompt, /workflows\/agents\/coder\/README\.md/);
     assert.match(received.prompt, /schemas\//);
     assert.match(received.prompt, /must not access docs\//);
     const context = provider === "codex" ? received.options.forgeTools.context : null;
@@ -38,7 +38,7 @@ for (const provider of ["codex", "claude"]) {
       assert.ok(context.allowed_prefixes.includes("workflows/"));
       assert.equal(context.allowed_prefixes.includes("docs/"), false);
       assert.ok(context.allowed_file_paths.includes("vocabulary/glossary.md"));
-      assert.ok(context.allowed_file_paths.includes("workflows/agents/coder.md"));
+      assert.ok(context.allowed_file_paths.includes("workflows/agents/coder/README.md"));
       assert.equal(received.options.forgeTools.definitions.some((tool) => tool.name === "select_code_graph_candidates"), false);
       assert.doesNotMatch(received.prompt, /select_code_graph_candidates/);
     } else {
