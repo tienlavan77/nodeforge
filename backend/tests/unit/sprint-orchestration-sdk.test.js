@@ -3,6 +3,8 @@ import test from "node:test";
 
 import { createSprintOrchestrationService } from "../../src/application/sprint-orchestration-service.js";
 
+const humanPlan = { outcome: "Working API", in_scope: "Endpoint", out_of_scope: "Other services", approach: "Update endpoint", components: ["backend API"], risks: [], assumptions: [], open_questions: [], evidence_refs: ["Sprint brief"], acceptance_criteria: ["Done"] };
+
 // Covers SDK sprint planning without source candidates or the legacy stream.
 function makeSprint() {
   return {
@@ -19,12 +21,14 @@ test("sdk sprint leader plan discards supplied candidates without legacy stream"
   const published = [];
   const streams = [];
   const requests = [];
+  const drafts = [];
   const sprint = makeSprint();
   const service = createSprintOrchestrationService({
     sprintPlans: { getSprintById: () => structuredClone(sprint) },
     sprintPlanStore: { save: () => {}, getAllVersions: () => [] },
     agentGateway: { async *stream(args) { streams.push(args); yield { text: "UNUSED" }; } },
     publisher: { publish: (event) => { published.push(event); return event; } },
+    draftPlan: async (plan) => { drafts.push(plan); return { plan_id: `PLAN-${plan.id}`, revision: 1, sha256: "review-checksum" }; },
     agentRoles: ["sprint-leader"],
     sprintPlanLeader: {
       requestPlan: async (args) => {
@@ -34,7 +38,8 @@ test("sdk sprint leader plan discards supplied candidates without legacy stream"
           roadmap_id: "ROADMAP-1",
           project_id: "P1",
           objective: "Ship the API",
-          tickets: [{ title: "Fix endpoint", objective: "Fix it.", acceptance_criteria: ["Works."], style: ["backend"], candidate_files: [{ path: "backend/a.js", role: "PATCH", symbol: "handleRequest", reason: "edit handleRequest" }] }],
+          human_plan: humanPlan,
+          tickets: [{ id: "TICKET-FIX-ENDPOINT", title: "Fix endpoint", objective: "Fix it.", acceptance_criteria: ["Works."], implementation_type: ["backend"], file_budget: 4, candidate_files: [{ path: "backend/a.js", role: "PATCH", symbol: "handleRequest", reason: "edit handleRequest" }] }],
           exit_criteria: ["Done"]
         };
       }
@@ -48,7 +53,12 @@ test("sdk sprint leader plan discards supplied candidates without legacy stream"
   assert.match(requests[0].brief, /SPRINT-1/);
   const completed = published.filter((event) => event.type === "agent.completed");
   assert.equal(completed.length, 1);
+  assert.equal(drafts.length, 1);
+  assert.equal(published.find((event) => event.type === "governance.sprint_plan.created").payload.status, "awaiting_human_approval");
+  assert.equal(published.filter((event) => event.type === "governance.sprint_plan.provenance_pending").length, 1);
   const savedPlan = JSON.parse(completed[0].payload.text);
+  assert.deepEqual(savedPlan.tickets[0].implementation_type, ["backend"]);
+  assert.equal(savedPlan.tickets[0].style, undefined);
   assert.equal(savedPlan.tickets[0].candidate_files, undefined);
   assert.equal(savedPlan.tickets[0].candidates_produced_by, undefined);
 });
@@ -61,6 +71,7 @@ test("sdk plan ticket without candidates stays without candidates", async () => 
     sprintPlanStore: { save: () => {}, getAllVersions: () => [] },
     agentGateway: { async *stream() { yield { text: "UNUSED" }; } },
     publisher: { publish: (event) => { published.push(event); return event; } },
+    draftPlan: async (plan) => ({ plan_id: `PLAN-${plan.id}`, revision: 1, sha256: "review-checksum" }),
     agentRoles: ["sprint-leader"],
     candidateResolver: { resolve: async (draft) => ({ ...draft, candidate_files: [{ path: "backend/b.js", role: "REFERENCE", reason: "retrieval:real" }], candidates_produced_by: "retrieval", candidates_produced_at: "2026-09-23T00:00:00Z" }) },
     sprintPlanLeader: {
@@ -69,7 +80,8 @@ test("sdk plan ticket without candidates stays without candidates", async () => 
         roadmap_id: "ROADMAP-1",
         project_id: "P1",
         objective: "Ship the API",
-        tickets: [{ title: "Fix endpoint", objective: "Fix it.", acceptance_criteria: ["Works."], style: ["backend"] }],
+        human_plan: humanPlan,
+        tickets: [{ id: "TICKET-FIX-ENDPOINT", title: "Fix endpoint", objective: "Fix it.", acceptance_criteria: ["Works."], implementation_type: ["backend"], file_budget: 4 }],
         exit_criteria: ["Done"]
       })
     }

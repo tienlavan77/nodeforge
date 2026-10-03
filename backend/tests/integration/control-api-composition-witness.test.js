@@ -81,7 +81,7 @@ test("production Control API composition restarts on a disposable project", { ti
     const dispatch = await fetch(`http://127.0.0.1:${port}/forge/v1/tickets/${ticketId}:run`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId }) });
     assert.equal(dispatch.ok, false);
     const blocked = await dispatch.json();
-    assert.equal(blocked.error?.code, "agent_not_available", JSON.stringify(blocked));
+    assert.equal(blocked.error?.code, "sprint_plan_required", JSON.stringify(blocked));
     assert.equal(await readFile(join(root, "README.md"), "utf8"), "Disposable project\n");
     const flagRoot = join(root, ".forge/runtime/ticket-pipeline-rollout");
     const [name] = await readdir(flagRoot);

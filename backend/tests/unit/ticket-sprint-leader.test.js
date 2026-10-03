@@ -3,22 +3,23 @@ import test from "node:test";
 
 import { createTicketSprintLeader } from "../../src/application/ticket-sprint-leader.js";
 
-// Covers ticket drafting without file-search tools or candidate requirements.
+// Covers ticket drafting with read-only Forge tools and without candidate requirements.
 test("runner drafts a ticket without source-file candidates", async () => {
   const calls = [];
   const sdkGateway = {
     execute: async (args) => {
       calls.push(args);
-      return { messages: [{ text: '```json\n{"title":"T","objective":"O","acceptance_criteria":["A"],"style":["backend"]}\n```' }] };
+      return { messages: [{ text: '```json\n{"title":"T","objective":"O","acceptance_criteria":["A"],"implementation_type":["backend"]}\n```' }] };
     }
   };
-  const leader = createTicketSprintLeader({ sdkGateway, projectRoot: "/repo" });
+  const leader = createTicketSprintLeader({ sdkGateway, projectRoot: "/repo", toolOptions: () => ({ forgeTools: { definitions: [{ name: "search_tree" }] } }) });
   const draft = await leader.requestTicket({ projectId: "P1", agentId: "AGENT-SL", content: "fix api", feedback: undefined, correlationId: "CORR-1" });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].cwd, "/repo");
-  assert.deepEqual(calls[0].options.allowedTools, []);
-  assert.equal(calls[0].options.mcpServers, undefined);
+  assert.deepEqual(calls[0].options.forgeTools.definitions.map(({ name }) => name), ["search_tree"]);
   assert.match(calls[0].prompt, /Do not identify source files or symbols/);
+  assert.match(calls[0].prompt, /implementation_type/);
+  assert.deepEqual(draft.implementation_type, ["backend"]);
   assert.equal(draft.title, "T");
   assert.equal(draft.candidate_files, undefined);
 });
@@ -30,7 +31,7 @@ test("runner throws without an SDK gateway", async () => {
 
 // Keeps Codex ticket drafts available for regeneration when the SDK returns text instead of messages.
 test("runner parses a Codex SDK ticket from text", async () => {
-  const leader = createTicketSprintLeader({ sdkGateway: { execute: async () => ({ text: '```json\n{"title":"T","objective":"O","acceptance_criteria":["A"]}\n```', items: [] }) } });
+  const leader = createTicketSprintLeader({ sdkGateway: { execute: async () => ({ text: '```json\n{"title":"T","objective":"O","acceptance_criteria":["A"]}\n```', items: [] }) }, toolOptions: () => ({ tools: [] }) });
   const draft = await leader.requestTicket({ projectId: "P1", agentId: "AGENT-SL", content: "fix api", correlationId: "CORR-1" });
   assert.equal(draft.title, "T");
 });
@@ -42,6 +43,7 @@ test("runner logs safe parse diagnostics when SDK output has no ticket JSON", as
   let request;
   const leader = createTicketSprintLeader({
     sdkGateway: { execute: async (args) => { request = args; callCount += 1; return { messages: [{ text: `short output token=agent-secret ${ownerContext}` }, { text: "still not JSON" }] }; } },
+    toolOptions: () => ({ tools: [] }),
     logger: { error: (message, details) => events.push({ message, details }) }
   });
 

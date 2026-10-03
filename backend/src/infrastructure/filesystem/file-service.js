@@ -6,12 +6,10 @@ import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from "
 import picomatch from "picomatch";
 import { ConfigurationError } from "../../shared/errors.js";
 import { SECRET_PATTERNS, isProtectedPath } from "./protected-path-policy.js";
-
 const DEFAULT_SECRETS = SECRET_PATTERNS;
 const DEFAULT_IGNORE = [".forge/**", ".node-control/**", "node_modules/**", ".git/**", "dist/**", "coverage/**", ".next/**", ".next.stale-*/**", "**/.DS_Store", "**/._*"];
-
 // Creates a sandboxed FileService scoped to projectRoot with queued writes, secret-path filtering, and atomic/lock operations.
-export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRETS, watcherIgnore = DEFAULT_IGNORE, databaseService, internalBus, onWrite, logger = console } = {}) {
+export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRETS, watcherIgnore = DEFAULT_IGNORE, databaseService, internalBus, onWrite, logger = console, allowPlanStorage = false } = {}) {
   if (typeof projectRoot !== "string" || !projectRoot) throw new ConfigurationError("FileService requires a project root.");
   const root = resolve(projectRoot);
   const secretMatch = picomatch(secretPatterns, { dot: true });
@@ -221,12 +219,14 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
     const absolute = resolve(root, path);
     const rel = relative(root, absolute).split(sep).join("/");
     const runtimePath = rel === ".forge/runtime" || rel.startsWith(".forge/runtime/");
-    if (isAbsolute(path) || !rel || rel.startsWith("..") || isProtectedPath(rel, { operation: write ? "write" : "read" }) || secretMatch(rel) || (ignoreMatch(rel) && !runtimePath)) {
+    const planPath = allowPlanStorage && /^\.forge\/runtime\/nf\/plans\/[A-Za-z0-9][A-Za-z0-9._-]*\/(?:[1-9][0-9]*\.(?:json|md)|ke-hoach-r[1-9][0-9]*\.md|(?:revision|decision|markdown|markdown-decision)\.lock)$/.test(rel);
+    const summaryPath = allowPlanStorage && /^workflows\/\.nodeforge-summary-[A-Za-z0-9][A-Za-z0-9._-]*\.md$/.test(rel);
+    if (isAbsolute(path) || !rel || rel.startsWith("..") || (!planPath && !summaryPath && isProtectedPath(rel, { operation: write ? "write" : "read" })) || secretMatch(rel) || (ignoreMatch(rel) && !runtimePath && !planPath && !summaryPath)) {
       throw new ConfigurationError("Refusing unsafe, ignored, or secret project path.");
     }
     // Runtime state is Node-owned but must be writable through this service; other
     // hidden project paths remain protected from agent file operations.
-    if (write && basename(rel).startsWith(".") && !runtimePath) throw new ConfigurationError("Hidden project paths are not writable.");
+    if (write && basename(rel).startsWith(".") && !runtimePath && !planPath && !summaryPath) throw new ConfigurationError("Hidden project paths are not writable.");
     return rel;
   }
   // eslint-disable-next-line no-silent-catch -- Cleanup logging must not change file behavior.

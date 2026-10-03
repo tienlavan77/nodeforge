@@ -6,7 +6,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 
 import { ConfigurationError } from "../shared/errors.js";
-import { backfillTicketCandidates, inferTicketStyle } from "../modules/index/ticket-scope.js";
+import { backfillTicketCandidates } from "../modules/index/ticket-scope.js";
 
 const require = createRequire(import.meta.url);
 const commonSchema = require("../../../schemas/core/common.schema.json");
@@ -14,7 +14,7 @@ const ticketSchema = require("../../../schemas/governance/ticket.schema.json");
 const sprintPlanSchema = require("../../../schemas/governance/sprint-plan.schema.json");
 
 // Creates a service that orchestrates sprint execution across agents.
-export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore, ticketProvenanceTracker, agentGateway, publisher, agentRoles = ["architecture-manager", "sprint-leader", "builder", "reviewer"], streamBatchMs = 500, sprintPlanLeader, agentRoleResolver } = {}) {
+export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore, ticketProvenanceTracker, agentGateway, publisher, agentRoles = ["sprint-leader"], streamBatchMs = 500, sprintPlanLeader, agentRoleResolver, draftPlan } = {}) {
   if (typeof sprintPlans?.getSprintById !== "function") {
     throw new ConfigurationError("Sprint Orchestration requires Sprint Plans.");
   }
@@ -45,9 +45,10 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
       plan = extractSprintPlanJson(text);
       // Legacy completion text has no verified paths: resolve server-side so
       // persisted tickets reference real indexed files.
-      const resolved = await resolvePlanCandidates(plan);
+      const resolved = assignPlanTicketIdentity(await resolvePlanCandidates(plan), { projectId: message.project_id });
+      assertSprintPlanGovernance(resolved);
       if (!validateSprintPlan(resolved)) throw new ConfigurationError(`Sprint Leader returned invalid sprint plan: ${validateSprintPlan.errors.map((error) => `${error.instancePath || "/"} ${error.message}`).join("; ")}`);
-      persistSprintPlan(resolved, { projectId: message.project_id, correlationId: message.correlation_id, conversationId: message.conversation_id });
+      await persistSprintPlan(resolved, { projectId: message.project_id, correlationId: message.correlation_id, conversationId: message.conversation_id, approvedParentPlanKey: message.approved_parent_plan_key });
       return { ingested: true, sprint_id: resolved.id };
     } catch (error) {
       publish("agent.failed", message.project_id, plan?.id ?? message.conversation_id, null, agentId, message.correlation_id, message.conversation_id, { role: agentId, error: `Sprint plan auto-ingest failed: ${error.message}` });
@@ -56,7 +57,7 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
   }
   async function runRealAgents({ projectId, sprint, sessionId }) {
     const tickets = sprint.tickets ?? [];
-    for (const role of agentRoles) {
+    for (const role of agentRoles.filter((entry) => entry === "sprint-leader")) {
       // Sprint leader drafts through the SDK with built-in search so its
       // candidate paths are verified on disk; other roles keep the stream.
       if (role === "sprint-leader" && typeof sprintPlanLeader?.requestPlan === "function") {
@@ -64,7 +65,7 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
         continue;
       }
       const roleTickets = tickets.filter((ticket) => ticket.owner === role || !ticket.owner);
-      const text = `${sprint.objective}\n\nTickets:\n${roleTickets.map((ticket) => `- ${ticket.id}: ${ticket.title} — ${ticket.objective}`).join("\n")}${role === "sprint-leader" ? "\n\nReturn ONLY a ```json block containing the sprint plan JSON valid against sprint-plan.schema.json (required: id, roadmap_id, project_id, objective, tickets[], exit_criteria). Every ticket MUST include style (array, at least one: frontend|backend|security|infra|docs). Do NOT include candidate_files or candidate metadata. No prose outside the block." : ""}`;
+      const text = `${sprint.objective}\n\nTickets:\n${roleTickets.map((ticket) => `- ${ticket.id}: ${ticket.title} — ${ticket.objective}`).join("\n")}${role === "sprint-leader" ? "\n\nReturn ONLY a ```json block containing the sprint plan JSON valid against sprint-plan.schema.json (required: id, roadmap_id, project_id, objective, tickets[], exit_criteria, human_plan). human_plan must include outcome, in_scope, out_of_scope, approach, components, risks, assumptions, open_questions, evidence_refs and acceptance_criteria. Cite only evidence present in the brief. Every ticket MUST include exactly one implementation_type value (frontend|backend|security) and file_budget <= 4. Do NOT include style, candidate_files or candidate metadata. No prose outside the block." : ""}`;
       const correlationId = `CORR-${sprint.id}-${role}-${randomUUID()}`;
       const agentId = role;
       const conversationId = `CONV-${conversationRole(role)}-${sprint.id}`;
@@ -90,9 +91,10 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
         flush();
         if (role === "sprint-leader") {
           const plan = extractSprintPlanJson(output);
-          const resolved = await resolvePlanCandidates(plan);
+          const resolved = assignPlanTicketIdentity(await resolvePlanCandidates(plan), { projectId });
+          assertSprintPlanGovernance(resolved);
           if (!validateSprintPlan(resolved)) throw new ConfigurationError(`Sprint Leader returned invalid sprint plan: ${validateSprintPlan.errors.map((error) => `${error.instancePath || "/"} ${error.message}`).join("; ")}`);
-          persistSprintPlan(resolved, { projectId, correlationId, conversationId });
+          await persistSprintPlan(resolved, { projectId, correlationId, conversationId });
         }
         publish("agent.token_used", projectId, sprint.id, sessionId, agentId, correlationId, conversationId, { input_tokens: Math.ceil(text.length / 4), output_tokens: Math.ceil(output.length / 4) });
         publish("agent.completed", projectId, sprint.id, sessionId, agentId, correlationId, conversationId, { role, text: output });
@@ -114,8 +116,9 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
       const plan = await sprintPlanLeader.requestPlan({ projectId, agentId, brief: buildSprintBrief(sprint), correlationId });
       const stamped = await stampPlanCandidates(plan);
       const identified = assignPlanTicketIdentity(stamped, { projectId });
+      assertSprintPlanGovernance(identified);
       if (!validateSprintPlan(identified)) throw new ConfigurationError(`Sprint Leader returned invalid sprint plan: ${validateSprintPlan.errors.map((error) => `${error.instancePath || "/"} ${error.message}`).join("; ")}`);
-      persistSprintPlan(identified, { projectId, correlationId, conversationId });
+      await persistSprintPlan(identified, { projectId, correlationId, conversationId });
       const text = JSON.stringify(identified);
       publish("agent.token_used", projectId, sprint.id, sessionId, "sprint-leader", correlationId, conversationId, { input_tokens: Math.ceil(text.length / 4), output_tokens: Math.ceil(text.length / 4) });
       publish("agent.completed", projectId, sprint.id, sessionId, "sprint-leader", correlationId, conversationId, { role: "sprint-leader", text });
@@ -134,10 +137,6 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
     const stamped = [];
     for (const ticket of tickets) {
       const entry = { ...(ticket ?? {}) };
-      if (!Array.isArray(entry.style) || !entry.style.length) {
-        const inferred = inferTicketStyle(entry);
-        if (inferred) entry.style = inferred;
-      }
       delete entry.candidate_files;
       delete entry.candidates_produced_by;
       delete entry.candidates_produced_at;
@@ -150,9 +149,10 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
   function assignPlanTicketIdentity(plan, { projectId } = {}) {
     if (!plan || typeof plan !== "object") return plan;
     const at = new Date().toISOString();
-    const tickets = (Array.isArray(plan.tickets) ? plan.tickets : []).map((ticket, index) => {
+    const tickets = (Array.isArray(plan.tickets) ? plan.tickets : []).map((ticket) => {
       const entry = { ...(ticket ?? {}) };
-      const id = entry.id ?? `TICKET-${projectId}-${Date.now()}-${index}`;
+      const id = entry.id;
+      if (typeof id !== "string" || !/^TICKET-[A-Za-z0-9._-]+$/.test(id)) throw Object.assign(new ConfigurationError("Sprint Leader must create a valid ticket ID for every ticket."), { code: "SPRINT_TICKET_ID_INVALID", statusCode: 422 });
       return {
         ...entry,
         id,
@@ -162,6 +162,9 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
         provenance: entry.provenance ?? { source: "sprint_plan", source_id: plan.id, created_at: at }
       };
     });
+    const ids = new Set(tickets.map((ticket) => ticket.id));
+    if (ids.size !== tickets.length) throw Object.assign(new ConfigurationError("Sprint Leader ticket IDs must be unique."), { code: "SPRINT_TICKET_ID_DUPLICATE", statusCode: 422 });
+    for (const ticket of tickets) for (const dependency of ticket.dependencies ?? []) if (!ids.has(dependency)) throw Object.assign(new ConfigurationError(`Ticket ${ticket.id} has an unknown dependency: ${dependency}.`), { code: "SPRINT_TICKET_DEPENDENCY_INVALID", statusCode: 422 });
     return { ...plan, tickets };
   }
   function conversationRole(role) {
@@ -181,17 +184,20 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
     }
     return { ...plan, tickets: resolved };
   }
-  function persistSprintPlan(plan, trace = {}) {
+  async function persistSprintPlan(plan, trace = {}) {
     if (typeof sprintPlanStore?.save !== "function") return;
-    if (sprintPlanStore.getAllVersions?.().some((roadmap) => roadmap.sprints?.some(({ id }) => id === plan.id))) {
-      const error = new ConfigurationError(`Sprint already exists: ${plan.id}.`);
-      error.statusCode = 409;
-      throw error;
-    }
+    if (typeof draftPlan !== "function") throw new ConfigurationError("Sprint Leader requires immutable plan drafting before publishing a sprint.");
+    const draft = await draftPlan(plan, trace);
     const timestamp = new Date().toISOString();
-    sprintPlanStore.save({ id: plan.roadmap_id, project_id: plan.project_id, version: plan.id, created_at: timestamp, updated_at: timestamp, sprints: [plan] });
-    for (const ticket of plan.tickets) ticketProvenanceTracker?.registerTicket?.(ticket);
-    publish("governance.sprint_plan.created", plan.project_id, plan.id, null, "sprint-leader", trace.correlationId ?? null, trace.conversationId ?? null, { sprint_plan: plan });
+    const current = sprintPlanStore.getCurrent?.();
+    const retained = current?.project_id === plan.project_id ? current.sprints?.filter((sprint) => sprint.id !== plan.id) ?? [] : [];
+    sprintPlanStore.save({ id: plan.roadmap_id, project_id: plan.project_id, version: `${plan.id}-projection-${randomUUID()}`, created_at: timestamp, updated_at: timestamp, ...(current?.architecture_decision_ids?.length ? { architecture_decision_ids: current.architecture_decision_ids } : {}), sprints: [...retained, plan] });
+    if (current?.architecture_decision_ids?.length) {
+      for (const ticket of plan.tickets) ticketProvenanceTracker?.registerTicket?.(ticket);
+    } else {
+      publish("governance.sprint_plan.provenance_pending", plan.project_id, plan.id, null, "sprint-leader", trace.correlationId ?? null, trace.conversationId ?? null, { plan_id: draft.plan_id, revision: draft.revision, reason: "No approved architecture decision is linked to this roadmap; human plan approval remains required." });
+    }
+    publish("governance.sprint_plan.created", plan.project_id, plan.id, null, "sprint-leader", trace.correlationId ?? null, trace.conversationId ?? null, { sprint_plan: plan, plan_id: draft.plan_id, revision: draft.revision, sha256: draft.sha256, status: draft.status ?? "awaiting_human_approval" });
   }
   function publish(type, projectId, taskId, sessionId, agentId, correlationId, conversationId, payload) {
     publisher.publish({ event_id: `EVT-${randomUUID()}`, type, project_id: projectId, task_id: taskId, timestamp: new Date().toISOString(), payload, metadata: { source: "real-agent-orchestration", session_id: sessionId, agent_id: agentId, correlation_id: correlationId, conversation_id: conversationId } });
@@ -212,4 +218,12 @@ function createSprintPlanValidator() {
   addFormats(ajv);
   ajv.addSchema(commonSchema).addSchema(ticketSchema).addSchema(sprintPlanSchema);
   return ajv.getSchema(sprintPlanSchema.$id);
+}
+
+// Enforces one ticket implementation type and the bounded file budget before persistence.
+function assertSprintPlanGovernance(plan) {
+  for (const ticket of plan?.tickets ?? []) {
+    if (!Array.isArray(ticket.implementation_type) || ticket.implementation_type.length !== 1 || !["frontend", "backend", "security"].includes(ticket.implementation_type[0]) || ticket.style !== undefined) throw Object.assign(new ConfigurationError(`Ticket ${ticket.id ?? "<unknown>"} must declare exactly one implementation_type.`), { code: "SPRINT_TICKET_IMPLEMENTATION_TYPE_INVALID", statusCode: 422 });
+    if (!Number.isInteger(ticket.file_budget) || ticket.file_budget < 1 || ticket.file_budget > 4) throw Object.assign(new ConfigurationError(`Ticket ${ticket.id ?? "<unknown>"} must declare file_budget from 1 to 4.`), { code: "SPRINT_TICKET_FILE_BUDGET_INVALID", statusCode: 422 });
+  }
 }

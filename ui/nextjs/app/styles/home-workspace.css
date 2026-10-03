@@ -42,6 +42,13 @@
 .project-chat-target { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 18px; border-bottom: 1px solid var(--app-border); }
 .project-chat-target label { color: var(--app-muted); font: 10px 'DM Mono', monospace; letter-spacing: .12em; text-transform: uppercase; }
 .home-chat-messages { min-height: 0; flex: 1; overflow: auto; padding: 20px 0; }
+.home-chat-compose-group { flex: none; display: grid; gap: 8px; border-top: 1px solid var(--app-border); padding-top: 12px; }
+.home-plan-approval-notice { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--app-muted); font: 12px/1.4 'Space Grotesk', sans-serif; }
+.home-plan-approval-notice span { min-width: 0; }
+.home-plan-approval-notice button { flex: none; border: 1px solid var(--app-button-border); border-radius: 6px; background: var(--app-button-bg); color: var(--app-button-text); padding: 5px 10px; font: 11px 'DM Mono', monospace; cursor: pointer; }
+.home-plan-approval-notice button:hover { border-color: var(--app-accent); color: var(--app-text); }
+.home-plan-approval-notice button:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
+.home-plan-approval-error { margin: 0; font-size: 12px; color: #dc5a5a; }
 .home-empty-state { height: 100%; display: grid; place-items: center; align-content: center; gap: 14px; color: var(--app-muted); text-align: center; font-size: 14px; line-height: 1.5; }
 .home-empty-state p { max-width: 220px; margin: 0; }
 .home-empty-mark, .home-message-avatar { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--app-accent); color: var(--app-accent); font: 13px 'DM Mono', monospace; }
@@ -55,7 +62,16 @@
 .home-chat-message .message-content { max-width: 92%; color: var(--app-text); line-height: 1.5; overflow-wrap: anywhere; }
 .home-chat-message .message-content > p { max-width: none; }
 .home-chat-message .message-content .code-block { max-width: 100%; margin-top: 4px; }
-.home-composer { display: flex; gap: 8px; align-items: flex-end; border-top: 1px solid var(--app-border); padding-top: 16px; }
+.home-chat-message .message-content code,
+.home-chat-message .message-content pre,
+.home-chat-message .message-content .code-block,
+.home-chat-message .message-content .code-block pre {
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.home-composer { display: flex; gap: 8px; align-items: flex-end; }
 .home-composer textarea { min-width: 0; flex: 1; resize: none; border: 1px solid var(--app-button-border); background: var(--app-input); color: var(--app-text); padding: 11px 12px; line-height: 1.4; }
 .home-composer button { width: 42px; height: 42px; border: 1px solid var(--app-button-border); border-radius: 6px; background: var(--app-button-bg); color: var(--app-button-text); cursor: pointer; font-size: 20px; }
 .home-composer button:disabled { opacity: .45; cursor: not-allowed; }
@@ -106,4 +122,3 @@
 
 
 /* Keep the home and Agents canvas identical in light mode. */
-

@@ -1,7 +1,7 @@
 import { ConfigurationError } from "../shared/errors.js";
 
 // Read-only Node projection; canonical roadmap and provenance remain in governance modules.
-export function createProjectDashboardService({ roadmaps, sprintPlans, provenance, ticketFileStore, logReader, relevantTreeSelector } = {}) {
+export function createProjectDashboardService({ roadmaps, sprintPlans, provenance, ticketFileStore, ticketStatusStore, sprintRegistry, logReader, relevantTreeSelector } = {}) {
   if (typeof roadmaps?.getCurrent !== "function" || typeof sprintPlans?.getCurrentSprint !== "function"
     || typeof sprintPlans?.getSprintStatus !== "function" || typeof sprintPlans?.getSprintBacklog !== "function") {
     throw new ConfigurationError("Project Dashboard Service requires Roadmap and Sprint Plan projections.");
@@ -14,7 +14,8 @@ export function createProjectDashboardService({ roadmaps, sprintPlans, provenanc
   function findTicket(projectId, ticketId) {
     assertProjectId(projectId);
     if (typeof ticketId !== "string" || !ticketId) throw httpError(400, "A ticket id is required.");
-    const ticket = roadmaps.getCurrent()?.sprints?.flatMap((sprint) => sprint.tickets ?? []).find((item) => item.project_id === projectId && item.id === ticketId);
+    const ticket = roadmaps.getCurrent()?.sprints?.flatMap((sprint) => sprint.tickets ?? []).find((item) => item.project_id === projectId && item.id === ticketId)
+      ?? (ticketFileStore?.getMetadata?.(ticketId)?.project_id === projectId ? ticketFileStore.readLatest(ticketId) : null);
     if (!ticket) throw httpError(404, `Ticket not found: ${ticketId}.`);
     return ticket;
   }
@@ -36,18 +37,38 @@ export function createProjectDashboardService({ roadmaps, sprintPlans, provenanc
   function getDashboard(projectId) {
     assertProjectId(projectId);
     const roadmap = roadmaps.getCurrent();
-    if (!roadmap || roadmap.project_id !== projectId) return emptyDashboard(projectId);
-    const sprintEntries = (roadmap.sprints ?? []).map((sprint, index) => {
-      const status = sprintPlans.getSprintStatus(sprint.id) ?? { status: "planned" };
-      const sourceTasks = sprint.tickets?.length ? sprint.tickets : (sprintPlans.getSprintBacklog(sprint.id) ?? []);
-      const tasks = sourceTasks.filter((ticket) => ticket.project_id === projectId).map((ticket) => ticketView(ticket));
-      return { id: sprint.id, objective: sprint.objective, order: index + 1, status: status.status ?? "planned", tasks };
+    if (roadmap && roadmap.project_id !== projectId) return emptyDashboard(projectId);
+    const registry = sprintRegistry?.list?.() ?? [];
+    const registered = new Map(registry.filter((entry) => entry.project_id === projectId).map((entry) => [entry.sprint_id, entry]));
+    const projected = new Map((roadmap?.sprints ?? []).map((sprint) => [sprint.id, sprint]));
+    const metadata = ticketFileStore?.listMetadata?.({ projectId }) ?? [];
+    const sprintIds = [...new Set([...registered.keys(), ...projected.keys(), ...metadata.map((entry) => entry.sprint_id)])];
+    if (!sprintIds.length) return emptyDashboard(projectId);
+    const sprintEntries = sprintIds.map((sprintId, index) => {
+      const sprint = projected.get(sprintId);
+      const record = registered.get(sprintId);
+      const status = sprint ? (sprintPlans.getSprintStatus(sprintId) ?? { status: "planned" }) : { status: "planned" };
+      const sourceTasks = sprint?.tickets?.length ? sprint.tickets : (sprint ? (sprintPlans.getSprintBacklog(sprintId) ?? []) : []);
+      const tickets = new Map(sourceTasks.filter((ticket) => ticket.project_id === projectId && ticket.sprint_id === sprintId).map((ticket) => [ticket.id, ticket]));
+      for (const entry of metadata.filter((item) => item.sprint_id === sprintId)) {
+        const ticket = ticketFileStore.readLatest(entry.id);
+        if (ticket?.project_id !== projectId || ticket.sprint_id !== sprintId) throw httpError(409, `Ticket ownership differs from persisted metadata: ${entry.id}.`);
+        tickets.set(entry.id, ticket);
+      }
+      const tasks = [...tickets.values()].map((ticket) => {
+        const task = ticketView(ticket);
+        const persisted = ticketStatusStore?.get?.(ticket.id);
+        if (ticketStatusStore && !persisted) return { ...task, status: "untracked", progress: 0 };
+        if (persisted?.project_id !== undefined && persisted.project_id !== projectId) throw httpError(409, `Ticket status ownership differs from project: ${ticket.id}.`);
+        return persisted ? { ...task, status: persisted.status, progress: persisted.status === "done" ? 100 : ["running", "reviewing", "working"].includes(persisted.status) ? 50 : 0 } : task;
+      });
+      return { id: sprintId, objective: sprint?.objective ?? null, order: record?.position !== undefined ? record.position + 1 : index + 1, status: record?.status ?? status.status ?? "planned", tasks };
     });
     const build = (tasksBySprint = new Map()) => structuredClone({
       project_id: projectId,
-      roadmap: { id: roadmap.id, version: roadmap.version, sprints: sprintEntries.map((sprint) => ({ ...sprint, tasks: (tasksBySprint.get(sprint.id) ?? sprint.tasks).map(taskViewSummary) })) }
+      roadmap: { id: roadmap?.id ?? null, version: roadmap?.version ?? null, sprints: sprintEntries.map((sprint) => ({ ...sprint, tasks: (tasksBySprint.get(sprint.id) ?? sprint.tasks).map(taskViewSummary) })) }
     });
-    if (!logReader) return build();
+    if (!logReader || ticketStatusStore) return build();
     const allTasks = sprintEntries.flatMap((sprint) => sprint.tasks.map((task) => ({ sprintId: sprint.id, task })));
     return Promise.all(allTasks.map(async ({ sprintId, task }) => {
       try {

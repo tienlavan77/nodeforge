@@ -45,7 +45,7 @@ export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(),
   // Patches whitelisted ticket fields and creates a new roadmap version.
   function updateTicket({ projectId, ticketId, patch } = {}) {
     if (!projectId || !ticketId || !patch || typeof patch !== "object" || Array.isArray(patch)) throw new ConfigurationError("A valid project, ticket, and patch are required.");
-    const assignable = ["title", "objective", "acceptance_criteria", "priority", "dependencies", "status", "last_error", "style", "candidate_files", "candidates_produced_by", "candidates_produced_at"].filter((field) => patch[field] !== undefined);
+    const assignable = ["title", "objective", "acceptance_criteria", "priority", "dependencies", "status", "last_error", "implementation_type", "change_nature", "candidate_files", "candidates_produced_by", "candidates_produced_at"].filter((field) => patch[field] !== undefined);
     if (!assignable.length) throw new ConfigurationError("No updatable ticket fields provided.");
     const current = getCurrent();
     if (!current || current.project_id !== projectId) return undefined;
@@ -54,6 +54,7 @@ export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(),
       if (ticket.id !== ticketId || ticket.project_id !== projectId) return ticket;
       found = true;
       const updated = { ...ticket, ...Object.fromEntries(assignable.filter((field) => field !== "candidate_files" || patch[field] !== null).map((field) => [field, patch[field]])) };
+      if (patch.implementation_type !== undefined) delete updated.style;
       if (patch.candidate_files === null) {
         delete updated.candidate_files;
         delete updated.candidates_produced_by;
@@ -68,22 +69,14 @@ export function createRoadmapStore({ validateRoadmap = createRoadmapValidator(),
     return save({ ...current, version, updated_at: new Date().toISOString(), sprints });
   }
 
-  // Removes a sprint from all versions and creates updated successors.
+  // Removes a sprint from the current roadmap without changing audit history.
   function removeSprint(projectId, sprintId) {
-    let removed = false;
-    for (let index = versions.length - 1; index >= 0; index -= 1) {
-      const roadmap = versions[index];
-      if (roadmap.project_id !== projectId || !roadmap.sprints?.some((sprint) => sprint.id === sprintId)) continue;
-      const remaining = roadmap.sprints.filter((sprint) => sprint.id !== sprintId);
-      if (remaining.length === roadmap.sprints.length) continue;
-      if (database) database.run("DELETE FROM governance_roadmaps WHERE version = ?", [roadmap.version]);
-      versions.splice(index, 1); byVersion.delete(roadmap.version); removed = true;
-      if (remaining.length) {
-        const updated = { ...roadmap, sprints: remaining, updated_at: new Date().toISOString(), version: `${roadmap.version}-updated` };
-        save(updated);
-      }
-    }
-    return removed;
+    const current = getCurrent();
+    if (!current || current.project_id !== projectId) return false;
+    const remaining = current.sprints.filter((sprint) => sprint.id !== sprintId);
+    if (remaining.length === current.sprints.length) return false;
+    save({ ...current, sprints: remaining, updated_at: new Date().toISOString(), version: `${current.version}-sprint-removed-${Date.now()}` });
+    return true;
   }
 
   // Removes a ticket from the current roadmap and versions the change.
