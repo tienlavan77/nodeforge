@@ -9,16 +9,17 @@ test("runner drafts a sprint plan without source-file candidates", async () => {
   const sdkGateway = {
     execute: async (args) => {
       calls.push(args);
-      return { messages: [{ text: '```json\n{"id":"SPRINT-1","roadmap_id":"ROADMAP-1","project_id":"P1","objective":"Ship it","tickets":[{"title":"T","objective":"O","acceptance_criteria":["A"],"style":["backend"]}],"exit_criteria":["Done"]}\n```' }] };
+      return { messages: [{ text: '```json\n{"id":"SPRINT-1","roadmap_id":"ROADMAP-1","project_id":"P1","objective":"Ship it","tickets":[{"title":"T","objective":"O","acceptance_criteria":["A"],"implementation_type":["backend"],"file_budget":4}],"exit_criteria":["Done"]}\n```' }] };
     }
   };
-  const leader = createSprintPlanLeader({ sdkGateway, projectRoot: "/repo" });
+  const leader = createSprintPlanLeader({ sdkGateway, projectRoot: "/repo", toolOptions: () => ({ forgeTools: { definitions: [{ name: "search_tree" }] } }) });
   const plan = await leader.requestPlan({ projectId: "P1", agentId: "AGENT-SL", brief: "sprint brief", correlationId: "CORR-1" });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].cwd, "/repo");
-  assert.deepEqual(calls[0].options.allowedTools, []);
-  assert.equal(calls[0].options.mcpServers, undefined);
+  assert.deepEqual(calls[0].options.forgeTools.definitions.map(({ name }) => name), ["search_tree"]);
   assert.match(calls[0].prompt, /Do not identify source files or symbols/);
+  assert.match(calls[0].prompt, /implementation_type/);
+  assert.deepEqual(plan.tickets[0].implementation_type, ["backend"]);
   assert.equal(plan.id, "SPRINT-1");
   assert.equal(plan.tickets[0].candidate_files, undefined);
 });
@@ -30,13 +31,13 @@ test("runner throws without an SDK gateway", async () => {
 
 // Keeps Codex sprint plans available when the SDK returns text instead of messages.
 test("runner parses a Codex SDK sprint plan from text", async () => {
-  const leader = createSprintPlanLeader({ sdkGateway: { execute: async () => ({ text: '```json\n{"id":"SPRINT-1","objective":"Ship it"}\n```', items: [] }) } });
+  const leader = createSprintPlanLeader({ sdkGateway: { execute: async () => ({ text: '```json\n{"id":"SPRINT-1","objective":"Ship it"}\n```', items: [] }) }, toolOptions: () => ({ tools: [] }) });
   const plan = await leader.requestPlan({ projectId: "P1", agentId: "AGENT-SL", brief: "ship it", correlationId: "CORR-1" });
   assert.equal(plan.id, "SPRINT-1");
 });
 
 test("runner returns undefined when SDK messages hold no plan JSON", async () => {
-  const leader = createSprintPlanLeader({ sdkGateway: { execute: async () => ({ messages: [{ text: "no json here" }] }) } });
+  const leader = createSprintPlanLeader({ sdkGateway: { execute: async () => ({ messages: [{ text: "no json here" }] }) }, toolOptions: () => ({ tools: [] }) });
   const plan = await leader.requestPlan({ projectId: "P1", agentId: "A", brief: "b", correlationId: "C" });
   assert.equal(plan, undefined);
 });

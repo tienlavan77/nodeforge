@@ -141,6 +141,13 @@ export function toDisplayMessage(message) {
 // Formats a ticket message payload into readable text.
 function formatTicketResponse(message) {
   const payload = message.payload ?? {};
+  if (message.message_type === "owner.command.result") {
+    if (payload.command === "/summary") return `Summary đã tạo: ${payload.summary_id ?? payload.file_id ?? "không xác định"}`;
+    if (payload.command === "/plan") return `Plan draft ${payload.plan_id ?? ""} đang chờ human approval (revision ${payload.revision ?? "?"}).`;
+    if (payload.command === "/approve") return payload.sprint_id ? `Đã handoff Sprint Leader: ${payload.sprint_id}.` : "Đã handoff kế hoạch cho Sprint Leader.";
+    return payload.status ?? "Command đã hoàn tất.";
+  }
+  if (message.message_type === "owner.command.error") return payload.error?.message ?? payload.error ?? "Command không thể thực hiện.";
   if (message.message_type === "ticket.input_rejected") return payload.error ?? "Ticket đang chạy; hãy chờ hoàn tất rồi thử lại.";
   if (message.message_type === "ticket.creation" || message.message_type === "ticket.status") {
     if (payload.error) return payload.error;

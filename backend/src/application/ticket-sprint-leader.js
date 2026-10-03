@@ -1,12 +1,10 @@
-// Drafts a governance ticket through the sprint leader over the Claude SDK.
+// Drafts a governance ticket through the configured Sprint Leader SDK.
 //
 // The leader drafts scope and acceptance criteria without assigning source-file candidates.
 import { extractTicketJson } from "./ticket-draft-parser.js";
 
-const BUILTIN_SEARCH_TOOLS = Object.freeze([]);
-
 // Creates a runner that asks the sprint leader for one ticket draft with codebase search.
-export function createTicketSprintLeader({ sdkGateway, projectRoot, logger = console } = {}) {
+export function createTicketSprintLeader({ sdkGateway, projectRoot, toolOptions, logger = console } = {}) {
   return Object.freeze({ requestTicket });
 
   // Asks the leader to draft one ticket, letting it search the codebase first.
@@ -14,12 +12,13 @@ export function createTicketSprintLeader({ sdkGateway, projectRoot, logger = con
     if (typeof sdkGateway?.execute !== "function") throw new Error("Ticket sprint leader requires an SDK gateway.");
     const prompt = buildPrompt({ projectId, content, ticket, feedback });
     try {
+      const options = toolOptions ? toolOptions({ agentId, correlationId }) : { tools: [] };
       const result = await sdkGateway.execute({
         agentId,
         prompt,
         correlationId,
         cwd: projectRoot ?? process.cwd(),
-        options: { allowedTools: [...BUILTIN_SEARCH_TOOLS] }
+        options
       });
       const messages = result?.messages;
       const output = typeof result?.text === "string" ? result.text : collectText(messages);
@@ -60,11 +59,12 @@ export function createTicketSprintLeader({ sdkGateway, projectRoot, logger = con
 function buildPrompt({ projectId, content, ticket, feedback }) {
   return [
     "Convert the project owner request below into exactly one governance ticket.",
+    "Use the supplied read-only Forge search_tree, search_code, and read_file tools when codebase evidence is needed. Cite only observed facts; do not use built-in shell, file, network, or write tools.",
     "Write ALL ticket field values (title, objective, acceptance_criteria) in English. If the owner request is in another language (e.g. Vietnamese), translate it into clear technical English.",
-    "REQUIRED: Infer ticket style as a non-empty array of strings. Valid values: frontend (UI/component/page/accordion/modal/chat UI), backend (api/endpoint/database/server), security (auth/permission/credential), infra (deploy/docker/pipeline), docs (documentation). Every ticket MUST include style with at least one value; return e.g. [\"frontend\"] or [\"frontend\",\"backend\"]. Do NOT omit style.",
-    "Draft only the ticket's objective, acceptance criteria, style, priority, and dependencies. Do not identify source files or symbols; implementation discovery belongs to the Coder.",
+    "REQUIRED: Set implementation_type to exactly one value in a one-item array: frontend (UI/component/page/chat UI), backend (API/database/server), or security (auth/permission/credential). Return e.g. [\"frontend\"]. Do not return the legacy style field or combine types.",
+    "Draft only the ticket's objective, acceptance criteria, implementation_type, priority, and dependencies. Optionally set change_nature to presentation-only for a visual-only frontend ticket. Do not identify source files or symbols; implementation discovery belongs to the Coder.",
     "Respond with ONLY one ```json fenced block containing the ticket JSON object. No prose outside the block.",
-    "Ticket fields: title (string, required), objective (string, required), acceptance_criteria (array of strings, at least one, required), style (array of strings, REQUIRED, at least one: frontend|backend|security|infra|docs), priority (optional: low|medium|normal|high|critical), dependencies (optional: array of ticket ids).",
+    "Ticket fields: title (string, required), objective (string, required), acceptance_criteria (array of strings, at least one, required), implementation_type (exactly one array value: frontend|backend|security), file_budget (integer 1-4, required), priority (optional: low|medium|normal|high|critical), dependencies (optional: array of ticket ids), change_nature (optional: presentation-only).",
     "Do NOT include candidate_files, candidates_produced_by, candidates_produced_at, id, project_id, roadmap_id, sprint_id, status, last_error, or provenance; the system assigns identity fields.",
     feedback ? `Previous validation feedback: ${feedback}` : undefined,
     `Project id: ${projectId}`,

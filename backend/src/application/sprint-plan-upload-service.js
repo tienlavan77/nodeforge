@@ -39,7 +39,9 @@ export function createSprintPlanUploadService({ roadmaps, publisher, projectRoot
     return structuredClone(current.sprints ?? []);
   }
   function get({ projectId, sprintId } = {}) {
-    const sprint = roadmaps.getAllVersions?.().flatMap((roadmap) => roadmap.project_id === projectId ? (roadmap.sprints ?? []) : []).find(({ id }) => id === sprintId);
+    const current = roadmaps.getCurrent?.();
+    const sprint = (current?.project_id === projectId ? current.sprints?.find(({ id }) => id === sprintId) : null)
+      ?? roadmaps.getAllVersions?.().toReversed().flatMap((roadmap) => roadmap.project_id === projectId ? (roadmap.sprints ?? []) : []).find(({ id }) => id === sprintId);
     if (!sprint) {
       const error = new ConfigurationError(`Unknown Sprint Plan: ${sprintId}.`);
       error.statusCode = 404;
@@ -80,13 +82,16 @@ export function createSprintPlanUploadService({ roadmaps, publisher, projectRoot
     }
 
     const timestamp = new Date().toISOString();
+    const current = roadmaps.getCurrent?.();
+    const retained = current?.project_id === projectId ? current.sprints ?? [] : [];
     const roadmap = {
       id: normalized.roadmap_id,
       project_id: projectId,
       version: normalized.id,
       created_at: timestamp,
       updated_at: timestamp,
-      sprints: [structuredClone(normalized)]
+      ...(current?.architecture_decision_ids?.length ? { architecture_decision_ids: current.architecture_decision_ids } : {}),
+      sprints: [...structuredClone(retained), structuredClone(normalized)]
     };
     const saved = roadmaps.save(roadmap);
     publish(eventType, projectId, { sprint_id: normalized.id, sprint_plan: structuredClone(normalized), ticket_ids: normalized.tickets.map(({ id }) => id) });

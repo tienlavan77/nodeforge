@@ -41,8 +41,9 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
       title: String(baseEnglish.title ?? ticket.title),
       objective: String(baseEnglish.objective ?? ticket.objective),
       acceptance_criteria: Array.isArray(baseEnglish.acceptance_criteria) ? baseEnglish.acceptance_criteria.map(String) : ticket.acceptance_criteria,
-      style: baseEnglish.style ?? inferTicketStyle({ title: baseEnglish.title ?? ticket.title, objective: baseEnglish.objective ?? ticket.objective, acceptance_criteria: baseEnglish.acceptance_criteria ?? ticket.acceptance_criteria })
+      ...(baseEnglish.implementation_type ? { implementation_type: baseEnglish.implementation_type } : ticket.implementation_type ? { implementation_type: ticket.implementation_type } : { style: baseEnglish.style ?? ticket.style ?? inferTicketStyle({ title: baseEnglish.title ?? ticket.title, objective: baseEnglish.objective ?? ticket.objective, acceptance_criteria: baseEnglish.acceptance_criteria ?? ticket.acceptance_criteria }) })
     });
+    if (regenerated.implementation_type) delete regenerated.style;
     for (const field of ["context", "vietnamese_context", "original_vietnamese_context", "english_content", "updated_at"]) delete regenerated[field];
     if (!validate(regenerated)) return validationResponse(validate.errors, regenerated);
     // Persist updated Vietnamese context to database via roadmap store.

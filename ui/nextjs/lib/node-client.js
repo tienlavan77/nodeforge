@@ -109,6 +109,23 @@ export function createNodeClient() {
     async getSprintPlan(projectId, sprintId) {
       return requestJson(forgeV1(`/sprints/${sprintId}`, { project: projectId }), { fallbackError: "Node could not load the Sprint Plan." });
     },
+    async draftSprintPlan(projectId, sprintId) { return requestJson(forgeV1(`/sprints/${encodeURIComponent(sprintId)}/draft`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId }), fallbackError: "Node could not start the Sprint Leader draft." }); },
+    async listPlans(projectId) { return requestJson(forgeV1("/plans", { project: projectId }), { fallbackError: "Node could not load plan revisions." }); },
+    async createPlan(projectId, planId, sprintId, content) { return requestJson(forgeV1("/plans", { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, plan_id: planId, sprint_id: sprintId, content }), fallbackError: "Node could not create the historical plan draft." }); },
+    async revisePlan(projectId, plan, content) { return requestJson(forgeV1(`/plans/${encodeURIComponent(plan.plan_id)}/revisions`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, sprint_id: plan.sprint_id, expected_revision: plan.revision, content }), fallbackError: "Node could not create the revised plan." }); },
+    async getPlanRevision(projectId, planId, revision) { return requestJson(forgeV1(`/plans/${encodeURIComponent(planId)}/${revision}`, { project: projectId }), { fallbackError: "Node could not load the plan revision." }); },
+    async listSprintRegistry(projectId) { return requestJson(forgeV1("/sprints/registry", { project: projectId }), { fallbackError: "Node could not load sprint registry." }); },
+    async registerSprint(projectId, sprintId, position, dependencies, plan) { return requestJson(forgeV1("/sprints/registry", { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, sprint_id: sprintId, position, dependencies, plan_id: plan.plan_id, plan_revision: plan.revision }), fallbackError: "Node could not register the historical sprint." }); },
+    async getSprintRegistry(projectId, sprintId) { return requestJson(forgeV1(`/sprints/registry/${encodeURIComponent(sprintId)}`, { project: projectId }), { fallbackError: "Node could not load sprint scheduling state." }); },
+    async decidePlan(projectId, plan, decision, token, comments) {
+      return requestJson(forgeV1(`/plans/${encodeURIComponent(plan.plan_id)}/${plan.revision}/decisions`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ project_id: projectId, sha256: plan.sha256, source_sha256: plan.source_sha256 ?? null, decision, comments }), fallbackError: "Node rejected the plan decision." });
+    },
+    async bindSprintPlan(projectId, sprintId, plan) {
+      return requestJson(forgeV1(`/sprints/registry/${encodeURIComponent(sprintId)}/plan`, { project: projectId }), { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, plan_id: plan.plan_id, plan_revision: plan.revision }), fallbackError: "Node could not bind the approved revision." });
+    },
+    async setSprintStatus(projectId, sprintId, status) {
+      return requestJson(forgeV1(`/sprints/registry/${encodeURIComponent(sprintId)}/status`, { project: projectId }), { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, status }), fallbackError: "Node could not update sprint readiness." });
+    },
     async updateSprintPlan(projectId, sprintId, sprintPlan) {
       return requestJson(forgeV1(`/sprints/${sprintId}`, { project: projectId }), {
         method: "PUT", headers: { "content-type": "application/json" },
@@ -167,7 +184,7 @@ export function createNodeClient() {
       return requestJson(forgeV1(`/projects/${projectId}/architecture-workspace`, { project: projectId }), { fallbackError: "Node could not load the Architecture Workspace." });
     },
     // Chat API canonical route: POST /forge/v1/conversations/:id/messages
-    async postOwnerMessage({ projectId, conversationId, agentId, messageId, correlationId, text, intent, ticket }) {
+    async postOwnerMessage({ projectId, conversationId, agentId, messageId, correlationId, text, intent, ticket, ownerToken, approvalRevision, approvalSha256, approvalComments }) {
       const messageIntent = intent ?? detectMessageIntent(text);
       if (!Object.values(MESSAGE_INTENTS).includes(messageIntent)) throw new Error("Invalid message intent.");
       const rawText = String(text);
@@ -176,8 +193,8 @@ export function createNodeClient() {
       if (messageIntent === MESSAGE_INTENTS.ticketCreate && !ticketObject) throw new Error("Ticket JSON could not be extracted from the message.");
       return requestJson(forgeV1(`/conversations/${encodeURIComponent(conversationId)}/messages`, { project: projectId }), {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ project_id: projectId, agent_id: agentId, message_id: messageId, correlation_id: correlationId, timestamp: new Date().toISOString(), payload: { intent: messageIntent, ...(messageIntent === MESSAGE_INTENTS.ticketCreate ? { ticket: ticketObject } : {}), text: rawText } }),
+        headers: { "content-type": "application/json", ...(ownerToken ? { authorization: `Bearer ${ownerToken}` } : {}) },
+        body: JSON.stringify({ project_id: projectId, agent_id: agentId, message_id: messageId, correlation_id: correlationId, timestamp: new Date().toISOString(), payload: { intent: messageIntent, ...(messageIntent === MESSAGE_INTENTS.ticketCreate ? { ticket: ticketObject } : {}), ...(approvalRevision ? { approval_revision: approvalRevision, approval_sha256: approvalSha256, approval_comments: approvalComments ?? null } : {}), text: rawText } }),
         fallbackError: "Node rejected the owner message."
       });
     },

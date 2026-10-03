@@ -33,6 +33,26 @@ test("persists ticket status transitions in a new roadmap version", () => {
   assert.equal(store.getCurrent().sprints[0].tickets[0].status, "done");
 });
 
+// Confirms deleting a sprint changes only the current roadmap and preserves its audit history.
+test("removes a sprint through a new version without deleting prior versions", () => {
+  const store = createRoadmapStore();
+  const original = roadmap("1.0.0");
+  const second = structuredClone(original.sprints[0]);
+  second.id = "SPRINT-12";
+  second.tickets[0].id = "NF-116";
+  second.tickets[0].sprint_id = second.id;
+  second.tickets[0].provenance.source_id = second.id;
+  original.sprints.push(second);
+  store.save(original);
+
+  assert.equal(store.removeSprint("PROJECT-115", "SPRINT-12"), true);
+  assert.deepEqual(store.getCurrent().sprints.map(({ id }) => id), ["SPRINT-11"]);
+  assert.equal(store.getVersion("1.0.0").sprints.length, 2);
+  assert.equal(store.getAllVersions().length, 2);
+  assert.throws(() => store.removeSprint("PROJECT-115", "SPRINT-11"), /Invalid Roadmap/);
+  assert.equal(store.getAllVersions().length, 2);
+});
+
 function roadmap(version) {
   return {
     id: "ROADMAP-115",

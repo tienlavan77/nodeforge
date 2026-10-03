@@ -2,10 +2,9 @@
 /* TICKET-PROJECT-NODEFORGE-1789489861283: agent profile 'team' field supported via agent-profile-store persistence */
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../shared/errors.js";
-import { inferTicketStyle } from "../modules/index/ticket-scope.js";
 import { extractTicketJson } from "./ticket-draft-parser.js";
 
-const UPDATABLE = ["title", "objective", "acceptance_criteria", "priority", "dependencies", "status", "last_error", "style", "candidate_files", "candidates_produced_by", "candidates_produced_at"];
+const UPDATABLE = ["title", "objective", "acceptance_criteria", "priority", "dependencies", "status", "last_error", "implementation_type", "change_nature", "candidate_files", "candidates_produced_by", "candidates_produced_at"];
 const SPRINT_LEADER_ROLE = "sprint_leader";
 
 // Creates a CRUD service for tickets with sprint-leader normalization.
@@ -104,19 +103,16 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
   async function resolveSprintLeaderTicket({ projectId, agentId, content, ticket, feedback }) {
     const draft = await requestSprintLeaderTicket({ projectId, agentId, content, ticket, feedback });
     if (!draft) return draft;
-    return styleAndBackfill(draft);
+    return normalizeLeaderDraft(draft);
   }
-  // Infers style without creating file candidates.
-  function styleAndBackfill(draft) {
-    const styled = { ...draft };
-    delete styled.candidate_files;
-    delete styled.candidates_produced_by;
-    delete styled.candidates_produced_at;
-    if (!Array.isArray(styled.style) || !styled.style.length) {
-      const inferred = inferTicketStyle(styled);
-      if (inferred) styled.style = inferred;
-    }
-    return styled;
+  // Requires the new implementation type in Sprint Leader output without guessing it.
+  function normalizeLeaderDraft(draft) {
+    const normalized = { ...draft };
+    delete normalized.candidate_files;
+    delete normalized.candidates_produced_by;
+    delete normalized.candidates_produced_at;
+    if (normalized.style !== undefined || !Array.isArray(normalized.implementation_type) || normalized.implementation_type.length !== 1 || !["frontend", "backend", "security"].includes(normalized.implementation_type[0])) throw Object.assign(new ConfigurationError("Sprint Leader must return exactly one implementation_type and no style field."), { code: "TICKET_IMPLEMENTATION_TYPE_INVALID", statusCode: 422 });
+    return normalized;
   }
   async function requestSprintLeaderTicket({ projectId, agentId, content, ticket, feedback }) {
     if (typeof sprintLeader?.requestTicket === "function") {
@@ -125,9 +121,9 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
     const prompt = [
       "Convert the project owner request below into exactly one governance ticket.",
       "Write ALL ticket field values (title, objective, acceptance_criteria) in English. If the owner request is in another language (e.g. Vietnamese), translate it into clear technical English.",
-      "REQUIRED: Infer ticket style as a non-empty array of strings. Valid values: frontend (UI/component/page/accordion/modal/chat UI), backend (api/endpoint/database/server), security (auth/permission/credential), infra (deploy/docker/pipeline), docs (documentation). Every ticket MUST include style with at least one value; return e.g. [\"frontend\"] or [\"frontend\",\"backend\"]. Do NOT omit style.",
+      "REQUIRED: Set implementation_type to exactly one value in a one-item array: frontend, backend, or security. Do not return the legacy style field.",
       "Respond with ONLY one ```json fenced block containing the ticket JSON object. No prose outside the block.",
-      "Ticket fields: title (string, required), objective (string, required), acceptance_criteria (array of strings, at least one, required), style (array of strings, REQUIRED, at least one: frontend|backend|security|infra|docs), priority (optional: low|medium|normal|high|critical), dependencies (optional: array of ticket ids).",
+      "Ticket fields: title (string, required), objective (string, required), acceptance_criteria (array of strings, at least one, required), implementation_type (one-item array: frontend|backend|security), file_budget (integer 1-4, required), priority (optional: low|medium|normal|high|critical), dependencies (optional: array of ticket ids), change_nature (optional: presentation-only).",
       "Do NOT include candidate_files, candidates_produced_by, candidates_produced_at, id, project_id, roadmap_id, sprint_id, status, last_error, or provenance; implementation discovery belongs to the Coder and the system assigns identity fields.",
       feedback ? `Previous validation feedback: ${feedback}` : undefined,
       `Project id: ${projectId}`,
@@ -157,6 +153,7 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
     }
     if (!converted) throw Object.assign(new ConfigurationError("Sprint leader did not return a ticket JSON object."), { statusCode: 422, code: "INVALID_REGENERATED_TICKET" });
     const candidate = { ...original, ...converted, id: ticketId, project_id: projectId, sprint_id: sprintId ?? original.sprint_id, roadmap_id: original.roadmap_id, provenance: original.provenance };
+    delete candidate.style;
     const errors = validateRegeneratedTicket(candidate);
     if (errors.length) throw Object.assign(new ConfigurationError(`Regenerated ticket failed validation: ${errors.join("; ")}`), { statusCode: 422, code: "INVALID_REGENERATED_TICKET" });
     const saved = roadmaps.updateTicket({ projectId, ticketId, patch: Object.fromEntries(UPDATABLE.filter((field) => candidate[field] !== undefined).map((field) => [field, candidate[field]])) });
@@ -174,13 +171,6 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
     requireProject(projectId);
     const provided = patch && typeof patch === "object" && !Array.isArray(patch) ? patch : {};
     const filtered = Object.fromEntries(UPDATABLE.filter((field) => provided[field] !== undefined).map((field) => [field, provided[field]]));
-    if (filtered.style === undefined && (filtered.title || filtered.objective || filtered.acceptance_criteria)) {
-      const current = roadmaps.getCurrent();
-      const existing = current?.sprints?.flatMap(s => s.tickets ?? []).find(t => t.id === ticketId);
-      const merged = { ...(existing ?? {}), ...filtered };
-      const inferred = inferTicketStyle(merged);
-      if (inferred) filtered.style = inferred;
-    }
     const saved = roadmaps.updateTicket?.({ projectId, ticketId, patch: filtered });
     if (saved === undefined) throw Object.assign(new ConfigurationError(`Unknown ticket: ${ticketId}.`), { statusCode: 404 });
     const updated = saved.sprints?.flatMap((sprint) => sprint.tickets ?? []).find((item) => item.id === ticketId);

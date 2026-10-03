@@ -3,11 +3,13 @@ import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { createForgeV1ConversationRoutes } from "./forge-v1-conversation-routes.js";
 import { routeTicketReview } from "./forge-v1-ticket-review-routes.js";
+import { routePlan } from "./forge-v1-plan-routes.js";
+import { routeDirectCode } from "./forge-v1-direct-code-routes.js";
 import { normalizeParts, unavailable, runRequestsFresh, requireProject, readJson } from "./forge-v1-router-utils.js";
 
 // Creates the Forge v1 HTTP router with checkpoint decoration.
-export function createForgeV1Router({ dispatchTicket, dispatchSprint, reviewTicket, ticketHumanReviewService, runToolLab, directCodeRequest, projectStream, onWatcherEvent, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, conversationCrudService, conversationAuditHistoryService, architectureWorkspaceService, humanDecisionService, agentSettingsService, listResumableCheckpoints, gitService, expectedProjectId } = {}) {
-  const conversationRoutes = createForgeV1ConversationRoutes({ conversationCrudService, conversationAuditHistoryService, ownerChatService, listResumableCheckpoints });
+export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrchestrationService, reviewTicket, ticketHumanReviewService, runToolLab, directCodeRequest, projectStream, onWatcherEvent, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, conversationCrudService, conversationAuditHistoryService, architectureWorkspaceService, humanDecisionService, agentSettingsService, listResumableCheckpoints, gitService, expectedProjectId, planStore, markdownPlanStore, sprintRegistry, planOwnerAuth } = {}) {
+  const conversationRoutes = createForgeV1ConversationRoutes({ conversationCrudService, conversationAuditHistoryService, ownerChatService, listResumableCheckpoints, planOwnerAuth });
   return Object.freeze({ route });
 
   async function route(method, url, request) {
@@ -26,7 +28,11 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, reviewTick
     }
 
     const projectId = bodyProject ?? queryProject;
-    const conversationResult = await conversationRoutes.routeConversation({ method, parts, url, body, projectId });
+    const planResult = await routePlan({ method, parts, body, projectId, expectedProjectId, planStore, markdownPlanStore, sprintRegistry, planOwnerAuth, headers: request.headers });
+    if (planResult) return planResult;
+    const directCodeResult = await routeDirectCode({ method, parts, body, projectId, url, directCodeRequest, sprintRegistry });
+    if (directCodeResult) return directCodeResult;
+    const conversationResult = await conversationRoutes.routeConversation({ method, parts, url, body, projectId, headers: request.headers });
     if (conversationResult) return conversationResult;
     const reviewResult = await routeTicketReview({ method, parts, projectId, body, requestId, correlationId, reviewTicket, ticketHumanReviewService });
     if (reviewResult) return reviewResult;
@@ -197,6 +203,18 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, reviewTick
       return { status: 202, body: { ...result, request_id: requestId, correlation_id: correlationId } };
     }
 
+    if (method === "POST" && parts.length === 3 && parts[0] === "sprints" && parts[2] === "draft") {
+      if (!sprintOrchestrationService?.run) throw unavailable("Sprint Plan Drafting");
+      requireProject(projectId);
+      if (projectId !== expectedProjectId) throw Object.assign(new ConfigurationError("Sprint project context differs from the active project."), { code: "PROJECT_CONTEXT_CONFLICT", statusCode: 409 });
+      const scheduled = sprintRegistry?.get?.(parts[1]);
+      if (scheduled?.plan_id) {
+        const basis = await planStore?.getRevision?.({ planId: scheduled.plan_id, revision: scheduled.plan_revision });
+        if (basis?.source_path?.endsWith(".md")) throw Object.assign(new ConfigurationError("This Sprint is bound to approved Markdown; create a new Markdown revision to replan."), { code: "SPRINT_REPLAN_REQUIRES_MARKDOWN", statusCode: 409 });
+      }
+      return { status: 202, body: sprintOrchestrationService.run({ projectId, sprintId: parts[1] }) };
+    }
+
     if (method === "POST" && parts.length === 3 && parts[0] === "sprints" && parts[2] === "run") {
       const runSprint = dispatchSprint;
       if (typeof runSprint !== "function") throw unavailable("Sprint Orchestration");
@@ -217,24 +235,6 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, reviewTick
       const toolTest = typeof body.tool_test === "object" && body.tool_test !== null ? body.tool_test : {};
       const result = await runToolLab({ projectId, targetPath: toolTest.target_path ?? body.target_path ?? body.targetPath, allowedPrefixes: toolTest.allowed_prefixes ?? normalizedPrefixes, approvalPolicy: toolTest.approval_policy, taskId: body.task_id ?? body.taskId });
       return { status: 202, body: { ...result, request_id: requestId, correlation_id: correlationId } };
-    }
-
-    if (method === "POST" && parts.length === 2 && parts[0] === "code" && parts[1] === "run") {
-      if (typeof directCodeRequest?.run !== "function") throw unavailable("Direct Code");
-      requireProject(projectId);
-      return { status: 200, body: await directCodeRequest.run({ projectId, sprintId: body.sprint_id, text: body.text }) };
-    }
-
-    if (method === "GET" && parts.length === 2 && parts[0] === "code" && parts[1] === "checkpoints") {
-      if (typeof directCodeRequest?.listPending !== "function") throw unavailable("Direct Code");
-      requireProject(projectId);
-      return { status: 200, body: { checkpoints: await directCodeRequest.listPending({ projectId, sprintId: url.searchParams.get("sprint_id") ?? undefined }) } };
-    }
-
-    if (method === "POST" && parts.length === 3 && parts[0] === "code" && parts[2] === "resume") {
-      if (typeof directCodeRequest?.resume !== "function") throw unavailable("Direct Code");
-      requireProject(projectId);
-      return { status: 200, body: await directCodeRequest.resume({ projectId, taskId: parts[1] }) };
     }
 
     if (method === "POST" && parts.length === 5 && parts[0] === "projects" && parts[2] === "tickets" && parts[4].endsWith(":run")) {

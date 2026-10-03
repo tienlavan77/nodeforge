@@ -137,7 +137,7 @@ test("raw chat content is converted by the sprint leader into a valid ticket", a
   const { roadmaps, service } = createService({
     agentStream: async function* ({ agentId, payload }) {
       requests.push({ agentId, text: payload.text });
-      yield { text: 'Here you go:\n```json\n{"title":"Fix login bug","objective":"Users cannot log in with expired sessions.","acceptance_criteria":["Expired sessions redirect to login."],"priority":"high"}\n```' };
+      yield { text: 'Here you go:\n```json\n{"title":"Fix login bug","objective":"Users cannot log in with expired sessions.","acceptance_criteria":["Expired sessions redirect to login."],"implementation_type":["security"],"priority":"high"}\n```' };
     },    agentRoleResolver: { resolve: (role) => { assert.equal(role, "sprint_leader"); return "AGENT-SL-1"; } }
   });
   const result = await service.createTicket({ projectId: "P1", content: "login bị lỗi, fix giúp" });
@@ -148,6 +148,8 @@ test("raw chat content is converted by the sprint leader into a valid ticket", a
   assert.match(requests[0].text, /in English/);
   assert.equal(result.ticket.title, "Fix login bug");
   assert.equal(result.ticket.priority, "high");
+  assert.deepEqual(result.ticket.implementation_type, ["security"]);
+  assert.equal(result.ticket.style, undefined);
   assert.equal(result.ticket.project_id, "P1");
   assert.equal(result.ticket.sprint_id, "SPRINT-P1-API");
   assert.equal(result.ticket.provenance.source, "project_owner");
@@ -159,7 +161,7 @@ test("private context is normalized by the sprint leader but excluded from canon
   const { service } = createService({
     agentStream: async function* ({ payload }) {
       received.push(payload.text);
-      yield { text: '```json\n{"title":"Add Google sign-in","objective":"Allow users to authenticate with Google.","acceptance_criteria":["Users can sign in with Google."]}\n```' };
+      yield { text: '```json\n{"title":"Add Google sign-in","objective":"Allow users to authenticate with Google.","acceptance_criteria":["Users can sign in with Google."],"implementation_type":["security"]}\n```' };
     },
     agentRoleResolver: { resolve: () => "AGENT-SL-1" }
   });
@@ -179,9 +181,19 @@ test("invalid sprint leader output leaves the roadmap untouched and returns 422"
   assert.equal(roadmaps.getCurrent(), undefined);
 });
 
+// Rejects old or ambiguous execution classifications in new Sprint Leader drafts.
+test("sprint leader must return one implementation_type instead of style", async () => {
+  const { service, roadmaps } = createService({
+    agentStream: async function* () { yield { text: '```json\n{"title":"Fix API","objective":"Fix endpoint.","acceptance_criteria":["Works."],"style":["backend"]}\n```' }; },
+    agentRoleResolver: { resolve: () => "AGENT-SL-1" }
+  });
+  await assert.rejects(() => service.createTicket({ projectId: "P1", content: "fix api" }), { code: "TICKET_IMPLEMENTATION_TYPE_INVALID" });
+  assert.equal(roadmaps.getCurrent(), undefined);
+});
+
 test("sprint leader output that still fails validation surfaces its errors", async () => {
   const { roadmaps, service } = createService({
-    agentStream: async function* () { yield { text: '```json\n{"title":"Half ticket","objective":"Missing criteria."}\n```' }; },
+    agentStream: async function* () { yield { text: '```json\n{"title":"Half ticket","objective":"Missing criteria.","implementation_type":["backend"]}\n```' }; },
     agentRoleResolver: { resolve: () => "AGENT-SL-1" }
   });
   await assert.rejects(() => service.createTicket({ projectId: "P1", content: "làm giúp cái half ticket" }), (error) => error.statusCode === 422 && error.code === "INVALID_TICKET" && /Sprint leader returned an invalid ticket/.test(error.message) && Array.isArray(error.missing));
@@ -204,7 +216,7 @@ test("hallucinated leader paths are stripped without adding other candidates", a
   const { service } = createService({
     agentStream: async function* ({ payload }) {
       seen.push(payload.text);
-      yield { text: '```json\n{"title":"Fix chat","objective":"Fix the chat panel.","acceptance_criteria":["Panel works."],"style":["frontend"],"candidate_files":[{"path":"web/src/components/chat/ChatPanel.tsx","role":"PATCH","reason":"made up"}]}\n```' };
+      yield { text: '```json\n{"title":"Fix chat","objective":"Fix the chat panel.","acceptance_criteria":["Panel works."],"implementation_type":["frontend"],"candidate_files":[{"path":"web/src/components/chat/ChatPanel.tsx","role":"PATCH","reason":"made up"}]}\n```' };
     },
     agentRoleResolver: { resolve: () => "AGENT-SL-1" },
     candidateResolver: { resolve: async (draft) => ({ ...draft, candidate_files: [{ path: "ui/nextjs/components/NodeForgePanels.jsx", role: "REFERENCE", reason: "retrieval:real-file" }], candidates_produced_by: "retrieval", candidates_produced_at: "2026-09-23T00:00:00Z" }) }
@@ -219,7 +231,7 @@ test("hallucinated leader paths are stripped without adding other candidates", a
 test("leader text without a resolver creates a ticket without candidates", async () => {
   const { service } = createService({
     agentStream: async function* () {
-      yield { text: '```json\n{"title":"Fix API","objective":"Fix the endpoint.","acceptance_criteria":["Endpoint works."],"style":["backend"]}\n```' };
+      yield { text: '```json\n{"title":"Fix API","objective":"Fix the endpoint.","acceptance_criteria":["Endpoint works."],"implementation_type":["backend"]}\n```' };
     },
     agentRoleResolver: { resolve: () => "AGENT-SL-1" }
   });

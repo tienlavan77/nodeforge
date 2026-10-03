@@ -17,7 +17,7 @@ function projectConversationMessage(message) {
   const payload = message?.payload && typeof message.payload === "object" ? message.payload : {};
   const eventType = type === "owner.message" ? "conversation.message.owner"
     : type.endsWith(".message.delta") ? "conversation.message.delta"
-      : type.endsWith(".message.received") ? "conversation.message.received"
+      : type.endsWith(".message.received") || type === "owner.command.result" ? "conversation.message.received"
         : type.endsWith(".error") || type.endsWith(".failed") ? "conversation.message.failed" : null;
   if (!eventType || typeof message?.conversation_id !== "string") return null;
   if (eventType === "conversation.message.failed") {

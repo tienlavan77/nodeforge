@@ -22,7 +22,7 @@ export function extractExplicitPaths(ticket) {
 export function backfillTicketCandidates(ticket) {
   if (!ticket || typeof ticket !== "object" || Array.isArray(ticket)) return ticket;
   const normalized = { ...ticket };
-  if (!Array.isArray(normalized.style) || normalized.style.length === 0) {
+  if (!Array.isArray(normalized.implementation_type) && (!Array.isArray(normalized.style) || normalized.style.length === 0)) {
     normalized.style = inferTicketStyle(normalized) ?? ["backend"];
   }
   if (Array.isArray(normalized.candidate_files)) {

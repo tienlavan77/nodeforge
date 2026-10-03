@@ -12,7 +12,7 @@ const commonSchema = require("../../../schemas/core/common.schema.json");
 const ticketSchema = require("../../../schemas/governance/ticket.schema.json");
 
 // Creates the owner chat service handling message intake and streaming.
-export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, executeAgentTool, proseTicketService, internalBus, debug = () => {}, streamBatchMs = 500, projectLogger = logEvent, protocolStorage, conversationCrudService } = {}) {
+export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, executeAgentTool, proseTicketService, internalBus, debug = () => {}, streamBatchMs = 500, projectLogger = logEvent, protocolStorage, conversationCrudService, commandService } = {}) {
   if (typeof bus?.send !== "function") throw new ConfigurationError("Owner Chat Service requires the shared Communication Bus.");
   if (!Number.isInteger(streamBatchMs) || streamBatchMs < 1) throw new ConfigurationError("Owner Chat stream batch interval must be positive.");
   const messages = new Map();
@@ -44,6 +44,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     }
     const existing = messages.get(input.message_id);
     if (existing) return { ...structuredClone(existing), duplicate: true };
+    if (commandService?.isCommand?.(input.payload.text)) return handleOwnerCommand(input, agentId);
     conversationCrudService?.ensure?.({ id: input.conversation_id, project_id: input.project_id, agent_id: agentId, title: input.payload.text });
     const isBuilder = agentId === "builder" || agentId === "builder-ex";
     const intent = input.payload.intent;
@@ -98,6 +99,40 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     } else if (typeof streamAgent === "function") void streamAgent(persisted, agentId);
     else if (typeof agentRequest === "function") void requestRealAgent(persisted, agentId);
     return structuredClone(persisted);
+  }
+  // Executes a planning command and publishes only its reviewable result.
+  async function handleOwnerCommand(input, agentId) {
+    conversationCrudService?.ensure?.({ id: input.conversation_id, project_id: input.project_id, agent_id: agentId, title: input.payload.text });
+    const ownerMessage = { id: input.message_id, project_id: input.project_id, sender: { id: input.sender_id ?? "project-owner", role: "project_owner" }, recipient: { id: agentId, role: roleForAgent(agentId) }, message_type: "owner.message", conversation_id: input.conversation_id, correlation_id: input.correlation_id, payload: { text: input.payload.text }, timestamp: input.timestamp };
+    bus.send(ownerMessage);
+    try {
+      const isPlanCommand = /^\/plan\s+\S+\s*$/i.test(input.payload.text.trim());
+      const result = await commandService.execute({ text: input.payload.text, conversationId: input.conversation_id, project_id: input.project_id, approvedOwnerId: input.approved_owner_id, approvalRevision: input.payload.approval_revision, approvalSha256: input.payload.approval_sha256, approvalComments: input.payload.approval_comments, requestArchitecture: (prompt, conversationId) => streamCommandArchitecture({ input, agentId, prompt, conversationId, exposeText: !isPlanCommand }) });
+      const response = responseMessage({ ...input, id: input.message_id, recipient: { id: "NODE", role: "node" } }, "owner.command.result", result, `COMMAND-${input.message_id}`);
+      bus.send(response);
+      messages.set(input.message_id, Object.freeze(structuredClone(response)));
+      return structuredClone(response);
+    } catch (error) {
+      const response = responseMessage({ ...input, id: input.message_id, recipient: { id: "NODE", role: "node" } }, "owner.command.error", { error: normalizeErrorContract({ error, requestId: input.correlation_id }) }, `COMMAND-ERROR-${input.message_id}`);
+      bus.send(response);
+      messages.set(input.message_id, Object.freeze(structuredClone(response)));
+      return structuredClone(response);
+    }
+  }
+  // Streams an Architecture response and persists it in the same conversation.
+  async function streamCommandArchitecture({ input, agentId, prompt, conversationId, exposeText = true }) {
+    if (typeof agentStream !== "function") throw new ConfigurationError("Architecture agent stream is unavailable.");
+    const message = { id: `MSG-ARCHITECTURE-COMMAND-${input.message_id}`, project_id: input.project_id, sender: { id: "NODE", role: "node" }, recipient: { id: agentId, role: roleForAgent(agentId) }, message_type: "owner.message", conversation_id: conversationId, correlation_id: `${input.correlation_id}-ARCH`, payload: { text: prompt }, timestamp: new Date().toISOString() };
+    let text = ""; let index = 0;
+    if (exposeText) bus.sendFast(responseMessage(message, "architecture.working", { agent_status: "WORKING" }, "COMMAND-WORKING"));
+    for await (const chunk of agentStream({ agentId, payload: { text: prompt }, correlationId: message.correlation_id, conversationId })) {
+      if (typeof chunk.text !== "string" || !chunk.text) continue;
+      text += chunk.text;
+      if (exposeText) bus.sendFast(responseMessage(message, "architecture.message.delta", { text: chunk.text, accumulated_text: text, chunk_index: index++ }, `COMMAND-DELTA-${index}`));
+    }
+    const response = responseMessage(message, "architecture.message.received", { text, agent_status: "COMPLETED" }, "COMMAND-COMPLETED");
+    if (exposeText) bus.send(response);
+    return text;
   }
   // Adds available project context to agent requests.
   async function enrichAgentText(message, agentId) {

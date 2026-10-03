@@ -28,17 +28,17 @@ test("report_done requires a passed artifact before saving a ticket report", asy
 });
 
 // Keeps backend remediation reports from being classified as UI work by test names.
-test("report_done respects explicit ticket style when criteria mention UI tests", async () => {
+test("report_done respects implementation_type when criteria mention UI tests", async () => {
   const reportService = {
     buildFinalReport: async () => ({ status: "completed", criteria_check: [] }),
     saveReport: async () => {},
     writeReportFile: async () => {}
   };
   const tool = createReportDoneTool({ reportService });
-  const context = { ticket: { id: "BACKEND-1", style: ["backend", "infra"], acceptance_criteria: ["Watcher UI scope test passes on the backend baseline."] }, changed_paths: ["backend/src/application/test-service.js"] };
+  const context = { ticket: { id: "BACKEND-1", implementation_type: ["backend"], acceptance_criteria: ["Watcher UI scope test passes on the backend baseline."] }, changed_paths: ["backend/src/application/test-service.js"] };
   await tool.execute({ summary: "Backend baseline verified." }, context);
   await assert.rejects(
-    tool.execute({ summary: "UI complete." }, { ...context, ticket: { ...context.ticket, style: ["frontend"] } }),
+    tool.execute({ summary: "UI complete." }, { ...context, ticket: { ...context.ticket, implementation_type: ["frontend"] } }),
     { code: "REPORT_SCOPE_INVALID" }
   );
 });
