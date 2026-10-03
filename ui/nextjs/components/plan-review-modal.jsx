@@ -9,11 +9,25 @@ function legacyDraft(sprint) {
   return { objective: sprint.objective ?? "", outcome: "", in_scope: "", out_of_scope: "", approach: "", components: [], tickets: tickets.map((ticket) => ticket.id), ticket_specs: tickets, dependencies: sprint.dependencies ?? [], risks: [], assumptions: [], open_questions: [], evidence_refs: [], acceptance_criteria: sprint.exit_criteria ?? [] };
 }
 
+// Creates a browser-safe request identifier when randomUUID is unavailable.
+function createClientUuid() {
+  if (typeof globalThis.crypto?.randomUUID === "function") return globalThis.crypto.randomUUID();
+  if (typeof globalThis.crypto?.getRandomValues === "function") {
+    const bytes = new Uint8Array(16);
+    globalThis.crypto.getRandomValues(bytes);
+    bytes[6] = (bytes[6] & 15) | 64;
+    bytes[8] = (bytes[8] & 63) | 128;
+    const hex = [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
 // Shows plan scope, evidence, and checksum before submitting an authenticated decision.
-export function PlanReviewModal({ client, projectId, sprintId, planId, conversationId, agentId, onClose, onChanged }) {
-  const [state, setState] = useState("loading");
+export function PlanReviewModal({ client, projectId, sprintId, planId, initialPlan, conversationId, agentId, onClose, onChanged }) {
+  const [state, setState] = useState(initialPlan ? "ready" : "loading");
   const [registry, setRegistry] = useState(null);
-  const [plan, setPlan] = useState(null);
+  const [plan, setPlan] = useState(initialPlan ?? null);
   const [token, setToken] = useState("");
   const [comments, setComments] = useState("");
   const [message, setMessage] = useState("");
@@ -22,6 +36,7 @@ export function PlanReviewModal({ client, projectId, sprintId, planId, conversat
   const [legacyDependencies, setLegacyDependencies] = useState([]);
   const [editing, setEditing] = useState(false);
   useEffect(() => {
+    if (initialPlan) { setPlan(initialPlan); setState("ready"); return undefined; }
     let active = true;
     async function load() {
       try {
@@ -52,7 +67,7 @@ export function PlanReviewModal({ client, projectId, sprintId, planId, conversat
     }
     void load();
     return () => { active = false; };
-  }, [client, projectId, sprintId, planId]);
+  }, [client, projectId, sprintId, planId, initialPlan]);
 
   // Registers a historical sprint only after an explicit, reviewable draft exists.
   async function createLegacy() {
@@ -83,20 +98,27 @@ export function PlanReviewModal({ client, projectId, sprintId, planId, conversat
     if (!plan || !token) return;
     setState("submitting"); setMessage("");
     try {
+      let handoff = null;
       if (plan.format !== "markdown" && !registry) {
         const registered = await client.listSprintRegistry(projectId);
         setRegistry(await client.registerSprint(projectId, sprintId, registered.length, legacyDependencies, legacyPlan ?? plan));
       } else if (plan.format !== "markdown" && registry.plan_revision !== plan.revision) setRegistry(await client.bindSprintPlan(projectId, sprintId, plan));
       if (plan.format === "markdown" && decision === "approved") {
         if (!(plan.conversation_id ?? conversationId)) throw new Error("Open the Architecture conversation before approving this plan.");
-        const result = await client.postOwnerMessage({ projectId, conversationId: plan.conversation_id ?? conversationId, agentId, messageId: `MSG-OWNER-APPROVE-${crypto.randomUUID()}`, correlationId: `CORR-APPROVE-${crypto.randomUUID()}`, text: `/approve ${plan.plan_id}`, ownerToken: token, approvalRevision: plan.revision, approvalSha256: plan.sha256, approvalComments: comments });
+        const result = await client.postOwnerMessage({ projectId, conversationId: plan.conversation_id ?? conversationId, agentId, messageId: `MSG-OWNER-APPROVE-${createClientUuid()}`, correlationId: `CORR-APPROVE-${createClientUuid()}`, text: `/approve ${plan.plan_id}`, ownerToken: token, approvalRevision: plan.revision, approvalSha256: plan.sha256, approvalComments: comments });
         if (result?.message_type === "owner.command.error" || result?.payload?.error) throw new Error(result.payload?.error?.message ?? "Plan handoff failed.");
+        if (result?.payload?.status === "handoff_in_progress") { setMessage("Sprint Leader đang tạo Sprint Plan. Handoff chưa hoàn tất; hãy mở lại kế hoạch để xem kết quả."); setState("ready"); return; }
+        if (result?.payload?.status !== "handed_to_sprint_leader") throw new Error("Handoff chưa hoàn tất. Hãy kiểm tra kết quả trước khi tiếp tục.");
+        const loadedSprints = await client.listSprints(projectId);
+        const sprintItems = Array.isArray(loadedSprints) ? loadedSprints : loadedSprints?.items ?? loadedSprints?.sprints ?? [];
+        if (!sprintItems.some((sprint) => sprint.id === result.payload.sprint_id)) throw new Error("Sprint Plan chưa được thêm vào roadmap. Control API cần nạp bản sửa rồi tiếp tục handoff.");
+        handoff = result.payload;
       } else await client.decidePlan(projectId, plan, decision, token, comments);
       setToken(""); setPlan({ ...plan, status: decision, ...(plan.format === "markdown" && decision === "approved" ? { handoff_status: "completed" } : {}) });
       if (decision === "approved" && !plan.source_path) setRegistry(await client.setSprintStatus(projectId, sprintId, "ready"));
       setMessage(`Revision ${plan.revision}: ${decision}.`);
       setState("decided");
-      await onChanged?.();
+      await onChanged?.({ decision, plan, handoff });
     } catch (error) { setMessage(error.message); setState("ready"); }
   }
 
@@ -107,7 +129,7 @@ export function PlanReviewModal({ client, projectId, sprintId, planId, conversat
     catch (error) { setMessage(error.message); setState("ready"); }
   }
 
-  return <EntityDetailsModal title={`Review plan · ${sprintId ?? planId}`} onClose={onClose}>
+  return <EntityDetailsModal title={`Review plan · ${sprintId ?? planId}`} modalClassName="plan-review-modal" onClose={onClose}>
     {state === "loading" && <p>Loading plan revision…</p>}
     {state === "legacy" && <div className="plan-review-content"><p>This historical sprint has no plan revision. Complete the scope, approach, components and evidence fields, then create a draft for owner review.</p><label>Plan JSON<textarea rows={18} value={draftText} onChange={(event) => setDraftText(event.target.value)} /></label><button type="button" onClick={createLegacy}>Create draft</button>{message && <p role="alert">{message}</p>}</div>}
     {state !== "loading" && state !== "legacy" && state !== "ready" && state !== "submitting" && state !== "decided" && <p role="alert">{state}</p>}
@@ -127,6 +149,7 @@ export function PlanReviewModal({ client, projectId, sprintId, planId, conversat
       {editing && <><label>Revised plan JSON<textarea rows={18} value={draftText} onChange={(event) => setDraftText(event.target.value)} /></label><div className="settings-actions"><button type="button" disabled={state === "submitting"} onClick={revise}>Save revision</button><button type="button" onClick={() => setEditing(false)}>Cancel edit</button></div></>}
       {!editing && (plan.status === "awaiting_human_approval" || plan.format === "markdown" && plan.status === "approved" && plan.handoff_status !== "completed") && <div className="plan-review-decision-fields"><label>Owner token<input type="password" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)} placeholder="Enter owner token" /></label>{plan.status === "awaiting_human_approval" && <label>Review comments<textarea value={comments} onChange={(event) => setComments(event.target.value)} rows={3} placeholder="Optional note for this decision" /></label>}<div className="settings-actions"><button type="button" disabled={!token || state === "submitting"} onClick={() => decide("approved")}>{plan.status === "approved" ? "Continue handoff" : "Approve"}</button>{plan.status === "awaiting_human_approval" && <><button type="button" disabled={!token || state === "submitting"} onClick={() => decide("changes_requested")}>Request changes</button><button type="button" disabled={!token || state === "submitting"} onClick={() => decide("rejected")}>Reject</button></>}</div></div>}
       {plan.status === "approved" && registry && !["ready", "running", "done"].includes(registry.status) && <button type="button" disabled={state === "submitting"} onClick={markReady}>Mark sprint ready</button>}
+      {state === "submitting" && <p role="status">Đang xử lý handoff với Sprint Leader…</p>}
       {message && <p role="status">{message}</p>}
     </div>}
   </EntityDetailsModal>;

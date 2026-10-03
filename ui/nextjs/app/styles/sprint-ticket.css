@@ -149,15 +149,22 @@
   border-radius: 0 !important;
   background: transparent !important;
 }
-.plan-review-content { display: grid; gap: 10px; max-height: 70vh; overflow: auto; overflow-wrap: anywhere; }
+.sprint-modal.plan-review-modal { width: min(760px, calc(100vw - 32px)); max-width: calc(100vw - 32px); min-width: 0; overflow: hidden; }
+.sprint-modal.plan-review-modal .sprint-modal-content { min-width: 0; max-width: 100%; overflow: hidden; }
+.plan-review-content { display: grid; gap: 10px; min-width: 0; max-width: 100%; max-height: 70vh; overflow: auto; overflow-wrap: anywhere; }
 .plan-review-content section { margin: 0; }
 .plan-review-content h3, .plan-review-content p { margin: 0; }
-.plan-review-content label { display: grid; gap: 5px; }
-.plan-review-content input, .plan-review-content textarea { width: 100%; }
-.plan-review-decision-fields { display: grid; gap: 14px; margin-top: 8px; padding-top: 16px; border-top: 1px solid var(--app-border); }
+.plan-review-content pre,
+.plan-review-content code { min-width: 0; max-width: 100%; overflow-wrap: anywhere; word-break: break-word; }
+.plan-review-content pre { box-sizing: border-box; margin: 0; white-space: pre-wrap; overflow: auto; }
+.plan-review-content label { display: grid; gap: 5px; min-width: 0; max-width: 100%; }
+.plan-review-content input, .plan-review-content textarea { width: 100%; max-width: 100%; box-sizing: border-box; overflow-wrap: anywhere; }
+.plan-review-decision-fields { display: grid; gap: 14px; min-width: 0; max-width: 100%; margin-top: 8px; padding-top: 16px; border-top: 1px solid var(--app-border); }
 .plan-review-decision-fields label { min-width: 0; color: var(--app-muted); font: 11px 'DM Mono', monospace; letter-spacing: .04em; }
 .plan-review-decision-fields input, .plan-review-decision-fields textarea { box-sizing: border-box; min-width: 0; border: 1px solid var(--app-button-border); border-radius: 6px; background: var(--app-input); color: var(--app-text); padding: 10px 12px; font: 13px/1.5 'Space Grotesk', sans-serif; }
 .plan-review-decision-fields textarea { min-height: 84px; resize: vertical; }
+.plan-review-decision-fields input { overflow: hidden; text-overflow: ellipsis; }
+.plan-review-decision-fields textarea { overflow-wrap: anywhere; white-space: pre-wrap; }
 .plan-review-decision-fields input::placeholder, .plan-review-decision-fields textarea::placeholder { color: var(--app-muted); opacity: .75; }
 .plan-review-decision-fields input:hover, .plan-review-decision-fields textarea:hover { border-color: var(--app-accent); }
 .plan-review-decision-fields input:focus-visible, .plan-review-decision-fields textarea:focus-visible { border-color: var(--app-accent); outline: 2px solid color-mix(in srgb, var(--app-accent) 45%, transparent); outline-offset: 1px; }

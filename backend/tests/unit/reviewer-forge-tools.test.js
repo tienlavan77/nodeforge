@@ -14,7 +14,7 @@ const source = { path: "src/a.js", content: "function sample() {\n  return 1;\n}
 
 // Creates a small File Service stub without exposing any write method.
 function files(overrides = {}) {
-  return { readForIndex: async ({ path }) => path === "workflows/agents/reviewer.md" ? { ...source, path, content: "Read the evidence." } : { ...source, path }, listFiles: async () => ["src/a.js", ".env", "node_modules/x.js", "src/b.js"], listDirectories: async () => ["src", "node_modules"], ...overrides };
+  return { readForIndex: async ({ path }) => path === "workflows/agents/reviewer/README.md" ? { ...source, path, content: "Read the evidence." } : { ...source, path }, listFiles: async () => ["src/a.js", ".env", "node_modules/x.js", "src/b.js"], listDirectories: async () => ["src", "node_modules"], ...overrides };
 }
 
 test("review read tools return bounded source and hide protected paths", async () => {

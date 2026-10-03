@@ -18,13 +18,15 @@ export function extractExplicitPaths(ticket) {
   return found;
 }
 
-// Preserves legacy candidates while inferring the required style for older tickets.
+// Converts historical ticket styles to one execution type while preserving file candidates.
 export function backfillTicketCandidates(ticket) {
   if (!ticket || typeof ticket !== "object" || Array.isArray(ticket)) return ticket;
   const normalized = { ...ticket };
-  if (!Array.isArray(normalized.implementation_type) && (!Array.isArray(normalized.style) || normalized.style.length === 0)) {
-    normalized.style = inferTicketStyle(normalized) ?? ["backend"];
+  if (!Array.isArray(normalized.implementation_type)) {
+    const chosen = (Array.isArray(normalized.style) ? normalized.style : inferTicketStyle(normalized) ?? []).find((value) => ["frontend", "backend", "security"].includes(value));
+    normalized.implementation_type = [chosen ?? "backend"];
   }
+  delete normalized.style;
   if (Array.isArray(normalized.candidate_files)) {
     normalized.candidate_files = normalized.candidate_files.map(downgradeMissingSymbol);
   }

@@ -7,7 +7,7 @@ const SUMMARY_RE = /^\/summary\s*$/i;
 const PLAN_RE = /^\/plan\s+(\S+)\s*$/i;
 const APPROVE_RE = /^\/approve\s+(\S+)\s*$/i;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-const PLAN_FRAME_PATH = "workflows/frame-plan.md";
+const PLAN_FRAME_PATH = "workflows/agents/architecture/README.md";
 
 // Creates the command handler bound to one project and its immutable plan store.
 export function createOwnerChatCommandService({ projectId, fileService, planStore, markdownPlanStore, handoffApprovedPlan } = {}) {
@@ -50,7 +50,7 @@ export function createOwnerChatCommandService({ projectId, fileService, planStor
     if (typeof requestArchitecture !== "function") throw fail("ARCHITECTURE_UNAVAILABLE", "Architecture agent is unavailable.");
     const prompt = `Dựa trên summary và khung kế hoạch dưới đây, hãy thiết kế một plan dễ đọc cho owner. Chỉ trả về Markdown theo khung; không trả JSON, không tạo file, không tuyên bố đã được duyệt hoặc đã RUN.\n\n## Summary nguồn (${summaryId})\n\n${summary}\n\n## Khung kế hoạch (${PLAN_FRAME_PATH})\n\n${frame}`;
     const markdown = String(await requestArchitecture(prompt, conversationId) ?? "").trim();
-    if (!/^# Plan:\s*\S/.test(markdown) || !/^## 1\. /m.test(markdown) || !/^## 7\. /m.test(markdown)) throw fail("ARCHITECTURE_PLAN_INVALID", "Architecture must return a Markdown plan following frame-plan.md.");
+    if (!/^# Plan:\s*\S/.test(markdown) || !/^## 1\. /m.test(markdown) || !/^## 7\. /m.test(markdown)) throw fail("ARCHITECTURE_PLAN_INVALID", `Architecture must return a Markdown plan following ${PLAN_FRAME_PATH}.`);
     readMarkdownSprintScope(markdown);
     const planId = `PLAN-${projectId}-${randomUUID()}`;
     if (!markdownPlanStore?.createRevision) throw fail("MARKDOWN_PLAN_STORE_UNAVAILABLE", "Markdown plan registry is unavailable.");

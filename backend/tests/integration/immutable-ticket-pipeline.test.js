@@ -139,11 +139,11 @@ test("approved ticket commit integrates once with deleted and renamed files", { 
   try {
     await mkdir(root, { recursive: true });
     await mkdir(join(root, "backend/src"), { recursive: true });
-    await mkdir(join(root, "workflows/agents"), { recursive: true });
+    await mkdir(join(root, "workflows/agents/reviewer"), { recursive: true });
     await writeFile(join(root, ".gitignore"), ".forge/\nnode_modules/\n");
     await writeFile(join(root, "jsconfig.json"), JSON.stringify({ compilerOptions: { allowJs: true, noEmit: true }, include: ["backend/src/**/*.js"] }));
     await writeFile(join(root, "backend/src/check.js"), "export const check = true;\n");
-    await writeFile(join(root, "workflows/agents/reviewer.md"), "Review only committed source.\n");
+    await writeFile(join(root, "workflows/agents/reviewer/README.md"), "Review only committed source.\n");
     await writeFile(join(root, "old.md"), "Old\n");
     await git(root, "init");
     await git(root, "config", "user.email", "test@example.invalid");

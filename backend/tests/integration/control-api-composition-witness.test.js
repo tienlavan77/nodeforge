@@ -61,10 +61,10 @@ test("production Control API composition restarts on a disposable project", { ti
   let child;
   try {
     await mkdir(root, { recursive: true });
-    await mkdir(join(root, "workflows/agents"), { recursive: true });
+    await mkdir(join(root, "workflows/agents/sprint-leader"), { recursive: true });
     await writeFile(join(root, ".gitignore"), ".forge/\n");
     await writeFile(join(root, "README.md"), "Disposable project\n");
-    await writeFile(join(root, "workflows/agents/sprint-leader.md"), "# Sprint Leader\nCreate tickets only from the approved sprint plan.\n");
+    await writeFile(join(root, "workflows/agents/sprint-leader/README.md"), "# Sprint Leader\nCreate tickets only from the approved sprint plan.\n");
     await execFile("git", ["init", root]);
     await execFile("git", ["-C", root, "config", "user.email", "test@example.invalid"]);
     await execFile("git", ["-C", root, "config", "user.name", "NodeForge Test"]);
@@ -76,7 +76,7 @@ test("production Control API composition restarts on a disposable project", { ti
     assert.equal(health.status, 200);
     const projectId = "PROJECT-COMPOSITION-WITNESS";
     const ticketId = "TICKET-COMPOSITION-WITNESS";
-    const created = await fetch(`http://127.0.0.1:${port}/forge/v1/tickets?project=${projectId}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ticket: { id: ticketId, title: "Change disposable README", objective: "Update README.md in the disposable project.", acceptance_criteria: ["README.md records the test update."], style: ["docs"] } }) });
+    const created = await fetch(`http://127.0.0.1:${port}/forge/v1/tickets?project=${projectId}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ticket: { id: ticketId, title: "Change disposable README", objective: "Update README.md in the disposable project.", acceptance_criteria: ["README.md records the test update."], implementation_type: ["backend"] } }) });
     assert.equal(created.status, 201, await created.text());
     const dispatch = await fetch(`http://127.0.0.1:${port}/forge/v1/tickets/${ticketId}:run`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId }) });
     assert.equal(dispatch.ok, false);
