@@ -36,6 +36,7 @@ export function createPlanHandoffService({ projectId, database, planStore, markd
       }
       if (markdown) generated = bindMarkdownSprintMetadata(generated, projectId, database);
       if (markdown) assertMarkdownSprintScope(approved.markdown, generated);
+      if (generated.run === true || generated.status === "RUN") throw fail("SPRINT_PLAN_EXECUTION_FORBIDDEN", "Sprint handoff only admits a non-executing draft.");
       database.run(`UPDATE ${table} SET status=?,sprint_id=?,generated_json=?,error_code=NULL,error_message=NULL,updated_at=? WHERE plan_id=? AND revision=? AND sha256=?`, ["generated", generated.id, JSON.stringify(generated), clock(), approved.plan_id, approved.revision, approved.sha256]);
       row = read(approved, table);
       const existing = sprintRegistry?.get?.(generated.id);
