@@ -8,6 +8,10 @@ const PLAN_RE = /^\/plan\s+(\S+)\s*$/i;
 const APPROVE_RE = /^\/approve\s+(\S+)\s*$/i;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const PLAN_FRAME_PATH = "workflows/agents/architecture/README.md";
+const SUMMARY_PATH_PREFIX = ".forge/runtime/nf/summary/";
+const SUMMARY_SECTIONS = ["Goals", "In Scope", "Out of Scope", "Decisions", "Assumptions", "Risks", "Open Questions"];
+const SUMMARY_EVIDENCE_RE = /\[(?:evidence|source):\s*[^\]]+\]/i;
+const SUMMARY_UNCERTAINTY_RE = /\b(?:assumption|assumes|unknown|uncertain|not known)\b/i;
 
 // Creates the command handler bound to one project and its immutable plan store.
 export function createOwnerChatCommandService({ projectId, fileService, planStore, markdownPlanStore, handoffApprovedPlan, sprintRegistry } = {}) {
@@ -29,14 +33,33 @@ export function createOwnerChatCommandService({ projectId, fileService, planStor
     throw fail("COMMAND_INVALID", "Supported commands are /summary, /plan <id-file>, and /approve <plan_id>.");
   }
 
-  // Saves only the recent conversation as a temporary planning input artifact.
+  // Saves only a validated discussion summary as a temporary planning input artifact.
   async function createSummary({ conversationId, requestArchitecture } = {}) {
     if (typeof requestArchitecture !== "function") throw fail("ARCHITECTURE_UNAVAILABLE", "Architecture agent is unavailable.");
-    const architectureText = await requestArchitecture("Bạn hãy tổng hợp lại các trao đổi đã thống nhất với owner.", conversationId);
+    const contract = [
+      "Produce a temporary planning input only; do not produce a plan, authorize execution, or claim approval.",
+      "Return Markdown with exactly these substantive sections: # Discussion Summary, and ## Goals, ## In Scope, ## Out of Scope, ## Decisions, ## Assumptions, ## Risks, ## Open Questions.",
+      "Every repository fact must include an actual reference such as [Evidence: backend/src/example.js]. Mark uncertain claims as assumptions or unknowns.",
+      `The resolved runtime artifact path is ${SUMMARY_PATH_PREFIX}<SUMMARY-uuid>.md; this response is the source content only. Summarize the recent owner discussion, not unrelated repository work.`,
+    ].join("\n");
+    const architectureText = String(await requestArchitecture(contract, conversationId) ?? "").trim();
+    validateSummary(architectureText);
     const id = `SUMMARY-${randomUUID()}`;
-    const path = `.forge/runtime/nf/summary/${id}.md`;
-    await fileService.atomicWrite({ path, content: `${architectureText.trim()}\n`, replace: true });
-    return { command: "/summary", status: "created", summary_id: id, file_id: id, path, text: `Summary đã tạo: ${id}`, execution_authorized: false };
+    const path = `${SUMMARY_PATH_PREFIX}${id}.md`;
+    await fileService.atomicCreate({ path, content: `${architectureText}\n` });
+    return { command: "/summary", status: "created", summary_id: id, file_id: id, path, text: `Summary created: ${id}`, execution_authorized: false, plan_created: false };
+  }
+
+  // Rejects planning-shaped or unverifiable summaries before temporary persistence.
+  function validateSummary(markdown) {
+    if (!markdown.startsWith("# Discussion Summary")) throw fail("SUMMARY_INVALID", "Summary must start with a Discussion Summary heading.");
+    for (const section of SUMMARY_SECTIONS) {
+      const heading = `## ${section}`;
+      if (!markdown.split("\n").some((line) => line.trim() === heading)) throw fail("SUMMARY_INVALID", `Summary is missing the ${section} section.`);
+    }
+    if (!SUMMARY_EVIDENCE_RE.test(markdown)) throw fail("SUMMARY_EVIDENCE_MISSING", "Repository facts require an [Evidence: path] or [Source: path] reference.");
+    if (!SUMMARY_UNCERTAINTY_RE.test(markdown)) throw fail("SUMMARY_UNCERTAINTY_MISSING", "Uncertain claims must be labeled as assumptions or unknowns.");
+    if (/^# Plan:|execution authorized|approved to run/i.test(markdown)) throw fail("SUMMARY_NOT_INPUT", "Summary generation cannot create a plan or execution authorization.");
   }
 
   // Saves Architecture's plan as a readable draft before any approval artifact is created.
