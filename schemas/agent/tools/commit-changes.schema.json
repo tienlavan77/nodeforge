@@ -5,13 +5,24 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "message"
+    "message",
+    "paths"
   ],
   "properties": {
     "message": {
       "type": "string",
       "minLength": 1,
       "maxLength": 200
+    },
+    "paths": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1,
+      "maxItems": 100,
+      "uniqueItems": true
     }
   }
 }

@@ -39,7 +39,7 @@ test("backend style permits backend tests even when the objective omits the word
   assert.ok(ticketAllowedPrefixes({ style: ["backend"], objective: "Standardize the canonical error envelope" }).includes("backend/tests/"));
 });
 
-test("Claude dispatch bypasses explore prepass when SL candidates exist", async () => {
+test("Claude discovers code without treating old candidates as required targets", async () => {
   let prepassCalls = 0;
   let receivedPrompt;
   const codexGateway = { execute: async () => { throw new Error("unused"); } };
@@ -97,10 +97,11 @@ test("Claude dispatch bypasses explore prepass when SL candidates exist", async 
 
   assert.equal(result.status, "completed");
   assert.equal(prepassCalls, 0);
-  assert.match(receivedPrompt, /backend\/src\/application\/pin-service\.js/);
+  assert.doesNotMatch(receivedPrompt, /Primary target is/);
+  assert.match(receivedPrompt, /Discover the implementation from the ticket title/);
 });
 
-test("Codex dispatch bypasses explore prepass when SL candidates exist", async () => {
+test("Codex receives broad search scope without a candidate target", async () => {
   let prepassCalls = 0;
   let forgeTools;
   const integration = createNodeforgeTaskIntegration({
@@ -152,6 +153,7 @@ test("Codex dispatch bypasses explore prepass when SL candidates exist", async (
 
   assert.equal(result.status, "completed");
   assert.equal(prepassCalls, 0);
-  assert.ok(forgeTools.context.allowed_prefixes.includes("backend/src/application"));
-  assert.ok(forgeTools.context.allowed_prefixes.includes("ui/nextjs/components"));
+  assert.equal(forgeTools.context.target_path, null);
+  assert.ok(forgeTools.context.allowed_prefixes.includes("backend/"));
+  assert.ok(forgeTools.context.allowed_prefixes.includes("ui/"));
 });

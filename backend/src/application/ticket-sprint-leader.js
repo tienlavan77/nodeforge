@@ -1,18 +1,19 @@
 // Drafts a governance ticket through the configured Sprint Leader SDK.
-//
-// The leader drafts scope and acceptance criteria without assigning source-file candidates.
 import { extractTicketJson } from "./ticket-draft-parser.js";
+import { startSprintLeaderProgress } from "./sprint-leader-progress.js";
 
 // Creates a runner that asks the sprint leader for one ticket draft with codebase search.
-export function createTicketSprintLeader({ sdkGateway, projectRoot, toolOptions, logger = console } = {}) {
+export function createTicketSprintLeader({ sdkGateway, projectRoot, toolOptions, logger = { error: console.error } } = {}) {
   return Object.freeze({ requestTicket });
 
   // Asks the leader to draft one ticket, letting it search the codebase first.
   async function requestTicket({ projectId, agentId, content, ticket, feedback, correlationId }) {
     if (typeof sdkGateway?.execute !== "function") throw new Error("Ticket sprint leader requires an SDK gateway.");
     const prompt = buildPrompt({ projectId, content, ticket, feedback });
+    const discoveredPaths = new Set();
+    const stopProgress = startSprintLeaderProgress({ logger, kind: "ticket", agentId, correlationId });
     try {
-      const options = toolOptions ? toolOptions({ agentId, correlationId }) : { tools: [] };
+      const options = toolOptions ? toolOptions({ agentId, correlationId, discoveredPaths }) : { tools: [] };
       const result = await sdkGateway.execute({
         agentId,
         prompt,
@@ -39,8 +40,10 @@ export function createTicketSprintLeader({ sdkGateway, projectRoot, toolOptions,
           output_preview: redactOutputPreview(output, content)
         });
       }
-      return draft;
+      stopProgress(draft ? "success" : "failed", { ticket_id: draft?.id ?? ticket?.id ?? null, parsed: Boolean(draft), discovered_paths: discoveredPaths.size });
+      return stripLegacyCandidateFields(draft);
     } catch (error) {
+      stopProgress("failed");
       logger.error?.("Sprint leader ticket draft failed.", {
         agent_id: agentId,
         correlation_id: correlationId,
@@ -55,17 +58,27 @@ export function createTicketSprintLeader({ sdkGateway, projectRoot, toolOptions,
   }
 }
 
-// Builds the ticket drafting instruction without file-candidate discovery.
+// Removes obsolete file candidate metadata so the Coder owns implementation discovery.
+function stripLegacyCandidateFields(ticket) {
+  if (!ticket || typeof ticket !== "object" || Array.isArray(ticket)) return ticket;
+  const clean = { ...ticket };
+  delete clean.candidate_files;
+  delete clean.candidates_produced_by;
+  delete clean.candidates_produced_at;
+  return clean;
+}
+
+// Builds the ticket drafting instruction with optional observed file references.
 function buildPrompt({ projectId, content, ticket, feedback }) {
   return [
     "Convert the project owner request below into exactly one governance ticket.",
-    "Use the supplied read-only Forge search_tree, search_code, and read_file tools when codebase evidence is needed. Cite only observed facts; do not use built-in shell, file, network, or write tools.",
+    "Investigate the project with the supplied read-only Forge search_tree, search_code, and read_file tools before drafting the ticket. Find related existing files when possible and cite only observed facts. If discovery is unavailable, state the uncertainty. Do not use built-in shell, file, network, or write tools.",
     "Write ALL ticket field values (title, objective, acceptance_criteria) in English. If the owner request is in another language (e.g. Vietnamese), translate it into clear technical English.",
     "REQUIRED: Set implementation_type to exactly one value in a one-item array: frontend (UI/component/page/chat UI), backend (API/database/server), or security (auth/permission/credential). Return e.g. [\"frontend\"]. Do not return the legacy style field or combine types.",
-    "Draft only the ticket's objective, acceptance criteria, implementation_type, priority, and dependencies. Optionally set change_nature to presentation-only for a visual-only frontend ticket. Do not identify source files or symbols; implementation discovery belongs to the Coder.",
+    "Draft the ticket's objective, acceptance criteria, implementation_type, priority, and dependencies. Optionally set change_nature to presentation-only for a visual-only frontend ticket or test-only for test-only work. File references are discovery hints; the Coder verifies actual edit scope.",
     "Respond with ONLY one ```json fenced block containing the ticket JSON object. No prose outside the block.",
-    "Ticket fields: title (string, required), objective (string, required), acceptance_criteria (array of strings, at least one, required), implementation_type (exactly one array value: frontend|backend|security), file_budget (integer 1-4, required), priority (optional: low|medium|normal|high|critical), dependencies (optional: array of ticket ids), change_nature (optional: presentation-only).",
-    "Do NOT include candidate_files, candidates_produced_by, candidates_produced_at, id, project_id, roadmap_id, sprint_id, status, last_error, or provenance; the system assigns identity fields.",
+    "Ticket fields: title (string, required), objective (string, required), acceptance_criteria (array of strings, at least one, required), implementation_type (exactly one array value: frontend|backend|security), file_budget (integer 1-4, required), priority (optional: low|medium|normal|high|critical), dependencies (optional: array of ticket ids), change_nature (optional: presentation-only|test-only).",
+    "Do not include candidate_files or candidate metadata; the Coder discovers implementation paths. Do not include id, project_id, roadmap_id, sprint_id, status, last_error, or provenance; Node assigns identity and provenance fields.",
     feedback ? `Previous validation feedback: ${feedback}` : undefined,
     `Project id: ${projectId}`,
     content ? `Owner request (raw chat):\n${content}` : undefined,

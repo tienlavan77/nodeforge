@@ -95,8 +95,8 @@ test("events for other supervisors are ignored", async () => {
   assert.deepEqual(h.transitions, []);
 });
 
-// Keeps one persisted Coder assignment through repair and independent re-review.
-test("Supervisor retains its Coder claim until the Reviewer approves", async () => {
+// Keeps the Coder claimed through a repair, then completes without an inline Reviewer.
+test("Supervisor releases Coder after verified integration without review dispatch", async () => {
   const h = harness();
   let active;
   const releases = [];
@@ -106,40 +106,29 @@ test("Supervisor retains its Coder claim until the Reviewer approves", async () 
     claim: async ({ agentId, taskId, supervisorId }) => { active ??= { claim_id: "CLAIM-1", agent_id: agentId, task_id: taskId, supervisor_id: supervisorId }; return active; },
     release: async (input) => { releases.push(input); active = null; }
   };
-  const loop = createSupervisorLoop({ runtime: h.runtime, senderQueue: { enqueue: async (request) => { h.sent.push(request); if (request.operation === "review") reviews.push(request); } }, collectorQueue: { enqueue: async () => {} }, verificationQueue: { enqueue: async () => {} }, sourceRequest: async () => ({ ticket: { id: "TASK-1", objective: "Fix issue" }, agent_id: "coder-1" }), eventBus: { publish: async (event) => h.published.push(event) }, attemptBuilder: h.attemptBuilder, agentOccupancy, integrateTicket: async (taskId) => { assert.equal(taskId, "TASK-1"); reviews.push("integrated"); } });
+  const loop = createSupervisorLoop({ runtime: h.runtime, senderQueue: { enqueue: async (request) => { h.sent.push(request); if (request.operation === "review") reviews.push(request); } }, collectorQueue: { enqueue: async () => {} }, verificationQueue: { enqueue: async () => {} }, eventBus: { publish: async (event) => h.published.push(event) }, attemptBuilder: h.attemptBuilder, agentOccupancy, integrateTicket: async () => {} });
   await loop.start({ task_id: "TASK-1", request_id: "REQ-1", correlation_id: "CORR-1", agent_id: "coder-1", required_role: "coder" });
-  assert.equal(h.sent[0].claim_id, "CLAIM-1");
   await loop.onEvent(baseEvent({ type: "agent.response.received" }));
   await loop.onEvent(baseEvent({ type: "verification.failed" }));
-  assert.equal(releases.length, 0);
   assert.equal(active.agent_id, "coder-1");
   await loop.onEvent(baseEvent({ type: "agent.response.received", request_id: "REQ-2" }));
   await loop.onEvent(baseEvent({ type: "verification.passed", request_id: "REQ-2", attempt: 2, payload: { changed_paths: ["src/a.js"] } }));
-  assert.equal(h.stateOf(), "REVIEWING");
-  assert.equal(releases.length, 0);
-  assert.equal(reviews.length, 1);
-  assert.equal(reviews[0].role, "reviewer");
-  await loop.onEvent(baseEvent({ type: "review.request_changes", request_id: "REVIEW-REQ-2", attempt: 2, payload: { verdict: "request_changes", reviewer_id: "reviewer-1", findings: ["Fix a missing case"] } }));
-  assert.equal(h.stateOf(), "RUNNING");
-  assert.equal(releases.length, 0);
-  await loop.onEvent(baseEvent({ type: "agent.response.received", request_id: "REQ-3", attempt: 3 }));
-  await loop.onEvent(baseEvent({ type: "verification.passed", request_id: "REQ-3", attempt: 3, payload: { changed_paths: ["src/a.js"] } }));
-  await loop.onEvent(baseEvent({ type: "review.approved", request_id: "REVIEW-REQ-3", attempt: 3, payload: { reviewer_id: "reviewer-1", verdict: "approved" } }));
+  assert.equal(h.stateOf(), "COMPLETED");
+  assert.equal(reviews.length, 0);
   assert.equal(releases.length, 1);
-  assert.equal(releases[0].claimId, "CLAIM-1");
-  assert.equal(releases[0].reason, "accepted");
-  assert.equal(reviews.at(-1), "integrated");
+  assert.equal(releases[0].reason, "coder_completed");
+  assert.equal(h.published.at(-1).type, "task.completed");
 });
 
 // Prevents acceptance when the reviewed worktree commit cannot reach the root branch.
-test("Supervisor escalates approved review when ticket integration fails", async () => {
+test("Supervisor records approved-review integration failure as resumable", async () => {
   const h = harness({ initialState: "REVIEWING" });
   const releases = [];
   const agentOccupancy = { getByTask: () => ({ claim_id: "CLAIM-1", agent_id: "coder-1" }), release: async (input) => releases.push(input) };
   const loop = createSupervisorLoop({ runtime: h.runtime, eventBus: { publish: async (event) => h.published.push(event) }, agentOccupancy, integrateTicket: async () => { throw Object.assign(new Error("conflict"), { code: "TICKET_INTEGRATION_CONFLICT" }); } });
   await loop.onEvent(baseEvent({ type: "review.approved", request_id: "REVIEW-1", payload: { reviewer_id: "reviewer-1", verdict: "approved" } }));
-  assert.equal(h.stateOf(), "NEEDS_HUMAN_REVIEW");
-  assert.equal(h.published[0].type, "task.needs_human_review");
+  assert.equal(h.stateOf(), "FAILED");
+  assert.equal(h.published[0].type, "task.failed");
   assert.equal(h.published[0].payload.reason, "TICKET_INTEGRATION_CONFLICT");
   assert.equal(releases[0].reason, "TICKET_INTEGRATION_CONFLICT");
 });

@@ -48,3 +48,20 @@ test("review evidence requires the verified committed source", async () => {
     artifact.file_checksums[path] = originalChecksum;
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+// Accepts a commit delta smaller than its immutable manifest while rejecting stale queued deltas.
+test("review uses verified commit paths when the manifest includes unchanged files", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-review-delta-"));
+  try {
+    const fileService = createFileService({ projectRoot: root });
+    const paths = ["ui/src/page.jsx", "ui/src/sidebar.jsx"];
+    const source = "export const ready = true;\n";
+    for (const path of paths) await fileService.atomicWrite({ path, content: source, replace: true });
+    const checksum = `sha256:${createHash("sha256").update(source).digest("hex")}`;
+    const context = { task_id: "TICKET-DELTA", state: "verified", verification_artifact_id: "ARTIFACT-DELTA", review_commit_sha: "a".repeat(40), source_revision: "source-delta", manifest_sha: "manifest-delta", base_sha: "b".repeat(40), manifest_paths: paths };
+    const artifact = { artifact_id: context.verification_artifact_id, commit_sha: context.review_commit_sha, source_revision: context.source_revision, manifest_sha: context.manifest_sha, base_sha: context.base_sha, changed_paths: [paths[1]], file_checksums: Object.fromEntries(paths.map((path) => [path, checksum])), status: "passed" };
+    const inputs = { job: { task_id: context.task_id, payload: { changed_paths: artifact.changed_paths } }, executionContexts: { load: async () => context }, verificationService: { assertPassedArtifact: async () => artifact }, gitService: { getHead: async () => context.review_commit_sha, status: async () => "" }, fileService, projectRoot: root };
+    assert.equal((await assertTicketReviewEvidence(inputs)).files.length, 2);
+    await assert.rejects(assertTicketReviewEvidence({ ...inputs, job: { ...inputs.job, payload: { changed_paths: paths } } }), { code: "REVIEW_EVIDENCE_MISMATCH" });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

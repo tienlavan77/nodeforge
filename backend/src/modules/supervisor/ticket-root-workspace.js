@@ -121,4 +121,5 @@ export function createTicketRootWorkspace({ projectRoot, projectId, protocolStor
     opened.set(taskId, workspace);
     return workspace;
   }
+
 }

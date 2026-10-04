@@ -5,6 +5,7 @@ import { createForgeV1ConversationRoutes } from "./forge-v1-conversation-routes.
 import { routeTicketReview } from "./forge-v1-ticket-review-routes.js";
 import { routePlan } from "./forge-v1-plan-routes.js";
 import { routeDirectCode } from "./forge-v1-direct-code-routes.js";
+import { routeTicketStop } from "./forge-v1-ticket-stop-route.js";
 import { normalizeParts, unavailable, runRequestsFresh, requireProject, readJson } from "./forge-v1-router-utils.js";
 
 // Creates the Forge v1 HTTP router with checkpoint decoration.
@@ -190,19 +191,18 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrch
       if (!sprintPlanUploadService?.removeTicket) throw unavailable("Ticket Delete");
       return { status: 200, body: sprintPlanUploadService.removeTicket({ projectId: parts[1], ticketId: parts[3] }) };
     }
-
     if (method === "POST" && parts.length === 5 && parts[0] === "projects" && parts[2] === "tickets" && parts[4] === "run") {
       if (typeof dispatchTicket !== "function") throw unavailable("Ticket Dispatch");
       const result = await dispatchTicket({ projectId: parts[1], ticketId: parts[3], conversationId: "CONV-BUILDER", ...(runRequestsFresh(url, body) ? { fresh: true } : {}) });
       return { status: 202, body: { ...result, request_id: requestId, correlation_id: correlationId } };
     }
-
     if (method === "POST" && parts.length === 2 && parts[0] === "tickets" && parts[1].endsWith(":run")) {
       if (typeof dispatchTicket !== "function") throw unavailable("Ticket Dispatch");
       const result = await dispatchTicket({ projectId, ticketId: parts[1].slice(0, -4), conversationId: "CONV-BUILDER", ...(runRequestsFresh(url, body) ? { fresh: true } : {}) });
       return { status: 202, body: { ...result, request_id: requestId, correlation_id: correlationId } };
     }
-
+    const stopResult = routeTicketStop({ method, parts, projectId, dispatchTicket });
+    if (stopResult) return stopResult;
     if (method === "POST" && parts.length === 3 && parts[0] === "sprints" && parts[2] === "draft") {
       if (!sprintOrchestrationService?.run) throw unavailable("Sprint Plan Drafting");
       requireProject(projectId);

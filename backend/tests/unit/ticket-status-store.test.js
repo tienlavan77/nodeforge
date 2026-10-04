@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDatabaseService } from "../../src/infrastructure/sqlite/database-service.js";
 import { createTicketStatusStore } from "../../src/modules/projects/ticket-status-store.js";
+import { createEventPublisher } from "../../src/modules/events/event-publisher.js";
 
 async function fixture(projectId = "PROJECT-1") {
   const dataDir = await mkdtemp(join(tmpdir(), "forge-status-"));
@@ -58,5 +59,25 @@ test("Ticket Status Store publishes only committed transitions", async () => {
   assert.equal(published[0].payload.to, "blocked");
   assert.throws(() => store.updateStatus("T-EVENT", "done"), (error) => error.code === "STATUS_TRANSITION_INVALID");
   assert.equal(published.length, 2);
+  await database.close();
+});
+
+// Ensures retry and dependency events pass the production publisher schema after status changes persist.
+test("Ticket Status Store publishes blocked and retry events through the validated publisher", async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), "forge-status-validated-events-"));
+  const database = await createDatabaseService({ dataDir });
+  const published = [];
+  const publisher = createEventPublisher({ store: { append: (event) => { published.push(event); return { accepted: true, event }; } } });
+  const errors = [];
+  const store = createTicketStatusStore({ database, projectId: "PROJECT-EVENT", publisher, logger: { error: (...args) => errors.push(args) } });
+  store.create("T-EVENT");
+  store.updateStatus("T-EVENT", "blocked", { reason: "dependency" });
+  store.updateStatus("T-EVENT", "pending", { reason: "dependency_recheck" });
+  store.updateStatus("T-EVENT", "running");
+  store.updateStatus("T-EVENT", "failed", { error: "Coder exited" });
+  store.retry("T-EVENT");
+  assert.deepEqual(published.map(({ event_type }) => event_type), ["ticket.status_change", "ticket.dependency_blocked", "ticket.status_change", "ticket.status_change", "ticket.status_change", "ticket.status_change", "ticket.retry"]);
+  assert.deepEqual(errors, []);
+  assert.equal(store.get("T-EVENT").status, "pending");
   await database.close();
 });

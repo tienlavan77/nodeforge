@@ -26,7 +26,6 @@ import { createRetrievalDependencies } from "../src/modules/index/retrieval-depe
 import { createRelevantTreeSelector } from "../src/modules/index/relevant-tree.js";
 import { createIndexFreshnessChecker } from "../src/modules/index/index-freshness.js";
 import { createConversationCrudService } from "../src/application/conversation-crud-service.js";
-import { createTicketCandidateResolver } from "../src/application/ticket-candidate-resolver.js";
 import { createTicketSprintLeader } from "../src/application/ticket-sprint-leader.js";
 import { createSprintPlanLeader } from "../src/application/sprint-plan-leader.js";
 import { createTicketFileStore } from "../src/application/ticket-file-store.js";
@@ -41,17 +40,18 @@ export function createControlApiPlatform({ config, database, indexDb, fileServic
   // effort: without fileService the selector falls back to plain select().
   const freshnessChecker = fileService?.readForIndex ? createIndexFreshnessChecker({ database: indexDb, fileService }) : null;
   const relevantTreeSelector = createRelevantTreeSelector({ search: codeSearch, fileGraph, embeddingStore, embeddingProvider, freshnessChecker, maxFiles: 30, defaultDepth: 1 });
-  const ticketCandidateResolver = createTicketCandidateResolver({ relevantTreeSelector });
   // Sprint Leader planning uses its configured SDK provider and Forge read tools.
   const sprintPlanSdkGateway = createRoleSdkGateway({ claudeSdkGateway, codexSdkGateway, openaiSdkGateway, agentRoleResolver });
   // Grants the resolved Sprint Leader an isolated read-only Forge session per planning request.
-  const toolOptions = ({ agentId, correlationId }) => {
+  const sprintLeaderLogger = createSprintLeaderLogger(logEvent);
+  const sprintLeaderToolLogger = createRuntimeLogger({ logEvent, source: "sprint-leader-forge-tools" });
+  const toolOptions = ({ agentId, correlationId, discoveredPaths }) => {
     const profile = agentRoleResolver.resolveProfile("sprint_leader");
     if (profile.agent_id !== agentId) throw new ConfigurationError("Sprint Leader profile changed before tool dispatch.");
-    return createSprintLeaderToolOptions({ profile, correlationId, projectRoot, fileService, codeSearch, projectLogger: logEvent });
+    return createSprintLeaderToolOptions({ profile, correlationId, discoveredPaths, projectRoot, fileService, codeSearch, projectLogger: sprintLeaderToolLogger.emit });
   };
-  const ticketSprintLeader = sprintPlanSdkGateway ? createTicketSprintLeader({ sdkGateway: sprintPlanSdkGateway, projectRoot, toolOptions, logger: createTicketSprintLeaderLogger(logEvent) }) : undefined;
-  const sprintPlanLeader = sprintPlanSdkGateway ? createSprintPlanLeader({ sdkGateway: sprintPlanSdkGateway, projectRoot, toolOptions }) : undefined;
+  const ticketSprintLeader = sprintPlanSdkGateway ? createTicketSprintLeader({ sdkGateway: sprintPlanSdkGateway, projectRoot, toolOptions, logger: sprintLeaderLogger }) : undefined;
+  const sprintPlanLeader = sprintPlanSdkGateway ? createSprintPlanLeader({ sdkGateway: sprintPlanSdkGateway, projectRoot, toolOptions, logger: sprintLeaderLogger }) : undefined;
   const communications = createAgentCommunicationStore({ database, fileService });
   const conversations = createConversationCrudService({ database });
   const bus = createAgentCommunicationBus({ store: communications });
@@ -73,11 +73,11 @@ export function createControlApiPlatform({ config, database, indexDb, fileServic
   const memory = createProjectMemoryStore({ summaries });
   const memoryRetriever = createMemoryRetriever({ memory });
   const contextEngine = createContextEngine({ database: indexDb, projectRoot, projectId });
-  const sprintOrchestration = createSprintOrchestrationService({ sprintPlans, sprintPlanStore: roadmaps, ticketProvenanceTracker: provenance, agentGateway, publisher: eventPublisher, candidateResolver: ticketCandidateResolver, sprintPlanLeader, agentRoleResolver, draftPlan });
+  const sprintOrchestration = createSprintOrchestrationService({ sprintPlans, sprintPlanStore: roadmaps, ticketProvenanceTracker: provenance, agentGateway, publisher: eventPublisher, sprintPlanLeader, agentRoleResolver, draftPlan, sprintPlanDirectory: `${projectRoot}/.forge/runtime/nf/sprint-plan` });
   const proseTicketService = createProseTicketService({ roadmapStore: roadmaps });
   const ticketFileStore = createTicketFileStore({ database, fileService });
   const sprintPlanUpload = createSprintPlanUploadService({ roadmaps, publisher: eventPublisher, projectRoot, isRunning: (sprintId) => sprintOrchestration.isRunning(sprintId) });
-  return { projectId, indexDb, codeSearch, fileGraph, relevantTreeSelector, freshnessChecker, ticketCandidateResolver, ticketSprintLeader, sprintPlanLeader, memoryRetriever, communications, conversations, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, verificationOrchestrator, testService, contextEngine, sprintOrchestration, proseTicketService, ticketFileStore, sprintPlanUpload, taskSummaries: summaries, projectMemory: memory };
+  return { projectId, indexDb, codeSearch, fileGraph, relevantTreeSelector, freshnessChecker, ticketSprintLeader, sprintPlanLeader, memoryRetriever, communications, conversations, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, verificationOrchestrator, testService, contextEngine, sprintOrchestration, proseTicketService, ticketFileStore, sprintPlanUpload, taskSummaries: summaries, projectMemory: memory };
 }
 
 // Selects the SDK gateway for sprint leader drafting without touching gateway internals.
@@ -127,10 +127,16 @@ function createTicketStatusLogger({ internalBus, logEvent }) {
   };
 }
 
-function createTicketSprintLeaderLogger(logEvent) {
+// Prints bounded Sprint Leader lifecycle events while persisting their structured details.
+function createSprintLeaderLogger(logEvent) {
+  const runtime = createRuntimeLogger({ logEvent, source: "sprint-leader" });
   return {
+    info(eventName, details = {}) {
+      const phase = eventName.split(".").at(-1);
+      runtime.emit({ event_name: eventName, level: "info", status: phase === "started" ? "started" : phase === "completed" ? "success" : "info", message: `Sprint Leader ${phase} ${details.kind ?? "ticket"}${phase === "waiting" ? ` (${details.elapsed_seconds}s)` : ""}.`, task_id: details.task_id ?? "PROJECT-NODEFORGE", correlation_id: details.correlation_id, payload: details });
+    },
     error(eventName, details = {}) {
-      logEvent?.({
+      runtime.emit({
         timestamp: new Date().toISOString(),
         event_name: eventName,
         level: "error",

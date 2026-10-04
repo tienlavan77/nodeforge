@@ -42,16 +42,17 @@ const checkTestInput = {
 };
 
 const commitChangesInput = {
-  message: z.string().trim().min(1).max(200)
+  message: z.string().trim().min(1).max(200),
+  paths: z.array(z.string().min(1)).min(1).max(100)
 };
 
 const reportDoneInput = {
   summary: z.string().trim().min(1).max(4000).optional(),
   acceptance_criteria: z.array(z.string().min(1)).max(50).optional(),
+  acceptance_coverage: z.array(z.object({ criterion: z.string().min(1).optional(), criterion_id: z.string().regex(/^AC-[1-9][0-9]*$/).optional(), criterion_index: z.number().int().min(0).max(49).optional(), status: z.enum(["verified", "evidence_pending", "not_applicable"]).optional(), command_kind: z.enum(["test", "backend_tests", "build", "lint", "typecheck", "schema_validation"]).optional(), test_path: z.string().nullable().optional() })).max(50).optional(),
   implementation_scope: z.object({ changed_files: z.array(z.string().min(1)).max(100), not_changed_files: z.array(z.string().min(1)).max(100), scope_rationale: z.string().min(1).max(4000) }).optional(),
   evidence: z.array(z.object({ type: z.string().min(1), reference: z.string().min(1), result: z.string().min(1) })).max(100).optional(),
   reviewer_notes: z.array(z.object({ topic: z.string().min(1), position: z.string().min(1), rationale: z.string().min(1), evidence_refs: z.array(z.string().min(1)) })).max(30).optional(),
-  finding_resolutions: z.array(z.object({ finding_id: z.string().regex(/^REV-[1-9][0-9]*$/), status: z.enum(["fixed", "not_fixed", "not_applicable"]), changed_paths: z.array(z.string().min(1)).max(12) })).max(30).optional()
 };
 
 const respondToReviewInput = {

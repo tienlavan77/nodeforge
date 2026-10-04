@@ -33,6 +33,10 @@ export function createSprintDagRunner({ ticketStatusStore, eventBus, dispatchTas
     for (const level of levels) {
       const dispatched = [];
       for (const ticket of level) {
+        if (ticketStatusStore.getStatus(ticket.id) === "done") {
+          results.push({ ticket_id: ticket.id, result: { status: "completed", reused: true } });
+          continue;
+        }
         const dependencies = ticket.dependencies ?? [];
         if (!ticketStatusStore.dependenciesReady(ticket.id, dependencies).ready) {
           await waitForDependencies({ ticketId: ticket.id, dependencies, sprintId, projectId });

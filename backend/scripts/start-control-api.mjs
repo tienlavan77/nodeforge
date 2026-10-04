@@ -44,12 +44,13 @@ import { createSprintRegistry } from "../src/modules/governance/sprint-registry.
 import { createPlanOwnerAuth } from "../src/modules/governance/plan-owner-auth.js";
 import { assertApprovedTicket } from "../src/modules/governance/sprint-plan-draft.js";
 import { createSprintPlanDraftPersistence } from "../src/modules/governance/sprint-plan-draft-persistence.js";
-import { assertA5ExecutionContract, assertSprintTicketMembership } from "../src/modules/governance/sprint-plan-execution-gates.js";
+import { assertSprintTicketMembership } from "../src/modules/governance/sprint-plan-execution-gates.js";
 import { createFileService } from "../src/infrastructure/filesystem/file-service.js";
 import { migrateConversationErrors } from "../src/modules/governance/conversation-error-migration.js";
 import { createSprintLeaderIntakeService } from "../src/application/sprint-leader-intake-service.js";
 import { createTicketHumanReviewService } from "../src/application/ticket-human-review-service.js";
-import { reviewPhaseResume, reviewRevisionResume } from "../src/modules/supervisor/review-revision-resume.js";
+import { createTicketRunDispatch } from "../src/application/ticket-run-dispatch.js";
+import { reviewPhaseResume } from "../src/modules/supervisor/review-revision-resume.js";
 
 const config = readControlApiConfig();
 const { port, host } = config;
@@ -72,7 +73,7 @@ await migrateConversationErrors({ database, fileService, projectId: config.proje
 const gitService = createGitService({ projectRoot: config.cwd, mutationLock: (action) => withTicketProjectCommitLock({ fileService, projectId: platform.projectId }, action) });
 const reportService = createCompletionReportService({ protocolStorage, fileService, gitService });
 const onEvalCase = createEvalCaseRecorder({ root: config.cwd });
-const { projectId, indexDb: platformIndexDb, codeSearch, fileGraph, relevantTreeSelector, freshnessChecker, ticketCandidateResolver, ticketSprintLeader, sprintPlanLeader, communications, conversations, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, contextEngine, sprintOrchestration, proseTicketService, ticketFileStore, sprintPlanUpload, taskSummaries, projectMemory } = platform;
+const { projectId, indexDb: platformIndexDb, codeSearch, fileGraph, relevantTreeSelector, freshnessChecker, ticketSprintLeader, sprintPlanLeader, communications, conversations, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, contextEngine, sprintOrchestration, proseTicketService, ticketFileStore, sprintPlanUpload, taskSummaries, projectMemory } = platform;
 const agentOccupancy = createAgentOccupancyStore({ database, profiles, configuration: agentConfiguration, logger: { error: (_message, details) => logEvent({ timestamp: new Date().toISOString(), event_name: "agent.occupancy_notification_failed", level: "error", status: "failed", message: "Agent occupancy post-commit notification failed.", task_id: details.task_id, project_id: projectId, source: "agent-occupancy-store", error_code: "OCCUPANCY_NOTIFICATION_FAILED", payload: details }) }, onChanged: async (claim) => {
   const timestamp = new Date().toISOString();
   const event = { event_id: `EVT-${randomUUID()}`, type: "agent.status_changed", project_id: projectId, timestamp, task_id: claim.task_id, agent_id: claim.agent_id, payload: { agent_id: claim.agent_id, status: claim.status, previous_status: claim.previous_status, task_id: claim.task_id, supervisor_id: claim.supervisor_id, claim_id: claim.claim_id, reason: claim.release_reason ?? null, updated_at: timestamp }, metadata: { project_id: projectId, source: "agent-occupancy-store" } };
@@ -122,59 +123,22 @@ createTerminalBridge({
 });
 await supervisorRuntime.recover();
 await supervisorRuntime.startWorkers();
-const dispatchTask = async ({ ticket, message, required_role, resume_from, review_resume } = {}) => {
+const dispatchTask = async ({ ticket, message, required_role, resume_from, review_resume, abortSignal } = {}) => {
   const { plan } = await sprintRegistry.assertReady(ticket.sprint_id);
   assertApprovedTicket(plan, ticket);
-  return supervisorRuntime.integration.submitTicket({ ticket, task_id: ticket.id, project_id: ticket.project_id, request_id: message?.id, correlation_id: message?.correlation_id, required_role: required_role ?? ticket.required_role ?? "coder", payload: { text: `Ticket ${ticket.id}: ${ticket.title ?? ""}\nObjective: ${ticket.objective ?? ""}\nAcceptance: ${(ticket.acceptance_criteria ?? []).join("; ")}`, task: { id: ticket.id, title: ticket.title, objective: ticket.objective, dependencies: ticket.dependencies ?? [], acceptance_criteria: ticket.acceptance_criteria ?? [] }, ticket, ...(resume_from ? { resume_from } : {}), ...(review_resume ? { review_resume, review_base_commit: review_resume.base_commit } : {}) } });
+  return supervisorRuntime.integration.submitTicket({ ticket, task_id: ticket.id, project_id: ticket.project_id, request_id: message?.id, correlation_id: message?.correlation_id, required_role: required_role ?? ticket.required_role ?? "coder", abortSignal, payload: { text: `Ticket ${ticket.id}: ${ticket.title ?? ""}\nObjective: ${ticket.objective ?? ""}\nAcceptance: ${(ticket.acceptance_criteria ?? []).join("; ")}`, task: { id: ticket.id, title: ticket.title, objective: ticket.objective, dependencies: ticket.dependencies ?? [], acceptance_criteria: ticket.acceptance_criteria ?? [] }, ticket, ...(resume_from ? { resume_from } : {}), ...(review_resume ? { review_resume, review_base_commit: review_resume.base_commit } : {}) } });
 };
 const directCodeRequest = createDirectCodeRequest({ fileService, integration: supervisorRuntime.integration, checkpoints: supervisorRuntime.agentCheckpoints, projectId, projectLogger: logEvent });
 const ticketHumanReviewService = createTicketHumanReviewService({ projectId, roadmaps, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, agentOccupancy, ticketWorkspaceService, publisher: eventPublisher, projectLogger: runtimeLogger.emit });
 
 // Sprint execution runs one level at a time, gating each ticket on its
 // predecessors' terminal ticket status via the execution event bus.
-const sprintDagRunner = createSprintDagRunner({ ticketStatusStore, eventBus: supervisorRuntime.eventBus, dispatchTask, logEvent });
+const sprintDagRunner = createSprintDagRunner({ ticketStatusStore, eventBus: supervisorRuntime.eventBus, dispatchTask: ({ ticket }) => dispatchTicket({ projectId: ticket.project_id, ticketId: ticket.id }), logEvent });
 const sprintLeaderIntake = createSprintLeaderIntakeService({ fileService, roadmaps, logger: logEvent });
 
 const runningSprints = new Set();
 
-const dispatchTicket = async ({ projectId, ticketId, fresh = false } = {}) => {
-  if ((await ticketPipelineDisposition.get(ticketId))?.disposition === "cancelled") throw Object.assign(new Error("This historical ticket was cancelled by the project owner and cannot be resumed."), { code: "TICKET_CANCELLED", statusCode: 409 });
-  const { ticket } = await sprintLeaderIntake.open({ projectId, ticketId });
-  const scheduledSprint = sprintRegistry.get(ticket.sprint_id);
-  if (!scheduledSprint) throw Object.assign(new Error("Ticket sprint has no approved plan in the sprint registry."), { code: "SPRINT_PLAN_REQUIRED", statusCode: 409 });
-  const { plan: executionPlan } = await sprintRegistry.assertReady(ticket.sprint_id);
-  // An individual RUN is checked against its ticket spec; full membership is checked for Sprint RUN.
-  assertApprovedTicket(executionPlan, ticket);
-  assertA5ExecutionContract(ticket);
-  if (ticketStatusStore.get(ticketId)?.details?.reason === "human_review_approved") return { ticket_id: ticketId, status: "accepted", pipeline: "human_review", resumed: true };
-  // Resume by default: an unfinished checkpoint means a previous run crashed
-  // mid-execution, so keep protocol/conversation state and let the agent
-  // continue from the last completed turn. `fresh: true` forces the old
-  // behavior of clearing everything and starting over.
-  // A checkpoint is retained after report_done for auditing, so only resume
-  // from it while it is still unfinished (status !== "completed").
-  const storedCheckpoint = await supervisorRuntime.agentCheckpoints.load(ticketId).catch(() => null);
-  if (storedCheckpoint?.status === "blocked") throw Object.assign(new Error("Coder checkpoint requires a human decision before this ticket can run again."), { code: "TICKET_APPROVAL_REQUIRED", statusCode: 409 });
-  const checkpoint = fresh ? null : storedCheckpoint;
-  const resume = checkpoint && checkpoint.status !== "completed" ? await reviewRevisionResume(supervisorRuntime.queueStore, ticketId, checkpoint) : null;
-  const reviewerCheckpoint = !fresh && checkpoint?.status === "completed" ? await supervisorRuntime.agentCheckpoints.loadReview(ticketId) : null;
-  if (reviewerCheckpoint?.verdict === "approved") return { ticket_id: ticketId, status: "accepted", pipeline: "supervisor", resumed: true, resumed_from_turn: checkpoint.last_completed_turn ?? 0 };
-  const reviewResume = !fresh && checkpoint?.status === "completed" ? reviewPhaseResume(checkpoint, reviewerCheckpoint) : null;
-
-  if (!resume && !reviewResume) {
-    // An explicit fresh RUN clears prior protocol records
-    // (request/response/report/final_report), conversation state, and any
-    // checkpoint (including completed audit records) first, so a stale
-    // final_report from an earlier attempt cannot cause STORAGE_CONFLICT or
-    // get silently reused regardless of the ticket's current status.
-    await supervisorRuntime.agentCheckpoints.clear(ticketId).catch(() => {});
-    await protocolStorage.clearTask(ticketId);
-    await conversationStateStore.clear(`CONV-BUILDER-PROJECT-NODEFORGE-${ticketId}`);
-  }
-  const correlationId = `CORR-UI-RUN-${ticketId}-${Date.now()}`;
-  const result = await dispatchTask({ ticket, message: { id: `REQ-${ticketId}-${Date.now()}`, correlation_id: correlationId }, ...(resume ? { resume_from: resume } : {}), ...(reviewResume ? { review_resume: reviewResume } : {}) });
-  return { ticket_id: ticketId, supervisor_id: result.supervisor_id, status: result.status === "already_running" ? "already_running" : result.status === "needs_human_review" ? "needs_human_review" : "accepted", pipeline: "supervisor", ...(resume || reviewResume ? { resumed: true, resumed_from_turn: checkpoint?.last_completed_turn ?? 0 } : {}) };
-};
+const dispatchTicket = createTicketRunDispatch({ disposition: ticketPipelineDisposition, intake: sprintLeaderIntake, sprintRegistry, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, queueStore: supervisorRuntime.queueStore, protocolStorage, conversationStateStore, dispatchTask });
 const reviewTicket = async ({ projectId: requestedProjectId, ticketId, body = {} } = {}) => {
   const ticket = roadmaps.getCurrent()?.sprints?.flatMap((sprint) => sprint.tickets ?? []).find((item) => item.id === ticketId && item.project_id === requestedProjectId);
   if (!ticket) { const error = new Error(`Ticket not found: ${ticketId}`); error.statusCode = 404; throw error; }
@@ -222,7 +186,7 @@ const api = createControlApiHttp({ services: {
   planStore, markdownPlanStore, sprintRegistry, planOwnerAuth, database, agentRoleResolver,
   relevantTreeSelector, decisions, agentSettings, sprintPlanUpload, sprintOrchestration, dispatchTicket, runToolLab, directCodeRequest, internalBus,
   proseTicketService, buildBuilderContext, protocolStorage, conversationStateStore, fileService, codeCache, codeSearch, agentGateway, agentConfiguration, sdkGateways: Object.fromEntries([claudeSdkGateway, { ...claudeSdkGateway, provider: "anthropic" }, codexSdkGateway, openaiSdkGateway, ...["xai", "alibaba", "zhipu", "deepseek"].map((provider) => ({ ...openaiSdkGateway, provider }))].map((gateway) => [gateway.provider, gateway])), projectRoot: config.cwd, publishUnifiedStreamEvent,
-  ticketCrudService: createTicketCrudService({ roadmaps, proseTicketService, ticketFileStore, publisher: eventPublisher, agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId }), agentRoleResolver, candidateResolver: ticketCandidateResolver, sprintLeader: ticketSprintLeader }),
+  ticketCrudService: createTicketCrudService({ roadmaps, proseTicketService, ticketFileStore, publisher: eventPublisher, agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId }), agentRoleResolver, sprintLeader: ticketSprintLeader }),
   dispatchTask, dispatchSprint, reviewTicket, ticketHumanReviewService, logEvent, projectId,
   architectureWorkspaceService: createArchitectureWorkspaceService({ knowledge, roadmaps, sprintPlans }),
   projectDashboardService: createProjectDashboardService({ roadmaps, sprintPlans, provenance, ticketFileStore, ticketStatusStore, sprintRegistry, relevantTreeSelector, logReader: ({ ticket_id }) => readLogEvents({ project_id: projectId, ticket_id }) }),

@@ -23,6 +23,7 @@ import { createAgentExecutionCheckpointStore } from "../agent/agent-execution-ch
 import { prepareTicketExecutionContext } from "./ticket-execution-context.js";
 import { verifyTicketChangeset } from "./ticket-verification-gate.js";
 import { createCodeCacheService } from "../context/code-cache-service.js";
+import { finalizeCoderWorkspace } from "./ticket-coder-completion.js";
 
 const QUEUE_NAMES = ["agent.request", "sender.handoff", "collector.request", "verification.request"];
 const RESUMABLE_STATES = ["CREATED", "READY", "RUNNING", "REPAIRING"];
@@ -49,7 +50,7 @@ export function createProductionSupervisorRuntime({ fileService, projectRoot = p
   const ticketRegistries = new Map();
   const resolveTicketWorkspace = ticketWorkspaceService ? async (taskId) => { const workspace = await ticketWorkspaceService.open(taskId); if (workspace.migrationRequired) throw Object.assign(new ConfigurationError(`Ticket ${taskId} has a pre-ledger worktree commit that requires explicit migration.`), { code: "TICKET_WORKSPACE_MIGRATION_REQUIRED" }); if (!ticketRegistries.has(taskId)) ticketRegistries.set(taskId, createForgeToolRegistry({ protocolStorage, fileService: workspace.fileService, projectRoot: workspace.projectRoot, codeSearch: workspace.codeSearch, codeCache: workspace.codeCache, relevantTreeSelector: workspace.relevantTreeSelector, freshnessChecker: workspace.freshnessChecker, enableReadCode, testService: workspace.testService, gitService: workspace.gitService, changeLedger: workspace.changeLedger, executionContexts: workspace.executionContexts, reviewFindings: workspace.reviewFindings, reportService: workspace.reportService, onEvalCase, governance: runtimeGovernance, projectLogger })); return { ...workspace, toolRegistry: ticketRegistries.get(taskId) }; } : null;
   // Integrates reviewed ticket commits before Supervisor publishes a completed outcome.
-  const integrateTicket = resolveTicketWorkspace ? async (taskId) => { const workspace = await resolveTicketWorkspace(taskId); await workspace.integrate(); await workspace.changeLedger.release(); } : undefined;
+  const integrateTicket = resolveTicketWorkspace ? async (taskId) => { const workspace = await resolveTicketWorkspace(taskId); await finalizeCoderWorkspace(workspace, taskId); } : undefined;
   const supervisorManager = createSupervisorManager({ eventBus, stateStore, preparation, onCreate: (runtime) => {
     const executionContextProvider = createExecutionContextProvider(runtime, runtimeGovernance, toolRegistry);
     const loop = createSupervisorLoop({ runtime, senderQueue: queues["agent.request"], collectorQueue: queues["collector.request"], verificationQueue: queues["verification.request"], sourceRequest: async (taskId) => (await queueStore.list("agent.request")).find((job) => job.task_id === taskId && job.operation !== "review" && job.ticket), eventBus, requestStore: processedRequestStore, agentResolver: agentRoleResolver, agentOccupancy, integrateTicket, attemptBuilder: typeof attemptBuilderFactory === "function" ? attemptBuilderFactory(runtime, { conversationStateStore, protocolStorage, toolRegistry, governance: runtimeGovernance, executionContextProvider }) : undefined });
@@ -203,7 +204,7 @@ function createExecutionContextProvider(runtime, governance) {
   return ({ source = {}, round = 1, type } = {}) => {
     const existing = source.execution_context ?? source.executionContext;
     if (existing) return governance.createExecutionContext({ ...existing, lifecycle: runtime.getState?.() ?? "RUNNING" });
-    const capabilities = capabilitiesForRound(round, type);
+    const capabilities = capabilitiesForRound(round, type, source.agent_role ?? source.role ?? source.agent_identity?.role);
     const executionContext = {
       task_id: runtime.taskId,
       execution_id: `${runtime.supervisorId}:${source.attempt ?? 1}`,
@@ -219,9 +220,10 @@ function createExecutionContextProvider(runtime, governance) {
   };
 }
 
-function capabilitiesForRound(round, type) {
-  if (round === 1) return type === "task" ? ["select_code_graph_candidates"] : ["select_code_graph_candidates"];
-  if (round === 2) return ["select_code_graph_candidates", "search_code", "read_code", "read_transcript_blocks"];
+function capabilitiesForRound(round, type, role) {
+  const candidate = role === "coder" ? [] : ["select_code_graph_candidates"];
+  if (round === 1) return type === "task" ? candidate : candidate;
+  if (round === 2) return [...candidate, "search_code", "read_code", "read_transcript_blocks"];
   if (round === 3) return ["read_transcript_blocks", "read_code", "read_file", "write_diff", "edit_diff", "run_test", "commit_changes", "report_done"];
   return ["read_transcript_blocks", "read_code", "read_file", "write_diff", "edit_diff", "run_test", "commit_changes", "report_done"];
 }

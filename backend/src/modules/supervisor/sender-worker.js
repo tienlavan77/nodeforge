@@ -36,9 +36,12 @@ export function createSenderWorker({ queue, agentRegistry, agentResolver, eventB
     // Capabilities advertised in execution_context only authorize Forge tools;
     // the provider still needs their function definitions to call them.
     const capabilities = new Set(payload.execution_context?.capabilities ?? []);
+    const coderRequest = payload.execution_context?.agent_identity?.role === "coder"
+      || payload.agent_role === "coder"
+      || payload.role === "coder";
     const retrievalTools = [
       [capabilities.has("read_transcript_blocks"), readTranscriptBlocksDefinition],
-      [capabilities.has("select_code_graph_candidates"), selectCodeGraphCandidatesDefinition],
+      [capabilities.has("select_code_graph_candidates") && !coderRequest, selectCodeGraphCandidatesDefinition],
       [capabilities.has("search_code"), searchCodeDefinition],
       [capabilities.has("read_code"), readCodeDefinition],
       [capabilities.has("read_file"), readFileDefinition],

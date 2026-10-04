@@ -6,22 +6,36 @@ import { createTicketSprintLeader } from "../../src/application/ticket-sprint-le
 // Covers ticket drafting with read-only Forge tools and without candidate requirements.
 test("runner drafts a ticket without source-file candidates", async () => {
   const calls = [];
+  const progress = [];
   const sdkGateway = {
     execute: async (args) => {
       calls.push(args);
       return { messages: [{ text: '```json\n{"title":"T","objective":"O","acceptance_criteria":["A"],"implementation_type":["backend"]}\n```' }] };
     }
   };
-  const leader = createTicketSprintLeader({ sdkGateway, projectRoot: "/repo", toolOptions: () => ({ forgeTools: { definitions: [{ name: "search_tree" }] } }) });
+  const leader = createTicketSprintLeader({ sdkGateway, projectRoot: "/repo", logger: { info: (name, details) => progress.push({ name, details }) }, toolOptions: () => ({ forgeTools: { definitions: [{ name: "search_tree" }] } }) });
   const draft = await leader.requestTicket({ projectId: "P1", agentId: "AGENT-SL", content: "fix api", feedback: undefined, correlationId: "CORR-1" });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].cwd, "/repo");
   assert.deepEqual(calls[0].options.forgeTools.definitions.map(({ name }) => name), ["search_tree"]);
-  assert.match(calls[0].prompt, /Do not identify source files or symbols/);
+  assert.match(calls[0].prompt, /Find related existing files when possible/);
   assert.match(calls[0].prompt, /implementation_type/);
   assert.deepEqual(draft.implementation_type, ["backend"]);
   assert.equal(draft.title, "T");
   assert.equal(draft.candidate_files, undefined);
+  assert.deepEqual(progress.map(({ name }) => name), ["sprint_leader.started", "sprint_leader.completed"]);
+  assert.equal(progress[1].details.parsed, true);
+});
+
+// Leaves source discovery to the Coder even when the leader names files.
+test("ticket runner drops all file hints", async () => {
+  const leader = createTicketSprintLeader({
+    sdkGateway: { execute: async () => ({ text: '```json\n{"title":"T","objective":"O","acceptance_criteria":["A"],"implementation_type":["backend"],"candidate_files":[{"path":"backend/src/api.js","role":"REFERENCE","reason":"Observed route"},{"path":"backend/src/guess.js","role":"REFERENCE","reason":"Guess"}]}\n```' }) },
+    toolOptions: ({ discoveredPaths }) => { discoveredPaths.add("backend/src/api.js"); return { tools: [] }; }
+  });
+  const draft = await leader.requestTicket({ projectId: "P1", agentId: "AGENT-SL", content: "fix api", correlationId: "CORR-2" });
+  assert.equal(draft.candidate_files, undefined);
+  assert.equal(draft.candidates_produced_by, undefined);
 });
 
 test("runner throws without an SDK gateway", async () => {

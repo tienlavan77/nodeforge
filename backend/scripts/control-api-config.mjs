@@ -15,6 +15,7 @@ export function readControlApiConfig({ cwd = process.cwd(), env = process.env } 
     // Agentic SDK sessions (Claude/Codex tool loops) run many turns against a
     // third-party gateway and can legitimately exceed the single-request agent
     // timeout; give them a dedicated, longer wall-clock budget.
-    sdkTimeoutMs: Number(env.NODE_SDK_AGENT_TIMEOUT_MS ?? 600000)
+    // Allow long governed coding sessions to finish without aborting mid-report.
+    sdkTimeoutMs: Number(env.NODE_SDK_AGENT_TIMEOUT_MS ?? 2400000)
   });
 }

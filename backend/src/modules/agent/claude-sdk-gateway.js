@@ -11,7 +11,7 @@ export function createClaudeSdkGateway({
   configuration,
   credentialResolver,
   queryFn = sdkQuery,
-  timeoutMs = 120000,
+  timeoutMs = 2400000,
   environment = process.env,
   gatewayBaseUrl = environment.FORGE_GATEWAY_BASE_URL,
   mcpServers = {},
@@ -25,12 +25,15 @@ export function createClaudeSdkGateway({
 
   return Object.freeze({ execute, provider: "claude", conversationMode: "history" });
 
-  async function execute({ agentId, prompt, correlationId, cwd, additionalDirectories = [], options = {}, resumeSessionId, onSessionReady } = {}) {
+  async function execute({ agentId, prompt, correlationId, cwd, additionalDirectories = [], options = {}, resumeSessionId, onSessionReady, abortSignal } = {}) {
     const config = getEnabledConfig(agentId);
     assertString(prompt, "Claude SDK prompt");
     assertString(correlationId, "Claude SDK correlation_id");
     const credential = await resolveCredential(config.credential_ref);
     const controller = new AbortController();
+    const stop = () => controller.abort(abortSignal.reason);
+    abortSignal?.addEventListener("abort", stop, { once: true });
+    if (abortSignal?.aborted) stop();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     const cloneableOptions = { ...options };
     delete cloneableOptions.mcpServers;
@@ -81,6 +84,7 @@ export function createClaudeSdkGateway({
         text: messages.flatMap((message) => message?.type === "assistant" ? (message.message?.content ?? []).map((block) => block?.text).filter((value) => typeof value === "string") : []).join("\n").trim()
       };
     } catch (error) {
+      if (abortSignal?.aborted) throw abortSignal.reason;
       if (error?.name === "AbortError" || controller.signal.aborted) {
         throw new ConfigurationError(`Claude SDK request timed out for ${config.agent_id}.`, { cause: error });
       }
@@ -90,6 +94,7 @@ export function createClaudeSdkGateway({
       writeTerminal(`FAIL ${config.agent_name ?? config.agent_id} ${message.slice(0, 240)} correlation=${correlationId}`);
       throw new ConfigurationError(`Claude SDK request failed for ${config.agent_id}: ${message}`, { cause: error });
     } finally {
+      abortSignal?.removeEventListener("abort", stop);
       clearTimeout(timeout);
       if (typeof session?.close === "function") session.close();
     }

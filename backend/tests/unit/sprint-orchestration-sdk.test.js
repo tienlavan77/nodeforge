@@ -94,3 +94,15 @@ test("sdk plan ticket without candidates stays without candidates", async () => 
   assert.equal(savedPlan.tickets[0].candidate_files, undefined);
   assert.equal(savedPlan.tickets[0].candidates_produced_by, undefined);
 });
+
+// Removes legacy file hints even when an approved handoff still contains them.
+test("approved Sprint handoff does not persist candidate references", async () => {
+  let saved;
+  const plan = { ...makeSprint(), human_plan: humanPlan, tickets: [{ id: "TICKET-FIX-ENDPOINT", title: "Fix endpoint", objective: "Fix it.", acceptance_criteria: ["Works."], implementation_type: ["backend"], file_budget: 4, candidate_files: [{ path: "backend/src/api.js", role: "REFERENCE", reason: "Observed with Forge search" }], candidates_produced_by: "sprint_leader", candidates_produced_at: "2026-10-03T00:00:00Z" }] };
+  const service = createSprintOrchestrationService({ sprintPlans: { getSprintById: () => null }, sprintPlanStore: { save: (value) => { saved = value; }, getCurrent: () => null }, agentGateway: { async *stream() {} }, publisher: { publish: () => {} }, draftPlan: async () => ({ plan_id: "PLAN-1", revision: 1, sha256: "digest" }) });
+  const text = `\`\`\`json\n${JSON.stringify(plan)}\n\`\`\``;
+  assert.equal((await service.ingestAgentCompletion({ agentId: "sprint-leader", message: { project_id: "P1", approved_parent_plan_key: "PLAN-PARENT-R1-digest" }, text })).ingested, true);
+  assert.equal(saved.sprints[0].tickets[0].candidate_files, undefined);
+  assert.equal(saved.sprints[0].tickets[0].candidates_produced_by, undefined);
+  assert.equal(saved.sprints[0].tickets[0].candidates_produced_at, undefined);
+});

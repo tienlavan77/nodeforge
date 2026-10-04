@@ -38,7 +38,7 @@ const FUNCTIONAL_AREAS = [
 const MIN_AREAS_FOR_BUMP = 2;
 
 export const COMPLEXITY_CONFIG = Object.freeze({
-  simple: Object.freeze({ effort: "low", discovery_budget: 6, candidate_calls: 1, search_calls: 2, read_calls: 2, edit_must_start_by: 5, allow_escalation: false, thinking: { type: "enabled", budgetTokens: 2048 } }),
+  simple: Object.freeze({ effort: "low", discovery_budget: 6, candidate_calls: 1, search_calls: 2, read_calls: 4, edit_must_start_by: 5, allow_escalation: false, thinking: { type: "enabled", budgetTokens: 2048 } }),
   moderate: Object.freeze({ effort: "medium", discovery_budget: 12, candidate_calls: 2, search_calls: 4, read_calls: 4, edit_must_start_by: 8, allow_escalation: true, thinking: { type: "enabled", budgetTokens: 4096 } }),
   complex: Object.freeze({ effort: "high", discovery_budget: 18, candidate_calls: 4, search_calls: 6, read_calls: 6, edit_must_start_by: 12, allow_escalation: true, thinking: { type: "adaptive" } })
 });

@@ -54,6 +54,7 @@
             "agent.token_used",
             "agent.message.delta",
             "governance.sprint_plan.created",
+            "governance.sprint_plan.provenance_pending",
             "agent.stopped",
             "agent.message_received",
             "agent.error",

@@ -5,7 +5,7 @@ import { ConfigurationError } from "../../shared/errors.js";
 export function createCompletionReportService({ protocolStorage, fileService, gitService } = {}) {
   if (typeof protocolStorage?.save !== "function" || typeof protocolStorage?.get !== "function") throw new ConfigurationError("Report service requires Protocol Storage.");
   if (typeof fileService?.atomicWrite !== "function") throw new ConfigurationError("Report service requires File Service.");
-  return Object.freeze({ buildFinalReport, saveReport, writeReportFile, completeAcceptedReport, getCommitsForTask });
+  return Object.freeze({ buildFinalReport, saveReport, writeReportFile, completeAcceptedReport, assertCoderReport, completeCoderReport, getCommitsForTask });
 
   async function getCommitsForTask(taskId) { return typeof gitService?.getCommitsForTask === "function" ? gitService.getCommitsForTask(taskId) : []; }
 
@@ -30,6 +30,22 @@ export function createCompletionReportService({ protocolStorage, fileService, gi
     await writeReportFile(taskId, completed);
     return completed;
   }
+  // Requires every criterion to have a normalized Coder coverage status before integration.
+  async function assertCoderReport(taskId) {
+    const current = (await protocolStorage.get(`task/${taskId}/final_report`)).data;
+    const validStatuses = new Set(["verified", "evidence_pending", "not_applicable"]);
+    if (current.status !== "submitted_for_review" && current.status !== "completed" || !Array.isArray(current.criteria_check) || current.criteria_check.some((entry) => !validStatuses.has(entry.status) && entry.node_verified !== true)) throw new ConfigurationError("Coder completion requires normalized coverage for every acceptance criterion.");
+    return current;
+  }
+  // Promotes a verified Coder report when ticket execution does not require inline review.
+  async function completeCoderReport(taskId) {
+    const current = await assertCoderReport(taskId);
+    if (current.status === "completed") return current;
+    const completed = { ...current, status: "completed", reason: "coder_verified", generated_at: new Date().toISOString() };
+    await saveReport(taskId, completed);
+    await writeReportFile(taskId, completed);
+    return completed;
+  }
   async function writeReportFile(taskId, report) {
     const markdown = renderMarkdown(report);
     return fileService.atomicWrite({ path: `.forge/runtime/reports/${taskId}.md`, content: markdown, replace: true });
@@ -40,6 +56,6 @@ function renderMarkdown(report) {
   const lines = [`# ${report.ticket.id}: ${report.ticket.title}`, "", `- Status: ${report.status ?? "unknown"}`, `- Generated: ${report.generated_at}`];
   if (report.reason) lines.push(`- Reason: ${report.reason}`);
   if (report.error) lines.push(`- Error: ${report.error}`);
-  lines.push("", "## Objective", report.ticket.objective, "", "## Files Changed", ...(report.files_changed?.length ? report.files_changed.map((file) => `- ${typeof file === "string" ? file : file.path}`) : ["- None"]), "", "## Commits", ...(report.commits?.length ? report.commits.map((commit) => `- ${commit.sha}: ${commit.subject}`) : ["- None"]), "", "## Acceptance Criteria", ...report.criteria_check.map((item) => `- [${item.node_verified === true ? "x" : " "}] ${item.criterion}${item.node_verified === null ? " (not measured by Node)" : ""}`));
+  lines.push("", "## Objective", report.ticket.objective, "", "## Files Changed", ...(report.files_changed?.length ? report.files_changed.map((file) => `- ${typeof file === "string" ? file : file.path}`) : ["- None"]), "", "## Commits", ...(report.commits?.length ? report.commits.map((commit) => `- ${commit.sha}: ${commit.subject}`) : ["- None"]), "", "## Acceptance Criteria", ...report.criteria_check.map((item) => `- [${item.node_verified === true || item.status === "verified" ? "x" : " "}] ${item.criterion}${item.status === "evidence_pending" ? " (evidence pending)" : item.status === "not_applicable" ? " (not applicable)" : item.node_verified === null ? " (not measured by Node)" : ""}`));
   return `${lines.join("\n")}\n`;
 }
