@@ -116,7 +116,10 @@ export function createTicketRootCommitService({ taskId, projectId, projectRoot, 
       const pending = entry.operations.filter((item) => item.revision > lastCommitted).sort((a, b) => a.revision - b.revision);
       const parentContent = await rootGit.fileAt(parent, path);
       if (sha(parentContent) === entry.latest_sha) { changed.splice(changed.indexOf(path), 1); continue; }
-      if (sha(parentContent) !== pending[0].before_sha) throw fail("TICKET_BASELINE_CONFLICT", `Ticket before-state differs from parent commit: ${path}.`);
+      const ticketStates = entry.operations
+        .filter((operation) => operation.revision <= pending[0].revision)
+        .flatMap((operation) => [operation.before_sha, operation.after_sha]);
+      if (!ticketStates.includes(sha(parentContent))) throw fail("TICKET_BASELINE_CONFLICT", `Ticket before-state differs from every recorded ticket state: ${path}.`);
     }
     if (!changed.length) throw fail("GIT_EMPTY_COMMIT", "Ticket operations have no net change against the parent commit.");
     const pathChecksums = Object.fromEntries(expected.map((path) => [path, manifest.entries[path].latest_sha]));

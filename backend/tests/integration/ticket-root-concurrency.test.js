@@ -55,6 +55,37 @@ test("two disjoint ticket commits serialize and an overlapping write loses its f
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+// Keeps a ticket retry commit scoped when its parent contains an earlier journaled state.
+test("ticket retry commits from a recorded earlier state and rejects foreign parent content", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-root-retry-state-"));
+  try {
+    await git(root, "init", "-q");
+    await git(root, "config", "user.name", "NodeForge Test");
+    await git(root, "config", "user.email", "nodeforge-test@localhost");
+    await writeFile(join(root, ".gitignore"), ".forge/\n");
+    await writeFile(join(root, "a.md"), "initial\n");
+    await git(root, "add", ".gitignore", "a.md");
+    await git(root, "commit", "-qm", "baseline");
+    const files = createFileService({ projectRoot: root });
+    const ledger = createTicketChangeLedger({ fileService: files, projectId: "P-RETRY" });
+    const service = createTicketRootCommitService({ taskId: "T-RETRY", projectId: "P-RETRY", projectRoot: root, fileService: files, ledger, gitService: createGitService({ projectRoot: root }) });
+    await ledger.write({ taskId: "T-RETRY", path: "a.md", before: "initial\n", after: "first\n" });
+    await service.commit("first ticket state");
+    await ledger.write({ taskId: "T-RETRY", path: "a.md", before: "first\n", after: "second\n" });
+    await ledger.write({ taskId: "T-RETRY", path: "a.md", before: "second\n", after: "third\n" });
+    const recordedParent = await git(root, "rev-parse", "HEAD");
+    const resumed = await service.commit("resume ticket state");
+    assert.equal(await git(root, "show", `${resumed.sha}:a.md`), "third");
+    assert.equal(await git(root, "rev-list", "--parents", "-n", "1", resumed.sha), `${resumed.sha} ${recordedParent}`);
+    await ledger.write({ taskId: "T-RETRY", path: "a.md", before: "third\n", after: "fourth\n" });
+    await writeFile(join(root, "a.md"), "foreign\n");
+    await git(root, "add", "a.md");
+    await git(root, "commit", "-qm", "foreign parent");
+    await writeFile(join(root, "a.md"), "fourth\n");
+    await assert.rejects(service.commit("reject foreign parent"), { code: "TICKET_BASELINE_CONFLICT" });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("manifest-only commit records one new file and one deletion without changing staged unrelated source", async () => {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-root-add-delete-"));
   try {
