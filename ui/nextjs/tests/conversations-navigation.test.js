@@ -79,7 +79,7 @@ test("conversation workflow matrix covers responsive navigation and active strea
     }
   }
   for (const action of ["onSelectConversation={handleSelectConversation}", "onConfirmRename", "onArchive", "onDelete", "onTogglePin", "onPinError"]) {
-    assert.ok(component.includes(action), `missing ${action} action coverage`);
+    assert.ok(source.includes(action), `missing ${action} action coverage`);
   }
   assert.match(page, /selectedArchitectureManagerId/);
   assert.match(page, /setSelectedArchitectureManagerId\\(agentId\\)/);
