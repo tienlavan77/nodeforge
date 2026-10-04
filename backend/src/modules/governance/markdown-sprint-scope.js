@@ -132,7 +132,7 @@ function assertOutcomeSprintScope(outcomes, sprint) {
   return outcomes;
 }
 
-// Detects dependency cycles before a Sprint Plan can be admitted.
+// Detects dependency cycles before Sprint Plan admission.
 function hasDependencyCycle(edges) {
   const visiting = new Set();
   const visited = new Set();
