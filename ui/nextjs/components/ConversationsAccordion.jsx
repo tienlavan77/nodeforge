@@ -114,7 +114,7 @@ export function ConversationsAccordion({
         />
         {!modalOpen && error ? <p role="alert" className="conversations-accordion-error">{error}</p> : null}
       </div>
-        <nav className="conversations-accordion-panel" aria-label="Conversations list">
+        <nav data-testid="conversations-navigation" className="conversations-accordion-panel" aria-label="Conversations list">
           <div className="conversations-accordion-panel-inner">
             {pinError ? <p role="alert" className="conversations-accordion-error">{pinError}</p> : null}
             {loading ? (
