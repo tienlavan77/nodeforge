@@ -22,7 +22,10 @@ test("summary and plan commands persist opaque references without running work",
   await writeFile(join(root, "workflows/agents/architecture/README.md"), "# Khung kế hoạch\n\n## 1. Mục tiêu\n\n## 7. Nghiệm thu\n");
   const service = createOwnerChatCommandService({ projectId: "PROJECT-A", fileService, communications: { getByConversationId: () => [{ project_id: "PROJECT-A", sender: { id: "owner" }, payload: { text: "Build the feature" } }] }, planStore: plans, markdownPlanStore: markdownPlans });
   const summaryMarkdown = "# Discussion Summary\n\n## Goals\n\nShip the feature. [Evidence: conversation CONV-A]\n\n## In Scope\n\nBackend behavior.\n\n## Out of Scope\n\nDeployment.\n\n## Decisions\n\nUse the existing command path. [Source: backend/src/application/owner-chat-command-service.js]\n\n## Assumptions\n\nAssumption: the owner will review the resulting plan.\n\n## Risks\n\nUnknown: repository dependencies may change.\n\n## Open Questions\n\nWhich canary is required?";
-  const summary = await service.execute({ text: "/summary", conversationId: "CONV-A", project_id: "PROJECT-A", requestArchitecture: async (prompt) => { assert.match(prompt, /temporary planning input only/); return summaryMarkdown; } });
+  let summaryPrompt;
+  const summary = await service.execute({ text: "/summary", conversationId: "CONV-A", project_id: "PROJECT-A", requestArchitecture: async (prompt) => { summaryPrompt = prompt; assert.match(prompt, /temporary planning input only/); return summaryMarkdown; } });
+  assert.match(summaryPrompt, /Recent Owner Discussion/);
+  assert.match(summaryPrompt, /owner: Build the feature/);
   assert.equal(await readFile(join(root, summary.path), "utf8"), `${summaryMarkdown}\n`);
   assert.equal(summary.execution_authorized, false);
   await assert.rejects(service.execute({ text: `/plan ${summary.summary_id}`, conversationId: "CONV-A", project_id: "PROJECT-A", requestArchitecture: async () => '{"plan_id":"PLAN-INVALID"}' }), { code: "ARCHITECTURE_PLAN_INVALID" });

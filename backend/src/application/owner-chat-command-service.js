@@ -14,7 +14,7 @@ const SUMMARY_EVIDENCE_RE = /\[(?:evidence|source):\s*[^\]]+\]/i;
 const SUMMARY_UNCERTAINTY_RE = /\b(?:assumption|assumes|unknown|uncertain|not known)\b/i;
 
 // Creates the command handler bound to one project and its immutable plan store.
-export function createOwnerChatCommandService({ projectId, fileService, planStore, markdownPlanStore, handoffApprovedPlan, sprintRegistry } = {}) {
+export function createOwnerChatCommandService({ projectId, fileService, communications, planStore, markdownPlanStore, handoffApprovedPlan, sprintRegistry } = {}) {
   if (!projectId || !fileService?.readFile || !fileService?.atomicCreate || !planStore?.createRevision || !planStore?.assertExecutable) throw new ConfigurationError("Owner command service is not configured.");
   return Object.freeze({ execute, isCommand });
 
@@ -42,7 +42,8 @@ export function createOwnerChatCommandService({ projectId, fileService, planStor
       "Every repository fact must include an actual reference such as [Evidence: backend/src/example.js]. Mark uncertain claims as assumptions or unknowns.",
       `The resolved runtime artifact path is ${SUMMARY_PATH_PREFIX}<SUMMARY-uuid>.md; this response is the source content only. Summarize the recent owner discussion, not unrelated repository work.`,
     ].join("\n");
-    const architectureText = String(await requestArchitecture(contract, conversationId) ?? "").trim();
+    const discussionContext = (communications?.getByConversationId?.(conversationId) ?? []).slice(-20).map(({ sender, payload }) => `${sender?.id ?? "unknown"}: ${payload?.text ?? ""}`).filter(Boolean).join("\n") || "No owner discussion context is available.";
+    const architectureText = String(await requestArchitecture(`${contract}\n\n## Recent Owner Discussion\n${discussionContext}`, conversationId) ?? "").trim();
     validateSummary(architectureText);
     const id = `SUMMARY-${randomUUID()}`;
     const path = `${SUMMARY_PATH_PREFIX}${id}.md`;
