@@ -4,7 +4,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { NodeForgeHeader } from "../components/NodeForgeHeader.jsx";
-import { AgentProcessStatus, SprintPlanDashboard, UploadSprintPlanDialog } from "../components/NodeForgePanels.jsx";
+import {
+  AgentProcessStatus,
+  SprintPlanDashboard,
+  UploadSprintPlanDialog
+} from "../components/NodeForgePanels.jsx";
 import { ConversationsAccordion } from "../components/ConversationsAccordion.jsx";
 import { ConversationSidebar } from "../components/conversation-sidebar.jsx";
 import { createNodeClient, MESSAGE_INTENTS } from "../lib/node-client.js";
