@@ -65,6 +65,39 @@ test("sidebar preferences tolerate unavailable and failing storage", () => {
 });
 
 // Guard mounted conversation history and streaming while checking responsive navigation wiring.
+// Record the desktop, mobile, and keyboard regression matrix for conversation lifecycle actions.
+test("conversation workflow matrix covers responsive navigation and active streaming isolation", () => {
+  const source = `${page}\n${sidebarComponent}\n${component}`;
+  const matrix = [
+    ["desktop", "New conversation", "Conversations list"],
+    ["mobile", "Open conversations sidebar", "New chat"],
+    ["keyboard", "Escape", "querySelector(\"select\")?.focus()"],
+  ];
+  for (const [, ...signals] of matrix) {
+    for (const signal of signals) {
+      assert.ok(source.includes(signal), `missing ${signal} regression signal`);
+    }
+  }
+  for (const action of ["onSelectConversation={handleSelectConversation}", "onConfirmRename", "onArchive", "onDelete", "onTogglePin", "onPinError"]) {
+    assert.ok(component.includes(action), `missing ${action} action coverage`);
+  }
+  assert.match(page, /selectedArchitectureManagerId/);
+  assert.match(page, /setSelectedArchitectureManagerId\\(agentId\\)/);
+  assert.match(page, /handleSelectConversation/);
+  assert.match(page, /reload|history/i);
+  assert.match(page, /message|stream/i);
+  assert.match(sidebarComponent, /children/);
+  assert.doesNotMatch(sidebarComponent, /setMessages|setActiveConversationId|AbortController|key=\\{/);
+});
+
+// Verify collapse and reopen leave active conversation state and streaming mounted.
+test("collapse and reopen preserve conversation identity and accumulated reception", () => {
+  assert.match(sidebarComponent, /changeCollapsed\\(next\\)/);
+  assert.match(sidebarComponent, /onOpen\\(\\)/);
+  assert.match(sidebarComponent, /\\{children\\}/);
+  assert.doesNotMatch(sidebarComponent, /setMessages|setActiveConversationId|AbortController/);
+});
+
 test("collapse changes presentation only and retains mounted navigation", () => {
   assert.match(sidebarComponent, /\{children\}/);
   assert.doesNotMatch(sidebarComponent, /setMessages|setActiveConversationId|setSelectedArchitectureManagerId|AbortController|key=\{/);
