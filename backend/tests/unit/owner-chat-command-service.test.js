@@ -29,7 +29,7 @@ test("summary and plan commands persist opaque references without running work",
   let prompt;
   const markdown = "# Plan: Owner objective\n\n## 1. Mục tiêu\n\nOwner objective\n\n## 5. Tickets\n\n| Thứ tự | Nhóm việc | Implementation type | Mục tiêu | Phụ thuộc | Mutable-file budget | Acceptance criteria |\n| --- | --- | --- | --- | --- | --- | --- |\n| 1 | API change | backend | Fix API | — | ≤ 4 files | API works |\n\n## 6. Rủi ro\n\nNone\n\n## 7. Nghiệm thu\n\n- [ ] Reviewed";
   const draft = await service.execute({ text: `/plan ${summary.summary_id}`, conversationId: "CONV-A", project_id: "PROJECT-A", requestArchitecture: async (value) => { prompt = value; return markdown; } });
-  assert.match(prompt, /Owner objective/);
+  assert.match(prompt, /Ship the feature/);
   assert.match(prompt, /# Khung kế hoạch/);
   assert.match(prompt, /workflows\/agents\/architecture\/README\.md/);
   assert.equal(draft.status, "awaiting_human_approval");
@@ -48,7 +48,7 @@ test("summary and plan commands persist opaque references without running work",
 });
 
 test("summary rejects incomplete or plan-shaped architecture output", async () => {
-  const fileService = { readFile: async () => "", atomicWrite: async () => { throw new Error("must not persist invalid summary"); } };
+  const fileService = { readFile: async () => "", atomicCreate: async () => { throw new Error("must not persist invalid summary"); } };
   const service = createOwnerChatCommandService({ projectId: "PROJECT-A", fileService, planStore: { createRevision: async () => {}, assertExecutable: async () => {} } });
   await assert.rejects(service.execute({ text: "/summary", requestArchitecture: async () => "# Discussion Summary\n\n## Goals\n\nGoal\n\n## In Scope\n\nScope\n\n## Out of Scope\n\nNone\n\n## Decisions\n\nDecision\n\n## Assumptions\n\nAssumption\n\n## Risks\n\nRisk\n\n## Open Questions\n\nQuestion" }), { code: "SUMMARY_EVIDENCE_MISSING" });
   await assert.rejects(service.execute({ text: "/summary", requestArchitecture: async () => "# Plan: unauthorized" }), { code: "SUMMARY_INVALID" });
