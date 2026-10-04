@@ -82,7 +82,7 @@ test("conversation workflow matrix covers responsive navigation and active strea
     assert.ok(source.includes(action), `missing ${action} action coverage`);
   }
   assert.match(page, /selectedArchitectureManagerId/);
-  assert.ok(page.includes("setSelectedArchitectureManagerId(agentId)"));\\(agentId\\)/);
+  assert.ok(page.includes("setSelectedArchitectureManagerId(agentId)"));
   assert.match(page, /handleSelectConversation/);
   assert.match(page, /handleSelectConversation/);
 
@@ -92,9 +92,9 @@ test("conversation workflow matrix covers responsive navigation and active strea
 
 // Verify collapse and reopen leave active conversation state and streaming mounted.
 test("collapse and reopen preserve conversation identity and accumulated reception", () => {
-  assert.match(sidebarComponent, /changeCollapsed\\(next\\)/);
-  assert.match(sidebarComponent, /onOpen\\(\\)/);
-  assert.match(sidebarComponent, /\\{children\\}/);
+  assert.ok(sidebarComponent.includes("changeCollapsed(next)"));
+  assert.ok(sidebarComponent.includes("onOpen()"));
+  assert.ok(sidebarComponent.includes("{children}"));
   assert.doesNotMatch(sidebarComponent, /setMessages|setActiveConversationId|AbortController/);
 });
 
