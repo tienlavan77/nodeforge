@@ -82,7 +82,7 @@ test("conversation workflow matrix covers responsive navigation and active strea
     assert.ok(source.includes(action), `missing ${action} action coverage`);
   }
   assert.match(page, /selectedArchitectureManagerId/);
-  assert.match(page, /setSelectedArchitectureManagerId\\(agentId\\)/);
+  assert.ok(page.includes("setSelectedArchitectureManagerId(agentId)"));\\(agentId\\)/);
   assert.match(page, /handleSelectConversation/);
   assert.match(page, /handleSelectConversation/);
 
