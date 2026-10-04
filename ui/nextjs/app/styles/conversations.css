@@ -2,6 +2,7 @@
 /* Conversations accordion */
 .conversations-accordion { border: 1px solid var(--app-border); background: color-mix(in srgb, var(--app-surface-alt) 55%, transparent); margin-bottom: 16px; }
 .conversations-accordion-header { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; }
+.conversations-accordion-direct { display: flex; flex-direction: column; gap: 4px; }
 .conversations-accordion-toggle { display: inline-flex; align-items: center; gap: 8px; border: 0; background: transparent; color: var(--app-text); cursor: pointer; font: 600 13px 'Space Grotesk', sans-serif; letter-spacing: .04em; text-transform: uppercase; }
 .conversations-accordion-title { color: var(--app-text); font: 600 12px 'Space Grotesk', sans-serif; letter-spacing: .08em; text-transform: uppercase; }
 .conversations-accordion-arrow { display: inline-block; color: var(--app-accent); font-size: 12px; line-height: 1; transition: transform .18s ease; }
@@ -9,9 +10,9 @@
 .conversations-accordion-new { flex: 0 0 auto; font-size: 12px; font-weight: 500; letter-spacing: .04em; padding: 6px 10px; border: 1px solid var(--app-border); background: transparent; color: var(--app-text); border-radius: 6px; box-shadow: none; }
 .conversations-accordion-new:hover { background: color-mix(in srgb, var(--app-surface-alt) 70%, transparent); border-color: var(--app-accent); }
 .conversations-accordion-new:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
-.conversations-accordion-panel { border-top: 1px solid var(--app-border); padding: 10px 12px; max-height: 220px; overflow: auto; display: grid; grid-template-rows: 0fr; opacity: 0; overflow: hidden; padding-top: 0; padding-bottom: 0; border-top-width: 0; transition: grid-template-rows 300ms ease, opacity 250ms ease, padding 300ms ease, border-width 300ms ease; }
-.conversations-accordion-panel.is-open { grid-template-rows: 1fr; opacity: 1; padding-top: 10px; padding-bottom: 10px; border-top-width: 1px; }
-.conversations-accordion-panel-inner { min-height: 0; overflow: auto; max-height: 220px; }
+.conversations-accordion-panel { padding: 4px 12px 10px; }
+.conversations-accordion-panel-inner { min-height: 0; }
+.conversations-accordion-pinned { color: var(--app-muted); font: 600 11px 'Space Grotesk', sans-serif; letter-spacing: .08em; text-transform: uppercase; margin: 8px 0; }
 @media (prefers-reduced-motion: reduce) {
   .conversations-accordion-panel { transition: none; }
   .conversations-accordion-arrow { transition: none; }

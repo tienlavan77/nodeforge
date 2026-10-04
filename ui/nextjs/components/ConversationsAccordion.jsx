@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from "react";
 import { CreateConversationModal } from "./CreateConversationModal.jsx";
 import { ConversationsBlock } from "./ConversationsBlock.jsx";
-import { sortPinnedFirst } from "./conversation-pinning.js";
+import { isPinnedConversation, sortPinnedFirst } from "./conversation-pinning.js";
 import { useConversationList } from "./use-conversation-list.js";
 import { getConversationId, persistOrder, createConversationRequest } from "./conversation-list-utils.js";
 
@@ -14,11 +14,9 @@ export function ConversationsAccordion({
   onNewConversation,
   onSelectConversation,
   activeConversationId = null,
-  defaultOpen = false,
   projectId,
   agentId,
 }) {
-  const [open, setOpen] = useState(defaultOpen);
   const [modalOpen, setModalOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [error, setError] = useState("");
@@ -87,7 +85,6 @@ export function ConversationsAccordion({
       }
       setModalOpen(false);
       setTitle("");
-      setOpen(true);
     } catch (requestError) {
       setError(requestError?.message ?? "Unable to create conversation.");
     } finally {
@@ -96,23 +93,8 @@ export function ConversationsAccordion({
   }
 
   return (
-    <div className="conversations-accordion" data-open={open ? "true" : "false"}>
+    <div className="conversations-accordion conversations-accordion-direct">
       <div className="conversations-accordion-header">
-        <button
-          type="button"
-          className="conversations-accordion-toggle"
-          aria-expanded={open}
-          aria-controls="conversations-accordion-panel"
-          onClick={() => setOpen((v) => !v)}
-        >
-          <span
-            className={`conversations-accordion-arrow ${open ? "is-open" : ""}`}
-            aria-hidden="true"
-          >
-            ▸
-          </span>
-          <span className="conversations-accordion-title">Conversations</span>
-        </button>
         <button
           type="button"
           className="conversations-accordion-new" aria-label="New conversation"
@@ -131,13 +113,7 @@ export function ConversationsAccordion({
         />
         {!modalOpen && error ? <p role="alert" className="conversations-accordion-error">{error}</p> : null}
       </div>
-      {open && (
-        <div
-          id="conversations-accordion-panel"
-          className={`conversations-accordion-panel ${open ? "is-open" : ""}`}
-          role="region"
-          aria-label="Conversations list"
-        >
+        <div className="conversations-accordion-panel" role="region" aria-label="Conversations list">
           <div className="conversations-accordion-panel-inner">
             {pinError ? <p role="alert" className="conversations-accordion-error">{pinError}</p> : null}
             {loading ? (
@@ -147,8 +123,10 @@ export function ConversationsAccordion({
             ) : items.length === 0 ? (
               <p className="conversations-accordion-empty">No conversations yet.</p>
             ) : (
+              <>
+                {items.some(isPinnedConversation) && <h3 className="conversations-accordion-pinned">Pinned</h3>}
               <ul className="conversations-accordion-list">
-                {items.map((conv) => {
+                {items.filter(isPinnedConversation).concat(items.filter((conv) => !isPinnedConversation(conv))).map((conv) => {
                   const cid = getConversationId(conv);
                   const isEditing = editingId === cid;
                   const isArchived = conv.archived === true || conv.status === "archived";
@@ -222,10 +200,10 @@ export function ConversationsAccordion({
                   );
                 })}
               </ul>
+              </>
             )}
           </div>
         </div>
-      )}
     </div>
   );
 }
