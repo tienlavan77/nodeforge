@@ -84,6 +84,7 @@ test("conversation selection invokes the page callback with the selected identit
     {
       setActiveConversationId: (id) => { observed.activeId = id; },
       writeChatState: (...args) => { observed.stored = args; },
+      CHAT_STATE_KEY: "nodeforge:chat:last:PROJECT-NODEFORGE",
       selectedArchitectureManager: { id: "architecture-manager" },
       setMessages: (messages) => { observed.cleared = messages; },
       setChatState: (state) => { observed.chatState = state; },
