@@ -84,7 +84,7 @@ function readOutcomeRows(lines) {
     const rawGuardrails = String(guardrailText).split(";").map((item) => item.trim()).filter((item) => !/^[—–-]$|^none$/i.test(item));
     const mandatoryDependencies = String(dependencyText).split(/[,;]/).map((item) => item.trim()).filter(Boolean);
     const guardrails = cells.length === 4 ? rawGuardrails.filter((item) => !/^O[1-9][0-9]*$/i.test(item)) : rawGuardrails;
-    if ((cells.length !== 4 && cells.length !== 5) || !/^O[1-9][0-9]*$/i.test(id) || !outcome || !acceptanceCriteria.length || hasUnfilledPlaceholder(cells.join(" "))) throw fail(`Approved outcome ${id ?? "?"} is incomplete.`);
+    if ((cells.length !== 4 && cells.length !== 5) || !/^O[1-9][0-9]*$/i.test(id) || !outcome || !acceptanceCriteria.length || (cells.length === 5 ? !guardrails.length : !String(guardrailText).trim()) || hasUnfilledPlaceholder(cells.join(" "))) throw fail(`Approved outcome ${id ?? "?"} is incomplete.`);
     if (cells.length === 4 && rawGuardrails.some((item) => /^O[1-9][0-9]*$/i.test(item))) mandatoryDependencies.push(...rawGuardrails.filter((item) => /^O[1-9][0-9]*$/i.test(item)).map((item) => item.toUpperCase()));
     return { kind: "outcome", id: id.toUpperCase(), outcome, acceptance_criteria: acceptanceCriteria, guardrails, mandatory_dependencies: mandatoryDependencies };
   });
