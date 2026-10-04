@@ -73,26 +73,34 @@ test("sidebar preferences tolerate unavailable and failing storage", () => {
   assert.ok(warnings.every((warning) => warning[1] === failure));
 });
 
-test("conversation selection invokes the page callback with the selected identity", async () => {
+test("conversation selection invokes the wired callback with the selected identity", async () => {
   const start = page.indexOf("  function handleSelectConversation");
   const end = page.indexOf("\n\n  const { sendMessage", start);
+  const accordionStart = page.indexOf("<ConversationsAccordion");
+  const propStart = page.indexOf("onSelectConversation={", accordionStart);
+  const propEnd = page.indexOf("}", propStart);
   assert.ok(start >= 0 && end > start);
+  assert.ok(accordionStart >= 0 && propStart > accordionStart && propEnd > propStart);
   const handler = page.slice(start, end);
+  const callbackName = page.slice(propStart + "onSelectConversation={".length, propEnd);
+  assert.equal(callbackName, "handleSelectConversation");
   const observed = { activeId: null, stored: null, cleared: null, typing: true, loaded: null };
   const controls = runInNewContext(
     handler + "; ({ handleSelectConversation })",
     {
       setActiveConversationId: (id) => { observed.activeId = id; },
-      writeChatState: (...args) => { observed.stored = args; },
+      writeChatState: (...args) => { observed.stored = Array.from(args); },
       CHAT_STATE_KEY: "nodeforge:chat:last:PROJECT-NODEFORGE",
       selectedArchitectureManager: { id: "architecture-manager" },
-      setMessages: (messages) => { observed.cleared = messages; },
+      setMessages: (messages) => { observed.cleared = Array.from(messages); },
       setChatState: (state) => { observed.chatState = state; },
       setAgentTyping: (typing) => { observed.typing = typing; },
       loadConversationMessages: async (id) => { observed.loaded = id; },
     }
   );
-  await controls.handleSelectConversation({ id: "conversation-selected" });
+  const selectConversation = controls[callbackName];
+  assert.equal(typeof selectConversation, "function");
+  await selectConversation({ id: "conversation-selected" });
   assert.equal(observed.activeId, "conversation-selected");
   assert.deepEqual(observed.stored, ["nodeforge:chat:last:PROJECT-NODEFORGE", "architecture-manager", "conversation-selected"]);
   assert.deepEqual(observed.cleared, []);
