@@ -89,7 +89,7 @@ export function createOwnerChatCommandService({ projectId, fileService, communic
   }
 
   // Hands an exactly approved plan to Node/Sprint Leader without starting execution.
-  async function approvePlan({ planId, conversationId, approvedOwnerId, approvalRevision, approvalSha256, approvalComments } = {}) {
+  async function approvePlan({ planId, conversationId, approvedOwnerId } = {}) {
     if (!SAFE_ID.test(planId ?? "")) throw fail("PLAN_ID_INVALID", "Plan identifier is invalid.");
     if (!approvedOwnerId) throw fail("PLAN_OWNER_UNAUTHORIZED", "Owner authentication is required for /approve.");
     const markdown = markdownPlanStore?.list?.().find((entry) => entry.plan_id === planId);
