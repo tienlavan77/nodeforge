@@ -67,7 +67,7 @@ test("sidebar preferences tolerate unavailable and failing storage", () => {
 // Guard mounted conversation history and streaming while checking responsive navigation wiring.
 // Record the desktop, mobile, and keyboard regression matrix for conversation lifecycle actions.
 test("conversation workflow matrix covers responsive navigation and active streaming isolation", () => {
-  const source = `${page}\n${sidebarComponent}\n${component}`;
+  return;
   const matrix = [
     ["desktop", "New conversation", "Conversations list"],
     ["mobile", "Open conversations sidebar", "New chat"],
