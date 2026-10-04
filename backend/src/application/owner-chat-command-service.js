@@ -10,7 +10,7 @@ const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const PLAN_FRAME_PATH = "workflows/agents/architecture/README.md";
 
 // Creates the command handler bound to one project and its immutable plan store.
-export function createOwnerChatCommandService({ projectId, fileService, planStore, markdownPlanStore, handoffApprovedPlan } = {}) {
+export function createOwnerChatCommandService({ projectId, fileService, planStore, markdownPlanStore, handoffApprovedPlan, sprintRegistry } = {}) {
   if (!projectId || !fileService?.readFile || !fileService?.atomicCreate || !planStore?.createRevision || !planStore?.assertExecutable) throw new ConfigurationError("Owner command service is not configured.");
   return Object.freeze({ execute, isCommand });
 
@@ -70,7 +70,16 @@ export function createOwnerChatCommandService({ projectId, fileService, planStor
     const plan = markdown ? await markdownPlanStore.assertApproved({ planId, revision: listed.revision, sha256: listed.sha256 }) : await planStore.assertExecutable({ planId, revision: listed.revision, sha256: listed.sha256 });
     if (typeof handoffApprovedPlan !== "function") throw fail("PLAN_HANDOFF_UNAVAILABLE", "Approved-plan handoff is unavailable.");
     const handoff = await handoffApprovedPlan({ projectId, plan, conversationId });
-    return { command: "/approve", status: "handed_to_node", plan_id: planId, revision: plan.revision, sha256: plan.sha256, ...handoff, text: handoff.text ?? `Sprint Leader handoff: ${handoff.status}${handoff.sprint_id ? `, sprint ${handoff.sprint_id}` : ""}.`, run_started: false, coder_dispatched: false, supervisor_dispatched: false };
+    let sprintStatus;
+    if (handoff.status === "handed_to_sprint_leader") {
+      if (!handoff.sprint_id || !sprintRegistry?.get || !sprintRegistry?.setStatus) throw fail("SPRINT_REGISTRY_UNAVAILABLE", "Approved Sprint cannot be marked ready without its registry record.");
+      const scheduled = sprintRegistry.get(handoff.sprint_id);
+      if (!scheduled) throw fail("SPRINT_NOT_FOUND", "Sprint Leader handoff completed without a registered Sprint.");
+      sprintStatus = ["planned", "awaiting_human_approval"].includes(scheduled.status)
+        ? (await sprintRegistry.setStatus({ sprintId: handoff.sprint_id, status: "ready" })).status
+        : scheduled.status;
+    }
+    return { command: "/approve", status: "handed_to_node", plan_id: planId, revision: plan.revision, sha256: plan.sha256, ...handoff, ...(sprintStatus ? { sprint_status: sprintStatus } : {}), text: handoff.status === "handed_to_sprint_leader" ? `Sprint Leader đã tạo ${handoff.sprint_id}; Sprint ${sprintStatus}. Chưa RUN.` : handoff.text ?? `Sprint Leader handoff: ${handoff.status}${handoff.sprint_id ? `, sprint ${handoff.sprint_id}` : ""}.`, run_started: false, coder_dispatched: false, supervisor_dispatched: false };
   }
 }
 
