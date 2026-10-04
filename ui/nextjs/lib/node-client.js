@@ -160,6 +160,10 @@ export function createNodeClient() {
     async runTicket(projectId, ticketId, { fresh = false } = {}) {
       return requestJson(forgeV1(`/tickets/${ticketId}:run`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, ...(fresh ? { fresh: true } : {}) }), fallbackError: `Node rejected Ticket Run: ${ticketId}.` });
     },
+    // Stops an active ticket SDK turn while preserving its checkpoint for a later retry.
+    async stopTicket(projectId, ticketId) {
+      return requestJson(forgeV1(`/tickets/${ticketId}:stop`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId }), fallbackError: `Node could not stop Ticket: ${ticketId}.` });
+    },
     // Sends the dashboard's coding request to Supervisor without creating a sprint ticket.
     async runCode(projectId, sprintId, text) {
       return requestJson(forgeV1("/code/run", { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, sprint_id: sprintId, text }), fallbackError: "Node could not run the coder." });

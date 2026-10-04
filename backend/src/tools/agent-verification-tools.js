@@ -43,8 +43,10 @@ export function createCommitChangesTool({ gitService, changeLedger, logger = cre
     let paths;
     try {
       authorizeTool("commit_changes", context);
-      if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => key !== "message") || typeof input.message !== "string" || !input.message.trim() || input.message.length > 200 || input.message.includes("\0")) throw error("INPUT_INVALID", "commit_changes requires a message of 1–200 characters and no other arguments.");
+      if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => !["message", "paths"].includes(key)) || typeof input.message !== "string" || !input.message.trim() || input.message.length > 200 || input.message.includes("\0")) throw error("INPUT_INVALID", "commit_changes requires a message of 1–200 characters and an explicit paths array.");
+      const suppliedPaths = input.paths === undefined ? null : normalizeCommitPaths(input.paths);
       paths = changeLedger ? Object.keys((await changeLedger.snapshot()).entries) : resolveCommitPaths(context);
+      if (suppliedPaths && !samePaths(suppliedPaths, paths)) throw error("SCOPE_INVALID", "The commit paths must exactly match the paths recorded by the ticket ledger.", { expected_paths: paths, supplied_paths: suppliedPaths });
       if (paths.some((path) => !isAgentPathAllowed(path, context))) throw error("SCOPE_INVALID", "Ticket ledger contains a path outside the approved scope.");
       if (!paths.length) throw error("SCOPE_INVALID", "No changed files to commit; write_diff/edit_diff must run first.");
     } catch (cause) {
@@ -73,6 +75,18 @@ export function createCommitChangesTool({ gitService, changeLedger, logger = cre
       payload: { agent_id: context?.agent_identity?.agent_id, execution_id: context?.execution_id, ...payload }
     });
   }
+}
+
+// Normalizes explicit commit paths while preserving path identity for the approval boundary.
+function normalizeCommitPaths(paths) {
+  if (!Array.isArray(paths) || !paths.length || paths.some((path) => typeof path !== "string" || !path.trim())) throw error("INPUT_INVALID", "commit_changes requires a non-empty paths array.");
+  return [...new Set(paths)].sort();
+}
+
+// Compares the agent-declared paths with Node's durable ticket scope.
+function samePaths(left, right) {
+  const normalized = [...new Set((right ?? []).filter((path) => typeof path === "string"))].sort();
+  return left.length === normalized.length && left.every((path, index) => path === normalized[index]);
 }
 
 // Resolves the exact paths approved for the current commit operation.

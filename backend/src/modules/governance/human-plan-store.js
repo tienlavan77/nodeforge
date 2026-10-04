@@ -29,6 +29,7 @@ export function createHumanPlanStore({ projectId, database, fileService, markdow
   // Writes a new immutable revision before indexing it; an orphan file never grants execution.
   async function createRevision({ planId, sprintId = null, content, proposalId = null, expectedRevision, sourcePath = null, sourceSha256 = null } = {}) {
     if (!SAFE_ID.test(planId ?? "") || sprintId !== null && !SAFE_ID.test(sprintId) || proposalId !== null && !SAFE_ID.test(proposalId)) throw fail("PLAN_ID_INVALID", "Plan, sprint, and proposal identifiers must be safe.");
+    content = stripCandidateMetadata(content);
     validateContent(content);
     const lock = await acquireTicketFileLock(fileService, `${PLAN_ROOT}/${planId}/revision.lock`);
     try {
@@ -78,7 +79,7 @@ export function createHumanPlanStore({ projectId, database, fileService, markdow
     const derived = database.all("SELECT * FROM derived_plan_approvals WHERE plan_id=? AND revision=?", [planId, revision])[0] ?? null;
     const status = head?.revision !== revision ? "superseded" : decision?.decision ?? (derived ? "approved" : "awaiting_human_approval");
     if (row.source_path !== (artifact.source_path ?? null) || row.source_sha256 !== (artifact.source_sha256 ?? null)) throw fail("PLAN_SOURCE_MISMATCH", "Plan source binding differs from its SQLite index.");
-    return { ...artifact, file_path: row.file_path, sha256: row.sha256, source_path: row.source_path, source_sha256: row.source_sha256, status, decision, approval_basis: derived ? "approved_markdown_projection" : null };
+    return { ...artifact, content: stripCandidateMetadata(artifact.content), file_path: row.file_path, sha256: row.sha256, source_path: row.source_path, source_sha256: row.source_sha256, status, decision, approval_basis: derived ? "approved_markdown_projection" : null };
   }
 
   // Lists plan heads without making roadmap JSON an authority for scheduling.
@@ -137,4 +138,13 @@ export function createHumanPlanStore({ projectId, database, fileService, markdow
     } else if (plan.decision?.sha256 !== sha256) throw fail("PLAN_APPROVAL_REQUIRED", "Execution requires an exact owner decision.");
     return plan;
   }
+}
+
+// Removes obsolete file-discovery hints from plan projections while preserving immutable plan identity.
+function stripCandidateMetadata(value) {
+  if (Array.isArray(value)) return value.map(stripCandidateMetadata);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => !["candidate_files", "candidates_produced_by", "candidates_produced_at"].includes(key))
+    .map(([key, entry]) => [key, stripCandidateMetadata(entry)]));
 }

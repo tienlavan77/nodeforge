@@ -21,11 +21,13 @@ export function createSedLinesTool({ projectRoot, fileService, codeCache, symbol
   async function execute(input = {}, context = {}) {
     const started = Date.now();
     let args;
+    let normalized;
     try {
       authorizeTool("sed_lines", context);
-      args = buildArgs(input);
-      if (!isAgentPathAllowed(input.path, context) || (fileService && !approvedPath(input.path, context))) throw invalidInput("sed_lines path is outside the Node-approved file scope.");
-      await validatePath(projectRoot, input.path, environment, context);
+      normalized = normalizeInput(input, projectRoot);
+      args = buildArgs(normalized);
+      if (!isAgentPathAllowed(normalized.path, context) || (fileService && !approvedPath(normalized.path, context))) throw invalidInput("sed_lines path is outside the Node-approved file scope.");
+      await validatePath(projectRoot, normalized.path, environment, context);
     } catch (error) {
       emit("rejected", context, { error_code: error.code ?? "SED_LINES_INPUT_INVALID", error: error.message, duration_ms: Date.now() - started });
       throw error;
@@ -33,7 +35,7 @@ export function createSedLinesTool({ projectRoot, fileService, codeCache, symbol
     emit("started", context, { command: ["sed", ...args], cwd: projectRoot });
     let result;
     try {
-      result = codeCache ? await readCachedLines(codeCache, input) : await runSed(projectRoot, args, environment);
+      result = codeCache ? await readCachedLines(codeCache, normalized) : await runSed(projectRoot, args, environment);
     } catch (error) {
       emit("failed", context, { command: ["sed", ...args], cwd: projectRoot, error_code: error.code ?? "SED_LINES_SPAWN_FAILED", error: error.message, duration_ms: Date.now() - started });
       throw error;
@@ -48,20 +50,20 @@ export function createSedLinesTool({ projectRoot, fileService, codeCache, symbol
     let metadata = {};
     if (fileService) {
       try {
-        const file = codeCache ? await codeCache.read({ path: input.path }) : await fileService.readForIndex({ path: input.path });
+        const file = codeCache ? await codeCache.read({ path: normalized.path }) : await fileService.readForIndex({ path: normalized.path });
         if (typeof file?.content !== "string") throw invalidInput("sed_lines could not verify the file checksum.");
         metadata = { sha256: file.sha256 ?? `sha256:${createHash("sha256").update(file.content, "utf8").digest("hex")}`, total_lines: file.content.split("\n").length };
       } catch (error) {
-        emit("failed", context, { path: input.path, error_code: error.code ?? "SED_CHECKSUM_FAILED", error: error.message });
+        emit("failed", context, { path: normalized.path, error_code: error.code ?? "SED_CHECKSUM_FAILED", error: error.message });
         throw error;
       }
     }
     if (typeof symbolLookup !== "function") return { ...result, ...metadata };
     try {
-      const symbols = await symbolLookup(input.path);
+      const symbols = await symbolLookup(normalized.path);
       return { ...result, ...metadata, symbol_map: Array.isArray(symbols) ? symbols : [], symbol_map_verified: false };
     } catch (error) {
-      emit("symbol_lookup_failed", context, { path: input.path, error_code: error.code ?? "SED_SYMBOL_LOOKUP_FAILED", error: error.message });
+      emit("symbol_lookup_failed", context, { path: normalized.path, error_code: error.code ?? "SED_SYMBOL_LOOKUP_FAILED", error: error.message });
       return { ...result, ...metadata };
     }
   }
@@ -76,6 +78,17 @@ export function createSedLinesTool({ projectRoot, fileService, codeCache, symbol
       payload: { agent_id: context?.agent_identity?.agent_id, execution_id: context?.execution_id, ...payload }
     });
   }
+}
+
+// Normalizes harmless agent path/number variants before applying the strict scope checks.
+function normalizeInput(input, projectRoot) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return input;
+  const pathValue = input.path ?? input.file_path;
+  let path = typeof pathValue === "string" ? pathValue.trim() : pathValue;
+  if (typeof path === "string" && path.startsWith(`${projectRoot}/`)) path = path.slice(projectRoot.length + 1);
+  if (typeof path === "string" && path.startsWith("./")) path = path.slice(2);
+  const number = (value) => typeof value === "string" && /^\d+$/.test(value.trim()) ? Number(value) : value;
+  return { path, start_line: number(input.start_line ?? input.startLine), end_line: number(input.end_line ?? input.endLine) };
 }
 
 // Returns sed-compatible line output from the shared current-source cache.

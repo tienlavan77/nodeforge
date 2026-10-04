@@ -41,6 +41,22 @@ test("executes the selected agent through a third-party gateway", async () => {
   assert(!JSON.stringify(result).includes("gateway-secret"));
 });
 
+// Stops an active Claude ticket turn without treating owner cancellation as a timeout.
+test("owner Stop aborts the active Claude SDK turn", async () => {
+  const controller = new AbortController();
+  const reason = Object.assign(new Error("Ticket stopped by owner."), { code: "TICKET_STOPPED" });
+  const gateway = createClaudeSdkGateway({
+    configuration: { getById: () => profile() }, credentialResolver: () => "secret",
+    queryFn: ({ options }) => ({
+      async *[Symbol.asyncIterator]() { await new Promise((_resolve, reject) => options.abortController.signal.addEventListener("abort", () => reject(options.abortController.signal.reason), { once: true })); }
+    })
+  });
+  const running = gateway.execute({ agentId: "coder", correlationId: "STOP", prompt: "Implement", abortSignal: controller.signal });
+  await new Promise((resolve) => setImmediate(resolve));
+  controller.abort(reason);
+  await assert.rejects(running, { code: "TICKET_STOPPED" });
+});
+
 test("does not execute a disabled or non-ready agent", async () => {
   let calls = 0;
   const gateway = createClaudeSdkGateway({

@@ -110,7 +110,7 @@ describe("sprint dag runner", () => {
       dispatchTask: async ({ ticket }) => { order.push(ticket.id); statuses[ticket.id] = "done"; return {}; }
     });
     await runner.runSprintLevels({ projectId: "P", sprintId: "S2", levels });
-    assert.deepEqual(order, ["A", "B"]);
+    assert.deepEqual(order, ["B"]);
   });
 });
 

@@ -1,12 +1,13 @@
 // Orchestrates sprint execution across role agents with streamed output.
 import { randomUUID } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { createRequire } from "node:module";
 
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 
 import { ConfigurationError } from "../shared/errors.js";
-import { backfillTicketCandidates } from "../modules/index/ticket-scope.js";
 
 const require = createRequire(import.meta.url);
 const commonSchema = require("../../../schemas/core/common.schema.json");
@@ -14,7 +15,7 @@ const ticketSchema = require("../../../schemas/governance/ticket.schema.json");
 const sprintPlanSchema = require("../../../schemas/governance/sprint-plan.schema.json");
 
 // Creates a service that orchestrates sprint execution across agents.
-export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore, ticketProvenanceTracker, agentGateway, publisher, agentRoles = ["sprint-leader"], streamBatchMs = 500, sprintPlanLeader, agentRoleResolver, draftPlan } = {}) {
+export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore, ticketProvenanceTracker, agentGateway, publisher, agentRoles = ["sprint-leader"], streamBatchMs = 500, sprintPlanLeader, agentRoleResolver, draftPlan, sprintPlanDirectory } = {}) {
   if (typeof sprintPlans?.getSprintById !== "function") {
     throw new ConfigurationError("Sprint Orchestration requires Sprint Plans.");
   }
@@ -43,9 +44,7 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
     let plan;
     try {
       plan = extractSprintPlanJson(text);
-      // Legacy completion text has no verified paths: resolve server-side so
-      // persisted tickets reference real indexed files.
-      const resolved = assignPlanTicketIdentity(await resolvePlanCandidates(plan), { projectId: message.project_id });
+      const resolved = assignPlanTicketIdentity(stripPlanCandidateFields(plan), { projectId: message.project_id });
       assertSprintPlanGovernance(resolved);
       if (!validateSprintPlan(resolved)) throw new ConfigurationError(`Sprint Leader returned invalid sprint plan: ${validateSprintPlan.errors.map((error) => `${error.instancePath || "/"} ${error.message}`).join("; ")}`);
       await persistSprintPlan(resolved, { projectId: message.project_id, correlationId: message.correlation_id, conversationId: message.conversation_id, approvedParentPlanKey: message.approved_parent_plan_key });
@@ -58,8 +57,8 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
   async function runRealAgents({ projectId, sprint, sessionId }) {
     const tickets = sprint.tickets ?? [];
     for (const role of agentRoles.filter((entry) => entry === "sprint-leader")) {
-      // Sprint leader drafts through the SDK with built-in search so its
-      // candidate paths are verified on disk; other roles keep the stream.
+      // Sprint leader drafts through the SDK with read-only project search; the
+      // Coder owns implementation-path discovery and editing.
       if (role === "sprint-leader" && typeof sprintPlanLeader?.requestPlan === "function") {
         await runSprintLeaderSdk({ projectId, sprint, sessionId });
         continue;
@@ -91,7 +90,7 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
         flush();
         if (role === "sprint-leader") {
           const plan = extractSprintPlanJson(output);
-          const resolved = assignPlanTicketIdentity(await resolvePlanCandidates(plan), { projectId });
+          const resolved = assignPlanTicketIdentity(stripPlanCandidateFields(plan), { projectId });
           assertSprintPlanGovernance(resolved);
           if (!validateSprintPlan(resolved)) throw new ConfigurationError(`Sprint Leader returned invalid sprint plan: ${validateSprintPlan.errors.map((error) => `${error.instancePath || "/"} ${error.message}`).join("; ")}`);
           await persistSprintPlan(resolved, { projectId, correlationId, conversationId });
@@ -114,8 +113,7 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
       // eslint-disable-next-line no-silent-catch -- The role ID is the configured fallback when profile lookup fails.
       catch { /* fall back to the role id */ }
       const plan = await sprintPlanLeader.requestPlan({ projectId, agentId, brief: buildSprintBrief(sprint), correlationId });
-      const stamped = await stampPlanCandidates(plan);
-      const identified = assignPlanTicketIdentity(stamped, { projectId });
+      const identified = assignPlanTicketIdentity(stripPlanCandidateFields(plan), { projectId });
       assertSprintPlanGovernance(identified);
       if (!validateSprintPlan(identified)) throw new ConfigurationError(`Sprint Leader returned invalid sprint plan: ${validateSprintPlan.errors.map((error) => `${error.instancePath || "/"} ${error.message}`).join("; ")}`);
       await persistSprintPlan(identified, { projectId, correlationId, conversationId });
@@ -129,20 +127,6 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
   // Summarizes the sprint so the leader can draft a plan with matching ids.
   function buildSprintBrief(sprint) {
     return JSON.stringify({ id: sprint.id, roadmap_id: sprint.roadmap_id, project_id: sprint.project_id, objective: sprint.objective, tickets: (sprint.tickets ?? []).map((ticket) => ({ id: ticket.id, title: ticket.title, objective: ticket.objective })), exit_criteria: sprint.exit_criteria ?? [] });
-  }
-  // Keeps ticket scope independent of guessed source-file candidates.
-  async function stampPlanCandidates(plan) {
-    if (!plan || typeof plan !== "object") return plan;
-    const tickets = Array.isArray(plan.tickets) ? plan.tickets : [];
-    const stamped = [];
-    for (const ticket of tickets) {
-      const entry = { ...(ticket ?? {}) };
-      delete entry.candidate_files;
-      delete entry.candidates_produced_by;
-      delete entry.candidates_produced_at;
-      stamped.push(entry);
-    }
-    return { ...plan, tickets: stamped };
   }
   // Assigns identity fields the leader must not invent: ticket ids, parent
   // ids, and sprint_plan provenance, mirroring the CRUD create path.
@@ -170,20 +154,6 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
   function conversationRole(role) {
     return { "architecture-manager": "AM", "sprint-leader": "SL", builder: "BU", reviewer: "RV" }[role] ?? role.toUpperCase();
   }
-  // Removes file guesses from legacy text-only Sprint Leader plans.
-  async function resolvePlanCandidates(plan) {
-    if (!plan || typeof plan !== "object") return plan;
-    const tickets = Array.isArray(plan.tickets) ? plan.tickets : [];
-    const resolved = [];
-    for (const ticket of tickets) {
-      const textOnly = { ...(ticket ?? {}) };
-      delete textOnly.candidate_files;
-      delete textOnly.candidates_produced_by;
-      delete textOnly.candidates_produced_at;
-      resolved.push(backfillTicketCandidates(textOnly));
-    }
-    return { ...plan, tickets: resolved };
-  }
   async function persistSprintPlan(plan, trace = {}) {
     if (typeof sprintPlanStore?.save !== "function") return;
     if (typeof draftPlan !== "function") throw new ConfigurationError("Sprint Leader requires immutable plan drafting before publishing a sprint.");
@@ -192,6 +162,7 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
     const current = sprintPlanStore.getCurrent?.();
     const retained = current?.project_id === plan.project_id ? current.sprints?.filter((sprint) => sprint.id !== plan.id) ?? [] : [];
     sprintPlanStore.save({ id: plan.roadmap_id, project_id: plan.project_id, version: `${plan.id}-projection-${randomUUID()}`, created_at: timestamp, updated_at: timestamp, ...(current?.architecture_decision_ids?.length ? { architecture_decision_ids: current.architecture_decision_ids } : {}), sprints: [...retained, plan] });
+    persistSprintPlanArtifact(plan, sprintPlanDirectory);
     if (current?.architecture_decision_ids?.length) {
       for (const ticket of plan.tickets) ticketProvenanceTracker?.registerTicket?.(ticket);
     } else {
@@ -203,6 +174,28 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
     publisher.publish({ event_id: `EVT-${randomUUID()}`, type, project_id: projectId, task_id: taskId, timestamp: new Date().toISOString(), payload, metadata: { source: "real-agent-orchestration", session_id: sessionId, agent_id: agentId, correlation_id: correlationId, conversation_id: conversationId } });
   }
 
+}
+
+// Removes obsolete candidate metadata before a Sprint Leader plan is persisted.
+function stripPlanCandidateFields(plan) {
+  if (!plan || typeof plan !== "object" || !Array.isArray(plan.tickets)) return plan;
+  return {
+    ...plan,
+    tickets: plan.tickets.map((ticket) => {
+      const clean = { ...(ticket ?? {}) };
+      delete clean.candidate_files;
+      delete clean.candidates_produced_by;
+      delete clean.candidates_produced_at;
+      return clean;
+    })
+  };
+}
+
+// Persists the generated Sprint Plan as a human-readable runtime artifact for UI and audit inspection.
+function persistSprintPlanArtifact(plan, directory) {
+  if (typeof directory !== "string" || !directory.trim()) return;
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, `${plan.id}.json`), `${JSON.stringify(plan, null, 2)}\n`);
 }
 
 // Extracts sprint plan JSON from a fenced code block.

@@ -35,7 +35,7 @@ for (const provider of ["codex", "claude"]) {
       assert.equal(context.target_path, null);
       assert.ok(context.allowed_prefixes.includes("ui/"));
       assert.ok(context.allowed_prefixes.includes("schemas/"));
-      assert.ok(context.allowed_prefixes.includes("workflows/"));
+      assert.equal(context.allowed_prefixes.includes("workflows/"), false);
       assert.equal(context.allowed_prefixes.includes("docs/"), false);
       assert.ok(context.allowed_file_paths.includes("vocabulary/glossary.md"));
       assert.ok(context.allowed_file_paths.includes("workflows/agents/coder/README.md"));
@@ -69,7 +69,7 @@ test("direct Code resume selects the original provider profile", async () => {
   assert.equal(selectedAgent, "claude-original");
 });
 
-for (const retainedReviewer of [false, true]) test(`ticket Coder remains claimed through review and approval with ${retainedReviewer ? "a retained" : "a ready"} Reviewer`, async () => {
+for (const retainedReviewer of [false, true]) test(`ticket Coder completes without inline review with ${retainedReviewer ? "a retained" : "a ready"} Reviewer`, async () => {
   const coder = { agent_id: "coder-1", agent_name: "Coder", role: "coder", provider: "codex", enabled: true, status: "ready" };
   const otherCoder = { ...coder, agent_id: "coder-earlier" };
   const reviewer = { agent_id: "reviewer-1", agent_name: "Reviewer", role: "reviewer", provider: "codex", enabled: true, status: retainedReviewer ? "working" : "ready" };
@@ -98,17 +98,15 @@ for (const retainedReviewer of [false, true]) test(`ticket Coder remains claimed
   const result = await integration.submitTicket({ ticket, task_id: ticket.id, request_id: "REQ-1", correlation_id: "CORR-1", required_role: "coder", payload: { text: ticket.objective } });
   assert.equal(result.status, "completed");
   assert.equal(result.agent_id, coder.agent_id);
-  assert.equal(coderRequests.length, 2);
-  assert.match(coderRequests[1].prompt, /Handle empty input/);
-  assert.equal(releases.length, 2);
-  assert.equal(reviewCheckpoints[0].reviewer_id, reviewer.agent_id);
-  assert.equal(reviewCheckpoints[0].reviewer_name, reviewer.agent_name);
-  assert.equal(reviewCheckpoints[0].provider, reviewer.provider);
-  assert.deepEqual(releases.map((item) => item.reason), ["review_completed", "accepted"]);
+  assert.equal(coderRequests.length, 1);
+  assert.equal(reviews, 0);
+  assert.equal(releases.length, 1);
+  assert.equal(reviewCheckpoints.length, 0);
+  assert.deepEqual(releases.map((item) => item.reason), ["coder_completed"]);
   assert.equal(published.at(-1).type, "task.completed");
 });
 
-test("review resume skips Coder dispatch after report_done", async () => {
+test("review resume without a durable Coder report cannot complete a ticket", async () => {
   const coder = { agent_id: "coder-1", agent_name: "Coder", role: "coder", provider: "codex", enabled: true, status: "working" };
   const reviewer = { agent_id: "reviewer-1", agent_name: "Reviewer", role: "reviewer", provider: "codex", enabled: true, status: "ready" };
   let coderCalls = 0; let handoffs = 0; const saved = [];
@@ -123,14 +121,13 @@ test("review resume skips Coder dispatch after report_done", async () => {
     codexSdkGateway: { execute: async ({ agentId }) => { if (agentId === coder.agent_id) coderCalls += 1; return { text: '{"verdict":"approved","findings":[]}' }; } }
   });
   const ticket = { id: "TASK-REVIEW", project_id: "PROJECT", objective: "Update backend/src/a.js", required_role: "coder" };
-  const result = await integration.submitTicket({ ticket, task_id: ticket.id, request_id: "REQ-RESUME", payload: { review_resume: { agent_id: coder.agent_id, provider: coder.provider, review_attempt: 1, changed_paths: ["backend/src/a.js"] } } });
-  assert.equal(result.status, "completed");
+  await assert.rejects(integration.submitTicket({ ticket, task_id: ticket.id, request_id: "REQ-RESUME", payload: { review_resume: { agent_id: coder.agent_id, provider: coder.provider, review_attempt: 1, changed_paths: ["backend/src/a.js"] } } }), { code: "AGENT_REPORT_MISSING" });
   assert.equal(coderCalls, 0);
   assert.equal(handoffs, 0);
-  assert.equal(saved[0].review_attempt, 1);
+  assert.equal(saved.length, 0);
 });
 
-test("rejected commit blocks automatic Coder resume and releases the claim", async () => {
+test("rejected commit fails the run and releases the claim for retry", async () => {
   const coder = { agent_id: "coder-1", agent_name: "Coder", role: "coder", provider: "codex", enabled: true, status: "ready" };
   const saved = []; const released = []; const published = [];
   const integration = createNodeforgeTaskIntegration({
@@ -147,7 +144,8 @@ test("rejected commit blocks automatic Coder resume and releases the claim", asy
     } }
   });
   await assert.rejects(() => integration.submitTicket({ ticket: { id: "TASK-BLOCKED", objective: "Edit backend/src/a.js", required_role: "coder" }, task_id: "TASK-BLOCKED" }), (error) => error.code === "COMMIT_APPROVAL_REJECTED");
-  assert.equal(saved.at(-1).status, "blocked");
+  assert.equal(saved.at(-1).status, "failed");
   assert.equal(released.at(-1).reason, "commit_approval_rejected");
-  assert.equal(published.at(-1).type, "task.needs_human_review");
+  assert.equal(published.at(-1).type, "task.failed");
+  assert.equal(published.at(-1).payload.retryable, true);
 });

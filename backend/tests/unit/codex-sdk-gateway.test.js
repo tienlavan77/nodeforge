@@ -37,6 +37,23 @@ test("runs a ticket through Codex SDK with repository controls", async () => {
   assert.equal(result.thread_id, "thread-1");
 });
 
+// Stops an active Codex ticket turn with the owner cancellation reason.
+test("owner Stop aborts the active Codex SDK turn", async () => {
+  const controller = new AbortController();
+  const reason = Object.assign(new Error("Ticket stopped by owner."), { code: "TICKET_STOPPED" });
+  const gateway = createCodexSdkGateway({
+    configuration: { getById: () => ({ agent_id: "codex-stop", role: "coder", gateway_url: "https://gateway.test/v1", credential_ref: "secret", enabled: true, status: "ready" }) },
+    credentialResolver: () => "key",
+    CodexClass: class FakeCodex {
+      startThread() { return { id: "stop-thread", runStreamed: async (_prompt, { signal }) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true })) }; }
+    }
+  });
+  const running = gateway.execute({ agentId: "codex-stop", correlationId: "STOP", prompt: "Implement", abortSignal: controller.signal });
+  await new Promise((resolve) => setImmediate(resolve));
+  controller.abort(reason);
+  await assert.rejects(running, { code: "TICKET_STOPPED" });
+});
+
 test("enables the Codex MCP feature when Forge tools are attached", async () => {
   let codexOptions;
   const gateway = createCodexSdkGateway({

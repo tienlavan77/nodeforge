@@ -51,6 +51,21 @@ test("sed_lines returns a scoped whole-file checksum for Codex edits", async () 
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("sed_lines normalizes harmless agent path variants", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-sed-normalize-"));
+  try {
+    await mkdir(join(root, "backend"));
+    await writeFile(join(root, "backend", "example.js"), "one\ntwo\n");
+    const tool = createSedLinesTool({ projectRoot: root, logger: captureLogger([]) });
+    const scoped = { ...context, allowed_file_paths: ["backend/example.js"] };
+    const absolute = join(root, "backend", "example.js");
+    const fromDot = await tool.execute({ path: "./backend/example.js", start_line: 1, end_line: 1 }, scoped);
+    const fromAbsolute = await tool.execute({ path: absolute, start_line: "2", end_line: "2" }, scoped);
+    assert.equal(fromDot.stdout, "one\n");
+    assert.equal(fromAbsolute.stdout, "two\n");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("sed_lines reads an explicitly approved Git-ignored workflow file", async () => {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-sed-workflow-"));
   try {
