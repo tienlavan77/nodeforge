@@ -6,11 +6,16 @@ import { runInNewContext } from "node:vm";
 
 const component = await readFile("ui/nextjs/components/ConversationsAccordion.jsx", "utf8");
 const page = await readFile("ui/nextjs/app/page.jsx", "utf8");
+const styles = await readFile("ui/nextjs/app/styles/conversations.css", "utf8");
 
 // Check the sidebar renders its controls directly without an accordion toggle.
 test("sidebar places the existing agent selector before the new-conversation control", () => {
   const sidebar = page.slice(page.indexOf('<section className="home-conversations-panel'), page.indexOf('<section className="home-chat-panel'));
+  assert.ok(sidebar.indexOf('className="home-sidebar-brand"') < sidebar.indexOf('className="home-agent-select-row"'));
   assert.ok(sidebar.indexOf('className="home-agent-select-row"') < sidebar.indexOf("<ConversationsAccordion"));
+  assert.match(sidebar, /className="home-sidebar-collapse" onClick=\{\(\) => setOpenRegion\(null\)\}/);
+  assert.match(styles, /\.responsive-region--conversations \.responsive-region-heading \{ display: none; \}/);
+  assert.match(styles, /\.home-sidebar-collapse \{ display: inline-flex;/);
   assert.match(sidebar, /value=\{selectedArchitectureManagerId\}/);
   assert.match(sidebar, /setSelectedArchitectureManagerId\(agentId\)/);
   assert.match(sidebar, /onSelectConversation=\{handleSelectConversation\}/);

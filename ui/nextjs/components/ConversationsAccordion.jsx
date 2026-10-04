@@ -93,7 +93,8 @@ export function ConversationsAccordion({
   }
 
   return (
-    <div className="conversations-accordion conversations-accordion-direct">
+    <div className="conversations-accordion conversations-accordion-direct"
+      data-testid="conversations-navigation">
       <div className="conversations-accordion-header">
         <button
           type="button"
@@ -124,7 +125,7 @@ export function ConversationsAccordion({
               <p className="conversations-accordion-empty">No conversations yet.</p>
             ) : (
               <>
-                {items.some(isPinnedConversation) && <h3 className="conversations-accordion-pinned">Pinned</h3>}
+                {items.some(isPinnedConversation) && <h3 className="conversations-accordion-pinned" aria-label="Pinned conversations">Pinned</h3>}
               <ul className="conversations-accordion-list">
                 {items.filter(isPinnedConversation).concat(items.filter((conv) => !isPinnedConversation(conv))).map((conv) => {
                   const cid = getConversationId(conv);
