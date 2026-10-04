@@ -64,30 +64,58 @@ test("sidebar preferences tolerate unavailable and failing storage", () => {
   assert.ok(warnings.every((warning) => warning[1] === failure));
 });
 
-// Guard mounted conversation history and streaming while checking responsive navigation wiring.
-// Record the desktop, mobile, and keyboard regression matrix for conversation lifecycle actions.
-test("conversation workflow matrix covers responsive navigation and active streaming isolation", () => {
-  return;
-  const matrix = [
-    ["desktop", "New conversation", "Conversations list"],
-    ["mobile", "Open conversations sidebar", "New chat"],
-    ["keyboard", "Escape", "querySelector(\"select\")?.focus()"],
-  ];
-  for (const [, ...signals] of matrix) {
-    for (const signal of signals) {
-      assert.ok(source.length > 0, `loaded ${signal} regression fixture`);
-    }
-  }
-  for (const action of ["onSelectConversation={handleSelectConversation}", "onConfirmRename", "onArchive", "onDelete", "onTogglePin", "onPinError"]) {
-    assert.ok(true);
-  }
-  assert.match(page, /selectedArchitectureManagerId/);
-  assert.ok(page.includes("setSelectedArchitectureManagerId(agentId)"));
-  assert.match(page, /handleSelectConversation/);
-  assert.match(page, /handleSelectConversation/);
+// Guard responsive navigation wiring; browser lifecycle and streaming evidence remain pending.
+test("desktop, mobile, and keyboard sidebar controls retain existing navigation wiring", () => {
+  assert.match(sidebarComponent, /onClick=\{reopen\} aria-label="Open conversations sidebar"/);
+  assert.match(sidebarComponent, /onClick=\{newConversation\} aria-label="New chat"/);
+  assert.match(sidebarComponent, /onClick=\{showArchitecture\} aria-label=\{tooltip\}/);
+  assert.match(sidebarComponent, /onClick=\{\(\) => \{ changeCollapsed\(!collapsed\)/);
+  assert.match(sidebarComponent, /event\.key === "Escape" && selecting/);
+  assert.match(sidebarComponent, /architectureRef\.current\?\.focus\(\)/);
+  assert.match(sidebarComponent, /button:focus-visible/);
+  assert.match(page, /value=\{selectedArchitectureManagerId\}/);
+  assert.match(page, /setSelectedArchitectureManagerId\(agentId\)/);
+  assert.match(page, /onSelectConversation=\{handleSelectConversation\}/);
+  assert.match(sidebarComponent, /\{children\}/);
+  assert.doesNotMatch(sidebarComponent, /setMessages|setActiveConversationId|AbortController/);
+});
 
-  assert.match(sidebarComponent, /children/);
-  assert.doesNotMatch(sidebarComponent, /setMessages|setActiveConversationId|AbortController/ );
+// Exercise actual presentation handlers without granting access to conversation or reception state.
+test("collapse and reopen handlers change presentation and preserve external conversation state", () => {
+  const state = { collapsed: false, selecting: true, open: false };
+  const conversation = { id: "conversation-a", projectId: "project-a", agentId: "architecture-manager", messages: ["first"], history: ["previous"] };
+  const snapshot = JSON.stringify(conversation);
+  const writes = [];
+  const handlers = ["changeCollapsed", "reopen", "showArchitecture", "newConversation"].map((name) => {
+    const source = sidebarComponent.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n  \\}`))?.[0];
+    assert.ok(source, `${name} presentation handler exists`);
+    return source;
+  });
+  const controls = runInNewContext(`${handlers.join("\n")}; ({ changeCollapsed, reopen, showArchitecture, newConversation })`, {
+    setCollapsed: (value) => { state.collapsed = value; },
+    setSelecting: (value) => { state.selecting = value; },
+    writeSidebarPreference: (value) => writes.push(value),
+    onOpen: () => { state.open = true; },
+    panelRef: { current: { querySelector: (selector) => {
+      assert.equal(selector, ".conversations-accordion-new");
+      return { click: () => writes.push("new-conversation") };
+    } } },
+  });
+  controls.changeCollapsed(true);
+  assert.deepEqual(state, { collapsed: true, selecting: false, open: false });
+  assert.equal(JSON.stringify(conversation), snapshot);
+  conversation.messages.push("received while collapsed");
+  controls.reopen();
+  assert.deepEqual(state, { collapsed: false, selecting: false, open: true });
+  assert.equal(conversation.id, "conversation-a");
+  assert.equal(conversation.projectId, "project-a");
+  assert.equal(conversation.agentId, "architecture-manager");
+  assert.deepEqual(conversation.messages, ["first", "received while collapsed"]);
+  assert.deepEqual(conversation.history, ["previous"]);
+  controls.showArchitecture();
+  assert.equal(state.selecting, true);
+  controls.newConversation();
+  assert.deepEqual(writes, [true, false, "new-conversation"]);
 });
 
 // Verify collapse and reopen leave active conversation state and streaming mounted.
@@ -103,7 +131,7 @@ test("collapse changes presentation only and retains mounted navigation", () => 
   assert.doesNotMatch(sidebarComponent, /setMessages|setActiveConversationId|setSelectedArchitectureManagerId|AbortController|key=\{/);
   assert.match(sidebarComponent, /useEffect\(\(\) => \{ setCollapsed\(readSidebarPreference\(\)\); \}, \[\]\)/);
   assert.doesNotMatch(sidebarComponent, /useEffect[^;]*writeSidebarPreference/);
-  assert.match(sidebarComponent, /\.is-collapsed \.conversations-accordion-panel \{ display: none; \}/);
+  assert.match(sidebarComponent, /\.conversation-sidebar\.is-collapsed \.home-agent-select-row, \.conversation-sidebar\.is-collapsed \.conversations-accordion-panel \{ display: none; \}/);
   assert.match(sidebarComponent, /grid-template-columns: 56px/);
   assert.match(sidebarComponent, /@media \(max-width: 640px\)/);
   assert.match(sidebarComponent, /justify-content: flex-start/);
@@ -136,5 +164,5 @@ test("conversation rows navigate via the existing selection callback", () => {
   assert.match(component, /active=\{activeConversationId != null && String\(activeConversationId\) === String\(cid\)\}/);
   assert.match(component, /onSelect=\{onSelectConversation\}/);
   assert.match(component, /key=\{cid\}/);
-  assert.match(component, /<nav className="conversations-accordion-panel" aria-label="Conversations list">/);
+  assert.match(component, /<nav\b[^>]*className="conversations-accordion-panel"[^>]*aria-label="Conversations list"/);
 });
