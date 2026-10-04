@@ -58,6 +58,27 @@ test("ingestion retry reuses generated plan after a process failure", async () =
   } finally { await database.close(); await rm(root, { recursive: true, force: true }); }
 });
 
+// Blocks an execution-bearing Sprint Leader response before any downstream dispatch.
+test("handoff refuses a RUN response without orchestration dispatch", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-handoff-"));
+  const database = await createDatabaseService({ dataDir: root, runtimeDir: "." });
+  const plan = { plan_id: "PLAN-NO-RUN", revision: 1, project_id: "PROJECT-A", sha256: "digest", content: { objective: "Build", in_scope: "Backend", tickets: ["TICKET-A"], acceptance_criteria: ["Works"] } };
+  database.run("INSERT INTO plan_revisions(plan_id,revision,project_id,sprint_id,file_path,sha256,created_at) VALUES (?,?,?,?,?,?,?)", [plan.plan_id, 1, "PROJECT-A", "SPRINT-A", "plan.json", plan.sha256, new Date().toISOString()]);
+  let ingests = 0;
+  const service = createPlanHandoffService({
+    projectId: "PROJECT-A", database,
+    planStore: { assertExecutable: async () => plan },
+    sprintPlanLeader: { requestPlan: async () => ({ id: "SPRINT-NO-RUN", status: "RUN" }) },
+    sprintOrchestration: { ingestAgentCompletion: async () => { ingests++; return { ingested: true }; } },
+    sprintRegistry: { get: () => null },
+    agentRoleResolver: { resolveProfile: () => ({ agent_id: "LEADER-REAL" }) }
+  });
+  try {
+    await assert.rejects(service.handoff({ plan }), { code: "SPRINT_PLAN_EXECUTION_FORBIDDEN" });
+    assert.equal(ingests, 0);
+  } finally { await database.close(); await rm(root, { recursive: true, force: true }); }
+});
+
 // Confirms Sprint Leader receives the exact readable plan and supplies ticket IDs.
 test("Markdown handoff sends approved bytes and requires Sprint Leader ticket IDs", async () => {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-markdown-handoff-"));
