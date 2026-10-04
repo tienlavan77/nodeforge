@@ -30,7 +30,10 @@ test("summary and plan commands persist opaque references without running work",
   assert.equal(summary.execution_authorized, false);
   await assert.rejects(service.execute({ text: `/plan ${summary.summary_id}`, conversationId: "CONV-A", project_id: "PROJECT-A", requestArchitecture: async () => '{"plan_id":"PLAN-INVALID"}' }), { code: "ARCHITECTURE_PLAN_INVALID" });
   let prompt;
-  const markdown = "# Plan: Owner objective\n\n## 1. Mục tiêu\n\nOwner objective\n\n## 5. Tickets\n\n| Thứ tự | Nhóm việc | Implementation type | Mục tiêu | Phụ thuộc | Mutable-file budget | Acceptance criteria |\n| --- | --- | --- | --- | --- | --- | --- |\n| 1 | API change | backend | Fix API | — | ≤ 4 files | API works |\n\n## 6. Rủi ro\n\nNone\n\n## 7. Nghiệm thu\n\n- [ ] Reviewed";
+  const incompleteDiscovery = "# Plan: Owner objective\n\n## 1. Mục tiêu\n\nOwner objective\n\n## 7. Nghiệm thu\n\n- [ ] Reviewed";
+  await assert.rejects(service.execute({ text: `/plan ${summary.summary_id}`, conversationId: "CONV-A", project_id: "PROJECT-A", requestArchitecture: async () => incompleteDiscovery }), { code: "DISCOVERY_INCOMPLETE" });
+  assert.deepEqual(markdownPlans.list(), []);
+  const markdown = "# Plan: Owner objective\n\n## 1. Mục tiêu\n\nRepository discovery complete. [Evidence: backend/src/application/owner-chat-command-service.js]\n\n## 5. Tickets\n\n| Thứ tự | Nhóm việc | Implementation type | Mục tiêu | Phụ thuộc | Mutable-file budget | Acceptance criteria |\n| --- | --- | --- | --- | --- | --- | --- |\n| 1 | API change | backend | Fix API | — | ≤ 4 files | API works |\n\n## 6. Rủi ro\n\nUnverified: the repository may change before approval.\n\n## 7. Nghiệm thu\n\n- [ ] Reviewed";
   const draft = await service.execute({ text: `/plan ${summary.summary_id}`, conversationId: "CONV-A", project_id: "PROJECT-A", requestArchitecture: async (value) => { prompt = value; return markdown; } });
   assert.match(prompt, /Ship the feature/);
   assert.match(prompt, /# Khung kế hoạch/);
@@ -42,7 +45,7 @@ test("summary and plan commands persist opaque references without running work",
   assert.equal(await readFile(join(root, draft.path), "utf8"), `${markdown}\n`);
   assert.deepEqual(plans.list(), []);
   await assert.rejects(service.execute({ text: `/approve ${draft.plan_id}`, project_id: "PROJECT-A", approvedOwnerId: "OWNER", approvalRevision: draft.revision, approvalSha256: "bad" }), { code: "PLAN_DECISION_STALE" });
-  const outcomeMarkdown = "# Plan: Owner outcomes\n\n## 1. Mục tiêu\n\nOwner objective\n\n## 5. Outcomes\n\n| Mã | Outcome | Acceptance criteria | Guardrail |\n| --- | --- | --- | --- |\n| O1 | API works | HTTP returns canonical errors | — |\n\n## 6. Rủi ro\n\nNone\n\n## 7. Nghiệm thu\n\n- [ ] Reviewed";
+  const outcomeMarkdown = "# Plan: Owner outcomes\n\n## 1. Mục tiêu\n\nRepository discovery complete. [Source: backend/src/application/owner-chat-command-service.js]\n\n## 5. Outcomes\n\n| Mã | Outcome | Acceptance criteria | Guardrail |\n| --- | --- | --- | --- |\n| O1 | API works | HTTP returns canonical errors | — |\n\n## 6. Rủi ro\n\nAssumption: sources remain available until review.\n\n## 7. Nghiệm thu\n\n- [ ] Reviewed";
   const outcomeDraft = await service.execute({ text: `/plan ${summary.summary_id}`, conversationId: "CONV-A", project_id: "PROJECT-A", requestArchitecture: async () => outcomeMarkdown });
   assert.equal(outcomeDraft.status, "awaiting_human_approval");
   assert.equal(await readFile(join(root, outcomeDraft.path), "utf8"), `${outcomeMarkdown}\n`);
