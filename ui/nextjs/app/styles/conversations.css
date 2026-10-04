@@ -1,5 +1,12 @@
 /* conversations: preserve the NodeForge UI styles for this domain. */
 /* Conversations accordion */
+.home-sidebar-brand { display: flex; align-items: center; justify-content: space-between; }
+.home-sidebar-logo { display: inline-grid; place-items: center; width: 32px; height: 32px; border: 1px solid var(--app-accent); border-radius: 6px; color: var(--app-accent); font: 700 18px 'Space Grotesk', sans-serif; }
+.home-sidebar-collapse { display: none; border: 0; background: transparent; color: var(--app-text); font-size: 26px; cursor: pointer; }
+@media (max-width: 640px) {
+  .responsive-region--conversations .responsive-region-heading { display: none; }
+  .home-sidebar-collapse { display: inline-flex; align-items: center; justify-content: center; }
+}
 .conversations-accordion { border: 1px solid var(--app-border); background: color-mix(in srgb, var(--app-surface-alt) 55%, transparent); margin-bottom: 16px; }
 .conversations-accordion-header { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; }
 .conversations-accordion-direct { display: flex; flex-direction: column; gap: 4px; }
