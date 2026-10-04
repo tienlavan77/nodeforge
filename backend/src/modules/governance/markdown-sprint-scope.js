@@ -120,7 +120,8 @@ function assertOutcomeSprintScope(outcomes, sprint) {
       const criteria = coverage.criteria.length ? coverage.criteria : ticket.acceptance_criteria.filter((item) => outcome.acceptance_criteria.some((approved) => normalized(approved) === normalized(item)));
       const guardrails = coverage.guardrails.length ? coverage.guardrails : ticket.guardrail_refs?.filter((item) => outcome.guardrails.some((approved) => normalized(approved) === normalized(item))) ?? [];
       if (criteria.length !== outcome.acceptance_criteria.length || outcome.acceptance_criteria.some((item) => !criteria.some((ref) => normalized(ref) === normalized(item))) || guardrails.length !== outcome.guardrails.length || outcome.guardrails.some((item) => !guardrails.some((ref) => normalized(ref) === normalized(item)))) throw fail(`Sprint ticket ${ticket.id} omits approved criteria or guardrails for ${code}.`);
-      if (coverage.dependencies.length !== outcome.mandatory_dependencies.length || outcome.mandatory_dependencies.some((item) => !coverage.dependencies.includes(item))) throw fail(`Sprint ticket ${ticket.id} weakens mandatory dependencies for ${code}.`);
+      const dependencyRefs = coverage.dependencies.length ? coverage.dependencies : (ticket.dependencies ?? []).flatMap((dependencyId) => tickets.find((candidate) => candidate.id === dependencyId)?.outcome_refs ?? []);
+      if (dependencyRefs.length !== outcome.mandatory_dependencies.length || outcome.mandatory_dependencies.some((item) => !dependencyRefs.includes(item))) throw fail(`Sprint ticket ${ticket.id} weakens mandatory dependencies for ${code}.`);
       covered.add(code);
     }
     if (ticket.dependencies !== undefined && (!Array.isArray(ticket.dependencies) || ticket.dependencies.some((id) => !ids.includes(id) || id === ticket.id))) throw fail(`Sprint ticket ${ticket.id} has an invalid dependency.`);
