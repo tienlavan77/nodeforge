@@ -113,7 +113,7 @@ export function ConversationsAccordion({
         />
         {!modalOpen && error ? <p role="alert" className="conversations-accordion-error">{error}</p> : null}
       </div>
-        <div className="conversations-accordion-panel" role="region" aria-label="Conversations list">
+        <nav className="conversations-accordion-panel" aria-label="Conversations list">
           <div className="conversations-accordion-panel-inner">
             {pinError ? <p role="alert" className="conversations-accordion-error">{pinError}</p> : null}
             {loading ? (
@@ -203,7 +203,7 @@ export function ConversationsAccordion({
               </>
             )}
           </div>
-        </div>
+        </nav>
     </div>
   );
 }
