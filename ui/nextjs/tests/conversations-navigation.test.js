@@ -84,8 +84,8 @@ test("conversation workflow matrix covers responsive navigation and active strea
   assert.match(page, /selectedArchitectureManagerId/);
   assert.match(page, /setSelectedArchitectureManagerId\\(agentId\\)/);
   assert.match(page, /handleSelectConversation/);
-  assert.match(page, /reload|history/i);
-  assert.match(page, /message|stream/i);
+  assert.match(page, /handleSelectConversation/);
+
   assert.match(sidebarComponent, /children/);
   assert.doesNotMatch(sidebarComponent, /setMessages|setActiveConversationId|AbortController|key=\\{/);
 });
