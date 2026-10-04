@@ -104,7 +104,7 @@ function assertOutcomeSprintScope(outcomes, sprint) {
     edges.set(ticket.id, ticket.dependencies ?? []);
   }
   if ([...codes].some((code) => !covered.has(code))) throw fail("Sprint tickets do not cover every approved outcome.");
-  if ([...outcomes].some((outcome) => outcome.mandatory_dependencies.some((dependency) => !tickets.some((ticket) => ticket.dependencies?.includes(dependency) || ticket.outcome_refs?.includes(dependency)))) throw fail("Sprint tickets weaken mandatory outcome dependencies.");
+  if ([...outcomes].some((outcome) => outcome.mandatory_dependencies.some((dependency) => !tickets.some((ticket) => ticket.dependencies?.includes(dependency) || ticket.outcome_refs?.includes(dependency))))) throw fail("Sprint tickets weaken mandatory outcome dependencies.");
   if (hasDependencyCycle(edges)) throw fail("Sprint ticket dependencies must be acyclic.");
   return outcomes;
 }
