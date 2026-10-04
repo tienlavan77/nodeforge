@@ -1,4 +1,19 @@
 /* conversations: preserve the NodeForge UI styles for this domain. */
+.conversations-block.conversations-accordion-row { flex-wrap: wrap; }
+.conversations-block .conversations-block-actions { opacity: 0; pointer-events: none; }
+.conversations-block:hover .conversations-block-actions,
+.conversations-block:focus-within .conversations-block-actions,
+.conversations-block.is-active .conversations-block-actions,
+.conversations-block.is-selected .conversations-block-actions { opacity: 1; pointer-events: auto; }
+.conversations-block .conversations-block-action { width: 32px; height: 32px; padding: 6px; display: inline-grid; place-items: center; }
+.conversations-block-action svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.conversations-block .conversations-block-action:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
+.conversations-block .conversations-block-action:disabled { cursor: wait; opacity: .5; }
+.conversations-block-error { flex-basis: 100%; color: var(--app-danger, #dc2626); font-size: 12px; }
+@media (hover: none), (pointer: coarse) {
+  .conversations-block .conversations-block-actions { opacity: 1; pointer-events: auto; }
+  .conversations-block .conversations-block-action { width: 44px; height: 44px; }
+}
 /* Conversations accordion */
 .home-sidebar-brand { display: flex; align-items: center; justify-content: space-between; }
 .home-sidebar-logo { display: inline-grid; place-items: center; width: 32px; height: 32px; border: 1px solid var(--app-accent); border-radius: 6px; color: var(--app-accent); font: 700 18px 'Space Grotesk', sans-serif; }
