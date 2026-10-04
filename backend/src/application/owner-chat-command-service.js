@@ -10,7 +10,7 @@ const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const PLAN_FRAME_PATH = "workflows/agents/architecture/README.md";
 const SUMMARY_PATH_PREFIX = ".forge/runtime/nf/summary/";
 const SUMMARY_SECTIONS = ["Goals", "In Scope", "Out of Scope", "Decisions", "Assumptions", "Risks", "Open Questions"];
-const SUMMARY_EVIDENCE_RE = /\[(?:evidence|source):\s*[^\]]+\]/i;
+const SUMMARY_EVIDENCE_RE = /\[(?:evidence|source):\s*(?:backend|schemas|ui|web)\/[^\]\s]+\]/i;
 const SUMMARY_UNCERTAINTY_RE = /\b(?:assumption|assumes|unknown|uncertain|not known)\b/i;
 
 // Creates the command handler bound to one project and its immutable plan store.
