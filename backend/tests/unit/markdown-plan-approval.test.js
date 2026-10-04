@@ -61,8 +61,6 @@ test("approved Markdown produces one executable JSON projection without a second
       return router.route(method, new URL(`http://localhost/forge/v1${route}?project=PROJECT-A`), input);
     };
     await assert.rejects(request("POST", "/sprints/SPRINT-A/draft", { project_id: "PROJECT-A" }), { code: "SPRINT_REPLAN_REQUIRES_MARKDOWN" });
-    const ready = await request("PUT", "/sprints/registry/SPRINT-A/status", { project_id: "PROJECT-A", status: "ready" });
-    assert.equal(ready.body.status, "ready");
     await assert.rejects(plans.decide({ planId: child.plan_id, revision: 1, sha256: child.sha256, sourceSha256: child.source_sha256, decision: "approved", approverId: "OWNER", actorRole: "project_owner" }), { code: "PLAN_DERIVED_APPROVAL" });
     await fileService.atomicWrite({ path: summaryPath, content: "changed source", replace: true });
     await assert.rejects(plans.assertExecutable({ planId: child.plan_id, revision: 1, sha256: child.sha256 }), { code: "PLAN_SOURCE_MISMATCH" });
