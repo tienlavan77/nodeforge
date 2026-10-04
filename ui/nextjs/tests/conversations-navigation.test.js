@@ -6,22 +6,77 @@ import { runInNewContext } from "node:vm";
 
 const component = await readFile("ui/nextjs/components/ConversationsAccordion.jsx", "utf8");
 const page = await readFile("ui/nextjs/app/page.jsx", "utf8");
-const styles = await readFile("ui/nextjs/app/styles/conversations.css", "utf8");
+const sidebarComponent = await readFile("ui/nextjs/components/conversation-sidebar.jsx", "utf8");
+const preferenceSource = await readFile("ui/nextjs/lib/sidebar-preference.js", "utf8");
+const preference = runInNewContext(preferenceSource.replaceAll("export ", "") + ";({ readSidebarPreference, writeSidebarPreference, SIDEBAR_PREFERENCE_KEY })", { console });
 
 // Check the sidebar renders its controls directly without an accordion toggle.
 test("sidebar places the existing agent selector before the new-conversation control", () => {
-  const sidebar = page.slice(page.indexOf('<section className="home-conversations-panel'), page.indexOf('<section className="home-chat-panel'));
-  assert.ok(sidebar.indexOf('className="home-sidebar-brand"') < sidebar.indexOf('className="home-agent-select-row"'));
+  const sidebar = page.slice(page.indexOf('<ConversationSidebar open='), page.indexOf('<section className="home-chat-panel'));
   assert.ok(sidebar.indexOf('className="home-agent-select-row"') < sidebar.indexOf("<ConversationsAccordion"));
-  assert.match(sidebar, /className="home-sidebar-collapse" onClick=\{\(\) => setOpenRegion\(null\)\}/);
-  assert.match(styles, /\.responsive-region--conversations \.responsive-region-heading \{ display: none; \}/);
-  assert.match(styles, /\.home-sidebar-collapse \{ display: inline-flex;/);
+  assert.match(sidebar, /selectedAgentLabel=\{selectedArchitectureManager\?\.label\}/);
+  assert.match(sidebarComponent, /aria-controls="home-architecture-manager-selector"/);
+  assert.match(sidebarComponent, /aria-expanded=\{!collapsed \|\| selecting\}/);
+  assert.match(sidebarComponent, /title=\{tooltip\}/);
+  assert.match(sidebarComponent, /event\.key === "Escape"/);
+  assert.match(sidebarComponent, /querySelector\("select"\)\?\.focus\(\)/);
   assert.match(sidebar, /value=\{selectedArchitectureManagerId\}/);
   assert.match(sidebar, /setSelectedArchitectureManagerId\(agentId\)/);
   assert.match(sidebar, /onSelectConversation=\{handleSelectConversation\}/);
   assert.match(component, /aria-label="New conversation"/);
   assert.doesNotMatch(component, /aria-expanded|conversations-accordion-toggle|>Conversations<\/h/);
   assert.ok(component.indexOf('aria-label="New conversation"') < component.indexOf('aria-label="Conversations list"'));
+});
+
+// Verify reload restores only a well-formed device-local collapse preference.
+test("sidebar preferences round-trip without modifying conversation storage", () => {
+  const values = new Map([["conversation", "active-conversation"], ["agent", "architecture-manager"]]);
+  const storage = { getItem: (key) => values.get(key), setItem: (key, value) => values.set(key, value) };
+  assert.equal(preference.readSidebarPreference(() => storage), false);
+  preference.writeSidebarPreference(true, () => storage);
+  assert.equal(preference.readSidebarPreference(() => storage), true);
+  preference.writeSidebarPreference(false, () => storage);
+  assert.equal(preference.readSidebarPreference(() => storage), false);
+  assert.equal(values.get("conversation"), "active-conversation");
+  assert.equal(values.get("agent"), "architecture-manager");
+  for (const malformed of [null, "", "TRUE", "1", "{}", "null", "undefined"]) {
+    storage.setItem(preference.SIDEBAR_PREFERENCE_KEY, malformed);
+    assert.equal(preference.readSidebarPreference(() => storage), false);
+  }
+});
+
+// Verify denied storage getters, reads, and writes never prevent navigation.
+test("sidebar preferences tolerate unavailable and failing storage", () => {
+  const warnings = [];
+  const safePreference = runInNewContext(preferenceSource.replaceAll("export ", "") + ";({ readSidebarPreference, writeSidebarPreference })", { console: { warn: (...args) => warnings.push(args) } });
+  const failure = new Error("Storage unavailable");
+  const cases = [
+    () => undefined,
+    () => null,
+    () => { throw failure; },
+    () => ({ getItem: () => { throw failure; }, setItem: () => { throw failure; } }),
+  ];
+  for (const storage of cases) {
+    assert.equal(safePreference.readSidebarPreference(storage), false);
+    assert.doesNotThrow(() => safePreference.writeSidebarPreference(true, storage));
+  }
+  assert.equal(warnings.length, 4);
+  assert.ok(warnings.every((warning) => warning[1] === failure));
+});
+
+// Guard mounted conversation history and streaming while checking responsive navigation wiring.
+test("collapse changes presentation only and retains mounted navigation", () => {
+  assert.match(sidebarComponent, /\{children\}/);
+  assert.doesNotMatch(sidebarComponent, /setMessages|setActiveConversationId|setSelectedArchitectureManagerId|AbortController|key=\{/);
+  assert.match(sidebarComponent, /useEffect\(\(\) => \{ setCollapsed\(readSidebarPreference\(\)\); \}, \[\]\)/);
+  assert.doesNotMatch(sidebarComponent, /useEffect[^;]*writeSidebarPreference/);
+  assert.match(sidebarComponent, /\.is-collapsed \.conversations-accordion-panel \{ display: none; \}/);
+  assert.match(sidebarComponent, /grid-template-columns: 56px/);
+  assert.match(sidebarComponent, /@media \(max-width: 640px\)/);
+  assert.match(sidebarComponent, /justify-content: flex-start/);
+  assert.match(sidebarComponent, /aria-label="Open conversations sidebar"/);
+  assert.match(sidebarComponent, /aria-label="New chat"/);
+  assert.match(sidebarComponent, /querySelector\("\.conversations-accordion-new"\)\?\.click\(\)/);
 });
 
 // Exercise the rendered list's grouping expression against empty, pinned, and unpinned inputs.
