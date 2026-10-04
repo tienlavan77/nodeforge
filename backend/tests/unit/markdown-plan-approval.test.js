@@ -32,9 +32,15 @@ test("approved Markdown produces one executable JSON projection without a second
     const draft = createSprintPlanDraftPersistence({ projectId: "PROJECT-A", planStore: plans, markdownPlanStore: markdownPlans, sprintRegistry: registry });
     const parentKey = `${parent.plan_id}-R${parent.revision}-${parent.sha256}`;
     await assert.rejects(draft(sprint, { approvedParentPlanKey: parentKey }), { code: "PLAN_APPROVAL_REQUIRED" });
-    const command = createOwnerChatCommandService({ projectId: "PROJECT-A", fileService, planStore: plans, markdownPlanStore: markdownPlans, sprintRegistry: registry, handoffApprovedPlan: async ({ plan }) => ({ status: "handed_to_sprint_leader", sprint_id: (await draft(sprint, { approvedParentPlanKey: `${plan.plan_id}-R${plan.revision}-${plan.sha256}` })).sprint_id }) });
-    await assert.rejects(command.execute({ text: "/approve PLAN-PARENT", approvedOwnerId: "OWNER", approvalRevision: 1, approvalSha256: "wrong" }), { code: "PLAN_DECISION_STALE" });
-    const approved = await command.execute({ text: "/approve PLAN-PARENT", approvedOwnerId: "OWNER", approvalRevision: 1, approvalSha256: parent.sha256 });
+    let handoffCalls = 0;
+    const command = createOwnerChatCommandService({ projectId: "PROJECT-A", fileService, planStore: plans, markdownPlanStore: markdownPlans, sprintRegistry: registry, handoffApprovedPlan: async ({ plan }) => { handoffCalls++; return { status: "handed_to_sprint_leader", sprint_id: (await draft(sprint, { approvedParentPlanKey: `${plan.plan_id}-R${plan.revision}-${plan.sha256}` })).sprint_id }; } });
+    await assert.rejects(command.execute({ text: "/approve PLAN-PARENT", approvedOwnerId: "OWNER", approvalRevision: 1, approvalSha256: parent.sha256 }), { code: "PLAN_APPROVAL_REQUIRED" });
+    assert.equal(database.all("SELECT * FROM markdown_plan_decisions").length, 0);
+    assert.equal(handoffCalls, 0);
+    await markdownPlans.decide({ planId: parent.plan_id, revision: parent.revision, sha256: parent.sha256, decision: "approved", approverId: "OWNER", comments: null });
+    await assert.rejects(command.execute({ text: "/approve PLAN-PARENT", approvedOwnerId: "OTHER" }), { code: "PLAN_APPROVAL_OWNER_MISMATCH" });
+    assert.equal(handoffCalls, 0);
+    const approved = await command.execute({ text: "/approve PLAN-PARENT", approvedOwnerId: "OWNER" });
     assert.equal(approved.sprint_status, "ready");
     assert.equal(registry.get("SPRINT-A").status, "ready");
     const child = await plans.assertExecutable({ planId: "PLAN-SPRINT-A", revision: 1, sha256: plans.list()[0].sha256 });

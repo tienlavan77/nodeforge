@@ -95,9 +95,8 @@ export function createOwnerChatCommandService({ projectId, fileService, communic
     const markdown = markdownPlanStore?.list?.().find((entry) => entry.plan_id === planId);
     const listed = markdown ?? planStore.list().find((entry) => entry.plan_id === planId);
     if (!listed) throw fail("PLAN_NOT_FOUND", "Plan is not indexed for this project.");
-    if (markdown && (approvalRevision !== listed.revision || approvalSha256 !== listed.sha256)) throw fail("PLAN_DECISION_STALE", "Approve the exact Markdown revision and SHA displayed to the owner.");
-    if (markdown && !(await markdownPlanStore.getRevision({ planId, revision: listed.revision })).decision) await markdownPlanStore.decide({ planId, revision: listed.revision, sha256: listed.sha256, decision: "approved", approverId: approvedOwnerId, comments: approvalComments ?? null });
     const plan = markdown ? await markdownPlanStore.assertApproved({ planId, revision: listed.revision, sha256: listed.sha256 }) : await planStore.assertExecutable({ planId, revision: listed.revision, sha256: listed.sha256 });
+    if (markdown && plan.decision?.approver_id !== approvedOwnerId) throw fail("PLAN_APPROVAL_OWNER_MISMATCH", "The authenticated owner must match the existing Markdown approval.");
     if (typeof handoffApprovedPlan !== "function") throw fail("PLAN_HANDOFF_UNAVAILABLE", "Approved-plan handoff is unavailable.");
     const handoff = await handoffApprovedPlan({ projectId, plan, conversationId });
     let sprintStatus;
