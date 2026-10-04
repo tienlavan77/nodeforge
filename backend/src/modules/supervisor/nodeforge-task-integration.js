@@ -5,7 +5,8 @@ import { createNodeforgeTaskExecutors } from "./nodeforge-task-executors.js";
 import { createReviewWorker } from "./review-worker.js";
 import { ensureReviewStatusReady } from "./review-only-status.js";
 import { createTicketWorkspaceRuntime } from "./ticket-workspace-runtime.js";
-import { completeApprovedTicket } from "./ticket-approved-integration.js";
+import { completeCoderTicket } from "./ticket-coder-completion.js";
+import { handleTicketExecutionFailure } from "./ticket-execution-failure.js";
 import { selectTicketCoder, selectTicketReviewer, isOpenAiProfile, isCodexProfile, isOllamaProfile } from "./ticket-agent-provider-routing.js";
 import { prepareTicketExecutionContext } from "./ticket-execution-context.js";
 import { createCodeCacheService } from "../context/code-cache-service.js";
@@ -67,8 +68,12 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
     await publishTicketOutcome(outcomeType, { task_id: task_id ?? ticket.id, request_id: request_id ?? `REVIEW-${ticket.id}`, correlation_id: correlation_id ?? `CORR-REVIEW-${ticket.id}` }, `SUP-REVIEW-${ticket.id}`, { review_only: true, commit, verdict: result.verdict, findings: result.findings, reviewer_id: result.reviewer_id, evidence });
     return { task_id: task_id ?? ticket.id, commit, verdict: result.verdict, findings: result.findings, reviewer_id: result.reviewer_id, status: result.verdict === "approved" ? "approved" : "needs_human_review" };
   }
-  async function submitTicket({ ticket, task_id, project_id, request_id, correlation_id, attempt = 1, payload = {}, required_role } = {}) {
+  async function submitTicket({ ticket, task_id, project_id, request_id, correlation_id, attempt = 1, payload = {}, required_role, abortSignal } = {}) {
     if (!ticket || typeof ticket !== "object") throw new ConfigurationError("Node Supervisor ticket is required.");
+    ticket = { ...ticket };
+    delete ticket.candidate_files;
+    delete ticket.candidates_produced_by;
+    delete ticket.candidates_produced_at;
     if (typeof agentResolver?.resolveAvailable !== "function") throw new ConfigurationError("NodeForge integration requires an agent resolver.");
     agentResolver.refresh?.();
     const taskId = task_id ?? ticket.id;
@@ -110,91 +115,24 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
         result = { summary: reviewResume.verification?.coder_summary ?? "Coder checkpoint completed before review resume.", tool_events: reviewResume.verification?.tool_events ?? [] };
       } else {
         projectLogger({ event_name: "supervisor.agent_execution_started", level: "info", status: "started", message: "Supervisor started Agent execution.", task_id: request.task_id, correlation_id: request.correlation_id, source: "nodeforge-task-integration", payload: { request_id: request.request_id, agent_id: selected.agent_id, provider: selected.provider ?? null } });
-        result = await runSelected(selected, request, ticketRuntime.executors);
+        if (abortSignal?.aborted) throw abortSignal.reason;
+        result = await runSelected(selected, { ...request, abortSignal }, ticketRuntime.executors);
+        if (abortSignal?.aborted) throw abortSignal.reason;
       }
     } catch (error) {
       await handleExecutionFailure(error, request, { selected, claim, taskId, ownerId });
       throw error;
     }
-    if (!reviewResume && result.tool_events?.some((event) => (event.name ?? event.tool) === "respond_to_review" && event.status !== "failed") && !(result.tool_events ?? []).some((event) => (event.name ?? event.tool) === "report_done" && event.status !== "failed")) await checkpoints?.complete?.(taskId, { phase: "coder_response_submitted", agent_id: selected.agent_id, provider: selected.provider });
+    const reported = result.tool_events?.some((event) => (event.name ?? event.tool) === "report_done" && event.status !== "failed");
+    const explained = result.tool_events?.some((event) => (event.name ?? event.tool) === "respond_to_review" && event.status !== "failed");
+    if (!reviewResume && (reported || explained)) await checkpoints?.complete?.(taskId, { phase: reported ? "coder_reported" : "coder_response_submitted", agent_id: selected.agent_id, provider: selected.provider });
     projectLogger({ event_name: reviewResume ? "supervisor.review_resumed" : "supervisor.agent_execution_completed", level: "info", status: "success", message: reviewResume ? "Supervisor resumed review from completed Coder checkpoint." : "Agent completed execution.", task_id: request.task_id, correlation_id: request.correlation_id, source: "nodeforge-task-integration", payload: { request_id: request.request_id, agent_id: selected.agent_id, agent_name: selected.agent_name, provider: selected.provider ?? null, ...(reviewResume ? { review_attempt: reviewResume.review_attempt } : { tool_events: result.tool_events }) } });
-    if (claim && !standalone) {
-      const limit = Math.max(0, Math.min(Number(ticket.execution_policy?.max_review_revisions ?? 2) || 0, 5));
-      let reviewerClaim = null;
-      for (let revision = reviewResume?.review_attempt ?? 0; ; revision += 1) {
-        let verdict;
-        const reviewCheckpoint = { task_id: taskId, status: "in_progress", phase: "review", reviewer_id: null, reviewer_name: null, provider: null, attempt: attempt + revision, review_attempt: revision, correlation_id: request.correlation_id, request_id: `${request.request_id}-REVIEW-${revision}`, coder_checkpoint_status: "completed", changed_paths: [], base_commit: baseCommit, verification: { coder_summary: result.summary, tool_events: result.tool_events }, findings: [], last_error: null };
-        try {
-          const checkpoint = await checkpoints?.load?.(taskId);
-          const reviewedPaths = workspace ? Object.keys((await workspace.changeLedger.snapshot()).entries) : checkpoint?.changed_paths ?? [];
-          const reviewedContext = workspace?.executionContexts ? await workspace.executionContexts.load(taskId) : null; const reviewEvidence = workspace ? await workspace.testService.assertPassedArtifact() : null;
-          if (workspace?.reviewFindings && reviewEvidence) {
-            const exchange = await workspace.reviewFindings.load();
-            if (!(exchange.coder_reports ?? []).some((entry) => entry.artifact_id === reviewEvidence.artifact_id && entry.review_commit_sha === reviewEvidence.commit_sha)) throw Object.assign(new ConfigurationError("Coder report needs its missing explanation fields before Reviewer dispatch."), { code: "CODER_EXPLANATION_MISSING" });
-          }
-          reviewCheckpoint.execution_context = reviewedContext; reviewCheckpoint.verification = reviewEvidence;
-          await recordShadow("verification.passed", taskId, request, reviewEvidence);
-          if (!ticketRuntime.reviewer) throw Object.assign(new ConfigurationError("Independent review is unavailable."), { code: "REVIEW_WORKER_UNAVAILABLE" });
-          if (!reviewerClaim && agentOccupancy) {
-            const existingReviewClaim = agentOccupancy.getByTask(taskId, "reviewer");
-            const reviewerProfile = selectTicketReviewer(agentResolver, ticket, existingReviewClaim);
-            reviewerClaim = await agentOccupancy.claim({ agentId: reviewerProfile.agent_id, taskId, supervisorId: ownerId, role: "reviewer" });
-            if (!reviewerClaim || ticket.execution_contract?.reviewer && reviewerClaim.agent_id !== ticket.execution_contract.reviewer) throw Object.assign(new ConfigurationError("Reviewer is already working on another ticket."), { code: "REVIEWER_NOT_AVAILABLE" });
-            projectLogger({ event_name: "supervisor.reviewer_claimed", level: "info", status: "started", message: "Supervisor claimed Reviewer for ticket review.", task_id: taskId, correlation_id: request.correlation_id, source: "nodeforge-task-integration", payload: { request_id: reviewCheckpoint.request_id, agent_id: reviewerProfile.agent_id, agent_name: reviewerProfile.agent_name, role: "reviewer", claim_id: reviewerClaim.claim_id } });
-          }
-          const claimedReviewer = selectTicketReviewer(agentResolver, ticket, reviewerClaim);
-          reviewCheckpoint.reviewer_id = claimedReviewer?.agent_id ?? null;
-          reviewCheckpoint.reviewer_name = claimedReviewer?.agent_name ?? null;
-          reviewCheckpoint.provider = claimedReviewer?.provider ?? null;
-          reviewCheckpoint.changed_paths = reviewedPaths;
-          await checkpoints?.saveReview?.(reviewCheckpoint);
-          projectLogger({ event_name: "review.checkpoint_saved", level: "info", status: "started", message: "Reviewer checkpoint saved before SDK dispatch.", task_id: taskId, correlation_id: request.correlation_id, source: "nodeforge-task-integration", payload: { request_id: reviewCheckpoint.request_id, agent_id: reviewCheckpoint.reviewer_id, agent_name: reviewCheckpoint.reviewer_name, reviewer_id: reviewCheckpoint.reviewer_id, provider: reviewCheckpoint.provider, attempt: revision } });
-          verdict = await ticketRuntime.reviewer.review({ task_id: taskId, correlation_id: request.correlation_id, request_id: `${request.request_id}-REVIEW-${revision}`, attempt: attempt + revision, agent_id: selected.agent_id, reviewer_id: claimedReviewer.agent_id, payload: { ticket, execution_context: reviewedContext, changed_paths: reviewedPaths, base_commit: baseCommit, verification: reviewEvidence ?? { coder_summary: result.summary, tool_events: result.tool_events } } });
-          if (workspace?.reviewFindings) await workspace.reviewFindings.recordReview({ verdict: verdict.verdict, findings: verdict.findings, adjudications: verdict.adjudications, artifactId: reviewEvidence.artifact_id, commitSha: reviewEvidence.commit_sha, reviewerId: verdict.reviewer_id, sourceRevision: verdict.source_revision });
-          await checkpoints?.completeReview?.(taskId, { ...reviewCheckpoint, status: "completed", verdict: verdict.verdict, findings: verdict.findings, reviewer_id: verdict.reviewer_id });
-          if (verdict.verdict === "approved") await recordShadow("review.approved", taskId, request, { ...verdict, verification: reviewEvidence, reviewer_id: verdict.reviewer_id });
-        } catch (error) {
-          await checkpoints?.saveReview?.({ ...reviewCheckpoint, status: "failed", last_error: { code: error.code ?? "REVIEW_FAILED", message: error.message } });
-          projectLogger({ event_name: "review.checkpoint_failed", level: "error", status: "failed", message: "Reviewer checkpoint recorded a failed review.", task_id: taskId, correlation_id: request.correlation_id, error_code: error.code ?? "REVIEW_FAILED", payload: { request_id: reviewCheckpoint.request_id, agent_id: reviewCheckpoint.reviewer_id, agent_name: reviewCheckpoint.reviewer_name, reviewer_id: reviewCheckpoint.reviewer_id } });
-          projectLogger({ event_name: "supervisor.review_failed", level: "error", status: "failed", message: "Ticket review could not complete.", task_id: taskId, correlation_id: request.correlation_id, source: "nodeforge-task-integration", error_code: error.code ?? "REVIEW_FAILED", payload: { error: error.message } });
-          if (reviewerClaim) await agentOccupancy.release({ claimId: reviewerClaim.claim_id, taskId, supervisorId: ownerId, reason: "review_failed" });
-          await agentOccupancy.release({ claimId: claim.claim_id, taskId, supervisorId: ownerId, reason: "review_unavailable" });
-          await publishTicketOutcome("task.needs_human_review", request, ownerId, { reason: error.code ?? "REVIEW_FAILED" });
-          return { task_id: taskId, request_id: request.request_id, agent_id: selected.agent_id, status: "needs_human_review", reason: error.code ?? "REVIEW_FAILED", response: result.summary, tool_events: result.tool_events };
-        }
-        if (verdict.verdict === "approved") {
-          if (workspace?.reviewFindings) await workspace.reviewFindings.assertResolved();
-          const blocked = await completeApprovedTicket({ workspace, reviewerClaim, agentOccupancy, coderClaim: claim, taskId, ownerId, request, projectLogger, publishTicketOutcome, selected, result });
-          if (blocked) return blocked;
-          break;
-        }
-        if (revision >= limit) {
-          if (reviewerClaim) await agentOccupancy.release({ claimId: reviewerClaim.claim_id, taskId, supervisorId: ownerId, reason: "review_revision_limit" });
-          await agentOccupancy.release({ claimId: claim.claim_id, taskId, supervisorId: ownerId, reason: "review_revision_limit" });
-          await publishTicketOutcome("task.needs_human_review", request, ownerId, { reason: "review_revision_limit", findings: verdict.findings });
-          return { task_id: taskId, request_id: request.request_id, agent_id: selected.agent_id, status: "needs_human_review", reason: "review_revision_limit", findings: verdict.findings, response: result.summary, tool_events: result.tool_events };
-        }
-        const requiredFindings = workspace?.reviewFindings ? await workspace.reviewFindings.unresolved() : verdict.findings;
-        const revisionResume = { task_id: taskId, status: "in_progress", agent_id: selected.agent_id, provider: selected.provider, changed_paths: verdict.changed_paths, review_findings: requiredFindings, attempt: attempt + revision + 1, session_id: null, thread_id: null, last_completed_turn: 0, completed_tools: [], turn_history: [], read_cache: {}, coder_rules_read: false };
-        const revised = { ...request, request_id: `${request.request_id}-REV-${revision + 1}`, attempt: attempt + revision + 1, payload: { ...request.payload, text: `${request.payload?.text ?? ticket.objective ?? ""}\nReviewer requested changes: ${requiredFindings.map((finding) => typeof finding === "string" ? finding : `${finding.finding_id}: ${finding.message}`).join("; ")}`, review_findings: requiredFindings, resume_from: revisionResume } };
-        try {
-          await checkpoints?.save?.(revisionResume);
-          await handoffQueue.enqueue(revised);
-        } catch (error) {
-          if (reviewerClaim) await agentOccupancy.release({ claimId: reviewerClaim.claim_id, taskId, supervisorId: ownerId, reason: "revision_handoff_failed" });
-          await agentOccupancy.release({ claimId: claim.claim_id, taskId, supervisorId: ownerId, reason: "revision_handoff_failed" });
-          throw error;
-        }
-        try { result = await runSelected(selected, revised, ticketRuntime.executors); }
-        catch (error) { if (reviewerClaim) await agentOccupancy.release({ claimId: reviewerClaim.claim_id, taskId, supervisorId: ownerId, reason: "coder_revision_failed" }); await handleExecutionFailure(error, revised, { selected, claim, taskId, ownerId }); throw error; }
-      }
-    }
+    if (claim && !standalone) await completeCoderTicket({ workspace, agentOccupancy, claim, taskId, ownerId, request, publishTicketOutcome, result });
     if (claim && standalone && payload.direct_code === true && workspace) {
       await workspace.integrate();
       await workspace.changeLedger.release();
     }
     if (claim && standalone) await agentOccupancy.release({ claimId: claim.claim_id, taskId, supervisorId: ownerId, reason: payload.direct_code === true ? "direct_code_completed" : "tool_test_completed" });
-    if (claim && !standalone) await publishTicketOutcome("task.completed", request, ownerId, { summary: result.summary });
     return { task_id: request.task_id, request_id: request.request_id, agent_id: selected.agent_id, agent_name: selected.agent_name, role: selected.role, status: "completed", job_id: queued?.id, response: result.summary, tool_events: result.tool_events };
   }
   // Dispatches a selected profile through its configured provider SDK for code and revisions.
@@ -206,26 +144,7 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
   }
   // Logs a failed attempt and releases only when no resumable checkpoint remains.
   async function handleExecutionFailure(error, failedRequest, { selected, claim, taskId, ownerId }) {
-    projectLogger({ event_name: "supervisor.tool_ticket_failed", level: "error", status: "failed", message: "Ticket execution failed.", task_id: failedRequest.task_id, correlation_id: failedRequest.correlation_id, source: "nodeforge-task-integration", error_code: error.code ?? "TOOL_TICKET_FAILED", payload: { request_id: failedRequest.request_id, agent_id: selected?.agent_id, agent_name: selected?.agent_name, ...(error.tool ? { tool: error.tool } : {}), error: error.message } });
-    if (!claim) return;
-    const checkpoint = await checkpoints?.load?.(taskId);
-    if (error.code === "COMMIT_APPROVAL_REJECTED") {
-      await checkpoints?.save?.({ ...(checkpoint ?? { task_id: taskId }), status: "blocked", phase: "commit_approval", failure: { code: error.code, message: error.message, at: new Date().toISOString() } });
-      await agentOccupancy.release({ claimId: claim.claim_id, taskId, supervisorId: ownerId, reason: "commit_approval_rejected" });
-      await publishTicketOutcome("task.needs_human_review", failedRequest, ownerId, { reason: error.code });
-      return;
-    }
-    if (checkpoint?.status === "blocked") {
-      const failureCode = checkpoint.failure?.code ?? error.code ?? "CONFIGURATION_ERROR";
-      await agentOccupancy.release({ claimId: claim.claim_id, taskId, supervisorId: ownerId, reason: failureCode === "AGENT_PROCESS_EXITED" ? "agent_process_exited" : "agent_failed_terminal" });
-      await publishTicketOutcome("task.needs_human_review", failedRequest, ownerId, { reason: failureCode, error: { code: failureCode, message: checkpoint.failure?.message ?? error.message } });
-      return;
-    }
-    if (!checkpoint || checkpoint.status === "completed") {
-      await agentOccupancy.release({ claimId: claim.claim_id, taskId, supervisorId: ownerId, reason: "agent_failed_terminal" });
-      if (failedRequest.payload?.direct_code !== true && !failedRequest.payload?.tool_test) await publishTicketOutcome("task.failed", failedRequest, ownerId, { error: { code: error.code ?? "TOOL_TICKET_FAILED", message: error.message } });
-    }
-    else projectLogger({ event_name: "agent.occupancy_retained", level: "info", status: "info", message: "Coder claim retained for a resumable checkpoint.", task_id: taskId, source: "nodeforge-task-integration", payload: { claim_id: claim.claim_id, checkpoint_status: checkpoint.status } });
+    return handleTicketExecutionFailure({ error, failedRequest, selected, claim, taskId, ownerId, checkpoints, agentOccupancy, projectLogger, publishTicketOutcome });
   }
 
   // Sends only a reviewed or explicitly escalated ticket outcome to sprint orchestration.

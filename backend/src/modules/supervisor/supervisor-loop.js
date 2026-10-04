@@ -68,11 +68,11 @@ export function createSupervisorLoop({ runtime, senderQueue, collectorQueue, ver
       return { handled: true, changed_paths: changed, job: queuedJob };
     }
     if (event.type === "verification.passed") {
-      if (!agentOccupancy) { await runtime.transition("COMPLETED", event); await terminal("task.completed", event); return true; }
-      const source = await sourceRequest?.(runtime.taskId);
-      if (!source?.ticket) return escalate(event, "review_context_unavailable");
-      await runtime.transition("REVIEWING", event);
-      await senderQueue.enqueue({ operation: "review", role: "reviewer", task_id: runtime.taskId, supervisor_id: runtime.supervisorId, request_id: `REVIEW-${event.request_id}`, correlation_id: event.correlation_id, attempt: event.attempt ?? 1, agent_id: agentOccupancy.getByTask(runtime.taskId)?.agent_id ?? source.agent_id, payload: { ticket: source.ticket, execution_context: event.payload?.execution_context ?? source.execution_context ?? null, changed_paths: event.payload?.passed_paths?.map((item) => item.path) ?? event.payload?.changed_paths ?? [], base_commit: source.review_base_commit ?? source.payload?.review_base_commit ?? null, verification: event.payload } });
+      try { await integrateTicket?.(runtime.taskId); }
+      catch (error) { return escalate(event, error.code ?? "TICKET_INTEGRATION_FAILED"); }
+      await runtime.transition("COMPLETED", event);
+      await terminal("task.completed", event, { verification: event.payload, completion: "coder_verified" });
+      await releaseCoder("coder_completed");
       return true;
     }
     if (event.type === "verification.failed") { await runtime.transition("REPAIRING", event); const request = await startRepairRound(event, "verification"); return { handled: true, request }; }
@@ -112,10 +112,10 @@ export function createSupervisorLoop({ runtime, senderQueue, collectorQueue, ver
     return request;
   }
   async function terminal(type, event, payload = {}) { await eventBus.publish({ type, task_id: runtime.taskId, supervisor_id: runtime.supervisorId, request_id: event.request_id, correlation_id: event.correlation_id, attempt: event.attempt ?? 1, payload }); }
-  // Escalates missing review evidence or exhausted revision policy without approving the ticket.
+  // Records missing review evidence or exhausted revision policy as a resumable failure.
   async function escalate(event, reason) {
-    await runtime.transition("NEEDS_HUMAN_REVIEW", event);
-    await terminal("task.needs_human_review", event, { reason });
+    await runtime.transition("FAILED", event);
+    await terminal("task.failed", event, { reason, retryable: true });
     await releaseCoder(reason);
     return { handled: true, escalated: reason };
   }

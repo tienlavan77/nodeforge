@@ -12,9 +12,20 @@ test("checklist ticket with explicit component location classifies as simple", (
   assert.equal(result.level, "simple");
   assert.equal(result.effort, "low");
   assert.equal(result.discovery_budget, 6);
+  assert.equal(result.read_calls, 4);
+  assert.equal(result.search_calls, 2);
   assert.equal(Object.hasOwn(result, "max_turns"), false);
   assert.deepEqual(result.thinking, { type: "enabled", budgetTokens: 2048 });
   assert.ok(result.reasoning.some((line) => line.includes("explicit component/file location")));
+});
+
+test("simple checklist leaves enough reads for workflow, source, and test context", () => {
+  const result = classifyTicketComplexity({
+    title: "Add summary comment",
+    objective: "Update the named file while preserving existing behavior.",
+    acceptance_criteria: ["The requested comment is present"]
+  });
+  assert.ok(result.read_calls >= 3, "simple tickets need at least workflow, source, and test reads");
 });
 
 test("focused checklist with many criteria stays moderate", () => {

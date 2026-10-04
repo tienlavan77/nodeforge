@@ -32,9 +32,11 @@ test("approved Markdown produces one executable JSON projection without a second
     const draft = createSprintPlanDraftPersistence({ projectId: "PROJECT-A", planStore: plans, markdownPlanStore: markdownPlans, sprintRegistry: registry });
     const parentKey = `${parent.plan_id}-R${parent.revision}-${parent.sha256}`;
     await assert.rejects(draft(sprint, { approvedParentPlanKey: parentKey }), { code: "PLAN_APPROVAL_REQUIRED" });
-    const command = createOwnerChatCommandService({ projectId: "PROJECT-A", fileService, planStore: plans, markdownPlanStore: markdownPlans, handoffApprovedPlan: async ({ plan }) => ({ status: "handed_to_sprint_leader", sprint_id: (await draft(sprint, { approvedParentPlanKey: `${plan.plan_id}-R${plan.revision}-${plan.sha256}` })).sprint_id }) });
+    const command = createOwnerChatCommandService({ projectId: "PROJECT-A", fileService, planStore: plans, markdownPlanStore: markdownPlans, sprintRegistry: registry, handoffApprovedPlan: async ({ plan }) => ({ status: "handed_to_sprint_leader", sprint_id: (await draft(sprint, { approvedParentPlanKey: `${plan.plan_id}-R${plan.revision}-${plan.sha256}` })).sprint_id }) });
     await assert.rejects(command.execute({ text: "/approve PLAN-PARENT", approvedOwnerId: "OWNER", approvalRevision: 1, approvalSha256: "wrong" }), { code: "PLAN_DECISION_STALE" });
-    await command.execute({ text: "/approve PLAN-PARENT", approvedOwnerId: "OWNER", approvalRevision: 1, approvalSha256: parent.sha256 });
+    const approved = await command.execute({ text: "/approve PLAN-PARENT", approvedOwnerId: "OWNER", approvalRevision: 1, approvalSha256: parent.sha256 });
+    assert.equal(approved.sprint_status, "ready");
+    assert.equal(registry.get("SPRINT-A").status, "ready");
     const child = await plans.assertExecutable({ planId: "PLAN-SPRINT-A", revision: 1, sha256: plans.list()[0].sha256 });
     assert.equal(child.content.tickets[0], "TICKET-API-1");
     assert.equal(child.source_path, parent.file_path);
@@ -61,5 +63,23 @@ test("approved Markdown produces one executable JSON projection without a second
     await fileService.atomicWrite({ path: summaryPath, content: summary, replace: true });
     await fileService.atomicWrite({ path: parent.file_path, content: "tampered", replace: true });
     await assert.rejects(plans.assertExecutable({ planId: child.plan_id, revision: 1, sha256: child.sha256 }), { code: "PLAN_HASH_MISMATCH" });
+  } finally { await database.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+// Hides legacy discovery metadata from plan consumers without changing immutable file identity.
+test("plan projections omit legacy candidate metadata", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-plan-candidates-"));
+  const database = await createDatabaseService({ dataDir: join(root, ".forge/runtime"), runtimeDir: "." });
+  try {
+    const fileService = createFileService({ projectRoot: root, allowPlanStorage: true, watcherIgnore: [".forge/**"] });
+    const plans = createHumanPlanStore({ projectId: "PROJECT-A", database, fileService });
+    const draft = await plans.createRevision({ planId: "PLAN-CANDIDATES", sprintId: "SPRINT-A", expectedRevision: 0, content: {
+      objective: "Ship API", outcome: "Working API", in_scope: "API", out_of_scope: "UI", approach: "Update API", components: ["API"],
+      tickets: ["TICKET-1"], ticket_specs: [{ id: "TICKET-1", candidate_files: [{ path: "backend/src/api.js" }], candidates_produced_by: "legacy" }],
+      dependencies: [], risks: [], assumptions: [], open_questions: [], evidence_refs: ["summary"], acceptance_criteria: ["Pass"]
+    }});
+    const plan = await plans.getRevision({ planId: draft.plan_id, revision: 1 });
+    assert.equal(plan.content.ticket_specs[0].candidate_files, undefined);
+    assert.equal(plan.content.ticket_specs[0].candidates_produced_by, undefined);
   } finally { await database.close(); await rm(root, { recursive: true, force: true }); }
 });

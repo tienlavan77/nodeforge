@@ -16,10 +16,13 @@ test("ticket schema accepts one implementation_type and rejects mixed or legacy 
   const created = await service.createTicket({ projectId: "P1", ticket: ticket({ implementation_type: ["frontend"], change_nature: "presentation-only" }) });
   assert.deepEqual(created.ticket.implementation_type, ["frontend"]);
   assert.equal(created.ticket.style, undefined);
+  const testOnly = await service.createTicket({ projectId: "P1", ticket: ticket({ implementation_type: ["frontend"], change_nature: "test-only" }) });
+  assert.equal(testOnly.ticket.change_nature, "test-only");
   for (const invalid of [
     { id: "BAD-MIXED", implementation_type: ["frontend", "backend"] },
     { id: "BAD-INFRA", implementation_type: ["infra"] },
     { id: "BAD-BOTH", implementation_type: ["backend"], style: ["backend"] },
-    { id: "BAD-NATURE", implementation_type: ["backend"], change_nature: "presentation-only" }
+    { id: "BAD-NATURE", implementation_type: ["backend"], change_nature: "presentation-only" },
+    { id: "BAD-UNKNOWN", implementation_type: ["frontend"], change_nature: "implementation" }
   ]) await assert.rejects(() => service.createTicket({ projectId: "P1", ticket: ticket(invalid) }), { code: "INVALID_TICKET" });
 });

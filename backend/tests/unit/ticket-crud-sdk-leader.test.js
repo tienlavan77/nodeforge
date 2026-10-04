@@ -25,7 +25,7 @@ test("sdk sprint leader drops source-file guesses without server-side resolve", 
     sprintLeader: {
       requestTicket: async (args) => {
         seen.push(args);
-        return { title: "Fix chat", objective: "Fix the chat panel.", acceptance_criteria: ["Panel works."], style: ["frontend"], candidate_files: [{ path: "ui/nextjs/components/NodeForgePanels.jsx", role: "PATCH", symbol: "NodeForgePanels", reason: "edit NodeForgePanels" }] };
+        return { title: "Fix chat", objective: "Fix the chat panel.", acceptance_criteria: ["Panel works."], implementation_type: ["frontend"], candidate_files: [{ path: "ui/nextjs/components/NodeForgePanels.jsx", role: "PATCH", symbol: "NodeForgePanels", reason: "edit NodeForgePanels" }] };
       }
     }
   });
@@ -39,13 +39,22 @@ test("sdk sprint leader drops source-file guesses without server-side resolve", 
   assert.equal(result.ticket.candidates_produced_by, undefined);
 });
 
+// Keeps implementation file discovery out of new tickets.
+test("SDK ticket creation drops observed read-only file hints", async () => {
+  const reference = { path: "backend/src/api.js", role: "REFERENCE", reason: "Observed route" };
+  const { service } = createService({ agentRoleResolver: { resolve: () => "AGENT-SL-1" }, sprintLeader: { requestTicket: async () => ({ title: "Fix API", objective: "Update API route", acceptance_criteria: ["API works"], implementation_type: ["backend"], file_budget: 2, candidate_files: [reference], candidates_produced_by: "sprint_leader", candidates_produced_at: "2026-10-03T00:00:00Z" }) } });
+  const result = await service.createTicket({ projectId: "P1", context: "sửa API" });
+  assert.equal(result.created, true);
+  assert.equal(result.ticket.candidate_files, undefined);
+});
+
 test("sdk sprint leader regen preserves existing ticket candidates without accepting new guesses", async () => {
   const { roadmaps } = createService();
   roadmaps.save({ id: "ROADMAP-P1", project_id: "P1", version: "1.0.0", created_at: "2026-09-13T00:00:00Z", sprints: [{ id: "SPRINT-P1-1", roadmap_id: "ROADMAP-P1", project_id: "P1", objective: "Sprint one", tickets: [{ id: "TICKET-1", project_id: "P1", roadmap_id: "ROADMAP-P1", sprint_id: "SPRINT-P1-1", title: "Báo cáo sprint", objective: "Hiển thị tiến độ", acceptance_criteria: ["Người dùng xem được tiến độ"], style: ["frontend"], candidate_files: [{ path: "ui/nextjs/components/NodeForgePanels.jsx", role: "REFERENCE", reason: "old" }], provenance: { source: "project_owner", source_id: "TICKET-1", created_at: "2026-09-13T00:00:00Z" } }], exit_criteria: ["done"] }] });
   const { createTicketCrudService: create } = await import("../../src/application/ticket-crud-service.js");
   const { createProseTicketService: createProse } = await import("../../src/application/prose-ticket-service.js");
   const prose = createProse({ roadmapStore: roadmaps });
-  const svc = create({ roadmaps, proseTicketService: prose, agentRoleResolver: { resolve: () => "AGENT-SL-1" }, publisher: { publish: () => {} }, sprintLeader: { requestTicket: async () => ({ title: "Sprint progress report", objective: "Display progress", acceptance_criteria: ["Users can view progress"], style: ["frontend"], candidate_files: [{ path: "ui/nextjs/components/NodeForgePanels.jsx", role: "PATCH", symbol: "NodeForgePanels", reason: "edit NodeForgePanels" }] }) } });
+  const svc = create({ roadmaps, proseTicketService: prose, agentRoleResolver: { resolve: () => "AGENT-SL-1" }, publisher: { publish: () => {} }, sprintLeader: { requestTicket: async () => ({ title: "Sprint progress report", objective: "Display progress", acceptance_criteria: ["Users can view progress"], implementation_type: ["frontend"], candidate_files: [{ path: "ui/nextjs/components/NodeForgePanels.jsx", role: "PATCH", symbol: "NodeForgePanels", reason: "edit NodeForgePanels" }] }) } });
   const result = await svc.regenerateTicketEnglish({ projectId: "P1", ticketId: "TICKET-1", context: "Tiêu đề: Báo cáo sprint" });
   assert.equal(result.updated, true);
   assert.equal(result.ticket.title, "Sprint progress report");

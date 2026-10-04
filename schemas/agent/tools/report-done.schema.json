@@ -12,6 +12,7 @@
       "maxLength": 4000
     },
     "acceptance_criteria": { "type": "array", "maxItems": 50, "items": { "type": "string", "minLength": 1 } },
+    "acceptance_coverage": { "type": "array", "maxItems": 50, "items": { "type": "object", "additionalProperties": false, "required": [], "properties": { "criterion": { "type": "string", "minLength": 1 }, "criterion_id": { "type": "string", "pattern": "^AC-[1-9][0-9]*$" }, "criterion_index": { "type": "integer", "minimum": 0, "maximum": 49 }, "status": { "type": "string", "enum": ["verified", "evidence_pending", "not_applicable"] }, "command_kind": { "type": "string", "enum": ["test", "backend_tests", "build", "lint", "typecheck", "schema_validation"] }, "test_path": { "type": ["string", "null"] } } } },
     "implementation_scope": {
       "type": "object", "additionalProperties": false,
       "required": ["changed_files", "not_changed_files", "scope_rationale"],
@@ -22,20 +23,6 @@
       }
     },
     "evidence": { "type": "array", "maxItems": 100, "items": { "type": "object", "additionalProperties": false, "required": ["type", "reference", "result"], "properties": { "type": { "type": "string", "minLength": 1 }, "reference": { "type": "string", "minLength": 1 }, "result": { "type": "string", "minLength": 1 } } } },
-    "reviewer_notes": { "type": "array", "maxItems": 30, "items": { "type": "object", "additionalProperties": false, "required": ["topic", "position", "rationale", "evidence_refs"], "properties": { "topic": { "type": "string", "minLength": 1 }, "position": { "type": "string", "minLength": 1 }, "rationale": { "type": "string", "minLength": 1 }, "evidence_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } } } } },
-    "finding_resolutions": {
-      "type": "array",
-      "maxItems": 30,
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["finding_id", "status", "changed_paths"],
-        "properties": {
-          "finding_id": { "type": "string", "pattern": "^REV-[1-9][0-9]*$" },
-          "status": { "enum": ["fixed", "not_fixed", "not_applicable"] },
-          "changed_paths": { "type": "array", "maxItems": 12, "items": { "type": "string", "minLength": 1 } }
-        }
-      }
-    }
+    "reviewer_notes": { "type": "array", "maxItems": 30, "items": { "type": "object", "additionalProperties": false, "required": ["topic", "position", "rationale", "evidence_refs"], "properties": { "topic": { "type": "string", "minLength": 1 }, "position": { "type": "string", "minLength": 1 }, "rationale": { "type": "string", "minLength": 1 }, "evidence_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } } } } }
   }
 }

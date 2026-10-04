@@ -11,7 +11,7 @@ export function createCodexSdkGateway({
   configuration,
   credentialResolver,
   CodexClass = DefaultCodex,
-  timeoutMs = 120000,
+  timeoutMs = 2400000,
   environment = process.env,
   codexHomeRoot = join(process.cwd(), ".forge", "runtime", "nf", "codex-homes")
 } = {}) {
@@ -23,7 +23,7 @@ export function createCodexSdkGateway({
 
   return Object.freeze({ execute, provider: "codex", conversationMode: "thread" });
 
-  async function execute({ agentId, agent, prompt, correlationId, cwd, options = {}, resumeThreadId, onEvent, onSessionReady } = {}) {
+  async function execute({ agentId, agent, prompt, correlationId, cwd, options = {}, resumeThreadId, onEvent, onSessionReady, abortSignal } = {}) {
     const profile = getEnabledConfig(agentId ?? agent?.agent_id);
     assertString(prompt, "Codex SDK prompt");
     assertString(correlationId, "Codex SDK correlation_id");
@@ -31,6 +31,9 @@ export function createCodexSdkGateway({
     const codexHome = join(codexHomeRoot, profile.agent_id);
     mkdirSync(codexHome, { recursive: true, mode: 0o700 });
     const controller = new AbortController();
+    const stop = () => controller.abort(abortSignal.reason);
+    abortSignal?.addEventListener("abort", stop, { once: true });
+    if (abortSignal?.aborted) stop();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     let mcpSession;
     try {
@@ -131,6 +134,7 @@ export function createCodexSdkGateway({
         thread_id: thread.id
       };
     } catch (error) {
+      if (abortSignal?.aborted) throw abortSignal.reason;
       if (error?.name === "AbortError" || controller.signal.aborted) throw new ConfigurationError(`Codex SDK request timed out for ${profile.agent_id}.`, { cause: error });
       if (/No available channel for model/i.test(String(error?.message ?? ""))) {
         const unavailable = new ForgeError("Gateway has no available channel for the selected model.", { cause: error, code: "SERVICE_UNAVAILABLE" });
@@ -141,6 +145,7 @@ export function createCodexSdkGateway({
       const message = typeof error?.message === "string" && error.message ? error.message.replaceAll(credential, "[REDACTED]") : "unknown SDK error";
       throw new ConfigurationError(`Codex SDK request failed for ${profile.agent_id}: ${message}`, { cause: error });
     } finally {
+      abortSignal?.removeEventListener("abort", stop);
       clearTimeout(timeout);
       await mcpSession?.close?.();
     }

@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../shared/errors.js";
 import { extractTicketJson } from "./ticket-draft-parser.js";
 
-const UPDATABLE = ["title", "objective", "acceptance_criteria", "priority", "dependencies", "status", "last_error", "implementation_type", "change_nature", "candidate_files", "candidates_produced_by", "candidates_produced_at"];
+const UPDATABLE = ["title", "objective", "acceptance_criteria", "priority", "dependencies", "status", "last_error", "implementation_type", "change_nature"];
 const SPRINT_LEADER_ROLE = "sprint_leader";
 
 // Creates a CRUD service for tickets with sprint-leader normalization.
@@ -80,8 +80,12 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
       throw Object.assign(new ConfigurationError(`Ticket already exists: ${id}.`), { statusCode: 409 });
     }
     const sprint = current?.sprints?.at(-1);
+    const ticketFields = { ...candidateInput };
+    delete ticketFields.candidate_files;
+    delete ticketFields.candidates_produced_by;
+    delete ticketFields.candidates_produced_at;
     const candidate = {
-      ...candidateInput,
+      ...ticketFields,
       id,
       project_id: projectId,
       roadmap_id: candidateInput.roadmap_id ?? current?.id ?? `ROADMAP-${projectId}`,
@@ -123,7 +127,7 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
       "Write ALL ticket field values (title, objective, acceptance_criteria) in English. If the owner request is in another language (e.g. Vietnamese), translate it into clear technical English.",
       "REQUIRED: Set implementation_type to exactly one value in a one-item array: frontend, backend, or security. Do not return the legacy style field.",
       "Respond with ONLY one ```json fenced block containing the ticket JSON object. No prose outside the block.",
-      "Ticket fields: title (string, required), objective (string, required), acceptance_criteria (array of strings, at least one, required), implementation_type (one-item array: frontend|backend|security), file_budget (integer 1-4, required), priority (optional: low|medium|normal|high|critical), dependencies (optional: array of ticket ids), change_nature (optional: presentation-only).",
+      "Ticket fields: title (string, required), objective (string, required), acceptance_criteria (array of strings, at least one, required), implementation_type (one-item array: frontend|backend|security), file_budget (integer 1-4, required), priority (optional: low|medium|normal|high|critical), dependencies (optional: array of ticket ids), change_nature (optional: presentation-only|test-only).",
       "Do NOT include candidate_files, candidates_produced_by, candidates_produced_at, id, project_id, roadmap_id, sprint_id, status, last_error, or provenance; implementation discovery belongs to the Coder and the system assigns identity fields.",
       feedback ? `Previous validation feedback: ${feedback}` : undefined,
       `Project id: ${projectId}`,
@@ -171,6 +175,7 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
     requireProject(projectId);
     const provided = patch && typeof patch === "object" && !Array.isArray(patch) ? patch : {};
     const filtered = Object.fromEntries(UPDATABLE.filter((field) => provided[field] !== undefined).map((field) => [field, provided[field]]));
+    if (provided.candidate_files === null) filtered.candidate_files = null;
     const saved = roadmaps.updateTicket?.({ projectId, ticketId, patch: filtered });
     if (saved === undefined) throw Object.assign(new ConfigurationError(`Unknown ticket: ${ticketId}.`), { statusCode: 404 });
     const updated = saved.sprints?.flatMap((sprint) => sprint.tickets ?? []).find((item) => item.id === ticketId);
