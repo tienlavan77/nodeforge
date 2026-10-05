@@ -31,6 +31,10 @@
 }
 @media (max-width: 640px) {
   .home-workspace { display: grid; grid-template-columns: minmax(0, 1fr); }
+.home-panel, .home-open-panel, .project-chat-target { min-width: 0; }
+.project-chat-target { padding-inline: var(--workspace-gutter); }
+.architecture-manager-select, .architecture-manager-selector select { width: 100%; min-width: 0; max-width: 100%; }
+.architecture-manager-selector { flex-wrap: wrap; }
   .home-chat-panel { min-height: 0; }
   .region-action--conversations, .region-action--sprint { display: inline-flex; }
   .responsive-region--conversations:not(.is-open) { display: none; }
