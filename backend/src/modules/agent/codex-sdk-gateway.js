@@ -83,7 +83,8 @@ export function createCodexSdkGateway({
         apiKey: credential,
         baseUrl: normalizeBaseUrl(profile.gateway_url),
         env: { ...buildCodexChildEnvironment(environment, options.env), CODEX_HOME: codexHome },
-        ...(codexConfig ? { config: codexConfig } : {})
+        ...(codexConfig || options.config ? { config: { ...codexConfig, ...options.config } } : {}),
+        ...(Array.isArray(options.configOverrides) ? { configOverrides: options.configOverrides } : {})
       });
       const threadOptions = {
         model: options.model ?? profile.model ?? undefined,

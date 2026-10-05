@@ -40,6 +40,54 @@ test("owner exposes the same approved Forge tools to OpenAI, Codex, Claude, and 
   }
 });
 
+test("System Engineer uses Codex built-ins and the seven approved Forge tools", async () => {
+  let request;
+  const profile = { agent_id: "engineer", agent_name: "Engineer", role: "system_engineer", provider: "codex" };
+  const sdk = { conversationMode: "thread", execute: async (input) => { request = input; return { text: "done", thread_id: "thread-1" }; } };
+  const gitService = { status: async () => "", diffWorkingTree: async () => "" };
+  const logs = [];
+  const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => profile }, sdkGateways: { codex: sdk }, fallbackStream: async function* () {}, fileService: fileService(), gitService, projectRoot: "/project", projectLogger: (event) => logs.push(event) });
+  for await (const chunk of stream({ agentId: "engineer", payload: { text: "inspect and fix the project" }, correlationId: "CORR-SYSTEM-ENGINEER", conversationId: "CONV-SYSTEM-ENGINEER" })) assert.equal(typeof chunk.text, "string");
+  assert.deepEqual(request.options.forgeTools.definitions.map(({ name }) => name), ["search_tree", "rg_files", "rg_search", "sed_lines", "read_file", "git_status", "git_diff"]);
+  assert.equal(request.options.sandboxMode, "workspace-write");
+  assert.equal(request.options.networkAccessEnabled, false);
+  assert.deepEqual(request.options.config, { default_permissions: "audit" });
+  assert.match(request.options.configOverrides[0], /permissions\.audit\.filesystem/);
+  assert.match(request.options.configOverrides[0], /"\/project"="write"/);
+  assert.match(request.prompt, /not a ticket/);
+  assert.deepEqual(logs.map(({ event_name }) => event_name), ["owner.sdk_route", "owner.sdk_request_started", "owner.sdk_request_completed"]);
+  await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "command_execution", command: "git add -A" } }), { code: "TOOL_FORBIDDEN" });
+  await request.onEvent({ type: "item.started", item: { type: "command_execution", command: "git commit -m 'fix' -- backend/file.js" } });
+});
+
+test("System Engineer Claude chat scopes Claude built-ins to the project sandbox", async () => {
+  let request;
+  const profile = { agent_id: "engineer", agent_name: "Engineer", role: "system_engineer", provider: "anthropic" };
+  const sdk = { conversationMode: "history", execute: async (input) => { request = input; return { text: "done" }; } };
+  const gitService = { status: async () => "", diffWorkingTree: async () => "" };
+  const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => profile }, sdkGateways: { anthropic: sdk }, fallbackStream: async function* () {}, fileService: fileService(), gitService, projectRoot: "/project", projectLogger: () => {} });
+  for await (const chunk of stream({ agentId: "engineer", payload: { text: "inspect" }, correlationId: "CORR-ENGINEER-CLAUDE", conversationId: "CONV-ENGINEER-CLAUDE" })) assert.equal(typeof chunk.text, "string");
+  assert.deepEqual(request.options.tools, ["Bash", "Edit", "Write"]);
+  assert.ok(request.options.allowedTools.includes("mcp__forge__git_status"));
+  assert.deepEqual(request.options.sandbox.filesystem, { denyRead: ["/"], allowRead: ["/project"], allowWrite: ["/project"] });
+  assert.deepEqual(request.options.permissions, { blockReadsOutsideWorkingDirectories: true });
+  assert.equal((await request.options.canUseTool("Bash", { command: "git add -A" }, {})).behavior, "deny");
+  assert.equal((await request.options.canUseTool("Bash", { command: "git commit -m 'fix' -- backend/file.js" }, {})).behavior, "allow");
+});
+
+test("System Engineer Forge sed_lines reads project files without a ticket manifest", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "nodeforge-system-engineer-"));
+  try {
+    const files = createFileService({ projectRoot });
+    await files.atomicWrite({ path: "src/example.js", content: "export const answer = 42;\n", replace: true });
+    const context = { task_id: "CORR-ENGINEER-SED", agent_identity: { agent_id: "engineer", role: "system_engineer" }, project_wide_access: true };
+    const { definitions, registry } = createOwnerConversationTools({ role: "system_engineer", projectRoot, fileService: files, gitService: { status: async () => "", diffWorkingTree: async () => "" }, context, projectLogger: () => {} });
+    context.capabilities = definitions.map(({ name }) => name);
+    const result = await registry.sed_lines.execute({ path: "src/example.js", start_line: 1, end_line: 1 }, context);
+    assert.equal(result.stdout, "export const answer = 42;\n");
+  } finally { await rm(projectRoot, { recursive: true, force: true }); }
+});
+
 test("Anthropic owner Forge calls announce start and completion in the API terminal", async () => {
   const lines = [];
   const events = [];
@@ -49,7 +97,7 @@ test("Anthropic owner Forge calls announce start and completion in the API termi
   const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => profile }, sdkGateways: { anthropic: { conversationMode: "history", execute: async (input) => { request = input; return { text: "ok" }; } } }, fallbackStream: async function* () {}, fileService: fileService(), projectRoot: process.cwd(), projectLogger: logger.emit });
   for await (const chunk of stream({ agentId: "architect", payload: { text: "list project" }, correlationId: "CORR-ANTHROPIC-TOOLS", conversationId: "CONV-ANTHROPIC-TOOLS" })) assert.equal(chunk.text, "ok");
   await request.options.forgeTools.registry.search_tree.execute({ path: ".", max_depth: 1 }, request.options.forgeTools.context);
-  assert.deepEqual(events.map((event) => event.status), ["started", "success"]);
+  assert.deepEqual(events.filter((event) => event.event_name === "owner.tool_call").map((event) => event.status), ["started", "success"]);
   assert.ok(lines.some((line) => line.includes("[Architect] (anthropic) search_tree START")));
   assert.ok(lines.some((line) => line.includes("[Architect] (anthropic) search_tree PASS")));
 });
