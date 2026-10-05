@@ -69,7 +69,8 @@ export function ConversationSidebar({ open, onOpen, onClose, selectedAgentLabel,
       .conversation-sidebar.is-collapsed .home-agent-select-row, .conversation-sidebar.is-collapsed .conversations-accordion-panel { display: none; }
       .conversation-sidebar.is-collapsed .conversations-accordion-new { font-size: 0; min-width: 40px; min-height: 40px; padding: 0; }
       .conversation-sidebar.is-collapsed .conversations-accordion-new::after { content: "＋"; font-size: 24px; }
-      .conversation-sidebar.is-collapsed.is-selecting .home-agent-select-row { display: block; position: absolute; left: 100%; top: 48px; width: min(280px, calc(100vw - 72px)); padding: 12px; z-index: 950; background: var(--app-panel); border: 1px solid var(--app-border); }
+      .conversation-sidebar.is-collapsed.is-selecting .home-agent-select-row { display: block; position: absolute; left: 100%; top: 48px; width: min(280px, calc(100vw - 72px)); max-width: calc(100vw - 72px); box-sizing: border-box; padding: 12px; z-index: 950; background: var(--app-panel); border: 1px solid var(--app-border); }
+      .conversation-sidebar.is-collapsed.is-selecting .home-agent-select { width: 100%; min-width: 0; max-width: 100%; }
       .home-workspace:has(.conversation-sidebar.is-collapsed) { grid-template-columns: 56px minmax(0, 38fr) minmax(0, 23fr) minmax(0, 20fr); }
       @media (min-width: 641px) and (max-width: 900px) {
         .home-workspace:has(.conversation-sidebar.is-collapsed) { grid-template-columns: 56px minmax(0, 52fr) minmax(160px, 24fr); }
