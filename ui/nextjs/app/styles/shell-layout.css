@@ -1,6 +1,6 @@
 /* shell-layout: preserve the NodeForge UI styles for this domain. */
-:root { --workspace-gutter: 24px; --workspace-panel-min: 0px; }
-@media (max-width: 767px) { :root { --workspace-gutter: 16px; } }
+:root { --workspace-gutter: 15px; --workspace-panel-min: 0px; }
+@media (max-width: 767px) { :root { --workspace-gutter: 15px; } }
 @media (max-width: 767px) {
   body { min-width: 0; }
   .topbar { height: 60px; flex-basis: 60px; padding: 0 12px; }
