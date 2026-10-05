@@ -7,6 +7,8 @@ import { runInNewContext } from "node:vm";
 const component = await readFile("ui/nextjs/components/ConversationsAccordion.jsx", "utf8");
 const page = await readFile("ui/nextjs/app/page.jsx", "utf8");
 const sidebar = await readFile("ui/nextjs/components/conversation-sidebar.jsx", "utf8");
+const codePage = await readFile("ui/nextjs/app/code/page.jsx", "utf8");
+const legacyCodePage = await readFile("ui/nextjs/app/coding/page.jsx", "utf8");
 const preferenceSource = await readFile("ui/nextjs/lib/sidebar-preference.js", "utf8");
 const preference = runInNewContext(
   preferenceSource.replaceAll("export ", "") +
@@ -33,8 +35,11 @@ test("home route composes the conversation workspace from existing components", 
   assert.ok(sidebar.includes('<Link href="/" title="Architecture"'));
   assert.ok(sidebar.includes('<span>Architecture</span></Link>'));
   assert.ok(sidebar.indexOf('title="Architecture"') < sidebar.indexOf('title="Agents"'));
-  assert.ok(sidebar.includes('<Link href="/coding" title="Code"'));
+  assert.ok(sidebar.includes('<Link href="/code" title="Code"'));
   assert.ok(sidebar.indexOf('title="System"') < sidebar.indexOf('title="Code"'));
+  assert.ok(sidebar.includes('aria-current={agentSectionTitle === "Code" ? "page" : undefined}'));
+  assert.ok(codePage.includes('<SystemPage sectionTitle="Code" />'));
+  assert.ok(legacyCodePage.includes('redirect("/code")'));
   assert.ok(sidebar.includes("{children}"));
   assert.ok(component.includes('aria-label="New conversation"'));
   assert.ok(component.indexOf('aria-label="New conversation"') <

@@ -1,7 +1,7 @@
-// Route Code navigation to the existing System Engineer coding workspace.
+// Preserve the legacy /coding entry point while Code uses its canonical route.
 import { redirect } from "next/navigation";
 
-// Keep the Code entry point aligned with the workspace that handles coding conversations.
+// Redirect legacy coding URLs to the canonical Code workspace.
 export default function CodingPage() {
-  redirect("/system");
+  redirect("/code");
 }
