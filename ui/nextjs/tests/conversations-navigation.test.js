@@ -38,7 +38,10 @@ test("home route composes the conversation workspace from existing components", 
   assert.ok(sidebar.includes('<Link href="/coding" title="Code"'));
   assert.ok(sidebar.indexOf('title="System"') < sidebar.indexOf('title="Code"'));
   assert.ok(sidebar.includes('aria-current={agentSectionTitle === "Code" ? "page" : undefined}'));
-  assert.ok(legacyCodePage.includes('<SystemPage sectionTitle="Code" />'));
+  assert.ok(legacyCodePage.includes("<ConversationSidebar"));
+  assert.ok(legacyCodePage.includes("<ConversationsAccordion"));
+  assert.equal(legacyCodePage.includes("../system/page.jsx"), false);
+  assert.equal(legacyCodePage.includes("System chat"), false);
   assert.ok(codePage.includes('redirect("/coding")'));
   assert.ok(sidebar.includes("{children}"));
   assert.ok(component.includes('aria-label="New conversation"'));
