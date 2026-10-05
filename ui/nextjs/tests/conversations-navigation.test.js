@@ -33,6 +33,8 @@ test("home route composes the conversation workspace from existing components", 
   assert.ok(sidebar.includes('<Link href="/" title="Architecture"'));
   assert.ok(sidebar.includes('<span>Architecture</span></Link>'));
   assert.ok(sidebar.indexOf('title="Architecture"') < sidebar.indexOf('title="Agents"'));
+  assert.ok(sidebar.includes('<Link href="/coding" title="Code"'));
+  assert.ok(sidebar.indexOf('title="System"') < sidebar.indexOf('title="Code"'));
   assert.ok(sidebar.includes("{children}"));
   assert.ok(component.includes('aria-label="New conversation"'));
   assert.ok(component.indexOf('aria-label="New conversation"') <

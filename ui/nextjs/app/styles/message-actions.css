@@ -1,0 +1,29 @@
+/* Styles the compact copy, edit, and retry controls beneath owner messages. */
+
+.claude-message-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  width: min(100%, 700px);
+}
+
+.claude-message-actions button {
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--app-muted);
+  cursor: pointer;
+  font: 11px 'Space Grotesk', sans-serif;
+  padding: 4px 7px;
+}
+
+.claude-message-actions button:hover:not(:disabled),
+.claude-message-actions button:focus-visible {
+  background: var(--app-button-bg);
+  color: var(--app-text);
+}
+
+.claude-message-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}

@@ -67,23 +67,35 @@ export function createHomeMessageHandlers({
     sendingRef.current = false;
   }
 
-  async function retryLastMessage() {
-    const last = lastSentRef.current;
-    if (!last || !selectedArchitectureManager) return;
+  // Retries the selected owner message in its conversation without changing the persisted history.
+  async function retryMessage(message, conversationId = activeConversationId) {
+    const text = String(message?.text ?? "").trim();
+    const targetConversationId = message?.conversationId ?? conversationId ?? selectedArchitectureManager?.conversation_id ?? selectedArchitectureManager?.conversationId ?? architectureConversationId;
+    if (!text || !selectedArchitectureManager || !targetConversationId) return;
+    setChatState("");
+    setAgentTyping(true);
     try {
       await client.postOwnerMessage({
         projectId,
-        conversationId: last.conversationId,
+        conversationId: targetConversationId,
         agentId: selectedArchitectureManager.id,
         messageId: createChatId("MSG-OWNER-RETRY"),
         correlationId: createChatId("CORR-architecture-manager-RETRY"),
-        text: last.text,
+        text,
         intent: messageIntent
       });
     } catch (error) {
-      setChatState(error?.message ?? "Node rejected the owner message.");
+      setAgentTyping(false);
+      setChatState(error?.message ?? "Node rejected the owner message retry.");
     }
   }
 
-  return { sendMessage, retryLastMessage };
+  // Preserves the existing global retry entry point by retrying the remembered owner message.
+  async function retryLastMessage() {
+    const last = lastSentRef.current;
+    if (!last) return;
+    await retryMessage(last, last.conversationId);
+  }
+
+  return { sendMessage, retryMessage, retryLastMessage };
 }
