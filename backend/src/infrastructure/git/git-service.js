@@ -16,7 +16,7 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
   if (mutationLock !== undefined && typeof mutationLock !== "function") throw new ConfigurationError("Git mutation lock must be a function.");
   // Keeps every Forge mutation under the same project lock as root ticket commits.
   const guard = (action) => (...args) => mutationLock ? mutationLock(() => action(...args)) : action(...args);
-  return Object.freeze({ status, statusSummary, diffWorkingTree, diffPatchFrom, currentBranch, branchExists, createBranch: guard(createBranch), commit: guard(commit), merge: guard(merge), discardBranch: guard(discardBranch), getHead, getBranchHead, getCommitParent, abortMerge: guard(abortMerge), hasConflicts, diffBetween, getChangedFiles, getCommitsForTask, deleteMergedBranch: guard(deleteMergedBranch), resetTo: guard(resetTo) });
+  return Object.freeze({ status, statusSummary, diffWorkingTree, diffPatchFrom, currentBranch, branchExists, createBranch: guard(createBranch), commit: guard(commit), pushCommit: guard(pushCommit), merge: guard(merge), discardBranch: guard(discardBranch), getHead, getBranchHead, getCommitParent, abortMerge: guard(abortMerge), hasConflicts, diffBetween, getChangedFiles, getCommitsForTask, deleteMergedBranch: guard(deleteMergedBranch), resetTo: guard(resetTo) });
 
   // Summarizes Git for the workspace indicator without exposing paths or remote URLs.
   async function statusSummary() {
@@ -32,9 +32,10 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
     return { state: changedFiles ? "dirty" : ahead || behind ? "ahead-behind" : "clean", changed_files: changedFiles, branch, ahead, behind };
   }
 
-  async function status({ paths = [] } = {}) {
+  async function status({ paths = [], nulTerminated = false } = {}) {
     const safePaths = validatePaths(paths);
-    const result = await execute(["status", "--porcelain", ...(safePaths.length ? ["--", ...safePaths] : [])], "GIT_STATUS_FAILED");
+    const statusArgs = nulTerminated ? ["status", "--porcelain", "-z", "--untracked-files=all"] : ["status", "--porcelain"];
+    const result = await execute([...statusArgs, ...(safePaths.length ? ["--", ...safePaths] : [])], "GIT_STATUS_FAILED");
     if (result.exitCode !== 0) throw gitError("GIT_STATUS_FAILED", `Git status failed: ${result.stderr ?? "unknown Git error"}`);
     emit("git.status", { paths: safePaths, output: result.stdout });
     return result.stdout;
@@ -120,6 +121,20 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
     if (!/^[a-f0-9]{40,64}$/i.test(sha)) throw gitError("GIT_COMMIT_FAILED", "Git returned an invalid commit SHA.");
     emit("git.commit", { sha, paths: safePaths, message });
     return { sha, output: result.stdout };
+  }
+
+  // Pushes the exact current commit on the current unprotected branch to origin without force.
+  async function pushCommit(commitSha) {
+    if (typeof commitSha !== "string" || !/^[a-f0-9]{40,64}$/i.test(commitSha)) throw gitError("GIT_INVALID_REVISION", "Push requires a full commit SHA.");
+    const branch = await currentBranch();
+    if (!branch) throw gitError("GIT_DETACHED_HEAD", "Cannot push while HEAD is detached.");
+    validateBranch(branch);
+    if (PROTECTED_BRANCHES.has(branch)) throw gitError("GIT_PROTECTED_BRANCH", `Cannot push protected branch: ${branch}.`);
+    if ((await getHead()).toLowerCase() !== commitSha.toLowerCase()) throw gitError("GIT_PUSH_HEAD_MISMATCH", "Push commit SHA does not match the current HEAD.");
+    const result = await execute(["push", "--porcelain", "origin", `HEAD:refs/heads/${branch}`], "GIT_PUSH_FAILED");
+    if (result.exitCode !== 0) throw gitError("GIT_PUSH_FAILED", `Git push failed: ${result.stderr ?? "unknown Git error"}`);
+    emit("git.push", { remote: "origin", branch, sha: commitSha });
+    return { sha: commitSha, remote: "origin", branch, output: result.stdout };
   }
 
   async function merge(branch, { target, noFastForward = true } = {}) {
