@@ -80,7 +80,7 @@ export function ConversationSidebar({ open, onOpen, onClose, agentSectionTitle =
           <Link href="/" title="Architecture" aria-current={!['System', 'Code'].includes(agentSectionTitle) ? "page" : undefined}><SidebarNavigationIcon name="architecture" /><span>Architecture</span></Link>
           <Link href="/agents" title="Agents"><SidebarNavigationIcon name="agents" /><span>Agents</span></Link>
           <Link href="/system" title="System" aria-current={agentSectionTitle === "System" ? "page" : undefined}><SidebarNavigationIcon name="coding" /><span>System</span></Link>
-          <Link href="/code" title="Code" aria-current={agentSectionTitle === "Code" ? "page" : undefined}><SidebarNavigationIcon name="coding" /><span>Code</span></Link>
+          <Link href="/coding" title="Code" aria-current={agentSectionTitle === "Code" ? "page" : undefined}><SidebarNavigationIcon name="coding" /><span>Code</span></Link>
         </nav>
         {children}
       </section>

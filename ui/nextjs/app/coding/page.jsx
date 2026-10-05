@@ -1,7 +1,7 @@
-// Preserve the legacy /coding entry point while Code uses its canonical route.
-import { redirect } from "next/navigation";
+// Serve the coding conversation workspace at the established /coding route.
+import SystemPage from "../system/page.jsx";
 
-// Redirect legacy coding URLs to the canonical Code workspace.
+// Render the Code workspace using the shared System Engineer conversation UI.
 export default function CodingPage() {
-  redirect("/code");
+  return <SystemPage sectionTitle="Code" />;
 }
