@@ -11,6 +11,8 @@ import { ConversationResponseReveal } from "../../components/conversation-respon
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { HomeChatComposer } from "../../components/home-chat-composer.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+import { ConversationMessageActions } from "../../components/conversation-message-actions.jsx";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { PendingPlanApproval } from "../../components/pending-plan-approval.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { GlobalToast } from "../../components/GlobalToast.jsx";
@@ -47,6 +49,7 @@ export default function SystemPage() {
   const [openSidebar, setOpenSidebar] = useState(false);
   const [newConversationRequest, setNewConversationRequest] = useState(0);
   const [markdownPreviewPath, setMarkdownPreviewPath] = useState("");
+  const [editRequest, setEditRequest] = useState(null);
   const sendingRef = useRef(false);
   const lastSentRef = useRef(null);
   const systemAgents = useMemo(() => agentDirectory
@@ -116,7 +119,7 @@ export default function SystemPage() {
     setMessages([]); setChatState(""); setAgentTyping(false); void loadConversationMessages(id);
   }
 
-  const { sendMessage, retryLastMessage } = createHomeMessageHandlers({
+  const { sendMessage, retryMessage, retryLastMessage } = createHomeMessageHandlers({
     client, projectId: PROJECT_ID, architectureConversationId: ARCHITECTURE_CONVERSATION_ID, chatStateKey: CODING_CHAT_STATE_KEY,
     selectedArchitectureManager: selectedAgent, activeConversationId, setActiveConversationId,
     setChatState, setMessages, setAgentTyping, sendingRef, lastSentRef, writeChatState, messageIntent: MESSAGE_INTENTS.normalChat
@@ -143,13 +146,14 @@ export default function SystemPage() {
           {messages.map((message) => <article className={`claude-message ${message.from === "owner" ? "is-owner" : "is-agent"}`} key={message.stream_key ?? message.id}>
             <div className="claude-message-meta"><span>{message.nickname ?? (message.from === "owner" ? "You" : "System Engineer")}</span><time dateTime={message.timestamp}>{displayMessageTime(message.timestamp)}</time></div>
             <ConversationResponseReveal text={message.text} reveal={message.from === "agent" && message.reveal === true} onMarkdownOpen={setMarkdownPreviewPath} onReveal={() => { const container = chatMessagesRef.current; if (container && container.scrollHeight - container.scrollTop - container.clientHeight < 72) container.scrollTop = container.scrollHeight; }} />
+            {message.from === "owner" && <ConversationMessageActions message={message} onEdit={(text) => setEditRequest({ id: message.id, text })} onRetry={(ownerMessage) => retryMessage(ownerMessage, activeConversationId)} />}
             {message.from === "system" && message.retryable !== false && <button type="button" className="claude-retry" onClick={retryLastMessage}>Retry</button>}
           </article>)}
           {agentTyping && <div className="claude-typing" role="status" aria-label="Waiting for agent response"><i /><i /><i /></div>}
         </div>
         <div className="claude-composer-wrap">
           <PendingPlanApproval client={client} projectId={PROJECT_ID} projectName="NodeForge" messages={messages} conversationId={activeConversationId} agentId={selectedAgentId} />
-          <HomeChatComposer onSend={(text) => { followLatest(); return sendMessage(text).catch((error) => { const normalized = normalizeUiError(error, { fallback: "Node rejected the system request." }); setGlobalError({ ...normalized, _retry: retryLastMessage }); throw error; }); }} />
+          <HomeChatComposer editRequest={editRequest} onSend={(text) => { followLatest(); return sendMessage(text).catch((error) => { const normalized = normalizeUiError(error, { fallback: "Node rejected the system request." }); setGlobalError({ ...normalized, _retry: retryLastMessage }); throw error; }); }} />
           <p>Requests are sent to the selected system agent.</p>
         </div>
       </section>

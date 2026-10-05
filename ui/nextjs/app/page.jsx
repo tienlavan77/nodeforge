@@ -11,6 +11,8 @@ import { ConversationResponseReveal } from "../components/conversation-response-
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { HomeChatComposer } from "../components/home-chat-composer.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+import { ConversationMessageActions } from "../components/conversation-message-actions.jsx";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { PendingPlanApproval } from "../components/pending-plan-approval.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { GlobalToast } from "../components/GlobalToast.jsx";
@@ -41,6 +43,7 @@ export default function HomePage() {
   const [openSidebar, setOpenSidebar] = useState(false);
   const [newConversationRequest, setNewConversationRequest] = useState(0);
   const [markdownPreviewPath, setMarkdownPreviewPath] = useState("");
+  const [editRequest, setEditRequest] = useState(null);
   const projects = [{ id: PROJECT_ID, name: "NodeForge" }];
   const [, setWatcherEvents] = useState([]);
   const [, setWatcherState] = useState("connecting");
@@ -150,7 +153,7 @@ export default function HomePage() {
     void loadConversationMessages(id);
   }
 
-  const { sendMessage, retryLastMessage } = createHomeMessageHandlers({
+  const { sendMessage, retryMessage, retryLastMessage } = createHomeMessageHandlers({
     client, projectId: PROJECT_ID, architectureConversationId: ARCHITECTURE_CONVERSATION_ID, chatStateKey: CHAT_STATE_KEY,
     selectedArchitectureManager, activeConversationId, setActiveConversationId,
     setChatState, setMessages, setAgentTyping, sendingRef, lastSentRef, writeChatState, messageIntent: MESSAGE_INTENTS.normalChat
@@ -176,13 +179,14 @@ export default function HomePage() {
           {messages.map((message) => <article className={`claude-message ${message.from === "owner" ? "is-owner" : "is-agent"}`} key={message.stream_key ?? message.id}>
             <div className="claude-message-meta"><span>{message.nickname ?? (message.from === "owner" ? "You" : "NodeForge")}</span><time dateTime={message.timestamp}>{displayMessageTime(message.timestamp)}</time></div>
             <ConversationResponseReveal text={message.text} reveal={message.from === "agent" && message.reveal === true} onMarkdownOpen={setMarkdownPreviewPath} onReveal={() => { const container = chatMessagesRef.current; if (container && container.scrollHeight - container.scrollTop - container.clientHeight < 72) container.scrollTop = container.scrollHeight; }} />
+            {message.from === "owner" && <ConversationMessageActions message={message} onEdit={(text) => setEditRequest({ id: message.id, text })} onRetry={(ownerMessage) => retryMessage(ownerMessage, activeConversationId)} />}
             {message.from === "system" && message.retryable !== false && <button type="button" className="claude-retry" onClick={retryLastMessage}>Retry</button>}
           </article>)}
           {agentTyping && <div className="claude-typing" role="status" aria-label="Waiting for agent response"><i /><i /><i /></div>}
         </div>
         <div className="claude-composer-wrap">
           <PendingPlanApproval client={client} projectId={PROJECT_ID} projectName="NodeForge" messages={messages} conversationId={streamConversationId} agentId={selectedArchitectureManagerId} onHandoffCompleted={loadDashboard} />
-          <HomeChatComposer onSend={(text) => { followLatest(); return sendMessage(text).catch((rawError) => { const error = normalizeUiError(rawError, { fallback: "Node rejected the message." }); setGlobalError({ ...error, _retry: retryLastMessage }); throw rawError; }); }} />
+          <HomeChatComposer editRequest={editRequest} onSend={(text) => { followLatest(); return sendMessage(text).catch((rawError) => { const error = normalizeUiError(rawError, { fallback: "Node rejected the message." }); setGlobalError({ ...error, _retry: retryLastMessage }); throw rawError; }); }} />
           <p>NodeForge can make mistakes. Check important work.</p>
         </div>
       </section>
