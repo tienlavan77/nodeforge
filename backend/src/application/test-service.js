@@ -41,12 +41,17 @@ export function createTestService({ verificationOrchestrator, fileService, timeo
   void fileService;
   const jobs = new Map();
   let jobSequence = 0;
-  return Object.freeze({ runTests, runLint, runTypecheck, runSchemaValidation, startTests, getTestResult });
+  return Object.freeze({ runTests, runCheck, runLint, runTypecheck, runSchemaValidation, startTests, getTestResult, cancelTest });
   // Runs schema validation so immutable archive verification covers API contracts without a checkout.
   async function runSchemaValidation({ commitId, taskId, sessionId } = {}) { return run({ commitId, levels: ["schema_validation"], taskId, sessionId }); }
   async function runTests({ commitId, levels = ["unit_test"], taskId, sessionId, command } = {}) {
     const verificationLevels = Array.isArray(levels) && levels.length > 0 ? levels : ["unit_test"];
     return run({ commitId, levels: verificationLevels, taskId, sessionId, command });
+  }
+  // Runs one owner-requested project check to completion and returns its result in the same call.
+  async function runCheck({ commitId, type = "test", taskId, sessionId, command } = {}) {
+    const level = type === "test" ? "unit_test" : type;
+    return run({ commitId, levels: [level], taskId, sessionId, command, deadlineMs: jobTimeoutMs });
   }
   async function runLint({ commitId, taskId, sessionId } = {}) { return run({ commitId, levels: ["lint"], taskId, sessionId }); }
   async function runTypecheck({ commitId, taskId, sessionId } = {}) { return run({ commitId, levels: ["typecheck"], taskId, sessionId }); }
@@ -58,15 +63,15 @@ export function createTestService({ verificationOrchestrator, fileService, timeo
     pruneJobs();
     jobSequence += 1;
     const jobId = `TEST-JOB-${jobSequence}`;
-    const job = { job_id: jobId, task_id: taskId ?? null, status: "running", started_at: new Date().toISOString() };
+    const job = { job_id: jobId, task_id: taskId ?? null, status: "running", started_at: new Date().toISOString(), controller: new AbortController() };
     jobs.set(jobId, job);
-    run({ commitId, levels: verificationLevels, taskId, sessionId, command, deadlineMs: jobTimeoutMs }).then((result) => {
-      job.status = result?.status === "failed" ? "failed" : "passed";
+    run({ commitId, levels: verificationLevels, taskId, sessionId, command, deadlineMs: jobTimeoutMs, signal: job.controller.signal }).then((result) => {
+      job.status = job.controller.signal.aborted ? "cancelled" : result?.status === "failed" ? "failed" : "passed";
       job.result = result;
       job.finished_at = new Date().toISOString();
       logJobCompleted(job, { taskId, sessionId });
     }, (error) => {
-      job.status = "failed";
+      job.status = job.controller.signal.aborted ? "cancelled" : "failed";
       job.error = normalizeError(error);
       job.finished_at = new Date().toISOString();
       logJobCompleted(job, { taskId, sessionId });
@@ -86,18 +91,28 @@ export function createTestService({ verificationOrchestrator, fileService, timeo
       ...(job.error ? { error: job.error } : {})
     };
   }
+  // Aborts a running project check and lets its command runner reap the process group.
+  function cancelTest({ jobId, taskId } = {}) {
+    if (typeof jobId !== "string" || !jobId.trim()) { const error = new ConfigurationError("cancelTest requires jobId."); error.code = "INPUT_INVALID"; throw error; }
+    const job = jobs.get(jobId.trim());
+    if (!job) { const error = new ConfigurationError(`Unknown test job: ${jobId}`); error.code = "TEST_JOB_NOT_FOUND"; throw error; }
+    if (taskId && job.task_id && job.task_id !== taskId) { const error = new ConfigurationError("Test job belongs to a different task."); error.code = "TEST_JOB_FORBIDDEN"; throw error; }
+    if (job.status !== "running") return { job_id: job.job_id, status: job.status, cancelled: false };
+    job.controller.abort(new ConfigurationError("Project check cancelled by System Engineer."));
+    return { job_id: job.job_id, status: "cancellation_requested", cancelled: true };
+  }
   function pruneJobs() {
     if (jobs.size < 50) return;
     for (const [id, entry] of jobs) { if (entry.status !== "running") jobs.delete(id); if (jobs.size < 50) break; }
   }
-  async function run({ commitId = `WORKTREE-${Date.now()}`, levels, taskId, sessionId, command, deadlineMs = timeoutMs }) {
+  async function run({ commitId = `WORKTREE-${Date.now()}`, levels, taskId, sessionId, command, deadlineMs = timeoutMs, signal }) {
     const plan = { commit_id: commitId, levels: ["focused"], checks: levels.map((type) => ({ type: type === "unit_test" ? "test" : type, command: command ?? commandFor(type, taskId), timeout_ms: deadlineMs })) };
     publish("verification.test_started", { commit_id: commitId, task_id: taskId, session_id: sessionId, levels });
     try {
       let timer;
       const deadline = new Promise((_, reject) => { timer = setTimeout(() => { const error = new ConfigurationError(`Test execution timed out after ${deadlineMs}ms.`); error.code = "TEST_TIMEOUT"; reject(error); }, deadlineMs); });
       try {
-        const result = await Promise.race([verificationOrchestrator.run(plan, { taskId, sessionId, timeoutMs: deadlineMs }), deadline]);
+        const result = await Promise.race([verificationOrchestrator.run(plan, { taskId, sessionId, timeoutMs: deadlineMs, signal }), deadline]);
         publish("verification.result", result);
         return result;
       } finally {
@@ -110,7 +125,7 @@ export function createTestService({ verificationOrchestrator, fileService, timeo
   }
   function commandFor(type, taskId) {
     if (type === "unit_test" && typeof taskId === "string" && /^(tests|test)\//.test(taskId)) return `node --test ${taskId}`;
-    return { lint: "npm run lint", schema_validation: "npm run validate:schemas", typecheck: "npm run typecheck", unit_test: "npm test" }[type] ?? "npm test";
+    return { lint: "pnpm lint", schema_validation: "pnpm validate:schemas", typecheck: "pnpm typecheck", unit_test: "pnpm test", build: "pnpm --dir ui/nextjs build" }[type] ?? "pnpm test";
   }
   function publish(type, payload) { const event = { type, project_root: projectRoot, payload }; publisher?.publish?.({ event_id: `EVT-${Date.now()}`, type, project_id: payload.project_id ?? "PROJECT-NODEFORGE", timestamp: new Date().toISOString(), payload, metadata: { source: "test-service", task_id: payload.task_id, session_id: payload.session_id } }); internalBus?.emit?.(type, event); }
   function logJobCompleted(job, { taskId, sessionId } = {}) {
@@ -119,8 +134,8 @@ export function createTestService({ verificationOrchestrator, fileService, timeo
     try {
       projectLogger({
         event_name: "test.job_completed",
-        level: job.status === "passed" ? "info" : "error",
-        status: job.status === "passed" ? "success" : "failed",
+        level: job.status === "passed" ? "info" : job.status === "cancelled" ? "warn" : "error",
+        status: job.status === "passed" ? "success" : job.status === "cancelled" ? "warn" : "failed",
         message: `Test job ${job.job_id} ${job.status} after ${duration_ms}ms.`,
         task_id: taskId,
         source: "test-service",

@@ -22,7 +22,7 @@ export function assertRoleFileAccess(role, operation, path) {
     && !isProtectedPath(path, { operation: operation === "read" ? "read" : "write" })
     && !/(^|\/)(?:node_modules|vendor|dist|build|coverage|cache|\.next)(\/|$)|(^|\/)(?:secret|secrets|credential|credentials|private)(?:[._/-]|$)/i.test(path);
   const writeArea = role === "architecture_manager" && (path === "ARCHITECTURE.md" || ARCHITECTURE_WRITE_PREFIXES.some((prefix) => path?.startsWith(prefix)));
-  const allowed = safe && (operation === "read" || (operation === "write" && writeArea) || (operation === "delete" && role === "architecture_manager" && path.startsWith("workflows/")));
+  const allowed = safe && (operation === "read" || (operation === "write" && (writeArea || role === "system_engineer")) || (operation === "delete" && role === "architecture_manager" && path.startsWith("workflows/")));
   if (!allowed) throw Object.assign(new ConfigurationError(`File access is not permitted for role ${role}: ${operation} ${path ?? "<missing>"}.`), { code: "FILE_ROLE_FORBIDDEN" });
 }
 

@@ -58,29 +58,29 @@ export function createTestRunner({ projectRoot, projectId, spawnProcess, createI
   const execute = createProjectCommandExecutor({ projectRoot, spawnProcess });
 
   return Object.freeze({
-    async run(plan, { taskId, ticketId = taskId, conversationId = taskId ? `CONV-${taskId}` : undefined, sessionId, scope = scopeFor(plan), timeoutMs, eventSink } = {}) {
+    async run(plan, { taskId, ticketId = taskId, conversationId = taskId ? `CONV-${taskId}` : undefined, sessionId, scope = scopeFor(plan), timeoutMs, eventSink, signal } = {}) {
       validatePlan(plan);
       if (!isScope(scope)) throw new ConfigurationError("Test result scope must be targeted, integration, full, or custom.");
 
       const checks = plan.checks.filter(({ type }) => type === "test");
       const results = [];
       for (const check of checks) {
-        results.push(await runCheck(check, { taskId, ticketId, conversationId, sessionId, scope, timeoutMs, eventSink }));
+        results.push(await runCheck(check, { taskId, ticketId, conversationId, sessionId, scope, timeoutMs, eventSink, signal }));
       }
       return Object.freeze(results);
     }
   });
 
   // Executes a single test command and builds a normalized test result.
-  async function runCheck(check, { taskId, ticketId, conversationId, sessionId, scope, timeoutMs, eventSink }) {
+  async function runCheck(check, { taskId, ticketId, conversationId, sessionId, scope, timeoutMs, eventSink, signal }) {
     const startedAt = clock();
     const commandId = createId();
     const effectiveTimeout = timeoutMs ?? defaultTimeout("unit_test");
     emitCommand(eventSink, taskId, ticketId, conversationId, commandId, check.command, startedAt);
-    const execution = await execute(check.command, { timeoutMs: effectiveTimeout });
+    const execution = await execute(check.command, { timeoutMs: effectiveTimeout, signal });
     const finishedAt = clock();
     const summary = parseTapSummary(execution.stdout);
-    const status = execution.timedOut ? "timeout" : execution.exitCode === 0 ? "passed" : "failed";
+    const status = execution.cancelled ? "cancelled" : execution.timedOut ? "timeout" : execution.exitCode === 0 ? "passed" : "failed";
     if (execution.timedOut) emitEvent({ type: "TEST_TIMEOUT", task_id: taskId, session_id: sessionId, command: check.command, timeout_ms: timeoutMs ?? defaultTimeout("unit_test") });
     const parsedFailures = status === "failed" ? parseFailures(execution.stdout, execution.stderr) : [];
     const result = {
