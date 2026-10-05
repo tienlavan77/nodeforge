@@ -65,7 +65,7 @@ export function ConversationSidebar({ open, onOpen, onClose, agentSectionTitle =
         <nav className="claude-sidebar-navigation" aria-label="Workspace navigation">
           <details className="claude-sidebar-architecture">
             <summary title={architectureLabel ? `${agentSectionTitle}: ${architectureLabel}` : agentSectionTitle}>
-              <span className="claude-architecture-summary-icon"><SidebarNavigationIcon name={agentSectionTitle === "System" ? "coding" : "architecture"} /><span className="claude-architecture-selected-avatar" aria-hidden="true">{(architectureLabel ?? "?").trim().slice(0, 1).toUpperCase()}</span></span>
+              <span className="claude-architecture-summary-icon"><SidebarNavigationIcon name={agentSectionTitle === "System" || agentSectionTitle === "Code" ? "coding" : "architecture"} /><span className="claude-architecture-selected-avatar" aria-hidden="true">{(architectureLabel ?? "?").trim().slice(0, 1).toUpperCase()}</span></span>
               <span>{agentSectionTitle}</span>
             </summary>
             {architectureControl}
@@ -77,10 +77,10 @@ export function ConversationSidebar({ open, onOpen, onClose, agentSectionTitle =
               {projects.map((project) => <button type="button" className={`claude-sidebar-project-link${project.id === selectedProjectId ? " is-selected" : ""}`} key={project.id} onClick={() => onProjectChange?.(project.id)} aria-current={project.id === selectedProjectId ? "page" : undefined}><span>{project.name}</span>{project.id === selectedProjectId && <i aria-label="Selected project">✓</i>}</button>)}
             </div>
           </details>
-          <Link href="/" title="Architecture" aria-current={agentSectionTitle !== "System" ? "page" : undefined}><SidebarNavigationIcon name="architecture" /><span>Architecture</span></Link>
+          <Link href="/" title="Architecture" aria-current={!['System', 'Code'].includes(agentSectionTitle) ? "page" : undefined}><SidebarNavigationIcon name="architecture" /><span>Architecture</span></Link>
           <Link href="/agents" title="Agents"><SidebarNavigationIcon name="agents" /><span>Agents</span></Link>
           <Link href="/system" title="System" aria-current={agentSectionTitle === "System" ? "page" : undefined}><SidebarNavigationIcon name="coding" /><span>System</span></Link>
-          <Link href="/coding" title="Code"><SidebarNavigationIcon name="coding" /><span>Code</span></Link>
+          <Link href="/code" title="Code" aria-current={agentSectionTitle === "Code" ? "page" : undefined}><SidebarNavigationIcon name="coding" /><span>Code</span></Link>
         </nav>
         {children}
       </section>
