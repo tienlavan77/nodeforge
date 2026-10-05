@@ -30,6 +30,9 @@ test("home route composes the conversation workspace from existing components", 
   assert.equal(page.includes("<NodeForgeHeader"), false);
   assert.ok(sidebar.includes('onClick={reopen} aria-label="Open conversations sidebar"'));
   assert.ok(sidebar.includes('onClick={newConversation} aria-label="New chat"'));
+  assert.ok(sidebar.includes('<Link href="/" title="Architecture"'));
+  assert.ok(sidebar.includes('<span>Architecture</span></Link>'));
+  assert.ok(sidebar.indexOf('title="Architecture"') < sidebar.indexOf('title="Agents"'));
   assert.ok(sidebar.includes("{children}"));
   assert.ok(component.includes('aria-label="New conversation"'));
   assert.ok(component.indexOf('aria-label="New conversation"') <

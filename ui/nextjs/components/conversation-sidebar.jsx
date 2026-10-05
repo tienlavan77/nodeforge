@@ -77,6 +77,7 @@ export function ConversationSidebar({ open, onOpen, onClose, agentSectionTitle =
               {projects.map((project) => <button type="button" className={`claude-sidebar-project-link${project.id === selectedProjectId ? " is-selected" : ""}`} key={project.id} onClick={() => onProjectChange?.(project.id)} aria-current={project.id === selectedProjectId ? "page" : undefined}><span>{project.name}</span>{project.id === selectedProjectId && <i aria-label="Selected project">✓</i>}</button>)}
             </div>
           </details>
+          <Link href="/" title="Architecture" aria-current={agentSectionTitle !== "System" ? "page" : undefined}><SidebarNavigationIcon name="architecture" /><span>Architecture</span></Link>
           <Link href="/agents" title="Agents"><SidebarNavigationIcon name="agents" /><span>Agents</span></Link>
           <Link href="/system" title="System" aria-current={agentSectionTitle === "System" ? "page" : undefined}><SidebarNavigationIcon name="coding" /><span>System</span></Link>
         </nav>
