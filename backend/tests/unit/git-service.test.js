@@ -36,6 +36,23 @@ test("Git Service commits only explicitly staged paths and returns SHA", async (
   assert.deepEqual(fake.calls.find((args) => args[0] === "commit"), ["commit", "--only", "-m", "feat: add example", "--", ":(literal)src/example.js"]);
 });
 
+test("Git Service pushes only the exact current commit to origin on an unprotected branch", async () => {
+  const fake = fakeGit();
+  fake.run = async (args) => {
+    fake.calls.push(args);
+    if (args[0] === "branch") return { stdout: "ui-chat\n", exitCode: 0 };
+    if (args[0] === "rev-parse") return { stdout: `${"a".repeat(40)}\n`, exitCode: 0 };
+    return { stdout: "pushed\n", exitCode: 0 };
+  };
+  const git = createGitService({ projectRoot: "/repo", runGit: fake.run });
+  assert.deepEqual(await git.pushCommit("a".repeat(40)), { sha: "a".repeat(40), remote: "origin", branch: "ui-chat", output: "pushed\n" });
+  assert.deepEqual(fake.calls.at(-1), ["push", "--porcelain", "origin", "HEAD:refs/heads/ui-chat"]);
+  await assert.rejects(() => git.pushCommit("b".repeat(40)), (error) => error.code === "GIT_PUSH_HEAD_MISMATCH");
+  fake.run = async (args) => args[0] === "branch" ? { stdout: "main\n", exitCode: 0 } : { stdout: `${"a".repeat(40)}\n`, exitCode: 0 };
+  const protectedGit = createGitService({ projectRoot: "/repo", runGit: fake.run });
+  await assert.rejects(() => protectedGit.pushCommit("a".repeat(40)), (error) => error.code === "GIT_PROTECTED_BRANCH");
+});
+
 test("Git Service holds the project mutation lock across staging and commit", async () => {
   const calls = [];
   const fake = fakeGit();

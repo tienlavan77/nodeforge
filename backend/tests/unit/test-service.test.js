@@ -72,6 +72,19 @@ test("startTests returns a job_id immediately and getTestResult reports running 
   assert.ok(Number.isFinite(finished.duration_ms));
 });
 
+test("runCheck waits for one scoped verification and returns its final result", async () => {
+  const plans = [];
+  const service = createTestService({
+    projectRoot: "/tmp/project",
+    jobTimeoutMs: 1000,
+    verificationOrchestrator: { run: async (plan) => { plans.push(plan); await new Promise((resolve) => setTimeout(resolve, 10)); return { status: "passed", breakdown: [{ kind: "test", status: "passed", exit_code: 0 }] }; } }
+  });
+  const result = await service.runCheck({ commitId: "COMMIT-CHECK", type: "test", taskId: "TASK-CHECK", command: "node --test backend/tests/unit/example.test.js" });
+  assert.equal(result.status, "passed");
+  assert.equal(plans[0].checks[0].command, "node --test backend/tests/unit/example.test.js");
+  assert.equal(plans[0].checks[0].timeout_ms, 1000);
+});
+
 test("startTests captures orchestrator failure as a failed job with error code and message", async () => {
   const service = createTestService({
     projectRoot: "/tmp/project",
@@ -96,6 +109,17 @@ test("startTests reports TEST_TIMEOUT through getTestResult when the job deadlin
   const finished = service.getTestResult({ jobId: started.job_id, taskId: "TASK-1" });
   assert.equal(finished.status, "failed");
   assert.equal(finished.error.code, "test_timeout");
+});
+
+test("cancelTest aborts a running verification job and reports its terminal status", async () => {
+  const service = createTestService({
+    verificationOrchestrator: { run: (_plan, { signal }) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true })) }
+  });
+  const started = service.startTests({ commitId: "OWNER-CHECK", taskId: "CONV-OWNER" });
+  assert.deepEqual(service.cancelTest({ jobId: started.job_id, taskId: "CONV-OWNER" }), { job_id: started.job_id, status: "cancellation_requested", cancelled: true });
+  await settle();
+  assert.equal(service.getTestResult({ jobId: started.job_id, taskId: "CONV-OWNER" }).status, "cancelled");
+  assert.throws(() => service.cancelTest({ jobId: started.job_id, taskId: "OTHER" }), (error) => error.code === "TEST_JOB_FORBIDDEN");
 });
 
 test("normalizeError preserves string-error compatibility and is retryable", async () => {

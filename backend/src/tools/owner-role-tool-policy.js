@@ -3,8 +3,8 @@ import { ConfigurationError } from "../shared/errors.js";
 import { authorizeTool } from "./tool-authorization.js";
 import { assertRoleFileAccess, roleWritePrefixes } from "../infrastructure/filesystem/file-service-role-policy.js";
 
-const READ_TOOLS = Object.freeze(["search_tree", "rg_files", "rg_search", "sed_lines", "read_file"]);
-const ROLE_TOOLS = Object.freeze({ architecture_manager: Object.freeze([...READ_TOOLS, "write_diff", "edit_diff", "delete_file"]), system_engineer: Object.freeze([...READ_TOOLS, "git_status", "git_diff"]), sprint_leader: READ_TOOLS, coder: READ_TOOLS, reviewer: READ_TOOLS, linguist: Object.freeze(["read_file", "sed_lines"]), runtime: Object.freeze([]) });
+const READ_TOOLS = Object.freeze(["search_tree", "list_files", "search_text", "read_file", "read_lines"]);
+const ROLE_TOOLS = Object.freeze({ architecture_manager: Object.freeze([...READ_TOOLS, "write_diff", "edit_diff", "delete_file"]), system_engineer: Object.freeze(["read_file", "read_lines", "write_diff", "edit_diff", "run_check", "git_status", "git_diff", "commit_changes", "push_commit"]), sprint_leader: READ_TOOLS, coder: READ_TOOLS, reviewer: READ_TOOLS, linguist: Object.freeze(["read_file", "read_lines"]), runtime: Object.freeze([]) });
 const PRIVATE_PATH = /(^|\/)(?:\.[^/]+|node_modules|vendor|dist|build|coverage|cache|\.next|(?:secret|secrets|credential|credentials|private|id_rsa|id_ed25519)(?:[._-]|$)|[^/]+\.(?:pem|key|p12|pfx|crt|keystore)$)/i;
 const WRITE_TOOLS = new Set(["write_diff", "edit_diff"]);
 
