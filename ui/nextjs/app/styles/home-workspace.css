@@ -22,7 +22,7 @@
 
 :root { --workspace-gutter: 15px; }
 
-/* Home workspace */\n\n/* Home workspace */
+/* Home workspace */
 .home-workspace-shell { min-height: 100vh; }
 .home-workspace { min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(0, 40%) minmax(0, 30%) minmax(0, 30%); gap: 1px; background: var(--app-border); }
 .home-chat-panel { min-width: 0; width: 100%; }
