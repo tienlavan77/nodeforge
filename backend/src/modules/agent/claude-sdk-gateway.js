@@ -35,11 +35,12 @@ export function createClaudeSdkGateway({
     abortSignal?.addEventListener("abort", stop, { once: true });
     if (abortSignal?.aborted) stop();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    const cloneableOptions = { ...options };
+    const { canUseTool, onBuiltinToolEvent, ...cloneableOptions } = options;
     delete cloneableOptions.mcpServers;
     delete cloneableOptions.forgeTools;
     const queryOptions = {
       ...structuredClone(cloneableOptions),
+      ...(typeof canUseTool === "function" ? { canUseTool } : {}),
       abortController: controller,
       cwd: cwd ?? options.cwd ?? process.cwd(),
       additionalDirectories: [...additionalDirectories],
@@ -55,6 +56,7 @@ export function createClaudeSdkGateway({
     const messages = [];
     let sessionId = resumeSessionId ?? null;
     let notified = false;
+    const builtinSearchCalls = new Map();
     writeTerminal(`START ${config.agent_name ?? config.agent_id} (${config.provider ?? "claude"}) model=${config.model ?? options.model ?? "default"} correlation=${correlationId}`);
     const notify = (id) => {
       if (notified || !id || typeof onSessionReady !== "function") return;
@@ -67,6 +69,7 @@ export function createClaudeSdkGateway({
       for await (const message of session) {
         const clean = sanitize(message, credential);
         messages.push(clean);
+        reportBuiltinToolEvents(clean, onBuiltinToolEvent, builtinSearchCalls);
         const sid = clean?.session_id ?? null;
         if (sid && !sessionId) sessionId = sid;
         if (sid) notify(sid);
@@ -104,6 +107,22 @@ export function createClaudeSdkGateway({
   function writeTerminal(message) {
     if (!terminalOutput || typeof terminalOutput.write !== "function") return;
     terminalOutput.write(`[Claude SDK] ${new Date().toISOString()} ${message}\n`);
+  }
+
+  // Reports Claude native search starts and bounded completion metadata without source output.
+  function reportBuiltinToolEvents(message, callback, calls) {
+    if (typeof callback !== "function" || !Array.isArray(message?.message?.content)) return;
+    for (const block of message.message.content) {
+      if (message.type === "assistant" && block?.type === "tool_use" && ["Glob", "Grep"].includes(block.name)) {
+        calls.set(block.id, block.name);
+        callback({ tool: block.name, status: "started", path: typeof block.input?.path === "string" ? block.input.path : "." });
+      } else if (message.type === "user" && block?.type === "tool_result") {
+        const tool = calls.get(block.tool_use_id) ?? "search";
+        calls.delete(block.tool_use_id);
+        const content = typeof block.content === "string" ? block.content : JSON.stringify(block.content ?? null);
+        callback({ tool, status: block.is_error ? "failed" : "success", result_bytes: Buffer.byteLength(content) });
+      }
+    }
   }
 
   function createGatewayEnvironment({ config, credential, optionsEnv }) {

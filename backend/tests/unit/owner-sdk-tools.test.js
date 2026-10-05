@@ -10,6 +10,7 @@ import { authorizeOwnerTool, ownerWritePrefixes } from "../../src/tools/owner-ro
 import { createOwnerDeleteFileTool } from "../../src/tools/owner-delete-file.js";
 import { createReadFileTool } from "../../src/tools/agent-lifecycle-tools.js";
 import { createOwnerConversationTools } from "../../src/tools/owner-conversation-tools.js";
+import { createOwnerBuiltinSearchShell } from "../../src/tools/owner-builtin-search-shell.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createRuntimeLogger } from "../../src/core/runtime-logger.js";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -19,6 +20,16 @@ import { join } from "node:path";
 // Builds a minimal project file service so Owner tools can be registered without touching disk.
 function fileService() { return { readFile() {}, readForIndex() {}, atomicWrite() {}, deleteFile() {}, listDirectories: async () => [], listFiles: async () => [] }; }
 
+// Keeps SDK tool tests focused on persisted conversation state without a filesystem store.
+function memoryStateStore() {
+  const states = new Map();
+  return {
+    async create({ conversationId, agentId }) { if (!states.has(conversationId)) states.set(conversationId, { conversation_id: conversationId, agent_id: agentId }); return structuredClone(states.get(conversationId)); },
+    async get(conversationId) { return states.has(conversationId) ? structuredClone(states.get(conversationId)) : null; },
+    async update(conversationId, changes) { const next = { ...states.get(conversationId), ...structuredClone(changes) }; states.set(conversationId, next); return structuredClone(next); }
+  };
+}
+
 test("owner exposes the same approved Forge tools to OpenAI, Codex, Claude, and Anthropic", async () => {
   for (const provider of ["openai", "codex", "claude", "anthropic"]) {
     let request;
@@ -26,56 +37,114 @@ test("owner exposes the same approved Forge tools to OpenAI, Codex, Claude, and 
     const sdk = { conversationMode: provider === "codex" ? "thread" : "history", execute: async (input) => { request = input; return { text: "ok" }; } };
     const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => profile }, sdkGateways: { [provider]: sdk }, fallbackStream: async function* () {}, fileService: fileService(), projectRoot: process.cwd(), projectLogger: () => {} });
     for await (const chunk of stream({ agentId: "architect", payload: { text: "inspect project" }, correlationId: `CORR-${provider}`, conversationId: `CONV-${provider}` })) assert.equal(typeof chunk.text, "string");
-    assert.deepEqual(request.options.forgeTools.definitions.map(({ name }) => name), ["search_tree", "rg_files", "rg_search", "sed_lines", "read_file", "write_diff", "edit_diff", "delete_file"]);
+    assert.deepEqual(request.options.forgeTools.definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "read_lines", "write_diff", "edit_diff", "delete_file"]);
     assert.deepEqual(request.options.forgeTools.context.allowed_write_prefixes, ["docs/", "Skills/", "workflows/"]);
     assert.match(request.prompt, /ARCHITECTURE\.md, docs\/, Skills\/, or workflows\//);
     assert.match(request.prompt, /workflows\/agents\/architecture\/README\.md/);
-    if (provider === "codex" || provider === "openai") assert.equal(request.options.forgeTools.registry.rg_files.execute instanceof Function, true);
+    if (provider === "codex" || provider === "openai") assert.equal(request.options.forgeTools.registry.list_files.execute instanceof Function, true);
     else {
       assert.equal(request.options.mcpServers.forge.type, "sdk");
-      assert.ok(request.options.allowedTools.includes("mcp__forge__rg_files"));
+      assert.ok(request.options.allowedTools.includes("mcp__forge__list_files"));
       for (const name of ["Read", "Glob", "Grep"]) assert.equal(request.options.allowedTools.includes(`mcp__forge__${name}`), false);
       assert.deepEqual(request.options.tools, []);
     }
   }
 });
 
-test("System Engineer uses Codex built-ins and the seven approved Forge tools", async () => {
+test("System Engineer tool names and schemas are identical across all SDK provider ids", async () => {
+    const expected = ["read_file", "read_lines", "write_diff", "edit_diff", "git_status", "git_diff", "run_check", "commit_changes", "push_commit"];
+  for (const provider of ["openai", "codex", "claude", "anthropic"]) {
+    let request;
+    const profile = { agent_id: "engineer", agent_name: "Engineer", role: "system_engineer", provider };
+    const sdk = { conversationMode: provider === "codex" ? "thread" : "history", execute: async (input) => { request = input; return { text: "ready" }; } };
+    const gitService = { status: async () => "", diffWorkingTree: async () => "", commit: async () => ({ sha: "a".repeat(40) }), pushCommit: async (sha) => ({ sha }) };
+    const testService = { runCheck: async () => ({ status: "passed" }) };
+    const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => profile }, sdkGateways: { [provider]: sdk }, fallbackStream: async function* () {}, fileService: fileService(), conversationStateStore: memoryStateStore(), testService, gitService, projectRoot: "/project", projectLogger: () => {} });
+    for await (const chunk of stream({ agentId: "engineer", payload: { text: "inspect" }, correlationId: `CORR-${provider}`, conversationId: `CONV-${provider}` })) assert.equal(chunk.text, "ready");
+    const names = request.options.forgeTools.definitions.map(({ name }) => name);
+    assert.deepEqual(names, expected, provider);
+    for (const name of ["search_tree", "list_files", "search_text"]) assert.equal(names.includes(name), false, `${provider} must not expose Forge search tool ${name}`);
+    if (["claude", "anthropic"].includes(provider)) assert.deepEqual(request.options.allowedTools, names.map((name) => `mcp__forge__${name}`));
+    if (provider === "openai") assert.equal(typeof request.options.builtinSearchShell?.run, "function");
+  }
+});
+
+test("System Engineer uses Forge tools plus read-only Codex search built-in", async () => {
   let request;
   const profile = { agent_id: "engineer", agent_name: "Engineer", role: "system_engineer", provider: "codex" };
   const sdk = { conversationMode: "thread", execute: async (input) => { request = input; return { text: "done", thread_id: "thread-1" }; } };
-  const gitService = { status: async () => "", diffWorkingTree: async () => "" };
+  const gitService = { status: async () => "", diffWorkingTree: async () => "", commit: async () => ({ sha: "a".repeat(40) }), pushCommit: async (sha) => ({ sha }) };
+  const testService = { runCheck: async () => ({ status: "passed" }) };
+  const conversationStateStore = memoryStateStore();
   const logs = [];
-  const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => profile }, sdkGateways: { codex: sdk }, fallbackStream: async function* () {}, fileService: fileService(), gitService, projectRoot: "/project", projectLogger: (event) => logs.push(event) });
+  const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => profile }, sdkGateways: { codex: sdk }, fallbackStream: async function* () {}, fileService: fileService(), conversationStateStore, testService, gitService, projectRoot: "/project", projectLogger: (event) => logs.push(event) });
   for await (const chunk of stream({ agentId: "engineer", payload: { text: "inspect and fix the project" }, correlationId: "CORR-SYSTEM-ENGINEER", conversationId: "CONV-SYSTEM-ENGINEER" })) assert.equal(typeof chunk.text, "string");
-  assert.deepEqual(request.options.forgeTools.definitions.map(({ name }) => name), ["search_tree", "rg_files", "rg_search", "sed_lines", "read_file", "git_status", "git_diff"]);
-  assert.equal(request.options.sandboxMode, "workspace-write");
+  assert.deepEqual(request.options.forgeTools.definitions.map(({ name }) => name), ["read_file", "read_lines", "write_diff", "edit_diff", "git_status", "git_diff", "run_check", "commit_changes", "push_commit"]);
+  assert.equal(request.options.sandboxMode, "read-only");
   assert.equal(request.options.networkAccessEnabled, false);
   assert.deepEqual(request.options.config, { default_permissions: "audit" });
   assert.match(request.options.configOverrides[0], /permissions\.audit\.filesystem/);
-  assert.match(request.options.configOverrides[0], /"\/project"="write"/);
+  assert.match(request.options.configOverrides[0], /"\/project"="read"/);
   assert.match(request.prompt, /not a ticket/);
+  assert.match(request.prompt, /translate the owner's Vietnamese request into concise English code\/business terms/);
+  assert.match(request.prompt, /Codex command_execution only for read-only project discovery with rg\/find/);
   assert.deepEqual(logs.map(({ event_name }) => event_name), ["owner.sdk_route", "owner.sdk_request_started", "owner.sdk_request_completed"]);
-  await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "command_execution", command: "git add -A" } }), { code: "TOOL_FORBIDDEN" });
-  await request.onEvent({ type: "item.started", item: { type: "command_execution", command: "git commit -m 'fix' -- backend/file.js" } });
+  await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "command_execution", command: "git status" } }), { code: "TOOL_FORBIDDEN" });
+  await request.onEvent({ type: "item.started", item: { type: "command_execution", command: "rg --files backend/src" } });
+  await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "command_execution", command: "rg --pre cat secret" } }), { code: "TOOL_FORBIDDEN" });
+  await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "command_execution", command: "rg --file=/etc/passwd secret" } }), { code: "TOOL_FORBIDDEN" });
+  await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "file_change" } }), { code: "TOOL_FORBIDDEN" });
+  await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "web_search" } }), { code: "TOOL_FORBIDDEN" });
+  await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "mcp_tool_call", server: "filesystem", tool: "read_file" } }), { code: "TOOL_FORBIDDEN" });
+  await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "mcp_tool_call", server: "forge", tool: "Bash" } }), { code: "TOOL_FORBIDDEN" });
 });
 
-test("System Engineer Claude chat scopes Claude built-ins to the project sandbox", async () => {
+test("System Engineer Claude chat enables built-in Glob/Grep and keeps other operations on Forge", async () => {
   let request;
   const profile = { agent_id: "engineer", agent_name: "Engineer", role: "system_engineer", provider: "anthropic" };
   const sdk = { conversationMode: "history", execute: async (input) => { request = input; return { text: "done" }; } };
-  const gitService = { status: async () => "", diffWorkingTree: async () => "" };
-  const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => profile }, sdkGateways: { anthropic: sdk }, fallbackStream: async function* () {}, fileService: fileService(), gitService, projectRoot: "/project", projectLogger: () => {} });
+  const gitService = { status: async () => "", diffWorkingTree: async () => "", commit: async () => ({ sha: "a".repeat(40) }), pushCommit: async (sha) => ({ sha }) };
+  const testService = { runCheck: async () => ({ status: "passed" }) };
+  const conversationStateStore = memoryStateStore();
+  const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => profile }, sdkGateways: { anthropic: sdk }, fallbackStream: async function* () {}, fileService: fileService(), conversationStateStore, testService, gitService, projectRoot: "/project", projectLogger: () => {} });
   for await (const chunk of stream({ agentId: "engineer", payload: { text: "inspect" }, correlationId: "CORR-ENGINEER-CLAUDE", conversationId: "CONV-ENGINEER-CLAUDE" })) assert.equal(typeof chunk.text, "string");
-  assert.deepEqual(request.options.tools, ["Bash", "Edit", "Write"]);
-  assert.ok(request.options.allowedTools.includes("mcp__forge__git_status"));
-  assert.deepEqual(request.options.sandbox.filesystem, { denyRead: ["/"], allowRead: ["/project"], allowWrite: ["/project"] });
-  assert.deepEqual(request.options.permissions, { blockReadsOutsideWorkingDirectories: true });
-  assert.equal((await request.options.canUseTool("Bash", { command: "git add -A" }, {})).behavior, "deny");
-  assert.equal((await request.options.canUseTool("Bash", { command: "git commit -m 'fix' -- backend/file.js" }, {})).behavior, "allow");
+  assert.deepEqual(request.options.tools, ["Glob", "Grep"]);
+  assert.equal(request.options.allowedTools.includes("Glob"), false);
+  assert.equal(request.options.allowedTools.includes("Grep"), false);
+  assert.equal(request.options.allowedTools.includes("mcp__forge__list_files"), false);
+  assert.ok(request.options.allowedTools.includes("mcp__forge__edit_diff"));
+  assert.ok(request.options.allowedTools.includes("mcp__forge__run_check"));
+  assert.equal(request.options.sandbox, undefined);
+  assert.equal(typeof request.options.canUseTool, "function");
+  assert.deepEqual(await request.options.canUseTool("Grep", { path: "backend/src", pattern: "sample" }), { behavior: "allow", updatedInput: { path: "backend/src", pattern: "sample" } });
+  assert.equal((await request.options.canUseTool("Glob", { path: "../../etc" })).behavior, "deny");
 });
 
-test("System Engineer Forge sed_lines reads project files without a ticket manifest", async () => {
+test("Claude gateway executes native search with project path approval and logs its result", async () => {
+  let sdkOptions;
+  const events = [];
+  const profile = { agent_id: "engineer", agent_name: "Engineer", role: "system_engineer", provider: "anthropic", model: "claude-test", gateway_url: "https://example.test/v1", credential_ref: "test", enabled: true, status: "ready" };
+  const gateway = createClaudeSdkGateway({ configuration: { getById: () => profile }, credentialResolver: async () => "secret", queryFn: ({ options }) => {
+    sdkOptions = options;
+    return (async function* () {
+      assert.equal((await options.canUseTool("Glob", { path: "backend", pattern: "**/*.js" })).behavior, "allow");
+      assert.equal((await options.canUseTool("Grep", { path: "../../outside", pattern: "secret" })).behavior, "deny");
+      yield { type: "assistant", message: { content: [{ type: "tool_use", id: "glob-1", name: "Glob", input: { path: "backend", pattern: "**/*.js" } }] } };
+      yield { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "glob-1", content: [{ type: "text", text: "backend/example.js" }] }] } };
+      yield { type: "assistant", message: { content: [{ type: "text", text: "Found the source." }] } };
+    })();
+  } });
+  const logger = (event) => events.push(event);
+  const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => profile }, sdkGateways: { anthropic: gateway }, fallbackStream: async function* () {}, fileService: fileService(), testService: { runCheck: async () => ({ status: "passed" }) }, gitService: { status: async () => "", diffWorkingTree: async () => "" }, projectRoot: "/project", projectLogger: logger });
+  const chunks = [];
+  for await (const chunk of stream({ agentId: "engineer", payload: { text: "find a source file" }, correlationId: "CORR-CLAUDE-SEARCH", conversationId: "CONV-CLAUDE-SEARCH" })) chunks.push(chunk.text);
+  assert.deepEqual(sdkOptions.tools, ["Glob", "Grep"]);
+  assert.equal(sdkOptions.allowedTools.includes("Glob"), false);
+  assert.deepEqual(chunks, ["Found the source."]);
+  assert.deepEqual(events.filter((event) => event.event_name === "owner.builtin_search").map(({ status }) => status), ["failed", "started", "success"]);
+});
+
+test("System Engineer Forge read_lines reads project files without a ticket manifest", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "nodeforge-system-engineer-"));
   try {
     const files = createFileService({ projectRoot });
@@ -83,7 +152,7 @@ test("System Engineer Forge sed_lines reads project files without a ticket manif
     const context = { task_id: "CORR-ENGINEER-SED", agent_identity: { agent_id: "engineer", role: "system_engineer" }, project_wide_access: true };
     const { definitions, registry } = createOwnerConversationTools({ role: "system_engineer", projectRoot, fileService: files, gitService: { status: async () => "", diffWorkingTree: async () => "" }, context, projectLogger: () => {} });
     context.capabilities = definitions.map(({ name }) => name);
-    const result = await registry.sed_lines.execute({ path: "src/example.js", start_line: 1, end_line: 1 }, context);
+    const result = await registry.read_lines.execute({ path: "src/example.js", start_line: 1, end_line: 1 }, context);
     assert.equal(result.stdout, "export const answer = 42;\n");
   } finally { await rm(projectRoot, { recursive: true, force: true }); }
 });
@@ -121,11 +190,33 @@ test("OpenAI Agents SDK registers callable Forge functions for owner conversatio
   let agentOptions;
   const profile = { agent_id: "architect", agent_name: "Architect", role: "architecture_manager", model: "gpt-test", reasoning: { effort: "none" } };
   const gateway = createOpenAiSdkGateway({ providerFactory: { createForAgent: async () => ({ provider: { close: async () => {} }, profile }) }, AgentClass: class { constructor(options) { agentOptions = options; } }, runner: async () => ({ finalOutput: "done" }) });
-  const result = await gateway.execute({ agent: profile, prompt: "inspect", correlationId: "CORR-OPENAI", options: { forgeTools: { definitions: [{ name: "rg_files", description: "List files", input_schema: { type: "object", properties: {}, additionalProperties: false } }], registry: { rg_files: { execute: async () => ({ stdout: "a.js" }) } }, context: {} } } });
-  assert.equal(agentOptions.tools[0].name, "rg_files");
+  const result = await gateway.execute({ agent: profile, prompt: "inspect", correlationId: "CORR-OPENAI", options: { forgeTools: { definitions: [{ name: "list_files", description: "List files", input_schema: { type: "object", properties: {}, additionalProperties: false } }], registry: { list_files: { execute: async () => ({ stdout: "a.js" }) } }, context: {} } } });
+  assert.equal(agentOptions.tools[0].name, "list_files");
   assert.equal(typeof agentOptions.tools[0].invoke, "function");
   assert.deepEqual(JSON.parse(await agentOptions.tools[0].invoke(new RunContext(), "{}")), { stdout: "a.js" });
   assert.equal(result.text, "done");
+});
+
+test("OpenAI Agents SDK registers the native shell tool only when owner search is enabled", async () => {
+  let agentOptions;
+  const profile = { agent_id: "engineer", agent_name: "Engineer", role: "system_engineer", model: "gpt-test", reasoning: { effort: "none" } };
+  const gateway = createOpenAiSdkGateway({ providerFactory: { createForAgent: async () => ({ provider: { close: async () => {} }, profile }) }, AgentClass: class { constructor(options) { agentOptions = options; } }, runner: async () => ({ finalOutput: "done" }) });
+  const shell = { run: async ({ commands }) => ({ output: [{ stdout: commands.join("\n"), stderr: "", outcome: { type: "exit", exitCode: 0 } }] }) };
+  await gateway.execute({ agent: profile, prompt: "search", correlationId: "CORR-OPENAI-SHELL", options: { builtinSearchShell: shell } });
+  const builtin = agentOptions.tools.find((candidate) => candidate.type === "shell");
+  assert.ok(builtin);
+  assert.equal((await builtin.shell.run({ commands: ["rg --files"] })).output[0].stdout, "rg --files");
+});
+
+test("OpenAI built-in shell accepts bounded project search and rejects command composition", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "nodeforge-search-shell-"));
+  const logs = [];
+  try {
+    const shell = createOwnerBuiltinSearchShell({ projectRoot, logger: (event) => logs.push(event) });
+    await assert.rejects(() => shell.run({ commands: ["rg --files; rm -rf ."] }), /single rg or find/);
+    await assert.rejects(() => shell.run({ commands: ["find . -exec cat /etc/passwd"] }), /read-only find/);
+    assert.deepEqual(logs.map(({ status, error_code }) => [status, error_code]), [["failed", "SEARCH_COMMAND_FORBIDDEN"], ["failed", "SEARCH_COMMAND_FORBIDDEN"]]);
+  } finally { await rm(projectRoot, { recursive: true, force: true }); }
 });
 
 test("search_tree includes empty folders and filters hidden or secret paths", async () => {
@@ -143,7 +234,7 @@ test("Claude gateway passes the owner MCP server without cloning its live instan
   const chunks = [];
   for await (const chunk of stream({ agentId: "architect", payload: { text: "find files" }, correlationId: "CORR-CLAUDE", conversationId: "CONV-CLAUDE" })) chunks.push(chunk.text);
   assert.equal(options.mcpServers.forge.type, "sdk");
-      assert.ok(options.allowedTools.includes("mcp__forge__rg_files"));
+      assert.ok(options.allowedTools.includes("mcp__forge__list_files"));
   assert.equal(options.forgeTools, undefined);
   assert.deepEqual(chunks, ["Found file."]);
 });

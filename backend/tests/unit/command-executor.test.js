@@ -9,3 +9,13 @@ test("terminates a verification command at timeout", async () => {
   assert.equal(result.timedOut, true);
   assert.equal(result.exitCode, null);
 });
+
+test("cancels a verification command and its process group on request", async () => {
+  const execute = createProjectCommandExecutor({ projectRoot: process.cwd() });
+  const controller = new AbortController();
+  const running = execute(`${JSON.stringify(process.execPath)} -e "setTimeout(() => {}, 5000)"`, { signal: controller.signal });
+  setTimeout(() => controller.abort(), 30);
+  const result = await running;
+  assert.equal(result.cancelled, true);
+  assert.equal(result.exitCode, null);
+});

@@ -21,7 +21,19 @@ function humanLine(entry) {
     const detail = provider ? ` (${provider})` : "";
     const state = entry.status === "success" ? "PASS" : entry.status === "started" ? "START" : "FAIL";
     const error = entry.error_code ? ` (${entry.error_code})` : "";
-    return `[${time}] ${symbol.padEnd(4)} ${actor}${detail} ${tool} ${state}${error}${ticket ? ` {${ticket}}` : ""}`;
+    const result = entry.payload?.result ?? {};
+    const verification = result.verification ?? {};
+    const facts = [
+      entry.payload?.path ? `path=${entry.payload.path}` : null,
+      result.job_id ? `job=${result.job_id}` : null,
+      verification.status ? `check=${verification.status}` : result.status ? `status=${result.status}` : null,
+      Number.isInteger(result.exit_code) ? `exit=${result.exit_code}` : verification.checks?.[0]?.exit_code !== undefined ? `exit=${verification.checks[0].exit_code}` : null,
+      result.commit_sha ? `sha=${result.commit_sha.slice(0, 12)}` : null,
+      result.branch ? `branch=${result.branch}` : null,
+      Number.isInteger(result.changed_files) ? `files=${result.changed_files}` : null,
+      Number.isInteger(result.stdout_lines) ? `lines=${result.stdout_lines}` : null
+    ].filter(Boolean).join(" ");
+    return `[${time}] ${symbol.padEnd(4)} ${actor}${detail} ${tool} ${state}${facts ? ` ${facts}` : ""}${error}${ticket ? ` {${ticket}}` : ""}`;
   }
   if (entry.event_name === "supervisor.tool_ticket_failed" && tool) {
     const bits = [`${agent ? `[${agent}]` : "[forge]"} ${tool} FAIL`];

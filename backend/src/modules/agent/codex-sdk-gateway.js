@@ -112,7 +112,10 @@ export function createCodexSdkGateway({
       let turnFailure = null;
       for await (const rawEvent of streamed.events) {
         const event = sanitizeItems(rawEvent, credential);
-        if (typeof onEvent === "function") await onEvent(event);
+        if (typeof onEvent === "function") {
+          try { await onEvent(event); }
+          catch (error) { controller.abort(error); throw error; }
+        }
         if (event.type === "item.completed") {
           items.push(event.item);
           if (event.item?.type === "agent_message") finalResponse = event.item.text ?? finalResponse;

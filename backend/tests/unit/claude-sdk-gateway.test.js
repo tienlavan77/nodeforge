@@ -41,6 +41,28 @@ test("executes the selected agent through a third-party gateway", async () => {
   assert(!JSON.stringify(result).includes("gateway-secret"));
 });
 
+test("preserves Claude permission callbacks while cloning serializable options", async () => {
+  const canUseTool = async (toolName, input) => ({ behavior: "allow", updatedInput: input });
+  let request;
+  const gateway = createClaudeSdkGateway({
+    configuration: { getById: () => profile() },
+    credentialResolver: () => "secret",
+    queryFn: ({ options }) => { request = options; return query([]); }
+  });
+
+  await gateway.execute({
+    agentId: "coder", correlationId: "CORR-PERMISSION", prompt: "inspect",
+    options: { canUseTool, sandbox: { enabled: true }, tools: ["Bash"] }
+  });
+
+  assert.equal(request.canUseTool, canUseTool);
+  assert.deepEqual(await request.canUseTool("Bash", { command: "git status" }, {}), {
+    behavior: "allow", updatedInput: { command: "git status" }
+  });
+  assert.deepEqual(request.sandbox, { enabled: true });
+  assert.deepEqual(request.tools, ["Bash"]);
+});
+
 // Stops an active Claude ticket turn without treating owner cancellation as a timeout.
 test("owner Stop aborts the active Claude SDK turn", async () => {
   const controller = new AbortController();
@@ -48,7 +70,7 @@ test("owner Stop aborts the active Claude SDK turn", async () => {
   const gateway = createClaudeSdkGateway({
     configuration: { getById: () => profile() }, credentialResolver: () => "secret",
     queryFn: ({ options }) => ({
-      async *[Symbol.asyncIterator]() { await new Promise((_resolve, reject) => options.abortController.signal.addEventListener("abort", () => reject(options.abortController.signal.reason), { once: true })); }
+      async *[Symbol.asyncIterator]() { yield await new Promise((_resolve, reject) => options.abortController.signal.addEventListener("abort", () => reject(options.abortController.signal.reason), { once: true })); }
     })
   });
   const running = gateway.execute({ agentId: "coder", correlationId: "STOP", prompt: "Implement", abortSignal: controller.signal });

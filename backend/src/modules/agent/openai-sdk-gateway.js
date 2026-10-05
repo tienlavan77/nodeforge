@@ -1,5 +1,5 @@
 // Executes OpenAI Agents SDK runs with per-agent provider and timeout control.
-import { Agent, Runner, tool } from "@openai/agents";
+import { Agent, Runner, shellTool, tool } from "@openai/agents";
 import { ConfigurationError } from "../../shared/errors.js";
 
 // Creates a gateway that runs an Agent via the OpenAI Agents SDK.
@@ -23,13 +23,16 @@ export function createOpenAiSdkGateway({ providerFactory, runner = createTracing
         name: normalized.agent_name,
         instructions: `You are the NodeForge ${normalized.role} agent. Respond briefly and clearly.`,
         model: normalized.model,
-        tools: (options.forgeTools?.definitions ?? []).map((definition) => tool({
+        tools: [
+          ...(options.builtinSearchShell ? [shellTool({ shell: options.builtinSearchShell, needsApproval: false })] : []),
+          ...(options.forgeTools?.definitions ?? []).map((definition) => tool({
           name: definition.name,
           description: definition.description,
           parameters: compatibleToolParameters(definition.input_schema),
           strict: false,
           execute: async (input) => JSON.stringify(await options.forgeTools.registry[definition.name].execute(input, options.forgeTools.context))
-        }))
+          }))
+        ]
       };
       if (normalized.reasoning.effort !== "none") agentOptions.modelSettings = { reasoning: { effort: normalized.reasoning.effort } };
       const openaiAgent = new AgentClass(agentOptions);

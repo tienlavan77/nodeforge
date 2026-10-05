@@ -42,25 +42,25 @@ export function createCheckRunner({ projectRoot, projectId, spawnProcess, create
   const execute = createProjectCommandExecutor({ projectRoot, spawnProcess });
 
   return Object.freeze({
-    async run(plan, { taskId, ticketId = taskId, conversationId = taskId ? `CONV-${taskId}` : undefined, sessionId, timeoutMs, eventSink } = {}) {
+    async run(plan, { taskId, ticketId = taskId, conversationId = taskId ? `CONV-${taskId}` : undefined, sessionId, timeoutMs, eventSink, signal } = {}) {
       validatePlan(plan);
       const results = [];
       for (const check of plan.checks.filter(({ type }) => CHECK_TYPES.has(type))) {
-        results.push(await runCheck(check, { taskId, ticketId, conversationId, sessionId, timeoutMs, eventSink }));
+        results.push(await runCheck(check, { taskId, ticketId, conversationId, sessionId, timeoutMs, eventSink, signal }));
       }
       return Object.freeze(results);
     }
   });
 
   // Executes a single check command and parses diagnostics into results.
-  async function runCheck(check, { taskId, ticketId, conversationId, sessionId, timeoutMs, eventSink }) {
+  async function runCheck(check, { taskId, ticketId, conversationId, sessionId, timeoutMs, eventSink, signal }) {
     const startedAt = clock();
     const effectiveTimeout = timeoutMs ?? defaultTimeout(check.type);
     const commandId = createId();
     emitCommand(eventSink, taskId, ticketId, conversationId, commandId, check.command, check.type, startedAt);
-    const execution = await execute(check.command, { timeoutMs: effectiveTimeout });
+    const execution = await execute(check.command, { timeoutMs: effectiveTimeout, signal });
     const finishedAt = clock();
-    const status = execution.timedOut ? "timeout" : execution.exitCode === 0 ? "passed" : "failed";
+    const status = execution.cancelled ? "cancelled" : execution.timedOut ? "timeout" : execution.exitCode === 0 ? "passed" : "failed";
     if (execution.timedOut) emitEvent({ type: "TEST_TIMEOUT", task_id: taskId, session_id: sessionId, command: check.command, timeout_ms: effectiveTimeout });
     const result = {
       id: createId(),
