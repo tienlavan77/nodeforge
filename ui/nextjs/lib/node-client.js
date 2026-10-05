@@ -51,6 +51,9 @@ export function createNodeClient() {
     async getGitStatus(projectId) {
       return requestJson(forgeV1("/git/status", { project: projectId }), { fallbackError: "Git status is unavailable." });
     },
+    async commitAndPush(projectId, message) {
+      return requestJson(forgeV1("/git/commit-push", { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, message }), fallbackError: "Git commit and push failed." });
+    },
     async getMarkdownFile(projectId, path) {
       return requestJson(forgeV1("/files/markdown", { project: projectId, path }), { fallbackError: "Markdown preview is unavailable." });
     },

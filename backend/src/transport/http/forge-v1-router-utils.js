@@ -36,3 +36,8 @@ export async function readJson(request) {
     throw new ConfigurationError("Request body must be valid JSON.");
   }
 }
+
+// Accepts only local Markdown paths for project preview routes.
+export function isSafeMarkdownPath(path) {
+  return typeof path === "string" && path.endsWith(".md") && !path.startsWith("/") && !path.includes("\\") && !path.split("/").includes("..");
+}

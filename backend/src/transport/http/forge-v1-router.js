@@ -6,7 +6,8 @@ import { routeTicketReview } from "./forge-v1-ticket-review-routes.js";
 import { routePlan } from "./forge-v1-plan-routes.js";
 import { routeDirectCode } from "./forge-v1-direct-code-routes.js";
 import { routeTicketStop } from "./forge-v1-ticket-stop-route.js";
-import { normalizeParts, unavailable, runRequestsFresh, requireProject, readJson } from "./forge-v1-router-utils.js";
+import { routeForgeV1Git } from "./forge-v1-git-routes.js";
+import { normalizeParts, unavailable, runRequestsFresh, requireProject, readJson, isSafeMarkdownPath } from "./forge-v1-router-utils.js";
 
 // Creates the Forge v1 HTTP router with checkpoint decoration.
 export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrchestrationService, reviewTicket, ticketHumanReviewService, runToolLab, directCodeRequest, projectStream, onWatcherEvent, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, conversationCrudService, conversationAuditHistoryService, architectureWorkspaceService, humanDecisionService, agentSettingsService, listResumableCheckpoints, gitService, fileService, expectedProjectId, planStore, markdownPlanStore, sprintRegistry, planOwnerAuth } = {}) {
@@ -38,19 +39,8 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrch
     const reviewResult = await routeTicketReview({ method, parts, projectId, body, requestId, correlationId, reviewTicket, ticketHumanReviewService });
     if (reviewResult) return reviewResult;
 
-    if (method === "GET" && parts.length === 1 && parts[0] === "health") {
-      return { status: 200, body: { status: "ok", service: "nodeforge" } };
-    }
-
-    if (method === "GET" && parts.length === 1 && parts[0] === "version") {
-      return { status: 200, body: { api: "forge/v1", service: "nodeforge" } };
-    }
-    if (method === "GET" && parts.length === 2 && parts[0] === "git" && parts[1] === "status") {
-      requireProject(projectId);
-      if (projectId !== expectedProjectId) throw Object.assign(new ConfigurationError("Git status project is unavailable."), { statusCode: 404, code: "PROJECT_NOT_FOUND" });
-      if (!gitService?.statusSummary) throw unavailable("Git Status");
-      return { status: 200, body: await gitService.statusSummary() };
-    }
+    const gitResult = await routeForgeV1Git({ method, parts, body, projectId, expectedProjectId, gitService });
+    if (gitResult) return gitResult;
     if (method === "GET" && parts.length === 2 && parts[0] === "files" && parts[1] === "markdown") {
       requireProject(projectId);
       if (projectId !== expectedProjectId) throw Object.assign(new ConfigurationError("Project file is unavailable."), { statusCode: 404, code: "PROJECT_NOT_FOUND" });
@@ -254,9 +244,6 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrch
   }
 }
 
-function isSafeMarkdownPath(path) {
-  return typeof path === "string" && path.endsWith(".md") && !path.startsWith("/") && !path.includes("\\") && !path.split("/").includes("..");
-}
 
 // RUN resumes from a crash checkpoint by default; `?fresh=true` or a
 // `fresh: true` body forces a clean restart that clears prior state.
