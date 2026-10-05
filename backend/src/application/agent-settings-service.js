@@ -158,7 +158,7 @@ function validateAgent(profile) {
   if (profile.reasoning !== undefined && (!profile.reasoning || typeof profile.reasoning !== "object" || Array.isArray(profile.reasoning) || !["none", "low", "medium", "high", "max"].includes(profile.reasoning.effort))) throw new ConfigurationError("Reasoning effort is invalid.");
   if (profile.use_responses !== undefined && typeof profile.use_responses !== "boolean") throw new ConfigurationError("use_responses must be boolean.");
   if (profile.use_previous_response_id !== undefined && typeof profile.use_previous_response_id !== "boolean") throw new ConfigurationError("use_previous_response_id must be boolean.");
-  if (!["coder", "reviewer", "sprint_leader", "architecture_manager", "linguist"].includes(profile.role)) throw new ConfigurationError("Role is invalid.");
+  if (!["coder", "reviewer", "sprint_leader", "architecture_manager", "system_engineer", "linguist"].includes(profile.role)) throw new ConfigurationError("Role is invalid.");
   normalizeTeam(profile.team);
 }
 
@@ -170,7 +170,7 @@ function normalizeStatus(status) {
 
 // Normalizes and validates agent role values.
 function normalizeRole(role) {
-  if (typeof role !== "string" || !["coder", "reviewer", "sprint_leader", "architecture_manager", "linguist"].includes(role)) throw new ConfigurationError("Role is invalid.");
+  if (typeof role !== "string" || !["coder", "reviewer", "sprint_leader", "architecture_manager", "system_engineer", "linguist"].includes(role)) throw new ConfigurationError("Role is invalid.");
   return role;
 }
 

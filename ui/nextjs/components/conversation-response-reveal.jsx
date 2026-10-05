@@ -2,10 +2,11 @@
 // Reveal live conversation responses at a readable pace even when the agent sends one large event.
 
 import { useEffect, useRef, useState } from "react";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { MessageContent } from "./conversation-message-content.jsx";
 
 // Displays saved messages immediately and progressively reveals new agent responses.
-export function ConversationResponseReveal({ text, reveal = false, onReveal }) {
+export function ConversationResponseReveal({ text, reveal = false, onReveal, onMarkdownOpen }) {
   const fullText = String(text ?? "");
   const [visibleText, setVisibleText] = useState(reveal ? "" : fullText);
   const visibleRef = useRef(visibleText);
@@ -47,5 +48,5 @@ export function ConversationResponseReveal({ text, reveal = false, onReveal }) {
     return () => window.clearTimeout(timer);
   }, [fullText, reveal]);
 
-  return <MessageContent text={reveal ? visibleText : fullText} />;
+  return <MessageContent text={reveal ? visibleText : fullText} onMarkdownOpen={onMarkdownOpen} />;
 }

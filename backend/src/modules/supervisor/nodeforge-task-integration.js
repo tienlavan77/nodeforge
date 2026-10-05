@@ -127,13 +127,13 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
     const explained = result.tool_events?.some((event) => (event.name ?? event.tool) === "respond_to_review" && event.status !== "failed");
     if (!reviewResume && (reported || explained)) await checkpoints?.complete?.(taskId, { phase: reported ? "coder_reported" : "coder_response_submitted", agent_id: selected.agent_id, provider: selected.provider });
     projectLogger({ event_name: reviewResume ? "supervisor.review_resumed" : "supervisor.agent_execution_completed", level: "info", status: "success", message: reviewResume ? "Supervisor resumed review from completed Coder checkpoint." : "Agent completed execution.", task_id: request.task_id, correlation_id: request.correlation_id, source: "nodeforge-task-integration", payload: { request_id: request.request_id, agent_id: selected.agent_id, agent_name: selected.agent_name, provider: selected.provider ?? null, ...(reviewResume ? { review_attempt: reviewResume.review_attempt } : { tool_events: result.tool_events }) } });
-    if (claim && !standalone) await completeCoderTicket({ workspace, agentOccupancy, claim, taskId, ownerId, request, publishTicketOutcome, result });
+    const completion = claim && !standalone ? await completeCoderTicket({ workspace, agentOccupancy, claim, taskId, ownerId, request, publishTicketOutcome, result }) : null;
     if (claim && standalone && payload.direct_code === true && workspace) {
       await workspace.integrate();
       await workspace.changeLedger.release();
     }
     if (claim && standalone) await agentOccupancy.release({ claimId: claim.claim_id, taskId, supervisorId: ownerId, reason: payload.direct_code === true ? "direct_code_completed" : "tool_test_completed" });
-    return { task_id: request.task_id, request_id: request.request_id, agent_id: selected.agent_id, agent_name: selected.agent_name, role: selected.role, status: "completed", job_id: queued?.id, response: result.summary, tool_events: result.tool_events };
+    return { task_id: request.task_id, request_id: request.request_id, agent_id: selected.agent_id, agent_name: selected.agent_name, role: selected.role, status: completion?.status ?? "completed", job_id: queued?.id, response: result.summary, tool_events: result.tool_events };
   }
   // Dispatches a selected profile through its configured provider SDK for code and revisions.
   async function runSelected(selected, request, ticketExecutors = executors) {

@@ -43,7 +43,7 @@ const checkTestInput = {
 
 const commitChangesInput = {
   message: z.string().trim().min(1).max(200),
-  paths: z.array(z.string().min(1)).min(1).max(100)
+  paths: z.array(z.string().min(1)).min(1).max(100).optional()
 };
 
 const reportDoneInput = {

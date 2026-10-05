@@ -11,7 +11,7 @@ const plan = {
   objective: "Upload a sprint plan",
   tickets: [{
     id: "TICKET-UPLOAD-1", project_id: "PROJECT-UPLOAD-1", roadmap_id: "ROADMAP-UPLOAD-1", sprint_id: "SPRINT-UPLOAD-1",
-    title: "Validate upload", objective: "Validate upload", acceptance_criteria: ["The plan is stored"],
+    title: "Validate upload", objective: "Validate upload", acceptance_criteria: ["The plan is stored"], verification_plan: [{ criterion_ids: ["AC-1"], kind: "test", test_path: "backend/tests/unit/sprint-plan-upload.test.js" }],
     priority: "high", provenance: { source: "sprint_plan", source_id: "SPRINT-UPLOAD-1", created_at: "2026-08-21T00:00:00Z" }
   }],
   exit_criteria: ["The plan is visible"]

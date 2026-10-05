@@ -1,16 +1,23 @@
 "use client";
-// HomePage — main workspace with dashboard and real-time updates.
+// HomePage presents the NodeForge conversation workspace while preserving its existing project and stream contracts.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
-import { NodeForgeHeader } from "../components/NodeForgeHeader.jsx";
-import {
-  AgentProcessStatus,
-  SprintPlanDashboard,
-  UploadSprintPlanDialog
-} from "../components/NodeForgePanels.jsx";
-import { ConversationsAccordion } from "../components/ConversationsAccordion.jsx";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { ConversationSidebar } from "../components/conversation-sidebar.jsx";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+import { ConversationsAccordion } from "../components/ConversationsAccordion.jsx";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+import { ConversationResponseReveal } from "../components/conversation-response-reveal.jsx";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+import { HomeChatComposer } from "../components/home-chat-composer.jsx";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+import { PendingPlanApproval } from "../components/pending-plan-approval.jsx";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+import { GlobalToast } from "../components/GlobalToast.jsx";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+import { InlineError } from "../components/InlineError.jsx";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+import { MarkdownPreviewPanel } from "../components/markdown-preview-panel.jsx";
 import { createNodeClient, MESSAGE_INTENTS } from "../lib/node-client.js";
 import { architectureManagerSelection, writeArchitectureManagerAgent } from "../lib/architecture-manager-selection.js";
 import { PROJECT_ID, ARCHITECTURE_CONVERSATION_ID, SPRINT_CACHE_KEY, CHAT_STATE_KEY } from "../lib/home-page-constants.js";
@@ -19,31 +26,26 @@ import { readChatState, writeChatState } from "../lib/home-page-conversation-sta
 import { displayMessageTime, agentDisplayName } from "../lib/home-page-watcher-events.js";
 import { useProjectEventStream } from "../lib/home-page-event-stream.js";
 import { createHomeMessageHandlers } from "../lib/home-page-message-handlers.js";
-import { ConversationResponseReveal } from "../components/conversation-response-reveal.jsx";
-import { HomeChatComposer } from "../components/home-chat-composer.jsx";
-import { PendingPlanApproval } from "../components/pending-plan-approval.jsx";
 import { useConversationMessageHistory } from "../lib/use-conversation-message-history.js";
-import { GlobalToast } from "../components/GlobalToast.jsx";
-import { InlineError } from "../components/InlineError.jsx";
-import { ResponsiveWorkspaceRegion } from "../components/responsive-workspace-region.jsx";
-import { GitStatusIndicator } from "../components/git-status-indicator.jsx";
 import { normalizeUiError } from "../lib/ui-error.js";
 
-// Main workspace page with dashboard and live event handling.
+// Renders the desktop conversation surface with the existing history, streaming, retry, and approval components.
 export default function HomePage() {
   const client = useMemo(() => createNodeClient(), []);
   const chatMessagesRef = useRef(null);
   const [agentDirectory, setAgentDirectory] = useState([]);
   const [selectedArchitectureManagerId, setSelectedArchitectureManagerId] = useState("");
   const [chatState, setChatState] = useState("");
-  const [dashboard, setDashboard] = useState(null);
-  const [dashboardState, setDashboardState] = useState("loading");
-  const [uploadOpen, setUploadOpen] = useState(false);
-  const [openRegion, setOpenRegion] = useState(null);
-  const [watcherEvents, setWatcherEvents] = useState([]);
-  const [watcherState, setWatcherState] = useState("connecting");
-  const [watcherPulseId, setWatcherPulseId] = useState(0);
-  const [agentProcess, setAgentProcess] = useState(null);
+  const [, setDashboard] = useState(null);
+  const [, setDashboardState] = useState("loading");
+  const [openSidebar, setOpenSidebar] = useState(false);
+  const [newConversationRequest, setNewConversationRequest] = useState(0);
+  const [markdownPreviewPath, setMarkdownPreviewPath] = useState("");
+  const projects = [{ id: PROJECT_ID, name: "NodeForge" }];
+  const [, setWatcherEvents] = useState([]);
+  const [, setWatcherState] = useState("connecting");
+  const [, setWatcherPulseId] = useState(0);
+  const [, setAgentProcess] = useState(null);
   const [conversations, setConversations] = useState([]);
   const [activeConversationId, setActiveConversationId] = useState(null);
   const activeConversationIdRef = useRef(null);
@@ -51,17 +53,13 @@ export default function HomePage() {
   const [agentTyping, setAgentTyping] = useState(false);
   const lastSentRef = useRef(null);
   const sendingRef = useRef(false);
+  const [globalError, setGlobalError] = useState(null);
 
   const architectureManagers = useMemo(() => agentDirectory
     .filter((agent) => agent?.role === "architecture_manager" && agent?.enabled === true)
-    .map((agent) => ({
-      ...agent,
-      id: agent.agent_id ?? agent.id,
-      label: agent.agent_name ?? agent.name ?? agent.label ?? agent.agent_id ?? agent.id
-    }))
+    .map((agent) => ({ ...agent, id: agent.agent_id ?? agent.id, label: agent.agent_name ?? agent.name ?? agent.label ?? agent.agent_id ?? agent.id }))
     .filter((agent) => agent.id), [agentDirectory]);
   const selectedArchitectureManager = architectureManagers.find((agent) => agent.id === selectedArchitectureManagerId) ?? null;
-
   const streamConversationId = activeConversationId ?? selectedArchitectureManager?.conversation_id ?? selectedArchitectureManager?.conversationId ?? ARCHITECTURE_CONVERSATION_ID;
   activeConversationIdRef.current = streamConversationId;
   agentDirectoryRef.current = agentDirectory;
@@ -72,64 +70,48 @@ export default function HomePage() {
 
   useEffect(() => {
     let active = true;
-    client.getAgents()
-      .then((payload) => {
-        if (!active) return;
-        const agents = Array.isArray(payload) ? payload : payload?.agents ?? payload?.items ?? [];
-        setAgentDirectory(agents);
-        const primary = agents.find((a) => a?.process || a?.processStatus || a?.agentProcess || a?.pid != null) ?? agents[0] ?? null;
-        if (primary) setAgentProcess(primary);
-        const storedAgentId = architectureManagerSelection(PROJECT_ID, "");
-        if (agents.some((agent) => (agent.agent_id ?? agent.id) === storedAgentId && agent.role === "architecture_manager" && agent.enabled === true)) {
-          setSelectedArchitectureManagerId(storedAgentId);
-        }
-      })
-      .catch(() => { if (active) setAgentDirectory([]); });
+    client.getAgents().then((payload) => {
+      if (!active) return;
+      const agents = Array.isArray(payload) ? payload : payload?.agents ?? payload?.items ?? [];
+      setAgentDirectory(agents);
+      const stored = architectureManagerSelection(PROJECT_ID, "");
+      const selected = agents.find((agent) => (agent.agent_id ?? agent.id) === stored && agent?.role === "architecture_manager" && agent?.enabled === true)
+        ?? agents.find((agent) => agent?.role === "architecture_manager" && agent?.enabled === true);
+      setSelectedArchitectureManagerId(selected?.agent_id ?? selected?.id ?? "");
+    }).catch(() => { if (active) setAgentDirectory([]); });
     return () => { active = false; };
   }, [client]);
 
-  useEffect(() => {
-    if (selectedArchitectureManager?.id !== selectedArchitectureManagerId) setSelectedArchitectureManagerId(selectedArchitectureManager?.id ?? "");
-  }, [selectedArchitectureManager?.id, selectedArchitectureManagerId]);
-
-  const [globalError, setGlobalError] = useState(null);
-
-  // Loads dashboard data from the backend.
+  // Keeps the former dashboard cache and project refresh active without rendering a dashboard on the conversation surface.
   async function loadDashboard() {
     try {
       const sprintPlans = await client.listSprints(PROJECT_ID);
-      const nextDashboard = toDashboard(sprintPlans);
-      setDashboard(nextDashboard);
+      setDashboard(toDashboard(sprintPlans));
+      // eslint-disable-next-line no-silent-catch -- The cache is optional and never changes server state.
       try { window.sessionStorage.setItem(SPRINT_CACHE_KEY, JSON.stringify(sprintPlans)); } catch { /* cache is optional */ }
       setDashboardState("ready");
       setGlobalError(null);
     } catch (rawError) {
-      const normalized = normalizeUiError(rawError, { fallback: "Could not load sprint data." });
       setDashboardState("error");
-      setGlobalError({ ...normalized, _retry: () => loadDashboard() });
+      setGlobalError({ ...normalizeUiError(rawError, { fallback: "Could not load project data." }), _retry: loadDashboard });
     }
   }
 
   useEffect(() => {
     const cached = readSprintCache();
-    if (cached) {
-      setDashboard(cached);
-      setDashboardState("ready");
-    }
-    loadDashboard();
+    if (cached) setDashboard(toDashboard(cached));
+    void loadDashboard();
   }, []);
 
   useEffect(() => {
     if (!selectedArchitectureManager?.id) return undefined;
     let active = true;
-    // Reload the selected agent's conversations after a recoverable request failure.
     async function loadConversations() {
       try {
         const payload = await client.listConversations({ projectId: PROJECT_ID, agentId: selectedArchitectureManager.id });
         if (!active) return;
         const items = Array.isArray(payload) ? payload : payload?.items ?? payload?.conversations ?? [];
         setConversations(items);
-        setGlobalError(null);
         const saved = readChatState(CHAT_STATE_KEY);
         const savedId = saved?.agent_id === selectedArchitectureManager.id ? saved.conversation_id : null;
         const selected = items.find((item) => (item.id ?? item.conversation_id) === savedId) ?? items[0] ?? null;
@@ -143,8 +125,7 @@ export default function HomePage() {
         if (!active) return;
         setConversations([]);
         setMessagesLoading(false);
-        const normalized = normalizeUiError(rawError, { fallback: "Could not load conversations." });
-        setGlobalError({ ...normalized, _retry: loadConversations });
+        setGlobalError({ ...normalizeUiError(rawError, { fallback: "Could not load conversations." }), _retry: loadConversations });
       }
     }
     void loadConversations();
@@ -157,7 +138,7 @@ export default function HomePage() {
     setAgentProcess, loadDashboard, agentDisplayName
   });
 
-  // Handles conversation selection: binds chat to the chosen conversation.
+  // Binds a selected sidebar row to the existing persisted conversation and history lifecycle.
   function handleSelectConversation(conversation) {
     const id = conversation?.id ?? conversation?.conversation_id ?? conversation?.conversationId ?? null;
     if (!id) return;
@@ -174,66 +155,39 @@ export default function HomePage() {
     selectedArchitectureManager, activeConversationId, setActiveConversationId,
     setChatState, setMessages, setAgentTyping, sendingRef, lastSentRef, writeChatState, messageIntent: MESSAGE_INTENTS.normalChat
   });
-
-  // Handles cleanup after a ticket is deleted.
-  function handleTicketDeleted(ticketId) {
-    setDashboard((current) => {
-      if (!current) return current;
-      const next = { ...current, roadmap: { ...current.roadmap, sprints: current.roadmap.sprints.map((sprint) => ({ ...sprint, tasks: (sprint.tasks ?? []).filter((ticket) => ticket.id !== ticketId) })) } };
-      try { window.sessionStorage.setItem(SPRINT_CACHE_KEY, JSON.stringify(next.roadmap.sprints.map((sprint) => ({ ...sprint, tickets: sprint.tasks })))); } catch { /* cache is optional */ }
-      return next;
-    });
-  }
-
-  const sprints = dashboard?.roadmap?.sprints ?? [];
-
   const globalToastError = globalError ?? (chatState && !chatState.includes("successfully") ? chatState : null);
-  return <div className="app-shell app-shell-control-room home-workspace-shell">
-    <NodeForgeHeader title="NODEFORGE" subtitle="Supervisor Control Room" status={<><span className="live-dot" /> node online</>} actions={<Link className="history-button" href="/agents">Agents</Link>} />
-    {globalToastError && <GlobalToast error={globalToastError} onRetry={globalError?._retry ?? retryLastMessage} onDismiss={() => { setGlobalError(null); setChatState(""); }} />}
-    <nav className="workspace-region-actions" aria-label="Workspace regions">
-      {[["conversations", "Conversations"], ["workspace", "Workspace"], ["sprint", "Sprint"]].map(([name, title]) => <button key={name} type="button" className={`region-action region-action--${name}`} onClick={() => setOpenRegion(name)} aria-expanded={openRegion === name}>{title}</button>)}
-    </nav>
-    <main className="home-workspace" aria-label="NodeForge workspace">
-      <ConversationSidebar open={openRegion === "conversations"} onOpen={() => setOpenRegion("conversations")} onClose={() => setOpenRegion(null)} selectedAgentLabel={selectedArchitectureManager?.label}>
-          <div className="home-agent-select-row"><label className="home-agent-select-label" htmlFor="home-architecture-manager-selector">Architecture Manager</label><select className="home-agent-select" id="home-architecture-manager-selector" value={selectedArchitectureManagerId} onChange={(event) => { const agentId = event.target.value; setSelectedArchitectureManagerId(agentId); writeArchitectureManagerAgent(PROJECT_ID, agentId); }} aria-label="Architecture Manager selection"><option value="">{architectureManagers.length ? "Select an Architecture Manager" : "No enabled Architecture Manager agents available"}</option>{architectureManagers.map((agent) => <option key={agent.id} value={agent.id}>{agent.label}</option>)}</select></div>
-        <ConversationsAccordion conversations={conversations} projectId={PROJECT_ID} agentId={selectedArchitectureManager?.id} activeConversationId={activeConversationId} onNewConversation={(_title, conversation) => { const id = conversation?.id ?? conversation?.conversation_id; if (id) { setActiveConversationId(id); writeChatState(CHAT_STATE_KEY, selectedArchitectureManager?.id, id); void loadConversationMessages(id); } setMessages([]); setChatState(""); }} onSelectConversation={handleSelectConversation} />
-      </ConversationSidebar>
-      <section className="home-chat-panel home-panel" aria-label="Project chat">
-        <div className="home-panel-heading"><div className="home-chat-heading"><div className="home-chat-title"><i aria-hidden="true" /><p className="eyebrow">PROJECT CHAT</p></div></div></div>
-        <div className="home-chat-messages" ref={chatMessagesRef} onScroll={handleMessageScroll} role="log" aria-live="polite">{messagesLoading && <p className="dashboard-state">Loading messages…</p>}{hasOlder && messages.length > 0 && <button className="history-more chat-load-more" type="button" disabled={olderLoading} onClick={loadEarlierMessages}>{olderLoading ? "Loading earlier messages…" : "Load earlier messages"}</button>}{historyError && <InlineError error={historyError} onRetry={() => void loadEarlierMessages()} />}{!messagesLoading && messages.length === 0 && <div className="home-empty-state"><span className="home-empty-mark">N</span><p>Send a message to start working with your project agents.</p></div>}{messages.map((message) => <div className={`home-chat-message ${message.from === "owner" ? "is-owner" : "is-agent"}`} key={message.stream_key ?? message.id}><div className="home-message-meta"><span>{message.nickname ?? (message.from === "owner" ? "You" : "Agent")}</span><time dateTime={message.timestamp}>{displayMessageTime(message.timestamp)}</time></div><ConversationResponseReveal text={message.text} reveal={message.from === "agent" && message.reveal === true} onReveal={() => { const container = chatMessagesRef.current; if (container && container.scrollHeight - container.scrollTop - container.clientHeight < 72) container.scrollTop = container.scrollHeight; }} />{message.from === "system" && message.retryable !== false && <button type="button" className="history-button" onClick={retryLastMessage}>Retry</button>}</div>)}{agentTyping && <div className="typing-line" role="status" aria-label="Waiting for agent response"><span className="typing-dots" aria-hidden="true"><i /><i /><i /></span></div>}</div>
-        <div className="home-chat-compose-group">
-          <PendingPlanApproval client={client} projectId={PROJECT_ID} messages={messages} conversationId={streamConversationId} agentId={selectedArchitectureManagerId} onHandoffCompleted={loadDashboard} />
-          <HomeChatComposer onSend={(text) => { followLatest(); return sendMessage(text).catch((rawError) => { const n = normalizeUiError(rawError, { fallback: "Node rejected the owner message." }); setGlobalError({ ...n, _retry: () => retryLastMessage() }); throw rawError; }); }} />
-        </div>{chatState && chatState.includes("successfully") && <p className="dashboard-state success" role="alert">{chatState}</p>}{chatState && !chatState.includes("successfully") && <InlineError error={chatState} onRetry={retryLastMessage} />}
+  const activeConversation = conversations.find((conversation) => String(conversation?.id ?? conversation?.conversation_id ?? conversation?.conversationId) === String(activeConversationId));
+  const activeConversationTitle = activeConversation?.title ?? activeConversation?.name ?? "New conversation";
+
+  return <div className={`claude-home-shell${markdownPreviewPath ? " has-markdown-preview" : ""}`}>
+    <ConversationSidebar open={openSidebar} onOpen={() => setOpenSidebar(true)} onClose={() => setOpenSidebar(false)} architectureLabel={selectedArchitectureManager?.label} projects={projects} selectedProjectId={PROJECT_ID} onProjectChange={() => {}} onNewConversation={() => setNewConversationRequest((current) => current + 1)} architectureControl={<div className="claude-architecture-list" role="listbox" aria-label="Architecture Manager agents">
+      {architectureManagers.map((agent) => <button type="button" role="option" aria-selected={agent.id === selectedArchitectureManagerId} key={agent.id} onClick={() => { setSelectedArchitectureManagerId(agent.id); writeArchitectureManagerAgent(PROJECT_ID, agent.id); }}><span className="claude-agent-option-avatar" aria-hidden="true">{agent.label.trim().slice(0, 1).toUpperCase()}</span><span>{agent.label}</span>{agent.id === selectedArchitectureManagerId && <span className="claude-agent-option-check" aria-label="Selected architecture">✓</span>}</button>)}
+    </div>}>
+      <ConversationsAccordion conversations={conversations} projectId={PROJECT_ID} agentId={selectedArchitectureManager?.id} activeConversationId={activeConversationId} onNewConversation={(_title, conversation) => handleSelectConversation(conversation)} onSelectConversation={handleSelectConversation} createRequest={newConversationRequest} showNewConversationButton={false} />
+    </ConversationSidebar>
+    <main className="claude-home-main" aria-label="NodeForge conversation workspace">
+      <section className="claude-chat" aria-label="Project chat">
+        <header className="claude-chat-header"><h1>{activeConversationTitle}</h1></header>
+        <div className="claude-chat-scroll" ref={chatMessagesRef} onScroll={handleMessageScroll} role="log" aria-live="polite">
+          {messagesLoading && <p className="claude-chat-status">Loading conversation…</p>}
+          {hasOlder && messages.length > 0 && <button className="claude-history-more" type="button" disabled={olderLoading} onClick={loadEarlierMessages}>{olderLoading ? "Loading…" : "Show earlier messages"}</button>}
+          {historyError && <InlineError error={historyError} onRetry={() => void loadEarlierMessages()} />}
+          {!messagesLoading && messages.length === 0 && <div className="claude-welcome"><span className="claude-welcome-mark">N</span><h1>How can NodeForge help?</h1><p>Start a conversation with your project agent.</p></div>}
+          {messages.map((message) => <article className={`claude-message ${message.from === "owner" ? "is-owner" : "is-agent"}`} key={message.stream_key ?? message.id}>
+            <div className="claude-message-meta"><span>{message.nickname ?? (message.from === "owner" ? "You" : "NodeForge")}</span><time dateTime={message.timestamp}>{displayMessageTime(message.timestamp)}</time></div>
+            <ConversationResponseReveal text={message.text} reveal={message.from === "agent" && message.reveal === true} onMarkdownOpen={setMarkdownPreviewPath} onReveal={() => { const container = chatMessagesRef.current; if (container && container.scrollHeight - container.scrollTop - container.clientHeight < 72) container.scrollTop = container.scrollHeight; }} />
+            {message.from === "system" && message.retryable !== false && <button type="button" className="claude-retry" onClick={retryLastMessage}>Retry</button>}
+          </article>)}
+          {agentTyping && <div className="claude-typing" role="status" aria-label="Waiting for agent response"><i /><i /><i /></div>}
+        </div>
+        <div className="claude-composer-wrap">
+          <PendingPlanApproval client={client} projectId={PROJECT_ID} projectName="NodeForge" messages={messages} conversationId={streamConversationId} agentId={selectedArchitectureManagerId} onHandoffCompleted={loadDashboard} />
+          <HomeChatComposer onSend={(text) => { followLatest(); return sendMessage(text).catch((rawError) => { const error = normalizeUiError(rawError, { fallback: "Node rejected the message." }); setGlobalError({ ...error, _retry: retryLastMessage }); throw rawError; }); }} />
+          <p>NodeForge can make mistakes. Check important work.</p>
+        </div>
       </section>
-      <ResponsiveWorkspaceRegion name="sprint" title="Sprint" breakpoint={640} open={openRegion === "sprint"} onClose={() => setOpenRegion(null)}>
-      <section className="home-sprint-panel home-panel" aria-label="Project sprints">
-        <div className="home-panel-heading"><div><p className="eyebrow">PROJECT DELIVERY</p><h2>Sprints</h2></div><button className="history-button" type="button" onClick={() => setUploadOpen(true)}>Upload plan</button></div>
-        {dashboardState === "loading" && <p className="dashboard-state">Loading sprint data...</p>}
-        {dashboardState === "error" && <p className="dashboard-state error">Could not load sprint data.</p>}
-        {dashboardState === "ready" && <div className="home-sprint-content">
-          <SprintPlanDashboard dashboard={dashboard} client={client} onRefresh={loadDashboard} onTicketDeleted={handleTicketDeleted} hideHeading />
-        </div>}
-      </section>
-      </ResponsiveWorkspaceRegion>
-      <ResponsiveWorkspaceRegion name="workspace" title="Workspace" breakpoint={900} open={openRegion === "workspace"} onClose={() => setOpenRegion(null)}>
-      <section className="home-open-panel workspace-panel" aria-label="Workspace">
-        <div className="workspace-overview"><span>WORKSPACE</span><p>{dashboard?.roadmap?.id ?? "Project workspace"}</p><small>{sprints.length ? `${sprints.length} sprint${sprints.length === 1 ? "" : "s"} connected` : "No roadmap published yet."}</small><GitStatusIndicator client={client} projectId={PROJECT_ID} /></div>
-        <section className="workspace-agent-process" aria-label="Agent process">
-          <div className="workspace-agent-process-heading"><div className="workspace-agent-process-status"><i aria-hidden="true" /><span>AGENT PROCESS</span></div></div>
-          <div className="workspace-agent-process-body"><small>Waiting for agent process events...</small></div>
-        </section>
-        <section className="workspace-watcher" aria-label="Watcher">
-          <div className="workspace-watcher-heading"><div className="workspace-watcher-status"><i key={watcherPulseId} className={`is-${watcherState}${watcherPulseId ? " is-pulsing" : ""}`} aria-label={`Watcher ${watcherState}`} /><span>WATCHER</span></div><AgentProcessStatus agent={agentProcess} /></div>
-          <div className="workspace-watcher-process" aria-label="Watcher indexed files">
-            {watcherEvents.length === 0 && <small>{watcherState === "error" ? "Stream unavailable." : "Waiting for watcher events..."}</small>}
-            {watcherEvents.map((event) => <div className="workspace-watcher-event" key={event.event_id}>{event.payload.activity.map((line) => <span key={line}>{line}</span>)}</div>)}
-          </div>
-        </section>
-      </section>
-      </ResponsiveWorkspaceRegion>
     </main>
-    {uploadOpen && <UploadSprintPlanDialog client={client} onClose={() => setUploadOpen(false)} onUploaded={() => { setUploadOpen(false); loadDashboard(); }} />}
+    {markdownPreviewPath && <MarkdownPreviewPanel client={client} projectId={PROJECT_ID} path={markdownPreviewPath} onClose={() => setMarkdownPreviewPath("")} />}
+    {globalToastError && <GlobalToast error={globalToastError} onRetry={globalError?._retry ?? retryLastMessage} onDismiss={() => { setGlobalError(null); setChatState(""); }} />}
   </div>;
 }

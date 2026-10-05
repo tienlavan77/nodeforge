@@ -14,7 +14,7 @@ const PROJECT_ID = "PROJECT-NODEFORGE";
 const API_URL = typeof window !== "undefined"
   ? `${window.location.protocol}//${window.location.hostname}:3100/forge/v1/agents`
   : "http://127.0.0.1:3100/forge/v1/agents";
-const ROLE_LABELS = { coder: "Coder", reviewer: "Reviewer", sprint_leader: "Sprint leader", architecture_manager: "Architecture manager", linguist: "Linguist" };
+const ROLE_LABELS = { coder: "Coder", reviewer: "Reviewer", sprint_leader: "Sprint leader", architecture_manager: "Architecture manager", system_engineer: "System engineer", linguist: "Linguist" };
 
 // Normalizes raw agent payload into a consistent array.
 function normalizeAgents(payload) {

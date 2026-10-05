@@ -180,6 +180,16 @@ test("commit_changes without any applied change reports SCOPE_INVALID", async ()
   await assert.rejects(() => commit.execute({ message: "empty" }, context), (error) => error.code === "SCOPE_INVALID");
 });
 
+// The durable ticket ledger determines commit scope even when the agent omits paths.
+test("commit_changes derives exact paths from the ticket ledger", async () => {
+  const committed = [];
+  const context = { task_id: "T-LEDGER", capabilities: ["commit_changes"], allowed_file_paths: ["backend/src/a.js"] };
+  const commit = createCommitChangesTool({ changeLedger: { snapshot: async () => ({ entries: { "backend/src/a.js": {} } }) }, gitService: { commit: async (_message, options) => { committed.push(options.paths); return { sha: "SHA-LEDGER" }; } } });
+  await commit.execute({ message: "fix: ticket change" }, context);
+  assert.deepEqual(committed, [["backend/src/a.js"]]);
+  await assert.rejects(commit.execute({ message: "fix: ticket change", paths: ["backend/src/other.js"] }, context), { code: "SCOPE_INVALID" });
+});
+
 function fakeReportService({ changedPaths = [], verifyResult = { pass: true, ready_for_review: true }, criteria = ["build passes and lints cleanly"] } = {}) {
   const ticketHolder = { criteria, changedPaths: changedPaths.slice(), verifyResult };
   return {

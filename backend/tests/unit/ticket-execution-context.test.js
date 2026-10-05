@@ -38,7 +38,7 @@ test("ticket context persists identity and rejects stale transitions after resta
     assert.equal(next.review_commit_sha, null);
     assert.equal(next.verification_artifact_id, null);
     assert.notEqual(next.source_revision, committed.source_revision);
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await rm(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 50 }); }
 });
 
 // Confirms that concurrent context mutations accept exactly one expected version.
@@ -113,8 +113,8 @@ test("ticket verification persists evidence for the exact ledger and commit", as
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-// Stops a resumed Coder from rerunning failed verification until a new commit changes ticket evidence.
-test("failed verification cannot rerun on an unchanged ticket commit", async () => {
+// Allows one bounded retry for transient verification failures on the same ticket commit.
+test("failed verification retries twice then requires a new ticket commit", async () => {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-verify-retry-"));
   try {
     const files = createFileService({ projectRoot: root });
@@ -131,7 +131,7 @@ test("failed verification cannot rerun on an unchanged ticket commit", async () 
     const options = { taskId: "TICKET-RETRY", projectId: "PROJECT-TEST", projectRoot: root, worktreeRoot: root,
       worktreeFileService: files, stateFileService: files, gitService: { getHead: async () => "b".repeat(40), getCommitParent: async () => baseSha, getChangedFiles: async () => [path], status: async () => "" },
       ledger: { snapshot: async () => manifest }, executionContexts: contexts,
-      runCommand: async () => { runs += 1; return { exit_code: 1, stdout: "failed", stderr: "" }; } };
+      runCommand: async () => { runs += 1; return { exit_code: 1, stdout: "", stderr: "ENOSPC: no space left on device" }; } };
     const service = createTicketVerificationService(options);
     const first = await service.startTests();
     let result;
@@ -141,7 +141,16 @@ test("failed verification cannot rerun on an unchanged ticket commit", async () 
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
     assert.equal(result.status, "failed");
+    assert.equal(result.error.code, "VERIFY_STORAGE_EXHAUSTED");
+    const secondService = createTicketVerificationService(options);
+    const second = await secondService.startTests();
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      result = await secondService.getTestResult({ jobId: second.job_id });
+      if (result.status !== "running") break;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
     await assert.rejects(createTicketVerificationService(options).startTests(), { code: "VERIFY_RETRY_UNCHANGED" });
-    assert.equal(runs, 1);
+    assert.equal(runs, 2);
+    await new Promise((resolve) => setTimeout(resolve, 150));
   } finally { await rm(root, { recursive: true, force: true }); }
 });
