@@ -1,5 +1,5 @@
 "use client";
-// Keeps the project chat draft responsive without rerendering the full workspace on every keystroke.
+// Keeps the project chat draft responsive and lets message actions load text for editing.
 
 import { useEffect, useRef, useState } from "react";
 
@@ -7,7 +7,7 @@ const HISTORY_KEY = "nodeforge:project-chat-history";
 const MAX_HISTORY = 50;
 
 // Owns the draft locally and sends it through the existing conversation handler.
-export function HomeChatComposer({ onSend }) {
+export function HomeChatComposer({ onSend, editRequest }) {
   const [draft, setDraft] = useState("");
   const [history, setHistory] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -22,6 +22,13 @@ export function HomeChatComposer({ onSend }) {
       console.warn("Unable to restore project chat history", error);
     }
   }, []);
+
+  useEffect(() => {
+    if (!editRequest || typeof editRequest.text !== "string") return;
+    setDraft(editRequest.text);
+    setHistoryIndex(-1);
+    textareaRef.current?.focus();
+  }, [editRequest]);
 
   // Stores a sent message for quick retrieval without allowing unbounded browser storage growth.
   function remember(text) {
