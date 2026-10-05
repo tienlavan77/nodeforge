@@ -37,6 +37,21 @@ test("runs a ticket through Codex SDK with repository controls", async () => {
   assert.equal(result.thread_id, "thread-1");
 });
 
+test("forwards role-specific Codex filesystem permissions without changing thread sandbox mode", async () => {
+  let codexOptions;
+  const gateway = createCodexSdkGateway({
+    configuration: { getById: () => ({ agent_id: "engineer", role: "system_engineer", gateway_url: "https://gateway.test/v1", credential_ref: "secret", enabled: true, status: "ready" }) },
+    credentialResolver: () => "gateway-key",
+    CodexClass: class FakeCodex {
+      constructor(options) { codexOptions = options; }
+      startThread() { return { id: "engineer-thread", runStreamed: async () => ({ events: (async function* () { yield { type: "turn.completed" }; })() }) }; }
+    }
+  });
+  await gateway.execute({ agentId: "engineer", correlationId: "CORR-ENGINEER", cwd: "/repo", prompt: "Inspect", options: { sandboxMode: "workspace-write", config: { default_permissions: "audit" }, configOverrides: ['permissions.audit.filesystem={":root"="deny","/repo"="write"}'] } });
+  assert.deepEqual(codexOptions.config, { default_permissions: "audit" });
+  assert.deepEqual(codexOptions.configOverrides, ['permissions.audit.filesystem={":root"="deny","/repo"="write"}']);
+});
+
 // Stops an active Codex ticket turn with the owner cancellation reason.
 test("owner Stop aborts the active Codex SDK turn", async () => {
   const controller = new AbortController();

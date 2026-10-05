@@ -1,5 +1,5 @@
 "use client";
-// CodingPage provides a familiar project chat for code requests using the shared workspace components.
+// SystemPage provides a project workspace for System Engineer agents.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
@@ -31,8 +31,8 @@ import { normalizeUiError } from "../../lib/ui-error.js";
 const CODING_AGENT_SELECTION_KEY = `${PROJECT_ID}:coding`;
 const CODING_CHAT_STATE_KEY = `nodeforge:coding:last:${PROJECT_ID}`;
 
-// Opens and restores a coding conversation with a configured Coder or System Engineer agent.
-export default function CodingPage() {
+// Opens and restores a conversation with a configured System Engineer agent in the System workspace.
+export default function SystemPage() {
   const client = useMemo(() => createNodeClient(), []);
   const chatMessagesRef = useRef(null);
   const [agentDirectory, setAgentDirectory] = useState([]);
@@ -49,11 +49,11 @@ export default function CodingPage() {
   const [markdownPreviewPath, setMarkdownPreviewPath] = useState("");
   const sendingRef = useRef(false);
   const lastSentRef = useRef(null);
-  const codingAgents = useMemo(() => agentDirectory
-    .filter((agent) => ["coder", "system_engineer"].includes(agent?.role) && agent?.enabled === true)
+  const systemAgents = useMemo(() => agentDirectory
+    .filter((agent) => agent?.role === "system_engineer" && agent?.enabled === true)
     .map((agent) => ({ ...agent, id: agent.agent_id ?? agent.id, label: agent.agent_name ?? agent.name ?? agent.label ?? agent.agent_id ?? agent.id }))
     .filter((agent) => agent.id), [agentDirectory]);
-  const selectedAgent = codingAgents.find((agent) => agent.id === selectedAgentId) ?? null;
+  const selectedAgent = systemAgents.find((agent) => agent.id === selectedAgentId) ?? null;
   activeConversationIdRef.current = activeConversationId ?? selectedAgent?.conversation_id ?? selectedAgent?.conversationId ?? ARCHITECTURE_CONVERSATION_ID;
   agentDirectoryRef.current = agentDirectory;
   const { messages, setMessages, messagesLoading, setMessagesLoading, olderLoading, hasOlder, historyError,
@@ -66,19 +66,19 @@ export default function CodingPage() {
     client.getAgents().then((payload) => {
       if (!active) return;
       const agents = Array.isArray(payload) ? payload : payload?.agents ?? payload?.items ?? [];
-      const eligible = agents.filter((agent) => ["coder", "system_engineer"].includes(agent?.role) && agent?.enabled === true);
+      const eligible = agents.filter((agent) => agent?.role === "system_engineer" && agent?.enabled === true);
       setAgentDirectory(agents);
       const saved = architectureManagerSelection(CODING_AGENT_SELECTION_KEY, "");
       const selected = eligible.find((agent) => (agent.agent_id ?? agent.id) === saved) ?? eligible[0];
       setSelectedAgentId(selected?.agent_id ?? selected?.id ?? "");
-    }).catch((error) => { console.error("Unable to load coding agents", error); if (active) setGlobalError(normalizeUiError(error, { fallback: "Could not load coding agents." })); });
+    }).catch((error) => { console.error("Unable to load system agents", error); if (active) setGlobalError(normalizeUiError(error, { fallback: "Could not load system agents." })); });
     return () => { active = false; };
   }, [client]);
 
   useEffect(() => {
     if (!selectedAgent?.id) { setConversations([]); setActiveConversationId(null); setMessages([]); setMessagesLoading(false); return undefined; }
     let active = true;
-    // Restores this coding agent's selected conversation and its saved messages.
+    // Restores this system agent's selected conversation and its saved messages.
     async function loadConversations() {
       try {
         const payload = await client.listConversations({ projectId: PROJECT_ID, agentId: selectedAgent.id });
@@ -95,7 +95,7 @@ export default function CodingPage() {
       } catch (error) {
         if (!active) return;
         setConversations([]); setMessagesLoading(false);
-        setGlobalError({ ...normalizeUiError(error, { fallback: "Could not load coding conversations." }), _retry: loadConversations });
+        setGlobalError({ ...normalizeUiError(error, { fallback: "Could not load system conversations." }), _retry: loadConversations });
       }
     }
     void loadConversations();
@@ -108,7 +108,7 @@ export default function CodingPage() {
     loadDashboard: () => {}, agentDisplayName
   });
 
-  // Selects the active coding conversation and loads its persisted message history.
+  // Selects the active system conversation and loads its persisted message history.
   function handleSelectConversation(conversation) {
     const id = conversation?.id ?? conversation?.conversation_id ?? conversation?.conversationId;
     if (!id) return;
@@ -123,25 +123,25 @@ export default function CodingPage() {
   });
   const globalToastError = globalError ?? (chatState && !chatState.includes("successfully") ? chatState : null);
   const activeConversation = conversations.find((conversation) => String(conversation?.id ?? conversation?.conversation_id ?? conversation?.conversationId) === String(activeConversationId));
-  const activeConversationTitle = activeConversation?.title ?? activeConversation?.name ?? "New coding conversation";
+  const activeConversationTitle = activeConversation?.title ?? activeConversation?.name ?? "New system conversation";
 
-  return <div className={`claude-home-shell${markdownPreviewPath ? " has-markdown-preview" : ""}`}>
-    <ConversationSidebar open={openSidebar} onOpen={() => setOpenSidebar(true)} onClose={() => setOpenSidebar(false)} agentSectionTitle="Coding agent" architectureLabel={selectedAgent?.label} projects={[{ id: PROJECT_ID, name: "NodeForge" }]} selectedProjectId={PROJECT_ID} onProjectChange={() => {}} onNewConversation={() => setNewConversationRequest((current) => current + 1)} architectureControl={<div className="claude-architecture-list" role="listbox" aria-label="Coding agents">
-      {codingAgents.map((agent) => <button type="button" role="option" aria-selected={agent.id === selectedAgentId} key={agent.id} onClick={() => { setSelectedAgentId(agent.id); writeArchitectureManagerAgent(CODING_AGENT_SELECTION_KEY, agent.id); }}><span className="claude-agent-option-avatar" aria-hidden="true">{agent.label.trim().slice(0, 1).toUpperCase()}</span><span>{agent.label}</span>{agent.id === selectedAgentId && <span className="claude-agent-option-check" aria-label="Selected agent">✓</span>}</button>)}
-      {codingAgents.length === 0 && <p className="claude-coding-empty">No Coder or System Engineer agent is available.</p>}
+  return <div className={`claude-home-shell system-workspace${markdownPreviewPath ? " has-markdown-preview" : ""}`}>
+    <ConversationSidebar open={openSidebar} onOpen={() => setOpenSidebar(true)} onClose={() => setOpenSidebar(false)} agentSectionTitle="System" architectureLabel={selectedAgent?.label} projects={[{ id: PROJECT_ID, name: "NodeForge" }]} selectedProjectId={PROJECT_ID} onProjectChange={() => {}} onNewConversation={() => setNewConversationRequest((current) => current + 1)} architectureControl={<div className="claude-architecture-list" role="listbox" aria-label="System agents">
+      {systemAgents.map((agent) => <button type="button" role="option" aria-selected={agent.id === selectedAgentId} key={agent.id} onClick={() => { setSelectedAgentId(agent.id); writeArchitectureManagerAgent(CODING_AGENT_SELECTION_KEY, agent.id); }}><span className="claude-agent-option-avatar" aria-hidden="true">{agent.label.trim().slice(0, 1).toUpperCase()}</span><span>{agent.label}</span>{agent.id === selectedAgentId && <span className="claude-agent-option-check" aria-label="Selected agent">✓</span>}</button>)}
+      {systemAgents.length === 0 && <p className="claude-coding-empty">No enabled System Engineer agent is available.</p>}
     </div>}>
       <ConversationsAccordion conversations={conversations} projectId={PROJECT_ID} agentId={selectedAgent?.id} activeConversationId={activeConversationId} onNewConversation={(_title, conversation) => handleSelectConversation(conversation)} onSelectConversation={handleSelectConversation} createRequest={newConversationRequest} showNewConversationButton={false} />
     </ConversationSidebar>
-    <main className="claude-home-main" aria-label="NodeForge coding workspace">
-      <section className="claude-chat" aria-label="Coding chat">
+    <main className="claude-home-main" aria-label="NodeForge system workspace">
+      <section className="claude-chat" aria-label="System chat">
         <header className="claude-chat-header"><h1>{activeConversationTitle}</h1></header>
         <div className="claude-chat-scroll" ref={chatMessagesRef} onScroll={handleMessageScroll} role="log" aria-live="polite">
           {messagesLoading && <p className="claude-chat-status">Loading conversation…</p>}
           {hasOlder && messages.length > 0 && <button className="claude-history-more" type="button" disabled={olderLoading} onClick={loadEarlierMessages}>{olderLoading ? "Loading…" : "Show earlier messages"}</button>}
           {historyError && <InlineError error={historyError} onRetry={() => void loadEarlierMessages()} />}
-          {!messagesLoading && messages.length === 0 && <div className="claude-welcome"><span className="claude-welcome-mark">⌘</span><h1>What should we build?</h1><p>Start a coding conversation with your project agent.</p></div>}
+          {!messagesLoading && messages.length === 0 && <div className="claude-welcome"><span className="claude-welcome-mark">⌘</span><h1>What should we build?</h1><p>Start a conversation with your project agent.</p></div>}
           {messages.map((message) => <article className={`claude-message ${message.from === "owner" ? "is-owner" : "is-agent"}`} key={message.stream_key ?? message.id}>
-            <div className="claude-message-meta"><span>{message.nickname ?? (message.from === "owner" ? "You" : "Coder")}</span><time dateTime={message.timestamp}>{displayMessageTime(message.timestamp)}</time></div>
+            <div className="claude-message-meta"><span>{message.nickname ?? (message.from === "owner" ? "You" : "System Engineer")}</span><time dateTime={message.timestamp}>{displayMessageTime(message.timestamp)}</time></div>
             <ConversationResponseReveal text={message.text} reveal={message.from === "agent" && message.reveal === true} onMarkdownOpen={setMarkdownPreviewPath} onReveal={() => { const container = chatMessagesRef.current; if (container && container.scrollHeight - container.scrollTop - container.clientHeight < 72) container.scrollTop = container.scrollHeight; }} />
             {message.from === "system" && message.retryable !== false && <button type="button" className="claude-retry" onClick={retryLastMessage}>Retry</button>}
           </article>)}
@@ -149,8 +149,8 @@ export default function CodingPage() {
         </div>
         <div className="claude-composer-wrap">
           <PendingPlanApproval client={client} projectId={PROJECT_ID} projectName="NodeForge" messages={messages} conversationId={activeConversationId} agentId={selectedAgentId} />
-          <HomeChatComposer onSend={(text) => { followLatest(); return sendMessage(text).catch((error) => { const normalized = normalizeUiError(error, { fallback: "Node rejected the coding request." }); setGlobalError({ ...normalized, _retry: retryLastMessage }); throw error; }); }} />
-          <p>Requests are sent to the selected coding agent.</p>
+          <HomeChatComposer onSend={(text) => { followLatest(); return sendMessage(text).catch((error) => { const normalized = normalizeUiError(error, { fallback: "Node rejected the system request." }); setGlobalError({ ...normalized, _retry: retryLastMessage }); throw error; }); }} />
+          <p>Requests are sent to the selected system agent.</p>
         </div>
       </section>
     </main>
