@@ -196,11 +196,15 @@
 .claude-home-shell .conversations-block-title { min-height: 32px; padding: 4px 7px; font: 13px 'Space Grotesk', sans-serif; }
 .claude-home-shell .conversations-block-title-text { font-weight: 400; }
 .claude-home-shell .conversations-block.is-active .conversations-block-title-text { font-weight: 500; }
-.claude-home-shell .conversations-block-actions { gap: 1px; opacity: 0; pointer-events: none; transition: opacity .14s ease; }
+.claude-home-shell .conversations-block-actions { gap: 0; opacity: 0; pointer-events: none; transition: opacity .14s ease; }
+.claude-home-shell .conversations-block.is-active .conversations-block-actions { opacity: 0; pointer-events: none; }
 .claude-home-shell .conversations-accordion-row:hover .conversations-block-actions, .claude-home-shell .conversations-block:focus-within .conversations-block-actions { opacity: 1; pointer-events: auto; }
-.claude-home-shell .conversations-block-action { width: 26px; min-height: 26px; border: 0; border-radius: 6px; padding: 5px; color: var(--app-muted); }
+.claude-home-shell.system-workspace .conversations-accordion-row { min-width: 0; overflow: hidden; }
+.claude-home-shell.system-workspace .conversations-block-title { flex: 1 1 0; width: 0; min-width: 0; }
+.claude-home-shell.system-workspace .conversations-block-actions { width: auto; max-width: 100%; margin-left: 0; }
+.claude-home-shell .conversations-block-action { width: 22px; min-width: 22px; min-height: 22px; border: 0; border-radius: 6px; padding: 4px; color: var(--app-muted); }
 .claude-home-shell .conversations-block-action:hover { border-color: transparent; background: color-mix(in srgb, var(--app-text) 10%, transparent); color: var(--app-text); }
-.claude-home-shell .conversations-block-action svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.claude-home-shell .conversations-block-action svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.8; }
 .claude-home-main { min-width: 0; min-height: 0; height: 100dvh; display: grid; grid-template-rows: minmax(0, 1fr); }
 .claude-welcome-mark { display: grid; place-items: center; width: 25px; height: 25px; border-radius: 7px; background: var(--app-text); color: var(--app-surface); font: 600 12px 'DM Mono', monospace; }
 .claude-chat { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
@@ -224,7 +228,7 @@
 .claude-typing i:nth-child(2) { animation-delay: .15s; }.claude-typing i:nth-child(3) { animation-delay: .3s; }
 .claude-composer-wrap { width: min(780px, calc(100% - 48px)); justify-self: center; padding: 12px 0 20px; }
 .claude-composer-wrap .home-composer { gap: 10px; padding: 8px; border: 1px solid var(--app-button-border); border-radius: 14px; background: var(--app-input); box-shadow: 0 8px 25px color-mix(in srgb, #000 9%, transparent); }
-.claude-composer-wrap .home-composer textarea { min-height: 28px; border: 0; background: transparent; padding: 8px 9px; font: 15px/1.4 'Space Grotesk', sans-serif; }
+.claude-composer-wrap .home-composer textarea { min-height: 80px; border: 0; background: transparent; padding: 8px 9px; font: 15px/1.4 'Space Grotesk', sans-serif; }
 .claude-composer-wrap .home-composer textarea:focus { outline: none; }
 .claude-composer-wrap .home-composer button { flex: 0 0 36px; width: 36px; height: 36px; border-radius: 10px; }
 .claude-composer-wrap > p { margin: 8px 0 0; color: var(--app-muted); text-align: center; font: 11px 'Space Grotesk', sans-serif; }

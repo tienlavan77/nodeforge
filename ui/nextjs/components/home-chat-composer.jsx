@@ -74,7 +74,7 @@ export function HomeChatComposer({ onSend }) {
         event.preventDefault();
         if (event.currentTarget.value.trim()) event.currentTarget.form?.requestSubmit();
       }
-    }} placeholder="Chat or paste a ticket..." rows="2" aria-label="Chat or ticket input" />
+    }} placeholder="Chat or paste a ticket..." rows="3" aria-label="Chat or ticket input" />
     <button type="submit" aria-label="Send message" disabled={!draft.trim()}>&#8593;</button>
   </form>;
 }

@@ -18,7 +18,7 @@ export function assertCoderWorkflowReadOnly(role, operation, path) {
 // Checks role permissions before File Service reads, writes, or deletes a path.
 export function assertRoleFileAccess(role, operation, path) {
   const safe = typeof path === "string" && path.length > 0 && !path.startsWith("/") && !path.includes("\\") && !path.includes("\0")
-    && path.split("/").every((part) => part && part !== "." && part !== ".." && !part.startsWith("."))
+    && path.split("/").every((part) => part && part !== "." && part !== ".." && (role === "system_engineer" && operation === "read" || !part.startsWith(".")))
     && !isProtectedPath(path, { operation: operation === "read" ? "read" : "write" })
     && !/(^|\/)(?:node_modules|vendor|dist|build|coverage|cache|\.next)(\/|$)|(^|\/)(?:secret|secrets|credential|credentials|private)(?:[._/-]|$)/i.test(path);
   const writeArea = role === "architecture_manager" && (path === "ARCHITECTURE.md" || ARCHITECTURE_WRITE_PREFIXES.some((prefix) => path?.startsWith(prefix)));
