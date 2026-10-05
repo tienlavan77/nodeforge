@@ -16,20 +16,27 @@ export function MessageContent({ text, onMarkdownOpen }) {
 function TextWithInline({ text, onMarkdownOpen }) {
   const value = String(text ?? "");
   if (!value) return null;
+  const paragraphs = value.split(/\n\s*\n/).filter(Boolean);
+  if (paragraphs.length > 1) return paragraphs.map((paragraph, index) => <InlineParagraph key={index} text={paragraph} onMarkdownOpen={onMarkdownOpen} />);
+  return <InlineParagraph text={value} onMarkdownOpen={onMarkdownOpen} />;
+}
+
+// Renders one response paragraph while preserving intentional line breaks and inline formatting.
+function InlineParagraph({ text, onMarkdownOpen }) {
   const segments = [];
   const pattern = /`([^`]+)`/g;
   let last = 0;
   let match;
-  while ((match = pattern.exec(value))) {
+  while ((match = pattern.exec(text))) {
     const start = match.index;
-    if (start > last) segments.push({ text: value.slice(last, start) });
+    if (start > last) segments.push({ text: text.slice(last, start) });
     segments.push({ inlineCode: match[1] });
     last = start + match[0].length;
   }
-  if (last < value.length) segments.push({ text: value.slice(last) });
-  if (segments.length === 0) return <p>{value}</p>;
+  if (last < text.length) segments.push({ text: text.slice(last) });
+  if (segments.length === 0) return <p>{text.split("\n").map((line, index) => <span key={index}>{index > 0 && <br />}{line}</span>)}</p>;
   const hasInline = segments.some((s) => s.inlineCode);
-  if (!hasInline) return <p><MarkdownLinks text={value} onOpen={onMarkdownOpen} /></p>;
+  if (!hasInline) return <p>{text.split("\n").map((line, index) => <span key={index}>{index > 0 && <br />}<MarkdownLinks text={line} onOpen={onMarkdownOpen} /></span>)}</p>;
   return <p>{segments.map((seg, i) => seg.inlineCode ? <InlineCode key={i} code={seg.inlineCode} onMarkdownOpen={onMarkdownOpen} /> : <MarkdownLinks key={i} text={seg.text} onOpen={onMarkdownOpen} />)}</p>;
 }
 
