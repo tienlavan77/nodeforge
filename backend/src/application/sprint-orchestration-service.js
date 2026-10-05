@@ -8,6 +8,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 
 import { ConfigurationError } from "../shared/errors.js";
+import { assertTicketVerificationContract } from "../modules/governance/ticket-verification-contract.js";
 
 const require = createRequire(import.meta.url);
 const commonSchema = require("../../../schemas/core/common.schema.json");
@@ -218,5 +219,6 @@ function assertSprintPlanGovernance(plan) {
   for (const ticket of plan?.tickets ?? []) {
     if (!Array.isArray(ticket.implementation_type) || ticket.implementation_type.length !== 1 || !["frontend", "backend", "security"].includes(ticket.implementation_type[0]) || ticket.style !== undefined) throw Object.assign(new ConfigurationError(`Ticket ${ticket.id ?? "<unknown>"} must declare exactly one implementation_type.`), { code: "SPRINT_TICKET_IMPLEMENTATION_TYPE_INVALID", statusCode: 422 });
     if (!Number.isInteger(ticket.file_budget) || ticket.file_budget < 1 || ticket.file_budget > 4) throw Object.assign(new ConfigurationError(`Ticket ${ticket.id ?? "<unknown>"} must declare file_budget from 1 to 4.`), { code: "SPRINT_TICKET_FILE_BUDGET_INVALID", statusCode: 422 });
+    assertTicketVerificationContract(ticket);
   }
 }

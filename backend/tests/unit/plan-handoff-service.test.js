@@ -119,7 +119,7 @@ test("Markdown handoff sends approved bytes and requires Sprint Leader ticket ID
   } finally { await database.close(); await rm(root, { recursive: true, force: true }); }
 });
 
-// Keeps malformed ticket identity from producing a durable Sprint draft.
+// Keeps malformed ticket identity out of the roadmap while retaining the draft for retry.
 test("Markdown handoff rejects duplicate ticket IDs before persistence", async () => {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-markdown-scope-retry-"));
   const database = await createDatabaseService({ dataDir: root, runtimeDir: "." });
@@ -133,7 +133,9 @@ test("Markdown handoff rejects duplicate ticket IDs before persistence", async (
     await assert.rejects(service.handoff({ plan }), { code: "SPRINT_MARKDOWN_SCOPE" });
     assert.equal(calls, 1);
     const receipt = database.all("SELECT generated_json,error_code FROM markdown_plan_handoffs WHERE plan_id=?", [plan.plan_id])[0];
-    assert.equal(receipt.generated_json, null);
+    assert.ok(receipt.generated_json);
     assert.equal(receipt.error_code, "SPRINT_MARKDOWN_SCOPE");
+    await assert.rejects(service.handoff({ plan }), { code: "SPRINT_MARKDOWN_SCOPE" });
+    assert.equal(calls, 1);
   } finally { await database.close(); await rm(root, { recursive: true, force: true }); }
 });

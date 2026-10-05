@@ -34,17 +34,17 @@ export function createTicketExecutionContextStore({ fileService, projectId, proj
   }
 
   // Creates the context once before dispatch, rejecting a changed owner or baseline.
-  async function create({ taskId, supervisorId, baseSha, baseline = null }) {
+  async function create({ taskId, supervisorId, baseSha, baseline = null, verificationPlan = null }) {
     if (!supervisorId || !/^[a-f0-9]{40,64}$/i.test(baseSha ?? "")) throw fail("TICKET_CONTEXT_INPUT", "Context requires Supervisor ownership and a Git baseline SHA.");
     return locked(taskId, async () => {
       const existing = await load(taskId);
       if (existing) {
-        if (existing.supervisor_id !== supervisorId || existing.base_sha !== baseSha || existing.project_id !== projectId || JSON.stringify(existing.approved_baseline ?? null) !== JSON.stringify(baseline)) throw fail("TICKET_CONTEXT_CONFLICT", "Ticket context owner or baseline changed.");
+        if (existing.supervisor_id !== supervisorId || existing.base_sha !== baseSha || existing.project_id !== projectId || JSON.stringify(existing.approved_baseline ?? null) !== JSON.stringify(baseline) || JSON.stringify(existing.verification_plan ?? null) !== JSON.stringify(verificationPlan)) throw fail("TICKET_CONTEXT_CONFLICT", "Ticket context owner, baseline, or verification plan changed.");
         return existing;
       }
       const now = new Date().toISOString();
       const identity = manifestIdentity({ revision: 0, entries: {} });
-      const record = { task_id: taskId, project_id: projectId, supervisor_id: supervisorId, base_sha: baseSha, execution_root: "project-root", ...(baseline ? { approved_baseline: baseline } : {}), source_revision: identity.source_revision, manifest_paths: [], manifest_sha: identity.manifest_sha, verification_artifact_id: null, review_commit_sha: null, state: "created", version: 1, created_at: now, updated_at: now };
+      const record = { task_id: taskId, project_id: projectId, supervisor_id: supervisorId, base_sha: baseSha, execution_root: "project-root", ...(baseline ? { approved_baseline: baseline } : {}), ...(verificationPlan ? { verification_plan: structuredClone(verificationPlan) } : {}), source_revision: identity.source_revision, manifest_paths: [], manifest_sha: identity.manifest_sha, verification_artifact_id: null, review_commit_sha: null, state: "created", version: 1, created_at: now, updated_at: now };
       await fileService.atomicWrite({ path: pathFor(taskId), content: `${JSON.stringify(record)}\n`, replace: false });
       log("created", record);
       return record;
@@ -112,6 +112,6 @@ export async function prepareTicketExecutionContext({ workspace, taskId, supervi
   const manifest = await workspace.changeLedger.snapshot();
   const baseline = ticket?.rollout_package === "A5" ? await verifyTicketBaseline({ workspace, taskId, supervisorId, ticket, existing }) : null;
   if (!existing && (manifest.revision > 0 || Object.keys(manifest.commits).length)) throw fail("TICKET_CONTEXT_MIGRATION_REQUIRED", "Existing ticket changes require explicit context migration before dispatch.");
-  await workspace.executionContexts.create({ taskId, supervisorId, baseSha: workspace.base_commit, baseline });
+  await workspace.executionContexts.create({ taskId, supervisorId, baseSha: workspace.base_commit, baseline, verificationPlan: ticket?.verification_plan ?? null });
   return workspace.executionContexts.syncManifest(taskId, manifest);
 }

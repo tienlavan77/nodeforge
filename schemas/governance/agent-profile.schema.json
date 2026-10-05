@@ -8,7 +8,7 @@
   "properties": {
     "agent_id": { "type": "string", "format": "uuid" },
     "agent_name": { "type": "string", "minLength": 1 },
-    "role": { "type": "string", "enum": ["coder", "reviewer", "sprint_leader", "architecture_manager", "linguist"] },
+    "role": { "type": "string", "enum": ["coder", "reviewer", "sprint_leader", "architecture_manager", "system_engineer", "linguist"] },
     "gateway_url": { "type": "string", "format": "uri", "pattern": "^https://" },
     "credential_ref": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9_.:/-]+$" },
     "enabled": { "type": "boolean" },

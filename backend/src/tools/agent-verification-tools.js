@@ -43,7 +43,7 @@ export function createCommitChangesTool({ gitService, changeLedger, logger = cre
     let paths;
     try {
       authorizeTool("commit_changes", context);
-      if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => !["message", "paths"].includes(key)) || typeof input.message !== "string" || !input.message.trim() || input.message.length > 200 || input.message.includes("\0")) throw error("INPUT_INVALID", "commit_changes requires a message of 1–200 characters and an explicit paths array.");
+      if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => !["message", "paths"].includes(key)) || typeof input.message !== "string" || !input.message.trim() || input.message.length > 200 || input.message.includes("\0")) throw error("INPUT_INVALID", "commit_changes requires a message of 1–200 characters.");
       const suppliedPaths = input.paths === undefined ? null : normalizeCommitPaths(input.paths);
       paths = changeLedger ? Object.keys((await changeLedger.snapshot()).entries) : resolveCommitPaths(context);
       if (suppliedPaths && !samePaths(suppliedPaths, paths)) throw error("SCOPE_INVALID", "The commit paths must exactly match the paths recorded by the ticket ledger.", { expected_paths: paths, supplied_paths: suppliedPaths });

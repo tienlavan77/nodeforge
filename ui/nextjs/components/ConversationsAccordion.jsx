@@ -1,8 +1,10 @@
 // Conversations accordion with interactive rows and drag-and-drop reordering.
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { CreateConversationModal } from "./CreateConversationModal.jsx";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { ConversationsBlock } from "./ConversationsBlock.jsx";
 import { isPinnedConversation, sortPinnedFirst } from "./conversation-pinning.js";
 import { useConversationList } from "./use-conversation-list.js";
@@ -16,6 +18,8 @@ export function ConversationsAccordion({
   activeConversationId = null,
   projectId,
   agentId,
+  createRequest = 0,
+  showNewConversationButton = true,
 }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [title, setTitle] = useState("");
@@ -29,7 +33,6 @@ export function ConversationsAccordion({
   const [dragId, setDragId] = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
   const [pinError, setPinError] = useState("");
-  const menuRef = useRef(null);
 
   useEffect(() => {
     if (menuOpenId === null) return;
@@ -42,6 +45,13 @@ export function ConversationsAccordion({
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [menuOpenId]);
+
+  useEffect(() => {
+    if (createRequest > 0) {
+      setError("");
+      setModalOpen(true);
+    }
+  }, [createRequest]);
 
   // Appends or updates a conversation row after create
   function upsertConversation(conversation) {
@@ -96,13 +106,14 @@ export function ConversationsAccordion({
     <div className="conversations-accordion conversations-accordion-direct"
       data-testid="conversations-navigation">
       <div className="conversations-accordion-header">
-        <button
+        <h2 className="conversations-accordion-title">Chats</h2>
+        {showNewConversationButton && <button
           type="button"
           className="conversations-accordion-new" aria-label="New conversation"
           onClick={() => { setError(""); setModalOpen(true); }}
         >
           New Conversation
-        </button>
+        </button>}
         <CreateConversationModal
           open={modalOpen}
           title={title}

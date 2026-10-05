@@ -30,8 +30,12 @@ export function createPlanHandoffService({ projectId, database, planStore, markd
         const profile = agentRoleResolver?.resolveProfile?.("sprint_leader");
         if (!profile?.agent_id) throw fail("SPRINT_LEADER_UNAVAILABLE", "Configured Sprint Leader profile is unavailable.");
         const brief = markdown ? `Approved plan_id=${approved.plan_id} revision=${approved.revision} sha256=${approved.sha256}\n\n${approved.markdown}` : JSON.stringify({ plan_id: approved.plan_id, revision: approved.revision, sha256: approved.sha256, content: approved.content });
-        generated = await sprintPlanLeader.requestPlan({ projectId, agentId: profile.agent_id, brief, feedback: "Create the Sprint Plan from this owner-approved plan. For numbered work groups keep their order; for outcome rows decompose independently and map every outcome to tickets. Assign stable ticket IDs. Do not run tickets.", correlationId });
+        const priorFailure = row.error_message ? ` Previous admission failure to correct: ${row.error_code ?? "SPRINT_PLAN_INVALID"}: ${row.error_message}` : "";
+        generated = await sprintPlanLeader.requestPlan({ projectId, agentId: profile.agent_id, brief, feedback: `Create the Sprint Plan from this owner-approved plan. For numbered work groups keep their order; for outcome rows decompose independently and map every outcome to tickets. Assign stable ticket IDs. Do not run tickets.${priorFailure}`, correlationId });
         if (!generated?.id || typeof generated.id !== "string") throw fail("SPRINT_PLAN_HANDOFF_FAILED", "Sprint Leader returned a plan without a sprint ID.");
+        // Retain the exact generated draft before admission so Continue handoff
+        // retries validation/persistence without asking Sprint Leader to regenerate.
+        database.run(`UPDATE ${table} SET status=?,sprint_id=?,generated_json=?,updated_at=? WHERE plan_id=? AND revision=? AND sha256=?`, ["candidate", generated.id, JSON.stringify(generated), clock(), approved.plan_id, approved.revision, approved.sha256]);
         if (markdown) generated = projectMarkdownSprintScope(approved.markdown, generated);
       }
       if (markdown) generated = bindMarkdownSprintMetadata(generated, projectId, database);

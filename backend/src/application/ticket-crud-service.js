@@ -3,8 +3,9 @@
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../shared/errors.js";
 import { extractTicketJson } from "./ticket-draft-parser.js";
+import { assertTicketVerificationContract } from "../modules/governance/ticket-verification-contract.js";
 
-const UPDATABLE = ["title", "objective", "acceptance_criteria", "priority", "dependencies", "status", "last_error", "implementation_type", "change_nature"];
+const UPDATABLE = ["title", "objective", "acceptance_criteria", "verification_plan", "priority", "dependencies", "status", "last_error", "implementation_type", "change_nature"];
 const SPRINT_LEADER_ROLE = "sprint_leader";
 
 // Creates a CRUD service for tickets with sprint-leader normalization.
@@ -116,6 +117,7 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
     delete normalized.candidates_produced_by;
     delete normalized.candidates_produced_at;
     if (normalized.style !== undefined || !Array.isArray(normalized.implementation_type) || normalized.implementation_type.length !== 1 || !["frontend", "backend", "security"].includes(normalized.implementation_type[0])) throw Object.assign(new ConfigurationError("Sprint Leader must return exactly one implementation_type and no style field."), { code: "TICKET_IMPLEMENTATION_TYPE_INVALID", statusCode: 422 });
+    if (Array.isArray(normalized.acceptance_criteria) && normalized.acceptance_criteria.length) assertTicketVerificationContract(normalized);
     return normalized;
   }
   async function requestSprintLeaderTicket({ projectId, agentId, content, ticket, feedback }) {
@@ -124,10 +126,10 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
     }
     const prompt = [
       "Convert the project owner request below into exactly one governance ticket.",
-      "Write ALL ticket field values (title, objective, acceptance_criteria) in English. If the owner request is in another language (e.g. Vietnamese), translate it into clear technical English.",
+      "Write ALL ticket field values (title, objective, acceptance_criteria, verification_plan) in English. If the owner request is in another language (e.g. Vietnamese), translate it into clear technical English.",
       "REQUIRED: Set implementation_type to exactly one value in a one-item array: frontend, backend, or security. Do not return the legacy style field.",
       "Respond with ONLY one ```json fenced block containing the ticket JSON object. No prose outside the block.",
-      "Ticket fields: title (string, required), objective (string, required), acceptance_criteria (array of strings, at least one, required), implementation_type (one-item array: frontend|backend|security), file_budget (integer 1-4, required), priority (optional: low|medium|normal|high|critical), dependencies (optional: array of ticket ids), change_nature (optional: presentation-only|test-only).",
+      "Ticket fields: title (string, required), objective (string, required), acceptance_criteria (array of strings, at least one, required), verification_plan (array, required), implementation_type (one-item array: frontend|backend|security), file_budget (integer 1-4, required), priority (optional: low|medium|normal|high|critical), dependencies (optional: array of ticket ids), change_nature (optional: presentation-only|test-only). Each plan step has criterion_ids (AC-1, AC-2…), kind (test|backend_tests|build|lint|typecheck|schema_validation|browser|governance|human), and test_path for test or assertions plus numeric viewports for browser. Cover every criterion.",
       "Do NOT include candidate_files, candidates_produced_by, candidates_produced_at, id, project_id, roadmap_id, sprint_id, status, last_error, or provenance; implementation discovery belongs to the Coder and the system assigns identity fields.",
       feedback ? `Previous validation feedback: ${feedback}` : undefined,
       `Project id: ${projectId}`,
@@ -201,6 +203,7 @@ function validateRegeneratedTicket(ticket) {
   const errors = [];
   for (const field of ["title", "objective"]) if (typeof ticket[field] !== "string" || !ticket[field].trim()) errors.push(`${field} must be a non-empty string`);
   if (!Array.isArray(ticket.acceptance_criteria) || ticket.acceptance_criteria.length === 0 || ticket.acceptance_criteria.some((item) => typeof item !== "string" || !item.trim())) errors.push("acceptance_criteria must contain non-empty strings");
+  if (ticket.verification_plan !== undefined) try { assertTicketVerificationContract(ticket); } catch (error) { errors.push(error.message); }
   if (ticket.priority !== undefined && !["low", "medium", "normal", "high", "critical"].includes(ticket.priority)) errors.push("priority is invalid");
   return errors;
 }

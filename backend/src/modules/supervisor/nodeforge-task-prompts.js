@@ -6,6 +6,7 @@ export const COMPLEXITY_FALLBACK = Object.freeze({ effort: "medium", discovery_b
 // Builds the Codex ticket instructions for governed implementation work.
 export function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, complexity, directCode = false, immutableScope = false) {
   const acceptance = (ticket?.acceptance_criteria ?? []).map((item) => `- ${item}`).join("\n");
+  const verification = formatVerificationPlan(ticket);
   const allowedJson = JSON.stringify(allowedPrefixes);
   const backendRequired = isBackendTicket(ticket);
   const instructions = [
@@ -22,6 +23,7 @@ export function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, comp
     `Ticket ${ticket?.id ?? ""}: ${ticket?.title ?? ""}`,
     `Objective: ${ticket?.objective ?? ""}`,
     ...(acceptance ? ["Acceptance criteria:", acceptance] : []),
+    ...(verification ? ["Forge verification plan (Forge reruns this after commit):", verification] : []),
     ...ticketVocabularyHints(ticket),
     "",
     ...instructions,
@@ -29,14 +31,14 @@ export function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, comp
     "Production gate: the Coder cannot mark production accepted, release-ready, or done solely from implementation evidence. Preserve BLOCKED/NOT ACCEPTED FOR PRODUCTION until the required canary, terminal receipt, and release authority evidence exist.",
     ...coderProjectConventions("sed_lines"),
     "Work in English and produce all file content in English.",
-    `Budget discipline: you have a hard wall-clock deadline and a discovery budget of ${complexity.discovery_budget} exploration calls. The next action after identifying the target and relevant context is edit_diff or write_diff; do not spend the full budget by default. Respect the discovery budget and start editing promptly. Productive discovery may receive one bounded extension. Re-read nothing you already read; prefer edit_diff with an exact anchor over re-reading whole files. Do not run run_test before at least one edit_diff/write_diff succeeded.`,
+    `Budget discipline: you have a hard wall-clock deadline and a discovery budget of ${complexity.discovery_budget} exploration calls. The next action after identifying the target and relevant context is edit_diff or write_diff; do not spend the full budget by default. Respect the discovery budget and start editing promptly. Productive discovery may receive one bounded extension. Re-read nothing you already read; prefer edit_diff with an exact anchor over re-reading whole files.`,
     immutableScope ? "Immutable-manifest search discipline: candidate retrieval is unavailable. Read and edit only approved manifest paths." : directCode ? "Direct-code search discipline: use search_code, rg_files and rg_search inside approved prefixes." : "Search discipline: use search_code for indexed file and symbol discovery, rg_files for paths, and rg_search for live text. Do not repeat a search that returned no matches without new evidence.",
     "Call read_file({path}) for cached metadata, current symbol start_line/end_line and scoped graph; it never returns source for coders. Read source with sed_lines({path,start_line,end_line}), at most 80 lines.",
     "Symbol check: if the ticket symbol is missing from the file or no longer matches the ticket reason, re-discover via rg_search instead of editing blind.",
     "Tool enforcement: sed_lines requires path, start_line, and end_line; read at most 80 lines per call and stay within the ticket scope.",
     "Use the whole-file sha256 returned by sed_lines as before_checksum for write_diff/edit_diff. Use JSON null only when creating a new file.",
-    "For every acceptance criterion, include one acceptance_coverage entry using a stable criterion_id (AC-1, AC-2, etc.). Use status=verified only when the artifact contains a passing command; use status=evidence_pending for browser/visual or other evidence that Reviewer must inspect. Criterion wording need not be copied exactly.",
-    `When the ticket is satisfied, call commit_changes with the exact changed file paths recorded during this execution, then run_test and poll check_test until passed, then call report_done with summary, acceptance_criteria, acceptance_coverage (one entry per criterion using stable criterion_id), implementation_scope (actual changed_files, not_changed_files, scope_rationale), and typed evidence. Do not call Reviewer tools or submit finding resolutions. If report_done says fields are missing or invalid, supplement only those fields for the same artifact. Stop after the complete report.`
+    "Node derives commit paths from the ticket ledger and runs the listed verification plan after commit. Do not invent, omit, or downgrade a criterion; add focused tests when the plan calls for them. Node owns artifacts and criterion evidence.",
+    "When the ticket is satisfied, call commit_changes with a concise message and no paths, then call report_done with a summary and any scope rationale or human evidence. Node supplies changed files, criterion IDs, command evidence, and artifact identity. Do not call Reviewer tools or submit finding resolutions. Stop after the complete report."
   ].filter((line) => line !== undefined).join("\n");
 }
 
@@ -93,6 +95,7 @@ export function buildToolTestPrompt(taskId, targetPath, allowedPrefixes) {
 // Builds Claude's governed ticket prompt for implementation work.
 export function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, complexity, directCode = false, immutableScope = false) {
   const acceptance = (ticket?.acceptance_criteria ?? []).map((item) => `- ${item}`).join("\n");
+  const verification = formatVerificationPlan(ticket);
   const allowedJson = JSON.stringify(allowedPrefixes);
   const backendRequired = isBackendTicket(ticket);
   const instructions = [
@@ -109,19 +112,29 @@ export function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, compl
     `Ticket ${ticket?.id ?? ""}: ${ticket?.title ?? ""}`,
     `Objective: ${ticket?.objective ?? ""}`,
     ...(acceptance ? ["Acceptance criteria:", acceptance] : []),
+    ...(verification ? ["Forge verification plan (Forge reruns this after commit):", verification] : []),
     ...ticketVocabularyHints(ticket),
     "",
     ...instructions,
     ...coderProjectConventions("Read"),
     "Hardening boundary: implement only hardening or fixes in the ticket's persisted scope and approved manifest. Do not rewrite boundaries already marked PASS in the acceptance report, weaken fail-closed gates, alias retired routes, or change governance authority.",
     "Production gate: the Coder cannot mark production accepted, release-ready, or done solely from implementation evidence. Preserve BLOCKED/NOT ACCEPTED FOR PRODUCTION until the required canary, terminal receipt, and release authority evidence exist.",
-    `Budget discipline: you have a discovery budget of ${complexity.discovery_budget} exploration calls. The next action after identifying the target and relevant context is edit_diff or write_diff; do not spend the full budget by default. Every discovery result includes discovery_budget.remaining — start editing before it reaches 0. Productive discovery may receive one bounded extension. Re-read nothing you already read; prefer edit_diff with an exact anchor over re-reading whole files. Do not run run_test before at least one edit_diff/write_diff succeeded.`,
+    `Budget discipline: you have a discovery budget of ${complexity.discovery_budget} exploration calls. The next action after identifying the target and relevant context is edit_diff or write_diff; do not spend the full budget by default. Every discovery result includes discovery_budget.remaining — start editing before it reaches 0. Productive discovery may receive one bounded extension. Re-read nothing you already read; prefer edit_diff with an exact anchor over re-reading whole files.`,
     immutableScope ? "Immutable-manifest search discipline: candidate retrieval is unavailable. Read and edit only approved manifest paths." : "Search discipline: use search_code, Glob and Grep inside approved prefixes, then confirm symbols and file contents with current source. Search using title, objective and acceptance criteria; avoid repeating queries that returned no matches without new evidence.",
     "Symbol check: if the ticket symbol is missing from the file or its content no longer matches the ticket reason, the file changed since tracing — re-discover via search_code instead of editing blind.",
     "Tool enforcement: read_file({path}) returns cached metadata, symbol ranges and scoped graph, never source for coders. Read source with Read({file_path,start_line,end_line}), at most 80 lines. If a symbol exceeds 80 lines, read successive ranges. Exploration that yields no new information 3 times in a row is refused by the tool — act on what you have.",
     "Claude coder may use Forge Read, Glob, and Grep; native built-ins remain disabled. Use the whole-file checksum returned by Read or read_file as before_checksum for write_diff/edit_diff; never send the string \"null\". Use JSON null only when intentionally creating a new file.",
     "For an existing file, use edit_diff with a small exact anchor and replacement. Use write_diff only for a new file or an existing file within the 250-line limit. If write_diff returns DESTRUCTIVE_OVERWRITE or CONTENT_TOO_LARGE, retry with edit_diff; do not stop or report done.",
     "If a governed tool call fails, fix the inputs and retry — do not continue with write_diff/commit_changes on an unknown target.",
-    "Mandatory completion sequence: commit changes, run_test and poll check_test until passed, then call report_done with summary, acceptance_criteria (one entry per ticket criterion), acceptance_coverage (one entry per criterion keyed by stable criterion_id such as AC-1; use status=verified only for passing commands), implementation_scope (actual changed_files, not_changed_files, scope_rationale), and typed evidence. Do not call Reviewer tools or submit finding resolutions. Behavioral and visual criteria need focused executed tests. If report_done reports missing fields, supplement the saved draft. Stop after the report."
+    "Mandatory completion sequence: call commit_changes with a concise message and no paths, then call report_done with a summary and any scope rationale or human evidence. Node derives commit paths, runs the listed verification plan, and attaches criterion IDs, changed files, and command evidence. Do not call Reviewer tools or submit finding resolutions. Stop after the report."
   ].join("\n");
+}
+
+// Formats the immutable criterion mapping so Coder knows exactly what Forge will verify.
+function formatVerificationPlan(ticket) {
+  if (!Array.isArray(ticket?.verification_plan) || !ticket.verification_plan.length) return "";
+  return ticket.verification_plan.map((step) => {
+    const details = [step.test_path ? `test_path=${step.test_path}` : "", Array.isArray(step.viewports) ? `viewports=${step.viewports.join(",")}` : "", Array.isArray(step.assertions) ? `assertions=${step.assertions.join("; ")}` : ""].filter(Boolean);
+    return `- ${step.criterion_ids?.join(", ") ?? "unbound"}: ${step.kind}${details.length ? ` (${details.join("; ")})` : ""}`;
+  }).join("\n");
 }

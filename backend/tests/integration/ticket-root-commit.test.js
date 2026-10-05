@@ -226,5 +226,6 @@ test("disposable archive runs the real verification command against its committe
     assert.equal(artifact.commands[0].kind, "typecheck");
     assert.equal(artifact.commands[0].exit_code, 0);
     assert.equal(artifact.materialization_method, "git-archive");
+    assert.equal(artifact.cwd.startsWith(join(root, ".forge/runtime/ticket-verification/archives/")), true);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

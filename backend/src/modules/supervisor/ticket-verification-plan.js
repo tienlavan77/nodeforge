@@ -9,7 +9,7 @@ export function requiresSchemaVerification(paths) {
 }
 
 // Builds a reproducible command list against the committed source archive.
-export async function buildTicketVerificationPlan(paths, root, { fullBackend = false } = {}) {
+export async function buildTicketVerificationPlan(paths, root, { fullBackend = false, verificationPlan = [] } = {}) {
   const checks = [];
   const backend = paths.some((path) => path.startsWith("backend/"));
   if (backend) {
@@ -32,9 +32,17 @@ export async function buildTicketVerificationPlan(paths, root, { fullBackend = f
     if (tests.length) checks.push({ kind: "test", argv: [process.execPath, "--test", ...tests] });
     checks.push({ kind: "build", argv: [process.execPath, "ui/nextjs/node_modules/next/dist/bin/next", "build", "ui/nextjs", "--webpack"] });
   }
+  for (const step of verificationPlan) {
+    if (step?.kind !== "test" || typeof step.test_path !== "string" || commandsContainTest(checks, step.test_path)) continue;
+    if (!/^(?:backend\/tests|ui\/nextjs\/tests)\/.+\.test\.[cm]?[jt]sx?$/.test(step.test_path)) throw new ConfigurationError(`Verification test path is outside supported test directories: ${step.test_path}`);
+    checks.push({ kind: "test", argv: [process.execPath, "--test", step.test_path] });
+  }
   if (!checks.length) checks.push({ kind: "typecheck", argv: [process.execPath, "node_modules/typescript/bin/tsc", "--project", "jsconfig.json"] });
   return checks;
 }
+
+// Avoids running a focused test twice when source-based selection already chose it.
+function commandsContainTest(checks, path) { return checks.some((check) => check.kind === "test" && check.argv?.includes(path)); }
 
 // Selects ticket tests and direct source importers so unrelated backend suites do not delay review.
 async function selectRelatedTests(paths, tests, root, sourcePrefix = "backend/src/") {

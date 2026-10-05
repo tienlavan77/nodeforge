@@ -35,6 +35,8 @@ export function createCompletionReportService({ protocolStorage, fileService, gi
     const current = (await protocolStorage.get(`task/${taskId}/final_report`)).data;
     const validStatuses = new Set(["verified", "evidence_pending", "not_applicable"]);
     if (current.status !== "submitted_for_review" && current.status !== "completed" || !Array.isArray(current.criteria_check) || current.criteria_check.some((entry) => !validStatuses.has(entry.status) && entry.node_verified !== true)) throw new ConfigurationError("Coder completion requires normalized coverage for every acceptance criterion.");
+    const pending = current.criteria_check.filter((entry) => entry.status === "evidence_pending");
+    if (pending.length) throw Object.assign(new ConfigurationError("Acceptance criteria still require independent evidence before ticket completion."), { code: "CODER_EVIDENCE_PENDING", details: { criterion_ids: pending.map((entry) => entry.criterion_id).filter(Boolean) } });
     return current;
   }
   // Promotes a verified Coder report when ticket execution does not require inline review.

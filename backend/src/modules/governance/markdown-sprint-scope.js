@@ -1,5 +1,6 @@
 // Constrains Sprint tickets to approved work groups or outcome coverage in a readable plan.
 import { ConfigurationError } from "../../shared/errors.js";
+import { assertTicketVerificationContract } from "./ticket-verification-contract.js";
 
 function fail(message) { return Object.assign(new ConfigurationError(message), { code: "SPRINT_MARKDOWN_SCOPE", statusCode: 422 }); }
 function normalized(value) { return String(value ?? "").replace(/\s+/g, " ").trim().replace(/[.!?]+$/, "").toLocaleLowerCase("en"); }
@@ -27,8 +28,10 @@ export function readMarkdownSprintScope(markdown) {
 export function projectMarkdownSprintScope(markdown, sprint) {
   const approved = readMarkdownSprintScope(markdown);
   if (approved[0]?.kind === "outcome") {
-    assertOutcomeSprintScope(approved, sprint);
-    return { ...sprint, outcome_coverage: structuredClone(approved), tickets: sprint.tickets.map((ticket) => ({ ...structuredClone(ticket), implementation_type: [...ticket.implementation_type], acceptance_criteria: [...ticket.acceptance_criteria], dependencies: [...(ticket.dependencies ?? [])], outcome_refs: [...ticket.outcome_refs], ...(ticket.coverage ? { coverage: structuredClone(ticket.coverage) } : {}), ...(ticket.criterion_refs ? { criterion_refs: structuredClone(ticket.criterion_refs) } : {}), ...(ticket.guardrail_refs ? { guardrail_refs: structuredClone(ticket.guardrail_refs) } : {}), ...(ticket.dependency_refs ? { dependency_refs: structuredClone(ticket.dependency_refs) } : {}) })) };
+    const projectedTickets = sprint.tickets.map((ticket) => bindApprovedOutcomeCoverage(ticket, approved));
+    const projected = { ...sprint, outcome_coverage: structuredClone(approved), tickets: projectedTickets };
+    assertOutcomeSprintScope(approved, projected);
+    return projected;
   }
   const tickets = sprint?.tickets;
   if (!Array.isArray(tickets) || tickets.length !== approved.length) throw fail("Sprint ticket count differs from approved Markdown work groups.");
@@ -43,11 +46,30 @@ export function projectMarkdownSprintScope(markdown, sprint) {
     });
     const priority = tickets[index].priority;
     if (priority !== undefined && !["low", "medium", "normal", "high", "critical"].includes(priority)) throw fail(`Sprint ticket ${index + 1} has an invalid priority.`);
-    return { id: ids[index], title: row.title, objective: row.objective, implementation_type: [row.implementation_type], file_budget: row.file_budget, acceptance_criteria: [...row.acceptance_criteria], dependencies, ...(priority === undefined ? {} : { priority }) };
+    return { id: ids[index], title: row.title, objective: row.objective, implementation_type: [row.implementation_type], file_budget: row.file_budget, acceptance_criteria: [...row.acceptance_criteria], verification_plan: structuredClone(tickets[index].verification_plan), dependencies, ...(priority === undefined ? {} : { priority }) };
   });
   const result = { ...sprint, tickets: projected };
   assertMarkdownSprintScope(markdown, result);
   return result;
+}
+
+// Binds approved criteria, guardrails, and mandatory dependencies to each ticket after semantic checks.
+function bindApprovedOutcomeCoverage(ticket, outcomes) {
+  const copy = { ...structuredClone(ticket), implementation_type: [...ticket.implementation_type], acceptance_criteria: [...ticket.acceptance_criteria], dependencies: [...(ticket.dependencies ?? [])], outcome_refs: [...ticket.outcome_refs] };
+  const coverage = { ...(copy.coverage ?? {}) };
+  for (const outcomeId of copy.outcome_refs) {
+    const outcome = outcomes.find((item) => item.id === outcomeId);
+    if (!outcome) continue;
+    const missingCriteria = outcome.acceptance_criteria.filter((criterion) => !copy.acceptance_criteria.some((item) => normalized(item) === normalized(criterion)));
+    if (missingCriteria.length) copy.acceptance_criteria.push(...missingCriteria);
+    coverage[outcomeId] = {
+      ...(coverage[outcomeId] ?? {}),
+      criterion_refs: [...outcome.acceptance_criteria],
+      guardrail_refs: [...outcome.guardrails],
+      dependency_refs: [...outcome.mandatory_dependencies]
+    };
+  }
+  return { ...copy, coverage };
 }
 
 // Admits only tickets that preserve the approved legacy table or complete outcome proof.
@@ -62,6 +84,7 @@ export function assertMarkdownSprintScope(markdown, sprint) {
     const implementationType = ticket?.implementation_type?.length === 1 ? String(ticket.implementation_type[0]).trim().toLocaleLowerCase("en") : "";
     if (normalized(ticket?.title) !== normalized(row.title) || normalized(ticket?.objective) !== normalized(row.objective) || implementationType !== row.implementation_type || !Number.isInteger(ticket.file_budget) || ticket.file_budget < 1 || ticket.file_budget > row.file_budget) throw fail(`Sprint ticket ${index + 1} changes approved boundaries.`);
     if (!Array.isArray(ticket.acceptance_criteria) || ticket.acceptance_criteria.length !== row.acceptance_criteria.length || row.acceptance_criteria.some((criterion, criterionIndex) => normalized(ticket.acceptance_criteria[criterionIndex]) !== normalized(criterion))) throw fail(`Sprint ticket ${index + 1} changes approved acceptance criteria.`);
+    if (ticket.verification_plan !== undefined) try { assertTicketVerificationContract(ticket); } catch (error) { throw fail(`Sprint ticket ${index + 1} has an invalid verification plan: ${error.message}`); }
     const expected = row.dependency_labels.flatMap((label) => {
       const prior = approved.findIndex((candidate, position) => position < index && (normalized(candidate.title) === normalized(label) || String(candidate.position) === label || normalized(`ticket ${candidate.position}`) === normalized(label)));
       if (prior >= 0) return [tickets[prior].id];
@@ -99,12 +122,14 @@ function coverageFor(ticket, outcome) {
   const guardrails = declared.guardrail_refs ?? ticket.guardrail_refs?.[outcome.id] ?? [];
   const dependencies = declared.dependency_refs ?? ticket.dependency_refs?.[outcome.id] ?? [];
   if (![criteria, guardrails, dependencies].every(Array.isArray)) throw fail(`Sprint ticket ${ticket.id} has invalid outcome coverage.`);
-  return { criteria, guardrails, dependencies };
+  return { criteria, guardrails, dependencies, dependency_declared: Object.hasOwn(declared, "dependency_refs") || Object.hasOwn(ticket.dependency_refs ?? {}, outcome.id) };
 }
 
 // Verifies every approved outcome element and the dependency graph before admission.
 function assertOutcomeSprintScope(outcomes, sprint) {
-  const tickets = sprint?.tickets;
+  // Normalize every admission path, including persisted raw candidates from older retries,
+  // before checking coverage. This keeps retry validation identical to initial projection.
+  const tickets = Array.isArray(sprint?.tickets) ? sprint.tickets.map((ticket) => bindApprovedOutcomeCoverage(ticket, outcomes)) : sprint?.tickets;
   if (!Array.isArray(tickets) || !tickets.length) throw fail("Sprint Leader must map approved outcomes to tickets.");
   const ids = tickets.map((ticket) => ticket?.id);
   if (ids.some((id) => typeof id !== "string" || !/^TICKET-[A-Za-z0-9._-]+$/.test(id)) || new Set(ids).size !== ids.length) throw fail("Sprint tickets need unique TICKET-* IDs.");
@@ -113,6 +138,7 @@ function assertOutcomeSprintScope(outcomes, sprint) {
   const edges = new Map(ids.map((id) => [id, []]));
   for (const ticket of tickets) {
     if (typeof ticket.title !== "string" || !ticket.title.trim() || typeof ticket.objective !== "string" || !ticket.objective.trim() || !Array.isArray(ticket.implementation_type) || ticket.implementation_type.length !== 1 || !["frontend", "backend", "security"].includes(ticket.implementation_type[0]) || !Number.isInteger(ticket.file_budget) || ticket.file_budget < 1 || ticket.file_budget > 4 || !Array.isArray(ticket.acceptance_criteria) || !ticket.acceptance_criteria.length || ticket.acceptance_criteria.some((item) => typeof item !== "string" || !item.trim())) throw fail(`Sprint ticket ${ticket.id} is incomplete or exceeds its file budget.`);
+    if (ticket.verification_plan !== undefined) try { assertTicketVerificationContract(ticket); } catch (error) { throw fail(`Sprint ticket ${ticket.id} has an invalid verification plan: ${error.message}`); }
     if (!Array.isArray(ticket.outcome_refs) || !ticket.outcome_refs.length || ticket.outcome_refs.some((code) => !codes.has(code)) || new Set(ticket.outcome_refs).size !== ticket.outcome_refs.length) throw fail(`Sprint ticket ${ticket.id} must cite approved outcome IDs.`);
     for (const code of ticket.outcome_refs) {
       const outcome = outcomes.find((item) => item.id === code);
@@ -120,7 +146,7 @@ function assertOutcomeSprintScope(outcomes, sprint) {
       const criteria = coverage.criteria.length ? coverage.criteria : ticket.acceptance_criteria.filter((item) => outcome.acceptance_criteria.some((approved) => normalized(approved) === normalized(item)));
       const guardrails = coverage.guardrails.length ? coverage.guardrails : ticket.guardrail_refs?.filter((item) => outcome.guardrails.some((approved) => normalized(approved) === normalized(item))) ?? [];
       if (criteria.length !== outcome.acceptance_criteria.length || outcome.acceptance_criteria.some((item) => !criteria.some((ref) => normalized(ref) === normalized(item))) || guardrails.length !== outcome.guardrails.length || outcome.guardrails.some((item) => !guardrails.some((ref) => normalized(ref) === normalized(item)))) throw fail(`Sprint ticket ${ticket.id} omits approved criteria or guardrails for ${code}.`);
-      const dependencyRefs = coverage.dependencies.length ? coverage.dependencies : (ticket.dependencies ?? []).flatMap((dependencyId) => tickets.find((candidate) => candidate.id === dependencyId)?.outcome_refs ?? []);
+      const dependencyRefs = coverage.dependency_declared ? coverage.dependencies : (ticket.dependencies ?? []).flatMap((dependencyId) => tickets.find((candidate) => candidate.id === dependencyId)?.outcome_refs ?? []);
       if (dependencyRefs.length !== outcome.mandatory_dependencies.length || outcome.mandatory_dependencies.some((item) => !dependencyRefs.includes(item))) throw fail(`Sprint ticket ${ticket.id} weakens mandatory dependencies for ${code}.`);
       covered.add(code);
     }

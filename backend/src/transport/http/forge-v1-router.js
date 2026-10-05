@@ -9,7 +9,7 @@ import { routeTicketStop } from "./forge-v1-ticket-stop-route.js";
 import { normalizeParts, unavailable, runRequestsFresh, requireProject, readJson } from "./forge-v1-router-utils.js";
 
 // Creates the Forge v1 HTTP router with checkpoint decoration.
-export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrchestrationService, reviewTicket, ticketHumanReviewService, runToolLab, directCodeRequest, projectStream, onWatcherEvent, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, conversationCrudService, conversationAuditHistoryService, architectureWorkspaceService, humanDecisionService, agentSettingsService, listResumableCheckpoints, gitService, expectedProjectId, planStore, markdownPlanStore, sprintRegistry, planOwnerAuth } = {}) {
+export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrchestrationService, reviewTicket, ticketHumanReviewService, runToolLab, directCodeRequest, projectStream, onWatcherEvent, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, conversationCrudService, conversationAuditHistoryService, architectureWorkspaceService, humanDecisionService, agentSettingsService, listResumableCheckpoints, gitService, fileService, expectedProjectId, planStore, markdownPlanStore, sprintRegistry, planOwnerAuth } = {}) {
   const conversationRoutes = createForgeV1ConversationRoutes({ conversationCrudService, conversationAuditHistoryService, ownerChatService, listResumableCheckpoints, planOwnerAuth });
   return Object.freeze({ route });
 
@@ -50,6 +50,14 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrch
       if (projectId !== expectedProjectId) throw Object.assign(new ConfigurationError("Git status project is unavailable."), { statusCode: 404, code: "PROJECT_NOT_FOUND" });
       if (!gitService?.statusSummary) throw unavailable("Git Status");
       return { status: 200, body: await gitService.statusSummary() };
+    }
+    if (method === "GET" && parts.length === 2 && parts[0] === "files" && parts[1] === "markdown") {
+      requireProject(projectId);
+      if (projectId !== expectedProjectId) throw Object.assign(new ConfigurationError("Project file is unavailable."), { statusCode: 404, code: "PROJECT_NOT_FOUND" });
+      const path = url.searchParams.get("path") ?? "";
+      if (!isSafeMarkdownPath(path)) throw Object.assign(new ConfigurationError("Markdown path is not available for preview."), { statusCode: 400, code: "MARKDOWN_PREVIEW_PATH_INVALID" });
+      if (!fileService?.readFile) throw unavailable("Markdown Preview");
+      return { status: 200, body: { path, content: await fileService.readFile({ path }) } };
     }
 
     if (method === "POST" && parts.length === 2 && parts[0] === "stream" && parts[1] === "events") {
@@ -244,6 +252,10 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrch
 
     throw Object.assign(new ConfigurationError("Route not found."), { statusCode: 404 });
   }
+}
+
+function isSafeMarkdownPath(path) {
+  return typeof path === "string" && path.endsWith(".md") && !path.startsWith("/") && !path.includes("\\") && !path.split("/").includes("..");
 }
 
 // RUN resumes from a crash checkpoint by default; `?fresh=true` or a

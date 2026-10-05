@@ -54,6 +54,7 @@ export function createControlApiHttp({ services } = {}) {
       humanDecisionService: services.humanDecisionService,
       agentSettingsService: agentSettings,
       gitService,
+      fileService,
       planStore: services.planStore,
       markdownPlanStore: services.markdownPlanStore,
       sprintRegistry: services.sprintRegistry,

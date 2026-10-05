@@ -95,7 +95,7 @@ function validateConfiguration(value) {
   if (!value || typeof value !== "object"
     || REQUIRED_FIELDS.some((field) => value[field] === undefined)
     || Object.keys(value).some((key) => !FIELDS.includes(key))
-    || typeof value.agent_id !== "string" || typeof value.agent_name !== "string" || typeof value.role !== "string" || !["coder", "reviewer", "sprint_leader", "architecture_manager", "linguist"].includes(value.role) || typeof value.gateway_url !== "string" || !value.gateway_url.startsWith("https://")
+    || typeof value.agent_id !== "string" || typeof value.agent_name !== "string" || typeof value.role !== "string" || !["coder", "reviewer", "sprint_leader", "architecture_manager", "system_engineer", "linguist"].includes(value.role) || typeof value.gateway_url !== "string" || !value.gateway_url.startsWith("https://")
     || typeof value.credential_ref !== "string" || !value.credential_ref || typeof value.enabled !== "boolean") throw new ConfigurationError("Agent configuration is invalid.");
   if (value.provider !== undefined && !PROVIDERS.includes(value.provider)) throw new ConfigurationError("Agent configuration is invalid.");
   if (value.model !== undefined && typeof value.model !== "string") throw new ConfigurationError("Agent configuration is invalid.");

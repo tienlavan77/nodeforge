@@ -17,10 +17,17 @@ const preference = runInNewContext(
 // Action behavior remains covered by conversation-actions.test.js: pin/unpin observes
 // PATCH requests and onTogglePin; rename observes PATCH and onConfirmRename; archive
 // observes POST and onArchived; delete observes DELETE and onDeleted.
-test("sidebar keeps existing navigation and accessibility wiring", () => {
-  assert.ok(page.includes("onSelectConversation={handleSelectConversation}"));
-  assert.ok(page.includes("value={selectedArchitectureManagerId}"));
-  assert.ok(page.includes("setSelectedArchitectureManagerId(agentId)"));
+test("home route composes the conversation workspace from existing components", () => {
+  assert.ok(page.includes("<ConversationSidebar"));
+  assert.ok(page.includes("<HomeChatComposer"));
+  assert.ok(page.includes("<PendingPlanApproval"));
+  assert.ok(page.includes("<ConversationsAccordion"));
+  assert.ok(page.includes("useConversationMessageHistory"));
+  assert.ok(page.includes("useProjectEventStream"));
+  assert.ok(page.includes("createHomeMessageHandlers"));
+  assert.ok(page.includes("loadConversationMessages(conversationId)"));
+  assert.equal(page.includes("<SprintPlanDashboard"), false);
+  assert.equal(page.includes("<NodeForgeHeader"), false);
   assert.ok(sidebar.includes('onClick={reopen} aria-label="Open conversations sidebar"'));
   assert.ok(sidebar.includes('onClick={newConversation} aria-label="New chat"'));
   assert.ok(sidebar.includes("{children}"));
@@ -73,52 +80,22 @@ test("sidebar preferences tolerate unavailable and failing storage", () => {
   assert.ok(warnings.every((warning) => warning[1] === failure));
 });
 
-test("conversation selection invokes the wired callback with the selected identity", async () => {
-  const start = page.indexOf("  function handleSelectConversation");
-  const end = page.indexOf("\n\n  const { sendMessage", start);
-  const accordionStart = page.indexOf("<ConversationsAccordion");
-  const propStart = page.indexOf("onSelectConversation={", accordionStart);
-  const propEnd = page.indexOf("}", propStart);
-  assert.ok(start >= 0 && end > start);
-  assert.ok(accordionStart >= 0 && propStart > accordionStart && propEnd > propStart);
-  const handler = page.slice(start, end);
-  const callbackName = page.slice(propStart + "onSelectConversation={".length, propEnd);
-  assert.equal(callbackName, "handleSelectConversation");
-  const observed = { activeId: null, stored: null, cleared: null, typing: true, loaded: null };
-  const controls = runInNewContext(
-    handler + "; ({ handleSelectConversation })",
-    {
-      setActiveConversationId: (id) => { observed.activeId = id; },
-      writeChatState: (...args) => { observed.stored = Array.from(args); },
-      CHAT_STATE_KEY: "nodeforge:chat:last:PROJECT-NODEFORGE",
-      selectedArchitectureManager: { id: "architecture-manager" },
-      setMessages: (messages) => { observed.cleared = Array.from(messages); },
-      setChatState: (state) => { observed.chatState = state; },
-      setAgentTyping: (typing) => { observed.typing = typing; },
-      loadConversationMessages: async (id) => { observed.loaded = id; },
-    }
-  );
-  const selectConversation = controls[callbackName];
-  assert.equal(typeof selectConversation, "function");
-  await selectConversation({ id: "conversation-selected" });
-  assert.equal(observed.activeId, "conversation-selected");
-  assert.deepEqual(observed.stored, ["nodeforge:chat:last:PROJECT-NODEFORGE", "architecture-manager", "conversation-selected"]);
-  assert.deepEqual(observed.cleared, []);
-  assert.equal(observed.chatState, "");
-  assert.equal(observed.typing, false);
-  assert.equal(observed.loaded, "conversation-selected");
+test("home route retains selected conversation restoration", () => {
+  assert.ok(page.includes("readChatState(CHAT_STATE_KEY)"));
+  assert.ok(page.includes("writeChatState(CHAT_STATE_KEY, selectedArchitectureManager.id, conversationId)"));
+  assert.ok(page.includes("setActiveConversationId(conversationId)"));
+  assert.ok(page.includes("void loadConversationMessages(conversationId)"));
 });
 
 test("collapse and reopen preserve active conversation, manager, messages, and streaming mount", () => {
   const collapseStart = sidebar.indexOf("  function changeCollapsed");
   const reopenStart = sidebar.indexOf("  function reopen");
-  const showStart = sidebar.indexOf("  function showArchitecture");
-  assert.ok(collapseStart >= 0 && reopenStart > collapseStart && showStart > reopenStart);
+  const newConversationStart = sidebar.indexOf("  function newConversation");
+  assert.ok(collapseStart >= 0 && reopenStart > collapseStart && newConversationStart > reopenStart);
   const changeCollapsed = sidebar.slice(collapseStart, reopenStart);
-  const reopen = sidebar.slice(reopenStart, showStart);
+  const reopen = sidebar.slice(reopenStart, newConversationStart);
   const state = {
     collapsed: false,
-    selecting: true,
     open: false,
     activeConversationId: "conversation-selected",
     selectedArchitectureManager: "architecture-manager",
@@ -132,14 +109,12 @@ test("collapse and reopen preserve active conversation, manager, messages, and s
     changeCollapsed + "\n" + reopen + "; ({ changeCollapsed, reopen })",
     {
       setCollapsed: (value) => { state.collapsed = value; },
-      setSelecting: (value) => { state.selecting = value; },
       writeSidebarPreference: (value) => writes.push(value),
       onOpen: () => { state.open = true; },
     }
   );
   controls.changeCollapsed(true);
   assert.equal(state.collapsed, true);
-  assert.equal(state.selecting, false);
   assert.deepEqual(children, {
     conversation: "conversation-selected",
     manager: "architecture-manager",

@@ -3023,3 +3023,75 @@ trả verdict qua Node, KHÔNG viết file trung gian) trước khi coi NF-054 h
 nhật ticket bên dưới.
 
 ---
+
+# Plan: Giao diện trò chuyện lấy cảm hứng từ Claude Desktop
+
+## 1. Mục tiêu / kết quả mong đợi
+
+- **Vấn đề:** Trang hiện tại có nhiều vùng điều khiển và dashboard; người dùng muốn trải nghiệm tập trung vào hội thoại như Claude Desktop.
+- **Kết quả:** UI có sidebar cuộc trò chuyện, vùng chat trung tâm, composer phía dưới, chuyển đổi hội thoại nhanh và bố cục responsive; các luồng NodeForge hiện có vẫn hoạt động.
+- **Giá trị:** Giảm nhiễu thị giác và làm thao tác chat trở thành luồng chính mà không phá vỡ governance, stream hoặc phạm vi project.
+
+## 2. Phạm vi
+
+### In scope
+
+- Tái cấu trúc presentation của canonical Next.js route `/` theo mô hình sidebar–chat–composer.
+- Giữ danh sách hội thoại, tạo/chọn hội thoại, lịch sử phân trang, optimistic send, retry và SSE correlation.
+- Thiết kế visual tương đồng về bố cục và cảm giác sử dụng; không sao chép logo, tài sản độc quyền hoặc nhận diện thương hiệu Claude.
+- Responsive desktop/tablet/mobile, trạng thái rỗng, loading, lỗi, đang stream và accessibility cơ bản.
+
+### Out of scope
+
+- Thay đổi backend conversation API, SSE protocol, schema, authentication hoặc persistence.
+- Xóa nhánh legacy `NodeForgeApp`/`NodeForgeShell` khi chưa có migration evidence.
+- Xây dựng tính năng desktop-native, MCP mới, model routing mới hoặc thay đổi governance.
+
+## 3. Hướng tiếp cận và guardrails
+
+- **Ràng buộc bắt buộc:** `/` và các API hiện có là contract; state phải tiếp tục scoped theo `PROJECT_ID` và conversation; event cũ không được nhập vào hội thoại mới.
+- **Hướng đề xuất:** Tiến hóa `HomePage` và các component/sidebar/composer canonical hiện có; ưu tiên CSS tokens, layout grid/flex và component boundaries nhỏ thay vì viết lại state orchestration. Dashboard/process surfaces chuyển thành secondary/contextual surfaces, không bị xóa dữ liệu.
+- **Dependency thật sự:** Cần xác nhận visual reference/brand guardrails và ưu tiên giữ hay ẩn dashboard trong màn hình chính trước khi chốt delivery. Cần smoke test trên desktop, tablet và mobile.
+- **Quyết định chưa chốt:** Owner xác nhận mức độ giống mong muốn (bố cục lấy cảm hứng hay pixel-level) và các control nào luôn hiển thị trong header/sidebar; phần visual fidelity bị block nếu chưa chốt.
+
+## 4. Khu vực dự kiến ảnh hưởng và evidence
+
+| Thành phần / khu vực | Vai trò | Evidence / mức chắc chắn |
+| --- | --- | --- |
+| `ui/nextjs/app/page.jsx` | Canonical route, conversation state, stream và composition | Đã đọc; route `/` và các contract hành vi được ghi trong `ui/nextjs/README.md` |
+| `ui/nextjs/components/conversation-sidebar.jsx` | Sidebar responsive, collapse và navigation | Đã đọc; đang được import bởi `page.jsx` |
+| `ui/nextjs/components/ConversationsAccordion.jsx` | Danh sách/tạo/chọn hội thoại | README xác nhận là active import; cần đọc chi tiết khi lập SP |
+| `ui/nextjs/components/home-chat-composer.jsx` | Composer của canonical chat | README xác nhận là active import; cần đọc chi tiết khi lập SP |
+| `ui/nextjs/app/styles/home-workspace.css`, `conversations.css`, `responsive-workspace.css` | Layout và responsive visual layer | README xác nhận là stylesheet canonical; cần audit selectors trước sửa |
+| `ui/nextjs/app/NodeForgeApp.jsx`, `components/NodeForgeShell.jsx` | Legacy dormant path | Đã đọc; không phải target canonical route, không đổi trong scope này |
+
+Candidate files chỉ định hướng discovery, không phải mutable-file allowlist cố định.
+
+## 5. Outcomes và điều kiện nghiệm thu
+
+| Mã | Outcome bắt buộc | Acceptance criteria quan sát được | Dependency / guardrail |
+| --- | --- | --- | --- |
+| O1 | Bố cục hội thoại kiểu Claude-inspired | Desktop hiển thị sidebar hội thoại bên trái, chat trung tâm và composer ở cuối; vùng phụ không lấn át chat | Không đổi API/state contract |
+| O2 | Điều hướng hội thoại không mất ngữ cảnh | Chọn/tạo hội thoại tải đúng history; stream cũ bị loại; optimistic send và retry vẫn hoạt động | Giữ correlation và project scope |
+| O3 | Trải nghiệm responsive/accessibility | Sidebar có thể mở/đóng trên mobile; keyboard focus/labels rõ; không overflow ngang ở các breakpoint đã định | Dùng cơ chế responsive hiện có |
+| O4 | Phạm vi NodeForge được bảo toàn | Agent selector, trạng thái stream, lỗi, approval và các secondary actions vẫn truy cập được theo thiết kế đã chốt | Không sửa backend/governance |
+
+**Gợi ý delivery (không bắt buộc):** Audit active route trước; làm layout/sidebar/composer presentation; sau đó visual states và responsive smoke test. Có thể chạy song song audit CSS và kiểm tra behavior miễn không cùng sửa contract state.
+
+## 6. Rủi ro, giả định và câu hỏi mở
+
+| Rủi ro / câu hỏi | Tác động | Evidence / giả định | Người chốt / cách xử lý |
+| --- | --- | --- | --- |
+| Yêu cầu “giống y hệt” chưa có screenshot/version reference | Major | Mô tả hiện chỉ nêu sidebar/chat/composer; không có pixel reference | Human owner chốt reference và mức fidelity |
+| CSS canonical còn compatibility/legacy selectors | Major | `ui/nextjs/README.md` ghi migration CSS chưa hoàn tất | SL audit import/selector trước manifest |
+| Legacy shell có cấu trúc tương tự nhưng không phải active route | Minor | README và code graph xác nhận dormant edge | Không sửa ngoài scope; chỉ migrate nếu evidence mới |
+| Visual change có thể làm dashboard khó tìm | Major | Dashboard đang được HomePage render trong workspace | Owner chốt secondary navigation/placement trước acceptance |
+
+## 7. Acceptance criteria của plan
+
+- [ ] Mục tiêu, in/out scope và outcomes nhất quán với yêu cầu đã duyệt.
+- [ ] Facts repository-specific có evidence; assumptions/open questions được ghi rõ.
+- [ ] Giữ nguyên conversation, optimistic send, retry, stream correlation và project scope.
+- [ ] Không khóa số ticket hoặc mutable-file manifest; SL được lập SP trong các guardrails trên.
+- [ ] Pixel-level fidelity chỉ được cam kết sau khi có reference cụ thể.
+- [ ] Approval identity được đối chiếu theo contract runtime; plan này không tự RUN/dispatch.

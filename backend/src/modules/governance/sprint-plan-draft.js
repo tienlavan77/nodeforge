@@ -33,7 +33,7 @@ export function assertApprovedTicket(plan, ticket) {
   if (!plan.content.tickets.includes(ticket.id)) throw Object.assign(new Error("Ticket is absent from the approved sprint plan."), { code: "TICKET_PLAN_SCOPE", statusCode: 409 });
   const spec = plan.content.ticket_specs?.find((item) => item.id === ticket.id);
   if (!spec) return;
-  const fields = ["title", "objective", "acceptance_criteria", "dependencies", "implementation_type", "outcome_refs", "execution_contract"];
+  const fields = ["title", "objective", "acceptance_criteria", "verification_plan", "dependencies", "implementation_type", "outcome_refs", "execution_contract"];
   if (fields.some((field) => JSON.stringify(spec[field] ?? null) !== JSON.stringify(ticket[field] ?? null))) {
     throw Object.assign(new Error("Ticket scope differs from the approved sprint plan; create and approve a new plan revision."), { code: "TICKET_PLAN_SCOPE", statusCode: 409 });
   }
