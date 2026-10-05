@@ -35,11 +35,11 @@ test("home route composes the conversation workspace from existing components", 
   assert.ok(sidebar.includes('<Link href="/" title="Architecture"'));
   assert.ok(sidebar.includes('<span>Architecture</span></Link>'));
   assert.ok(sidebar.indexOf('title="Architecture"') < sidebar.indexOf('title="Agents"'));
-  assert.ok(sidebar.includes('<Link href="/code" title="Code"'));
+  assert.ok(sidebar.includes('<Link href="/coding" title="Code"'));
   assert.ok(sidebar.indexOf('title="System"') < sidebar.indexOf('title="Code"'));
   assert.ok(sidebar.includes('aria-current={agentSectionTitle === "Code" ? "page" : undefined}'));
-  assert.ok(codePage.includes('<SystemPage sectionTitle="Code" />'));
-  assert.ok(legacyCodePage.includes('redirect("/code")'));
+  assert.ok(legacyCodePage.includes('<SystemPage sectionTitle="Code" />'));
+  assert.ok(codePage.includes('redirect("/coding")'));
   assert.ok(sidebar.includes("{children}"));
   assert.ok(component.includes('aria-label="New conversation"'));
   assert.ok(component.indexOf('aria-label="New conversation"') <

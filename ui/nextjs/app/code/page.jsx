@@ -1,9 +1,7 @@
-// Serve the coding conversation workspace at the canonical /code route.
-"use client";
+// Preserve /code as a compatibility alias for the established /coding route.
+import { redirect } from "next/navigation";
 
-import SystemPage from "../system/page.jsx";
-
-// Render the coding workspace while preserving its /code navigation identity.
+// Redirect the short Code URL to the canonical coding workspace.
 export default function CodePage() {
-  return <SystemPage sectionTitle="Code" />;
+  redirect("/coding");
 }
