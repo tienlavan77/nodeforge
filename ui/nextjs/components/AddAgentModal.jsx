@@ -22,7 +22,7 @@ function SelectMenu({ label, name, value, options, openName, setOpenName, onChan
 export function AddAgentModal({ title = "Add agent", form, modelOptions, apiKeyMasked, saving, error, testState, onTestConnection, onChange, onSubmit, onClose }) {
   // Team selector rendered below Role with options: Backend, Frontend, Security
   const [openName, setOpenName] = useState(null);
-  const roles = [{ value: "architecture_manager", label: "Architecture Manager" }, { value: "sprint_leader", label: "Sprint Leader" }, { value: "coder", label: "Coder" }, { value: "reviewer", label: "Reviewer" }, { value: "linguist", label: "Linguist" }];
+  const roles = [{ value: "architecture_manager", label: "Architecture Manager" }, { value: "system_engineer", label: "System Engineer" }, { value: "sprint_leader", label: "Sprint Leader" }, { value: "coder", label: "Coder" }, { value: "reviewer", label: "Reviewer" }, { value: "linguist", label: "Linguist" }];
   const teams = [{ value: "Backend", label: "Backend" }, { value: "Frontend", label: "Frontend" }, { value: "Security", label: "Security" }];
   const providers = [{ value: "anthropic", label: "Anthropic" }, { value: "claude", label: "Claude" }, { value: "openai", label: "OpenAI" }, { value: "codex", label: "Codex" }, { value: "xai", label: "xAI" }, { value: "alibaba", label: "Alibaba" }, { value: "zhipu", label: "Zhipu" }, { value: "deepseek", label: "DeepSeek" }, { value: "ollama", label: "Ollama" }];
   const models = modelOptions ?? [];

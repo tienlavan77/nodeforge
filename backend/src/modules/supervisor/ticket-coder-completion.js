@@ -12,11 +12,16 @@ export async function completeCoderTicket({ workspace, agentOccupancy, claim, ta
     artifact = workspace ? await finalizeCoderWorkspace(workspace, taskId) : null;
   } catch (error) {
     await agentOccupancy.release({ claimId: claim.claim_id, taskId, supervisorId: ownerId, reason: "coder_completion_failed" });
+    if (error.code === "CODER_EVIDENCE_PENDING") {
+      await publishTicketOutcome("task.needs_human_review", request, ownerId, { reason: error.code, criterion_ids: error.details?.criterion_ids ?? [] });
+      return { status: "needs_human_review" };
+    }
     await publishTicketOutcome("task.failed", request, ownerId, { reason: error.code ?? "CODER_COMPLETION_FAILED", error: { code: error.code ?? "CODER_COMPLETION_FAILED", message: error.message } });
     throw error;
   }
   await agentOccupancy.release({ claimId: claim.claim_id, taskId, supervisorId: ownerId, reason: "coder_completed" });
   await publishTicketOutcome("task.completed", request, ownerId, { summary: result.summary, artifact_id: artifact?.artifact_id ?? null, commit_sha: artifact?.commit_sha ?? null, completion: "coder_verified" });
+  return { status: "completed" };
 }
 
 // Completes a verified workspace only after its Coder report covers every criterion.

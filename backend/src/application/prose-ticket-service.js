@@ -30,7 +30,7 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
     const sprintLeaderResult = sprintLeader && typeof sprintLeader.regenerateEnglish === "function"
       ? await sprintLeader.regenerateEnglish({ ticket: { ...ticket, context: updatedVietnameseContext }, projectId, sprintId: sprint.id, vietnameseContext: updatedVietnameseContext })
       : null;
-    const baseEnglish = sprintLeaderResult ?? { title: ticket.title, objective: ticket.objective, acceptance_criteria: ticket.acceptance_criteria };
+    const baseEnglish = sprintLeaderResult ?? { title: ticket.title, objective: ticket.objective, acceptance_criteria: ticket.acceptance_criteria, verification_plan: ticket.verification_plan };
     const updatedAt = clock().toISOString();
     // Legacy regen path keeps ticket source context outside the canonical ticket.
     const regenerated = backfillTicketCandidates({
@@ -40,6 +40,7 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
       title: String(baseEnglish.title ?? ticket.title),
       objective: String(baseEnglish.objective ?? ticket.objective),
       acceptance_criteria: Array.isArray(baseEnglish.acceptance_criteria) ? baseEnglish.acceptance_criteria.map(String) : ticket.acceptance_criteria,
+      verification_plan: Array.isArray(baseEnglish.verification_plan) ? structuredClone(baseEnglish.verification_plan) : ticket.verification_plan,
       ...(baseEnglish.implementation_type ? { implementation_type: baseEnglish.implementation_type } : ticket.implementation_type ? { implementation_type: ticket.implementation_type } : { implementation_type: [((baseEnglish.style ?? ticket.style ?? inferTicketStyle({ title: baseEnglish.title ?? ticket.title, objective: baseEnglish.objective ?? ticket.objective, acceptance_criteria: baseEnglish.acceptance_criteria ?? ticket.acceptance_criteria }) ?? []).find((value) => ["frontend", "backend", "security"].includes(value)) ?? "backend")] })
     });
     if (regenerated.implementation_type) delete regenerated.style;

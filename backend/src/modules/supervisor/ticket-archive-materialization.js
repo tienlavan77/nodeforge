@@ -1,7 +1,6 @@
 // Materializes one committed ticket tree for verification without creating a Git worktree.
 import { spawn } from "node:child_process";
 import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ConfigurationError } from "../../shared/errors.js";
 
@@ -10,7 +9,9 @@ const fail = (code, message) => Object.assign(new ConfigurationError(message), {
 // Creates a disposable archive and exposes a cleanup callback to the verification job.
 export async function materializeTicketArchive({ projectRoot, commitSha }) {
   if (!/^[a-f0-9]{40,64}$/i.test(commitSha ?? "")) throw fail("TICKET_ARCHIVE_COMMIT_INVALID", "Archive verification requires a commit SHA.");
-  const path = await mkdtemp(join(tmpdir(), "nodeforge-ticket-archive-"));
+  const archiveRoot = join(projectRoot, ".forge", "runtime", "ticket-verification", "archives");
+  await mkdir(archiveRoot, { recursive: true });
+  const path = await mkdtemp(join(archiveRoot, "nodeforge-ticket-archive-"));
   try {
     await unpack(projectRoot, commitSha, path);
     for (const relative of (await readdir(path, { recursive: true })).filter((item) => item === ".gitmodules" || item.endsWith("/.gitmodules") || item === ".gitattributes" || item.endsWith("/.gitattributes"))) {
@@ -24,7 +25,9 @@ export async function materializeTicketArchive({ projectRoot, commitSha }) {
       await mkdir(dirname(target), { recursive: true });
       await symlink(source, target, "dir");
     }
-    return { path, method: "git-archive", commit_sha: commitSha, cleanup: () => rm(path, { recursive: true, force: true }) };
+    const tempDir = join(path, ".forge-tmp");
+    await mkdir(tempDir, { recursive: true });
+    return { path, temp_dir: tempDir, method: "git-archive", commit_sha: commitSha, cleanup: () => rm(path, { recursive: true, force: true }) };
   } catch (error) { await rm(path, { recursive: true, force: true }); throw error; }
 }
 

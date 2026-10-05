@@ -18,6 +18,6 @@
   },
   "$defs": { "party": { "type": "object", "additionalProperties": false, "required": ["id", "role"], "properties": {
     "id": { "$ref": "../core/common.schema.json#/$defs/id" },
-    "role": { "type": "string", "enum": ["project_owner", "architecture_manager", "node", "sprint_lead", "runtime", "builder", "reviewer"] }
+    "role": { "type": "string", "enum": ["project_owner", "architecture_manager", "system_engineer", "node", "sprint_lead", "runtime", "builder", "reviewer"] }
   } } }
 }

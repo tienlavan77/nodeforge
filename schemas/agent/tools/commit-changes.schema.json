@@ -5,8 +5,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "message",
-    "paths"
+    "message"
   ],
   "properties": {
     "message": {

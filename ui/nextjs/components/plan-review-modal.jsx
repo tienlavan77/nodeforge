@@ -105,6 +105,9 @@ export function PlanReviewModal({ client, projectId, sprintId, planId, initialPl
       } else if (plan.format !== "markdown" && registry.plan_revision !== plan.revision) setRegistry(await client.bindSprintPlan(projectId, sprintId, plan));
       if (plan.format === "markdown" && decision === "approved") {
         if (!(plan.conversation_id ?? conversationId)) throw new Error("Open the Architecture conversation before approving this plan.");
+        // Persist the exact owner decision once; retries continue the durable handoff.
+        // Reposting a decision for an already approved revision is rejected by design.
+        if (plan.status !== "approved") await client.decidePlan(projectId, plan, decision, token, comments);
         const result = await client.postOwnerMessage({ projectId, conversationId: plan.conversation_id ?? conversationId, agentId, messageId: `MSG-OWNER-APPROVE-${createClientUuid()}`, correlationId: `CORR-APPROVE-${createClientUuid()}`, text: `/approve ${plan.plan_id}`, ownerToken: token, approvalRevision: plan.revision, approvalSha256: plan.sha256, approvalComments: comments });
         if (result?.message_type === "owner.command.error" || result?.payload?.error) throw new Error(result.payload?.error?.message ?? "Plan handoff failed.");
         if (result?.payload?.status === "handoff_in_progress") { setMessage("Sprint Leader đang tạo Sprint Plan. Handoff chưa hoàn tất; hãy mở lại kế hoạch để xem kết quả."); setState("ready"); return; }

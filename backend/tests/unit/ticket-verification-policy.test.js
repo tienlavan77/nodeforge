@@ -28,6 +28,8 @@ test("backend policy selects ticket tests, with full suite reserved for an expli
     const apiCommands = await buildTicketVerificationPlan(["ui/nextjs/lib/node-client.js"], root);
     assert.equal(apiCommands.some(({ kind }) => kind === "schema_validation"), true);
     assert.deepEqual(apiCommands.find(({ kind }) => kind === "test").argv.slice(2), ["ui/nextjs/tests/node-client.test.js"]);
+    const mapped = await buildTicketVerificationPlan(["ui/nextjs/lib/node-client.js"], root, { verificationPlan: [{ criterion_ids: ["AC-1"], kind: "test", test_path: "ui/nextjs/tests/unrelated.test.js" }] });
+    assert.equal(mapped.some(({ kind, argv }) => kind === "test" && argv.includes("ui/nextjs/tests/unrelated.test.js")), true);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
@@ -60,6 +62,7 @@ test("failed schema validation persists a failed artifact and blocks acceptance"
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     assert.equal(job.status, "failed");
+    assert.equal(job.error.code, "VERIFY_COMMAND_FAILED");
     const artifact = await service.loadArtifact(job.artifact_id);
     assert.equal(artifact.status, "failed");
     assert.equal(artifact.commands.at(-1).kind, "schema_validation");

@@ -8,6 +8,7 @@ import addFormats from "ajv-formats";
 
 import { ConfigurationError } from "../shared/errors.js";
 import { backfillTicketCandidates } from "../modules/index/ticket-scope.js";
+import { assertTicketVerificationContract } from "../modules/governance/ticket-verification-contract.js";
 
 const require = createRequire(import.meta.url);
 const commonSchema = require("../../../schemas/core/common.schema.json");
@@ -76,6 +77,7 @@ export function createSprintPlanUploadService({ roadmaps, publisher, projectRoot
     // Preserve optional file candidates while filling missing execution types.
     const normalized = { ...sprintPlan, tickets: (sprintPlan.tickets ?? []).map((ticket) => backfillTicketCandidates(ticket)) };
     if (!validate(normalized)) throw new ConfigurationError(`Invalid Sprint Plan: ${validate.errors.map((error) => `${error.instancePath || "/"} ${error.message}`).join("; ")}`);
+    for (const ticket of normalized.tickets) assertTicketVerificationContract(ticket);
     const duplicate = roadmaps.getAllVersions?.().some((roadmap) => roadmap.sprints?.some((sprint) => sprint.id === normalized.id));
     if (duplicate) {
       const error = new ConfigurationError(`Sprint already exists: ${normalized.id}.`);

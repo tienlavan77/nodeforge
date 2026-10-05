@@ -51,6 +51,9 @@ export function createNodeClient() {
     async getGitStatus(projectId) {
       return requestJson(forgeV1("/git/status", { project: projectId }), { fallbackError: "Git status is unavailable." });
     },
+    async getMarkdownFile(projectId, path) {
+      return requestJson(forgeV1("/files/markdown", { project: projectId, path }), { fallbackError: "Markdown preview is unavailable." });
+    },
 
     async getAgent(agentId) {
       return requestJson(forgeV1(`/agents/${agentId}`), { fallbackError: `Node could not load agent ${agentId}.` });

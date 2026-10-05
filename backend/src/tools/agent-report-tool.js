@@ -1,5 +1,6 @@
 // Provides completion reporting for governed agent ticket work.
 import { ConfigurationError } from "../shared/errors.js";
+import { completeNodeReportEvidence } from "./node-report-evidence.js";
 
 const error = (code, message, details = {}) => Object.assign(new ConfigurationError(message), { code, details });
 
@@ -14,18 +15,19 @@ export function createReportDoneTool({ reportService, verificationService, revie
     const requiresExplanation = Boolean(reviewFindings?.recordCoderReport);
     let artifact = null;
     if (governed) {
-      artifact = await verificationService.assertPassedArtifact();
+      artifact = await (verificationService.ensurePassedArtifact?.() ?? verificationService.assertPassedArtifact());
       // Legacy review payloads are ignored; ticket completion is owned by the Coder report and Node verification.
       if (input.finding_resolutions !== undefined) delete input.finding_resolutions;
       context.changed_paths = [...(artifact.changed_paths ?? Object.keys(artifact.file_checksums))];
+      input = completeNodeReportEvidence(input, ticket, artifact);
       if (requiresExplanation) {
         input = canonicalizeCoverageHints(input, ticket);
+        input.acceptance_coverage = assertAcceptanceCoverage(input, artifact, ticket);
         input = await reviewFindings.recordCoderReportDraft({ report: input, artifact });
         const missing = missingExplanation(input);
         if (missing.length) throw error("CODER_EXPLANATION_REQUIRED", `Coder report saved. Supplement only these missing fields with report_done: ${missing.join(", ")}.`, { missing_fields: missing, artifact_id: artifact.artifact_id });
         assertExplanation(input, artifact);
         input.acceptance_criteria ??= [...(ticket.acceptance_criteria ?? [])];
-        input.acceptance_coverage = assertAcceptanceCoverage(input, artifact, ticket);
         validateGovernedScope(input, artifact);
         await reviewFindings.recordCoderReport({ report: input, artifact, idempotencyKey: `${artifact.artifact_id}:report` });
       }
@@ -34,7 +36,7 @@ export function createReportDoneTool({ reportService, verificationService, revie
     }
     if (typeof input.summary !== "string" || !input.summary.trim()) throw error("INPUT_INVALID", "Report summary is required.");
     if (!governed) assertReportScope(ticket, context);
-    const report = await reportService.buildFinalReport({ ticket, status: governed ? "completed" : context.status ?? "completed", verifyResult: context.verify_result ?? null, filesChanged: context.changed_paths ?? [], reason: "agent_report_done" });
+    const report = await reportService.buildFinalReport({ ticket, status: governed ? "submitted_for_review" : context.status ?? "completed", verifyResult: context.verify_result ?? null, filesChanged: context.changed_paths ?? [], reason: "agent_report_done" });
     if (!governed) assertReportVerified(report);
     if (governed) report.criteria_check = input.acceptance_coverage.map((entry) => ({ criterion: entry.criterion, criterion_id: entry.criterion_id, node_verified: entry.status === "verified", status: entry.status, command_kind: entry.command_kind ?? null, test_path: entry.test_path ?? null, artifact_id: artifact.artifact_id }));
     report.agent_report = { ...(report.agent_report ?? {}), ...input, summary: input.summary.trim() };

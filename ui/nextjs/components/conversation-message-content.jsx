@@ -4,15 +4,16 @@
 import { useState } from "react";
 
 // Renders message content handling code blocks.
-export function MessageContent({ text }) {
+export function MessageContent({ text, onMarkdownOpen }) {
   const parts = parseCodeBlocks(text);
   return <div className="message-content">{parts.map((part, index) => part.code
     ? <CodeBlock key={`code-${index}`} language={part.language} code={part.code} />
-    : <TextWithInline key={`text-${index}`} text={part.text} />)}</div>;
+    : <TextWithInline key={`text-${index}`} text={part.text} onMarkdownOpen={onMarkdownOpen} />)}</div>;
 }
 
 // Renders text with inline code segments.
-function TextWithInline({ text }) {
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+function TextWithInline({ text, onMarkdownOpen }) {
   const value = String(text ?? "");
   if (!value) return null;
   const segments = [];
@@ -28,13 +29,23 @@ function TextWithInline({ text }) {
   if (last < value.length) segments.push({ text: value.slice(last) });
   if (segments.length === 0) return <p>{value}</p>;
   const hasInline = segments.some((s) => s.inlineCode);
-  if (!hasInline) return <p>{value}</p>;
-  return <p>{segments.map((seg, i) => seg.inlineCode ? <InlineCode key={i} code={seg.inlineCode} /> : <span key={i}>{seg.text}</span>)}</p>;
+  if (!hasInline) return <p><MarkdownLinks text={value} onOpen={onMarkdownOpen} /></p>;
+  return <p>{segments.map((seg, i) => seg.inlineCode ? <InlineCode key={i} code={seg.inlineCode} onMarkdownOpen={onMarkdownOpen} /> : <MarkdownLinks key={i} text={seg.text} onOpen={onMarkdownOpen} />)}</p>;
+}
+
+// Turns project Markdown references in agent prose into a local preview action.
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+function MarkdownLinks({ text, onOpen }) {
+  const parts = String(text ?? "").split(/((?:[\w.-]+\/)*[\w.-]+\.md)\b/g);
+  return parts.map((part, index) => part.endsWith(".md") ? <button type="button" className="conversation-markdown-link" key={index} onClick={() => onOpen?.(part)}>{part}</button> : <span key={index}>{part}</span>);
 }
 
 // Adds a copy action to inline code.
-function InlineCode({ code }) {
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+function InlineCode({ code, onMarkdownOpen }) {
   const [copied, setCopied] = useState(false);
+  const markdownPath = String(code).trim();
+  if (markdownPath.endsWith(".md")) return <button type="button" className="conversation-markdown-link conversation-markdown-code" onClick={() => onMarkdownOpen?.(markdownPath)}>{markdownPath}</button>;
   // Copies code to the clipboard and shows brief confirmation.
   async function copy() {
     try {
@@ -51,6 +62,7 @@ function InlineCode({ code }) {
 }
 
 // Renders fenced code with a language label and copy action.
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 function CodeBlock({ language, code }) {
   const [copied, setCopied] = useState(false);
   // Copies the code block and shows brief confirmation.
@@ -86,6 +98,7 @@ function parseCodeBlocks(text) {
       try {
         parts.push({ code: JSON.stringify(JSON.parse(trimmed), null, 2), language: "json" });
         return parts;
+      // eslint-disable-next-line no-silent-catch -- Malformed text stays ordinary prose.
       } catch { /* treat malformed JSON as normal text */ }
     }
   }

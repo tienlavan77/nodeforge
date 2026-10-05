@@ -1,15 +1,18 @@
 // Verifies the exact ticket commit and persists safe evidence across Control API restarts.
 import { randomUUID, createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { readdir, readFile, readlink } from "node:fs/promises";
+import { readFile, readlink } from "node:fs/promises";
 import { join } from "node:path";
 import { ConfigurationError } from "../../shared/errors.js";
 import { createTicketRootGit } from "./ticket-root-git.js";
 import { materializeTicketArchive } from "./ticket-archive-materialization.js";
 import { buildTicketVerificationPlan, requiresSchemaVerification } from "./ticket-verification-plan.js";
+import { createTicketVerificationRecovery } from "./ticket-verification-recovery.js";
+import { latestTicketVerificationAttempt } from "./ticket-verification-attempts.js";
 
 const ROOT = ".forge/runtime/ticket-verification";
-const POLICY_VERSION = "ticket-verification-v4";
+const POLICY_VERSION = "ticket-verification-v5";
+const MAX_SAME_REVISION_ATTEMPTS = 2;
 const fail = (code, message) => Object.assign(new ConfigurationError(message), { code });
 const sha = (content) => `sha256:${createHash("sha256").update(content).digest("hex")}`;
 
@@ -20,8 +23,8 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
   const rootGit = rootOnly ? createTicketRootGit({ projectRoot }) : null;
   const jobPath = (id) => `${ROOT}/${taskId}/jobs/${id}.json`;
   const artifactPath = (id) => `${ROOT}/${taskId}/artifacts/${id}.json`;
-  return Object.freeze({ startTests, getTestResult, loadArtifact, assertPassedArtifact, assertCleanWorktree });
-
+  const ensurePassedArtifact = createTicketVerificationRecovery({ taskId, executionContexts, assertIdentity, assertPassedArtifact, startTests, getTestResult, maxAttempts: MAX_SAME_REVISION_ATTEMPTS });
+  return Object.freeze({ startTests, getTestResult, loadArtifact, assertPassedArtifact, ensurePassedArtifact, assertCleanWorktree });
   // Starts a durable verification job only after the ticket commit is recorded.
   async function startTests() {
     const context = await executionContexts.load(taskId);
@@ -33,15 +36,15 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
     }
     if (context?.state !== "committed" || !context.review_commit_sha) throw fail("TICKET_COMMIT_REQUIRED", "Commit ticket changes before running final verification.");
     await assertIdentity(context);
-    const previous = await sameRevisionJob(context);
-    if (previous?.status === "failed") throw fail("VERIFY_RETRY_UNCHANGED", "Verification already failed for this commit and source revision. Fix the failure and commit a new revision before run_test.");
+    const previous = await latestTicketVerificationAttempt({ projectRoot, taskId, context, policyVersion: POLICY_VERSION, loadJob: (id) => loadJson(jobPath(id)) });
+    if (previous?.status === "failed" && previous.attempt >= MAX_SAME_REVISION_ATTEMPTS) throw fail("VERIFY_RETRY_UNCHANGED", `Verification failed ${MAX_SAME_REVISION_ATTEMPTS} times for this commit and source revision. Create a new revision or record a retryable environment exception.`);
     if (previous?.status === "running") {
       if (jobs.has(previous.job_id)) return previous;
       await getTestResult({ jobId: previous.job_id });
-      throw fail("VERIFY_RETRY_UNCHANGED", "Verification was interrupted for this commit. Commit a new source revision before run_test.");
+      if (previous.attempt >= MAX_SAME_REVISION_ATTEMPTS) throw fail("VERIFY_RETRY_UNCHANGED", `Verification was interrupted ${MAX_SAME_REVISION_ATTEMPTS} times for this commit and source revision.`);
     }
     const id = `VERIFY-${randomUUID()}`;
-    const job = { job_id: id, task_id: taskId, status: "running", source_revision: context.source_revision, commit_sha: context.review_commit_sha, policy_version: POLICY_VERSION, started_at: new Date().toISOString() };
+    const job = { job_id: id, task_id: taskId, attempt: (previous?.attempt ?? 0) + 1, status: "running", source_revision: context.source_revision, commit_sha: context.review_commit_sha, policy_version: POLICY_VERSION, started_at: new Date().toISOString() };
     await saveJob(job);
     const run = verify(context, job).catch(async (error) => {
       const failed = { ...job, status: "failed", error: { code: error.code ?? "VERIFY_FAILED", message: safeOutput(error.message) }, finished_at: new Date().toISOString() };
@@ -50,7 +53,7 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
     });
     jobs.set(id, run);
     void run.finally(() => jobs.delete(id)).catch((error) => projectLogger({ event_name: "ticket.verification_job_failed", level: "error", status: "failed", message: "Verification job persistence failed.", task_id: taskId, source: "ticket-verification-service", error_code: error.code ?? "VERIFY_JOB_FAILED", payload: { job_id: id } }));
-    return { job_id: id, status: "running", started_at: job.started_at };
+    return { job_id: id, attempt: job.attempt, status: "running", started_at: job.started_at };
   }
 
   // Returns a persisted job receipt so polling survives a process restart.
@@ -83,6 +86,7 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
     await assertIdentity(context);
     return artifact;
   }
+
 
   // Rechecks the committed worktree during review while allowing only managed dependency links.
   async function assertCleanWorktree() {
@@ -126,13 +130,13 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
     const changedPaths = [...new Set(await gitService.getChangedFiles({ baseCommit: parent, headCommit: context.review_commit_sha }))].sort();
     if (!changedPaths.length || changedPaths.some((path) => !context.manifest_paths.includes(path))) throw fail("VERIFY_COMMIT_SCOPE", "Ticket commit has no changes or contains paths outside the verified manifest.");
     const fullBackend = context.approved_baseline?.verification_plan?.some((step) => /full backend suite|all backend tests/i.test(step)) === true;
-    const commands = await buildTicketVerificationPlan(changedPaths, sourceRoot, { fullBackend });
+    const commands = await buildTicketVerificationPlan(changedPaths, sourceRoot, { fullBackend, verificationPlan: context.verification_plan });
     if (!commands.length) throw fail("VERIFY_PLAN_EMPTY", "Ticket has no required verification checks.");
     if (requiresSchemaVerification(changedPaths) && !commands.some(({ kind }) => kind === "schema_validation")) throw fail("VERIFY_PLAN_INCOMPLETE", "Schema validation is missing from the immutable verification plan.");
     const results = [];
     for (const command of commands) {
       const started = Date.now();
-      const output = await runCommand({ ...command, cwd: sourceRoot, timeoutMs: command.kind === "backend_tests" ? 900_000 : 300_000 });
+      const output = await runCommand({ ...command, cwd: sourceRoot, tempDir: archive?.temp_dir, timeoutMs: command.kind === "backend_tests" ? 900_000 : 300_000 });
       const stdout = safeOutput(output.stdout);
       const stderr = safeOutput(output.stderr);
       results.push({ kind: command.kind, argv: command.argv, exit_code: output.exit_code, duration_ms: Date.now() - started, stdout_redacted: stdout, stderr_redacted: stderr, output_sha256: output.output_sha256 ?? sha(`${stdout}\0${stderr}`), output_digest_scope: output.output_sha256 ? "full_stream" : "redacted_output" });
@@ -146,10 +150,14 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
     const artifactId = `ARTIFACT-${randomUUID()}`;
     const passed = results.length === commands.length && results.every((entry) => entry.exit_code === 0) && (!requiresSchemaVerification(changedPaths) || results.some((entry) => entry.kind === "schema_validation" && entry.exit_code === 0));
     const treeSha = rootOnly ? (await rootGit.run(["rev-parse", `${context.review_commit_sha}^{tree}`])).trim() : null;
-    const artifact = { artifact_id: artifactId, task_id: taskId, project_id: projectId, context_revision: context.version, source_revision: context.source_revision, base_sha: context.base_sha, commit_sha: context.review_commit_sha, tree_sha: treeSha, cwd: sourceRoot, materialization_method: archive?.method ?? "ticket-worktree", manifest_sha: context.manifest_sha, changed_paths: changedPaths, file_checksums: checksums, policy_version: POLICY_VERSION, planned_commands: commands, commands: results, exit_code: results.at(-1)?.exit_code ?? null, stdout_redacted: results.map((entry) => entry.stdout_redacted).join("\n"), stderr_redacted: results.map((entry) => entry.stderr_redacted).join("\n"), status: passed ? "passed" : "failed", started_at: job.started_at, completed_at: new Date().toISOString() };
+    const artifact = { artifact_id: artifactId, task_id: taskId, project_id: projectId, context_revision: context.version, source_revision: context.source_revision, base_sha: context.base_sha, commit_sha: context.review_commit_sha, tree_sha: treeSha, cwd: sourceRoot, materialization_method: archive?.method ?? "ticket-worktree", manifest_sha: context.manifest_sha, changed_paths: changedPaths, file_checksums: checksums, policy_version: POLICY_VERSION, verification_plan: context.verification_plan ?? [], planned_commands: commands, commands: results, exit_code: results.at(-1)?.exit_code ?? null, stdout_redacted: results.map((entry) => entry.stdout_redacted).join("\n"), stderr_redacted: results.map((entry) => entry.stderr_redacted).join("\n"), status: passed ? "passed" : "failed", started_at: job.started_at, completed_at: new Date().toISOString() };
     await stateFileService.atomicWrite({ path: artifactPath(artifactId), content: `${JSON.stringify(artifact)}\n`, replace: false });
     if (passed) await executionContexts.update(taskId, context.version, { state: "verified", verification_artifact_id: artifactId });
-    await saveJob({ ...job, status: passed ? "passed" : "failed", artifact_id: artifactId, result: { status: passed ? "passed" : "failed", ready_for_review: passed, commit_id: context.review_commit_sha, artifact_id: artifactId, breakdown: results.map(({ kind, exit_code, duration_ms }) => ({ kind, exit_code, duration_ms })) }, finished_at: artifact.completed_at });
+    const failedCommand = results.find((entry) => entry.exit_code !== 0);
+    const storageExhausted = /\bENOSPC\b|no space left on device/i.test(`${failedCommand?.stdout_redacted ?? ""}\n${failedCommand?.stderr_redacted ?? ""}`);
+    await saveJob({ ...job, status: passed ? "passed" : "failed", artifact_id: artifactId,
+      ...(!passed ? { error: { code: storageExhausted ? "VERIFY_STORAGE_EXHAUSTED" : "VERIFY_COMMAND_FAILED", message: failedCommand ? `${failedCommand.kind} exited ${failedCommand.exit_code}${storageExhausted ? " because temporary storage is full" : ""}.` : "Verification did not complete every required command." } } : {}),
+      result: { status: passed ? "passed" : "failed", ready_for_review: passed, commit_id: context.review_commit_sha, artifact_id: artifactId, breakdown: results.map(({ kind, exit_code, duration_ms }) => ({ kind, exit_code, duration_ms })) }, finished_at: artifact.completed_at });
     projectLogger({ event_name: "ticket.verification_completed", level: passed ? "info" : "error", status: passed ? "success" : "failed", message: "Ticket commit verification completed.", task_id: taskId, source: "ticket-verification-service", payload: { artifact_id: artifactId, commit_sha: context.review_commit_sha, checks: results.length, policy_version: POLICY_VERSION } });
   }
 
@@ -172,22 +180,11 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
     catch (error) { if (error.code === "ENOENT") return null; throw error; }
   }
 
-  // Prevents repeated full verification of an unchanged failed ticket commit after resume or restart.
-  async function sameRevisionJob(context) {
-    let names;
-    try { names = await readdir(join(projectRoot, ROOT, taskId, "jobs")); }
-    catch (error) { if (error.code === "ENOENT") return null; throw error; }
-    for (const name of names.filter((item) => /^VERIFY-[A-Za-z0-9-]+\.json$/.test(item)).sort().reverse()) {
-      const job = await loadJson(`${ROOT}/${taskId}/jobs/${name}`);
-      if (job?.commit_sha === context.review_commit_sha && job.source_revision === context.source_revision && ["failed", "running"].includes(job.status)) return job;
-    }
-    return null;
-  }
 }
 
 // Rejects old or incomplete command receipts before any ticket can reuse a passed artifact.
 function coversVerificationPolicy(artifact, paths) {
-  if (![POLICY_VERSION, "ticket-verification-v3"].includes(artifact.policy_version) || !Array.isArray(artifact.planned_commands) || !Array.isArray(artifact.commands) || !artifact.planned_commands.length || artifact.commands.length !== artifact.planned_commands.length) return false;
+  if (![POLICY_VERSION, "ticket-verification-v4", "ticket-verification-v3"].includes(artifact.policy_version) || !Array.isArray(artifact.planned_commands) || !Array.isArray(artifact.commands) || !artifact.planned_commands.length || artifact.commands.length !== artifact.planned_commands.length) return false;
   const required = new Set();
   if (paths.some((path) => path.startsWith("backend/"))) {
     required.add("typecheck");
@@ -217,9 +214,9 @@ async function hasSourceChanges(status, worktreeRoot, projectRoot) {
 }
 
 // Executes one argument-vector command with bounded output and no shell.
-function executeCommand({ argv, cwd, timeoutMs }) {
+function executeCommand({ argv, cwd, tempDir, timeoutMs }) {
   return new Promise((resolve, reject) => {
-    const env = { ...process.env, PWD: cwd };
+    const env = { ...process.env, PWD: cwd, ...(tempDir ? { TMPDIR: tempDir, TMP: tempDir, TEMP: tempDir } : {}) };
     delete env.NODE_TEST_CONTEXT;
     const child = spawn(argv[0], argv.slice(1), { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";

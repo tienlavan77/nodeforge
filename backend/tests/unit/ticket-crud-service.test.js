@@ -137,7 +137,7 @@ test("raw chat content is converted by the sprint leader into a valid ticket", a
   const { roadmaps, service } = createService({
     agentStream: async function* ({ agentId, payload }) {
       requests.push({ agentId, text: payload.text });
-      yield { text: 'Here you go:\n```json\n{"title":"Fix login bug","objective":"Users cannot log in with expired sessions.","acceptance_criteria":["Expired sessions redirect to login."],"implementation_type":["security"],"priority":"high"}\n```' };
+      yield { text: 'Here you go:\n```json\n{"title":"Fix login bug","objective":"Users cannot log in with expired sessions.","acceptance_criteria":["Expired sessions redirect to login."],"verification_plan":[{"criterion_ids":["AC-1"],"kind":"test","test_path":"backend/tests/unit/session.test.js"}],"implementation_type":["security"],"priority":"high"}\n```' };
     },    agentRoleResolver: { resolve: (role) => { assert.equal(role, "sprint_leader"); return "AGENT-SL-1"; } }
   });
   const result = await service.createTicket({ projectId: "P1", content: "login bị lỗi, fix giúp" });
@@ -161,7 +161,7 @@ test("private context is normalized by the sprint leader but excluded from canon
   const { service } = createService({
     agentStream: async function* ({ payload }) {
       received.push(payload.text);
-      yield { text: '```json\n{"title":"Add Google sign-in","objective":"Allow users to authenticate with Google.","acceptance_criteria":["Users can sign in with Google."],"implementation_type":["security"]}\n```' };
+      yield { text: '```json\n{"title":"Add Google sign-in","objective":"Allow users to authenticate with Google.","acceptance_criteria":["Users can sign in with Google."],"verification_plan":[{"criterion_ids":["AC-1"],"kind":"test","test_path":"backend/tests/unit/google-sign-in.test.js"}],"implementation_type":["security"]}\n```' };
     },
     agentRoleResolver: { resolve: () => "AGENT-SL-1" }
   });
@@ -216,7 +216,7 @@ test("hallucinated leader paths are stripped without adding other candidates", a
   const { service } = createService({
     agentStream: async function* ({ payload }) {
       seen.push(payload.text);
-      yield { text: '```json\n{"title":"Fix chat","objective":"Fix the chat panel.","acceptance_criteria":["Panel works."],"implementation_type":["frontend"],"candidate_files":[{"path":"web/src/components/chat/ChatPanel.tsx","role":"PATCH","reason":"made up"}]}\n```' };
+      yield { text: '```json\n{"title":"Fix chat","objective":"Fix the chat panel.","acceptance_criteria":["Panel works."],"verification_plan":[{"criterion_ids":["AC-1"],"kind":"test","test_path":"ui/nextjs/tests/chat.test.js"}],"implementation_type":["frontend"],"candidate_files":[{"path":"web/src/components/chat/ChatPanel.tsx","role":"PATCH","reason":"made up"}]}\n```' };
     },
     agentRoleResolver: { resolve: () => "AGENT-SL-1" },
     candidateResolver: { resolve: async (draft) => ({ ...draft, candidate_files: [{ path: "ui/nextjs/components/NodeForgePanels.jsx", role: "REFERENCE", reason: "retrieval:real-file" }], candidates_produced_by: "retrieval", candidates_produced_at: "2026-09-23T00:00:00Z" }) }
@@ -231,7 +231,7 @@ test("hallucinated leader paths are stripped without adding other candidates", a
 test("leader text without a resolver creates a ticket without candidates", async () => {
   const { service } = createService({
     agentStream: async function* () {
-      yield { text: '```json\n{"title":"Fix API","objective":"Fix the endpoint.","acceptance_criteria":["Endpoint works."],"implementation_type":["backend"]}\n```' };
+      yield { text: '```json\n{"title":"Fix API","objective":"Fix the endpoint.","acceptance_criteria":["Endpoint works."],"verification_plan":[{"criterion_ids":["AC-1"],"kind":"test","test_path":"backend/tests/unit/api.test.js"}],"implementation_type":["backend"]}\n```' };
     },
     agentRoleResolver: { resolve: () => "AGENT-SL-1" }
   });
