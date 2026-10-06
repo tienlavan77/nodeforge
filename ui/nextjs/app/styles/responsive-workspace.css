@@ -48,3 +48,5 @@
 .workspace-git-status.is-dirty strong { color: #e7bc76; }
 .workspace-git-status.is-unavailable strong { color: #ee8f9b; }
 .workspace-git-status button { border: 1px solid var(--app-button-border); background: transparent; color: var(--app-text); padding: 3px 6px; cursor: pointer; font: inherit; }
+.system-workspace .claude-chat-header { display: grid; align-content: center; gap: 8px; padding-block: 10px; }
+.system-workspace .claude-chat-header .claude-chat-status { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
