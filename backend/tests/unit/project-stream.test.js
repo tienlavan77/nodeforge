@@ -11,6 +11,7 @@ const streamSchema = require("../../../schemas/stream/project-stream-event.schem
 import { createProjectStream } from "../../src/transport/sse/project-stream.js";
 import { createWatcherSnapshotService } from "../../src/modules/watcher/watcher-snapshot-service.js";
 import { createProjectStreamPublisher } from "../../src/transport/sse/project-stream-publisher.js";
+import { projectConversationMessages } from "../../src/transport/sse/project-stream-conversation.js";
 import { createHttpApi } from "../../src/transport/http/server.js";
 
 function responseStub() {
@@ -157,6 +158,16 @@ test("project stream keeps ticket and sprint snapshots but drops internal fields
   assert.deepEqual(deleted.payload, { ticket_id: "TICKET-C", sprint_id: "SPRINT-C", updated_at: "2026-09-14T10:05:00.000Z" });
 });
 
+test("agent progress and tool messages project safe UI activity events", () => {
+  const progress = projectConversationMessages({ id: "MSG-PROGRESS", conversation_id: "CONV-1", correlation_id: "REQ-1", message_type: "architecture.message.progress", sender: { id: "architecture-manager", role: "architecture_manager" }, payload: { text: "Inspecting the project structure" } });
+  assert.deepEqual(progress[0], { event_type: "agent.activity", payload: { agent_id: "architecture-manager", conversation_id: "CONV-1", correlation_id: "REQ-1", activity_type: "progress", status: "working", summary: "Inspecting the project structure" } });
+  const tool = projectConversationMessages({ id: "MSG-TOOL", conversation_id: "CONV-1", message_type: "architecture.tool.result", sender: { id: "architecture-manager", role: "architecture_manager" }, payload: { tool: "read_file", content: "secret source contents" } });
+  assert.equal(tool[0].payload.tool_name, "read_file");
+  assert.doesNotMatch(JSON.stringify(tool[0]), /secret source contents/);
+  const publisher = createProjectStreamPublisher({ projectId: "PROJECT-STREAM-NORM", indexDb: { all: () => [] } });
+  assert.deepEqual(publisher.project({ type: "agent.started", project_id: "PROJECT-STREAM-NORM", payload: { agent_id: "CODER-1" } }), { event_type: "agent.activity", payload: { agent_id: "CODER-1", activity_type: "started", status: "working", summary: "Agent started" } });
+});
+
 test("project stream framing validates every emitted event against the v1 schema", () => {
   const ajv = new Ajv2020({ allErrors: true, strict: false });
   addFormats(ajv);
@@ -178,6 +189,9 @@ test("project stream framing validates every emitted event against the v1 schema
   publishStatus({ event_id: "EVT-AGENT-STREAM-1", event_type: "agent.status_changed", project_id: "PROJECT-STREAM-SCHEMA", timestamp: "2026-09-11T00:00:00.000Z", payload: { agent_id: "CODER-1", previous_status: "ready", status: "working", updated_at: "2026-09-11T00:00:00.000Z" } });
   const statusFrame = statusResponse.chunks.filter((chunk) => chunk.startsWith("id: ")).at(-1);
   assert.equal(validate(JSON.parse(statusFrame.split("data: ")[1])), true, ajv.errorsText(validate.errors));
+  publishStatus({ event_id: "EVT-AGENT-ACTIVITY-1", event_type: "agent.started", project_id: "PROJECT-STREAM-SCHEMA", timestamp: "2026-09-11T00:00:00.000Z", payload: { agent_id: "CODER-1" } });
+  const activityFrame = statusResponse.chunks.filter((chunk) => chunk.startsWith("id: ")).at(-1);
+  assert.equal(validate(JSON.parse(activityFrame.split("data: ")[1])), true, ajv.errorsText(validate.errors));
   statusConnection.close();
   assert.ok(frames.every((frame) => frame.endsWith("\n\n")));
   for (const frame of frames) {

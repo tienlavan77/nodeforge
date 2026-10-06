@@ -41,6 +41,7 @@
         "conversation.agent.status_changed",
         "agent.status_changed",
         "agent.checkpoint.updated",
+        "agent.activity",
         "stream.error"
       ]
     },
@@ -83,6 +84,7 @@
     {"if": {"properties": {"event_type": {"const": "conversation.message.failed"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/conversation_message_failed_payload"}}}},
     {"if": {"properties": {"event_type": {"const": "conversation.agent.status_changed"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/conversation_agent_status_payload"}}}}
     ,{"if": {"properties": {"event_type": {"const": "agent.status_changed"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/agent_status_payload"}}}}
+    ,{"if": {"properties": {"event_type": {"const": "agent.activity"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/agent_activity_payload"}}}}
   ],
   "$defs": {
     "file": {
@@ -204,6 +206,7 @@
       }
     },
     "agent_status_payload": {"type":"object","additionalProperties":false,"required":["agent_id","status"],"properties":{"agent_id":{"type":"string","minLength":1},"previous_status":{"type":["string","null"],"enum":["ready","working","not_connected",null]},"status":{"type":"string","enum":["ready","working","not_connected"]},"updated_at":{"type":"string","format":"date-time"},"correlation_id":{"type":["string","null"]}}},
+    "agent_activity_payload": {"type":"object","additionalProperties":false,"required":["agent_id","activity_type","status","summary"],"properties":{"agent_id":{"type":"string","minLength":1},"conversation_id":{"type":"string","minLength":1},"correlation_id":{"type":"string","minLength":1},"activity_type":{"type":"string","enum":["started","step_started","step_completed","progress","tool_result","completed","failed"]},"status":{"type":"string","enum":["working","success","failed"]},"summary":{"type":"string","minLength":1,"maxLength":500},"tool_name":{"type":"string","minLength":1,"maxLength":100}}},
     "activity": {
       "type": "array",
       "minItems": 1,
