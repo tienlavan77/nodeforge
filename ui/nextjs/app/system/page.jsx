@@ -22,6 +22,8 @@ import { InlineError } from "../../components/InlineError.jsx";
 import { MarkdownPreviewPanel } from "../../components/markdown-preview-panel.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { WorkspaceMonitorPanels } from "../../components/WorkspaceMonitorPanels.jsx";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+import { SystemExecutionControls } from "../../components/system-execution-controls.jsx";
 import { createNodeClient, MESSAGE_INTENTS } from "../../lib/node-client.js";
 import { architectureManagerSelection, writeArchitectureManagerAgent } from "../../lib/architecture-manager-selection.js";
 import { PROJECT_ID, ARCHITECTURE_CONVERSATION_ID } from "../../lib/home-page-constants.js";
@@ -144,6 +146,7 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
     <main className="claude-home-main" aria-label="NodeForge system workspace">
       <section className="claude-chat" aria-label="System chat">
         <header className="claude-chat-header"><h1>{activeConversationTitle}</h1></header>
+        <SystemExecutionControls client={client} projectId={PROJECT_ID} conversationId={activeConversationId} onPause={setAgentTyping} />
         <div className="claude-chat-scroll" ref={chatMessagesRef} onScroll={handleMessageScroll} role="log" aria-live="polite">
           {messagesLoading && <p className="claude-chat-status">Loading conversation…</p>}
           {hasOlder && messages.length > 0 && <button className="claude-history-more" type="button" disabled={olderLoading} onClick={loadEarlierMessages}>{olderLoading ? "Loading…" : "Show earlier messages"}</button>}

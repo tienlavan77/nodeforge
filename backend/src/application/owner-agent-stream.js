@@ -35,7 +35,7 @@ export function createOwnerAgentStream({ bus, agentStream, onAgentCompleted, exe
       bus.sendFast(responseMessage(message, "architecture.working", { agent_status: "WORKING" }, "WORKING"));
       const taskId = message.payload.task?.id ?? message.id;
       const initialText = `${await enrichAgentText(message, agentId)}${typeof executeAgentTool === "function" ? AGENT_TOOL_PROTOCOL : ""}`;
-      let requestPayload = { text: initialText, ...(message.payload.task ? { task: message.payload.task } : {}) };
+      let requestPayload = { text: initialText, message_id: message.id, ...(message.payload.source_message_id ? { source_message_id: message.payload.source_message_id } : {}), ...(message.payload.resume_of ? { resume_of: message.payload.resume_of } : {}), ...(message.payload.continue_execution ? { continue_execution: true } : {}), ...(message.payload.task ? { task: message.payload.task } : {}) };
       let round = 0;
       while (!submittedCode) {
         round += 1;
@@ -103,7 +103,7 @@ export function createOwnerAgentStream({ bus, agentStream, onAgentCompleted, exe
       persistProtocolMessage({ ...message, payload: { ...message.payload, text } }, message.payload.round ?? 1, "response");
       await onAgentCompleted?.({ message, agentId, text });
     } catch (error) {
-      bus.send(responseMessage(message, streamEventType(agentId, "error"), { error: error.message, agent_status: "FAILED" }, "ERROR"));
+      if (error?.code !== "EXECUTION_PAUSED") bus.send(responseMessage(message, streamEventType(agentId, "error"), { error: error.message, agent_status: "FAILED" }, "ERROR"));
     }
   }
 
