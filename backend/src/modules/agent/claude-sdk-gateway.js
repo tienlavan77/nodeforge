@@ -11,7 +11,7 @@ export function createClaudeSdkGateway({
   configuration,
   credentialResolver,
   queryFn = sdkQuery,
-  timeoutMs = 2400000,
+  timeoutMs = 3600000,
   environment = process.env,
   gatewayBaseUrl = environment.FORGE_GATEWAY_BASE_URL,
   mcpServers = {},

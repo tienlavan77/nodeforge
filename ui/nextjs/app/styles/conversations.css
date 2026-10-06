@@ -74,6 +74,9 @@
 .conversations-block.is-active .conversations-block-title-text { color: var(--app-text); font-weight: 600; }
 .conversations-block-title { flex: 1 1 auto; min-width: 0; justify-content: flex-start; }
 .conversations-block-title-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.claude-home-shell .conversations-accordion-row { min-width: 0; overflow: hidden; }
+.claude-home-shell .conversations-block-title { flex: 1 1 0; width: 0; min-width: 0; }
+.claude-home-shell .conversations-block-actions { width: auto; max-width: 100%; margin-left: 0; }
 .conversations-block-actions { flex: 0 0 auto; margin-left: auto; display: flex; flex-direction: row; align-items: center; gap: 6px; flex-shrink: 0; }
 .conversations-block-action { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-height: 28px; border: 1px solid var(--app-border); background: transparent; color: var(--app-text); padding: 5px 10px; border-radius: 6px; cursor: pointer; font: 500 12px/1.2 'Space Grotesk', sans-serif; letter-spacing: .02em; white-space: nowrap; transition: background .18s ease, border-color .18s ease, color .18s ease; }
 .conversations-block-action:hover { background: color-mix(in srgb, var(--app-surface-alt) 70%, transparent); border-color: var(--app-accent); }

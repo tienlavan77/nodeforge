@@ -161,4 +161,6 @@ test("icons are named and actions remain reachable without selecting their conve
   assert.match(styles, /@media \(hover: none\), \(pointer: coarse\)/);
   assert.match(styles, /width: 44px; height: 44px/);
   assert.match(styles, /conversations-block-action:focus-visible/);
+  assert.match(styles, /\.claude-home-shell \.conversations-block-title \{ flex: 1 1 0; width: 0; min-width: 0; \}/);
+  assert.match(styles, /\.claude-home-shell \.conversations-block-actions \{ width: auto; max-width: 100%; margin-left: 0; \}/);
 });

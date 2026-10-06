@@ -38,7 +38,7 @@ line("ANTHROPIC_BASE_URL", env.ANTHROPIC_BASE_URL || "<unset>");
 line("ANTHROPIC_API_KEY", env.ANTHROPIC_API_KEY ? "(set)" : "<unset>");
 line("ANTHROPIC_AUTH_TOKEN", mask(env.ANTHROPIC_AUTH_TOKEN));
 line("NODE_AGENT_MODEL", env.NODE_AGENT_MODEL || "<unset>");
-line("NODE_AGENT_TIMEOUT_MS", env.NODE_AGENT_TIMEOUT_MS || "300000 (default)");
+line("NODE_AGENT_TIMEOUT_MS", env.NODE_AGENT_TIMEOUT_MS || "3600000 (default)");
 line("HTTPS_PROXY", env.HTTPS_PROXY || env.https_proxy || "<unset>");
 
 if (env.ANTHROPIC_API_KEY && env.OPENAI_API_KEY) {

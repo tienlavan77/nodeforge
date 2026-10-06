@@ -52,6 +52,17 @@ test("home route composes the conversation workspace from existing components", 
   assert.ok(monitors.includes("aria-pressed={panel.visible && !panel.minimized}"));
   assert.ok(monitors.includes("Close Watcher monitor"));
   assert.ok(monitors.includes("Minimize Agent monitor"));
+  assert.ok(monitors.includes("latestWatcherEvent"));
+  assert.ok(monitors.includes("latestAgentEvent"));
+  assert.ok(monitors.includes('aria-label={watcherActive ? "Watcher working" : "Watcher idle"}'));
+  assert.ok(monitors.includes('aria-label={agentActive ? "Agent working" : "Agent idle"}'));
+  assert.ok(monitors.includes("workspace-monitor-light") && monitors.includes("workspace-monitor-dock"));
+  const monitorStyles = await readFile("ui/nextjs/app/styles/workspace-monitors.css", "utf8");
+  assert.ok(monitorStyles.includes(".workspace-monitor-light.is-active") && monitorStyles.includes("prefers-reduced-motion"));
+  assert.ok(monitorStyles.includes(".workspace-monitor-light::after") && monitorStyles.includes(".workspace-monitor-dock button { display: inline-flex; align-items: center; gap: 9px"));
+  assert.doesNotMatch(monitorStyles.match(/\.workspace-monitor-light \{[^}]+\}/)?.[0] ?? "", /border:/);
+  assert.ok(monitors.indexOf('role="img" /><strong>Watcher</strong>') > 0);
+  assert.ok(monitors.indexOf('role="img" /><strong>Agent activity</strong>') > 0);
   assert.ok(monitors.includes("nodeforge:workspace-monitor-layout"));
   assert.ok(monitors.includes("${MONITOR_LAYOUT_KEY}:${layoutScope}"));
   assert.ok(monitors.includes("window.localStorage.getItem"));

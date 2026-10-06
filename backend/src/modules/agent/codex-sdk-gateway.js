@@ -11,7 +11,7 @@ export function createCodexSdkGateway({
   configuration,
   credentialResolver,
   CodexClass = DefaultCodex,
-  timeoutMs = 2400000,
+  timeoutMs = 3600000,
   environment = process.env,
   codexHomeRoot = join(process.cwd(), ".forge", "runtime", "nf", "codex-homes")
 } = {}) {
