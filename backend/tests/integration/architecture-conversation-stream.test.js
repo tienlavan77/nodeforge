@@ -32,6 +32,20 @@ test("streams real Architecture Manager work only to its conversation in persist
   assert.equal(connection.close(), false);
 });
 
+test("owner corrections retain the original, persist the revision, and receive a new agent reply", () => {
+  const { chat, communications } = createFixture();
+  chat.submit(ownerMessage("MSG-ORIGINAL", "CONV-ARCH", "CORR-ORIGINAL"));
+  const revised = ownerMessage("MSG-REVISED", "CONV-ARCH", "CORR-REVISED");
+  revised.payload = { text: "A corrected plan request.", supersedes_message_id: "MSG-ORIGINAL" };
+  chat.submit(revised);
+  assert.equal(communications.getById("MSG-ORIGINAL").payload.text, "Create a governed plan.");
+  assert.equal(communications.getById("MSG-REVISED").payload.supersedes_message_id, "MSG-ORIGINAL");
+  assert.ok(communications.getByConversationId("CONV-ARCH").some((message) => message.correlation_id === "CORR-REVISED" && message.message_type.endsWith(".message.received")));
+  const invalid = ownerMessage("MSG-INVALID", "CONV-OTHER", "CORR-INVALID");
+  invalid.payload.supersedes_message_id = "MSG-ORIGINAL";
+  assert.throws(() => chat.submit(invalid), /must reference an owner message in this conversation/);
+});
+
 test("reconnect replays only missed persisted conversation messages without executing the Agent again", () => {
   const { chat, stream, decisions } = createFixture();
   const first = responseStub();
@@ -176,7 +190,7 @@ function createFixture() {
   const decisions = createArchitectureDecisionStore();
   const manager = createArchitectureManager({ decisions, knowledge: createArchitectureKnowledgeModel({ decisions }), roadmaps: createRoadmapStore(), bus, nodeId: "NODE-137" });
   createArchitectureManagerAdapter({ manager, bus, nodeId: "NODE-137" });
-  return { chat: createOwnerChatService({ bus }), communications, stream: createConversationStream({ bus, communicationStore: communications }), decisions };
+  return { chat: createOwnerChatService({ bus, communications }), communications, stream: createConversationStream({ bus, communicationStore: communications }), decisions };
 }
 
 function ownerMessage(message_id, conversation_id, correlation_id) {

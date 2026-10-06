@@ -21,11 +21,12 @@ test("System Engineer uses Node services for edit, checks, exact-path commit, pu
     const pushed = [];
     const checks = [];
     const events = [];
+    const activities = [];
     const lines = [];
     const logger = createRuntimeLogger({ logEvent: (event) => events.push(event), output: { write: (line) => lines.push(line) } });
     const context = { task_id: "CORR-ENGINEER", correlation_id: "CORR-ENGINEER", conversation_id: "CONV-ENGINEER", project_root: projectRoot, agent_identity: { agent_id: "engineer", agent_name: "Engineer", role: "system_engineer", provider: "codex" } };
     const { definitions, registry } = createOwnerConversationTools({
-      role: "system_engineer", projectRoot, fileService: files, conversationStateStore: state, conversationId: "CONV-ENGINEER", context, projectLogger: logger.emit,
+      role: "system_engineer", projectRoot, fileService: files, conversationStateStore: state, conversationId: "CONV-ENGINEER", context, projectLogger: logger.emit, eventSink: (event) => activities.push(event),
       gitService: { status: async () => "", diffWorkingTree: async () => "", commit: async (message, options) => { committed.push({ message, ...options }); return { sha: "a".repeat(40) }; }, pushCommit: async (sha) => { pushed.push(sha); return { sha, remote: "origin", branch: "ui-chat" }; } },
       testService: { runCheck: async (input) => { checks.push(input); return { status: "passed", breakdown: [{ kind: "lint", status: "passed", exit_code: 0 }] }; } }
     });
@@ -44,6 +45,9 @@ test("System Engineer uses Node services for edit, checks, exact-path commit, pu
     assert.deepEqual(pushed, [commit.sha]);
     assert.equal(checks[0].command, "pnpm exec eslint src/example.js");
     assert.ok(events.some((event) => event.event_name === "owner.tool_call" && event.status === "success" && event.payload.tool === "commit_changes"));
+    assert.deepEqual(activities.filter((event) => event.payload.tool_name === "edit_diff").map((event) => event.payload.activity_type), ["tool_started", "tool_completed"]);
+    assert.ok(activities.every((event) => event.event_type === "agent.activity" && event.payload.conversation_id === "CONV-ENGINEER" && event.payload.agent_id === "engineer"));
+    assert.ok(activities.every((event) => !JSON.stringify(event).includes("const value")));
     assert.ok(lines.some((line) => line.includes("[Engineer] (codex) edit_diff PASS")));
     assert.ok(lines.some((line) => line.includes("[Engineer] (codex) push_commit PASS")));
   } finally { await rm(projectRoot, { recursive: true, force: true }); }

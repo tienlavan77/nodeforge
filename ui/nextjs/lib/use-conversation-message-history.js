@@ -1,7 +1,8 @@
 // Loads earlier owner conversation messages while preserving the reader's scroll position.
 import { useLayoutEffect, useRef, useState } from "react";
+import { mergeConversationRevisions } from "./conversation-message-revisions.js";
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 50;
 
 // Keeps paginated history and live messages in the same conversation view.
 export function useConversationMessageHistory({ client, projectId, chatMessagesRef, agentDirectoryRef, agentDisplayName }) {
@@ -50,9 +51,9 @@ export function useConversationMessageHistory({ client, projectId, chatMessagesR
       cursorRef.current = result?.next_cursor ?? null;
       setHasOlder(Boolean(cursorRef.current));
       setMessages((current) => {
-        const history = items.slice().reverse().map(toMessage);
+        const history = mergeConversationRevisions(items.slice().reverse().map(toMessage));
         const existing = new Set(history.map((message) => message.stream_key));
-        return [...history, ...current.filter((message) => !existing.has(message.stream_key))];
+        return mergeConversationRevisions([...history, ...current.filter((message) => message.pending || !existing.has(message.stream_key))]);
       });
     } catch (error) {
       if (conversationRef.current === conversationId && loadRevisionRef.current === revision) { setMessages([]); setHistoryError(error.message); }
@@ -81,8 +82,7 @@ export function useConversationMessageHistory({ client, projectId, chatMessagesR
       if (items.length) {
         restoreRef.current = anchor;
         setMessages((current) => {
-          const existing = new Set(current.map((message) => message.stream_key));
-          return [...items.slice().reverse().map(toMessage).filter((message) => !existing.has(message.stream_key)), ...current];
+          return mergeConversationRevisions([...items.slice().reverse().map(toMessage), ...current]);
         });
       }
     } catch (error) {
@@ -115,7 +115,8 @@ export function useConversationMessageHistory({ client, projectId, chatMessagesR
     const content = record.content ?? {};
     const text = typeof content === "string" ? content : content.text ?? content.content ?? "";
     const isOwner = record.kind === "owner";
-    return { id: record.id, stream_key: `${isOwner ? "owner" : "agent"}:${record.id}`,
+    const originalId = isOwner && typeof content.supersedes_message_id === "string" ? content.supersedes_message_id : record.id;
+    return { id: originalId, source_message_id: record.id, stream_key: `${isOwner ? "owner" : "agent"}:${originalId}`,
       text: String(text ?? ""), from: isOwner ? "owner" : record.kind === "failure" ? "system" : "agent",
       nickname: isOwner ? "You" : agentDisplayName(record.agent_id, agentDirectoryRef.current),
       timestamp: record.timestamp ?? new Date().toISOString() };
