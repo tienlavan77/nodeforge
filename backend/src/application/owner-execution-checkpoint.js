@@ -2,6 +2,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { ConfigurationError } from "../shared/errors.js";
 import { acquireTicketFileLock } from "../modules/supervisor/ticket-file-lock.js";
+import { prepareArchitectureMutation, verifyArchitectureMutation } from "./architecture-reconciliation.js";
 
 const ROOT = ".forge/runtime/owner-executions";
 const LEASE_MS = 30_000;
@@ -15,7 +16,7 @@ export function executionDigest(value) {
 }
 
 // Creates a File Service-backed checkpoint store with per-conversation atomic updates and leases.
-export function createOwnerExecutionCheckpoint({ fileService, gitService, root = ROOT, ownerInstanceId = randomUUID() }) {
+export function createOwnerExecutionCheckpoint({ fileService, gitService, root = ROOT, role = "system_engineer", ownerInstanceId = randomUUID() }) {
   if (!fileService?.atomicWrite || !fileService?.readFile || !fileService?.createLock) throw new ConfigurationError("Owner execution checkpoint requires File Service persistence and locks.");
 
   // Maps a conversation and execution to a private, traversal-safe runtime record.
@@ -62,17 +63,18 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
       const previous = await inspect(conversationId);
       const live = previous.find((entry) => entry.status === "running" && Date.now() - Date.parse(entry.heartbeat_at) < LEASE_MS);
       if (live) throw Object.assign(new ConfigurationError("A System Engineer execution is already running in this conversation."), { code: "EXECUTION_BUSY", statusCode: 409 });
-      if (!continueAttempt && !resumeOf && previous.some((entry) => entry.status === "interrupted")) throw Object.assign(new ConfigurationError("Choose Continue, Restart, or Discard for the interrupted execution first."), { code: "EXECUTION_DECISION_REQUIRED", statusCode: 409 });
+      if (!continueAttempt && !resumeOf && previous.some((entry) => ["interrupted", "manual_required"].includes(entry.status))) throw Object.assign(new ConfigurationError("Choose Continue, Restart, or Discard for the interrupted execution first."), { code: "EXECUTION_DECISION_REQUIRED", statusCode: 409 });
       if (continueAttempt) {
         return update(conversationId, executionId, async (current) => {
           if (!current || current.user_prompt_hash !== promptHash || !await reconcile(current)) throw Object.assign(new ConfigurationError("Execution requires manual workspace reconciliation before continuation."), { code: "EXECUTION_RECONCILIATION_REQUIRED", statusCode: 409 });
           return { ...current, status: "running", pending_tool_calls: [], resume_count: (current.resume_count ?? 0) + 1, owner_instance_id: ownerInstanceId, lease_started_at: new Date().toISOString(), heartbeat_at: new Date().toISOString() };
         });
       }
-      if (resumeOf && !await reconcile(await load(conversationId, resumeOf))) throw Object.assign(new ConfigurationError("Previous execution requires manual reconciliation before restart."), { code: "EXECUTION_RECONCILIATION_REQUIRED", statusCode: 409 });
+      const parent = resumeOf ? await load(conversationId, resumeOf) : null;
+      if (resumeOf && (!parent || !await reconcile(parent))) throw Object.assign(new ConfigurationError("Previous execution requires manual reconciliation before restart."), { code: "EXECUTION_RECONCILIATION_REQUIRED", statusCode: 409 });
       const started = await update(conversationId, executionId, (current) => {
         if (current) throw Object.assign(new ConfigurationError("Execution already exists."), { statusCode: 409 });
-        return { status: "running", provider, message_id: messageId, user_prompt_hash: promptHash, provider_thread_id: null, completed_tool_calls: [], failed_tool_calls: [], pending_tool_calls: [], next_sequence: 1, changed_paths: [], resume_of: resumeOf, owner_instance_id: ownerInstanceId, lease_started_at: new Date().toISOString(), heartbeat_at: new Date().toISOString() };
+        return { status: "running", role, provider, message_id: messageId, user_prompt_hash: promptHash, provider_thread_id: null, completed_tool_calls: [...(parent?.completed_tool_calls ?? [])], failed_tool_calls: [...(parent?.failed_tool_calls ?? [])], pending_tool_calls: [...(parent?.pending_tool_calls ?? [])], next_sequence: parent?.next_sequence ?? 1, changed_paths: [...(parent?.changed_paths ?? [])], last_completed_step: parent?.last_completed_step ?? 0, receipts_truncated: parent?.receipts_truncated ?? false, lineage_id: parent?.lineage_id ?? resumeOf ?? executionId, attempt_number: (parent?.attempt_number ?? 0) + 1, resume_of: resumeOf, owner_instance_id: ownerInstanceId, lease_started_at: new Date().toISOString(), heartbeat_at: new Date().toISOString() };
       });
       if (resumeOf) await close(conversationId, resumeOf, "restarted");
       return started;
@@ -83,7 +85,7 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
   async function patch(conversationId, executionId, fields) {
     return update(conversationId, executionId, (current) => {
       if (!current) throw new ConfigurationError("Owner execution checkpoint does not exist.");
-      if (current.status === "running" && current.owner_instance_id !== ownerInstanceId) throw Object.assign(new ConfigurationError("Execution lease belongs to another instance."), { code: "EXECUTION_BUSY", statusCode: 409 });
+      if (current.owner_instance_id !== ownerInstanceId || (role === "architecture_manager" && current.status === "manual_required")) throw Object.assign(new ConfigurationError("Execution lease belongs to another instance or requires manual review."), { code: "EXECUTION_BUSY", statusCode: 409 });
       return { ...current, ...fields, heartbeat_at: new Date().toISOString() };
     });
   }
@@ -93,7 +95,7 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
     const records = await list(conversationId);
     for (const record of records) {
       if (record.status === "running" && Date.now() - Date.parse(record.heartbeat_at) >= LEASE_MS) {
-        await update(conversationId, record.execution_id, (current) => current.status === "running" && Date.now() - Date.parse(current.heartbeat_at) >= LEASE_MS ? { ...current, status: "interrupted", next_action_hint: "Lease expired; reconcile workspace before continuing." } : null);
+        await update(conversationId, record.execution_id, (current) => current.status === "running" && Date.now() - Date.parse(current.heartbeat_at) >= LEASE_MS ? { ...current, status: role === "architecture_manager" && current.pending_tool_calls.some((step) => step.mutating) ? "manual_required" : "interrupted", next_action_hint: "Lease expired; reconcile workspace before continuing." } : null);
       }
     }
     return list(conversationId);
@@ -102,11 +104,14 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
   // Records a tool boundary before a Forge call can mutate the workspace.
   async function beforeTool(conversationId, executionId, name, input) {
     let step;
-    await update(conversationId, executionId, (current) => {
+    await update(conversationId, executionId, async (current) => {
       if (current?.status !== "running" || current.owner_instance_id !== ownerInstanceId) throw Object.assign(new ConfigurationError("Execution is not active."), { code: "EXECUTION_INTERRUPTED" });
-      if (current.resume_count && ["commit_changes", "push_commit"].includes(name) && current.completed_tool_calls.some((receipt) => receipt.tool_name === name)) throw Object.assign(new ConfigurationError("Git operation already completed in this execution; do not repeat it."), { code: "EXECUTION_RECONCILIATION_REQUIRED" });
-      step = { sequence: current.next_sequence, tool_name: name, input_hash: executionDigest(input), mutating: MUTATING.has(name), ...(typeof input?.path === "string" ? { path: input.path } : {}), ...(typeof input?.before_checksum === "string" ? { before_checksum: input.before_checksum } : {}), started_at: new Date().toISOString() };
-      return { ...current, next_sequence: current.next_sequence + 1, pending_tool_calls: [...current.pending_tool_calls, step], heartbeat_at: new Date().toISOString() };
+      if (role === "architecture_manager" && current.pending_tool_calls.some((pending) => pending.mutating)) throw Object.assign(new ConfigurationError("Another document mutation has not completed."), { code: "EXECUTION_BUSY", statusCode: 409 });
+      if (role === "architecture_manager" && MUTATING.has(name) && !["write_diff", "edit_diff", "delete_file"].includes(name)) throw Object.assign(new ConfigurationError("Architecture recovery cannot execute System Engineer mutations."), { code: "TOOL_FORBIDDEN" });
+      if ((current.resume_count || current.resume_of) && current.completed_tool_calls.some((receipt) => receipt.tool_name === name && (["commit_changes", "push_commit"].includes(name) || (MUTATING.has(name) && receipt.input_hash === executionDigest(input))))) throw Object.assign(new ConfigurationError("Side effect already completed; cannot replay after recovery."), { code: "EXECUTION_RECONCILIATION_REQUIRED" });
+      const evidence = role === "architecture_manager" && MUTATING.has(name) ? await prepareArchitectureMutation(fileService, name, input) : {};
+      step = { sequence: current.next_sequence, tool_name: name, input_hash: executionDigest(input), mutating: MUTATING.has(name), ...(typeof input?.path === "string" ? { path: input.path } : {}), ...(typeof input?.before_checksum === "string" ? { before_checksum: input.before_checksum } : {}), ...evidence, started_at: new Date().toISOString() };
+      return { ...current, next_sequence: current.next_sequence + 1, active_mutations: (current.active_mutations ?? 0) + (role === "architecture_manager" && step.mutating ? 1 : 0), pending_tool_calls: [...current.pending_tool_calls, step], heartbeat_at: new Date().toISOString() };
     });
     return step;
   }
@@ -117,13 +122,16 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
     return update(conversationId, executionId, (current) => {
       if (current?.owner_instance_id !== ownerInstanceId || current.status !== "running") throw Object.assign(new ConfigurationError("Execution lease has ended."), { code: "EXECUTION_INTERRUPTED" });
       const previous = current.completed_tool_calls ?? [];
-      return { ...current, pending_tool_calls: current.pending_tool_calls.filter((pending) => pending.sequence !== step.sequence), completed_tool_calls: [...previous, receipt].slice(-MAX_STEPS), receipts_truncated: current.receipts_truncated || previous.length >= MAX_STEPS, last_completed_step: Math.max(current.last_completed_step ?? 0, receipt.sequence), changed_paths: [...new Set([...current.changed_paths, ...changedPaths])].slice(-MAX_STEPS), heartbeat_at: new Date().toISOString() };
+      return { ...current, active_mutations: Math.max(0, (current.active_mutations ?? 0) - (role === "architecture_manager" && step.mutating ? 1 : 0)), pending_tool_calls: current.pending_tool_calls.filter((pending) => pending.sequence !== step.sequence), completed_tool_calls: [...previous, receipt].slice(-MAX_STEPS), receipts_truncated: current.receipts_truncated || previous.length >= MAX_STEPS, last_completed_step: Math.max(current.last_completed_step ?? 0, receipt.sequence), changed_paths: [...new Set([...current.changed_paths, ...changedPaths])].slice(-MAX_STEPS), heartbeat_at: new Date().toISOString() };
     });
   }
 
   // Records a failed Forge call while retaining uncertain write and Git boundaries for manual review.
   async function failTool(conversationId, executionId, step, error) {
-    return update(conversationId, executionId, (current) => ({ ...current, pending_tool_calls: step.mutating ? current.pending_tool_calls : current.pending_tool_calls.filter((pending) => pending.sequence !== step.sequence), failed_tool_calls: [...current.failed_tool_calls, { sequence: step.sequence, tool_name: step.tool_name, error_code: String(error?.code ?? "TOOL_FAILED").slice(0, 80) }].slice(-MAX_STEPS) }));
+    return update(conversationId, executionId, (current) => {
+      if (current?.owner_instance_id !== ownerInstanceId || current.status !== "running") throw Object.assign(new ConfigurationError("Execution lease has ended."), { code: "EXECUTION_INTERRUPTED" });
+      return { ...current, active_mutations: Math.max(0, (current.active_mutations ?? 0) - (role === "architecture_manager" && step.mutating ? 1 : 0)), status: role === "architecture_manager" && step.mutating ? "manual_required" : current.status, pending_tool_calls: step.mutating ? current.pending_tool_calls : current.pending_tool_calls.filter((pending) => pending.sequence !== step.sequence), failed_tool_calls: [...current.failed_tool_calls, { sequence: step.sequence, tool_name: step.tool_name, error_code: String(error?.code ?? "TOOL_FAILED").slice(0, 80) }].slice(-MAX_STEPS) };
+    });
   }
 
   // Extracts the resulting file checksum from a confirmed Forge write receipt.
@@ -135,7 +143,7 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
 
   // Refuses to replay uncertain tool side effects after a process interruption.
   function canContinue(record) {
-    return record?.status === "interrupted" && !record.receipts_truncated && !(record.pending_tool_calls ?? []).some((step) => step.mutating) && !record.completed_tool_calls?.some((step) => ["push_commit", "delete_file"].includes(step.tool_name));
+    return record?.status === "interrupted" && !record.receipts_truncated && !(record.pending_tool_calls ?? []).some((step) => step.mutating) && !record.completed_tool_calls?.some((step) => step.tool_name === "push_commit" || (step.tool_name === "delete_file" && (role !== "architecture_manager" || !step.expected_absent)));
   }
 
   // Confirms completed file writes still match the workspace before continuing.
@@ -145,9 +153,13 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
     if (committed && (!committed.commit_sha || typeof gitService?.getHead !== "function" || (await gitService.getHead()).toLowerCase() !== committed.commit_sha.toLowerCase())) return false;
     const verifiedPaths = new Set();
     for (const step of [...(record.completed_tool_calls ?? [])].reverse()) {
-      if (!["write_diff", "edit_diff"].includes(step.tool_name) || verifiedPaths.has(step.path)) continue;
-      if (!step.path || !step.after_checksum) return false;
+      if (!["write_diff", "edit_diff", "delete_file"].includes(step.tool_name) || verifiedPaths.has(step.path)) continue;
+      if (!step.path || (step.tool_name !== "delete_file" && !step.after_checksum)) return false;
       verifiedPaths.add(step.path);
+      if (step.tool_name === "delete_file") {
+        if (!await verifyArchitectureMutation(fileService, step)) return false;
+        continue;
+      }
       try {
         const content = await fileService.readFile({ path: step.path });
         if (`sha256:${createHash("sha256").update(content).digest("hex")}` !== step.after_checksum) return false;
@@ -156,14 +168,33 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
     return true;
   }
 
+  // Certifies that the local runner has exited and no document mutation remains in flight.
+  async function markStopped(conversationId, executionId) {
+    return update(conversationId, executionId, (current) => current?.owner_instance_id === ownerInstanceId && !(current.active_mutations ?? 0) ? { ...current, runner_stopped_at: new Date().toISOString() } : null);
+  }
+
+  // Confirms an uncertain Architecture write only after runner exit and an exact document-state match.
+  async function reconcilePending(conversationId, executionId, sequence, actorId) {
+    if (role !== "architecture_manager" || !actorId || !Number.isSafeInteger(sequence)) throw new ConfigurationError("Architecture reconciliation requires an actor label and step.");
+    return update(conversationId, executionId, async (current) => {
+      if (current?.status !== "manual_required" || !current.runner_stopped_at || current.active_mutations || current.receipts_truncated) throw Object.assign(new ConfigurationError("The previous runner has not safely stopped."), { code: "EXECUTION_RECONCILIATION_REQUIRED", statusCode: 409 });
+      const pending = current.pending_tool_calls ?? [];
+      if (pending.length !== 1 || pending[0].sequence !== sequence || !await verifyArchitectureMutation(fileService, pending[0])) throw Object.assign(new ConfigurationError("Document state does not prove the intended mutation."), { code: "EXECUTION_RECONCILIATION_REQUIRED", statusCode: 409 });
+      const step = pending[0];
+      const receipt = { ...step, after_checksum: step.expected_absent ? null : step.expected_after_checksum, reconciled_at: new Date().toISOString(), reconciled_by: actorId, evidence_hash: executionDigest({ sequence, path: step.path, after_checksum: step.expected_after_checksum, absent: step.expected_absent }) };
+      return { ...current, status: "interrupted", pending_tool_calls: [], completed_tool_calls: [...current.completed_tool_calls, receipt].slice(-MAX_STEPS), receipts_truncated: current.completed_tool_calls.length >= MAX_STEPS, last_completed_step: Math.max(current.last_completed_step ?? 0, sequence), changed_paths: [...new Set([...(current.changed_paths ?? []), step.path])].slice(-MAX_STEPS), manual_reconciliations: [...(current.manual_reconciliations ?? []), receipt].slice(-MAX_STEPS), next_action_hint: "Document state verified; choose Continue or Restart." };
+    });
+  }
+
   // Retains audit evidence when the owner discards or restarts an interrupted execution.
   async function close(conversationId, executionId, status) {
     if (!["discarded", "restarted"].includes(status)) throw new ConfigurationError("Invalid execution close status.");
     return update(conversationId, executionId, (current) => {
       if (!current || current.status !== "interrupted") throw Object.assign(new ConfigurationError("Only an interrupted execution can be closed."), { statusCode: 409 });
+      if (status === "discarded" && ((current.pending_tool_calls ?? []).some((step) => step.mutating) || current.active_mutations || (role === "architecture_manager" && !current.runner_stopped_at))) throw Object.assign(new ConfigurationError("Execution still has uncertain mutations or a running agent."), { code: "EXECUTION_RECONCILIATION_REQUIRED", statusCode: 409 });
       return { ...current, status };
     });
   }
 
-  return Object.freeze({ load, list, start, patch, inspect, beforeTool, afterTool, failTool, canContinue, reconcile, close, ownerInstanceId, terminalStatuses: TERMINAL });
+  return Object.freeze({ load, list, start, patch, inspect, beforeTool, afterTool, failTool, canContinue, reconcile, reconcilePending, markStopped, close, ownerInstanceId, terminalStatuses: TERMINAL });
 }

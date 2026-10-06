@@ -28,13 +28,14 @@ export function ThemeToggle() {
 
   useEffect(() => {
     const handleStorage = (event) => {
-      if (event.key !== STORAGE_KEY) return;
-      const nextTheme = event.newValue === "light" ? "light" : "dark";
+      if (event.type === "storage" && event.key !== STORAGE_KEY) return;
+      const nextTheme = (event.type === "storage" ? event.newValue : event.detail) === "light" ? "light" : "dark";
       setTheme(nextTheme);
       applyTheme(nextTheme);
     };
     window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
+    window.addEventListener("nodeforge-theme-change", handleStorage);
+    return () => { window.removeEventListener("storage", handleStorage); window.removeEventListener("nodeforge-theme-change", handleStorage); };
   }, []);
 
   const toggleTheme = () => {
@@ -42,6 +43,7 @@ export function ThemeToggle() {
     setTheme(nextTheme);
     window.localStorage.setItem(STORAGE_KEY, nextTheme);
     applyTheme(nextTheme);
+    window.dispatchEvent(new CustomEvent("nodeforge-theme-change", { detail: nextTheme }));
   };
 
   return <button type="button" className="theme-toggle" onClick={toggleTheme} aria-label={label} title={label}>{theme === "dark" ? "☾" : "☀"}</button>;

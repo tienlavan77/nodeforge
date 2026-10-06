@@ -84,7 +84,7 @@ export function useProjectEventStream({
         const processPayload = event.payload?.agent_process ?? event.payload?.agentProcess ?? event.payload?.process ?? event.payload?.watcher?.agent_process ?? event.payload?.watcher?.agentProcess;
         if (processPayload) setAgentProcess((current) => ({ ...(current ?? {}), process: processPayload }));
         if (["ticket.created", "ticket.updated", "ticket.status_changed", "ticket.deleted", "sprint.created", "sprint.updated", "sprint.deleted"].includes(event.event_type)) {
-          loadDashboard();
+          loadDashboard?.();
         }
         if (["watcher.file_indexed", "watcher.file_removed"].includes(event.event_type)) {
           setWatcherPulseId((current) => current + 1);
