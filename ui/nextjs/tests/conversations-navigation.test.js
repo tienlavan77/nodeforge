@@ -9,6 +9,7 @@ const page = await readFile("ui/nextjs/app/page.jsx", "utf8");
 const sidebar = await readFile("ui/nextjs/components/conversation-sidebar.jsx", "utf8");
 const codePage = await readFile("ui/nextjs/app/code/page.jsx", "utf8");
 const legacyCodePage = await readFile("ui/nextjs/app/coding/page.jsx", "utf8");
+const systemPage = await readFile("ui/nextjs/app/system/page.jsx", "utf8");
 const preferenceSource = await readFile("ui/nextjs/lib/sidebar-preference.js", "utf8");
 const preference = runInNewContext(
   preferenceSource.replaceAll("export ", "") +
@@ -31,6 +32,13 @@ test("home route composes the conversation workspace from existing components", 
   assert.ok(page.includes("<WorkspaceMonitorPanels"));
   assert.ok(page.includes("const [watcherEvents, setWatcherEvents]"));
   assert.ok(page.includes("const [agentProcess, setAgentProcess]"));
+  for (const routePage of [systemPage, legacyCodePage]) {
+    assert.ok(routePage.includes("<WorkspaceMonitorPanels"));
+    assert.ok(routePage.includes("setWatcherEvents"));
+    assert.ok(routePage.includes("setWatcherState"));
+    assert.ok(routePage.includes("setAgentProcess"));
+  }
+  assert.ok(legacyCodePage.includes("useProjectEventStream"));
   const monitors = await readFile("ui/nextjs/components/WorkspaceMonitorPanels.jsx", "utf8");
   assert.ok(monitors.includes("Watcher monitor"));
   assert.ok(monitors.includes("Agent activity monitor"));
