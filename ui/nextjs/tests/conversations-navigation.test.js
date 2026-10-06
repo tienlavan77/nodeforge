@@ -47,6 +47,10 @@ test("home route composes the conversation workspace from existing components", 
   assert.ok(monitors.includes("aria-pressed={panel.visible && !panel.minimized}"));
   assert.ok(monitors.includes("Close Watcher monitor"));
   assert.ok(monitors.includes("Minimize Agent monitor"));
+  assert.ok(monitors.includes("nodeforge:workspace-monitor-layout"));
+  assert.ok(monitors.includes("window.localStorage.getItem"));
+  assert.ok(monitors.includes("window.localStorage.setItem"));
+  assert.ok(monitors.includes("new ResizeObserver"));
   assert.equal(page.includes("<SprintPlanDashboard"), false);
   assert.equal(page.includes("<NodeForgeHeader"), false);
   assert.ok(sidebar.includes('onClick={reopen} aria-label="Open conversations sidebar"'));
