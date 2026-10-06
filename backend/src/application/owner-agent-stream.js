@@ -41,7 +41,6 @@ export function createOwnerAgentStream({ bus, agentStream, onAgentCompleted, exe
         round += 1;
         let requestedNextRound = false;
         debug({ event: "agent.loop.request", agent_id: agentId, task_id: taskId, round, payload: summarizePayload(requestPayload) });
-        emitProgress(message, agentId, `Đang xử lý yêu cầu (vòng ${round})…`, `PROGRESS-${round}-START`);
         for await (const chunk of agentStream({ agentId, payload: requestPayload, correlationId: message.correlation_id, conversationId: message.conversation_id })) {
           if (chunk.usage) debug({ event: "agent.loop.usage", agent_id: agentId, task_id: taskId, round, usage: chunk.usage, cache_read_input_tokens: chunk.usage.cache_read_input_tokens ?? 0 });
           if (chunk.completed) continue;
