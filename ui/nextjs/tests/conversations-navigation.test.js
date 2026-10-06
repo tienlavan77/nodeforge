@@ -29,7 +29,9 @@ test("home route composes the conversation workspace from existing components", 
   assert.ok(page.includes("useProjectEventStream"));
   assert.ok(page.includes("createHomeMessageHandlers"));
   assert.ok(page.includes("loadConversationMessages(conversationId)"));
-  assert.ok(page.includes("<WorkspaceMonitorPanels"));
+  assert.ok(page.includes('<WorkspaceMonitorPanels layoutScope="home"'));
+  assert.ok(systemPage.includes('<WorkspaceMonitorPanels layoutScope="system"'));
+  assert.ok(legacyCodePage.includes('<WorkspaceMonitorPanels layoutScope="coding"'));
   assert.ok(page.includes("const [watcherEvents, setWatcherEvents]"));
   assert.ok(page.includes("const [agentProcess, setAgentProcess]"));
   for (const routePage of [systemPage, legacyCodePage]) {
@@ -48,6 +50,7 @@ test("home route composes the conversation workspace from existing components", 
   assert.ok(monitors.includes("Close Watcher monitor"));
   assert.ok(monitors.includes("Minimize Agent monitor"));
   assert.ok(monitors.includes("nodeforge:workspace-monitor-layout"));
+  assert.ok(monitors.includes("${MONITOR_LAYOUT_KEY}:${layoutScope}"));
   assert.ok(monitors.includes("window.localStorage.getItem"));
   assert.ok(monitors.includes("window.localStorage.setItem"));
   assert.ok(monitors.includes("new ResizeObserver"));
