@@ -6,6 +6,13 @@
 .workspace-monitor-header strong { overflow: hidden; flex: 1; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-monitor-header button { width: 26px; height: 26px; border: 1px solid var(--app-border); border-radius: 6px; background: transparent; color: var(--app-text); cursor: pointer; }
 .workspace-monitor-indicator { color: var(--app-muted); font: 10px 'DM Mono', monospace; }
+.workspace-monitor-light { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 13px; height: 13px; border-radius: 50%; background: #b9f3d244; }
+.workspace-monitor-light::after { content: ""; width: 5px; height: 5px; border-radius: 50%; background: #bcf8d5; box-shadow: 0 0 5px #bcf8d599; }
+.workspace-monitor-light.is-offline { background: transparent; }
+.workspace-monitor-light.is-offline::after { background: var(--app-muted); box-shadow: none; }
+.workspace-monitor-light.is-active { animation: monitor-activity-pulse 1s ease-in-out infinite; }
+@keyframes monitor-activity-pulse { 50% { opacity: .4; box-shadow: 0 0 9px #bcf8d5aa; } }
+@media (prefers-reduced-motion: reduce) { .workspace-monitor-light.is-active { animation: none; } }
 .workspace-monitor-indicator.is-connected { color: #62d39b; }
 .workspace-monitor-indicator.is-error { color: #e27676; }
 .workspace-monitor-indicator.is-connecting { color: #d8b66a; }
@@ -15,7 +22,7 @@
 .workspace-monitor-content article small { color: var(--app-accent); text-transform: capitalize; }
 .workspace-monitor-content article span { overflow-wrap: anywhere; }
 .workspace-monitor-dock { position: fixed; right: 16px; bottom: 16px; z-index: 81; display: flex; gap: 8px; }
-.workspace-monitor-dock button { border: 1px solid var(--app-border); border-radius: 8px; background: var(--app-panel); color: var(--app-text); padding: 8px 12px; box-shadow: 0 6px 18px #0005; cursor: pointer; }
+.workspace-monitor-dock button { display: inline-flex; align-items: center; gap: 9px; border: 1px solid var(--app-border); border-radius: 8px; background: var(--app-panel); color: var(--app-text); padding: 8px 12px; box-shadow: 0 6px 18px #0005; cursor: pointer; }
 @media (max-width: 640px) {
   .workspace-monitor { min-width: 220px; max-width: calc(100vw - 16px); }
   .workspace-monitor-layer { z-index: 90; }
