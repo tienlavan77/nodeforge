@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap');
-
 @import "./styles/foundation.css";
 @import "./styles/legacy-workspace.css";
 @import "./styles/shell-layout.css";
@@ -14,3 +12,19 @@
 @import "./styles/conversation-dialogs.css";
 @import "./styles/responsive-workspace.css";
 @import "./styles/workspace-monitors.css";
+
+:where(html, body, body *) {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif !important;
+  font-size: 12px !important;
+}
+
+:is(.claude-chat-scroll, .natural-conversation),
+:is(.claude-chat-scroll, .natural-conversation) *,
+:is(.home-composer, .composer) textarea {
+  font-size: 15px !important;
+}
+
+.claude-message-meta,
+.claude-message-meta * {
+  font-size: 12px !important;
+}

@@ -11,9 +11,11 @@ import { ConversationResponseReveal } from "../components/conversation-response-
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { HomeChatComposer } from "../components/home-chat-composer.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+import { ArchitectureExecutionControls } from "../components/architecture-execution-controls.jsx";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { ConversationMessageActions } from "../components/conversation-message-actions.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
-import { PendingPlanApproval } from "../components/pending-plan-approval.jsx";
+import { ConversationProjectGit } from "../components/conversation-project-git.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { GlobalToast } from "../components/GlobalToast.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
@@ -24,8 +26,7 @@ import { MarkdownPreviewPanel } from "../components/markdown-preview-panel.jsx";
 import { WorkspaceMonitorPanels } from "../components/WorkspaceMonitorPanels.jsx";
 import { createNodeClient, MESSAGE_INTENTS } from "../lib/node-client.js";
 import { architectureManagerSelection, writeArchitectureManagerAgent } from "../lib/architecture-manager-selection.js";
-import { PROJECT_ID, ARCHITECTURE_CONVERSATION_ID, SPRINT_CACHE_KEY, CHAT_STATE_KEY } from "../lib/home-page-constants.js";
-import { toDashboard, readSprintCache } from "../lib/home-page-dashboard.js";
+import { PROJECT_ID, CHAT_STATE_KEY } from "../lib/home-page-constants.js";
 import { readChatState, writeChatState } from "../lib/home-page-conversation-state.js";
 import { displayMessageTime, agentDisplayName } from "../lib/home-page-watcher-events.js";
 import { useProjectEventStream } from "../lib/home-page-event-stream.js";
@@ -40,8 +41,6 @@ export default function HomePage() {
   const [agentDirectory, setAgentDirectory] = useState([]);
   const [selectedArchitectureManagerId, setSelectedArchitectureManagerId] = useState("");
   const [chatState, setChatState] = useState("");
-  const [, setDashboard] = useState(null);
-  const [, setDashboardState] = useState("loading");
   const [openSidebar, setOpenSidebar] = useState(false);
   const [newConversationRequest, setNewConversationRequest] = useState(0);
   const [markdownPreviewPath, setMarkdownPreviewPath] = useState("");
@@ -65,7 +64,7 @@ export default function HomePage() {
     .map((agent) => ({ ...agent, id: agent.agent_id ?? agent.id, label: agent.agent_name ?? agent.name ?? agent.label ?? agent.agent_id ?? agent.id }))
     .filter((agent) => agent.id), [agentDirectory]);
   const selectedArchitectureManager = architectureManagers.find((agent) => agent.id === selectedArchitectureManagerId) ?? null;
-  const streamConversationId = activeConversationId ?? selectedArchitectureManager?.conversation_id ?? selectedArchitectureManager?.conversationId ?? ARCHITECTURE_CONVERSATION_ID;
+  const streamConversationId = activeConversationId ?? selectedArchitectureManager?.conversation_id ?? selectedArchitectureManager?.conversationId ?? null;
   activeConversationIdRef.current = streamConversationId;
   agentDirectoryRef.current = agentDirectory;
   const { messages, setMessages, messagesLoading, setMessagesLoading, olderLoading, hasOlder, historyError,
@@ -75,7 +74,7 @@ export default function HomePage() {
 
   useEffect(() => {
     let active = true;
-    client.getAgents().then((payload) => {
+    client.getAgents("architecture_manager").then((payload) => {
       if (!active) return;
       const agents = Array.isArray(payload) ? payload : payload?.agents ?? payload?.items ?? [];
       setAgentDirectory(agents);
@@ -86,27 +85,6 @@ export default function HomePage() {
     }).catch(() => { if (active) setAgentDirectory([]); });
     return () => { active = false; };
   }, [client]);
-
-  // Keeps the former dashboard cache and project refresh active without rendering a dashboard on the conversation surface.
-  async function loadDashboard() {
-    try {
-      const sprintPlans = await client.listSprints(PROJECT_ID);
-      setDashboard(toDashboard(sprintPlans));
-      // eslint-disable-next-line no-silent-catch -- The cache is optional and never changes server state.
-      try { window.sessionStorage.setItem(SPRINT_CACHE_KEY, JSON.stringify(sprintPlans)); } catch { /* cache is optional */ }
-      setDashboardState("ready");
-      setGlobalError(null);
-    } catch (rawError) {
-      setDashboardState("error");
-      setGlobalError({ ...normalizeUiError(rawError, { fallback: "Could not load project data." }), _retry: loadDashboard });
-    }
-  }
-
-  useEffect(() => {
-    const cached = readSprintCache();
-    if (cached) setDashboard(toDashboard(cached));
-    void loadDashboard();
-  }, []);
 
   useEffect(() => {
     if (!selectedArchitectureManager?.id) return undefined;
@@ -140,7 +118,7 @@ export default function HomePage() {
   useProjectEventStream({
     client, projectId: PROJECT_ID, activeConversationIdRef, agentDirectoryRef,
     setMessages, setAgentTyping, setWatcherEvents, setWatcherPulseId, setWatcherState,
-    setAgentProcess, setAgentActivities, loadDashboard, agentDisplayName
+    setAgentProcess, setAgentActivities, agentDisplayName
   });
 
   // Binds a selected sidebar row to the existing persisted conversation and history lifecycle.
@@ -156,7 +134,7 @@ export default function HomePage() {
   }
 
   const { sendMessage, editMessage, retryMessage, retryLastMessage } = createHomeMessageHandlers({
-    client, projectId: PROJECT_ID, architectureConversationId: ARCHITECTURE_CONVERSATION_ID, chatStateKey: CHAT_STATE_KEY,
+    client, projectId: PROJECT_ID, architectureConversationId: null, chatStateKey: CHAT_STATE_KEY,
     selectedArchitectureManager, activeConversationId, setActiveConversationId,
     setChatState, setMessages, setAgentTyping, sendingRef, lastSentRef, writeChatState, messageIntent: MESSAGE_INTENTS.normalChat
   });
@@ -172,7 +150,7 @@ export default function HomePage() {
     </ConversationSidebar>
     <main className="claude-home-main" aria-label="NodeForge conversation workspace">
       <section className="claude-chat" aria-label="Project chat">
-        <header className="claude-chat-header"><h1>{activeConversationTitle}</h1></header>
+        <header className="claude-chat-header"><h1>{activeConversationTitle}</h1><ArchitectureExecutionControls client={client} projectId={PROJECT_ID} conversationId={activeConversationId} executionId={lastSentRef.current?.conversationId === activeConversationId ? lastSentRef.current.correlationId : messages.findLast((message) => message.from === "owner" && message.correlation_id)?.correlation_id} agentTyping={agentTyping} onPause={setAgentTyping} /></header>
         <div className="claude-chat-scroll" ref={chatMessagesRef} onScroll={handleMessageScroll} role="log" aria-live="polite">
           {messagesLoading && <p className="claude-chat-status">Loading conversation…</p>}
           {hasOlder && messages.length > 0 && <button className="claude-history-more" type="button" disabled={olderLoading} onClick={loadEarlierMessages}>{olderLoading ? "Loading…" : "Show earlier messages"}</button>}
@@ -186,7 +164,7 @@ export default function HomePage() {
           {agentTyping && <div className="claude-typing" role="status" aria-label="Waiting for agent response"><i /><i /><i /></div>}
         </div>
         <div className="claude-composer-wrap">
-          <PendingPlanApproval client={client} projectId={PROJECT_ID} projectName="NodeForge" messages={messages} conversationId={streamConversationId} agentId={selectedArchitectureManagerId} onHandoffCompleted={loadDashboard} />
+          <ConversationProjectGit client={client} projectId={PROJECT_ID} />
           <HomeChatComposer onSend={(text) => { followLatest(); return sendMessage(text).catch((rawError) => { const error = normalizeUiError(rawError, { fallback: "Node rejected the message." }); setGlobalError({ ...error, _retry: retryLastMessage }); throw rawError; }); }} />
           <p>NodeForge can make mistakes. Check important work.</p>
         </div>

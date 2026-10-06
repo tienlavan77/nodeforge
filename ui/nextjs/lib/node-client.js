@@ -46,8 +46,8 @@ export function createNodeClient() {
       return requestJson(forgeV1("/conversations", { project: projectId, ...(agentId ? { agent_id: agentId } : {}) }), { fallbackError: "Node could not load conversations." });
     },
 
-    async getAgents() {
-      return requestJson(forgeV1("/agents"), { fallbackError: "Node could not load Agents." });
+    async getAgents(role) {
+      return requestJson(forgeV1("/agents", role ? { role } : {}), { fallbackError: "Node could not load Agents." });
     },
 
     async getGitStatus(projectId) {

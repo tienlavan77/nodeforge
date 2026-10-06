@@ -60,7 +60,12 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrch
 
     if (parts[0] === "agents") {
       if (!agentSettingsService) throw unavailable("Agent Settings");
-      if (method === "GET" && parts.length === 1) return { status: 200, body: agentSettingsService.list() };
+      if (method === "GET" && parts.length === 1) {
+        const role = url.searchParams.get("role");
+        if (role && !["system_engineer", "architecture_manager"].includes(role)) throw Object.assign(new ConfigurationError("Unknown agent role."), { statusCode: 400 });
+        const agents = agentSettingsService.list();
+        return { status: 200, body: role ? agents.filter((agent) => agent.role === role) : agents };
+      }
       if (method === "POST" && parts.length === 1) return { status: 201, body: agentSettingsService.create(body) };
       if (method === "GET" && parts.length === 2) return { status: 200, body: agentSettingsService.get(parts[1]) };
       if (method === "PUT" && parts.length === 2) return { status: 200, body: agentSettingsService.save({ ...body, agent_id: parts[1] }) };

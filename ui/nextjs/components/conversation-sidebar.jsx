@@ -6,6 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { ResponsiveWorkspaceRegion } from "./responsive-workspace-region.jsx";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+import { ThemeToggle } from "./ThemeToggle.jsx";
 import { readSidebarPreference, writeSidebarPreference } from "../lib/sidebar-preference.js";
 
 // Shows a recognizable symbol for each persistent workspace navigation action.
@@ -49,18 +51,22 @@ export function ConversationSidebar({ open, onOpen, onClose, agentSectionTitle =
     <nav className={`conversation-mobile-rail${open ? " is-open" : ""}`} aria-label="Collapsed conversation navigation">
       <button type="button" onClick={reopen} aria-label="Open conversations sidebar" title="Open conversations sidebar">N</button>
       <button type="button" onClick={newConversation} aria-label="New chat" title="New chat">＋</button>
+      <ThemeToggle />
     </nav>
     <ResponsiveWorkspaceRegion name="conversations" title="Conversations" breakpoint={640} open={open} onClose={onClose}>
       <section ref={panelRef} className={`home-conversations-panel home-panel conversation-sidebar${collapsed ? " is-collapsed" : ""}`} aria-label="Conversations">
         <div className="home-sidebar-brand">
           <div className="home-sidebar-wordmark"><span className="home-sidebar-logo" aria-hidden="true">N</span><span className="home-sidebar-name">NodeForge</span></div>
-          <button type="button" className="home-sidebar-collapse" onClick={() => { changeCollapsed(!collapsed); if (!collapsed) onClose(); }} aria-label={collapsed ? "Open conversations sidebar" : "Collapse conversations sidebar"} aria-expanded={!collapsed} title={collapsed ? "Open conversations sidebar" : "Collapse conversations sidebar"}>
-            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
-              <path d="M9 5v14" />
-              {collapsed ? <path d="m14 9 3 3-3 3" /> : <path d="m16.5 9-3 3 3 3" />}
-            </svg>
-          </button>
+          <div className="home-sidebar-controls">
+            <ThemeToggle />
+            <button type="button" className="home-sidebar-collapse" onClick={() => { changeCollapsed(!collapsed); if (!collapsed) onClose(); }} aria-label={collapsed ? "Open conversations sidebar" : "Collapse conversations sidebar"} aria-expanded={!collapsed} title={collapsed ? "Open conversations sidebar" : "Collapse conversations sidebar"}>
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+                <path d="M9 5v14" />
+                {collapsed ? <path d="m14 9 3 3-3 3" /> : <path d="m16.5 9-3 3 3 3" />}
+              </svg>
+            </button>
+          </div>
         </div>
         <nav className="claude-sidebar-navigation" aria-label="Workspace navigation">
           <details className="claude-sidebar-architecture">
