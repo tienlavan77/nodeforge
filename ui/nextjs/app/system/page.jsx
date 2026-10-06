@@ -145,8 +145,10 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
     </ConversationSidebar>
     <main className="claude-home-main" aria-label="NodeForge system workspace">
       <section className="claude-chat" aria-label="System chat">
-        <header className="claude-chat-header"><h1>{activeConversationTitle}</h1></header>
-        <SystemExecutionControls client={client} projectId={PROJECT_ID} conversationId={activeConversationId} onPause={setAgentTyping} />
+        <header className="claude-chat-header">
+          <h1>{activeConversationTitle}</h1>
+          <SystemExecutionControls client={client} projectId={PROJECT_ID} conversationId={activeConversationId} onPause={setAgentTyping} />
+        </header>
         <div className="claude-chat-scroll" ref={chatMessagesRef} onScroll={handleMessageScroll} role="log" aria-live="polite">
           {messagesLoading && <p className="claude-chat-status">Loading conversation…</p>}
           {hasOlder && messages.length > 0 && <button className="claude-history-more" type="button" disabled={olderLoading} onClick={loadEarlierMessages}>{olderLoading ? "Loading…" : "Show earlier messages"}</button>}
