@@ -1,14 +1,18 @@
 // Provide the Code workspace with conversation navigation without rendering a chat panel.
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { ConversationSidebar } from "../../components/conversation-sidebar.jsx";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+import { WorkspaceMonitorPanels } from "../../components/WorkspaceMonitorPanels.jsx";
+import { useProjectEventStream } from "../../lib/home-page-event-stream.js";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { ConversationsAccordion } from "../../components/ConversationsAccordion.jsx";
 import { createNodeClient } from "../../lib/node-client.js";
 import { architectureManagerSelection, writeArchitectureManagerAgent } from "../../lib/architecture-manager-selection.js";
 import { PROJECT_ID } from "../../lib/home-page-constants.js";
+import { agentDisplayName } from "../../lib/home-page-watcher-events.js";
 
 const CODING_AGENT_SELECTION_KEY = `${PROJECT_ID}:coding`;
 
@@ -21,11 +25,24 @@ export default function CodingPage() {
   const [activeConversationId, setActiveConversationId] = useState(null);
   const [openSidebar, setOpenSidebar] = useState(false);
   const [newConversationRequest, setNewConversationRequest] = useState(0);
+  const [watcherEvents, setWatcherEvents] = useState([]);
+  const [watcherState, setWatcherState] = useState("connecting");
+  const [, setWatcherPulseId] = useState(0);
+  const [agentProcess, setAgentProcess] = useState(null);
+  const activeConversationIdRef = useRef(null);
+  const agentDirectoryRef = useRef([]);
   const codingAgents = agents
     .filter((agent) => agent?.role === "system_engineer" && agent?.enabled === true)
     .map((agent) => ({ ...agent, id: agent.agent_id ?? agent.id, label: agent.agent_name ?? agent.name ?? agent.label ?? agent.agent_id ?? agent.id }))
     .filter((agent) => agent.id);
   const selectedAgent = codingAgents.find((agent) => agent.id === selectedAgentId) ?? null;
+  activeConversationIdRef.current = activeConversationId;
+  agentDirectoryRef.current = agents;
+  useProjectEventStream({
+    client, projectId: PROJECT_ID, activeConversationIdRef, agentDirectoryRef,
+    setMessages: () => {}, setAgentTyping: () => {}, setWatcherEvents, setWatcherPulseId, setWatcherState,
+    setAgentProcess, loadDashboard: () => {}, agentDisplayName
+  });
 
   useEffect(() => {
     let active = true;
@@ -61,5 +78,6 @@ export default function CodingPage() {
     </div>}>
       <ConversationsAccordion conversations={conversations} projectId={PROJECT_ID} agentId={selectedAgent?.id} activeConversationId={activeConversationId} onNewConversation={(_title, conversation) => setActiveConversationId(conversation?.id ?? conversation?.conversation_id ?? null)} onSelectConversation={(conversation) => setActiveConversationId(conversation?.id ?? conversation?.conversation_id ?? null)} createRequest={newConversationRequest} showNewConversationButton={false} />
     </ConversationSidebar>
+    <WorkspaceMonitorPanels watcherEvents={watcherEvents} watcherState={watcherState} agentProcess={agentProcess} />
   </div>;
 }

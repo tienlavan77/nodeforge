@@ -20,6 +20,8 @@ import { GlobalToast } from "../../components/GlobalToast.jsx";
 import { InlineError } from "../../components/InlineError.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { MarkdownPreviewPanel } from "../../components/markdown-preview-panel.jsx";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+import { WorkspaceMonitorPanels } from "../../components/WorkspaceMonitorPanels.jsx";
 import { createNodeClient, MESSAGE_INTENTS } from "../../lib/node-client.js";
 import { architectureManagerSelection, writeArchitectureManagerAgent } from "../../lib/architecture-manager-selection.js";
 import { PROJECT_ID, ARCHITECTURE_CONVERSATION_ID } from "../../lib/home-page-constants.js";
@@ -44,6 +46,10 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
   const activeConversationIdRef = useRef(null);
   const agentDirectoryRef = useRef([]);
   const [agentTyping, setAgentTyping] = useState(false);
+  const [watcherEvents, setWatcherEvents] = useState([]);
+  const [watcherState, setWatcherState] = useState("connecting");
+  const [, setWatcherPulseId] = useState(0);
+  const [agentProcess, setAgentProcess] = useState(null);
   const [chatState, setChatState] = useState("");
   const [globalError, setGlobalError] = useState(null);
   const [openSidebar, setOpenSidebar] = useState(false);
@@ -107,7 +113,7 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
 
   useProjectEventStream({
     client, projectId: PROJECT_ID, activeConversationIdRef, agentDirectoryRef, setMessages, setAgentTyping,
-    setWatcherEvents: () => {}, setWatcherPulseId: () => {}, setWatcherState: () => {}, setAgentProcess: () => {},
+    setWatcherEvents, setWatcherPulseId, setWatcherState, setAgentProcess,
     loadDashboard: () => {}, agentDisplayName
   });
 
@@ -159,6 +165,7 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
       </section>
     </main>
     {markdownPreviewPath && <MarkdownPreviewPanel client={client} projectId={PROJECT_ID} path={markdownPreviewPath} onClose={() => setMarkdownPreviewPath("")} />}
+    <WorkspaceMonitorPanels watcherEvents={watcherEvents} watcherState={watcherState} agentProcess={agentProcess} />
     {globalToastError && <GlobalToast error={globalToastError} onRetry={globalError?._retry ?? retryLastMessage} onDismiss={() => { setGlobalError(null); setChatState(""); }} />}
   </div>;
 }
