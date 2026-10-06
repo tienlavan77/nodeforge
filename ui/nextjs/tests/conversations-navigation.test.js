@@ -19,7 +19,7 @@ const preference = runInNewContext(
 // Action behavior remains covered by conversation-actions.test.js: pin/unpin observes
 // PATCH requests and onTogglePin; rename observes PATCH and onConfirmRename; archive
 // observes POST and onArchived; delete observes DELETE and onDeleted.
-test("home route composes the conversation workspace from existing components", () => {
+test("home route composes the conversation workspace from existing components", async () => {
   assert.ok(page.includes("<ConversationSidebar"));
   assert.ok(page.includes("<HomeChatComposer"));
   assert.ok(page.includes("<PendingPlanApproval"));
@@ -28,6 +28,15 @@ test("home route composes the conversation workspace from existing components", 
   assert.ok(page.includes("useProjectEventStream"));
   assert.ok(page.includes("createHomeMessageHandlers"));
   assert.ok(page.includes("loadConversationMessages(conversationId)"));
+  assert.ok(page.includes("<WorkspaceMonitorPanels"));
+  assert.ok(page.includes("const [watcherEvents, setWatcherEvents]"));
+  assert.ok(page.includes("const [agentProcess, setAgentProcess]"));
+  const monitors = await readFile("ui/nextjs/components/WorkspaceMonitorPanels.jsx", "utf8");
+  assert.ok(monitors.includes("Watcher monitor"));
+  assert.ok(monitors.includes("Agent activity monitor"));
+  assert.ok(monitors.includes("onPointerDown"));
+  assert.ok(monitors.includes("Close Watcher monitor"));
+  assert.ok(monitors.includes("Minimize Agent monitor"));
   assert.equal(page.includes("<SprintPlanDashboard"), false);
   assert.equal(page.includes("<NodeForgeHeader"), false);
   assert.ok(sidebar.includes('onClick={reopen} aria-label="Open conversations sidebar"'));
