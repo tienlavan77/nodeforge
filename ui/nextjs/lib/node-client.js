@@ -4,6 +4,7 @@ import { createProjectStreamClient } from "./project-stream-client.js";
 import { normalizeBackendError } from "./error-normalizer.js";
 import { requestJson } from "./node-client-request.js";
 import { createTicketHumanReviewClient } from "./ticket-human-review-client.js";
+import { createOwnerExecutionClient } from "./owner-execution-client.js";
 
 export { detectMessageIntent, MESSAGE_INTENTS, normalizeTicketInput };
 // Builds a Forge v1 API URL with query params.
@@ -31,6 +32,7 @@ export function createNodeClient() {
   const connectProjectStream = createProjectStreamClient(forgeV1);
   return Object.freeze({
     ...createTicketHumanReviewClient({ forgeV1, requestJson }),
+    ...createOwnerExecutionClient({ forgeV1, requestJson }),
     async createConversation({ projectId, agentId, title }) {
       return requestJson(forgeV1("/conversations"), {
         method: "POST",

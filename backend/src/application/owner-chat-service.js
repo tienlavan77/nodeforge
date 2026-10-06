@@ -31,7 +31,8 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     ? createOwnerAgentStream({ bus, agentStream, onAgentCompleted, executeAgentTool, debug, streamBatchMs, projectLogger, protocolStorage, enrichAgentText: (message, agentId) => enrichAgentText(message, agentId), responseMessage: (message, type, payload, suffix) => responseMessage(message, type, payload, suffix), safeLog: (logger, entry) => safeLog(logger, entry) })
     : null;
 
-  return Object.freeze({ submit });
+  // Replays an interrupted owner turn through the existing response stream without duplicating the owner message.
+  return Object.freeze({ submit, replay: (message, agentId) => streamAgent(message, agentId) });
   function safeLog(logger, entry) { try { logger?.({ timestamp: new Date().toISOString(), ...entry }); } catch (error) { debug({ event: "project-log.error", error: error.message }); } }
   function submit(input) {
     assertMessage(input);

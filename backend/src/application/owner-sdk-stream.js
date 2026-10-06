@@ -4,11 +4,21 @@ import { createOwnerConversationTools } from "../tools/owner-conversation-tools.
 import { ownerWritePaths, ownerWritePrefixes } from "../tools/owner-role-tool-policy.js";
 import { createOwnerClaudeMcpTools } from "../tools/owner-claude-mcp-tools.js";
 import { createClaudeForgeOptions } from "../tools/claude-forge-options.js";
+import { executionDigest } from "./owner-execution-checkpoint.js";
+import { checkpointOwnerTools } from "./owner-execution-tools.js";
 
 // Builds a role-scoped SDK stream with Forge-owned discovery and persisted conversation state.
-export function createOwnerSdkStream({ agentConfiguration, sdkGateways, fallbackStream, conversationStateStore, conversationMessages, fileService, codeCache, codeSearch, gitService, testService, projectRoot, projectLogger }) {
+export function createOwnerSdkStream({ agentConfiguration, sdkGateways, fallbackStream, conversationStateStore, conversationMessages, executionCheckpoint, fileService, codeCache, codeSearch, gitService, testService, projectRoot, projectLogger }) {
   if (typeof agentConfiguration?.getById !== "function" || typeof fallbackStream !== "function") throw new ConfigurationError("Owner SDK stream requires profiles and a fallback stream.");
   const activeConversations = new Set();
+  const controllers = new Map();
+  // Stops the active System Engineer turn when the owner confirms a pause.
+  stream.pause = (conversationId) => {
+    const controller = controllers.get(conversationId);
+    if (!controller) return false;
+    controller.abort(Object.assign(new Error("System Engineer execution paused by owner."), { code: "EXECUTION_PAUSED" }));
+    return true;
+  };
   return stream;
 
   // Selects an SDK by profile provider and returns its live text to the owner conversation.
@@ -22,24 +32,37 @@ export function createOwnerSdkStream({ agentConfiguration, sdkGateways, fallback
     if (typeof conversationId !== "string" || !conversationId) throw new ConfigurationError("Owner SDK conversation ID is required.");
     if (activeConversations.has(conversationId)) throw new ConfigurationError("This conversation already has an active agent turn.");
     activeConversations.add(conversationId);
+    const systemEngineer = profile.role === "system_engineer";
+    const controller = systemEngineer ? new AbortController() : null;
+    let checkpoint;
+    let heartbeat;
+    let sessionWrite = Promise.resolve();
     try {
+      if (systemEngineer && executionCheckpoint) {
+        checkpoint = await executionCheckpoint.start({ conversationId, executionId: correlationId, messageId: payload.source_message_id ?? payload.message_id, provider: profile.provider, promptHash: executionDigest(payload.text), resumeOf: payload.resume_of ?? null, continueAttempt: payload.continue_execution === true });
+        controllers.set(conversationId, controller);
+        heartbeat = setInterval(() => { void executionCheckpoint.patch(conversationId, correlationId, {}).catch((error) => projectLogger?.({ event_name: "owner.execution_heartbeat_failed", level: "error", message: error.message, task_id: correlationId })); }, 10_000);
+        heartbeat.unref?.();
+      }
       const state = await conversationStateStore?.create?.({ conversationId, taskId: conversationId, agentId });
       if (state?.agent_id && state.agent_id !== agentId) throw new ConfigurationError("Owner SDK conversation belongs to a different agent.");
       const sameProvider = state?.sdk_provider === profile.provider;
       const retainedState = sameProvider ? state : {};
       const storedMessages = !sameProvider && conversationMessages?.getByConversationId?.(conversationId);
       const history = Array.isArray(storedMessages) ? storedMessages.filter((message) => message.correlation_id !== correlationId && typeof message.payload?.text === "string").flatMap((message) => message.message_type === "owner.message" ? [{ role: "User", text: message.payload.text }] : message.message_type?.endsWith(".message.received") ? [{ role: "Assistant", text: message.payload.text }] : []).slice(-8) : (state?.sdk_history ?? []);
-      const resumeThreadId = sdk.conversationMode === "thread" ? retainedState.sdk_thread_id : undefined;
+      const resumeThreadId = payload.resume_of ? null : checkpoint?.provider_thread_id ?? retainedState.sdk_thread_id;
+      const resumeNotes = payload.continue_execution && checkpoint ? `\nExecution checkpoint: completed Forge steps ${checkpoint.last_completed_step ?? 0}; changed paths ${checkpoint.changed_paths.join(", ").slice(0, 500)}. Do not repeat completed writes or Git operations. Inspect and reconcile workspace before any new mutation. Continue from the next uncompleted step.\n` : "";
       const context = { task_id: correlationId, execution_id: correlationId, correlation_id: correlationId, conversation_id: conversationId, agent_identity: { agent_id: agentId, agent_name: profile.agent_name, role: profile.role, provider: profile.provider }, ...(profile.role === "system_engineer" ? {} : { allowed_write_paths: ownerWritePaths(payload.task?.candidate_files ?? []), allowed_write_prefixes: ownerWritePrefixes(profile.role) }), changed_paths: [...new Set(state?.owner_changed_paths ?? [])], project_root: projectRoot, project_wide_access: profile.role === "system_engineer" };
       const { definitions, registry } = createOwnerConversationTools({ role: profile.role, projectRoot, fileService, codeCache, codeSearch, gitService, testService, conversationStateStore, conversationId, projectLogger, eventSink, context });
       context.capabilities = definitions.map((item) => item.name);
       if (!definitions.length) throw new ConfigurationError(`No Forge conversation tools are available for role ${profile.role}.`);
-      const forgeTools = { registry, context, definitions };
+      // Waits for the provider session checkpoint before allowing a Forge tool to execute.
+      const waitForSessionReady = () => sessionWrite;
+      const forgeTools = { registry: checkpoint ? checkpointOwnerTools({ registry, checkpoint: executionCheckpoint, conversationId, executionId: correlationId, signal: controller.signal, sessionReady: waitForSessionReady, toolContext: context }) : registry, context, definitions };
       const claudeTools = ["claude", "anthropic"].includes(profile.provider) ? createOwnerClaudeMcpTools(forgeTools) : null;
       const queue = []; let wake; let finished = false; let failure; let finalResult; let threadId;
       const push = (value) => { queue.push(value); wake?.(); wake = undefined; };
       const seenText = new Map();
-      const systemEngineer = profile.role === "system_engineer";
       const builtinTools = [];
       const searchToolInstruction = "Use only the supplied Forge tools for repository discovery, reading, editing, checks, and Git.";
       const toolInstruction = sdk.conversationMode === "thread" ? systemEngineer
@@ -59,16 +82,30 @@ export function createOwnerSdkStream({ agentConfiguration, sdkGateways, fallback
         ...(systemEngineer ? { config: { default_permissions: "audit" }, configOverrides: [codexFilesystemPolicy(projectRoot)] } : {})
       } : {};
       projectLogger?.({ event_name: "owner.sdk_request_started", level: "info", status: "started", message: "Owner SDK request started.", task_id: correlationId, correlation_id: correlationId, conversation_id: conversationId, source: "owner-sdk-stream", payload: { agent_id: agentId, role: profile.role, provider: profile.provider, conversation_mode: sdk.conversationMode, forge_tools: definitions.map((item) => item.name), builtins: builtinTools } });
-      const execution = sdk.execute({ agentId, agent: profile, correlationId, cwd: projectRoot, prompt: `${toolInstruction}\n${sdk.conversationMode === "history" || !resumeThreadId ? history.map((turn) => `${turn.role}: ${turn.text}`).join("\n").slice(-8000) : ""}\nUser: ${payload.text}\n\n${fileToolInstruction}`, options: { forgeTools, ...claudeOptions, ...codexOptions }, ...(sdk.conversationMode === "thread" ? { resumeThreadId: resumeThreadId ?? undefined, onSessionReady: (id) => { if (typeof id === "string" && id) threadId = id; }, onEvent: async (event) => { if (systemEngineer && event.type === "item.started" && isUnapprovedCodexTool(event.item, definitions)) { const tool = `codex_builtin:${event.item?.type ?? "unknown"}`; projectLogger?.({ event_name: "owner.tool_call", level: "error", status: "failed", message: "System Engineer SDK built-in tool was blocked; use an approved project search tool.", task_id: correlationId, correlation_id: correlationId, conversation_id: conversationId, source: "owner-sdk-stream", error_code: "TOOL_FORBIDDEN", payload: { tool, agent_id: agentId, agent_name: profile.agent_name, provider: profile.provider } }); throw Object.assign(new ConfigurationError(`Owner SDK conversation attempted an unapproved built-in tool: ${event.item?.type ?? "unknown"}.`), { code: "TOOL_FORBIDDEN" }); } if (["item.started", "item.completed"].includes(event.type) && event.item?.type === "mcp_tool_call" && event.item.server === "forge" && definitions.some(({ name }) => name === event.item.tool)) { const failed = event.type === "item.completed" && (event.item.status === "failed" || event.item.error); const started = event.type === "item.started"; eventSink?.({ event_type: "agent.activity", task_id: correlationId, conversation_id: conversationId, correlation_id: correlationId, timestamp: new Date().toISOString(), payload: { agent_id: agentId, correlation_id: correlationId, activity_type: started ? "tool_started" : failed ? "tool_failed" : "tool_completed", status: started ? "working" : failed ? "failed" : "success", summary: started ? `Running Forge tool: ${event.item.tool}` : `Forge tool ${event.item.tool} ${failed ? "failed" : "succeeded"}`, tool_name: event.item.tool } }); } if ((event.type !== "item.updated" && event.type !== "item.completed") || event.item?.type !== "agent_message") return; const current = event.item.text ?? ""; const previous = seenText.get(event.item.id) ?? ""; seenText.set(event.item.id, current); if (current.startsWith(previous) && current.length > previous.length) push({ text: current.slice(previous.length) }); else if (current !== previous && event.type === "item.completed") push({ text: current }); } } : {}) }).then((result) => { finalResult = result; }, (error) => { failure = error; projectLogger?.({ event_name: "owner.sdk_failed", level: "error", status: "failed", message: "Owner SDK conversation failed.", task_id: correlationId, correlation_id: correlationId, source: "owner-sdk-stream", error_code: error.code ?? "OWNER_SDK_FAILED", payload: { agent_id: agentId, provider: profile.provider } }); }).finally(() => { finished = true; wake?.(); wake = undefined; });
+      // Saves the provider session immediately so an interrupted execution can resume its thread.
+      const onProviderSessionReady = (id) => {
+        if (typeof id !== "string" || !id) return;
+        threadId = id;
+        if (!checkpoint) return;
+        sessionWrite = Promise.all([sessionWrite, executionCheckpoint.patch(conversationId, correlationId, { provider_thread_id: id }), conversationStateStore?.update?.(conversationId, { sdk_provider: profile.provider, sdk_thread_id: id })]).catch((error) => { failure = error; controller?.abort(error); });
+      };
+      const execution = sdk.execute({ agentId, agent: profile, correlationId, cwd: projectRoot, abortSignal: controller?.signal, prompt: `${toolInstruction}${resumeNotes}\n${!resumeThreadId ? history.map((turn) => `${turn.role}: ${turn.text}`).join("\n").slice(-8000) : ""}\nUser: ${payload.text}\n\n${fileToolInstruction}`, options: { forgeTools, ...claudeOptions, ...codexOptions }, ...(systemEngineer && sdk.conversationMode === "history" && ["claude", "anthropic"].includes(profile.provider) ? { resumeSessionId: resumeThreadId ?? undefined, onSessionReady: onProviderSessionReady } : {}), ...(sdk.conversationMode === "thread" ? { resumeThreadId: resumeThreadId ?? undefined, onSessionReady: onProviderSessionReady, onEvent: async (event) => { if (systemEngineer && event.type === "item.started" && isUnapprovedCodexTool(event.item, definitions)) { const tool = `codex_builtin:${event.item?.type ?? "unknown"}`; projectLogger?.({ event_name: "owner.tool_call", level: "error", status: "failed", message: "System Engineer SDK built-in tool was blocked; use an approved project search tool.", task_id: correlationId, correlation_id: correlationId, conversation_id: conversationId, source: "owner-sdk-stream", error_code: "TOOL_FORBIDDEN", payload: { tool, agent_id: agentId, agent_name: profile.agent_name, provider: profile.provider } }); throw Object.assign(new ConfigurationError(`Owner SDK conversation attempted an unapproved built-in tool: ${event.item?.type ?? "unknown"}.`), { code: "TOOL_FORBIDDEN" }); } if (["item.started", "item.completed"].includes(event.type) && event.item?.type === "mcp_tool_call" && event.item.server === "forge" && definitions.some(({ name }) => name === event.item.tool)) { const failed = event.type === "item.completed" && (event.item.status === "failed" || event.item.error); const started = event.type === "item.started"; eventSink?.({ event_type: "agent.activity", task_id: correlationId, conversation_id: conversationId, correlation_id: correlationId, timestamp: new Date().toISOString(), payload: { agent_id: agentId, correlation_id: correlationId, activity_type: started ? "tool_started" : failed ? "tool_failed" : "tool_completed", status: started ? "working" : failed ? "failed" : "success", summary: started ? `Running Forge tool: ${event.item.tool}` : `Forge tool ${event.item.tool} ${failed ? "failed" : "succeeded"}`, tool_name: event.item.tool } }); } if ((event.type !== "item.updated" && event.type !== "item.completed") || event.item?.type !== "agent_message") return; const current = event.item.text ?? ""; const previous = seenText.get(event.item.id) ?? ""; seenText.set(event.item.id, current); if (current.startsWith(previous) && current.length > previous.length) push({ text: current.slice(previous.length) }); else if (current !== previous && event.type === "item.completed") push({ text: current }); } } : {}) }).then((result) => { finalResult = result; }, (error) => { failure = error; projectLogger?.({ event_name: "owner.sdk_failed", level: "error", status: "failed", message: "Owner SDK conversation failed.", task_id: correlationId, correlation_id: correlationId, source: "owner-sdk-stream", error_code: error.code ?? "OWNER_SDK_FAILED", payload: { agent_id: agentId, provider: profile.provider } }); }).finally(() => { finished = true; wake?.(); wake = undefined; });
       while (!finished || queue.length) { if (!queue.length) await new Promise((resolve) => { wake = resolve; }); while (queue.length) yield queue.shift(); }
       await execution;
+      await sessionWrite;
       if (failure) throw failure;
+      if (controller?.signal.aborted) throw controller.signal.reason;
       projectLogger?.({ event_name: "owner.sdk_request_completed", level: "info", status: "success", message: "Owner SDK request completed.", task_id: correlationId, correlation_id: correlationId, conversation_id: conversationId, source: "owner-sdk-stream", payload: { agent_id: agentId, provider: profile.provider, response_chars: finalResult?.text?.length ?? 0, thread_id: threadId ?? finalResult?.thread_id ?? null } });
-      if (finalResult?.text) await conversationStateStore?.update?.(conversationId, { sdk_provider: profile.provider, sdk_thread_id: sdk.conversationMode === "thread" ? (threadId ?? finalResult.thread_id ?? null) : null, sdk_history: [...history, { role: "User", text: payload.text }, { role: "Assistant", text: finalResult.text }].slice(-8) });
+      if (finalResult?.text) await conversationStateStore?.update?.(conversationId, { sdk_provider: profile.provider, sdk_thread_id: sdk.conversationMode === "thread" || (systemEngineer && ["claude", "anthropic"].includes(profile.provider)) ? (threadId ?? finalResult.thread_id ?? null) : null, sdk_history: [...history, { role: "User", text: payload.text }, { role: "Assistant", text: finalResult.text }].slice(-8) });
+      if (checkpoint && !finalResult?.text?.trim()) throw new ConfigurationError("System Engineer execution ended without a response.");
+      if (checkpoint) await executionCheckpoint.patch(conversationId, correlationId, { status: "completed", completed_at: new Date().toISOString() });
       if (sdk.conversationMode === "history" && finalResult?.text) yield { text: finalResult.text };
       if (sdk.conversationMode === "thread" && !seenText.size && finalResult?.text) yield { text: finalResult.text };
       if (finalResult?.usage) yield { usage: finalResult.usage };
-    } finally { activeConversations.delete(conversationId); }
+    } catch (error) {
+      if (checkpoint) await executionCheckpoint.patch(conversationId, correlationId, { status: "interrupted", next_action_hint: error.code === "EXECUTION_PAUSED" ? "Paused by owner." : "Execution stopped; reconcile workspace before continuing." });
+      throw error;
+    } finally { clearInterval(heartbeat); controllers.delete(conversationId); activeConversations.delete(conversationId); }
   }
 }
 

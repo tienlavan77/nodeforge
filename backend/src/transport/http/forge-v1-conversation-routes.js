@@ -4,11 +4,21 @@ import { toConversationChatHistory } from "../../agents/agent-contract.js";
 import { unavailable } from "./forge-v1-router-utils.js";
 
 // Creates conversation endpoints and checkpoint projections for the Forge API.
-export function createForgeV1ConversationRoutes({ conversationCrudService, conversationAuditHistoryService, ownerChatService, listResumableCheckpoints, planOwnerAuth }) {
+export function createForgeV1ConversationRoutes({ conversationCrudService, conversationAuditHistoryService, ownerChatService, ownerExecutionControl, listResumableCheckpoints, planOwnerAuth }) {
   return Object.freeze({ routeConversation, withCheckpointSummary, withDashboardCheckpointSummary });
 
   // Routes conversation CRUD, history, and owner messages.
   async function routeConversation({ method, parts, url, body, projectId, headers }) {
+    if (parts[0] === "conversations" && parts[2] === "executions" && ownerExecutionControl) {
+      const conversation = conversationCrudService?.get?.(parts[1]);
+      if (!conversation || (projectId && conversation.project_id !== projectId)) throw Object.assign(new ConfigurationError("Conversation not found."), { statusCode: 404 });
+      if (method === "GET" && parts.length === 3) return { status: 200, body: { items: await ownerExecutionControl.list(parts[1]) } };
+      if (method === "POST" && parts.length === 5) {
+        const [,, , executionId, action] = parts;
+        if (action === "pause") return { status: 202, body: await ownerExecutionControl.pause(parts[1], executionId, conversation.agent_id) };
+        if (["continue", "restart", "discard"].includes(action)) return { status: 202, body: await ownerExecutionControl.decide(parts[1], executionId, conversation.agent_id, action) };
+      }
+    }
     if (parts[0] === "conversations" && conversationCrudService) {
       if (method === "GET" && parts.length === 1) return { status: 200, body: conversationCrudService.list({ projectId: projectId ?? url.searchParams.get("project_id") ?? undefined, agentId: url.searchParams.get("agent_id") ?? undefined }) };
       if (method === "POST" && parts.length === 1) {
