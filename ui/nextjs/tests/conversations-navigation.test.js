@@ -23,7 +23,7 @@ const preference = runInNewContext(
 test("home route composes the conversation workspace from existing components", async () => {
   assert.ok(page.includes("<ConversationSidebar"));
   assert.ok(page.includes("<HomeChatComposer"));
-  assert.ok(page.includes("<PendingPlanApproval"));
+  assert.ok(page.includes("<ConversationProjectGit"));
   assert.ok(page.includes("<ConversationsAccordion"));
   assert.ok(page.includes("useConversationMessageHistory"));
   assert.ok(page.includes("useProjectEventStream"));
@@ -201,4 +201,21 @@ test("conversation rows render once in stable pinned-first groups", () => {
   assert.equal(new Set(result.map((item) => item.id)).size, items.length);
   assert.ok(component.includes("items.some(isPinnedConversation)"));
   assert.ok(component.includes("No conversations yet."));
+});
+
+test("sidebar exposes the shared theme control beside collapse and in the closed mobile rail", async () => {
+  const themeToggle = await readFile("ui/nextjs/components/ThemeToggle.jsx", "utf8");
+  const styles = await readFile("ui/nextjs/app/globals.css", "utf8");
+  const sidebarStyles = await readFile("ui/nextjs/app/styles/responsive-workspace.css", "utf8");
+  assert.ok(sidebar.includes('import { ThemeToggle } from "./ThemeToggle.jsx"'));
+  assert.match(sidebar, /conversation-mobile-rail[\s\S]*?New chat[\s\S]*?<ThemeToggle \/>/);
+  assert.match(sidebar, /home-sidebar-controls[\s\S]*?<ThemeToggle \/>[\s\S]*?home-sidebar-collapse/);
+  assert.ok(sidebarStyles.includes(".conversation-sidebar.is-collapsed .home-sidebar-controls { flex-direction: column; }"));
+  assert.ok(sidebarStyles.includes(".conversation-sidebar.is-collapsed .home-sidebar-collapse { order: -1; }"));
+  assert.ok(themeToggle.includes('window.dispatchEvent(new CustomEvent("nodeforge-theme-change"'));
+  assert.ok(styles.includes('font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif !important'));
+  assert.ok(styles.includes("font-size: 12px !important"));
+  assert.match(styles, /:is\(\.claude-chat-scroll, \.natural-conversation\) \*,[\s\S]*?:is\(\.home-composer, \.composer\) textarea \{\s*font-size: 15px !important/);
+  assert.match(styles, /\.claude-message-meta,\s*\.claude-message-meta \* \{\s*font-size: 12px !important/);
+  assert.doesNotMatch(styles, /fonts\.googleapis\.com/);
 });

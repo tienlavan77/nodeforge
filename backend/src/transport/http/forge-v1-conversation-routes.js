@@ -11,11 +11,13 @@ export function createForgeV1ConversationRoutes({ conversationCrudService, conve
   async function routeConversation({ method, parts, url, body, projectId, headers }) {
     if (parts[0] === "conversations" && parts[2] === "executions" && ownerExecutionControl) {
       const conversation = conversationCrudService?.get?.(parts[1]);
-      if (!conversation || (projectId && conversation.project_id !== projectId)) throw Object.assign(new ConfigurationError("Conversation not found."), { statusCode: 404 });
-      if (method === "GET" && parts.length === 3) return { status: 200, body: { items: await ownerExecutionControl.list(parts[1]) } };
+      if (!conversation || !projectId || conversation.project_id !== projectId) throw Object.assign(new ConfigurationError("Conversation not found."), { statusCode: 404 });
+      const recoveryActor = ownerExecutionControl.requiresOwnerAuth(conversation.agent_id) ? "unauthenticated-architecture-control" : null;
+      if (method === "GET" && parts.length === 3) return { status: 200, body: { items: await ownerExecutionControl.list(parts[1], conversation.agent_id) } };
       if (method === "POST" && parts.length === 5) {
         const [,, , executionId, action] = parts;
         if (action === "pause") return { status: 202, body: await ownerExecutionControl.pause(parts[1], executionId, conversation.agent_id) };
+        if (action === "reconcile") return { status: 200, body: await ownerExecutionControl.reconcilePending(parts[1], executionId, conversation.agent_id, body.sequence, recoveryActor) };
         if (["continue", "restart", "discard"].includes(action)) return { status: 202, body: await ownerExecutionControl.decide(parts[1], executionId, conversation.agent_id, action) };
       }
     }

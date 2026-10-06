@@ -101,7 +101,8 @@ export function createCodexSdkGateway({
         webSearchMode: options.webSearchMode ?? "disabled",
         skipGitRepoCheck: options.skipGitRepoCheck ?? false
       };
-      const thread = typeof resumeThreadId === "string" && resumeThreadId && typeof codex.resumeThread === "function"
+      if (resumeThreadId && typeof codex.resumeThread !== "function") throw Object.assign(new ConfigurationError("Codex SDK cannot resume this thread; choose Restart instead."), { code: "EXECUTION_SESSION_UNAVAILABLE", statusCode: 409 });
+      const thread = resumeThreadId
         ? codex.resumeThread(resumeThreadId, threadOptions)
         : codex.startThread(threadOptions);
       onSessionReady?.(thread?.id ?? null, mcpSession?.tools?.map((tool) => tool.name) ?? []);
@@ -112,6 +113,7 @@ export function createCodexSdkGateway({
       let turnFailure = null;
       for await (const rawEvent of streamed.events) {
         const event = sanitizeItems(rawEvent, credential);
+        if (event.type === "thread.started") onSessionReady?.(event.thread_id ?? thread?.id ?? null, mcpSession?.tools?.map((tool) => tool.name) ?? []);
         if (typeof onEvent === "function") {
           try { await onEvent(event); }
           catch (error) { controller.abort(error); throw error; }

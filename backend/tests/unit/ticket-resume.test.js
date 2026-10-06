@@ -178,6 +178,32 @@ test("coder must read workflow rules before editing, including after Resume", as
   await resumed.edit_diff.execute({ path: "src/a.js" }, context);
 });
 
+test("codex gateway saves a thread ID emitted after the session starts", async () => {
+  const savedThreads = [];
+  const gateway = createCodexSdkGateway({
+    configuration: { getById: () => ({ agent_id: "codex-r", agent_name: "Codex R", role: "coder", gateway_url: "https://gateway.test/v1/responses", credential_ref: "secret", enabled: true, status: "ready", model: "agentgw.cloud" }) },
+    credentialResolver: () => "gateway-key",
+    CodexClass: class FakeCodex {
+      startThread() { return { id: null, runStreamed: async () => ({ events: (async function* () { yield { type: "thread.started", thread_id: "thread-late" }; yield { type: "turn.completed", usage: null }; })() }) }; }
+    }
+  });
+  await gateway.execute({ agentId: "codex-r", correlationId: "CORR-R", prompt: "continue", onSessionReady: (id) => { if (id) savedThreads.push(id); } });
+  assert.deepEqual(savedThreads, ["thread-late"]);
+});
+
+test("codex gateway refuses to start a fresh thread when resume is unsupported", async () => {
+  let started = false;
+  const gateway = createCodexSdkGateway({
+    configuration: { getById: () => ({ agent_id: "codex-r", agent_name: "Codex R", role: "coder", gateway_url: "https://gateway.test/v1/responses", credential_ref: "secret", enabled: true, status: "ready", model: "agentgw.cloud" }) },
+    credentialResolver: () => "gateway-key",
+    CodexClass: class FakeCodex {
+      startThread() { started = true; throw new Error("must not start a new thread"); }
+    }
+  });
+  await assert.rejects(gateway.execute({ agentId: "codex-r", correlationId: "CORR-R", prompt: "continue", resumeThreadId: "thread-old" }), { code: "EXECUTION_SESSION_UNAVAILABLE" });
+  assert.equal(started, false);
+});
+
 test("codex gateway resumes a prior thread when resumeThreadId is given", async () => {
   let resumedId = null;
   let started = false;

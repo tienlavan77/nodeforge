@@ -93,3 +93,71 @@ test("checkpoints reject uncertain commits and protect live conversation leases"
   await assert.rejects(second.start({ conversationId: "C2", executionId: "E1", provider: "codex", promptHash: executionDigest("commit"), continueAttempt: true }), /manual workspace reconciliation/);
   assert.equal((await second.close("C2", "E1", "discarded")).status, "discarded");
 });
+
+test("restart inherits verified file and commit evidence without replaying completed mutations", async (context) => {
+  const fixture = await projectFixture();
+  context.after(() => rm(fixture.root, { recursive: true, force: true }));
+  const head = "a".repeat(40);
+  const store = createOwnerExecutionCheckpoint({ fileService: fixture.files, gitService: { getHead: async () => head } });
+  await store.start({ conversationId: "C5", executionId: "E5", messageId: "M5", provider: "codex", promptHash: executionDigest("fix") });
+  const editInput = { path: "test.js", before_checksum: "sha256:old" };
+  const edit = await store.beforeTool("C5", "E5", "edit_diff", editInput);
+  await fixture.files.atomicWrite({ path: "test.js", content: "fixed", replace: true });
+  await store.afterTool("C5", "E5", edit, { sha256: `sha256:${createHash("sha256").update("fixed").digest("hex")}` }, ["test.js"]);
+  const commit = await store.beforeTool("C5", "E5", "commit_changes", { message: "fix" });
+  await store.afterTool("C5", "E5", commit, { sha: head });
+  await store.patch("C5", "E5", { status: "interrupted" });
+  const restarted = await store.start({ conversationId: "C5", executionId: "E6", messageId: "M5", provider: "codex", promptHash: executionDigest("fix"), resumeOf: "E5" });
+  assert.equal(restarted.lineage_id, "E5");
+  assert.equal(restarted.attempt_number, 2);
+  assert.equal(restarted.resume_of, "E5");
+  assert.equal(restarted.next_sequence, 3);
+  assert.deepEqual(restarted.changed_paths, ["test.js"]);
+  assert.equal(restarted.completed_tool_calls.length, 2);
+  assert.equal((await store.load("C5", "E5")).status, "restarted");
+  await assert.rejects(store.beforeTool("C5", "E6", "edit_diff", editInput), /already completed/);
+  await assert.rejects(store.beforeTool("C5", "E6", "commit_changes", { message: "different" }), /already completed/);
+});
+
+test("System Engineer Continue resumes the saved thread without replaying the original prompt", async (context) => {
+  const fixture = await projectFixture();
+  context.after(() => rm(fixture.root, { recursive: true, force: true }));
+  const checkpoint = createOwnerExecutionCheckpoint({ fileService: fixture.files });
+  const text = "Produce a unique system report";
+  const logs = [];
+  await checkpoint.start({ conversationId: "C-continue", executionId: "E-continue", messageId: "M-continue", provider: "codex", promptHash: executionDigest(text) });
+  await checkpoint.patch("C-continue", "E-continue", { status: "interrupted", provider_thread_id: "thread-saved" });
+  const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => ({ agent_id: "engineer", role: "system_engineer", provider: "codex" }) }, sdkGateways: { codex: { conversationMode: "thread", execute: async ({ resumeThreadId, prompt }) => {
+    assert.equal(resumeThreadId, "thread-saved");
+    assert.match(prompt, /Continue the interrupted request/);
+    assert.doesNotMatch(prompt, /Produce a unique system report/);
+    return { text: "continued", thread_id: "thread-saved" };
+  } } }, fallbackStream: async function* () {}, executionCheckpoint: checkpoint, conversationStateStore: { create: async () => ({ agent_id: "engineer", sdk_provider: "codex", sdk_thread_id: "wrong-thread" }), update: async () => {} }, fileService: fixture.files, gitService: { status: async () => "", diffWorkingTree: async () => "" }, testService: { runCheck: async () => ({ status: "passed" }) }, projectRoot: fixture.root, projectLogger: (event) => logs.push(event) });
+  for await (const chunk of stream({ agentId: "engineer", payload: { text, message_id: "M-continue", continue_execution: true }, correlationId: "E-continue", conversationId: "C-continue" })) assert.equal(chunk.text, "continued");
+  assert.equal((await checkpoint.load("C-continue", "E-continue")).status, "completed");
+  const started = logs.find((event) => event.event_name === "owner.sdk_request_started");
+  assert.match(started.message, /Continue started after checkpoint step 0/);
+  assert.equal(started.payload.recovery_mode, "continue");
+  assert.equal(started.payload.provider_session_resumed, true);
+});
+
+test("restart opens a new provider thread with inherited checkpoint context", async (context) => {
+  const fixture = await projectFixture();
+  context.after(() => rm(fixture.root, { recursive: true, force: true }));
+  const checkpoint = createOwnerExecutionCheckpoint({ fileService: fixture.files });
+  await checkpoint.start({ conversationId: "C6", executionId: "E6", messageId: "M6", provider: "codex", promptHash: executionDigest("inspect") });
+  const step = await checkpoint.beforeTool("C6", "E6", "git_status", {});
+  await checkpoint.afterTool("C6", "E6", step, { status: "clean" });
+  await checkpoint.patch("C6", "E6", { status: "interrupted", provider_thread_id: "old-thread" });
+  const state = { agent_id: "engineer", sdk_provider: "codex", sdk_thread_id: "old-thread", sdk_history: [{ role: "Assistant", text: "old transcript" }] };
+  const conversationStateStore = { create: async () => state, update: async (_conversationId, fields) => Object.assign(state, fields) };
+  const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => ({ agent_id: "engineer", role: "system_engineer", provider: "codex" }) }, sdkGateways: { codex: { conversationMode: "thread", execute: async ({ prompt, resumeThreadId }) => {
+    assert.equal(resumeThreadId, undefined);
+    assert.match(prompt, /"lineage_id":"E6"/);
+    assert.match(prompt, /"tool_name":"git_status"/);
+    assert.doesNotMatch(prompt, /old transcript/);
+    return { text: "done" };
+  } } }, fallbackStream: async function* () {}, executionCheckpoint: checkpoint, conversationStateStore, fileService: fixture.files, gitService: { status: async () => "", diffWorkingTree: async () => "" }, testService: { runCheck: async () => ({ status: "passed" }) }, projectRoot: fixture.root, projectLogger: () => {} });
+  for await (const chunk of stream({ agentId: "engineer", payload: { text: "inspect", message_id: "M6", resume_of: "E6" }, correlationId: "E7", conversationId: "C6" })) assert.equal(chunk.text, "done");
+  assert.equal((await checkpoint.load("C6", "E7")).completed_tool_calls.length, 1);
+});

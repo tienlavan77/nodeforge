@@ -50,3 +50,12 @@
 .workspace-git-status button { border: 1px solid var(--app-button-border); background: transparent; color: var(--app-text); padding: 3px 6px; cursor: pointer; font: inherit; }
 .system-workspace .claude-chat-header { display: grid; align-content: center; gap: 8px; padding-block: 10px; }
 .system-workspace .claude-chat-header .claude-chat-status { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.claude-home-shell:not(.system-workspace) .claude-chat-header { display: flex; flex-wrap: wrap; align-content: center; gap: 8px; padding-block: 10px; }
+.architecture-execution-controls { display: flex; flex: 1 1 320px; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.architecture-owner-token { max-width: 130px; min-width: 0; border: 1px solid var(--app-border); border-radius: 4px; background: var(--app-input); color: var(--app-text); }
+.architecture-execution-controls .claude-retry { position: relative; z-index: 1; }
+.claude-home-shell .home-sidebar-controls { display: flex; align-items: center; gap: 6px; }
+.claude-home-shell .home-sidebar-controls .theme-toggle { width: 26px; min-width: 26px; height: 26px; min-height: 26px; padding: 0; border: 0; background: transparent; color: var(--app-muted); font-size: 20px; }
+.claude-home-shell .home-sidebar-controls .theme-toggle:hover { background: var(--app-button-bg); color: var(--app-text); }
+.claude-home-shell .conversation-sidebar.is-collapsed .home-sidebar-controls { flex-direction: column; }
+.claude-home-shell .conversation-sidebar.is-collapsed .home-sidebar-collapse { order: -1; }

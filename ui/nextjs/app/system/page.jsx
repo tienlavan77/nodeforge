@@ -13,8 +13,6 @@ import { HomeChatComposer } from "../../components/home-chat-composer.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { ConversationMessageActions } from "../../components/conversation-message-actions.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
-import { PendingPlanApproval } from "../../components/pending-plan-approval.jsx";
-// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { GlobalToast } from "../../components/GlobalToast.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { InlineError } from "../../components/InlineError.jsx";
@@ -24,9 +22,11 @@ import { MarkdownPreviewPanel } from "../../components/markdown-preview-panel.js
 import { WorkspaceMonitorPanels } from "../../components/WorkspaceMonitorPanels.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { SystemExecutionControls } from "../../components/system-execution-controls.jsx";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+import { ConversationProjectGit } from "../../components/conversation-project-git.jsx";
 import { createNodeClient, MESSAGE_INTENTS } from "../../lib/node-client.js";
 import { architectureManagerSelection, writeArchitectureManagerAgent } from "../../lib/architecture-manager-selection.js";
-import { PROJECT_ID, ARCHITECTURE_CONVERSATION_ID } from "../../lib/home-page-constants.js";
+import { PROJECT_ID } from "../../lib/home-page-constants.js";
 import { readChatState, writeChatState } from "../../lib/home-page-conversation-state.js";
 import { displayMessageTime, agentDisplayName } from "../../lib/home-page-watcher-events.js";
 import { useProjectEventStream } from "../../lib/home-page-event-stream.js";
@@ -65,7 +65,7 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
     .map((agent) => ({ ...agent, id: agent.agent_id ?? agent.id, label: agent.agent_name ?? agent.name ?? agent.label ?? agent.agent_id ?? agent.id }))
     .filter((agent) => agent.id), [agentDirectory]);
   const selectedAgent = systemAgents.find((agent) => agent.id === selectedAgentId) ?? null;
-  activeConversationIdRef.current = activeConversationId ?? selectedAgent?.conversation_id ?? selectedAgent?.conversationId ?? ARCHITECTURE_CONVERSATION_ID;
+  activeConversationIdRef.current = activeConversationId ?? selectedAgent?.conversation_id ?? selectedAgent?.conversationId ?? null;
   agentDirectoryRef.current = agentDirectory;
   const { messages, setMessages, messagesLoading, setMessagesLoading, olderLoading, hasOlder, historyError,
     loadConversationMessages, loadEarlierMessages, handleMessageScroll, followLatest } = useConversationMessageHistory({
@@ -74,7 +74,7 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
 
   useEffect(() => {
     let active = true;
-    client.getAgents().then((payload) => {
+    client.getAgents("system_engineer").then((payload) => {
       if (!active) return;
       const agents = Array.isArray(payload) ? payload : payload?.agents ?? payload?.items ?? [];
       const eligible = agents.filter((agent) => agent?.role === "system_engineer" && agent?.enabled === true);
@@ -116,7 +116,7 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
   useProjectEventStream({
     client, projectId: PROJECT_ID, activeConversationIdRef, agentDirectoryRef, setMessages, setAgentTyping,
     setWatcherEvents, setWatcherPulseId, setWatcherState, setAgentProcess, setAgentActivities,
-    loadDashboard: () => {}, agentDisplayName
+    agentDisplayName
   });
 
   // Selects the active system conversation and loads its persisted message history.
@@ -128,7 +128,7 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
   }
 
   const { sendMessage, editMessage, retryMessage, retryLastMessage } = createHomeMessageHandlers({
-    client, projectId: PROJECT_ID, architectureConversationId: ARCHITECTURE_CONVERSATION_ID, chatStateKey: CODING_CHAT_STATE_KEY,
+    client, projectId: PROJECT_ID, architectureConversationId: null, chatStateKey: CODING_CHAT_STATE_KEY,
     selectedArchitectureManager: selectedAgent, activeConversationId, setActiveConversationId,
     setChatState, setMessages, setAgentTyping, sendingRef, lastSentRef, writeChatState, messageIntent: MESSAGE_INTENTS.normalChat
   });
@@ -147,7 +147,7 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
       <section className="claude-chat" aria-label="System chat">
         <header className="claude-chat-header">
           <h1>{activeConversationTitle}</h1>
-          <SystemExecutionControls client={client} projectId={PROJECT_ID} conversationId={activeConversationId} onPause={setAgentTyping} />
+          <SystemExecutionControls client={client} projectId={PROJECT_ID} conversationId={activeConversationId} executionId={lastSentRef.current?.conversationId === activeConversationId ? lastSentRef.current.correlationId : messages.findLast((message) => message.from === "owner" && message.correlation_id)?.correlation_id} agentTyping={agentTyping} onPause={setAgentTyping} />
         </header>
         <div className="claude-chat-scroll" ref={chatMessagesRef} onScroll={handleMessageScroll} role="log" aria-live="polite">
           {messagesLoading && <p className="claude-chat-status">Loading conversation…</p>}
@@ -162,7 +162,7 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
           {agentTyping && <div className="claude-typing" role="status" aria-label="Waiting for agent response"><i /><i /><i /></div>}
         </div>
         <div className="claude-composer-wrap">
-          <PendingPlanApproval client={client} projectId={PROJECT_ID} projectName="NodeForge" messages={messages} conversationId={activeConversationId} agentId={selectedAgentId} />
+          <ConversationProjectGit client={client} projectId={PROJECT_ID} />
           <HomeChatComposer onSend={(text) => { followLatest(); return sendMessage(text).catch((error) => { const normalized = normalizeUiError(error, { fallback: "Node rejected the system request." }); setGlobalError({ ...normalized, _retry: retryLastMessage }); throw error; }); }} />
           <p>Requests are sent to the selected system agent.</p>
         </div>
