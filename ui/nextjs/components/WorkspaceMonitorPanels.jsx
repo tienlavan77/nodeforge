@@ -10,7 +10,8 @@ const INITIAL_PANELS = {
 };
 
 // Render movable, resizable monitor windows with close and restore controls.
-export function WorkspaceMonitorPanels({ watcherEvents = [], watcherState = "connecting", agentProcess }) {
+export function WorkspaceMonitorPanels({ watcherEvents = [], watcherState = "connecting", agentProcess, layoutScope = "home" }) {
+  const layoutKey = `${MONITOR_LAYOUT_KEY}:${layoutScope}`;
   const [panels, setPanels] = useState(INITIAL_PANELS);
   const [dragging, setDragging] = useState(null);
   const [layoutReady, setLayoutReady] = useState(false);
@@ -18,7 +19,7 @@ export function WorkspaceMonitorPanels({ watcherEvents = [], watcherState = "con
 
   useEffect(() => {
     try {
-      const saved = JSON.parse(window.localStorage.getItem(MONITOR_LAYOUT_KEY) ?? "null");
+      const saved = JSON.parse(window.localStorage.getItem(layoutKey) ?? "null");
       if (saved && typeof saved === "object") {
         setPanels((current) => Object.fromEntries(Object.entries(current).map(([name, defaults]) => {
           const entry = saved[name];
@@ -38,19 +39,19 @@ export function WorkspaceMonitorPanels({ watcherEvents = [], watcherState = "con
       console.warn("Unable to restore workspace monitor layout", error);
     }
     setLayoutReady(true);
-  }, []);
+  }, [layoutKey]);
 
   useEffect(() => {
     if (!layoutReady) return undefined;
     const timeout = window.setTimeout(() => {
       try {
-        window.localStorage.setItem(MONITOR_LAYOUT_KEY, JSON.stringify(panels));
+        window.localStorage.setItem(layoutKey, JSON.stringify(panels));
       } catch (error) {
         console.warn("Unable to save workspace monitor layout", error);
       }
     }, 150);
     return () => window.clearTimeout(timeout);
-  }, [layoutReady, panels]);
+  }, [layoutKey, layoutReady, panels]);
 
   useEffect(() => {
     if (!layoutReady || typeof ResizeObserver === "undefined") return undefined;

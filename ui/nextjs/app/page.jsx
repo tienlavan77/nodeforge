@@ -194,7 +194,7 @@ export default function HomePage() {
       </section>
     </main>
     {markdownPreviewPath && <MarkdownPreviewPanel client={client} projectId={PROJECT_ID} path={markdownPreviewPath} onClose={() => setMarkdownPreviewPath("")} />}
-    <WorkspaceMonitorPanels watcherEvents={watcherEvents} watcherState={watcherState} agentProcess={agentProcess} />
+    <WorkspaceMonitorPanels layoutScope="home" watcherEvents={watcherEvents} watcherState={watcherState} agentProcess={agentProcess} />
     {globalToastError && <GlobalToast error={globalToastError} onRetry={globalError?._retry ?? retryLastMessage} onDismiss={() => { setGlobalError(null); setChatState(""); }} />}
   </div>;
 }
