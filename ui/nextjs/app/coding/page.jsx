@@ -78,6 +78,6 @@ export default function CodingPage() {
     </div>}>
       <ConversationsAccordion conversations={conversations} projectId={PROJECT_ID} agentId={selectedAgent?.id} activeConversationId={activeConversationId} onNewConversation={(_title, conversation) => setActiveConversationId(conversation?.id ?? conversation?.conversation_id ?? null)} onSelectConversation={(conversation) => setActiveConversationId(conversation?.id ?? conversation?.conversation_id ?? null)} createRequest={newConversationRequest} showNewConversationButton={false} />
     </ConversationSidebar>
-    <WorkspaceMonitorPanels watcherEvents={watcherEvents} watcherState={watcherState} agentProcess={agentProcess} />
+    <WorkspaceMonitorPanels layoutScope="coding" watcherEvents={watcherEvents} watcherState={watcherState} agentProcess={agentProcess} />
   </div>;
 }
