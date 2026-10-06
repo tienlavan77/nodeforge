@@ -1,5 +1,5 @@
 // Validates project stream events so live agent occupancy updates reach the Agents page.
-export const PROJECT_EVENT_TYPES = Object.freeze(["stream.connected", "stream.snapshot", "watcher.file_indexed", "watcher.file_removed", "ticket.created", "ticket.updated", "ticket.status_changed", "ticket.deleted", "sprint.created", "sprint.updated", "sprint.deleted", "conversation.message.delta", "conversation.message.received", "conversation.message.owner", "conversation.message.created", "conversation.message.completed", "conversation.message.failed", "conversation.agent.status_changed", "agent.status_changed", "agent.checkpoint.updated", "stream.error"]);
+export const PROJECT_EVENT_TYPES = Object.freeze(["stream.connected", "stream.snapshot", "watcher.file_indexed", "watcher.file_removed", "ticket.created", "ticket.updated", "ticket.status_changed", "ticket.deleted", "sprint.created", "sprint.updated", "sprint.deleted", "conversation.message.delta", "conversation.message.received", "conversation.message.owner", "conversation.message.created", "conversation.message.completed", "conversation.message.failed", "conversation.agent.status_changed", "agent.status_changed", "agent.checkpoint.updated", "agent.activity", "stream.error"]);
 
 // Rejects malformed or cross-project events before updating dashboard state.
 export function isProjectStreamEvent(value, projectId) {

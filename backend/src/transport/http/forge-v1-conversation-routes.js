@@ -71,6 +71,7 @@ export function createForgeV1ConversationRoutes({ conversationCrudService, conve
     const history = await conversationAuditHistoryService.query({
       projectId: projectId ?? conversation?.project_id,
       conversationId,
+      chatOnly: true,
       limit: url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : 100,
       ...(url.searchParams.has("cursor") ? { cursor: url.searchParams.get("cursor") } : {}),
       order: url.searchParams.get("order") ?? "asc"

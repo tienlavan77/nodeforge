@@ -21,7 +21,7 @@ const OWNER_FILE_DEFINITIONS = Object.freeze([
 ]);
 
 // Creates the role-scoped Forge tool registry used by owner SDK conversations.
-export function createOwnerConversationTools({ role, projectRoot, fileService, codeCache, codeSearch, gitService, testService, conversationStateStore, conversationId, projectLogger, context }) {
+export function createOwnerConversationTools({ role, projectRoot, fileService, codeCache, codeSearch, gitService, testService, conversationStateStore, conversationId, projectLogger, eventSink, context }) {
   const allowed = ownerRoleTools(role);
   const scopedFiles = createRoleFileService({ fileService, role, projectRoot });
   const scopedCache = codeCache && { ...codeCache, read: async ({ path }) => { await scopedFiles.assertReadPath(path); return codeCache.read({ path }); } };
@@ -45,7 +45,11 @@ export function createOwnerConversationTools({ role, projectRoot, fileService, c
     .concat(engineerTools.definitions)
     .filter(({ name }) => allowed.includes(name) && typeof implementations[name]?.execute === "function");
   const registry = Object.fromEntries(definitions.map((definition) => [definition.name, { execute: async (input, toolContext = context) => {
-    const log = (status, error, result) => projectLogger?.({ timestamp: new Date().toISOString(), event_name: "owner.tool_call", level: error ? "error" : "info", status, message: `Owner Forge tool ${definition.name} ${status}.`, task_id: toolContext.task_id, correlation_id: toolContext.correlation_id, source: "owner-conversation-tools", ...(error ? { error_code: error.code ?? "TOOL_EXECUTION_FAILED" } : {}), payload: { tool: definition.name, agent_id: toolContext.agent_identity?.agent_id, agent_name: toolContext.agent_identity?.agent_name, provider: toolContext.agent_identity?.provider, ...(typeof input?.path === "string" ? { path: input.path } : {}), ...(error ? { error_message: String(error.message ?? "").slice(0, 240), input_keys: Object.keys(input ?? {}), offset: Number.isInteger(input?.offset) ? input.offset : null, limit: Number.isInteger(input?.limit) ? input.limit : null, symbol_state: input?.symbol == null ? "absent" : input.symbol === "" ? "empty" : "named" } : {}), ...(result ? { result: summarizeResult(result) } : {}) } });
+    const log = (status, error, result) => {
+      const timestamp = new Date().toISOString();
+      projectLogger?.({ timestamp, event_name: "owner.tool_call", level: error ? "error" : "info", status, message: `Owner Forge tool ${definition.name} ${status}.`, task_id: toolContext.task_id, correlation_id: toolContext.correlation_id, conversation_id: toolContext.conversation_id ?? conversationId, source: "owner-conversation-tools", ...(error ? { error_code: error.code ?? "TOOL_EXECUTION_FAILED" } : {}), payload: { tool: definition.name, agent_id: toolContext.agent_identity?.agent_id, agent_name: toolContext.agent_identity?.agent_name, provider: toolContext.agent_identity?.provider, ...(typeof input?.path === "string" ? { path: input.path } : {}), ...(error ? { error_message: String(error.message ?? "").slice(0, 240), input_keys: Object.keys(input ?? {}), offset: Number.isInteger(input?.offset) ? input.offset : null, limit: Number.isInteger(input?.limit) ? input.limit : null, symbol_state: input?.symbol == null ? "absent" : input.symbol === "" ? "empty" : "named" } : {}), ...(result ? { result: summarizeResult(result) } : {}) } });
+      if (typeof toolContext.agent_identity?.agent_id === "string") eventSink?.({ event_type: "agent.activity", task_id: toolContext.task_id, conversation_id: toolContext.conversation_id ?? conversationId, timestamp, payload: { agent_id: toolContext.agent_identity.agent_id, conversation_id: toolContext.conversation_id ?? conversationId, correlation_id: toolContext.correlation_id, activity_type: status === "started" ? "tool_started" : error ? "tool_failed" : "tool_completed", status: status === "started" ? "working" : error ? "failed" : "success", summary: `Forge tool ${definition.name} ${status}`, tool_name: definition.name } });
+    };
     try {
       log("started");
       authorizeTool(definition.name, toolContext);

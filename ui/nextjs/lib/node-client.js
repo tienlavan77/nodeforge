@@ -194,7 +194,7 @@ export function createNodeClient() {
       return requestJson(forgeV1(`/projects/${projectId}/architecture-workspace`, { project: projectId }), { fallbackError: "Node could not load the Architecture Workspace." });
     },
     // Chat API canonical route: POST /forge/v1/conversations/:id/messages
-    async postOwnerMessage({ projectId, conversationId, agentId, messageId, correlationId, text, intent, ticket, ownerToken, approvalRevision, approvalSha256, approvalComments }) {
+    async postOwnerMessage({ projectId, conversationId, agentId, messageId, correlationId, text, intent, ticket, ownerToken, approvalRevision, approvalSha256, approvalComments, supersedesMessageId }) {
       const messageIntent = intent ?? detectMessageIntent(text);
       if (!Object.values(MESSAGE_INTENTS).includes(messageIntent)) throw new Error("Invalid message intent.");
       const rawText = String(text);
@@ -204,7 +204,7 @@ export function createNodeClient() {
       return requestJson(forgeV1(`/conversations/${encodeURIComponent(conversationId)}/messages`, { project: projectId }), {
         method: "POST",
         headers: { "content-type": "application/json", ...(ownerToken ? { authorization: `Bearer ${ownerToken}` } : {}) },
-        body: JSON.stringify({ project_id: projectId, agent_id: agentId, message_id: messageId, correlation_id: correlationId, timestamp: new Date().toISOString(), payload: { intent: messageIntent, ...(messageIntent === MESSAGE_INTENTS.ticketCreate ? { ticket: ticketObject } : {}), ...(approvalRevision ? { approval_revision: approvalRevision, approval_sha256: approvalSha256, approval_comments: approvalComments ?? null } : {}), text: rawText } }),
+        body: JSON.stringify({ project_id: projectId, agent_id: agentId, message_id: messageId, correlation_id: correlationId, timestamp: new Date().toISOString(), payload: { intent: messageIntent, ...(messageIntent === MESSAGE_INTENTS.ticketCreate ? { ticket: ticketObject } : {}), ...(approvalRevision ? { approval_revision: approvalRevision, approval_sha256: approvalSha256, approval_comments: approvalComments ?? null } : {}), ...(supersedesMessageId ? { supersedes_message_id: supersedesMessageId } : {}), text: rawText } }),
         fallbackError: "Node rejected the owner message."
       });
     },

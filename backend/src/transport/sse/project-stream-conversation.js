@@ -76,6 +76,7 @@ function projectConversationMessage(message) {
       correlation_id: message.correlation_id ?? null,
       agent_id: message.sender?.id ?? null,
       sender_role: message.sender?.role ?? null,
+      ...(eventType === "conversation.message.owner" && typeof payload.supersedes_message_id === "string" ? { supersedes_message_id: payload.supersedes_message_id } : {}),
       text: payload.text ?? null,
       chunk: payload.chunk ?? payload.text ?? null,
       done: eventType !== "conversation.message.delta"
