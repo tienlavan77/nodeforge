@@ -35,6 +35,8 @@ test("home route composes the conversation workspace from existing components", 
   assert.ok(monitors.includes("Watcher monitor"));
   assert.ok(monitors.includes("Agent activity monitor"));
   assert.ok(monitors.includes("onPointerDown"));
+  assert.ok(monitors.includes('aria-label="System monitors"'));
+  assert.ok(monitors.includes("aria-pressed={panel.visible && !panel.minimized}"));
   assert.ok(monitors.includes("Close Watcher monitor"));
   assert.ok(monitors.includes("Minimize Agent monitor"));
   assert.equal(page.includes("<SprintPlanDashboard"), false);

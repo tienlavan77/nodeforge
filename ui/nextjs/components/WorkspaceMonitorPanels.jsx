@@ -35,8 +35,8 @@ export function WorkspaceMonitorPanels({ watcherEvents = [], watcherState = "con
   const processEntries = agentProcess && typeof agentProcess === "object" ? Object.entries(agentProcess) : [];
 
   return <>
-    <div className="workspace-monitor-dock" aria-label="System monitors">
-      {Object.entries(panels).filter(([, panel]) => !panel.visible).map(([name]) => <button key={name} type="button" onClick={() => updatePanel(name, { visible: true, minimized: false })}>{name === "watcher" ? "Watcher" : "Agent"}</button>)}
+    <div className="workspace-monitor-dock" role="group" aria-label="System monitors">
+      {Object.entries(panels).map(([name, panel]) => <button key={name} type="button" aria-pressed={panel.visible && !panel.minimized} onClick={() => updatePanel(name, { visible: !panel.visible || panel.minimized, minimized: false })}>{name === "watcher" ? "Watcher" : "Agent activity"}</button>)}
     </div>
     <div className="workspace-monitor-layer" onPointerMove={movePanel} onPointerUp={() => setDragging(null)}>
       {panels.watcher.visible && <section className={`workspace-monitor${panels.watcher.minimized ? " is-minimized" : ""}`} style={{ left: panels.watcher.x, top: panels.watcher.y, width: panels.watcher.width, height: panels.watcher.minimized ? "auto" : panels.watcher.height }} aria-label="Watcher monitor">
