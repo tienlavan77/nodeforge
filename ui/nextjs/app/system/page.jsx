@@ -50,6 +50,7 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
   const [watcherState, setWatcherState] = useState("connecting");
   const [, setWatcherPulseId] = useState(0);
   const [agentProcess, setAgentProcess] = useState(null);
+  const [agentActivities, setAgentActivities] = useState([]);
   const [chatState, setChatState] = useState("");
   const [globalError, setGlobalError] = useState(null);
   const [openSidebar, setOpenSidebar] = useState(false);
@@ -113,7 +114,7 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
 
   useProjectEventStream({
     client, projectId: PROJECT_ID, activeConversationIdRef, agentDirectoryRef, setMessages, setAgentTyping,
-    setWatcherEvents, setWatcherPulseId, setWatcherState, setAgentProcess,
+    setWatcherEvents, setWatcherPulseId, setWatcherState, setAgentProcess, setAgentActivities,
     loadDashboard: () => {}, agentDisplayName
   });
 
@@ -165,7 +166,7 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
       </section>
     </main>
     {markdownPreviewPath && <MarkdownPreviewPanel client={client} projectId={PROJECT_ID} path={markdownPreviewPath} onClose={() => setMarkdownPreviewPath("")} />}
-    <WorkspaceMonitorPanels layoutScope="system" watcherEvents={watcherEvents} watcherState={watcherState} agentProcess={agentProcess} />
+    <WorkspaceMonitorPanels layoutScope="system" watcherEvents={watcherEvents} watcherState={watcherState} agentProcess={agentProcess} agentActivities={agentActivities} />
     {globalToastError && <GlobalToast error={globalToastError} onRetry={globalError?._retry ?? retryLastMessage} onDismiss={() => { setGlobalError(null); setChatState(""); }} />}
   </div>;
 }

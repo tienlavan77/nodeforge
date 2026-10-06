@@ -34,6 +34,9 @@ test("home route composes the conversation workspace from existing components", 
   assert.ok(legacyCodePage.includes('<WorkspaceMonitorPanels layoutScope="coding"'));
   assert.ok(page.includes("const [watcherEvents, setWatcherEvents]"));
   assert.ok(page.includes("const [agentProcess, setAgentProcess]"));
+  assert.ok(page.includes("agentActivities={agentActivities}"));
+  assert.ok(systemPage.includes("agentActivities={agentActivities}"));
+  assert.ok(legacyCodePage.includes("agentActivities={agentActivities}"));
   for (const routePage of [systemPage, legacyCodePage]) {
     assert.ok(routePage.includes("<WorkspaceMonitorPanels"));
     assert.ok(routePage.includes("setWatcherEvents"));

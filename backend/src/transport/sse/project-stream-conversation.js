@@ -3,12 +3,45 @@ import { normalizeErrorContract } from "../../shared/error-contract.js";
 
 // Projects a communication message to project stream events.
 export function projectConversationMessages(message) {
+  const events = [];
   const primary = projectConversationMessage(message);
-  if (!primary) return [];
-  const events = [primary];
+  const activity = projectConversationActivity(message);
   const status = projectConversationStatus(message);
+  if (primary) events.push(primary);
+  if (activity) events.push(activity);
   if (status) events.push(status);
   return events;
+}
+
+// Projects agent progress and tool lifecycle messages into a safe monitor event.
+function projectConversationActivity(message) {
+  const type = String(message?.message_type ?? "");
+  const senderRole = String(message?.sender?.role ?? "").toLowerCase();
+  if (["owner", "user", "node"].includes(senderRole) || typeof message?.sender?.id !== "string") return null;
+  const payload = message?.payload && typeof message.payload === "object" ? message.payload : {};
+  const activityType = type.endsWith(".working") ? "started"
+    : type.endsWith(".message.progress") || type.endsWith(".progress") ? "progress"
+      : type.endsWith(".tool.result") ? "tool_result"
+        : type.endsWith(".message.received") ? "completed"
+          : type.endsWith(".error") || type.endsWith(".failed") ? "failed" : null;
+  if (!activityType) return null;
+  const status = activityType === "failed" ? "failed" : activityType === "completed" || activityType === "tool_result" ? "success" : "working";
+  const summary = activityType === "progress" && typeof (payload.message ?? payload.text) === "string"
+    ? (payload.message ?? payload.text).slice(0, 500)
+    : activityType === "tool_result" ? `Finished tool: ${String(payload.tool_name ?? payload.tool ?? "tool").slice(0, 100)}`
+      : activityType === "failed" ? "Agent task failed" : activityType === "completed" ? "Agent task completed" : "Agent started working";
+  return {
+    event_type: "agent.activity",
+    payload: {
+      agent_id: message.sender.id,
+      ...(typeof message.conversation_id === "string" ? { conversation_id: message.conversation_id } : {}),
+      ...(typeof message.correlation_id === "string" ? { correlation_id: message.correlation_id } : {}),
+      activity_type: activityType,
+      status,
+      summary,
+      ...(activityType === "tool_result" ? { tool_name: String(payload.tool_name ?? payload.tool ?? "tool").slice(0, 100) } : {})
+    }
+  };
 }
 
 // Projects a communication message to a project stream event.

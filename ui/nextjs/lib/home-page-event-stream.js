@@ -15,6 +15,7 @@ export function useProjectEventStream({
   setWatcherPulseId,
   setWatcherState,
   setAgentProcess,
+  setAgentActivities,
   loadDashboard,
   agentDisplayName
 }) {
@@ -23,6 +24,10 @@ export function useProjectEventStream({
       projectId,
       onOpen: () => setWatcherState("connected"),
       onEvent: (event) => {
+        if (event.event_type === "agent.activity") {
+          setAgentActivities?.((current) => [...current, event].slice(-50));
+          return;
+        }
         if (event.event_type.startsWith("conversation.message.") || event.event_type === "conversation.agent.status_changed") {
           if (event.payload?.conversation_id !== activeConversationIdRef.current) return;
           const payload = event.payload ?? {};
