@@ -51,6 +51,7 @@ export default function HomePage() {
   const [watcherState, setWatcherState] = useState("connecting");
   const [, setWatcherPulseId] = useState(0);
   const [agentProcess, setAgentProcess] = useState(null);
+  const [agentActivities, setAgentActivities] = useState([]);
   const [conversations, setConversations] = useState([]);
   const [activeConversationId, setActiveConversationId] = useState(null);
   const activeConversationIdRef = useRef(null);
@@ -140,7 +141,7 @@ export default function HomePage() {
   useProjectEventStream({
     client, projectId: PROJECT_ID, activeConversationIdRef, agentDirectoryRef,
     setMessages, setAgentTyping, setWatcherEvents, setWatcherPulseId, setWatcherState,
-    setAgentProcess, loadDashboard, agentDisplayName
+    setAgentProcess, setAgentActivities, loadDashboard, agentDisplayName
   });
 
   // Binds a selected sidebar row to the existing persisted conversation and history lifecycle.
@@ -194,7 +195,7 @@ export default function HomePage() {
       </section>
     </main>
     {markdownPreviewPath && <MarkdownPreviewPanel client={client} projectId={PROJECT_ID} path={markdownPreviewPath} onClose={() => setMarkdownPreviewPath("")} />}
-    <WorkspaceMonitorPanels layoutScope="home" watcherEvents={watcherEvents} watcherState={watcherState} agentProcess={agentProcess} />
+    <WorkspaceMonitorPanels layoutScope="home" watcherEvents={watcherEvents} watcherState={watcherState} agentProcess={agentProcess} agentActivities={agentActivities} />
     {globalToastError && <GlobalToast error={globalToastError} onRetry={globalError?._retry ?? retryLastMessage} onDismiss={() => { setGlobalError(null); setChatState(""); }} />}
   </div>;
 }

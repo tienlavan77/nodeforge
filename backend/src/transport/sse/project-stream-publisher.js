@@ -64,8 +64,27 @@ export function createProjectStreamPublisher({ projectId, indexDb } = {}) {
     if (operation === "agent.checkpoint.updated") return { event_type: operation, payload: { task_id: payload.task_id, sprint_id: payload.sprint_id ?? null, status: payload.status, last_completed_turn: payload.last_completed_turn ?? 0, last_tool: payload.last_tool ?? null, updated_at: payload.updated_at ?? event.timestamp ?? null } };
     const agentId = payload.agent_id ?? event.agent_id ?? payload.agentId ?? event.task_id ?? null;
     if (typeof agentId !== "string" || !agentId) return null;
-    if (operation !== "agent.status_changed") return null;
-    return { event_type: "agent.status_changed", payload: { agent_id: agentId, previous_status: payload.previous_status ?? payload.previousStatus ?? null, status: payload.status ?? "working", updated_at: payload.updated_at ?? event.timestamp ?? null, correlation_id: payload.correlation_id ?? event.correlation_id ?? null } };
+    if (operation === "agent.status_changed") return { event_type: "agent.status_changed", payload: { agent_id: agentId, previous_status: payload.previous_status ?? payload.previousStatus ?? null, status: payload.status ?? "working", updated_at: payload.updated_at ?? event.timestamp ?? null, correlation_id: payload.correlation_id ?? event.correlation_id ?? null } };
+    const lifecycle = {
+      "agent.started": ["started", "working", "Agent started"],
+      "agent.step.started": ["step_started", "working", "Agent started a step"],
+      "agent.step.completed": ["step_completed", "success", "Agent completed a step"],
+      "agent.completed": ["completed", "success", "Agent task completed"],
+      "agent.failed": ["failed", "failed", "Agent task failed"]
+    }[operation];
+    if (!lifecycle) return null;
+    return {
+      event_type: "agent.activity",
+      payload: {
+        agent_id: agentId,
+        activity_type: lifecycle[0],
+        status: lifecycle[1],
+        summary: lifecycle[2],
+        ...(typeof payload.conversation_id === "string" ? { conversation_id: payload.conversation_id } : {}),
+        ...(typeof payload.correlation_id === "string" || typeof event.correlation_id === "string" ? { correlation_id: payload.correlation_id ?? event.correlation_id } : {}),
+        ...(typeof payload.tool === "string" ? { tool_name: payload.tool.slice(0, 100) } : {})
+      }
+    };
   }
 
   function projectSprint(event, operation) {

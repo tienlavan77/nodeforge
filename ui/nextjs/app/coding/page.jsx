@@ -29,6 +29,7 @@ export default function CodingPage() {
   const [watcherState, setWatcherState] = useState("connecting");
   const [, setWatcherPulseId] = useState(0);
   const [agentProcess, setAgentProcess] = useState(null);
+  const [agentActivities, setAgentActivities] = useState([]);
   const activeConversationIdRef = useRef(null);
   const agentDirectoryRef = useRef([]);
   const codingAgents = agents
@@ -41,7 +42,7 @@ export default function CodingPage() {
   useProjectEventStream({
     client, projectId: PROJECT_ID, activeConversationIdRef, agentDirectoryRef,
     setMessages: () => {}, setAgentTyping: () => {}, setWatcherEvents, setWatcherPulseId, setWatcherState,
-    setAgentProcess, loadDashboard: () => {}, agentDisplayName
+    setAgentProcess, setAgentActivities, loadDashboard: () => {}, agentDisplayName
   });
 
   useEffect(() => {
@@ -78,6 +79,6 @@ export default function CodingPage() {
     </div>}>
       <ConversationsAccordion conversations={conversations} projectId={PROJECT_ID} agentId={selectedAgent?.id} activeConversationId={activeConversationId} onNewConversation={(_title, conversation) => setActiveConversationId(conversation?.id ?? conversation?.conversation_id ?? null)} onSelectConversation={(conversation) => setActiveConversationId(conversation?.id ?? conversation?.conversation_id ?? null)} createRequest={newConversationRequest} showNewConversationButton={false} />
     </ConversationSidebar>
-    <WorkspaceMonitorPanels layoutScope="coding" watcherEvents={watcherEvents} watcherState={watcherState} agentProcess={agentProcess} />
+    <WorkspaceMonitorPanels layoutScope="coding" watcherEvents={watcherEvents} watcherState={watcherState} agentProcess={agentProcess} agentActivities={agentActivities} />
   </div>;
 }
