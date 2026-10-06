@@ -20,6 +20,8 @@ import { GlobalToast } from "../components/GlobalToast.jsx";
 import { InlineError } from "../components/InlineError.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { MarkdownPreviewPanel } from "../components/markdown-preview-panel.jsx";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+import { WorkspaceMonitorPanels } from "../components/WorkspaceMonitorPanels.jsx";
 import { createNodeClient, MESSAGE_INTENTS } from "../lib/node-client.js";
 import { architectureManagerSelection, writeArchitectureManagerAgent } from "../lib/architecture-manager-selection.js";
 import { PROJECT_ID, ARCHITECTURE_CONVERSATION_ID, SPRINT_CACHE_KEY, CHAT_STATE_KEY } from "../lib/home-page-constants.js";
@@ -45,10 +47,10 @@ export default function HomePage() {
   const [markdownPreviewPath, setMarkdownPreviewPath] = useState("");
   const [editRequest, setEditRequest] = useState(null);
   const projects = [{ id: PROJECT_ID, name: "NodeForge" }];
-  const [, setWatcherEvents] = useState([]);
-  const [, setWatcherState] = useState("connecting");
+  const [watcherEvents, setWatcherEvents] = useState([]);
+  const [watcherState, setWatcherState] = useState("connecting");
   const [, setWatcherPulseId] = useState(0);
-  const [, setAgentProcess] = useState(null);
+  const [agentProcess, setAgentProcess] = useState(null);
   const [conversations, setConversations] = useState([]);
   const [activeConversationId, setActiveConversationId] = useState(null);
   const activeConversationIdRef = useRef(null);
@@ -192,6 +194,7 @@ export default function HomePage() {
       </section>
     </main>
     {markdownPreviewPath && <MarkdownPreviewPanel client={client} projectId={PROJECT_ID} path={markdownPreviewPath} onClose={() => setMarkdownPreviewPath("")} />}
+    <WorkspaceMonitorPanels watcherEvents={watcherEvents} watcherState={watcherState} agentProcess={agentProcess} />
     {globalToastError && <GlobalToast error={globalToastError} onRetry={globalError?._retry ?? retryLastMessage} onDismiss={() => { setGlobalError(null); setChatState(""); }} />}
   </div>;
 }
