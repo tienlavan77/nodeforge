@@ -32,7 +32,7 @@ export function useProjectEventStream({
           if (event.payload?.conversation_id !== activeConversationIdRef.current) return;
           const payload = event.payload ?? {};
           const key = event.event_type === "conversation.message.owner" || event.event_type === "conversation.message.created"
-            ? `owner:${payload.message_id ?? event.event_id}`
+            ? `owner:${payload.supersedes_message_id ?? payload.message_id ?? event.event_id}`
             : `agent:${payload.correlation_id ?? payload.message_id ?? event.event_id}`;
           const timestamp = event.timestamp ?? new Date().toISOString();
           if (event.event_type === "conversation.agent.status_changed") {
@@ -51,14 +51,14 @@ export function useProjectEventStream({
           setMessages((current) => {
             const index = current.findIndex((message) => message.stream_key === key);
             if (event.event_type === "conversation.message.owner" || event.event_type === "conversation.message.created") {
-              if (current.some((message) => message.id === payload.message_id)) return current;
+              if (current.some((message) => message.source_message_id === payload.message_id)) return current;
               const ownerIndex = index >= 0 ? index : current.findIndex((message) => message.from === "owner" && message.correlation_id === payload.correlation_id && message.pending);
               if (ownerIndex >= 0) {
                 const next = [...current];
-                next[ownerIndex] = { ...next[ownerIndex], id: payload.message_id ?? next[ownerIndex].id, text: payload.text ?? next[ownerIndex].text, pending: false };
+                next[ownerIndex] = { ...next[ownerIndex], id: payload.supersedes_message_id ?? next[ownerIndex].id, source_message_id: payload.message_id, text: payload.text ?? next[ownerIndex].text, pending: false };
                 return next;
               }
-              return [...current, { id: payload.message_id ?? event.event_id, stream_key: key, text: payload.text ?? "", from: "owner", nickname: "You", timestamp }];
+              return [...current, { id: payload.supersedes_message_id ?? payload.message_id ?? event.event_id, source_message_id: payload.message_id, stream_key: key, text: payload.text ?? "", from: "owner", nickname: "You", timestamp }];
             }
             if (event.event_type === "conversation.message.delta") {
               const chunk = payload.chunk ?? payload.text ?? "";

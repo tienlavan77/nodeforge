@@ -3,22 +3,37 @@
 .claude-message-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 4px;
+  gap: 2px;
   width: min(100%, 700px);
 }
 
-.claude-message-actions button {
+.claude-message-actions button,
+.claude-message-inline-edit button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
   border: 0;
   border-radius: 7px;
   background: transparent;
   color: var(--app-muted);
   cursor: pointer;
-  font: 11px 'Space Grotesk', sans-serif;
-  padding: 4px 7px;
+  padding: 4px;
+}
+
+.claude-message-actions svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
 }
 
 .claude-message-actions button:hover:not(:disabled),
-.claude-message-actions button:focus-visible {
+.claude-message-actions button:focus-visible,
+.claude-message-inline-edit button:hover {
   background: var(--app-button-bg);
   color: var(--app-text);
 }
@@ -26,4 +41,25 @@
 .claude-message-actions button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+
+.claude-message-inline-edit {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  width: min(100%, 700px);
+  margin-top: 8px;
+}
+
+.claude-message-inline-edit textarea {
+  flex-basis: 100%;
+  min-height: 72px;
+  resize: vertical;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: var(--app-surface);
+  color: var(--app-text);
+  font: inherit;
+  padding: 8px;
 }

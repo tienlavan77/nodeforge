@@ -11,7 +11,7 @@ export function createConversationAuditHistoryService({ communications, eventSto
   if (history !== undefined && typeof history?.getByProject !== "function") throw new ConfigurationError("Conversation Audit History Store must provide getByProject().");
 
   return Object.freeze({ query });
-  function query({ projectId, agentId, conversationId, correlationId, type, cursor, limit = 25, order = "asc" } = {}) {
+  function query({ projectId, agentId, conversationId, correlationId, type, cursor, limit = 25, order = "asc", chatOnly = false } = {}) {
     if (projectId !== undefined) assertId(projectId, "project");
     else if (conversationId === undefined && agentId === undefined && correlationId === undefined) assertId(projectId, "project");
     if (logReader && conversationId === undefined) {
@@ -31,7 +31,7 @@ export function createConversationAuditHistoryService({ communications, eventSto
       ...conversationMessages.map(messageRecord),
     ...(eventStore?.getAll() ?? []).filter((event) => projectId === undefined || (event.project_id ?? event.metadata?.project_id) === projectId).map(eventRecord),
       ...(projectId === undefined ? [] : (history?.getByProject(projectId) ?? []).map(historyRecord))
-    ].filter((record) => matches(record, { agentId, conversationId, correlationId, type }))
+    ].filter((record) => matches(record, { agentId, conversationId, correlationId, type }) && (!chatOnly || record.kind === "owner" || record.kind === "failure" || record.type === "owner.command.result" || record.type.endsWith(".message.received")))
       .sort((left, right) => left.timestamp.localeCompare(right.timestamp) || left.sequence - right.sequence);
     const ordered = order === "desc" ? [...records].reverse() : records;
     const start = cursor === undefined ? 0 : Number(cursor);

@@ -67,6 +67,32 @@ export function createHomeMessageHandlers({
     sendingRef.current = false;
   }
 
+  // Saves an owner correction in conversation history and sends the revised request to the agent.
+  async function editMessage(message, draft) {
+    const text = String(draft ?? "").trim();
+    const conversationId = message?.conversationId ?? activeConversationId;
+    if (!text || !message?.id || !conversationId || !selectedArchitectureManager || sendingRef.current) throw new Error("The conversation is not ready to edit this message.");
+    if (text === message.text) return;
+    const messageId = createChatId("MSG-OWNER-EDIT");
+    const correlationId = createChatId("CORR-architecture-manager-EDIT");
+    sendingRef.current = true;
+    setChatState("");
+    setMessages((current) => current.map((item) => item.stream_key === message.stream_key ? { ...item, text, pending: true, correlation_id: correlationId } : item));
+    setAgentTyping(true);
+    try {
+      await client.postOwnerMessage({ projectId, conversationId, agentId: selectedArchitectureManager.id, messageId, correlationId, text, intent: messageIntent, supersedesMessageId: message.id });
+      setMessages((current) => current.map((item) => item.stream_key === message.stream_key ? { ...item, source_message_id: messageId, pending: false } : item));
+      lastSentRef.current = { text, conversationId, messageId, correlationId };
+    } catch (error) {
+      setMessages((current) => current.map((item) => item.stream_key === message.stream_key ? { ...item, text: message.text, pending: false, correlation_id: message.correlation_id } : item));
+      setAgentTyping(false);
+      setChatState(error?.message ?? "Node rejected the edited owner message.");
+      throw error;
+    } finally {
+      sendingRef.current = false;
+    }
+  }
+
   // Retries the selected owner message in its conversation without changing the persisted history.
   async function retryMessage(message, conversationId = activeConversationId) {
     const text = String(message?.text ?? "").trim();
@@ -97,5 +123,5 @@ export function createHomeMessageHandlers({
     await retryMessage(last, last.conversationId);
   }
 
-  return { sendMessage, retryMessage, retryLastMessage };
+  return { sendMessage, editMessage, retryMessage, retryLastMessage };
 }

@@ -7,6 +7,8 @@ import test from "node:test";
 import { openIndexDatabase } from "../../src/infrastructure/sqlite/index-database.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createAgentCommunicationStore } from "../../src/modules/governance/agent-communication-store.js";
+import { createAgentCommunicationBus } from "../../src/modules/governance/agent-communication-bus.js";
+import { createOwnerChatService } from "../../src/application/owner-chat-service.js";
 
 test("persists communication in append order across restart with deterministic queries and redaction", async () => {
   const root = await mkdtemp(join(os.tmpdir(), "nodeforge-communication-143-"));
@@ -36,6 +38,30 @@ test("persists communication in append order across restart with deterministic q
     assert.equal(raw.includes("Plan it."), true);
     assert.equal(raw.includes("not-persisted"), false);
     assert.throws(() => restarted.append(reply), /already exists/);
+  } finally {
+    await database?.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("edited owner text survives database restart and remains in the conversation file", async () => {
+  const root = await mkdtemp(join(os.tmpdir(), "nodeforge-conversation-edit-"));
+  let database = await openIndexDatabase(root);
+  try {
+    const communications = createAgentCommunicationStore({ database, fileService: createFileService({ projectRoot: root }) });
+    const chat = createOwnerChatService({ bus: createAgentCommunicationBus({ store: communications }), communications });
+    const original = { message_id: "MSG-EDIT-ORIGINAL", project_id: "PROJECT-EDIT", conversation_id: "CONV-EDIT", correlation_id: "CORR-EDIT-1", timestamp: new Date().toISOString(), payload: { text: "Original request.", intent: "normal_chat" } };
+    chat.submit(original);
+    chat.submit({ ...original, message_id: "MSG-EDIT-REVISION", correlation_id: "CORR-EDIT-2", payload: { text: "Corrected request.", intent: "normal_chat", supersedes_message_id: original.message_id } });
+    const rawFile = database.all("SELECT raw_file FROM agent_communications WHERE message_id = ?", [original.message_id])[0].raw_file;
+    const raw = await readFile(join(root, ".forge", "runtime", "nf", rawFile), "utf8");
+    assert.match(raw, /Original request/);
+    assert.match(raw, /Corrected request/);
+    await database.close();
+    database = await openIndexDatabase(root);
+    const restored = createAgentCommunicationStore({ database, fileService: createFileService({ projectRoot: root }) });
+    assert.deepEqual(restored.getByConversationId("CONV-EDIT").map(({ payload }) => payload.text), ["Original request.", "Corrected request."]);
+    assert.equal(restored.getById("MSG-EDIT-REVISION").payload.supersedes_message_id, original.message_id);
   } finally {
     await database?.close();
     await rm(root, { recursive: true, force: true });

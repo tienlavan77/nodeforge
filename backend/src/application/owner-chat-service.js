@@ -12,7 +12,7 @@ const commonSchema = require("../../../schemas/core/common.schema.json");
 const ticketSchema = require("../../../schemas/governance/ticket.schema.json");
 
 // Creates the owner chat service handling message intake and streaming.
-export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, executeAgentTool, proseTicketService, internalBus, debug = () => {}, streamBatchMs = 500, projectLogger = logEvent, protocolStorage, conversationCrudService, commandService } = {}) {
+export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, executeAgentTool, proseTicketService, internalBus, debug = () => {}, streamBatchMs = 500, projectLogger = logEvent, protocolStorage, conversationCrudService, commandService, communications } = {}) {
   if (typeof bus?.send !== "function") throw new ConfigurationError("Owner Chat Service requires the shared Communication Bus.");
   if (!Number.isInteger(streamBatchMs) || streamBatchMs < 1) throw new ConfigurationError("Owner Chat stream batch interval must be positive.");
   const messages = new Map();
@@ -44,6 +44,12 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     }
     const existing = messages.get(input.message_id);
     if (existing) return { ...structuredClone(existing), duplicate: true };
+    if (input.payload.supersedes_message_id !== undefined) {
+      const original = typeof input.payload.supersedes_message_id === "string" ? communications?.getById?.(input.payload.supersedes_message_id) : null;
+      if (!original || original.project_id !== input.project_id || original.conversation_id !== input.conversation_id || original.message_type !== "owner.message" || original.sender?.role !== "project_owner" || original.recipient?.id !== agentId || original.id === input.message_id) {
+        throw Object.assign(new ConfigurationError("Edited message must reference an owner message in this conversation."), { statusCode: 400 });
+      }
+    }
     if (commandService?.isCommand?.(input.payload.text)) return handleOwnerCommand(input, agentId);
     conversationCrudService?.ensure?.({ id: input.conversation_id, project_id: input.project_id, agent_id: agentId, title: input.payload.text });
     const isBuilder = agentId === "builder" || agentId === "builder-ex";
@@ -80,7 +86,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       message_type: "owner.message",
       conversation_id: input.conversation_id,
       correlation_id: input.correlation_id,
-      payload: { text: input.payload.text, intent: resolvedIntent, round, ...(input.payload.task ? { task: normalizeTask(input.payload.task, input) } : {}) },
+      payload: { text: input.payload.text, intent: resolvedIntent, round, ...(input.payload.supersedes_message_id ? { supersedes_message_id: input.payload.supersedes_message_id } : {}), ...(input.payload.task ? { task: normalizeTask(input.payload.task, input) } : {}) },
       timestamp: input.timestamp
     };
     // Bus persists via the canonical Communication Store before dispatching.

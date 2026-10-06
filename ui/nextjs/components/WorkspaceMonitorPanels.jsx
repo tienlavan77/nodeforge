@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { monitorAgentActivities } from "../lib/monitor-agent-activities.js";
 
 const MONITOR_LAYOUT_KEY = "nodeforge:workspace-monitor-layout";
 const INITIAL_PANELS = {
@@ -10,7 +11,7 @@ const INITIAL_PANELS = {
 };
 
 // Render movable, resizable monitor windows with close and restore controls.
-export function WorkspaceMonitorPanels({ watcherEvents = [], watcherState = "connecting", agentProcess, agentActivities = [], layoutScope = "home" }) {
+export function WorkspaceMonitorPanels({ watcherEvents = [], watcherState = "connecting", agentProcess, agentActivities = [], agentDirectory = [], layoutScope = "home" }) {
   const layoutKey = `${MONITOR_LAYOUT_KEY}:${layoutScope}`;
   const [panels, setPanels] = useState(INITIAL_PANELS);
   const [dragging, setDragging] = useState(null);
@@ -87,6 +88,7 @@ export function WorkspaceMonitorPanels({ watcherEvents = [], watcherState = "con
 
   const watcherStatus = watcherState === "connected" ? "Connected" : watcherState === "error" ? "Error" : "Connecting";
   const processEntries = agentProcess && typeof agentProcess === "object" ? Object.entries(agentProcess) : [];
+  const visibleActivities = monitorAgentActivities(agentActivities, agentDirectory, layoutScope === "home" ? "architecture_manager" : "system_engineer");
 
   return <>
     <div className="workspace-monitor-dock" role="group" aria-label="System monitors">
@@ -103,9 +105,9 @@ export function WorkspaceMonitorPanels({ watcherEvents = [], watcherState = "con
       {panels.agent.visible && <section ref={(node) => { panelRefs.current.agent = node; }} data-monitor-name="agent" className={`workspace-monitor${panels.agent.minimized ? " is-minimized" : ""}`} style={{ left: panels.agent.x, top: panels.agent.y, width: panels.agent.width, height: panels.agent.minimized ? "auto" : panels.agent.height }} aria-label="Agent activity monitor">
         <header className="workspace-monitor-header" onPointerDown={(event) => startDrag(event, "agent")}><strong>Agent activity</strong><span className="workspace-monitor-indicator">Live</span><button type="button" aria-label="Minimize Agent monitor" onClick={() => updatePanel("agent", { minimized: !panels.agent.minimized })}>{panels.agent.minimized ? "□" : "−"}</button><button type="button" aria-label="Close Agent monitor" onClick={() => updatePanel("agent", { visible: false })}>×</button></header>
         {!panels.agent.minimized && <div className="workspace-monitor-content" aria-live="polite">
-          {processEntries.length === 0 && agentActivities.length === 0 && <p>Waiting for agent activity.</p>}
+          {processEntries.length === 0 && visibleActivities.length === 0 && <p>Waiting for agent activity.</p>}
           {processEntries.map(([key, value]) => <article key={key}><small>{key.replaceAll("_", " ")}</small><span>{typeof value === "object" ? JSON.stringify(value) : String(value)}</span></article>)}
-          {agentActivities.slice().reverse().map((event) => <article key={event.event_id}><small>{event.payload.activity_type.replaceAll("_", " ")} · {event.payload.status} · {new Date(event.timestamp).toLocaleTimeString()}</small><span>{event.payload.summary}{event.payload.tool_name ? ` (${event.payload.tool_name})` : ""}</span></article>)}
+          {visibleActivities.slice().reverse().map((event) => <article key={event.event_id}><small>{event.payload.activity_type.replaceAll("_", " ")} · {event.payload.status} · {new Date(event.timestamp).toLocaleTimeString()}</small><span>{event.payload.summary}{event.payload.tool_name ? ` (${event.payload.tool_name})` : ""}</span></article>)}
         </div>}
       </section>}
     </div>
