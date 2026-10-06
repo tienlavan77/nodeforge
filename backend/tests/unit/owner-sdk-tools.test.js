@@ -77,8 +77,9 @@ test("System Engineer translates the request to English and is instructed to sea
   const testService = { runCheck: async () => ({ status: "passed" }) };
   const conversationStateStore = memoryStateStore();
   const logs = [];
+  const activities = [];
   const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => profile }, sdkGateways: { codex: sdk }, fallbackStream: async function* () {}, fileService: fileService(), conversationStateStore, testService, gitService, projectRoot: "/project", projectLogger: (event) => logs.push(event) });
-  for await (const chunk of stream({ agentId: "engineer", payload: { text: "inspect and fix the project" }, correlationId: "CORR-SYSTEM-ENGINEER", conversationId: "CONV-SYSTEM-ENGINEER" })) assert.equal(typeof chunk.text, "string");
+  for await (const chunk of stream({ agentId: "engineer", payload: { text: "inspect and fix the project" }, correlationId: "CORR-SYSTEM-ENGINEER", conversationId: "CONV-SYSTEM-ENGINEER", eventSink: (event) => activities.push(event) })) assert.equal(typeof chunk.text, "string");
   assert.deepEqual(request.options.forgeTools.definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "read_lines", "write_diff", "edit_diff", "git_status", "git_diff", "run_check", "commit_changes", "push_commit"]);
   assert.equal(request.options.sandboxMode, "read-only");
   assert.equal(request.options.networkAccessEnabled, false);
@@ -89,6 +90,10 @@ test("System Engineer translates the request to English and is instructed to sea
   assert.match(request.prompt, /translate the owner's request into concise English code\/business terms/);
   assert.match(request.prompt, /Use the Forge search_text tool first with those English terms/);
   assert.deepEqual(logs.map(({ event_name }) => event_name), ["owner.sdk_route", "owner.sdk_request_started", "owner.sdk_request_completed"]);
+  await request.onEvent({ type: "item.started", item: { id: "CALL-1", type: "mcp_tool_call", server: "forge", tool: "search_text" } });
+  await request.onEvent({ type: "item.completed", item: { id: "CALL-1", type: "mcp_tool_call", server: "forge", tool: "search_text", status: "completed" } });
+  assert.deepEqual(activities.map(({ payload }) => [payload.activity_type, payload.status, payload.tool_name]), [["tool_started", "working", "search_text"], ["tool_completed", "success", "search_text"]]);
+  assert.ok(activities.every(({ event_type, conversation_id }) => event_type === "agent.activity" && conversation_id === "CONV-SYSTEM-ENGINEER"));
   await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "command_execution", command: "git status" } }), { code: "TOOL_FORBIDDEN" });
   await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "command_execution", command: "rg --files backend/src" } }), { code: "TOOL_FORBIDDEN" });
   await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "command_execution", command: "rg --pre cat secret" } }), { code: "TOOL_FORBIDDEN" });

@@ -166,6 +166,7 @@ test("agent progress and tool messages project safe UI activity events", () => {
   assert.doesNotMatch(JSON.stringify(tool[0]), /secret source contents/);
   const publisher = createProjectStreamPublisher({ projectId: "PROJECT-STREAM-NORM", indexDb: { all: () => [] } });
   assert.deepEqual(publisher.project({ type: "agent.started", project_id: "PROJECT-STREAM-NORM", payload: { agent_id: "CODER-1" } }), { event_type: "agent.activity", payload: { agent_id: "CODER-1", activity_type: "started", status: "working", summary: "Agent started" } });
+  assert.deepEqual(publisher.project({ type: "agent.activity", project_id: "PROJECT-STREAM-NORM", conversation_id: "CONV-1", payload: { agent_id: "CODER-1", correlation_id: "REQ-1", activity_type: "tool_completed", status: "success", summary: "Forge tool search_text succeeded", tool_name: "search_text" } }), { event_type: "agent.activity", payload: { agent_id: "CODER-1", activity_type: "tool_completed", status: "success", summary: "Forge tool search_text succeeded", conversation_id: "CONV-1", correlation_id: "REQ-1", tool_name: "search_text" } });
 });
 
 test("project stream framing validates every emitted event against the v1 schema", () => {
@@ -184,7 +185,8 @@ test("project stream framing validates every emitted event against the v1 schema
   const frames = response.chunks.filter((chunk) => chunk.startsWith("id: "));
   let publishStatus;
   const statusResponse = responseStub();
-  const statusStream = createProjectStream({ projectId: "PROJECT-STREAM-SCHEMA", indexDb: { all: () => [] }, subscriptions: { subscribe: (_pattern, callback) => { publishStatus = callback; return { id: "SUB-STATUS" }; }, unsubscribe: () => {} }, heartbeatMs: 1000, clock: () => "2026-09-11T00:00:00.000Z" });
+  const statusEventBus = new EventEmitter();
+  const statusStream = createProjectStream({ projectId: "PROJECT-STREAM-SCHEMA", indexDb: { all: () => [] }, subscriptions: { subscribe: (_pattern, callback) => { publishStatus = callback; return { id: "SUB-STATUS" }; }, unsubscribe: () => {} }, eventBus: statusEventBus, heartbeatMs: 1000, clock: () => "2026-09-11T00:00:00.000Z" });
   const statusConnection = statusStream.connect({ requestedProjectId: "PROJECT-STREAM-SCHEMA", response: statusResponse });
   publishStatus({ event_id: "EVT-AGENT-STREAM-1", event_type: "agent.status_changed", project_id: "PROJECT-STREAM-SCHEMA", timestamp: "2026-09-11T00:00:00.000Z", payload: { agent_id: "CODER-1", previous_status: "ready", status: "working", updated_at: "2026-09-11T00:00:00.000Z" } });
   const statusFrame = statusResponse.chunks.filter((chunk) => chunk.startsWith("id: ")).at(-1);
@@ -192,6 +194,11 @@ test("project stream framing validates every emitted event against the v1 schema
   publishStatus({ event_id: "EVT-AGENT-ACTIVITY-1", event_type: "agent.started", project_id: "PROJECT-STREAM-SCHEMA", timestamp: "2026-09-11T00:00:00.000Z", payload: { agent_id: "CODER-1" } });
   const activityFrame = statusResponse.chunks.filter((chunk) => chunk.startsWith("id: ")).at(-1);
   assert.equal(validate(JSON.parse(activityFrame.split("data: ")[1])), true, ajv.errorsText(validate.errors));
+  statusEventBus.emit("agent.activity", { event_type: "agent.activity", task_id: "CORR-SDK", conversation_id: "CONV-SDK", timestamp: "2026-09-11T00:00:01.000Z", payload: { agent_id: "CODER-1", correlation_id: "CORR-SDK", activity_type: "tool_completed", status: "success", summary: "Forge tool search_text succeeded", tool_name: "search_text" } });
+  const toolFrame = statusResponse.chunks.filter((chunk) => chunk.startsWith("id: ")).at(-1);
+  const toolEvent = JSON.parse(toolFrame.split("data: ")[1]);
+  assert.equal(validate(toolEvent), true, ajv.errorsText(validate.errors));
+  assert.equal(toolEvent.payload.tool_name, "search_text");
   statusConnection.close();
   assert.ok(frames.every((frame) => frame.endsWith("\n\n")));
   for (const frame of frames) {
