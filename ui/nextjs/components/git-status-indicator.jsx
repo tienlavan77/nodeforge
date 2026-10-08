@@ -27,7 +27,8 @@ export function GitStatusIndicator({ client, projectId }) {
       setActionMessage(result.status === "pushed" ? `Pushed ${result.changed_files} changed files.` : `Commit ${result.commit_sha.slice(0, 8)} created, but push failed.`);
     } catch (error) {
       console.error("Git commit and push failed", error);
-      setActionMessage(error.message || "Git commit and push failed.");
+      const message = error?.message ?? "Git commit and push failed.";
+      setActionMessage(message.includes("index.lock") ? "Another Git operation is still running. Wait for it to finish, then try again." : message);
     } finally {
       await refresh();
       setSaving(false);

@@ -4,7 +4,6 @@ import { createNodeAgentConfiguration } from "../src/modules/agent/node-agent-co
 import { createAgentGateway } from "../src/modules/agent/agent-gateway.js";
 import { createClaudeSdkGateway } from "../src/modules/agent/claude-sdk-gateway.js";
 import { createCodexSdkGateway } from "../src/modules/agent/codex-sdk-gateway.js";
-import { createOllamaSdkProviderFactory } from "../src/modules/agent/ollama-sdk-provider.js";
 import { createOllamaSdkGateway } from "../src/modules/agent/ollama-sdk-gateway.js";
 import { createOpenAiSdkProviderFactory } from "../src/modules/agent/openai-sdk-provider.js";
 import { createOpenAiSdkGateway } from "../src/modules/agent/openai-sdk-gateway.js";
@@ -29,8 +28,7 @@ export function createControlApiAgent({ database, fileService, config, env = pro
   const codexSdkGateway = createCodexSdkGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference), timeoutMs: config.sdkTimeoutMs, codexHomeRoot: join(config.dataDir, "codex-homes") });
   const openaiSdkProviderFactory = createOpenAiSdkProviderFactory({ credentialResolver: (reference) => secrets.get(reference) });
   const openaiSdkGateway = createOpenAiSdkGateway({ providerFactory: openaiSdkProviderFactory, timeoutMs: config.sdkTimeoutMs });
-  const ollamaSdkProviderFactory = createOllamaSdkProviderFactory({ credentialResolver: (reference) => secrets.get(reference) });
-  const ollamaSdkGateway = createOllamaSdkGateway({ providerFactory: ollamaSdkProviderFactory, timeoutMs: config.agentTimeoutMs });
+  const ollamaSdkGateway = createOllamaSdkGateway({ codexSdkGateway });
   const agentSettings = createAgentSettingsService({ profiles, configuration: agentConfiguration, gateway: agentGateway, claudeSdkGateway, codexSdkGateway, openaiSdkGateway, ollamaSdkGateway, secretStore: secrets });
   const agentRoleResolver = createAgentRoleResolver({ profiles });
   return { profiles, agentConfiguration, secrets, agentGateway, claudeSdkGateway, codexSdkGateway, openaiSdkGateway, ollamaSdkGateway, agentSettings, agentRoleResolver };
