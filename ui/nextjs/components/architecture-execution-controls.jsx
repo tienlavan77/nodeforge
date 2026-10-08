@@ -4,10 +4,10 @@
 import { useEffect, useRef, useState } from "react";
 
 // Shows durable Architecture attempts and stops only the active conversation after owner action.
-export function ArchitectureExecutionControls({ client, projectId, conversationId, executionId, agentTyping, onPause }) {
+export function ArchitectureExecutionControls({ client, projectId, conversationId, executionId, agentTyping, onPause, refreshSignal }) {
   const [executions, setExecutions] = useState([]);
   const [error, setError] = useState("");
-  const [hint, setHint] = useState("");
+  const [, setHint] = useState("");
   const [busy, setBusy] = useState(false);
   const lastEscape = useRef(0);
   const inFlight = useRef(false);
@@ -35,7 +35,7 @@ export function ArchitectureExecutionControls({ client, projectId, conversationI
     }
     void refresh();
     return () => { mounted = false; };
-  }, [client, projectId, conversationId]);
+  }, [client, projectId, conversationId, refreshSignal]);
 
   // Sends pause and recovery actions for the selected Architecture execution.
   async function decide(action) {
@@ -49,7 +49,7 @@ export function ArchitectureExecutionControls({ client, projectId, conversationI
       if (action === "reconcile") await client.reconcileOwnerExecution(projectId, conversationId, record.execution_id);
       else await client.decideOwnerExecution(projectId, conversationId, record.execution_id, action);
       setExecutions((items) => {
-        const status = action === "reconcile" ? "interrupted" : action === "pause" ? "pausing" : action === "continue" ? "running" : action === "restart" ? "restarted" : "discarded";
+        const status = action === "pause" || action === "reconcile" ? "interrupted" : action === "continue" ? "running" : action === "restart" ? "restarted" : "discarded";
         return items.some((entry) => entry.execution_id === record.execution_id) ? items.map((entry) => entry.execution_id === record.execution_id ? { ...entry, status } : entry) : [...items, { ...record, status }];
       });
       if (action === "pause") onPause?.(false);
@@ -65,7 +65,6 @@ export function ArchitectureExecutionControls({ client, projectId, conversationI
       const now = Date.now();
       if (now - lastEscape.current > 3000) {
         lastEscape.current = now;
-        setHint("Press Esc again within 3 seconds to pause Architecture.");
         return;
       }
       lastEscape.current = 0;
@@ -78,11 +77,8 @@ export function ArchitectureExecutionControls({ client, projectId, conversationI
   }, [current?.execution_id, current?.status, agentTyping, conversationId, busy]);
 
   return <div className="claude-chat-status architecture-execution-controls" role="status" aria-live="polite">
-    {(current?.status === "running" || (!current && agentTyping)) && <button type="button" className="claude-retry" disabled={busy || !conversationId} onClick={() => void decide("pause")}>Pause</button>}
-    {current?.status === "pausing" && <><span>Pausing Architecture…</span><button type="button" className="claude-retry" onClick={() => void client.listOwnerExecutions(projectId, conversationId).then((response) => { setExecutions((response.items ?? []).map((entry) => entry.execution_id === current.execution_id && entry.status === "running" ? { ...entry, status: "pausing" } : entry)); setError(""); }).catch((reason) => setError(reason.message ?? "Unable to check status."))}>Check status</button></>}
-    {current?.status === "interrupted" && <><span>Architecture paused. Choose how to proceed. </span>{["continue", "restart", "discard"].map((action) => <button key={action} type="button" className="claude-retry" disabled={busy} onClick={() => void decide(action)}>{action === "continue" ? "Continue" : action === "restart" ? "Restart" : "Discard"}</button>)}</>}
+    {current?.status === "interrupted" && <><span>One action interrupted</span>{["continue", "restart", "discard"].map((action) => <button key={action} type="button" className="claude-retry" disabled={busy} onClick={() => void decide(action)} aria-label={action === "continue" ? "Continue interrupted action" : action === "restart" ? "Restart interrupted action" : "Discard interrupted action"}>{action === "continue" ? "Continue" : action === "restart" ? "Restart" : "Discard"}</button>)}</>}
     {current?.status === "manual_required" && <><span>Document needs verification before recovery.</span>{current.can_reconcile && <button type="button" className="claude-retry" disabled={busy} onClick={() => void decide("reconcile")}>Verify document</button>}</>}
-    {hint && <span>{hint}</span>}
     {error && <span>{error}</span>}
   </div>;
 }

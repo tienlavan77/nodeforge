@@ -30,33 +30,40 @@ function memoryStateStore() {
   };
 }
 
-test("owner exposes the same approved Forge tools to OpenAI, Codex, Claude, and Anthropic", async () => {
-  for (const provider of ["openai", "codex", "claude", "anthropic"]) {
+test("owner exposes the same approved Forge tools to OpenAI, Codex, Claude, Anthropic, and Ollama", async () => {
+  for (const provider of ["openai", "codex", "claude", "anthropic", "ollama"]) {
     let request;
     const profile = { agent_id: "architect", role: "architecture_manager", provider };
-    const sdk = { conversationMode: provider === "codex" ? "thread" : "history", execute: async (input) => { request = input; return { text: "ok" }; } };
+    const sdk = { conversationMode: ["codex", "ollama"].includes(provider) ? "thread" : "history", builtinWebSearchAvailable: provider !== "ollama", execute: async (input) => { request = input; return { text: "ok" }; } };
     const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => profile }, sdkGateways: { [provider]: sdk }, fallbackStream: async function* () {}, fileService: fileService(), projectRoot: process.cwd(), projectLogger: () => {} });
     for await (const chunk of stream({ agentId: "architect", payload: { text: "inspect project" }, correlationId: `CORR-${provider}`, conversationId: `CONV-${provider}` })) assert.equal(typeof chunk.text, "string");
     assert.deepEqual(request.options.forgeTools.definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "read_lines", "write_diff", "edit_diff", "delete_file"]);
     assert.deepEqual(request.options.forgeTools.context.allowed_write_prefixes, ["docs/", "Skills/", "workflows/"]);
     assert.match(request.prompt, /ARCHITECTURE\.md, docs\/, Skills\/, or workflows\//);
     assert.match(request.prompt, /workflows\/agents\/architecture\/README\.md/);
-    if (provider === "codex" || provider === "openai") assert.equal(request.options.forgeTools.registry.list_files.execute instanceof Function, true);
+    const webSearchAvailable = provider !== "ollama";
+    assert.equal(request.options.builtinWebSearch, webSearchAvailable, provider);
+    if (provider === "ollama") {
+      assert.match(request.prompt, /does not support native web search/);
+      assert.equal(request.options.networkAccessEnabled, false);
+      assert.equal(request.options.webSearchMode, "disabled");
+    }
+    if (["codex", "ollama", "openai"].includes(provider)) assert.equal(request.options.forgeTools.registry.list_files.execute instanceof Function, true);
     else {
       assert.equal(request.options.mcpServers.forge.type, "sdk");
       assert.ok(request.options.allowedTools.includes("mcp__forge__list_files"));
       for (const name of ["Read", "Glob", "Grep"]) assert.equal(request.options.allowedTools.includes(`mcp__forge__${name}`), false);
-      assert.deepEqual(request.options.tools, []);
+      assert.deepEqual(request.options.tools, ["WebSearch"]);
     }
   }
 });
 
 test("System Engineer exposes the same Forge discovery and engineering tools across all SDK providers", async () => {
   const expected = ["search_tree", "list_files", "search_text", "read_file", "read_lines", "write_diff", "edit_diff", "git_status", "git_diff", "run_check", "commit_changes", "push_commit"];
-  for (const provider of ["openai", "codex", "claude", "anthropic"]) {
+  for (const provider of ["openai", "codex", "claude", "anthropic", "ollama"]) {
     let request;
     const profile = { agent_id: "engineer", agent_name: "Engineer", role: "system_engineer", provider };
-    const sdk = { conversationMode: provider === "codex" ? "thread" : "history", execute: async (input) => { request = input; return { text: "ready" }; } };
+    const sdk = { conversationMode: ["codex", "ollama"].includes(provider) ? "thread" : "history", builtinWebSearchAvailable: provider !== "ollama", execute: async (input) => { request = input; return { text: "ready" }; } };
     const gitService = { status: async () => "", diffWorkingTree: async () => "", commit: async () => ({ sha: "a".repeat(40) }), pushCommit: async (sha) => ({ sha }) };
     const testService = { runCheck: async () => ({ status: "passed" }) };
     const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => profile }, sdkGateways: { [provider]: sdk }, fallbackStream: async function* () {}, fileService: fileService(), conversationStateStore: memoryStateStore(), testService, gitService, projectRoot: "/project", projectLogger: () => {} });
@@ -64,7 +71,11 @@ test("System Engineer exposes the same Forge discovery and engineering tools acr
     const names = request.options.forgeTools.definitions.map(({ name }) => name);
     assert.deepEqual(names, expected, provider);
     for (const name of ["search_tree", "list_files", "search_text"]) assert.ok(names.includes(name), `${provider} must expose Forge search tool ${name}`);
-    if (["claude", "anthropic"].includes(provider)) assert.deepEqual(request.options.allowedTools, names.map((name) => `mcp__forge__${name}`));
+    if (["claude", "anthropic"].includes(provider)) {
+      assert.ok(request.options.allowedTools.includes("WebSearch"));
+      assert.ok(request.options.tools.includes("WebSearch"));
+    }
+    assert.equal(request.options.builtinWebSearch, provider !== "ollama", provider);
     assert.equal(request.options.builtinSearchShell, undefined, `${provider} must use Forge search tools`);
   }
 });
@@ -82,7 +93,8 @@ test("System Engineer translates the request to English and is instructed to sea
   for await (const chunk of stream({ agentId: "engineer", payload: { text: "inspect and fix the project" }, correlationId: "CORR-SYSTEM-ENGINEER", conversationId: "CONV-SYSTEM-ENGINEER", eventSink: (event) => activities.push(event) })) assert.equal(typeof chunk.text, "string");
   assert.deepEqual(request.options.forgeTools.definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "read_lines", "write_diff", "edit_diff", "git_status", "git_diff", "run_check", "commit_changes", "push_commit"]);
   assert.equal(request.options.sandboxMode, "read-only");
-  assert.equal(request.options.networkAccessEnabled, false);
+  assert.equal(request.options.networkAccessEnabled, true);
+  assert.equal(request.options.webSearchMode, "live");
   assert.deepEqual(request.options.config, { default_permissions: "audit" });
   assert.match(request.options.configOverrides[0], /permissions\.audit\.filesystem/);
   assert.match(request.options.configOverrides[0], /"\/project"="read"/);
@@ -99,12 +111,13 @@ test("System Engineer translates the request to English and is instructed to sea
   await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "command_execution", command: "rg --pre cat secret" } }), { code: "TOOL_FORBIDDEN" });
   await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "command_execution", command: "rg --file=/etc/passwd secret" } }), { code: "TOOL_FORBIDDEN" });
   await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "file_change" } }), { code: "TOOL_FORBIDDEN" });
-  await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "web_search" } }), { code: "TOOL_FORBIDDEN" });
+  await request.onEvent({ type: "item.started", item: { type: "web_search" } });
+  await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "local_shell_call" } }), { code: "TOOL_FORBIDDEN" });
   await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "mcp_tool_call", server: "filesystem", tool: "read_file" } }), { code: "TOOL_FORBIDDEN" });
   await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "mcp_tool_call", server: "forge", tool: "Bash" } }), { code: "TOOL_FORBIDDEN" });
 });
 
-test("System Engineer Claude uses Forge tools and does not enable built-in discovery", async () => {
+test("System Engineer Claude uses Forge tools and enables only native web search", async () => {
   let request;
   const profile = { agent_id: "engineer", agent_name: "Engineer", role: "system_engineer", provider: "anthropic" };
   const sdk = { conversationMode: "history", execute: async (input) => { request = input; return { text: "done" }; } };
@@ -113,7 +126,7 @@ test("System Engineer Claude uses Forge tools and does not enable built-in disco
   const conversationStateStore = memoryStateStore();
   const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => profile }, sdkGateways: { anthropic: sdk }, fallbackStream: async function* () {}, fileService: fileService(), conversationStateStore, testService, gitService, projectRoot: "/project", projectLogger: () => {} });
   for await (const chunk of stream({ agentId: "engineer", payload: { text: "inspect" }, correlationId: "CORR-ENGINEER-CLAUDE", conversationId: "CONV-ENGINEER-CLAUDE" })) assert.equal(typeof chunk.text, "string");
-  assert.deepEqual(request.options.tools, []);
+  assert.deepEqual(request.options.tools, ["WebSearch"]);
   assert.ok(request.options.allowedTools.includes("mcp__forge__search_text"));
   assert.ok(request.options.allowedTools.includes("mcp__forge__list_files"));
   assert.ok(request.options.allowedTools.includes("mcp__forge__edit_diff"));
@@ -122,7 +135,7 @@ test("System Engineer Claude uses Forge tools and does not enable built-in disco
   assert.equal(request.options.canUseTool, undefined);
 });
 
-test("Claude gateway exposes Forge search tools and no native search tools", async () => {
+test("Claude gateway exposes Forge search tools and role-approved native web search", async () => {
   let sdkOptions;
   const events = [];
   const profile = { agent_id: "engineer", agent_name: "Engineer", role: "system_engineer", provider: "anthropic", model: "claude-test", gateway_url: "https://example.test/v1", credential_ref: "test", enabled: true, status: "ready" };
@@ -136,7 +149,8 @@ test("Claude gateway exposes Forge search tools and no native search tools", asy
   const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => profile }, sdkGateways: { anthropic: gateway }, fallbackStream: async function* () {}, fileService: fileService(), testService: { runCheck: async () => ({ status: "passed" }) }, gitService: { status: async () => "", diffWorkingTree: async () => "" }, projectRoot: "/project", projectLogger: logger });
   const chunks = [];
   for await (const chunk of stream({ agentId: "engineer", payload: { text: "find a source file" }, correlationId: "CORR-CLAUDE-SEARCH", conversationId: "CONV-CLAUDE-SEARCH" })) chunks.push(chunk.text);
-  assert.deepEqual(sdkOptions.tools, []);
+  assert.deepEqual(sdkOptions.tools, ["WebSearch"]);
+  assert.ok(sdkOptions.allowedTools.includes("WebSearch"));
   assert.ok(sdkOptions.allowedTools.includes("mcp__forge__search_text"));
   assert.deepEqual(chunks, ["Found the source."]);
   assert.equal(events.some((event) => event.event_name === "owner.builtin_search"), false);
@@ -188,10 +202,13 @@ test("OpenAI Agents SDK registers callable Forge functions for owner conversatio
   let agentOptions;
   const profile = { agent_id: "architect", agent_name: "Architect", role: "architecture_manager", model: "gpt-test", reasoning: { effort: "none" } };
   const gateway = createOpenAiSdkGateway({ providerFactory: { createForAgent: async () => ({ provider: { close: async () => {} }, profile }) }, AgentClass: class { constructor(options) { agentOptions = options; } }, runner: async () => ({ finalOutput: "done" }) });
-  const result = await gateway.execute({ agent: profile, prompt: "inspect", correlationId: "CORR-OPENAI", options: { forgeTools: { definitions: [{ name: "list_files", description: "List files", input_schema: { type: "object", properties: {}, additionalProperties: false } }], registry: { list_files: { execute: async () => ({ stdout: "a.js" }) } }, context: {} } } });
-  assert.equal(agentOptions.tools[0].name, "list_files");
-  assert.equal(typeof agentOptions.tools[0].invoke, "function");
-  assert.deepEqual(JSON.parse(await agentOptions.tools[0].invoke(new RunContext(), "{}")), { stdout: "a.js" });
+  const result = await gateway.execute({ agent: profile, prompt: "inspect", correlationId: "CORR-OPENAI", options: { builtinWebSearch: true, forgeTools: { definitions: [{ name: "list_files", description: "List files", input_schema: { type: "object", properties: {}, additionalProperties: false } }], registry: { list_files: { execute: async () => ({ stdout: "a.js" }) } }, context: {} } } });
+  assert.equal(gateway.builtinWebSearchAvailable(profile), true);
+  assert.equal(agentOptions.tools[0].type, "hosted_tool");
+  assert.equal(agentOptions.tools[0].name, "web_search");
+  assert.equal(agentOptions.tools[1].name, "list_files");
+  assert.equal(typeof agentOptions.tools[1].invoke, "function");
+  assert.deepEqual(JSON.parse(await agentOptions.tools[1].invoke(new RunContext(), "{}")), { stdout: "a.js" });
   assert.equal(result.text, "done");
 });
 

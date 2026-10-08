@@ -4,9 +4,9 @@
 import { useEffect, useRef, useState } from "react";
 
 // Shows durable execution status and requires a second Escape key press to pause active work.
-export function SystemExecutionControls({ client, projectId, conversationId, executionId, agentTyping, onPause }) {
+export function SystemExecutionControls({ client, projectId, conversationId, executionId, agentTyping, onPause, refreshSignal }) {
   const [executions, setExecutions] = useState([]);
-  const [hint, setHint] = useState("");
+  const [, setHint] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const lastEscape = useRef(0);
@@ -33,7 +33,7 @@ export function SystemExecutionControls({ client, projectId, conversationId, exe
     };
     void refresh();
     return () => { mounted = false; };
-  }, [client, projectId, conversationId]);
+  }, [client, projectId, conversationId, refreshSignal]);
 
   useEffect(() => {
     if (currentStatus !== "running" && (current || !agentTyping)) return undefined;
@@ -43,7 +43,6 @@ export function SystemExecutionControls({ client, projectId, conversationId, exe
       const now = Date.now();
       if (now - lastEscape.current > 3000) {
         lastEscape.current = now;
-        setHint("Press Esc again within 3 seconds to pause the System Engineer.");
         return;
       }
       lastEscape.current = 0;
@@ -66,7 +65,7 @@ export function SystemExecutionControls({ client, projectId, conversationId, exe
       if (!record || (action === "pause" && record.status !== "running")) throw new Error("No active System Engineer execution to pause yet.");
       await client.decideOwnerExecution(projectId, conversationId, record.execution_id, action);
       setExecutions((previous) => {
-        const status = action === "pause" ? "pausing" : action === "continue" ? "running" : action === "restart" ? "restarted" : "discarded";
+        const status = action === "pause" ? "interrupted" : action === "continue" ? "running" : action === "restart" ? "restarted" : "discarded";
         return previous.some((entry) => entry.execution_id === record.execution_id) ? previous.map((entry) => entry.execution_id === record.execution_id ? { ...entry, status } : entry) : [...previous, { ...record, status }];
       });
       if (action === "pause") onPause?.(false);
@@ -76,12 +75,9 @@ export function SystemExecutionControls({ client, projectId, conversationId, exe
 
   if (!current && !agentTyping && !error) return null;
   return <div className="claude-chat-status" role="status" aria-live="polite">
-    {(currentStatus === "running" || (!current && agentTyping)) && <button type="button" className="claude-retry" disabled={busy || !conversationId} onClick={() => void decide("pause")}>Pause</button>}
-    {currentStatus === "pausing" && <><span>Pausing System Engineer…</span><button type="button" className="claude-retry" onClick={() => void client.listOwnerExecutions(projectId, conversationId).then((response) => { setExecutions((response.items ?? []).map((entry) => entry.execution_id === currentId && entry.status === "running" ? { ...entry, status: "pausing" } : entry)); setError(""); }).catch((reason) => setError(reason.message ?? "Unable to check status."))}>Check status</button></>}
-    {currentStatus === "interrupted" && <span>System Engineer paused. Choose how to proceed. </span>}
+    {currentStatus === "interrupted" && <span>One action interrupted</span>}
     {currentStatus === "manual_required" && <span>Workspace needs manual verification before recovery.</span>}
-    {hint && <span>{hint} </span>}
     {error && <span>{error} </span>}
-    {currentStatus === "interrupted" && ["continue", "restart", "discard"].map((action) => <button key={action} type="button" className="claude-retry" disabled={busy} onClick={() => void decide(action)}>{action === "continue" ? "Continue" : action === "restart" ? "Restart" : "Discard"}</button>)}
+    {currentStatus === "interrupted" && ["continue", "restart", "discard"].map((action) => <button key={action} type="button" className="claude-retry" disabled={busy} onClick={() => void decide(action)} aria-label={action === "continue" ? "Continue interrupted action" : action === "restart" ? "Restart interrupted action" : "Discard interrupted action"}>{action === "continue" ? "Continue" : action === "restart" ? "Restart" : "Discard"}</button>)}
   </div>;
 }

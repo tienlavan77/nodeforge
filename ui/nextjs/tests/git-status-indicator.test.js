@@ -12,4 +12,6 @@ test("Git status indicator confirms all changed files before commit and push", (
   assert.ok(component.includes("view.changed > 0 && <button"));
   assert.ok(component.includes("result.status === \"pushed\""));
   assert.ok(component.includes("created, but push failed."));
+  assert.ok(component.includes("message.includes(\"index.lock\")"));
+  assert.ok(component.includes("Another Git operation is still running."));
 });

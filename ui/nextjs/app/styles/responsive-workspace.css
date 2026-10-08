@@ -51,6 +51,9 @@
 .system-workspace .claude-chat-header { display: grid; align-content: center; gap: 8px; padding-block: 10px; }
 .system-workspace .claude-chat-header .claude-chat-status { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
 .claude-home-shell:not(.system-workspace) .claude-chat-header { display: flex; flex-wrap: wrap; align-content: center; gap: 8px; padding-block: 10px; }
+.conversation-statusbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; min-width: 0; margin-bottom: 6px; }
+.conversation-statusbar > .home-plan-approval-notice { flex: 1 1 auto; margin-bottom: 0; }
+.conversation-statusbar > .claude-chat-status { display: flex; align-items: center; justify-content: flex-end; flex: 0 1 auto; flex-wrap: wrap; gap: 6px; margin: 0; }
 .architecture-execution-controls { display: flex; flex: 1 1 320px; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; min-width: 0; }
 .architecture-owner-token { max-width: 130px; min-width: 0; border: 1px solid var(--app-border); border-radius: 4px; background: var(--app-input); color: var(--app-text); }
 .architecture-execution-controls .claude-retry { position: relative; z-index: 1; }
