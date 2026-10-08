@@ -48,6 +48,8 @@ test("discard keeps uncertain mutations and requires a stopped Architecture runn
   await architecture.beforeTool("discard", "pending", "write_diff", { path: "workflows/pending.md", before_checksum: null, content: "pending" });
   await architecture.patch("discard", "pending", { status: "interrupted" });
   await assert.rejects(architecture.close("discard", "pending", "discarded"), { code: "EXECUTION_RECONCILIATION_REQUIRED" });
+  await architecture.markStopped("discard", "pending");
+  await assert.rejects(architecture.close("discard", "pending", "discarded"), { code: "EXECUTION_RECONCILIATION_REQUIRED" });
 });
 
 test("Architecture execution list and decisions only return the selected agent's records", async (context) => {
@@ -58,7 +60,7 @@ test("Architecture execution list and decisions only return the selected agent's
   const messages = new Map([["M2", { id: "M2", conversation_id: "C2", recipient: { id: "architect" }, payload: { text: "plan" } }]]);
   const control = createOwnerExecutionControl({ checkpoint: engineer, architectureCheckpoint: architecture, agentConfiguration: { getById: (agentId) => ({ role: agentId === "architect" ? "architecture_manager" : "system_engineer" }) }, communications: { getById: (messageId) => messages.get(messageId) }, sdkStream: { pause: () => false }, ownerChatService: { replay: () => { throw new Error("unexpected replay"); } } });
   const [visible] = await control.list("C2", "architect");
-  assert.deepEqual(visible, { conversation_id: "C2", execution_id: "E2", status: "interrupted", can_continue: false, can_reconcile: false, requires_human_review: false });
+  assert.deepEqual(visible, { conversation_id: "C2", execution_id: "E2", status: "interrupted", can_continue: false, can_restart: true, can_discard: true, can_reconcile: false, requires_human_review: false });
   assert.deepEqual(await control.list("C2", "engineer"), []);
   await assert.rejects(control.pause("C2", "E2", "engineer"), { statusCode: 404 });
   await assert.rejects(control.decide("C2", "E2", "engineer", "continue"), { statusCode: 404 });
@@ -72,6 +74,7 @@ test("Architecture Continue preserves provider thread without resending the orig
   const text = "Create a unique architecture plan";
   await architecture.start({ conversationId: "C-resume", executionId: "E-resume", messageId: "M-resume", provider: "codex", promptHash: executionDigest(text) });
   await architecture.patch("C-resume", "E-resume", { status: "interrupted", provider_thread_id: "thread-resume" });
+  await architecture.markStopped("C-resume", "E-resume");
   let executeCalls = 0;
   const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => ({ agent_id: "architect", role: "architecture_manager", provider: "codex" }) }, sdkGateways: { codex: { conversationMode: "thread", execute: async ({ prompt, resumeThreadId }) => {
     executeCalls += 1;
@@ -157,6 +160,7 @@ test("Architecture execution controls require server-side owner authorization", 
   assert.equal((await request("GET", "conversations/C/executions", "PROJECT")).status, 200);
   assert.equal((await request("POST", "conversations/C/executions/E/pause", "PROJECT")).status, 202);
   for (const action of ["continue", "restart", "discard"]) assert.equal((await request("POST", `conversations/C/executions/E/${action}`, "PROJECT")).status, 202);
-  assert.equal((await request("POST", "conversations/C/executions/E/reconcile", "PROJECT", null, { sequence: 2 })).status, 200);
-  assert.deepEqual(calls, [["list", "C", "architect"], ["pause", "C", "E", "architect"], ...["continue", "restart", "discard"].map((action) => ["decide", "C", "E", "architect", action]), ["reconcile", "C", "E", "architect", 2, "unauthenticated-architecture-control"]]);
+  await assert.rejects(request("POST", "conversations/C/executions/E/reconcile", "PROJECT", null, { sequence: 2 }), { code: "PLAN_OWNER_UNAUTHORIZED", statusCode: 403 });
+  assert.equal((await request("POST", "conversations/C/executions/E/reconcile", "PROJECT", "Bearer secret", { sequence: 2 })).status, 200);
+  assert.deepEqual(calls, [["list", "C", "architect"], ["pause", "C", "E", "architect"], ...["continue", "restart", "discard"].map((action) => ["decide", "C", "E", "architect", action]), ["reconcile", "C", "E", "architect", 2, "OWNER"]]);
 });

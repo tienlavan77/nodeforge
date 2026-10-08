@@ -132,11 +132,11 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
   const { sendMessage, editMessage, retryMessage, retryLastMessage } = createHomeMessageHandlers({
     client, projectId: PROJECT_ID, architectureConversationId: null, chatStateKey: CODING_CHAT_STATE_KEY,
     selectedArchitectureManager: selectedAgent, activeConversationId, setActiveConversationId,
-    setChatState, setMessages, setAgentTyping, sendingRef, lastSentRef, writeChatState, messageIntent: MESSAGE_INTENTS.normalChat
+    setChatState, setMessages, setAgentTyping, sendingRef, lastSentRef, writeChatState, messageIntent: MESSAGE_INTENTS.normalChat, executionRole: "system-engineer"
   });
-  const sendQueuedMessage = (text) => {
+  const sendQueuedMessage = (text, responseContentType) => {
     followLatest();
-    return sendMessage(text).catch((error) => {
+    return sendMessage(text, responseContentType).catch((error) => {
       const normalized = normalizeUiError(error, { fallback: "Node rejected the system request." });
       setGlobalError({ ...normalized, _retry: retryLastMessage });
       throw error;
@@ -168,7 +168,7 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
           {!messagesLoading && messages.length === 0 && <div className="claude-welcome"><span className="claude-welcome-mark">⌘</span><h1>What should we build?</h1><p>Start a conversation with your project agent.</p></div>}
           {messages.map((message) => <article className={`claude-message ${message.from === "owner" ? "is-owner" : "is-agent"}`} key={message.stream_key ?? message.id}>
             <div className="claude-message-meta"><span>{message.nickname ?? (message.from === "owner" ? "You" : "System Engineer")}</span><time dateTime={message.timestamp}>{displayMessageTime(message.timestamp)}</time></div>
-            {message.from === "owner" ? <ConversationMessageActions message={message} onEdit={editMessage} onRetry={(ownerMessage) => retryMessage(ownerMessage, activeConversationId)}><ConversationResponseReveal text={message.text} contentType={message.content_type} onMarkdownOpen={setMarkdownPreviewPath} /></ConversationMessageActions> : <ConversationAgentMessageActions message={message}><ConversationResponseReveal text={message.text} contentType={message.content_type} reveal={message.from === "agent" && message.reveal === true} onMarkdownOpen={setMarkdownPreviewPath} onReveal={() => { const container = chatMessagesRef.current; if (container && container.scrollHeight - container.scrollTop - container.clientHeight < 72) container.scrollTop = container.scrollHeight; }} /></ConversationAgentMessageActions>}
+            {message.from === "owner" ? <ConversationMessageActions message={message} onEdit={editMessage} onRetry={(ownerMessage) => retryMessage(ownerMessage, activeConversationId)}><ConversationResponseReveal text={message.text} contentType={message.content_type} onMarkdownOpen={setMarkdownPreviewPath} /></ConversationMessageActions> : <ConversationAgentMessageActions message={message} client={client} projectId={PROJECT_ID}><ConversationResponseReveal text={message.text} contentType={message.content_type} reveal={message.from === "agent" && message.reveal === true} onMarkdownOpen={setMarkdownPreviewPath} onReveal={() => { const container = chatMessagesRef.current; if (container && container.scrollHeight - container.scrollTop - container.clientHeight < 72) container.scrollTop = container.scrollHeight; }} /></ConversationAgentMessageActions>}
             {message.from === "system" && message.retryable !== false && <button type="button" className="claude-retry" onClick={retryLastMessage}>Retry</button>}
           </article>)}
           {agentTyping && <div className="claude-typing" role="status" aria-label="Waiting for agent response"><i /><i /><i /></div>}
@@ -177,7 +177,7 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
           <PendingConversationQueue pendingMessages={pendingMessages} onCancel={cancelPendingMessage} />
           <div className="conversation-statusbar">
             <ConversationProjectGit client={client} projectId={PROJECT_ID} />
-            <SystemExecutionControls client={client} projectId={PROJECT_ID} conversationId={activeConversationId} executionId={lastSentRef.current?.conversationId === activeConversationId ? lastSentRef.current.correlationId : messages.findLast((message) => message.from === "owner" && message.correlation_id)?.correlation_id} agentTyping={agentTyping} onPause={setAgentTyping} />
+            <SystemExecutionControls client={client} projectId={PROJECT_ID} conversationId={activeConversationId} executionId={lastSentRef.current?.conversationId === activeConversationId ? lastSentRef.current.correlationId : messages.findLast((message) => message.from === "owner" && message.correlation_id)?.correlation_id} agentTyping={agentTyping} />
           </div>
           <HomeChatComposer onSend={submitMessage} />
           <p>Requests are sent to the selected system agent.</p>

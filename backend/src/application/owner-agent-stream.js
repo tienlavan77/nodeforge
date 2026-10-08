@@ -14,6 +14,7 @@ export function createOwnerAgentStream({ bus, agentStream, onAgentCompleted, exe
 
   // Streams agent output and loops through context requests until completion.
   async function streamRealAgent(message, agentId) {
+    const contentType = message.payload?.response_content_type === "text/markdown" ? "text/markdown" : "text/plain";
     let index = 0;
     let text = "";
     let batchText = "";
@@ -26,7 +27,7 @@ export function createOwnerAgentStream({ bus, agentStream, onAgentCompleted, exe
     const contextResults = new Map();
     const flush = () => {
       if (!batchText) return;
-      const payload = { text: batchText, accumulated_text: text, content_type: "text/markdown", chunk_index: index++, batch_start: batchStart, batch_end: index - 1 };
+      const payload = { text: batchText, accumulated_text: text, content_type: contentType, chunk_index: index++, batch_start: batchStart, batch_end: index - 1 };
       batchText = "";
       batchStart = index;
       bus.sendFast(responseMessage(message, streamEventType(agentId, "message.delta"), payload, `DELTA-${index}`));
@@ -35,7 +36,7 @@ export function createOwnerAgentStream({ bus, agentStream, onAgentCompleted, exe
       bus.sendFast(responseMessage(message, "architecture.working", { agent_status: "WORKING" }, "WORKING"));
       const taskId = message.payload.task?.id ?? message.id;
       const initialText = `${await enrichAgentText(message, agentId)}${typeof executeAgentTool === "function" ? AGENT_TOOL_PROTOCOL : ""}`;
-      let requestPayload = { text: initialText, message_id: message.id, ...(message.payload.source_message_id ? { source_message_id: message.payload.source_message_id } : {}), ...(message.payload.resume_of ? { resume_of: message.payload.resume_of } : {}), ...(message.payload.continue_execution ? { continue_execution: true } : {}), ...(message.payload.task ? { task: message.payload.task } : {}) };
+      let requestPayload = { text: initialText, message_id: message.id, response_content_type: contentType, ...(message.payload.source_message_id ? { source_message_id: message.payload.source_message_id } : {}), ...(message.payload.resume_of ? { resume_of: message.payload.resume_of } : {}), ...(message.payload.continue_execution ? { continue_execution: true } : {}), ...(message.payload.task ? { task: message.payload.task } : {}) };
       let round = 0;
       while (!submittedCode) {
         round += 1;
@@ -69,7 +70,7 @@ export function createOwnerAgentStream({ bus, agentStream, onAgentCompleted, exe
             const contextContent = String(result.content ?? "");
             contextRefs.set(contextRef, contextContent);
             const excerpt = contextContent.slice(0, 3000);
-            requestPayload = { text: `task_id: ${taskId}\ncontext_ref: ${contextRef}\nstate_summary: ${stateSummary}\ncontext_status: ${result.status ?? "context_ready"}\ncontext_available: ${result.context_available !== false}\ntool_result: context stored by Node (${contextContent.length} chars)\ncontext_excerpt:\n${excerpt}\nnext_step: submit_code\n\nUse the context_ref for correlation. Return submit_code now.` };
+            requestPayload = { text: `task_id: ${taskId}\ncontext_ref: ${contextRef}\nstate_summary: ${stateSummary}\ncontext_status: ${result.status ?? "context_ready"}\ncontext_available: ${result.context_available !== false}\ntool_result: context stored by Node (${contextContent.length} chars)\ncontext_excerpt:\n${excerpt}\nnext_step: submit_code\n\nUse the context_ref for correlation. Return submit_code now.`, response_content_type: contentType };
             requestedNextRound = true;
           }
           if (tool.kind === "submit_code") {
@@ -85,7 +86,7 @@ export function createOwnerAgentStream({ bus, agentStream, onAgentCompleted, exe
           if (!chunk.text) continue;
           if (!emittedFirstDelta) {
             emittedFirstDelta = true;
-            bus.sendFast(responseMessage(message, streamEventType(agentId, "message.delta"), { text: chunk.text, accumulated_text: text, content_type: "text/markdown", chunk_index: index++, batch_start: 0, batch_end: 0 }, `DELTA-${index}`));
+            bus.sendFast(responseMessage(message, streamEventType(agentId, "message.delta"), { text: chunk.text, accumulated_text: text, content_type: contentType, chunk_index: index++, batch_start: 0, batch_end: 0 }, `DELTA-${index}`));
             continue;
           }
           batchText += chunk.text;
@@ -99,8 +100,8 @@ export function createOwnerAgentStream({ bus, agentStream, onAgentCompleted, exe
       if (agentId === "builder" && !submittedCode) throw new ConfigurationError("Builder must return submit_code before completing a coding task.");
       if (!submittedCode && !text.trim()) throw new ConfigurationError("Agent ended without submit_code or a non-empty response.");
       await bus.flush();
-      bus.send(responseMessage(message, streamEventType(agentId, "message.received"), { text, content_type: "text/markdown", agent_status: "COMPLETED" }, "COMPLETED"));
-      persistProtocolMessage({ ...message, payload: { ...message.payload, text, content_type: "text/markdown" } }, message.payload.round ?? 1, "response");
+      bus.send(responseMessage(message, streamEventType(agentId, "message.received"), { text, content_type: contentType, agent_status: "COMPLETED" }, "COMPLETED"));
+      persistProtocolMessage({ ...message, payload: { ...message.payload, text, content_type: contentType, ...(contentType === "text/markdown" ? { markdown_provenance: "owner-markdown-opt-in-v1" } : {}) } }, message.payload.round ?? 1, "response");
       await onAgentCompleted?.({ message, agentId, text });
     } catch (error) {
       if (error?.code !== "EXECUTION_PAUSED") bus.send(responseMessage(message, streamEventType(agentId, "error"), { error: error.message, agent_status: "FAILED" }, "ERROR"));

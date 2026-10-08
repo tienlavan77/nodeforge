@@ -11,6 +11,7 @@ export function HomeChatComposer({ onSend, editRequest }) {
   const [draft, setDraft] = useState("");
   const [history, setHistory] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const [markdownReply, setMarkdownReply] = useState(false);
   const composingRef = useRef(false);
   const textareaRef = useRef(null);
 
@@ -48,9 +49,11 @@ export function HomeChatComposer({ onSend, editRequest }) {
     if (!text) return;
     remember(text);
     setHistoryIndex(-1);
+    const responseContentType = markdownReply ? "text/markdown" : "text/plain";
     // Clear synchronously so the last typed character cannot remain visible while Node handles the request.
     setDraft("");
-    void onSend(text);
+    setMarkdownReply(false);
+    void onSend(text, responseContentType);
   }
 
   // Navigates remembered messages only when the cursor is at a textarea edge.
@@ -74,6 +77,7 @@ export function HomeChatComposer({ onSend, editRequest }) {
   }
 
   return <form className="home-composer" onSubmit={submit}>
+    <div className="home-composer-fields">
     <textarea ref={textareaRef} value={draft} onChange={(event) => { setDraft(event.target.value); setHistoryIndex(-1); }} onCompositionStart={() => { composingRef.current = true; }} onCompositionEnd={(event) => { composingRef.current = false; setDraft(event.currentTarget.value); }} onKeyDown={(event) => {
       navigateHistory(event);
       if (event.key === "Enter" && !event.shiftKey) {
@@ -82,6 +86,8 @@ export function HomeChatComposer({ onSend, editRequest }) {
         if (event.currentTarget.value.trim()) event.currentTarget.form?.requestSubmit();
       }
     }} placeholder="Chat or paste a ticket..." rows="3" aria-label="Chat or ticket input" />
+    <label className="home-composer-markdown"><input type="checkbox" checked={markdownReply} onChange={(event) => setMarkdownReply(event.target.checked)} />Markdown reply</label>
+    </div>
     <button type="submit" aria-label="Send message" disabled={!draft.trim()}>&#8593;</button>
   </form>;
 }

@@ -4,7 +4,7 @@ import { toConversationChatHistory } from "../../agents/agent-contract.js";
 import { unavailable } from "./forge-v1-router-utils.js";
 
 // Creates conversation endpoints and checkpoint projections for the Forge API.
-export function createForgeV1ConversationRoutes({ conversationCrudService, conversationAuditHistoryService, ownerChatService, ownerExecutionControl, listResumableCheckpoints, planOwnerAuth }) {
+export function createForgeV1ConversationRoutes({ conversationCrudService, conversationAuditHistoryService, markdownResponseFileService, ownerChatService, ownerExecutionControl, listResumableCheckpoints, planOwnerAuth }) {
   return Object.freeze({ routeConversation, withCheckpointSummary, withDashboardCheckpointSummary });
 
   // Routes conversation CRUD, history, and owner messages.
@@ -15,7 +15,11 @@ export function createForgeV1ConversationRoutes({ conversationCrudService, conve
       if (method === "GET" && parts.length === 3) return { status: 200, body: { items: await ownerExecutionControl.list(parts[1], conversation.agent_id) } };
       if (method === "POST" && parts.length === 5) {
         const [,, , executionId, action] = parts;
-        const recoveryActor = ownerExecutionControl.requiresOwnerAuth(conversation.agent_id) ? "unauthenticated-architecture-control" : null;
+        let recoveryActor = null;
+        if (action === "reconcile" && ownerExecutionControl.requiresOwnerAuth(conversation.agent_id)) {
+          if (typeof planOwnerAuth?.verify !== "function") throw Object.assign(new ConfigurationError("Owner authentication is unavailable for execution reconciliation."), { code: "OWNER_AUTH_UNCONFIGURED", statusCode: 503 });
+          recoveryActor = planOwnerAuth.verify(headers);
+        }
         if (action === "pause") return { status: 202, body: await ownerExecutionControl.pause(parts[1], executionId, conversation.agent_id) };
         if (action === "reconcile") return { status: 200, body: await ownerExecutionControl.reconcilePending(parts[1], executionId, conversation.agent_id, body.sequence, recoveryActor) };
         if (["continue", "restart", "discard"].includes(action)) return { status: 202, body: await ownerExecutionControl.decide(parts[1], executionId, conversation.agent_id, action) };
@@ -51,6 +55,10 @@ export function createForgeV1ConversationRoutes({ conversationCrudService, conve
       }
     }
     if (method === "GET" && parts.length === 3 && parts[0] === "conversations" && parts[2] === "messages") return queryConversationHistory(parts[1], url, projectId, false);
+    if (method === "POST" && parts.length === 5 && parts[0] === "conversations" && parts[2] === "messages" && parts[4] === "markdown-file") {
+      if (!markdownResponseFileService?.save) throw unavailable("Markdown Response Export");
+      return { status: 201, body: await markdownResponseFileService.save({ requestedProjectId: projectId, conversationId: parts[1], messageId: parts[3], confirmOverwrite: body.confirm_overwrite ?? false }) };
+    }
     if (method === "POST" && parts.length === 3 && parts[0] === "conversations" && parts[2] === "messages") {
       if (!ownerChatService?.submit) throw unavailable("Conversation");
       let conversationAgentId;
