@@ -16,8 +16,10 @@ test("streams ordered real Agent deltas realtime and persists only canonical com
   const deltas = observed.filter(({ message_type }) => message_type === "architecture.message.delta");
   assert.deepEqual(messages.map(({ message_type }) => message_type), ["owner.message", "architecture.message.received"]);
   assert.deepEqual(deltas.map(({ payload }) => payload.text), ["one", " two"]);
+  assert.deepEqual(deltas.map(({ payload }) => payload.content_type), ["text/markdown", "text/markdown"]);
   assert.equal(observed.some(({ payload }) => payload.text?.includes("Đang xử lý yêu cầu (vòng")), false);
   assert.equal(messages.at(-1).payload.text, "one two");
+  assert.equal(messages.at(-1).payload.content_type, "text/markdown");
   assert(messages.every(({ correlation_id }) => correlation_id === "CORR-149"));
 });
 

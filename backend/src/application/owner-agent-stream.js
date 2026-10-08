@@ -26,7 +26,7 @@ export function createOwnerAgentStream({ bus, agentStream, onAgentCompleted, exe
     const contextResults = new Map();
     const flush = () => {
       if (!batchText) return;
-      const payload = { text: batchText, accumulated_text: text, chunk_index: index++, batch_start: batchStart, batch_end: index - 1 };
+      const payload = { text: batchText, accumulated_text: text, content_type: "text/markdown", chunk_index: index++, batch_start: batchStart, batch_end: index - 1 };
       batchText = "";
       batchStart = index;
       bus.sendFast(responseMessage(message, streamEventType(agentId, "message.delta"), payload, `DELTA-${index}`));
@@ -85,7 +85,7 @@ export function createOwnerAgentStream({ bus, agentStream, onAgentCompleted, exe
           if (!chunk.text) continue;
           if (!emittedFirstDelta) {
             emittedFirstDelta = true;
-            bus.sendFast(responseMessage(message, streamEventType(agentId, "message.delta"), { text: chunk.text, accumulated_text: text, chunk_index: index++, batch_start: 0, batch_end: 0 }, `DELTA-${index}`));
+            bus.sendFast(responseMessage(message, streamEventType(agentId, "message.delta"), { text: chunk.text, accumulated_text: text, content_type: "text/markdown", chunk_index: index++, batch_start: 0, batch_end: 0 }, `DELTA-${index}`));
             continue;
           }
           batchText += chunk.text;
@@ -99,8 +99,8 @@ export function createOwnerAgentStream({ bus, agentStream, onAgentCompleted, exe
       if (agentId === "builder" && !submittedCode) throw new ConfigurationError("Builder must return submit_code before completing a coding task.");
       if (!submittedCode && !text.trim()) throw new ConfigurationError("Agent ended without submit_code or a non-empty response.");
       await bus.flush();
-      bus.send(responseMessage(message, streamEventType(agentId, "message.received"), { text, agent_status: "COMPLETED" }, "COMPLETED"));
-      persistProtocolMessage({ ...message, payload: { ...message.payload, text } }, message.payload.round ?? 1, "response");
+      bus.send(responseMessage(message, streamEventType(agentId, "message.received"), { text, content_type: "text/markdown", agent_status: "COMPLETED" }, "COMPLETED"));
+      persistProtocolMessage({ ...message, payload: { ...message.payload, text, content_type: "text/markdown" } }, message.payload.round ?? 1, "response");
       await onAgentCompleted?.({ message, agentId, text });
     } catch (error) {
       if (error?.code !== "EXECUTION_PAUSED") bus.send(responseMessage(message, streamEventType(agentId, "error"), { error: error.message, agent_status: "FAILED" }, "ERROR"));

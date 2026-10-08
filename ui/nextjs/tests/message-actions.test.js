@@ -24,6 +24,8 @@ test("conversation message actions provide owner and agent controls", () => {
   assert.ok(actions.includes('className={copied ? "is-copied" : ""}'));
   assert.ok(actions.includes('m5 12 4 4L19 6'));
   assert.ok(!actions.includes("claude-message-action-notice"));
+  assert.ok(styles.includes(".claude-message.is-owner .claude-message-actions"));
+  assert.ok(styles.includes("justify-self: end"));
   assert.ok(styles.includes(".claude-message.is-agent .claude-message-actions"));
   assert.ok(styles.includes("justify-content: flex-start"));
   assert.ok(handler.includes("async function editMessage"));

@@ -79,6 +79,7 @@ function projectConversationMessage(message) {
       ...(eventType === "conversation.message.owner" && typeof payload.supersedes_message_id === "string" ? { supersedes_message_id: payload.supersedes_message_id } : {}),
       text: payload.text ?? null,
       chunk: payload.chunk ?? payload.text ?? null,
+      ...(typeof payload.content_type === "string" ? { content_type: payload.content_type } : {}),
       done: eventType !== "conversation.message.delta"
     }
   };
@@ -136,6 +137,7 @@ function projectConversationEvent(event) {
       sender_role: "agent",
       text: payload.text ?? null,
       chunk: payload.chunk ?? payload.text ?? null,
+      ...(typeof payload.content_type === "string" ? { content_type: payload.content_type } : {}),
       done: eventType === "conversation.message.received" || payload.done === true
     }
   };

@@ -60,10 +60,17 @@ test("does not accept an incomplete OpenAI SDK profile", async () => {
 
 test("OpenAI-compatible providers default to Chat Completions without reasoning", () => {
   const factory = createOpenAiSdkProviderFactory({ ProviderClass: class {}, credentialResolver: () => "secret", defaultUseResponses: true });
-  for (const provider of ["xai", "alibaba", "zhipu", "deepseek"]) {
+  for (const provider of ["ollama", "xai", "alibaba", "zhipu", "deepseek"]) {
     const profile = factory.normalizeProfile({ agent_id: provider, agent_name: provider, role: "architecture_manager", provider, gateway_url: "https://gateway.example.test/v1/chat/completions", credential_ref: `runtime:${provider}:api-key`, model: `${provider}-model` });
     assert.equal(profile.gateway_url, "https://gateway.example.test/v1");
     assert.equal(profile.use_responses, false);
     assert.deepEqual(profile.reasoning, { effort: "none" });
   }
+});
+
+test("Ollama always uses Chat Completions even when a stale profile enables Responses", () => {
+  const factory = createOpenAiSdkProviderFactory({ ProviderClass: class {}, credentialResolver: () => "secret" });
+  const profile = factory.normalizeProfile({ agent_id: "architect", agent_name: "Architect", role: "architecture_manager", provider: "ollama", gateway_url: "https://ollama.com/v1", credential_ref: "runtime:ollama:api-key", model: "gpt-oss:120b", use_responses: true });
+  assert.equal(profile.use_responses, false);
+  assert.deepEqual(profile.reasoning, { effort: "none" });
 });

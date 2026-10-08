@@ -117,7 +117,7 @@ export function useConversationMessageHistory({ client, projectId, chatMessagesR
     const isOwner = record.kind === "owner";
     const originalId = isOwner && typeof content.supersedes_message_id === "string" ? content.supersedes_message_id : record.id;
     return { id: originalId, source_message_id: record.id, stream_key: `${isOwner ? "owner" : "agent"}:${originalId}`,
-      text: String(text ?? ""), from: isOwner ? "owner" : record.kind === "failure" ? "system" : "agent",
+      text: String(text ?? ""), content_type: typeof content === "object" && typeof content.content_type === "string" ? content.content_type : !isOwner && String(record.type ?? "").endsWith(".message.received") ? "text/markdown" : "text/plain", from: isOwner ? "owner" : record.kind === "failure" ? "system" : "agent",
       nickname: isOwner ? "You" : agentDisplayName(record.agent_id, agentDirectoryRef.current),
       timestamp: record.timestamp ?? new Date().toISOString() };
   }

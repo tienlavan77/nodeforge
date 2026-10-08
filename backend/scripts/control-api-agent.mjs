@@ -28,7 +28,7 @@ export function createControlApiAgent({ database, fileService, config, env = pro
   const codexSdkGateway = createCodexSdkGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference), timeoutMs: config.sdkTimeoutMs, codexHomeRoot: join(config.dataDir, "codex-homes") });
   const openaiSdkProviderFactory = createOpenAiSdkProviderFactory({ credentialResolver: (reference) => secrets.get(reference) });
   const openaiSdkGateway = createOpenAiSdkGateway({ providerFactory: openaiSdkProviderFactory, timeoutMs: config.sdkTimeoutMs });
-  const ollamaSdkGateway = createOllamaSdkGateway({ codexSdkGateway });
+  const ollamaSdkGateway = createOllamaSdkGateway({ openaiSdkGateway });
   const agentSettings = createAgentSettingsService({ profiles, configuration: agentConfiguration, gateway: agentGateway, claudeSdkGateway, codexSdkGateway, openaiSdkGateway, ollamaSdkGateway, secretStore: secrets });
   const agentRoleResolver = createAgentRoleResolver({ profiles });
   return { profiles, agentConfiguration, secrets, agentGateway, claudeSdkGateway, codexSdkGateway, openaiSdkGateway, ollamaSdkGateway, agentSettings, agentRoleResolver };

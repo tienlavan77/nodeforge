@@ -29,7 +29,7 @@ test("Architecture workspace mounts button and double-Escape controls outside th
   assert.match(controls, /inFlight\.current/);
   assert.match(controls, /One action interrupted/);
   assert.match(controls, /Continue interrupted action/);
-  assert.match(controls, /refreshSignal/);
+  assert.doesNotMatch(controls, /refreshSignal/);
   assert.match(styles, /\.conversation-statusbar[\s\S]*?margin-bottom: 6px/);
   assert.match(styles, /\.architecture-execution-controls \{ display: flex/);
 });
@@ -49,7 +49,7 @@ test("System chat shows Pause, pausing, and recovery states without step counter
   assert.doesNotMatch(page, /claude-chat-header[\s\S]*?<SystemExecutionControls[\s\S]*?claude-chat-scroll/);
   assert.match(controls, /One action interrupted/);
   assert.match(controls, /Discard interrupted action/);
-  assert.match(controls, /refreshSignal/);
+  assert.doesNotMatch(controls, /refreshSignal/);
   assert.match(controls, /inFlight\.current/);
   assert.doesNotMatch(controls, /Attempt \{|completed steps/);
 });
@@ -67,7 +67,8 @@ test("chat pages request only role-specific agent lists and skip hidden dashboar
   assert.doesNotMatch(architecture, /PendingPlanApproval|listPlans|listSprints|PlanReviewModal/);
   assert.match(architecture, /<ConversationProjectGit/);
   assert.match(system, /<ConversationProjectGit/);
-  assert.match(eventStream, /event\.conversation_id \?\? event\.payload\?\.conversation_id/);
-  assert.match(eventStream, /\["failed", "paused"\]\.includes\(event\.payload\?\.status\)/);
+  assert.doesNotMatch(architecture, /executionSignal/);
+  assert.doesNotMatch(system, /executionSignal/);
+  assert.doesNotMatch(eventStream, /onExecutionSignal/);
   assert.match(eventStream, /loadDashboard\?\.\(\)/);
 });

@@ -50,5 +50,5 @@ function getPendingArchitectureProposal(workspace) {
 export function Message({ message }) {
   const streaming = message.stream === true;
   const rowClass = `message-row natural-message ${message.from === "owner" ? "owner" : `agent${streaming ? " streaming" : ""}`}`;
-  return <div id={`msg-${message.id}`} className={rowClass} data-message-id={message.id} data-correlation-id={message.correlation_id ?? ""} data-message-type={message.message_type ?? ""} data-role={message.from} data-timestamp={message.timestamp ?? ""}><MessageContent text={message.text} /><time dateTime={message.timestamp ?? ""} title={message.timestamp ?? ""}>{message.time}</time></div>;
+  return <div id={`msg-${message.id}`} className={rowClass} data-message-id={message.id} data-correlation-id={message.correlation_id ?? ""} data-message-type={message.message_type ?? ""} data-role={message.from} data-timestamp={message.timestamp ?? ""}><MessageContent text={message.text} contentType={message.content_type} /><time dateTime={message.timestamp ?? ""} title={message.timestamp ?? ""}>{message.time}</time></div>;
 }

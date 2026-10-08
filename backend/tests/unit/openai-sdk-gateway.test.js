@@ -115,3 +115,34 @@ test("omits unsupported path lookahead only from model-facing tool schemas", asy
   }
   assert.equal(tools[1].parameters.properties.before_checksum.pattern, writeDiffDefinition.input_schema.properties.before_checksum.pattern);
 });
+
+test("Ollama architecture profiles use Chat Completions and never receive hosted web search", async () => {
+  let agentOptions;
+  const ollamaProfile = { agent_id: "architect", agent_name: "Architect", role: "architecture_manager", provider: "ollama", gateway_url: "https://ollama.com/v1", credential_ref: "ollama-key", model: "gpt-oss:120b", use_responses: false, reasoning: { effort: "none" } };
+  const gateway = createOpenAiSdkGateway({
+    providerFactory: { async createForAgent() { return { provider: {}, profile: ollamaProfile }; } },
+    AgentClass: class FakeAgent { constructor(options) { agentOptions = options; } },
+    runner: async () => ({ finalOutput: "Found the source." })
+  });
+  await gateway.execute({ agent: ollamaProfile, correlationId: "CORR-OLLAMA-ARCH", prompt: "Search the project", options: { builtinWebSearch: true } });
+  assert.deepEqual(agentOptions.tools, []);
+  assert.equal(gateway.builtinWebSearchAvailable(ollamaProfile), false);
+});
+
+test("passes owner cancellation to the OpenAI-compatible SDK runner", async () => {
+  const controller = new AbortController();
+  let runSignal;
+  const gateway = createOpenAiSdkGateway({
+    providerFactory: { async createForAgent(profile) { return { provider: {}, profile: { ...profile, reasoning: { effort: "none" } } }; } },
+    runner: async (_agent, _prompt, options) => {
+      runSignal = options.signal;
+      controller.abort(new Error("Owner cancelled."));
+      throw Object.assign(new Error("aborted"), { name: "AbortError" });
+    }
+  });
+  await assert.rejects(() => gateway.execute({
+    agent: { agent_id: "architect", agent_name: "Architect", role: "architecture_manager", provider: "ollama", gateway_url: "https://ollama.com/v1", credential_ref: "ollama-key", model: "gpt-oss:120b" },
+    correlationId: "CORR-OLLAMA-ABORT", prompt: "Search the project", abortSignal: controller.signal
+  }), /Owner cancelled/);
+  assert.equal(runSignal.aborted, true);
+});

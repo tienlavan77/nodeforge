@@ -218,6 +218,10 @@
             "chunk": {
               "type": "string"
             },
+            "content_type": {
+              "type": "string",
+              "enum": ["text/markdown", "text/plain"]
+            },
             "message_id": {
               "type": "string",
               "minLength": 1

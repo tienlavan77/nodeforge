@@ -34,7 +34,7 @@ test("owner exposes the same approved Forge tools to OpenAI, Codex, Claude, Anth
   for (const provider of ["openai", "codex", "claude", "anthropic", "ollama"]) {
     let request;
     const profile = { agent_id: "architect", role: "architecture_manager", provider };
-    const sdk = { conversationMode: ["codex", "ollama"].includes(provider) ? "thread" : "history", builtinWebSearchAvailable: provider !== "ollama", execute: async (input) => { request = input; return { text: "ok" }; } };
+    const sdk = { conversationMode: provider === "codex" ? "thread" : "history", builtinWebSearchAvailable: provider !== "ollama", execute: async (input) => { request = input; return { text: "ok" }; } };
     const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => profile }, sdkGateways: { [provider]: sdk }, fallbackStream: async function* () {}, fileService: fileService(), projectRoot: process.cwd(), projectLogger: () => {} });
     for await (const chunk of stream({ agentId: "architect", payload: { text: "inspect project" }, correlationId: `CORR-${provider}`, conversationId: `CONV-${provider}` })) assert.equal(typeof chunk.text, "string");
     assert.deepEqual(request.options.forgeTools.definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "read_lines", "write_diff", "edit_diff", "delete_file"]);
@@ -45,8 +45,7 @@ test("owner exposes the same approved Forge tools to OpenAI, Codex, Claude, Anth
     assert.equal(request.options.builtinWebSearch, webSearchAvailable, provider);
     if (provider === "ollama") {
       assert.match(request.prompt, /does not support native web search/);
-      assert.equal(request.options.networkAccessEnabled, false);
-      assert.equal(request.options.webSearchMode, "disabled");
+      assert.equal(request.options.builtinWebSearch, false);
     }
     if (["codex", "ollama", "openai"].includes(provider)) assert.equal(request.options.forgeTools.registry.list_files.execute instanceof Function, true);
     else {
@@ -63,7 +62,7 @@ test("System Engineer exposes the same Forge discovery and engineering tools acr
   for (const provider of ["openai", "codex", "claude", "anthropic", "ollama"]) {
     let request;
     const profile = { agent_id: "engineer", agent_name: "Engineer", role: "system_engineer", provider };
-    const sdk = { conversationMode: ["codex", "ollama"].includes(provider) ? "thread" : "history", builtinWebSearchAvailable: provider !== "ollama", execute: async (input) => { request = input; return { text: "ready" }; } };
+    const sdk = { conversationMode: provider === "codex" ? "thread" : "history", builtinWebSearchAvailable: provider !== "ollama", execute: async (input) => { request = input; return { text: "ready" }; } };
     const gitService = { status: async () => "", diffWorkingTree: async () => "", commit: async () => ({ sha: "a".repeat(40) }), pushCommit: async (sha) => ({ sha }) };
     const testService = { runCheck: async () => ({ status: "passed" }) };
     const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => profile }, sdkGateways: { [provider]: sdk }, fallbackStream: async function* () {}, fileService: fileService(), conversationStateStore: memoryStateStore(), testService, gitService, projectRoot: "/project", projectLogger: () => {} });

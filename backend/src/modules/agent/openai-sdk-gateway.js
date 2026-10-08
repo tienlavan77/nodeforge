@@ -11,13 +11,16 @@ export function createOpenAiSdkGateway({ providerFactory, runner = createTracing
 
   return Object.freeze({ execute, provider: "openai", conversationMode: "history", builtinWebSearchAvailable: supportsBuiltinWebSearch });
 
-  async function execute({ agent, agentId, prompt, correlationId, options = {} } = {}) {
+  async function execute({ agent, agentId, prompt, correlationId, options = {}, abortSignal } = {}) {
     const profile = agent ?? { agent_id: agentId };
     if (typeof prompt !== "string" || !prompt.trim()) throw new ConfigurationError("OpenAI SDK prompt is required.");
     if (typeof correlationId !== "string" || !correlationId) throw new ConfigurationError("OpenAI SDK correlation_id is required.");
     const { provider, profile: normalized } = await providerFactory.createForAgent(profile);
     const useBuiltinWebSearch = options.builtinWebSearch && supportsBuiltinWebSearch({ ...normalized, provider: profile.provider });
     const controller = new AbortController();
+    const abort = () => controller.abort(abortSignal.reason);
+    abortSignal?.addEventListener("abort", abort, { once: true });
+    if (abortSignal?.aborted) abort();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const agentOptions = {
@@ -48,10 +51,12 @@ export function createOpenAiSdkGateway({ providerFactory, runner = createTracing
         text: extractText(result?.finalOutput)
       };
     } catch (error) {
+      if (abortSignal?.aborted) throw abortSignal.reason ?? error;
       if (error?.name === "AbortError" || controller.signal.aborted) throw new ConfigurationError(`OpenAI SDK request timed out for ${normalized.agent_id}.`, { cause: error });
       if (error instanceof ConfigurationError) throw error;
       throw new ConfigurationError(`OpenAI SDK request failed for ${normalized.agent_id}: ${error?.message ?? "unknown SDK error"}`, { cause: error });
     } finally {
+      abortSignal?.removeEventListener("abort", abort);
       clearTimeout(timer);
       await provider.close?.();
     }
@@ -61,7 +66,7 @@ export function createOpenAiSdkGateway({ providerFactory, runner = createTracing
   function supportsBuiltinWebSearch(profile) {
     return ["architecture_manager", "system_engineer"].includes(profile?.role)
       && profile?.use_responses !== false
-      && !["xai", "alibaba", "zhipu", "deepseek"].includes(profile?.provider);
+      && !["ollama", "xai", "alibaba", "zhipu", "deepseek"].includes(profile?.provider);
   }
 }
 

@@ -43,6 +43,11 @@
   opacity: 0.45;
 }
 
+.claude-message.is-owner .claude-message-actions {
+  width: auto;
+  justify-self: end;
+}
+
 .claude-message.is-agent .claude-message-actions {
   justify-content: flex-start;
 }
