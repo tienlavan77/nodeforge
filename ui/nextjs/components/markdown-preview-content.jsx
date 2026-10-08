@@ -3,12 +3,28 @@
 
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 function InlineMarkdown({ text }) {
-  const parts = String(text ?? "").split(/(`[^`]+`|\*\*[^*]+\*\*)/g);
-  return parts.map((part, index) => part.startsWith("`") ? <code key={index}>{part.slice(1, -1)}</code> : part.startsWith("**") ? <strong key={index}>{part.slice(2, -2)}</strong> : <span key={index}>{part}</span>);
+  const parts = String(text ?? "").split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^\s)]+\))/g);
+  return parts.map((part, index) => {
+    const link = /^\[([^\]]+)\]\(([^\s)]+)\)$/.exec(part);
+    if (link) {
+      const href = safeLinkHref(link[2]);
+      return href ? <a key={index} href={href} target="_blank" rel="noreferrer noopener">{link[1]}</a> : <span key={index}>{link[1]}</span>;
+    }
+    if (part.startsWith("`")) return <code key={index}>{part.slice(1, -1)}</code>;
+    if (part.startsWith("**")) return <strong key={index}>{part.slice(2, -2)}</strong>;
+    if (part.startsWith("*")) return <em key={index}>{part.slice(1, -1)}</em>;
+    return <span key={index}>{part}</span>;
+  });
+}
+
+// Allows only safe external link protocols in untrusted agent Markdown.
+function safeLinkHref(value) {
+  const href = String(value ?? "").trim();
+  return /^(https?:|mailto:)/i.test(href) ? href : null;
 }
 
 // Transforms common Markdown blocks without interpreting HTML from project files.
-export function MarkdownPreviewContent({ markdown }) {
+export function MarkdownPreviewContent({ markdown, variant = "preview" }) {
   const lines = String(markdown ?? "").replace(/\r\n/g, "\n").split("\n");
   const blocks = [];
   let index = 0;
@@ -46,7 +62,7 @@ export function MarkdownPreviewContent({ markdown }) {
     while (index < lines.length && lines[index].trim() && !/^(#{1,4}\s|```|[-*+]\s+|\d+\.\s+|>)/.test(lines[index])) paragraph.push(lines[index++]);
     blocks.push(<p key={blocks.length}><InlineMarkdown text={paragraph.join(" ")} /></p>);
   }
-  return <div className="markdown-preview-content">{blocks}</div>;
+  return <div className={`markdown-preview-content markdown-preview-content--${variant}`}>{blocks}</div>;
 }
 
 // Splits a Markdown table row while ignoring optional edge pipes.

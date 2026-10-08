@@ -167,6 +167,7 @@
         "sender_role": { "type": ["string", "null"] },
         "text": { "type": ["string", "null"] },
         "chunk": { "type": ["string", "null"] },
+        "content_type": { "type": "string", "enum": ["text/markdown", "text/plain"] },
         "done": { "type": "boolean" }
       }
     },
