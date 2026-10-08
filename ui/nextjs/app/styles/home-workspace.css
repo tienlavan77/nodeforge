@@ -231,6 +231,10 @@
 .claude-composer-wrap .home-composer textarea { min-height: 80px; border: 0; background: transparent; padding: 8px 9px; font: 15px/1.4 'Space Grotesk', sans-serif; }
 .claude-composer-wrap .home-composer textarea:focus { outline: none; }
 .claude-composer-wrap .home-composer button { flex: 0 0 36px; width: 36px; height: 36px; border-radius: 10px; }
+.home-composer-fields { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 4px; }
+.home-composer-fields textarea { width: 100%; box-sizing: border-box; }
+.home-composer-markdown { display: inline-flex; width: fit-content; align-items: center; gap: 6px; color: var(--app-muted); cursor: pointer; font: 11px 'DM Mono', monospace; }
+.home-composer-markdown input { margin: 0; accent-color: var(--app-accent); }
 .claude-composer-wrap > p { margin: 8px 0 0; color: var(--app-muted); text-align: center; font: 11px 'Space Grotesk', sans-serif; }
 .conversation-markdown-link { border: 0; background: transparent; color: var(--app-accent); cursor: pointer; font: inherit; padding: 0; text-decoration: none; }
 .conversation-markdown-code { display: inline; border: 1px solid var(--app-border); border-radius: 4px; background: var(--app-surface-alt); padding: 1px 5px; font: 12px/1.4 'DM Mono', monospace; }
@@ -240,6 +244,12 @@
 .markdown-preview-panel header button { width: 24px; height: 24px; border: 0; background: transparent; color: var(--app-muted); cursor: pointer; font-size: 20px; }
 .markdown-preview-state, .markdown-preview-content { height: calc(100dvh - 40px); box-sizing: border-box; overflow: auto; margin: 0; padding: 18px; color: var(--app-text); }
 .markdown-preview-content { font: 14px/1.65 'Space Grotesk', sans-serif; }
+.markdown-preview-content--conversation { width: 100%; max-width: 100%; min-width: 0; height: auto; min-height: 0; overflow: visible; box-sizing: border-box; padding: 0; overflow-wrap: anywhere; }
+.markdown-preview-content--conversation pre, .markdown-preview-content--conversation .markdown-preview-table-wrap { max-width: 100%; }
+.markdown-preview-content--conversation pre { overflow-x: auto; }
+.claude-message .markdown-preview-content--conversation { color: var(--app-text); }
+.conversation-markdown-badge { justify-self: start; border: 1px solid var(--app-border); border-radius: 999px; padding: 2px 8px; color: var(--app-muted); font: 10px 'DM Mono', monospace; }
+.conversation-markdown-export-status { margin: 4px 0; color: var(--app-muted); font: 11px 'DM Mono', monospace; overflow-wrap: anywhere; }
 .markdown-preview-content h1, .markdown-preview-content h2, .markdown-preview-content h3, .markdown-preview-content h4 { margin: 1.35em 0 .5em; line-height: 1.2; }
 .markdown-preview-content h1:first-child, .markdown-preview-content h2:first-child, .markdown-preview-content h3:first-child, .markdown-preview-content h4:first-child { margin-top: 0; }
 .markdown-preview-content h1 { font-size: 22px; }.markdown-preview-content h2 { font-size: 18px; }.markdown-preview-content h3 { font-size: 16px; }.markdown-preview-content h4 { font-size: 14px; }

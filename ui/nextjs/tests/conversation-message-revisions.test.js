@@ -32,3 +32,14 @@ test("inline edit saves a linked revision through the owner message endpoint", a
   assert.equal(messages[0].source_message_id, posts[0].messageId);
   assert.equal(messages[0].pending, false);
 });
+
+test("System Engineer retries use a System Engineer execution identity", async () => {
+  const posts = [];
+  const handlers = createHomeMessageHandlers({
+    client: { postOwnerMessage: async (input) => posts.push(input) }, projectId: "PROJECT-1", activeConversationId: "123e4567-e89b-42d3-a456-426614174000",
+    selectedArchitectureManager: { id: "engineer", role: "system_engineer" }, executionRole: "system-engineer", sendingRef: { current: false }, lastSentRef: { current: null },
+    setMessages: () => {}, setAgentTyping: () => {}, setChatState: () => {}, messageIntent: "normal_chat"
+  });
+  await handlers.retryMessage({ id: "MSG-1", text: "Continue" });
+  assert.match(posts[0].correlationId, /^CORR-system-engineer-RETRY-/);
+});

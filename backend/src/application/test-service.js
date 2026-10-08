@@ -49,9 +49,9 @@ export function createTestService({ verificationOrchestrator, fileService, timeo
     return run({ commitId, levels: verificationLevels, taskId, sessionId, command });
   }
   // Runs one owner-requested project check to completion and returns its result in the same call.
-  async function runCheck({ commitId, type = "test", taskId, sessionId, command } = {}) {
+  async function runCheck({ commitId, type = "test", taskId, sessionId, command, signal } = {}) {
     const level = type === "test" ? "unit_test" : type;
-    return run({ commitId, levels: [level], taskId, sessionId, command, deadlineMs: jobTimeoutMs });
+    return run({ commitId, levels: [level], taskId, sessionId, command, deadlineMs: jobTimeoutMs, signal });
   }
   async function runLint({ commitId, taskId, sessionId } = {}) { return run({ commitId, levels: ["lint"], taskId, sessionId }); }
   async function runTypecheck({ commitId, taskId, sessionId } = {}) { return run({ commitId, levels: ["typecheck"], taskId, sessionId }); }
@@ -108,20 +108,22 @@ export function createTestService({ verificationOrchestrator, fileService, timeo
   async function run({ commitId = `WORKTREE-${Date.now()}`, levels, taskId, sessionId, command, deadlineMs = timeoutMs, signal }) {
     const plan = { commit_id: commitId, levels: ["focused"], checks: levels.map((type) => ({ type: type === "unit_test" ? "test" : type, command: command ?? commandFor(type, taskId), timeout_ms: deadlineMs })) };
     publish("verification.test_started", { commit_id: commitId, task_id: taskId, session_id: sessionId, levels });
+    const controller = new AbortController();
+    const forwardAbort = () => controller.abort(signal.reason);
+    if (signal?.aborted) forwardAbort();
+    else signal?.addEventListener("abort", forwardAbort, { once: true });
+    const timeoutError = Object.assign(new ConfigurationError(`Test execution timed out after ${deadlineMs}ms.`), { code: "TEST_TIMEOUT" });
+    const timer = setTimeout(() => controller.abort(timeoutError), deadlineMs);
     try {
-      let timer;
-      const deadline = new Promise((_, reject) => { timer = setTimeout(() => { const error = new ConfigurationError(`Test execution timed out after ${deadlineMs}ms.`); error.code = "TEST_TIMEOUT"; reject(error); }, deadlineMs); });
-      try {
-        const result = await Promise.race([verificationOrchestrator.run(plan, { taskId, sessionId, timeoutMs: deadlineMs, signal }), deadline]);
-        publish("verification.result", result);
-        return result;
-      } finally {
-        clearTimeout(timer);
-      }
+      const result = await verificationOrchestrator.run(plan, { taskId, sessionId, timeoutMs: deadlineMs, signal: controller.signal });
+      if (controller.signal.aborted) throw controller.signal.reason;
+      publish("verification.result", result);
+      return result;
     } catch (error) {
-      if (error.code === "TEST_TIMEOUT") publish("process.timed_out", { task_id: taskId, session_id: sessionId, timeout_ms: deadlineMs });
-      throw error;
-    }
+      const failure = controller.signal.aborted ? controller.signal.reason : error;
+      if (failure?.code === "TEST_TIMEOUT") publish("process.timed_out", { task_id: taskId, session_id: sessionId, timeout_ms: deadlineMs });
+      throw failure;
+    } finally { clearTimeout(timer); signal?.removeEventListener("abort", forwardAbort); }
   }
   function commandFor(type, taskId) {
     if (type === "unit_test" && typeof taskId === "string" && /^(tests|test)\//.test(taskId)) return `node --test ${taskId}`;

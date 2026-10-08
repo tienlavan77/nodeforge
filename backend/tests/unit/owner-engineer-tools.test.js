@@ -24,7 +24,8 @@ test("System Engineer uses Node services for edit, checks, exact-path commit, pu
     const activities = [];
     const lines = [];
     const logger = createRuntimeLogger({ logEvent: (event) => events.push(event), output: { write: (line) => lines.push(line) } });
-    const context = { task_id: "CORR-ENGINEER", correlation_id: "CORR-ENGINEER", conversation_id: "CONV-ENGINEER", project_root: projectRoot, agent_identity: { agent_id: "engineer", agent_name: "Engineer", role: "system_engineer", provider: "codex" } };
+    const abortController = new AbortController();
+    const context = { task_id: "CORR-ENGINEER", correlation_id: "CORR-ENGINEER", conversation_id: "CONV-ENGINEER", project_root: projectRoot, abortSignal: abortController.signal, agent_identity: { agent_id: "engineer", agent_name: "Engineer", role: "system_engineer", provider: "codex" } };
     const { definitions, registry } = createOwnerConversationTools({
       role: "system_engineer", projectRoot, fileService: files, conversationStateStore: state, conversationId: "CONV-ENGINEER", context, projectLogger: logger.emit, eventSink: (event) => activities.push(event),
       gitService: { status: async () => "", diffWorkingTree: async () => "", commit: async (message, options) => { committed.push({ message, ...options }); return { sha: "a".repeat(40) }; }, pushCommit: async (sha) => { pushed.push(sha); return { sha, remote: "origin", branch: "ui-chat" }; } },
@@ -44,6 +45,7 @@ test("System Engineer uses Node services for edit, checks, exact-path commit, pu
     await registry.push_commit.execute({ commit_sha: commit.sha }, context);
     assert.deepEqual(pushed, [commit.sha]);
     assert.equal(checks[0].command, "pnpm exec eslint src/example.js");
+    assert.equal(checks[0].signal, abortController.signal);
     assert.ok(events.some((event) => event.event_name === "owner.tool_call" && event.status === "success" && event.payload.tool === "commit_changes"));
     assert.deepEqual(activities.filter((event) => event.payload.tool_name === "edit_diff").map((event) => event.payload.activity_type), ["tool_started", "tool_completed"]);
     assert.ok(activities.every((event) => event.event_type === "agent.activity" && event.payload.conversation_id === "CONV-ENGINEER" && event.payload.agent_id === "engineer"));

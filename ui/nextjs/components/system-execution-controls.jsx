@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 
 // Shows durable execution status and requires a second Escape key press to pause active work.
-export function SystemExecutionControls({ client, projectId, conversationId, executionId, agentTyping, onPause }) {
+export function SystemExecutionControls({ client, projectId, conversationId, executionId, agentTyping }) {
   const [executions, setExecutions] = useState([]);
   const [, setHint] = useState("");
   const [error, setError] = useState("");
@@ -35,6 +35,14 @@ export function SystemExecutionControls({ client, projectId, conversationId, exe
     return () => { mounted = false; };
   }, [client, projectId, conversationId]);
 
+  const awaitingStop = scopedExecutions.some((entry) => entry.status === "pausing");
+  useEffect(() => {
+    if (!conversationId || agentTyping || !awaitingStop) return undefined;
+    let mounted = true;
+    client.listOwnerExecutions(projectId, conversationId).then((response) => { if (mounted) setExecutions(response.items ?? []); }).catch((reason) => { if (mounted) setError(reason.message ?? "Unable to refresh recovery options."); });
+    return () => { mounted = false; };
+  }, [client, projectId, conversationId, agentTyping, awaitingStop]);
+
   useEffect(() => {
     if (currentStatus !== "running" && (current || !agentTyping)) return undefined;
     // Requires two Escape presses within three seconds to stop the current agent turn.
@@ -52,7 +60,7 @@ export function SystemExecutionControls({ client, projectId, conversationId, exe
     };
     window.addEventListener("keydown", onKeyDown);
     return () => { window.removeEventListener("keydown", onKeyDown); lastEscape.current = 0; setHint(""); };
-  }, [client, projectId, conversationId, currentId, currentStatus, agentTyping, busy, onPause]);
+  }, [client, projectId, conversationId, currentId, currentStatus, agentTyping, busy]);
 
   // Sends one pause or recovery decision and keeps the visible state in sync.
   async function decide(action) {
@@ -65,10 +73,9 @@ export function SystemExecutionControls({ client, projectId, conversationId, exe
       if (!record || (action === "pause" && record.status !== "running")) throw new Error("No active System Engineer execution to pause yet.");
       await client.decideOwnerExecution(projectId, conversationId, record.execution_id, action);
       setExecutions((previous) => {
-        const status = action === "pause" ? "interrupted" : action === "continue" ? "running" : action === "restart" ? "restarted" : "discarded";
+        const status = action === "pause" ? "pausing" : action === "continue" ? "running" : action === "restart" ? "restarted" : "discarded";
         return previous.some((entry) => entry.execution_id === record.execution_id) ? previous.map((entry) => entry.execution_id === record.execution_id ? { ...entry, status } : entry) : [...previous, { ...record, status }];
       });
-      if (action === "pause") onPause?.(false);
     } catch (reason) { setError(reason.message ?? "Unable to update execution."); }
     finally { inFlight.current = false; setBusy(false); }
   }
@@ -78,6 +85,7 @@ export function SystemExecutionControls({ client, projectId, conversationId, exe
     {currentStatus === "interrupted" && <span>One action interrupted</span>}
     {currentStatus === "manual_required" && <span>Workspace needs manual verification before recovery.</span>}
     {error && <span>{error} </span>}
-    {currentStatus === "interrupted" && ["continue", "restart", "discard"].map((action) => <button key={action} type="button" className="claude-retry" disabled={busy} onClick={() => void decide(action)} aria-label={action === "continue" ? "Continue interrupted action" : action === "restart" ? "Restart interrupted action" : "Discard interrupted action"}>{action === "continue" ? "Continue" : action === "restart" ? "Restart" : "Discard"}</button>)}
+    {currentStatus === "interrupted" && ["continue", "restart", "discard"].filter((action) => current?.[`can_${action}`]).map((action) => <button key={action} type="button" className="claude-retry" disabled={busy} onClick={() => void decide(action)} aria-label={action === "continue" ? "Continue interrupted action" : action === "restart" ? "Restart interrupted action" : "Discard interrupted action"}>{action === "continue" ? "Continue" : action === "restart" ? "Restart" : "Discard"}</button>)}
+    {currentStatus === "manual_required" && current?.can_discard && <button type="button" className="claude-retry" disabled={busy} onClick={() => void decide("discard")}>Discard</button>}
   </div>;
 }

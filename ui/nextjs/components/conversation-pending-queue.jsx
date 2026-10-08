@@ -34,7 +34,7 @@ export function usePendingConversationQueue({ agentId, isWorking, onSend }) {
     pendingRef.current = pendingRef.current.slice(1);
     setPendingMessages(pendingRef.current);
     flushingRef.current = true;
-    Promise.resolve(onSendRef.current(nextMessage.text))
+    Promise.resolve(onSendRef.current(nextMessage.text, nextMessage.responseContentType))
       .catch((error) => {
         console.error("Unable to send pending conversation message", error);
         pendingRef.current = [nextMessage, ...pendingRef.current];
@@ -46,10 +46,10 @@ export function usePendingConversationQueue({ agentId, isWorking, onSend }) {
   }, [isWorking]);
 
   // Sends immediately when idle or retains the message until the active agent finishes.
-  function submitMessage(text) {
-    if (!isWorking) return onSendRef.current(text);
+  function submitMessage(text, responseContentType = "text/plain") {
+    if (!isWorking) return onSendRef.current(text, responseContentType);
     sequenceRef.current += 1;
-    const pendingMessage = { id: `pending-${agentId ?? "agent"}-${sequenceRef.current}`, text };
+    const pendingMessage = { id: `pending-${agentId ?? "agent"}-${sequenceRef.current}`, text, responseContentType };
     pendingRef.current = [...pendingRef.current, pendingMessage];
     setPendingMessages(pendingRef.current);
     return undefined;

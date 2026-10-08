@@ -11,7 +11,7 @@ const system = await readFile("ui/nextjs/app/system/page.jsx", "utf8");
 test("pending conversation queue dispatches one message after an agent response", () => {
   assert.ok(queue.includes("usePendingConversationQueue"));
   assert.ok(queue.includes("agentId"));
-  assert.ok(queue.includes("if (!isWorking) return onSendRef.current(text)"));
+  assert.ok(queue.includes("if (!isWorking) return onSendRef.current(text, responseContentType)"));
   assert.ok(queue.includes("const nextMessage = pendingRef.current[0]"));
   assert.ok(queue.includes("cancelPendingMessage"));
   assert.ok(queue.includes("PendingConversationQueue"));

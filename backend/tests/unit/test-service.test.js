@@ -102,7 +102,7 @@ test("startTests reports TEST_TIMEOUT through getTestResult when the job deadlin
   const service = createTestService({
     projectRoot: "/tmp/project",
     jobTimeoutMs: 10,
-    verificationOrchestrator: { run: () => new Promise(() => {}) }
+    verificationOrchestrator: { run: (_plan, { signal }) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true })) }
   });
   const started = service.startTests({ commitId: "COMMIT-1", taskId: "TASK-1" });
   await new Promise((resolve) => setTimeout(resolve, 30));

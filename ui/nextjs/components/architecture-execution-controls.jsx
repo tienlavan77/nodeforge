@@ -4,11 +4,12 @@
 import { useEffect, useRef, useState } from "react";
 
 // Shows durable Architecture attempts and stops only the active conversation after owner action.
-export function ArchitectureExecutionControls({ client, projectId, conversationId, executionId, agentTyping, onPause }) {
+export function ArchitectureExecutionControls({ client, projectId, conversationId, executionId, agentTyping }) {
   const [executions, setExecutions] = useState([]);
   const [error, setError] = useState("");
   const [, setHint] = useState("");
   const [busy, setBusy] = useState(false);
+  const [ownerToken, setOwnerToken] = useState("");
   const lastEscape = useRef(0);
   const inFlight = useRef(false);
   const current = executions.find((entry) => entry.conversation_id === conversationId && entry.status === "running")
@@ -37,6 +38,14 @@ export function ArchitectureExecutionControls({ client, projectId, conversationI
     return () => { mounted = false; };
   }, [client, projectId, conversationId]);
 
+  const awaitingStop = executions.some((entry) => entry.conversation_id === conversationId && entry.status === "pausing");
+  useEffect(() => {
+    if (!conversationId || agentTyping || !awaitingStop) return undefined;
+    let mounted = true;
+    client.listOwnerExecutions(projectId, conversationId).then((result) => { if (mounted) setExecutions(result.items ?? []); }).catch((reason) => { if (mounted) setError(reason.message ?? "Unable to refresh execution recovery options."); });
+    return () => { mounted = false; };
+  }, [client, projectId, conversationId, agentTyping, awaitingStop]);
+
   // Sends pause and recovery actions for the selected Architecture execution.
   async function decide(action) {
     if (inFlight.current || !conversationId) return;
@@ -46,13 +55,12 @@ export function ArchitectureExecutionControls({ client, projectId, conversationI
     try {
       const record = action === "pause" && executionId && agentTyping ? { conversation_id: conversationId, execution_id: executionId, status: "running" } : current;
       if (!record || (action === "pause" && record.status !== "running")) throw new Error("No active Architecture execution to pause yet.");
-      if (action === "reconcile") await client.reconcileOwnerExecution(projectId, conversationId, record.execution_id);
+      if (action === "reconcile") { await client.reconcileOwnerExecution(projectId, conversationId, record.execution_id, undefined, ownerToken); setOwnerToken(""); }
       else await client.decideOwnerExecution(projectId, conversationId, record.execution_id, action);
       setExecutions((items) => {
-        const status = action === "pause" || action === "reconcile" ? "interrupted" : action === "continue" ? "running" : action === "restart" ? "restarted" : "discarded";
+        const status = action === "pause" ? "pausing" : action === "reconcile" ? "interrupted" : action === "continue" ? "running" : action === "restart" ? "restarted" : "discarded";
         return items.some((entry) => entry.execution_id === record.execution_id) ? items.map((entry) => entry.execution_id === record.execution_id ? { ...entry, status } : entry) : [...items, { ...record, status }];
       });
-      if (action === "pause") onPause?.(false);
     } catch (reason) { setError(reason.message ?? "Architecture recovery was blocked."); }
     finally { inFlight.current = false; setBusy(false); }
   }
@@ -77,8 +85,8 @@ export function ArchitectureExecutionControls({ client, projectId, conversationI
   }, [current?.execution_id, current?.status, agentTyping, conversationId, busy]);
 
   return <div className="claude-chat-status architecture-execution-controls" role="status" aria-live="polite">
-    {current?.status === "interrupted" && <><span>One action interrupted</span>{["continue", "restart", "discard"].map((action) => <button key={action} type="button" className="claude-retry" disabled={busy} onClick={() => void decide(action)} aria-label={action === "continue" ? "Continue interrupted action" : action === "restart" ? "Restart interrupted action" : "Discard interrupted action"}>{action === "continue" ? "Continue" : action === "restart" ? "Restart" : "Discard"}</button>)}</>}
-    {current?.status === "manual_required" && <><span>Document needs verification before recovery.</span>{current.can_reconcile && <button type="button" className="claude-retry" disabled={busy} onClick={() => void decide("reconcile")}>Verify document</button>}</>}
+    {current?.status === "interrupted" && <><span>One action interrupted</span>{["continue", "restart", "discard"].filter((action) => current?.[`can_${action}`]).map((action) => <button key={action} type="button" className="claude-retry" disabled={busy} onClick={() => void decide(action)} aria-label={action === "continue" ? "Continue interrupted action" : action === "restart" ? "Restart interrupted action" : "Discard interrupted action"}>{action === "continue" ? "Continue" : action === "restart" ? "Restart" : "Discard"}</button>)}</>}
+    {current?.status === "manual_required" && <><span>Execution needs owner review.</span>{current.can_reconcile && <><input className="architecture-owner-token" type="password" aria-label="Owner token" autoComplete="off" value={ownerToken} onChange={(event) => setOwnerToken(event.target.value)} /><button type="button" className="claude-retry" disabled={busy || !ownerToken} onClick={() => void decide("reconcile")}>Verify document</button></>}{current.can_discard && <button type="button" className="claude-retry" disabled={busy} onClick={() => void decide("discard")}>Discard</button>}</>}
     {error && <span>{error}</span>}
   </div>;
 }
