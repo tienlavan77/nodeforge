@@ -120,7 +120,7 @@ export function useConversationMessageHistory({ client, projectId, chatMessagesR
     const declaredType = content && typeof content === "object" ? content.content_type : undefined;
     const contentType = !isAgent ? "text/plain" : declaredType === "text/markdown" || declaredType === "text/plain"
       ? declaredType : declaredType === undefined && content.markdown_provenance === "owner-markdown-opt-in-v1" ? "text/markdown" : "text/plain";
-    return { id: originalId, source_message_id: record.id, stream_key: `${isOwner ? "owner" : "agent"}:${originalId}`,
+    return { id: originalId, source_message_id: record.id, conversation_id: record.conversation_id, stream_key: `${isOwner ? "owner" : "agent"}:${originalId}`,
       text: String(text ?? ""), content_type: contentType, response_content_type: isOwner && content.response_content_type === "text/markdown" ? "text/markdown" : "text/plain", from: isOwner ? "owner" : record.kind === "failure" || record.kind === "system" ? "system" : "agent",
       nickname: isOwner ? "You" : agentDisplayName(record.agent_id, agentDirectoryRef.current),
       timestamp: record.timestamp ?? new Date().toISOString() };
