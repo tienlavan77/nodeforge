@@ -138,12 +138,16 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrch
     }
 
     if (method === "GET" && parts.length === 1 && parts[0] === "sprints") {
+      const registered = await sprintRegistry?.listDetails?.();
+      if (registered?.length) return { status: 200, body: await conversationRoutes.withCheckpointSummary(registered) };
       if (!sprintPlanUploadService?.list) throw unavailable("Sprint Plan List");
       const sprints = sprintPlanUploadService.list({ projectId });
       return { status: 200, body: await conversationRoutes.withCheckpointSummary(sprints) };
     }
 
     if (method === "GET" && parts.length === 2 && parts[0] === "sprints") {
+      const registered = await sprintRegistry?.getDetail?.(parts[1]);
+      if (registered) return { status: 200, body: registered };
       if (!sprintPlanUploadService?.get) throw unavailable("Sprint Plan View");
       return { status: 200, body: sprintPlanUploadService.get({ projectId, sprintId: parts[1] }) };
     }

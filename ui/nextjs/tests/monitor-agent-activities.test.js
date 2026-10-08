@@ -13,5 +13,6 @@ test("filters project agent activities by configured role", () => {
   const activities = ["architect", "engineer", "other", "unknown"].map((agent_id) => ({ payload: { agent_id } }));
   assert.deepEqual(monitorAgentActivities(activities, agents, "architecture_manager"), [activities[0]]);
   assert.deepEqual(monitorAgentActivities(activities, agents, "system_engineer"), [activities[1]]);
+  assert.deepEqual(monitorAgentActivities(activities, agents, ["coder", "reviewer", "sprint_leader"]), [activities[2]]);
   assert.deepEqual(monitorAgentActivities(activities, [], "system_engineer"), []);
 });
