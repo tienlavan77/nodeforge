@@ -27,3 +27,17 @@
   .workspace-monitor { min-width: 220px; max-width: calc(100vw - 16px); }
   .workspace-monitor-layer { z-index: 90; }
 }
+
+/* Keep the legacy Sprint Plan and live Coding agents visible side by side. */
+.coding-workspace-monitor { display: grid; min-height: 100vh; grid-template-columns: minmax(0, 1fr) minmax(260px, 2fr); gap: 1px; background: var(--app-border); color: var(--app-text); }
+.coding-workspace-column { min-width: 0; overflow: auto; padding: 28px; background: var(--app-panel); }
+.coding-workspace-column h1 { margin: 0 0 18px; font-size: 16px; }
+.coding-sprint-plan .sprint-plan-dashboard { padding: 0; border: 0; }
+.coding-workspace-list { display: grid; gap: 10px; }
+.coding-agent-monitor { min-width: 0; padding: 14px; border: 1px solid var(--app-border); background: var(--app-surface-alt); }
+.coding-agent-monitor header { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.coding-agent-monitor strong { display: block; overflow-wrap: anywhere; }
+.coding-agent-monitor p { margin: 7px 0; overflow-wrap: anywhere; }
+.coding-agent-monitor small, .coding-agent-monitor header span, .coding-workspace-empty { color: var(--app-muted); }
+.coding-workspace-empty { margin: 0; padding: 14px 0; }
+@media (max-width: 760px) { .coding-workspace-monitor { min-height: auto; grid-template-columns: 1fr; } .coding-workspace-column { padding: 20px; } }

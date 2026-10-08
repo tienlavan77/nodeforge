@@ -10,6 +10,7 @@ const sidebar = await readFile("ui/nextjs/components/conversation-sidebar.jsx", 
 const codePage = await readFile("ui/nextjs/app/code/page.jsx", "utf8");
 const legacyCodePage = await readFile("ui/nextjs/app/coding/page.jsx", "utf8");
 const systemPage = await readFile("ui/nextjs/app/system/page.jsx", "utf8");
+const codingMonitor = await readFile("ui/nextjs/components/coding-workspace-monitor.jsx", "utf8");
 const preferenceSource = await readFile("ui/nextjs/lib/sidebar-preference.js", "utf8");
 const preference = runInNewContext(
   preferenceSource.replaceAll("export ", "") +
@@ -31,18 +32,22 @@ test("home route composes the conversation workspace from existing components", 
   assert.ok(page.includes("loadConversationMessages(conversationId)"));
   assert.ok(page.includes('<WorkspaceMonitorPanels layoutScope="home"'));
   assert.ok(systemPage.includes('<WorkspaceMonitorPanels layoutScope="system"'));
-  assert.ok(legacyCodePage.includes('<WorkspaceMonitorPanels layoutScope="coding"'));
+  assert.ok(legacyCodePage.includes("<CodingWorkspaceMonitor"));
   assert.ok(page.includes("const [watcherEvents, setWatcherEvents]"));
   assert.ok(page.includes("const [agentProcess, setAgentProcess]"));
   assert.ok(page.includes("agentActivities={agentActivities}"));
   assert.ok(systemPage.includes("agentActivities={agentActivities}"));
   assert.ok(legacyCodePage.includes("agentActivities={agentActivities}"));
-  for (const routePage of [systemPage, legacyCodePage]) {
-    assert.ok(routePage.includes("<WorkspaceMonitorPanels"));
-    assert.ok(routePage.includes("setWatcherEvents"));
-    assert.ok(routePage.includes("setWatcherState"));
-    assert.ok(routePage.includes("setAgentProcess"));
-  }
+  assert.ok(systemPage.includes("<WorkspaceMonitorPanels"));
+  assert.ok(systemPage.includes("setWatcherEvents"));
+  assert.ok(systemPage.includes("setWatcherState"));
+  assert.ok(systemPage.includes("setAgentProcess"));
+  assert.ok(codingMonitor.includes('<h1 id="coding-sprint-plan-heading">Sprint Plan</h1>'));
+  assert.ok(codingMonitor.includes('<h1 id="coding-workspace-agent-heading">Workspace Agent</h1>'));
+  assert.ok(codingMonitor.includes('["coder", "reviewer"]'));
+  assert.ok(codingMonitor.includes('import { SprintPlanDashboard } from "./sprint-plan-panels.jsx"'));
+  assert.ok(codingMonitor.includes("<SprintPlanDashboard dashboard={dashboard}"));
+  assert.ok(legacyCodePage.includes("getProjectDashboard(PROJECT_ID)"));
   assert.ok(legacyCodePage.includes("useProjectEventStream"));
   const monitors = await readFile("ui/nextjs/components/WorkspaceMonitorPanels.jsx", "utf8");
   assert.ok(monitors.includes("Watcher monitor"));
@@ -60,6 +65,7 @@ test("home route composes the conversation workspace from existing components", 
   const monitorStyles = await readFile("ui/nextjs/app/styles/workspace-monitors.css", "utf8");
   assert.ok(monitorStyles.includes(".workspace-monitor-light.is-active") && monitorStyles.includes("prefers-reduced-motion"));
   assert.ok(monitorStyles.includes(".workspace-monitor-light::after") && monitorStyles.includes(".workspace-monitor-dock button { display: inline-flex; align-items: center; gap: 9px"));
+  assert.ok(monitorStyles.includes("grid-template-columns: minmax(0, 1fr) minmax(260px, 2fr)"));
   assert.doesNotMatch(monitorStyles.match(/\.workspace-monitor-light \{[^}]+\}/)?.[0] ?? "", /border:/);
   assert.ok(monitors.indexOf('role="img" /><strong>Watcher</strong>') > 0);
   assert.ok(monitors.indexOf('role="img" /><strong>Agent activity</strong>') > 0);
@@ -79,7 +85,9 @@ test("home route composes the conversation workspace from existing components", 
   assert.ok(sidebar.indexOf('title="System"') < sidebar.indexOf('title="Code"'));
   assert.ok(sidebar.includes('aria-current={agentSectionTitle === "Code" ? "page" : undefined}'));
   assert.ok(legacyCodePage.includes("<ConversationSidebar"));
-  assert.ok(legacyCodePage.includes("<ConversationsAccordion"));
+  assert.ok(legacyCodePage.includes("showConversationControls={false}"));
+  assert.doesNotMatch(legacyCodePage, /ConversationsAccordion|architectureControl|onNewConversation/);
+  assert.ok(legacyCodePage.includes('agentActivities={agentActivities}'));
   assert.equal(legacyCodePage.includes("../system/page.jsx"), false);
   assert.equal(legacyCodePage.includes("System chat"), false);
   assert.ok(codePage.includes('redirect("/coding")'));

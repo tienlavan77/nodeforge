@@ -109,9 +109,16 @@ test("Forge plan API requires a project-owner decision before a sprint becomes r
       input.headers = token ? { authorization: `Bearer ${token}` } : {};
       return router.route(method, new URL(`http://localhost/forge/v1${path}?project=PROJECT-A`), input);
     };
-    const created = await request("POST", "/plans", { plan_id: "PLAN-HTTP", sprint_id: "SPRINT-HTTP", content: content("TICKET-HTTP") });
+    const created = await request("POST", "/plans", { plan_id: "PLAN-HTTP", sprint_id: "SPRINT-HTTP", content: { ...content("TICKET-HTTP"), ticket_specs: [{ id: "TICKET-HTTP", title: "Registry ticket", objective: "Render immutable scope", priority: "high" }] } });
     assert.equal(created.status, 201);
     assert.equal((await request("POST", "/sprints/registry", { sprint_id: "SPRINT-HTTP", position: 0, plan_id: "PLAN-HTTP", plan_revision: 1 })).body.status, "awaiting_human_approval");
+    const registeredSprints = await request("GET", "/sprints");
+    assert.deepEqual(registeredSprints.body.map(({ id, ticket_ids: ticketIds }) => ({ id, ticketIds })), [{ id: "SPRINT-HTTP", ticketIds: ["TICKET-HTTP"] }]);
+    const registeredSprint = await request("GET", "/sprints/SPRINT-HTTP");
+    assert.equal(registeredSprint.status, 200);
+    assert.equal(registeredSprint.body.id, "SPRINT-HTTP");
+    assert.deepEqual(registeredSprint.body.ticket_ids, ["TICKET-HTTP"]);
+    assert.deepEqual(registeredSprint.body.tickets, [{ id: "TICKET-HTTP", title: "Registry ticket", objective: "Render immutable scope", priority: "high" }]);
     await assert.rejects(request("POST", "/sprint-registry", { sprint_id: "SPRINT-RETIRED", position: 1, plan_id: "PLAN-HTTP", plan_revision: 1 }), { code: "ROUTE_RETIRED" });
     await assert.rejects(request("POST", "/plans/PLAN-HTTP/1/decisions", { sha256: created.body.sha256, decision: "approved", actor: "OWNER", actor_role: "project_owner" }), { code: "PLAN_OWNER_UNAUTHORIZED" });
     await assert.rejects(request("POST", "/plans/PLAN-HTTP/1/decisions", { sha256: created.body.sha256, decision: "approved" }, "wrong-token"), { code: "PLAN_OWNER_UNAUTHORIZED" });
