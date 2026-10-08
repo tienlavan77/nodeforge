@@ -17,9 +17,10 @@ export function createHomeMessageHandlers({
   sendingRef,
   lastSentRef,
   writeChatState,
-  messageIntent
+  messageIntent,
+  executionRole = "architecture-manager"
 }) {
-  async function sendMessage(draft) {
+  async function sendMessage(draft, responseContentType = "text/plain") {
     const text = draft.trim();
     if (!text) return;
     if (sendingRef.current) return;
@@ -43,11 +44,12 @@ export function createHomeMessageHandlers({
       }
     }
     const messageId = createChatId("MSG-OWNER");
-    const correlationId = createChatId("CORR-architecture-manager");
+    const correlationId = createChatId(`CORR-${executionRole}`);
     const timestamp = new Date().toISOString();
     setChatState("");
-    lastSentRef.current = { text, conversationId, messageId, correlationId };
-    setMessages((current) => [...current, { id: messageId, stream_key: `owner:${messageId}`, text, from: "owner", nickname: "You", timestamp, correlation_id: correlationId, pending: true }]);
+    const declaredContentType = responseContentType === "text/markdown" ? "text/markdown" : "text/plain";
+    lastSentRef.current = { text, conversationId, messageId, correlationId, responseContentType: declaredContentType };
+    setMessages((current) => [...current, { id: messageId, stream_key: `owner:${messageId}`, text, response_content_type: declaredContentType, from: "owner", nickname: "You", timestamp, correlation_id: correlationId, pending: true }]);
     setAgentTyping(true);
     try {
       await client.postOwnerMessage({
@@ -57,7 +59,8 @@ export function createHomeMessageHandlers({
         messageId,
         correlationId,
         text,
-        intent: messageIntent
+        intent: messageIntent,
+        responseContentType: declaredContentType
       });
     } catch (error) {
       setAgentTyping(false);
@@ -74,13 +77,13 @@ export function createHomeMessageHandlers({
     if (!text || !message?.id || !conversationId || !selectedArchitectureManager || sendingRef.current) throw new Error("The conversation is not ready to edit this message.");
     if (text === message.text) return;
     const messageId = createChatId("MSG-OWNER-EDIT");
-    const correlationId = createChatId("CORR-architecture-manager-EDIT");
+    const correlationId = createChatId(`CORR-${executionRole}-EDIT`);
     sendingRef.current = true;
     setChatState("");
     setMessages((current) => current.map((item) => item.stream_key === message.stream_key ? { ...item, text, pending: true, correlation_id: correlationId } : item));
     setAgentTyping(true);
     try {
-      await client.postOwnerMessage({ projectId, conversationId, agentId: selectedArchitectureManager.id, messageId, correlationId, text, intent: messageIntent, supersedesMessageId: message.id });
+      await client.postOwnerMessage({ projectId, conversationId, agentId: selectedArchitectureManager.id, messageId, correlationId, text, intent: messageIntent, responseContentType: message.response_content_type, supersedesMessageId: message.id });
       setMessages((current) => current.map((item) => item.stream_key === message.stream_key ? { ...item, source_message_id: messageId, pending: false } : item));
       lastSentRef.current = { text, conversationId, messageId, correlationId };
     } catch (error) {
@@ -106,9 +109,10 @@ export function createHomeMessageHandlers({
         conversationId: targetConversationId,
         agentId: selectedArchitectureManager.id,
         messageId: createChatId("MSG-OWNER-RETRY"),
-        correlationId: createChatId("CORR-architecture-manager-RETRY"),
+        correlationId: createChatId(`CORR-${executionRole}-RETRY`),
         text,
-        intent: messageIntent
+        intent: messageIntent,
+        responseContentType: message.response_content_type ?? message.responseContentType
       });
     } catch (error) {
       setAgentTyping(false);

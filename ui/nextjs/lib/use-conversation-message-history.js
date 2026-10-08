@@ -116,8 +116,12 @@ export function useConversationMessageHistory({ client, projectId, chatMessagesR
     const text = typeof content === "string" ? content : content.text ?? content.content ?? "";
     const isOwner = record.kind === "owner";
     const originalId = isOwner && typeof content.supersedes_message_id === "string" ? content.supersedes_message_id : record.id;
+    const isAgent = !isOwner && !["failure", "system"].includes(record.kind);
+    const declaredType = content && typeof content === "object" ? content.content_type : undefined;
+    const contentType = !isAgent ? "text/plain" : declaredType === "text/markdown" || declaredType === "text/plain"
+      ? declaredType : declaredType === undefined && content.markdown_provenance === "owner-markdown-opt-in-v1" ? "text/markdown" : "text/plain";
     return { id: originalId, source_message_id: record.id, stream_key: `${isOwner ? "owner" : "agent"}:${originalId}`,
-      text: String(text ?? ""), content_type: typeof content === "object" && typeof content.content_type === "string" ? content.content_type : !isOwner && String(record.type ?? "").endsWith(".message.received") ? "text/markdown" : "text/plain", from: isOwner ? "owner" : record.kind === "failure" ? "system" : "agent",
+      text: String(text ?? ""), content_type: contentType, response_content_type: isOwner && content.response_content_type === "text/markdown" ? "text/markdown" : "text/plain", from: isOwner ? "owner" : record.kind === "failure" || record.kind === "system" ? "system" : "agent",
       nickname: isOwner ? "You" : agentDisplayName(record.agent_id, agentDirectoryRef.current),
       timestamp: record.timestamp ?? new Date().toISOString() };
   }

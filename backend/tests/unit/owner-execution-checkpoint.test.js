@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createOwnerExecutionCheckpoint, executionDigest } from "../../src/application/owner-execution-checkpoint.js";
+import { createOwnerExecutionControl } from "../../src/application/owner-execution-control.js";
 import { checkpointOwnerTools } from "../../src/application/owner-execution-tools.js";
 import { createOwnerSdkStream } from "../../src/application/owner-sdk-stream.js";
 
@@ -26,6 +27,7 @@ test("checkpoints record tool boundaries, persist session state, and reconcile e
   const tools = checkpointOwnerTools({ registry: { edit_diff: { execute: async () => { await fixture.files.atomicWrite({ path: "test.js", content: "updated", replace: true }); return result; } } }, checkpoint: store, conversationId: "C1", executionId: "E1", signal: new AbortController().signal });
   await tools.edit_diff.execute({ path: "test.js", before_checksum: "sha256:old", replacement: "updated" }, { changed_paths: ["test.js"] });
   await store.patch("C1", "E1", { status: "interrupted" });
+  await store.markStopped("C1", "E1");
   const restored = createOwnerExecutionCheckpoint({ fileService: fixture.files });
   const record = await restored.load("C1", "E1");
   assert.equal(record.provider_thread_id, "thread-1");
@@ -72,6 +74,7 @@ test("completed commits require matching HEAD and cannot be repeated after conti
   const step = await store.beforeTool("C4", "E4", "commit_changes", { message: "done" });
   await store.afterTool("C4", "E4", step, { sha: head });
   await store.patch("C4", "E4", { status: "interrupted" });
+  await store.markStopped("C4", "E4");
   assert.equal(await store.reconcile(await store.load("C4", "E4")), true);
   head = "b".repeat(40);
   assert.equal(await store.reconcile(await store.load("C4", "E4")), false);
@@ -91,7 +94,49 @@ test("checkpoints reject uncertain commits and protect live conversation leases"
   await first.patch("C2", "E1", { status: "interrupted" });
   assert.equal(await second.reconcile(await second.load("C2", "E1")), false);
   await assert.rejects(second.start({ conversationId: "C2", executionId: "E1", provider: "codex", promptHash: executionDigest("commit"), continueAttempt: true }), /manual workspace reconciliation/);
+  await first.markStopped("C2", "E1");
   assert.equal((await second.close("C2", "E1", "discarded")).status, "discarded");
+});
+
+test("a cancelled run_check clears its pending checkpoint only after its runner rejects on abort", async (context) => {
+  const fixture = await projectFixture();
+  context.after(() => rm(fixture.root, { recursive: true, force: true }));
+  const store = createOwnerExecutionCheckpoint({ fileService: fixture.files });
+  const controller = new AbortController();
+  await store.start({ conversationId: "C-check", executionId: "E-check", messageId: "M-check", provider: "codex", promptHash: executionDigest("check") });
+  const tools = checkpointOwnerTools({ registry: { run_check: { execute: async (_input, { abortSignal }) => {
+    controller.abort(Object.assign(new Error("Paused"), { code: "EXECUTION_PAUSED" }));
+    throw abortSignal.reason;
+  } } }, checkpoint: store, conversationId: "C-check", executionId: "E-check", signal: controller.signal });
+  await assert.rejects(tools.run_check.execute({ type: "test" }), { code: "EXECUTION_PAUSED" });
+  const pending = await store.load("C-check", "E-check");
+  assert.equal(pending.pending_tool_calls.length, 0);
+  assert.equal(pending.status, "running");
+  assert.equal(pending.failed_tool_calls.at(-1).tool_name, "run_check");
+  await store.patch("C-check", "E-check", { status: "interrupted" });
+  await store.markStopped("C-check", "E-check");
+  assert.equal(await store.reconcile(await store.load("C-check", "E-check")), true);
+});
+
+test("legacy run_check pending state settles from a later durable tool receipt without claiming success", async (context) => {
+  const fixture = await projectFixture();
+  context.after(() => rm(fixture.root, { recursive: true, force: true }));
+  const store = createOwnerExecutionCheckpoint({ fileService: fixture.files });
+  await store.start({ conversationId: "C-legacy-check", executionId: "E-legacy-check", messageId: "M-legacy-check", provider: "codex", promptHash: executionDigest("check") });
+  await store.patch("C-legacy-check", "E-legacy-check", { provider_thread_id: "thread-legacy" });
+  const check = await store.beforeTool("C-legacy-check", "E-legacy-check", "run_check", { type: "test" });
+  await store.failTool("C-legacy-check", "E-legacy-check", check, Object.assign(new Error("test failed"), { code: "TEST_FAILED" }));
+  const later = await store.beforeTool("C-legacy-check", "E-legacy-check", "search_tree", {});
+  await store.afterTool("C-legacy-check", "E-legacy-check", later, { matches: [] });
+  await store.patch("C-legacy-check", "E-legacy-check", { status: "interrupted" });
+  const control = createOwnerExecutionControl({ checkpoint: store, sdkStream: { isActive: () => false }, agentConfiguration: { getById: () => ({ role: "system_engineer" }) }, communications: { getById: () => ({ id: "M-legacy-check", conversation_id: "C-legacy-check", recipient: { id: "engineer" } }) } });
+  const [visible] = await control.list("C-legacy-check", "engineer");
+  const record = await store.load("C-legacy-check", "E-legacy-check");
+  assert.equal(record.pending_tool_calls.length, 0);
+  assert.deepEqual(record.settled_tool_calls.map(({ outcome, evidence_sequence }) => [outcome, evidence_sequence]), [["failed", later.sequence]]);
+  assert.equal(record.runner_stop_evidence, "no_active_sdk_runner_or_pending_mutation");
+  assert.equal(visible.can_continue, true);
+  assert.equal(await store.reconcile(record), true);
 });
 
 test("restart inherits verified file and commit evidence without replaying completed mutations", async (context) => {
@@ -107,6 +152,7 @@ test("restart inherits verified file and commit evidence without replaying compl
   const commit = await store.beforeTool("C5", "E5", "commit_changes", { message: "fix" });
   await store.afterTool("C5", "E5", commit, { sha: head });
   await store.patch("C5", "E5", { status: "interrupted" });
+  await store.markStopped("C5", "E5");
   const restarted = await store.start({ conversationId: "C5", executionId: "E6", messageId: "M5", provider: "codex", promptHash: executionDigest("fix"), resumeOf: "E5" });
   assert.equal(restarted.lineage_id, "E5");
   assert.equal(restarted.attempt_number, 2);
@@ -127,6 +173,7 @@ test("System Engineer Continue resumes the saved thread without replaying the or
   const logs = [];
   await checkpoint.start({ conversationId: "C-continue", executionId: "E-continue", messageId: "M-continue", provider: "codex", promptHash: executionDigest(text) });
   await checkpoint.patch("C-continue", "E-continue", { status: "interrupted", provider_thread_id: "thread-saved" });
+  await checkpoint.markStopped("C-continue", "E-continue");
   const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => ({ agent_id: "engineer", role: "system_engineer", provider: "codex" }) }, sdkGateways: { codex: { conversationMode: "thread", execute: async ({ resumeThreadId, prompt }) => {
     assert.equal(resumeThreadId, "thread-saved");
     assert.match(prompt, /Continue the interrupted request/);
@@ -149,6 +196,7 @@ test("restart opens a new provider thread with inherited checkpoint context", as
   const step = await checkpoint.beforeTool("C6", "E6", "git_status", {});
   await checkpoint.afterTool("C6", "E6", step, { status: "clean" });
   await checkpoint.patch("C6", "E6", { status: "interrupted", provider_thread_id: "old-thread" });
+  await checkpoint.markStopped("C6", "E6");
   const state = { agent_id: "engineer", sdk_provider: "codex", sdk_thread_id: "old-thread", sdk_history: [{ role: "Assistant", text: "old transcript" }] };
   const conversationStateStore = { create: async () => state, update: async (_conversationId, fields) => Object.assign(state, fields) };
   const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => ({ agent_id: "engineer", role: "system_engineer", provider: "codex" }) }, sdkGateways: { codex: { conversationMode: "thread", execute: async ({ prompt, resumeThreadId }) => {

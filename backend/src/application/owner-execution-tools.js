@@ -10,12 +10,14 @@ export function checkpointOwnerTools({ registry, checkpoint, conversationId, exe
       await sessionReady?.();
       const step = await checkpoint.beforeTool(conversationId, executionId, name, input);
       try {
-        const result = await tool.execute(input, context);
+        const result = await tool.execute(input, { ...context, abortSignal: signal });
         await checkpoint.afterTool(conversationId, executionId, step, result, context?.changed_paths ?? []);
-        if (signal.aborted) throw signal.reason;
         return result;
       } catch (error) {
-        if (signal.aborted) throw signal.reason;
+        if (signal.aborted) {
+          if (name === "run_check") await checkpoint.failTool(conversationId, executionId, step, signal.reason);
+          throw signal.reason;
+        }
         await checkpoint.failTool(conversationId, executionId, step, error);
         if (error?.code === "CHECKSUM_MISMATCH") throw Object.assign(new ConfigurationError("Workspace changed; manual reconciliation is required before continuing."), { code: "EXECUTION_RECONCILIATION_REQUIRED" });
         throw error;

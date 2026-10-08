@@ -87,7 +87,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       message_type: "owner.message",
       conversation_id: input.conversation_id,
       correlation_id: input.correlation_id,
-      payload: { text: input.payload.text, intent: resolvedIntent, round, ...(input.payload.supersedes_message_id ? { supersedes_message_id: input.payload.supersedes_message_id } : {}), ...(input.payload.task ? { task: normalizeTask(input.payload.task, input) } : {}) },
+      payload: { text: input.payload.text, intent: resolvedIntent, round, response_content_type: input.payload.response_content_type === "text/markdown" ? "text/markdown" : "text/plain", ...(input.payload.supersedes_message_id ? { supersedes_message_id: input.payload.supersedes_message_id } : {}), ...(input.payload.task ? { task: normalizeTask(input.payload.task, input) } : {}) },
       timestamp: input.timestamp
     };
     // Bus persists via the canonical Communication Store before dispatching.
@@ -129,15 +129,16 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
   // Streams an Architecture response and persists it in the same conversation.
   async function streamCommandArchitecture({ input, agentId, prompt, conversationId, exposeText = true }) {
     if (typeof agentStream !== "function") throw new ConfigurationError("Architecture agent stream is unavailable.");
+    const contentType = /^\/summary\b/i.test(String(input.payload.text).trim()) ? "text/markdown" : "text/plain";
     const message = { id: `MSG-ARCHITECTURE-COMMAND-${input.message_id}`, project_id: input.project_id, sender: { id: "NODE", role: "node" }, recipient: { id: agentId, role: roleForAgent(agentId) }, message_type: "owner.message", conversation_id: conversationId, correlation_id: `${input.correlation_id}-ARCH`, payload: { text: prompt }, timestamp: new Date().toISOString() };
     let text = ""; let index = 0;
     if (exposeText) bus.sendFast(responseMessage(message, "architecture.working", { agent_status: "WORKING" }, "COMMAND-WORKING"));
-    for await (const chunk of agentStream({ agentId, payload: { text: prompt }, correlationId: message.correlation_id, conversationId })) {
+    for await (const chunk of agentStream({ agentId, payload: { text: prompt, response_content_type: contentType }, correlationId: message.correlation_id, conversationId })) {
       if (typeof chunk.text !== "string" || !chunk.text) continue;
       text += chunk.text;
-      if (exposeText) bus.sendFast(responseMessage(message, "architecture.message.delta", { text: chunk.text, accumulated_text: text, content_type: "text/markdown", chunk_index: index++ }, `COMMAND-DELTA-${index}`));
+      if (exposeText) bus.sendFast(responseMessage(message, "architecture.message.delta", { text: chunk.text, accumulated_text: text, content_type: contentType, chunk_index: index++ }, `COMMAND-DELTA-${index}`));
     }
-    const response = responseMessage(message, "architecture.message.received", { text, content_type: "text/markdown", agent_status: "COMPLETED" }, "COMMAND-COMPLETED");
+    const response = responseMessage(message, "architecture.message.received", { text, content_type: contentType, agent_status: "COMPLETED" }, "COMMAND-COMPLETED");
     if (exposeText) bus.send(response);
     return text;
   }
@@ -156,9 +157,11 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
 
   async function requestRealAgent(message, agentId) {
     try {
-      const result = await agentRequest({ agentId, payload: { text: await enrichAgentText(message, agentId), ...(message.payload.task ? { task: message.payload.task } : {}) }, correlationId: message.correlation_id });
-      persistProtocolMessage({ ...message, payload: result.payload ?? {} }, message.payload.round ?? 1, "response");
-      bus.send(responseMessage(message, streamEventType(agentId, "message.received"), { text: result.payload?.text, content_type: result.payload?.content_type ?? "text/markdown", response_id: result.payload?.response_id, agent_status: "COMPLETED" }));
+      const result = await agentRequest({ agentId, payload: { text: await enrichAgentText(message, agentId), response_content_type: message.payload.response_content_type, ...(message.payload.task ? { task: message.payload.task } : {}) }, correlationId: message.correlation_id });
+      const contentType = isSupportedContentType(result.payload?.content_type) ? result.payload.content_type : message.payload.response_content_type === "text/markdown" ? "text/markdown" : "text/plain";
+      const responsePayload = { ...(result.payload ?? {}), content_type: contentType, ...(contentType === "text/markdown" ? { markdown_provenance: "owner-markdown-opt-in-v1" } : {}) };
+      persistProtocolMessage({ ...message, payload: responsePayload }, message.payload.round ?? 1, "response");
+      bus.send(responseMessage(message, streamEventType(agentId, "message.received"), { text: result.payload?.text, content_type: contentType, response_id: result.payload?.response_id, agent_status: "COMPLETED" }));
       await onAgentCompleted?.({ message, agentId, text: result.payload?.text ?? "" });
     } catch (error) {
       bus.send(responseMessage(message, streamEventType(agentId, "error"), { error: normalizeErrorContract({ error, requestId: message.correlation_id }), agent_status: "FAILED" }));
@@ -177,6 +180,9 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       conversation_id: message.conversation_id, correlation_id: message.correlation_id, payload, timestamp: new Date().toISOString() };
   }
 }
+
+// Accepts only explicit protocol content types from a producer.
+function isSupportedContentType(value) { return value === "text/plain" || value === "text/markdown"; }
 
 // Checks whether text contains a JSON candidate.
 function hasJsonCandidate(text) { return /[{[]/.test(String(text ?? "")); }

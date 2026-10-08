@@ -64,16 +64,18 @@ export function useProjectEventStream({
               const chunk = payload.chunk ?? payload.text ?? "";
               if (!chunk) return current;
               setAgentTyping(true);
-              if (index < 0) return [...current, { id: payload.message_id ?? event.event_id, stream_key: key, text: chunk, content_type: payload.content_type, from: "agent", nickname: agentDisplayName(payload.agent_id, agentDirectoryRef.current), timestamp, stream: true, reveal: true }];
+              const contentType = effectiveAgentContentType(payload);
+              if (index < 0) return [...current, { id: payload.message_id ?? event.event_id, stream_key: key, text: chunk, content_type: contentType, from: "agent", nickname: agentDisplayName(payload.agent_id, agentDirectoryRef.current), timestamp, stream: true, reveal: true }];
               const next = [...current];
-              next[index] = { ...next[index], text: `${next[index].text ?? ""}${chunk}`, content_type: payload.content_type ?? next[index].content_type, stream: true, reveal: true };
+              next[index] = { ...next[index], text: `${next[index].text ?? ""}${chunk}`, content_type: contentType, stream: true, reveal: true };
               return next;
             }
             if (event.event_type === "conversation.message.received" || event.event_type === "conversation.message.completed") {
               setAgentTyping(false);
-              if (index < 0) return [...current, { id: payload.message_id ?? event.event_id, stream_key: key, text: payload.text ?? "", content_type: payload.content_type, from: "agent", nickname: agentDisplayName(payload.agent_id, agentDirectoryRef.current), timestamp, reveal: true }];
+              const contentType = effectiveAgentContentType(payload);
+              if (index < 0) return [...current, { id: payload.message_id ?? event.event_id, stream_key: key, text: payload.text ?? "", content_type: contentType, from: "agent", nickname: agentDisplayName(payload.agent_id, agentDirectoryRef.current), timestamp, reveal: true }];
               const next = [...current];
-              next[index] = { ...next[index], id: payload.message_id ?? next[index].id, text: payload.text ?? next[index].text, content_type: payload.content_type ?? next[index].content_type, stream: false, timestamp };
+              next[index] = { ...next[index], id: payload.message_id ?? next[index].id, text: payload.text ?? next[index].text, content_type: contentType, stream: false, timestamp };
               return next;
             }
             return current;
@@ -96,4 +98,10 @@ export function useProjectEventStream({
     });
     return () => stream.close();
   }, [client]);
+}
+
+// Resolves live message format only from an explicit supported producer declaration.
+function effectiveAgentContentType(payload) {
+  if (["project_owner", "node", "user", "system"].includes(payload?.sender_role)) return "text/plain";
+  return payload?.content_type === "text/markdown" ? "text/markdown" : "text/plain";
 }

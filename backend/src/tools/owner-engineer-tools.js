@@ -29,7 +29,7 @@ export function createOwnerEngineerTools({ testService, gitService, conversation
     const conversationId = ownerConversationId(context);
     const state = await conversationStateStore?.get?.(conversationId);
     const changedPaths = [...new Set([...(state?.owner_changed_paths ?? []), ...(context.changed_paths ?? [])])].sort();
-    const result = await testService.runCheck({ commitId: ownerRunId(context), taskId: conversationId, sessionId: context.correlation_id, type: input.type, command: input.command });
+    const result = await testService.runCheck({ commitId: ownerRunId(context), taskId: conversationId, sessionId: context.correlation_id, type: input.type, command: input.command, signal: context.abortSignal });
     return { ...result, changed_paths: changedPaths };
   }
 

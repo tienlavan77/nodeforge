@@ -11,13 +11,14 @@ test("Architecture workspace mounts button and double-Escape controls outside th
   assert.doesNotMatch(page, /claude-chat-header[\s\S]*?<ArchitectureExecutionControls[\s\S]*?claude-chat-scroll/);
   assert.match(controls, /decide\("pause"\)/);
   assert.match(page, /agentTyping=\{agentTyping\}/);
-  assert.match(controls, /action === "pause" \|\| action === "reconcile" \? "interrupted"/);
+  assert.match(controls, /action === "pause" \? "pausing" : action === "reconcile" \? "interrupted"/);
   assert.doesNotMatch(controls, />Pause</);
   assert.doesNotMatch(controls, /Pausing Architecture|Check status/);
   assert.doesNotMatch(controls, /window\.addEventListener\("focus", refresh\)|setTimeout\(/);
   assert.doesNotMatch(controls, /setInterval\(/);
   assert.doesNotMatch(controls, /Attempt \{current|completed steps/);
-  assert.doesNotMatch(controls, /ownerToken|Owner token|architecture-owner-token/);
+  assert.match(controls, /Owner token/);
+  assert.match(controls, /reconcileOwnerExecution\(projectId, conversationId, record.execution_id, undefined, ownerToken\)/);
   assert.match(controls, /executionId && agentTyping[\s\S]*?execution_id: executionId/);
   assert.doesNotMatch(controls, /pending_tool_calls|provider_thread_id/);
   assert.doesNotMatch(controls, /Press Esc again within 3 seconds/);
@@ -40,7 +41,7 @@ test("System chat shows Pause, pausing, and recovery states without step counter
   const controls = await readFile("ui/nextjs/components/system-execution-controls.jsx", "utf8");
   assert.match(page, /agentTyping=\{agentTyping\}/);
   assert.match(controls, /decide\("pause"\)/);
-  assert.match(controls, /action === "pause" \? "interrupted"/);
+  assert.match(controls, /action === "pause" \? "pausing"/);
   assert.doesNotMatch(controls, />Pause</);
   assert.doesNotMatch(controls, /Pausing System Engineer|Check status/);
   assert.doesNotMatch(controls, /window\.addEventListener\("focus", refresh\)|setTimeout\(/);

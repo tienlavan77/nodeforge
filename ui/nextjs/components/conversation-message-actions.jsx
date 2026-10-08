@@ -78,9 +78,12 @@ export function ConversationMessageActions({ message, onEdit, onRetry, children 
 }
 
 // Renders copy and share actions for agent responses without exposing owner-only mutations.
-export function ConversationAgentMessageActions({ message, children }) {
+export function ConversationAgentMessageActions({ message, children, client, projectId }) {
   const [copied, setCopied] = useState(false);
+  const [exportStatus, setExportStatus] = useState("");
+  const [exporting, setExporting] = useState(false);
   const text = String(message?.text ?? "");
+  const isMarkdown = message?.content_type === "text/markdown";
 
   // Copies an agent response and keeps feedback local to the selected transcript item.
   async function handleCopy() {
@@ -107,7 +110,40 @@ export function ConversationAgentMessageActions({ message, children }) {
     }
   }
 
+  // Downloads the original UTF-8 response bytes without converting rendered Markdown.
+  function handleDownload() {
+    const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `agent-response-${String(message?.id ?? "message").replace(/[^A-Za-z0-9._-]/g, "-")}.md`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // Saves Markdown through the project-scoped API and asks before replacing an existing export.
+  async function handleSaveFile(confirmOverwrite = false) {
+    if (!client?.saveConversationMarkdown || !projectId || !message?.conversation_id || !message?.id) return;
+    setExporting(true);
+    setExportStatus("");
+    try {
+      let result;
+      try {
+        result = await client.saveConversationMarkdown({ projectId, conversationId: message.conversation_id, messageId: message.id, confirmOverwrite });
+      } catch (error) {
+        if (error?.status !== 409 || error?.code !== "MARKDOWN_EXPORT_EXISTS" || confirmOverwrite || !window.confirm("This Markdown file already exists. Replace it?")) throw error;
+        result = await client.saveConversationMarkdown({ projectId, conversationId: message.conversation_id, messageId: message.id, confirmOverwrite: true });
+      }
+      setExportStatus(`Saved ${result.path}`);
+    } catch (error) {
+      setExportStatus(error?.message ?? "Could not save Markdown.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return <>
+    {isMarkdown && <span className="conversation-markdown-badge">Markdown</span>}
     {children}
     <div className="claude-message-actions" aria-label="Agent message actions">
       <button type="button" className={copied ? "is-copied" : ""} onClick={() => void handleCopy()} disabled={!text} aria-label={copied ? "Copied agent message" : "Copy agent message"} title={copied ? "Copied" : "Copy"}>
@@ -116,6 +152,11 @@ export function ConversationAgentMessageActions({ message, children }) {
       <button type="button" onClick={() => void handleShare()} disabled={!text} aria-label="Share agent message" title="Share">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L8 8m4-4 4 4M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" /></svg>
       </button>
+      {isMarkdown && <>
+        <button type="button" onClick={handleDownload} disabled={!text} aria-label="Download Markdown" title="Download .md">↓</button>
+        <button type="button" onClick={() => void handleSaveFile()} disabled={exporting || !text || !client} aria-label="Save Markdown to project" title="Write file">{exporting ? "…" : "↳"}</button>
+      </>}
     </div>
+    {exportStatus && <p className="conversation-markdown-export-status" role="status">{exportStatus}</p>}
   </>;
 }

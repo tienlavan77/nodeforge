@@ -23,9 +23,12 @@ export function createOwnerExecutionControl({ checkpoint, architectureCheckpoint
   }
 
   // Exposes only recovery actions and identity, never private checkpoint receipts or provider sessions.
-  function summary(record) {
+  async function summary(record, store) {
+    const recoverable = record.status === "interrupted" && await store.reconcile(record);
+    const safelyDiscardable = ["interrupted", "manual_required"].includes(record.status) && Boolean(record.runner_stopped_at) && !record.active_mutations;
     return { conversation_id: record.conversation_id, execution_id: record.execution_id, status: record.status,
-      can_continue: Boolean(record.provider_thread_id), can_reconcile: record.status === "manual_required" && Boolean(record.runner_stopped_at) && !record.active_mutations && !record.receipts_truncated && record.pending_tool_calls?.length === 1,
+      can_continue: Boolean(recoverable && record.provider_thread_id), can_restart: Boolean(recoverable), can_discard: Boolean(safelyDiscardable),
+      can_reconcile: record.role === "architecture_manager" && record.status === "manual_required" && Boolean(record.runner_stopped_at) && !record.active_mutations && !record.receipts_truncated && record.pending_tool_calls?.length === 1,
       requires_human_review: record.status === "manual_required" };
   }
 
@@ -35,7 +38,7 @@ export function createOwnerExecutionControl({ checkpoint, architectureCheckpoint
     const records = await store.inspect(conversationId);
     const authorized = [];
     for (const record of records) {
-      try { if (!["completed", "discarded", "restarted"].includes(record.status)) { await locate(conversationId, record.execution_id, agentId); authorized.push(summary(record)); } }
+      try { if (!["completed", "discarded", "restarted"].includes(record.status)) { const found = await locate(conversationId, record.execution_id, agentId); const stopped = record.status === "interrupted" && !record.runner_stopped_at && !sdkStream?.isActive?.(conversationId) ? await store.markRecoveredStopped?.(conversationId, record.execution_id) : null; authorized.push(await summary(stopped ?? record, found.store)); } }
       catch (error) { if (error.statusCode !== 404) throw error; }
     }
     return authorized;
@@ -43,9 +46,9 @@ export function createOwnerExecutionControl({ checkpoint, architectureCheckpoint
 
   // Requests an active SDK abort and lets its runner finish the interrupted checkpoint.
   async function pause(conversationId, executionId, agentId) {
-    const { record } = await locate(conversationId, executionId, agentId);
+    const { record, store } = await locate(conversationId, executionId, agentId);
     if (record.status !== "running" || !sdkStream.pause(conversationId)) throw Object.assign(new ConfigurationError("Execution is no longer running."), { statusCode: 409 });
-    return summary({ ...record, status: "pausing" });
+    return summary({ ...record, status: "pausing" }, store);
   }
 
   // Applies an explicit Continue, Restart, or Discard decision to an interrupted attempt.
@@ -53,15 +56,15 @@ export function createOwnerExecutionControl({ checkpoint, architectureCheckpoint
     const { record, message, store } = await locate(conversationId, executionId, agentId);
     await store.inspect(conversationId);
     const fresh = await store.load(conversationId, executionId);
+    if (decision === "discard") return summary(await store.close(conversationId, executionId, "discarded"), store);
     if (fresh.status !== "interrupted") throw Object.assign(new ConfigurationError("Execution is not interrupted."), { statusCode: 409 });
-    if (decision === "discard") return summary(await store.close(conversationId, executionId, "discarded"));
     if (!["continue", "restart"].includes(decision)) throw Object.assign(new ConfigurationError("Invalid execution decision."), { statusCode: 400 });
     if (decision === "continue" && !fresh.provider_thread_id) throw Object.assign(new ConfigurationError("Provider session is unavailable; choose Restart instead of Continue."), { code: "EXECUTION_SESSION_UNAVAILABLE", statusCode: 409 });
     if (!await store.reconcile(fresh)) throw Object.assign(new ConfigurationError("Workspace or Git state needs manual reconciliation before retry."), { code: "EXECUTION_RECONCILIATION_REQUIRED", statusCode: 409 });
     const nextId = decision === "continue" ? executionId : randomUUID();
     const replay = { ...message, id: `RESUME-${randomUUID()}`, correlation_id: nextId, payload: { ...message.payload, source_message_id: message.id, ...(decision === "continue" ? { continue_execution: true } : { resume_of: executionId }) } };
     void ownerChatService.replay(replay, agentId);
-    return summary({ ...record, execution_id: nextId, status: "running" });
+    return summary({ ...record, execution_id: nextId, status: "running" }, store);
   }
 
   // Reconciles one uncertain Architecture document only after server-verified runner stop and file state.

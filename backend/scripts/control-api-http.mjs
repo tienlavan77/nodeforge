@@ -11,6 +11,7 @@ import { createOwnerExecutionControl } from "../src/application/owner-execution-
 import { createOwnerChatCommandService } from "../src/application/owner-chat-command-service.js";
 import { createPlanHandoffService } from "../src/application/plan-handoff-service.js";
 import { createWatcherCacheEvents } from "../src/modules/context/watcher-cache-events.js";
+import { createMarkdownResponseFileService } from "../src/application/markdown-response-file-service.js";
 
 export function createControlApiHttp({ services } = {}) {
   const { bus, communications, conversations, eventStore, indexDb, subscriptions, agentSettings, sprintPlanUpload, sprintOrchestration, sprintPlanLeader, dispatchSprint, dispatchTicket, reviewTicket, runToolLab, directCodeRequest, codeCache, internalBus, ticketCrudService, buildBuilderContext, protocolStorage, agentGateway, agentConfiguration, sdkGateways, conversationStateStore, fileService, planFileService, projectRoot, publishUnifiedStreamEvent, logEvent, projectId, gitService } = services;
@@ -23,6 +24,9 @@ export function createControlApiHttp({ services } = {}) {
   const ownerChatService = createOwnerChatService({ bus, communications, projectLogger: logEvent, internalBus, buildAgentContext: buildBuilderContext, protocolStorage, conversationCrudService: conversations, commandService, debug: (detail) => agentLoopLogger.emit({ event_name: detail?.event ?? "agent.loop", level: detail?.event === "project-log.error" ? "error" : "debug", status: "info", message: detail?.event ?? "Agent loop debug event.", task_id: detail?.task_id, correlation_id: detail?.correlation_id, payload: detail }), agentStream: ({ agentId, payload, correlationId, conversationId }) => sdkStream({ agentId, payload, correlationId, conversationId, eventSink: publishUnifiedStreamEvent }), onAgentCompleted: sprintOrchestration.ingestAgentCompletion });
   const ownerExecutionControl = createOwnerExecutionControl({ checkpoint: executionCheckpoint, architectureCheckpoint, sdkStream, ownerChatService, communications, agentConfiguration });
   const conversationStream = createConversationStream({ bus, communicationStore: communications, eventStore, subscriptions });
+  const markdownResponseFileService = projectId && projectRoot && typeof conversations?.get === "function" && typeof communications?.getById === "function" && typeof fileService?.atomicCreate === "function" && typeof fileService?.atomicWrite === "function"
+    ? createMarkdownResponseFileService({ projectId, projectRoot, conversations, communications, fileService, logger: logEvent })
+    : null;
   const projectStream = createProjectStream({ projectId, watcherSnapshot: createWatcherSnapshotService({ indexDb }), subscriptions, eventBus: internalBus, bus });
   const onWatcherEvent = createWatcherCacheEvents({ projectId, codeCache, logger: agentLoopLogger.emit });
   return createHttpApi({
@@ -56,6 +60,7 @@ export function createControlApiHttp({ services } = {}) {
       ownerExecutionControl,
       conversationAuditHistoryService: services.conversationAuditHistoryService,
       conversationCrudService: conversations,
+      markdownResponseFileService,
       architectureWorkspaceService: services.architectureWorkspaceService,
       humanDecisionService: services.humanDecisionService,
       agentSettingsService: agentSettings,

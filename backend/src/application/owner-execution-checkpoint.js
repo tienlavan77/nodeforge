@@ -67,7 +67,7 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
       if (continueAttempt) {
         return update(conversationId, executionId, async (current) => {
           if (!current || current.user_prompt_hash !== promptHash || !await reconcile(current)) throw Object.assign(new ConfigurationError("Execution requires manual workspace reconciliation before continuation."), { code: "EXECUTION_RECONCILIATION_REQUIRED", statusCode: 409 });
-          return { ...current, status: "running", pending_tool_calls: [], resume_count: (current.resume_count ?? 0) + 1, owner_instance_id: ownerInstanceId, lease_started_at: new Date().toISOString(), heartbeat_at: new Date().toISOString() };
+          return { ...current, status: "running", runner_stopped_at: null, pending_tool_calls: [], resume_count: (current.resume_count ?? 0) + 1, owner_instance_id: ownerInstanceId, lease_started_at: new Date().toISOString(), heartbeat_at: new Date().toISOString() };
         });
       }
       const parent = resumeOf ? await load(conversationId, resumeOf) : null;
@@ -94,8 +94,12 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
   async function inspect(conversationId) {
     const records = await list(conversationId);
     for (const record of records) {
+      const laterSequence = [...(record.completed_tool_calls ?? []), ...(record.pending_tool_calls ?? [])].filter((step) => step.sequence > 0).reduce((max, step) => Math.max(max, step.sequence), 0);
+      if (role === "system_engineer" && laterSequence > 0 && (record.pending_tool_calls ?? []).some((step) => step.tool_name === "run_check" && step.sequence < laterSequence)) {
+        await update(conversationId, record.execution_id, (current) => current.status === record.status ? settleReturnedRunChecks(current, laterSequence) : null);
+      }
       if (record.status === "running" && Date.now() - Date.parse(record.heartbeat_at) >= LEASE_MS) {
-        await update(conversationId, record.execution_id, (current) => current.status === "running" && Date.now() - Date.parse(current.heartbeat_at) >= LEASE_MS ? { ...current, status: role === "architecture_manager" && current.pending_tool_calls.some((step) => step.mutating) ? "manual_required" : "interrupted", next_action_hint: "Lease expired; reconcile workspace before continuing." } : null);
+        await update(conversationId, record.execution_id, (current) => current.status === "running" && Date.now() - Date.parse(current.heartbeat_at) >= LEASE_MS ? { ...current, status: current.pending_tool_calls.some((step) => step.mutating) ? "manual_required" : "interrupted", interruption_source: "lease_expired", next_action_hint: "Lease expired; verify the runner stopped before continuing." } : null);
       }
     }
     return list(conversationId);
@@ -106,6 +110,7 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
     let step;
     await update(conversationId, executionId, async (current) => {
       if (current?.status !== "running" || current.owner_instance_id !== ownerInstanceId) throw Object.assign(new ConfigurationError("Execution is not active."), { code: "EXECUTION_INTERRUPTED" });
+      current = settleReturnedRunChecks(current, current.next_sequence);
       if (role === "architecture_manager" && current.pending_tool_calls.some((pending) => pending.mutating)) throw Object.assign(new ConfigurationError("Another document mutation has not completed."), { code: "EXECUTION_BUSY", statusCode: 409 });
       if (role === "architecture_manager" && MUTATING.has(name) && !["write_diff", "edit_diff", "delete_file"].includes(name)) throw Object.assign(new ConfigurationError("Architecture recovery cannot execute System Engineer mutations."), { code: "TOOL_FORBIDDEN" });
       if ((current.resume_count || current.resume_of) && current.completed_tool_calls.some((receipt) => receipt.tool_name === name && (["commit_changes", "push_commit"].includes(name) || (MUTATING.has(name) && receipt.input_hash === executionDigest(input))))) throw Object.assign(new ConfigurationError("Side effect already completed; cannot replay after recovery."), { code: "EXECUTION_RECONCILIATION_REQUIRED" });
@@ -130,7 +135,8 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
   async function failTool(conversationId, executionId, step, error) {
     return update(conversationId, executionId, (current) => {
       if (current?.owner_instance_id !== ownerInstanceId || current.status !== "running") throw Object.assign(new ConfigurationError("Execution lease has ended."), { code: "EXECUTION_INTERRUPTED" });
-      return { ...current, active_mutations: Math.max(0, (current.active_mutations ?? 0) - (role === "architecture_manager" && step.mutating ? 1 : 0)), status: role === "architecture_manager" && step.mutating ? "manual_required" : current.status, pending_tool_calls: step.mutating ? current.pending_tool_calls : current.pending_tool_calls.filter((pending) => pending.sequence !== step.sequence), failed_tool_calls: [...current.failed_tool_calls, { sequence: step.sequence, tool_name: step.tool_name, error_code: String(error?.code ?? "TOOL_FAILED").slice(0, 80) }].slice(-MAX_STEPS) };
+      const safelyCancelledCheck = step.tool_name === "run_check" && error?.code === "EXECUTION_PAUSED";
+      return { ...current, active_mutations: Math.max(0, (current.active_mutations ?? 0) - (role === "architecture_manager" && step.mutating ? 1 : 0)), status: role === "architecture_manager" && step.mutating && !safelyCancelledCheck ? "manual_required" : current.status, pending_tool_calls: step.mutating && !safelyCancelledCheck ? current.pending_tool_calls : current.pending_tool_calls.filter((pending) => pending.sequence !== step.sequence), failed_tool_calls: [...current.failed_tool_calls, { sequence: step.sequence, tool_name: step.tool_name, error_code: String(error?.code ?? "TOOL_FAILED").slice(0, 80) }].slice(-MAX_STEPS) };
     });
   }
 
@@ -141,9 +147,20 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
     return text.match(/\(sha256:[a-f0-9]{64}\)/)?.[0]?.slice(1, -1) ?? null;
   }
 
+  // Settles an old run_check boundary only when a later tool sequence proves its call returned.
+  function settleReturnedRunChecks(record, evidenceSequence) {
+    const unsettled = (record.pending_tool_calls ?? []).filter((step) => step.tool_name === "run_check" && step.sequence < evidenceSequence);
+    if (!unsettled.length) return record;
+    const settled = unsettled.map((step) => {
+      const failure = (record.failed_tool_calls ?? []).find((entry) => entry.sequence === step.sequence);
+      return { sequence: step.sequence, tool_name: "run_check", outcome: failure ? "failed" : "unknown", ...(failure ? { error_code: failure.error_code } : {}), evidence_sequence: evidenceSequence, settled_at: new Date().toISOString(), evidence_hash: executionDigest({ execution_id: record.execution_id, sequence: step.sequence, evidence_sequence: evidenceSequence, outcome: failure?.error_code ?? "unknown" }) };
+    });
+    return { ...record, pending_tool_calls: record.pending_tool_calls.filter((step) => !unsettled.some((entry) => entry.sequence === step.sequence)), settled_tool_calls: [...(record.settled_tool_calls ?? []), ...settled].slice(-MAX_STEPS) };
+  }
+
   // Refuses to replay uncertain tool side effects after a process interruption.
   function canContinue(record) {
-    return record?.status === "interrupted" && !record.receipts_truncated && !(record.pending_tool_calls ?? []).some((step) => step.mutating) && !record.completed_tool_calls?.some((step) => step.tool_name === "push_commit" || (step.tool_name === "delete_file" && (role !== "architecture_manager" || !step.expected_absent)));
+    return record?.status === "interrupted" && Boolean(record.runner_stopped_at) && !record.receipts_truncated && !(record.pending_tool_calls ?? []).some((step) => step.mutating) && !record.completed_tool_calls?.some((step) => step.tool_name === "push_commit" || (step.tool_name === "delete_file" && (role !== "architecture_manager" || !step.expected_absent)));
   }
 
   // Confirms completed file writes still match the workspace before continuing.
@@ -173,6 +190,11 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
     return update(conversationId, executionId, (current) => current?.owner_instance_id === ownerInstanceId && !(current.active_mutations ?? 0) ? { ...current, runner_stopped_at: new Date().toISOString() } : null);
   }
 
+  // Records recovery evidence after the API confirms no runner or mutating tool remains active.
+  async function markRecoveredStopped(conversationId, executionId) {
+    return update(conversationId, executionId, (current) => current?.status === "interrupted" && !(current.active_mutations ?? 0) && !(current.pending_tool_calls ?? []).some((step) => step.mutating) ? { ...current, runner_stopped_at: current.runner_stopped_at ?? new Date().toISOString(), runner_stop_evidence: "no_active_sdk_runner_or_pending_mutation" } : null);
+  }
+
   // Confirms an uncertain Architecture write only after runner exit and an exact document-state match.
   async function reconcilePending(conversationId, executionId, sequence, actorId) {
     if (role !== "architecture_manager" || !actorId || !Number.isSafeInteger(sequence)) throw new ConfigurationError("Architecture reconciliation requires an actor label and step.");
@@ -190,11 +212,11 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
   async function close(conversationId, executionId, status) {
     if (!["discarded", "restarted"].includes(status)) throw new ConfigurationError("Invalid execution close status.");
     return update(conversationId, executionId, (current) => {
-      if (!current || current.status !== "interrupted") throw Object.assign(new ConfigurationError("Only an interrupted execution can be closed."), { statusCode: 409 });
-      if (status === "discarded" && ((current.pending_tool_calls ?? []).some((step) => step.mutating) || current.active_mutations || (role === "architecture_manager" && !current.runner_stopped_at))) throw Object.assign(new ConfigurationError("Execution still has uncertain mutations or a running agent."), { code: "EXECUTION_RECONCILIATION_REQUIRED", statusCode: 409 });
+      if (!current || !["interrupted", "manual_required"].includes(current.status)) throw Object.assign(new ConfigurationError("Only a stopped execution can be closed."), { statusCode: 409 });
+      if (status === "discarded" && (current.active_mutations || !current.runner_stopped_at)) throw Object.assign(new ConfigurationError("Execution still has a running agent or tool."), { code: "EXECUTION_RECONCILIATION_REQUIRED", statusCode: 409 });
       return { ...current, status };
     });
   }
 
-  return Object.freeze({ load, list, start, patch, inspect, beforeTool, afterTool, failTool, canContinue, reconcile, reconcilePending, markStopped, close, ownerInstanceId, terminalStatuses: TERMINAL });
+  return Object.freeze({ load, list, start, patch, inspect, beforeTool, afterTool, failTool, canContinue, reconcile, reconcilePending, markStopped, markRecoveredStopped, close, ownerInstanceId, terminalStatuses: TERMINAL });
 }
