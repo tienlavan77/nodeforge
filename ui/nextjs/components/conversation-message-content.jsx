@@ -2,9 +2,11 @@
 // Render conversation messages with inline and fenced code blocks.
 
 import { useState } from "react";
+import { MarkdownPreviewContent } from "./markdown-preview-content.jsx";
 
-// Renders message content handling code blocks.
-export function MessageContent({ text, onMarkdownOpen }) {
+// Renders message content according to the protocol-declared content type.
+export function MessageContent({ text, contentType = "text/plain", onMarkdownOpen }) {
+  if (contentType === "text/markdown") return <MarkdownPreviewContent markdown={text} variant="conversation" />;
   const parts = parseCodeBlocks(text);
   return <div className="message-content">{parts.map((part, index) => part.code
     ? <CodeBlock key={`code-${index}`} language={part.language} code={part.code} />

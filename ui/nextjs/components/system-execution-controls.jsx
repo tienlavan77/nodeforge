@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 
 // Shows durable execution status and requires a second Escape key press to pause active work.
-export function SystemExecutionControls({ client, projectId, conversationId, executionId, agentTyping, onPause, refreshSignal }) {
+export function SystemExecutionControls({ client, projectId, conversationId, executionId, agentTyping, onPause }) {
   const [executions, setExecutions] = useState([]);
   const [, setHint] = useState("");
   const [error, setError] = useState("");
@@ -33,7 +33,7 @@ export function SystemExecutionControls({ client, projectId, conversationId, exe
     };
     void refresh();
     return () => { mounted = false; };
-  }, [client, projectId, conversationId, refreshSignal]);
+  }, [client, projectId, conversationId]);
 
   useEffect(() => {
     if (currentStatus !== "running" && (current || !agentTyping)) return undefined;

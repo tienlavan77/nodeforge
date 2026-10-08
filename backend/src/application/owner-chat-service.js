@@ -135,9 +135,9 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     for await (const chunk of agentStream({ agentId, payload: { text: prompt }, correlationId: message.correlation_id, conversationId })) {
       if (typeof chunk.text !== "string" || !chunk.text) continue;
       text += chunk.text;
-      if (exposeText) bus.sendFast(responseMessage(message, "architecture.message.delta", { text: chunk.text, accumulated_text: text, chunk_index: index++ }, `COMMAND-DELTA-${index}`));
+      if (exposeText) bus.sendFast(responseMessage(message, "architecture.message.delta", { text: chunk.text, accumulated_text: text, content_type: "text/markdown", chunk_index: index++ }, `COMMAND-DELTA-${index}`));
     }
-    const response = responseMessage(message, "architecture.message.received", { text, agent_status: "COMPLETED" }, "COMMAND-COMPLETED");
+    const response = responseMessage(message, "architecture.message.received", { text, content_type: "text/markdown", agent_status: "COMPLETED" }, "COMMAND-COMPLETED");
     if (exposeText) bus.send(response);
     return text;
   }
@@ -158,7 +158,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     try {
       const result = await agentRequest({ agentId, payload: { text: await enrichAgentText(message, agentId), ...(message.payload.task ? { task: message.payload.task } : {}) }, correlationId: message.correlation_id });
       persistProtocolMessage({ ...message, payload: result.payload ?? {} }, message.payload.round ?? 1, "response");
-      bus.send(responseMessage(message, streamEventType(agentId, "message.received"), { text: result.payload?.text, response_id: result.payload?.response_id, agent_status: "COMPLETED" }));
+      bus.send(responseMessage(message, streamEventType(agentId, "message.received"), { text: result.payload?.text, content_type: result.payload?.content_type ?? "text/markdown", response_id: result.payload?.response_id, agent_status: "COMPLETED" }));
       await onAgentCompleted?.({ message, agentId, text: result.payload?.text ?? "" });
     } catch (error) {
       bus.send(responseMessage(message, streamEventType(agentId, "error"), { error: normalizeErrorContract({ error, requestId: message.correlation_id }), agent_status: "FAILED" }));

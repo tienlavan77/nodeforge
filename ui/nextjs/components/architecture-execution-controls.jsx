@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 
 // Shows durable Architecture attempts and stops only the active conversation after owner action.
-export function ArchitectureExecutionControls({ client, projectId, conversationId, executionId, agentTyping, onPause, refreshSignal }) {
+export function ArchitectureExecutionControls({ client, projectId, conversationId, executionId, agentTyping, onPause }) {
   const [executions, setExecutions] = useState([]);
   const [error, setError] = useState("");
   const [, setHint] = useState("");
@@ -35,7 +35,7 @@ export function ArchitectureExecutionControls({ client, projectId, conversationI
     }
     void refresh();
     return () => { mounted = false; };
-  }, [client, projectId, conversationId, refreshSignal]);
+  }, [client, projectId, conversationId]);
 
   // Sends pause and recovery actions for the selected Architecture execution.
   async function decide(action) {
