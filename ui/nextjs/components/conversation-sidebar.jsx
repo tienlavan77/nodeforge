@@ -24,7 +24,7 @@ function SidebarNavigationIcon({ name }) {
 }
 
 // Present a persistent desktop sidebar and a keyboard-accessible mobile navigation rail.
-export function ConversationSidebar({ open, onOpen, onClose, agentSectionTitle = "Architecture", architectureLabel, architectureControl, projects = [], selectedProjectId, onProjectChange, onNewConversation, children }) {
+export function ConversationSidebar({ open, onOpen, onClose, agentSectionTitle = "Architecture", architectureLabel, architectureControl, projects = [], selectedProjectId, onProjectChange, onNewConversation, showConversationControls = true, children }) {
   const [collapsed, setCollapsed] = useState(false);
   const panelRef = useRef(null);
 
@@ -50,7 +50,7 @@ export function ConversationSidebar({ open, onOpen, onClose, agentSectionTitle =
   return <>
     <nav className={`conversation-mobile-rail${open ? " is-open" : ""}`} aria-label="Collapsed conversation navigation">
       <button type="button" onClick={reopen} aria-label="Open conversations sidebar" title="Open conversations sidebar">N</button>
-      <button type="button" onClick={newConversation} aria-label="New chat" title="New chat">＋</button>
+      {showConversationControls && <button type="button" onClick={newConversation} aria-label="New chat" title="New chat">＋</button>}
       <ThemeToggle />
     </nav>
     <ResponsiveWorkspaceRegion name="conversations" title="Conversations" breakpoint={640} open={open} onClose={onClose}>
@@ -69,14 +69,16 @@ export function ConversationSidebar({ open, onOpen, onClose, agentSectionTitle =
           </div>
         </div>
         <nav className="claude-sidebar-navigation" aria-label="Workspace navigation">
-          <details className="claude-sidebar-architecture">
-            <summary title={architectureLabel ? `${agentSectionTitle}: ${architectureLabel}` : agentSectionTitle}>
-              <span className="claude-architecture-summary-icon"><SidebarNavigationIcon name={agentSectionTitle === "System" || agentSectionTitle === "Code" ? "coding" : "architecture"} /><span className="claude-architecture-selected-avatar" aria-hidden="true">{(architectureLabel ?? "?").trim().slice(0, 1).toUpperCase()}</span></span>
-              <span>{agentSectionTitle}</span>
-            </summary>
-            {architectureControl}
-          </details>
-          <button type="button" onClick={newConversation} title="New conversation"><SidebarNavigationIcon name="conversation" /><span>New conversation</span></button>
+          {showConversationControls && <>
+            <details className="claude-sidebar-architecture">
+              <summary title={architectureLabel ? `${agentSectionTitle}: ${architectureLabel}` : agentSectionTitle}>
+                <span className="claude-architecture-summary-icon"><SidebarNavigationIcon name={agentSectionTitle === "System" || agentSectionTitle === "Code" ? "coding" : "architecture"} /><span className="claude-architecture-selected-avatar" aria-hidden="true">{(architectureLabel ?? "?").trim().slice(0, 1).toUpperCase()}</span></span>
+                <span>{agentSectionTitle}</span>
+              </summary>
+              {architectureControl}
+            </details>
+            <button type="button" onClick={newConversation} title="New conversation"><SidebarNavigationIcon name="conversation" /><span>New conversation</span></button>
+          </>}
           <details className="claude-sidebar-projects" open>
             <summary title="Projects"><SidebarNavigationIcon name="projects" /><span>Projects</span></summary>
             <div className="claude-sidebar-project-list">

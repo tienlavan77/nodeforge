@@ -10,7 +10,7 @@ function fail(code, message) { return Object.assign(new ConfigurationError(messa
 // Creates the authoritative SQLite sprint registry for a project.
 export function createSprintRegistry({ projectId, database, plans, clock = () => new Date().toISOString() } = {}) {
   if (!projectId || !database?.all || !database?.run || !plans?.getRevision || !plans?.assertExecutable) throw fail("SPRINT_REGISTRY_CONFIG", "Sprint registry requires a database and plan store.");
-  return Object.freeze({ register, get, list, bindPlan, setStatus, assertReady, getByTicket });
+  return Object.freeze({ register, get, getDetail, list, listDetails, bindPlan, setStatus, assertReady, getByTicket });
 
   // Converts a stored row to its public scheduling record.
   function project(row) { return row && { sprint_id: row.sprint_id, project_id: row.project_id, position: row.position, dependencies: JSON.parse(row.dependencies_json), status: row.status, plan_id: row.plan_id, plan_revision: row.plan_revision, plan_path: row.plan_path, plan_sha256: row.plan_sha256, created_at: row.created_at, updated_at: row.updated_at }; }
@@ -38,8 +38,22 @@ export function createSprintRegistry({ projectId, database, plans, clock = () =>
     return project(database.all("SELECT * FROM sprint_registry WHERE project_id=? AND sprint_id=?", [projectId, sprintId])[0]);
   }
 
+  // Resolves the canonical project sprint view from its registry record and bound immutable plan.
+  async function getDetail(sprintId) {
+    const sprint = get(sprintId);
+    if (!sprint) return null;
+    if (!sprint.plan_id) return { id: sprint.sprint_id, project_id: sprint.project_id, dependencies: sprint.dependencies, status: sprint.status, order: sprint.position + 1, tickets: [], exit_criteria: [] };
+    const plan = await plans.getRevision({ planId: sprint.plan_id, revision: sprint.plan_revision });
+    const ticketIds = structuredClone(plan.content.tickets);
+    const tickets = structuredClone((plan.content.ticket_specs ?? []).filter((ticket) => ticketIds.includes(ticket.id)));
+    return { id: sprint.sprint_id, project_id: sprint.project_id, objective: plan.content.objective, dependencies: sprint.dependencies, status: sprint.status, order: sprint.position + 1, ticket_ids: ticketIds, tickets, exit_criteria: structuredClone(plan.content.acceptance_criteria), plan_id: sprint.plan_id, plan_revision: sprint.plan_revision, plan_sha256: sprint.plan_sha256 };
+  }
+
   // Lists sprints in their explicit execution order.
   function list() { return database.all("SELECT * FROM sprint_registry WHERE project_id=? ORDER BY position", [projectId]).map(project); }
+
+  // Builds the Registry-owned detail collection used by the public sprint list.
+  async function listDetails() { return Promise.all(list().map(({ sprint_id: sprintId }) => getDetail(sprintId))); }
 
   // Rebinds a sprint after replanning; prior approval cannot authorize the new revision.
   async function bindPlan({ sprintId, planId, revision } = {}) {

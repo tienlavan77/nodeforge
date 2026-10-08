@@ -11,7 +11,7 @@ const INITIAL_PANELS = {
 };
 
 // Render movable, resizable monitor windows with close and restore controls.
-export function WorkspaceMonitorPanels({ watcherEvents = [], watcherState = "connecting", agentProcess, agentActivities = [], agentDirectory = [], layoutScope = "home" }) {
+export function WorkspaceMonitorPanels({ watcherEvents = [], watcherState = "connecting", agentProcess, agentActivities = [], agentDirectory = [], layoutScope = "home", activityRoles }) {
   const layoutKey = `${MONITOR_LAYOUT_KEY}:${layoutScope}`;
   const [panels, setPanels] = useState(INITIAL_PANELS);
   const [dragging, setDragging] = useState(null);
@@ -90,7 +90,7 @@ export function WorkspaceMonitorPanels({ watcherEvents = [], watcherState = "con
 
   const watcherStatus = watcherState === "connected" ? "Connected" : watcherState === "error" ? "Error" : "Connecting";
   const processEntries = agentProcess && typeof agentProcess === "object" ? Object.entries(agentProcess) : [];
-  const visibleActivities = monitorAgentActivities(agentActivities, agentDirectory, layoutScope === "home" ? "architecture_manager" : "system_engineer");
+  const visibleActivities = monitorAgentActivities(agentActivities, agentDirectory, activityRoles ?? (layoutScope === "home" ? "architecture_manager" : "system_engineer"));
   const latestWatcherEvent = watcherEvents.at(-1);
   const latestAgentEvent = visibleActivities.at(-1);
 
