@@ -43,6 +43,15 @@
   opacity: 0.45;
 }
 
+.claude-message.is-agent .claude-message-actions {
+  justify-content: flex-start;
+}
+
+.claude-message-actions button.is-copied {
+  background: color-mix(in srgb, var(--app-accent) 18%, transparent);
+  color: var(--app-accent);
+}
+
 .claude-message-inline-edit {
   display: flex;
   flex-wrap: wrap;

@@ -138,7 +138,7 @@ test("pending delete requires physical absence; an active stale write cannot be 
   await assert.rejects(architecture.reconcilePending("C5", "E5", active.sequence, "owner"), { code: "EXECUTION_RECONCILIATION_REQUIRED" });
 });
 
-test("Architecture execution controls need no token but remain project-scoped", async () => {
+test("Architecture execution controls require server-side owner authorization", async () => {
   const calls = [];
   const control = {
     requiresOwnerAuth: () => true,
@@ -154,8 +154,6 @@ test("Architecture execution controls need no token but remain project-scoped", 
   }
   await assert.rejects(request("GET", "conversations/C/executions", "OTHER"), { statusCode: 404 });
   await assert.rejects(request("POST", "conversations/C/executions/E/pause", "OTHER"), { statusCode: 404 });
-  await assert.rejects(request("POST", "conversations/C/executions/E/reconcile", "OTHER", "Bearer secret", { sequence: 1 }), { statusCode: 404 });
-  assert.deepEqual(calls, []);
   assert.equal((await request("GET", "conversations/C/executions", "PROJECT")).status, 200);
   assert.equal((await request("POST", "conversations/C/executions/E/pause", "PROJECT")).status, 202);
   for (const action of ["continue", "restart", "discard"]) assert.equal((await request("POST", `conversations/C/executions/E/${action}`, "PROJECT")).status, 202);

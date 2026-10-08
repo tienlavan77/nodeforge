@@ -44,6 +44,15 @@ test("creates an isolated OpenAI SDK provider from an agent profile", async () =
   assert.equal(result.profile.model, "gpt-5.6-sol");
 });
 
+test("enables Responses API by role for native web search while respecting explicit opt-out", () => {
+  const factory = createOpenAiSdkProviderFactory({ ProviderClass: class {}, credentialResolver: () => "secret" });
+  const profile = (role, options = {}) => factory.normalizeProfile({ agent_id: role, agent_name: role, role, provider: "openai", gateway_url: "https://gateway.example.test/v1", credential_ref: `runtime:${role}:key`, model: "gpt-5.6-sol", ...options });
+  assert.equal(profile("architecture_manager").use_responses, true);
+  assert.equal(profile("system_engineer").use_responses, true);
+  assert.equal(profile("architecture_manager", { use_responses: false }).use_responses, false);
+  assert.equal(profile("coder").use_responses, false);
+});
+
 test("does not accept an incomplete OpenAI SDK profile", async () => {
   const factory = createOpenAiSdkProviderFactory({ ProviderClass: class {}, credentialResolver: () => "secret" });
   await assert.rejects(() => factory.createForAgent({ agent_id: "builder" }), /gateway URL/);

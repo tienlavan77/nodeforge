@@ -64,14 +64,57 @@ export function ConversationMessageActions({ message, onEdit, onRetry, children 
       <button type="button" aria-label="Cancel edit" title="Cancel" onClick={() => { setDraft(text); setEditing(false); }} disabled={saving}>×</button>
     </div> : children}
     <div className="claude-message-actions" aria-label="Message actions">
-      <button type="button" onClick={() => void handleCopy()} disabled={!text} aria-label={copied ? "Copied message" : "Copy message"} title={copied ? "Copied" : "Copy"}>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-3M5 8h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2Z" /></svg>
+      <button type="button" className={copied ? "is-copied" : ""} onClick={() => void handleCopy()} disabled={!text} aria-label={copied ? "Copied message" : "Copy message"} title={copied ? "Copied" : "Copy"}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">{copied ? <path d="m5 12 4 4L19 6" /> : <path d="M8 8V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-3M5 8h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2Z" />}</svg>
       </button>
       <button type="button" onClick={() => { setDraft(text); setEditing((value) => !value); }} disabled={!text || saving} aria-label="Edit message" title="Edit">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5 5 5M4 20l4.2-.9L20 7.3 16.7 4 4.9 15.8 4 20Z" /></svg>
       </button>
       <button type="button" onClick={() => void onRetry(message)} disabled={!text || editing} aria-label="Retry message" title="Retry">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5m11-1a8 8 0 0 0-14-5L4 8m16 8-2 2a8 8 0 0 1-14-5" /></svg>
+      </button>
+    </div>
+  </>;
+}
+
+// Renders copy and share actions for agent responses without exposing owner-only mutations.
+export function ConversationAgentMessageActions({ message, children }) {
+  const [copied, setCopied] = useState(false);
+  const text = String(message?.text ?? "");
+
+  // Copies an agent response and keeps feedback local to the selected transcript item.
+  async function handleCopy() {
+    try {
+      await copyMessageText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    } catch (error) {
+      console.error("Unable to copy agent message", error);
+    }
+  }
+
+  // Uses native sharing when available and otherwise provides shareable copied text.
+  async function handleShare() {
+    try {
+      if (navigator.share) {
+        await navigator.share({ text });
+        return;
+      }
+      await copyMessageText(text);
+    } catch (error) {
+      if (error?.name === "AbortError") return;
+      console.error("Unable to share agent message", error);
+    }
+  }
+
+  return <>
+    {children}
+    <div className="claude-message-actions" aria-label="Agent message actions">
+      <button type="button" className={copied ? "is-copied" : ""} onClick={() => void handleCopy()} disabled={!text} aria-label={copied ? "Copied agent message" : "Copy agent message"} title={copied ? "Copied" : "Copy"}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">{copied ? <path d="m5 12 4 4L19 6" /> : <path d="M8 8V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-3M5 8h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2Z" />}</svg>
+      </button>
+      <button type="button" onClick={() => void handleShare()} disabled={!text} aria-label="Share agent message" title="Share">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L8 8m4-4 4 4M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" /></svg>
       </button>
     </div>
   </>;

@@ -16,6 +16,7 @@ export function useProjectEventStream({
   setWatcherState,
   setAgentProcess,
   setAgentActivities,
+  onExecutionSignal,
   loadDashboard,
   agentDisplayName
 }) {
@@ -26,6 +27,7 @@ export function useProjectEventStream({
       onEvent: (event) => {
         if (event.event_type === "agent.activity") {
           setAgentActivities?.((current) => [...current, event].slice(-50));
+          if ((event.conversation_id ?? event.payload?.conversation_id) === activeConversationIdRef.current && ["failed", "paused"].includes(event.payload?.status)) onExecutionSignal?.(event.payload);
           return;
         }
         if (event.event_type.startsWith("conversation.message.") || event.event_type === "conversation.agent.status_changed") {
@@ -37,6 +39,7 @@ export function useProjectEventStream({
           const timestamp = event.timestamp ?? new Date().toISOString();
           if (event.event_type === "conversation.agent.status_changed") {
             setAgentTyping(payload.status === "working");
+            if (payload.status !== "working") onExecutionSignal?.(payload);
             return;
           }
           if (event.event_type === "conversation.message.failed") {

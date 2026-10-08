@@ -1,5 +1,5 @@
 // Executes OpenAI Agents SDK runs with per-agent provider and timeout control.
-import { Agent, Runner, shellTool, tool } from "@openai/agents";
+import { Agent, Runner, shellTool, tool, webSearchTool } from "@openai/agents";
 import { ConfigurationError } from "../../shared/errors.js";
 
 // Creates a gateway that runs an Agent via the OpenAI Agents SDK.
@@ -9,13 +9,14 @@ export function createOpenAiSdkGateway({ providerFactory, runner = createTracing
   if (typeof AgentClass !== "function") throw new ConfigurationError("OpenAI SDK Gateway requires an Agent constructor.");
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1) throw new ConfigurationError("OpenAI SDK Gateway timeout must be a positive integer.");
 
-  return Object.freeze({ execute, provider: "openai", conversationMode: "history" });
+  return Object.freeze({ execute, provider: "openai", conversationMode: "history", builtinWebSearchAvailable: supportsBuiltinWebSearch });
 
   async function execute({ agent, agentId, prompt, correlationId, options = {} } = {}) {
     const profile = agent ?? { agent_id: agentId };
     if (typeof prompt !== "string" || !prompt.trim()) throw new ConfigurationError("OpenAI SDK prompt is required.");
     if (typeof correlationId !== "string" || !correlationId) throw new ConfigurationError("OpenAI SDK correlation_id is required.");
     const { provider, profile: normalized } = await providerFactory.createForAgent(profile);
+    const useBuiltinWebSearch = options.builtinWebSearch && supportsBuiltinWebSearch({ ...normalized, provider: profile.provider });
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -24,6 +25,7 @@ export function createOpenAiSdkGateway({ providerFactory, runner = createTracing
         instructions: `You are the NodeForge ${normalized.role} agent. Respond briefly and clearly.`,
         model: normalized.model,
         tools: [
+          ...(useBuiltinWebSearch ? [webSearchTool()] : []),
           ...(options.builtinSearchShell ? [shellTool({ shell: options.builtinSearchShell, needsApproval: false })] : []),
           ...(options.forgeTools?.definitions ?? []).map((definition) => tool({
           name: definition.name,
@@ -53,6 +55,13 @@ export function createOpenAiSdkGateway({ providerFactory, runner = createTracing
       clearTimeout(timer);
       await provider.close?.();
     }
+  }
+
+  // Allows native web search only for approved roles using the Responses API contract.
+  function supportsBuiltinWebSearch(profile) {
+    return ["architecture_manager", "system_engineer"].includes(profile?.role)
+      && profile?.use_responses !== false
+      && !["xai", "alibaba", "zhipu", "deepseek"].includes(profile?.provider);
   }
 }
 
