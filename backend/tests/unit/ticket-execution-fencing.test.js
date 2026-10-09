@@ -42,7 +42,7 @@ async function fixture() {
 }
 
 // Claims the next explicit execution from the currently observed status version.
-function begin(f, executionId = "RUN-A", fresh = false) { const current = f.store.get(TICKET.id) ?? f.store.create(TICKET.id); return f.store.beginExecution(TICKET.id, { executionId, basis: f.basis, expectedVersion: current.version, fresh }); }
+function begin(f, executionId = "RUN-A", fresh = false) { const current = f.store.get(TICKET.id) ?? f.store.create(TICKET.id); return f.store.beginExecution(TICKET.id, { executionId, basis: f.basis, expectedVersion: current.version, fresh, dependencyExpectations: [] }); }
 
 // Builds the actual shared RUN service while exposing controlled submission and checkpoint boundaries.
 function dispatch(f, execute, checkpoints = {}, clears = []) { return createTicketRunDispatch({ disposition: { get: async () => null }, intake: { open: async () => ({ ticket: TICKET }) }, sprintRegistry: f.registry, ticketStatusStore: f.store, checkpoints: { load: async () => null, clear: async () => clears.push("checkpoint"), ...checkpoints }, protocolStorage: { clearTask: async () => clears.push("protocol") }, conversationStateStore: { clear: async () => clears.push("conversation") }, dispatchTask: execute }); }
@@ -131,7 +131,7 @@ test("production pre-submit boundary requires ownership and carries durable iden
     begin(f);
     const production = createApprovedTicketDispatch({ projectId: PROJECT, sprintRegistry: f.registry, ticketStatusStore: f.store, integration: { submitTicket: async (request) => { submitted.push(request); return { status: "accepted" }; } } });
     await assert.rejects(production({ ticket: TICKET, sprintBasis: f.basis, executionId: "RUN-OLD" }), { code: "TICKET_EXECUTION_CONFLICT" });
-    await production({ ticket: TICKET, sprintBasis: f.basis, executionId: "RUN-A" });
+    await production({ ticket: TICKET, sprintBasis: f.basis, executionId: "RUN-A", dependencyExpectations: [] });
     assert.equal(submitted[0].payload.execution_id, "RUN-A");
   } finally { await f.close(); }
 });
@@ -173,11 +173,15 @@ test("actual DAG consumes persisted attempt completion rather than the event typ
   } finally { bridge.close(); await f.close(); }
 });
 
-test("actual integration failure producer preserves Project, execution ID and basis", async () => {
+test("Registry missing intent rejects, direct code suppresses ticket failure, and unregistered legacy failure preserves identity", async () => {
   const events = []; const profile = { agent_id: "claude-coder", role: "coder", provider: "claude", enabled: true, status: "ready" };
   const basis = { project_id: PROJECT, sprint_id: TICKET.sprint_id, plan_id: "PLAN-A", plan_revision: 1, plan_path: "plan.json", plan_sha256: "a".repeat(64), version: 1 };
   const integration = createNodeforgeTaskIntegration({ projectRoot: process.cwd(), supervisorManager: { startTask: async () => ({}) }, eventBus: { publish: async (event) => events.push(event) }, agentResolver: { list: () => [profile], resolveAvailable: () => profile }, agentOccupancy: { getByTask: () => null, claim: async () => ({ claim_id: "CLAIM-A" }), release: async () => {} }, handoffQueue: { enqueue: async () => ({ id: "JOB-A" }) }, claudeSdkGateway: { execute: async () => { throw Object.assign(new Error("Provider failed"), { code: "PROVIDER_FAILED" }); } }, runtimeGovernance: { createExecutionContext: (input) => input } });
-  await assert.rejects(integration.submitTicket({ ticket: TICKET, project_id: PROJECT, required_role: "coder", payload: { execution_id: "RUN-A", sprint_basis: basis } }));
+  await assert.rejects(integration.submitTicket({ ticket: TICKET, project_id: PROJECT, required_role: "coder", payload: { execution_id: "RUN-A", sprint_basis: basis } }), { code: "TICKET_EXECUTION_RECONCILIATION_REQUIRED", retryable: false });
+  assert.deepEqual(events, []);
+  await assert.rejects(integration.submitTicket({ ticket: TICKET, project_id: PROJECT, required_role: "coder", payload: { execution_id: "RUN-A", direct_code: true } }));
+  assert.deepEqual(events, []); // Standalone direct code does not publish a ticket failure by contract.
+  await assert.rejects(integration.submitTicket({ ticket: TICKET, project_id: PROJECT, required_role: "coder", payload: { execution_id: "RUN-A" } }));
   const event = events.find((entry) => entry.type === "task.failed");
-  assert.equal(event.project_id, PROJECT); assert.equal(event.payload.execution_id, "RUN-A"); assert.deepEqual(event.payload.execution_basis, basis);
+  assert.equal(event.project_id, PROJECT); assert.equal(event.payload.execution_id, "RUN-A"); assert.equal(event.payload.execution_basis, undefined);
 });

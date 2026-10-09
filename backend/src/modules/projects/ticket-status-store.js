@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { assertTicketStatus, assertTicketStatusTransition } from "./ticket-status.js";
-import { validExecutionBasis, retainedExecutionDetails } from "./ticket-execution-identity.js";
+import { validExecutionBasis, retainedExecutionDetails, matchesTicketExecution } from "./ticket-execution-identity.js";
 
 // Creates a transactional ticket status tracker with versioned transitions.
 export function createTicketStatusStore({ database, projectId, clock = () => new Date(), createId = () => `STATUS-${randomUUID()}`, onEvent = () => {}, publisher, logger = console } = {}) {
@@ -11,7 +11,7 @@ export function createTicketStatusStore({ database, projectId, clock = () => new
   if (typeof clock !== "function" || typeof createId !== "function" || typeof onEvent !== "function" || (publisher !== undefined && typeof publisher.publish !== "function")) throw new ConfigurationError("Invalid Ticket Status Store options.");
   ensureTables();
 
-  return Object.freeze({ create, get, getStatus, updateStatus, beginExecution, completeByHumanReview, listByStatus, getHistory, dependenciesReady, retry, resetDoneForRetry, reconcileTerminalStatus });
+  return Object.freeze({ create, get, getStatus, updateStatus, beginExecution, claimExecutionLaunch, completeByHumanReview, listByStatus, getHistory, dependenciesReady, retry, resetDoneForRetry, reconcileTerminalStatus });
 
   // Creates a pending status entry for a ticket.
   function create(ticketId, details = {}) {
@@ -59,16 +59,41 @@ export function createTicketStatusStore({ database, projectId, clock = () => new
   }
 
   // Claims a durable execution before destructive preparation; parallel or restarted RUN cannot replace an active claim.
-  function beginExecution(ticketId, { executionId, basis, expectedVersion, fresh = false } = {}) {
+  function beginExecution(ticketId, { executionId, basis, expectedVersion, fresh = false, dependencyExpectations } = {}) {
     if (typeof executionId !== "string" || !executionId || !validExecutionBasis(basis) || basis.project_id !== projectId) throw statusError("STATUS_EXECUTION_INVALID", "Ticket execution requires an exact Project Sprint basis.");
     const current = get(ticketId) ?? create(ticketId);
     if (current.version !== expectedVersion) throw statusError("STATUS_CONFLICT", `Ticket changed before execution claim: ${ticketId}.`);
+    if (current.details.launch_claim) throw Object.assign(statusError("TICKET_EXECUTION_RECONCILIATION_REQUIRED", "The previous launch has no reconciled disposition; a new execution cannot replace its owner."), { statusCode: 409, retryable: false, scope: "scoped", identifiers: [ticketId] });
     if (["running", "reviewing"].includes(current.status)) throw Object.assign(statusError("STATUS_EXECUTION_ACTIVE", "Ticket already has an active execution; reconcile it before another RUN."), { statusCode: 409, retryable: false, scope: "scoped", identifiers: [ticketId] });
     if (!["pending", "failed", "needs_human_review"].includes(current.status) && !(fresh && current.status === "done")) throw statusError("STATUS_EXECUTION_INVALID", `Ticket cannot start execution from ${current.status}.`);
-    const details = { reason: fresh ? "fresh_run" : "ticket_run", execution_id: executionId, execution_basis: structuredClone(basis) };
+    const details = { reason: fresh ? "fresh_run" : "ticket_run", execution_id: executionId, execution_basis: structuredClone(basis), dependency_expectations: dependencyExpectations === undefined ? undefined : structuredClone(dependencyExpectations), ...(current.details.launch_claim ? { launch_claim: null } : {}) };
     const updated = transitionWithoutGuard(ticketId, current, "running", details);
     emit("ticket.status_change", { project_id: projectId, ticket_id: ticketId, from: current.status, to: "running", version: updated.version, reason: details.reason, details, timestamp: updated.updated_at });
     return updated;
+  }
+
+  // Records one durable inline launch owner per execution without granting restart or provider redispatch authority.
+  function claimExecutionLaunch(ticketId, { executionId, basis, requestId, jobId, supervisorId, agentId, claimId, validate } = {}) {
+    assertTicketId(ticketId);
+    const identifiers = [executionId, requestId, jobId, supervisorId, agentId];
+    if (identifiers.some((id) => typeof id !== "string" || id.length > 200 || !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(id)) || !validExecutionBasis(basis) || basis.project_id !== projectId || typeof validate !== "function" || typeof database.transaction !== "function") throw statusError("STATUS_EXECUTION_INVALID", "Launch ownership requires exact bounded identity and transactional validation.");
+    // Commits the ownership record and its history only after synchronous authority checks succeed.
+    const apply = () => {
+      const current = get(ticketId);
+      if (!matchesTicketExecution(current, executionId, basis) || !["running", "reviewing"].includes(current?.status)) throw Object.assign(statusError("TICKET_EXECUTION_RECONCILIATION_REQUIRED", "Launch no longer owns this Ticket execution."), { statusCode: 409, retryable: false, scope: "scoped", identifiers: [ticketId] });
+      if (current.details.launch_claim) throw Object.assign(statusError("TICKET_EXECUTION_RECONCILIATION_REQUIRED", "Execution already has a durable launch owner; reconcile its outcome instead of relaunching."), { statusCode: 409, retryable: false, scope: "scoped", identifiers: [ticketId], launch_claim_conflict: true });
+      if (!Array.isArray(current.details.dependency_expectations)) throw statusError("STATUS_EXECUTION_INVALID", "Launch ownership needs the original captured dependency intent.");
+      const checked = validate();
+      if (checked?.then) throw statusError("STATUS_EXECUTION_INVALID", "Launch authority validation must be synchronous inside the transaction.");
+      const now = nowIso(); const version = current.version + 1;
+      const receipt = { project_id: projectId, ticket_id: ticketId, execution_id: executionId, execution_basis: structuredClone(basis), request_id: requestId, job_id: jobId, supervisor_id: supervisorId, agent_id: agentId, ...(claimId ? { claim_id: claimId } : {}), state: "launch_claimed", dependency_expectations: structuredClone(current.details.dependency_expectations), claimed_at: now };
+      const details = { ...current.details, launch_claim: receipt };
+      const result = database.run("UPDATE ticket_status SET details_json=?,version=?,updated_at=? WHERE project_id=? AND ticket_id=? AND status=? AND version=?", [JSON.stringify(details), version, now, projectId, ticketId, current.status, current.version]);
+      if (result.changes !== 1) throw statusError("STATUS_CONFLICT", "Ticket changed before launch ownership committed.");
+      database.run("INSERT INTO ticket_status_history (id,project_id,ticket_id,from_status,to_status,reason,details_json,version,created_at) VALUES (?,?,?,?,?,?,?,?,?)", [createId(), projectId, ticketId, current.status, current.status, "execution_launch_claimed", JSON.stringify(details), version, now]);
+      return receipt;
+    };
+    return database.transaction(apply);
   }
 
   // Records a distinct owner approval even when legacy runs lack a status row.

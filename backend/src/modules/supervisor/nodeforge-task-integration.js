@@ -1,6 +1,7 @@
 // nodeforge task integration - provides nodeforge task integration functionality for NodeForge.
 import { ConfigurationError } from "../../shared/errors.js";
 import { matchesTicketExecution } from "../projects/ticket-execution-identity.js";
+import { assertDependencySubmission } from "./ticket-dependency-expectations.js";
 import { createAgentExecutionCheckpointStore } from "../agent/agent-execution-checkpoint.js";
 import { createNodeforgeTaskExecutors } from "./nodeforge-task-executors.js";
 import { createReviewWorker } from "./review-worker.js";
@@ -13,7 +14,7 @@ import { prepareTicketExecutionContext } from "./ticket-execution-context.js";
 import { createCodeCacheService } from "../context/code-cache-service.js";
 export { ticketCandidateScope } from "./nodeforge-task-scope.js";
 // createNodeforgeTaskIntegration - handles createNodeforgeTaskIntegration operation.
-export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, agentResolver, agentOccupancy, ticketStatusStore, handoffQueue, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger = () => {}, fileService, gitService, checkpointStore, codeSearch, codeCache, relevantTreeSelector, protocolStorage, resolveTicketWorkspace, shadowComparison } = {}) {
+export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, agentResolver, agentOccupancy, ticketStatusStore, sprintRegistry, handoffQueue, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger = () => {}, fileService, gitService, checkpointStore, codeSearch, codeCache, relevantTreeSelector, protocolStorage, resolveTicketWorkspace, shadowComparison } = {}) {
   if (typeof supervisorManager?.startTask !== "function" || typeof eventBus?.publish !== "function") throw new ConfigurationError("NodeForge integration requires Supervisor Manager and Event Bus.");
   if (typeof handoffQueue?.enqueue !== "function") throw new ConfigurationError("NodeForge integration requires a sender handoff queue.");
   const checkpoints = checkpointStore ?? (fileService ? createAgentExecutionCheckpointStore({ fileService }) : null);
@@ -81,13 +82,17 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
     if (typeof agentResolver?.resolveAvailable !== "function") throw new ConfigurationError("NodeForge integration requires an agent resolver.");
     agentResolver.refresh?.();
     const taskId = task_id ?? ticket.id;
+    payload = payload.dependency_expectations === undefined ? payload : structuredClone(payload);
+    assertDependencySubmission({ projectId: project_id ?? ticket.project_id, ticket, payload, sprintRegistry, ticketStatusStore });
     const workspace = resolveTicketWorkspace ? await resolveTicketWorkspace(taskId) : null;
+    assertDependencySubmission({ projectId: project_id ?? ticket.project_id, ticket, payload, sprintRegistry, ticketStatusStore });
     const ticketRuntime = workspace ? createTicketWorkspaceRuntime({ workspace, gateways: { claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway }, agentResolver, runtimeGovernance, projectLogger, checkpoints, protocolStorage }) : { executors, reviewer };
     const standalone = payload.direct_code === true || Boolean(payload.tool_test);
     const reviewResume = payload.review_resume ?? null;
     const baseCommit = standalone ? null : reviewResume ? reviewResume.base_commit ?? workspace?.base_commit ?? null : workspace?.base_commit ?? payload.review_base_commit ?? await gitService?.getHead?.() ?? null;
     const ownerId = supervisorManager.getByTask?.(taskId)?.supervisorId ?? `SUP-${taskId}`;
     const executionContext = await prepareTicketExecutionContext({ workspace, taskId, supervisorId: ownerId, ticket });
+    assertDependencySubmission({ projectId: project_id ?? ticket.project_id, ticket, payload, sprintRegistry, ticketStatusStore });
     const { selected, claim } = await selectTicketCoder({ resolver: agentResolver, occupancy: agentOccupancy, ticket, taskId, ownerId, role: required_role ?? ticket.required_role, payload });
     if (!selected) throw Object.assign(new ConfigurationError("No enabled and ready Agent Profile is available."), { code: "AGENT_NOT_AVAILABLE" });
     const request = {
@@ -107,23 +112,45 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
       payload: baseCommit ? { ...payload, review_base_commit: baseCommit } : payload
     };
     let queued;
-    try { if (!reviewResume) queued = await handoffQueue.enqueue(request); }
+    try {
+      assertDependencySubmission({ projectId: request.project_id, ticket, payload: request.payload, sprintRegistry, ticketStatusStore });
+      if (!reviewResume) queued = await handoffQueue.enqueue(request);
+    }
     catch (error) {
       if (claim) await agentOccupancy.release({ claimId: claim.claim_id, taskId, supervisorId: ownerId, reason: "handoff_failed" });
       throw error;
     }
     if (!reviewResume) projectLogger({ event_name: "supervisor.ticket_handoff", level: "info", status: "success", message: "Supervisor selected agent and queued handoff.", task_id: request.task_id, correlation_id: request.correlation_id, source: "nodeforge-task-integration", payload: { request_id: request.request_id, job_id: queued?.id, agent_id: selected.agent_id, agent_name: selected.agent_name, role: selected.role } });
-    let result;
+    let result; let launchReceipt;
     try {
+      assertDependencySubmission({ projectId: request.project_id, ticket, payload: request.payload, sprintRegistry, ticketStatusStore });
       if (reviewResume) {
         result = { summary: reviewResume.verification?.coder_summary ?? "Coder checkpoint completed before review resume.", tool_events: reviewResume.verification?.tool_events ?? [] };
       } else {
-        projectLogger({ event_name: "supervisor.agent_execution_started", level: "info", status: "started", message: "Supervisor started Agent execution.", task_id: request.task_id, correlation_id: request.correlation_id, source: "nodeforge-task-integration", payload: { request_id: request.request_id, agent_id: selected.agent_id, provider: selected.provider ?? null } });
+        projectLogger({ event_name: "supervisor.agent_launch_intent", level: "info", status: "pending", message: "Supervisor intends to dispatch Agent execution; launch ownership and provider invocation are not yet witnessed.", task_id: request.task_id, correlation_id: request.correlation_id, source: "nodeforge-task-integration", payload: { request_id: request.request_id, agent_id: selected.agent_id, provider: selected.provider ?? null } });
         if (abortSignal?.aborted) throw abortSignal.reason;
+        if (request.payload.dependency_expectations !== undefined) {
+          launchReceipt = ticketStatusStore.claimExecutionLaunch(taskId, { executionId: request.payload.execution_id, basis: request.payload.sprint_basis,
+            requestId: request.request_id, jobId: queued.id, supervisorId: ownerId, agentId: selected.agent_id, claimId: claim?.claim_id,
+            validate: () => assertDependencySubmission({ projectId: request.project_id, ticket, payload: request.payload, sprintRegistry, ticketStatusStore }) });
+        }
+        projectLogger({ event_name: "supervisor.agent_dispatch_boundary", level: "info", status: "dispatching", message: "Supervisor reached the local executor call boundary; this is not provider acknowledgement or completion.", task_id: request.task_id, correlation_id: request.correlation_id, source: "nodeforge-task-integration", payload: { request_id: request.request_id, execution_id: launchReceipt?.execution_id, job_id: queued?.id, agent_id: selected.agent_id, launch_claimed: Boolean(launchReceipt), provider_acknowledged: false } });
         result = await runSelected(selected, { ...request, abortSignal }, ticketRuntime.executors);
         if (abortSignal?.aborted) throw abortSignal.reason;
       }
     } catch (error) {
+      if (error.launch_claim_conflict) throw error;
+      if (queued && request.payload.dependency_expectations !== undefined) {
+        try { await handoffQueue.quarantine(queued.id, { requestId: request.request_id, reason: error.code ?? "execution_reconciliation_required" }); }
+        catch (reconciliationError) {
+          error.reconciliation_error = reconciliationError.code ?? reconciliationError.message;
+          projectLogger({ event_name: "supervisor.handoff_reconciliation_failed", level: "error", status: "failed", message: "Handoff disposition could not be persisted; do not redispatch this execution.", task_id: taskId, source: "nodeforge-task-integration", payload: { request_id: request.request_id, job_id: queued.id, error: reconciliationError.message } });
+        }
+      }
+      if (launchReceipt) {
+        projectLogger({ event_name: "supervisor.agent_outcome_unknown", level: "error", status: "blocked", message: "Claimed execution failed without reconciled provider disposition; retain ownership and do not retry or replace.", task_id: taskId, source: "nodeforge-task-integration", payload: { request_id: request.request_id, execution_id: launchReceipt.execution_id, job_id: queued?.id, cause_code: error.code ?? "PROVIDER_OUTCOME_UNKNOWN" } });
+        throw Object.assign(new ConfigurationError("Provider outcome for the claimed execution requires reconciliation before retry or replacement."), { code: "TICKET_EXECUTION_RECONCILIATION_REQUIRED", statusCode: 409, retryable: false, scope: "scoped", identifiers: [taskId], cause: error });
+      }
       await handleExecutionFailure(error, request, { selected, claim, taskId, ownerId });
       throw error;
     }
