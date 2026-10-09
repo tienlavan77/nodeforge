@@ -59,6 +59,13 @@ test("formatNotification reuses plainText filtering and blocks JSON/stack raw ev
   assert.ok(!direct.message.includes("private.example"));
 });
 
+test("keeps safe reconciliation identifiers and honors non-retryable migration conflicts", () => {
+  const error = normalizeBackendError({ body: { error: { code: "sprint_registry_migration_required", message: "reconcile", retryable: false, scope: "scoped", identifiers: ["SPRINT-A", "unsafe id", 3] } }, status: 409, fallbackError: "fallback" });
+  assert.deepEqual(error.identifiers, ["SPRINT-A"]);
+  assert.equal(error.retryable, false);
+  assert.equal(error.scope, "scoped");
+});
+
 test("requestId preserved through normalization", () => {
   const r = normalizeBackendError({ body: { error: { code: "timeout", message: "t", requestId: "req-1" } }, status: 504, fallbackError: "fallback", requestId: "header-req" });
   assert.equal(r.requestId, "header-req");

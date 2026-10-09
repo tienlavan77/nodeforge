@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, readFile, readdir, rm, stat, symlink } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
@@ -41,6 +41,25 @@ test("Architecture Manager reads, writes, and deletes workflows through role-sco
     await assert.rejects(() => architectureFiles.atomicWrite({ path: "workflows/outside/escape.json", content: "{}", replace: true }), (error) => error.code === "FILE_ROLE_FORBIDDEN");
     assert.deepEqual(await remove.execute({ path, before_checksum: current.sha256 }), { path, deleted: true });
     await assert.rejects(() => files.readFile({ path }), (error) => error.code === "ENOENT");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("System Engineer can read project node_modules without gaining access outside the project or to dependency secrets", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forge-engineer-dependencies-"));
+  try {
+    const files = createFileService({ projectRoot: root });
+    const engineerFiles = createRoleFileService({ fileService: files, role: "system_engineer", projectRoot: root });
+    const architectureFiles = createRoleFileService({ fileService: files, role: "architecture_manager", projectRoot: root });
+    await mkdir(join(root, "node_modules/example"), { recursive: true });
+    await writeFile(join(root, "node_modules/example/index.js"), "export const answer = 42;\n");
+
+    const dependency = await engineerFiles.readForIndex({ path: "node_modules/example/index.js" });
+    assert.equal(dependency.content, "export const answer = 42;\n");
+    await assert.rejects(() => architectureFiles.readForIndex({ path: "node_modules/example/index.js" }), (error) => error.code === "FILE_ROLE_FORBIDDEN");
+    await assert.rejects(() => engineerFiles.readForIndex({ path: "node_modules/example/.env" }), (error) => error.code === "FILE_ROLE_FORBIDDEN");
+    await assert.rejects(() => engineerFiles.readForIndex({ path: "../outside.js" }), (error) => error.code === "FILE_ROLE_FORBIDDEN");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

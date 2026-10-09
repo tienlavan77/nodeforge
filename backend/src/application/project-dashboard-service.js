@@ -1,4 +1,5 @@
 import { ConfigurationError } from "../shared/errors.js";
+import { getRegistryDashboard } from "./registry-dashboard.js";
 
 // Read-only Node projection; canonical roadmap and provenance remain in governance modules.
 export function createProjectDashboardService({ roadmaps, sprintPlans, provenance, ticketFileStore, ticketStatusStore, sprintRegistry, logReader, relevantTreeSelector } = {}) {
@@ -37,6 +38,7 @@ export function createProjectDashboardService({ roadmaps, sprintPlans, provenanc
   function getDashboard(projectId) {
     assertProjectId(projectId);
     const roadmap = roadmaps.getCurrent();
+    if (typeof sprintRegistry?.listDetails === "function") return getRegistryDashboard({ projectId, sprintRegistry, roadmap, metadata: ticketFileStore?.listMetadata?.({ projectId }) ?? [], ticketStatusStore });
     if (roadmap && roadmap.project_id !== projectId) return emptyDashboard(projectId);
     const registry = sprintRegistry?.list?.() ?? [];
     const registered = new Map(registry.filter((entry) => entry.project_id === projectId).map((entry) => [entry.sprint_id, entry]));

@@ -8,6 +8,7 @@ import { ConfigurationError } from "../../shared/errors.js";
 import { SECRET_PATTERNS, isProtectedPath } from "./protected-path-policy.js";
 const DEFAULT_SECRETS = SECRET_PATTERNS;
 const DEFAULT_IGNORE = [".forge/**", ".node-control/**", "node_modules/**", ".git/**", "dist/**", "coverage/**", ".next/**", ".next.stale-*/**", "**/.DS_Store", "**/._*"];
+const NODE_MODULES_PATH = /^node_modules(?:\/|$)/;
 // Creates a sandboxed FileService scoped to projectRoot with queued writes, secret-path filtering, and atomic/lock operations.
 export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRETS, watcherIgnore = DEFAULT_IGNORE, databaseService, internalBus, onWrite, logger = console, allowPlanStorage = false } = {}) {
   if (typeof projectRoot !== "string" || !projectRoot) throw new ConfigurationError("FileService requires a project root.");
@@ -177,10 +178,11 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
     try { readSync(descriptor, buffer, 0, length, offset); } finally { closeSync(descriptor); }
     return buffer.toString("utf8");
   }
-  async function readForIndex({ path, maxBytes } = {}) {
+  async function readForIndex({ path, maxBytes, allowNodeModules = false } = {}) {
     if (typeof path !== "string" || !path) throw new ConfigurationError("FileService indexing path is required.");
     const rel = relative(root, resolve(root, path)).split(sep).join("/");
-    if (isAbsolute(path) || !rel || rel.startsWith("..") || secretMatch(rel) || ignoreMatch(rel)) throw new ConfigurationError("Refusing to index unsafe, ignored, or secret project path.");
+    const dependencyRead = allowNodeModules === true && NODE_MODULES_PATH.test(rel);
+    if (isAbsolute(path) || !rel || rel.startsWith("..") || secretMatch(rel) || (ignoreMatch(rel) && !dependencyRead)) throw new ConfigurationError("Refusing to index unsafe, ignored, or secret project path.");
     const absolute = resolve(root, rel);
     if (maxBytes !== undefined) { if (!Number.isInteger(maxBytes) || maxBytes < 1) throw new ConfigurationError("FileService read limit is invalid."); if ((await stat(absolute)).size > maxBytes) throw Object.assign(new ConfigurationError(`File exceeds the read limit: ${rel}.`), { code: "FILE_TOO_LARGE" }); }
     let content;
@@ -240,10 +242,7 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
   }
 }
 // Maps a file extension to its language identifier for indexing metadata.
-function languageForPath(path) {
-  return ({ ".js": "javascript", ".jsx": "javascript", ".ts": "typescript", ".tsx": "typescript", ".mjs": "javascript", ".cjs": "javascript", ".json": "json", ".css": "css", ".scss": "scss", ".md": "markdown", ".php": "php" })[extname(path).toLowerCase()] ?? null;
-}
-
+function languageForPath(path) { return ({ ".js": "javascript", ".jsx": "javascript", ".ts": "typescript", ".tsx": "typescript", ".mjs": "javascript", ".cjs": "javascript", ".json": "json", ".css": "css", ".scss": "scss", ".md": "markdown", ".php": "php" })[extname(path).toLowerCase()] ?? null; }
 // Formats a verification breakdown array into a concise comma-separated status string.
 function formatVerificationBreakdown(breakdown) {
   return breakdown.map((step) => `${step.kind}:${step.status}${step.exit_code !== undefined ? ` (exit ${step.exit_code})` : ""}`).join(", ");
