@@ -1,5 +1,6 @@
 // nodeforge task integration - provides nodeforge task integration functionality for NodeForge.
 import { ConfigurationError } from "../../shared/errors.js";
+import { matchesTicketExecution } from "../projects/ticket-execution-identity.js";
 import { createAgentExecutionCheckpointStore } from "../agent/agent-execution-checkpoint.js";
 import { createNodeforgeTaskExecutors } from "./nodeforge-task-executors.js";
 import { createReviewWorker } from "./review-worker.js";
@@ -32,6 +33,8 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
     if (!commit || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(commit)) throw new ConfigurationError("Review-only commit is required.");
     if (!reviewer) throw Object.assign(new ConfigurationError("Independent review is unavailable."), { code: "REVIEW_WORKER_UNAVAILABLE" });
     const reviewTaskId = task_id ?? ticket.id;
+    const reviewExecution = ticketStatusStore?.get?.(reviewTaskId);
+    const reviewPayload = reviewExecution?.details.execution_id ? { execution_id: reviewExecution.details.execution_id, sprint_basis: reviewExecution.details.execution_basis } : {};
     const workspace = resolveTicketWorkspace ? await resolveTicketWorkspace(reviewTaskId) : null;
     const useWorkspace = workspace && (workspace.root_only ? (await workspace.gitService.assertAncestor(commit), true) : await workspace.gitService.getHead() === commit);
     const reviewGitService = useWorkspace ? workspace.gitService : gitService;
@@ -63,9 +66,10 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
       if (reviewClaim) await agentOccupancy.release({ claimId: reviewClaim.claim_id, taskId: reviewTaskId, supervisorId: reviewOwnerId, reason: "review_only_completed" });
     }
     if (result.verdict === "approved" && useWorkspace) { await workspace.integrate(); await workspace.changeLedger.release(); }
+    if (reviewPayload.execution_id && !matchesTicketExecution(ticketStatusStore.get(reviewTaskId), reviewPayload.execution_id, reviewPayload.sprint_basis)) throw Object.assign(new ConfigurationError("Review completion belongs to an obsolete Ticket execution."), { code: "TICKET_EXECUTION_CONFLICT" });
     ensureReviewStatusReady(ticketStatusStore, reviewTaskId);
     const outcomeType = result.verdict === "approved" ? "task.completed" : "task.needs_human_review";
-    await publishTicketOutcome(outcomeType, { task_id: task_id ?? ticket.id, request_id: request_id ?? `REVIEW-${ticket.id}`, correlation_id: correlation_id ?? `CORR-REVIEW-${ticket.id}` }, `SUP-REVIEW-${ticket.id}`, { review_only: true, commit, verdict: result.verdict, findings: result.findings, reviewer_id: result.reviewer_id, evidence });
+    await publishTicketOutcome(outcomeType, { task_id: task_id ?? ticket.id, project_id: project_id ?? ticket.project_id, payload: reviewPayload, request_id: request_id ?? `REVIEW-${ticket.id}`, correlation_id: correlation_id ?? `CORR-REVIEW-${ticket.id}` }, `SUP-REVIEW-${ticket.id}`, { review_only: true, commit, verdict: result.verdict, findings: result.findings, reviewer_id: result.reviewer_id, evidence });
     return { task_id: task_id ?? ticket.id, commit, verdict: result.verdict, findings: result.findings, reviewer_id: result.reviewer_id, status: result.verdict === "approved" ? "approved" : "needs_human_review" };
   }
   async function submitTicket({ ticket, task_id, project_id, request_id, correlation_id, attempt = 1, payload = {}, required_role, abortSignal } = {}) {
@@ -149,7 +153,7 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
 
   // Sends only a reviewed or explicitly escalated ticket outcome to sprint orchestration.
   async function publishTicketOutcome(type, request, supervisorId, outcome) {
-    await eventBus.publish({ type, task_id: request.task_id, supervisor_id: supervisorId, request_id: request.request_id, correlation_id: request.correlation_id, attempt: request.attempt ?? 1, payload: outcome });
+    await eventBus.publish({ type, ...(request.project_id ? { project_id: request.project_id } : {}), task_id: request.task_id, supervisor_id: supervisorId, request_id: request.request_id, correlation_id: request.correlation_id, attempt: request.attempt ?? 1, payload: { ...outcome, ...(request.payload?.execution_id ? { execution_id: request.payload.execution_id, execution_basis: request.payload.sprint_basis } : {}) } });
     if (type === "task.completed") await recordShadow(type, request.task_id, request, outcome);
   }
   // Records direct integration events in shadow mode when the inline ticket path bypasses the event bus.

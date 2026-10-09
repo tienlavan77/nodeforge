@@ -31,10 +31,10 @@ export async function routePlan({ method, parts, body, projectId, expectedProjec
     if (method === "GET" && parts.length === 2) return { status: 200, body: sprintRegistry.list() };
     if (method === "POST" && parts.length === 2) return { status: 201, body: await sprintRegistry.register({ sprintId: body.sprint_id, position: body.position, dependencies: body.dependencies ?? [], planId: body.plan_id ?? null, revision: body.plan_revision ?? null, status: body.status }) };
     if (method === "GET" && parts.length === 3) return { status: 200, body: sprintRegistry.get(parts[2]) };
-    if (method === "PUT" && parts.length === 4 && parts[3] === "plan") return { status: 200, body: await sprintRegistry.bindPlan({ sprintId: parts[2], planId: body.plan_id, revision: body.plan_revision }) };
+    if (method === "PUT" && parts.length === 4 && parts[3] === "plan") return { status: 200, body: await sprintRegistry.bindPlan({ sprintId: parts[2], planId: body.plan_id, revision: body.plan_revision, expectedVersion: body.expected_version }) };
     if (method === "PUT" && parts.length === 4 && parts[3] === "status") {
       if (!["ready", "blocked"].includes(body.status)) throw Object.assign(new ConfigurationError("Running and terminal sprint states are recorded by execution, not this API."), { code: "SPRINT_STATUS_AUTHORITY", statusCode: 403 });
-      return { status: 200, body: await sprintRegistry.setStatus({ sprintId: parts[2], status: body.status }) };
+      return { status: 200, body: await sprintRegistry.setStatus({ sprintId: parts[2], status: body.status, expectedVersion: body.expected_version }) };
     }
   }
   return null;

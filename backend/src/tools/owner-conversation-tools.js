@@ -24,7 +24,11 @@ const OWNER_FILE_DEFINITIONS = Object.freeze([
 export function createOwnerConversationTools({ role, projectRoot, fileService, codeCache, codeSearch, gitService, testService, conversationStateStore, conversationId, projectLogger, eventSink, context }) {
   const allowed = ownerRoleTools(role);
   const scopedFiles = createRoleFileService({ fileService, role, projectRoot });
-  const scopedCache = codeCache && { ...codeCache, read: async ({ path }) => { await scopedFiles.assertReadPath(path); return codeCache.read({ path }); } };
+  const scopedCache = codeCache && { ...codeCache, read: async ({ path }) => {
+    await scopedFiles.assertReadPath(path);
+    if (role === "system_engineer" && /^node_modules(?:\/|$)/.test(path)) return scopedFiles.readForIndex({ path });
+    return codeCache.read({ path });
+  } };
   const base = createAgentCommandTools({ projectRoot, fileService: scopedFiles, codeSearch, codeCache: scopedCache, projectLogger: () => {}, wrap: (tool) => tool });
   const implementations = {
     ...base,

@@ -1,5 +1,6 @@
 // Summary: Topologically levels sprint tickets by dependencies and fans out execution per DAG level.
 import { ConfigurationError } from "../../shared/errors.js";
+import { runFencedSprintLevels } from "./sprint-execution-wait.js";
 
 export function topologicalTicketLevels(tickets = []) {
   const byId = new Map(tickets.map((ticket) => [ticket.id, ticket]));
@@ -22,13 +23,14 @@ export function topologicalTicketLevels(tickets = []) {
   return levels;
 }
 
-export function createSprintDagRunner({ ticketStatusStore, eventBus, dispatchTask, logEvent = () => {} } = {}) {
+export function createSprintDagRunner({ ticketStatusStore, eventBus, dispatchTask, sprintRegistry, logEvent = () => {} } = {}) {
   if (typeof ticketStatusStore?.dependenciesReady !== "function" || typeof ticketStatusStore?.getStatus !== "function") throw new ConfigurationError("Sprint DAG requires a Ticket Status Store.");
   if (typeof eventBus?.subscribe !== "function") throw new ConfigurationError("Sprint DAG requires an execution event bus.");
   if (typeof dispatchTask !== "function") throw new ConfigurationError("Sprint DAG requires a dispatch function.");
   return Object.freeze({ runSprintLevels });
 
-  async function runSprintLevels({ projectId, sprintId, levels }) {
+  async function runSprintLevels({ projectId, sprintId, levels, sprintBasis }) {
+    if (sprintBasis && typeof ticketStatusStore.beginExecution === "function") return runFencedSprintLevels({ projectId, levels, sprintBasis, ticketStatusStore, eventBus, dispatchTask, sprintRegistry });
     const results = [];
     for (const level of levels) {
       const dispatched = [];
@@ -42,7 +44,7 @@ export function createSprintDagRunner({ ticketStatusStore, eventBus, dispatchTas
           await waitForDependencies({ ticketId: ticket.id, dependencies, sprintId, projectId });
         }
         const normalized = { ...ticket, project_id: ticket.project_id ?? projectId };
-        const result = await dispatchTask({ ticket: normalized, message: { id: `REQ-${ticket.id}-${Date.now()}`, correlation_id: `CORR-UI-RUN-${sprintId}-${ticket.id}-${Date.now()}` } });
+        const result = await dispatchTask({ ticket: normalized, ...(sprintBasis ? { sprintBasis } : {}), message: { id: `REQ-${ticket.id}-${Date.now()}`, correlation_id: `CORR-UI-RUN-${sprintId}-${ticket.id}-${Date.now()}` } });
         dispatched.push({ ticket_id: ticket.id, result });
       }
       results.push(...dispatched);

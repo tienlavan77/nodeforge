@@ -2,6 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { assertTicketStatus, assertTicketStatusTransition } from "./ticket-status.js";
+import { validExecutionBasis, retainedExecutionDetails } from "./ticket-execution-identity.js";
 
 // Creates a transactional ticket status tracker with versioned transitions.
 export function createTicketStatusStore({ database, projectId, clock = () => new Date(), createId = () => `STATUS-${randomUUID()}`, onEvent = () => {}, publisher, logger = console } = {}) {
@@ -10,7 +11,7 @@ export function createTicketStatusStore({ database, projectId, clock = () => new
   if (typeof clock !== "function" || typeof createId !== "function" || typeof onEvent !== "function" || (publisher !== undefined && typeof publisher.publish !== "function")) throw new ConfigurationError("Invalid Ticket Status Store options.");
   ensureTables();
 
-  return Object.freeze({ create, get, getStatus, updateStatus, completeByHumanReview, listByStatus, getHistory, dependenciesReady, retry, resetDoneForRetry, reconcileTerminalStatus });
+  return Object.freeze({ create, get, getStatus, updateStatus, beginExecution, completeByHumanReview, listByStatus, getHistory, dependenciesReady, retry, resetDoneForRetry, reconcileTerminalStatus });
 
   // Creates a pending status entry for a ticket.
   function create(ticketId, details = {}) {
@@ -31,11 +32,13 @@ export function createTicketStatusStore({ database, projectId, clock = () => new
   function getStatus(ticketId) { return get(ticketId)?.status; }
 
   // Transitions status with optimistic concurrency and history logging.
-  function updateStatus(ticketId, nextStatus, details = {}, { expectedCurrentStatus } = {}) {
+  function updateStatus(ticketId, nextStatus, details = {}, { expectedCurrentStatus, expectedVersion, expectedExecutionId } = {}) {
     assertTicketId(ticketId); assertTicketStatus(nextStatus);
     const current = get(ticketId);
     if (!current) throw statusError("STATUS_NOT_FOUND", `Ticket status not found: ${ticketId}.`);
     if (expectedCurrentStatus !== undefined && current.status !== expectedCurrentStatus) throw statusError("STATUS_CONFLICT", `Ticket status changed from expected ${expectedCurrentStatus}; current is ${current.status}.`);
+    if (expectedVersion !== undefined && current.version !== expectedVersion || expectedExecutionId !== undefined && current.details.execution_id !== expectedExecutionId) throw statusError("STATUS_CONFLICT", `Ticket execution changed: ${ticketId}.`);
+    details = { ...details, ...retainedExecutionDetails(current.details) };
     assertTicketStatusTransition(current.status, nextStatus);
     const now = nowIso();
     const version = current.version + 1;
@@ -52,6 +55,19 @@ export function createTicketStatusStore({ database, projectId, clock = () => new
     emit("ticket.status_change", { project_id: projectId, ticket_id: ticketId, from: current.status, to: nextStatus, version, reason, details, timestamp: now });
     if (nextStatus === "blocked") emit("ticket.dependency_blocked", { project_id: projectId, ticket_id: ticketId, details, timestamp: now });
     if (nextStatus === "pending" && current.status === "failed") emit("ticket.retry", { project_id: projectId, ticket_id: ticketId, timestamp: now });
+    return updated;
+  }
+
+  // Claims a durable execution before destructive preparation; parallel or restarted RUN cannot replace an active claim.
+  function beginExecution(ticketId, { executionId, basis, expectedVersion, fresh = false } = {}) {
+    if (typeof executionId !== "string" || !executionId || !validExecutionBasis(basis) || basis.project_id !== projectId) throw statusError("STATUS_EXECUTION_INVALID", "Ticket execution requires an exact Project Sprint basis.");
+    const current = get(ticketId) ?? create(ticketId);
+    if (current.version !== expectedVersion) throw statusError("STATUS_CONFLICT", `Ticket changed before execution claim: ${ticketId}.`);
+    if (["running", "reviewing"].includes(current.status)) throw Object.assign(statusError("STATUS_EXECUTION_ACTIVE", "Ticket already has an active execution; reconcile it before another RUN."), { statusCode: 409, retryable: false, scope: "scoped", identifiers: [ticketId] });
+    if (!["pending", "failed", "needs_human_review"].includes(current.status) && !(fresh && current.status === "done")) throw statusError("STATUS_EXECUTION_INVALID", `Ticket cannot start execution from ${current.status}.`);
+    const details = { reason: fresh ? "fresh_run" : "ticket_run", execution_id: executionId, execution_basis: structuredClone(basis) };
+    const updated = transitionWithoutGuard(ticketId, current, "running", details);
+    emit("ticket.status_change", { project_id: projectId, ticket_id: ticketId, from: current.status, to: "running", version: updated.version, reason: details.reason, details, timestamp: updated.updated_at });
     return updated;
   }
 
@@ -85,6 +101,7 @@ export function createTicketStatusStore({ database, projectId, clock = () => new
   }
   // Transitions status without normal guard checks, used for reconciliation.
   function transitionWithoutGuard(ticketId, current, nextStatus, details) {
+    details = { ...retainedExecutionDetails(current.details), ...details };
     const now = nowIso(); const version = current.version + 1; const detailsJson = JSON.stringify(details ?? {});
     const apply = () => {
       const result = database.run("UPDATE ticket_status SET status=?,version=?,error=?,details_json=?,updated_at=? WHERE project_id=? AND ticket_id=? AND status=? AND version=?", [nextStatus, version, details?.error ?? null, detailsJson, now, projectId, ticketId, current.status, current.version]);

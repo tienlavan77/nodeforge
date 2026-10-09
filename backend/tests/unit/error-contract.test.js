@@ -46,6 +46,13 @@ test("preserves requestId and exposes stable contract via formatErrorBody", () =
   assert.ok(!body.error.message.includes("stack"));
 });
 
+test("exposes only safe reconciliation identifiers and honors explicit non-retryable conflicts", () => {
+  const body = formatErrorBody({ error: { code: "SPRINT_REGISTRY_MIGRATION_REQUIRED", message: "reconcile", retryable: false, scope: "scoped", identifiers: ["SPRINT-A", "invalid id", 9] }, statusCode: 409 });
+  assert.deepEqual(body.error.identifiers, ["SPRINT-A"]);
+  assert.equal(body.error.retryable, false);
+  assert.equal(body.error.scope, "scoped");
+});
+
 test("does not consume legacy correlationId input or emit legacy fields", () => {
   const body = formatErrorBody({ error: { code: "dispatch_failed", message: "fail", status: 502, details: "legacy" }, correlationId: "corr-9" });
   assert.equal(body.error.requestId, null);

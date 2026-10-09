@@ -25,7 +25,8 @@ import { createControlApiHttp } from "./control-api-http.mjs";
 import { createProductionSupervisorRuntime } from "../src/modules/supervisor/production-runtime.js";
 import { createTerminalBridge } from "../src/modules/supervisor/terminal-bridge.js";
 import { createRuntimeLogger } from "../src/core/runtime-logger.js";
-import { createSprintDagRunner, topologicalTicketLevels } from "../src/modules/supervisor/sprint-dag.js";
+import { createSprintDagRunner } from "../src/modules/supervisor/sprint-dag.js";
+import { createSprintRunDispatch } from "../src/application/sprint-run-dispatch.js";
 import { createCompletionReportService } from "../src/modules/supervisor/completion-report-service.js";
 import { createEvalCaseRecorder } from "../src/modules/eval/eval-case-store.js";
 import { createTicketCrudService } from "../src/application/ticket-crud-service.js";
@@ -42,9 +43,8 @@ import { createHumanPlanStore } from "../src/modules/governance/human-plan-store
 import { createMarkdownPlanStore } from "../src/modules/governance/markdown-plan-store.js";
 import { createSprintRegistry } from "../src/modules/governance/sprint-registry.js";
 import { createPlanOwnerAuth } from "../src/modules/governance/plan-owner-auth.js";
-import { assertApprovedTicket } from "../src/modules/governance/sprint-plan-draft.js";
+import { createApprovedTicketDispatch } from "../src/application/approved-ticket-dispatch.js";
 import { createSprintPlanDraftPersistence } from "../src/modules/governance/sprint-plan-draft-persistence.js";
-import { assertSprintTicketMembership } from "../src/modules/governance/sprint-plan-execution-gates.js";
 import { createFileService } from "../src/infrastructure/filesystem/file-service.js";
 import { migrateConversationErrors } from "../src/modules/governance/conversation-error-migration.js";
 import { createSprintLeaderIntakeService } from "../src/application/sprint-leader-intake-service.js";
@@ -123,20 +123,14 @@ createTerminalBridge({
 });
 await supervisorRuntime.recover();
 await supervisorRuntime.startWorkers();
-const dispatchTask = async ({ ticket, message, required_role, resume_from, review_resume, abortSignal } = {}) => {
-  const { plan } = await sprintRegistry.assertReady(ticket.sprint_id);
-  assertApprovedTicket(plan, ticket);
-  return supervisorRuntime.integration.submitTicket({ ticket, task_id: ticket.id, project_id: ticket.project_id, request_id: message?.id, correlation_id: message?.correlation_id, required_role: required_role ?? ticket.required_role ?? "coder", abortSignal, payload: { text: `Ticket ${ticket.id}: ${ticket.title ?? ""}\nObjective: ${ticket.objective ?? ""}\nAcceptance: ${(ticket.acceptance_criteria ?? []).join("; ")}`, task: { id: ticket.id, title: ticket.title, objective: ticket.objective, dependencies: ticket.dependencies ?? [], acceptance_criteria: ticket.acceptance_criteria ?? [] }, ticket, ...(resume_from ? { resume_from } : {}), ...(review_resume ? { review_resume, review_base_commit: review_resume.base_commit } : {}) } });
-};
+const dispatchTask = createApprovedTicketDispatch({ projectId, sprintRegistry, ticketStatusStore, integration: supervisorRuntime.integration });
 const directCodeRequest = createDirectCodeRequest({ fileService, integration: supervisorRuntime.integration, checkpoints: supervisorRuntime.agentCheckpoints, projectId, projectLogger: logEvent });
 const ticketHumanReviewService = createTicketHumanReviewService({ projectId, roadmaps, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, agentOccupancy, ticketWorkspaceService, publisher: eventPublisher, projectLogger: runtimeLogger.emit });
 
 // Sprint execution runs one level at a time, gating each ticket on its
 // predecessors' terminal ticket status via the execution event bus.
-const sprintDagRunner = createSprintDagRunner({ ticketStatusStore, eventBus: supervisorRuntime.eventBus, dispatchTask: ({ ticket }) => dispatchTicket({ projectId: ticket.project_id, ticketId: ticket.id }), logEvent });
+const sprintDagRunner = createSprintDagRunner({ ticketStatusStore, sprintRegistry, eventBus: supervisorRuntime.eventBus, dispatchTask: ({ ticket, sprintBasis }) => dispatchTicket({ projectId: ticket.project_id, ticketId: ticket.id, expectedSprintVersion: sprintBasis?.version }), logEvent });
 const sprintLeaderIntake = createSprintLeaderIntakeService({ fileService, roadmaps, logger: logEvent });
-
-const runningSprints = new Set();
 
 const dispatchTicket = createTicketRunDispatch({ disposition: ticketPipelineDisposition, intake: sprintLeaderIntake, sprintRegistry, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, queueStore: supervisorRuntime.queueStore, protocolStorage, conversationStateStore, dispatchTask });
 const reviewTicket = async ({ projectId: requestedProjectId, ticketId, body = {} } = {}) => {
@@ -159,25 +153,7 @@ const runToolLab = async ({ projectId: requestedProjectId, targetPath, allowedPr
   });
   return { task_id: labTaskId, supervisor_id: result.supervisor_id, status: result.status === "already_running" ? "already_running" : "accepted", pipeline: "supervisor-tool-lab" };
 };
-const dispatchSprint = async ({ projectId: requestedProjectId, sprintId } = {}) => {
-  const { plan } = await sprintRegistry.assertReady(sprintId);
-  const sprint = sprintPlans.getSprintById(sprintId);
-  if (!sprint || sprint.project_id !== requestedProjectId) { const error = new Error(`Sprint not found: ${sprintId}`); error.statusCode = 404; throw error; }
-  if (runningSprints.has(sprintId)) { const error = new Error(`Sprint is already running: ${sprintId}`); error.statusCode = 409; throw error; }
-  const tickets = sprint.tickets ?? [];
-  assertSprintTicketMembership(plan, tickets);
-  for (const ticket of tickets) assertApprovedTicket(plan, ticket);
-  if (!tickets.length) { const error = new Error(`Sprint has no tickets: ${sprintId}`); error.statusCode = 400; throw error; }
-  const levels = topologicalTicketLevels(tickets);
-  await sprintRegistry.setStatus({ sprintId, status: "running" });
-  runningSprints.add(sprintId);
-  const execution = sprintDagRunner.runSprintLevels({ projectId: requestedProjectId, sprintId, levels });
-  execution.then(() => sprintRegistry.setStatus({ sprintId, status: "done" }), async (error) => {
-    logEvent({ event_name: "sprint.execution_failed", level: "error", status: "failed", message: "Sprint DAG execution failed.", project_id: requestedProjectId, source: "sprint-execution", payload: { sprint_id: sprintId, error_code: error.code ?? "SPRINT_EXECUTION_FAILED", error: error.message } });
-    await sprintRegistry.setStatus({ sprintId, status: "failed" });
-  }).catch((error) => logEvent({ event_name: "sprint.registry_update_failed", level: "error", status: "failed", message: "Could not persist sprint terminal status.", project_id: requestedProjectId, source: "sprint-execution", payload: { sprint_id: sprintId, error: error.message } })).finally(() => runningSprints.delete(sprintId));
-  return { sprint_id: sprintId, status: "accepted", pipeline: "supervisor", execution: "sprint-execution", levels: levels.map((level) => level.map((ticket) => ticket.id)) };
-};
+const dispatchSprint = createSprintRunDispatch({ projectId, sprintRegistry, sprintDagRunner, logEvent });
 
 const publishUnifiedStreamEvent = createUnifiedStreamPublisher({ unifiedStreamOrder, internalBus, bus, projectId, logEvent });
 

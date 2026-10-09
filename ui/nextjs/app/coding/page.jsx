@@ -8,6 +8,7 @@ import { ConversationSidebar } from "../../components/conversation-sidebar.jsx";
 import { CodingWorkspaceMonitor } from "../../components/coding-workspace-monitor.jsx";
 import { useProjectEventStream } from "../../lib/home-page-event-stream.js";
 import { createNodeClient } from "../../lib/node-client.js";
+import { createCodingDashboardLoader } from "../../lib/coding-dashboard-loader.js";
 import { PROJECT_ID } from "../../lib/home-page-constants.js";
 import { agentDisplayName } from "../../lib/home-page-watcher-events.js";
 
@@ -15,22 +16,16 @@ import { agentDisplayName } from "../../lib/home-page-watcher-events.js";
 export default function CodingPage() {
   const client = useMemo(() => createNodeClient(), []);
   const [agents, setAgents] = useState([]);
-  const [dashboard, setDashboard] = useState(null);
+  const [dashboardState, setDashboardState] = useState({ status: "loading", dashboard: null, error: null });
+  const dashboardLoader = useMemo(() => createCodingDashboardLoader({ client, projectId: PROJECT_ID, onState: setDashboardState }), [client]);
   const [openSidebar, setOpenSidebar] = useState(false);
   const [agentActivities, setAgentActivities] = useState([]);
   const activeConversationIdRef = useRef(null);
   const agentDirectoryRef = useRef([]);
   agentDirectoryRef.current = agents;
 
-  // Refresh the legacy Sprint Plan projection when the project stream reports changes.
-  const loadWorkspaceMonitor = useCallback(async () => {
-    try {
-      setDashboard(await client.getProjectDashboard(PROJECT_ID));
-    } catch (error) {
-      console.error("Unable to load coding sprint dashboard", error);
-      setDashboard(null);
-    }
-  }, [client]);
+  // Refresh Registry Sprint scope while preserving structured diagnostics for the active page.
+  const loadWorkspaceMonitor = useCallback((options) => dashboardLoader.load(options), [dashboardLoader]);
 
   useProjectEventStream({
     client, projectId: PROJECT_ID, activeConversationIdRef, agentDirectoryRef,
@@ -45,11 +40,11 @@ export default function CodingPage() {
       setAgents(Array.isArray(payload) ? payload : payload?.agents ?? payload?.items ?? []);
     }).catch((error) => console.error("Unable to load coding agents", error));
     void loadWorkspaceMonitor();
-    return () => { active = false; };
-  }, [client, loadWorkspaceMonitor]);
+    return () => { active = false; dashboardLoader.cancel(); };
+  }, [client, dashboardLoader, loadWorkspaceMonitor]);
 
   return <div className="claude-home-shell">
     <ConversationSidebar open={openSidebar} onOpen={() => setOpenSidebar(true)} onClose={() => setOpenSidebar(false)} agentSectionTitle="Code" projects={[{ id: PROJECT_ID, name: "NodeForge" }]} selectedProjectId={PROJECT_ID} onProjectChange={() => {}} showConversationControls={false} />
-    <CodingWorkspaceMonitor dashboard={dashboard} client={client} onRefresh={loadWorkspaceMonitor} agentActivities={agentActivities} agentDirectory={agents} />
+    <CodingWorkspaceMonitor dashboard={dashboardState.dashboard} dashboardState={dashboardState} client={client} onRefresh={loadWorkspaceMonitor} agentActivities={agentActivities} agentDirectory={agents} />
   </div>;
 }

@@ -8,6 +8,7 @@ export function GlobalToast({ error, onRetry, onDismiss }) {
   return (
     <div role="alert" className="global-toast">
       <span>{normalized.message}</span>
+      {normalized.code === "sprint_registry_migration_required" && normalized.identifiers?.length > 0 && <span className="toast-reconciliation-identifiers" role="status">Reconcile Sprint IDs: {normalized.identifiers.join(", ")}</span>}
       {normalized.requestId && <span className="toast-request-id">ID: {normalized.requestId}</span>}
       {normalized.retryable && onRetry && <button type="button" onClick={onRetry}>Retry</button>}
       {onDismiss && <button type="button" onClick={onDismiss} aria-label="Dismiss">×</button>}

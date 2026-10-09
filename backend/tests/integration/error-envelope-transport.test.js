@@ -10,6 +10,7 @@ import { normalizeBackendError } from "../../../ui/nextjs/lib/error-normalizer.j
 import { requestJson } from "../../../ui/nextjs/lib/node-client-request.js";
 import { normalizeErrorContract } from "../../src/shared/error-contract.js";
 import { createOwnerChatService } from "../../src/application/owner-chat-service.js";
+import { createForgeV1Router } from "../../src/transport/http/forge-v1-router.js";
 
 // Starts a real HTTP listener and checks only canonical fields reach consumers.
 test("application error remains canonical across HTTP, SSE, and UI ingress", async () => {
@@ -50,6 +51,29 @@ test("application error remains canonical across HTTP, SSE, and UI ingress", asy
     const agentError = normalizeAgentError(source);
     assert.deepEqual(Object.keys(agentError).sort(), ["code", "message", "requestId", "retryable", "scope"]);
     assert.equal(agentError.retryable, false);
+  } finally { await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
+});
+
+// Confirms Registry migration diagnostics survive the real HTTP error envelope.
+test("Registry migration conflict exposes safe reconciliation identifiers over HTTP", async () => {
+  const router = createForgeV1Router({
+    sprintRegistry: { listDetails: async () => [{ id: "SPRINT-REGISTRY" }] },
+    sprintPlanUploadService: { list: () => [{ id: "SPRINT-LEGACY" }] }
+  });
+  const server = createHttpApi({ forgeV1Router: router }).createServer();
+  server.listen(0, "127.0.0.1");
+  try {
+    await once(server, "listening");
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/forge/v1/sprints?project=PROJECT-A`);
+    assert.equal(response.status, 409);
+    assert.deepEqual(await response.json(), { error: {
+      code: "sprint_registry_migration_required",
+      message: "Legacy Sprint Plans must be migrated before Registry list cutover.",
+      retryable: false,
+      scope: "scoped",
+      requestId: null,
+      identifiers: ["SPRINT-LEGACY"]
+    } });
   } finally { await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
 });
 
