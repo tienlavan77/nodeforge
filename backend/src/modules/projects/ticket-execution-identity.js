@@ -18,5 +18,5 @@ export function matchesTicketExecution(current, executionId, basis) {
 
 // Preserves execution identity when an existing lifecycle writer supplies only phase-specific details.
 export function retainedExecutionDetails(details) {
-  return details?.execution_id ? { execution_id: details.execution_id, execution_basis: details.execution_basis } : {};
+  return details?.execution_id ? { execution_id: details.execution_id, execution_basis: details.execution_basis, ...(details.dependency_expectations !== undefined ? { dependency_expectations: details.dependency_expectations } : {}), ...(details.launch_claim ? { launch_claim: details.launch_claim } : {}) } : {};
 }

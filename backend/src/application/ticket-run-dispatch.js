@@ -4,6 +4,7 @@ import { assertApprovedTicket } from "../modules/governance/sprint-plan-draft.js
 import { matchesTicketExecution, sameExecutionPlan } from "../modules/projects/ticket-execution-identity.js";
 import { assertA5ExecutionContract } from "../modules/governance/sprint-plan-execution-gates.js";
 import { reviewPhaseResume, reviewRevisionResume } from "../modules/supervisor/review-revision-resume.js";
+import { assertDependencyExpectations, captureDependencyExpectations } from "../modules/supervisor/ticket-dependency-expectations.js";
 
 // Creates one shared ticket RUN entry point so Sprint execution preserves all ticket gates.
 export function createTicketRunDispatch({ disposition, intake, sprintRegistry, ticketStatusStore, checkpoints, queueStore, protocolStorage, conversationStateStore, dispatchTask }) {
@@ -15,7 +16,8 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
     return { ticket_id: ticketId, status: "stopping" };
   };
   return dispatchTicket;
-  async function dispatchTicket({ projectId, ticketId, fresh = false, expectedSprintVersion } = {}) {
+  async function dispatchTicket({ projectId, ticketId, fresh = false, expectedSprintVersion, dependencyExpectations } = {}) {
+    dependencyExpectations = dependencyExpectations === undefined ? undefined : structuredClone(dependencyExpectations);
     if (active.has(ticketId)) return { ticket_id: ticketId, status: "already_running", pipeline: "supervisor" };
     const controller = new AbortController();
     active.set(ticketId, { projectId, controller });
@@ -26,6 +28,8 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
       const { sprint: sprintBasis, plan } = await sprintRegistry.assertReady(ticket.sprint_id, { expectedVersion: expectedSprintVersion });
       assertApprovedTicket(plan, ticket);
       assertA5ExecutionContract(ticket);
+      if (sprintBasis && dependencyExpectations === undefined) dependencyExpectations = await captureDependencyExpectations({ projectId, ticket, sprintRegistry, ticketStatusStore });
+      assertDependencyExpectations({ projectId, ticket, expectations: dependencyExpectations, sprintRegistry, ticketStatusStore });
       const current = ticketStatusStore.get(ticketId);
       if (current?.status === "cancelled") throw failure("TICKET_CANCELLED", "Cancelled tickets cannot run.");
       if (current?.status === "blocked") throw failure("TICKET_APPROVAL_REQUIRED", "Blocked ticket status requires a human decision before RUN.");
@@ -44,7 +48,8 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
       const executionId = sprintBasis && ticketStatusStore.beginExecution ? `RUN-${randomUUID()}` : null;
       if (executionId) {
         await sprintRegistry.assertReady(ticket.sprint_id, { expectedVersion: sprintBasis.version });
-        ticketStatusStore.beginExecution(ticketId, { executionId, basis: sprintBasis, expectedVersion: current?.version ?? 0, fresh });
+        assertDependencyExpectations({ projectId, ticket, expectations: dependencyExpectations, sprintRegistry, ticketStatusStore });
+        ticketStatusStore.beginExecution(ticketId, { executionId, basis: sprintBasis, expectedVersion: current?.version ?? 0, fresh, dependencyExpectations });
       } else prepareStatus(ticketStatusStore, ticketId, fresh);
       const correlationId = `CORR-UI-RUN-${ticketId}-${Date.now()}`;
       let result;
@@ -54,7 +59,8 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
           await protocolStorage.clearTask(ticketId);
           await conversationStateStore.clear(`CONV-BUILDER-${projectId}-${ticketId}`);
         }
-        result = await dispatchTask({ ticket, sprintBasis, executionId, message: { id: `REQ-${ticketId}-${Date.now()}`, correlation_id: correlationId }, abortSignal: controller.signal, ...(resume ? { resume_from: resume } : {}), ...(reviewResume ? { review_resume: reviewResume } : {}) });
+        assertDependencyExpectations({ projectId, ticket, expectations: dependencyExpectations, sprintRegistry, ticketStatusStore });
+        result = await dispatchTask({ ticket, sprintBasis, executionId, dependencyExpectations, message: { id: `REQ-${ticketId}-${Date.now()}`, correlation_id: correlationId }, abortSignal: controller.signal, ...(resume ? { resume_from: resume } : {}), ...(reviewResume ? { review_resume: reviewResume } : {}) });
         if (controller.signal.aborted) throw controller.signal.reason;
       } catch (error) {
         const failed = ticketStatusStore.get(ticketId);

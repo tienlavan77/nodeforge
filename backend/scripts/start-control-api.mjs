@@ -96,7 +96,7 @@ if (ticketPipelineMode.mode === "shadow") {
   catch (error) { runtimeLogger.emit({ event_name: "ticket.pipeline_shadow_audit_failed", level: "error", status: "failed", message: "Ticket pipeline inventory audit failed; existing workspace gates remain active.", source: "control-api", error_code: error.code ?? "TICKET_PIPELINE_AUDIT_FAILED", payload: { error: error.message } }); }
 }
 const buildBuilderContext = createBuilderContext({ roadmaps, indexDb, contextEngine });
-const supervisorRuntime = createProductionSupervisorRuntime({ projectRoot: config.cwd, fileService, root: ".forge/runtime", eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, agentRoleResolver, agentOccupancy, ticketStatusStore, codeSearch, codeCache, relevantTreeSelector, freshnessChecker, logger: runtimeLogger, projectLogger: runtimeLogger.emit, projectId,
+const supervisorRuntime = createProductionSupervisorRuntime({ projectRoot: config.cwd, fileService, root: ".forge/runtime", eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, agentRoleResolver, agentOccupancy, ticketStatusStore, sprintRegistry, codeSearch, codeCache, relevantTreeSelector, freshnessChecker, logger: runtimeLogger, projectLogger: runtimeLogger.emit, projectId,
   checkpointSaved: async (checkpoint) => {
     if (!checkpoint.task_id?.startsWith("CODE-")) return;
     try {
@@ -129,7 +129,7 @@ const ticketHumanReviewService = createTicketHumanReviewService({ projectId, roa
 
 // Sprint execution runs one level at a time, gating each ticket on its
 // predecessors' terminal ticket status via the execution event bus.
-const sprintDagRunner = createSprintDagRunner({ ticketStatusStore, sprintRegistry, eventBus: supervisorRuntime.eventBus, dispatchTask: ({ ticket, sprintBasis }) => dispatchTicket({ projectId: ticket.project_id, ticketId: ticket.id, expectedSprintVersion: sprintBasis?.version }), logEvent });
+const sprintDagRunner = createSprintDagRunner({ ticketStatusStore, sprintRegistry, eventBus: supervisorRuntime.eventBus, dispatchTask: ({ ticket, sprintBasis, dependencyExpectations }) => dispatchTicket({ projectId: ticket.project_id, ticketId: ticket.id, expectedSprintVersion: sprintBasis?.version, dependencyExpectations }), logEvent });
 const sprintLeaderIntake = createSprintLeaderIntakeService({ fileService, roadmaps, logger: logEvent });
 
 const dispatchTicket = createTicketRunDispatch({ disposition: ticketPipelineDisposition, intake: sprintLeaderIntake, sprintRegistry, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, queueStore: supervisorRuntime.queueStore, protocolStorage, conversationStateStore, dispatchTask });
