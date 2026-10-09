@@ -89,6 +89,20 @@ test("approved immutable evidence survives a stale bind and exact-parent recover
   } finally { paused.release(); await f.close(); }
 });
 
+// Keeps archived scheduling positions reserved and persists Sprint dependencies on admission.
+test("new drafts append after archives and retain their Sprint dependencies", async () => {
+  const f = await fixture({ registered: false });
+  try {
+    await f.registry.register({ sprintId: "SPRINT-DEPENDENCY", position: 0 });
+    await f.registry.register({ sprintId: "SPRINT-ARCHIVED", position: 1 });
+    await f.registry.archive({ sprintId: "SPRINT-ARCHIVED", expectedVersion: 0 });
+    await f.createDraft()({ ...SPRINT, dependencies: ["SPRINT-DEPENDENCY"] });
+    assert.equal(f.registry.get("SPRINT-A").position, 2);
+    assert.deepEqual(f.registry.get("SPRINT-A").dependencies, ["SPRINT-DEPENDENCY"]);
+    assert.equal(f.registry.list({ includeArchived: true }).length, 3);
+  } finally { await f.close(); }
+});
+
 test("initial registration race retains the losing immutable revision without deleting the winner", async () => {
   const f = await fixture({ registered: false });
   const paused = pauseStore(f.plans, "createRevision");

@@ -225,7 +225,16 @@ test("sidebar exposes the shared theme control beside collapse and in the closed
   assert.ok(themeToggle.includes('window.dispatchEvent(new CustomEvent("nodeforge-theme-change"'));
   assert.ok(styles.includes('font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif !important'));
   assert.ok(styles.includes("font-size: 12px !important"));
-  assert.match(styles, /:is\(\.claude-chat-scroll, \.natural-conversation\) \*,[\s\S]*?:is\(\.home-composer, \.composer\) textarea \{\s*font-size: 15px !important/);
-  assert.match(styles, /\.claude-message-meta,\s*\.claude-message-meta \* \{\s*font-size: 12px !important/);
+  assert.match(styles, /:where\(html, body, body \*\) \{[^}]*font-size: 12px !important/);
+  assert.match(styles, /:is\(\.claude-message, \.claude-composer-wrap\),\s*:is\(\.claude-message, \.claude-composer-wrap\) \* \{\s*font-size: 15px !important/);
+  assert.doesNotMatch(styles, /:is\(\.claude-chat-scroll, \.natural-conversation\)/);
+  assert.doesNotMatch(styles, /:is\(\.home-composer, \.composer\)/);
+  assert.match(styles, /\.claude-message-meta,\s*\.claude-message-meta \*,[\s\S]*?\.claude-composer-wrap button \* \{\s*font-size: 12px !important/);
+  assert.ok(styles.indexOf(".claude-message-meta,") > styles.indexOf("font-size: 15px !important"));
+  assert.ok(styles.includes(".claude-message-actions *,"));
+  assert.ok(styles.includes(".claude-message .code-block-header *,"));
+  assert.ok(styles.includes(".claude-message-inline-edit button,"));
+  assert.match(styles, /\.home-plan-approval-notice,\s*\.home-plan-approval-notice \*,[^}]*font-size: 12px !important/);
+  assert.ok(styles.indexOf(".home-plan-approval-notice,") > styles.indexOf("font-size: 15px !important"));
   assert.doesNotMatch(styles, /fonts\.googleapis\.com/);
 });

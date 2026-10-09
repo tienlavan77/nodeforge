@@ -2,7 +2,7 @@ import { ConfigurationError } from "../shared/errors.js";
 import { getRegistryDashboard } from "./registry-dashboard.js";
 
 // Read-only Node projection; canonical roadmap and provenance remain in governance modules.
-export function createProjectDashboardService({ roadmaps, sprintPlans, provenance, ticketFileStore, ticketStatusStore, sprintRegistry, logReader, relevantTreeSelector } = {}) {
+export function createProjectDashboardService({ roadmaps, sprintPlans, provenance, ticketFileStore, ticketStatusStore, sprintRegistry, eventStore, logReader, relevantTreeSelector } = {}) {
   if (typeof roadmaps?.getCurrent !== "function" || typeof sprintPlans?.getCurrentSprint !== "function"
     || typeof sprintPlans?.getSprintStatus !== "function" || typeof sprintPlans?.getSprintBacklog !== "function") {
     throw new ConfigurationError("Project Dashboard Service requires Roadmap and Sprint Plan projections.");
@@ -38,7 +38,7 @@ export function createProjectDashboardService({ roadmaps, sprintPlans, provenanc
   function getDashboard(projectId) {
     assertProjectId(projectId);
     const roadmap = roadmaps.getCurrent();
-    if (typeof sprintRegistry?.listDetails === "function") return getRegistryDashboard({ projectId, sprintRegistry, roadmap, metadata: ticketFileStore?.listMetadata?.({ projectId }) ?? [], ticketStatusStore });
+    if (typeof sprintRegistry?.listDetails === "function") return getRegistryDashboard({ projectId, sprintRegistry, roadmap, metadata: ticketFileStore?.listMetadata?.({ projectId }) ?? [], ticketStatusStore, ticketDeletions: eventStore?.getByType?.("ticket.deleted") ?? [] });
     if (roadmap && roadmap.project_id !== projectId) return emptyDashboard(projectId);
     const registry = sprintRegistry?.list?.() ?? [];
     const registered = new Map(registry.filter((entry) => entry.project_id === projectId).map((entry) => [entry.sprint_id, entry]));

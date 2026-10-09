@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { awaitingOwnerExecutionRecovery, watchOwnerExecutionRecovery } from "../lib/owner-execution-recovery.js";
 
 // Shows durable execution status and requires a second Escape key press to pause active work.
 export function SystemExecutionControls({ client, projectId, conversationId, executionId, agentTyping }) {
@@ -35,13 +36,12 @@ export function SystemExecutionControls({ client, projectId, conversationId, exe
     return () => { mounted = false; };
   }, [client, projectId, conversationId]);
 
-  const awaitingStop = scopedExecutions.some((entry) => entry.status === "pausing");
+  const awaitingStop = awaitingOwnerExecutionRecovery(current);
   useEffect(() => {
-    if (!conversationId || agentTyping || !awaitingStop) return undefined;
-    let mounted = true;
-    client.listOwnerExecutions(projectId, conversationId).then((response) => { if (mounted) setExecutions(response.items ?? []); }).catch((reason) => { if (mounted) setError(reason.message ?? "Unable to refresh recovery options."); });
-    return () => { mounted = false; };
-  }, [client, projectId, conversationId, agentTyping, awaitingStop]);
+    if (!conversationId || !awaitingStop) return undefined;
+    return watchOwnerExecutionRecovery({ client, projectId, conversationId, executionId: currentId,
+      onUpdate: (items) => { setExecutions(items); setError(""); }, onError: setError });
+  }, [client, projectId, conversationId, currentId, awaitingStop]);
 
   useEffect(() => {
     if (currentStatus !== "running" && (current || !agentTyping)) return undefined;
@@ -82,10 +82,11 @@ export function SystemExecutionControls({ client, projectId, conversationId, exe
 
   if (!current && !agentTyping && !error) return null;
   return <div className="claude-chat-status" role="status" aria-live="polite">
+    {currentStatus === "pausing" && <span>Stopping current action…</span>}
     {currentStatus === "interrupted" && <span>One action interrupted</span>}
     {currentStatus === "manual_required" && <span>Workspace needs manual verification before recovery.</span>}
     {error && <span>{error} </span>}
-    {currentStatus === "interrupted" && ["continue", "restart", "discard"].filter((action) => current?.[`can_${action}`]).map((action) => <button key={action} type="button" className="claude-retry" disabled={busy} onClick={() => void decide(action)} aria-label={action === "continue" ? "Continue interrupted action" : action === "restart" ? "Restart interrupted action" : "Discard interrupted action"}>{action === "continue" ? "Continue" : action === "restart" ? "Restart" : "Discard"}</button>)}
+    {["pausing", "interrupted"].includes(currentStatus) && ["continue", "restart", "discard"].map((action) => <button key={action} type="button" className="claude-retry" disabled={busy || currentStatus === "pausing" || !current?.[`can_${action}`]} onClick={() => void decide(action)} aria-label={action === "continue" ? "Continue interrupted action" : action === "restart" ? "Restart interrupted action" : "Discard interrupted action"}>{action === "continue" ? "Continue" : action === "restart" ? "Restart" : "Discard"}</button>)}
     {currentStatus === "manual_required" && current?.can_discard && <button type="button" className="claude-retry" disabled={busy} onClick={() => void decide("discard")}>Discard</button>}
   </div>;
 }

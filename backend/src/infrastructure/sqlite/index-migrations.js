@@ -2,7 +2,7 @@
 import { planHandoffMigration } from "./plan-handoff-migration.js";
 import { markdownPlanMigration } from "./markdown-plan-migration.js";
 import { derivedPlanMigration, markdownConversationMigration } from "./derived-plan-migration.js";
-import { humanPlanMigration, unboundSprintMigration, sprintRegistryVersionMigration } from "./sprint-registry-migration.js";
+import { humanPlanMigration, unboundSprintMigration, sprintRegistryVersionMigration, sprintRegistryArchiveMigration } from "./sprint-registry-migration.js";
 const MIGRATIONS = [
   {
     version: 1,
@@ -186,7 +186,7 @@ const MIGRATIONS = [
   {
     version: 13,
     statements: ["ALTER TABLE plan_revisions ADD COLUMN source_path TEXT", "ALTER TABLE plan_revisions ADD COLUMN source_sha256 TEXT", "ALTER TABLE plan_decisions ADD COLUMN source_sha256 TEXT"]
-  }, planHandoffMigration, markdownPlanMigration, derivedPlanMigration, markdownConversationMigration, sprintRegistryVersionMigration
+  }, planHandoffMigration, markdownPlanMigration, derivedPlanMigration, markdownConversationMigration, sprintRegistryVersionMigration, sprintRegistryArchiveMigration
 ];
 // Applies unapplied schema versions atomically and records their completion.
 export function runIndexMigrations(database) {

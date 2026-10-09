@@ -44,7 +44,7 @@ test("summary and plan commands persist opaque references without running work",
   assert.match(draft.path, /\/ke-hoach-r1\.md$/);
   assert.equal(await readFile(join(root, draft.path), "utf8"), `${markdown}\n`);
   assert.deepEqual(plans.list(), []);
-  await assert.rejects(service.execute({ text: `/approve ${draft.plan_id}`, project_id: "PROJECT-A", approvedOwnerId: "OWNER", approvalRevision: draft.revision, approvalSha256: "bad" }), { code: "PLAN_APPROVAL_REQUIRED" });
+  await assert.rejects(service.execute({ text: `/approve ${draft.plan_id}`, project_id: "PROJECT-A", approvedOwnerId: "OWNER", approvalRevision: draft.revision, approvalSha256: "bad" }), { code: "PLAN_APPROVAL_STALE" });
   const outcomeMarkdown = "# Plan: Owner outcomes\n\n## 1. Mục tiêu\n\nRepository discovery complete. [Source: backend/src/application/owner-chat-command-service.js]\n\n## 5. Outcomes\n\n| Mã | Outcome | Acceptance criteria | Guardrail |\n| --- | --- | --- | --- |\n| O1 | API works | HTTP returns canonical errors | — |\n\n## 6. Rủi ro\n\nAssumption: sources remain available until review.\n\n## 7. Nghiệm thu\n\n- [ ] Reviewed";
   const outcomeDraft = await service.execute({ text: `/plan ${summary.summary_id}`, conversationId: "CONV-A", project_id: "PROJECT-A", requestArchitecture: async () => outcomeMarkdown });
   assert.equal(outcomeDraft.status, "awaiting_human_approval");
@@ -73,7 +73,10 @@ test("approve hands off only an exact approved revision", async () => {
   const sprintRegistry = { get: () => ({ status }), setStatus: async ({ status: next }) => { readyCalls++; status = next; return { status }; } };
   const service = createOwnerChatCommandService({ projectId: "PROJECT-A", fileService, planStore: plans, sprintRegistry, handoffApprovedPlan: async ({ plan }) => { called = true; return { sprint_id: plan.sprint_id, status: "handed_to_sprint_leader" }; } });
   await assert.rejects(service.execute({ text: "/approve PLAN-A", project_id: "PROJECT-A" }), { code: "PLAN_OWNER_UNAUTHORIZED" });
-  const result = await service.execute({ text: "/approve PLAN-A", project_id: "PROJECT-A", approvedOwnerId: "OWNER" });
+  await assert.rejects(service.execute({ text: "/approve PLAN-A", project_id: "PROJECT-A", approvedOwnerId: "OWNER", approvalRevision: 2, approvalSha256: draft.sha256 }), { code: "PLAN_APPROVAL_STALE" });
+  await assert.rejects(service.execute({ text: "/approve PLAN-A", project_id: "PROJECT-A", approvedOwnerId: "OWNER", approvalRevision: 1 }), { code: "PLAN_APPROVAL_STALE" });
+  assert.equal(called, false);
+  const result = await service.execute({ text: "/approve PLAN-A", project_id: "PROJECT-A", approvedOwnerId: "OWNER", approvalRevision: 1, approvalSha256: draft.sha256 });
   assert.equal(called, true);
   assert.equal(result.run_started, false);
   assert.equal(result.status, "handed_to_sprint_leader");

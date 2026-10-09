@@ -6,6 +6,7 @@ import { routeTicketReview } from "./forge-v1-ticket-review-routes.js";
 import { routePlan } from "./forge-v1-plan-routes.js";
 import { routeDirectCode } from "./forge-v1-direct-code-routes.js";
 import { routeTicketStop } from "./forge-v1-ticket-stop-route.js";
+import { routeSprintCrud } from "./forge-v1-sprint-crud-routes.js";
 import { routeForgeV1Git } from "./forge-v1-git-routes.js";
 import { normalizeParts, unavailable, runRequestsFresh, requireProject, readJson, isSafeMarkdownPath } from "./forge-v1-router-utils.js";
 
@@ -132,40 +133,8 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrch
       return { status: 200, body: architectureWorkspaceService.getWorkspace(parts[1]) };
     }
 
-    if (method === "POST" && parts.length === 1 && parts[0] === "sprints") {
-      if (!sprintPlanUploadService?.upload) throw unavailable("Sprint Plan Upload");
-      return { status: 201, body: sprintPlanUploadService.upload({ projectId, sprintPlan: body.sprint_plan ?? body }) };
-    }
-
-    if (method === "GET" && parts.length === 1 && parts[0] === "sprints") {
-      const registered = await sprintRegistry?.listDetails?.();
-      const legacy = sprintPlanUploadService?.list?.({ projectId }) ?? [];
-      if (registered?.length) {
-        const registeredIds = new Set(registered.map(({ id }) => id));
-        const pendingMigration = legacy.filter(({ id }) => !registeredIds.has(id));
-        if (pendingMigration.length) throw Object.assign(new ConfigurationError("Legacy Sprint Plans must be migrated before Registry list cutover."), { code: "SPRINT_REGISTRY_MIGRATION_REQUIRED", statusCode: 409, retryable: false, scope: "scoped", identifiers: pendingMigration.map(({ id }) => id) });
-        return { status: 200, body: await conversationRoutes.withCheckpointSummary(registered) };
-      }
-      if (!sprintPlanUploadService?.list) throw unavailable("Sprint Plan List");
-      return { status: 200, body: await conversationRoutes.withCheckpointSummary(legacy) };
-    }
-
-    if (method === "GET" && parts.length === 2 && parts[0] === "sprints") {
-      const registered = await sprintRegistry?.getDetail?.(parts[1]);
-      if (registered) return { status: 200, body: registered };
-      if (!sprintPlanUploadService?.get) throw unavailable("Sprint Plan View");
-      return { status: 200, body: sprintPlanUploadService.get({ projectId, sprintId: parts[1] }) };
-    }
-
-    if (method === "PUT" && parts.length === 2 && parts[0] === "sprints") {
-      if (!sprintPlanUploadService?.update) throw unavailable("Sprint Plan Update");
-      return { status: 200, body: sprintPlanUploadService.update({ projectId, sprintId: parts[1], sprintPlan: body.sprint_plan ?? body }) };
-    }
-
-    if (method === "DELETE" && parts.length === 2 && parts[0] === "sprints") {
-      if (!sprintPlanUploadService?.remove) throw unavailable("Sprint Plan Delete");
-      return { status: 200, body: sprintPlanUploadService.remove({ projectId, sprintId: parts[1] }) };
-    }
+    const sprintCrudResult = await routeSprintCrud({ method, parts, body, url, projectId, expectedProjectId, sprintRegistry, planStore, sprintPlanUploadService, conversationRoutes });
+    if (sprintCrudResult) return sprintCrudResult;
 
     if (parts[0] === "tickets" && (parts.length === 1 || (parts.length === 2 && !parts[1].endsWith(":run")))) {
       if (parts.length === 1) {
@@ -194,14 +163,16 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrch
         }
         if (method === "DELETE") {
           if (!sprintPlanUploadService?.removeTicket) throw unavailable("Ticket Delete");
-          return { status: 200, body: sprintPlanUploadService.removeTicket({ projectId, ticketId: parts[1] }) };
+          if (sprintRegistry && expectedProjectId && projectId !== expectedProjectId) throw Object.assign(new ConfigurationError("Ticket project differs from this runtime."), { code: "PROJECT_CONTEXT_CONFLICT", statusCode: 409 });
+          return { status: 200, body: await sprintPlanUploadService.removeTicket({ projectId, ticketId: parts[1], ...(sprintRegistry ? { sprintRegistry, planStore } : {}) }) };
         }
       }
     }
 
     if (method === "DELETE" && parts.length === 4 && parts[0] === "projects" && parts[2] === "tickets") {
       if (!sprintPlanUploadService?.removeTicket) throw unavailable("Ticket Delete");
-      return { status: 200, body: sprintPlanUploadService.removeTicket({ projectId: parts[1], ticketId: parts[3] }) };
+      if (sprintRegistry && ((expectedProjectId && parts[1] !== expectedProjectId) || (projectId && parts[1] !== projectId))) throw Object.assign(new ConfigurationError("Ticket project differs from this runtime or request context."), { code: "PROJECT_CONTEXT_CONFLICT", statusCode: 409 });
+      return { status: 200, body: await sprintPlanUploadService.removeTicket({ projectId: parts[1], ticketId: parts[3], ...(sprintRegistry ? { sprintRegistry, planStore } : {}) }) };
     }
     if (method === "POST" && parts.length === 5 && parts[0] === "projects" && parts[2] === "tickets" && parts[4] === "run") {
       if (typeof dispatchTicket !== "function") throw unavailable("Ticket Dispatch");
@@ -224,7 +195,7 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrch
         const basis = await planStore?.getRevision?.({ planId: scheduled.plan_id, revision: scheduled.plan_revision });
         if (basis?.source_path?.endsWith(".md")) throw Object.assign(new ConfigurationError("This Sprint is bound to approved Markdown; create a new Markdown revision to replan."), { code: "SPRINT_REPLAN_REQUIRES_MARKDOWN", statusCode: 409 });
       }
-      return { status: 202, body: sprintOrchestrationService.run({ projectId, sprintId: parts[1] }) };
+      return { status: 202, body: await sprintOrchestrationService.run({ projectId, sprintId: parts[1] }) };
     }
 
     if (method === "POST" && parts.length === 3 && parts[0] === "sprints" && parts[2] === "run") {

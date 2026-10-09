@@ -9,7 +9,7 @@ import { SprintTicketScope } from "./sprint-ticket-scope.js";
 const PROJECT_ID = "PROJECT-NODEFORGE";
 
 // Dashboard for viewing and managing sprint plans.
-export function SprintPlanDashboard({ dashboard, client, onRefresh, onTicketDeleted, hideHeading = false }) {
+export function SprintPlanDashboard({ dashboard, client, onRefresh, onTicketDeleted, onSprintDeleted, hideHeading = false, defaultCollapsed = false }) {
   const [runningId, setRunningId] = useState(null);
   const [runMessage, setRunMessage] = useState("");
   const [runEvents, setRunEvents] = useState([]);
@@ -82,19 +82,25 @@ export function SprintPlanDashboard({ dashboard, client, onRefresh, onTicketDele
     catch (error) { setViewState(error.message); }
   }
   async function handleDelete(sprintId) {
-    if (!window.confirm(`Delete ${sprintId}? This removes file and database records.`)) return;
-    try { await client.deleteSprintPlan(dashboard.project_id ?? PROJECT_ID, sprintId); setDeleteMessage(`Deleted ${sprintId}.`); }
+    const sprint = sprints.find((item) => item.id === sprintId);
+    if (!window.confirm(`Remove ${sprintId} from active Sprints? Registry plans and history are retained.`)) return;
+    try {
+      const result = await client.deleteSprintPlan(dashboard.project_id ?? PROJECT_ID, sprintId, sprint?.version);
+      setDeleteMessage(`${result.archived ? "Archived" : "Deleted"} ${sprintId}.`);
+      if (onSprintDeleted) onSprintDeleted(sprintId);
+      else await onRefresh?.();
+    }
     catch (error) { setDeleteMessage(`Delete failed: ${error.message}`); }
   }
 
   return <section className="sprint-plan-dashboard" aria-label="Uploaded sprint plans">
     {!hideHeading && <h2>Roadmap Sprints</h2>}
     {sprints.map((sprint) => <article key={sprint.id} className={`sprint-item ${highlightSprint === sprint.id ? "is-new" : ""}`}>
-      <div className="sprint-row"><div><strong>{sprint.id}</strong>{highlightSprint === sprint.id && <span className="sprint-new-badge">NEW</span>}</div><button className="sprint-collapse-button" onClick={() => setCollapsedSprints((state) => ({ ...state, [sprint.id]: !state[sprint.id] }))} aria-label="Toggle sprint tasks">{collapsedSprints[sprint.id] ? "+" : "−"}</button></div>
+      <div className="sprint-row"><div><strong>{sprint.id}</strong>{highlightSprint === sprint.id && <span className="sprint-new-badge">NEW</span>}</div><button className="sprint-collapse-button" onClick={() => setCollapsedSprints((state) => ({ ...state, [sprint.id]: !(state[sprint.id] ?? defaultCollapsed) }))} aria-label="Toggle sprint tasks" aria-expanded={!(collapsedSprints[sprint.id] ?? defaultCollapsed)}>{(collapsedSprints[sprint.id] ?? defaultCollapsed) ? "+" : "−"}</button></div>
       <p>{sprint.objective ?? "No sprint objective provided."}</p>
       <small>{sprint.tasks?.filter((task) => task.status === "done").length ?? 0}/{sprint.tasks?.length ?? 0} tasks completed · {sprint.status ?? "planned"}</small>
-      {!collapsedSprints[sprint.id] && <InlineAddTicketForm sprint={sprint} projectId={dashboard.project_id ?? PROJECT_ID} client={client} />}
-      {!collapsedSprints[sprint.id] && <div className="sprint-ticket-list" aria-label={`Tasks in ${sprint.id}`}>
+      {!(collapsedSprints[sprint.id] ?? defaultCollapsed) && <InlineAddTicketForm sprint={sprint} projectId={dashboard.project_id ?? PROJECT_ID} client={client} />}
+      {!(collapsedSprints[sprint.id] ?? defaultCollapsed) && <div className="sprint-ticket-list" aria-label={`Tasks in ${sprint.id}`}>
         {sprint.tasks?.length ? sortSprintTickets(sprint.tasks).map((ticket) => <TicketCard key={ticket.id} ticket={{ ...ticket, sprint_id: sprint.id }} client={client} projectId={dashboard.project_id} onRefresh={onRefresh} onDeleted={onTicketDeleted} />) : <p className="dashboard-state">No tasks in this sprint.</p>}
       </div>}
       <div className="sprint-actions"><button className="sprint-view-button small" onClick={() => handleView(sprint.id)}>{viewSprint?.id === sprint.id && viewState === "ready" ? "Hide" : "View"}</button><button className="sprint-delete-button small" onClick={() => handleDelete(sprint.id)} disabled={Boolean(runningId) || sprint.status === "done"}>Delete</button><button className={`sprint-run-button small ${runningId === sprint.id ? "is-running" : ""}`} onClick={() => handleRun(sprint.id)} disabled={Boolean(runningId) || sprint.status === "done"}>{runningId === sprint.id ? "Running…" : "Run"}</button></div>

@@ -12,7 +12,7 @@ const commonSchema = require("../../../schemas/core/common.schema.json");
 const ticketSchema = require("../../../schemas/governance/ticket.schema.json");
 
 // Creates the owner chat service handling message intake and streaming.
-export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, executeAgentTool, proseTicketService, internalBus, debug = () => {}, streamBatchMs = 500, projectLogger = logEvent, protocolStorage, conversationCrudService, commandService, communications } = {}) {
+export function createOwnerChatService({ bus, architectureManagerId = "architecture-manager", agentRequest, agentStream, onAgentCompleted, buildAgentContext, executeAgentTool, proseTicketService, internalBus, debug = () => {}, streamBatchMs = 500, projectLogger = logEvent, protocolStorage, conversationCrudService, commandService, communications, agentRoleResolver } = {}) {
   if (typeof bus?.send !== "function") throw new ConfigurationError("Owner Chat Service requires the shared Communication Bus.");
   if (!Number.isInteger(streamBatchMs) || streamBatchMs < 1) throw new ConfigurationError("Owner Chat stream batch interval must be positive.");
   const messages = new Map();
@@ -128,7 +128,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
   }
   // Streams an Architecture response and persists it in the same conversation.
   async function streamCommandArchitecture({ input, agentId, prompt, conversationId, exposeText = true }) {
-    if (typeof agentStream !== "function") throw new ConfigurationError("Architecture agent stream is unavailable.");
+    agentId = agentRoleResolver ? agentRoleResolver.resolveProfile("architecture_manager")?.agent_id : architectureManagerId; if (!agentId || typeof agentStream !== "function") throw new ConfigurationError("Configured Architecture agent stream is unavailable.");
     const contentType = /^\/summary\b/i.test(String(input.payload.text).trim()) ? "text/markdown" : "text/plain";
     const message = { id: `MSG-ARCHITECTURE-COMMAND-${input.message_id}`, project_id: input.project_id, sender: { id: "NODE", role: "node" }, recipient: { id: agentId, role: roleForAgent(agentId) }, message_type: "owner.message", conversation_id: conversationId, correlation_id: `${input.correlation_id}-ARCH`, payload: { text: prompt }, timestamp: new Date().toISOString() };
     let text = ""; let index = 0;
