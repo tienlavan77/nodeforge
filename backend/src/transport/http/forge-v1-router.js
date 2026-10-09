@@ -139,10 +139,15 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrch
 
     if (method === "GET" && parts.length === 1 && parts[0] === "sprints") {
       const registered = await sprintRegistry?.listDetails?.();
-      if (registered?.length) return { status: 200, body: await conversationRoutes.withCheckpointSummary(registered) };
+      const legacy = sprintPlanUploadService?.list?.({ projectId }) ?? [];
+      if (registered?.length) {
+        const registeredIds = new Set(registered.map(({ id }) => id));
+        const pendingMigration = legacy.filter(({ id }) => !registeredIds.has(id));
+        if (pendingMigration.length) throw Object.assign(new ConfigurationError("Legacy Sprint Plans must be migrated before Registry list cutover."), { code: "SPRINT_REGISTRY_MIGRATION_REQUIRED", statusCode: 409, retryable: false, scope: "scoped", identifiers: pendingMigration.map(({ id }) => id) });
+        return { status: 200, body: await conversationRoutes.withCheckpointSummary(registered) };
+      }
       if (!sprintPlanUploadService?.list) throw unavailable("Sprint Plan List");
-      const sprints = sprintPlanUploadService.list({ projectId });
-      return { status: 200, body: await conversationRoutes.withCheckpointSummary(sprints) };
+      return { status: 200, body: await conversationRoutes.withCheckpointSummary(legacy) };
     }
 
     if (method === "GET" && parts.length === 2 && parts[0] === "sprints") {

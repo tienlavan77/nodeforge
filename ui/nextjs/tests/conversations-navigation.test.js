@@ -47,7 +47,9 @@ test("home route composes the conversation workspace from existing components", 
   assert.ok(codingMonitor.includes('["coder", "reviewer"]'));
   assert.ok(codingMonitor.includes('import { SprintPlanDashboard } from "./sprint-plan-panels.jsx"'));
   assert.ok(codingMonitor.includes("<SprintPlanDashboard dashboard={dashboard}"));
-  assert.ok(legacyCodePage.includes("getProjectDashboard(PROJECT_ID)"));
+  assert.ok(legacyCodePage.includes("createCodingDashboardLoader"));
+  assert.ok(legacyCodePage.includes("dashboardState={dashboardState}"));
+  assert.ok(codingMonitor.includes("<CodingSprintDashboardState"));
   assert.ok(legacyCodePage.includes("useProjectEventStream"));
   const monitors = await readFile("ui/nextjs/components/WorkspaceMonitorPanels.jsx", "utf8");
   assert.ok(monitors.includes("Watcher monitor"));

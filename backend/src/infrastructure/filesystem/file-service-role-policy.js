@@ -5,6 +5,8 @@ import { lstat } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const ARCHITECTURE_WRITE_PREFIXES = Object.freeze(["docs/", "Skills/", "workflows/"]);
+const NODE_MODULES_PATH = /(^|\/)node_modules(?:\/|$)/;
+const FORBIDDEN_READ_PATH = /(^|\/)(?:vendor|dist|build|coverage|cache|\.next)(\/|$)|(^|\/)(?:secret|secrets|credential|credentials|private)(?:[._/-]|$)/i;
 
 // Lists project areas where a role may create or edit files.
 export function roleWritePrefixes(role) { return role === "architecture_manager" ? [...ARCHITECTURE_WRITE_PREFIXES] : []; }
@@ -17,10 +19,12 @@ export function assertCoderWorkflowReadOnly(role, operation, path) {
 
 // Checks role permissions before File Service reads, writes, or deletes a path.
 export function assertRoleFileAccess(role, operation, path) {
+  const systemEngineerDependencyRead = role === "system_engineer" && operation === "read" && NODE_MODULES_PATH.test(path ?? "");
   const safe = typeof path === "string" && path.length > 0 && !path.startsWith("/") && !path.includes("\\") && !path.includes("\0")
     && path.split("/").every((part) => part && part !== "." && part !== ".." && (role === "system_engineer" && operation === "read" || !part.startsWith(".")))
     && !isProtectedPath(path, { operation: operation === "read" ? "read" : "write" })
-    && !/(^|\/)(?:node_modules|vendor|dist|build|coverage|cache|\.next)(\/|$)|(^|\/)(?:secret|secrets|credential|credentials|private)(?:[._/-]|$)/i.test(path);
+    && (systemEngineerDependencyRead || !NODE_MODULES_PATH.test(path))
+    && !FORBIDDEN_READ_PATH.test(path);
   const writeArea = role === "architecture_manager" && (path === "ARCHITECTURE.md" || ARCHITECTURE_WRITE_PREFIXES.some((prefix) => path?.startsWith(prefix)));
   const allowed = safe && (operation === "read" || (operation === "write" && (writeArea || role === "system_engineer")) || (operation === "delete" && role === "architecture_manager" && path.startsWith("workflows/")));
   if (!allowed) throw Object.assign(new ConfigurationError(`File access is not permitted for role ${role}: ${operation} ${path ?? "<missing>"}.`), { code: "FILE_ROLE_FORBIDDEN" });
@@ -45,7 +49,11 @@ export function createRoleFileService({ fileService, role, projectRoot }) {
   return Object.freeze({
     assertReadPath: async (path) => checkPath("read", path),
     readFile: async (input) => { await checkPath("read", input?.path); return fileService.readFile(input); },
-    readForIndex: async (input) => { await checkPath("read", input?.path); return fileService.readForIndex(input); },
+    readForIndex: async (input) => {
+      await checkPath("read", input?.path);
+      const allowNodeModules = role === "system_engineer" && NODE_MODULES_PATH.test(input?.path ?? "");
+      return fileService.readForIndex({ ...input, allowNodeModules });
+    },
     atomicWrite: async (input) => { await checkPath("write", input?.path); return fileService.atomicWrite(input); },
     deleteFile: async (input) => { await checkPath("delete", input?.path); return fileService.deleteFile(input); },
     listFiles: async (input) => filterListed("read", await fileService.listFiles(input)),

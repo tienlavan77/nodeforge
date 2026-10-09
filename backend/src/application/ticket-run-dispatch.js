@@ -1,5 +1,7 @@
 // Dispatches individual and Sprint tickets through the same approval, resume, and status lifecycle.
+import { randomUUID } from "node:crypto";
 import { assertApprovedTicket } from "../modules/governance/sprint-plan-draft.js";
+import { matchesTicketExecution, sameExecutionPlan } from "../modules/projects/ticket-execution-identity.js";
 import { assertA5ExecutionContract } from "../modules/governance/sprint-plan-execution-gates.js";
 import { reviewPhaseResume, reviewRevisionResume } from "../modules/supervisor/review-revision-resume.js";
 
@@ -13,7 +15,7 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
     return { ticket_id: ticketId, status: "stopping" };
   };
   return dispatchTicket;
-  async function dispatchTicket({ projectId, ticketId, fresh = false } = {}) {
+  async function dispatchTicket({ projectId, ticketId, fresh = false, expectedSprintVersion } = {}) {
     if (active.has(ticketId)) return { ticket_id: ticketId, status: "already_running", pipeline: "supervisor" };
     const controller = new AbortController();
     active.set(ticketId, { projectId, controller });
@@ -21,13 +23,16 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
       if ((await disposition.get(ticketId))?.disposition === "cancelled") throw failure("TICKET_CANCELLED", "This historical ticket was cancelled by the project owner and cannot be resumed.");
       const { ticket } = await intake.open({ projectId, ticketId });
       if (!sprintRegistry.get(ticket.sprint_id)) throw failure("SPRINT_PLAN_REQUIRED", "Ticket sprint has no approved plan in the sprint registry.");
-      const { plan } = await sprintRegistry.assertReady(ticket.sprint_id);
+      const { sprint: sprintBasis, plan } = await sprintRegistry.assertReady(ticket.sprint_id, { expectedVersion: expectedSprintVersion });
       assertApprovedTicket(plan, ticket);
       assertA5ExecutionContract(ticket);
       const current = ticketStatusStore.get(ticketId);
       if (current?.status === "cancelled") throw failure("TICKET_CANCELLED", "Cancelled tickets cannot run.");
       if (current?.status === "blocked") throw failure("TICKET_APPROVAL_REQUIRED", "Blocked ticket status requires a human decision before RUN.");
-      if (current?.details?.reason === "human_review_approved" || current?.status === "done" && !fresh) return { ticket_id: ticketId, status: "completed", pipeline: "supervisor", resumed: true };
+      if (current?.details?.reason === "human_review_approved" || current?.status === "done" && !fresh) {
+        if (sprintBasis && !sameExecutionPlan(current.details?.execution_basis, sprintBasis)) throw failure("TICKET_EXECUTION_RECONCILIATION_REQUIRED", "Existing completion is not evidence for this immutable Sprint plan; reconcile or explicitly request a fresh RUN.");
+        return { ticket_id: ticketId, status: "completed", pipeline: "supervisor", resumed: true, ...(current.details?.execution_id ? { execution_id: current.details.execution_id } : {}) };
+      }
       const storedCheckpoint = await checkpoints.load(ticketId);
       if (storedCheckpoint?.status === "blocked") throw failure("TICKET_APPROVAL_REQUIRED", "Coder checkpoint requires a human decision before this ticket can run again.");
       const checkpoint = fresh ? null : storedCheckpoint;
@@ -36,23 +41,30 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
       if (reviewerCheckpoint?.verdict === "approved") throw failure("TICKET_INTEGRATION_RECOVERY_REQUIRED", "Review is approved but ticket completion is missing; recover integration before RUN.");
       const reviewResume = !fresh && checkpoint?.status === "completed" ? reviewPhaseResume(checkpoint, reviewerCheckpoint) : null;
       if (controller.signal.aborted) throw controller.signal.reason;
-      if (!resume && !reviewResume) {
-        await checkpoints.clear(ticketId);
-        await protocolStorage.clearTask(ticketId);
-        await conversationStateStore.clear(`CONV-BUILDER-${projectId}-${ticketId}`);
-      }
-      prepareStatus(ticketStatusStore, ticketId, fresh);
+      const executionId = sprintBasis && ticketStatusStore.beginExecution ? `RUN-${randomUUID()}` : null;
+      if (executionId) {
+        await sprintRegistry.assertReady(ticket.sprint_id, { expectedVersion: sprintBasis.version });
+        ticketStatusStore.beginExecution(ticketId, { executionId, basis: sprintBasis, expectedVersion: current?.version ?? 0, fresh });
+      } else prepareStatus(ticketStatusStore, ticketId, fresh);
       const correlationId = `CORR-UI-RUN-${ticketId}-${Date.now()}`;
       let result;
       try {
-        result = await dispatchTask({ ticket, message: { id: `REQ-${ticketId}-${Date.now()}`, correlation_id: correlationId }, abortSignal: controller.signal, ...(resume ? { resume_from: resume } : {}), ...(reviewResume ? { review_resume: reviewResume } : {}) });
+        if (!resume && !reviewResume) {
+          await checkpoints.clear(ticketId);
+          await protocolStorage.clearTask(ticketId);
+          await conversationStateStore.clear(`CONV-BUILDER-${projectId}-${ticketId}`);
+        }
+        result = await dispatchTask({ ticket, sprintBasis, executionId, message: { id: `REQ-${ticketId}-${Date.now()}`, correlation_id: correlationId }, abortSignal: controller.signal, ...(resume ? { resume_from: resume } : {}), ...(reviewResume ? { review_resume: reviewResume } : {}) });
         if (controller.signal.aborted) throw controller.signal.reason;
       } catch (error) {
-        const status = ticketStatusStore.getStatus(ticketId);
-        if (["running", "reviewing"].includes(status)) ticketStatusStore.updateStatus(ticketId, "failed", { reason: "ticket_dispatch_failed", error: error.message });
+        const failed = ticketStatusStore.get(ticketId);
+        if (["running", "reviewing"].includes(failed?.status) && (!executionId || matchesTicketExecution(failed, executionId, sprintBasis))) {
+          try { ticketStatusStore.updateStatus(ticketId, "failed", { reason: "ticket_dispatch_failed", error: error.message }, executionId ? { expectedVersion: failed.version, expectedExecutionId: executionId } : {}); }
+          catch (statusError) { if (statusError.code !== "STATUS_CONFLICT") throw statusError; error.execution_status_conflict = statusError.message; }
+        }
         throw error;
       }
-      return { ticket_id: ticketId, supervisor_id: result.supervisor_id, status: result.status === "completed" ? "completed" : result.status === "already_running" ? "already_running" : result.status === "needs_human_review" ? "needs_human_review" : "accepted", pipeline: "supervisor", ...(resume || reviewResume ? { resumed: true, resumed_from_turn: checkpoint?.last_completed_turn ?? 0 } : {}) };
+      return { ticket_id: ticketId, ...(executionId ? { execution_id: executionId } : {}), supervisor_id: result.supervisor_id, status: result.status === "completed" ? "completed" : result.status === "already_running" ? "already_running" : result.status === "needs_human_review" ? "needs_human_review" : "accepted", pipeline: "supervisor", ...(resume || reviewResume ? { resumed: true, resumed_from_turn: checkpoint?.last_completed_turn ?? 0 } : {}) };
     } finally { active.delete(ticketId); }
   }
 }

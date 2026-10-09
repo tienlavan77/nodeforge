@@ -1,5 +1,6 @@
 // Summary: Bridges terminal task events to ticket/roadmap status updates and long-term memory capture.
 import { ConfigurationError } from "../../shared/errors.js";
+import { matchesTicketExecution, retainedExecutionDetails } from "../projects/ticket-execution-identity.js";
 
 const TERMINAL_MAP = {
   "task.completed": "done",
@@ -23,14 +24,19 @@ export function createTerminalBridge({ eventBus, ticketStatusStore, roadmaps, pr
     const ticketStatus = TERMINAL_MAP[event.type];
     if (!ticketStatus) return;
     const key = `${event.type}:${event.task_id}:${event.request_id ?? ""}:${event.correlation_id ?? ""}`;
-    if (seen.has(key)) return;
-    seen.add(key);
     const current = ticketStatusStore.get(event.task_id);
+    const guarded = Boolean(current?.details?.execution_id);
+    if (guarded && (event.project_id !== projectId || !matchesTicketExecution(current, event.payload?.execution_id, event.payload?.execution_basis))) {
+      logger({ event_name: "terminal_bridge.stale_execution", level: "warn", status: "skipped", message: "Terminal event does not own the current Project Ticket execution.", task_id: event.task_id, source: "terminal-bridge", payload: { event_type: event.type, request_id: event.request_id } });
+      return;
+    }
+    if (!guarded && seen.has(key)) return;
+    if (!guarded) seen.add(key);
     if (!current) { logger({ event_name: "terminal_bridge.skipped", level: "warn", status: "skipped", message: "Terminal event for a ticket with no status row.", task_id: event.task_id, source: "terminal-bridge", payload: { event_type: event.type } }); return; }
     if (["done", "failed", "cancelled"].includes(current.status)) return;
     const errorText = typeof event.payload?.error === "string" ? event.payload.error : typeof event.payload?.error?.message === "string" ? event.payload.error.message : undefined;
-    const details = { reason: `supervisor_${event.type}`, request_id: event.request_id, correlation_id: event.correlation_id, attempt: event.attempt, ...(errorText ? { error: errorText } : {}) };
-    if (!syncStatus(event.task_id, current.status, ticketStatus, details)) {
+    const details = { ...retainedExecutionDetails(current.details), reason: `supervisor_${event.type}`, request_id: event.request_id, correlation_id: event.correlation_id, attempt: event.attempt, ...(errorText ? { error: errorText } : {}) };
+    if (!syncStatus(event.task_id, current, ticketStatus, details)) {
       logger({ event_name: "terminal_bridge.transition_skipped", level: "warn", status: "skipped", message: `Ticket status ${current.status} cannot transition to ${ticketStatus}; left for human review.`, task_id: event.task_id, source: "terminal-bridge", payload: { event_type: event.type, from: current.status, to: ticketStatus } });
       return;
     }
@@ -39,12 +45,15 @@ export function createTerminalBridge({ eventBus, ticketStatusStore, roadmaps, pr
     if (event.type === "task.completed") recordMemory(event);
   }
 
-  function syncStatus(taskId, from, to, details) {
+  function syncStatus(taskId, current, to, details) {
+    const from = current.status;
+    const executionId = current.details?.execution_id;
     try {
-      ticketStatusStore.updateStatus(taskId, to, details, { expectedCurrentStatus: from });
+      ticketStatusStore.updateStatus(taskId, to, details, { expectedCurrentStatus: from, ...(executionId ? { expectedVersion: current.version, expectedExecutionId: executionId } : {}) });
       return true;
     } catch (error) {
       if (error.code !== "STATUS_TRANSITION_INVALID" && error.code !== "STATUS_CONFLICT") throw error;
+      if (executionId) return false;
       // A CAS conflict means another writer moved the ticket first; re-read once
       // and apply the terminal status from the fresh state if it is now legal.
       if (error.code !== "STATUS_CONFLICT") return false;

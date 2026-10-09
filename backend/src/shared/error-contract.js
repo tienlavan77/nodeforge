@@ -18,6 +18,11 @@ function safeMessage(raw, fallback) {
   return value || fallback;
 }
 
+// Keeps a bounded set of safe project-scoped identifiers in a public diagnostic.
+function safeIdentifiers(value) {
+  return Array.isArray(value) ? value.filter((item) => typeof item === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(item)).slice(0, 25) : [];
+}
+
 // Normalizes canonical application errors at the HTTP egress boundary.
 export function normalizeErrorContract({ error, statusCode, requestId, fallbackMessage } = {}) {
   const status = statusCode ?? error?.statusCode ?? null;
@@ -28,7 +33,8 @@ export function normalizeErrorContract({ error, statusCode, requestId, fallbackM
   const rawScope = token(error?.scope);
   const scope = ["field", "scoped", "global"].includes(rawScope) ? rawScope : SCOPE_BY_CODE[code] ?? (retryable ? "scoped" : "global");
   const id = String(requestId ?? error?.requestId ?? "").trim() || null;
-  return { code, message, retryable, scope, requestId: id };
+  const identifiers = safeIdentifiers(error?.identifiers);
+  return { code, message, retryable, scope, requestId: id, ...(identifiers.length ? { identifiers } : {}) };
 }
 
 // Formats every HTTP error with only canonical public fields.

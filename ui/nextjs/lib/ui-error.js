@@ -19,6 +19,11 @@ export function safeMessage(raw, fallback) {
   return message || fallback;
 }
 
+// Keeps safe reconciliation identifiers available to scoped UI recovery.
+function safeIdentifiers(value) {
+  return Array.isArray(value) ? value.filter((item) => typeof item === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(item)).slice(0, 25) : [];
+}
+
 // Accepts string, Error, and canonical envelope inputs through one UI contract.
 export function normalizeUiError(input, { requestId, fallback = "Request failed.", status } = {}) {
   const body = input && typeof input === "object" ? input.error && typeof input.error === "object" ? input.error : input : {};
@@ -30,7 +35,8 @@ export function normalizeUiError(input, { requestId, fallback = "Request failed.
   const rawScope = token(body.scope);
   const scope = ["field", "scoped", "global"].includes(rawScope) ? rawScope : SCOPE_BY_CODE[code] ?? (retryable ? "scoped" : "global");
   const id = String(requestId ?? body.requestId ?? "").trim() || null;
-  return { code, message, retryable, scope, requestId: id };
+  const identifiers = safeIdentifiers(body.identifiers);
+  return { code, message, retryable, scope, requestId: id, ...(identifiers.length ? { identifiers } : {}) };
 }
 
 // Exposes the canonical retry decision to UI controls.
