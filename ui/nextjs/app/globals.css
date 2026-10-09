@@ -18,13 +18,22 @@
   font-size: 12px !important;
 }
 
-:is(.claude-chat-scroll, .natural-conversation),
-:is(.claude-chat-scroll, .natural-conversation) *,
-:is(.home-composer, .composer) textarea {
+:is(.claude-message, .claude-composer-wrap),
+:is(.claude-message, .claude-composer-wrap) * {
   font-size: 15px !important;
 }
 
+.home-plan-approval-notice,
+.home-plan-approval-notice *,
 .claude-message-meta,
-.claude-message-meta * {
+.claude-message-meta *,
+.claude-message-actions,
+.claude-message-actions *,
+.claude-message .code-block-header,
+.claude-message .code-block-header *,
+.claude-message .inline-copy,
+.claude-message-inline-edit button,
+.claude-composer-wrap button,
+.claude-composer-wrap button * {
   font-size: 12px !important;
 }

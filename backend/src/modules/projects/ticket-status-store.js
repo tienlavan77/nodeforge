@@ -129,6 +129,8 @@ export function createTicketStatusStore({ database, projectId, clock = () => new
     details = { ...retainedExecutionDetails(current.details), ...details };
     const now = nowIso(); const version = current.version + 1; const detailsJson = JSON.stringify(details ?? {});
     const apply = () => {
+      if (nextStatus === "running" && details.execution_basis?.sprint_id && database.all("SELECT name FROM sqlite_master WHERE type='table' AND name='sprint_registry_archives'").length
+        && database.all("SELECT sprint_id FROM sprint_registry_archives WHERE project_id=? AND sprint_id=?", [projectId, details.execution_basis.sprint_id]).length) throw Object.assign(statusError("SPRINT_ARCHIVED", "Archived Sprint cannot receive a new execution."), { statusCode: 409, retryable: false, scope: "scoped" });
       const result = database.run("UPDATE ticket_status SET status=?,version=?,error=?,details_json=?,updated_at=? WHERE project_id=? AND ticket_id=? AND status=? AND version=?", [nextStatus, version, details?.error ?? null, detailsJson, now, projectId, ticketId, current.status, current.version]);
       if (result.changes !== 1) throw statusError("STATUS_CONFLICT", `Concurrent update detected for ticket: ${ticketId}.`);
       database.run("INSERT INTO ticket_status_history (id,project_id,ticket_id,from_status,to_status,reason,details_json,version,created_at) VALUES (?,?,?,?,?,?,?,?,?)", [createId(), projectId, ticketId, current.status, nextStatus, details.reason ?? null, detailsJson, version, now]);

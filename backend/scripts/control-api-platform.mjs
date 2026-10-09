@@ -32,7 +32,7 @@ import { createTicketFileStore } from "../src/application/ticket-file-store.js";
 import { createSprintLeaderToolOptions } from "../src/tools/sprint-leader-forge-tools.js";
 import { ConfigurationError } from "../src/shared/errors.js";
 
-export function createControlApiPlatform({ config, database, indexDb, fileService, agentGateway, claudeSdkGateway, codexSdkGateway, openaiSdkGateway, agentRoleResolver, logEvent, draftPlan } = {}) {
+export function createControlApiPlatform({ config, database, indexDb, fileService, agentGateway, claudeSdkGateway, codexSdkGateway, openaiSdkGateway, agentRoleResolver, logEvent, draftPlan, sprintRegistry } = {}) {
   const { projectId, cwd: projectRoot } = config;
   const { search: codeSearch, fileGraph, embeddingStore, embeddingProvider } = createRetrievalDependencies({ database: indexDb });
   // Freshness checker compares indexed sha with live disk reads so candidates
@@ -73,7 +73,7 @@ export function createControlApiPlatform({ config, database, indexDb, fileServic
   const memory = createProjectMemoryStore({ summaries });
   const memoryRetriever = createMemoryRetriever({ memory });
   const contextEngine = createContextEngine({ database: indexDb, projectRoot, projectId });
-  const sprintOrchestration = createSprintOrchestrationService({ sprintPlans, sprintPlanStore: roadmaps, ticketProvenanceTracker: provenance, agentGateway, publisher: eventPublisher, sprintPlanLeader, agentRoleResolver, draftPlan, sprintPlanDirectory: `${projectRoot}/.forge/runtime/nf/sprint-plan` });
+  const sprintOrchestration = createSprintOrchestrationService({ sprintPlans, sprintPlanStore: roadmaps, ticketProvenanceTracker: provenance, agentGateway, publisher: eventPublisher, sprintPlanLeader, agentRoleResolver, draftPlan, sprintRegistry, sprintPlanDirectory: `${projectRoot}/.forge/runtime/nf/sprint-plan` });
   const proseTicketService = createProseTicketService({ roadmapStore: roadmaps });
   const ticketFileStore = createTicketFileStore({ database, fileService });
   const sprintPlanUpload = createSprintPlanUploadService({ roadmaps, publisher: eventPublisher, projectRoot, isRunning: (sprintId) => sprintOrchestration.isRunning(sprintId) });

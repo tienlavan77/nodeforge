@@ -48,6 +48,11 @@ export const unboundSprintMigration = {
   ]
 };
 
+export const sprintRegistryArchiveMigration = {
+  version: 19,
+  statements: ["CREATE TABLE sprint_registry_archives (sprint_id TEXT PRIMARY KEY REFERENCES sprint_registry(sprint_id), project_id TEXT NOT NULL, archived_at TEXT NOT NULL, record_json TEXT NOT NULL)"]
+};
+
 export const sprintRegistryVersionMigration = {
   version: 18,
   statements: ["ALTER TABLE sprint_registry ADD COLUMN version INTEGER NOT NULL DEFAULT 0 CHECK (version >= 0)"]

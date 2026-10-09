@@ -14,6 +14,8 @@ import { createSprintRegistry } from "../../src/modules/governance/sprint-regist
 import { createSprintPlanDraftPersistence } from "../../src/modules/governance/sprint-plan-draft-persistence.js";
 import { createOwnerChatCommandService } from "../../src/application/owner-chat-command-service.js";
 import { createForgeV1Router } from "../../src/transport/http/forge-v1-router.js";
+import { createPlanHandoffService } from "../../src/application/plan-handoff-service.js";
+import { createSprintOrchestrationService } from "../../src/application/sprint-orchestration-service.js";
 
 // Exercises the exact reviewed bytes, Sprint Leader ticket ID, and fail-closed source gate.
 test("approved Markdown produces one executable JSON projection without a second owner decision", async () => {
@@ -28,12 +30,16 @@ test("approved Markdown produces one executable JSON projection without a second
     const summaryPath = ".forge/runtime/nf/summary/SUMMARY-A.md";
     await fileService.atomicWrite({ path: summaryPath, content: summary, replace: true });
     const parent = await markdownPlans.createRevision({ planId: "PLAN-PARENT", markdown: "# Plan: API\n\n## 1. Scope\n\n## 5. Tickets\n\n| Thứ tự | Nhóm việc | Implementation type | Mục tiêu | Phụ thuộc | Mutable-file budget | Acceptance criteria |\n| --- | --- | --- | --- | --- | --- | --- |\n| 1 | Fix API | backend | Fix API | — | ≤ 4 files | Pass |\n\n## 6. Risks\n\nNone\n\n## 7. Acceptance", summaryPath, summarySha256: createHash("sha256").update(summary).digest("hex") });
-    const sprint = { id: "SPRINT-A", project_id: "PROJECT-A", objective: "Ship API", tickets: [{ id: "TICKET-API-1", title: "Fix API", objective: "Fix API", implementation_type: ["backend"], file_budget: 4, acceptance_criteria: ["Pass"] }], human_plan: { outcome: "Working API", in_scope: "API", out_of_scope: "UI", approach: "Update API", components: ["API"], risks: [], assumptions: [], open_questions: [], evidence_refs: ["Summary"], acceptance_criteria: ["Pass"] } };
+    const sprint = { id: "SPRINT-A", roadmap_id: "ROADMAP-A", project_id: "PROJECT-A", objective: "Ship API", exit_criteria: ["Pass"], tickets: [{ id: "TICKET-API-1", title: "Fix API", objective: "Fix API", implementation_type: ["backend"], file_budget: 4, acceptance_criteria: ["Pass"], verification_plan: [{ kind: "test", criterion_ids: ["AC-1"], test_path: "backend/tests/unit/markdown-plan-approval.test.js" }] }], human_plan: { outcome: "Working API", in_scope: "API", out_of_scope: "UI", approach: "Update API", components: ["API"], risks: [], assumptions: [], open_questions: [], evidence_refs: ["Summary"], acceptance_criteria: ["Pass"] } };
     const draft = createSprintPlanDraftPersistence({ projectId: "PROJECT-A", planStore: plans, markdownPlanStore: markdownPlans, sprintRegistry: registry });
     const parentKey = `${parent.plan_id}-R${parent.revision}-${parent.sha256}`;
     await assert.rejects(draft(sprint, { approvedParentPlanKey: parentKey }), { code: "PLAN_APPROVAL_REQUIRED" });
     let handoffCalls = 0;
-    const command = createOwnerChatCommandService({ projectId: "PROJECT-A", fileService, planStore: plans, markdownPlanStore: markdownPlans, sprintRegistry: registry, handoffApprovedPlan: async ({ plan }) => { handoffCalls++; return { status: "handed_to_sprint_leader", sprint_id: (await draft(sprint, { approvedParentPlanKey: `${plan.plan_id}-R${plan.revision}-${plan.sha256}` })).sprint_id }; } });
+    database.run("CREATE TABLE IF NOT EXISTS governance_roadmaps (sequence INTEGER PRIMARY KEY, version TEXT NOT NULL, roadmap_json TEXT NOT NULL)");
+    const agentRoleResolver = { resolveProfile: () => ({ agent_id: "LEADER-CUSTOM" }) };
+    const orchestration = createSprintOrchestrationService({ sprintPlans: { getSprintById: () => { throw new Error("Legacy reader must not run"); } }, sprintPlanStore: { save: () => { throw new Error("Legacy projection must not be written"); } }, sprintRegistry: registry, draftPlan: draft, agentRoleResolver, agentGateway: { async *stream() { throw new Error("Legacy agent stream must not run"); } }, publisher: { publish: () => {} } });
+    const handoff = createPlanHandoffService({ projectId: "PROJECT-A", database, planStore: plans, markdownPlanStore: markdownPlans, sprintRegistry: registry, sprintOrchestration: orchestration, agentRoleResolver, sprintPlanLeader: { requestPlan: async ({ agentId }) => { assert.equal(agentId, "LEADER-CUSTOM"); handoffCalls++; return structuredClone(sprint); } } });
+    const command = createOwnerChatCommandService({ projectId: "PROJECT-A", fileService, planStore: plans, markdownPlanStore: markdownPlans, sprintRegistry: registry, handoffApprovedPlan: (input) => handoff.handoff(input) });
     await assert.rejects(command.execute({ text: "/approve PLAN-PARENT", approvedOwnerId: "OWNER", approvalRevision: 1, approvalSha256: parent.sha256 }), { code: "PLAN_APPROVAL_REQUIRED" });
     assert.equal(database.all("SELECT * FROM markdown_plan_decisions").length, 0);
     assert.equal(handoffCalls, 0);
@@ -50,8 +56,16 @@ test("approved Markdown produces one executable JSON projection without a second
     assert.equal(child.decision, null);
     assert.equal(child.approval_basis, "approved_markdown_projection");
     database.run("CREATE TABLE IF NOT EXISTS governance_roadmaps (sequence INTEGER PRIMARY KEY, version TEXT NOT NULL, roadmap_json TEXT NOT NULL)");
-    database.run("INSERT INTO markdown_plan_handoffs(plan_id,revision,project_id,sha256,status,sprint_id,updated_at) VALUES (?,?,?,?,?,?,?)", [parent.plan_id, parent.revision, "PROJECT-A", parent.sha256, "completed", "SPRINT-A", new Date().toISOString()]);
+    assert.equal(database.all("SELECT * FROM governance_roadmaps").length, 0);
+    assert.equal(database.all("SELECT * FROM markdown_plan_handoffs").length, 1);
+    const replay = await command.execute({ text: "/approve PLAN-PARENT", approvedOwnerId: "OWNER", approvalRevision: 1, approvalSha256: parent.sha256 });
+    assert.equal(replay.replayed, true);
+    assert.equal(handoffCalls, 1);
+    assert.equal(plans.list()[0].revision, 1);
+    assert.equal((await markdownPlans.getRevision({ planId: parent.plan_id, revision: 1 })).handoff_status, "completed");
+    database.run("UPDATE sprint_registry SET plan_sha256=? WHERE sprint_id=?", ["bad-binding", "SPRINT-A"]);
     assert.equal((await markdownPlans.getRevision({ planId: parent.plan_id, revision: 1 })).handoff_status, "recovery_required");
+    database.run("UPDATE sprint_registry SET plan_sha256=? WHERE sprint_id=?", [child.sha256, "SPRINT-A"]);
     database.run("INSERT INTO governance_roadmaps(version,roadmap_json) VALUES (?,?)", ["with-sprint", JSON.stringify({ id: "ROADMAP-A", project_id: "PROJECT-A", sprints: [{ id: "SPRINT-A" }] })]);
     assert.equal((await markdownPlans.getRevision({ planId: parent.plan_id, revision: 1 })).handoff_status, "completed");
     const router = createForgeV1Router({ planStore: plans, sprintRegistry: registry, expectedProjectId: "PROJECT-A", sprintOrchestrationService: { run: () => { throw new Error("Draft must remain blocked"); } } });

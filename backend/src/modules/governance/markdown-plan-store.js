@@ -49,14 +49,9 @@ export function createMarkdownPlanStore({ projectId, database, fileService, cloc
     const latest = database.all("SELECT MAX(revision) AS revision FROM markdown_plan_revisions WHERE plan_id=? AND project_id=?", [planId, projectId])[0]?.revision;
     const decision = database.all("SELECT * FROM markdown_plan_decisions WHERE plan_id=? AND revision=? ORDER BY decided_at DESC, rowid DESC LIMIT 1", [planId, revision])[0] ?? null;
     const handoff = database.all("SELECT status,sprint_id FROM markdown_plan_handoffs WHERE plan_id=? AND revision=?", [planId, revision])[0] ?? null;
-    const handoffStatus = handoff?.status === "completed" && !isSprintInRoadmap(handoff.sprint_id) ? "recovery_required" : handoff?.status ?? null;
+    const registered = handoff?.sprint_id && database.all("SELECT s.sprint_id FROM sprint_registry s JOIN plan_revisions p ON p.plan_id=s.plan_id AND p.revision=s.plan_revision AND p.project_id=s.project_id AND p.sprint_id=s.sprint_id AND p.sha256=s.plan_sha256 AND p.file_path=s.plan_path WHERE s.project_id=? AND s.sprint_id=? AND NOT EXISTS (SELECT 1 FROM sprint_registry_archives a WHERE a.project_id=s.project_id AND a.sprint_id=s.sprint_id)", [projectId, handoff.sprint_id]).length > 0;
+    const handoffStatus = handoff?.status === "completed" && !registered ? "recovery_required" : handoff?.status ?? null;
     return { plan_id: planId, revision, project_id: projectId, file_path: row.file_path, sha256: row.sha256, source_path: row.summary_path, source_sha256: row.summary_sha256, conversation_id: row.conversation_id, created_at: row.created_at, format: "markdown", markdown, status: latest !== revision ? "superseded" : decision?.decision ?? "awaiting_human_approval", decision, handoff_status: handoffStatus, sprint_id: handoff?.sprint_id ?? null };
-  }
-
-  // Exposes incomplete handoffs for recovery when the Sprint never reached the roadmap.
-  function isSprintInRoadmap(sprintId) {
-    const row = database.all("SELECT roadmap_json FROM governance_roadmaps ORDER BY sequence DESC LIMIT 1")[0];
-    return Boolean(row && JSON.parse(row.roadmap_json).sprints?.some((sprint) => sprint.id === sprintId));
   }
 
   // Lists current readable drafts without presenting them as executable JSON plans.

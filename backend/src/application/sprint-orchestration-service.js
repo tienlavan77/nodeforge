@@ -16,7 +16,7 @@ const ticketSchema = require("../../../schemas/governance/ticket.schema.json");
 const sprintPlanSchema = require("../../../schemas/governance/sprint-plan.schema.json");
 
 // Creates a service that orchestrates sprint execution across agents.
-export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore, ticketProvenanceTracker, agentGateway, publisher, agentRoles = ["sprint-leader"], streamBatchMs = 500, sprintPlanLeader, agentRoleResolver, draftPlan, sprintPlanDirectory } = {}) {
+export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore, ticketProvenanceTracker, agentGateway, publisher, agentRoles = ["sprint-leader"], streamBatchMs = 500, sprintPlanLeader, agentRoleResolver, draftPlan, sprintRegistry, sprintPlanDirectory } = {}) {
   if (typeof sprintPlans?.getSprintById !== "function") {
     throw new ConfigurationError("Sprint Orchestration requires Sprint Plans.");
   }
@@ -27,8 +27,8 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
   if (!Number.isInteger(streamBatchMs) || streamBatchMs < 1) throw new ConfigurationError("Sprint Orchestration stream batch interval must be positive.");
   const validateSprintPlan = createSprintPlanValidator();
   return Object.freeze({ run, isRunning: (sprintId) => running.has(sprintId), ingestAgentCompletion });
-  function run({ projectId, sprintId } = {}) {
-    const sprint = sprintPlans.getSprintById(sprintId);
+  async function run({ projectId, sprintId } = {}) {
+    const sprint = sprintRegistry ? await sprintRegistry.getDetail(sprintId) : sprintPlans.getSprintById(sprintId);
     if (!sprint || sprint.project_id !== projectId) throw new ConfigurationError(`Unknown Sprint Plan: ${sprintId}.`);
     if (running.has(sprintId)) {
       const error = new ConfigurationError(`Sprint is already running: ${sprintId}.`);
@@ -41,7 +41,8 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
     return { sprint_id: sprintId, session_id: sessionId, state: "RUNNING" };
   }
   async function ingestAgentCompletion({ message, agentId, text } = {}) {
-    if (agentId !== "sprint-leader") return { ingested: false };
+    const profile = agentRoleResolver?.resolveProfile?.("sprint_leader");
+    if (agentId !== (profile?.agent_id ?? "sprint-leader")) return { ingested: false };
     let plan;
     try {
       plan = extractSprintPlanJson(text);
@@ -156,15 +157,19 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
     return { "architecture-manager": "AM", "sprint-leader": "SL", builder: "BU", reviewer: "RV" }[role] ?? role.toUpperCase();
   }
   async function persistSprintPlan(plan, trace = {}) {
-    if (typeof sprintPlanStore?.save !== "function") return;
+    if (!sprintRegistry && typeof sprintPlanStore?.save !== "function") throw new ConfigurationError("Sprint persistence is unavailable.");
     if (typeof draftPlan !== "function") throw new ConfigurationError("Sprint Leader requires immutable plan drafting before publishing a sprint.");
     const draft = await draftPlan(plan, trace);
+    if (sprintRegistry) {
+      const scheduled = sprintRegistry.get(plan.id);
+      if (!scheduled || scheduled.plan_id !== draft.plan_id || scheduled.plan_revision !== draft.revision || scheduled.plan_sha256 !== draft.sha256 || scheduled.plan_path !== draft.file_path) throw new ConfigurationError("Sprint persistence did not produce the exact Registry binding.");
+    }
     const timestamp = new Date().toISOString();
-    const current = sprintPlanStore.getCurrent?.();
+    const current = sprintRegistry ? null : sprintPlanStore?.getCurrent?.();
     const retained = current?.project_id === plan.project_id ? current.sprints?.filter((sprint) => sprint.id !== plan.id) ?? [] : [];
-    sprintPlanStore.save({ id: plan.roadmap_id, project_id: plan.project_id, version: `${plan.id}-projection-${randomUUID()}`, created_at: timestamp, updated_at: timestamp, ...(current?.architecture_decision_ids?.length ? { architecture_decision_ids: current.architecture_decision_ids } : {}), sprints: [...retained, plan] });
+    if (!sprintRegistry) sprintPlanStore.save({ id: plan.roadmap_id, project_id: plan.project_id, version: `${plan.id}-projection-${randomUUID()}`, created_at: timestamp, updated_at: timestamp, ...(current?.architecture_decision_ids?.length ? { architecture_decision_ids: current.architecture_decision_ids } : {}), sprints: [...retained, plan] });
     persistSprintPlanArtifact(plan, sprintPlanDirectory);
-    if (current?.architecture_decision_ids?.length) {
+    if (!sprintRegistry && current?.architecture_decision_ids?.length) {
       for (const ticket of plan.tickets) ticketProvenanceTracker?.registerTicket?.(ticket);
     } else {
       publish("governance.sprint_plan.provenance_pending", plan.project_id, plan.id, null, "sprint-leader", trace.correlationId ?? null, trace.conversationId ?? null, { plan_id: draft.plan_id, revision: draft.revision, reason: "No approved architecture decision is linked to this roadmap; human plan approval remains required." });

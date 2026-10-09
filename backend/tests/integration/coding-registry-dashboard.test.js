@@ -33,8 +33,8 @@ async function fixture() {
   const registry = createSprintRegistry({ projectId: PROJECT, database, plans });
   const plan = await plans.createRevision({ planId: "PLAN-A", sprintId: "SPRINT-A", expectedRevision: 0, content: CONTENT });
   await registry.register({ sprintId: "SPRINT-A", position: 0, planId: plan.plan_id, revision: 1 });
-  const state = { roadmap: { id: "ROADMAP-OLD", project_id: PROJECT, sprints: [] }, metadata: [] };
-  const service = createProjectDashboardService({ sprintRegistry: registry, roadmaps: { getCurrent: () => state.roadmap }, sprintPlans: { getCurrentSprint: () => null, getSprintStatus: () => { throw new Error("Legacy status must not authorize Registry dashboard"); }, getSprintBacklog: () => { throw new Error("Legacy tickets must not authorize Registry dashboard"); } }, ticketFileStore: { listMetadata: () => state.metadata, readLatest: () => { throw new Error("Legacy ticket must not replace immutable specs"); } } });
+  const state = { roadmap: { id: "ROADMAP-OLD", project_id: PROJECT, sprints: [] }, metadata: [], ticketDeletions: [] };
+  const service = createProjectDashboardService({ sprintRegistry: registry, roadmaps: { getCurrent: () => state.roadmap }, sprintPlans: { getCurrentSprint: () => null, getSprintStatus: () => { throw new Error("Legacy status must not authorize Registry dashboard"); }, getSprintBacklog: () => { throw new Error("Legacy tickets must not authorize Registry dashboard"); } }, ticketFileStore: { listMetadata: () => state.metadata, readLatest: () => { throw new Error("Legacy ticket must not replace immutable specs"); } }, eventStore: { getByType: (type) => type === "ticket.deleted" ? state.ticketDeletions : [] } });
   return { root, database, registry, plans, fileService, state, service, close: async () => { await database.close(); await rm(root, { recursive: true, force: true }); } };
 }
 
@@ -54,6 +54,9 @@ test("Registry dashboard uses immutable specs and ignores same-ID legacy ticket 
     assert.deepEqual(dashboard.roadmap.sprints[0].ticket_ids, [TICKET.id]);
     f.state.metadata.push({ id: "TICKET-EXTRA", project_id: PROJECT, sprint_id: TICKET.sprint_id });
     await assert.rejects(f.service.getDashboard(PROJECT), { code: "TICKET_PLAN_SCOPE", retryable: false });
+    f.state.ticketDeletions.push({ event_id: "EVT-DELETE-EXTRA", event_type: "ticket.deleted", project_id: PROJECT, source: "sprint-plan-service", payload: { ticket_id: "TICKET-EXTRA", sprint_id: TICKET.sprint_id } });
+    const afterDelete = await f.service.getDashboard(PROJECT);
+    assert.deepEqual(afterDelete.roadmap.sprints[0].ticket_ids, [TICKET.id]);
   } finally { await f.close(); }
 });
 

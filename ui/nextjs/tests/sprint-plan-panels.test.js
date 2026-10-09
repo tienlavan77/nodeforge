@@ -1,9 +1,21 @@
 // Verifies rendered Sprint scope counts do not invent approval or hide missing immutable detail.
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { SprintTicketScope } from "../components/sprint-ticket-scope.js";
+
+test("Coding opts into collapsed Sprints while shared dashboard preserves its previous default", async () => {
+  const monitor = await readFile(new URL("../components/coding-workspace-monitor.jsx", import.meta.url), "utf8");
+  const panel = await readFile(new URL("../components/sprint-plan-panels.jsx", import.meta.url), "utf8");
+  assert.match(monitor, /<SprintPlanDashboard[^>]*defaultCollapsed\s*\/>/);
+  assert.match(panel, /defaultCollapsed = false/);
+  assert.match(panel, /\[sprint\.id\]: !\(state\[sprint\.id\] \?\? defaultCollapsed\)/);
+  assert.match(panel, /aria-expanded=\{!\(collapsedSprints\[sprint\.id\] \?\? defaultCollapsed\)\}/);
+  assert.match(panel, /!\(collapsedSprints\[sprint\.id\] \?\? defaultCollapsed\) && <InlineAddTicketForm/);
+  assert.match(panel, /!\(collapsedSprints\[sprint\.id\] \?\? defaultCollapsed\) && <div className="sprint-ticket-list"/);
+});
 
 for (const status of ["awaiting_human_approval", "approved", "ready"]) {
   test(`partial ${status} Sprint renders scope, not an inferred approval label`, () => {

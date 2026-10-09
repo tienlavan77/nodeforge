@@ -114,7 +114,7 @@ export function PlanReviewModal({ client, projectId, sprintId, planId, initialPl
         if (result?.payload?.status !== "handed_to_sprint_leader") throw new Error("Handoff chưa hoàn tất. Hãy kiểm tra kết quả trước khi tiếp tục.");
         const loadedSprints = await client.listSprints(projectId);
         const sprintItems = Array.isArray(loadedSprints) ? loadedSprints : loadedSprints?.items ?? loadedSprints?.sprints ?? [];
-        if (!sprintItems.some((sprint) => sprint.id === result.payload.sprint_id)) throw new Error("Sprint Plan chưa được thêm vào roadmap. Control API cần nạp bản sửa rồi tiếp tục handoff.");
+        if (!sprintItems.some((sprint) => sprint.id === result.payload.sprint_id)) throw new Error("Sprint Plan chưa hiển thị trong Registry. Hãy kiểm tra binding rồi tiếp tục handoff.");
         handoff = result.payload;
       } else await client.decidePlan(projectId, plan, decision, token, comments);
       setToken(""); setPlan({ ...plan, status: decision, ...(plan.format === "markdown" && decision === "approved" ? { handoff_status: "completed" } : {}) });

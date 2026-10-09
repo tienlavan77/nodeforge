@@ -93,18 +93,18 @@ test("Markdown handoff sends approved bytes and requires Sprint Leader ticket ID
   let registered = false;
   const service = createPlanHandoffService({
     projectId: "PROJECT-A", database,
-    planStore: { assertExecutable: async () => { throw new Error("JSON approval should not be used"); }, getRevision: async () => ({ proposal_id: `${plan.plan_id}-R1-${plan.sha256}` }) },
+    planStore: { assertExecutable: async ({ planId }) => { assert.equal(planId, "PLAN-CHILD"); return {}; }, getRevision: async () => ({ plan_id: "PLAN-CHILD", revision: 1, project_id: "PROJECT-A", sprint_id: "SPRINT-MD", sha256: "child-digest", file_path: "child.json", proposal_id: `${plan.plan_id}-R1-${plan.sha256}` }) },
     markdownPlanStore: { assertApproved: async () => plan },
     sprintPlanLeader: { requestPlan: async (input) => { brief = input.brief; calls++; return { id: "SPRINT-MD", roadmap_id: null, human_plan: { evidence_refs: [{ reference: "Approved brief", observation: "Section 5" }] }, tickets: [{ id: "TICKET-MD-1", title: "Different title", objective: "Expand unrelated scope", implementation_type: ["frontend"], file_budget: 1, acceptance_criteria: ["Different criterion"], dependencies: ["TICKET-OTHER"], candidate_files: [{ path: "backend/src/api.js", role: "REFERENCE", reason: "Observed route" }], candidates_produced_by: "sprint_leader", candidates_produced_at: "2026-10-03T00:00:00Z" }] }; } },
-    sprintOrchestration: { ingestAgentCompletion: async () => { ingests++; registered = true; database.run("INSERT INTO governance_roadmaps(version,roadmap_json) VALUES (?,?)", [`${ingests + 1}`, JSON.stringify({ id: "ROADMAP-A", project_id: "PROJECT-A", sprints: [{ id: "SPRINT-MD" }] })]); return { ingested: true }; } },
-    sprintRegistry: { get: () => registered ? { plan_id: "PLAN-CHILD", plan_revision: 1 } : null },
+    sprintOrchestration: { ingestAgentCompletion: async ({ agentId }) => { assert.equal(agentId, "LEADER-REAL"); ingests++; registered = true; return { ingested: true }; } },
+    sprintRegistry: { get: () => registered ? { plan_id: "PLAN-CHILD", plan_revision: 1, plan_sha256: "child-digest", plan_path: "child.json" } : null },
     agentRoleResolver: { resolveProfile: () => ({ agent_id: "LEADER-REAL" }) }
   });
   try {
     await service.handoff({ plan });
     const generated = JSON.parse(database.all("SELECT generated_json FROM markdown_plan_handoffs WHERE plan_id=?", [plan.plan_id])[0].generated_json);
     assert.deepEqual(generated.tickets, [{ id: "TICKET-MD-1", title: "Fix API", objective: "Return errors", implementation_type: ["backend"], file_budget: 4, acceptance_criteria: ["API returns errors"], dependencies: [] }]);
-    assert.equal(generated.roadmap_id, "ROADMAP-A");
+    assert.equal(generated.roadmap_id, "ROADMAP-PROJECT-A");
     assert.equal(generated.project_id, "PROJECT-A");
     assert.deepEqual(generated.human_plan.evidence_refs, ["Approved brief: Section 5"]);
     assert.match(brief, /# Plan: reviewed API/);
@@ -114,6 +114,12 @@ test("Markdown handoff sends approved bytes and requires Sprint Leader ticket ID
     database.run("INSERT INTO governance_roadmaps(version,roadmap_json) VALUES (?,?)", ["missing-projection", JSON.stringify({ id: "ROADMAP-A", project_id: "PROJECT-A", sprints: [] })]);
     const recovered = await service.handoff({ plan });
     assert.equal(recovered.sprint_id, "SPRINT-MD");
+    assert.equal(recovered.replayed, true);
+    assert.equal(ingests, 1);
+    assert.equal(calls, 1);
+    registered = false;
+    const repaired = await service.handoff({ plan });
+    assert.equal(repaired.sprint_id, "SPRINT-MD");
     assert.equal(ingests, 2);
     assert.equal(calls, 1);
   } finally { await database.close(); await rm(root, { recursive: true, force: true }); }
