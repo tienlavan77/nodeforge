@@ -8,6 +8,7 @@ import test from "node:test";
 import { createRuntimeLogger } from "../../src/core/runtime-logger.js";
 import { createOwnerConversationTools } from "../../src/tools/owner-conversation-tools.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
+import { createOwnerEngineerTools } from "../../src/tools/owner-engineer-tools.js";
 
 test("System Engineer uses Node services for edit, checks, exact-path commit, push, and terminal logs", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "nodeforge-owner-engineer-"));
@@ -53,6 +54,53 @@ test("System Engineer uses Node services for edit, checks, exact-path commit, pu
     assert.ok(lines.some((line) => line.includes("[Engineer] (codex) edit_diff PASS")));
     assert.ok(lines.some((line) => line.includes("[Engineer] (codex) push_commit PASS")));
   } finally { await rm(projectRoot, { recursive: true, force: true }); }
+});
+
+test("System Engineer excludes internal workflows from repeated commits while retaining their local change records", async () => {
+  const state = ownerStateStore("CONV-INTERNAL");
+  const internal = ["workflows/report.md", "workflows/review/audit.md"];
+  await state.update("CONV-INTERNAL", { owner_changed_paths: [...internal, "backend/example.js", "workflows-tools.js", "docs/workflows/guide.md", "backend/example.js"] });
+  const calls = []; const pushed = [];
+  const context = { conversation_id: "CONV-INTERNAL", changed_paths: [...internal, "backend/example.js"] };
+  const { implementations } = createOwnerEngineerTools({ conversationStateStore: state, gitService: {
+    commit: async (message, { paths }) => { assert.ok(paths.every((path) => !path.startsWith("workflows/"))); calls.push({ message, paths }); return { sha: "b".repeat(40) }; },
+    pushCommit: async (sha) => { pushed.push(sha); return { sha }; }
+  } });
+  const result = await implementations.commit_changes.execute({ message: "Commit code, retain internal report" }, context);
+  assert.deepEqual(result.paths, ["backend/example.js", "docs/workflows/guide.md", "workflows-tools.js"]);
+  assert.deepEqual((await state.get()).owner_changed_paths, internal);
+  assert.deepEqual((await state.get()).owner_last_commit_paths, result.paths);
+  assert.deepEqual(context.changed_paths, internal);
+  await implementations.push_commit.execute({ commit_sha: result.sha }, context);
+  assert.deepEqual(pushed, [result.sha]);
+  await state.update("CONV-INTERNAL", { owner_changed_paths: [...internal, "backend/next.js"] });
+  context.changed_paths.push("backend/next.js");
+  await implementations.commit_changes.execute({ message: "Commit next code change" }, context);
+  assert.deepEqual(calls[1].paths, ["backend/next.js"]);
+  assert.deepEqual((await state.get()).owner_changed_paths, internal);
+});
+
+test("internal-only workflows changes do not call Git or erase local evidence", async () => {
+  const state = ownerStateStore("CONV-DOCS");
+  const paths = ["workflows", "workflows/report.md"];
+  await state.update("CONV-DOCS", { owner_changed_paths: paths });
+  const context = { conversation_id: "CONV-DOCS", changed_paths: [...paths] };
+  const { implementations } = createOwnerEngineerTools({ conversationStateStore: state, gitService: { commit: async () => { assert.fail("Internal documents must not be staged"); } } });
+  await assert.rejects(implementations.commit_changes.execute({ message: "Internal report only" }, context), { code: "COMMIT_SCOPE_EMPTY" });
+  assert.deepEqual((await state.get()).owner_changed_paths, paths);
+  assert.deepEqual(context.changed_paths, paths);
+  assert.equal((await state.get()).owner_last_commit_sha, undefined);
+});
+
+test("failed code commit retains both source and internal workflows evidence for a safe retry", async () => {
+  const state = ownerStateStore("CONV-FAIL");
+  const paths = ["backend/example.js", "workflows/report.md"];
+  await state.update("CONV-FAIL", { owner_changed_paths: paths });
+  const context = { conversation_id: "CONV-FAIL", changed_paths: [...paths] };
+  const { implementations } = createOwnerEngineerTools({ conversationStateStore: state, gitService: { commit: async (_message, input) => { assert.deepEqual(input.paths, ["backend/example.js"]); throw Object.assign(new Error("Commit failed"), { code: "GIT_COMMIT_FAILED" }); } } });
+  await assert.rejects(implementations.commit_changes.execute({ message: "Code change" }, context), { code: "GIT_COMMIT_FAILED" });
+  assert.deepEqual((await state.get()).owner_changed_paths, paths);
+  assert.deepEqual(context.changed_paths, paths);
 });
 
 // Provides persistent per-conversation changed paths for the owner coding workflow.

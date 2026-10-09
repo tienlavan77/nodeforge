@@ -2,6 +2,7 @@
 import { ConfigurationError } from "../shared/errors.js";
 
 const CHECK_TYPES = new Set(["test", "lint", "typecheck", "build"]);
+const INTERNAL_WORKFLOW_PATH = /^workflows(?:\/|$)/;
 
 // Creates project-service tools that let System Engineer verify, commit, and push project work.
 export function createOwnerEngineerTools({ testService, gitService, conversationStateStore } = {}) {
@@ -38,11 +39,13 @@ export function createOwnerEngineerTools({ testService, gitService, conversation
     validateKeys(input, ["message"]);
     if (typeof input.message !== "string" || !input.message.trim() || input.message.length > 200) throw invalid("commit_changes requires a message of 1–200 characters.");
     const state = await conversationStateStore.get(ownerConversationId(context));
-    const paths = [...new Set(state?.owner_changed_paths ?? [])].sort();
-    if (!paths.length) throw invalid("No files changed through this conversation's Forge tools.", "COMMIT_SCOPE_EMPTY");
+    const recordedPaths = [...new Set(state?.owner_changed_paths ?? [])].sort();
+    const internalPaths = recordedPaths.filter((path) => INTERNAL_WORKFLOW_PATH.test(path));
+    const paths = recordedPaths.filter((path) => !INTERNAL_WORKFLOW_PATH.test(path));
+    if (!paths.length) throw invalid("No committable files changed through this conversation's Forge tools; workflows documents remain local.", "COMMIT_SCOPE_EMPTY");
     const result = await gitService.commit(input.message.trim(), { paths });
-    await conversationStateStore.update(ownerConversationId(context), { owner_changed_paths: [], owner_last_commit_sha: result.sha, owner_last_commit_paths: paths });
-    context.changed_paths = [];
+    await conversationStateStore.update(ownerConversationId(context), { owner_changed_paths: internalPaths, owner_last_commit_sha: result.sha, owner_last_commit_paths: paths });
+    context.changed_paths = [...new Set([...internalPaths, ...(context.changed_paths ?? []).filter((path) => INTERNAL_WORKFLOW_PATH.test(path))])].sort();
     return { ...result, paths };
   }
 
@@ -62,7 +65,7 @@ const runCheckDefinition = definition("run_check", "Run one explicitly scoped ch
     command: { type: "string", minLength: 1, maxLength: 1000, description: "Required focused project check. Specify changed test/file paths; no shell chaining, substitutions, or absolute paths." }
   }
 });
-const commitChangesDefinition = definition("commit_changes", "Commit only files changed through this conversation's Forge edit tools.", {
+const commitChangesDefinition = definition("commit_changes", "Commit only files changed through this conversation's Forge edit tools, excluding internal workflows documents.", {
   type: "object", additionalProperties: false, required: ["message"], properties: { message: { type: "string", minLength: 1, maxLength: 200 } }
 });
 const pushCommitDefinition = definition("push_commit", "Push the exact commit created by commit_changes to the configured project remote.", {

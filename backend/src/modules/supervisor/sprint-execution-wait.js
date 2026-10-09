@@ -1,5 +1,6 @@
 // Opens Sprint dependencies only from durable, attempt-scoped completion evidence for the approved immutable plan.
 import { matchesTicketExecution, sameExecutionPlan, validExecutionBasis } from "../projects/ticket-execution-identity.js";
+import { executionBasisSnapshot } from "./ticket-dependency-expectations.js";
 
 // Rejects stale completion evidence instead of reusing a done status from another approved revision.
 function executionError(ticketId) { return Object.assign(new Error(`Ticket ${ticketId} requires execution reconciliation for the current immutable plan.`), { code: "TICKET_EXECUTION_RECONCILIATION_REQUIRED", statusCode: 409, retryable: false, scope: "scoped", identifiers: [ticketId] }); }
@@ -36,12 +37,15 @@ async function revalidateDependencies({ dependencies, sprintRegistry, ticketStat
     if (!validExecutionBasis(basis) || !sameExecutionPlan(basis, dependency.basis) || !["ready", "running", "done"].includes(basis.status)) throw executionError(dependency.ticketId);
     observed.push({ ...dependency, basis });
   }
+  const expectations = [];
   // Makes the final checks synchronous so later resolution awaits cannot invalidate earlier checks unnoticed.
   for (const dependency of observed) {
     const currentBasis = sprintRegistry?.get?.(dependency.basis.sprint_id);
     const current = ticketStatusStore.get(dependency.ticketId);
     if (!sameExecutionPlan(currentBasis, dependency.basis) || currentBasis.version !== dependency.basis.version || !["ready", "running", "done"].includes(currentBasis.status) || current?.status !== "done" || current.details?.execution_id !== dependency.executionId || !sameExecutionPlan(current.details.execution_basis, dependency.basis)) throw executionError(dependency.ticketId);
+    expectations.push({ ticket_id: dependency.ticketId, execution_id: dependency.executionId, execution_basis: executionBasisSnapshot(current.details.execution_basis), sprint_basis: executionBasisSnapshot(currentBasis) });
   }
+  return expectations;
 }
 
 // Runs the production DAG with Registry plan identity and durable attempt-aware dependency gates.
@@ -66,8 +70,8 @@ export async function runFencedSprintLevels({ projectId, levels, sprintBasis, ti
         dependencies.push({ ticketId: dependencyId, basis, executionId: dependency.details.execution_id, local: localIds.has(dependencyId) });
         if (dependency.status !== "done") await waitForTicketExecution({ ticketId: dependencyId, projectId, basis: dependency.details.execution_basis, executionId: dependency.details.execution_id, ticketStatusStore, eventBus });
       }
-      await revalidateDependencies({ dependencies, sprintRegistry, ticketStatusStore });
-      const result = await dispatchTask({ ticket: { ...ticket, project_id: ticket.project_id ?? projectId }, sprintBasis });
+      const dependencyExpectations = await revalidateDependencies({ dependencies, sprintRegistry, ticketStatusStore });
+      const result = await dispatchTask({ ticket: { ...ticket, project_id: ticket.project_id ?? projectId }, sprintBasis, dependencyExpectations });
       if (!result.execution_id) throw executionError(ticket.id);
       dispatched.push({ ticket_id: ticket.id, result });
     }

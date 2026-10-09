@@ -3,29 +3,11 @@ import { detectMessageIntent, MESSAGE_INTENTS, normalizeTicketInput } from "./ti
 import { createProjectStreamClient } from "./project-stream-client.js";
 import { normalizeBackendError } from "./error-normalizer.js";
 import { requestJson } from "./node-client-request.js";
+import { forgeV1, controlApiBase } from "./node-client-url.js";
 import { createTicketHumanReviewClient } from "./ticket-human-review-client.js";
 import { createOwnerExecutionClient } from "./owner-execution-client.js";
 
 export { detectMessageIntent, MESSAGE_INTENTS, normalizeTicketInput };
-// Builds a Forge v1 API URL with query params.
-function forgeV1(pathname, query = {}) {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(query)) {
-    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
-  }
-  const search = params.toString();
-  return `${controlApiBase()}/forge/v1${pathname}${search ? `?${search}` : ""}`;
-}
-
-// Resolves the control API base URL.
-function controlApiBase() {
-  const configured = process.env.NEXT_PUBLIC_NODE_CONTROL_API_URL;
-  if (configured) return configured.replace(/\/$/, "");
-  if (typeof window !== "undefined" && window.location?.hostname) {
-    return `${window.location.protocol}//${window.location.hostname}:3100`;
-  }
-  return "http://127.0.0.1:3100";
-}
 
 // Creates the Node control API client.
 export function createNodeClient() {
@@ -92,7 +74,7 @@ export function createNodeClient() {
       return requestJson(forgeV1(`/projects/${projectId}/history`, { ...Object.fromEntries(params), project: projectId }), { fallbackError: "Node could not load the Conversation and Audit History." });
     },
     async getProjectDashboard(projectId) {
-      return requestJson(forgeV1(`/projects/${projectId}/dashboard`, { project: projectId }), { fallbackError: "Node could not load the Project Dashboard." });
+      return requestJson(forgeV1(`/projects/${projectId}/dashboard`), { fallbackError: "Node could not load the Project Dashboard." });
     },
     async getTicket(projectId, ticketId) { return requestJson(forgeV1(`/tickets/${ticketId}`, { project: projectId }), { fallbackError: `Node could not load ticket ${ticketId}.` }); },
     async createTicket(projectId, ticketOrContent, sprintId) {
