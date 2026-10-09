@@ -89,13 +89,16 @@ export function createOwnerChatCommandService({ projectId, fileService, communic
   }
 
   // Hands an exactly approved plan to Node/Sprint Leader without starting execution.
-  async function approvePlan({ planId, conversationId, approvedOwnerId } = {}) {
+  async function approvePlan({ planId, conversationId, approvedOwnerId, approvalRevision, approvalSha256 } = {}) {
     if (!SAFE_ID.test(planId ?? "")) throw fail("PLAN_ID_INVALID", "Plan identifier is invalid.");
     if (!approvedOwnerId) throw fail("PLAN_OWNER_UNAUTHORIZED", "Owner authentication is required for /approve.");
     const markdown = markdownPlanStore?.list?.().find((entry) => entry.plan_id === planId);
     const listed = markdown ?? planStore.list().find((entry) => entry.plan_id === planId);
     if (!listed) throw fail("PLAN_NOT_FOUND", "Plan is not indexed for this project.");
-    const plan = markdown ? await markdownPlanStore.assertApproved({ planId, revision: listed.revision, sha256: listed.sha256 }) : await planStore.assertExecutable({ planId, revision: listed.revision, sha256: listed.sha256 });
+    const captured = approvalRevision !== undefined || approvalSha256 !== undefined;
+    if (captured && (approvalRevision !== listed.revision || approvalSha256 !== listed.sha256)) throw fail("PLAN_APPROVAL_STALE", "The reviewed revision/checksum no longer matches the current plan; reload before handoff.");
+    const identity = { planId, revision: captured ? approvalRevision : listed.revision, sha256: captured ? approvalSha256 : listed.sha256 };
+    const plan = markdown ? await markdownPlanStore.assertApproved(identity) : await planStore.assertExecutable(identity);
     if (markdown && plan.decision?.approver_id !== approvedOwnerId) throw fail("PLAN_APPROVAL_OWNER_MISMATCH", "The authenticated owner must match the existing Markdown approval.");
     if (typeof handoffApprovedPlan !== "function") throw fail("PLAN_HANDOFF_UNAVAILABLE", "Approved-plan handoff is unavailable.");
     const handoff = await handoffApprovedPlan({ projectId, plan, conversationId });

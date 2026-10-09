@@ -26,11 +26,15 @@ export default function CodingPage() {
 
   // Refresh Registry Sprint scope while preserving structured diagnostics for the active page.
   const loadWorkspaceMonitor = useCallback((options) => dashboardLoader.load(options), [dashboardLoader]);
+  // Apply a confirmed Sprint deletion locally instead of resetting the entire Coding dashboard.
+  const onSprintDeleted = useCallback((sprintId) => dashboardLoader.removeSprint(sprintId), [dashboardLoader]);
+  // Apply confirmed ticket deletion and its replacement Sprint basis without reloading unrelated cards.
+  const onTicketDeleted = useCallback((ticketId, receipt) => dashboardLoader.removeTicket(ticketId, receipt), [dashboardLoader]);
 
   useProjectEventStream({
     client, projectId: PROJECT_ID, activeConversationIdRef, agentDirectoryRef,
     setMessages: () => {}, setAgentTyping: () => {}, setWatcherEvents: () => {}, setWatcherPulseId: () => {}, setWatcherState: () => {},
-    setAgentProcess: () => {}, setAgentActivities, loadDashboard: loadWorkspaceMonitor, agentDisplayName
+    setAgentProcess: () => {}, setAgentActivities, loadDashboard: loadWorkspaceMonitor, onSprintDeleted, onTicketDeleted, agentDisplayName
   });
 
   useEffect(() => {
@@ -45,6 +49,6 @@ export default function CodingPage() {
 
   return <div className="claude-home-shell">
     <ConversationSidebar open={openSidebar} onOpen={() => setOpenSidebar(true)} onClose={() => setOpenSidebar(false)} agentSectionTitle="Code" projects={[{ id: PROJECT_ID, name: "NodeForge" }]} selectedProjectId={PROJECT_ID} onProjectChange={() => {}} showConversationControls={false} />
-    <CodingWorkspaceMonitor dashboard={dashboardState.dashboard} dashboardState={dashboardState} client={client} onRefresh={loadWorkspaceMonitor} agentActivities={agentActivities} agentDirectory={agents} />
+    <CodingWorkspaceMonitor dashboard={dashboardState.dashboard} dashboardState={dashboardState} client={client} onRefresh={loadWorkspaceMonitor} onSprintDeleted={onSprintDeleted} onTicketDeleted={onTicketDeleted} agentActivities={agentActivities} agentDirectory={agents} />
   </div>;
 }

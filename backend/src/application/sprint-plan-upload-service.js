@@ -7,6 +7,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 
 import { ConfigurationError } from "../shared/errors.js";
+import { removeRegistryTicket } from "./registry-ticket-deletion.js";
 import { backfillTicketCandidates } from "../modules/index/ticket-scope.js";
 import { assertTicketVerificationContract } from "../modules/governance/ticket-verification-contract.js";
 
@@ -59,7 +60,11 @@ export function createSprintPlanUploadService({ roadmaps, publisher, projectRoot
     if (!roadmaps.removeSprint?.(projectId, sprintId)) { const error = new ConfigurationError(`Unknown Sprint Plan: ${sprintId}.`); error.statusCode = 404; throw error; }
     return upload({ projectId, sprintPlan: next }, { eventType: "sprint.updated" });
   }
-  function removeTicket({ projectId, ticketId } = {}) {
+  function removeTicket({ projectId, ticketId, sprintRegistry, planStore } = {}) {
+    if (sprintRegistry) return removeRegistryTicket({ projectId, ticketId, sprintRegistry, planStore }).then((result) => {
+      publish("ticket.deleted", projectId, { ticket_id: ticketId, sprint_id: result.sprint_id, plan_id: result.plan_id, plan_revision: result.plan_revision, plan_sha256: result.plan_sha256, version: result.version, status: result.status });
+      return result;
+    });
     const ticket = roadmaps.getCurrent()?.sprints?.flatMap((sprint) => sprint.tickets ?? []).find((item) => item.id === ticketId && item.project_id === projectId);
     if (!ticket) { const error = new ConfigurationError(`Unknown ticket: ${ticketId}.`); error.statusCode = 404; throw error; }
     if (roadmaps.getCurrent()?.sprints?.find((sprint) => sprint.id === ticket.sprint_id)?.tickets?.length === 1) {

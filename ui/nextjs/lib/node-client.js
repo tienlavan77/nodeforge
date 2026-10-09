@@ -116,10 +116,10 @@ export function createNodeClient() {
     async setSprintStatus(projectId, sprintId, status) {
       return requestJson(forgeV1(`/sprints/registry/${encodeURIComponent(sprintId)}/status`, { project: projectId }), { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, status }), fallbackError: "Node could not update sprint readiness." });
     },
-    async updateSprintPlan(projectId, sprintId, sprintPlan) {
+    async updateSprintPlan(projectId, sprintId, sprintPlan, expectedVersion = sprintPlan.version) {
       return requestJson(forgeV1(`/sprints/${sprintId}`, { project: projectId }), {
         method: "PUT", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ project_id: projectId, sprint_plan: sprintPlan }), fallbackError: "Node could not update the Sprint Plan."
+        body: JSON.stringify({ project_id: projectId, sprint_plan: Object.fromEntries(Object.entries(sprintPlan).filter(([key]) => ["id", "roadmap_id", "project_id", "objective", "human_plan", "dependencies", "tickets", "exit_criteria"].includes(key))), expected_version: expectedVersion }), fallbackError: "Node could not update the Sprint Plan."
       });
     },
     async addTicketToSprint(projectId, sprintId, ticket) {
@@ -128,8 +128,9 @@ export function createNodeClient() {
         body: JSON.stringify({ project_id: projectId, ticket }), fallbackError: "Node could not add the ticket to the Sprint."
       });
     },
-    async deleteSprintPlan(projectId, sprintId) {
-      return requestJson(forgeV1(`/sprints/${sprintId}`, { project: projectId }), { method: "DELETE", fallbackError: "Node could not delete the Sprint Plan." });
+    async deleteSprintPlan(projectId, sprintId, expectedVersion) {
+      const version = expectedVersion ?? (await this.getSprintPlan(projectId, sprintId)).version;
+      return requestJson(forgeV1(`/sprints/${encodeURIComponent(sprintId)}`, { project: projectId, expected_version: version }), { method: "DELETE", fallbackError: "Node could not delete the Sprint Plan." });
     },
     async deleteTicket(projectId, ticketId) {
       return requestJson(forgeV1(`/tickets/${ticketId}`, { project: projectId }), { method: "DELETE", fallbackError: "Node could not delete the ticket." });

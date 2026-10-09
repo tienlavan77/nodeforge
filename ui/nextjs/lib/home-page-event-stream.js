@@ -17,6 +17,8 @@ export function useProjectEventStream({
   setAgentProcess,
   setAgentActivities,
   loadDashboard,
+  onSprintDeleted,
+  onTicketDeleted,
   agentDisplayName
 }) {
   useEffect(() => {
@@ -85,7 +87,11 @@ export function useProjectEventStream({
         setWatcherEvents((current) => applyWatcherEvent(current, event));
         const processPayload = event.payload?.agent_process ?? event.payload?.agentProcess ?? event.payload?.process ?? event.payload?.watcher?.agent_process ?? event.payload?.watcher?.agentProcess;
         if (processPayload) setAgentProcess((current) => ({ ...(current ?? {}), process: processPayload }));
-        if (["ticket.created", "ticket.updated", "ticket.status_changed", "ticket.deleted", "sprint.created", "sprint.updated", "sprint.deleted"].includes(event.event_type)) {
+        if (event.event_type === "sprint.deleted" && onSprintDeleted && typeof event.payload?.sprint_id === "string" && (!event.project_id || event.project_id === projectId)) {
+          onSprintDeleted(event.payload.sprint_id);
+        } else if (event.event_type === "ticket.deleted" && onTicketDeleted && typeof event.payload?.ticket_id === "string" && (!event.project_id || event.project_id === projectId)) {
+          onTicketDeleted(event.payload.ticket_id, event.payload);
+        } else if (["ticket.created", "ticket.updated", "ticket.status_changed", "ticket.deleted", "sprint.created", "sprint.updated", "sprint.deleted"].includes(event.event_type)) {
           loadDashboard?.();
         }
         if (["watcher.file_indexed", "watcher.file_removed"].includes(event.event_type)) {

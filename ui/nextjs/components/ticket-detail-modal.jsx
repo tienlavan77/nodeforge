@@ -47,7 +47,7 @@ export function TicketCard({ ticket, client, projectId, onRefresh, onDeleted }) 
   }
   async function remove() {
     if (!window.confirm(`Delete ticket ${ticket.id}?`)) return;
-    try { await client.deleteTicket(projectId, ticket.id); onDeleted?.(ticket.id); setMessage("Deleted"); }
+    try { const result = await client.deleteTicket(projectId, ticket.id); onDeleted?.(ticket.id, { ...result, sprint_id: result?.sprint_id ?? ticket.sprint_id }); setMessage("Deleted"); }
     catch (error) { setMessage(error.message); }
   }
   // Stops an active Coder run without deleting its ticket or checkpoint.

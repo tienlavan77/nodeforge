@@ -30,7 +30,9 @@ export function createSprintPlanDraftPersistence({ projectId, planStore, markdow
       if (!sprintRegistry) return;
       try {
         if (!previous) {
-          await sprintRegistry.register({ sprintId: sprint.id, position: sprintRegistry.list().length, planId: revision.plan_id, revision: revision.revision, status: approvedMarkdown ? "planned" : undefined });
+          const records = sprintRegistry.list({ includeArchived: true });
+          const position = records.reduce((maximum, record) => Math.max(maximum, record.position), -1) + 1;
+          await sprintRegistry.register({ sprintId: sprint.id, position, dependencies: sprint.dependencies ?? [], planId: revision.plan_id, revision: revision.revision, status: approvedMarkdown ? "planned" : undefined });
         } else if (previous.plan_id === revision.plan_id && previous.plan_revision === revision.revision && previous.plan_sha256 === revision.sha256 && previous.plan_path === revision.file_path) {
           if (sprintRegistry.get(sprint.id)?.version !== previous.version) throw Object.assign(new Error("Sprint changed while its existing draft was being recovered; reconcile before continuing."), { code: "SPRINT_REGISTRY_CONFLICT", statusCode: 409, retryable: false, scope: "scoped", identifiers: [sprint.id] });
         } else {
