@@ -3,22 +3,24 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
-import { ConversationSidebar } from "../../components/conversation-sidebar.jsx";
+
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { CodingWorkspaceMonitor } from "../../components/coding-workspace-monitor.jsx";
 import { useProjectEventStream } from "../../lib/home-page-event-stream.js";
 import { createNodeClient } from "../../lib/node-client.js";
 import { createCodingDashboardLoader } from "../../lib/coding-dashboard-loader.js";
+import { createCodingPlanEvents } from "../../lib/coding-plan-events.js";
 import { PROJECT_ID } from "../../lib/home-page-constants.js";
 import { agentDisplayName } from "../../lib/home-page-watcher-events.js";
 
 // Show coding operations without exposing conversation-specific sidebar controls.
 export default function CodingPage() {
   const client = useMemo(() => createNodeClient(), []);
+  const planEvents = useMemo(() => createCodingPlanEvents(PROJECT_ID), []);
   const [agents, setAgents] = useState([]);
   const [dashboardState, setDashboardState] = useState({ status: "loading", dashboard: null, error: null });
   const dashboardLoader = useMemo(() => createCodingDashboardLoader({ client, projectId: PROJECT_ID, onState: setDashboardState }), [client]);
-  const [openSidebar, setOpenSidebar] = useState(false);
+  
   const [agentActivities, setAgentActivities] = useState([]);
   const activeConversationIdRef = useRef(null);
   const agentDirectoryRef = useRef([]);
@@ -34,7 +36,7 @@ export default function CodingPage() {
   useProjectEventStream({
     client, projectId: PROJECT_ID, activeConversationIdRef, agentDirectoryRef,
     setMessages: () => {}, setAgentTyping: () => {}, setWatcherEvents: () => {}, setWatcherPulseId: () => {}, setWatcherState: () => {},
-    setAgentProcess: () => {}, setAgentActivities, loadDashboard: loadWorkspaceMonitor, onSprintDeleted, onTicketDeleted, agentDisplayName
+    setAgentProcess: () => {}, setAgentActivities, loadDashboard: loadWorkspaceMonitor, onSprintDeleted, onTicketDeleted, onProjectEvent: planEvents.publish, agentDisplayName
   });
 
   useEffect(() => {
@@ -48,7 +50,7 @@ export default function CodingPage() {
   }, [client, dashboardLoader, loadWorkspaceMonitor]);
 
   return <div className="claude-home-shell">
-    <ConversationSidebar open={openSidebar} onOpen={() => setOpenSidebar(true)} onClose={() => setOpenSidebar(false)} agentSectionTitle="Code" projects={[{ id: PROJECT_ID, name: "NodeForge" }]} selectedProjectId={PROJECT_ID} onProjectChange={() => {}} showConversationControls={false} />
-    <CodingWorkspaceMonitor dashboard={dashboardState.dashboard} dashboardState={dashboardState} client={client} onRefresh={loadWorkspaceMonitor} onSprintDeleted={onSprintDeleted} onTicketDeleted={onTicketDeleted} agentActivities={agentActivities} agentDirectory={agents} />
+    
+    <CodingWorkspaceMonitor planEvents={planEvents} projectId={PROJECT_ID} dashboard={dashboardState.dashboard} dashboardState={dashboardState} client={client} onRefresh={loadWorkspaceMonitor} onSprintDeleted={onSprintDeleted} onTicketDeleted={onTicketDeleted} agentActivities={agentActivities} agentDirectory={agents} />
   </div>;
 }
