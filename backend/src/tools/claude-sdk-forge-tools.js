@@ -2,6 +2,7 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { claudeFileDefinitions } from "./claude-file-tools.js";
+import { engineeringToolDefinitions } from "./engineering-tool-catalog.js";
 
 const searchCodeInput = {
   query: z.string().min(1),
@@ -70,10 +71,10 @@ const INPUT_DEFAULTS = Object.freeze({
   edit_diff: Object.freeze({ occurrence: "first" })
 });
 
-export function createForgeSdkMcpServer({ registry, context = {}, includeCommit = false, includeClaudeFileTools = false, excludeTools = [] } = {}) {
+export function createForgeSdkMcpServer({ registry, context = {}, includeCommit = false, includeClaudeFileTools = false, includeEngineeringTools = false, excludeTools = [] } = {}) {
   if (!registry || typeof registry !== "object") throw new TypeError("Forge SDK MCP server requires a tool registry.");
 
-  const definitions = [
+  const lifecycleDefinitions = [
     ["select_code_graph_candidates", "Ask Node to find up to eight candidate files related to your search intent, with import relations. Call this FIRST as your project map before searching or reading.", selectCodeGraphCandidatesInput],
     ["search_code", "Search the approved project code index. kind=\"content\" returns FTS text snippets with matching lines; kind=\"file\" with projection=\"summary\" returns a file's symbol map with line ranges.", searchCodeInput],
     ["read_file", "Read one file's metadata, current symbol map and scoped graph without source. Use Read with start_line/end_line to read code.", readFileInput],
@@ -88,6 +89,9 @@ export function createForgeSdkMcpServer({ registry, context = {}, includeCommit 
     ["report_done", "Record the final task report.", reportDoneInput],
     ["respond_to_review", "Submit a reasoned response to open Reviewer findings; this does not close them.", respondToReviewInput]
   ];
+  const definitions = includeEngineeringTools
+    ? [...engineeringToolDefinitions().map(({ name, description, input_schema }) => [name, description, z.fromJSONSchema(input_schema).shape]), ...lifecycleDefinitions.filter(([name]) => ["search_code", "run_test", "check_test", "report_done", "respond_to_review"].includes(name))]
+    : lifecycleDefinitions;
 
   const excluded = new Set(excludeTools);
   const tools = definitions
@@ -124,6 +128,12 @@ export const forgeSdkToolNames = Object.freeze([
   "mcp__forge__select_code_graph_candidates",
   "mcp__forge__search_code",
   "mcp__forge__read_file",
+  "mcp__forge__search_tree",
+  "mcp__forge__list_files",
+  "mcp__forge__search_text",
+  "mcp__forge__read_lines",
+  "mcp__forge__run_check",
+  "mcp__forge__push_commit",
   "mcp__forge__Read",
   "mcp__forge__Glob",
   "mcp__forge__Grep",

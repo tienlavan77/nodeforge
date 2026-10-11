@@ -8,7 +8,7 @@ const failure = (code, message) => Object.assign(new ConfigurationError(message)
 // Builds ticket commits from durable deltas rather than from unrelated root changes.
 export function createTicketCommitService({ taskId, ledger, worktreeFileService, gitService } = {}) {
   if (!taskId || !ledger?.snapshot || !worktreeFileService?.atomicWrite || !gitService?.commit) throw failure("CONFIGURATION_ERROR", "Ticket commit service requires a ledger, worktree, and Git Service.");
-  return Object.freeze({ commit, status: gitService.status, diffWorkingTree: gitService.diffWorkingTree, diffPatchFrom: gitService.diffPatchFrom,
+  return Object.freeze({ commit, pushCommit: gitService.pushCommit, status: gitService.status, diffWorkingTree: gitService.diffWorkingTree, diffPatchFrom: gitService.diffPatchFrom,
     getHead: gitService.getHead, getCommitParent: gitService.getCommitParent, getChangedFiles: gitService.getChangedFiles });
 
   // Replays journal entries once and commits only the ticket's recorded paths.

@@ -17,6 +17,11 @@
     "updated_at": { "type": "string", "format": "date-time" },
     "provider": { "type": "string", "enum": ["codex", "claude", "openai", "anthropic", "ollama", "custom", "xai", "alibaba", "zhipu", "deepseek"] },
     "model": { "type": "string" },
-    "use_previous_response_id": { "type": "boolean" }
-  }
+    "team": { "type": ["string", "null"] },
+    "reasoning": { "type": "object", "additionalProperties": false, "required": ["effort"], "properties": { "effort": { "type": "string", "enum": ["none", "low", "medium", "high", "max"] } } },
+    "use_responses": { "type": "boolean" },
+    "use_previous_response_id": { "type": "boolean" },
+    "tool_mode": { "type": "string", "enum": ["forge", "builtin"] }
+  },
+  "allOf": [{"if": {"properties": {"tool_mode": {"const": "builtin"}}, "required": ["tool_mode"]}, "then": {"properties": {"role": {"const": "system_engineer"}, "provider": {"enum": ["codex", "claude", "anthropic"]}}, "required": ["provider"]}}]
 }

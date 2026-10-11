@@ -100,6 +100,8 @@ export function createNodeClient() {
       return requestJson(forgeV1(`/sprints/${sprintId}`, { project: projectId }), { fallbackError: "Node could not load the Sprint Plan." });
     },
     async draftSprintPlan(projectId, sprintId) { return requestJson(forgeV1(`/sprints/${encodeURIComponent(sprintId)}/draft`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId }), fallbackError: "Node could not start the Sprint Leader draft." }); },
+    // Reads persisted planning progress independently from conversations and Sprint dashboard state.
+    async listPlanRequests(projectId) { return requestJson(forgeV1("/plans/requests", { project: projectId }), { fallbackError: "Node could not load planning request state." }); },
     async listPlans(projectId) { return requestJson(forgeV1("/plans", { project: projectId }), { fallbackError: "Node could not load plan revisions." }); },
     async createPlan(projectId, planId, sprintId, content) { return requestJson(forgeV1("/plans", { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, plan_id: planId, sprint_id: sprintId, content }), fallbackError: "Node could not create the historical plan draft." }); },
     async revisePlan(projectId, plan, content) { return requestJson(forgeV1(`/plans/${encodeURIComponent(plan.plan_id)}/revisions`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, sprint_id: plan.sprint_id, expected_revision: plan.revision, content }), fallbackError: "Node could not create the revised plan." }); },
@@ -107,8 +109,12 @@ export function createNodeClient() {
     async listSprintRegistry(projectId) { return requestJson(forgeV1("/sprints/registry", { project: projectId }), { fallbackError: "Node could not load sprint registry." }); },
     async registerSprint(projectId, sprintId, position, dependencies, plan) { return requestJson(forgeV1("/sprints/registry", { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, sprint_id: sprintId, position, dependencies, plan_id: plan.plan_id, plan_revision: plan.revision }), fallbackError: "Node could not register the historical sprint." }); },
     async getSprintRegistry(projectId, sprintId) { return requestJson(forgeV1(`/sprints/registry/${encodeURIComponent(sprintId)}`, { project: projectId }), { fallbackError: "Node could not load sprint scheduling state." }); },
-    async decidePlan(projectId, plan, decision, token, comments) {
-      return requestJson(forgeV1(`/plans/${encodeURIComponent(plan.plan_id)}/${plan.revision}/decisions`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ project_id: projectId, sha256: plan.sha256, source_sha256: plan.source_sha256 ?? null, decision, comments }), fallbackError: "Node rejected the plan decision." });
+    // Continues the exact approved plan without posting a conversation command or starting RUN.
+    async handoffPlan(projectId, plan, token) {
+      return requestJson(forgeV1(`/plans/${encodeURIComponent(plan.plan_id)}/${plan.revision}/handoff`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ project_id: projectId, sha256: plan.sha256 }), fallbackError: "Node could not continue the approved plan handoff." });
+    },
+    async decidePlan(projectId, plan, decision, token, comments, decisionId) {
+      return requestJson(forgeV1(`/plans/${encodeURIComponent(plan.plan_id)}/${plan.revision}/decisions`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ project_id: projectId, sha256: plan.sha256, source_sha256: plan.source_sha256 ?? null, decision, comments, ...(decisionId ? { decision_id: decisionId } : {}) }), fallbackError: "Node rejected the plan decision." });
     },
     async bindSprintPlan(projectId, sprintId, plan) {
       return requestJson(forgeV1(`/sprints/registry/${encodeURIComponent(sprintId)}/plan`, { project: projectId }), { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, plan_id: plan.plan_id, plan_revision: plan.revision }), fallbackError: "Node could not bind the approved revision." });

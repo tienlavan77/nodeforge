@@ -4,21 +4,12 @@ import { authorizeTool } from "./tool-authorization.js";
 import { ownerRoleTools, ownerWritePaths, authorizeOwnerTool } from "./owner-role-tool-policy.js";
 import { createAgentCommandTools } from "./agent-command-tools.js";
 import { createReadFileTool, createWriteDiffTool, createEditDiffTool } from "./agent-lifecycle-tools.js";
-import { rgFilesDefinition, rgSearchDefinition, sedLinesDefinition } from "./agent-command-tools.js";
-import { readFileDefinition, writeDiffDefinition, editDiffDefinition } from "./index.js";
-import { createOwnerSearchTreeTool, ownerSearchTreeDefinition } from "./owner-search-tree.js";
+import { engineeringToolDefinitions } from "./engineering-tool-catalog.js";
+import { createOwnerSearchTreeTool } from "./owner-search-tree.js";
 import { createRoleFileService } from "../infrastructure/filesystem/file-service-role-policy.js";
 import { createOwnerDeleteFileTool, ownerDeleteFileDefinition } from "./owner-delete-file.js";
 import { createGitReadTools } from "./git-read-tools.js";
 import { createOwnerEngineerTools } from "./owner-engineer-tools.js";
-
-const OWNER_GIT_READ_DEFINITIONS = Object.freeze(["git_status", "git_diff"].map((name) => ({ name, description: name === "git_status" ? "Read the project Git working-tree status." : "Read the project Git diff.", input_schema: { type: "object", properties: {}, additionalProperties: false } })));
-const OWNER_FILE_DEFINITIONS = Object.freeze([
-  renamedDefinition(rgFilesDefinition, "list_files", "List non-ignored project files with safe filters."),
-  renamedDefinition(rgSearchDefinition, "search_text", "Search project file contents with safe paths and filters."),
-  renamedDefinition(readFileDefinition, "read_file", readFileDefinition.description),
-  renamedDefinition(sedLinesDefinition, "read_lines", "Read a bounded project file window and checksum.")
-]);
 
 // Creates the role-scoped Forge tool registry used by owner SDK conversations.
 export function createOwnerConversationTools({ role, projectRoot, fileService, codeCache, codeSearch, gitService, testService, conversationStateStore, conversationId, projectLogger, eventSink, context }) {
@@ -44,9 +35,7 @@ export function createOwnerConversationTools({ role, projectRoot, fileService, c
   if (role === "system_engineer" && gitService?.status && gitService?.diffWorkingTree) Object.assign(implementations, createGitReadTools({ gitService, logger: { emit: () => {} } }));
   const engineerTools = role === "system_engineer" ? createOwnerEngineerTools({ testService, gitService, conversationStateStore }) : { definitions: [], implementations: {} };
   Object.assign(implementations, engineerTools.implementations);
-  const definitions = [ownerSearchTreeDefinition, ...OWNER_FILE_DEFINITIONS, writeDiffDefinition, editDiffDefinition, ownerDeleteFileDefinition]
-    .concat(role === "system_engineer" && gitService?.status && gitService?.diffWorkingTree ? OWNER_GIT_READ_DEFINITIONS : [])
-    .concat(engineerTools.definitions)
+  const definitions = [...engineeringToolDefinitions(), ownerDeleteFileDefinition]
     .filter(({ name }) => allowed.includes(name) && typeof implementations[name]?.execute === "function");
   const registry = Object.fromEntries(definitions.map((definition) => [definition.name, { execute: async (input, toolContext = context) => {
     const log = (status, error, result) => {
@@ -76,14 +65,6 @@ export function createOwnerConversationTools({ role, projectRoot, fileService, c
 }
 
 export { ownerWritePaths };
-
-// Renames owner tool schemas without changing the ticket-agent registry contract.
-function renamedDefinition(source, name, description) {
-  const input_schema = structuredClone(source.input_schema);
-  input_schema.title = `Forge ${name} tool input`;
-  input_schema.$id = `https://forge.local/schemas/agent/tools/${name.replaceAll("_", "-")}.schema.json`;
-  return Object.freeze({ ...source, name, description, input_schema });
-}
 
 // Records result size and status without persisting project source text or search queries.
 function summarizeResult(result) {

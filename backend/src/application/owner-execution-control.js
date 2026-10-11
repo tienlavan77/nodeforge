@@ -26,7 +26,7 @@ export function createOwnerExecutionControl({ checkpoint, architectureCheckpoint
   async function summary(record, store) {
     const recoverable = record.status === "interrupted" && await store.reconcile(record);
     const safelyDiscardable = ["interrupted", "manual_required"].includes(record.status) && Boolean(record.runner_stopped_at) && !record.active_mutations;
-    return { conversation_id: record.conversation_id, execution_id: record.execution_id, status: record.status,
+    return { conversation_id: record.conversation_id, execution_id: record.execution_id, status: record.status, tool_mode: record.tool_mode ?? "forge", checkpoint_kind: record.checkpoint_kind ?? "forge_receipts",
       can_continue: Boolean(recoverable && record.provider_thread_id), can_restart: Boolean(recoverable), can_discard: Boolean(safelyDiscardable),
       can_reconcile: record.role === "architecture_manager" && record.status === "manual_required" && Boolean(record.runner_stopped_at) && !record.active_mutations && !record.receipts_truncated && record.pending_tool_calls?.length === 1,
       requires_human_review: record.status === "manual_required" };

@@ -36,6 +36,8 @@ export function createCodexSdkGateway({
     if (abortSignal?.aborted) stop();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     let mcpSession;
+    let turnFailure = null;
+    let streamError = null;
     try {
       mcpSession = options.forgeTools ? await createCodexForgeMcpSession(options.forgeTools) : null;
       const bridgePath = fileURLToPath(new URL("../../../scripts/codex-forge-mcp-bridge.mjs", import.meta.url));
@@ -83,13 +85,17 @@ export function createCodexSdkGateway({
         apiKey: credential,
         baseUrl: normalizeBaseUrl(profile.gateway_url),
         env: { ...buildCodexChildEnvironment(environment, options.env), CODEX_HOME: codexHome },
-        ...(codexConfig || options.config ? { config: { ...codexConfig, ...options.config } } : {}),
+        config: { ...codexConfig, ...options.config,
+          model_provider: "nodeforge",
+          model_providers: { nodeforge: { name: "NodeForge gateway", base_url: normalizeBaseUrl(profile.gateway_url),
+            env_key: "CODEX_API_KEY", wire_api: "responses", supports_websockets: false } }
+        },
         ...(Array.isArray(options.configOverrides) ? { configOverrides: options.configOverrides } : {})
       });
       const threadOptions = {
         model: options.model ?? profile.model ?? undefined,
         workingDirectory: cwd ?? options.workingDirectory ?? process.cwd(),
-        sandboxMode: options.sandboxMode ?? "workspace-write",
+        ...(options.usePermissionProfile ? {} : { sandboxMode: options.sandboxMode ?? "workspace-write" }),
         // Codex treats MCP calls as approval-gated actions. `never` makes the
         // server visible in tools/list but blocks every tools/call. The Forge
         // tool-lab is already governed by Node's execution context, so allow
@@ -97,7 +103,7 @@ export function createCodexSdkGateway({
         // on the existing non-interactive policy.
         approvalPolicy: options.approvalPolicy ?? (mcpSession ? "on-request" : "never"),
         ...(normalizeReasoningEffort(options.modelReasoningEffort ?? profile.reasoning?.effort) ? { modelReasoningEffort: normalizeReasoningEffort(options.modelReasoningEffort ?? profile.reasoning?.effort) } : {}),
-        networkAccessEnabled: options.networkAccessEnabled ?? false,
+        ...(options.usePermissionProfile ? {} : { networkAccessEnabled: options.networkAccessEnabled ?? false }),
         webSearchMode: options.webSearchMode ?? "disabled",
         skipGitRepoCheck: options.skipGitRepoCheck ?? false
       };
@@ -110,7 +116,6 @@ export function createCodexSdkGateway({
       const items = [];
       let finalResponse = "";
       let usage = null;
-      let turnFailure = null;
       for await (const rawEvent of streamed.events) {
         const event = sanitizeItems(rawEvent, credential);
         if (event.type === "thread.started") onSessionReady?.(event.thread_id ?? thread?.id ?? null, mcpSession?.tools?.map((tool) => tool.name) ?? []);
@@ -125,6 +130,8 @@ export function createCodexSdkGateway({
           usage = event.usage ?? null;
         } else if (event.type === "turn.failed") {
           turnFailure = event.error?.message ?? "Codex turn failed.";
+        } else if (event.type === "error" && event.message) {
+          streamError = event.message;
         }
       }
       if (turnFailure) throw new ConfigurationError(`Codex SDK turn failed for ${profile.agent_id}: ${turnFailure}`);
@@ -142,13 +149,16 @@ export function createCodexSdkGateway({
     } catch (error) {
       if (abortSignal?.aborted) throw abortSignal.reason;
       if (error?.name === "AbortError" || controller.signal.aborted) throw new ConfigurationError(`Codex SDK request timed out for ${profile.agent_id}.`, { cause: error });
+      if (turnFailure) throw new ConfigurationError(`Codex SDK turn failed for ${profile.agent_id}: ${turnFailure}`, { cause: error });
+      if (streamError) throw new ConfigurationError(`Codex SDK request failed for ${profile.agent_id}: ${streamError}`, { cause: error });
       if (/No available channel for model/i.test(String(error?.message ?? ""))) {
         const unavailable = new ForgeError("Gateway has no available channel for the selected model.", { cause: error, code: "SERVICE_UNAVAILABLE" });
         unavailable.statusCode = 503;
         throw unavailable;
       }
       if (error instanceof ConfigurationError) throw error;
-      const message = typeof error?.message === "string" && error.message ? error.message.replaceAll(credential, "[REDACTED]") : "unknown SDK error";
+      const rawMessage = typeof error?.message === "string" && error.message ? error.message.replaceAll(credential, "[REDACTED]") : "unknown SDK error";
+      const message = rawMessage.replace(/Reading prompt from stdin\.{3}\s*/g, "").replace(/\s*\r?\n\s*/g, " ");
       throw new ConfigurationError(`Codex SDK request failed for ${profile.agent_id}: ${message}`, { cause: error });
     } finally {
       abortSignal?.removeEventListener("abort", stop);

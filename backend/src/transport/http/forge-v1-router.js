@@ -11,7 +11,7 @@ import { routeForgeV1Git } from "./forge-v1-git-routes.js";
 import { normalizeParts, unavailable, runRequestsFresh, requireProject, readJson, isSafeMarkdownPath } from "./forge-v1-router-utils.js";
 
 // Creates the Forge v1 HTTP router with checkpoint decoration.
-export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrchestrationService, reviewTicket, ticketHumanReviewService, runToolLab, directCodeRequest, projectStream, onWatcherEvent, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, ownerExecutionControl, conversationCrudService, conversationAuditHistoryService, markdownResponseFileService, architectureWorkspaceService, humanDecisionService, agentSettingsService, listResumableCheckpoints, gitService, fileService, expectedProjectId, planStore, markdownPlanStore, sprintRegistry, planOwnerAuth } = {}) {
+export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrchestrationService, reviewTicket, ticketHumanReviewService, runToolLab, directCodeRequest, projectStream, onWatcherEvent, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, ownerExecutionControl, conversationCrudService, conversationAuditHistoryService, markdownResponseFileService, architectureWorkspaceService, humanDecisionService, agentSettingsService, listResumableCheckpoints, gitService, fileService, expectedProjectId, planStore, markdownPlanStore, sprintRegistry, planOwnerAuth, planRequests, handoffApprovedPlan } = {}) {
   const conversationRoutes = createForgeV1ConversationRoutes({ conversationCrudService, conversationAuditHistoryService, markdownResponseFileService, ownerChatService, ownerExecutionControl, listResumableCheckpoints, planOwnerAuth });
   return Object.freeze({ route });
 
@@ -31,7 +31,7 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrch
     }
 
     const projectId = bodyProject ?? queryProject;
-    const planResult = await routePlan({ method, parts, body, projectId, expectedProjectId, planStore, markdownPlanStore, sprintRegistry, planOwnerAuth, headers: request.headers });
+    const planResult = await routePlan({ method, parts, body, projectId, expectedProjectId, planStore, markdownPlanStore, sprintRegistry, planOwnerAuth, planRequests, handoffApprovedPlan, headers: request.headers });
     if (planResult) return planResult;
     const directCodeResult = await routeDirectCode({ method, parts, body, projectId, url, directCodeRequest, sprintRegistry });
     if (directCodeResult) return directCodeResult;

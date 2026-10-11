@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import { ConfigurationError } from "../../shared/errors.js";
 
 const REQUIRED_FIELDS = ["agent_id", "agent_name", "role", "gateway_url", "credential_ref", "enabled", "status", "created_at", "updated_at"];
-const OPTIONAL_FIELDS = ["provider", "model", "reasoning", "use_responses", "use_previous_response_id"];
+const OPTIONAL_FIELDS = ["provider", "model", "reasoning", "use_responses", "use_previous_response_id", "tool_mode"];
 const FIELDS = [...REQUIRED_FIELDS, ...OPTIONAL_FIELDS];
 const PROVIDERS = ["codex", "claude", "openai", "anthropic", "ollama", "custom", "devquote", "xai", "alibaba", "zhipu", "deepseek"];
 const SECRET_FIELD = /(?:api[_-]?key|credential(?!_ref)|secret|password|token|authorization)/i;
@@ -98,6 +98,7 @@ function validateConfiguration(value) {
     || typeof value.agent_id !== "string" || typeof value.agent_name !== "string" || typeof value.role !== "string" || !["coder", "reviewer", "sprint_leader", "architecture_manager", "system_engineer", "linguist"].includes(value.role) || typeof value.gateway_url !== "string" || !value.gateway_url.startsWith("https://")
     || typeof value.credential_ref !== "string" || !value.credential_ref || typeof value.enabled !== "boolean") throw new ConfigurationError("Agent configuration is invalid.");
   if (value.provider !== undefined && !PROVIDERS.includes(value.provider)) throw new ConfigurationError("Agent configuration is invalid.");
+  if (value.tool_mode !== undefined && !["forge", "builtin"].includes(value.tool_mode)) throw new ConfigurationError("Agent tool mode is invalid.");
   if (value.model !== undefined && typeof value.model !== "string") throw new ConfigurationError("Agent configuration is invalid.");
   if (value.reasoning !== undefined && (!value.reasoning || typeof value.reasoning !== "object" || Array.isArray(value.reasoning) || !["none", "low", "medium", "high", "max"].includes(value.reasoning.effort))) throw new ConfigurationError("Agent configuration is invalid.");
   if (value.use_responses !== undefined && typeof value.use_responses !== "boolean") throw new ConfigurationError("Agent configuration is invalid.");

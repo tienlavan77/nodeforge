@@ -71,7 +71,7 @@
     "priority": { "type": "string", "enum": ["low", "medium", "normal", "high", "critical"] },
     "implementation_type": { "type": "array", "items": { "type": "string", "enum": ["frontend", "backend", "security"] }, "minItems": 1, "maxItems": 1, "uniqueItems": true },
     "change_nature": { "type": "string", "enum": ["presentation-only", "test-only"] },
-    "file_budget": { "type": "integer", "minimum": 1, "maximum": 4 },
+    "file_budget": { "type": "integer", "minimum": 1 },
     "outcome_refs": { "type": "array", "items": { "type": "string", "pattern": "^O[1-9][0-9]*$" }, "minItems": 1, "uniqueItems": true },
     "coverage": {
       "type": "object",

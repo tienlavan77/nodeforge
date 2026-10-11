@@ -66,7 +66,7 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
         continue;
       }
       const roleTickets = tickets.filter((ticket) => ticket.owner === role || !ticket.owner);
-      const text = `${sprint.objective}\n\nTickets:\n${roleTickets.map((ticket) => `- ${ticket.id}: ${ticket.title} — ${ticket.objective}`).join("\n")}${role === "sprint-leader" ? "\n\nReturn ONLY a ```json block containing the sprint plan JSON valid against sprint-plan.schema.json (required: id, roadmap_id, project_id, objective, tickets[], exit_criteria, human_plan). human_plan must include outcome, in_scope, out_of_scope, approach, components, risks, assumptions, open_questions, evidence_refs and acceptance_criteria. Cite only evidence present in the brief. Every ticket MUST include exactly one implementation_type value (frontend|backend|security) and file_budget <= 4. Do NOT include style, candidate_files or candidate metadata. No prose outside the block." : ""}`;
+      const text = `${sprint.objective}\n\nTickets:\n${roleTickets.map((ticket) => `- ${ticket.id}: ${ticket.title} — ${ticket.objective}`).join("\n")}${role === "sprint-leader" ? "\n\nReturn ONLY a ```json block containing the sprint plan JSON valid against sprint-plan.schema.json (required: id, roadmap_id, project_id, objective, tickets[], exit_criteria, human_plan). human_plan must include outcome, in_scope, out_of_scope, approach, components, risks, assumptions, open_questions, evidence_refs and acceptance_criteria. Cite only evidence present in the brief. Every ticket MUST include exactly one implementation_type value (frontend|backend|security) and a positive integer file_budget sized to the work, with no global maximum. Do NOT include style, candidate_files or candidate metadata. No prose outside the block." : ""}`;
       const correlationId = `CORR-${sprint.id}-${role}-${randomUUID()}`;
       const agentId = role;
       const conversationId = `CONV-${conversationRole(role)}-${sprint.id}`;
@@ -219,11 +219,11 @@ function createSprintPlanValidator() {
   return ajv.getSchema(sprintPlanSchema.$id);
 }
 
-// Enforces one ticket implementation type and the bounded file budget before persistence.
+// Enforces one ticket implementation type and a positive file budget before persistence.
 function assertSprintPlanGovernance(plan) {
   for (const ticket of plan?.tickets ?? []) {
     if (!Array.isArray(ticket.implementation_type) || ticket.implementation_type.length !== 1 || !["frontend", "backend", "security"].includes(ticket.implementation_type[0]) || ticket.style !== undefined) throw Object.assign(new ConfigurationError(`Ticket ${ticket.id ?? "<unknown>"} must declare exactly one implementation_type.`), { code: "SPRINT_TICKET_IMPLEMENTATION_TYPE_INVALID", statusCode: 422 });
-    if (!Number.isInteger(ticket.file_budget) || ticket.file_budget < 1 || ticket.file_budget > 4) throw Object.assign(new ConfigurationError(`Ticket ${ticket.id ?? "<unknown>"} must declare file_budget from 1 to 4.`), { code: "SPRINT_TICKET_FILE_BUDGET_INVALID", statusCode: 422 });
+    if (!Number.isInteger(ticket.file_budget) || ticket.file_budget < 1) throw Object.assign(new ConfigurationError(`Ticket ${ticket.id ?? "<unknown>"} must declare a positive integer file_budget.`), { code: "SPRINT_TICKET_FILE_BUDGET_INVALID", statusCode: 422 });
     assertTicketVerificationContract(ticket);
   }
 }

@@ -5,7 +5,7 @@ import { assertDiscoveryBudget, createExplorationState, discoveryKind, markEditS
 import { assertReservation, buildToolContext, cloneBudget, cloneContext, contextKey, distinctCalls, ensureTables, governanceError, isId, loadBudget, loadPersistedBudget, normalizeBudget, normalizeScope, nonNegativeInteger, persistBudget, persistBudgetValues, resourceAllowed, resourceList, withLock } from "./runtime-tool-governance-state.js";
 
 const TERMINAL_LIFECYCLES = new Set(["COMPLETED", "CANCELLED", "EXPIRED", "FAILED", "NEEDS_HUMAN_REVIEW"]);
-const DISCOVERY_TOOLS = new Set(["select_code_graph_candidates", "search_code", "rg_files", "rg_search", "read_file", "sed_lines", "read_code", "Read", "Glob", "Grep"]);
+const DISCOVERY_TOOLS = new Set(["select_code_graph_candidates", "search_code", "search_tree", "list_files", "search_text", "read_lines", "rg_files", "rg_search", "read_file", "sed_lines", "read_code", "Read", "Glob", "Grep"]);
 const EDIT_TOOLS = new Set(["write_diff", "edit_diff"]);
 
 // Creates runtime guards for tool authorization, budgeting, and auditing.
@@ -143,7 +143,7 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     const normalized = resolveContext(context);
     const resource = ["Read", "Glob", "Grep"].includes(toolName) ? undefined : input?.path ?? input?.resource ?? input?.file_paths;
     authorize(toolName, normalized, resource);
-    if (toolName === "commit_changes" || toolName === "report_done" || toolName === "respond_to_review") return execute(input, buildToolContext(context, normalized, contexts));
+    if (toolName === "commit_changes" || toolName === "push_commit" || toolName === "report_done" || toolName === "respond_to_review") return execute(input, buildToolContext(context, normalized, contexts));
     const reservation = await reserveRetrieval(normalized, { tool: toolName, resource, estimatedBytes: input?.max_chars ?? input?.maxChars ?? 0 });
     try {
       if (DISCOVERY_TOOLS.has(toolName)) assertDiscoveryBudget(normalized, discoveryKind(toolName));

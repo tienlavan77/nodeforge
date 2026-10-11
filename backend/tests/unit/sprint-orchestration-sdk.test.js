@@ -40,7 +40,7 @@ test("sdk sprint leader plan discards supplied candidates without legacy stream"
           project_id: "P1",
           objective: "Ship the API",
           human_plan: humanPlan,
-          tickets: [{ id: "TICKET-FIX-ENDPOINT", title: "Fix endpoint", objective: "Fix it.", acceptance_criteria: ["Works."], verification_plan: [{ kind: "test", criterion_ids: ["AC-1"], test_path: "backend/tests/unit/sprint-orchestration-sdk.test.js" }], implementation_type: ["backend"], file_budget: 4, candidate_files: [{ path: "backend/a.js", role: "PATCH", symbol: "handleRequest", reason: "edit handleRequest" }] }],
+          tickets: [{ id: "TICKET-FIX-ENDPOINT", title: "Fix endpoint", objective: "Fix it.", acceptance_criteria: ["Works."], verification_plan: [{ kind: "test", criterion_ids: ["AC-1"], test_path: "backend/tests/unit/sprint-orchestration-sdk.test.js" }], implementation_type: ["backend"], file_budget: 10, candidate_files: [{ path: "backend/a.js", role: "PATCH", symbol: "handleRequest", reason: "edit handleRequest" }] }],
           exit_criteria: ["Done"]
         };
       }
@@ -59,6 +59,7 @@ test("sdk sprint leader plan discards supplied candidates without legacy stream"
   assert.equal(published.filter((event) => event.type === "governance.sprint_plan.provenance_pending").length, 1);
   const savedPlan = JSON.parse(completed[0].payload.text);
   assert.deepEqual(savedPlan.tickets[0].implementation_type, ["backend"]);
+  assert.equal(savedPlan.tickets[0].file_budget, 10);
   assert.equal(savedPlan.tickets[0].style, undefined);
   assert.equal(savedPlan.tickets[0].candidate_files, undefined);
   assert.equal(savedPlan.tickets[0].candidates_produced_by, undefined);

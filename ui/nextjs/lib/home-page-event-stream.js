@@ -19,13 +19,16 @@ export function useProjectEventStream({
   loadDashboard,
   onSprintDeleted,
   onTicketDeleted,
+  onProjectEvent,
   agentDisplayName
 }) {
   useEffect(() => {
     const stream = client.connectProjectStream({
       projectId,
-      onOpen: () => setWatcherState("connected"),
+      onOpen: () => { setWatcherState("connected"); onProjectEvent?.({ project_id: projectId, event_type: "stream.connected" }); },
       onEvent: (event) => {
+        if (event.project_id && event.project_id !== projectId) return;
+        onProjectEvent?.(event);
         if (event.event_type === "agent.activity") {
           setAgentActivities?.((current) => [...current, event].slice(-50));
           return;
@@ -103,7 +106,7 @@ export function useProjectEventStream({
       onError: () => setWatcherState("error")
     });
     return () => stream.close();
-  }, [client]);
+  }, [client, projectId, onProjectEvent]);
 }
 
 // Resolves live message format only from an explicit supported producer declaration.

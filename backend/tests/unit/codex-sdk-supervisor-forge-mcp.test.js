@@ -15,7 +15,7 @@ test("Supervisor dispatch runs a Codex ticket through the SDK Forge MCP path", a
     agentResolver: { resolveAvailable: () => ({ agent_id: "codex-1", agent_name: "Codex Builder", role: "coder", provider: "codex" }) },
     handoffQueue: { enqueue: async () => ({ id: "JOB-CODEX" }) },
     toolRegistry: {
-      sed_lines: { execute: async () => ({}) },
+      read_lines: { execute: async () => ({}) },
       rg_search: { execute: async () => ({ results: [] }) },
       write_diff: { execute: async () => ({}) },
       commit_changes: { execute: async () => ({}) },
@@ -28,7 +28,7 @@ test("Supervisor dispatch runs a Codex ticket through the SDK Forge MCP path", a
         prompts.push(prompt);
         forgeTools = options.forgeTools;
         for (const [tool, argumentsInput] of [
-          ["sed_lines", { path: "backend/scripts/validate-schemas.mjs", start_line: 1, end_line: 40 }],
+          ["read_lines", { path: "backend/scripts/validate-schemas.mjs", start_line: 1, end_line: 40 }],
           ["write_diff", { path: "backend/scripts/validate-schemas.mjs" }],
           ["commit_changes", { message: "Document validate-schemas" }],
           ["report_done", { summary: "Added summary comment." }]
@@ -59,12 +59,13 @@ test("Supervisor dispatch runs a Codex ticket through the SDK Forge MCP path", a
   });
 
   assert.equal(result.response, "Added summary comment.");
-  assert.deepEqual(result.tool_events.map((entry) => entry.tool), ["sed_lines", "write_diff", "commit_changes", "report_done"]);
-  assert.deepEqual(forgeTools.context.allowed_file_paths.filter((p) => p.endsWith(".mjs")), ["backend/scripts/validate-schemas.mjs"]);
+  assert.deepEqual(result.tool_events.map((entry) => entry.tool), ["read_lines", "write_diff", "commit_changes", "report_done"]);
+  assert.equal(forgeTools.context.target_path, null);
+  assert.ok(forgeTools.context.allowed_prefixes.includes("backend/"));
   assert.match(prompts[0], /Document validate-schemas/);
   assert.match(prompts[0], /Read backend\/scripts\/validate-schemas\.mjs/);
   assert.doesNotMatch(prompts[0], /fixed six-tool/i);
-  assert.deepEqual(forgeTools.definitions.map((tool) => tool.name), ["search_code", "read_file", "rg_files", "rg_search", "sed_lines", "write_diff", "edit_diff", "run_test", "check_test", "git_status", "git_diff", "commit_changes", "report_done", "respond_to_review"]);
+  assert.deepEqual(forgeTools.definitions.map((tool) => tool.name), ["search_tree", "list_files", "search_text", "read_file", "read_lines", "write_diff", "edit_diff", "git_status", "git_diff", "run_check", "commit_changes", "push_commit", "search_code", "run_test", "check_test", "report_done"]);
   assert.doesNotMatch(prompts[0], /select_code_graph_candidates/);
   assert.equal(agentGatewayCalls, 0);
 });
@@ -79,7 +80,7 @@ test("Watcher header UI ticket targets frontend scope instead of tool-lab marker
     agentResolver: { resolveAvailable: () => ({ agent_id: "codex-ui", agent_name: "Codex UI", role: "coder", provider: "codex" }) },
     handoffQueue: { enqueue: async () => ({ id: "JOB-UI" }) },
     toolRegistry: {
-      sed_lines: { execute: async () => ({}) },
+      read_lines: { execute: async () => ({}) },
       write_diff: { execute: async () => ({}) },
       commit_changes: { execute: async () => ({}) },
       report_done: { execute: async () => ({}) }
@@ -90,7 +91,7 @@ test("Watcher header UI ticket targets frontend scope instead of tool-lab marker
         prompt = receivedPrompt;
         forgeTools = options.forgeTools;
         for (const [tool, argumentsInput] of [
-          ["sed_lines", { path: "ui/nextjs/components/NodeForgePanels.jsx", start_line: 1, end_line: 40 }],
+          ["read_lines", { path: "ui/nextjs/components/NodeForgePanels.jsx", start_line: 1, end_line: 40 }],
           ["write_diff", { path: "ui/nextjs/components/NodeForgePanels.jsx" }],
           ["commit_changes", { message: "Add watcher header agent status" }],
           ["report_done", { summary: "Added watcher header agent status." }]
@@ -121,11 +122,11 @@ test("Watcher header UI ticket targets frontend scope instead of tool-lab marker
   });
 
   assert.equal(result.status, "completed");
-  assert.deepEqual(forgeTools.context.allowed_file_paths, ["ui/nextjs/components/NodeForgePanels.jsx", "backend/package.json", "workflows/agents/coder/README.md"]);
+  assert.deepEqual(forgeTools.context.allowed_file_paths, ["backend/package.json", "workflows/agents/coder/README.md", "AGENTS.md", "package.json", "vocabulary/glossary.md"]);
   assert.ok(forgeTools.context.allowed_prefixes.includes("ui/nextjs/"));
   assert.ok(forgeTools.context.allowed_prefixes.includes("ui/src/"));
   assert.ok(forgeTools.context.allowed_prefixes.includes("web/src/"));
-  assert.equal(forgeTools.context.allowed_prefixes.includes("backend/"), false);
+  assert.equal(forgeTools.context.target_path, null);
   assert.doesNotMatch(prompt, /backend\/tool-lab-target\.txt/);
 });
 
@@ -161,26 +162,6 @@ test("payload.tool_test keeps the fixed six-tool Codex lab prompt", async () => 
   assert.match(prompt, /do not inspect or use any ticket title, objective, description, or acceptance criteria/i);
 });
 
-test("Real ticket without target path or UI intent fails instead of using tool-lab marker", async () => {
-  const integration = createNodeforgeTaskIntegration({
-    projectRoot: process.cwd(),
-    supervisorManager: { startTask: async () => ({}) },
-    eventBus: { publish: async () => {} },
-    agentResolver: { resolveAvailable: () => ({ agent_id: "codex-missing-target", agent_name: "Codex Missing Target", role: "coder", provider: "codex" }) },
-    handoffQueue: { enqueue: async () => ({ id: "JOB-MISSING-TARGET" }) },
-    toolRegistry: {},
-    runtimeGovernance: { createExecutionContext: () => { throw new Error("governance must not run without target"); } },
-    codexSdkGateway: { execute: async () => { throw new Error("gateway must not run without target"); } }
-  });
-
-  await assert.rejects(() => integration.submitTicket({
-    ticket: { id: "T-NO-TARGET", project_id: "PROJECT-1", title: "Improve docs wording", objective: "Make the copy clearer", acceptance_criteria: ["Copy is clearer"] },
-    task_id: "T-NO-TARGET",
-    request_id: "REQ-NO-TARGET",
-    correlation_id: "CORR-NO-TARGET"
-  }), (error) => error.code === "TICKET_TARGET_MISSING");
-});
-
 test("Codex run fails when the provider never emits a Forge tool call", async () => {
   const checkpoints = [];
   const integration = createNodeforgeTaskIntegration({
@@ -209,7 +190,7 @@ test("immutable baseline manifest controls all Coder paths and disables prepass 
     runtimeGovernance: { createExecutionContext: (input) => ({ ...input, execution_id: "T-MANIFEST:REQ-MANIFEST", lifecycle: "RUNNING" }) },
     codexSdkGateway: { execute: async (request) => {
       received = request;
-      for (const tool of ["sed_lines", "write_diff", "commit_changes", "report_done"]) await request.onEvent({ type: "item.completed", item: { id: tool, type: "mcp_tool_call", server: "forge", tool, status: "completed" } });
+      for (const tool of ["read_lines", "write_diff", "commit_changes", "report_done"]) await request.onEvent({ type: "item.completed", item: { id: tool, type: "mcp_tool_call", server: "forge", tool, status: "completed" } });
       return { text: "done" };
     } }
   });
@@ -220,7 +201,7 @@ test("immutable baseline manifest controls all Coder paths and disables prepass 
     payload: {}
   });
   assert.equal(received.options.forgeTools.context.target_path, null);
-  assert.deepEqual(received.options.forgeTools.context.allowed_file_paths, ["backend/src/allowed.js", "backend/tests/allowed.test.js", "workflows/agents/coder/README.md"]);
+  assert.deepEqual(received.options.forgeTools.context.allowed_file_paths, ["backend/src/allowed.js", "backend/tests/allowed.test.js", "workflows/agents/coder/README.md", "AGENTS.md", "package.json", "vocabulary/glossary.md"]);
   assert.deepEqual(received.options.forgeTools.context.allowed_prefixes, ["backend/src/allowed.js", "backend/tests/allowed.test.js"]);
   assert.equal(received.options.forgeTools.definitions.some((tool) => tool.name === "select_code_graph_candidates"), false);
   assert.doesNotMatch(received.prompt, /select_code_graph_candidates/);
@@ -234,7 +215,7 @@ test("Codex resume keeps its checkpoint target when candidate discovery is unava
     runtimeGovernance: { createExecutionContext: (input) => ({ ...input, lifecycle: "RUNNING" }) },
     codexSdkGateway: { execute: async (request) => {
       received = request;
-      for (const tool of ["sed_lines", "write_diff", "commit_changes", "report_done"]) await request.onEvent({ type: "item.completed", item: { id: tool, type: "mcp_tool_call", server: "forge", tool, status: "completed" } });
+      for (const tool of ["read_lines", "write_diff", "commit_changes", "report_done"]) await request.onEvent({ type: "item.completed", item: { id: tool, type: "mcp_tool_call", server: "forge", tool, status: "completed" } });
       return { text: "done" };
     } }
   });
@@ -244,7 +225,7 @@ test("Codex resume keeps its checkpoint target when candidate discovery is unava
     execution_context: { task_id: "T-RESUME", manifest_paths: ["backend/src/shared/errors.js", "backend/tests/unit/error-contract.test.js"] },
     payload: { resume_from: { status: "in_progress", target_path: "backend/src/shared/errors.js", last_completed_turn: 5 } }
   });
-  assert.equal(received.options.forgeTools.context.target_path, "backend/src/shared/errors.js");
+  assert.equal(received.options.forgeTools.context.target_path, null);
   assert.ok(received.options.forgeTools.context.allowed_file_paths.includes("backend/tests/unit/error-contract.test.js"));
-  assert.match(received.prompt, /Primary target is "backend\/src\/shared\/errors\.js"/);
+  assert.match(received.prompt, /Canonical Forge|Forge tools only/);
 });

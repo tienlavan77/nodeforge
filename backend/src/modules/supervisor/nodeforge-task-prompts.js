@@ -11,14 +11,14 @@ export function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, comp
   const backendRequired = isBackendTicket(ticket);
   const instructions = [
     `Discover the implementation from the ticket title, objective and acceptance criteria. Search and read relevant code within ${allowedJson}; choose the files yourself. No file is a mandatory target merely because it was found first.`,
-    "Use search_code, rg_files and rg_search to find actual symbols and dependencies; inspect source before editing and add focused tests for the behavior you change.",
+    "Use the canonical Forge tools search_tree, list_files, search_text, read_file and read_lines to discover files and inspect current source; add focused tests for changed behavior.",
     ...(backendRequired ? ["If backend behavior is required, locate the relevant backend implementation and tests from the ticket rather than assuming a fixed route or service file."] : [])
   ];
-  if (directCode) instructions.splice(0, 2, `This is a direct coding request. Do not use graph candidate retrieval. Discover with search_code or rg_files/rg_search inside approved prefixes ${allowedJson}; use read_file for metadata and symbol ranges, then sed_lines for source. You may read and edit schemas/, read workflows/ only, and must not access docs/.`);
-  if (immutableScope) instructions.splice(0, 2, `This ticket has a signed immutable manifest. Work only on these exact paths ${allowedJson}; do not use prepass or candidate retrieval and do not infer a target_path. Read each relevant manifest file with read_file and sed_lines, then edit only manifest paths.`);
+  if (directCode) instructions.splice(0, 2, `This is a direct coding request. Do not use graph candidate retrieval. Discover with search_tree, list_files or search_text inside approved prefixes ${allowedJson}; use read_file/read_lines for source. You may read and edit schemas/, read workflows/ only, and must not access docs/.`);
+  if (immutableScope) instructions.splice(0, 2, `This ticket has a signed immutable manifest. Work only on these exact paths ${allowedJson}; do not use prepass or candidate retrieval and do not infer a target_path. Read relevant manifest files with read_file/read_lines and edit only manifest paths.`);
   return [
     `Complete the following ticket using Forge tools only; do not use built-in shell, file, patch, or search tools.`,
-    "Before editing code, read workflows/agents/coder/README.md with sed_lines; this workflows path is read-only for coders.",
+    "Before editing code, read workflows/agents/coder/README.md with read_lines; this workflows path is read-only for coders.",
     "",
     `Ticket ${ticket?.id ?? ""}: ${ticket?.title ?? ""}`,
     `Objective: ${ticket?.objective ?? ""}`,
@@ -29,15 +29,16 @@ export function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, comp
     ...instructions,
     "Hardening boundary: you may implement only hardening or fixes in the ticket's persisted scope and approved manifest. Do not rewrite boundaries already marked PASS in the acceptance report, weaken fail-closed gates, alias retired routes, or change governance authority.",
     "Production gate: the Coder cannot mark production accepted, release-ready, or done solely from implementation evidence. Preserve BLOCKED/NOT ACCEPTED FOR PRODUCTION until the required canary, terminal receipt, and release authority evidence exist.",
-    ...coderProjectConventions("sed_lines"),
+    ...coderProjectConventions("read_file"),
     "Work in English and produce all file content in English.",
     `Budget discipline: you have a hard wall-clock deadline and a discovery budget of ${complexity.discovery_budget} exploration calls. The next action after identifying the target and relevant context is edit_diff or write_diff; do not spend the full budget by default. Respect the discovery budget and start editing promptly. Productive discovery may receive one bounded extension. Re-read nothing you already read; prefer edit_diff with an exact anchor over re-reading whole files.`,
-    immutableScope ? "Immutable-manifest search discipline: candidate retrieval is unavailable. Read and edit only approved manifest paths." : directCode ? "Direct-code search discipline: use search_code, rg_files and rg_search inside approved prefixes." : "Search discipline: use search_code for indexed file and symbol discovery, rg_files for paths, and rg_search for live text. Do not repeat a search that returned no matches without new evidence.",
-    "Call read_file({path}) for cached metadata, current symbol start_line/end_line and scoped graph; it never returns source for coders. Read source with sed_lines({path,start_line,end_line}), at most 80 lines.",
-    "Symbol check: if the ticket symbol is missing from the file or no longer matches the ticket reason, re-discover via rg_search instead of editing blind.",
-    "Tool enforcement: sed_lines requires path, start_line, and end_line; read at most 80 lines per call and stay within the ticket scope.",
-    "Use the whole-file sha256 returned by sed_lines as before_checksum for write_diff/edit_diff. Use JSON null only when creating a new file.",
+    immutableScope ? "Immutable-manifest search discipline: candidate retrieval is unavailable. Read and edit only approved manifest paths." : directCode ? "Direct-code search discipline: use search_tree, list_files and search_text inside approved prefixes." : "Search discipline: use search_tree/list_files for paths and search_text for live code; confirm relevant source with read_file/read_lines. Do not repeat a search that returned no matches without new evidence.",
+    "Use read_file({path,offset,limit}) for bounded source windows and metadata; use read_lines({path,start_line,end_line}) for precise line windows, at most 80 lines. Both return the current whole-file sha256.",
+    "Symbol check: if the expected symbol is missing or no longer matches the ticket, rediscover with search_text instead of editing blind.",
+    "Stay within the ticket scope for every tool. read_lines requires path, start_line and end_line; read no more than 80 lines per call.",
+    "Use the whole-file sha256 returned by read_file/read_lines as before_checksum for write_diff/edit_diff. Use JSON null only when creating a new file.",
     "Node derives commit paths from the ticket ledger and runs the listed verification plan after commit. Do not invent, omit, or downgrade a criterion; add focused tests when the plan calls for them. Node owns artifacts and criterion evidence.",
+    "For extra focused checks, commit first and call run_check({type,command}); it returns the final result and a source-bound receipt directly. Final acceptance still uses Node's verification plan. Use push_commit({commit_sha}) only when pushing is requested, with the exact latest ticket commit SHA.",
     "When the ticket is satisfied, call commit_changes with a concise message and no paths, then call report_done with a summary and any scope rationale or human evidence. Node supplies changed files, criterion IDs, command evidence, and artifact identity. Do not call Reviewer tools or submit finding resolutions. Stop after the complete report."
   ].filter((line) => line !== undefined).join("\n");
 }
@@ -100,14 +101,14 @@ export function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, compl
   const backendRequired = isBackendTicket(ticket);
   const instructions = [
     `Discover the implementation from the ticket title, objective and acceptance criteria. Search and read relevant code within ${allowedJson}; choose the files yourself. No file is a mandatory target merely because it was found first.`,
-    "Use search_code and the available file-reading tools to find actual symbols and dependencies; inspect source before editing and add focused tests for the behavior you change.",
+    "Use the canonical Forge tools search_tree, list_files, search_text, read_file and read_lines to discover files and inspect current source; add focused tests for changed behavior.",
     ...(backendRequired ? ["If backend behavior is required, locate the relevant backend implementation and tests from the ticket rather than assuming a fixed route or service file."] : [])
   ];
-  if (directCode) instructions.splice(0, 2, `This is a direct coding request. Do not use graph candidate retrieval. Discover files with search_code or Claude Glob/Grep inside approved prefixes ${allowedJson}; use read_file for metadata and symbol ranges, then Read for source. You may read and edit schemas/, read workflows/ only, and must not access docs/.`);
-  if (immutableScope) instructions.splice(0, 2, `This ticket has a signed immutable manifest. Work only on these exact paths ${allowedJson}; do not use prepass or candidate retrieval and do not infer a target_path. Read each relevant manifest file with read_file and Read, then edit only manifest paths.`);
+  if (directCode) instructions.splice(0, 2, `This is a direct coding request. Do not use graph candidate retrieval. Discover with search_tree, list_files or search_text inside approved prefixes ${allowedJson}; use read_file/read_lines for source. You may read and edit schemas/, read workflows/ only, and must not access docs/.`);
+  if (immutableScope) instructions.splice(0, 2, `This ticket has a signed immutable manifest. Work only on these exact paths ${allowedJson}; do not use prepass or candidate retrieval and do not infer a target_path. Read relevant manifest files with read_file/read_lines, then edit only manifest paths.`);
   return [
     "Complete the following ticket using Forge tools only; do not use built-in shell, file, patch, or search tools.",
-    "Before editing code, read workflows/agents/coder/README.md source with Forge Read using start_line:1 and end_line up to 80; this workflows path is read-only for coders.",
+    "Before editing code, read workflows/agents/coder/README.md with read_lines using start_line:1 and end_line up to 80; this workflows path is read-only for coders.",
     "",
     `Ticket ${ticket?.id ?? ""}: ${ticket?.title ?? ""}`,
     `Objective: ${ticket?.objective ?? ""}`,
@@ -116,16 +117,17 @@ export function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, compl
     ...ticketVocabularyHints(ticket),
     "",
     ...instructions,
-    ...coderProjectConventions("Read"),
+    ...coderProjectConventions("read_file"),
     "Hardening boundary: implement only hardening or fixes in the ticket's persisted scope and approved manifest. Do not rewrite boundaries already marked PASS in the acceptance report, weaken fail-closed gates, alias retired routes, or change governance authority.",
     "Production gate: the Coder cannot mark production accepted, release-ready, or done solely from implementation evidence. Preserve BLOCKED/NOT ACCEPTED FOR PRODUCTION until the required canary, terminal receipt, and release authority evidence exist.",
     `Budget discipline: you have a discovery budget of ${complexity.discovery_budget} exploration calls. The next action after identifying the target and relevant context is edit_diff or write_diff; do not spend the full budget by default. Every discovery result includes discovery_budget.remaining — start editing before it reaches 0. Productive discovery may receive one bounded extension. Re-read nothing you already read; prefer edit_diff with an exact anchor over re-reading whole files.`,
-    immutableScope ? "Immutable-manifest search discipline: candidate retrieval is unavailable. Read and edit only approved manifest paths." : "Search discipline: use search_code, Glob and Grep inside approved prefixes, then confirm symbols and file contents with current source. Search using title, objective and acceptance criteria; avoid repeating queries that returned no matches without new evidence.",
-    "Symbol check: if the ticket symbol is missing from the file or its content no longer matches the ticket reason, the file changed since tracing — re-discover via search_code instead of editing blind.",
-    "Tool enforcement: read_file({path}) returns cached metadata, symbol ranges and scoped graph, never source for coders. Read source with Read({file_path,start_line,end_line}), at most 80 lines. If a symbol exceeds 80 lines, read successive ranges. Exploration that yields no new information 3 times in a row is refused by the tool — act on what you have.",
-    "Claude coder may use Forge Read, Glob, and Grep; native built-ins remain disabled. Use the whole-file checksum returned by Read or read_file as before_checksum for write_diff/edit_diff; never send the string \"null\". Use JSON null only when intentionally creating a new file.",
+    immutableScope ? "Immutable-manifest search discipline: candidate retrieval is unavailable. Read and edit only approved manifest paths." : "Search discipline: use search_tree/list_files for paths and search_text for source discovery inside approved prefixes. Search from title, objective and acceptance criteria; avoid repeating queries that returned no matches without new evidence.",
+    "Symbol check: if the expected symbol is missing or changed, rediscover with search_text instead of editing blind.",
+    "Use read_file({path,offset,limit}) or read_lines({path,start_line,end_line}) for source windows of at most 80 lines. Both return current source and the whole-file sha256.",
+    "Claude's built-in tools are disabled. Codex native command, file-change and web tools are blocked for Coder; use only canonical Forge tools. Use the returned checksum as before_checksum for write_diff/edit_diff.",
     "For an existing file, use edit_diff with a small exact anchor and replacement. Use write_diff only for a new file or an existing file within the 250-line limit. If write_diff returns DESTRUCTIVE_OVERWRITE or CONTENT_TOO_LARGE, retry with edit_diff; do not stop or report done.",
     "If a governed tool call fails, fix the inputs and retry — do not continue with write_diff/commit_changes on an unknown target.",
+    "For extra focused checks, commit first and call run_check({type,command}); it returns the final result and a source-bound receipt directly. Final acceptance still uses Node's verification plan. Use push_commit({commit_sha}) only when pushing is requested, with the exact latest ticket commit SHA.",
     "Mandatory completion sequence: call commit_changes with a concise message and no paths, then call report_done with a summary and any scope rationale or human evidence. Node derives commit paths, runs the listed verification plan, and attaches criterion IDs, changed files, and command evidence. Do not call Reviewer tools or submit finding resolutions. Stop after the report."
   ].join("\n");
 }

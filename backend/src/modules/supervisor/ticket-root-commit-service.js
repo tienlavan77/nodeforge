@@ -19,7 +19,7 @@ export function createTicketRootCommitService({ taskId, projectId, projectRoot, 
   const journalPath = (revision) => `.forge/runtime/ticket-root-commits/${key(projectId)}/${key(taskId)}-${revision}.json`;
   const dispositionPath = (revision) => `.forge/runtime/ticket-root-commits/${key(projectId)}/${key(taskId)}-${revision}-disposition.json`;
   const retryPath = (revision) => `.forge/runtime/ticket-root-commits/${key(projectId)}/${key(taskId)}-${revision}-retry.json`;
-  return Object.freeze({ rootOnly: true, commit, reconcileNoRefMove, status: gitService.status, diffWorkingTree: gitService.diffWorkingTree, diffPatchFrom,
+  return Object.freeze({ rootOnly: true, commit, reconcileNoRefMove, pushCommit: gitService.pushCommit, status: gitService.status, diffWorkingTree: gitService.diffWorkingTree, diffPatchFrom,
     getHead: gitService.getHead, getCommitParent: gitService.getCommitParent, getChangedFiles: gitService.getChangedFiles, getCommitsForTask, assertAncestor: rootGit.assertAncestor });
 
   // Reports only commits proven by this ticket's durable ledger receipts.
