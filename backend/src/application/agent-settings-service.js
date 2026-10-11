@@ -110,7 +110,7 @@ export function createAgentSettingsService({ profiles, configuration, gateway, c
     const role = input?.role ?? current?.role;
     const resolvedRole = normalizeRole(role);
     const resolvedId = current?.agent_id ?? resolveAgentId(input?.agent_id, resolvedRole);
-    const enabled = input?.enabled === true;
+    const enabled = input?.enabled === undefined ? current?.enabled === true : input.enabled === true;
     const status = normalizeStatus(input?.status ?? current?.status ?? (enabled ? "ready" : "not_connected"));
     const profile = {
       agent_id: resolvedId,
@@ -123,6 +123,7 @@ export function createAgentSettingsService({ profiles, configuration, gateway, c
       status,
       provider: input?.provider ?? current?.provider ?? "codex",
       model: input?.model ?? current?.model ?? "",
+      tool_mode: input?.tool_mode ?? current?.tool_mode ?? "forge",
       ...(input?.reasoning ?? current?.reasoning ? { reasoning: input?.reasoning ?? current?.reasoning } : {}),
       ...(input?.use_responses ?? current?.use_responses !== undefined ? { use_responses: input?.use_responses ?? current?.use_responses } : {}),
       ...(input?.use_previous_response_id ?? current?.use_previous_response_id !== undefined ? { use_previous_response_id: input?.use_previous_response_id ?? current?.use_previous_response_id } : {}),
@@ -159,6 +160,8 @@ function validateAgent(profile) {
   if (profile.use_responses !== undefined && typeof profile.use_responses !== "boolean") throw new ConfigurationError("use_responses must be boolean.");
   if (profile.use_previous_response_id !== undefined && typeof profile.use_previous_response_id !== "boolean") throw new ConfigurationError("use_previous_response_id must be boolean.");
   if (!["coder", "reviewer", "sprint_leader", "architecture_manager", "system_engineer", "linguist"].includes(profile.role)) throw new ConfigurationError("Role is invalid.");
+  if (!["forge", "builtin"].includes(profile.tool_mode ?? "forge")) throw new ConfigurationError("Tool mode is invalid.");
+  if (profile.tool_mode === "builtin" && (profile.role !== "system_engineer" || !["codex", "claude", "anthropic"].includes(profile.provider))) throw new ConfigurationError("Built-in tool mode requires a Codex or Claude System Engineer.");
   normalizeTeam(profile.team);
 }
 

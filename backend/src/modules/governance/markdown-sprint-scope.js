@@ -19,7 +19,7 @@ export function readMarkdownSprintScope(markdown) {
     const [position, title, implementationType, objective, dependencyText, budgetText, acceptanceText] = cells;
     const budget = Number(String(budgetText ?? "").match(/\b(\d+)\s*files?\b/i)?.[1]);
     const acceptanceCriteria = String(acceptanceText ?? "").split(";").map((value) => value.trim()).filter(Boolean);
-    if (cells.length !== 7 || Number(position) !== index + 1 || !title || !objective || !dependencyText || !acceptanceCriteria.length || hasUnfilledPlaceholder(cells.join(" ")) || !["frontend", "backend", "security"].includes(implementationType) || !Number.isInteger(budget) || budget < 1 || budget > 4) throw fail(`Approved Markdown work group ${index + 1} is incomplete or invalid.`);
+    if (cells.length !== 7 || Number(position) !== index + 1 || !title || !objective || !dependencyText || !acceptanceCriteria.length || hasUnfilledPlaceholder(cells.join(" ")) || !["frontend", "backend", "security"].includes(implementationType) || !Number.isInteger(budget) || budget < 1) throw fail(`Approved Markdown work group ${index + 1} is incomplete or invalid.`);
     return { position: index + 1, title, objective, dependency_labels: /^[—–-]$|^none$/i.test(dependencyText) ? [] : dependencyText.split(/[,;]/).map((value) => value.trim()), implementation_type: implementationType, file_budget: budget, acceptance_criteria: acceptanceCriteria };
   });
 }
@@ -137,7 +137,7 @@ function assertOutcomeSprintScope(outcomes, sprint) {
   const covered = new Set();
   const edges = new Map(ids.map((id) => [id, []]));
   for (const ticket of tickets) {
-    if (typeof ticket.title !== "string" || !ticket.title.trim() || typeof ticket.objective !== "string" || !ticket.objective.trim() || !Array.isArray(ticket.implementation_type) || ticket.implementation_type.length !== 1 || !["frontend", "backend", "security"].includes(ticket.implementation_type[0]) || !Number.isInteger(ticket.file_budget) || ticket.file_budget < 1 || ticket.file_budget > 4 || !Array.isArray(ticket.acceptance_criteria) || !ticket.acceptance_criteria.length || ticket.acceptance_criteria.some((item) => typeof item !== "string" || !item.trim())) throw fail(`Sprint ticket ${ticket.id} is incomplete or exceeds its file budget.`);
+    if (typeof ticket.title !== "string" || !ticket.title.trim() || typeof ticket.objective !== "string" || !ticket.objective.trim() || !Array.isArray(ticket.implementation_type) || ticket.implementation_type.length !== 1 || !["frontend", "backend", "security"].includes(ticket.implementation_type[0]) || !Number.isInteger(ticket.file_budget) || ticket.file_budget < 1 || !Array.isArray(ticket.acceptance_criteria) || !ticket.acceptance_criteria.length || ticket.acceptance_criteria.some((item) => typeof item !== "string" || !item.trim())) throw fail(`Sprint ticket ${ticket.id} is incomplete or has an invalid file budget.`);
     if (ticket.verification_plan !== undefined) try { assertTicketVerificationContract(ticket); } catch (error) { throw fail(`Sprint ticket ${ticket.id} has an invalid verification plan: ${error.message}`); }
     if (!Array.isArray(ticket.outcome_refs) || !ticket.outcome_refs.length || ticket.outcome_refs.some((code) => !codes.has(code)) || new Set(ticket.outcome_refs).size !== ticket.outcome_refs.length) throw fail(`Sprint ticket ${ticket.id} must cite approved outcome IDs.`);
     for (const code of ticket.outcome_refs) {

@@ -2,6 +2,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { ConfigurationError } from "../shared/errors.js";
 import { readMarkdownSprintScope } from "../modules/governance/markdown-sprint-scope.js";
+import { createPlanWithDiagnostics } from "./plan-request-diagnostics.js";
 
 const SUMMARY_RE = /^\/summary\s*$/i;
 const PLAN_RE = /^\/plan\s+(\S+)\s*$/i;
@@ -17,7 +18,7 @@ const DISCOVERY_COMPLETE_RE = /(?:discovery complete|repository discovery comple
 const DISCOVERY_UNVERIFIED_RE = /(?:assumption|unverified|unknown|uncertain)/i;
 
 // Creates the command handler bound to one project and its immutable plan store.
-export function createOwnerChatCommandService({ projectId, fileService, communications, planStore, markdownPlanStore, handoffApprovedPlan, sprintRegistry } = {}) {
+export function createOwnerChatCommandService({ projectId, fileService, communications, planStore, markdownPlanStore, handoffApprovedPlan, sprintRegistry, planRequests, publishPlanEvent } = {}) {
   if (!projectId || !fileService?.readFile || !fileService?.atomicCreate || !planStore?.createRevision || !planStore?.assertExecutable) throw new ConfigurationError("Owner command service is not configured.");
   return Object.freeze({ execute, isCommand });
 
@@ -30,7 +31,8 @@ export function createOwnerChatCommandService({ projectId, fileService, communic
     const value = String(text ?? "").trim();
     if (SUMMARY_RE.test(value)) return createSummary({ conversationId, requestArchitecture });
     const planMatch = value.match(PLAN_RE);
-    if (planMatch) return createPlan({ summaryId: planMatch[1], conversationId, requestArchitecture });
+    if (planMatch) return createPlanWithDiagnostics({ projectId, planRequests, publishPlanEvent,
+      createPlan: () => createPlan({ summaryId: planMatch[1], conversationId, requestArchitecture }) });
     const approveMatch = value.match(APPROVE_RE);
     if (approveMatch) return approvePlan({ planId: approveMatch[1], conversationId, approvedOwnerId, approvalRevision, approvalSha256, approvalComments });
     throw fail("COMMAND_INVALID", "Supported commands are /summary, /plan <id-file>, and /approve <plan_id>.");

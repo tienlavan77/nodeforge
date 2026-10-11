@@ -4,6 +4,7 @@
 import { monitorAgentActivities } from "../lib/monitor-agent-activities.js";
 import { SprintPlanDashboard } from "./sprint-plan-panels.jsx";
 import { CodingSprintDashboardState } from "./coding-sprint-dashboard-state.js";
+import { CodingArchitecturePlans } from "./coding-architecture-plans.jsx";
 
 const WORKSPACE_AGENT_ROLES = ["coder", "reviewer"];
 
@@ -18,12 +19,13 @@ function activeWorkspaceAgents(activities, agents) {
 }
 
 // Render the legacy Sprint Plan experience alongside active Coding workspace agents.
-export function CodingWorkspaceMonitor({ dashboard, dashboardState, client, onRefresh, onSprintDeleted, onTicketDeleted, agentActivities = [], agentDirectory = [] }) {
+export function CodingWorkspaceMonitor({ planEvents, projectId, dashboard, dashboardState, client, onRefresh, onSprintDeleted, onTicketDeleted, agentActivities = [], agentDirectory = [] }) {
   const agentNames = new Map(agentDirectory.map((agent) => [agent.agent_id ?? agent.id, agent.agent_name ?? agent.name ?? agent.agent_id ?? agent.id]));
   const activeAgents = activeWorkspaceAgents(agentActivities, agentDirectory);
   return <main className="coding-workspace-monitor" aria-label="Coding workspace monitor">
     <section className="coding-workspace-column coding-sprint-plan" aria-labelledby="coding-sprint-plan-heading">
       <h1 id="coding-sprint-plan-heading">Sprint Plan</h1>
+      {projectId && <CodingArchitecturePlans planEvents={planEvents} client={client} projectId={projectId} onHandoffCompleted={onRefresh} />}
       <CodingSprintDashboardState state={dashboardState ?? { status: "ready", dashboard }} onRetry={() => onRefresh?.({ manual: true })}>
         <SprintPlanDashboard dashboard={dashboard} client={client} onRefresh={onRefresh} onSprintDeleted={onSprintDeleted} onTicketDeleted={onTicketDeleted} hideHeading defaultCollapsed />
       </CodingSprintDashboardState>

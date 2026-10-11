@@ -3,6 +3,19 @@ import test from "node:test";
 
 import { createClaudeSdkGateway } from "../../src/modules/agent/claude-sdk-gateway.js";
 
+// Applies saved owner effort settings to both new and resumed Claude sessions.
+test("uses profile effort and allows explicit task overrides on resume", async () => {
+  for (const effort of ["low", "medium", "high"]) {
+    let request;
+    const gateway = createClaudeSdkGateway({ configuration: { getById: () => ({ ...profile(), reasoning: { effort } }) }, credentialResolver: () => "secret", terminalOutput: { write() {} }, queryFn: ({ options }) => { request = options; return query([]); } });
+    await gateway.execute({ agentId: "coder", correlationId: "EFFORT", prompt: "Inspect", resumeSessionId: "SESSION" });
+    assert.equal(request.effort, effort);
+    assert.equal(request.resume, "SESSION");
+    await gateway.execute({ agentId: "coder", correlationId: "OVERRIDE", prompt: "Inspect", options: { effort: "high" } });
+    assert.equal(request.effort, "high");
+  }
+});
+
 test("executes the selected agent through a third-party gateway", async () => {
   let request;
   const gateway = createClaudeSdkGateway({

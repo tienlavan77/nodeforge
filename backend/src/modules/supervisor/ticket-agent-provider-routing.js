@@ -17,12 +17,14 @@ export async function selectTicketCoder({ resolver, occupancy, ticket, taskId, o
       : pinnedId ? resolver.list?.("coder")?.find((profile) => profile.agent_id === pinnedId && profile.enabled && profile.role === "coder" && (profile.status === "ready" || existing?.agent_id === pinnedId && profile.status === "working"))
         : resolver.resolveAvailable(role);
   if (pinnedId && selected?.agent_id !== pinnedId) throw unavailable("Coder");
+  if (!resume && selected?.role === "coder") assertEngineeringProvider(selected);
   if (!occupancy || role !== "coder") return { selected, claim: null };
   if (pinnedId && existing && existing.agent_id !== pinnedId) throw unavailable("Coder");
   const candidates = existing ? [existing.agent_id] : pinnedId || resume ? [selected?.agent_id]
     : [selected?.agent_id, ...(resolver.list?.("coder") ?? []).filter((profile) => profile.enabled && profile.status === "ready").map((profile) => profile.agent_id)];
   for (const agentId of [...new Set(candidates.filter(Boolean))]) {
     if (payload.resume_from?.agent_id && agentId !== payload.resume_from.agent_id) continue;
+    if (!resume) assertEngineeringProvider(resolver.list?.("coder")?.find((profile) => profile.agent_id === agentId) ?? selected);
     const claim = await occupancy.claim({ agentId, taskId, supervisorId: ownerId });
     if (claim) {
       if (pinnedId && claim.agent_id !== pinnedId) throw unavailable("Coder");
@@ -48,6 +50,12 @@ export function selectDirectCoder(resolver, checkpoint) {
   const providers = new Set(["codex", "claude", "anthropic"]);
   return (resolver.list?.("coder") ?? []).filter((profile) => profile.enabled && profile.status === "ready" && providers.has(profile.provider) && (!checkpoint || profile.agent_id === checkpoint.agent_id && profile.provider === checkpoint.provider))
     .sort((left, right) => String(left.created_at ?? "").localeCompare(String(right.created_at ?? "")) || String(left.agent_id).localeCompare(String(right.agent_id)))[0];
+}
+
+// Blocks unsupported Coder tool transports before occupancy claim, queue persistence or provider launch.
+export function assertEngineeringProvider(profile) {
+  const provider = String(profile?.provider ?? "").toLowerCase();
+  if (!["claude", "anthropic", "codex"].includes(provider)) throw Object.assign(new ConfigurationError(`Coder provider ${provider || "<missing>"} has no governed engineering tool transport.`), { code: "ENGINEERING_PROVIDER_UNSUPPORTED" });
 }
 
 // Selects profiles that use the OpenAI SDK greeting flow.

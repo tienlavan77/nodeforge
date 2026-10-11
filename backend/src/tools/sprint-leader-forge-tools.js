@@ -18,8 +18,8 @@ export function createSprintLeaderForgeTools({ projectRoot, fileService, codeSea
   if (!projectRoot || !fileService?.readForIndex || !codeSearch?.search || profile?.role !== "sprint_leader" || !profile.agent_id || !correlationId) throw new ConfigurationError("Sprint Leader Forge tools require a project, code index, profile, and correlation ID.");
   const context = { task_id: correlationId, correlation_id: correlationId, execution_id: correlationId, project_root: projectRoot, allowed_prefixes: [...PREFIXES], agent_identity: { agent_id: profile.agent_id, agent_name: profile.agent_name, role: "sprint_leader", provider: profile.provider }, context_budget: { max_calls: MAX_CALLS, max_bytes: MAX_TOTAL_BYTES, used_calls: 0, used_bytes: 0 } };
   const base = createOwnerConversationTools({ role: "sprint_leader", projectRoot, fileService, codeSearch, projectLogger, context });
-  const selected = base.definitions.filter(({ name }) => name === "search_tree" || name === "read_file");
-  if (selected.length !== 2) throw new ConfigurationError("Sprint Leader read tools are unavailable.");
+  const selected = base.definitions.filter(({ name }) => ["search_tree", "list_files", "search_text", "read_file", "read_lines"].includes(name));
+  if (selected.length !== 5) throw new ConfigurationError("Sprint Leader read tools are unavailable.");
   const codeTool = createSearchCodeTool({ codeSearch, projectLogger });
   const definitions = [...selected, SEARCH_DEFINITION];
   context.capabilities = definitions.map(({ name }) => name);
@@ -42,6 +42,8 @@ export function createSprintLeaderForgeTools({ projectRoot, fileService, codeSea
     if (name === "search_code") for (const match of result.matches) if (typeof match.path === "string") discoveredPaths.add(match.path);
     if (name === "search_tree") for (const entry of result.entries) if (entry.type === "file" && typeof entry.path === "string") discoveredPaths.add(entry.path);
     if (name === "read_file" && typeof result.path === "string") discoveredPaths.add(result.path);
+    if (name === "read_lines" && result.exit_code === 0) discoveredPaths.add(input.path);
+    if (name === "list_files") for (const path of result.stdout.split("\n").filter(Boolean)) discoveredPaths.add(path);
     projectLogger({ timestamp: new Date().toISOString(), event_name: "sprint_leader.tool_call", level: "info", status: "success", message: `Sprint Leader used ${name}.`, task_id: correlationId, correlation_id: correlationId, source: "sprint-leader-forge-tools", payload: { agent_id: profile.agent_id, tool: name, output_bytes: bytes } });
     return result;
   } }]));
