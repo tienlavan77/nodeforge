@@ -11,6 +11,8 @@ import { createReportDoneTool } from "./agent-report-tool.js";
 import { createRespondToReviewTool } from "./respond-to-review-tool.js";
 import { createGitReadTools } from "./git-read-tools.js";
 import { createAgentCommandTools } from "./agent-command-tools.js";
+import { createTicketPushTool } from "./ticket-push-tool.js";
+import { engineeringToolImplementations } from "./engineering-tool-implementations.js";
 import { createClaudeFileTools } from "./claude-file-tools.js";
 import { createRoleFileService } from "../infrastructure/filesystem/file-service-role-policy.js";
 import { resultCount } from "./tool-result-count.js";
@@ -60,6 +62,7 @@ export function createForgeToolRegistry({ protocolStorage, fileService, projectR
   const retrievalBudgets = new Map();
   const lifecycle = {};
   Object.assign(lifecycle, createAgentCommandTools({ projectRoot, fileService, codeSearch, codeCache, projectLogger, wrap }));
+  Object.assign(lifecycle, engineeringToolImplementations({ registry: lifecycle, fileService, wrap }));
   if (fileService?.readForIndex && fileService?.listFiles && fileService?.readFile && fileService?.atomicWrite && fileService?.deleteFile && projectRoot) {
     const scopedFiles = createRoleFileService({ fileService, role: "coder", projectRoot });
     const scopedCache = codeCache && { ...codeCache, read: async ({ path }) => { await scopedFiles.assertReadPath(path); return codeCache.read({ path }); } };
@@ -72,7 +75,12 @@ export function createForgeToolRegistry({ protocolStorage, fileService, projectR
   }
   if (testService?.startTests) lifecycle.run_test = wrap(createRunTestTool({ testService }), "run_test");
   if (testService?.getTestResult) lifecycle.check_test = wrap(createCheckTestTool({ testService }), "check_test");
+  if (testService?.runCheck) lifecycle.run_check = wrap({
+    // Runs the shared focused-check contract through the ticket's verification service.
+    execute: async (input, context) => testService.runCheck({ ...input, taskId: context.task_id, sessionId: context.session_id, signal: context.abortSignal })
+  }, "run_check");
   if (gitService?.commit) lifecycle.commit_changes = wrap(createCommitChangesTool({ gitService, changeLedger, logger: { emit: projectLogger } }), "commit_changes", false);
+  if (gitService?.pushCommit && changeLedger?.snapshot && executionContexts?.load) lifecycle.push_commit = wrap(createTicketPushTool({ gitService, changeLedger, executionContexts }), "push_commit");
   if (gitService?.status && gitService?.diffWorkingTree) {
     const gitReadTools = createGitReadTools({ gitService, logger: { emit: projectLogger } });
     lifecycle.git_status = wrap(gitReadTools.git_status, "git_status", false);

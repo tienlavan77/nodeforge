@@ -35,11 +35,15 @@ export function createClaudeSdkGateway({
     abortSignal?.addEventListener("abort", stop, { once: true });
     if (abortSignal?.aborted) stop();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    const { canUseTool, onBuiltinToolEvent, ...cloneableOptions } = options;
+    const { canUseTool, onBuiltinToolEvent, onTextDelta, hooks, ...cloneableOptions } = options;
     delete cloneableOptions.mcpServers;
     delete cloneableOptions.forgeTools;
+    const effort = options.effort ?? config.reasoning?.effort;
+    if (effort !== undefined && !["none", "low", "medium", "high", "xhigh", "max"].includes(effort)) throw new ConfigurationError("Claude SDK reasoning effort is invalid.");
     const queryOptions = {
       ...structuredClone(cloneableOptions),
+      ...(effort === "none" ? { thinking: { type: "disabled" } } : effort ? { effort } : {}),
+      ...(hooks ? { hooks } : {}),
       ...(typeof canUseTool === "function" ? { canUseTool } : {}),
       abortController: controller,
       cwd: cwd ?? options.cwd ?? process.cwd(),
@@ -57,7 +61,7 @@ export function createClaudeSdkGateway({
     let sessionId = resumeSessionId ?? null;
     let notified = false;
     const builtinSearchCalls = new Map();
-    writeTerminal(`START ${config.agent_name ?? config.agent_id} (${config.provider ?? "claude"}) model=${config.model ?? options.model ?? "default"} correlation=${correlationId}`);
+    writeTerminal(`START ${config.agent_name ?? config.agent_id} (${config.provider ?? "claude"}) model=${config.model ?? options.model ?? "default"} effort=${effort ?? "default"} correlation=${correlationId}`);
     const notify = (id) => {
       if (notified || !id || typeof onSessionReady !== "function") return;
       notified = true;
@@ -70,6 +74,7 @@ export function createClaudeSdkGateway({
         const clean = sanitize(message, credential);
         messages.push(clean);
         reportBuiltinToolEvents(clean, onBuiltinToolEvent, builtinSearchCalls);
+        if (clean.type === "stream_event" && clean.event?.type === "content_block_delta" && clean.event.delta?.type === "text_delta") onTextDelta?.(clean.event.delta.text);
         const sid = clean?.session_id ?? null;
         if (sid && !sessionId) sessionId = sid;
         if (sid) notify(sid);
@@ -113,9 +118,9 @@ export function createClaudeSdkGateway({
   function reportBuiltinToolEvents(message, callback, calls) {
     if (typeof callback !== "function" || !Array.isArray(message?.message?.content)) return;
     for (const block of message.message.content) {
-      if (message.type === "assistant" && block?.type === "tool_use" && ["Glob", "Grep"].includes(block.name)) {
+      if (message.type === "assistant" && block?.type === "tool_use" && ["Glob", "Grep", "Read", "Write", "Edit", "Bash", "WebSearch"].includes(block.name)) {
         calls.set(block.id, block.name);
-        callback({ tool: block.name, status: "started", path: typeof block.input?.path === "string" ? block.input.path : "." });
+        callback({ tool: block.name, status: "started", path: block.input?.file_path ?? block.input?.path, command: block.input?.command });
       } else if (message.type === "user" && block?.type === "tool_result") {
         const tool = calls.get(block.tool_use_id) ?? "search";
         calls.delete(block.tool_use_id);

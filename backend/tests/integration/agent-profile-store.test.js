@@ -30,6 +30,18 @@ test("creates, updates, queries, and reloads immutable Agent Profiles without pl
   } finally { await database?.close(); await rm(root, { recursive: true, force: true }); }
 });
 
+// Keeps composer settings valid in the actual persisted profile schema.
+test("persists provider, model, effort and tool mode and rejects unknown properties", () => {
+  const store = createAgentProfileStore();
+  const first = store.create({ ...profile("44444444-4444-4444-8444-444444444444", "system_engineer", "env:ENGINEER_KEY"), provider: "codex", model: "gpt-6.1-sol", reasoning: { effort: "high" }, tool_mode: "builtin", use_responses: true });
+  assert.equal(first.reasoning.effort, "high");
+  const updated = store.update({ ...first, provider: "claude", model: "claude-opus-4-6", reasoning: { effort: "low" }, tool_mode: "forge" });
+  assert.equal(store.getById(first.agent_id).reasoning.effort, "low");
+  assert.equal(updated.provider, "claude");
+  assert.throws(() => store.update({ ...updated, reasoning: { effort: "invalid" } }), /Invalid Agent Profile/);
+  assert.throws(() => store.update({ ...updated, unknown_setting: true }), /Invalid Agent Profile/);
+});
+
 test("rejects invalid profiles and unknown updates", () => {
   const store = createAgentProfileStore();
   assert.throws(() => store.create(profile("runtime", "coder", "env:RUNTIME_KEY")), /Invalid Agent Profile/);

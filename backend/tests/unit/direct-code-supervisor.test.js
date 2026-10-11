@@ -44,7 +44,8 @@ for (const provider of ["codex", "claude"]) {
     } else {
       assert.deepEqual(received.options.tools, []);
       assert.ok(received.options.mcpServers.forge);
-      assert.ok(received.options.allowedTools.includes("mcp__forge__Glob"));
+      assert.ok(received.options.allowedTools.includes("mcp__forge__list_files"));
+      assert.equal(received.options.allowedTools.includes("mcp__forge__Glob"), false);
       assert.equal(received.options.allowedTools.includes("mcp__forge__select_code_graph_candidates"), false);
       assert.doesNotMatch(received.prompt, /select_code_graph_candidates/);
     }

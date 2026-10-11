@@ -5,6 +5,49 @@ import { join } from "node:path";
 import test from "node:test";
 import { createCodexSdkGateway, normalizeBaseUrl } from "../../src/modules/agent/codex-sdk-gateway.js";
 
+// Keeps native permission profiles effective by omitting legacy sandbox CLI overrides.
+test("native permission profile omits legacy sandbox and network flags", async () => {
+  let threadOptions;
+  const gateway = createCodexSdkGateway({
+    configuration: { getById: () => ({ agent_id: "native-engineer", role: "system_engineer", gateway_url: "https://gateway.test/v1", credential_ref: "secret", enabled: true, status: "ready" }) },
+    credentialResolver: () => "key",
+    CodexClass: class {
+      startThread(options) { threadOptions = options; return { id: "T", runStreamed: async () => ({ events: (async function* () { yield { type: "turn.completed" }; })() }) }; }
+    }
+  });
+  await gateway.execute({ agentId: "native-engineer", prompt: "Inspect", correlationId: "C", options: { usePermissionProfile: true, config: { default_permissions: "engineer" } } });
+  assert.equal(Object.hasOwn(threadOptions, "sandboxMode"), false);
+  assert.equal(Object.hasOwn(threadOptions, "networkAccessEnabled"), false);
+});
+
+// Preserves the real startup failure when SDK exit stderr contains only a stdin notice.
+test("preserves streamed failure instead of replacing it with generic process exit", async () => {
+  const gateway = createCodexSdkGateway({
+    configuration: { getById: () => ({ agent_id: "failure-probe", gateway_url: "https://gateway.test", credential_ref: "secret", enabled: true, status: "ready" }) },
+    credentialResolver: () => "key",
+    CodexClass: class {
+      startThread() { return { id: "T", runStreamed: async () => ({ events: (async function* () { yield { type: "turn.failed", error: { message: "Sandbox initialization failed" } }; throw new Error("Codex Exec exited with code 1: Reading prompt from stdin..."); })() }) }; }
+    }
+  });
+  await assert.rejects(gateway.execute({ agentId: "failure-probe", prompt: "Inspect", correlationId: "C" }), /Sandbox initialization failed/);
+});
+
+// Keeps multiline startup diagnostics visible through the public first-line error formatter.
+test("includes actual startup error on the first line instead of the stdin banner", async () => {
+  const gateway = createCodexSdkGateway({
+    configuration: { getById: () => ({ agent_id: "startup-probe", gateway_url: "https://gateway.test", credential_ref: "secret", enabled: true, status: "ready" }) },
+    credentialResolver: () => "key",
+    CodexClass: class {
+      startThread() { return { runStreamed: async () => { throw new Error("Codex Exec exited with code 1: Reading prompt from stdin...\nError: sandbox helper failed: Operation not permitted"); } }; }
+    }
+  });
+  await assert.rejects(gateway.execute({ agentId: "startup-probe", prompt: "Inspect", correlationId: "C" }), (error) => {
+    assert.match(error.message, /sandbox helper failed: Operation not permitted/);
+    assert.doesNotMatch(error.message, /Reading prompt|\n/);
+    return true;
+  });
+});
+
 test("normalizes Codex gateway URLs", () => {
   assert.equal(normalizeBaseUrl("https://gateway.example.test"), "https://gateway.example.test/v1");
   assert.equal(normalizeBaseUrl("https://gateway.example.test/v1/responses"), "https://gateway.example.test/v1");
@@ -29,6 +72,10 @@ test("runs a ticket through Codex SDK with repository controls", async () => {
   const result = await gateway.execute({ agentId: "codex-1", correlationId: "CORR-1", cwd: "/repo", prompt: "Implement ticket" });
   assert.equal(codexOptions.apiKey, "gateway-key");
   assert.equal(codexOptions.baseUrl, "https://gateway.test/v1");
+  assert.equal(codexOptions.config.model_provider, "nodeforge");
+  assert.equal(codexOptions.config.model_providers.nodeforge.supports_websockets, false);
+  assert.equal(codexOptions.config.model_providers.nodeforge.wire_api, "responses");
+  assert.equal(codexOptions.config.model_providers.nodeforge.env_key, "CODEX_API_KEY");
   assert.equal(threadOptions.workingDirectory, "/repo");
   assert.equal(threadOptions.sandboxMode, "workspace-write");
   assert.equal(threadOptions.approvalPolicy, "never");
@@ -48,7 +95,8 @@ test("forwards role-specific Codex filesystem permissions without changing threa
     }
   });
   await gateway.execute({ agentId: "engineer", correlationId: "CORR-ENGINEER", cwd: "/repo", prompt: "Inspect", options: { sandboxMode: "workspace-write", config: { default_permissions: "audit" }, configOverrides: ['permissions.audit.filesystem={":root"="deny","/repo"="write"}'] } });
-  assert.deepEqual(codexOptions.config, { default_permissions: "audit" });
+  assert.equal(codexOptions.config.default_permissions, "audit");
+  assert.equal(codexOptions.config.model_providers.nodeforge.supports_websockets, false);
   assert.deepEqual(codexOptions.configOverrides, ['permissions.audit.filesystem={":root"="deny","/repo"="write"}']);
 });
 

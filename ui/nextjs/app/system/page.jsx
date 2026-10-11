@@ -1,7 +1,7 @@
 "use client";
 // SystemPage provides a project workspace for System Engineer agents.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { ConversationSidebar } from "../../components/conversation-sidebar.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
@@ -26,6 +26,9 @@ import { WorkspaceMonitorPanels } from "../../components/WorkspaceMonitorPanels.
 import { SystemExecutionControls } from "../../components/system-execution-controls.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { ConversationProjectGit } from "../../components/conversation-project-git.jsx";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+import { SystemToolMode } from "../../components/system-tool-mode.jsx";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { createNodeClient, MESSAGE_INTENTS } from "../../lib/node-client.js";
 import { architectureManagerSelection, writeArchitectureManagerAgent } from "../../lib/architecture-manager-selection.js";
 import { PROJECT_ID } from "../../lib/home-page-constants.js";
@@ -69,6 +72,12 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
   const selectedAgent = systemAgents.find((agent) => agent.id === selectedAgentId) ?? null;
   activeConversationIdRef.current = activeConversationId ?? selectedAgent?.conversation_id ?? selectedAgent?.conversationId ?? null;
   agentDirectoryRef.current = agentDirectory;
+  const [systemInterruption, setSystemInterruption] = useState(0);
+  // Counts terminal conversation failures so recovery controls re-read the durable checkpoint without a page reload.
+  const noteStreamInterruption = useCallback((event) => {
+    const failed = (event?.event_type === "agent.activity" && event?.payload?.activity_type === "failed") || event?.event_type === "conversation.message.failed";
+    if (failed && event?.payload?.conversation_id === activeConversationIdRef.current) setSystemInterruption((current) => current + 1);
+  }, []);
   const { messages, setMessages, messagesLoading, setMessagesLoading, olderLoading, hasOlder, historyError,
     loadConversationMessages, loadEarlierMessages, handleMessageScroll, followLatest } = useConversationMessageHistory({
     client, projectId: PROJECT_ID, chatMessagesRef, agentDirectoryRef, agentDisplayName
@@ -118,7 +127,7 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
   useProjectEventStream({
     client, projectId: PROJECT_ID, activeConversationIdRef, agentDirectoryRef, setMessages, setAgentTyping,
     setWatcherEvents, setWatcherPulseId, setWatcherState, setAgentProcess, setAgentActivities,
-    agentDisplayName
+    agentDisplayName, onProjectEvent: noteStreamInterruption
   });
 
   // Selects the active system conversation and loads its persisted message history.
@@ -177,10 +186,10 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
           <PendingConversationQueue pendingMessages={pendingMessages} onCancel={cancelPendingMessage} />
           <div className="conversation-statusbar">
             <ConversationProjectGit client={client} projectId={PROJECT_ID} />
-            <SystemExecutionControls client={client} projectId={PROJECT_ID} conversationId={activeConversationId} executionId={lastSentRef.current?.conversationId === activeConversationId ? lastSentRef.current.correlationId : messages.findLast((message) => message.from === "owner" && message.correlation_id)?.correlation_id} agentTyping={agentTyping} />
+            <SystemExecutionControls client={client} projectId={PROJECT_ID} conversationId={activeConversationId} executionId={lastSentRef.current?.conversationId === activeConversationId ? lastSentRef.current.correlationId : messages.findLast((message) => message.from === "owner" && message.correlation_id)?.correlation_id} agentTyping={agentTyping} interruptionSignal={systemInterruption} />
           </div>
           <HomeChatComposer onSend={submitMessage} />
-          <p>Requests are sent to the selected system agent.</p>
+          <SystemToolMode key={selectedAgent?.id} agent={selectedAgent} client={client} projectId={PROJECT_ID} busy={agentTyping} onSaved={(saved) => setAgentDirectory((current) => current.map((agent) => (agent.agent_id ?? agent.id) === saved.agent_id ? { ...agent, ...saved } : agent))} />
         </div>
       </section>
     </main>

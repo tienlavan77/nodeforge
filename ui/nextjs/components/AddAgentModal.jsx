@@ -34,6 +34,7 @@ export function AddAgentModal({ title = "Add agent", form, modelOptions, apiKeyM
         <SelectMenu label="Role" name="role" value={form.role} options={roles} openName={openName} setOpenName={setOpenName} onChange={onChange} />
         <SelectMenu label="Team" name="team" value={form.team || "Backend"} options={teams} openName={openName} setOpenName={setOpenName} onChange={onChange} />
         <SelectMenu label="Provider" name="provider" value={form.provider} options={providers} openName={openName} setOpenName={setOpenName} onChange={onChange} />
+        {form.role === "system_engineer" && ["codex", "claude", "anthropic"].includes(form.provider) && <SelectMenu label="Tool mode" name="tool_mode" value={form.tool_mode ?? "forge"} options={[{ value: "forge", label: "Forge tools" }, { value: "builtin", label: "SDK built-in tools" }]} openName={openName} setOpenName={setOpenName} onChange={onChange} />}
         <SelectMenu label="Model" name="model" value={form.model} options={models} openName={openName} setOpenName={setOpenName} onChange={onChange} />
         <label>Gateway URL<input name="gateway_url" value={form.gateway_url} onChange={onChange} required placeholder="https://..." /></label>
         <label>API key<input name="api_key" type="password" value={form.api_key} onChange={onChange} placeholder={apiKeyMasked || "Optional"} /></label>

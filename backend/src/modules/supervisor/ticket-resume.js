@@ -85,7 +85,7 @@ export function checkpointedRegistry({ store, registry, taskId, targetPath, allo
           if (name === "report_done") assertCommitBeforeReport(state, context, labMode);
           if (name === "read_file") assertReadNotRepeated(state.readCache, input);
           result = await tool.execute(input, context);
-          if (selected?.role === "coder" && ["read_file", "Read", "sed_lines"].includes(name) && (input?.path === "workflows/agents/coder/README.md" || input?.file_path === "workflows/agents/coder/README.md" || input?.file_path?.endsWith("/workflows/agents/coder/README.md")) && (name === "sed_lines" ? result?.exit_code === 0 : typeof result?.content === "string")) state.coderRulesRead = true;
+          if (selected?.role === "coder" && ["read_file", "read_lines", "Read", "sed_lines"].includes(name) && (input?.path === "workflows/agents/coder/README.md" || input?.file_path === "workflows/agents/coder/README.md" || input?.file_path?.endsWith("/workflows/agents/coder/README.md")) && (name === "sed_lines" || name === "read_lines" ? result?.exit_code === 0 : typeof result?.content === "string")) state.coderRulesRead = true;
           if (name === "read_file") rememberRead(state.readCache, input, result);
           if (name === "write_diff" || name === "edit_diff") forgetRead(state.readCache, input);
         } catch (error) {
@@ -105,6 +105,7 @@ export function checkpointedRegistry({ store, registry, taskId, targetPath, allo
           allowed_prefixes: allowedPrefixes,
           complexity_level: complexity?.level ?? null,
           execution_context: context?.execution_context ?? null,
+          engineering_catalog_version: context?.engineering_catalog_version ?? null,
           last_tool: name,
           changed_paths: changedSnapshot,
           status: done ? "completed" : "in_progress",

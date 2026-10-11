@@ -42,7 +42,6 @@ export function createReadFileTool({ fileService, codeCache, maxChars = MAX_CONT
     const symbol = markdown || input.symbol === "" ? undefined : input.symbol ?? undefined;
     const requestedOffset = input.offset ?? undefined;
     const requestedLimit = input.limit ?? undefined;
-    if (context.agent_identity?.role === "coder" && (symbol !== undefined || requestedOffset !== undefined || requestedLimit !== undefined)) throw error("INPUT_INVALID", "Coder read_file returns metadata only; use Read or sed_lines with start_line/end_line for source.");
     assertAllowed(path, context); const file = codeCache ? await codeCache.read({ path }) : await fileService.readForIndex({ path });
     if (!file || typeof file.content !== "string") throw error("READ_FAILED", `File could not be read: ${path}`);
     const sha256 = file.sha256 ?? checksum(file.content);
@@ -63,9 +62,7 @@ export function createReadFileTool({ fileService, codeCache, maxChars = MAX_CONT
           notice: lines.length > DOCUMENT_LINE_LIMIT ? `Document continues after line ${DOCUMENT_LINE_LIMIT}; use a line-reading tool for the remainder.` : "Complete Markdown document content." };
       }
       recordRead(context, { path, window: "metadata" });
-      return { ...metadata, notice: context.agent_identity?.role === "coder"
-        ? "Metadata only. Read source with Read({file_path,start_line,end_line}) or sed_lines({path,start_line,end_line}), at most 80 lines."
-        : "Metadata only. To read source, call read_file with symbol or offset/limit (at most 80 lines)." };
+      return { ...metadata, notice: "Metadata only. To read source, call read_file with symbol or offset/limit, or read_lines (at most 80 lines)." };
     }
     let offset = requestedOffset ?? 1;
     let limit = requestedLimit ?? READ_WINDOW_LINE_LIMIT;

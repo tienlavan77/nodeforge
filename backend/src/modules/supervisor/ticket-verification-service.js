@@ -9,6 +9,7 @@ import { materializeTicketArchive } from "./ticket-archive-materialization.js";
 import { buildTicketVerificationPlan, requiresSchemaVerification } from "./ticket-verification-plan.js";
 import { createTicketVerificationRecovery } from "./ticket-verification-recovery.js";
 import { latestTicketVerificationAttempt } from "./ticket-verification-attempts.js";
+import { createTicketFocusedCheck } from "./ticket-focused-check.js";
 
 const ROOT = ".forge/runtime/ticket-verification";
 const POLICY_VERSION = "ticket-verification-v5";
@@ -24,7 +25,9 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
   const jobPath = (id) => `${ROOT}/${taskId}/jobs/${id}.json`;
   const artifactPath = (id) => `${ROOT}/${taskId}/artifacts/${id}.json`;
   const ensurePassedArtifact = createTicketVerificationRecovery({ taskId, executionContexts, assertIdentity, assertPassedArtifact, startTests, getTestResult, maxAttempts: MAX_SAME_REVISION_ATTEMPTS });
-  return Object.freeze({ startTests, getTestResult, loadArtifact, assertPassedArtifact, ensurePassedArtifact, assertCleanWorktree });
+  const runCheck = createTicketFocusedCheck({ taskId, projectRoot, executionContexts, stateFileService, assertIdentity, assertArchiveSource, runCommand, safeOutput });
+  return Object.freeze({ runCheck, startTests, getTestResult, loadArtifact, assertPassedArtifact, ensurePassedArtifact, assertCleanWorktree });
+
   // Starts a durable verification job only after the ticket commit is recorded.
   async function startTests() {
     const context = await executionContexts.load(taskId);
@@ -214,11 +217,11 @@ async function hasSourceChanges(status, worktreeRoot, projectRoot) {
 }
 
 // Executes one argument-vector command with bounded output and no shell.
-function executeCommand({ argv, cwd, tempDir, timeoutMs }) {
+function executeCommand({ argv, cwd, tempDir, timeoutMs, signal }) {
   return new Promise((resolve, reject) => {
     const env = { ...process.env, PWD: cwd, ...(tempDir ? { TMPDIR: tempDir, TMP: tempDir, TEMP: tempDir } : {}) };
     delete env.NODE_TEST_CONTEXT;
-    const child = spawn(argv[0], argv.slice(1), { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(argv[0], argv.slice(1), { cwd, env, signal, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     const stdoutHash = createHash("sha256");

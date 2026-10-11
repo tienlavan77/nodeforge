@@ -1,7 +1,7 @@
 "use client";
 // HomePage presents the NodeForge conversation workspace while preserving its existing project and stream contracts.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { ConversationSidebar } from "../components/conversation-sidebar.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
@@ -16,6 +16,8 @@ import { ArchitectureExecutionControls } from "../components/architecture-execut
 import { ConversationAgentMessageActions, ConversationMessageActions } from "../components/conversation-message-actions.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { ConversationProjectGit } from "../components/conversation-project-git.jsx";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+import { SystemToolMode } from "../components/system-tool-mode.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { PendingConversationQueue, usePendingConversationQueue } from "../components/conversation-pending-queue.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
@@ -68,6 +70,12 @@ export default function HomePage() {
   const selectedArchitectureManager = architectureManagers.find((agent) => agent.id === selectedArchitectureManagerId) ?? null;
   const streamConversationId = activeConversationId ?? selectedArchitectureManager?.conversation_id ?? selectedArchitectureManager?.conversationId ?? null;
   activeConversationIdRef.current = streamConversationId;
+  const [architectureInterruption, setArchitectureInterruption] = useState(0);
+  // Counts terminal conversation failures so recovery controls re-read the durable checkpoint without a page reload.
+  const noteStreamInterruption = useCallback((event) => {
+    const failed = (event?.event_type === "agent.activity" && event?.payload?.activity_type === "failed") || event?.event_type === "conversation.message.failed";
+    if (failed && event?.payload?.conversation_id === activeConversationIdRef.current) setArchitectureInterruption((current) => current + 1);
+  }, []);
   agentDirectoryRef.current = agentDirectory;
   const { messages, setMessages, messagesLoading, setMessagesLoading, olderLoading, hasOlder, historyError,
     loadConversationMessages, loadEarlierMessages, handleMessageScroll, followLatest } = useConversationMessageHistory({
@@ -120,7 +128,7 @@ export default function HomePage() {
   useProjectEventStream({
     client, projectId: PROJECT_ID, activeConversationIdRef, agentDirectoryRef,
     setMessages, setAgentTyping, setWatcherEvents, setWatcherPulseId, setWatcherState,
-    setAgentProcess, setAgentActivities, agentDisplayName
+    setAgentProcess, setAgentActivities, agentDisplayName, onProjectEvent: noteStreamInterruption
   });
 
   // Binds a selected sidebar row to the existing persisted conversation and history lifecycle.
@@ -180,10 +188,10 @@ export default function HomePage() {
           <PendingConversationQueue pendingMessages={pendingMessages} onCancel={cancelPendingMessage} />
           <div className="conversation-statusbar">
             <ConversationProjectGit client={client} projectId={PROJECT_ID} />
-            <ArchitectureExecutionControls client={client} projectId={PROJECT_ID} conversationId={activeConversationId} executionId={lastSentRef.current?.conversationId === activeConversationId ? lastSentRef.current.correlationId : messages.findLast((message) => message.from === "owner" && message.correlation_id)?.correlation_id} agentTyping={agentTyping} />
+            <ArchitectureExecutionControls client={client} projectId={PROJECT_ID} conversationId={activeConversationId} executionId={lastSentRef.current?.conversationId === activeConversationId ? lastSentRef.current.correlationId : messages.findLast((message) => message.from === "owner" && message.correlation_id)?.correlation_id} agentTyping={agentTyping} interruptionSignal={architectureInterruption} />
           </div>
           <HomeChatComposer onSend={submitMessage} />
-          <p>NodeForge can make mistakes. Check important work.</p>
+          <SystemToolMode key={selectedArchitectureManager?.id} agent={selectedArchitectureManager} client={client} projectId={PROJECT_ID} busy={agentTyping} onSaved={(saved) => setAgentDirectory((current) => current.map((agent) => (agent.agent_id ?? agent.id) === saved.agent_id ? { ...agent, ...saved } : agent))} />
         </div>
       </section>
     </main>

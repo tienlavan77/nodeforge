@@ -57,7 +57,7 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
   }
 
   // Reserves a single execution lease for a direct System Engineer turn.
-  async function start({ conversationId, executionId, messageId, provider, promptHash, resumeOf = null, continueAttempt = false }) {
+  async function start({ conversationId, executionId, messageId, provider, promptHash, toolMode = "forge", resumeOf = null, continueAttempt = false }) {
     const claim = await acquireTicketFileLock(fileService, `${root}/${executionDigest(conversationId).slice(0, 32)}.lock`);
     try {
       const previous = await inspect(conversationId);
@@ -74,7 +74,7 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
       if (resumeOf && (!parent || !await reconcile(parent))) throw Object.assign(new ConfigurationError("Previous execution requires manual reconciliation before restart."), { code: "EXECUTION_RECONCILIATION_REQUIRED", statusCode: 409 });
       const started = await update(conversationId, executionId, (current) => {
         if (current) throw Object.assign(new ConfigurationError("Execution already exists."), { statusCode: 409 });
-        return { status: "running", role, provider, message_id: messageId, user_prompt_hash: promptHash, provider_thread_id: null, completed_tool_calls: [...(parent?.completed_tool_calls ?? [])], failed_tool_calls: [...(parent?.failed_tool_calls ?? [])], pending_tool_calls: [...(parent?.pending_tool_calls ?? [])], next_sequence: parent?.next_sequence ?? 1, changed_paths: [...(parent?.changed_paths ?? [])], last_completed_step: parent?.last_completed_step ?? 0, receipts_truncated: parent?.receipts_truncated ?? false, lineage_id: parent?.lineage_id ?? resumeOf ?? executionId, attempt_number: (parent?.attempt_number ?? 0) + 1, resume_of: resumeOf, owner_instance_id: ownerInstanceId, lease_started_at: new Date().toISOString(), heartbeat_at: new Date().toISOString() };
+        return { status: "running", role, provider, tool_mode: toolMode, checkpoint_kind: toolMode === "builtin" ? "sdk_session" : "forge_receipts", message_id: messageId, user_prompt_hash: promptHash, provider_thread_id: null, completed_tool_calls: [...(parent?.completed_tool_calls ?? [])], failed_tool_calls: [...(parent?.failed_tool_calls ?? [])], pending_tool_calls: [...(parent?.pending_tool_calls ?? [])], next_sequence: parent?.next_sequence ?? 1, changed_paths: [...(parent?.changed_paths ?? [])], last_completed_step: parent?.last_completed_step ?? 0, receipts_truncated: parent?.receipts_truncated ?? false, lineage_id: parent?.lineage_id ?? resumeOf ?? executionId, attempt_number: (parent?.attempt_number ?? 0) + 1, resume_of: resumeOf, owner_instance_id: ownerInstanceId, lease_started_at: new Date().toISOString(), heartbeat_at: new Date().toISOString() };
       });
       if (resumeOf) await close(conversationId, resumeOf, "restarted");
       return started;

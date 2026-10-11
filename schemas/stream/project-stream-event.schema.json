@@ -42,7 +42,7 @@
         "agent.status_changed",
         "agent.checkpoint.updated",
         "agent.activity",
-        "stream.error"
+        "stream.error", "plan.request.generating", "plan.request.persisted", "plan.request.failed"
       ]
     },
     "schema_version": {
@@ -74,6 +74,9 @@
     }
   },
   "allOf": [
+    {"if": {"properties": {"event_type": {"const": "plan.request.generating"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/plan_generating_payload"}}}},
+    {"if": {"properties": {"event_type": {"const": "plan.request.persisted"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/plan_persisted_payload"}}}},
+    {"if": {"properties": {"event_type": {"const": "plan.request.failed"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/plan_failed_payload"}}}},
     {"if": {"properties": {"event_type": {"const": "stream.connected"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/connected_payload"}}}},
     {"if": {"properties": {"event_type": {"const": "stream.snapshot"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/snapshot_payload"}}}},
     {"if": {"properties": {"event_type": {"const": "watcher.file_indexed"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/indexed_file_payload"}}}},
@@ -87,6 +90,9 @@
     ,{"if": {"properties": {"event_type": {"const": "agent.activity"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/agent_activity_payload"}}}}
   ],
   "$defs": {
+    "plan_generating_payload": {"type": "object", "additionalProperties": false, "required": ["request_id"], "properties": {"request_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"}}},
+    "plan_persisted_payload": {"type": "object", "additionalProperties": false, "required": ["request_id", "plan_id", "revision", "sha256"], "properties": {"request_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"}, "plan_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"}, "revision": {"type": "integer", "minimum": 1}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}},
+    "plan_failed_payload": {"type": "object", "additionalProperties": false, "required": ["request_id", "error_code"], "properties": {"request_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"}, "error_code": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,79}$"}}},
     "file": {
       "type": "object",
       "additionalProperties": false,

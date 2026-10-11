@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { awaitingOwnerExecutionRecovery, watchOwnerExecutionRecovery } from "../lib/owner-execution-recovery.js";
 
 // Shows durable execution status and requires a second Escape key press to pause active work.
-export function SystemExecutionControls({ client, projectId, conversationId, executionId, agentTyping }) {
+export function SystemExecutionControls({ client, projectId, conversationId, executionId, agentTyping, interruptionSignal = 0 }) {
   const [executions, setExecutions] = useState([]);
   const [, setHint] = useState("");
   const [error, setError] = useState("");
@@ -34,7 +34,7 @@ export function SystemExecutionControls({ client, projectId, conversationId, exe
     };
     void refresh();
     return () => { mounted = false; };
-  }, [client, projectId, conversationId]);
+  }, [client, projectId, conversationId, interruptionSignal]);
 
   const awaitingStop = awaitingOwnerExecutionRecovery(current);
   useEffect(() => {

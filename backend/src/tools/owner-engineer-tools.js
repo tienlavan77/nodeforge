@@ -59,16 +59,16 @@ export function createOwnerEngineerTools({ testService, gitService, conversation
   }
 }
 
-const runCheckDefinition = definition("run_check", "Run one explicitly scoped check through the Node Verification Service and return its final result.", {
+export const runCheckDefinition = definition("run_check", "Run one explicitly scoped check through the Node Verification Service and return its final result.", {
   type: "object", additionalProperties: false, required: ["type", "command"], properties: {
     type: { type: "string", enum: ["test", "lint", "typecheck", "build"] },
     command: { type: "string", minLength: 1, maxLength: 1000, description: "Required focused project check. Specify changed test/file paths; no shell chaining, substitutions, or absolute paths." }
   }
 });
-const commitChangesDefinition = definition("commit_changes", "Commit only files changed through this conversation's Forge edit tools, excluding internal workflows documents.", {
+export const commitChangesDefinition = definition("commit_changes", "Commit only files changed through this conversation's Forge edit tools, excluding internal workflows documents.", {
   type: "object", additionalProperties: false, required: ["message"], properties: { message: { type: "string", minLength: 1, maxLength: 200 } }
 });
-const pushCommitDefinition = definition("push_commit", "Push the exact commit created by commit_changes to the configured project remote.", {
+export const pushCommitDefinition = definition("push_commit", "Push the exact commit created by commit_changes to the configured project remote.", {
   type: "object", additionalProperties: false, required: ["commit_sha"], properties: { commit_sha: { type: "string", pattern: "^[a-fA-F0-9]{40,64}$" } }
 });
 
@@ -76,7 +76,7 @@ const pushCommitDefinition = definition("push_commit", "Push the exact commit cr
 function definition(name, description, inputSchema) { return Object.freeze({ name, description, input_schema: inputSchema }); }
 
 // Restricts shell syntax and executables before delegating the check to Node's verification service.
-function validateCheckCommand(command, type) {
+export function validateCheckCommand(command, type) {
   if (typeof command !== "string" || !command.trim() || /[\0\r\n;&|<>`$]/.test(command) || /(^|\s)(?:\/|[A-Za-z]:\\)/.test(command) || /(^|\s)\.\.(?:\/|\s|$)/.test(command)) throw invalid("Check command contains shell syntax or a path outside the project.");
   const allowed = /^(?:node --test(?:\s|$)|pnpm (?:test|lint|typecheck|build|validate:schemas|exec (?:eslint|tsc|vitest|jest|mocha)(?:\s|$)|--filter [A-Za-z0-9@/._-]+ (?:test|lint|typecheck|build)(?:\s|$)|--dir [A-Za-z0-9._/-]+ (?:build|run (?:test|lint|typecheck|build))(?:\s|$))|npm (?:test|run (?:test|lint|typecheck|build|validate:schemas)(?:\s|$)))/;
   if (!allowed.test(command.trim())) throw invalid("Check command must use an approved Node, pnpm, or npm project check.");

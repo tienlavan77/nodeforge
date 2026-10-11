@@ -2,6 +2,22 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createAgentSettingsService } from "../../src/application/agent-settings-service.js";
 
+// Persists direct engineering tool selection while rejecting unsupported roles and providers.
+test("agent settings preserve SE tool mode and validate native provider support", () => {
+  let profile;
+  const profiles = { getById: () => profile, getAll: () => profile ? [profile] : [], create: (value) => (profile = value), update: (value) => (profile = value), delete: () => true };
+  const service = createAgentSettingsService({ profiles, configuration: { sync() {} }, gateway: { testConnection: async () => ({ status: "CONNECTED" }) } });
+  const input = { agent_id: "55555555-5555-4555-8555-555555555555", agent_name: "Engineer", role: "system_engineer", provider: "codex", gateway_url: "https://gateway.test", enabled: true };
+  assert.equal(service.save(input).tool_mode, "forge");
+  assert.equal(service.save({ ...input, tool_mode: "builtin" }).tool_mode, "builtin");
+  assert.equal(service.save({ ...input, agent_name: "Updated" }).tool_mode, "builtin");
+  for (const patch of [{ role: "coder" }, { provider: "ollama" }, { tool_mode: "other" }]) assert.throws(() => service.save({ ...input, tool_mode: "builtin", ...patch }));
+  assert.equal(service.save({ ...input, provider: "claude", tool_mode: "builtin" }).tool_mode, "builtin");
+  const partial = service.save({ agent_id: input.agent_id, tool_mode: "forge" });
+  assert.equal(partial.enabled, true);
+  assert.equal(partial.tool_mode, "forge");
+});
+
 test("saves masked Agent Settings through Profile/Configuration and tests connection via Gateway", async () => {
   let profile;
   const profiles = { getAll: () => profile ? [profile] : [], getById: (id) => id === profile?.agent_id ? profile : undefined, create: (value) => (profile = structuredClone(value)), update: (value) => (profile = structuredClone(value)), delete: () => true };

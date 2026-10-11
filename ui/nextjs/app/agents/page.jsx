@@ -10,6 +10,8 @@ import { createNodeClient } from "../../lib/node-client.js";
 import { getModelOptions, useModelCatalog } from "../../lib/model-catalog.js";
 import { normalizeBackendError } from "../../lib/error-normalizer.js";
 
+import { saveAgentSettingsForm } from "../../lib/agent-settings-save.js";
+
 const PROJECT_ID = "PROJECT-NODEFORGE";
 const API_URL = typeof window !== "undefined"
   ? `${window.location.protocol}//${window.location.hostname}:3100/forge/v1/agents`
@@ -91,7 +93,7 @@ export default function AgentsPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [editingAgent, setEditingAgent] = useState(null);
-  const [form, setForm] = useState({ role: "architecture_manager", team: "Backend", agent_name: "", provider: "anthropic", model: getModelOptions(modelCatalog, "anthropic")[0]?.value ?? "", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false });
+  const [form, setForm] = useState({ role: "architecture_manager", tool_mode: "forge", team: "Backend", agent_name: "", provider: "anthropic", model: getModelOptions(modelCatalog, "anthropic")[0]?.value ?? "", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false });
 
   // Updates a form field value from an input event.
   function updateField(event) {
@@ -119,7 +121,7 @@ export default function AgentsPage() {
     const role = agent.role ?? "coder";
     const models = getModelOptions(modelCatalog, provider);
     const model = models.some((item) => item.value === agent.model) ? agent.model : models[0]?.value ?? "";
-    setForm({ role, team: agent.team ?? "Backend", agent_name: agent.agent_name ?? "", provider, model, gateway_url: agent.gateway_url ?? "https://gateway.example.test/agent", api_key: "", enabled: agent.enabled === true });
+    setForm({ role, tool_mode: agent.tool_mode ?? "forge", team: agent.team ?? "Backend", agent_name: agent.agent_name ?? "", provider, model, gateway_url: agent.gateway_url ?? "https://gateway.example.test/agent", api_key: "", enabled: agent.enabled === true });
     setFormError("");
     setModalOpen(true);
   }
@@ -168,15 +170,13 @@ export default function AgentsPage() {
     try {
       const models = getModelOptions(modelCatalog, form.provider);
       if (models.length && !models.some((item) => item.value === form.model)) throw new Error("Select an available model for this provider.");
-      const formPayload = { ...form };
+      const formPayload = { ...form, tool_mode: form.role === "system_engineer" && ["codex", "claude", "anthropic"].includes(form.provider) ? (form.tool_mode ?? "forge") : "forge" };
       const requestPayload = form.api_key ? formPayload : Object.fromEntries(Object.entries(formPayload).filter(([key]) => key !== "api_key"));
-      const response = await fetch(editingAgent ? `${API_URL}/${editingAgent.agent_id}` : API_URL, { method: editingAgent ? "PUT" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(requestPayload) });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || `Agents API returned HTTP ${response.status}.`);
+      const payload = await saveAgentSettingsForm({ url: API_URL, agentId: editingAgent?.agent_id, settings: requestPayload });
       setAgents((current) => editingAgent ? current.map((item) => item.agent_id === editingAgent.agent_id ? payload : item) : [...current, payload]);
       setModalOpen(false);
       setEditingAgent(null);
-      setForm({ role: "architecture_manager", team: "Backend", agent_name: "", provider: "anthropic", model: getModelOptions(modelCatalog, "anthropic")[0]?.value ?? "", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false });
+      setForm({ role: "architecture_manager", tool_mode: "forge", team: "Backend", agent_name: "", provider: "anthropic", model: getModelOptions(modelCatalog, "anthropic")[0]?.value ?? "", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false });
     } catch (requestError) {
       setFormError(requestError.message || "Agent could not be created.");
     } finally { setSaving(false); }
@@ -223,7 +223,7 @@ export default function AgentsPage() {
       {state === "loading" && <p className="agents-directory-state">Loading agents from `/forge/v1/agents`…</p>}
       {state === "error" && <div className="agents-directory-state error"><p>{error}</p><button className="history-button" type="button" onClick={() => window.location.reload()}>Retry</button></div>}
       {state === "ready" && agents.length === 0 && <p className="agents-directory-state">No agents returned by the API.</p>}
-      {state === "ready" && <div className="agents-card-grid"><button className="agent-directory-card agent-add-card" type="button" onClick={() => { setEditingAgent(null); setForm({ role: "architecture_manager", team: "Backend", agent_name: "", provider: "anthropic", model: getModelOptions(modelCatalog, "anthropic")[0]?.value ?? "", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false }); setTestState(""); setFormError(""); setModalOpen(true); }} aria-label="Add agent"><span>+</span><strong>Add agent</strong></button>{agents.map((agent, index) => {
+      {state === "ready" && <div className="agents-card-grid"><button className="agent-directory-card agent-add-card" type="button" onClick={() => { setEditingAgent(null); setForm({ role: "architecture_manager", tool_mode: "forge", team: "Backend", agent_name: "", provider: "anthropic", model: getModelOptions(modelCatalog, "anthropic")[0]?.value ?? "", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false }); setTestState(""); setFormError(""); setModalOpen(true); }} aria-label="Add agent"><span>+</span><strong>Add agent</strong></button>{agents.map((agent, index) => {
         const id = agent.agent_id ?? agent.id ?? `agent-${index}`;
         const name = agent.agent_name ?? agent.name ?? agent.label ?? id;
         const capabilities = agent.capabilities ?? agent.tools ?? [];

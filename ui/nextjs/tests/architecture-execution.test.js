@@ -73,3 +73,20 @@ test("chat pages request only role-specific agent lists and skip hidden dashboar
   assert.doesNotMatch(eventStream, /onExecutionSignal/);
   assert.match(eventStream, /loadDashboard\?\.\(\)/);
 });
+
+// Verifies mid-run failures re-read the durable checkpoint immediately instead of waiting for a page reload.
+test("stream failures revalidate interrupted recovery controls on both chat pages", async () => {
+  const architecture = await readFile("ui/nextjs/app/page.jsx", "utf8");
+  const system = await readFile("ui/nextjs/app/system/page.jsx", "utf8");
+  const architectureControls = await readFile("ui/nextjs/components/architecture-execution-controls.jsx", "utf8");
+  const systemControls = await readFile("ui/nextjs/components/system-execution-controls.jsx", "utf8");
+  for (const [page, controls] of [[architecture, architectureControls], [system, systemControls]]) {
+    assert.match(page, /onProjectEvent: noteStreamInterruption/);
+    assert.match(page, /activity_type === "failed"[\s\S]*?conversation\.message\.failed/);
+    assert.match(page, /payload\?\.conversation_id === activeConversationIdRef\.current/);
+    assert.match(page, /interruptionSignal=\{(architecture|system)Interruption\}/);
+    assert.match(controls, /interruptionSignal = 0/);
+    assert.match(controls, /\[client, projectId, conversationId, interruptionSignal\]/);
+    assert.doesNotMatch(controls, /refreshSignal|executionSignal/);
+  }
+});

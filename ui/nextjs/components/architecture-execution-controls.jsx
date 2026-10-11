@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { awaitingOwnerExecutionRecovery, watchOwnerExecutionRecovery } from "../lib/owner-execution-recovery.js";
 
 // Shows durable Architecture attempts and stops only the active conversation after owner action.
-export function ArchitectureExecutionControls({ client, projectId, conversationId, executionId, agentTyping }) {
+export function ArchitectureExecutionControls({ client, projectId, conversationId, executionId, agentTyping, interruptionSignal = 0 }) {
   const [executions, setExecutions] = useState([]);
   const [error, setError] = useState("");
   const [, setHint] = useState("");
@@ -37,7 +37,7 @@ export function ArchitectureExecutionControls({ client, projectId, conversationI
     }
     void refresh();
     return () => { mounted = false; };
-  }, [client, projectId, conversationId]);
+  }, [client, projectId, conversationId, interruptionSignal]);
 
   const awaitingStop = awaitingOwnerExecutionRecovery(current);
   useEffect(() => {

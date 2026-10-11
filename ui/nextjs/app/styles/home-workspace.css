@@ -235,6 +235,19 @@
 .home-composer-fields textarea { width: 100%; box-sizing: border-box; }
 .home-composer-markdown { display: inline-flex; width: fit-content; align-items: center; gap: 6px; color: var(--app-muted); cursor: pointer; font: 11px 'DM Mono', monospace; }
 .home-composer-markdown input { margin: 0; accent-color: var(--app-accent); }
+.claude-composer-tool-mode { position: relative; display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 25px; margin: 4px 0 0; padding: 0 2px; color: var(--app-muted); font-size: 12px; }
+.claude-composer-tool-mode .home-plan-approval-project { flex: 0 1 auto; }
+.claude-composer-tool-mode .history-button { border-radius: 7px; padding: 3px 8px; font-size: 12px; }
+.composer-tool-mode-choice { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.composer-tool-mode-label { font: 11px 'DM Mono', monospace; }
+.composer-agent-settings { position: relative; margin-left: auto; }
+.composer-agent-settings-toggle, .composer-agent-settings-save { border: 1px solid var(--app-button-border); border-radius: 7px; background: var(--app-button-bg); color: var(--app-button-text); padding: 4px 8px; font: 11px 'DM Mono', monospace; cursor: pointer; }
+.composer-agent-settings-toggle:hover, .composer-agent-settings-save:hover:not(:disabled) { border-color: var(--app-accent); color: var(--app-text); }
+.composer-agent-settings-toggle:disabled, .composer-agent-settings-save:disabled { cursor: not-allowed; opacity: .55; }
+.composer-agent-settings-menu { position: absolute; z-index: 20; right: 0; bottom: calc(100% + 8px); display: grid; width: min(270px, calc(100vw - 32px)); gap: 12px; padding: 12px; border: 1px solid var(--app-border); border-radius: 10px; background: var(--app-panel); box-shadow: 0 12px 28px color-mix(in srgb, #000 24%, transparent); font-size: 12px; }
+.composer-agent-settings-menu label { display: grid; grid-template-columns: 78px 1fr; align-items: center; gap: 12px; color: var(--app-muted); font: 12px 'DM Mono', monospace; text-transform: uppercase; }
+.composer-agent-settings-menu select { min-width: 0; border: 1px solid var(--app-button-border); border-radius: 5px; background: var(--app-input); color: var(--app-text); padding: 5px 6px; font: 12px 'Space Grotesk', sans-serif; }
+.composer-agent-settings-menu small { color: #dc5a5a; overflow-wrap: anywhere; }
 .claude-composer-wrap > p { margin: 8px 0 0; color: var(--app-muted); text-align: center; font: 11px 'Space Grotesk', sans-serif; }
 .conversation-markdown-link { border: 0; background: transparent; color: var(--app-accent); cursor: pointer; font: inherit; padding: 0; text-decoration: none; }
 .conversation-markdown-code { display: inline; border: 1px solid var(--app-border); border-radius: 4px; background: var(--app-surface-alt); padding: 1px 5px; font: 12px/1.4 'DM Mono', monospace; }

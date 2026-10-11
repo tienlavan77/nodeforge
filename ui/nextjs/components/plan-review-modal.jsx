@@ -1,6 +1,6 @@
 "use client";
 // Lets the project owner inspect and decide the exact immutable plan revision for a sprint.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { EntityDetailsModal } from "./ticket-detail-modal.jsx";
 
 // Prepares an editable historical sprint draft without inventing approach or evidence.
@@ -24,7 +24,7 @@ function createClientUuid() {
 }
 
 // Shows plan scope, evidence, and checksum before submitting an authenticated decision.
-export function PlanReviewModal({ client, projectId, sprintId, planId, initialPlan, conversationId, agentId, onClose, onChanged }) {
+export function PlanReviewModal({ client, projectId, sprintId, planId, initialPlan, onClose, onChanged }) {
   const [state, setState] = useState(initialPlan ? "ready" : "loading");
   const [registry, setRegistry] = useState(null);
   const [plan, setPlan] = useState(initialPlan ?? null);
@@ -35,6 +35,8 @@ export function PlanReviewModal({ client, projectId, sprintId, planId, initialPl
   const [legacyPlan, setLegacyPlan] = useState(null);
   const [legacyDependencies, setLegacyDependencies] = useState([]);
   const [editing, setEditing] = useState(false);
+  const submitting = useRef(false);
+  const decisionIds = useRef(new Map());
   useEffect(() => {
     if (initialPlan) { setPlan(initialPlan); setState("ready"); return undefined; }
     let active = true;
@@ -95,7 +97,8 @@ export function PlanReviewModal({ client, projectId, sprintId, planId, initialPl
 
   // Records the owner's decision and activates the approved revision for scheduling.
   async function decide(decision) {
-    if (!plan || !token) return;
+    if (!plan || !token || submitting.current) return;
+    submitting.current = true;
     setState("submitting"); setMessage("");
     try {
       let handoff = null;
@@ -104,18 +107,19 @@ export function PlanReviewModal({ client, projectId, sprintId, planId, initialPl
         setRegistry(await client.registerSprint(projectId, sprintId, registered.length, legacyDependencies, legacyPlan ?? plan));
       } else if (plan.format !== "markdown" && registry.plan_revision !== plan.revision) setRegistry(await client.bindSprintPlan(projectId, sprintId, plan));
       if (plan.format === "markdown" && decision === "approved") {
-        if (!(plan.conversation_id ?? conversationId)) throw new Error("Open the Architecture conversation before approving this plan.");
-        // Persist the exact owner decision once; retries continue the durable handoff.
-        // Reposting a decision for an already approved revision is rejected by design.
-        if (plan.status !== "approved") await client.decidePlan(projectId, plan, decision, token, comments);
-        const result = await client.postOwnerMessage({ projectId, conversationId: plan.conversation_id ?? conversationId, agentId, messageId: `MSG-OWNER-APPROVE-${createClientUuid()}`, correlationId: `CORR-APPROVE-${createClientUuid()}`, text: `/approve ${plan.plan_id}`, ownerToken: token, approvalRevision: plan.revision, approvalSha256: plan.sha256, approvalComments: comments });
-        if (result?.message_type === "owner.command.error" || result?.payload?.error) throw new Error(result.payload?.error?.message ?? "Plan handoff failed.");
-        if (result?.payload?.status === "handoff_in_progress") { setMessage("Sprint Leader đang tạo Sprint Plan. Handoff chưa hoàn tất; hãy mở lại kế hoạch để xem kết quả."); setState("ready"); return; }
-        if (result?.payload?.status !== "handed_to_sprint_leader") throw new Error("Handoff chưa hoàn tất. Hãy kiểm tra kết quả trước khi tiếp tục.");
-        const loadedSprints = await client.listSprints(projectId);
-        const sprintItems = Array.isArray(loadedSprints) ? loadedSprints : loadedSprints?.items ?? loadedSprints?.sprints ?? [];
-        if (!sprintItems.some((sprint) => sprint.id === result.payload.sprint_id)) throw new Error("Sprint Plan chưa hiển thị trong Registry. Hãy kiểm tra binding rồi tiếp tục handoff.");
-        handoff = result.payload;
+        // Reconcile a response-lost decision before retrying the exact reviewed identity.
+        const current = await client.getPlanRevision(projectId, plan.plan_id, plan.revision);
+        if (current.sha256 !== plan.sha256 || current.status === "superseded") throw new Error("Plan changed. Reload and review the new revision before approving.");
+        if (current.status !== "approved") {
+          const key = `${projectId}:${plan.plan_id}:${plan.revision}:${plan.sha256}:${decision}`;
+          if (!decisionIds.current.has(key)) decisionIds.current.set(key, `DECISION-${createClientUuid()}`);
+          await client.decidePlan(projectId, plan, decision, token, comments, decisionIds.current.get(key));
+        }
+        setPlan({ ...current, status: "approved" });
+        const result = await client.handoffPlan(projectId, plan, token);
+        if (result.status === "handoff_in_progress") { setMessage("Approved. Sprint Leader handoff is still in progress; Continue handoff checks its receipt."); setState("ready"); return; }
+        if (result.status !== "handed_to_sprint_leader") throw new Error("Approved; handoff has not completed. Continue handoff to reconcile its receipt.");
+        handoff = result;
       } else await client.decidePlan(projectId, plan, decision, token, comments);
       setToken(""); setPlan({ ...plan, status: decision, ...(plan.format === "markdown" && decision === "approved" ? { handoff_status: "completed" } : {}) });
       if (decision === "approved" && !plan.source_path) setRegistry(await client.setSprintStatus(projectId, sprintId, "ready"));
@@ -123,6 +127,7 @@ export function PlanReviewModal({ client, projectId, sprintId, planId, initialPl
       setState("decided");
       await onChanged?.({ decision, plan, handoff });
     } catch (error) { setMessage(error.message); setState("ready"); }
+    finally { submitting.current = false; }
   }
 
   // Retries sprint readiness after approval when an operational dependency becomes satisfied.
@@ -137,6 +142,7 @@ export function PlanReviewModal({ client, projectId, sprintId, planId, initialPl
     {state === "legacy" && <div className="plan-review-content"><p>This historical sprint has no plan revision. Complete the scope, approach, components and evidence fields, then create a draft for owner review.</p><label>Plan JSON<textarea rows={18} value={draftText} onChange={(event) => setDraftText(event.target.value)} /></label><button type="button" onClick={createLegacy}>Create draft</button>{message && <p role="alert">{message}</p>}</div>}
     {state !== "loading" && state !== "legacy" && state !== "ready" && state !== "submitting" && state !== "decided" && <p role="alert">{state}</p>}
     {plan && <div className="plan-review-content">
+      <p><strong>Project:</strong> {projectId}</p>
       <p><strong>Plan:</strong> {plan.plan_id} · revision {plan.revision} · {plan.status}</p>
       <p><strong>SHA-256:</strong> <code>{plan.sha256}</code></p>
       {plan.format === "markdown" ? <><p>Review this Markdown revision and its SHA-256 before approving. Approval authorizes Sprint Leader to draft a Sprint Plan; it does not start RUN.</p><pre className="plan-review-markdown">{plan.markdown}</pre></> : <>

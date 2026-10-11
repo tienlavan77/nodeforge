@@ -48,10 +48,22 @@ export function createMarkdownPlanStore({ projectId, database, fileService, cloc
     if (sha(markdown) !== row.sha256) throw fail("PLAN_HASH_MISMATCH", "Markdown plan differs from the reviewed checksum.");
     const latest = database.all("SELECT MAX(revision) AS revision FROM markdown_plan_revisions WHERE plan_id=? AND project_id=?", [planId, projectId])[0]?.revision;
     const decision = database.all("SELECT * FROM markdown_plan_decisions WHERE plan_id=? AND revision=? ORDER BY decided_at DESC, rowid DESC LIMIT 1", [planId, revision])[0] ?? null;
-    const handoff = database.all("SELECT status,sprint_id FROM markdown_plan_handoffs WHERE plan_id=? AND revision=?", [planId, revision])[0] ?? null;
-    const registered = handoff?.sprint_id && database.all("SELECT s.sprint_id FROM sprint_registry s JOIN plan_revisions p ON p.plan_id=s.plan_id AND p.revision=s.plan_revision AND p.project_id=s.project_id AND p.sprint_id=s.sprint_id AND p.sha256=s.plan_sha256 AND p.file_path=s.plan_path WHERE s.project_id=? AND s.sprint_id=? AND NOT EXISTS (SELECT 1 FROM sprint_registry_archives a WHERE a.project_id=s.project_id AND a.sprint_id=s.sprint_id)", [projectId, handoff.sprint_id]).length > 0;
+    const handoff = database.all("SELECT status,sprint_id,error_code FROM markdown_plan_handoffs WHERE plan_id=? AND revision=?", [planId, revision])[0] ?? null;
+    let registered = handoff?.sprint_id ? database.all("SELECT s.sprint_id,s.status,s.plan_id,s.plan_revision,s.plan_path,s.plan_sha256 FROM sprint_registry s JOIN plan_revisions p ON p.plan_id=s.plan_id AND p.revision=s.plan_revision AND p.project_id=s.project_id AND p.sprint_id=s.sprint_id AND p.sha256=s.plan_sha256 AND p.file_path=s.plan_path WHERE s.project_id=? AND s.sprint_id=? AND NOT EXISTS (SELECT 1 FROM sprint_registry_archives a WHERE a.project_id=s.project_id AND a.sprint_id=s.sprint_id)", [projectId, handoff.sprint_id])[0] : null;
+    if (registered && handoff.status === "completed") {
+      try {
+        const bytes = await fileService.readFile({ path: registered.plan_path });
+        const child = JSON.parse(bytes);
+        if (sha(bytes) !== registered.plan_sha256 || child.plan_id !== registered.plan_id || child.revision !== registered.plan_revision || child.project_id !== projectId || child.sprint_id !== registered.sprint_id || child.proposal_id !== `${planId}-R${revision}-${row.sha256}`) registered = null;
+      } catch (error) {
+        console.error("Completed plan child requires binding recovery", { code: "PLAN_CHILD_READBACK_FAILED", project_id: projectId, plan_id: planId, revision });
+        void error;
+        registered = null;
+      }
+    }
     const handoffStatus = handoff?.status === "completed" && !registered ? "recovery_required" : handoff?.status ?? null;
-    return { plan_id: planId, revision, project_id: projectId, file_path: row.file_path, sha256: row.sha256, source_path: row.summary_path, source_sha256: row.summary_sha256, conversation_id: row.conversation_id, created_at: row.created_at, format: "markdown", markdown, status: latest !== revision ? "superseded" : decision?.decision ?? "awaiting_human_approval", decision, handoff_status: handoffStatus, sprint_id: handoff?.sprint_id ?? null };
+    const readinessStatus = handoff?.status !== "completed" ? null : !registered ? "binding_recovery_required" : ["planned", "awaiting_human_approval"].includes(registered.status) ? "pending" : "established";
+    return { plan_id: planId, revision, project_id: projectId, file_path: row.file_path, sha256: row.sha256, source_path: row.summary_path, source_sha256: row.summary_sha256, conversation_id: row.conversation_id, created_at: row.created_at, format: "markdown", markdown, status: latest !== revision ? "superseded" : decision?.decision ?? "awaiting_human_approval", decision, handoff_status: handoffStatus, handoff_error_code: handoff?.error_code ?? null, readiness_status: readinessStatus, sprint_status: registered?.status ?? null, sprint_id: handoff?.sprint_id ?? null };
   }
 
   // Lists current readable drafts without presenting them as executable JSON plans.

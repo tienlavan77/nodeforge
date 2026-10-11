@@ -20,7 +20,7 @@ test("Sprint Leader Forge session searches indexed code and reads only safe proj
     const discoveredPaths = new Set();
     const projectLogger = (entry) => { assert.ok(Number.isFinite(Date.parse(entry.timestamp)), "Project log events require a timestamp"); events.push(entry); };
     const tools = createSprintLeaderForgeTools({ projectRoot: root, fileService, codeSearch, profile, correlationId: "CORR-1", discoveredPaths, projectLogger });
-    assert.deepEqual(tools.definitions.map(({ name }) => name), ["search_tree", "read_file", "search_code"]);
+    assert.deepEqual(tools.definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "read_lines", "search_code"]);
     assert.equal(tools.registry.write_diff, undefined);
     const tree = await tools.registry.search_tree.execute({ path: "backend", max_depth: 2, limit: 10 });
     assert.ok(tree.entries.some((entry) => entry.path === "backend/src/example.js"));
@@ -28,6 +28,15 @@ test("Sprint Leader Forge session searches indexed code and reads only safe proj
     assert.deepEqual(found.matches.map((match) => match.path), ["backend/src/example.js"]);
     const file = await tools.registry.read_file.execute({ path: "backend/src/example.js", offset: 1, limit: 2 });
     assert.match(file.content, /Example source/);
+    const listed = await tools.registry.list_files.execute({ flags: [] });
+    assert.match(listed.stdout, /backend\/src\/example\.js/);
+    const searched = await tools.registry.search_text.execute({ pattern: "Example source", paths: ["backend"], flags: ["-n", "-F"] });
+    assert.match(searched.stdout, /Example source/);
+    const lines = await tools.registry.read_lines.execute({ path: "backend/src/example.js", start_line: 1, end_line: 2 });
+    assert.match(lines.stdout, /export const value/);
+    assert.match(lines.sha256, /^sha256:[a-f0-9]{64}$/);
+    await assert.rejects(tools.registry.read_lines.execute({ path: "../outside.js", start_line: 1, end_line: 2 }));
+    await assert.rejects(tools.registry.search_text.execute({ pattern: "secret", paths: ["outside"], flags: [] }));
     assert.deepEqual([...discoveredPaths], ["backend/src/example.js"]);
     assert.ok(events.some((entry) => entry.event_name === "owner.tool_call" && entry.status === "started"));
     assert.ok(events.some((entry) => entry.event_name === "sprint_leader.tool_call" && entry.payload.tool === "search_code"));
@@ -46,10 +55,10 @@ test("Sprint Leader SDK options expose read-only Forge tools to Claude, Anthropi
       const options = createSprintLeaderToolOptions({ ...dependencies, profile: { agent_id: `SL-${provider}`, agent_name: "Leader", role: "sprint_leader", provider } });
       if (provider === "claude" || provider === "anthropic") {
         assert.deepEqual(options.tools, []);
-        assert.deepEqual(options.allowedTools, ["mcp__forge__search_tree", "mcp__forge__read_file", "mcp__forge__search_code"]);
+        assert.deepEqual(options.allowedTools, ["mcp__forge__search_tree", "mcp__forge__list_files", "mcp__forge__search_text", "mcp__forge__read_file", "mcp__forge__read_lines", "mcp__forge__search_code"]);
         assert.ok(options.mcpServers.forge);
       } else {
-        assert.deepEqual(options.forgeTools.definitions.map(({ name }) => name), ["search_tree", "read_file", "search_code"]);
+        assert.deepEqual(options.forgeTools.definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "read_lines", "search_code"]);
         assert.equal(options.sandboxMode, "read-only");
       }
     }

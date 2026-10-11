@@ -17,7 +17,7 @@ test("approved Markdown fixes Sprint work-group order, type, and file budget", (
   assert.throws(() => assertMarkdownSprintScope(markdown, { tickets: [tickets[0], { ...tickets[1], dependencies: [] }] }), { code: "SPRINT_MARKDOWN_SCOPE" });
   assert.throws(() => assertMarkdownSprintScope(markdown, { tickets: [tickets[0], { ...tickets[1], acceptance_criteria: ["New unrelated behavior"] }] }), { code: "SPRINT_MARKDOWN_SCOPE" });
   assert.throws(() => readMarkdownSprintScope("# Plan: API\n\n## 5. Tickets\n\nNo table"), { code: "SPRINT_MARKDOWN_SCOPE" });
-  assert.throws(() => readMarkdownSprintScope(markdown.replace("≤ 3 files", "≤ 10 files")), { code: "SPRINT_MARKDOWN_SCOPE" });
+  assert.equal(readMarkdownSprintScope(markdown.replace("≤ 3 files", "≤ 10 files"))[0].file_budget, 10);
 });
 
 // Keeps approved human decisions as external prerequisites rather than invented ticket IDs.
@@ -30,7 +30,7 @@ test("approved decision prerequisites do not require a Sprint ticket dependency"
 // Projects approved ticket scope from Markdown while rejecting invalid Sprint structure.
 test("approved Markdown owns ticket scope and dependency IDs", () => {
   const projected = projectMarkdownSprintScope(markdown, { id: "SPRINT-A", tickets: [{ id: "TICKET-A", title: "Wrong", objective: "Wrong", implementation_type: ["frontend"], file_budget: 1, acceptance_criteria: ["Wrong"] }, { id: "TICKET-B", dependencies: ["TICKET-OTHER"] }] });
-  assert.deepEqual(projected.tickets, [{ ...tickets[0], dependencies: [] }, tickets[1]]);
+  assert.deepEqual(projected.tickets, [{ ...tickets[0], verification_plan: undefined, dependencies: [] }, { ...tickets[1], verification_plan: undefined }]);
   assert.throws(() => projectMarkdownSprintScope(markdown, { tickets: [{ id: "TICKET-A" }] }), { code: "SPRINT_MARKDOWN_SCOPE" });
   assert.throws(() => projectMarkdownSprintScope(markdown, { tickets: [{ id: "TICKET-A" }, { id: "TICKET-A" }] }), { code: "SPRINT_MARKDOWN_SCOPE" });
   assert.throws(() => projectMarkdownSprintScope(markdown.replace("| API | ≤ 2 files", "| Unknown work | ≤ 2 files"), { tickets: [{ id: "TICKET-A" }, { id: "TICKET-B" }] }), { code: "SPRINT_MARKDOWN_SCOPE" });
@@ -53,7 +53,8 @@ test("outcome Markdown accepts autonomous ticket decomposition with explicit cov
   assert.deepEqual(projectMarkdownSprintScope(outcomes, proposal).tickets.map((ticket) => ticket.title), ["Update API", "Update UI"]);
   assert.throws(() => projectMarkdownSprintScope(outcomes, { tickets: proposal.tickets.slice(0, 1) }), { code: "SPRINT_MARKDOWN_SCOPE" });
   assert.throws(() => projectMarkdownSprintScope(outcomes, { tickets: [{ ...proposal.tickets[0], outcome_refs: ["O3"] }, proposal.tickets[1]] }), { code: "SPRINT_MARKDOWN_SCOPE" });
-  assert.throws(() => projectMarkdownSprintScope(outcomes, { tickets: [{ ...proposal.tickets[0], file_budget: 5 }, proposal.tickets[1]] }), { code: "SPRINT_MARKDOWN_SCOPE" });
+  assert.equal(projectMarkdownSprintScope(outcomes, { tickets: [{ ...proposal.tickets[0], file_budget: 10 }, proposal.tickets[1]] }).tickets[0].file_budget, 10);
+  assert.throws(() => projectMarkdownSprintScope(outcomes, { tickets: [{ ...proposal.tickets[0], file_budget: 0 }, proposal.tickets[1]] }), { code: "SPRINT_MARKDOWN_SCOPE" });
 });
 
 // Accepts the Architecture summary ID contract without accepting unfinished outcome text.
