@@ -46,6 +46,8 @@ test("native file hooks deny traversal and symlink escapes and require sandboxed
     assert.equal(codex.usePermissionProfile, true);
     assert.equal(codex.sandboxMode, undefined);
     assert.match(codex.configOverrides[0], /":root"="deny"/);
+    assert.match(codex.configOverrides[0], /":minimal"="read"/);
+    assert.match(codex.configOverrides[0], /"\/etc"="deny"/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
