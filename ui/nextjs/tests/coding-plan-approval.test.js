@@ -60,6 +60,14 @@ test("Coding header lives outside dashboard loading and uses reconnect plus tab 
   assert.ok(stream.indexOf("onProjectEvent?.(event)") < stream.indexOf("activeConversationIdRef.current"));
   assert.doesNotMatch(component, /activeConversation|postOwnerMessage|localStorage|sessionStorage/);
   assert.match(component, /Continue handoff/);
+  const styles = await readFile(new URL("../app/styles/workspace-monitors.css", import.meta.url), "utf8");
+  assert.match(component, /className="coding-architecture-plans" aria-label="Architecture plan approval"/);
+  assert.match(component, /selected && <div className="coding-architecture-plan-card"/);
+  assert.match(styles, /\.coding-architecture-plans \{[^}]*background: var\(--app-surface-alt\)/);
+  assert.match(styles, /\.coding-architecture-plan-card \{[^}]*background: var\(--app-panel\)/);
+  assert.match(styles, /\.coding-architecture-plan-card > button:focus-visible[^}]*outline: 2px solid var\(--app-accent\)/);
+  assert.match(styles, /\.coding-architecture-plan-card > button:disabled \{[^}]*cursor: not-allowed/);
+  assert.match(styles, /@media \(max-width: 640px\) \{ \.coding-architecture-plans[^\n]*\.coding-architecture-plan-card > button \{ width: 100%; \}/);
 });
 
 test("modal approvals call exact revision action API with no hidden chat command", async () => {

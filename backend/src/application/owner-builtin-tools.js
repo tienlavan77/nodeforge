@@ -39,7 +39,7 @@ export async function assertBuiltinFilePath(projectRoot, path) {
 // Enables SDK tools without a Forge MCP server and keeps shell execution sandboxed.
 export function ownerBuiltinOptions(profile, projectRoot) {
   if (profile.provider === "codex") {
-    const entries = [`":root"="deny"`, ...SYSTEM_READ_PATHS.map((path) => `${JSON.stringify(path)}="read"`), `${JSON.stringify(projectRoot)}="write"`];
+    const entries = [`":root"="deny"`, `":minimal"="read"`, `"/etc"="deny"`, `"/etc/ld.so.cache"="read"`, `${JSON.stringify(projectRoot)}="write"`];
     return { usePermissionProfile: true, sandboxMode: undefined, networkAccessEnabled: undefined, approvalPolicy: "never", webSearchMode: "live",
       config: { default_permissions: "engineer" }, configOverrides: [`permissions.engineer.filesystem={${entries.join(",")}}`, "permissions.engineer.network.enabled=true"] };
   }
