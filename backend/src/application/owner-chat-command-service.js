@@ -13,7 +13,23 @@ const SUMMARY_PATH_PREFIX = ".forge/runtime/nf/summary/";
 const SUMMARY_SECTIONS = ["Goals", "In Scope", "Out of Scope", "Decisions", "Assumptions", "Risks", "Open Questions"];
 const SUMMARY_EVIDENCE_RE = /\[(?:evidence|source):\s*(?:backend|schemas|ui|web)\/[A-Za-z0-9._/-]+(?:#L\d+(?:-L?\d+)?)?\]/i;
 const SUMMARY_UNCERTAINTY_RE = /\b(?:assumption|assumes|unknown|uncertain|not known)\b/i;
-const SUMMARY_SOURCE_RE = /^# Discussion Summary[\s\S]*\[(?:evidence|source):\s*(?:backend|schemas|ui|web)\/[A-Za-z0-9._/-]+(?:#L\d+(?:-L?\d+)?)?\]/im;
+
+// Verifies planning-document references before extending the legacy code-source evidence gate.
+async function hasSummaryEvidence(markdown, fileService) {
+  if (SUMMARY_EVIDENCE_RE.test(markdown)) return true;
+  for (const match of markdown.matchAll(/\[(?:evidence|source):\s*(`?)([^`\]\r\n]+)\1\]/gi)) {
+    const reference = match[2].trim();
+    const path = reference.replace(/#L[1-9]\d*(?:-L?[1-9]\d*)?$/, "");
+    if (!/^(?:docs|workflows|backend|schemas|ui|web)\/[A-Za-z0-9._/-]+$/.test(path) || path.split("/").some((segment) => !segment || segment === "." || segment === "..")) continue;
+    try {
+      const content = await fileService.readFile({ path });
+      if (typeof content === "string" && content.trim()) return true;
+    } catch (error) {
+      console.warn("Summary evidence reference could not be verified.", error.code ?? error.message);
+    }
+  }
+  return false;
+}
 const DISCOVERY_COMPLETE_RE = /(?:discovery complete|repository discovery complete)/i;
 const DISCOVERY_UNVERIFIED_RE = /(?:assumption|unverified|unknown|uncertain)/i;
 
@@ -44,12 +60,12 @@ export function createOwnerChatCommandService({ projectId, fileService, communic
     const contract = [
       "Produce a temporary planning input only; do not produce a plan, authorize execution, or claim approval.",
       "Return Markdown with exactly these substantive sections: # Discussion Summary, and ## Goals, ## In Scope, ## Out of Scope, ## Decisions, ## Assumptions, ## Risks, ## Open Questions.",
-      "Every repository fact must include an actual reference such as [Evidence: backend/src/example.js]. Mark uncertain claims as assumptions or unknowns.",
+      "Every repository fact must include an actual reference to a file you read, such as [Evidence: backend/src/example.js] or [Source: workflows/agents/architecture/README.md]. Code references use backend/, schemas/, ui/ or web/; planning documents may use docs/ or workflows/ and must be readable non-empty project files. Optional paired backticks and #L line references are supported. Do not invent sources. Mark uncertain claims as assumptions or unknowns.",
       `The resolved runtime artifact path is ${SUMMARY_PATH_PREFIX}<SUMMARY-uuid>.md; this response is the source content only. Summarize the recent owner discussion, not unrelated repository work.`,
     ].join("\n");
     const discussionContext = (communications?.getByConversationId?.(conversationId) ?? []).slice(-20).map(({ sender, payload }) => `${sender?.id ?? "unknown"}: ${payload?.text ?? ""}`).filter(Boolean).join("\n") || "No owner discussion context is available.";
     const architectureText = String(await requestArchitecture(`${contract}\n\n## Recent Owner Discussion\n${discussionContext}`, conversationId) ?? "").trim();
-    validateSummary(architectureText);
+    await validateSummary(architectureText);
     const id = `SUMMARY-${randomUUID()}`;
     const path = `${SUMMARY_PATH_PREFIX}${id}.md`;
     await fileService.atomicCreate({ path, content: `${architectureText}\n` });
@@ -57,13 +73,13 @@ export function createOwnerChatCommandService({ projectId, fileService, communic
   }
 
   // Rejects planning-shaped or unverifiable summaries before temporary persistence.
-  function validateSummary(markdown) {
+  async function validateSummary(markdown) {
     if (!markdown.startsWith("# Discussion Summary")) throw fail("SUMMARY_INVALID", "Summary must start with a Discussion Summary heading.");
     for (const section of SUMMARY_SECTIONS) {
       const heading = `## ${section}`;
       if (!markdown.split("\n").some((line) => line.trim() === heading)) throw fail("SUMMARY_INVALID", `Summary is missing the ${section} section.`);
     }
-    if (!SUMMARY_EVIDENCE_RE.test(markdown)) throw fail("SUMMARY_EVIDENCE_MISSING", "Repository facts require an [Evidence: path] or [Source: path] reference.");
+    if (!await hasSummaryEvidence(markdown, fileService)) throw fail("SUMMARY_EVIDENCE_MISSING", "Summary needs [Evidence: repository/path] or [Source: repository/path]. References to docs/ or workflows/, and backtick-wrapped paths, must point to a readable non-empty project file. Do not invent sources.");
     if (!SUMMARY_UNCERTAINTY_RE.test(markdown)) throw fail("SUMMARY_UNCERTAINTY_MISSING", "Uncertain claims must be labeled as assumptions or unknowns.");
     if (/^# Plan:|execution authorized|approved to run/i.test(markdown)) throw fail("SUMMARY_NOT_INPUT", "Summary generation cannot create a plan or execution authorization.");
   }
@@ -74,14 +90,14 @@ export function createOwnerChatCommandService({ projectId, fileService, communic
     const path = `.forge/runtime/nf/summary/${summaryId}.md`;
     let summary;
     try { summary = await fileService.readFile({ path }); } catch (error) { throw fail("SUMMARY_NOT_FOUND", `Summary is unavailable: ${error.code ?? error.message}.`); }
-    if (typeof summary !== "string" || !SUMMARY_SOURCE_RE.test(summary) || !SUMMARY_UNCERTAINTY_RE.test(summary)) throw fail("SUMMARY_SOURCE_INVALID", "Summary is not a valid evidence-bearing planning input.");
+    if (typeof summary !== "string" || !summary.startsWith("# Discussion Summary") || !await hasSummaryEvidence(summary, fileService) || !SUMMARY_UNCERTAINTY_RE.test(summary)) throw fail("SUMMARY_SOURCE_INVALID", "Summary is not a valid evidence-bearing planning input.");
     let frame;
     try { frame = await fileService.readFile({ path: PLAN_FRAME_PATH }); } catch (error) { throw fail("PLAN_FRAME_NOT_FOUND", `Plan frame is unavailable: ${error.code ?? error.message}.`); }
     if (typeof requestArchitecture !== "function") throw fail("ARCHITECTURE_UNAVAILABLE", "Architecture agent is unavailable.");
-    const prompt = `Based on the source summary and plan frame below, complete repository discovery before drafting. Return only Markdown following the frame; do not return JSON, create files, claim approval, or claim RUN. Every repository fact needs [Evidence: backend/path] or [Source: schemas/path]. Include an explicit Repository discovery complete statement, and label assumptions or unverified areas.\n\n## Source Summary (${summaryId})\n\n${summary}\n\n## Plan Frame (${PLAN_FRAME_PATH})\n\n${frame}`;
+    const prompt = `Based on the source summary and plan frame below, complete repository discovery before drafting. Return only Markdown following the frame; do not return JSON, create files, claim approval, or claim RUN. Every repository fact needs [Evidence: repository/path] or [Source: repository/path] referring to a file you read under backend/, schemas/, ui/, web/, docs/ or workflows/. Planning-document and backtick-wrapped references must resolve to readable non-empty project files; never invent sources. Include an explicit Repository discovery complete statement, and label assumptions or unverified areas.\n\n## Source Summary (${summaryId})\n\n${summary}\n\n## Plan Frame (${PLAN_FRAME_PATH})\n\n${frame}`;
     const markdown = String(await requestArchitecture(prompt, conversationId) ?? "").trim();
     if (!/^# Plan:\s*\S/.test(markdown) || !/^## 1\. /m.test(markdown) || !/^## 7\. /m.test(markdown)) throw fail("ARCHITECTURE_PLAN_INVALID", `Architecture must return a Markdown plan following ${PLAN_FRAME_PATH}.`);
-    if (!DISCOVERY_COMPLETE_RE.test(markdown) || !SUMMARY_EVIDENCE_RE.test(markdown) || !DISCOVERY_UNVERIFIED_RE.test(markdown)) throw fail("DISCOVERY_INCOMPLETE", "Repository discovery must complete with source references and labeled assumptions or unverified areas before drafting.");
+    if (!DISCOVERY_COMPLETE_RE.test(markdown) || !await hasSummaryEvidence(markdown, fileService) || !DISCOVERY_UNVERIFIED_RE.test(markdown)) throw fail("DISCOVERY_INCOMPLETE", "Repository discovery must complete with source references and labeled assumptions or unverified areas before drafting.");
     readMarkdownSprintScope(markdown);
     const planId = `PLAN-${projectId}-${randomUUID()}`;
     if (!markdownPlanStore?.createRevision) throw fail("MARKDOWN_PLAN_STORE_UNAVAILABLE", "Markdown plan registry is unavailable.");
