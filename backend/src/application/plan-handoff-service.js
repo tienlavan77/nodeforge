@@ -25,16 +25,21 @@ export function createPlanHandoffService({ projectId, database, planStore, markd
     active.add(key);
     try {
       const correlationId = `CORR-PLAN-HANDOFF-${approved.plan_id}-${approved.revision}`;
-      let generated = row.generated_json ? JSON.parse(row.generated_json) : null;
+      const priorCandidate = row.generated_json ? JSON.parse(row.generated_json) : null;
+      const retryVerification = markdown && row.error_code === "SPRINT_MARKDOWN_SCOPE" && /has an invalid verification plan:/.test(row.error_message ?? "");
+      let generated = retryVerification ? null : priorCandidate;
       if (!generated) {
         const profile = agentRoleResolver?.resolveProfile?.("sprint_leader");
         if (!profile?.agent_id) throw fail("SPRINT_LEADER_UNAVAILABLE", "Configured Sprint Leader profile is unavailable.");
         const brief = markdown ? `Approved plan_id=${approved.plan_id} revision=${approved.revision} sha256=${approved.sha256}\n\n${approved.markdown}` : JSON.stringify({ plan_id: approved.plan_id, revision: approved.revision, sha256: approved.sha256, content: approved.content });
         const priorFailure = row.error_message ? ` Previous admission failure to correct: ${row.error_code ?? "SPRINT_PLAN_INVALID"}: ${row.error_message}` : "";
-        generated = await sprintPlanLeader.requestPlan({ projectId, agentId: profile.agent_id, brief, feedback: `Create the Sprint Plan from this owner-approved plan. For numbered work groups keep their order; for outcome rows decompose independently and map every outcome to tickets. Assign stable ticket IDs. Do not run tickets.${priorFailure}`, correlationId });
+        const verificationFeedback = markdown ? " Before numbering AC IDs, include the approved acceptance criteria verbatim: use the exact ordered criteria for numbered work groups; for outcomes include every approved criterion of each outcome assigned to the ticket, alongside any ticket-specific criteria. Build verification_plan against this final acceptance_criteria array, covering every positional AC ID with a relevant check. Do not assume backend-added criteria inherit coverage, invent test evidence, or weaken approved criteria." : "";
+        const repairBrief = retryVerification && priorCandidate ? `\n\nPreviously rejected Sprint draft (preserve its Sprint and ticket IDs; correct final criteria and verification mappings):\n${JSON.stringify(priorCandidate)}` : "";
+        generated = await sprintPlanLeader.requestPlan({ projectId, agentId: profile.agent_id, brief: `${brief}${repairBrief}`, feedback: `Create the Sprint Plan from this owner-approved plan. For numbered work groups keep their order; for outcome rows decompose independently and map every outcome to tickets. Assign stable ticket IDs. Do not run tickets.${verificationFeedback}${priorFailure}`, correlationId });
+        if (retryVerification && priorCandidate && (generated?.id !== priorCandidate.id || JSON.stringify(generated?.tickets?.map((ticket) => ticket.id)) !== JSON.stringify(priorCandidate.tickets?.map((ticket) => ticket.id)))) throw fail("SPRINT_VERIFICATION_REPAIR_IDENTITY", "Verification repair must preserve the rejected Sprint and ticket IDs.");
         if (!generated?.id || typeof generated.id !== "string") throw fail("SPRINT_PLAN_HANDOFF_FAILED", "Sprint Leader returned a plan without a sprint ID.");
-        // Retain the exact generated draft before admission so Continue handoff
-        // retries validation/persistence without asking Sprint Leader to regenerate.
+        // Retain the exact draft before admission; persistence retries reuse it.
+        // Only an explicitly rejected verification plan is repaired on a later owner handoff.
         database.run(`UPDATE ${table} SET status=?,sprint_id=?,generated_json=?,updated_at=? WHERE plan_id=? AND revision=? AND sha256=?`, ["candidate", generated.id, JSON.stringify(generated), clock(), approved.plan_id, approved.revision, approved.sha256]);
         if (markdown) generated = projectMarkdownSprintScope(approved.markdown, generated);
       }
