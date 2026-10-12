@@ -48,6 +48,17 @@ The active `/` route is a Client Component. Its direct imports are the component
 - **Stream correlation:** SSE events are accepted only for the active conversation and matching response/request correlation; event display helpers may normalize agent names and timestamps but must not change ownership.
 - **Scope:** API calls stay scoped to `PROJECT_ID`; conversation history, selection, and stream events stay scoped to the active conversation and architecture-manager context. Do not broaden the route to unrelated projects.
 
+## Coding Architecture plans
+
+`/coding` lists every actionable Architecture plan as a separate card, newest first,
+with its own Approve or Continue handoff action. Archive appears beside that action.
+Archive hides only the exact plan ID/revision/SHA in this browser and project;
+it does not reject a plan, cancel handoff, change approval, delete the immutable
+artifact, or start RUN. Show archived plans exposes Restore, and a newer revision
+or different checksum remains visible. Preferences survive reloads and are
+reconciled across browser tabs; storage errors leave the plan visible. This is a
+local view preference, not a server-wide archive endpoint.
+
 ## Legacy path map
 
 | Path | Actual role/import status | Decision |
