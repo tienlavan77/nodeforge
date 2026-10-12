@@ -26,6 +26,15 @@ Exact owner approval and handoff remain separate steps. Editing the source after
 plan creation requires a new draft before approval because source integrity is
 checked against the recorded checksum.
 
+Sprint Leader must number verification checks against each ticket's final
+acceptance criteria, including the exact approved outcome criteria. If handoff
+rejects a draft for an invalid verification plan, the next owner-triggered
+Continue handoff asks Sprint Leader to repair that retained draft with the
+admission error and approved scope. Sprint and ticket IDs must stay unchanged;
+all coverage gates are rechecked before ingestion. There is no automatic repair
+loop or RUN dispatch. Valid drafts still replay without regeneration after
+storage failures or completed handoffs.
+
 ## Development
 
 The root workspace command starts all development processes with labelled logs:
