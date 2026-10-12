@@ -26,11 +26,17 @@ export function readMarkdownSprintScope(markdown) {
 
 // Projects approved scope while retaining all outcome proof needed at handoff.
 export function projectMarkdownSprintScope(markdown, sprint) {
+  const projected = normalizeMarkdownSprintScope(markdown, sprint);
+  assertMarkdownSprintScope(markdown, projected);
+  return projected;
+}
+
+// Freezes approved criteria before verification admission so owner retries use stable positional AC IDs.
+export function normalizeMarkdownSprintScope(markdown, sprint) {
   const approved = readMarkdownSprintScope(markdown);
   if (approved[0]?.kind === "outcome") {
     const projectedTickets = sprint.tickets.map((ticket) => bindApprovedOutcomeCoverage(ticket, approved));
     const projected = { ...sprint, outcome_coverage: structuredClone(approved), tickets: projectedTickets };
-    assertOutcomeSprintScope(approved, projected);
     return projected;
   }
   const tickets = sprint?.tickets;
@@ -48,9 +54,7 @@ export function projectMarkdownSprintScope(markdown, sprint) {
     if (priority !== undefined && !["low", "medium", "normal", "high", "critical"].includes(priority)) throw fail(`Sprint ticket ${index + 1} has an invalid priority.`);
     return { id: ids[index], title: row.title, objective: row.objective, implementation_type: [row.implementation_type], file_budget: row.file_budget, acceptance_criteria: [...row.acceptance_criteria], verification_plan: structuredClone(tickets[index].verification_plan), dependencies, ...(priority === undefined ? {} : { priority }) };
   });
-  const result = { ...sprint, tickets: projected };
-  assertMarkdownSprintScope(markdown, result);
-  return result;
+  return { ...sprint, tickets: projected };
 }
 
 // Binds approved criteria, guardrails, and mandatory dependencies to each ticket after semantic checks.

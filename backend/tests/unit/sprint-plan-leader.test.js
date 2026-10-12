@@ -20,6 +20,9 @@ test("runner keeps only file references observed with Forge tools", async () => 
   assert.deepEqual(calls[0].options.forgeTools.definitions.map(({ name }) => name), ["search_tree"]);
   assert.match(calls[0].prompt, /identify existing related files/);
   assert.match(calls[0].prompt, /implementation_type/);
+  assert.match(calls[0].prompt, /exact original wording and language, including Vietnamese/);
+  assert.match(calls[0].prompt, /change ONLY verification_plan/);
+  assert.doesNotMatch(calls[0].prompt, /Write ALL field values/);
   assert.match(calls[0].prompt, /workflows\/agents\/sprint-leader\/README\.md/);
   assert.match(calls[0].prompt, /Sprint Leader agent rules/);
   assert.deepEqual(plan.tickets[0].implementation_type, ["backend"]);
