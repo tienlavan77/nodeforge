@@ -51,16 +51,17 @@
 .coding-architecture-plans > p, .coding-architecture-plan-card > p { margin: 0; color: var(--app-muted); overflow-wrap: anywhere; }
 .coding-architecture-plans > p[role="status"] { padding: 10px 12px; border-left: 2px solid var(--app-accent); border-radius: 4px; background: var(--app-panel); }
 .coding-architecture-plans > p[role="alert"], .coding-architecture-plan-card > p[role="alert"] { color: #dc5a5a; }
-.coding-architecture-plans > label { display: grid; min-width: 0; gap: 6px; color: var(--app-muted); font: 11px/1.5 'DM Mono', monospace; }
-.coding-architecture-plans > label > select { box-sizing: border-box; width: 100%; min-width: 0; border: 1px solid var(--app-button-border); border-radius: 6px; background-color: var(--app-input); background-image: linear-gradient(45deg, transparent 50%, var(--app-accent) 50%), linear-gradient(135deg, var(--app-accent) 50%, transparent 50%); background-position: calc(100% - 17px) 50%, calc(100% - 12px) 50%; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; padding: 8px 34px 8px 10px; color: var(--app-text); font: 12px 'Space Grotesk', sans-serif; appearance: none; -webkit-appearance: none; cursor: pointer; }
+.coding-architecture-plan-list { display: grid; min-width: 0; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.coding-architecture-plan-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
+.coding-architecture-plan-card.is-archived { border-style: dashed; }
 .coding-architecture-plan-card { display: grid; min-width: 0; gap: 8px; padding: 14px; border: 1px solid var(--app-border); border-radius: 8px; background: var(--app-panel); }
 .coding-architecture-plan-card > strong { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
-.coding-architecture-plan-card > button, .coding-architecture-plans > p > button { justify-self: start; max-width: 100%; border: 1px solid var(--app-button-border); border-radius: 6px; background: var(--app-button-bg); color: var(--app-button-text); padding: 7px 12px; font: 11px/1.4 'DM Mono', monospace; cursor: pointer; }
-.coding-architecture-plan-card > button { margin-top: 4px; border-color: var(--app-accent); }
-.coding-architecture-plan-card > button:hover:not(:disabled), .coding-architecture-plans > p > button:hover:not(:disabled) { border-color: var(--app-accent); color: var(--app-accent); }
-.coding-architecture-plan-card > button:focus-visible, .coding-architecture-plans > p > button:focus-visible, .coding-architecture-plans > label > select:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
-.coding-architecture-plan-card > button:disabled { opacity: .55; cursor: not-allowed; }
-@media (max-width: 640px) { .coding-architecture-plans { padding: 12px; gap: 10px; } .coding-architecture-plan-card { padding: 12px; } .coding-architecture-plan-card > button { width: 100%; } }
+.coding-architecture-plan-actions > button, .coding-architecture-plans > button, .coding-architecture-plans > p > button { justify-self: start; max-width: 100%; border: 1px solid var(--app-button-border); border-radius: 6px; background: var(--app-button-bg); color: var(--app-button-text); padding: 7px 12px; font: 11px/1.4 'DM Mono', monospace; cursor: pointer; }
+.coding-architecture-plan-actions > button { margin-top: 4px; border-color: var(--app-accent); }
+.coding-architecture-plan-actions > button:hover:not(:disabled), .coding-architecture-plans > p > button:hover:not(:disabled) { border-color: var(--app-accent); color: var(--app-accent); }
+.coding-architecture-plan-actions > button:focus-visible, .coding-architecture-plans > p > button:focus-visible, .coding-architecture-plans > button:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
+.coding-architecture-plan-actions > button:disabled { opacity: .55; cursor: not-allowed; }
+@media (max-width: 640px) { .coding-architecture-plans { padding: 12px; gap: 10px; } .coding-architecture-plan-card { padding: 12px; } .coding-architecture-plan-actions > button { width: 100%; } }
 .coding-workspace-list { display: grid; gap: 10px; }
 .coding-agent-monitor { min-width: 0; padding: 14px; border: 1px solid var(--app-border); background: var(--app-surface-alt); }
 .coding-agent-monitor header { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
