@@ -34,7 +34,7 @@ for (const failure of ["start", "complete", "publication"]) {
     const context = fixture(failure);
     const logs = [];
     t.mock.method(console, "error", (...args) => logs.push(args));
-    const result = await context.service.execute({ text: "/plan SUMMARY-A", conversationId: null, requestArchitecture: async () => { context.calls.generation++; return markdown; } });
+    const result = await context.service.execute({ text: "/plan docs/discussion.md", conversationId: null, requestArchitecture: async () => { context.calls.generation++; return markdown; } });
     assert.equal(result.status, "awaiting_human_approval");
     assert.equal(result.diagnostics_status, "degraded");
     assert.equal(result.diagnostics_error_code, "PLAN_DIAGNOSTICS_UNAVAILABLE");
@@ -55,7 +55,7 @@ for (const failure of ["fail", "publication"]) {
     const context = fixture(failure);
     const logs = []; t.mock.method(console, "error", (...args) => logs.push(args));
     const original = Object.assign(new Error("private provider failure"), { code: "ARCHITECTURE_FAILED" });
-    await assert.rejects(context.service.execute({ text: "/plan SUMMARY-A", requestArchitecture: async () => { throw original; } }), (error) => error === original);
+    await assert.rejects(context.service.execute({ text: "/plan docs/discussion.md", requestArchitecture: async () => { throw original; } }), (error) => error === original);
     assert.equal(context.calls.create, 0);
     assert.doesNotMatch(JSON.stringify(logs), /private provider|TOKEN|never-log/);
     if (failure === "fail") assert.equal(context.events.at(-1).payload.error_code, "ARCHITECTURE_FAILED");

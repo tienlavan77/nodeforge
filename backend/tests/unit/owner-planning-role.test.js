@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createOwnerChatService } from "../../src/application/owner-chat-service.js";
 
-for (const text of ["/summary", "/plan SUMMARY-A"]) {
+for (const text of ["/plan docs/scope.md", "/plan workflows/summary.md"]) {
   test(`${text} routes through the configured Architecture profile`, async () => {
     const calls = [];
     const service = createOwnerChatService({
@@ -30,7 +30,7 @@ test("missing configured Architecture profile does not fall back to the selected
     commandService: { isCommand: () => true, execute: async ({ requestArchitecture }) => requestArchitecture("Prompt", "CONV-A") },
     agentStream: async function* () { launched = true; yield { text: "Must not launch" }; }
   });
-  const result = await service.submit({ message_id: "MSG-A", project_id: "PROJECT-A", conversation_id: "CONV-A", correlation_id: "CORR-A", agent_id: "LEADER-CUSTOM", timestamp: "2026-10-09T00:00:00Z", payload: { text: "/summary" } });
+  const result = await service.submit({ message_id: "MSG-A", project_id: "PROJECT-A", conversation_id: "CONV-A", correlation_id: "CORR-A", agent_id: "LEADER-CUSTOM", timestamp: "2026-10-09T00:00:00Z", payload: { text: "/plan docs/scope.md" } });
   assert.equal(result.message_type, "owner.command.error");
   assert.equal(launched, false);
 });

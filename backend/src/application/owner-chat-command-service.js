@@ -4,15 +4,11 @@ import { ConfigurationError } from "../shared/errors.js";
 import { readMarkdownSprintScope } from "../modules/governance/markdown-sprint-scope.js";
 import { createPlanWithDiagnostics } from "./plan-request-diagnostics.js";
 
-const SUMMARY_RE = /^\/summary\s*$/i;
 const PLAN_RE = /^\/plan\s+(\S+)\s*$/i;
 const APPROVE_RE = /^\/approve\s+(\S+)\s*$/i;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const PLAN_FRAME_PATH = "workflows/agents/architecture/README.md";
-const SUMMARY_PATH_PREFIX = ".forge/runtime/nf/summary/";
-const SUMMARY_SECTIONS = ["Goals", "In Scope", "Out of Scope", "Decisions", "Assumptions", "Risks", "Open Questions"];
 const SUMMARY_EVIDENCE_RE = /\[(?:evidence|source):\s*(?:backend|schemas|ui|web)\/[A-Za-z0-9._/-]+(?:#L\d+(?:-L?\d+)?)?\]/i;
-const SUMMARY_UNCERTAINTY_RE = /\b(?:assumption|assumes|unknown|uncertain|not known)\b/i;
 
 // Verifies planning-document references before extending the legacy code-source evidence gate.
 async function hasSummaryEvidence(markdown, fileService) {
@@ -34,67 +30,36 @@ const DISCOVERY_COMPLETE_RE = /(?:discovery complete|repository discovery comple
 const DISCOVERY_UNVERIFIED_RE = /(?:assumption|unverified|unknown|uncertain)/i;
 
 // Creates the command handler bound to one project and its immutable plan store.
-export function createOwnerChatCommandService({ projectId, fileService, communications, planStore, markdownPlanStore, handoffApprovedPlan, sprintRegistry, planRequests, publishPlanEvent } = {}) {
-  if (!projectId || !fileService?.readFile || !fileService?.atomicCreate || !planStore?.createRevision || !planStore?.assertExecutable) throw new ConfigurationError("Owner command service is not configured.");
+export function createOwnerChatCommandService({ projectId, fileService, planStore, markdownPlanStore, handoffApprovedPlan, sprintRegistry, planRequests, publishPlanEvent } = {}) {
+  if (!projectId || !fileService?.readFile || !planStore?.createRevision || !planStore?.assertExecutable) throw new ConfigurationError("Owner command service is not configured.");
   return Object.freeze({ execute, isCommand });
 
   // Recognizes only the exact planning command forms from the human plan contract.
-  function isCommand(text) { return SUMMARY_RE.test(String(text ?? "")) || PLAN_RE.test(String(text ?? "")) || APPROVE_RE.test(String(text ?? "")); }
+  function isCommand(text) { return PLAN_RE.test(String(text ?? "")) || APPROVE_RE.test(String(text ?? "")); }
 
   // Executes a planning command and returns a durable, non-execution result.
   async function execute({ text, conversationId, project_id: inputProjectId, requestArchitecture, approvedOwnerId, approvalRevision, approvalSha256, approvalComments } = {}) {
     if (inputProjectId && inputProjectId !== projectId) throw fail("PROJECT_CONTEXT_CONFLICT", "Command project differs from the active project.");
     const value = String(text ?? "").trim();
-    if (SUMMARY_RE.test(value)) return createSummary({ conversationId, requestArchitecture });
     const planMatch = value.match(PLAN_RE);
     if (planMatch) return createPlanWithDiagnostics({ projectId, planRequests, publishPlanEvent,
-      createPlan: () => createPlan({ summaryId: planMatch[1], conversationId, requestArchitecture }) });
+      createPlan: () => createPlan({ summaryPath: planMatch[1], conversationId, requestArchitecture }) });
     const approveMatch = value.match(APPROVE_RE);
     if (approveMatch) return approvePlan({ planId: approveMatch[1], conversationId, approvedOwnerId, approvalRevision, approvalSha256, approvalComments });
-    throw fail("COMMAND_INVALID", "Supported commands are /summary, /plan <id-file>, and /approve <plan_id>.");
-  }
-
-  // Saves only a validated discussion summary as a temporary planning input artifact.
-  async function createSummary({ conversationId, requestArchitecture } = {}) {
-    if (typeof requestArchitecture !== "function") throw fail("ARCHITECTURE_UNAVAILABLE", "Architecture agent is unavailable.");
-    const contract = [
-      "Produce a temporary planning input only; do not produce a plan, authorize execution, or claim approval. Return content only; do not write files or claim a file was saved. NodeForge validates and persists the summary after your response.",
-      "Return Markdown with exactly these substantive sections: # Discussion Summary, and ## Goals, ## In Scope, ## Out of Scope, ## Decisions, ## Assumptions, ## Risks, ## Open Questions.",
-      "Every repository fact must include an actual reference to a file you read, such as [Evidence: backend/src/example.js] or [Source: workflows/agents/architecture/README.md]. Code references use backend/, schemas/, ui/ or web/; planning documents may use docs/ or workflows/ and must be readable non-empty project files. Optional paired backticks and #L line references are supported. Do not invent sources. Mark uncertain claims as assumptions or unknowns.",
-      `The resolved runtime artifact path is ${SUMMARY_PATH_PREFIX}<SUMMARY-uuid>.md; this response is the source content only. Summarize the recent owner discussion, not unrelated repository work.`,
-    ].join("\n");
-    const discussionContext = (communications?.getByConversationId?.(conversationId) ?? []).slice(-20).map(({ sender, payload }) => `${sender?.id ?? "unknown"}: ${payload?.text ?? ""}`).filter(Boolean).join("\n") || "No owner discussion context is available.";
-    const architectureText = String(await requestArchitecture(`${contract}\n\n## Recent Owner Discussion\n${discussionContext}`, conversationId) ?? "").trim();
-    await validateSummary(architectureText);
-    const id = `SUMMARY-${randomUUID()}`;
-    const path = `${SUMMARY_PATH_PREFIX}${id}.md`;
-    await fileService.atomicCreate({ path, content: `${architectureText}\n` });
-    return { command: "/summary", status: "created", summary_id: id, file_id: id, path, text: `Summary created: ${id}`, execution_authorized: false, plan_created: false };
-  }
-
-  // Rejects planning-shaped or unverifiable summaries before temporary persistence.
-  async function validateSummary(markdown) {
-    if (!markdown.startsWith("# Discussion Summary")) throw fail("SUMMARY_INVALID", "Summary must start with a Discussion Summary heading.");
-    for (const section of SUMMARY_SECTIONS) {
-      const heading = `## ${section}`;
-      if (!markdown.split("\n").some((line) => line.trim() === heading)) throw fail("SUMMARY_INVALID", `Summary is missing the ${section} section.`);
-    }
-    if (!await hasSummaryEvidence(markdown, fileService)) throw fail("SUMMARY_EVIDENCE_MISSING", "Summary needs [Evidence: repository/path] or [Source: repository/path]. References to docs/ or workflows/, and backtick-wrapped paths, must point to a readable non-empty project file. Do not invent sources.");
-    if (!SUMMARY_UNCERTAINTY_RE.test(markdown)) throw fail("SUMMARY_UNCERTAINTY_MISSING", "Uncertain claims must be labeled as assumptions or unknowns.");
-    if (/^# Plan:|execution authorized|approved to run/i.test(markdown)) throw fail("SUMMARY_NOT_INPUT", "Summary generation cannot create a plan or execution authorization.");
+    throw fail("COMMAND_INVALID", "Supported commands are /plan <project-relative-file.md> and /approve <plan_id>. Ask Architecture Manager in normal chat to summarize the discussion and save the Markdown file.");
   }
 
   // Saves Architecture's discovered, evidence-bearing plan as a readable draft before approval.
-  async function createPlan({ summaryId, conversationId, requestArchitecture } = {}) {
-    if (!SAFE_ID.test(summaryId ?? "") || !summaryId.startsWith("SUMMARY-")) throw fail("SUMMARY_ID_INVALID", "Summary identifier is invalid for this project.");
-    const path = `.forge/runtime/nf/summary/${summaryId}.md`;
+  async function createPlan({ summaryPath, conversationId, requestArchitecture } = {}) {
+    if (typeof summaryPath !== "string" || !/^[A-Za-z0-9_./-]+\.md$/i.test(summaryPath) || summaryPath.startsWith("/") || summaryPath.split("/").some((segment) => !segment || segment === "." || segment === "..")) throw fail("PLAN_SOURCE_PATH_INVALID", "Use /plan <project-relative-file.md>; absolute paths, traversal and SUMMARY IDs are not accepted.");
+    const path = summaryPath;
     let summary;
     try { summary = await fileService.readFile({ path }); } catch (error) { throw fail("SUMMARY_NOT_FOUND", `Summary is unavailable: ${error.code ?? error.message}.`); }
-    if (typeof summary !== "string" || !summary.startsWith("# Discussion Summary") || !await hasSummaryEvidence(summary, fileService) || !SUMMARY_UNCERTAINTY_RE.test(summary)) throw fail("SUMMARY_SOURCE_INVALID", "Summary is not a valid evidence-bearing planning input.");
+    if (typeof summary !== "string" || !summary.trim()) throw fail("SUMMARY_SOURCE_INVALID", "The source Markdown file must contain the owner discussion or planning scope.");
     let frame;
     try { frame = await fileService.readFile({ path: PLAN_FRAME_PATH }); } catch (error) { throw fail("PLAN_FRAME_NOT_FOUND", `Plan frame is unavailable: ${error.code ?? error.message}.`); }
     if (typeof requestArchitecture !== "function") throw fail("ARCHITECTURE_UNAVAILABLE", "Architecture agent is unavailable.");
-    const prompt = `Based on the source summary and plan frame below, complete repository discovery before drafting. Return only Markdown following the frame; do not return JSON, create files, claim approval, or claim RUN. Every repository fact needs [Evidence: repository/path] or [Source: repository/path] referring to a file you read under backend/, schemas/, ui/, web/, docs/ or workflows/. Planning-document and backtick-wrapped references must resolve to readable non-empty project files; never invent sources. Include an explicit Repository discovery complete statement, and label assumptions or unverified areas.\n\n## Source Summary (${summaryId})\n\n${summary}\n\n## Plan Frame (${PLAN_FRAME_PATH})\n\n${frame}`;
+    const prompt = `Based on the source summary and plan frame below, complete repository discovery before drafting. Return only Markdown following the frame; do not return JSON, create files, claim approval, or claim RUN. Every repository fact needs [Evidence: repository/path] or [Source: repository/path] referring to a file you read under backend/, schemas/, ui/, web/, docs/ or workflows/. Planning-document and backtick-wrapped references must resolve to readable non-empty project files; never invent sources. Include an explicit Repository discovery complete statement, and label assumptions or unverified areas.\n\n## Source Summary (${path})\n\n${summary}\n\n## Plan Frame (${PLAN_FRAME_PATH})\n\n${frame}`;
     const markdown = String(await requestArchitecture(prompt, conversationId) ?? "").trim();
     if (!/^# Plan:\s*\S/.test(markdown) || !/^## 1\. /m.test(markdown) || !/^## 7\. /m.test(markdown)) throw fail("ARCHITECTURE_PLAN_INVALID", `Architecture must return a Markdown plan following ${PLAN_FRAME_PATH}.`);
     if (!DISCOVERY_COMPLETE_RE.test(markdown) || !await hasSummaryEvidence(markdown, fileService) || !DISCOVERY_UNVERIFIED_RE.test(markdown)) throw fail("DISCOVERY_INCOMPLETE", "Repository discovery must complete with source references and labeled assumptions or unverified areas before drafting.");
@@ -102,8 +67,8 @@ export function createOwnerChatCommandService({ projectId, fileService, communic
     const planId = `PLAN-${projectId}-${randomUUID()}`;
     if (!markdownPlanStore?.createRevision) throw fail("MARKDOWN_PLAN_STORE_UNAVAILABLE", "Markdown plan registry is unavailable.");
     const summarySha256 = createHash("sha256").update(summary).digest("hex");
-    const draft = await markdownPlanStore.createRevision({ planId, markdown, summaryId, summaryPath: path, summarySha256, conversationId });
-    return { command: "/plan", status: draft.status, plan_id: planId, revision: draft.revision, sha256: draft.sha256, file_id: planId, path: draft.file_path, source_summary_id: summaryId, source_summary_sha256: summarySha256, conversation_id: conversationId ?? null, text: `Đã tạo kế hoạch ${planId}. Chờ duyệt.`, run_started: false };
+    const draft = await markdownPlanStore.createRevision({ planId, markdown, summaryPath: path, summarySha256, conversationId });
+    return { command: "/plan", status: draft.status, plan_id: planId, revision: draft.revision, sha256: draft.sha256, file_id: planId, path: draft.file_path, source_summary_path: path, source_summary_sha256: summarySha256, conversation_id: conversationId ?? null, text: `Đã tạo kế hoạch ${planId}. Chờ duyệt.`, run_started: false };
   }
 
   // Hands an exactly approved plan to Node/Sprint Leader without starting execution.

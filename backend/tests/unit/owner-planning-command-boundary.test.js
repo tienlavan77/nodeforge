@@ -12,7 +12,7 @@ function input(text) {
 
 // Checks missing command configuration fails closed instead of dispatching a planning command as chat.
 test("standalone planning commands cannot fall through when command service is unavailable", async () => {
-  for (const text of ["/summary", " /SUMMARY ", "/plan SUMMARY-A", "/approve PLAN-A"]) {
+  for (const text of ["/plan docs/scope.md", " /PLAN docs/scope.md ", "/approve PLAN-A"]) {
     let launched = false;
     const service = createOwnerChatService({
       bus: { send: () => {}, sendFast: () => {} },
@@ -25,15 +25,15 @@ test("standalone planning commands cannot fall through when command service is u
   }
 });
 
-// Confirms standalone summary routing does not depend on the configurable command predicate.
-test("exact summary goes to command service even if its predicate returns false", async () => {
+// Confirms path-based plan routing does not depend on the configurable command predicate.
+test("path-based plan goes to command service even if its predicate returns false", async () => {
   let executions = 0; let launched = false;
   const service = createOwnerChatService({
     bus: { send: () => {}, sendFast: () => {} },
-    commandService: { isCommand: () => false, execute: async ({ text }) => { executions++; assert.equal(text, "/summary"); return { status: "created" }; } },
+    commandService: { isCommand: () => false, execute: async ({ text }) => { executions++; assert.equal(text, "/plan docs/scope.md"); return { status: "created" }; } },
     agentStream: async function* () { launched = true; yield { text: "must not launch" }; },
   });
-  const result = await service.submit(input("/summary"));
+  const result = await service.submit(input("/plan docs/scope.md"));
   assert.equal(result.message_type, "owner.command.result");
   assert.equal(executions, 1);
   assert.equal(launched, false);
@@ -69,25 +69,21 @@ test("planning command tools are read-only across providers while ordinary Archi
   }
 });
 
-// Exercises the real command handler through chat to prove backend alone persists a validated summary.
-test("standalone summary returns its backend-created artifact identity", async () => {
-  const writes = []; const calls = [];
-  const markdown = "# Discussion Summary\n## Goals\nReview. [Source: backend/src/application/owner-chat-command-service.js]\n## In Scope\nPlanning.\n## Out of Scope\nExecution.\n## Decisions\nAwait owner.\n## Assumptions\nAssumption: scope.\n## Risks\nUnknown dependencies.\n## Open Questions\nWhich test?";
+// Confirms summary discussion is ordinary AM chat, not a backend artifact command.
+test("retired summary is normal chat and does not persist a backend summary", async () => {
+  let writes = 0; const calls = [];
   const commandService = createOwnerChatCommandService({
-    projectId: "PROJECT-A", fileService: { readFile: async () => "", atomicCreate: async (write) => writes.push(write) },
+    projectId: "PROJECT-A", fileService: { readFile: async () => "", atomicCreate: async () => { writes++; } },
     planStore: { createRevision: async () => {}, assertExecutable: async () => {} },
   });
   const chat = createOwnerChatService({
-    bus: { send: () => {}, sendFast: () => {} }, commandService,
-    agentStream: async function* (request) { calls.push(request); yield { text: markdown }; },
+    bus: { send: (message) => message, sendFast: () => {} }, commandService,
+    agentStream: async function* (request) { calls.push(request); yield { text: "Discuss summary in normal chat." }; },
   });
   const result = await chat.submit(input("/summary"));
-  assert.equal(result.message_type, "owner.command.result");
-  assert.equal(result.payload.status, "created");
-  assert.equal(result.payload.execution_authorized, false);
-  assert.equal(calls[0].payload.planning_input_only, true);
-  assert.equal(writes.length, 1);
-  assert.equal(writes[0].path, result.payload.path);
-  assert.equal(writes[0].content, `${markdown}\n`);
-  assert.match(result.payload.path, /^\.forge\/runtime\/nf\/summary\/SUMMARY-.+\.md$/);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(result.message_type, "owner.message");
+  assert.equal(calls.length, 1);
+  assert.notEqual(calls[0].payload.planning_input_only, true);
+  assert.equal(writes, 0);
 });
