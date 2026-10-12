@@ -46,7 +46,7 @@ export default function HomePage() {
   const [selectedArchitectureManagerId, setSelectedArchitectureManagerId] = useState("");
   const [chatState, setChatState] = useState("");
   const [openSidebar, setOpenSidebar] = useState(false);
-  const [newConversationRequest, setNewConversationRequest] = useState(0);
+  const [conversationRevision, setConversationRevision] = useState(0);
   const [markdownPreviewPath, setMarkdownPreviewPath] = useState("");
   const projects = [{ id: PROJECT_ID, name: "NodeForge" }];
   const [watcherEvents, setWatcherEvents] = useState([]);
@@ -105,6 +105,7 @@ export default function HomePage() {
         if (!active) return;
         const items = Array.isArray(payload) ? payload : payload?.items ?? payload?.conversations ?? [];
         setConversations(items);
+        if (activeConversationIdRef.current === "") return;
         const saved = readChatState(CHAT_STATE_KEY);
         const savedId = saved?.agent_id === selectedArchitectureManager.id ? saved.conversation_id : null;
         const selected = items.find((item) => (item.id ?? item.conversation_id) === savedId) ?? items[0] ?? null;
@@ -131,10 +132,31 @@ export default function HomePage() {
     setAgentProcess, setAgentActivities, agentDisplayName, onProjectEvent: noteStreamInterruption
   });
 
+  // Starts an unsaved chat without creating a conversation or cancelling the previous agent run.
+  function handleNewConversation() {
+    if (sendingRef.current) return;
+    activeConversationIdRef.current = "";
+    setActiveConversationId("");
+    void loadConversationMessages(null);
+    setConversationRevision((current) => current + 1);
+    setChatState(""); setGlobalError(null); setAgentTyping(false);
+    setMarkdownPreviewPath(""); lastSentRef.current = null;
+    writeChatState(CHAT_STATE_KEY, selectedArchitectureManager?.id, null);
+  }
+
+  // Adds the first-message conversation to navigation without reloading its optimistic messages.
+  function handleConversationCreated(conversation) {
+    activeConversationIdRef.current = conversation.id ?? conversation.conversation_id;
+    setConversations((current) => [conversation, ...current.filter((item) => (item.id ?? item.conversation_id) !== activeConversationIdRef.current)]);
+  }
+
   // Binds a selected sidebar row to the existing persisted conversation and history lifecycle.
   function handleSelectConversation(conversation) {
+    if (sendingRef.current) return;
+    setConversationRevision((current) => current + 1);
     const id = conversation?.id ?? conversation?.conversation_id ?? conversation?.conversationId ?? null;
     if (!id) return;
+    activeConversationIdRef.current = id;
     setActiveConversationId(id);
     writeChatState(CHAT_STATE_KEY, selectedArchitectureManager?.id, id);
     setMessages([]);
@@ -145,7 +167,7 @@ export default function HomePage() {
 
   const { sendMessage, editMessage, retryMessage, retryLastMessage } = createHomeMessageHandlers({
     client, projectId: PROJECT_ID, architectureConversationId: null, chatStateKey: CHAT_STATE_KEY,
-    selectedArchitectureManager, activeConversationId, setActiveConversationId,
+    selectedArchitectureManager, activeConversationId, setActiveConversationId, onConversationCreated: handleConversationCreated,
     setChatState, setMessages, setAgentTyping, sendingRef, lastSentRef, writeChatState, messageIntent: MESSAGE_INTENTS.normalChat
   });
   const sendQueuedMessage = (text, responseContentType) => {
@@ -157,17 +179,17 @@ export default function HomePage() {
     });
   };
   const { pendingMessages, submitMessage, cancelPendingMessage } = usePendingConversationQueue({
-    agentId: selectedArchitectureManager?.id, isWorking: agentTyping, onSend: sendQueuedMessage
+    agentId: selectedArchitectureManager?.id, scopeKey: conversationRevision, isWorking: agentTyping, onSend: sendQueuedMessage
   });
   const globalToastError = globalError ?? (chatState && !chatState.includes("successfully") ? chatState : null);
   const activeConversation = conversations.find((conversation) => String(conversation?.id ?? conversation?.conversation_id ?? conversation?.conversationId) === String(activeConversationId));
   const activeConversationTitle = activeConversation?.title ?? activeConversation?.name ?? "New conversation";
 
   return <div className={`claude-home-shell${markdownPreviewPath ? " has-markdown-preview" : ""}`}>
-    <ConversationSidebar open={openSidebar} onOpen={() => setOpenSidebar(true)} onClose={() => setOpenSidebar(false)} architectureLabel={selectedArchitectureManager?.label} projects={projects} selectedProjectId={PROJECT_ID} onProjectChange={() => {}} onNewConversation={() => setNewConversationRequest((current) => current + 1)} architectureControl={<div className="claude-architecture-list" role="listbox" aria-label="Architecture Manager agents">
+    <ConversationSidebar open={openSidebar} onOpen={() => setOpenSidebar(true)} onClose={() => setOpenSidebar(false)} architectureLabel={selectedArchitectureManager?.label} projects={projects} selectedProjectId={PROJECT_ID} onProjectChange={() => {}} onNewConversation={handleNewConversation} architectureControl={<div className="claude-architecture-list" role="listbox" aria-label="Architecture Manager agents">
       {architectureManagers.map((agent) => <button type="button" role="option" aria-selected={agent.id === selectedArchitectureManagerId} key={agent.id} onClick={() => { setSelectedArchitectureManagerId(agent.id); writeArchitectureManagerAgent(PROJECT_ID, agent.id); }}><span className="claude-agent-option-avatar" aria-hidden="true">{agent.label.trim().slice(0, 1).toUpperCase()}</span><span>{agent.label}</span>{agent.id === selectedArchitectureManagerId && <span className="claude-agent-option-check" aria-label="Selected architecture">✓</span>}</button>)}
     </div>}>
-      <ConversationsAccordion conversations={conversations} projectId={PROJECT_ID} agentId={selectedArchitectureManager?.id} activeConversationId={activeConversationId} onNewConversation={(_title, conversation) => handleSelectConversation(conversation)} onSelectConversation={handleSelectConversation} createRequest={newConversationRequest} showNewConversationButton={false} />
+      <ConversationsAccordion conversations={conversations} projectId={PROJECT_ID} agentId={selectedArchitectureManager?.id} activeConversationId={activeConversationId} onSelectConversation={handleSelectConversation} showNewConversationButton={false} />
     </ConversationSidebar>
     <main className="claude-home-main" aria-label="NodeForge conversation workspace">
       <section className="claude-chat" aria-label="Project chat">
@@ -190,13 +212,13 @@ export default function HomePage() {
             <ConversationProjectGit client={client} projectId={PROJECT_ID} />
             <ArchitectureExecutionControls client={client} projectId={PROJECT_ID} conversationId={activeConversationId} executionId={lastSentRef.current?.conversationId === activeConversationId ? lastSentRef.current.correlationId : messages.findLast((message) => message.from === "owner" && message.correlation_id)?.correlation_id} agentTyping={agentTyping} interruptionSignal={architectureInterruption} />
           </div>
-          <HomeChatComposer onSend={submitMessage} />
+          <HomeChatComposer key={conversationRevision} onSend={submitMessage} />
           <SystemToolMode key={selectedArchitectureManager?.id} agent={selectedArchitectureManager} client={client} projectId={PROJECT_ID} busy={agentTyping} onSaved={(saved) => setAgentDirectory((current) => current.map((agent) => (agent.agent_id ?? agent.id) === saved.agent_id ? { ...agent, ...saved } : agent))} />
         </div>
       </section>
     </main>
     {markdownPreviewPath && <MarkdownPreviewPanel client={client} projectId={PROJECT_ID} path={markdownPreviewPath} onClose={() => setMarkdownPreviewPath("")} />}
-    <WorkspaceMonitorPanels layoutScope="home" watcherEvents={watcherEvents} watcherState={watcherState} agentProcess={agentProcess} agentActivities={agentActivities} agentDirectory={agentDirectory} />
+    <WorkspaceMonitorPanels layoutScope="home" selectedAgentId={selectedArchitectureManager?.id ?? ""} watcherEvents={watcherEvents} watcherState={watcherState} agentProcess={agentProcess} agentActivities={agentActivities} agentDirectory={agentDirectory} />
     {globalToastError && <GlobalToast error={globalToastError} onRetry={globalError?._retry ?? retryLastMessage} onDismiss={() => { setGlobalError(null); setChatState(""); }} />}
   </div>;
 }

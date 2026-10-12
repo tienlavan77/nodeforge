@@ -32,7 +32,6 @@ export function useConversationMessageHistory({ client, projectId, chatMessagesR
 
   // Loads the newest page and resets the cursor when the owner changes conversations.
   async function loadConversationMessages(conversationId) {
-    if (!conversationId) return;
     conversationRef.current = conversationId;
     const revision = ++loadRevisionRef.current;
     loadingRef.current = null;
@@ -43,7 +42,8 @@ export function useConversationMessageHistory({ client, projectId, chatMessagesR
     setHasOlder(false);
     setOlderLoading(false);
     setHistoryError("");
-    setMessagesLoading(true);
+    setMessagesLoading(Boolean(conversationId));
+    if (!conversationId) return;
     try {
       const result = await client.getConversationMessages({ projectId, conversationId, limit: PAGE_SIZE, order: "desc" });
       if (conversationRef.current !== conversationId || loadRevisionRef.current !== revision) return;

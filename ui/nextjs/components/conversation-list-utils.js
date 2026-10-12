@@ -74,6 +74,6 @@ export async function createConversationRequest(title, { onNewConversation, proj
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error ?? payload.message ?? "Unable to create conversation.");
   const conversation = payload.conversation ?? payload;
-  if (onNewConversation) return onNewConversation(title, conversation);
+  if (onNewConversation) await onNewConversation(title, conversation);
   return conversation;
 }

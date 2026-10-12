@@ -11,6 +11,7 @@ export function createHomeMessageHandlers({
   selectedArchitectureManager,
   activeConversationId,
   setActiveConversationId,
+  onConversationCreated,
   setChatState,
   setMessages,
   setAgentTyping,
@@ -36,6 +37,7 @@ export function createHomeMessageHandlers({
         conversationId = conversation.id ?? conversation.conversation_id;
         if (!isPersistedConversationId(conversationId)) throw new Error("Node returned an invalid conversation id.");
         setActiveConversationId(conversationId);
+        onConversationCreated?.(conversation);
         writeChatState(chatStateKey, selectedArchitectureManager.id, conversationId);
       } catch (error) {
         sendingRef.current = false;
