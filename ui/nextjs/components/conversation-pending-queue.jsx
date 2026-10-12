@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 
 // Manages an agent-scoped FIFO queue without persisting queued owner requests.
-export function usePendingConversationQueue({ agentId, isWorking, onSend }) {
+export function usePendingConversationQueue({ agentId, scopeKey, isWorking, onSend }) {
   const [pendingMessages, setPendingMessages] = useState([]);
   const pendingRef = useRef([]);
   const onSendRef = useRef(onSend);
@@ -20,7 +20,7 @@ export function usePendingConversationQueue({ agentId, isWorking, onSend }) {
     pendingRef.current = [];
     setPendingMessages([]);
     wasWorkingRef.current = isWorking;
-  }, [agentId]);
+  }, [agentId, scopeKey]);
 
   useEffect(() => {
     if (isWorking) {
