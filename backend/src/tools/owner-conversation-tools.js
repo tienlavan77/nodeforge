@@ -13,7 +13,7 @@ import { createOwnerEngineerTools } from "./owner-engineer-tools.js";
 
 // Creates the role-scoped Forge tool registry used by owner SDK conversations.
 export function createOwnerConversationTools({ role, projectRoot, fileService, codeCache, codeSearch, gitService, testService, conversationStateStore, conversationId, projectLogger, eventSink, context }) {
-  const allowed = ownerRoleTools(role);
+  const allowed = ownerRoleTools(role).filter((name) => !context?.planning_input_only || ["search_tree", "list_files", "search_text", "read_file", "read_lines"].includes(name));
   const scopedFiles = createRoleFileService({ fileService, role, projectRoot });
   const scopedCache = codeCache && { ...codeCache, read: async ({ path }) => {
     await scopedFiles.assertReadPath(path);

@@ -51,7 +51,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
         throw Object.assign(new ConfigurationError("Edited message must reference an owner message in this conversation."), { statusCode: 400 });
       }
     }
-    if (commandService?.isCommand?.(input.payload.text)) return handleOwnerCommand(input, agentId);
+    if (/^\/(?:summary|plan\s+\S+|approve\s+\S+)\s*$/i.test(input.payload.text.trim()) || commandService?.isCommand?.(input.payload.text)) return handleOwnerCommand(input, agentId);
     conversationCrudService?.ensure?.({ id: input.conversation_id, project_id: input.project_id, agent_id: agentId, title: input.payload.text });
     const isBuilder = agentId === "builder" || agentId === "builder-ex";
     const intent = input.payload.intent;
@@ -113,7 +113,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     const ownerMessage = { id: input.message_id, project_id: input.project_id, sender: { id: input.sender_id ?? "project-owner", role: "project_owner" }, recipient: { id: agentId, role: roleForAgent(agentId) }, message_type: "owner.message", conversation_id: input.conversation_id, correlation_id: input.correlation_id, payload: { text: input.payload.text }, timestamp: input.timestamp };
     bus.send(ownerMessage);
     try {
-      const isPlanCommand = /^\/plan\s+\S+\s*$/i.test(input.payload.text.trim());
+      if (typeof commandService?.execute !== "function") throw Object.assign(new ConfigurationError("Planning command service is unavailable; the command was not sent to agent chat."), { code: "OWNER_COMMAND_UNAVAILABLE", statusCode: 503 }); const isPlanCommand = /^\/plan\s+\S+\s*$/i.test(input.payload.text.trim());
       const result = await commandService.execute({ text: input.payload.text, conversationId: input.conversation_id, project_id: input.project_id, approvedOwnerId: input.approved_owner_id, approvalRevision: input.payload.approval_revision, approvalSha256: input.payload.approval_sha256, approvalComments: input.payload.approval_comments, requestArchitecture: (prompt, conversationId) => streamCommandArchitecture({ input, agentId, prompt, conversationId, exposeText: !isPlanCommand }) });
       const response = responseMessage({ ...input, id: input.message_id, recipient: { id: "NODE", role: "node" } }, "owner.command.result", result, `COMMAND-${input.message_id}`);
       bus.send(response);
@@ -133,7 +133,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     const message = { id: `MSG-ARCHITECTURE-COMMAND-${input.message_id}`, project_id: input.project_id, sender: { id: "NODE", role: "node" }, recipient: { id: agentId, role: roleForAgent(agentId) }, message_type: "owner.message", conversation_id: conversationId, correlation_id: `${input.correlation_id}-ARCH`, payload: { text: prompt }, timestamp: new Date().toISOString() };
     let text = ""; let index = 0;
     if (exposeText) bus.sendFast(responseMessage(message, "architecture.working", { agent_status: "WORKING" }, "COMMAND-WORKING"));
-    for await (const chunk of agentStream({ agentId, payload: { text: prompt, response_content_type: contentType }, correlationId: message.correlation_id, conversationId })) {
+    for await (const chunk of agentStream({ agentId, payload: { text: prompt, response_content_type: contentType, planning_input_only: true }, correlationId: message.correlation_id, conversationId })) {
       if (typeof chunk.text !== "string" || !chunk.text) continue;
       text += chunk.text;
       if (exposeText) bus.sendFast(responseMessage(message, "architecture.message.delta", { text: chunk.text, accumulated_text: text, content_type: contentType, chunk_index: index++ }, `COMMAND-DELTA-${index}`));
