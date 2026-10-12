@@ -1,14 +1,16 @@
-// Coordinates owner-approved pauses and recovery of direct System Engineer conversation executions.
+// Coordinates owner-approved pauses and recovery of role-scoped owner conversation executions.
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../shared/errors.js";
+import { ownerExecutionRolePolicy } from "./owner-execution-role-policy.js";
 
 // Provides scoped execution controls without replaying uncertain Git or file operations.
 export function createOwnerExecutionControl({ checkpoint, architectureCheckpoint, sdkStream, ownerChatService, communications, agentConfiguration }) {
+  const checkpointStores = { system_engineer: checkpoint, architecture_manager: architectureCheckpoint };
   // Resolves only the checkpoint store allowed for the conversation's configured role.
   function storeFor(agentId) {
     const role = agentConfiguration?.getById?.(agentId)?.role;
-    if (role === "system_engineer") return checkpoint;
-    if (role === "architecture_manager" && architectureCheckpoint) return architectureCheckpoint;
+    const store = Object.hasOwn(checkpointStores, role) ? checkpointStores[role] : null;
+    if (store && store.role === role) return store;
     throw Object.assign(new ConfigurationError("Execution not found for this conversation."), { statusCode: 404 });
   }
 
@@ -18,7 +20,7 @@ export function createOwnerExecutionControl({ checkpoint, architectureCheckpoint
     const record = await store.load(conversationId, executionId);
     if (!record || !record.message_id) throw Object.assign(new ConfigurationError("Execution not found."), { statusCode: 404 });
     const message = communications?.getById?.(record.message_id);
-    if (!message || message.conversation_id !== conversationId || message.recipient?.id !== agentId || (record.role && record.role !== agentConfiguration.getById(agentId).role)) throw Object.assign(new ConfigurationError("Execution not found for this conversation."), { statusCode: 404 });
+    if (!message || message.conversation_id !== conversationId || message.recipient?.id !== agentId || record.role !== agentConfiguration.getById(agentId).role) throw Object.assign(new ConfigurationError("Execution not found for this conversation."), { statusCode: 404 });
     return { record, message, store };
   }
 
@@ -26,9 +28,9 @@ export function createOwnerExecutionControl({ checkpoint, architectureCheckpoint
   async function summary(record, store) {
     const recoverable = record.status === "interrupted" && await store.reconcile(record);
     const safelyDiscardable = ["interrupted", "manual_required"].includes(record.status) && Boolean(record.runner_stopped_at) && !record.active_mutations;
-    return { conversation_id: record.conversation_id, execution_id: record.execution_id, status: record.status, tool_mode: record.tool_mode ?? "forge", checkpoint_kind: record.checkpoint_kind ?? "forge_receipts",
+    return { conversation_id: record.conversation_id, execution_id: record.execution_id, role: record.role, display_name: ownerExecutionRolePolicy(record.role).displayName, status: record.status, tool_mode: record.tool_mode ?? "forge", checkpoint_kind: record.checkpoint_kind ?? "forge_receipts",
       can_continue: Boolean(recoverable && record.provider_thread_id), can_restart: Boolean(recoverable), can_discard: Boolean(safelyDiscardable),
-      can_reconcile: record.role === "architecture_manager" && record.status === "manual_required" && Boolean(record.runner_stopped_at) && !record.active_mutations && !record.receipts_truncated && record.pending_tool_calls?.length === 1,
+      can_reconcile: ownerExecutionRolePolicy(record.role).architectureMutations && record.status === "manual_required" && Boolean(record.runner_stopped_at) && !record.active_mutations && !record.receipts_truncated && record.pending_tool_calls?.length === 1,
       requires_human_review: record.status === "manual_required" };
   }
 
@@ -79,7 +81,10 @@ export function createOwnerExecutionControl({ checkpoint, architectureCheckpoint
   }
 
   // Requires verified project-owner identity before exposing Architecture execution records.
-  function requiresOwnerAuth(agentId) { return agentConfiguration?.getById?.(agentId)?.role === "architecture_manager"; }
+  function requiresOwnerAuth(agentId) {
+    const role = agentConfiguration?.getById?.(agentId)?.role;
+    return Object.hasOwn(checkpointStores, role) && ownerExecutionRolePolicy(role).requiresOwnerAuth;
+  }
 
   return Object.freeze({ list, pause, decide, reconcilePending, requiresOwnerAuth });
 }
