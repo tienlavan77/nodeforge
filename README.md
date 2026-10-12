@@ -30,8 +30,13 @@ Sprint Leader must number verification checks against each ticket's final
 acceptance criteria, including the exact approved outcome criteria. If handoff
 rejects a draft for an invalid verification plan, the next owner-triggered
 Continue handoff asks Sprint Leader to repair that retained draft with the
-admission error and approved scope. Sprint and ticket IDs must stay unchanged;
-all coverage gates are rechecked before ingestion. There is no automatic repair
+admission error and approved scope. Node freezes and retains the normalized
+acceptance criteria before verification admission, including their original
+language and array order. Repair applies only each ticket's `verification_plan`;
+other proposed changes are ignored and Sprint/ticket ID changes are rejected.
+This prevents criteria from growing on each retry. Existing translated criteria
+are retained, not silently removed; all final AC IDs still need relevant checks.
+All coverage gates are rechecked before ingestion. There is no automatic repair
 loop or RUN dispatch. Valid drafts still replay without regeneration after
 storage failures or completed handoffs.
 
