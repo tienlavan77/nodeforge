@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createDatabaseService } from "../../src/infrastructure/sqlite/database-service.js";
 import { createPlanHandoffService } from "../../src/application/plan-handoff-service.js";
-import { projectMarkdownSprintScope } from "../../src/modules/governance/markdown-sprint-scope.js";
+import { normalizeMarkdownSprintScope, projectMarkdownSprintScope } from "../../src/modules/governance/markdown-sprint-scope.js";
 
 const approvedCriteria = Array.from({ length: 6 }, (_, index) => `Approved API requirement ${index + 1}`);
 const ticketCriteria = Array.from({ length: 6 }, (_, index) => `Ticket-specific check ${index + 1}`);
@@ -48,6 +48,9 @@ test("six mapped ticket criteria do not implicitly cover six appended approved c
   const draft = candidate(); const original = structuredClone(draft);
   assert.throws(() => projectMarkdownSprintScope(markdown, draft), (error) => error.code === "SPRINT_MARKDOWN_SCOPE" && error.message.includes("Verification plan does not cover AC-7, AC-8, AC-9, AC-10, AC-11, AC-12."));
   assert.deepEqual(draft, original);
+  const frozen = normalizeMarkdownSprintScope(markdown, draft);
+  assert.deepEqual(normalizeMarkdownSprintScope(markdown, frozen), frozen);
+  assert.deepEqual(frozen.tickets[0].acceptance_criteria, [...ticketCriteria, ...approvedCriteria]);
 });
 
 // Repairs a retained invalid candidate on the next owner handoff, then replays without another provider dispatch.
@@ -113,4 +116,70 @@ test("verification repair cannot change Sprint or ticket IDs", async (context) =
     assert.equal(state.ingests, 0);
     assert.equal(JSON.parse(state.receipt().generated_json).id, "SPRINT-COVERAGE");
   }
+});
+
+// Freezes the twelve final criteria even when successive repairs translate or expand the rejected draft.
+test("repeated incomplete repairs cannot grow acceptance criteria from twelve to eighteen", async (context) => {
+  const state = await fixture(context, (attempt, input) => {
+    if (attempt === 1) return candidate();
+    const draft = candidate(true);
+    draft.tickets[0].acceptance_criteria = draft.tickets[0].acceptance_criteria.map((criterion) => `Rephrased ${criterion}`);
+    draft.tickets[0].verification_plan[0].criterion_ids = ["AC-1"];
+    assert.match(input.brief, /FINAL frozen acceptance_criteria/);
+    return draft;
+  });
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    await assert.rejects(state.service.handoff({ plan: state.plan }), (error) => error.code === "SPRINT_MARKDOWN_SCOPE" && !error.message.includes("AC-13"));
+    const persisted = JSON.parse(state.receipt().generated_json);
+    assert.deepEqual(persisted.tickets[0].acceptance_criteria, [...ticketCriteria, ...approvedCriteria]);
+    assert.equal(state.requests.length, attempt);
+    assert.equal(state.ingests, 0);
+  }
+});
+
+// Applies verification mappings only, never provider-proposed changes to approved scope or execution flags.
+test("verification repair ignores scope changes and preserves the exact admitted snapshot", async (context) => {
+  const state = await fixture(context, (attempt) => {
+    const draft = candidate(attempt > 1);
+    if (attempt > 1) {
+      draft.run = true;
+      draft.status = "RUN";
+      draft.tickets[0].acceptance_criteria = ["Weakened requirement"];
+      draft.tickets[0].objective = "Different work";
+      draft.tickets[0].outcome_refs = ["O99"];
+      draft.tickets[0].dependencies = ["TICKET-UNKNOWN"];
+      draft.tickets[0].file_budget = 99;
+    }
+    return draft;
+  });
+  await assert.rejects(state.service.handoff({ plan: state.plan }), { code: "SPRINT_MARKDOWN_SCOPE" });
+  const frozen = JSON.parse(state.receipt().generated_json);
+  await state.service.handoff({ plan: state.plan });
+  const persisted = JSON.parse(state.receipt().generated_json);
+  const expected = structuredClone(frozen);
+  expected.tickets[0].verification_plan = candidate(true).tickets[0].verification_plan;
+  assert.deepEqual(persisted, expected);
+  assert.equal(state.ingests, 1);
+});
+
+// Retains Vietnamese approved wording when a legacy draft already contains twelve translated criteria.
+test("legacy translated twelve-criterion draft stays at eighteen across failed and successful repairs", async (context) => {
+  const originalCriteria = approvedCriteria.map((_, index) => `Yêu cầu API đã duyệt ${index + 1}`);
+  const state = await fixture(context, (attempt) => {
+    const draft = candidate(true);
+    if (attempt > 1) {
+      draft.tickets[0].acceptance_criteria = draft.tickets[0].acceptance_criteria.map((criterion) => `Translated ${criterion}`);
+      if (attempt > 2) draft.tickets[0].verification_plan[0].criterion_ids = Array.from({ length: 18 }, (_, index) => `AC-${index + 1}`);
+    }
+    return draft;
+  });
+  state.plan.markdown = markdown.replace(approvedCriteria.join("; "), originalCriteria.join("; "));
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    await assert.rejects(state.service.handoff({ plan: state.plan }), (error) => error.message.includes("does not cover AC-13, AC-14, AC-15, AC-16, AC-17, AC-18"));
+    assert.deepEqual(JSON.parse(state.receipt().generated_json).tickets[0].acceptance_criteria, [...ticketCriteria, ...approvedCriteria, ...originalCriteria]);
+  }
+  await state.service.handoff({ plan: state.plan });
+  assert.equal(JSON.parse(state.receipt().generated_json).tickets[0].acceptance_criteria.length, 18);
+  assert.equal(state.requests.length, 3);
+  assert.equal(state.ingests, 1);
 });
