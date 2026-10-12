@@ -51,7 +51,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
         throw Object.assign(new ConfigurationError("Edited message must reference an owner message in this conversation."), { statusCode: 400 });
       }
     }
-    if (/^\/(?:summary|plan\s+\S+|approve\s+\S+)\s*$/i.test(input.payload.text.trim()) || commandService?.isCommand?.(input.payload.text)) return handleOwnerCommand(input, agentId);
+    if (/^\/(?:plan\s+\S+|approve\s+\S+)\s*$/i.test(input.payload.text.trim()) || commandService?.isCommand?.(input.payload.text)) return handleOwnerCommand(input, agentId);
     conversationCrudService?.ensure?.({ id: input.conversation_id, project_id: input.project_id, agent_id: agentId, title: input.payload.text });
     const isBuilder = agentId === "builder" || agentId === "builder-ex";
     const intent = input.payload.intent;
@@ -129,7 +129,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
   // Streams an Architecture response and persists it in the same conversation.
   async function streamCommandArchitecture({ input, agentId, prompt, conversationId, exposeText = true }) {
     agentId = agentRoleResolver ? agentRoleResolver.resolveProfile("architecture_manager")?.agent_id : architectureManagerId; if (!agentId || typeof agentStream !== "function") throw new ConfigurationError("Configured Architecture agent stream is unavailable.");
-    const contentType = /^\/summary\b/i.test(String(input.payload.text).trim()) ? "text/markdown" : "text/plain";
+    const contentType = "text/markdown";
     const message = { id: `MSG-ARCHITECTURE-COMMAND-${input.message_id}`, project_id: input.project_id, sender: { id: "NODE", role: "node" }, recipient: { id: agentId, role: roleForAgent(agentId) }, message_type: "owner.message", conversation_id: conversationId, correlation_id: `${input.correlation_id}-ARCH`, payload: { text: prompt }, timestamp: new Date().toISOString() };
     let text = ""; let index = 0;
     if (exposeText) bus.sendFast(responseMessage(message, "architecture.working", { agent_status: "WORKING" }, "COMMAND-WORKING"));

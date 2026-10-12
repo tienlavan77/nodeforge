@@ -12,7 +12,7 @@ import { createOwnerChatCommandService } from "../../src/application/owner-chat-
 
 const content = { objective: "Ship scoped work", outcome: "Reviewed plan", in_scope: "Feature", out_of_scope: "Other", approach: "Implement and verify", components: ["backend"], tickets: ["TICKET-A"], dependencies: [], risks: ["Drift"], assumptions: [], open_questions: [], evidence_refs: ["summary"], acceptance_criteria: ["Review"] };
 
-test("summary and plan commands persist opaque references without running work", async () => {
+test("path-based plan command persists a source-bound draft without running work", async () => {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-command-"));
   const database = await createDatabaseService({ dataDir: join(root, ".forge/runtime"), runtimeDir: "." });
   const fileService = createFileService({ projectRoot: root, allowPlanStorage: true, watcherIgnore: [".forge/**", "node_modules/**"] });
@@ -22,23 +22,24 @@ test("summary and plan commands persist opaque references without running work",
   await writeFile(join(root, "workflows/agents/architecture/README.md"), "# Khung kế hoạch\n\n## 1. Mục tiêu\n\n## 7. Nghiệm thu\n");
   const service = createOwnerChatCommandService({ projectId: "PROJECT-A", fileService, communications: { getByConversationId: () => [{ project_id: "PROJECT-A", sender: { id: "owner" }, payload: { text: "Build the feature" } }] }, planStore: plans, markdownPlanStore: markdownPlans });
   const summaryMarkdown = "# Discussion Summary\n\n## Goals\n\nShip the feature. [Evidence: backend/src/application/owner-chat-command-service.js]\n\n## In Scope\n\nBackend behavior.\n\n## Out of Scope\n\nDeployment.\n\n## Decisions\n\nUse the existing command path. [Source: backend/src/application/owner-chat-command-service.js]\n\n## Assumptions\n\nAssumption: the owner will review the resulting plan.\n\n## Risks\n\nUnknown: repository dependencies may change.\n\n## Open Questions\n\nWhich canary is required?";
-  let summaryPrompt;
-  const summary = await service.execute({ text: "/summary", conversationId: "CONV-A", project_id: "PROJECT-A", requestArchitecture: async (prompt) => { summaryPrompt = prompt; assert.match(prompt, /temporary planning input only/); return summaryMarkdown; } });
-  assert.match(summaryPrompt, /Recent Owner Discussion/);
-  assert.match(summaryPrompt, /owner: Build the feature/);
-  assert.equal(await readFile(join(root, summary.path), "utf8"), `${summaryMarkdown}\n`);
-  assert.equal(summary.execution_authorized, false);
-  await assert.rejects(service.execute({ text: `/plan ${summary.summary_id}`, conversationId: "CONV-A", project_id: "PROJECT-A", requestArchitecture: async () => '{"plan_id":"PLAN-INVALID"}' }), { code: "ARCHITECTURE_PLAN_INVALID" });
+  const summary = { path: "workflows/discussion.md" };
+  await writeFile(join(root, summary.path), `${summaryMarkdown}\n`);
+  assert.equal(service.isCommand("/summary"), false);
+  await assert.rejects(service.execute({ text: `/plan ${summary.path}`, conversationId: "CONV-A", project_id: "PROJECT-A", requestArchitecture: async () => '{"plan_id":"PLAN-INVALID"}' }), { code: "ARCHITECTURE_PLAN_INVALID" });
   let prompt;
   const incompleteDiscovery = "# Plan: Owner objective\n\n## 1. Mục tiêu\n\nOwner objective\n\n## 7. Nghiệm thu\n\n- [ ] Reviewed";
-  await assert.rejects(service.execute({ text: `/plan ${summary.summary_id}`, conversationId: "CONV-A", project_id: "PROJECT-A", requestArchitecture: async () => incompleteDiscovery }), { code: "DISCOVERY_INCOMPLETE" });
+  await assert.rejects(service.execute({ text: `/plan ${summary.path}`, conversationId: "CONV-A", project_id: "PROJECT-A", requestArchitecture: async () => incompleteDiscovery }), { code: "DISCOVERY_INCOMPLETE" });
   assert.deepEqual(markdownPlans.list(), []);
   const markdown = "# Plan: Owner objective\n\n## 1. Mục tiêu\n\nRepository discovery complete. [Evidence: backend/src/application/owner-chat-command-service.js]\n\n## 5. Tickets\n\n| Thứ tự | Nhóm việc | Implementation type | Mục tiêu | Phụ thuộc | Mutable-file budget | Acceptance criteria |\n| --- | --- | --- | --- | --- | --- | --- |\n| 1 | API change | backend | Fix API | — | ≤ 4 files | API works |\n\n## 6. Rủi ro\n\nUnverified: the repository may change before approval.\n\n## 7. Nghiệm thu\n\n- [ ] Reviewed";
-  const draft = await service.execute({ text: `/plan ${summary.summary_id}`, conversationId: "CONV-A", project_id: "PROJECT-A", requestArchitecture: async (value) => { prompt = value; return markdown; } });
+  const draft = await service.execute({ text: `/plan ${summary.path}`, conversationId: "CONV-A", project_id: "PROJECT-A", requestArchitecture: async (value) => { prompt = value; return markdown; } });
   assert.match(prompt, /Ship the feature/);
   assert.match(prompt, /# Khung kế hoạch/);
   assert.match(prompt, /workflows\/agents\/architecture\/README\.md/);
   assert.equal(draft.status, "awaiting_human_approval");
+  assert.equal(draft.source_summary_path, summary.path);
+  assert.match(draft.source_summary_sha256, /^[a-f0-9]{64}$/);
+  assert.equal(draft.run_started, false);
+  assert.equal(await readFile(join(root, summary.path), "utf8"), `${summaryMarkdown}\n`);
   assert.equal(draft.text, `Đã tạo kế hoạch ${draft.plan_id}. Chờ duyệt.`);
   assert.ok(!draft.text.includes(draft.path));
   assert.match(draft.path, /\/ke-hoach-r1\.md$/);
@@ -46,18 +47,19 @@ test("summary and plan commands persist opaque references without running work",
   assert.deepEqual(plans.list(), []);
   await assert.rejects(service.execute({ text: `/approve ${draft.plan_id}`, project_id: "PROJECT-A", approvedOwnerId: "OWNER", approvalRevision: draft.revision, approvalSha256: "bad" }), { code: "PLAN_APPROVAL_STALE" });
   const outcomeMarkdown = "# Plan: Owner outcomes\n\n## 1. Mục tiêu\n\nRepository discovery complete. [Source: backend/src/application/owner-chat-command-service.js]\n\n## 5. Outcomes\n\n| Mã | Outcome | Acceptance criteria | Guardrail |\n| --- | --- | --- | --- |\n| O1 | API works | HTTP returns canonical errors | — |\n\n## 6. Rủi ro\n\nAssumption: sources remain available until review.\n\n## 7. Nghiệm thu\n\n- [ ] Reviewed";
-  const outcomeDraft = await service.execute({ text: `/plan ${summary.summary_id}`, conversationId: "CONV-A", project_id: "PROJECT-A", requestArchitecture: async () => outcomeMarkdown });
+  const outcomeDraft = await service.execute({ text: `/plan ${summary.path}`, conversationId: "CONV-A", project_id: "PROJECT-A", requestArchitecture: async () => outcomeMarkdown });
   assert.equal(outcomeDraft.status, "awaiting_human_approval");
   assert.equal(await readFile(join(root, outcomeDraft.path), "utf8"), `${outcomeMarkdown}\n`);
   await database.close();
   await rm(root, { recursive: true, force: true });
 });
 
-test("summary rejects incomplete or plan-shaped architecture output", async () => {
-  const fileService = { readFile: async () => "", atomicCreate: async () => { throw new Error("must not persist invalid summary"); } };
+// Retires summary generation while rejecting empty file-based planning inputs before provider execution.
+test("summary command is removed and empty plan sources are rejected", async () => {
+  const fileService = { readFile: async () => "", atomicCreate: async () => { throw new Error("must not persist a summary"); } };
   const service = createOwnerChatCommandService({ projectId: "PROJECT-A", fileService, planStore: { createRevision: async () => {}, assertExecutable: async () => {} } });
-  await assert.rejects(service.execute({ text: "/summary", requestArchitecture: async () => "# Discussion Summary\n\n## Goals\n\nGoal\n\n## In Scope\n\nScope\n\n## Out of Scope\n\nNone\n\n## Decisions\n\nDecision\n\n## Assumptions\n\nAssumption\n\n## Risks\n\nRisk\n\n## Open Questions\n\nQuestion" }), { code: "SUMMARY_EVIDENCE_MISSING" });
-  await assert.rejects(service.execute({ text: "/summary", requestArchitecture: async () => "# Plan: unauthorized" }), { code: "SUMMARY_INVALID" });
+  await assert.rejects(service.execute({ text: "/summary", requestArchitecture: async () => assert.fail("retired command") }), { code: "COMMAND_INVALID" });
+  await assert.rejects(service.execute({ text: "/plan docs/discussion.md", requestArchitecture: async () => assert.fail("empty source") }), { code: "SUMMARY_SOURCE_INVALID" });
 });
 
 test("approve hands off only an exact approved revision", async () => {
