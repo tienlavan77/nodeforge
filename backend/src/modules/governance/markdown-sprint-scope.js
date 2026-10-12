@@ -36,7 +36,8 @@ export function normalizeMarkdownSprintScope(markdown, sprint) {
   const approved = readMarkdownSprintScope(markdown);
   if (approved[0]?.kind === "outcome") {
     const projectedTickets = sprint.tickets.map((ticket) => bindApprovedOutcomeCoverage(ticket, approved));
-    const projected = { ...sprint, outcome_coverage: structuredClone(approved), tickets: projectedTickets };
+    const projected = { ...sprint, tickets: projectedTickets };
+    delete projected.outcome_coverage;
     return projected;
   }
   const tickets = sprint?.tickets;

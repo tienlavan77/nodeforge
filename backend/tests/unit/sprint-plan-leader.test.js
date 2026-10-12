@@ -22,6 +22,9 @@ test("runner keeps only file references observed with Forge tools", async () => 
   assert.match(calls[0].prompt, /implementation_type/);
   assert.match(calls[0].prompt, /exact original wording and language, including Vietnamese/);
   assert.match(calls[0].prompt, /change ONLY verification_plan/);
+  assert.match(calls[0].prompt, /components MUST be an array of nonempty strings/);
+  assert.match(calls[0].prompt, /outcome_coverage is not a Sprint Plan schema field/);
+  assert.match(calls[0].prompt, /change ONLY human_plan.components/);
   assert.doesNotMatch(calls[0].prompt, /Write ALL field values/);
   assert.match(calls[0].prompt, /workflows\/agents\/sprint-leader\/README\.md/);
   assert.match(calls[0].prompt, /Sprint Leader agent rules/);

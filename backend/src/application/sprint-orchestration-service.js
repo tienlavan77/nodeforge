@@ -48,7 +48,7 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
       plan = extractSprintPlanJson(text);
       const resolved = assignPlanTicketIdentity(stripPlanCandidateFields(plan), { projectId: message.project_id });
       assertSprintPlanGovernance(resolved);
-      if (!validateSprintPlan(resolved)) throw new ConfigurationError(`Sprint Leader returned invalid sprint plan: ${validateSprintPlan.errors.map((error) => `${error.instancePath || "/"} ${error.message}`).join("; ")}`);
+      if (!validateSprintPlan(resolved)) throw new ConfigurationError(`Sprint Leader returned invalid sprint plan: ${validateSprintPlan.errors.map((error) => `${error.instancePath || "/"} ${error.message}${error.params?.additionalProperty ? ` (${error.params.additionalProperty})` : ""}`).join("; ")}`);
       await persistSprintPlan(resolved, { projectId: message.project_id, correlationId: message.correlation_id, conversationId: message.conversation_id, approvedParentPlanKey: message.approved_parent_plan_key });
       return { ingested: true, sprint_id: resolved.id };
     } catch (error) {
@@ -94,7 +94,7 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
           const plan = extractSprintPlanJson(output);
           const resolved = assignPlanTicketIdentity(stripPlanCandidateFields(plan), { projectId });
           assertSprintPlanGovernance(resolved);
-          if (!validateSprintPlan(resolved)) throw new ConfigurationError(`Sprint Leader returned invalid sprint plan: ${validateSprintPlan.errors.map((error) => `${error.instancePath || "/"} ${error.message}`).join("; ")}`);
+          if (!validateSprintPlan(resolved)) throw new ConfigurationError(`Sprint Leader returned invalid sprint plan: ${validateSprintPlan.errors.map((error) => `${error.instancePath || "/"} ${error.message}${error.params?.additionalProperty ? ` (${error.params.additionalProperty})` : ""}`).join("; ")}`);
           await persistSprintPlan(resolved, { projectId, correlationId, conversationId });
         }
         publish("agent.token_used", projectId, sprint.id, sessionId, agentId, correlationId, conversationId, { input_tokens: Math.ceil(text.length / 4), output_tokens: Math.ceil(output.length / 4) });
@@ -117,7 +117,7 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
       const plan = await sprintPlanLeader.requestPlan({ projectId, agentId, brief: buildSprintBrief(sprint), correlationId });
       const identified = assignPlanTicketIdentity(stripPlanCandidateFields(plan), { projectId });
       assertSprintPlanGovernance(identified);
-      if (!validateSprintPlan(identified)) throw new ConfigurationError(`Sprint Leader returned invalid sprint plan: ${validateSprintPlan.errors.map((error) => `${error.instancePath || "/"} ${error.message}`).join("; ")}`);
+      if (!validateSprintPlan(identified)) throw new ConfigurationError(`Sprint Leader returned invalid sprint plan: ${validateSprintPlan.errors.map((error) => `${error.instancePath || "/"} ${error.message}${error.params?.additionalProperty ? ` (${error.params.additionalProperty})` : ""}`).join("; ")}`);
       await persistSprintPlan(identified, { projectId, correlationId, conversationId });
       const text = JSON.stringify(identified);
       publish("agent.token_used", projectId, sprint.id, sessionId, "sprint-leader", correlationId, conversationId, { input_tokens: Math.ceil(text.length / 4), output_tokens: Math.ceil(text.length / 4) });

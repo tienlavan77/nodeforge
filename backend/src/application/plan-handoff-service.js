@@ -27,22 +27,28 @@ export function createPlanHandoffService({ projectId, database, planStore, markd
       const correlationId = `CORR-PLAN-HANDOFF-${approved.plan_id}-${approved.revision}`;
       const priorCandidate = row.generated_json ? JSON.parse(row.generated_json) : null;
       const retryVerification = markdown && row.error_code === "SPRINT_MARKDOWN_SCOPE" && /has an invalid verification plan:/.test(row.error_message ?? "");
-      const repairCandidate = retryVerification && priorCandidate ? normalizeMarkdownSprintScope(approved.markdown, priorCandidate) : null;
+      const retryComponents = markdown && row.error_code === "SPRINT_PLAN_HANDOFF_FAILED" && /^Sprint Leader returned invalid sprint plan:/.test(row.error_message ?? "") && /\/human_plan\/components\//.test(row.error_message ?? "");
+      const repairCandidate = (retryVerification || retryComponents) && priorCandidate ? normalizeMarkdownSprintScope(approved.markdown, priorCandidate) : null;
       if (repairCandidate) database.run(`UPDATE ${table} SET generated_json=?,updated_at=? WHERE plan_id=? AND revision=? AND sha256=?`, [JSON.stringify(repairCandidate), clock(), approved.plan_id, approved.revision, approved.sha256]);
-      let generated = retryVerification ? null : priorCandidate;
+      let generated = retryVerification || retryComponents ? null : priorCandidate;
       if (!generated) {
         const profile = agentRoleResolver?.resolveProfile?.("sprint_leader");
         if (!profile?.agent_id) throw fail("SPRINT_LEADER_UNAVAILABLE", "Configured Sprint Leader profile is unavailable.");
         const brief = markdown ? `Approved plan_id=${approved.plan_id} revision=${approved.revision} sha256=${approved.sha256}\n\n${approved.markdown}` : JSON.stringify({ plan_id: approved.plan_id, revision: approved.revision, sha256: approved.sha256, content: approved.content });
         const priorFailure = row.error_message ? ` Previous admission failure to correct: ${row.error_code ?? "SPRINT_PLAN_INVALID"}: ${row.error_message}` : "";
         const verificationFeedback = markdown ? " Before numbering AC IDs, include the approved acceptance criteria verbatim: use the exact ordered criteria for numbered work groups; for outcomes include every approved criterion of each outcome assigned to the ticket, alongside any ticket-specific criteria. Build verification_plan against this final acceptance_criteria array, covering every positional AC ID with a relevant check. Do not assume backend-added criteria inherit coverage, invent test evidence, or weaken approved criteria." : "";
-        const repairBrief = repairCandidate ? `\n\nPreviously rejected Sprint draft with FINAL frozen acceptance_criteria (preserve all fields and array order exactly, including original language; change ONLY each ticket's verification_plan). AC IDs refer to this snapshot, not a translated or expanded array. Only verification_plan changes will be applied:\n${JSON.stringify(repairCandidate)}` : "";
+        const repairBrief = repairCandidate ? retryComponents
+          ? `\n\nPreviously rejected Sprint draft for components representation repair. Preserve every ticket, all IDs, acceptance_criteria, verification_plan and every other field exactly. Change ONLY human_plan.components into nonempty strings preserving the component details; do not drop entries or invent scope. Only human_plan.components changes will be applied:\n${JSON.stringify(repairCandidate)}`
+          : `\n\nPreviously rejected Sprint draft with FINAL frozen acceptance_criteria (preserve all fields and array order exactly, including original language; change ONLY each ticket's verification_plan). AC IDs refer to this snapshot, not a translated or expanded array. Only verification_plan changes will be applied:\n${JSON.stringify(repairCandidate)}` : "";
         generated = await sprintPlanLeader.requestPlan({ projectId, agentId: profile.agent_id, brief: `${brief}${repairBrief}`, feedback: `Create the Sprint Plan from this owner-approved plan. For numbered work groups keep their order; for outcome rows decompose independently and map every outcome to tickets. Assign stable ticket IDs. Do not run tickets.${verificationFeedback}${priorFailure}`, correlationId });
-        if (retryVerification && priorCandidate && (generated?.id !== priorCandidate.id || JSON.stringify(generated?.tickets?.map((ticket) => ticket.id)) !== JSON.stringify(priorCandidate.tickets?.map((ticket) => ticket.id)))) throw fail("SPRINT_VERIFICATION_REPAIR_IDENTITY", "Verification repair must preserve the rejected Sprint and ticket IDs.");
-        if (repairCandidate) generated = { ...repairCandidate, tickets: repairCandidate.tickets.map((ticket, index) => ({ ...ticket, verification_plan: structuredClone(generated.tickets[index].verification_plan) })) };
+        if (repairCandidate && (generated?.id !== repairCandidate.id || JSON.stringify(generated?.tickets?.map((ticket) => ticket.id)) !== JSON.stringify(repairCandidate.tickets?.map((ticket) => ticket.id)))) throw fail("SPRINT_VERIFICATION_REPAIR_IDENTITY", "Draft repair must preserve the rejected Sprint and ticket IDs.");
+        if (retryComponents && (!Array.isArray(generated?.human_plan?.components) || generated.human_plan.components.length !== repairCandidate.human_plan.components.length)) throw fail("SPRINT_PLAN_HANDOFF_FAILED", "Sprint Leader returned invalid sprint plan: /human_plan/components/ must preserve every component during representation repair.");
+        if (repairCandidate) generated = retryComponents
+          ? { ...repairCandidate, human_plan: { ...repairCandidate.human_plan, components: structuredClone(generated?.human_plan?.components) } }
+          : { ...repairCandidate, tickets: repairCandidate.tickets.map((ticket, index) => ({ ...ticket, verification_plan: structuredClone(generated.tickets[index].verification_plan) })) };
         if (!generated?.id || typeof generated.id !== "string") throw fail("SPRINT_PLAN_HANDOFF_FAILED", "Sprint Leader returned a plan without a sprint ID.");
         // Retain the exact draft before admission; persistence retries reuse it.
-        // Only an explicitly rejected verification plan is repaired on a later owner handoff.
+        // Only explicitly rejected verification or components are repaired on a later owner handoff.
         database.run(`UPDATE ${table} SET status=?,sprint_id=?,generated_json=?,updated_at=? WHERE plan_id=? AND revision=? AND sha256=?`, ["candidate", generated.id, JSON.stringify(generated), clock(), approved.plan_id, approved.revision, approved.sha256]);
       }
       if (markdown) {
