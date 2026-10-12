@@ -40,6 +40,8 @@ The active `/` route is a Client Component. Its direct imports are the component
 
 ## Behavior contract to preserve
 
+- **New conversation (`/` and `/system`):** opens an empty, unsaved conversation without a modal or create API request. The first non-empty message creates the conversation, derives its title from the first 120 characters, and adds it to navigation before sending. Selecting an existing chat abandons the unsaved draft. Resetting the view clears composer input, history pagination, and queued messages, but does not cancel an existing agent run. A failed send retains the created conversation ID for Retry. Navigation is deferred while a message submission is in flight.
+
 - **Switch:** changing the selected conversation updates the active conversation ref and loads that conversation's history; stale stream events must not become messages for the newly selected conversation.
 - **Optimistic send:** the composer adds the user's message immediately, then correlates the eventual response to the submitted conversation/message while the send guard prevents duplicate submissions.
 - **Retry:** failed or incomplete responses use the existing message-handler retry path and intent constants; preserve the current conversation and stream correlation when retrying.

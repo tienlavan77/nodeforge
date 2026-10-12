@@ -61,7 +61,7 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
   const [chatState, setChatState] = useState("");
   const [globalError, setGlobalError] = useState(null);
   const [openSidebar, setOpenSidebar] = useState(false);
-  const [newConversationRequest, setNewConversationRequest] = useState(0);
+  const [conversationRevision, setConversationRevision] = useState(0);
   const [markdownPreviewPath, setMarkdownPreviewPath] = useState("");
   const sendingRef = useRef(false);
   const lastSentRef = useRef(null);
@@ -107,6 +107,7 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
         if (!active) return;
         const items = Array.isArray(payload) ? payload : payload?.items ?? payload?.conversations ?? [];
         setConversations(items);
+        if (activeConversationIdRef.current === "") return;
         const saved = readChatState(CODING_CHAT_STATE_KEY);
         const savedId = saved?.agent_id === selectedAgent.id ? saved.conversation_id : null;
         const selected = items.find((item) => (item.id ?? item.conversation_id) === savedId) ?? items[0] ?? null;
@@ -130,17 +131,38 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
     agentDisplayName, onProjectEvent: noteStreamInterruption
   });
 
+  // Starts an unsaved chat without creating a conversation or cancelling the previous agent run.
+  function handleNewConversation() {
+    if (sendingRef.current) return;
+    activeConversationIdRef.current = "";
+    setActiveConversationId("");
+    void loadConversationMessages(null);
+    setConversationRevision((current) => current + 1);
+    setChatState(""); setGlobalError(null); setAgentTyping(false);
+    setMarkdownPreviewPath(""); lastSentRef.current = null;
+    writeChatState(CODING_CHAT_STATE_KEY, selectedAgent?.id, null);
+  }
+
+  // Adds the first-message conversation to navigation without reloading its optimistic messages.
+  function handleConversationCreated(conversation) {
+    activeConversationIdRef.current = conversation.id ?? conversation.conversation_id;
+    setConversations((current) => [conversation, ...current.filter((item) => (item.id ?? item.conversation_id) !== activeConversationIdRef.current)]);
+  }
+
   // Selects the active system conversation and loads its persisted message history.
   function handleSelectConversation(conversation) {
+    if (sendingRef.current) return;
+    setConversationRevision((current) => current + 1);
     const id = conversation?.id ?? conversation?.conversation_id ?? conversation?.conversationId;
     if (!id) return;
+    activeConversationIdRef.current = id;
     setActiveConversationId(id); writeChatState(CODING_CHAT_STATE_KEY, selectedAgent?.id, id);
     setMessages([]); setChatState(""); setAgentTyping(false); void loadConversationMessages(id);
   }
 
   const { sendMessage, editMessage, retryMessage, retryLastMessage } = createHomeMessageHandlers({
     client, projectId: PROJECT_ID, architectureConversationId: null, chatStateKey: CODING_CHAT_STATE_KEY,
-    selectedArchitectureManager: selectedAgent, activeConversationId, setActiveConversationId,
+    selectedArchitectureManager: selectedAgent, activeConversationId, setActiveConversationId, onConversationCreated: handleConversationCreated,
     setChatState, setMessages, setAgentTyping, sendingRef, lastSentRef, writeChatState, messageIntent: MESSAGE_INTENTS.normalChat, executionRole: "system-engineer"
   });
   const sendQueuedMessage = (text, responseContentType) => {
@@ -152,18 +174,18 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
     });
   };
   const { pendingMessages, submitMessage, cancelPendingMessage } = usePendingConversationQueue({
-    agentId: selectedAgent?.id, isWorking: agentTyping, onSend: sendQueuedMessage
+    agentId: selectedAgent?.id, scopeKey: conversationRevision, isWorking: agentTyping, onSend: sendQueuedMessage
   });
   const globalToastError = globalError ?? (chatState && !chatState.includes("successfully") ? chatState : null);
   const activeConversation = conversations.find((conversation) => String(conversation?.id ?? conversation?.conversation_id ?? conversation?.conversationId) === String(activeConversationId));
   const activeConversationTitle = activeConversation?.title ?? activeConversation?.name ?? "New system conversation";
 
   return <div className={`claude-home-shell system-workspace${markdownPreviewPath ? " has-markdown-preview" : ""}`}>
-    <ConversationSidebar open={openSidebar} onOpen={() => setOpenSidebar(true)} onClose={() => setOpenSidebar(false)} agentSectionTitle={sectionTitle} architectureLabel={selectedAgent?.label} projects={[{ id: PROJECT_ID, name: "NodeForge" }]} selectedProjectId={PROJECT_ID} onProjectChange={() => {}} onNewConversation={() => setNewConversationRequest((current) => current + 1)} architectureControl={<div className="claude-architecture-list" role="listbox" aria-label={`${sectionTitle} agents`}>
+    <ConversationSidebar open={openSidebar} onOpen={() => setOpenSidebar(true)} onClose={() => setOpenSidebar(false)} agentSectionTitle={sectionTitle} architectureLabel={selectedAgent?.label} projects={[{ id: PROJECT_ID, name: "NodeForge" }]} selectedProjectId={PROJECT_ID} onProjectChange={() => {}} onNewConversation={handleNewConversation} architectureControl={<div className="claude-architecture-list" role="listbox" aria-label={`${sectionTitle} agents`}>
       {systemAgents.map((agent) => <button type="button" role="option" aria-selected={agent.id === selectedAgentId} key={agent.id} onClick={() => { setSelectedAgentId(agent.id); writeArchitectureManagerAgent(CODING_AGENT_SELECTION_KEY, agent.id); }}><span className="claude-agent-option-avatar" aria-hidden="true">{agent.label.trim().slice(0, 1).toUpperCase()}</span><span>{agent.label}</span>{agent.id === selectedAgentId && <span className="claude-agent-option-check" aria-label="Selected agent">✓</span>}</button>)}
       {systemAgents.length === 0 && <p className="claude-coding-empty">No enabled System Engineer agent is available.</p>}
     </div>}>
-      <ConversationsAccordion conversations={conversations} projectId={PROJECT_ID} agentId={selectedAgent?.id} activeConversationId={activeConversationId} onNewConversation={(_title, conversation) => handleSelectConversation(conversation)} onSelectConversation={handleSelectConversation} createRequest={newConversationRequest} showNewConversationButton={false} />
+      <ConversationsAccordion conversations={conversations} projectId={PROJECT_ID} agentId={selectedAgent?.id} activeConversationId={activeConversationId} onSelectConversation={handleSelectConversation} showNewConversationButton={false} />
     </ConversationSidebar>
     <main className="claude-home-main" aria-label="NodeForge system workspace">
       <section className="claude-chat" aria-label="System chat">
@@ -188,13 +210,13 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
             <ConversationProjectGit client={client} projectId={PROJECT_ID} />
             <SystemExecutionControls client={client} projectId={PROJECT_ID} conversationId={activeConversationId} executionId={lastSentRef.current?.conversationId === activeConversationId ? lastSentRef.current.correlationId : messages.findLast((message) => message.from === "owner" && message.correlation_id)?.correlation_id} agentTyping={agentTyping} interruptionSignal={systemInterruption} />
           </div>
-          <HomeChatComposer onSend={submitMessage} />
+          <HomeChatComposer key={conversationRevision} onSend={submitMessage} />
           <SystemToolMode key={selectedAgent?.id} agent={selectedAgent} client={client} projectId={PROJECT_ID} busy={agentTyping} onSaved={(saved) => setAgentDirectory((current) => current.map((agent) => (agent.agent_id ?? agent.id) === saved.agent_id ? { ...agent, ...saved } : agent))} />
         </div>
       </section>
     </main>
     {markdownPreviewPath && <MarkdownPreviewPanel client={client} projectId={PROJECT_ID} path={markdownPreviewPath} onClose={() => setMarkdownPreviewPath("")} />}
-    <WorkspaceMonitorPanels layoutScope="system" watcherEvents={watcherEvents} watcherState={watcherState} agentProcess={agentProcess} agentActivities={agentActivities} agentDirectory={agentDirectory} />
+    <WorkspaceMonitorPanels layoutScope="system" selectedAgentId={selectedAgent?.id ?? ""} watcherEvents={watcherEvents} watcherState={watcherState} agentProcess={agentProcess} agentActivities={agentActivities} agentDirectory={agentDirectory} />
     {globalToastError && <GlobalToast error={globalToastError} onRetry={globalError?._retry ?? retryLastMessage} onDismiss={() => { setGlobalError(null); setChatState(""); }} />}
   </div>;
 }
