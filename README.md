@@ -40,6 +40,15 @@ All coverage gates are rechecked before ingestion. There is no automatic repair
 loop or RUN dispatch. Valid drafts still replay without regeneration after
 storage failures or completed handoffs.
 
+Sprint `human_plan.components` must contain nonempty strings, not component
+objects. If schema admission rejects object components, the next owner-triggered
+Continue handoff requests a representation-only repair, applying only components
+and retaining every entry, ticket, criterion and verification mapping. Invalid
+repairs stay blocked. Outcome proof remains in ticket `coverage` and the exact
+approved parent Markdown; the unsupported root `outcome_coverage` snapshot is
+not sent to Sprint ingestion. Unknown root fields still fail schema validation,
+with the offending property name included in the diagnostic.
+
 ## Development
 
 The root workspace command starts all development processes with labelled logs:
