@@ -18,6 +18,7 @@ for (const text of ["/summary", "/plan SUMMARY-A"]) {
     assert.equal(calls.length, 1);
     assert.equal(calls[0].agentId, "ARCHITECTURE-CUSTOM");
     assert.equal(calls[0].conversationId, "CONV-A");
+    assert.equal(calls[0].payload.planning_input_only, true);
   });
 }
 

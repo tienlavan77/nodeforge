@@ -58,7 +58,7 @@ export function createOwnerChatCommandService({ projectId, fileService, communic
   async function createSummary({ conversationId, requestArchitecture } = {}) {
     if (typeof requestArchitecture !== "function") throw fail("ARCHITECTURE_UNAVAILABLE", "Architecture agent is unavailable.");
     const contract = [
-      "Produce a temporary planning input only; do not produce a plan, authorize execution, or claim approval.",
+      "Produce a temporary planning input only; do not produce a plan, authorize execution, or claim approval. Return content only; do not write files or claim a file was saved. NodeForge validates and persists the summary after your response.",
       "Return Markdown with exactly these substantive sections: # Discussion Summary, and ## Goals, ## In Scope, ## Out of Scope, ## Decisions, ## Assumptions, ## Risks, ## Open Questions.",
       "Every repository fact must include an actual reference to a file you read, such as [Evidence: backend/src/example.js] or [Source: workflows/agents/architecture/README.md]. Code references use backend/, schemas/, ui/ or web/; planning documents may use docs/ or workflows/ and must be readable non-empty project files. Optional paired backticks and #L line references are supported. Do not invent sources. Mark uncertain claims as assumptions or unknowns.",
       `The resolved runtime artifact path is ${SUMMARY_PATH_PREFIX}<SUMMARY-uuid>.md; this response is the source content only. Summarize the recent owner discussion, not unrelated repository work.`,
