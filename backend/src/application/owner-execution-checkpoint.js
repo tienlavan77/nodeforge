@@ -1,10 +1,11 @@
-// Persists direct System Engineer execution checkpoints so interrupted work can be resumed safely.
+// Persists role-scoped owner execution checkpoints so interrupted work can be resumed safely.
 import { createHash, randomUUID } from "node:crypto";
 import { ConfigurationError } from "../shared/errors.js";
 import { acquireTicketFileLock } from "../modules/supervisor/ticket-file-lock.js";
 import { prepareArchitectureMutation, verifyArchitectureMutation } from "./architecture-reconciliation.js";
+import { ownerExecutionRolePolicy } from "./owner-execution-role-policy.js";
+import { assertOwnerExecutionRecord, assertOwnerExecutionIdentity } from "./owner-execution-record-guards.js";
 
-const ROOT = ".forge/runtime/owner-executions";
 const LEASE_MS = 30_000;
 const MAX_STEPS = 80;
 const TERMINAL = new Set(["completed", "discarded", "restarted"]);
@@ -16,7 +17,8 @@ export function executionDigest(value) {
 }
 
 // Creates a File Service-backed checkpoint store with per-conversation atomic updates and leases.
-export function createOwnerExecutionCheckpoint({ fileService, gitService, root = ROOT, role = "system_engineer", ownerInstanceId = randomUUID() }) {
+export function createOwnerExecutionCheckpoint({ fileService, gitService, role, ownerInstanceId = randomUUID() }) {
+  const { root, displayName } = ownerExecutionRolePolicy(role);
   if (!fileService?.atomicWrite || !fileService?.readFile || !fileService?.createLock) throw new ConfigurationError("Owner execution checkpoint requires File Service persistence and locks.");
 
   // Maps a conversation and execution to a private, traversal-safe runtime record.
@@ -26,7 +28,11 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
 
   // Reads a checkpoint without making assumptions about an absent file.
   async function load(conversationId, executionId) {
-    try { return JSON.parse(await fileService.readFile({ path: pathFor(conversationId, executionId) })); }
+    try {
+      const record = JSON.parse(await fileService.readFile({ path: pathFor(conversationId, executionId) }));
+      assertOwnerExecutionRecord(record, { role, conversationId, executionId });
+      return record;
+    }
     catch (error) { if (error?.code === "ENOENT") return null; throw error; }
   }
 
@@ -37,7 +43,8 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
     const records = [];
     for (const path of paths) {
       const record = JSON.parse(await fileService.readFile({ path }));
-      if (record.conversation_id === conversationId) records.push(record);
+      assertOwnerExecutionRecord(record, { role, conversationId });
+      records.push(record);
     }
     return records.sort((left, right) => right.updated_at.localeCompare(left.updated_at));
   }
@@ -50,19 +57,21 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
       const current = await load(conversationId, executionId);
       const next = await modify(current);
       if (!next) return current;
+      assertOwnerExecutionIdentity(current, next);
       const record = { ...next, conversation_id: conversationId, execution_id: executionId, updated_at: new Date().toISOString() };
+      assertOwnerExecutionRecord(record, { role, conversationId, executionId });
       await fileService.atomicWrite({ path, content: `${JSON.stringify(record)}\n`, replace: true });
       return record;
     } finally { await lock.release(); }
   }
 
-  // Reserves a single execution lease for a direct System Engineer turn.
+  // Reserves a role-local execution lease for a direct owner conversation turn.
   async function start({ conversationId, executionId, messageId, provider, promptHash, toolMode = "forge", resumeOf = null, continueAttempt = false }) {
     const claim = await acquireTicketFileLock(fileService, `${root}/${executionDigest(conversationId).slice(0, 32)}.lock`);
     try {
       const previous = await inspect(conversationId);
       const live = previous.find((entry) => entry.status === "running" && Date.now() - Date.parse(entry.heartbeat_at) < LEASE_MS);
-      if (live) throw Object.assign(new ConfigurationError("A System Engineer execution is already running in this conversation."), { code: "EXECUTION_BUSY", statusCode: 409 });
+      if (live) throw Object.assign(new ConfigurationError(`A ${displayName} execution is already running in this conversation.`), { code: "EXECUTION_BUSY", statusCode: 409 });
       if (!continueAttempt && !resumeOf && previous.some((entry) => ["interrupted", "manual_required"].includes(entry.status))) throw Object.assign(new ConfigurationError("Choose Continue, Restart, or Discard for the interrupted execution first."), { code: "EXECUTION_DECISION_REQUIRED", statusCode: 409 });
       if (continueAttempt) {
         return update(conversationId, executionId, async (current) => {
@@ -71,7 +80,7 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
         });
       }
       const parent = resumeOf ? await load(conversationId, resumeOf) : null;
-      if (resumeOf && (!parent || !await reconcile(parent))) throw Object.assign(new ConfigurationError("Previous execution requires manual reconciliation before restart."), { code: "EXECUTION_RECONCILIATION_REQUIRED", statusCode: 409 });
+      if (resumeOf && (!parent || parent.role !== role || !await reconcile(parent))) throw Object.assign(new ConfigurationError("Previous execution requires manual reconciliation before restart."), { code: "EXECUTION_RECONCILIATION_REQUIRED", statusCode: 409 });
       const started = await update(conversationId, executionId, (current) => {
         if (current) throw Object.assign(new ConfigurationError("Execution already exists."), { statusCode: 409 });
         return { status: "running", role, provider, tool_mode: toolMode, checkpoint_kind: toolMode === "builtin" ? "sdk_session" : "forge_receipts", message_id: messageId, user_prompt_hash: promptHash, provider_thread_id: null, completed_tool_calls: [...(parent?.completed_tool_calls ?? [])], failed_tool_calls: [...(parent?.failed_tool_calls ?? [])], pending_tool_calls: [...(parent?.pending_tool_calls ?? [])], next_sequence: parent?.next_sequence ?? 1, changed_paths: [...(parent?.changed_paths ?? [])], last_completed_step: parent?.last_completed_step ?? 0, receipts_truncated: parent?.receipts_truncated ?? false, lineage_id: parent?.lineage_id ?? resumeOf ?? executionId, attempt_number: (parent?.attempt_number ?? 0) + 1, resume_of: resumeOf, owner_instance_id: ownerInstanceId, lease_started_at: new Date().toISOString(), heartbeat_at: new Date().toISOString() };
@@ -85,7 +94,7 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
   async function patch(conversationId, executionId, fields) {
     return update(conversationId, executionId, (current) => {
       if (!current) throw new ConfigurationError("Owner execution checkpoint does not exist.");
-      if (current.owner_instance_id !== ownerInstanceId || (role === "architecture_manager" && current.status === "manual_required")) throw Object.assign(new ConfigurationError("Execution lease belongs to another instance or requires manual review."), { code: "EXECUTION_BUSY", statusCode: 409 });
+      if (current.owner_instance_id !== ownerInstanceId || (ownerExecutionRolePolicy(current.role).architectureMutations && current.status === "manual_required")) throw Object.assign(new ConfigurationError("Execution lease belongs to another instance or requires manual review."), { code: "EXECUTION_BUSY", statusCode: 409 });
       return { ...current, ...fields, heartbeat_at: new Date().toISOString() };
     });
   }
@@ -95,7 +104,7 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
     const records = await list(conversationId);
     for (const record of records) {
       const laterSequence = [...(record.completed_tool_calls ?? []), ...(record.pending_tool_calls ?? [])].filter((step) => step.sequence > 0).reduce((max, step) => Math.max(max, step.sequence), 0);
-      if (role === "system_engineer" && laterSequence > 0 && (record.pending_tool_calls ?? []).some((step) => step.tool_name === "run_check" && step.sequence < laterSequence)) {
+      if (ownerExecutionRolePolicy(record.role).settleRunChecks && laterSequence > 0 && (record.pending_tool_calls ?? []).some((step) => step.tool_name === "run_check" && step.sequence < laterSequence)) {
         await update(conversationId, record.execution_id, (current) => current.status === record.status ? settleReturnedRunChecks(current, laterSequence) : null);
       }
       if (record.status === "running" && Date.now() - Date.parse(record.heartbeat_at) >= LEASE_MS) {
@@ -111,12 +120,12 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
     await update(conversationId, executionId, async (current) => {
       if (current?.status !== "running" || current.owner_instance_id !== ownerInstanceId) throw Object.assign(new ConfigurationError("Execution is not active."), { code: "EXECUTION_INTERRUPTED" });
       current = settleReturnedRunChecks(current, current.next_sequence);
-      if (role === "architecture_manager" && current.pending_tool_calls.some((pending) => pending.mutating)) throw Object.assign(new ConfigurationError("Another document mutation has not completed."), { code: "EXECUTION_BUSY", statusCode: 409 });
-      if (role === "architecture_manager" && MUTATING.has(name) && !["write_diff", "edit_diff", "delete_file"].includes(name)) throw Object.assign(new ConfigurationError("Architecture recovery cannot execute System Engineer mutations."), { code: "TOOL_FORBIDDEN" });
+      if (ownerExecutionRolePolicy(current.role).architectureMutations && current.pending_tool_calls.some((pending) => pending.mutating)) throw Object.assign(new ConfigurationError("Another document mutation has not completed."), { code: "EXECUTION_BUSY", statusCode: 409 });
+      if (ownerExecutionRolePolicy(current.role).architectureMutations && MUTATING.has(name) && !["write_diff", "edit_diff", "delete_file"].includes(name)) throw Object.assign(new ConfigurationError("Architecture recovery cannot execute System Engineer mutations."), { code: "TOOL_FORBIDDEN" });
       if ((current.resume_count || current.resume_of) && current.completed_tool_calls.some((receipt) => receipt.tool_name === name && (["commit_changes", "push_commit"].includes(name) || (MUTATING.has(name) && receipt.input_hash === executionDigest(input))))) throw Object.assign(new ConfigurationError("Side effect already completed; cannot replay after recovery."), { code: "EXECUTION_RECONCILIATION_REQUIRED" });
-      const evidence = role === "architecture_manager" && MUTATING.has(name) ? await prepareArchitectureMutation(fileService, name, input) : {};
+      const evidence = ownerExecutionRolePolicy(current.role).architectureMutations && MUTATING.has(name) ? await prepareArchitectureMutation(fileService, name, input) : {};
       step = { sequence: current.next_sequence, tool_name: name, input_hash: executionDigest(input), mutating: MUTATING.has(name), ...(typeof input?.path === "string" ? { path: input.path } : {}), ...(typeof input?.before_checksum === "string" ? { before_checksum: input.before_checksum } : {}), ...evidence, started_at: new Date().toISOString() };
-      return { ...current, next_sequence: current.next_sequence + 1, active_mutations: (current.active_mutations ?? 0) + (role === "architecture_manager" && step.mutating ? 1 : 0), pending_tool_calls: [...current.pending_tool_calls, step], heartbeat_at: new Date().toISOString() };
+      return { ...current, next_sequence: current.next_sequence + 1, active_mutations: (current.active_mutations ?? 0) + (ownerExecutionRolePolicy(current.role).architectureMutations && step.mutating ? 1 : 0), pending_tool_calls: [...current.pending_tool_calls, step], heartbeat_at: new Date().toISOString() };
     });
     return step;
   }
@@ -127,7 +136,7 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
     return update(conversationId, executionId, (current) => {
       if (current?.owner_instance_id !== ownerInstanceId || current.status !== "running") throw Object.assign(new ConfigurationError("Execution lease has ended."), { code: "EXECUTION_INTERRUPTED" });
       const previous = current.completed_tool_calls ?? [];
-      return { ...current, active_mutations: Math.max(0, (current.active_mutations ?? 0) - (role === "architecture_manager" && step.mutating ? 1 : 0)), pending_tool_calls: current.pending_tool_calls.filter((pending) => pending.sequence !== step.sequence), completed_tool_calls: [...previous, receipt].slice(-MAX_STEPS), receipts_truncated: current.receipts_truncated || previous.length >= MAX_STEPS, last_completed_step: Math.max(current.last_completed_step ?? 0, receipt.sequence), changed_paths: [...new Set([...current.changed_paths, ...changedPaths])].slice(-MAX_STEPS), heartbeat_at: new Date().toISOString() };
+      return { ...current, active_mutations: Math.max(0, (current.active_mutations ?? 0) - (ownerExecutionRolePolicy(current.role).architectureMutations && step.mutating ? 1 : 0)), pending_tool_calls: current.pending_tool_calls.filter((pending) => pending.sequence !== step.sequence), completed_tool_calls: [...previous, receipt].slice(-MAX_STEPS), receipts_truncated: current.receipts_truncated || previous.length >= MAX_STEPS, last_completed_step: Math.max(current.last_completed_step ?? 0, receipt.sequence), changed_paths: [...new Set([...current.changed_paths, ...changedPaths])].slice(-MAX_STEPS), heartbeat_at: new Date().toISOString() };
     });
   }
 
@@ -136,7 +145,7 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
     return update(conversationId, executionId, (current) => {
       if (current?.owner_instance_id !== ownerInstanceId || current.status !== "running") throw Object.assign(new ConfigurationError("Execution lease has ended."), { code: "EXECUTION_INTERRUPTED" });
       const safelyCancelledCheck = step.tool_name === "run_check" && error?.code === "EXECUTION_PAUSED";
-      return { ...current, active_mutations: Math.max(0, (current.active_mutations ?? 0) - (role === "architecture_manager" && step.mutating ? 1 : 0)), status: role === "architecture_manager" && step.mutating && !safelyCancelledCheck ? "manual_required" : current.status, pending_tool_calls: step.mutating && !safelyCancelledCheck ? current.pending_tool_calls : current.pending_tool_calls.filter((pending) => pending.sequence !== step.sequence), failed_tool_calls: [...current.failed_tool_calls, { sequence: step.sequence, tool_name: step.tool_name, error_code: String(error?.code ?? "TOOL_FAILED").slice(0, 80) }].slice(-MAX_STEPS) };
+      return { ...current, active_mutations: Math.max(0, (current.active_mutations ?? 0) - (ownerExecutionRolePolicy(current.role).architectureMutations && step.mutating ? 1 : 0)), status: ownerExecutionRolePolicy(current.role).architectureMutations && step.mutating && !safelyCancelledCheck ? "manual_required" : current.status, pending_tool_calls: step.mutating && !safelyCancelledCheck ? current.pending_tool_calls : current.pending_tool_calls.filter((pending) => pending.sequence !== step.sequence), failed_tool_calls: [...current.failed_tool_calls, { sequence: step.sequence, tool_name: step.tool_name, error_code: String(error?.code ?? "TOOL_FAILED").slice(0, 80) }].slice(-MAX_STEPS) };
     });
   }
 
@@ -149,6 +158,7 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
 
   // Settles an old run_check boundary only when a later tool sequence proves its call returned.
   function settleReturnedRunChecks(record, evidenceSequence) {
+    if (!ownerExecutionRolePolicy(record.role).settleRunChecks) return record;
     const unsettled = (record.pending_tool_calls ?? []).filter((step) => step.tool_name === "run_check" && step.sequence < evidenceSequence);
     if (!unsettled.length) return record;
     const settled = unsettled.map((step) => {
@@ -160,7 +170,7 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
 
   // Refuses to replay uncertain tool side effects after a process interruption.
   function canContinue(record) {
-    return record?.status === "interrupted" && Boolean(record.runner_stopped_at) && !record.receipts_truncated && !(record.pending_tool_calls ?? []).some((step) => step.mutating) && !record.completed_tool_calls?.some((step) => step.tool_name === "push_commit" || (step.tool_name === "delete_file" && (role !== "architecture_manager" || !step.expected_absent)));
+    return record?.role === role && record.status === "interrupted" && Boolean(record.runner_stopped_at) && !record.receipts_truncated && !(record.pending_tool_calls ?? []).some((step) => step.mutating) && !record.completed_tool_calls?.some((step) => step.tool_name === "push_commit" || (step.tool_name === "delete_file" && (!ownerExecutionRolePolicy(record.role).allowVerifiedDelete || !step.expected_absent)));
   }
 
   // Confirms completed file writes still match the workspace before continuing.
@@ -197,9 +207,10 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
 
   // Confirms an uncertain Architecture write only after runner exit and an exact document-state match.
   async function reconcilePending(conversationId, executionId, sequence, actorId) {
-    if (role !== "architecture_manager" || !actorId || !Number.isSafeInteger(sequence)) throw new ConfigurationError("Architecture reconciliation requires an actor label and step.");
+    if (!actorId || !Number.isSafeInteger(sequence)) throw new ConfigurationError("Architecture reconciliation requires an actor label and step.");
     return update(conversationId, executionId, async (current) => {
-      if (current?.status !== "manual_required" || !current.runner_stopped_at || current.active_mutations || current.receipts_truncated) throw Object.assign(new ConfigurationError("The previous runner has not safely stopped."), { code: "EXECUTION_RECONCILIATION_REQUIRED", statusCode: 409 });
+      if (!current || !ownerExecutionRolePolicy(current.role).architectureMutations) throw new ConfigurationError("Architecture reconciliation is not available for this role.");
+      if (current.status !== "manual_required" || !current.runner_stopped_at || current.active_mutations || current.receipts_truncated) throw Object.assign(new ConfigurationError("The previous runner has not safely stopped."), { code: "EXECUTION_RECONCILIATION_REQUIRED", statusCode: 409 });
       const pending = current.pending_tool_calls ?? [];
       if (pending.length !== 1 || pending[0].sequence !== sequence || !await verifyArchitectureMutation(fileService, pending[0])) throw Object.assign(new ConfigurationError("Document state does not prove the intended mutation."), { code: "EXECUTION_RECONCILIATION_REQUIRED", statusCode: 409 });
       const step = pending[0];
@@ -218,5 +229,5 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, root =
     });
   }
 
-  return Object.freeze({ load, list, start, patch, inspect, beforeTool, afterTool, failTool, canContinue, reconcile, reconcilePending, markStopped, markRecoveredStopped, close, ownerInstanceId, terminalStatuses: TERMINAL });
+  return Object.freeze({ load, list, start, patch, inspect, beforeTool, afterTool, failTool, canContinue, reconcile, reconcilePending, markStopped, markRecoveredStopped, close, role, ownerInstanceId, terminalStatuses: TERMINAL });
 }

@@ -20,7 +20,7 @@ async function projectFixture() {
 test("checkpoints record tool boundaries, persist session state, and reconcile edited files", async (context) => {
   const fixture = await projectFixture();
   context.after(() => rm(fixture.root, { recursive: true, force: true }));
-  const store = createOwnerExecutionCheckpoint({ fileService: fixture.files });
+  const store = createOwnerExecutionCheckpoint({ role: "system_engineer", fileService: fixture.files });
   await store.start({ conversationId: "C1", executionId: "E1", messageId: "M1", provider: "codex", promptHash: executionDigest("fix") });
   await store.patch("C1", "E1", { provider_thread_id: "thread-1" });
   const result = { path: "test.js", sha256: `sha256:${createHash("sha256").update("updated").digest("hex")}` };
@@ -28,7 +28,7 @@ test("checkpoints record tool boundaries, persist session state, and reconcile e
   await tools.edit_diff.execute({ path: "test.js", before_checksum: "sha256:old", replacement: "updated" }, { changed_paths: ["test.js"] });
   await store.patch("C1", "E1", { status: "interrupted" });
   await store.markStopped("C1", "E1");
-  const restored = createOwnerExecutionCheckpoint({ fileService: fixture.files });
+  const restored = createOwnerExecutionCheckpoint({ role: "system_engineer", fileService: fixture.files });
   const record = await restored.load("C1", "E1");
   assert.equal(record.provider_thread_id, "thread-1");
   assert.equal(record.completed_tool_calls[0].after_checksum, result.sha256);
@@ -40,7 +40,7 @@ test("checkpoints record tool boundaries, persist session state, and reconcile e
 test("the System Engineer SDK persists the provider thread and Forge receipts before completion", async (context) => {
   const fixture = await projectFixture();
   context.after(() => rm(fixture.root, { recursive: true, force: true }));
-  const checkpoint = createOwnerExecutionCheckpoint({ fileService: fixture.files });
+  const checkpoint = createOwnerExecutionCheckpoint({ role: "system_engineer", fileService: fixture.files });
   const state = new Map();
   const conversationStateStore = {
     // Creates isolated chat state independently from the durable execution record.
@@ -69,7 +69,7 @@ test("completed commits require matching HEAD and cannot be repeated after conti
   const fixture = await projectFixture();
   context.after(() => rm(fixture.root, { recursive: true, force: true }));
   let head = "a".repeat(40);
-  const store = createOwnerExecutionCheckpoint({ fileService: fixture.files, gitService: { getHead: async () => head } });
+  const store = createOwnerExecutionCheckpoint({ role: "system_engineer", fileService: fixture.files, gitService: { getHead: async () => head } });
   await store.start({ conversationId: "C4", executionId: "E4", messageId: "M4", provider: "codex", promptHash: executionDigest("commit") });
   const step = await store.beforeTool("C4", "E4", "commit_changes", { message: "done" });
   await store.afterTool("C4", "E4", step, { sha: head });
@@ -86,8 +86,8 @@ test("completed commits require matching HEAD and cannot be repeated after conti
 test("checkpoints reject uncertain commits and protect live conversation leases", async (context) => {
   const fixture = await projectFixture();
   context.after(() => rm(fixture.root, { recursive: true, force: true }));
-  const first = createOwnerExecutionCheckpoint({ fileService: fixture.files });
-  const second = createOwnerExecutionCheckpoint({ fileService: fixture.files });
+  const first = createOwnerExecutionCheckpoint({ role: "system_engineer", fileService: fixture.files });
+  const second = createOwnerExecutionCheckpoint({ role: "system_engineer", fileService: fixture.files });
   await first.start({ conversationId: "C2", executionId: "E1", messageId: "M1", provider: "codex", promptHash: executionDigest("commit") });
   await assert.rejects(second.start({ conversationId: "C2", executionId: "E2", provider: "codex", promptHash: executionDigest("other") }), /already running/);
   await first.beforeTool("C2", "E1", "commit_changes", { message: "commit" });
@@ -101,7 +101,7 @@ test("checkpoints reject uncertain commits and protect live conversation leases"
 test("a cancelled run_check clears its pending checkpoint only after its runner rejects on abort", async (context) => {
   const fixture = await projectFixture();
   context.after(() => rm(fixture.root, { recursive: true, force: true }));
-  const store = createOwnerExecutionCheckpoint({ fileService: fixture.files });
+  const store = createOwnerExecutionCheckpoint({ role: "system_engineer", fileService: fixture.files });
   const controller = new AbortController();
   await store.start({ conversationId: "C-check", executionId: "E-check", messageId: "M-check", provider: "codex", promptHash: executionDigest("check") });
   const tools = checkpointOwnerTools({ registry: { run_check: { execute: async (_input, { abortSignal }) => {
@@ -121,7 +121,7 @@ test("a cancelled run_check clears its pending checkpoint only after its runner 
 test("legacy run_check pending state settles from a later durable tool receipt without claiming success", async (context) => {
   const fixture = await projectFixture();
   context.after(() => rm(fixture.root, { recursive: true, force: true }));
-  const store = createOwnerExecutionCheckpoint({ fileService: fixture.files });
+  const store = createOwnerExecutionCheckpoint({ role: "system_engineer", fileService: fixture.files });
   await store.start({ conversationId: "C-legacy-check", executionId: "E-legacy-check", messageId: "M-legacy-check", provider: "codex", promptHash: executionDigest("check") });
   await store.patch("C-legacy-check", "E-legacy-check", { provider_thread_id: "thread-legacy" });
   const check = await store.beforeTool("C-legacy-check", "E-legacy-check", "run_check", { type: "test" });
@@ -143,7 +143,7 @@ test("restart inherits verified file and commit evidence without replaying compl
   const fixture = await projectFixture();
   context.after(() => rm(fixture.root, { recursive: true, force: true }));
   const head = "a".repeat(40);
-  const store = createOwnerExecutionCheckpoint({ fileService: fixture.files, gitService: { getHead: async () => head } });
+  const store = createOwnerExecutionCheckpoint({ role: "system_engineer", fileService: fixture.files, gitService: { getHead: async () => head } });
   await store.start({ conversationId: "C5", executionId: "E5", messageId: "M5", provider: "codex", promptHash: executionDigest("fix") });
   const editInput = { path: "test.js", before_checksum: "sha256:old" };
   const edit = await store.beforeTool("C5", "E5", "edit_diff", editInput);
@@ -168,7 +168,7 @@ test("restart inherits verified file and commit evidence without replaying compl
 test("System Engineer Continue resumes the saved thread without replaying the original prompt", async (context) => {
   const fixture = await projectFixture();
   context.after(() => rm(fixture.root, { recursive: true, force: true }));
-  const checkpoint = createOwnerExecutionCheckpoint({ fileService: fixture.files });
+  const checkpoint = createOwnerExecutionCheckpoint({ role: "system_engineer", fileService: fixture.files });
   const text = "Produce a unique system report";
   const logs = [];
   await checkpoint.start({ conversationId: "C-continue", executionId: "E-continue", messageId: "M-continue", provider: "codex", promptHash: executionDigest(text) });
@@ -191,7 +191,7 @@ test("System Engineer Continue resumes the saved thread without replaying the or
 test("restart opens a new provider thread with inherited checkpoint context", async (context) => {
   const fixture = await projectFixture();
   context.after(() => rm(fixture.root, { recursive: true, force: true }));
-  const checkpoint = createOwnerExecutionCheckpoint({ fileService: fixture.files });
+  const checkpoint = createOwnerExecutionCheckpoint({ role: "system_engineer", fileService: fixture.files });
   await checkpoint.start({ conversationId: "C6", executionId: "E6", messageId: "M6", provider: "codex", promptHash: executionDigest("inspect") });
   const step = await checkpoint.beforeTool("C6", "E6", "git_status", {});
   await checkpoint.afterTool("C6", "E6", step, { status: "clean" });

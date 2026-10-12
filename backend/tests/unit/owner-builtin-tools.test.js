@@ -102,7 +102,7 @@ test("native Continue keeps its SDK session and mode after the profile switches 
   const root = await mkdtemp(join(tmpdir(), "nf-native-resume-"));
   try {
     const files = createFileService({ projectRoot: root });
-    const checkpoint = createOwnerExecutionCheckpoint({ fileService: files });
+    const checkpoint = createOwnerExecutionCheckpoint({ role: "system_engineer", fileService: files });
     await checkpoint.start({ conversationId: "C", executionId: "E", provider: "codex", promptHash: executionDigest("Fix") });
     await checkpoint.patch("C", "E", { tool_mode: "builtin", checkpoint_kind: "sdk_session", provider_thread_id: "THREAD", status: "interrupted" });
     await checkpoint.markStopped("C", "E");

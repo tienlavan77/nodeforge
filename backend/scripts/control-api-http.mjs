@@ -17,8 +17,8 @@ import { createMarkdownResponseFileService } from "../src/application/markdown-r
 export function createControlApiHttp({ services } = {}) {
   const { bus, communications, conversations, eventStore, indexDb, subscriptions, agentSettings, sprintPlanUpload, sprintOrchestration, sprintPlanLeader, dispatchSprint, dispatchTicket, reviewTicket, runToolLab, directCodeRequest, codeCache, internalBus, ticketCrudService, buildBuilderContext, protocolStorage, agentGateway, agentConfiguration, sdkGateways, conversationStateStore, fileService, planFileService, projectRoot, publishUnifiedStreamEvent, logEvent, projectId, gitService } = services;
   const agentLoopLogger = createRuntimeLogger({ logEvent, source: "owner-chat-agent-loop" });
-  const executionCheckpoint = createOwnerExecutionCheckpoint({ fileService, gitService });
-  const architectureCheckpoint = createOwnerExecutionCheckpoint({ fileService, root: ".forge/runtime/architecture-executions", role: "architecture_manager" });
+  const executionCheckpoint = createOwnerExecutionCheckpoint({ fileService, gitService, role: "system_engineer" });
+  const architectureCheckpoint = createOwnerExecutionCheckpoint({ fileService, role: "architecture_manager" });
   const sdkStream = createOwnerSdkStream({ executionCheckpoint, architectureCheckpoint, agentConfiguration, sdkGateways, fallbackStream: (input) => agentGateway.stream(input), conversationStateStore, conversationMessages: communications, fileService, codeCache, codeSearch: services.codeSearch, gitService, testService: services.testService, projectRoot, projectLogger: agentLoopLogger.emit });
   const planHandoff = services.planStore && services.database ? createPlanHandoffService({ projectId, database: services.database, planStore: services.planStore, markdownPlanStore: services.markdownPlanStore, sprintPlanLeader, sprintOrchestration, sprintRegistry: services.sprintRegistry, agentRoleResolver: services.agentRoleResolver }) : null;
   const planRequests = projectId && fileService?.createLock && fileService?.atomicWrite ? createPlanRequestState({ projectId, fileService }) : null;

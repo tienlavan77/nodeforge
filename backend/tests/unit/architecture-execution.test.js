@@ -16,7 +16,7 @@ import { createPlanOwnerAuth } from "../../src/modules/governance/plan-owner-aut
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "nf-architecture-execution-"));
   const fileService = createFileService({ projectRoot: root, logger: { error() {} } });
-  return { root, fileService, architecture: createOwnerExecutionCheckpoint({ fileService, root: ".forge/runtime/architecture-executions", role: "architecture_manager" }), engineer: createOwnerExecutionCheckpoint({ fileService }) };
+  return { root, fileService, architecture: createOwnerExecutionCheckpoint({ fileService, role: "architecture_manager" }), engineer: createOwnerExecutionCheckpoint({ fileService, role: "system_engineer" }) };
 }
 
 test("Architecture execution keeps its own lineage and cannot call Git mutations", async (context) => {
@@ -60,7 +60,7 @@ test("Architecture execution list and decisions only return the selected agent's
   const messages = new Map([["M2", { id: "M2", conversation_id: "C2", recipient: { id: "architect" }, payload: { text: "plan" } }]]);
   const control = createOwnerExecutionControl({ checkpoint: engineer, architectureCheckpoint: architecture, agentConfiguration: { getById: (agentId) => ({ role: agentId === "architect" ? "architecture_manager" : "system_engineer" }) }, communications: { getById: (messageId) => messages.get(messageId) }, sdkStream: { pause: () => false }, ownerChatService: { replay: () => { throw new Error("unexpected replay"); } } });
   const [visible] = await control.list("C2", "architect");
-  assert.deepEqual(visible, { conversation_id: "C2", execution_id: "E2", status: "interrupted", can_continue: false, can_restart: true, can_discard: true, can_reconcile: false, requires_human_review: false });
+  assert.deepEqual(visible, { conversation_id: "C2", execution_id: "E2", role: "architecture_manager", display_name: "Architecture Manager", status: "interrupted", tool_mode: "forge", checkpoint_kind: "forge_receipts", can_continue: false, can_restart: true, can_discard: true, can_reconcile: false, requires_human_review: false });
   assert.deepEqual(await control.list("C2", "engineer"), []);
   await assert.rejects(control.pause("C2", "E2", "engineer"), { statusCode: 404 });
   await assert.rejects(control.decide("C2", "E2", "engineer", "continue"), { statusCode: 404 });

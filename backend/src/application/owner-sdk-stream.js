@@ -11,13 +11,14 @@ import { checkpointOwnerTools } from "./owner-execution-tools.js";
 // Builds a role-scoped SDK stream with Forge-owned discovery and persisted conversation state.
 export function createOwnerSdkStream({ agentConfiguration, sdkGateways, fallbackStream, conversationStateStore, conversationMessages, executionCheckpoint, architectureCheckpoint, fileService, codeCache, codeSearch, gitService, testService, projectRoot, projectLogger }) {
   if (typeof agentConfiguration?.getById !== "function" || typeof fallbackStream !== "function") throw new ConfigurationError("Owner SDK stream requires profiles and a fallback stream.");
+  const checkpointStores = { system_engineer: executionCheckpoint, architecture_manager: architectureCheckpoint };
   const activeConversations = new Set();
   const controllers = new Map();
-  // Stops the active System Engineer turn when the owner confirms a pause.
+  // Stops the active owner conversation turn when the owner confirms a pause.
   stream.pause = (conversationId) => {
     const controller = controllers.get(conversationId);
     if (!controller) return false;
-    controller.abort(Object.assign(new Error("System Engineer execution paused by owner."), { code: "EXECUTION_PAUSED" }));
+    controller.abort(Object.assign(new Error("Owner conversation execution paused by owner."), { code: "EXECUTION_PAUSED" }));
     return true;
   };
   stream.isActive = (conversationId) => activeConversations.has(conversationId);
@@ -37,7 +38,7 @@ export function createOwnerSdkStream({ agentConfiguration, sdkGateways, fallback
     const systemEngineer = profile.role === "system_engineer";
     const controller = new AbortController();
     controllers.set(conversationId, controller);
-    const checkpointStore = systemEngineer ? executionCheckpoint : architectureCheckpoint;
+    const checkpointStore = checkpointStores[profile.role];
     let checkpoint;
     let toolMode = "forge";
     let heartbeat;
@@ -46,7 +47,9 @@ export function createOwnerSdkStream({ agentConfiguration, sdkGateways, fallback
     try {
       if (!payload.continue_execution) toolMode = ownerToolMode(profile, null, false);
       if (checkpointStore) {
+        if (checkpointStore.role !== profile.role) throw new ConfigurationError("Owner execution checkpoint role does not match the agent profile.");
         checkpoint = await checkpointStore.start({ conversationId, executionId: correlationId, messageId: payload.source_message_id ?? payload.message_id, provider: profile.provider, toolMode, promptHash: executionDigest(payload.text), resumeOf: payload.resume_of ?? null, continueAttempt: payload.continue_execution === true });
+        if (checkpoint.role !== profile.role) throw new ConfigurationError("Owner execution checkpoint role does not match the agent profile.");
         controllers.set(conversationId, controller);
         heartbeat = setInterval(() => { void checkpointStore.patch(conversationId, correlationId, {}).catch((error) => projectLogger?.({ event_name: "owner.execution_heartbeat_failed", level: "error", message: error.message, task_id: correlationId })); }, 10_000);
         heartbeat.unref?.();
