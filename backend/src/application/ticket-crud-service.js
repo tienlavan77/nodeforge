@@ -8,8 +8,10 @@ import { assertTicketVerificationContract } from "../modules/governance/ticket-v
 const UPDATABLE = ["title", "objective", "acceptance_criteria", "verification_plan", "priority", "dependencies", "status", "last_error", "implementation_type", "change_nature"];
 const SPRINT_LEADER_ROLE = "sprint_leader";
 
+import { assertLegacyTicketMutation } from "./registry-ticket-scope.js";
+
 // Creates a CRUD service for tickets with sprint-leader normalization.
-export function createTicketCrudService({ roadmaps, proseTicketService, ticketFileStore, publisher, agentStream, agentRoleResolver, sprintLeader, clock = () => new Date(), logger = console } = {}) {
+export function createTicketCrudService({ roadmaps, sprintRegistry, proseTicketService, ticketFileStore, publisher, agentStream, agentRoleResolver, sprintLeader, clock = () => new Date(), logger = console } = {}) {
   if (typeof roadmaps?.getCurrent !== "function") throw new ConfigurationError("Ticket CRUD requires a Roadmap Store.");
   if (typeof proseTicketService?.createFromObject !== "function") throw new ConfigurationError("Ticket CRUD requires the Prose Ticket Service.");
   if (ticketFileStore !== undefined && typeof ticketFileStore?.create !== "function") throw new ConfigurationError("Ticket CRUD requires a valid Ticket File Store.");
@@ -17,12 +19,14 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
   return Object.freeze({ listTickets, createTicket, updateTicket, regenerateTicketEnglish });
   function listTickets({ projectId } = {}) {
     requireProject(projectId);
+    if (sprintRegistry) return sprintRegistry.listDetails().then((sprints) => structuredClone(sprints.filter((sprint) => sprint.project_id === projectId).flatMap((sprint) => sprint.tickets ?? [])));
     const current = roadmaps.getCurrent();
     if (!current || current.project_id !== projectId) return [];
     return structuredClone((current.sprints ?? []).flatMap((sprint) => sprint.tickets ?? []));
   }
   async function createTicket({ projectId, ticket, content, context, sprintId } = {}) {
     requireProject(projectId);
+    assertLegacyTicketMutation(sprintRegistry);
     const now = clock().toISOString();
     // Owner-entered text is private context. Normalize it before persistence so
     // the canonical ticket (and any downstream coder payload) is English only.
@@ -129,7 +133,7 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
       "Write ALL ticket field values (title, objective, acceptance_criteria, verification_plan) in English. If the owner request is in another language (e.g. Vietnamese), translate it into clear technical English.",
       "REQUIRED: Set implementation_type to exactly one value in a one-item array: frontend, backend, or security. Do not return the legacy style field.",
       "Respond with ONLY one ```json fenced block containing the ticket JSON object. No prose outside the block.",
-      "Ticket fields: title (string, required), objective (string, required), acceptance_criteria (array of strings, at least one, required), verification_plan (array, required), implementation_type (one-item array: frontend|backend|security), file_budget (positive integer, required; no global maximum), priority (optional: low|medium|normal|high|critical), dependencies (optional: array of ticket ids), change_nature (optional: presentation-only|test-only). Each plan step has criterion_ids (AC-1, AC-2…), kind (test|backend_tests|build|lint|typecheck|schema_validation|browser|governance|human), and test_path for test or assertions plus numeric viewports for browser. Cover every criterion.",
+      "Ticket fields: title (string, required), objective (string, required), acceptance_criteria (array of strings, at least one, required), verification_plan (array, required), implementation_type (one-item array: frontend|backend|security), file_budget (positive integer, required; no global maximum), priority (optional: low|medium|normal|high|critical), dependencies (optional: array of ticket ids), change_nature (optional: presentation-only|test-only). Each plan step has criterion_ids (AC-1, AC-2…), kind (test|backend_tests|build|lint|typecheck|schema_validation|browser|governance|human), and test_path for test or nonempty string assertions plus viewports as unique positive integer CSS pixel widths, e.g. [375,768,1440], for browser; never viewport objects, numeric strings, device names, decimals, zero or duplicates. Cover every criterion.",
       "Do NOT include candidate_files, candidates_produced_by, candidates_produced_at, id, project_id, roadmap_id, sprint_id, status, last_error, or provenance; implementation discovery belongs to the Coder and the system assigns identity fields.",
       feedback ? `Previous validation feedback: ${feedback}` : undefined,
       `Project id: ${projectId}`,
@@ -144,6 +148,7 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
   }
   async function regenerateTicketEnglish({ projectId, ticketId, context, sprintId } = {}) {
     requireProject(projectId);
+    assertLegacyTicketMutation(sprintRegistry);
     if (typeof context !== "string" || !context.trim()) throw Object.assign(new ConfigurationError("Vietnamese source context is required."), { statusCode: 400, code: "SOURCE_CONTEXT_REQUIRED" });
     const current = roadmaps.getCurrent();
     const original = current?.sprints?.flatMap((sprint) => sprint.tickets ?? []).find((ticket) => ticket.id === ticketId && ticket.project_id === projectId);
@@ -175,6 +180,7 @@ export function createTicketCrudService({ roadmaps, proseTicketService, ticketFi
   }
   function updateTicket({ projectId, ticketId, patch } = {}) {
     requireProject(projectId);
+    assertLegacyTicketMutation(sprintRegistry);
     const provided = patch && typeof patch === "object" && !Array.isArray(patch) ? patch : {};
     const filtered = Object.fromEntries(UPDATABLE.filter((field) => provided[field] !== undefined).map((field) => [field, provided[field]]));
     if (provided.candidate_files === null) filtered.candidate_files = null;

@@ -81,6 +81,11 @@ export function createHttpApi({ ownerChatService, conversationStream, projectStr
   async function route(method, url, request) {
     const parts = url.pathname.split("/").filter(Boolean);
     const projectId = url.searchParams.get("project") ?? undefined;
+    if (forgeV1Router && (parts[0] === "sprints" || parts[0] === "tickets" || parts[0] === "projects" && parts[2] === "tickets")) {
+      const canonicalUrl = new URL(url);
+      canonicalUrl.pathname = `/forge/v1${url.pathname}`;
+      return forgeV1Router.route(method, canonicalUrl, request);
+    }
     if (method === "POST" && parts.length === 3 && parts[0] === "projects" && parts[2] === "decisions") {
       if (!humanDecisionService) throw new ConfigurationError("Human Decision API is not configured.");
       return { status: 201, body: humanDecisionService.submit({ ...await readJson(request), project_id: parts[1] }) };

@@ -1,23 +1,25 @@
 // Lets a project owner review a rejected ticket with a durable, distinct human decision.
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../shared/errors.js";
+import { readRegistryTicket } from "./registry-ticket-scope.js";
 
 // Exposes Reviewer findings and records an explicit owner approval without rewriting the agent verdict.
-export function createTicketHumanReviewService({ projectId, roadmaps, ticketStatusStore, checkpoints, agentOccupancy, ticketWorkspaceService, publisher, projectLogger = () => {} } = {}) {
+export function createTicketHumanReviewService({ projectId, roadmaps, sprintRegistry, ticketStatusStore, checkpoints, agentOccupancy, ticketWorkspaceService, publisher, projectLogger = () => {} } = {}) {
   if (!projectId || !roadmaps?.getCurrent || !roadmaps?.updateTicketStatus || !ticketStatusStore?.completeByHumanReview || !checkpoints?.load || !checkpoints?.loadReview) throw new ConfigurationError("Ticket Human Review requires roadmap, status, and checkpoint services.");
   return Object.freeze({ get, approve });
 
   // Reads the current evidence so the owner can decide from the exact Reviewer verdict.
   async function get({ requestedProjectId, ticketId }) {
-    const ticket = findTicket(requestedProjectId, ticketId);
+    const ticket = await findTicket(requestedProjectId, ticketId);
     const [coder, reviewer] = await Promise.all([checkpoints.load(ticketId), checkpoints.loadReview(ticketId)]);
     const status = ticketStatusStore.get(ticketId);
     const approved = status?.status === "done" && status.details?.reason === "human_review_approved";
-    return { ticket_id: ticket.id, status: ticket.status ?? "planned", approved, eligible: !approved && coder?.status === "completed" && reviewer?.status === "completed" && reviewer?.verdict === "request_changes", reviewer: reviewer ? { verdict: reviewer.verdict ?? null, findings: reviewer.findings ?? [], changed_paths: reviewer.changed_paths ?? [], updated_at: reviewer.updated_at ?? null, reviewer_name: reviewer.reviewer_name ?? null } : null, decision: approved ? status.details : null };
+    return { ticket_id: ticket.id, status: ticket.status ?? "planned", approved, eligible: !sprintRegistry && !approved && coder?.status === "completed" && reviewer?.status === "completed" && reviewer?.verdict === "request_changes", reviewer: reviewer ? { verdict: reviewer.verdict ?? null, findings: reviewer.findings ?? [], changed_paths: reviewer.changed_paths ?? [], updated_at: reviewer.updated_at ?? null, reviewer_name: reviewer.reviewer_name ?? null } : null, decision: approved ? status.details : null };
   }
 
   // Completes a ticket only after an owner explicitly accepts the recorded Reviewer findings.
   async function approve({ requestedProjectId, ticketId, actor, reason, reviewedAt }) {
+    if (sprintRegistry) throw reviewError("HUMAN_REVIEW_REGISTRY_REQUIRED", "Registry execution requires an execution-fenced owner decision; legacy roadmap approval is disabled.", 409);
     const evidence = await get({ requestedProjectId, ticketId });
     if (evidence.approved) {
       if (evidence.status !== "done") {
@@ -46,8 +48,9 @@ export function createTicketHumanReviewService({ projectId, roadmaps, ticketStat
   }
 
   // Restricts the decision to an existing ticket in the requested project.
-  function findTicket(requestedProjectId, ticketId) {
+  async function findTicket(requestedProjectId, ticketId) {
     if (requestedProjectId !== projectId) throw reviewError("PROJECT_CONTEXT_CONFLICT", "Ticket belongs to a different project.", 409);
+    if (sprintRegistry) return readRegistryTicket({ projectId, ticketId, sprintRegistry });
     const ticket = roadmaps.getCurrent()?.sprints?.flatMap((sprint) => sprint.tickets ?? []).find((entry) => entry.id === ticketId && entry.project_id === projectId);
     if (!ticket) throw reviewError("TICKET_NOT_FOUND", `Ticket not found: ${ticketId}.`, 404);
     return ticket;

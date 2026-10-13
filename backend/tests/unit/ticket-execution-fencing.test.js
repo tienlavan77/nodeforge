@@ -77,7 +77,7 @@ test("terminal bridge rejects old/foreign/tampered identity and deduplicates thr
     bridge.close();
     bridge = createTerminalBridge({ eventBus: f.bus, ticketStatusStore: f.store, roadmaps: { updateTicketStatus: (input) => updates.push(input) }, projectId: PROJECT });
     await f.bus.publish(outcome(f)); await f.bus.publish(outcome(f, "task.failed"));
-    assert.equal(updates.length, 1);
+    assert.equal(updates.length, 0);
     assert.equal(f.store.getHistory(TICKET.id).length, 2);
     assert.equal(logs.filter((entry) => entry.event_name === "terminal_bridge.stale_execution").length, 4);
   } finally { bridge.close(); await f.close(); }
