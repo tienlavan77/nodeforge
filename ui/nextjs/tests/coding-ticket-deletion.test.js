@@ -88,7 +88,10 @@ test("successful DELETE and scoped SSE use the same local callback without refre
   const card = await readFile("ui/nextjs/components/ticket-detail-modal.jsx", "utf8");
   const stream = await readFile("ui/nextjs/lib/home-page-event-stream.js", "utf8");
   assert.match(page, /dashboardLoader\.removeTicket\(ticketId, receipt\)/);
-  assert.match(page, /onSprintDeleted, onTicketDeleted, agentDisplayName/);
+  const subscription = page.slice(page.indexOf("useProjectEventStream({"), page.indexOf("  useEffect(() => {", page.indexOf("useProjectEventStream({")));
+  for (const callback of ["onSprintDeleted", "onTicketDeleted", "agentDisplayName"]) {
+    assert.match(subscription, new RegExp(`\\b${callback}\\b`));
+  }
   assert.match(monitor, /onTicketDeleted=\{onTicketDeleted\}/);
   const remove = card.slice(card.indexOf("async function remove()"), card.indexOf("async function stop()"));
   assert.match(remove, /await client\.deleteTicket[\s\S]*onDeleted\?\.\(ticket\.id, \{ \.\.\.result/);
