@@ -1,6 +1,7 @@
 // Persists Sprint Leader's JSON projection against the owner-approved Markdown source.
 import { sprintPlanDraftContent } from "./sprint-plan-draft.js";
 import { assertMarkdownSprintScope } from "./markdown-sprint-scope.js";
+import { sprintArchitectureDecisions } from "./sprint-architecture-decisions.js";
 
 // Binds a generated Sprint Plan to its approved parent and registers its immutable revision.
 export function createSprintPlanDraftPersistence({ projectId, planStore, markdownPlanStore, sprintRegistry }) {
@@ -20,7 +21,7 @@ export function createSprintPlanDraftPersistence({ projectId, planStore, markdow
       await bindObservedDraft(existing);
       return approvedMarkdown ? planStore.getRevision({ planId, revision: existing.revision }) : existing;
     }
-    const draft = await planStore.createRevision({ planId, sprintId: sprint.id, expectedRevision: head?.revision ?? 0, content: sprintPlanDraftContent(sprint), proposalId: trace.approvedParentPlanKey ?? null, sourcePath: approvedMarkdown?.file_path ?? null, sourceSha256: approvedMarkdown?.sha256 ?? null });
+    const draft = await planStore.createRevision({ planId, sprintId: sprint.id, expectedRevision: head?.revision ?? 0, content: sprintPlanDraftContent(sprint, { architectureDecisions: sprintArchitectureDecisions(approvedMarkdown) }), proposalId: trace.approvedParentPlanKey ?? null, sourcePath: approvedMarkdown?.file_path ?? null, sourceSha256: approvedMarkdown?.sha256 ?? null });
     if (approvedMarkdown) await planStore.approveDerived({ planId, revision: draft.revision, sha256: draft.sha256, markdownPlanId: approvedMarkdown.plan_id, markdownRevision: approvedMarkdown.revision, markdownSha256: approvedMarkdown.sha256 });
     await bindObservedDraft(draft);
     return approvedMarkdown ? planStore.getRevision({ planId, revision: draft.revision }) : draft;

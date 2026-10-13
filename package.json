@@ -16,11 +16,16 @@
     "typecheck": "node node_modules/typescript/bin/tsc --project jsconfig.json",
     "test": "node --test",
     "bootstrap:smoke": "node backend/scripts/bootstrap-smoke.mjs",
+    "browser:install": "node backend/scripts/install-browser-verification.mjs",
     "validate:schemas": "node backend/scripts/validate-schemas.mjs",
     "postinstall": "node backend/scripts/repair-npm-bin-links.mjs"
   },
   "engines": {
     "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "esbuild": "^0.25.12",
+    "playwright": "^1.64.0"
   },
   "devDependencies": {
     "eslint": "^8.57.1",

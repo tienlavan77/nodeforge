@@ -7,24 +7,16 @@ import { NodeForgeHeader } from "../../components/NodeForgeHeader.jsx";
 import { AddAgentModal } from "../../components/AddAgentModal.jsx";
 import { Dialog } from "../../components/Dialog.jsx";
 import { createNodeClient } from "../../lib/node-client.js";
+import { forgeV1 } from "../../lib/node-client-url.js";
+import { createAgentDirectoryLoader, mergeAgentProfiles } from "../../lib/agent-directory-loader.js";
 import { getModelOptions, useModelCatalog } from "../../lib/model-catalog.js";
 import { normalizeBackendError } from "../../lib/error-normalizer.js";
 
 import { saveAgentSettingsForm } from "../../lib/agent-settings-save.js";
 
 const PROJECT_ID = "PROJECT-NODEFORGE";
-const API_URL = typeof window !== "undefined"
-  ? `${window.location.protocol}//${window.location.hostname}:3100/forge/v1/agents`
-  : "http://127.0.0.1:3100/forge/v1/agents";
+const API_URL = forgeV1("/agents");
 const ROLE_LABELS = { coder: "Coder", reviewer: "Reviewer", sprint_leader: "Sprint leader", architecture_manager: "Architecture manager", system_engineer: "System engineer", linguist: "Linguist" };
-
-// Normalizes raw agent payload into a consistent array.
-function normalizeAgents(payload) {
-  if (Array.isArray(payload)) return payload;
-  if (Array.isArray(payload?.agents)) return payload.agents;
-  if (Array.isArray(payload?.items)) return payload.items;
-  return [];
-}
 
 // Resolves the display asset for a provider identifier.
 function providerAsset(provider) {
@@ -67,14 +59,6 @@ function applyAgentStatusEvent(current, event) {
   return current.map((agent) => ((agent.agent_id ?? agent.id) === agentId && String(event.payload?.updated_at ?? event.timestamp ?? "") >= String(agent.updated_at ?? "") ? { ...agent, status: next, updated_at: event.payload?.updated_at ?? event.timestamp } : agent));
 }
 
-// Reconciles a refreshed API snapshot with newer live status events.
-function mergeAgentProfiles(current, incoming) {
-  return incoming.map((agent) => {
-    const existing = current.find((item) => (item.agent_id ?? item.id) === (agent.agent_id ?? agent.id));
-    return existing && String(existing.updated_at ?? "") > String(agent.updated_at ?? "") ? { ...agent, status: existing.status, updated_at: existing.updated_at } : agent;
-  });
-}
-
 // Agent management page with CRUD and connection testing.
 export default function AgentsPage() {
   const client = useMemo(() => createNodeClient(), []);
@@ -84,6 +68,7 @@ export default function AgentsPage() {
   const [state, setState] = useState("loading");
   const [streamState, setStreamState] = useState("connecting");
   const [error, setError] = useState("");
+  const directory = useMemo(() => createAgentDirectoryLoader({ url: API_URL, onProfiles: (incoming) => setAgents((current) => mergeAgentProfiles(current, incoming)), onState: (status, message) => { setState(status); setError(message); } }), []);
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
@@ -183,24 +168,9 @@ export default function AgentsPage() {
   }
 
   useEffect(() => {
-    let active = true;
-    fetch(API_URL)
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`Agents API returned HTTP ${response.status}.`);
-        return response.json();
-      })
-      .then((payload) => {
-        if (!active) return;
-        setAgents((current) => mergeAgentProfiles(current, normalizeAgents(payload)));
-        setState("ready");
-      })
-      .catch((requestError) => {
-        if (!active) return;
-        setError(requestError.message || "Agents could not be loaded.");
-        setState("error");
-      });
-    return () => { active = false; };
-  }, []);
+    void directory.load();
+    return () => directory.cancel();
+  }, [directory]);
 
   // Opens one project stream that keeps agent statuses current without refresh.
   useEffect(() => {
@@ -208,22 +178,22 @@ export default function AgentsPage() {
     let active = true;
     const stream = client.connectProjectStream({
       projectId: PROJECT_ID,
-      onOpen: () => { if (active) { setStreamState("connected"); void fetch(API_URL).then((response) => response.ok ? response.json() : null).then((payload) => { if (active && payload) setAgents((current) => mergeAgentProfiles(current, normalizeAgents(payload))); }).catch((error) => { if (active) setStreamState("error"); console.error("Agent status refresh failed", error); }); } },
+      onOpen: () => { if (active) { setStreamState("connected"); void directory.load(); } },
       onEvent: (event) => { if (active) setAgents((current) => applyAgentStatusEvent(current, event)); },
       onError: () => { if (active) setStreamState("error"); }
     });
     streamRef.current = stream;
     return () => { active = false; streamRef.current = null; stream.close(); };
-  }, [client]);
+  }, [client, directory]);
 
   return <div className="app-shell app-shell-control-room agent-profile-shell agents-directory-shell">
     <NodeForgeHeader title="NODEFORGE" subtitle="Supervisor Control Room" status={<><span className="live-dot" /> node online</>} actions={<Link className="history-button" href="/">Control room</Link>} />
     <main className="agents-directory" aria-label="Agents directory">
       <div className="agents-directory-heading"><div><p className="eyebrow">NODEFORGE RUNTIME</p><h1>Agents</h1></div><div className="agents-heading-actions"><span>{state === "ready" ? `${agents.length} agents` : state === "loading" ? "Loading" : "Unavailable"}</span><span title={streamState === "error" ? "Project stream failed; showing last known statuses." : `Project stream ${streamState}.`}>{streamState === "connected" ? "live" : streamState === "error" ? "stream offline" : "connecting…"}</span></div></div>
       {state === "loading" && <p className="agents-directory-state">Loading agents from `/forge/v1/agents`…</p>}
-      {state === "error" && <div className="agents-directory-state error"><p>{error}</p><button className="history-button" type="button" onClick={() => window.location.reload()}>Retry</button></div>}
+      {state === "error" && <div className="agents-directory-state error" role="alert"><p>{error}</p><button className="history-button" type="button" onClick={() => directory.load()}>Retry</button></div>}
       {state === "ready" && agents.length === 0 && <p className="agents-directory-state">No agents returned by the API.</p>}
-      {state === "ready" && <div className="agents-card-grid"><button className="agent-directory-card agent-add-card" type="button" onClick={() => { setEditingAgent(null); setForm({ role: "architecture_manager", tool_mode: "forge", team: "Backend", agent_name: "", provider: "anthropic", model: getModelOptions(modelCatalog, "anthropic")[0]?.value ?? "", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false }); setTestState(""); setFormError(""); setModalOpen(true); }} aria-label="Add agent"><span>+</span><strong>Add agent</strong></button>{agents.map((agent, index) => {
+      {(state === "ready" || agents.length > 0) && <div className="agents-card-grid"><button className="agent-directory-card agent-add-card" type="button" onClick={() => { setEditingAgent(null); setForm({ role: "architecture_manager", tool_mode: "forge", team: "Backend", agent_name: "", provider: "anthropic", model: getModelOptions(modelCatalog, "anthropic")[0]?.value ?? "", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false }); setTestState(""); setFormError(""); setModalOpen(true); }} aria-label="Add agent"><span>+</span><strong>Add agent</strong></button>{agents.map((agent, index) => {
         const id = agent.agent_id ?? agent.id ?? `agent-${index}`;
         const name = agent.agent_name ?? agent.name ?? agent.label ?? id;
         const capabilities = agent.capabilities ?? agent.tools ?? [];

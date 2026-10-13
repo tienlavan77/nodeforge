@@ -4,6 +4,7 @@
 @import "./styles/shell-theme.css";
 @import "./styles/home-workspace.css";
 @import "./styles/home-conversation.css";
+@import "./styles/architecture-clarifications.css";
 @import "./styles/message-actions.css";
 @import "./styles/agents-directory.css";
 @import "./styles/agents-actions.css";
