@@ -40,7 +40,7 @@ export function createTerminalBridge({ eventBus, ticketStatusStore, roadmaps, pr
       logger({ event_name: "terminal_bridge.transition_skipped", level: "warn", status: "skipped", message: `Ticket status ${current.status} cannot transition to ${ticketStatus}; left for human review.`, task_id: event.task_id, source: "terminal-bridge", payload: { event_type: event.type, from: current.status, to: ticketStatus } });
       return;
     }
-    roadmaps.updateTicketStatus({ projectId, ticketId: event.task_id, status: ticketStatus, ...(errorText ? { error: errorText } : {}) });
+    if (!guarded) roadmaps.updateTicketStatus({ projectId, ticketId: event.task_id, status: ticketStatus, ...(errorText ? { error: errorText } : {}) });
     logger({ event_name: "terminal_bridge.status_synced", level: "info", status: "success", message: `Terminal event synced to ticket status ${ticketStatus}.`, task_id: event.task_id, ticket_id: event.task_id, correlation_id: event.correlation_id, source: "terminal-bridge", payload: { event_type: event.type, from: current.status, to: ticketStatus, request_id: event.request_id } });
     if (event.type === "task.completed") recordMemory(event);
   }

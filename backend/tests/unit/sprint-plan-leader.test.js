@@ -22,6 +22,9 @@ test("runner keeps only file references observed with Forge tools", async () => 
   assert.match(calls[0].prompt, /implementation_type/);
   assert.match(calls[0].prompt, /exact original wording and language, including Vietnamese/);
   assert.match(calls[0].prompt, /change ONLY verification_plan/);
+  assert.match(calls[0].prompt, /unique positive integer widths in CSS pixels/);
+  assert.match(calls[0].prompt, /viewports:\[375,768,1440\]/);
+  assert.doesNotMatch(calls[0].prompt, /numeric viewports/);
   assert.match(calls[0].prompt, /components MUST be an array of nonempty strings/);
   assert.match(calls[0].prompt, /outcome_coverage is not a Sprint Plan schema field/);
   assert.match(calls[0].prompt, /change ONLY human_plan.components/);

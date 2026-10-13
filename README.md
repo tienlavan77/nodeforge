@@ -40,6 +40,14 @@ All coverage gates are rechecked before ingestion. There is no automatic repair
 loop or RUN dispatch. Valid drafts still replay without regeneration after
 storage failures or completed handoffs.
 
+Verification steps are checked against the canonical ticket JSON schema at the
+early coverage gate, not just at Sprint ingestion. Browser `viewports` are unique
+positive integer widths in CSS pixels, e.g. `[375, 768, 1440]`, never objects,
+strings or decimals. Invalid values are rejected without coercion. Older retained
+drafts rejected at ingestion for a `verification_plan` schema error also enter
+verification-only repair on the next owner-triggered Continue handoff; approved
+criteria and all non-verification fields remain frozen.
+
 Sprint `human_plan.components` must contain nonempty strings, not component
 objects. If schema admission rejects object components, the next owner-triggered
 Continue handoff requests a representation-only repair, applying only components
