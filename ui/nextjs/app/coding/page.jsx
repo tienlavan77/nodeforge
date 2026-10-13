@@ -13,6 +13,7 @@ import { createCodingDashboardLoader } from "../../lib/coding-dashboard-loader.j
 import { createCodingPlanEvents } from "../../lib/coding-plan-events.js";
 import { PROJECT_ID } from "../../lib/home-page-constants.js";
 import { agentDisplayName } from "../../lib/home-page-watcher-events.js";
+import { createCodingAgentPanelRegistry, updateCodingAgentPanelRegistry, setCodingAgentPanelSource } from "../../lib/coding-agent-panel-registry.js";
 
 // Show coding operations without exposing conversation-specific sidebar controls.
 export default function CodingPage() {
@@ -27,6 +28,20 @@ export default function CodingPage() {
   const activeConversationIdRef = useRef(null);
   const agentDirectoryRef = useRef([]);
   agentDirectoryRef.current = agents;
+  const [agentPanelRegistry, setAgentPanelRegistry] = useState(createCodingAgentPanelRegistry);
+
+  // Retain working identities at delivery time independently of the shared fifty-action buffer.
+  const onProjectEvent = useCallback((event) => {
+    planEvents.publish(event);
+    setAgentPanelRegistry((current) => updateCodingAgentPanelRegistry(current, PROJECT_ID, [event], agentDirectoryRef.current));
+  }, [planEvents]);
+  // Invalidate cached execution claims whenever the live source connects or disconnects.
+  const setPanelSource = useCallback((status) => {
+    setAgentPanelRegistry((current) => setCodingAgentPanelSource(current, status));
+  }, []);
+  useEffect(() => {
+    setAgentPanelRegistry((current) => updateCodingAgentPanelRegistry(current, PROJECT_ID, [], agents));
+  }, [agents]);
 
   // Refresh Registry Sprint scope while preserving structured diagnostics for the active page.
   const loadWorkspaceMonitor = useCallback((options) => dashboardLoader.load(options), [dashboardLoader]);
@@ -37,8 +52,8 @@ export default function CodingPage() {
 
   useProjectEventStream({
     client, projectId: PROJECT_ID, activeConversationIdRef, agentDirectoryRef,
-    setMessages: () => {}, setAgentTyping: () => {}, setWatcherEvents: () => {}, setWatcherPulseId: () => {}, setWatcherState: () => {},
-    setAgentProcess: () => {}, setAgentActivities, loadDashboard: loadWorkspaceMonitor, onSprintDeleted, onTicketDeleted, onProjectEvent: planEvents.publish, agentDisplayName
+    setMessages: () => {}, setAgentTyping: () => {}, setWatcherEvents: () => {}, setWatcherPulseId: () => {}, setWatcherState: setPanelSource,
+    setAgentProcess: () => {}, setAgentActivities, loadDashboard: loadWorkspaceMonitor, onSprintDeleted, onTicketDeleted, onProjectEvent, agentDisplayName
   });
 
   useEffect(() => {
@@ -53,6 +68,6 @@ export default function CodingPage() {
 
   return <div className="claude-home-shell coding-workspace-shell">
     <ConversationSidebar open={openSidebar} onOpen={() => setOpenSidebar(true)} onClose={() => setOpenSidebar(false)} agentSectionTitle="Code" projects={[{ id: PROJECT_ID, name: "NodeForge" }]} selectedProjectId={PROJECT_ID} onProjectChange={() => {}} showConversationControls={false} />
-    <CodingWorkspaceMonitor planEvents={planEvents} projectId={PROJECT_ID} dashboard={dashboardState.dashboard} dashboardState={dashboardState} client={client} onRefresh={loadWorkspaceMonitor} onSprintDeleted={onSprintDeleted} onTicketDeleted={onTicketDeleted} agentActivities={agentActivities} agentDirectory={agents} />
+    <CodingWorkspaceMonitor planEvents={planEvents} projectId={PROJECT_ID} dashboard={dashboardState.dashboard} dashboardState={dashboardState} client={client} onRefresh={loadWorkspaceMonitor} onSprintDeleted={onSprintDeleted} onTicketDeleted={onTicketDeleted} agentActivities={agentActivities} agentDirectory={agents} agentPanelRegistry={agentPanelRegistry} />
   </div>;
 }
