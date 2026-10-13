@@ -108,6 +108,34 @@ test("active Coding loader renders bounded safe migration IDs and requestId from
   }
 });
 
+// Exercises the exact HTTP/client detail request used by View without requiring legacy ticket files or RUN.
+test("View ticket client reads newly created immutable plan content instead of stale roadmap content", async () => {
+  const f = await fixture();
+  const previousBase = process.env.NEXT_PUBLIC_NODE_CONTROL_API_URL;
+  const server = createHttpApi({ forgeV1Router: createForgeV1Router({ projectDashboardService: f.service }) }).createServer();
+  server.listen(0, "127.0.0.1");
+  try {
+    await once(server, "listening");
+    process.env.NEXT_PUBLIC_NODE_CONTROL_API_URL = `http://127.0.0.1:${server.address().port}`;
+    const client = createNodeClient();
+    const fresh = await client.getTicket(PROJECT, TICKET.id);
+    assert.equal(fresh.title, TICKET.title);
+    assert.equal(fresh.objective, TICKET.objective);
+    assert.deepEqual(fresh.acceptance_criteria, TICKET.acceptance_criteria);
+    assert.equal(fresh.context, "");
+    f.state.roadmap.sprints = [{ id: TICKET.sprint_id, tickets: [{ ...TICKET, title: "Stale title", objective: "Stale work", acceptance_criteria: ["Stale criterion"] }] }];
+    assert.deepEqual(await client.getTicket(PROJECT, TICKET.id), fresh);
+    await assert.rejects(client.getTicket("PROJECT-OTHER", TICKET.id));
+    await f.registry.archive({ sprintId: TICKET.sprint_id, expectedVersion: f.registry.get(TICKET.sprint_id).version });
+    await assert.rejects(client.getTicket(PROJECT, TICKET.id));
+  } finally {
+    if (previousBase === undefined) delete process.env.NEXT_PUBLIC_NODE_CONTROL_API_URL;
+    else process.env.NEXT_PUBLIC_NODE_CONTROL_API_URL = previousBase;
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    await f.close();
+  }
+});
+
 test("empty Registry is not cutover proof when current Project still has legacy sprints", async () => {
   const f = await fixture();
   try {

@@ -43,7 +43,7 @@ async function fixture(context, requestPlan, storageFailures = 0) {
     sprintPlanLeader: { requestPlan: async (input) => { requests.push(input); return requestPlan(requests.length, input); } },
     sprintOrchestration: orchestration,
   });
-  return { service, plan, requests, drafts, events, receipt: () => database.all("SELECT * FROM markdown_plan_handoffs WHERE plan_id=?", [plan.plan_id])[0] };
+  return { service, plan, requests, drafts, events, database, receipt: () => database.all("SELECT * FROM markdown_plan_handoffs WHERE plan_id=?", [plan.plan_id])[0] };
 }
 
 test("approved outcome handoff passes real schema without backend-added root properties", async (context) => {
@@ -110,4 +110,48 @@ test("storage failure retries a valid schema snapshot without regenerating", asy
   await state.service.handoff({ plan: state.plan });
   assert.equal(state.requests.length, 1);
   assert.equal(state.drafts.length, 1);
+});
+
+// Repairs malformed widths before ingestion, retaining the frozen approved scope and replay behavior.
+test("viewport schema failures use verification-only repair and pass real ingestion", async (context) => {
+  for (const legacy of [false, true]) {
+    const state = await fixture(context, (attempt, input) => {
+      const draft = candidate();
+      draft.tickets[0].verification_plan = [{ kind: "browser", criterion_ids: ["AC-1"], assertions: ["No horizontal overflow"], viewports: attempt === 1 ? [{ width: 375, height: 812 }, "1440"] : [375, 1440] }];
+      if (attempt > 1) {
+        assert.match(input.brief, /FINAL frozen acceptance_criteria/);
+        draft.tickets[0].acceptance_criteria = ["Changed scope"];
+        draft.human_plan.components = [{ name: "Changed component" }];
+        draft.run = true;
+      }
+      return draft;
+    });
+    await assert.rejects(state.service.handoff({ plan: state.plan }), (error) => error.code === "SPRINT_MARKDOWN_SCOPE" && error.message.includes("/viewports/0 must be integer"));
+    assert.equal(state.drafts.length, 0);
+    const frozen = JSON.parse(state.receipt().generated_json);
+    if (legacy) state.database.run("UPDATE markdown_plan_handoffs SET error_code=?,error_message=? WHERE plan_id=?", ["SPRINT_PLAN_HANDOFF_FAILED", "Sprint Leader returned invalid sprint plan: /tickets/0/verification_plan/0/viewports/0 must be integer", state.plan.plan_id]);
+    await state.service.handoff({ plan: state.plan });
+    const expected = structuredClone(frozen);
+    expected.tickets[0].verification_plan[0].viewports = [375, 1440];
+    assert.deepEqual(JSON.parse(state.receipt().generated_json), expected);
+    assert.equal(state.drafts.length, 1);
+    assert.equal(state.requests.length, 2);
+    assert.equal((await state.service.handoff({ plan: state.plan })).replayed, true);
+    assert.equal(state.requests.length, 2);
+  }
+});
+
+// Leaves repeated malformed repairs blocked without coercing widths or dispatching an automatic retry loop.
+test("invalid viewport repairs remain blocked across owner retries", async (context) => {
+  const state = await fixture(context, () => {
+    const draft = candidate();
+    draft.tickets[0].verification_plan = [{ kind: "browser", criterion_ids: ["AC-1"], assertions: ["No overflow"], viewports: ["375"] }];
+    return draft;
+  });
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    await assert.rejects(state.service.handoff({ plan: state.plan }), (error) => error.code === "SPRINT_MARKDOWN_SCOPE" && error.message.includes("must be integer"));
+    assert.equal(state.requests.length, attempt);
+    assert.equal(state.drafts.length, 0);
+    assert.deepEqual(JSON.parse(state.receipt().generated_json).tickets[0].acceptance_criteria, ["Approved API works"]);
+  }
 });

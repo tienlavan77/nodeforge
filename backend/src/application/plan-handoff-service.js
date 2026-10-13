@@ -26,8 +26,8 @@ export function createPlanHandoffService({ projectId, database, planStore, markd
     try {
       const correlationId = `CORR-PLAN-HANDOFF-${approved.plan_id}-${approved.revision}`;
       const priorCandidate = row.generated_json ? JSON.parse(row.generated_json) : null;
-      const retryVerification = markdown && row.error_code === "SPRINT_MARKDOWN_SCOPE" && /has an invalid verification plan:/.test(row.error_message ?? "");
-      const retryComponents = markdown && row.error_code === "SPRINT_PLAN_HANDOFF_FAILED" && /^Sprint Leader returned invalid sprint plan:/.test(row.error_message ?? "") && /\/human_plan\/components\//.test(row.error_message ?? "");
+      const retryVerification = markdown && ((row.error_code === "SPRINT_MARKDOWN_SCOPE" && /has an invalid verification plan:/.test(row.error_message ?? "")) || (row.error_code === "SPRINT_PLAN_HANDOFF_FAILED" && /^Sprint Leader returned invalid sprint plan:/.test(row.error_message ?? "") && /\/tickets\/\d+\/verification_plan(?:\/|\s)/.test(row.error_message ?? "")));
+      const retryComponents = markdown && !retryVerification && row.error_code === "SPRINT_PLAN_HANDOFF_FAILED" && /^Sprint Leader returned invalid sprint plan:/.test(row.error_message ?? "") && /\/human_plan\/components\//.test(row.error_message ?? "");
       const repairCandidate = (retryVerification || retryComponents) && priorCandidate ? normalizeMarkdownSprintScope(approved.markdown, priorCandidate) : null;
       if (repairCandidate) database.run(`UPDATE ${table} SET generated_json=?,updated_at=? WHERE plan_id=? AND revision=? AND sha256=?`, [JSON.stringify(repairCandidate), clock(), approved.plan_id, approved.revision, approved.sha256]);
       let generated = retryVerification || retryComponents ? null : priorCandidate;

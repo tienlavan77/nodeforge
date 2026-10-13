@@ -1,8 +1,10 @@
-export function createBuilderContext({ roadmaps, indexDb, contextEngine } = {}) {
+import { readRegistryTicket } from "../src/application/registry-ticket-scope.js";
+
+export function createBuilderContext({ roadmaps, sprintRegistry, indexDb, contextEngine } = {}) {
   return async function buildBuilderContext({ message }) {
-    const ticketId = message.payload.text.match(/\b[A-Z][A-Z0-9]+-[A-Z0-9]+-T\d+\b/i)?.[0];
+    const ticketId = message.task_id ?? message.payload?.ticket?.id ?? message.payload?.text?.match(/\bTICKET-[A-Za-z0-9._-]+\b|\b[A-Z][A-Z0-9]+-[A-Z0-9]+-T\d+\b/i)?.[0];
     if (!ticketId) return "";
-    const ticket = roadmaps.getCurrent()?.sprints?.flatMap((sprint) => sprint.tickets ?? []).find((item) => item.id.toLowerCase() === ticketId.toLowerCase());
+    const ticket = sprintRegistry ? await readRegistryTicket({ projectId: message.project_id, ticketId, sprintRegistry, requireApproval: true }) : roadmaps.getCurrent()?.sprints?.flatMap((sprint) => sprint.tickets ?? []).find((item) => item.project_id === message.project_id && item.id.toLowerCase() === ticketId.toLowerCase());
     if (!ticket) return "";
     const targetPath = canonicalizeAgentPath(ticket.commit?.target_path ?? ticket.target_path ?? ticket.commit_target_path);
     const sections = [`Ticket ${ticket.id}: ${ticket.title ?? ""}`, ticket.objective ? `Objective: ${ticket.objective}` : ""];

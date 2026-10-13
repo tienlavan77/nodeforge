@@ -141,7 +141,7 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrch
         requireProject(projectId);
         if (method === "GET") {
           if (!ticketCrudService?.listTickets) throw unavailable("Ticket List");
-          return { status: 200, body: ticketCrudService.listTickets({ projectId }) };
+          return { status: 200, body: await ticketCrudService.listTickets({ projectId }) };
         }
         if (method === "POST") {
           if (!ticketCrudService?.createTicket) throw unavailable("Ticket Create");

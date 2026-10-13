@@ -12,16 +12,27 @@ export function createProjectDashboardService({ roadmaps, sprintPlans, provenanc
   }
 
   return Object.freeze({ getDashboard, getTicket, getTicketGraph });
-  function findTicket(projectId, ticketId) {
+  async function findTicket(projectId, ticketId) {
     assertProjectId(projectId);
     if (typeof ticketId !== "string" || !ticketId) throw httpError(400, "A ticket id is required.");
+    if (typeof sprintRegistry?.getByTicket === "function" || typeof sprintRegistry?.listDetails === "function") {
+      if (typeof sprintRegistry.getByTicket !== "function" || typeof sprintRegistry.getDetail !== "function") throw new ConfigurationError("Registry ticket details require immutable ticket lookup.");
+      const record = await sprintRegistry.getByTicket(ticketId);
+      if (!record || record.project_id !== projectId) throw httpError(404, `Ticket not found: ${ticketId}.`);
+      const sprint = await sprintRegistry.getDetail(record.sprint_id);
+      const ticket = sprint?.tickets?.find((item) => item.id === ticketId);
+      if (!ticket) throw httpError(404, `Ticket not found in immutable Sprint scope: ${ticketId}.`);
+      if (sprint.project_id !== projectId || ticket.project_id !== projectId || ticket.sprint_id !== record.sprint_id) throw httpError(409, "Immutable ticket ownership differs from the Registry Sprint.");
+      if (sprintRegistry.get(record.sprint_id)?.version !== record.version) throw httpError(409, "Sprint scheduling changed during ticket detail read; reload its current basis.");
+      return ticket;
+    }
     const ticket = roadmaps.getCurrent()?.sprints?.flatMap((sprint) => sprint.tickets ?? []).find((item) => item.project_id === projectId && item.id === ticketId)
       ?? (ticketFileStore?.getMetadata?.(ticketId)?.project_id === projectId ? ticketFileStore.readLatest(ticketId) : null);
     if (!ticket) throw httpError(404, `Ticket not found: ${ticketId}.`);
     return ticket;
   }
-  function getTicket(projectId, ticketId) {
-    const ticket = findTicket(projectId, ticketId);
+  async function getTicket(projectId, ticketId) {
+    const ticket = await findTicket(projectId, ticketId);
     const metadata = ticketFileStore?.getMetadata?.(ticketId);
     return structuredClone({
       ...ticketView(ticket),
@@ -30,9 +41,9 @@ export function createProjectDashboardService({ roadmaps, sprintPlans, provenanc
       context: metadata?.project_id === projectId ? metadata.context : ""
     });
   }
-  function getTicketGraph(projectId, ticketId) {
+  async function getTicketGraph(projectId, ticketId) {
     if (!relevantTreeSelector?.select) throw new ConfigurationError("Ticket Code Graph API is not configured.");
-    const ticket = findTicket(projectId, ticketId);
+    const ticket = await findTicket(projectId, ticketId);
     return structuredClone({ project_id: projectId, ticket: ticketView(ticket), graph: relevantTreeSelector.select({ title: ticket.title, objective: ticket.objective, acceptance_criteria: ticket.acceptance_criteria ?? [], scope: "ui", allowed_prefixes: ["ui/nextjs/"] }) });
   }
   function getDashboard(projectId) {
