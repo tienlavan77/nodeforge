@@ -1,11 +1,13 @@
 // Derives ticket report facts from immutable Node verification evidence.
+import { matchesBrowserEvidence } from "../modules/supervisor/browser-verification-evidence.js";
+import { hasOwnerDecisionEvidence } from "../modules/governance/plan-decision-requests.js";
 
 // Adds source, command, and scope facts without claiming unproven behavior passed.
 export function completeNodeReportEvidence(input, ticket, artifact) {
   const changed = [...(artifact.changed_paths ?? Object.keys(artifact.file_checksums ?? {}))].sort();
   const unchanged = Object.keys(artifact.file_checksums ?? {}).filter((path) => !changed.includes(path)).sort();
   const criteria = ticket.acceptance_criteria ?? [];
-  const coverage = completeCoverage(input.acceptance_coverage, criteria, artifact.commands ?? [], ticket?.verification_plan);
+  const coverage = completeCoverage(input.acceptance_coverage, criteria, artifact.commands ?? [], ticket?.verification_plan, ticket);
   const evidence = Array.isArray(input.evidence) && input.evidence.length ? input.evidence : [
     { type: "verification", reference: artifact.artifact_id, result: "passed" },
     ...(artifact.commands ?? []).map((command) => ({ type: "command", reference: command.output_sha256 ?? artifact.artifact_id, result: `${command.kind}: exit ${command.exit_code}` }))
@@ -24,8 +26,8 @@ export function completeNodeReportEvidence(input, ticket, artifact) {
 }
 
 // Retains Coder-supplied evidence and fills omitted criteria with conservative Node evidence.
-function completeCoverage(supplied, criteria, commands, verificationPlan) {
-  if (Array.isArray(verificationPlan) && verificationPlan.length) return coverageFromPlan(criteria, commands, verificationPlan);
+function completeCoverage(supplied, criteria, commands, verificationPlan, ticket) {
+  if (Array.isArray(verificationPlan) && verificationPlan.length) return coverageFromPlan(criteria, commands, verificationPlan, ticket);
   const entries = Array.isArray(supplied) ? [...supplied] : [];
   const covered = new Set(entries.map((entry) => criterionIndex(entry, criteria)).filter((index) => index >= 0));
   for (let index = 0; index < criteria.length; index += 1) {
@@ -35,20 +37,25 @@ function completeCoverage(supplied, criteria, commands, verificationPlan) {
 }
 
 // Converts the approved criterion map into Node-owned coverage from actual command receipts.
-function coverageFromPlan(criteria, commands, verificationPlan) {
+function coverageFromPlan(criteria, commands, verificationPlan, ticket) {
   return criteria.map((criterion, index) => {
     const criterionId = `AC-${index + 1}`;
     const steps = verificationPlan.filter((step) => step.criterion_ids?.includes(criterionId));
-    const passing = steps.find((step) => hasPassingCommand(step, commands));
+    const ownerApproved = hasOwnerDecisionEvidence(ticket, criterionId);
+    const required = steps.filter((step) => step.kind !== "governance" && !(step.kind === "human" && ownerApproved));
+    const missing = required.filter((step) => !hasPassingCommand(step, commands));
+    if (missing.length) return { criterion_id: criterionId, criterion, status: "evidence_pending", command_kind: null, test_path: null, missing_checks: missing.map((step) => ({ kind: step.kind, ...(step.test_path ? { test_path: step.test_path } : {}) })) };
+    const passing = required[0];
     if (passing) return { criterion_id: criterionId, criterion, status: "verified", command_kind: passing.kind, ...(passing.test_path ? { test_path: passing.test_path } : {}) };
-    if (steps.some((step) => step.kind === "governance")) return { criterion_id: criterionId, criterion, status: "not_applicable", command_kind: null, test_path: null };
+    if (ownerApproved && steps.some((step) => step.kind === "human")) return { criterion_id: criterionId, criterion, status: "verified", command_kind: "human", decision_id: ticket.owner_decision_basis.decision_id };
+    if (steps.length) return { criterion_id: criterionId, criterion, status: "not_applicable", command_kind: null, test_path: null };
     return { criterion_id: criterionId, criterion, status: "evidence_pending", command_kind: null, test_path: null };
   });
 }
 
 // Matches an approved command step to a successful receipt without trusting agent claims.
 function hasPassingCommand(step, commands) {
-  return commands.some((command) => command.kind === step.kind && command.exit_code === 0 && (!step.test_path || command.argv?.includes(step.test_path)));
+  return commands.some((command) => command.kind === step.kind && command.exit_code === 0 && (!step.test_path || command.argv?.includes(step.test_path)) && (step.kind !== "browser" || matchesBrowserEvidence(step, command.browser_evidence)));
 }
 
 // Resolves legacy criterion text and stable IDs without accepting an unknown criterion.

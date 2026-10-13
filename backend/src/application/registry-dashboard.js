@@ -1,5 +1,5 @@
 // Projects approved immutable Registry scope into the Coding dashboard without legacy ticket overwrites.
-import { sameExecutionPlan } from "../modules/projects/ticket-execution-identity.js";
+import { registryTicketStatus } from "./registry-ticket-status.js";
 
 // Returns Registry-owned Sprint scope and durable ticket status, or a scoped reconciliation diagnostic.
 export async function getRegistryDashboard({ projectId, sprintRegistry, roadmap, metadata = [], ticketStatusStore, ticketDeletions = [] }) {
@@ -21,13 +21,10 @@ export async function getRegistryDashboard({ projectId, sprintRegistry, roadmap,
     if (extra.length) throw Object.assign(new Error("Persisted tickets outside immutable Sprint scope require reconciliation."), { code: "TICKET_PLAN_SCOPE", statusCode: 409, retryable: false, scope: "scoped", identifiers: extra.map((entry) => entry.id) });
     const tasks = (sprint.tickets ?? []).map((ticket) => {
       if (ticket.project_id !== projectId || ticket.sprint_id !== sprint.id) throw Object.assign(new Error("Immutable ticket ownership differs from the Registry Sprint."), { code: "SPRINT_PLAN_MISMATCH", statusCode: 409, retryable: false, scope: "scoped", identifiers: [sprint.id] });
-      const persisted = ticketStatusStore?.get?.(ticket.id);
-      if (persisted && persisted.project_id !== projectId) throw Object.assign(new Error("Ticket status ownership differs from the dashboard project."), { code: "TICKET_PLAN_SCOPE", statusCode: 409, retryable: false, scope: "scoped", identifiers: [sprint.id] });
       const basis = records.find((record) => record.sprint_id === sprint.id);
-      const status = persisted && persisted.details?.execution_id && sameExecutionPlan(persisted.details.execution_basis, basis) ? persisted.status : ticketStatusStore ? "untracked" : "planned";
-      return { id: ticket.id, title: ticket.title, priority: ticket.priority ?? "normal", status, progress: status === "done" ? 100 : ["running", "reviewing", "working"].includes(status) ? 50 : 0 };
+      return { id: ticket.id, title: ticket.title, priority: ticket.priority ?? "normal", ...registryTicketStatus({ ticket, basis, ticketStatusStore }) };
     });
-    return { id: sprint.id, objective: sprint.objective ?? null, order: sprint.order, status: sprint.status, version: sprint.version, ticket_ids: ticketIds, plan_id: sprint.plan_id, plan_revision: sprint.plan_revision, plan_sha256: sprint.plan_sha256, tasks };
+    return { id: sprint.id, objective: sprint.objective ?? null, order: sprint.order, status: sprint.status, version: sprint.version, ticket_ids: ticketIds, plan_id: sprint.plan_id, plan_revision: sprint.plan_revision, plan_sha256: sprint.plan_sha256, plan_status: sprint.plan_status, decision_requests: sprint.decision_requests ?? [], owner_selections: sprint.owner_selections ?? {}, tasks };
   });
   for (const record of records) {
     if (sprintRegistry.get(record.sprint_id)?.version !== record.version) throw Object.assign(new Error("Sprint scheduling changed during dashboard projection; reload its current basis."), { code: "SPRINT_REGISTRY_CONFLICT", statusCode: 409, retryable: false, scope: "scoped", identifiers: [record.sprint_id] });

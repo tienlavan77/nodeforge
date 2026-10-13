@@ -37,10 +37,13 @@ import { useProjectEventStream } from "../lib/home-page-event-stream.js";
 import { createHomeMessageHandlers } from "../lib/home-page-message-handlers.js";
 import { useConversationMessageHistory } from "../lib/use-conversation-message-history.js";
 import { normalizeUiError } from "../lib/ui-error.js";
+import { ArchitectureClarifications } from "../components/architecture-clarifications.jsx";
+import { createCodingPlanEvents } from "../lib/coding-plan-events.js";
 
 // Renders the desktop conversation surface with the existing history, streaming, retry, and approval components.
 export default function HomePage() {
   const client = useMemo(() => createNodeClient(), []);
+  const planEvents = useMemo(() => createCodingPlanEvents(PROJECT_ID), []);
   const chatMessagesRef = useRef(null);
   const [agentDirectory, setAgentDirectory] = useState([]);
   const [selectedArchitectureManagerId, setSelectedArchitectureManagerId] = useState("");
@@ -73,9 +76,10 @@ export default function HomePage() {
   const [architectureInterruption, setArchitectureInterruption] = useState(0);
   // Counts terminal conversation failures so recovery controls re-read the durable checkpoint without a page reload.
   const noteStreamInterruption = useCallback((event) => {
+    planEvents.publish(event);
     const failed = (event?.event_type === "agent.activity" && event?.payload?.activity_type === "failed") || event?.event_type === "conversation.message.failed";
     if (failed && event?.payload?.conversation_id === activeConversationIdRef.current) setArchitectureInterruption((current) => current + 1);
-  }, []);
+  }, [planEvents]);
   agentDirectoryRef.current = agentDirectory;
   const { messages, setMessages, messagesLoading, setMessagesLoading, olderLoading, hasOlder, historyError,
     loadConversationMessages, loadEarlierMessages, handleMessageScroll, followLatest } = useConversationMessageHistory({
@@ -212,6 +216,7 @@ export default function HomePage() {
             <ConversationProjectGit client={client} projectId={PROJECT_ID} />
             <ArchitectureExecutionControls client={client} projectId={PROJECT_ID} conversationId={activeConversationId} executionId={lastSentRef.current?.conversationId === activeConversationId ? lastSentRef.current.correlationId : messages.findLast((message) => message.from === "owner" && message.correlation_id)?.correlation_id} agentTyping={agentTyping} interruptionSignal={architectureInterruption} />
           </div>
+          <ArchitectureClarifications key={streamConversationId ?? "no-conversation"} client={client} projectId={PROJECT_ID} conversationId={streamConversationId} agentId={selectedArchitectureManager?.id} planEvents={planEvents} />
           <HomeChatComposer key={conversationRevision} onSend={submitMessage} />
           <SystemToolMode key={selectedArchitectureManager?.id} agent={selectedArchitectureManager} client={client} projectId={PROJECT_ID} busy={agentTyping} onSaved={(saved) => setAgentDirectory((current) => current.map((agent) => (agent.agent_id ?? agent.id) === saved.agent_id ? { ...agent, ...saved } : agent))} />
         </div>

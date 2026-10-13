@@ -2,6 +2,8 @@
 // Lets the project owner inspect and decide the exact immutable plan revision for a sprint.
 import { useEffect, useRef, useState } from "react";
 import { EntityDetailsModal } from "./ticket-detail-modal.jsx";
+import { PlanDecisionRequests } from "./plan-decision-requests.jsx";
+import { planDecisionSelectionKey, planDecisionSelectionsComplete } from "../lib/plan-decision-selections.js";
 
 // Prepares an editable historical sprint draft without inventing approach or evidence.
 function legacyDraft(sprint) {
@@ -35,6 +37,11 @@ export function PlanReviewModal({ client, projectId, sprintId, planId, initialPl
   const [legacyPlan, setLegacyPlan] = useState(null);
   const [legacyDependencies, setLegacyDependencies] = useState([]);
   const [editing, setEditing] = useState(false);
+  const [choiceState, setChoiceState] = useState({ key: null, selections: {} });
+  const choiceKey = planDecisionSelectionKey(plan);
+  const selections = choiceState.key === choiceKey ? choiceState.selections : plan?.decision?.selections ?? {};
+  const requests = plan?.decision_requests ?? plan?.content?.decision_requests ?? [];
+  const choicesComplete = planDecisionSelectionsComplete(requests, selections);
   const submitting = useRef(false);
   const decisionIds = useRef(new Map());
   useEffect(() => {
@@ -44,7 +51,7 @@ export function PlanReviewModal({ client, projectId, sprintId, planId, initialPl
       try {
         if (planId) {
           const head = (await client.listPlans(projectId)).find((item) => item.plan_id === planId);
-          if (!head) throw new Error("Markdown plan is not indexed.");
+          if (!head) throw new Error("Plan is not indexed.");
           const document = await client.getPlanRevision(projectId, head.plan_id, head.revision);
           if (active) { setPlan(document); setState("ready"); }
           return;
@@ -89,7 +96,8 @@ export function PlanReviewModal({ client, projectId, sprintId, planId, initialPl
     setState("submitting"); setMessage("");
     try {
       const revised = await client.revisePlan(projectId, plan, JSON.parse(draftText));
-      if (registry) await client.bindSprintPlan(projectId, sprintId, revised);
+      const scheduled = registry ?? await client.getSprintRegistry(projectId, sprintId ?? plan.sprint_id);
+      if (scheduled) setRegistry(await client.bindSprintPlan(projectId, sprintId ?? plan.sprint_id, revised));
       setPlan(revised); setEditing(false); setState("ready");
       await onChanged?.();
     } catch (error) { setMessage(error.message); setState("ready"); }
@@ -98,14 +106,20 @@ export function PlanReviewModal({ client, projectId, sprintId, planId, initialPl
   // Records the owner's decision and activates the approved revision for scheduling.
   async function decide(decision) {
     if (!plan || !token || submitting.current) return;
+    if (decision === "approved" && !choicesComplete) { setMessage("Chọn đủ các phương án cần duyệt trong Sprint Plan."); return; }
     submitting.current = true;
     setState("submitting"); setMessage("");
     try {
       let handoff = null;
-      if (plan.format !== "markdown" && !registry) {
+      let scheduled = registry;
+      if (plan.format !== "markdown" && !scheduled) {
+        scheduled = await client.getSprintRegistry(projectId, sprintId ?? plan.sprint_id);
+      }
+      if (plan.format !== "markdown" && !scheduled) {
         const registered = await client.listSprintRegistry(projectId);
-        setRegistry(await client.registerSprint(projectId, sprintId, registered.length, legacyDependencies, legacyPlan ?? plan));
-      } else if (plan.format !== "markdown" && registry.plan_revision !== plan.revision) setRegistry(await client.bindSprintPlan(projectId, sprintId, plan));
+        scheduled = await client.registerSprint(projectId, sprintId ?? plan.sprint_id, registered.length, legacyDependencies, legacyPlan ?? plan);
+      } else if (plan.format !== "markdown" && (scheduled.plan_id !== plan.plan_id || scheduled.plan_revision !== plan.revision || scheduled.plan_sha256 !== plan.sha256)) scheduled = await client.bindSprintPlan(projectId, sprintId ?? plan.sprint_id, plan);
+      if (scheduled) setRegistry(scheduled);
       if (plan.format === "markdown" && decision === "approved") {
         // Reconcile a response-lost decision before retrying the exact reviewed identity.
         const current = await client.getPlanRevision(projectId, plan.plan_id, plan.revision);
@@ -120,9 +134,13 @@ export function PlanReviewModal({ client, projectId, sprintId, planId, initialPl
         if (result.status === "handoff_in_progress") { setMessage("Approved. Sprint Leader handoff is still in progress; Continue handoff checks its receipt."); setState("ready"); return; }
         if (result.status !== "handed_to_sprint_leader") throw new Error("Approved; handoff has not completed. Continue handoff to reconcile its receipt.");
         handoff = result;
-      } else await client.decidePlan(projectId, plan, decision, token, comments);
+      } else {
+        const key = `${choiceKey}:${decision}:${JSON.stringify(selections)}`;
+        if (!decisionIds.current.has(key)) decisionIds.current.set(key, `DECISION-${createClientUuid()}`);
+        await client.decidePlan(projectId, plan, decision, token, comments, decisionIds.current.get(key), selections);
+      }
       setToken(""); setPlan({ ...plan, status: decision, ...(plan.format === "markdown" && decision === "approved" ? { handoff_status: "completed" } : {}) });
-      if (decision === "approved" && !plan.source_path) setRegistry(await client.setSprintStatus(projectId, sprintId, "ready"));
+      if (decision === "approved" && plan.format !== "markdown") setRegistry(await client.setSprintStatus(projectId, sprintId ?? plan.sprint_id, "ready"));
       setMessage(`Revision ${plan.revision}: ${decision}.`);
       setState("decided");
       await onChanged?.({ decision, plan, handoff });
@@ -151,12 +169,13 @@ export function PlanReviewModal({ client, projectId, sprintId, planId, initialPl
       <p><strong>In scope:</strong> {plan.content.in_scope}</p>
       <p><strong>Out of scope:</strong> {plan.content.out_of_scope}</p>
       <p><strong>Approach:</strong> {plan.content.approach}</p>
+      <PlanDecisionRequests requests={requests} selections={selections} disabled={plan.status !== "awaiting_human_approval" || state === "submitting" || editing} onChange={(id, optionId) => setChoiceState({ key: choiceKey, selections: { ...selections, [id]: optionId } })} />
       {[["Components", "components"], ["Tickets", "tickets"], ["Dependencies", "dependencies"], ["Risks", "risks"], ["Assumptions", "assumptions"], ["Open questions", "open_questions"], ["Evidence", "evidence_refs"], ["Acceptance criteria", "acceptance_criteria"]].map(([label, key]) => <section key={key}><h3>{label}</h3><ul>{(plan.content[key] ?? []).map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul></section>)}
       {(plan.content.ticket_specs ?? []).map((ticket) => <section key={ticket.id}><h3>{ticket.id}: {ticket.title}</h3><p>{ticket.objective}</p><ul>{(ticket.acceptance_criteria ?? []).map((criterion, index) => <li key={`${index}-${criterion}`}>{criterion}</li>)}</ul></section>)}
       </>}
       {!editing && plan.format !== "markdown" && <button type="button" onClick={() => { setDraftText(JSON.stringify(plan.content, null, 2)); setEditing(true); }}>Create revised draft</button>}
       {editing && <><label>Revised plan JSON<textarea rows={18} value={draftText} onChange={(event) => setDraftText(event.target.value)} /></label><div className="settings-actions"><button type="button" disabled={state === "submitting"} onClick={revise}>Save revision</button><button type="button" onClick={() => setEditing(false)}>Cancel edit</button></div></>}
-      {!editing && (plan.status === "awaiting_human_approval" || plan.format === "markdown" && plan.status === "approved" && plan.handoff_status !== "completed") && <div className="plan-review-decision-fields"><label>Owner token<input type="password" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)} placeholder="Enter owner token" /></label>{plan.status === "awaiting_human_approval" && <label>Review comments<textarea value={comments} onChange={(event) => setComments(event.target.value)} rows={3} placeholder="Optional note for this decision" /></label>}<div className="settings-actions"><button type="button" disabled={!token || state === "submitting"} onClick={() => decide("approved")}>{plan.status === "approved" ? "Continue handoff" : "Approve"}</button>{plan.status === "awaiting_human_approval" && <><button type="button" disabled={!token || state === "submitting"} onClick={() => decide("changes_requested")}>Request changes</button><button type="button" disabled={!token || state === "submitting"} onClick={() => decide("rejected")}>Reject</button></>}</div></div>}
+      {!editing && (plan.status === "awaiting_human_approval" || plan.format === "markdown" && plan.status === "approved" && plan.handoff_status !== "completed") && <div className="plan-review-decision-fields"><label>Owner token<input type="password" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)} placeholder="Enter owner token" /></label>{plan.status === "awaiting_human_approval" && <label>Review comments<textarea value={comments} onChange={(event) => setComments(event.target.value)} rows={3} placeholder="Optional note for this decision" /></label>}<div className="settings-actions"><button type="button" disabled={!token || state === "submitting" || !choicesComplete} onClick={() => decide("approved")}>{plan.status === "approved" ? "Continue handoff" : "Approve"}</button>{plan.status === "awaiting_human_approval" && <><button type="button" disabled={!token || state === "submitting"} onClick={() => decide("changes_requested")}>Request changes</button><button type="button" disabled={!token || state === "submitting"} onClick={() => decide("rejected")}>Reject</button></>}</div></div>}
       {plan.status === "approved" && registry && !["ready", "running", "done"].includes(registry.status) && <button type="button" disabled={state === "submitting"} onClick={markReady}>Mark sprint ready</button>}
       {state === "submitting" && <p role="status">Đang xử lý handoff với Sprint Leader…</p>}
       {message && <p role="status">{message}</p>}

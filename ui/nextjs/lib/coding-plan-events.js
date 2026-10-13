@@ -2,7 +2,7 @@
 
 // Reduces bounded progress history without letting duplicates or delayed generating events regress a terminal state.
 export function applyCodingPlanLifecycle(current, event, projectId) {
-  if (event.project_id !== projectId || !["plan.request.generating", "plan.request.persisted", "plan.request.failed"].includes(event.event_type)) return current;
+  if (event.project_id !== projectId || !["plan.request.generating", "plan.request.awaiting_owner_decisions", "plan.request.persisted", "plan.request.failed"].includes(event.event_type)) return current;
   const payload = event.payload ?? {};
   if (typeof payload.request_id !== "string" || !/^[A-Za-z0-9_-]+$/.test(payload.request_id)) return current;
   const status = event.event_type.slice("plan.request.".length);
@@ -24,4 +24,15 @@ export function createCodingPlanEvents(projectId) {
     },
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); }
   };
+}
+
+// Limits plan reconciliation to changes affecting approval, handoff or Sprint binding rather than stream noise.
+export function codingPlanRefresh(event, projectId) {
+  if (event.project_id !== projectId) return null;
+  const type = event.event_type ?? "";
+  if (type === "stream.connected") return { refresh: true };
+  if (type.startsWith("plan.request.")) return { refresh: false, planIds: event.payload?.plan_id ? [event.payload.plan_id] : [] };
+  if (type.startsWith("plan.")) return event.payload?.plan_id ? { refresh: false, planIds: [event.payload.plan_id] } : { refresh: true };
+  if (["sprint.created", "sprint.updated", "sprint.deleted"].includes(type)) return event.payload?.sprint_id ? { refresh: false, sprintIds: [event.payload.sprint_id] } : { refresh: true };
+  return null;
 }

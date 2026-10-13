@@ -6,6 +6,7 @@ import { requestJson } from "./node-client-request.js";
 import { forgeV1, controlApiBase } from "./node-client-url.js";
 import { createTicketHumanReviewClient } from "./ticket-human-review-client.js";
 import { createOwnerExecutionClient } from "./owner-execution-client.js";
+import { createArchitectureClarificationClient } from "./architecture-clarification-client.js";
 
 export { detectMessageIntent, MESSAGE_INTENTS, normalizeTicketInput };
 
@@ -15,6 +16,7 @@ export function createNodeClient() {
   return Object.freeze({
     ...createTicketHumanReviewClient({ forgeV1, requestJson }),
     ...createOwnerExecutionClient({ forgeV1, requestJson }),
+    ...createArchitectureClarificationClient({ forgeV1, requestJson }),
     async createConversation({ projectId, agentId, title }) {
       return requestJson(forgeV1("/conversations"), {
         method: "POST",
@@ -104,7 +106,7 @@ export function createNodeClient() {
     async listPlanRequests(projectId) { return requestJson(forgeV1("/plans/requests", { project: projectId }), { fallbackError: "Node could not load planning request state." }); },
     async listPlans(projectId) { return requestJson(forgeV1("/plans", { project: projectId }), { fallbackError: "Node could not load plan revisions." }); },
     async createPlan(projectId, planId, sprintId, content) { return requestJson(forgeV1("/plans", { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, plan_id: planId, sprint_id: sprintId, content }), fallbackError: "Node could not create the historical plan draft." }); },
-    async revisePlan(projectId, plan, content) { return requestJson(forgeV1(`/plans/${encodeURIComponent(plan.plan_id)}/revisions`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, sprint_id: plan.sprint_id, expected_revision: plan.revision, content }), fallbackError: "Node could not create the revised plan." }); },
+    async revisePlan(projectId, plan, content) { return requestJson(forgeV1(`/plans/${encodeURIComponent(plan.plan_id)}/revisions`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, sprint_id: plan.sprint_id, expected_revision: plan.revision, proposal_id: plan.proposal_id ?? null, source_path: plan.source_path ?? null, source_sha256: plan.source_sha256 ?? null, content }), fallbackError: "Node could not create the revised plan." }); },
     async getPlanRevision(projectId, planId, revision) { return requestJson(forgeV1(`/plans/${encodeURIComponent(planId)}/${revision}`, { project: projectId }), { fallbackError: "Node could not load the plan revision." }); },
     async listSprintRegistry(projectId) { return requestJson(forgeV1("/sprints/registry", { project: projectId }), { fallbackError: "Node could not load sprint registry." }); },
     async registerSprint(projectId, sprintId, position, dependencies, plan) { return requestJson(forgeV1("/sprints/registry", { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, sprint_id: sprintId, position, dependencies, plan_id: plan.plan_id, plan_revision: plan.revision }), fallbackError: "Node could not register the historical sprint." }); },
@@ -113,8 +115,8 @@ export function createNodeClient() {
     async handoffPlan(projectId, plan, token) {
       return requestJson(forgeV1(`/plans/${encodeURIComponent(plan.plan_id)}/${plan.revision}/handoff`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ project_id: projectId, sha256: plan.sha256 }), fallbackError: "Node could not continue the approved plan handoff." });
     },
-    async decidePlan(projectId, plan, decision, token, comments, decisionId) {
-      return requestJson(forgeV1(`/plans/${encodeURIComponent(plan.plan_id)}/${plan.revision}/decisions`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ project_id: projectId, sha256: plan.sha256, source_sha256: plan.source_sha256 ?? null, decision, comments, ...(decisionId ? { decision_id: decisionId } : {}) }), fallbackError: "Node rejected the plan decision." });
+    async decidePlan(projectId, plan, decision, token, comments, decisionId, selections = {}) {
+      return requestJson(forgeV1(`/plans/${encodeURIComponent(plan.plan_id)}/${plan.revision}/decisions`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ project_id: projectId, sha256: plan.sha256, source_sha256: plan.source_sha256 ?? null, decision, comments, ...(decisionId ? { decision_id: decisionId } : {}), ...(plan.format !== "markdown" ? { selections } : {}) }), fallbackError: "Node rejected the plan decision." });
     },
     async bindSprintPlan(projectId, sprintId, plan) {
       return requestJson(forgeV1(`/sprints/registry/${encodeURIComponent(sprintId)}/plan`, { project: projectId }), { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, plan_id: plan.plan_id, plan_revision: plan.revision }), fallbackError: "Node could not bind the approved revision." });

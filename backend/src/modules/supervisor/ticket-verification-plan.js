@@ -2,6 +2,8 @@
 import { readFile, readdir } from "node:fs/promises";
 import { basename, dirname, join, relative } from "node:path";
 import { ConfigurationError } from "../../shared/errors.js";
+import { fileURLToPath } from "node:url";
+import { assertCodingBrowserStep } from "./browser-coding-contract.js";
 
 // Requires schema validation for backend, schema, and API client contract changes.
 export function requiresSchemaVerification(paths) {
@@ -33,12 +35,17 @@ export async function buildTicketVerificationPlan(paths, root, { fullBackend = f
     checks.push({ kind: "build", argv: [process.execPath, "ui/nextjs/node_modules/next/dist/bin/next", "build", "ui/nextjs", "--webpack"] });
   }
   for (const step of verificationPlan) {
+    if (step?.kind === "browser") {
+      assertCodingBrowserStep(step);
+      checks.push({ kind: "browser", browser_step: step, argv: [process.execPath, fileURLToPath(new URL("../../../scripts/verify-ticket-browser.mjs", import.meta.url)), Buffer.from(JSON.stringify(step)).toString("base64url")] });
+      continue;
+    }
     if (step?.kind !== "test" || typeof step.test_path !== "string" || commandsContainTest(checks, step.test_path)) continue;
     if (!/^(?:backend\/tests|ui\/nextjs\/tests)\/.+\.test\.[cm]?[jt]sx?$/.test(step.test_path)) throw new ConfigurationError(`Verification test path is outside supported test directories: ${step.test_path}`);
     checks.push({ kind: "test", argv: [process.execPath, "--test", step.test_path] });
   }
   if (!checks.length) checks.push({ kind: "typecheck", argv: [process.execPath, "node_modules/typescript/bin/tsc", "--project", "jsconfig.json"] });
-  return checks;
+  return [...checks.filter((check) => check.kind === "browser"), ...checks.filter((check) => check.kind !== "browser")];
 }
 
 // Avoids running a focused test twice when source-based selection already chose it.

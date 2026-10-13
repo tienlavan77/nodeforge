@@ -2,6 +2,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { acquireTicketFileLock } from "../supervisor/ticket-file-lock.js";
+import { planDecisionRequests, validatePlanDecisionSelections, assertPlanOwnerDecisions } from "./plan-decision-requests.js";
+import { sprintArchitectureDecisions } from "./sprint-architecture-decisions.js";
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const PLAN_ROOT = ".forge/runtime/nf/plans";
@@ -31,6 +33,8 @@ export function createHumanPlanStore({ projectId, database, fileService, markdow
     if (!SAFE_ID.test(planId ?? "") || sprintId !== null && !SAFE_ID.test(sprintId) || proposalId !== null && !SAFE_ID.test(proposalId)) throw fail("PLAN_ID_INVALID", "Plan, sprint, and proposal identifiers must be safe.");
     content = stripCandidateMetadata(content);
     validateContent(content);
+    const requests = planDecisionRequests(content);
+    if (requests.length) content = { ...content, decision_requests: requests };
     const lock = await acquireTicketFileLock(fileService, `${PLAN_ROOT}/${planId}/revision.lock`);
     try {
       const head = database.all("SELECT revision FROM plan_heads WHERE plan_id=? AND project_id=?", [planId, projectId])[0];
@@ -75,11 +79,14 @@ export function createHumanPlanStore({ projectId, database, fileService, markdow
     catch (error) { throw fail("PLAN_FILE_INVALID", `Indexed plan file is not JSON: ${error.message}.`); }
     if (artifact.plan_id !== planId || artifact.revision !== revision || artifact.project_id !== projectId || artifact.sprint_id !== row.sprint_id) throw fail("PLAN_IDENTITY_MISMATCH", "Plan file identity differs from its index.");
     const decision = database.all("SELECT * FROM plan_decisions WHERE plan_id=? AND revision=? ORDER BY decided_at DESC, rowid DESC LIMIT 1", [planId, revision])[0] ?? null;
+    if (decision) decision.selections = JSON.parse(database.all("SELECT selections_json FROM plan_decision_selections WHERE decision_id=?", [decision.decision_id])[0]?.selections_json ?? "{}");
     const head = database.all("SELECT revision FROM plan_heads WHERE plan_id=? AND project_id=?", [planId, projectId])[0];
     const derived = database.all("SELECT * FROM derived_plan_approvals WHERE plan_id=? AND revision=?", [planId, revision])[0] ?? null;
-    const status = head?.revision !== revision ? "superseded" : decision?.decision ?? (derived ? "approved" : "awaiting_human_approval");
+    const requests = planDecisionRequests(artifact.content);
+    const inherited = derived && !requests.length;
+    const status = head?.revision !== revision ? "superseded" : decision?.decision ?? (inherited ? "approved" : "awaiting_human_approval");
     if (row.source_path !== (artifact.source_path ?? null) || row.source_sha256 !== (artifact.source_sha256 ?? null)) throw fail("PLAN_SOURCE_MISMATCH", "Plan source binding differs from its SQLite index.");
-    return { ...artifact, content: stripCandidateMetadata(artifact.content), file_path: row.file_path, sha256: row.sha256, source_path: row.source_path, source_sha256: row.source_sha256, status, decision, approval_basis: derived ? "approved_markdown_projection" : null };
+    return { ...artifact, content: stripCandidateMetadata(artifact.content), decision_requests: requests, file_path: row.file_path, sha256: row.sha256, source_path: row.source_path, source_sha256: row.source_sha256, status, decision, approval_basis: inherited ? "approved_markdown_projection" : null };
   }
 
   // Lists plan heads without making roadmap JSON an authority for scheduling.
@@ -88,7 +95,7 @@ export function createHumanPlanStore({ projectId, database, fileService, markdow
   }
 
   // Records exactly one append-only human decision for the reviewed revision and hash.
-  async function decide({ planId, revision, sha256, sourceSha256 = null, decision, approverId, actorRole, comments = null, decisionId = `PLAN-DECISION-${randomUUID()}` } = {}) {
+  async function decide({ planId, revision, sha256, sourceSha256 = null, decision, approverId, actorRole, comments = null, selections = {}, decisionId = `PLAN-DECISION-${randomUUID()}` } = {}) {
     if (!SAFE_ID.test(planId ?? "") || !DECISIONS.has(decision) || !SAFE_ID.test(approverId ?? "") || actorRole !== "project_owner" || !SAFE_ID.test(decisionId) || typeof sha256 !== "string") throw fail("PLAN_DECISION_INVALID", "A project owner decision, approver, and plan checksum are required.");
     const lock = await acquireTicketFileLock(fileService, `${PLAN_ROOT}/${planId}/decision.lock`);
     try {
@@ -97,18 +104,23 @@ export function createHumanPlanStore({ projectId, database, fileService, markdow
       if (plan.sha256 !== sha256) throw fail("PLAN_DECISION_STALE", "Human decision checksum differs from reviewed plan.");
       if (plan.source_sha256 !== sourceSha256) throw fail("PLAN_DECISION_STALE", "Human decision source checksum differs from reviewed plan.");
       if (plan.status === "superseded") throw fail("PLAN_DECISION_STALE", "A superseded revision cannot receive a new decision.");
+      const choices = decision === "approved" ? validatePlanDecisionSelections(plan.decision_requests, selections) : {};
       if (plan.decision) {
         const sameReplay = plan.decision.decision_id === decisionId
           && plan.decision.sha256 === sha256
           && plan.decision.source_sha256 === sourceSha256
           && plan.decision.decision === decision
-          && plan.decision.approver_id === approverId;
+          && plan.decision.approver_id === approverId
+          && JSON.stringify(plan.decision.selections) === JSON.stringify(choices);
         if (sameReplay) return plan.decision;
         throw fail("PLAN_DECISION_EXISTS", "Plan revision already has a human decision; create a new revision.");
       }
       const recorded = { decision_id: decisionId, plan_id: planId, revision, sha256, source_sha256: sourceSha256, decision, approver_id: approverId, comments, decided_at: clock() };
-      database.run("INSERT INTO plan_decisions(decision_id,plan_id,revision,sha256,source_sha256,decision,approver_id,comments,decided_at) VALUES (?,?,?,?,?,?,?,?,?)", Object.values(recorded));
-      return recorded;
+      database.transaction(() => {
+        database.run("INSERT INTO plan_decisions(decision_id,plan_id,revision,sha256,source_sha256,decision,approver_id,comments,decided_at) VALUES (?,?,?,?,?,?,?,?,?)", Object.values(recorded));
+        database.run("INSERT INTO plan_decision_selections(decision_id,selections_json) VALUES (?,?)", [decisionId, JSON.stringify(choices)]);
+      });
+      return { ...recorded, selections: choices };
     } finally { await lock.release(); }
   }
 
@@ -117,7 +129,10 @@ export function createHumanPlanStore({ projectId, database, fileService, markdow
     if (!markdownPlans?.assertApproved) throw fail("PLAN_MARKDOWN_UNAVAILABLE", "Approved Markdown plan verification is unavailable.");
     const markdown = await markdownPlans.assertApproved({ planId: markdownPlanId, revision: markdownRevision, sha256: markdownSha256 });
     const plan = await getRevision({ planId, revision });
-    if (plan.sha256 !== sha256 || plan.source_path !== markdown.file_path || plan.source_sha256 !== markdown.sha256 || plan.status === "superseded" || plan.decision) throw fail("PLAN_DERIVATION_MISMATCH", "Sprint Plan is not bound to the approved Markdown bytes.");
+    if (plan.sha256 !== sha256 || plan.source_path !== markdown.file_path || plan.source_sha256 !== markdown.sha256 || plan.status === "superseded") throw fail("PLAN_DERIVATION_MISMATCH", "Sprint Plan is not bound to the approved Markdown bytes.");
+    if (plan.content.architecture_decisions && JSON.stringify(sprintArchitectureDecisions(markdown)) !== JSON.stringify(plan.content.architecture_decisions)) throw fail("PLAN_DERIVATION_MISMATCH", "Sprint policies differ from the exact approved Architecture decisions.");
+    if (plan.decision_requests.length) return plan;
+    if (plan.decision) throw fail("PLAN_DERIVATION_MISMATCH", "Sprint Plan already has an owner decision.");
     const existing = database.all("SELECT * FROM derived_plan_approvals WHERE plan_id=? AND revision=?", [planId, revision])[0];
     if (existing) {
       if (existing.sha256 !== sha256 || existing.markdown_plan_id !== markdownPlanId || existing.markdown_revision !== markdownRevision || existing.markdown_sha256 !== markdownSha256 || existing.markdown_decision_id !== markdown.decision.decision_id) throw fail("PLAN_DERIVATION_MISMATCH", "Derived approval identity changed.");
@@ -131,6 +146,12 @@ export function createHumanPlanStore({ projectId, database, fileService, markdow
   async function assertExecutable({ planId, revision, sha256 } = {}) {
     const plan = await getRevision({ planId, revision });
     if (plan.sha256 !== sha256 || plan.status !== "approved") throw fail("PLAN_APPROVAL_REQUIRED", "Execution requires the current, intact, human-approved plan revision.");
+    assertPlanOwnerDecisions(plan);
+    const policies = plan.content.architecture_decisions;
+    if (policies) {
+      const parent = await markdownPlans?.assertApproved?.({ planId: policies.parent_plan_id, revision: policies.parent_revision, sha256: policies.parent_sha256 });
+      if (!parent || parent.file_path !== plan.source_path || parent.sha256 !== plan.source_sha256 || JSON.stringify(sprintArchitectureDecisions(parent)) !== JSON.stringify(policies)) throw fail("PLAN_APPROVAL_REQUIRED", "Sprint policies no longer match their approved Architecture source.");
+    }
     if (plan.approval_basis) {
       const row = database.all("SELECT * FROM derived_plan_approvals WHERE plan_id=? AND revision=?", [planId, revision])[0];
       const markdown = await markdownPlans?.assertApproved?.({ planId: row?.markdown_plan_id, revision: row?.markdown_revision, sha256: row?.markdown_sha256 });

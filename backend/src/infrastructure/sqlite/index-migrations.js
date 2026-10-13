@@ -1,5 +1,6 @@
 // Applies ordered SQLite schema migrations required for project code graph storage.
 import { planHandoffMigration } from "./plan-handoff-migration.js";
+import { planDecisionSelectionsMigration } from "./plan-decision-selections-migration.js";
 import { markdownPlanMigration } from "./markdown-plan-migration.js";
 import { derivedPlanMigration, markdownConversationMigration } from "./derived-plan-migration.js";
 import { humanPlanMigration, unboundSprintMigration, sprintRegistryVersionMigration, sprintRegistryArchiveMigration } from "./sprint-registry-migration.js";
@@ -186,7 +187,7 @@ const MIGRATIONS = [
   {
     version: 13,
     statements: ["ALTER TABLE plan_revisions ADD COLUMN source_path TEXT", "ALTER TABLE plan_revisions ADD COLUMN source_sha256 TEXT", "ALTER TABLE plan_decisions ADD COLUMN source_sha256 TEXT"]
-  }, planHandoffMigration, markdownPlanMigration, derivedPlanMigration, markdownConversationMigration, sprintRegistryVersionMigration, sprintRegistryArchiveMigration
+  }, planHandoffMigration, markdownPlanMigration, derivedPlanMigration, markdownConversationMigration, sprintRegistryVersionMigration, sprintRegistryArchiveMigration, planDecisionSelectionsMigration
 ];
 // Applies unapplied schema versions atomically and records their completion.
 export function runIndexMigrations(database) {

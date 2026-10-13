@@ -1,0 +1,15 @@
+/* Presents owner policy questions as readable, responsive Architecture conversation cards. */
+.architecture-clarifications { display: grid; gap: 1rem; max-height: 65vh; overflow-y: auto; padding: 0.5rem; }
+.architecture-clarification-card { border: 1px solid var(--app-border); background: var(--app-panel); border-radius: 12px; padding: 1rem; }
+.architecture-clarification-card h3 { margin-top: 0; }
+.architecture-clarification-card nav, .architecture-clarification-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.75rem 0; }
+.architecture-clarification-card button { padding: 0.4rem 0.7rem; border: 1px solid var(--app-border); border-radius: 6px; background: var(--app-surface-alt); color: inherit; cursor: pointer; }
+.architecture-clarification-card button:disabled { opacity: 0.5; cursor: not-allowed; }
+.architecture-clarification-card button:focus-visible, .architecture-clarification-card input:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
+.architecture-clarification-card [aria-current="step"] { border-color: var(--app-accent); }
+.architecture-clarification-card fieldset { border: 1px solid var(--app-border); margin: 1rem 0; }
+.architecture-clarification-option { display: flex; gap: 0.6rem; padding: 0.75rem; margin: 0.5rem 0; border: 1px solid var(--app-border); border-radius: 8px; cursor: pointer; }
+.architecture-clarification-option span span { display: block; margin-top: 0.3rem; }
+.architecture-clarification-card textarea { display: block; width: 100%; min-height: 4rem; }
+.architecture-clarification-card code { overflow-wrap: anywhere; }
+@media (max-width: 640px) { .architecture-clarification-card { padding: 0.65rem; } .architecture-clarification-card nav button { flex: 1 1 45%; } }

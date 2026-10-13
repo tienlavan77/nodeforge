@@ -12,7 +12,7 @@
       "maxLength": 4000
     },
     "acceptance_criteria": { "type": "array", "maxItems": 50, "items": { "type": "string", "minLength": 1 } },
-    "acceptance_coverage": { "type": "array", "maxItems": 50, "items": { "type": "object", "additionalProperties": false, "required": [], "properties": { "criterion": { "type": "string", "minLength": 1 }, "criterion_id": { "type": "string", "pattern": "^AC-[1-9][0-9]*$" }, "criterion_index": { "type": "integer", "minimum": 0, "maximum": 49 }, "status": { "type": "string", "enum": ["verified", "evidence_pending", "not_applicable"] }, "command_kind": { "type": "string", "enum": ["test", "backend_tests", "build", "lint", "typecheck", "schema_validation"] }, "test_path": { "type": ["string", "null"] } } } },
+    "acceptance_coverage": { "type": "array", "maxItems": 50, "items": { "type": "object", "additionalProperties": false, "required": [], "properties": { "criterion": { "type": "string", "minLength": 1 }, "criterion_id": { "type": "string", "pattern": "^AC-[1-9][0-9]*$" }, "criterion_index": { "type": "integer", "minimum": 0, "maximum": 49 }, "status": { "type": "string", "enum": ["verified", "evidence_pending", "not_applicable"] }, "command_kind": { "type": "string", "enum": ["test", "backend_tests", "build", "lint", "typecheck", "schema_validation", "browser"] }, "test_path": { "type": ["string", "null"] } } } },
     "implementation_scope": {
       "type": "object", "additionalProperties": false,
       "required": ["changed_files", "not_changed_files", "scope_rationale"],

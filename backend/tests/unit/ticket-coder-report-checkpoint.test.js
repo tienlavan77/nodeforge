@@ -6,9 +6,11 @@ import { createNodeforgeTaskIntegration } from "../../src/modules/supervisor/nod
 // Runs a short Codex ticket with both report_done and respond_to_review in one SDK turn.
 test("Coder checkpoint completes after report_done and review explanation", async () => {
   let checkpoint;
+  const logs = [];
   const tools = ["sed_lines", "write_diff", "commit_changes", "report_done", "respond_to_review"];
   const integration = createNodeforgeTaskIntegration({
     projectRoot: process.cwd(),
+    projectLogger: (entry) => { logs.push(entry); },
     supervisorManager: { startTask: async () => ({}) },
     eventBus: { publish: async () => {} },
     agentResolver: { resolveAvailable: () => ({ agent_id: "CODER-1", agent_name: "Coder", role: "coder", provider: "codex" }) },
@@ -29,4 +31,6 @@ test("Coder checkpoint completes after report_done and review explanation", asyn
   assert.equal(result.status, "completed");
   assert.equal(checkpoint.status, "completed");
   assert.equal(checkpoint.phase, "coder_reported");
+  assert.equal(logs.find((entry) => entry.event_name === "supervisor.agent_execution_returned").status, "info");
+  assert.ok(logs.findIndex((entry) => entry.event_name === "supervisor.agent_execution_completed") > logs.findIndex((entry) => entry.event_name === "supervisor.agent_execution_returned"));
 });

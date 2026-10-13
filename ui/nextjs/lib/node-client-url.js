@@ -14,12 +14,12 @@ export function forgeV1(pathname, query = {}) {
   return `${controlApiBase()}/forge/v1${pathname}${search ? `?${search}` : ""}`;
 }
 
-// Resolves the configured or browser-local control API origin without changing deployment defaults.
+// Resolves explicit API configuration or the browser's same-origin proxy while retaining the server default.
 export function controlApiBase() {
   const configured = process.env.NEXT_PUBLIC_NODE_CONTROL_API_URL;
   if (configured) return configured.replace(/\/$/, "");
   if (typeof window !== "undefined" && window.location?.hostname) {
-    return `${window.location.protocol}//${window.location.hostname}:3100`;
+    return window.location.origin ?? `${window.location.protocol}//${window.location.host ?? window.location.hostname}`;
   }
   return "http://127.0.0.1:3100";
 }

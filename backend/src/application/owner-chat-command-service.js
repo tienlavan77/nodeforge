@@ -1,11 +1,12 @@
 // Implements owner planning commands without granting execution authority.
-import { createHash, randomUUID } from "node:crypto";
 import { ConfigurationError } from "../shared/errors.js";
 import { readMarkdownSprintScope } from "../modules/governance/markdown-sprint-scope.js";
 import { createPlanWithDiagnostics } from "./plan-request-diagnostics.js";
+import { createArchitecturePlanningService } from "./architecture-planning-service.js";
 
 const PLAN_RE = /^\/plan\s+(\S+)\s*$/i;
 const APPROVE_RE = /^\/approve\s+(\S+)\s*$/i;
+const CONTINUE_RE = /^\/plan-continue\s+(CLARIFY-[a-f0-9-]{36})\s*$/i;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const PLAN_FRAME_PATH = "workflows/agents/architecture/README.md";
 const SUMMARY_EVIDENCE_RE = /\[(?:evidence|source):\s*(?:backend|schemas|ui|web)\/[A-Za-z0-9._/-]+(?:#L\d+(?:-L?\d+)?)?\]/i;
@@ -32,15 +33,18 @@ const DISCOVERY_UNVERIFIED_RE = /(?:assumption|unverified|unknown|uncertain)/i;
 // Creates the command handler bound to one project and its immutable plan store.
 export function createOwnerChatCommandService({ projectId, fileService, planStore, markdownPlanStore, handoffApprovedPlan, sprintRegistry, planRequests, publishPlanEvent } = {}) {
   if (!projectId || !fileService?.readFile || !planStore?.createRevision || !planStore?.assertExecutable) throw new ConfigurationError("Owner command service is not configured.");
-  return Object.freeze({ execute, isCommand });
+  const planning = createArchitecturePlanningService({ projectId, fileService, markdownPlanStore, validateMarkdown, framePath: PLAN_FRAME_PATH });
+  return Object.freeze({ execute, isCommand, planningSessions: planning.sessions });
 
   // Recognizes only the exact planning command forms from the human plan contract.
-  function isCommand(text) { return PLAN_RE.test(String(text ?? "")) || APPROVE_RE.test(String(text ?? "")); }
+  function isCommand(text) { return PLAN_RE.test(String(text ?? "")) || APPROVE_RE.test(String(text ?? "")) || CONTINUE_RE.test(String(text ?? "")); }
 
   // Executes a planning command and returns a durable, non-execution result.
-  async function execute({ text, conversationId, project_id: inputProjectId, requestArchitecture, approvedOwnerId, approvalRevision, approvalSha256, approvalComments } = {}) {
+  async function execute({ text, conversationId, project_id: inputProjectId, requestArchitecture, approvedOwnerId, approvalRevision, approvalSha256, approvalComments, planningVersion, planningSourceSha256 } = {}) {
     if (inputProjectId && inputProjectId !== projectId) throw fail("PROJECT_CONTEXT_CONFLICT", "Command project differs from the active project.");
     const value = String(text ?? "").trim();
+    const continuation = value.match(CONTINUE_RE);
+    if (continuation) return createPlanWithDiagnostics({ projectId, planRequests, publishPlanEvent, createPlan: () => planning.resume({ sessionId: continuation[1], conversationId, ownerId: approvedOwnerId, expectedVersion: planningVersion, sourceSha256: planningSourceSha256, requestArchitecture }) });
     const planMatch = value.match(PLAN_RE);
     if (planMatch) return createPlanWithDiagnostics({ projectId, planRequests, publishPlanEvent,
       createPlan: () => createPlan({ summaryPath: planMatch[1], conversationId, requestArchitecture }) });
@@ -51,24 +55,15 @@ export function createOwnerChatCommandService({ projectId, fileService, planStor
 
   // Saves Architecture's discovered, evidence-bearing plan as a readable draft before approval.
   async function createPlan({ summaryPath, conversationId, requestArchitecture } = {}) {
-    if (typeof summaryPath !== "string" || !/^[A-Za-z0-9_./-]+\.md$/i.test(summaryPath) || summaryPath.startsWith("/") || summaryPath.split("/").some((segment) => !segment || segment === "." || segment === "..")) throw fail("PLAN_SOURCE_PATH_INVALID", "Use /plan <project-relative-file.md>; absolute paths, traversal and SUMMARY IDs are not accepted.");
-    const path = summaryPath;
-    let summary;
-    try { summary = await fileService.readFile({ path }); } catch (error) { throw fail("SUMMARY_NOT_FOUND", `Summary is unavailable: ${error.code ?? error.message}.`); }
-    if (typeof summary !== "string" || !summary.trim()) throw fail("SUMMARY_SOURCE_INVALID", "The source Markdown file must contain the owner discussion or planning scope.");
-    let frame;
-    try { frame = await fileService.readFile({ path: PLAN_FRAME_PATH }); } catch (error) { throw fail("PLAN_FRAME_NOT_FOUND", `Plan frame is unavailable: ${error.code ?? error.message}.`); }
-    if (typeof requestArchitecture !== "function") throw fail("ARCHITECTURE_UNAVAILABLE", "Architecture agent is unavailable.");
-    const prompt = `Based on the source summary and plan frame below, complete repository discovery before drafting. Return only Markdown following the frame; do not return JSON, create files, claim approval, or claim RUN. Every repository fact needs [Evidence: repository/path] or [Source: repository/path] referring to a file you read under backend/, schemas/, ui/, web/, docs/ or workflows/. Planning-document and backtick-wrapped references must resolve to readable non-empty project files; never invent sources. Include an explicit Repository discovery complete statement, and label assumptions or unverified areas.\n\n## Source Summary (${path})\n\n${summary}\n\n## Plan Frame (${PLAN_FRAME_PATH})\n\n${frame}`;
-    const markdown = String(await requestArchitecture(prompt, conversationId) ?? "").trim();
+    return planning.start({ sourcePath: summaryPath, conversationId, requestArchitecture });
+  }
+
+  // Keeps source evidence and business scope admission intact after owner clarification has completed.
+  async function validateMarkdown(markdown) {
     if (!/^# Plan:\s*\S/.test(markdown) || !/^## 1\. /m.test(markdown) || !/^## 7\. /m.test(markdown)) throw fail("ARCHITECTURE_PLAN_INVALID", `Architecture must return a Markdown plan following ${PLAN_FRAME_PATH}.`);
     if (!DISCOVERY_COMPLETE_RE.test(markdown) || !await hasSummaryEvidence(markdown, fileService) || !DISCOVERY_UNVERIFIED_RE.test(markdown)) throw fail("DISCOVERY_INCOMPLETE", "Repository discovery must complete with source references and labeled assumptions or unverified areas before drafting.");
     readMarkdownSprintScope(markdown);
-    const planId = `PLAN-${projectId}-${randomUUID()}`;
     if (!markdownPlanStore?.createRevision) throw fail("MARKDOWN_PLAN_STORE_UNAVAILABLE", "Markdown plan registry is unavailable.");
-    const summarySha256 = createHash("sha256").update(summary).digest("hex");
-    const draft = await markdownPlanStore.createRevision({ planId, markdown, summaryPath: path, summarySha256, conversationId });
-    return { command: "/plan", status: draft.status, plan_id: planId, revision: draft.revision, sha256: draft.sha256, file_id: planId, path: draft.file_path, source_summary_path: path, source_summary_sha256: summarySha256, conversation_id: conversationId ?? null, text: `Đã tạo kế hoạch ${planId}. Chờ duyệt.`, run_started: false };
   }
 
   // Hands an exactly approved plan to Node/Sprint Leader without starting execution.
