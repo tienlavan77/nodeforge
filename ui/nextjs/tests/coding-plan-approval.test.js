@@ -56,7 +56,8 @@ test("Coding header lives outside dashboard loading and uses reconnect plus tab 
   assert.doesNotMatch(component, /setInterval|connectProjectStream/);
   const page = await readFile(new URL("../app/coding/page.jsx", import.meta.url), "utf8");
   const stream = await readFile(new URL("../lib/home-page-event-stream.js", import.meta.url), "utf8");
-  assert.match(page, /onProjectEvent: planEvents.publish/);
+  assert.match(page, /planEvents\.publish\(event\)/);
+  assert.match(page, /useProjectEventStream\(\{[\s\S]*?\bonProjectEvent\b[\s\S]*?\}\);/);
   assert.ok(stream.indexOf("onProjectEvent?.(event)") < stream.indexOf("activeConversationIdRef.current"));
   assert.doesNotMatch(component, /activeConversation|postOwnerMessage|localStorage|sessionStorage/);
   assert.match(component, /Continue handoff/);
