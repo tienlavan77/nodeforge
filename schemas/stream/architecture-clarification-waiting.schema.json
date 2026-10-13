@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/stream/architecture-clarification-waiting.schema.json",
+  "$comment": "Shows an intentional owner clarification pause before Architecture plan generation, not an execution failure.",
+  "type": "object", "additionalProperties": false,
+  "required": ["request_id", "session_id"],
+  "properties": {
+    "request_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
+    "session_id": {"type": "string", "pattern": "^CLARIFY-[a-f0-9-]{36}$"}
+  }
+}

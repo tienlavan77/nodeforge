@@ -20,8 +20,8 @@ export function createTicketReviewFindingsStore({ taskId, fileService, execution
   // Keeps the first Coder report and adds only missing explanation fields for the same verified artifact.
   async function recordCoderReportDraft({ report, artifact }) {
     return locked(async () => {
-      const current = await load();
       await assertIdentity(artifact);
+      const current = await recoverPendingCoderReport(await load(), artifact);
       const completed = (current.coder_reports ?? []).find((entry) => entry.artifact_id === artifact.artifact_id);
       const previous = (current.coder_report_drafts ?? []).find((entry) => entry.artifact_id === artifact.artifact_id);
       if (!previous && !completed && !report?.summary?.trim()) throw fail("CODER_REPORT_INVALID", "The first Coder report requires a summary.");
@@ -38,6 +38,21 @@ export function createTicketReviewFindingsStore({ taskId, fileService, execution
       await save({ ...current, version: (current.version ?? 0) + 1, coder_report_drafts: [...(current.coder_report_drafts ?? []).filter((item) => item.artifact_id !== artifact.artifact_id), entry] });
       return merged;
     });
+  }
+
+  // Reopens legacy reports with pending evidence as drafts while preserving their original audit records.
+  async function recoverPendingCoderReport(current, artifact) {
+    const legacy = (current.coder_reports ?? []).find((entry) => entry.artifact_id === artifact.artifact_id && entry.report?.acceptance_coverage?.some((criterion) => criterion.status === "evidence_pending"));
+    if (!legacy) return current;
+    if (legacy.review_commit_sha !== artifact.commit_sha || legacy.source_revision !== artifact.source_revision || legacy.manifest_sha !== artifact.manifest_sha) throw fail("CODER_REPORT_CONFLICT", "Pending report identity changed during recovery.");
+    const previous = (current.coder_report_drafts ?? []).find((entry) => entry.artifact_id === artifact.artifact_id);
+    const recovered = { ...current, version: (current.version ?? 0) + 1,
+      coder_reports: current.coder_reports.filter((entry) => entry !== legacy),
+      rejected_coder_reports: [...(current.rejected_coder_reports ?? []), { ...legacy, reason: "CODER_EVIDENCE_PENDING", recovered_at: new Date().toISOString() }],
+      coder_report_drafts: [...(current.coder_report_drafts ?? []).filter((entry) => entry.artifact_id !== artifact.artifact_id), { ...legacy, ...previous, report: legacy.report, original_report: previous?.original_report ?? legacy.report }]
+    };
+    await save(recovered);
+    return recovered;
   }
 
   // Stores the Coder's explanation against a passed artifact before review.

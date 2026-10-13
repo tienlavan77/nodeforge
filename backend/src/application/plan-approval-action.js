@@ -19,7 +19,8 @@ export async function handoffApprovedRevision({ projectId, planId, revision, sha
   if (handoff.status === "handed_to_sprint_leader") {
     const scheduled = handoff.sprint_id && sprintRegistry?.get?.(handoff.sprint_id);
     if (!scheduled || !sprintRegistry?.setStatus) throw fail("SPRINT_REGISTRY_UNAVAILABLE", "Completed handoff requires an authoritative Registry binding.");
-    sprintStatus = ["planned", "awaiting_human_approval"].includes(scheduled.status)
+    const child = await planStore.getRevision({ planId: scheduled.plan_id, revision: scheduled.plan_revision });
+    sprintStatus = child.status !== "approved" ? scheduled.status : ["planned", "awaiting_human_approval"].includes(scheduled.status)
       ? (await sprintRegistry.setStatus({ sprintId: handoff.sprint_id, status: "ready", expectedVersion: scheduled.version })).status
       : scheduled.status;
   }

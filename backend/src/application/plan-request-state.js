@@ -15,7 +15,10 @@ function processAlive(pid) {
 export function createPlanRequestState({ projectId, fileService }) {
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(projectId ?? "") || !fileService?.createLock || !fileService?.readFile || !fileService?.atomicWrite) throw new TypeError("Plan request state requires a safe project ID and Node File Service.");
   const path = `.forge/runtime/nf/plan-requests/${projectId}.json`;
-  return { start, complete, fail, list };
+  return { start, complete, wait, fail, list };
+
+  // Records an intentional owner clarification pause without claiming that a plan has been persisted.
+  async function wait(request, result) { await save({ ...request, status: "awaiting_owner_decisions", session_id: result.session_id }); }
 
   // Records intent before contacting Architecture, without treating it as a reviewable artifact.
   async function start() {
@@ -26,6 +29,7 @@ export function createPlanRequestState({ projectId, fileService }) {
 
   // Publishes the exact persisted artifact identity only after the plan command has succeeded.
   async function complete(request, plan) {
+    for (const pending of (await read()).filter((item) => item.status === "awaiting_owner_decisions" && item.session_id === plan.session_id)) await save({ ...pending, status: "persisted", plan_id: plan.plan_id, revision: plan.revision, sha256: plan.sha256 });
     await save({ ...request, status: "persisted", plan_id: plan.plan_id, revision: plan.revision, sha256: plan.sha256 });
   }
 
@@ -51,7 +55,7 @@ export function createPlanRequestState({ projectId, fileService }) {
       const records = await read();
       const current = [...records.filter((item) => item.request_id !== request.request_id), { ...request, updated_at: new Date().toISOString() }];
       const next = [...current.filter((item) => item.status === "generating"), ...current.filter((item) => item.status !== "generating").slice(-50)];
-      await fileService.atomicWrite({ path, content: JSON.stringify(next) });
+      await fileService.atomicWrite({ path, content: JSON.stringify(next), replace: true });
     } finally { await lock.release(); }
   }
 }

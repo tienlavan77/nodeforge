@@ -1,6 +1,7 @@
 // Enforces Sprint Leader intake rules before a dependency-gated ticket is dispatched.
 import { ConfigurationError } from "../shared/errors.js";
 import { assertApprovedTicket } from "../modules/governance/sprint-plan-draft.js";
+import { assertPlanOwnerDecisions } from "../modules/governance/plan-decision-requests.js";
 import { captureDependencyExpectations } from "../modules/supervisor/ticket-dependency-expectations.js";
 
 // Creates a small intake guard that keeps Sprint Leader decisions within the approved DAG.
@@ -23,6 +24,7 @@ export function createSprintLeaderIntakeService({ fileService, roadmaps, sprintR
       if (!ticket) throw Object.assign(new ConfigurationError(`Unknown ticket: ${ticketId}.`), { statusCode: 404, code: "TICKET_NOT_FOUND" });
       if (ticket.project_id !== projectId || ticket.sprint_id !== record.sprint_id) throw Object.assign(new ConfigurationError("Immutable ticket ownership differs from its registered Sprint."), { statusCode: 409, code: "SPRINT_PLAN_MISMATCH" });
       assertApprovedTicket(plan, ticket);
+      assertPlanOwnerDecisions(plan);
       await captureDependencyExpectations({ projectId, ticket, sprintRegistry, ticketStatusStore });
       emit({ event_name: "sprint.ticket_intake_ready", level: "info", message: "Sprint Leader opened an approved Registry ticket.", project_id: projectId, task_id: ticketId, payload: { ticket_id: ticketId, dependencies: ticket.dependencies ?? [], rules_path: "workflows/agents/sprint-leader/README.md" } });
       return { ticket, dependencies: ticket.dependencies ?? [], rules_path: "workflows/agents/sprint-leader/README.md" };

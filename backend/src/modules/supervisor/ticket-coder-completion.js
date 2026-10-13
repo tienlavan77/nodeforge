@@ -13,8 +13,8 @@ export async function completeCoderTicket({ workspace, agentOccupancy, claim, ta
   } catch (error) {
     await agentOccupancy.release({ claimId: claim.claim_id, taskId, supervisorId: ownerId, reason: "coder_completion_failed" });
     if (error.code === "CODER_EVIDENCE_PENDING") {
-      await publishTicketOutcome("task.needs_human_review", request, ownerId, { reason: error.code, criterion_ids: error.details?.criterion_ids ?? [] });
-      return { status: "needs_human_review" };
+      await publishTicketOutcome("task.failed", request, ownerId, { reason: error.code, retryable: true, criterion_ids: error.details?.criterion_ids ?? [], error: { code: error.code, message: error.message } });
+      return { status: "failed", reason: error.code };
     }
     await publishTicketOutcome("task.failed", request, ownerId, { reason: error.code ?? "CODER_COMPLETION_FAILED", error: { code: error.code ?? "CODER_COMPLETION_FAILED", message: error.message } });
     throw error;

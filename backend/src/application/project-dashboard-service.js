@@ -1,5 +1,6 @@
 import { ConfigurationError } from "../shared/errors.js";
 import { getRegistryDashboard } from "./registry-dashboard.js";
+import { registryTicketStatus } from "./registry-ticket-status.js";
 
 // Read-only Node projection; canonical roadmap and provenance remain in governance modules.
 export function createProjectDashboardService({ roadmaps, sprintPlans, provenance, ticketFileStore, ticketStatusStore, sprintRegistry, eventStore, logReader, relevantTreeSelector } = {}) {
@@ -24,7 +25,7 @@ export function createProjectDashboardService({ roadmaps, sprintPlans, provenanc
       if (!ticket) throw httpError(404, `Ticket not found in immutable Sprint scope: ${ticketId}.`);
       if (sprint.project_id !== projectId || ticket.project_id !== projectId || ticket.sprint_id !== record.sprint_id) throw httpError(409, "Immutable ticket ownership differs from the Registry Sprint.");
       if (sprintRegistry.get(record.sprint_id)?.version !== record.version) throw httpError(409, "Sprint scheduling changed during ticket detail read; reload its current basis.");
-      return ticket;
+      return { ...ticket, ...registryTicketStatus({ ticket, basis: record, ticketStatusStore }) };
     }
     const ticket = roadmaps.getCurrent()?.sprints?.flatMap((sprint) => sprint.tickets ?? []).find((item) => item.project_id === projectId && item.id === ticketId)
       ?? (ticketFileStore?.getMetadata?.(ticketId)?.project_id === projectId ? ticketFileStore.readLatest(ticketId) : null);

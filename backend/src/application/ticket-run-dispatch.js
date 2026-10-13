@@ -5,6 +5,8 @@ import { matchesTicketExecution, sameExecutionPlan } from "../modules/projects/t
 import { assertA5ExecutionContract } from "../modules/governance/sprint-plan-execution-gates.js";
 import { reviewPhaseResume, reviewRevisionResume } from "../modules/supervisor/review-revision-resume.js";
 import { assertDependencyExpectations, captureDependencyExpectations } from "../modules/supervisor/ticket-dependency-expectations.js";
+import { coderEvidenceResume } from "../modules/supervisor/coder-evidence-resume.js";
+import { approvedTicketDecisions } from "../modules/governance/plan-decision-requests.js";
 
 // Creates one shared ticket RUN entry point so Sprint execution preserves all ticket gates.
 export function createTicketRunDispatch({ disposition, intake, sprintRegistry, ticketStatusStore, checkpoints, queueStore, protocolStorage, conversationStateStore, dispatchTask }) {
@@ -27,6 +29,11 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
       if (!sprintRegistry.get(ticket.sprint_id)) throw failure("SPRINT_PLAN_REQUIRED", "Ticket sprint has no approved plan in the sprint registry.");
       const { sprint: sprintBasis, plan } = await sprintRegistry.assertReady(ticket.sprint_id, { expectedVersion: expectedSprintVersion });
       assertApprovedTicket(plan, ticket);
+      const ownerDecisions = approvedTicketDecisions(plan, ticketId);
+      if (ownerDecisions.length) {
+        ticket.owner_decisions = ownerDecisions;
+        ticket.owner_decision_basis = { plan_id: plan.plan_id, revision: plan.revision, sha256: plan.sha256, decision_id: ownerDecisions[0].decision_id };
+      }
       assertA5ExecutionContract(ticket);
       if (sprintBasis && dependencyExpectations === undefined) dependencyExpectations = await captureDependencyExpectations({ projectId, ticket, sprintRegistry, ticketStatusStore });
       assertDependencyExpectations({ projectId, ticket, expectations: dependencyExpectations, sprintRegistry, ticketStatusStore });
@@ -39,10 +46,16 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
       }
       const storedCheckpoint = await checkpoints.load(ticketId);
       if (storedCheckpoint?.status === "blocked") throw failure("TICKET_APPROVAL_REQUIRED", "Coder checkpoint requires a human decision before this ticket can run again.");
-      const checkpoint = fresh ? null : storedCheckpoint;
-      const resume = checkpoint && checkpoint.status !== "completed" ? await reviewRevisionResume(queueStore, ticketId, checkpoint) : null;
+      let checkpoint = fresh ? null : storedCheckpoint;
       const reviewerCheckpoint = !fresh && checkpoint?.status === "completed" ? await checkpoints.loadReview(ticketId) : null;
       if (reviewerCheckpoint?.verdict === "approved") throw failure("TICKET_INTEGRATION_RECOVERY_REQUIRED", "Review is approved but ticket completion is missing; recover integration before RUN.");
+      if (checkpoint?.status === "completed" && typeof protocolStorage.get === "function") {
+        try {
+          const report = (await protocolStorage.get(`task/${ticketId}/final_report`)).data;
+          checkpoint = coderEvidenceResume(checkpoint, report) ?? checkpoint;
+        } catch (error) { if (error.code !== "ENOENT") throw error; }
+      }
+      const resume = checkpoint?.phase === "coder_evidence_required" ? checkpoint : checkpoint && checkpoint.status !== "completed" ? await reviewRevisionResume(queueStore, ticketId, checkpoint) : null;
       const reviewResume = !fresh && checkpoint?.status === "completed" ? reviewPhaseResume(checkpoint, reviewerCheckpoint) : null;
       if (controller.signal.aborted) throw controller.signal.reason;
       const executionId = sprintBasis && ticketStatusStore.beginExecution ? `RUN-${randomUUID()}` : null;

@@ -11,12 +11,13 @@ export function createProjectStreamPublisher({ projectId, indexDb } = {}) {
     if (event.project_id !== projectId || event.indexed === false || event.payload?.indexed === false) return null;
     const operation = event.type ?? event.event_type;
     if (typeof operation !== "string" || !operation) return null;
-    if (["plan.request.generating", "plan.request.persisted", "plan.request.failed"].includes(operation)) {
+    if (["plan.request.generating", "plan.request.awaiting_owner_decisions", "plan.request.persisted", "plan.request.failed"].includes(operation)) {
       const payload = event.payload ?? {};
       if (typeof payload.request_id !== "string" || !/^[A-Za-z0-9_-]+$/.test(payload.request_id)) return null;
       if (operation === "plan.request.persisted" && (typeof payload.plan_id !== "string" || !/^[A-Za-z0-9._-]+$/.test(payload.plan_id) || !Number.isSafeInteger(payload.revision) || payload.revision < 1 || !/^[a-f0-9]{64}$/.test(payload.sha256 ?? ""))) return null;
       if (operation === "plan.request.failed" && !/^[A-Z][A-Z0-9_]{0,79}$/.test(payload.error_code ?? "")) return null;
-      return { event_type: operation, payload: { request_id: payload.request_id, ...(operation.endsWith("persisted") ? { plan_id: payload.plan_id, revision: payload.revision, sha256: payload.sha256 } : {}), ...(operation.endsWith("failed") ? { error_code: payload.error_code } : {}) } };
+      if (operation.endsWith("awaiting_owner_decisions") && !/^CLARIFY-[a-f0-9-]{36}$/.test(payload.session_id ?? "")) return null;
+      return { event_type: operation, payload: { request_id: payload.request_id, ...(operation.endsWith("awaiting_owner_decisions") ? { session_id: payload.session_id } : {}), ...(operation.endsWith("persisted") ? { plan_id: payload.plan_id, revision: payload.revision, sha256: payload.sha256 } : {}), ...(operation.endsWith("failed") ? { error_code: payload.error_code } : {}) } };
     }
     if (operation.startsWith("ticket.")) return projectTicket(event, operation);
     if (operation.startsWith("sprint.")) return projectSprint(event, operation);

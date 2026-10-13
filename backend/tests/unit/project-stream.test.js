@@ -172,6 +172,7 @@ test("agent progress and tool messages project safe UI activity events", () => {
 test("project stream framing validates every emitted event against the v1 schema", () => {
   const ajv = new Ajv2020({ allErrors: true, strict: false });
   addFormats(ajv);
+  ajv.addSchema(require("../../../schemas/stream/architecture-clarification-waiting.schema.json"));
   const validate = ajv.compile(streamSchema);
   const response = responseStub();
   const stream = createProjectStream({

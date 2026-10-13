@@ -30,9 +30,10 @@ export async function createPlanWithDiagnostics({ createPlan, planRequests, proj
     throw error;
   }
   if (request) {
-    try { await planRequests.complete(request, result); }
+    try { if (result.status === "awaiting_owner_decisions") await planRequests.wait?.(request, result); else await planRequests.complete(request, result); }
     catch (error) { recordDiagnosticError("complete"); void error; }
   }
-  await publish("persisted", { plan_id: result.plan_id, revision: result.revision, sha256: result.sha256 });
+  if (result.status === "awaiting_owner_decisions") await publish("awaiting_owner_decisions", { session_id: result.session_id });
+  else await publish("persisted", { plan_id: result.plan_id, revision: result.revision, sha256: result.sha256 });
   return degraded ? { ...result, diagnostics_status: "degraded", diagnostics_error_code: "PLAN_DIAGNOSTICS_UNAVAILABLE" } : result;
 }

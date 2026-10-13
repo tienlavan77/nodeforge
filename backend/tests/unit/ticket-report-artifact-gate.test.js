@@ -27,22 +27,22 @@ test("report_done requires a passed artifact before saving a ticket report", asy
   assert.deepEqual(context.changed_paths, ["backend/src/actual.js"]);
 });
 
-// Node fills an omitted criterion as pending evidence instead of rejecting a Coder report.
-test("report_done fills omitted criterion coverage with pending evidence", async () => {
+// Rejects incomplete evidence before claiming a successful completion report.
+test("report_done rejects omitted criterion evidence before saving completion", async () => {
   let saved = 0;
   const artifact = { artifact_id: "ARTIFACT-COVERAGE", commit_sha: "a".repeat(40), changed_paths: ["ui/nextjs/app/page.jsx"], file_checksums: { "ui/nextjs/app/page.jsx": "sha256:page" }, commands: [{ kind: "build", exit_code: 0, argv: ["pnpm", "build"] }, { kind: "test", exit_code: 1, argv: ["node", "--test", "ui/nextjs/tests/navigation.test.js"] }] };
   const reportService = { buildFinalReport: async () => ({ status: "submitted_for_review" }), saveReport: async () => { saved++; }, writeReportFile: async () => {} };
   const tool = createReportDoneTool({ reportService, verificationService: { assertPassedArtifact: async () => artifact } });
   const context = { ticket: { id: "T-COVERAGE", acceptance_criteria: ["Build passes", "Navigation works"] } };
-  await tool.execute({ summary: "Done", acceptance_coverage: [{ criterion: "Build passes", command_kind: "build", test_path: null }] }, context);
-  assert.equal(saved, 1);
+  await assert.rejects(tool.execute({ summary: "Done", acceptance_coverage: [{ criterion: "Build passes", command_kind: "build", test_path: null }] }, context), { code: "CODER_EVIDENCE_PENDING", details: { criterion_ids: ["AC-2"] } });
+  assert.equal(saved, 0);
   await assert.rejects(tool.execute({ summary: "Done", acceptance_coverage: [{ criterion: "Build passes", command_kind: "build", test_path: null }, { criterion: "Navigation works", command_kind: "build", test_path: null }] }, context), { code: "ACCEPTANCE_COVERAGE_MISSING" });
   await assert.rejects(tool.execute({ summary: "Done", acceptance_coverage: [{ criterion: "Build passes", command_kind: "build", test_path: null }, { criterion: "Navigation works", command_kind: "test", test_path: "ui/nextjs/tests/navigation.test.js" }] }, context), { code: "ACCEPTANCE_COVERAGE_MISSING" });
-  assert.equal(saved, 1);
+  assert.equal(saved, 0);
 });
 
-// Accepts stable criterion IDs in any order and defers non-command evidence to Reviewer.
-test("report_done accepts unordered criterion IDs and pending evidence", async () => {
+// Allows verified criterion IDs in any order but rejects a pending completion.
+test("report_done rejects pending criterion IDs and accepts a verified retry", async () => {
   const artifact = {
     artifact_id: "ARTIFACT-ID-COVERAGE",
     status: "passed",
@@ -61,16 +61,21 @@ test("report_done accepts unordered criterion IDs and pending evidence", async (
     }
   });
   const context = { ticket: { id: "T-ID-COVERAGE", acceptance_criteria: ["API behavior works", "Visual layout is reviewed"] } };
-  await tool.execute({
+  await assert.rejects(tool.execute({
     summary: "Implemented the change and submitted visual evidence for review.",
     acceptance_coverage: [
       { criterion_id: "AC-2", status: "evidence_pending" },
       { criterion_id: "AC-1", status: "verified", command_kind: "backend_tests", test_path: "backend/tests/unit/a.test.js" }
     ]
-  }, context);
+  }, context), { code: "CODER_EVIDENCE_PENDING", details: { criterion_ids: ["AC-2"] } });
+  assert.equal(saved, undefined);
+  await tool.execute({ summary: "Verified all criteria", acceptance_coverage: [
+    { criterion_id: "AC-2", status: "verified", command_kind: "backend_tests", test_path: "backend/tests/unit/a.test.js" },
+    { criterion_id: "AC-1", status: "verified", command_kind: "backend_tests", test_path: "backend/tests/unit/a.test.js" }
+  ] }, context);
   assert.deepEqual(saved.criteria_check, [
     { criterion: "API behavior works", criterion_id: "AC-1", node_verified: true, status: "verified", command_kind: "backend_tests", test_path: "backend/tests/unit/a.test.js", artifact_id: artifact.artifact_id },
-    { criterion: "Visual layout is reviewed", criterion_id: "AC-2", node_verified: false, status: "evidence_pending", command_kind: null, test_path: null, artifact_id: artifact.artifact_id }
+    { criterion: "Visual layout is reviewed", criterion_id: "AC-2", node_verified: true, status: "verified", command_kind: "backend_tests", test_path: "backend/tests/unit/a.test.js", artifact_id: artifact.artifact_id }
   ]);
 });
 
@@ -110,8 +115,8 @@ test("report_done saves a structured completion explanation", async () => {
   assert.deepEqual(report.files_changed, undefined);
 });
 
-// Node completes deterministic evidence on the first Coder summary and keeps it immutable.
-test("report_done completes source and command evidence without Coder field duplication", async () => {
+// Keeps incomplete evidence as a correctable draft rather than an immutable successful report.
+test("report_done retries a pending draft without freezing incomplete evidence", async () => {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-report-supplement-"));
   try {
     const artifact = { artifact_id: "ARTIFACT-SUP", status: "passed", commit_sha: "a".repeat(40), source_revision: "source-sup", manifest_sha: "manifest-sup", changed_paths: ["backend/src/a.js"], file_checksums: { "backend/src/a.js": "sha256:a" }, commands: [{ kind: "backend_tests", exit_code: 0, argv: ["node", "--test", "backend/tests/unit/a.test.js"] }] };
@@ -119,36 +124,37 @@ test("report_done completes source and command evidence without Coder field dupl
     let saved = 0;
     const tool = () => createReportDoneTool({ reviewFindings: store(), verificationService: { assertPassedArtifact: async () => artifact }, reportService: { buildFinalReport: async ({ status }) => ({ status, criteria_check: [] }), saveReport: async () => { saved++; }, writeReportFile: async () => {} } });
     const context = { ticket: { id: "TICKET-SUP", acceptance_criteria: ["API works"] } };
-    await tool().execute({ summary: "Original report" }, context);
+    await assert.rejects(tool().execute({ summary: "Original report" }, context), { code: "CODER_EVIDENCE_PENDING" });
     const history = await store().load();
-    assert.equal(history.coder_reports.length, 1);
-    assert.equal(history.coder_reports[0].report.summary, "Original report");
-    assert.deepEqual(history.coder_reports[0].report.implementation_scope.changed_files, ["backend/src/a.js"]);
-    assert.equal(history.coder_reports[0].report.acceptance_coverage[0].status, "evidence_pending");
-    assert.equal(history.coder_reports[0].report.evidence[0].reference, artifact.artifact_id);
+    assert.equal(history.coder_reports.length, 0);
+    assert.equal(history.coder_report_drafts[0].report.summary, "Original report");
+    assert.deepEqual(history.coder_report_drafts[0].report.implementation_scope.changed_files, ["backend/src/a.js"]);
+    assert.equal(history.coder_report_drafts[0].report.acceptance_coverage[0].status, "evidence_pending");
+    assert.equal(history.coder_report_drafts[0].report.evidence[0].reference, artifact.artifact_id);
+    assert.equal(saved, 0);
+    const verified = { summary: "Original report", acceptance_coverage: [{ criterion_id: "AC-1", status: "verified", command_kind: "backend_tests", test_path: "backend/tests/unit/a.test.js" }] };
+    await tool().execute(verified, context);
     assert.equal(saved, 1);
-    await tool().execute({ summary: "Original report" }, context);
+    await tool().execute(verified, context);
     assert.equal((await store().load()).coder_reports.length, 1);
-    await assert.rejects(tool().execute({ summary: "Rewritten report" }, context), { code: "CODER_REPORT_CONFLICT" });
+    await assert.rejects(tool().execute({ ...verified, summary: "Rewritten report" }, context), { code: "CODER_REPORT_CONFLICT" });
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 // A missing artifact triggers Node verification while a failing job still blocks the report.
 test("report_done waits for Node verification and never persists failed evidence", async () => {
   let saved = 0;
-  let report;
   let verified = 0;
   const artifact = { artifact_id: "ARTIFACT-AUTO", commit_sha: "a".repeat(40), changed_paths: ["backend/src/a.js"], file_checksums: { "backend/src/a.js": "sha256:a" }, commands: [{ kind: "lint", exit_code: 0, argv: ["pnpm", "lint"] }] };
-  const reportService = { buildFinalReport: async () => ({ status: "completed" }), saveReport: async (_id, value) => { saved++; report = value; }, writeReportFile: async () => {} };
+  const reportService = { buildFinalReport: async () => ({ status: "completed" }), saveReport: async () => { saved++; }, writeReportFile: async () => {} };
   const context = { ticket: { id: "T-AUTO", acceptance_criteria: ["Lint passes", "Lint passes and the UI behaves correctly"] } };
   const tool = createReportDoneTool({ reportService, verificationService: { ensurePassedArtifact: async () => { verified++; return artifact; } } });
-  await tool.execute({ summary: "Fixed lint" }, context);
+  await assert.rejects(tool.execute({ summary: "Fixed lint" }, context), { code: "CODER_EVIDENCE_PENDING", details: { criterion_ids: ["AC-2"] } });
   assert.equal(verified, 1);
-  assert.equal(saved, 1);
-  assert.deepEqual(report.criteria_check.map((entry) => entry.status), ["verified", "evidence_pending"]);
+  assert.equal(saved, 0);
   const blocked = createReportDoneTool({ reportService, verificationService: { ensurePassedArtifact: async () => { throw Object.assign(new Error("failed"), { code: "VERIFY_FAILED" }); } } });
   await assert.rejects(blocked.execute({ summary: "Done" }, context), { code: "VERIFY_FAILED" });
-  assert.equal(saved, 1);
+  assert.equal(saved, 0);
 });
 
 // A response to old findings cannot replace the first explanation for a new artifact.

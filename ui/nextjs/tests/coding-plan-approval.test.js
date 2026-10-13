@@ -62,7 +62,7 @@ test("Coding header lives outside dashboard loading and uses reconnect plus tab 
   assert.doesNotMatch(component, /activeConversation|postOwnerMessage|localStorage|sessionStorage/);
   assert.match(component, /Continue handoff/);
   const styles = await readFile(new URL("../app/styles/workspace-monitors.css", import.meta.url), "utf8");
-  assert.match(component, /className="coding-architecture-plans" aria-label="Architecture plan approval"/);
+  assert.match(component, /className="coding-architecture-plans" aria-label="Architecture and Sprint Plan approval"/);
   assert.match(component, /<ul className="coding-architecture-plan-list">\{visiblePlans.map/);
   assert.doesNotMatch(component, /<select|selectedId|setSelectedId/);
   assert.match(styles, /\.coding-architecture-plans \{[^}]*background: var\(--app-surface-alt\)/);

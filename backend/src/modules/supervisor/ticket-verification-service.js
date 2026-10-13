@@ -10,9 +10,11 @@ import { buildTicketVerificationPlan, requiresSchemaVerification } from "./ticke
 import { createTicketVerificationRecovery } from "./ticket-verification-recovery.js";
 import { latestTicketVerificationAttempt } from "./ticket-verification-attempts.js";
 import { createTicketFocusedCheck } from "./ticket-focused-check.js";
+import { coversVerificationPolicy } from "./ticket-verification-policy.js";
+import { browserCommandOutput } from "./browser-verification-evidence.js";
 
 const ROOT = ".forge/runtime/ticket-verification";
-const POLICY_VERSION = "ticket-verification-v5";
+const POLICY_VERSION = "ticket-verification-v6";
 const MAX_SAME_REVISION_ATTEMPTS = 2;
 const fail = (code, message) => Object.assign(new ConfigurationError(message), { code });
 const sha = (content) => `sha256:${createHash("sha256").update(content).digest("hex")}`;
@@ -84,7 +86,7 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
       if (!committedPaths.length || committedPaths.some((path) => !context.manifest_paths.includes(path)) || JSON.stringify(committedPaths) !== JSON.stringify(artifact.changed_paths)) throw fail("VERIFY_ARTIFACT_MISMATCH", "Verification artifact paths differ from the ticket commit.");
       policyPaths = committedPaths;
     }
-    if (!coversVerificationPolicy(artifact, policyPaths)) throw fail("VERIFY_ARTIFACT_MISMATCH", "Verification artifact lacks current policy or complete command evidence.");
+    if (!coversVerificationPolicy(artifact, policyPaths, context.verification_plan ?? [])) throw fail("VERIFY_ARTIFACT_MISMATCH", "Verification artifact lacks current policy or complete command evidence.");
     if (rootOnly && artifact.tree_sha !== (await rootGit.run(["rev-parse", `${context.review_commit_sha}^{tree}`])).trim()) throw fail("VERIFY_ARTIFACT_MISMATCH", "Verification artifact tree differs from the ticket commit.");
     await assertIdentity(context);
     return artifact;
@@ -139,10 +141,10 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
     const results = [];
     for (const command of commands) {
       const started = Date.now();
-      const output = await runCommand({ ...command, cwd: sourceRoot, tempDir: archive?.temp_dir, timeoutMs: command.kind === "backend_tests" ? 900_000 : 300_000 });
+      const output = browserCommandOutput(command, await runCommand({ ...command, cwd: sourceRoot, tempDir: archive?.temp_dir, timeoutMs: command.kind === "backend_tests" ? 900_000 : 300_000 }));
       const stdout = safeOutput(output.stdout);
       const stderr = safeOutput(output.stderr);
-      results.push({ kind: command.kind, argv: command.argv, exit_code: output.exit_code, duration_ms: Date.now() - started, stdout_redacted: stdout, stderr_redacted: stderr, output_sha256: output.output_sha256 ?? sha(`${stdout}\0${stderr}`), output_digest_scope: output.output_sha256 ? "full_stream" : "redacted_output" });
+      results.push({ kind: command.kind, argv: command.argv, exit_code: output.exit_code, duration_ms: Date.now() - started, stdout_redacted: stdout, stderr_redacted: stderr, ...(output.browser_evidence ? { browser_evidence: output.browser_evidence } : {}), output_sha256: output.output_sha256 ?? sha(`${stdout}\0${stderr}`), output_digest_scope: output.output_sha256 ? "full_stream" : "redacted_output" });
       if (output.exit_code !== 0) break;
     }
     const finalChecksums = await assertIdentity(context);
@@ -183,25 +185,6 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
     catch (error) { if (error.code === "ENOENT") return null; throw error; }
   }
 
-}
-
-// Rejects old or incomplete command receipts before any ticket can reuse a passed artifact.
-function coversVerificationPolicy(artifact, paths) {
-  if (![POLICY_VERSION, "ticket-verification-v4", "ticket-verification-v3"].includes(artifact.policy_version) || !Array.isArray(artifact.planned_commands) || !Array.isArray(artifact.commands) || !artifact.planned_commands.length || artifact.commands.length !== artifact.planned_commands.length) return false;
-  const required = new Set();
-  if (paths.some((path) => path.startsWith("backend/"))) {
-    required.add("typecheck");
-    required.add("backend_tests");
-    if (paths.some((path) => /^backend\/.*\.[cm]?js$/.test(path))) required.add("lint");
-  }
-  if (requiresSchemaVerification(paths)) required.add("schema_validation");
-  if (paths.some((path) => path.startsWith("ui/nextjs/"))) required.add("build");
-  for (const [index, planned] of artifact.planned_commands.entries()) {
-    const actual = artifact.commands[index];
-    if (!planned?.kind || !Array.isArray(planned.argv) || !planned.argv.length || actual?.kind !== planned.kind || JSON.stringify(actual.argv) !== JSON.stringify(planned.argv) || actual.exit_code !== 0 || typeof actual.output_sha256 !== "string" || !/^sha256:[a-f0-9]{64}$/.test(actual.output_sha256)) return false;
-    required.delete(planned.kind);
-  }
-  return required.size === 0;
 }
 
 // Ignores only dependency links created by the ticket workspace; every other Git change invalidates evidence.

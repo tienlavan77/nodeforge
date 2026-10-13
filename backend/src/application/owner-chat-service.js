@@ -3,6 +3,7 @@ import { ConfigurationError } from "../shared/errors.js";
 import { normalizeErrorContract } from "../shared/error-contract.js";
 import { logEvent } from "../core/project-log-service.js";
 import { createRequire } from "node:module";
+import { randomUUID } from "node:crypto";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import { createOwnerAgentStream } from "./owner-agent-stream.js";
@@ -32,7 +33,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     : null;
 
   // Replays an interrupted owner turn through the existing response stream without duplicating the owner message.
-  return Object.freeze({ submit, replay: (message, agentId) => streamAgent(message, agentId) });
+  return Object.freeze({ submit, planningSessions: commandService?.planningSessions, replay: (message, agentId) => streamAgent(message, agentId) });
   function safeLog(logger, entry) { try { logger?.({ timestamp: new Date().toISOString(), ...entry }); } catch (error) { debug({ event: "project-log.error", error: error.message }); } }
   function submit(input) {
     assertMessage(input);
@@ -113,8 +114,8 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     const ownerMessage = { id: input.message_id, project_id: input.project_id, sender: { id: input.sender_id ?? "project-owner", role: "project_owner" }, recipient: { id: agentId, role: roleForAgent(agentId) }, message_type: "owner.message", conversation_id: input.conversation_id, correlation_id: input.correlation_id, payload: { text: input.payload.text }, timestamp: input.timestamp };
     bus.send(ownerMessage);
     try {
-      if (typeof commandService?.execute !== "function") throw Object.assign(new ConfigurationError("Planning command service is unavailable; the command was not sent to agent chat."), { code: "OWNER_COMMAND_UNAVAILABLE", statusCode: 503 }); const isPlanCommand = /^\/plan\s+\S+\s*$/i.test(input.payload.text.trim());
-      const result = await commandService.execute({ text: input.payload.text, conversationId: input.conversation_id, project_id: input.project_id, approvedOwnerId: input.approved_owner_id, approvalRevision: input.payload.approval_revision, approvalSha256: input.payload.approval_sha256, approvalComments: input.payload.approval_comments, requestArchitecture: (prompt, conversationId) => streamCommandArchitecture({ input, agentId, prompt, conversationId, exposeText: !isPlanCommand }) });
+      if (typeof commandService?.execute !== "function") throw Object.assign(new ConfigurationError("Planning command service is unavailable; the command was not sent to agent chat."), { code: "OWNER_COMMAND_UNAVAILABLE", statusCode: 503 }); const isPlanCommand = /^\/(?:plan|plan-continue)\s+\S+\s*$/i.test(input.payload.text.trim());
+      const result = await commandService.execute({ text: input.payload.text, conversationId: input.conversation_id, project_id: input.project_id, approvedOwnerId: input.approved_owner_id, planningVersion: input.payload.planning_version, planningSourceSha256: input.payload.planning_source_sha256, approvalRevision: input.payload.approval_revision, approvalSha256: input.payload.approval_sha256, approvalComments: input.payload.approval_comments, requestArchitecture: (prompt, conversationId) => streamCommandArchitecture({ input, agentId, prompt, conversationId, exposeText: !isPlanCommand }) });
       const response = responseMessage({ ...input, id: input.message_id, recipient: { id: "NODE", role: "node" } }, "owner.command.result", result, `COMMAND-${input.message_id}`);
       bus.send(response);
       messages.set(input.message_id, Object.freeze(structuredClone(response)));
@@ -129,8 +130,8 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
   // Streams an Architecture response and persists it in the same conversation.
   async function streamCommandArchitecture({ input, agentId, prompt, conversationId, exposeText = true }) {
     agentId = agentRoleResolver ? agentRoleResolver.resolveProfile("architecture_manager")?.agent_id : architectureManagerId; if (!agentId || typeof agentStream !== "function") throw new ConfigurationError("Configured Architecture agent stream is unavailable.");
-    const contentType = "text/markdown";
-    const message = { id: `MSG-ARCHITECTURE-COMMAND-${input.message_id}`, project_id: input.project_id, sender: { id: "NODE", role: "node" }, recipient: { id: agentId, role: roleForAgent(agentId) }, message_type: "owner.message", conversation_id: conversationId, correlation_id: `${input.correlation_id}-ARCH`, payload: { text: prompt }, timestamp: new Date().toISOString() };
+    const contentType = prompt.startsWith("Architecture clarification discovery") ? "text/plain" : "text/markdown";
+    const message = { id: `MSG-ARCHITECTURE-COMMAND-${input.message_id}`, project_id: input.project_id, sender: { id: "NODE", role: "node" }, recipient: { id: agentId, role: roleForAgent(agentId) }, message_type: "owner.message", conversation_id: conversationId, correlation_id: `${input.correlation_id}-ARCH-${randomUUID()}`, payload: { text: prompt }, timestamp: new Date().toISOString() };
     let text = ""; let index = 0;
     if (exposeText) bus.sendFast(responseMessage(message, "architecture.working", { agent_status: "WORKING" }, "COMMAND-WORKING"));
     for await (const chunk of agentStream({ agentId, payload: { text: prompt, response_content_type: contentType, planning_input_only: true }, correlationId: message.correlation_id, conversationId })) {

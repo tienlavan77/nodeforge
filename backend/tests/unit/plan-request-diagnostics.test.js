@@ -15,8 +15,10 @@ function fixture(failure, coreError = null) {
     complete: async () => { if (failure === "complete") throw secret; },
     fail: async () => { calls.fail++; if (failure === "fail") throw secret; }
   };
-  const fileService = { readFile: async ({ path }) => path.endsWith("README.md") ? "# Plan frame" : summary, atomicCreate: async () => {} };
+  const files = new Map();
+  const fileService = { createLock: async () => ({ release: async () => {} }), readFile: async ({ path }) => { if (path.endsWith("README.md")) return "# Plan frame"; if (path === "docs/discussion.md") return summary; if (files.has(path)) return files.get(path); throw Object.assign(new Error("missing"), { code: "ENOENT" }); }, atomicCreate: async ({ path, content }) => { files.set(path, content); }, atomicWrite: async ({ path, content }) => { files.set(path, content); } };
   const store = {
+    list: () => [...artifacts.values()],
     createRevision: async ({ planId, markdown: content, conversationId }) => {
       calls.create++;
       const artifact = { plan_id: planId, revision: 1, sha256: "a".repeat(64), status: "awaiting_human_approval", markdown: content, conversation_id: conversationId };
@@ -34,7 +36,7 @@ for (const failure of ["start", "complete", "publication"]) {
     const context = fixture(failure);
     const logs = [];
     t.mock.method(console, "error", (...args) => logs.push(args));
-    const result = await context.service.execute({ text: "/plan docs/discussion.md", conversationId: null, requestArchitecture: async () => { context.calls.generation++; return markdown; } });
+    const result = await context.service.execute({ text: "/plan docs/discussion.md", conversationId: null, requestArchitecture: async (prompt) => { if (prompt.startsWith("Architecture clarification discovery")) return '{"questions":[]}'; context.calls.generation++; return markdown; } });
     assert.equal(result.status, "awaiting_human_approval");
     assert.equal(result.diagnostics_status, "degraded");
     assert.equal(result.diagnostics_error_code, "PLAN_DIAGNOSTICS_UNAVAILABLE");

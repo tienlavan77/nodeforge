@@ -16,16 +16,18 @@ function workspaceWithReport(status) {
 }
 
 // Requires human evidence before integration and emits a matching ticket status.
-test("pending Coder evidence routes to human review without integration or done", async () => {
+test("legacy pending Coder evidence fails retryably without human review, integration or done", async () => {
   const { workspace, actions } = workspaceWithReport("evidence_pending");
   await assert.rejects(finalizeCoderWorkspace(workspace, "TICKET-1"), { code: "CODER_EVIDENCE_PENDING" });
   assert.deepEqual(actions, []);
   const events = [];
   const claimReleases = [];
   const result = await completeCoderTicket({ workspace, agentOccupancy: { release: async (entry) => { claimReleases.push(entry); } }, claim: { claim_id: "CLAIM-1" }, taskId: "TICKET-1", ownerId: "SUP-1", request: { request_id: "REQ-1" }, publishTicketOutcome: async (type, _request, _owner, payload) => { events.push({ type, payload }); }, result: { tool_events: [{ tool: "report_done", status: "success" }] } });
-  assert.deepEqual(result, { status: "needs_human_review" });
+  assert.deepEqual(result, { status: "failed", reason: "CODER_EVIDENCE_PENDING" });
   assert.equal(events.length, 1);
-  assert.equal(events[0].type, "task.needs_human_review");
+  assert.equal(events[0].type, "task.failed");
+  assert.equal(events[0].payload.retryable, true);
+  assert.equal(events[0].payload.error.code, "CODER_EVIDENCE_PENDING");
   assert.deepEqual(events[0].payload.criterion_ids, ["AC-1"]);
   assert.equal(claimReleases.length, 1);
   assert.deepEqual(actions, []);
@@ -36,4 +38,23 @@ test("verified Coder evidence can enter integration", async () => {
   const { workspace, actions } = workspaceWithReport("verified");
   await finalizeCoderWorkspace(workspace, "TICKET-2");
   assert.deepEqual(actions, ["context_update", "integrate", "context_update", "release_ledger"]);
+});
+
+// Emits done only after verified integration and never requests Human Review for a successful report.
+test("successful verified report completes the ticket after integration", async () => {
+  const { workspace, actions } = workspaceWithReport("verified");
+  const events = [];
+  const result = await completeCoderTicket({ workspace, agentOccupancy: { release: async () => { actions.push("release_agent"); } }, claim: { claim_id: "CLAIM-1" }, taskId: "TICKET-2", ownerId: "SUP-1", request: { request_id: "REQ-1" }, publishTicketOutcome: async (type, _request, _owner, payload) => { events.push({ type, payload }); actions.push(type); }, result: { summary: "Verified change", tool_events: [{ tool: "report_done", status: "success" }] } });
+  assert.deepEqual(result, { status: "completed" });
+  assert.deepEqual(actions, ["context_update", "integrate", "context_update", "release_ledger", "release_agent", "task.completed"]);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].payload.completion, "coder_verified");
+  assert.equal(events[0].payload.artifact_id, "ARTIFACT-1");
+});
+
+// Keeps a failed report tool from being interpreted as a successful Coder completion.
+test("failed report_done cannot complete or request Human Review", async () => {
+  const { workspace, actions } = workspaceWithReport("verified");
+  await assert.rejects(completeCoderTicket({ workspace, result: { tool_events: [{ tool: "report_done", status: "failed" }] } }), { code: "AGENT_REPORT_MISSING" });
+  assert.deepEqual(actions, []);
 });

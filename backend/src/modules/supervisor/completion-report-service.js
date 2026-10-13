@@ -33,10 +33,8 @@ export function createCompletionReportService({ protocolStorage, fileService, gi
   // Requires every criterion to have a normalized Coder coverage status before integration.
   async function assertCoderReport(taskId) {
     const current = (await protocolStorage.get(`task/${taskId}/final_report`)).data;
-    const validStatuses = new Set(["verified", "evidence_pending", "not_applicable"]);
-    if (current.status !== "submitted_for_review" && current.status !== "completed" || !Array.isArray(current.criteria_check) || current.criteria_check.some((entry) => !validStatuses.has(entry.status) && entry.node_verified !== true)) throw new ConfigurationError("Coder completion requires normalized coverage for every acceptance criterion.");
-    const pending = current.criteria_check.filter((entry) => entry.status === "evidence_pending");
-    if (pending.length) throw Object.assign(new ConfigurationError("Acceptance criteria still require independent evidence before ticket completion."), { code: "CODER_EVIDENCE_PENDING", details: { criterion_ids: pending.map((entry) => entry.criterion_id).filter(Boolean) } });
+    if (current.status !== "submitted_for_review" && current.status !== "completed") throw new ConfigurationError("Coder completion requires a submitted report.");
+    assertCoderCoverage(current.criteria_check);
     return current;
   }
   // Promotes a verified Coder report when ticket execution does not require inline review.
@@ -51,6 +49,21 @@ export function createCompletionReportService({ protocolStorage, fileService, gi
   async function writeReportFile(taskId, report) {
     const markdown = renderMarkdown(report);
     return fileService.atomicWrite({ path: `.forge/runtime/reports/${taskId}.md`, content: markdown, replace: true });
+  }
+}
+
+// Blocks successful completion reporting until every criterion has sufficient verification evidence.
+export function assertCoderCoverage(coverage) {
+  const validStatuses = new Set(["verified", "evidence_pending", "not_applicable"]);
+  if (!Array.isArray(coverage) || coverage.some((entry) => !validStatuses.has(entry.status) && entry.node_verified !== true)) throw new ConfigurationError("Coder completion requires normalized coverage for every acceptance criterion.");
+  const pending = coverage.filter((entry) => entry.status === "evidence_pending");
+  if (pending.length) {
+    const criterionIds = pending.map((entry) => entry.criterion_id).filter(Boolean);
+    const missingChecks = pending.flatMap((entry) => (entry.missing_checks ?? []).map((check) => ({ criterion_id: entry.criterion_id, ...check })));
+    const unsupported = [...new Set(missingChecks.filter((check) => check.kind === "human").map((check) => check.kind))];
+    const diagnostic = missingChecks.length ? ` Missing checks: ${missingChecks.map((check) => `${check.criterion_id}:${check.kind}${check.test_path ? ` (${check.test_path})` : ""}`).join(", ")}.` : "";
+    const action = unsupported.length ? ` The ticket verification runner does not execute ${unsupported.join(", ")} checks. Node verification support or an owner-approved plan revision is required; repeating report_done cannot supply this evidence.` : " Run the required checks and retry report_done with verified criterion coverage; do not report completion yet.";
+    throw Object.assign(new ConfigurationError(`Completion is blocked by missing acceptance evidence.${diagnostic}${action}`), { code: "CODER_EVIDENCE_PENDING", details: { criterion_ids: criterionIds, ...(missingChecks.length ? { missing_checks: missingChecks } : {}), ...(unsupported.length ? { unsupported_check_kinds: unsupported } : {}) } });
   }
 }
 

@@ -7,6 +7,7 @@ import addFormats from "ajv-formats";
 const streamSchema = createRequire(import.meta.url)("../../../schemas/stream/project-stream-event.schema.json");
 const ajv = new Ajv2020({ allErrors: true });
 addFormats(ajv);
+ajv.addSchema(createRequire(import.meta.url)("../../../schemas/stream/architecture-clarification-waiting.schema.json"));
 const validate = ajv.compile(streamSchema);
 import { createProjectStreamPublisher } from "../../src/transport/sse/project-stream-publisher.js";
 import { createProjectStream } from "../../src/transport/sse/project-stream.js";
@@ -23,7 +24,7 @@ function event(status, payload = {}, project = projectId) {
 
 test("projects only correlated lifecycle fields, not credentials, content or approval", () => {
   const secret = { token: "secret", markdown: "private content", approved: true, actor: "OWNER", conversation_id: "CONV-A", error_message: "secret failure" };
-  for (const [status, fields] of [["generating", {}], ["persisted", identity], ["failed", { error_code: "PLAN_GENERATION_FAILED" }]]) {
+  for (const [status, fields] of [["generating", {}], ["awaiting_owner_decisions", { session_id: "CLARIFY-00000000-0000-0000-0000-000000000000" }], ["persisted", identity], ["failed", { error_code: "PLAN_GENERATION_FAILED" }]]) {
     const projected = publisher.project(event(status, { ...fields, ...secret }));
     assert.deepEqual(projected, { event_type: `plan.request.${status}`, payload: { request_id: requestId, ...fields } });
     assert.equal(publisher.project(event(status, fields, "PROJECT-B")), null);
@@ -42,6 +43,7 @@ test("rejects missing or malformed request, artifact identity and error codes", 
     assert.equal(publisher.project(event("failed", { error_code })), null);
   }
   assert.equal(publisher.project(event("approved", identity)), null);
+  for (const session_id of [undefined, "", "OTHER", "../session"]) assert.equal(publisher.project(event("awaiting_owner_decisions", { session_id })), null);
 });
 
 test("native stream ingestion delivers all three lifecycle transitions without conversation binding", () => {

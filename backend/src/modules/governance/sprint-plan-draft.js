@@ -1,16 +1,17 @@
 // Converts a Sprint Leader proposal into the reviewable scope of an immutable human plan.
+import { assertNoSprintPolicyRequests } from "./sprint-architecture-decisions.js";
 
 // Preserves list-based plan sections as readable canonical text in the immutable artifact.
 function planText(value) { return Array.isArray(value) ? value.join("\n") : value; }
 
 // Keeps executable ticket details in the approved plan so later roadmap edits cannot expand scope.
-export function sprintPlanDraftContent(plan) {
+export function sprintPlanDraftContent(plan, { architectureDecisions = null } = {}) {
   const tickets = plan.tickets ?? [];
   const review = plan.human_plan;
   if (!review || !Array.isArray(review.evidence_refs) || !review.evidence_refs.length || !Array.isArray(review.components) || !review.components.length) {
     throw Object.assign(new Error("Sprint Leader must provide reviewable scope, approach, components, and evidence references."), { code: "PLAN_DRAFT_INCOMPLETE", statusCode: 409 });
   }
-  return {
+  const content = {
     objective: plan.objective,
     outcome: review.outcome,
     in_scope: planText(review.in_scope),
@@ -26,6 +27,11 @@ export function sprintPlanDraftContent(plan) {
     evidence_refs: review.evidence_refs,
     acceptance_criteria: review.acceptance_criteria
   };
+  assertNoSprintPolicyRequests({ ...content, decision_requests: review.decision_requests ?? [] }, { enforce: true });
+  if (architectureDecisions) {
+    content.architecture_decisions = structuredClone(architectureDecisions);
+  }
+  return content;
 }
 
 // Rejects ticket scope drift between the approved plan and the execution projection.

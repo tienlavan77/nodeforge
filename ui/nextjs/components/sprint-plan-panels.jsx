@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { PanelHeader } from "./agent-panel-header.jsx";
 import { EntityDetailsModal, TicketCard, sortSprintTickets } from "./ticket-detail-modal.jsx";
 import { SprintTicketScope } from "./sprint-ticket-scope.js";
+import { PlanReviewModal } from "./plan-review-modal.jsx";
 
 const PROJECT_ID = "PROJECT-NODEFORGE";
 
@@ -15,6 +16,7 @@ export function SprintPlanDashboard({ dashboard, client, onRefresh, onTicketDele
   const [runEvents, setRunEvents] = useState([]);
   const runStreamRef = useRef(null);
   const [viewSprint, setViewSprint] = useState(null);
+  const [reviewSprint, setReviewSprint] = useState(null);
   const [viewState, setViewState] = useState("idle");
   const [deleteMessage, setDeleteMessage] = useState("");
   const [highlightSprint, setHighlightSprint] = useState(null);
@@ -103,10 +105,12 @@ export function SprintPlanDashboard({ dashboard, client, onRefresh, onTicketDele
       {!(collapsedSprints[sprint.id] ?? defaultCollapsed) && <div className="sprint-ticket-list" aria-label={`Tasks in ${sprint.id}`}>
         {sprint.tasks?.length ? sortSprintTickets(sprint.tasks).map((ticket) => <TicketCard key={ticket.id} ticket={{ ...ticket, sprint_id: sprint.id }} client={client} projectId={dashboard.project_id} onRefresh={onRefresh} onDeleted={onTicketDeleted} />) : <p className="dashboard-state">No tasks in this sprint.</p>}
       </div>}
-      <div className="sprint-actions"><button className="sprint-view-button small" onClick={() => handleView(sprint.id)}>{viewSprint?.id === sprint.id && viewState === "ready" ? "Hide" : "View"}</button><button className="sprint-delete-button small" onClick={() => handleDelete(sprint.id)} disabled={Boolean(runningId) || sprint.status === "done"}>Delete</button><button className={`sprint-run-button small ${runningId === sprint.id ? "is-running" : ""}`} onClick={() => handleRun(sprint.id)} disabled={Boolean(runningId) || sprint.status === "done"}>{runningId === sprint.id ? "Running…" : "Run"}</button></div>
+      {(sprint.decision_requests ?? []).length > 0 && <p>Quyết định cần duyệt: {sprint.decision_requests.length} · {sprint.plan_status === "approved" ? "Owner đã chốt" : "Chờ owner chọn phương án"}</p>}
+      <div className="sprint-actions"><button className="sprint-view-button small" onClick={() => handleView(sprint.id)}>{viewSprint?.id === sprint.id && viewState === "ready" ? "Hide" : "View"}</button>{sprint.plan_id && sprint.plan_status === "awaiting_human_approval" && <button type="button" onClick={() => setReviewSprint(sprint.id)}>Review & approve</button>}<button className="sprint-delete-button small" onClick={() => handleDelete(sprint.id)} disabled={Boolean(runningId) || sprint.status === "done"}>Delete</button><button className={`sprint-run-button small ${runningId === sprint.id ? "is-running" : ""}`} onClick={() => handleRun(sprint.id)} disabled={Boolean(runningId) || sprint.status === "done" || sprint.plan_status === "awaiting_human_approval"}>{runningId === sprint.id ? "Running…" : "Run"}</button></div>
       {viewSprint?.id === sprint.id && <EntityDetailsModal title={viewSprint.id} state={viewState} onClose={() => { setViewState("idle"); setViewSprint(null); }}>{viewState === "ready" && <><p className="sprint-objective">{viewSprint.objective}</p><SprintTicketScope sprint={viewSprint} /><div className="sprint-ticket-table">{(viewSprint.tickets ?? []).map((ticket) => <article key={ticket.id}><strong>{ticket.id}</strong><span>{ticket.title}</span><small>{ticket.priority ?? "normal"}</small></article>)}</div><h3>Exit Criteria</h3><ul>{(viewSprint.exit_criteria ?? []).map((item) => <li key={item}>{item}</li>)}</ul></>}</EntityDetailsModal>}
     </article>)}
     {runMessage && <p className="sprint-run-message" role="status" aria-live="polite">{runMessage}</p>}
+    {reviewSprint && <PlanReviewModal key={reviewSprint} client={client} projectId={dashboard.project_id ?? PROJECT_ID} sprintId={reviewSprint} onClose={() => setReviewSprint(null)} onChanged={async () => { setReviewSprint(null); await onRefresh?.(); }} />}
     {runEvents.length > 0 && <div className="sprint-run-events" role="log" aria-label="Sprint run events">{runEvents.map((event, index) => <div key={`${index}-${event}`}><strong>Run</strong> {event}</div>)}</div>}
     {deleteMessage && <p className="sprint-run-message" role="status">{deleteMessage}</p>}
   </section>;

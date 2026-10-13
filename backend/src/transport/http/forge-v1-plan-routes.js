@@ -34,7 +34,7 @@ export async function routePlan({ method, parts, body, projectId, expectedProjec
       if (!planOwnerAuth?.verify) throw Object.assign(new ConfigurationError("Plan owner authentication is unavailable."), { code: "PLAN_OWNER_AUTH_UNCONFIGURED", statusCode: 503 });
       const approverId = planOwnerAuth.verify(headers);
       if (markdownPlanStore?.list?.().some((item) => item.plan_id === parts[1])) return { status: 201, body: await markdownPlanStore.decide({ planId: parts[1], revision: Number(parts[2]), sha256: body.sha256, decision: body.decision, approverId, comments: body.comments ?? null, decisionId: body.decision_id }) };
-      return { status: 201, body: await planStore.decide({ planId: parts[1], revision: Number(parts[2]), sha256: body.sha256, sourceSha256: body.source_sha256 ?? null, decision: body.decision, approverId, actorRole: "project_owner", comments: body.comments ?? null, decisionId: body.decision_id }) };
+      return { status: 201, body: await planStore.decide({ planId: parts[1], revision: Number(parts[2]), sha256: body.sha256, sourceSha256: body.source_sha256 ?? null, decision: body.decision, approverId, actorRole: "project_owner", comments: body.comments ?? null, selections: body.selections ?? {}, decisionId: body.decision_id }) };
     }
   }
   if (parts[0] === "sprints" && parts[1] === "registry") {

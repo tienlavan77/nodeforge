@@ -2,6 +2,7 @@
 import { ConfigurationError } from "../../shared/errors.js";
 import { toConversationChatHistory } from "../../agents/agent-contract.js";
 import { unavailable } from "./forge-v1-router-utils.js";
+import { routeArchitectureClarifications } from "./forge-v1-clarification-routes.js";
 
 // Creates conversation endpoints and checkpoint projections for the Forge API.
 export function createForgeV1ConversationRoutes({ conversationCrudService, conversationAuditHistoryService, markdownResponseFileService, ownerChatService, ownerExecutionControl, listResumableCheckpoints, planOwnerAuth }) {
@@ -9,6 +10,7 @@ export function createForgeV1ConversationRoutes({ conversationCrudService, conve
 
   // Routes conversation CRUD, history, and owner messages.
   async function routeConversation({ method, parts, url, body, projectId, headers }) {
+    if (parts[0] === "conversations" && parts[2] === "plan-clarifications") return routeArchitectureClarifications({ method, parts, body, projectId, headers, conversation: conversationCrudService?.get?.(parts[1]), ownerChatService, planOwnerAuth });
     if (parts[0] === "conversations" && parts[2] === "executions" && ownerExecutionControl) {
       const conversation = conversationCrudService?.get?.(parts[1]);
       if (!conversation || !projectId || conversation.project_id !== projectId) throw Object.assign(new ConfigurationError("Conversation not found."), { statusCode: 404 });
@@ -69,13 +71,13 @@ export function createForgeV1ConversationRoutes({ conversationCrudService, conve
         if (conversation.status !== "active") throw Object.assign(new ConfigurationError("Conversation is not active."), { statusCode: 409, code: "CONVERSATION_NOT_ACTIVE" });
         conversationAgentId = conversation.agent_id;
       }
-      const ownerId = /^\/approve\s+\S+\s*$/i.test(String(body.payload?.text ?? "")) ? planOwnerAuth?.verify(headers) : null;
-      return { status: 202, body: await ownerChatService.submit({ ...body, project_id: projectId, conversation_id: parts[1], ...(ownerId ? { approved_owner_id: ownerId } : {}), ...(conversationAgentId ? { agent_id: conversationAgentId } : {}) }) };
+      const ownerId = /^\/(?:approve|plan-continue)\s+\S+\s*$/i.test(String(body.payload?.text ?? "")) ? planOwnerAuth?.verify(headers) : null;
+      return { status: 202, body: await ownerChatService.submit({ ...body, project_id: projectId, conversation_id: parts[1], approved_owner_id: ownerId ?? undefined, ...(conversationAgentId ? { agent_id: conversationAgentId } : {}) }) };
     }
     if (method === "POST" && parts.length === 1 && parts[0] === "conversations") {
       if (!ownerChatService?.submit) throw unavailable("Conversation");
-      const ownerId = /^\/approve\s+\S+\s*$/i.test(String(body.payload?.text ?? "")) ? planOwnerAuth?.verify(headers) : null;
-      return { status: 202, body: await ownerChatService.submit({ ...body, project_id: body.project_id ?? projectId, conversation_id: body.conversation_id ?? body.conversationId, ...(ownerId ? { approved_owner_id: ownerId } : {}) }) };
+      const ownerId = /^\/(?:approve|plan-continue)\s+\S+\s*$/i.test(String(body.payload?.text ?? "")) ? planOwnerAuth?.verify(headers) : null;
+      return { status: 202, body: await ownerChatService.submit({ ...body, project_id: body.project_id ?? projectId, conversation_id: body.conversation_id ?? body.conversationId, approved_owner_id: ownerId ?? undefined }) };
     }
     return null;
   }

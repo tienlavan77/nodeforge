@@ -9,7 +9,7 @@ function fixture() {
   const plan = { plan_id: "PLAN-A", revision: 2, sha256: "a".repeat(64), project_id: "PROJECT-A", format: "markdown", conversation_id: "ARCHIVE-CONVERSATION", decision: { approver_id: "OWNER" } };
   const store = { list: () => [plan], assertApproved: async ({ revision, sha256 }) => { assert.equal(revision, plan.revision); assert.equal(sha256, plan.sha256); return plan; }, decide: async () => { counts.decisions += 1; return {}; } };
   const context = { method: "POST", parts: ["plans", plan.plan_id, "2", "handoff"], projectId: "PROJECT-A", expectedProjectId: "PROJECT-A", body: { project_id: "PROJECT-A", sha256: plan.sha256 }, headers: { authorization: "Bearer valid" },
-    planOwnerAuth: { verify: (headers) => { if (headers.authorization !== "Bearer valid") throw Object.assign(new Error("unauthorized"), { code: "PLAN_OWNER_UNAUTHORIZED" }); return "OWNER"; } }, planStore: { list: () => [] }, markdownPlanStore: store,
+    planOwnerAuth: { verify: (headers) => { if (headers.authorization !== "Bearer valid") throw Object.assign(new Error("unauthorized"), { code: "PLAN_OWNER_UNAUTHORIZED" }); return "OWNER"; } }, planStore: { list: () => [], getRevision: async () => ({ status: "approved" }) }, markdownPlanStore: store,
     sprintRegistry: { get: () => ({ status: "planned", version: 3 }), setStatus: async ({ expectedVersion }) => { assert.equal(expectedVersion, 3); counts.ready += 1; return { status: "ready" }; } },
     handoffApprovedPlan: async ({ plan: artifact, conversationId }) => { assert.equal(artifact, plan); assert.equal(conversationId, "ARCHIVE-CONVERSATION"); counts.handoff += 1; return { status: "handed_to_sprint_leader", sprint_id: "SPRINT-A" }; } };
   return { context, counts, plan, store };
@@ -50,6 +50,16 @@ test("handoff-in-progress does not claim Sprint readiness", async () => {
   const result = await routePlan(context);
   assert.equal(result.body.status, "handoff_in_progress");
   assert.equal(result.body.sprint_status, undefined);
+  assert.equal(counts.ready, 0);
+});
+
+test("pending child policy approval completes drafting without making Sprint ready", async () => {
+  const { context, counts } = fixture();
+  context.planStore.getRevision = async () => ({ status: "awaiting_human_approval", decision_requests: [{ id: "STORAGE" }] });
+  const result = await routePlan(context);
+  assert.equal(result.body.status, "handed_to_sprint_leader");
+  assert.equal(result.body.sprint_status, "planned");
+  assert.equal(result.body.run_started, false);
   assert.equal(counts.ready, 0);
 });
 

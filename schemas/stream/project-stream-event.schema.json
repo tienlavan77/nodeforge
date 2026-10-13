@@ -42,7 +42,7 @@
         "agent.status_changed",
         "agent.checkpoint.updated",
         "agent.activity",
-        "stream.error", "plan.request.generating", "plan.request.persisted", "plan.request.failed"
+        "stream.error", "plan.request.generating", "plan.request.awaiting_owner_decisions", "plan.request.persisted", "plan.request.failed"
       ]
     },
     "schema_version": {
@@ -75,6 +75,7 @@
   },
   "allOf": [
     {"if": {"properties": {"event_type": {"const": "plan.request.generating"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/plan_generating_payload"}}}},
+    {"if": {"properties": {"event_type": {"const": "plan.request.awaiting_owner_decisions"}}}, "then": {"properties": {"payload": {"$ref": "architecture-clarification-waiting.schema.json"}}}},
     {"if": {"properties": {"event_type": {"const": "plan.request.persisted"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/plan_persisted_payload"}}}},
     {"if": {"properties": {"event_type": {"const": "plan.request.failed"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/plan_failed_payload"}}}},
     {"if": {"properties": {"event_type": {"const": "stream.connected"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/connected_payload"}}}},

@@ -1,6 +1,9 @@
 // Provides completion reporting for governed agent ticket work.
 import { ConfigurationError } from "../shared/errors.js";
 import { completeNodeReportEvidence } from "./node-report-evidence.js";
+import { assertCoderCoverage } from "../modules/supervisor/completion-report-service.js";
+import { matchesBrowserEvidence } from "../modules/supervisor/browser-verification-evidence.js";
+import { hasOwnerDecisionEvidence } from "../modules/governance/plan-decision-requests.js";
 
 const error = (code, message, details = {}) => Object.assign(new ConfigurationError(message), { code, details });
 
@@ -29,9 +32,13 @@ export function createReportDoneTool({ reportService, verificationService, revie
         assertExplanation(input, artifact);
         input.acceptance_criteria ??= [...(ticket.acceptance_criteria ?? [])];
         validateGovernedScope(input, artifact);
+        assertCoderCoverage(input.acceptance_coverage);
         await reviewFindings.recordCoderReport({ report: input, artifact, idempotencyKey: `${artifact.artifact_id}:report` });
       }
-      else input.acceptance_coverage = assertAcceptanceCoverage(input, artifact, ticket);
+      else {
+        input.acceptance_coverage = assertAcceptanceCoverage(input, artifact, ticket);
+        assertCoderCoverage(input.acceptance_coverage);
+      }
       context.verify_result = { status: "passed", ready_for_review: true, artifact_id: artifact.artifact_id, commit_id: artifact.commit_sha };
     }
     if (typeof input.summary !== "string" || !input.summary.trim()) throw error("INPUT_INVALID", "Report summary is required.");
@@ -99,10 +106,16 @@ function assertAcceptanceCoverage(input, artifact, ticket) {
     const status = entry.status ?? "verified";
     const criterion = criteria[index];
     if (status === "verified") {
+      if (entry.command_kind === "human") {
+        if (!ticket.verification_plan?.some((step) => step.kind === "human" && step.criterion_ids?.includes(`AC-${index + 1}`)) || !hasOwnerDecisionEvidence(ticket, `AC-${index + 1}`)) throw error("ACCEPTANCE_COVERAGE_MISSING", "Human evidence requires an exact owner-approved plan decision.");
+        normalized.push({ ...entry, criterion_id: `AC-${index + 1}`, criterion, status });
+        continue;
+      }
       if (!entry.command_kind) throw error("ACCEPTANCE_COVERAGE_MISSING", `Verified criterion needs a command: ${criterion}`, { criterion_id: `AC-${index + 1}` });
-      if (!/\b(build|lint|typecheck|type check|schema validation|compile|syntax)\b/i.test(criterion) && !["test", "backend_tests"].includes(entry.command_kind)) throw error("ACCEPTANCE_COVERAGE_MISSING", `Behavioral criterion requires a focused test: ${criterion}`, { criterion_id: `AC-${index + 1}` });
+      if (!/\b(build|lint|typecheck|type check|schema validation|compile|syntax)\b/i.test(criterion) && !["test", "backend_tests", "browser"].includes(entry.command_kind)) throw error("ACCEPTANCE_COVERAGE_MISSING", `Behavioral criterion requires a focused test: ${criterion}`, { criterion_id: `AC-${index + 1}` });
       const command = (artifact.commands ?? []).find((item) => item.kind === entry.command_kind && item.exit_code === 0 && (!entry.test_path || item.argv?.includes(entry.test_path)));
       if (!command || (["test", "backend_tests"].includes(entry.command_kind) && !entry.test_path)) throw error("ACCEPTANCE_COVERAGE_MISSING", `No passing command covers criterion: ${criterion}`, { criterion_id: `AC-${index + 1}` });
+      if (entry.command_kind === "browser" && !ticket.verification_plan?.some((step) => step.kind === "browser" && step.criterion_ids?.includes(`AC-${index + 1}`) && matchesBrowserEvidence(step, command.browser_evidence))) throw error("ACCEPTANCE_COVERAGE_MISSING", `No approved browser receipt covers criterion: ${criterion}`, { criterion_id: `AC-${index + 1}` });
     }
     normalized.push({ ...entry, criterion_id: `AC-${index + 1}`, criterion, status, ...(status !== "verified" ? { command_kind: entry.command_kind ?? null, test_path: entry.test_path ?? null } : {}) });
   }

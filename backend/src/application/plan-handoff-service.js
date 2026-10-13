@@ -1,6 +1,7 @@
 // Hands an owner-approved architecture plan to Sprint Leader with a durable replay receipt.
 import { ConfigurationError } from "../shared/errors.js";
 import { assertMarkdownSprintScope, normalizeMarkdownSprintScope } from "../modules/governance/markdown-sprint-scope.js";
+import { planDecisionRequests } from "../modules/governance/plan-decision-requests.js";
 
 // Creates one handoff per approved plan revision while retaining generated drafts across retries.
 export function createPlanHandoffService({ projectId, database, planStore, markdownPlanStore, sprintPlanLeader, sprintOrchestration, sprintRegistry, agentRoleResolver, clock = () => new Date().toISOString() } = {}) {
@@ -85,6 +86,7 @@ export function createPlanHandoffService({ projectId, database, planStore, markd
     if (!scheduled) return false;
     const child = await planStore.getRevision({ planId: scheduled.plan_id, revision: scheduled.plan_revision });
     if (child.proposal_id !== parentKey(approved) || child.sha256 !== scheduled.plan_sha256 || child.file_path !== scheduled.plan_path || child.project_id !== projectId || child.sprint_id !== sprintId) throw fail("PLAN_HANDOFF_CONFLICT", "Registry binding differs from the approved child plan identity.");
+    if (child.status === "awaiting_human_approval" && planDecisionRequests(child.content).length) return true;
     await planStore.assertExecutable({ planId: child.plan_id, revision: child.revision, sha256: child.sha256 });
     return true;
   }

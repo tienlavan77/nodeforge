@@ -32,6 +32,20 @@ test("control API origin configuration remains unchanged", (t) => {
   assert.equal(forgeV1("/projects/PROJECT-A/dashboard", { project: "PROJECT-A" }), "http://node.test:3100/forge/v1/projects/PROJECT-A/dashboard");
 });
 
+test("browser API and SSE use the same-origin proxy on HTTPS and non-default UI ports", (context) => {
+  const previousWindow = globalThis.window;
+  const configured = process.env.NEXT_PUBLIC_NODE_CONTROL_API_URL;
+  context.after(() => { if (previousWindow === undefined) delete globalThis.window; else globalThis.window = previousWindow; if (configured === undefined) delete process.env.NEXT_PUBLIC_NODE_CONTROL_API_URL; else process.env.NEXT_PUBLIC_NODE_CONTROL_API_URL = configured; });
+  delete process.env.NEXT_PUBLIC_NODE_CONTROL_API_URL;
+  for (const origin of ["https://nodeforge.test", "http://127.0.0.1:3000", "https://nodeforge.test:8443"]) {
+    globalThis.window = { location: new URL(origin) };
+    assert.equal(forgeV1("/agents"), `${origin}/forge/v1/agents`);
+    assert.equal(forgeV1("/stream", { project: "PROJECT-A" }), `${origin}/forge/v1/stream?project=PROJECT-A`);
+  }
+  process.env.NEXT_PUBLIC_NODE_CONTROL_API_URL = "https://explicit-api.test/";
+  assert.equal(forgeV1("/agents"), "https://explicit-api.test/forge/v1/agents");
+});
+
 // Exercises the actual UI client against the backend router so dashboard path identity is sufficient end-to-end.
 test("dashboard client reaches Forge router without project query and legacy duplicate remains accepted", async (t) => {
   const calls = [];
