@@ -42,12 +42,12 @@ test("Coding headers stay column-local and the agent list fits one, two and thre
     import {createRoot} from 'react-dom/client';
     import {CodingWorkspaceMonitor} from './components/coding-workspace-monitor.jsx';
     import {PROJECT_ID} from './lib/home-page-constants.js';
-    window.gitProjects=[]; window.closed=[];
+    window.gitProjects=[]; window.closedPanels=[];
     const client={getGitStatus:async(projectId)=>{window.gitProjects.push(projectId);return null},listPlans:async()=>[],listPlanRequests:async()=>[]};
     const panels=Array.from({length:7},(_,index)=>({key:'panel-'+index,agentId:'coder-'+index,projectId:PROJECT_ID}));
     const agents=panels.map(panel=>({agent_id:panel.agentId,project_id:PROJECT_ID,role:'coder',name:panel.agentId,status:'idle'}));
     const activities=panels.flatMap(panel=>Array.from({length:30},(_,index)=>({event_type:'agent.activity',project_id:PROJECT_ID,payload:{agent_id:panel.agentId,summary:'Activity '+index+' '+ 'Long workspace activity content '.repeat(8),tool_name:'read_file'}})));
-    createRoot(document.getElementById('root')).render(<div className="claude-home-shell coding-workspace-shell"><aside className="conversation-sidebar is-collapsed"/><CodingWorkspaceMonitor projectId={PROJECT_ID} client={client} agentPanelRegistry={{panels,activity:{},sourceStatus:'connected'}} agentDirectory={agents} agentActivities={activities} onAgentPanelClose={(projectId,agentId)=>window.closed.push({projectId,agentId})}/></div>);
+    createRoot(document.getElementById('root')).render(<div className="claude-home-shell coding-workspace-shell"><aside className="conversation-sidebar is-collapsed"/><CodingWorkspaceMonitor projectId={PROJECT_ID} client={client} agentPanelRegistry={{panels,activity:{},sourceStatus:'connected'}} agentDirectory={agents} agentActivities={activities} onAgentPanelClose={(projectId,agentId)=>window.closedPanels.push({projectId,agentId})}/></div>);
   `, resolveDir: join(process.cwd(), "ui/nextjs"), loader: "jsx" }, bundle: true, jsx: "automatic", write: false, format: "iife", platform: "browser" });
   const styles = await readFile(new URL("../app/styles/workspace-monitors.css", import.meta.url), "utf8");
   const gitStyles = await readFile(new URL("../app/styles/responsive-workspace.css", import.meta.url), "utf8");
@@ -111,7 +111,7 @@ test("Coding headers stay column-local and the agent list fits one, two and thre
       const rect=last.getBoundingClientRect();return rect.bottom <= column.getBoundingClientRect().bottom && rect.top >= column.querySelector('.coding-workspace-column-header').getBoundingClientRect().bottom;
     })()`), true, "last activity can be read below the header");
     await page.click("document.querySelector('.coding-agent-monitor:last-child button')");
-    assert.equal(await page.evaluate("window.closed.at(-1).agentId"), "coder-6");
+    assert.equal(await page.evaluate("window.closedPanels.at(-1).agentId"), "coder-6");
     assert.equal(await page.evaluate(`(() => {
       const button=document.querySelector('.coding-agent-monitor:last-child button');const rect=button.getBoundingClientRect();
       return document.elementFromPoint(rect.x+rect.width/2,rect.y+rect.height/2)===button;
