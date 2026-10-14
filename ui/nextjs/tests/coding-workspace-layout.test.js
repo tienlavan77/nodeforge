@@ -11,7 +11,7 @@ const monitor = await readFile(new URL("../components/coding-workspace-monitor.j
 // Read individual CSS declarations so layout assertions do not depend on declaration order.
 function declarations(selector) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const body = styles.match(new RegExp(`${escaped}\\s*\\{([^}]+)\\}`))?.[1];
+  const body = styles.match(new RegExp(`^${escaped}\\s*\\{([^}]+)\\}`, "m"))?.[1];
   assert.ok(body, `Missing rule: ${selector}`);
   return Object.fromEntries(body.split(";").filter((entry) => entry.includes(":")).map((entry) => {
     const separator = entry.indexOf(":");
