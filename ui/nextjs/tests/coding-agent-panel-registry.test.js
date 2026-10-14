@@ -228,3 +228,4 @@ test("AC-10: Sprint Plan component contracts and Coding ingress wiring remain in
   assert.match(page, /closeCodingAgentPanel\(current,\s*projectId,\s*agentId\)/);
   assert.match(page, /onAgentPanelClose\s*=\s*\{onAgentPanelClose\}/);
 });
+
