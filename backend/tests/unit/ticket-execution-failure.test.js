@@ -4,10 +4,10 @@ import test from "node:test";
 import { handleTicketExecutionFailure } from "../../src/modules/supervisor/ticket-execution-failure.js";
 
 // Runs the terminal failure handler against an existing Coder checkpoint.
-async function runFailure(code, message) {
+async function runFailure(code, message, status = "blocked") {
   const published = [];
   const releases = [];
-  let checkpoint = { task_id: "TICKET-1", status: "blocked", last_completed_turn: 37, changed_paths: ["ui/nextjs/app/page.jsx"], failure: { code, message } };
+  let checkpoint = { task_id: "TICKET-1", status, last_completed_turn: 37, changed_paths: ["ui/nextjs/app/page.jsx"], failure: { code, message } };
   await handleTicketExecutionFailure({
     error: Object.assign(new Error(message), { code }),
     failedRequest: { task_id: "TICKET-1", request_id: "REQ-1", correlation_id: "CORR-1", payload: {} },
@@ -37,4 +37,15 @@ test("scope failure becomes a resumable failed run", async () => {
   assert.equal(result.published[0].type, "task.failed");
   assert.equal(result.published[0].payload.retryable, true);
   assert.equal(result.checkpoint.status, "failed");
+});
+
+// Frees a partial Coder's agent without discarding the checkpoint needed by the next RUN.
+test("in-progress execution failure releases occupancy and preserves resume history", async () => {
+  const result = await runFailure("TICKET_STOPPED", "Ticket stopped by owner.", "in_progress");
+  assert.equal(result.checkpoint.status, "failed");
+  assert.equal(result.checkpoint.last_completed_turn, 37);
+  assert.deepEqual(result.checkpoint.changed_paths, ["ui/nextjs/app/page.jsx"]);
+  assert.equal(result.releases.length, 1);
+  assert.equal(result.releases[0].reason, "agent_failed_resumable");
+  assert.equal(result.published[0].type, "task.failed");
 });

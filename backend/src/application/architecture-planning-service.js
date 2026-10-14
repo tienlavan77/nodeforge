@@ -1,7 +1,9 @@
 // Coordinates Architecture discovery, explicit owner clarification and source-bound Markdown generation before Sprint handoff.
 import { createHash } from "node:crypto";
 import { createArchitectureClarificationStore } from "./architecture-clarification-store.js";
-import { appendArchitectureDecisions, architectureSelections, decisionError, readArchitectureDecisions, validateArchitectureQuestions } from "../modules/governance/architecture-owner-decisions.js";
+import { appendArchitectureDecisions, architectureSelections, decisionError, readArchitectureDecisions } from "../modules/governance/architecture-owner-decisions.js";
+import { parseArchitectureQuestions } from "../modules/governance/architecture-question-response.js";
+import { parseArchitecturePlan } from "../modules/governance/architecture-plan-response.js";
 
 // Creates a resumable planning workflow; owner choices and plan approval remain separate operations.
 export function createArchitecturePlanningService({ projectId, fileService, markdownPlanStore, validateMarkdown, framePath }) {
@@ -15,11 +17,8 @@ export function createArchitecturePlanningService({ projectId, fileService, mark
     if (typeof summary !== "string" || !summary.trim()) throw decisionError("SUMMARY_SOURCE_INVALID", "Planning input must not be empty.");
     if (typeof requestArchitecture !== "function") throw decisionError("ARCHITECTURE_UNAVAILABLE", "Architecture is unavailable.");
     const frame = await fileService.readFile({ path: framePath }).catch((error) => { throw decisionError("PLAN_FRAME_NOT_FOUND", `Architecture rules are unavailable: ${error.code ?? error.name}.`); });
-    const raw = String(await requestArchitecture(`Architecture clarification discovery, not plan generation. Read the source and inspect the repository before deciding what actually needs owner authority. Respect decisions already stated in the source: never ask them again. Decide delegated technical details yourself. Ask only unresolved business, storage/privacy, lifecycle or scope tradeoffs. Return ONLY JSON {"questions":[{"id":"STORAGE","title":"Question","reason":"Why the owner must decide","options":[{"id":"LOCAL","label":"Option","description":"Concrete policy and tradeoffs"}],"recommended_option_id":"LOCAL"}]}. Each question needs 2-10 alternatives. Use the owner's language. Return {"questions":[]} when no owner decisions are needed. Do not draft a plan, persist files, claim approval or dispatch work.\n\nSource (${sourcePath}):\n${summary}\n\nArchitecture rules:\n${frame}`, conversationId) ?? "").trim();
-    let analysis;
-    try { analysis = JSON.parse(raw.replace(/^```(?:json)?\s*\n?|\n?```$/g, "")); }
-    catch (error) { throw decisionError("ARCHITECTURE_QUESTIONS_INVALID", `Architecture must return structured questions: ${error.name}.`); }
-    const questions = validateArchitectureQuestions(analysis?.questions);
+    const raw = String(await requestArchitecture(`Architecture clarification discovery, not plan generation. Read the source and inspect the repository before deciding what actually needs owner authority. Respect decisions already stated in the source: never ask them again. Decide delegated technical details yourself. Ask only unresolved business, storage/privacy, lifecycle or scope tradeoffs. Return ONLY JSON {"questions":[{"id":"STORAGE","title":"Question","reason":"Why the owner must decide","options":[{"id":"LOCAL","label":"Local storage","description":"Device-local persistence without cross-device sync"},{"id":"SERVER","label":"Server storage","description":"Account-bound persistence with access control and cross-device sync"}],"recommended_option_id":"LOCAL"}]}. Each question needs 2-10 alternatives. Use the owner's language. Return {"questions":[]} when no owner decisions are needed. Do not draft a plan, persist files, claim approval or dispatch work.\n\nSource (${sourcePath}):\n${summary}\n\nArchitecture rules:\n${frame}`, conversationId) ?? "").trim();
+    const questions = parseArchitectureQuestions(raw);
     const session = await sessions.create({ sourcePath, sourceSha256: createHash("sha256").update(summary).digest("hex"), conversationId, questions });
     await sessions.source(session);
     if (questions.length) return waiting(session);
@@ -62,9 +61,10 @@ export function createArchitecturePlanningService({ projectId, fileService, mark
       await save({ status: "generating", process_pid: process.pid, error_code: null });
       const decisions = session.questions.map((question) => ({ question: question.title, reason: question.reason, selected: question.options.find((option) => option.id === session.selections[question.id]), owner_note: session.notes[question.id] ?? "" }));
       const markdown = String(await requestArchitecture(`Based on the source summary and plan frame below, complete repository discovery before drafting. Return only Markdown following the frame; do not return JSON, create files, claim approval, or claim RUN. Every repository fact needs [Evidence: repository/path] or [Source: repository/path] referring to a file you read under backend/, schemas/, ui/, web/, docs/ or workflows/. Include an explicit Repository discovery complete statement and label assumptions or unverified areas. Apply ALL confirmed owner policies consistently to scope, constraints and acceptance criteria. Do not ask these decisions again, contradict them, or turn them into pending owner prerequisites. Decide delegated implementation details yourself. If a genuine unresolved authority conflict makes this impossible, return no plan and explain the conflict instead of inventing approval. Node appends the authoritative owner decision record; do not emit a nodeforge-owner-decisions block.\n\nConfirmed owner decisions:\n${JSON.stringify(decisions)}\n\n## Source Summary (${session.source_path})\n\n${summary}\n\n## Plan Frame (${framePath})\n\n${frame}`, session.conversation_id) ?? "").trim();
-      await validateMarkdown(markdown);
+      const planMarkdown = parseArchitecturePlan(markdown);
+      await validateMarkdown(planMarkdown);
       await sessions.source(session);
-      const plan = await markdownPlanStore.createRevision({ planId: session.plan_id, markdown: appendArchitectureDecisions(markdown, session), summaryPath: session.source_path, summarySha256: session.source_sha256, conversationId: session.conversation_id });
+      const plan = await markdownPlanStore.createRevision({ planId: session.plan_id, markdown: appendArchitectureDecisions(planMarkdown, session), summaryPath: session.source_path, summarySha256: session.source_sha256, conversationId: session.conversation_id });
       const result = resultFor(plan, session);
       await save({ status: "completed", result });
       return result;
@@ -82,5 +82,5 @@ function waiting(session) {
 
 // Returns the persisted plan identity without approving it or launching Sprint Leader.
 function resultFor(plan, session) {
-  return { command: "/plan", status: plan.status, session_id: session.session_id, plan_id: plan.plan_id, revision: plan.revision, sha256: plan.sha256, file_id: plan.plan_id, path: plan.file_path, source_summary_path: session.source_path, source_summary_sha256: session.source_sha256, conversation_id: session.conversation_id, text: `Đã tạo kế hoạch ${plan.plan_id}. Chờ duyệt.`, run_started: false };
+  return { command: "/plan", status: plan.status, session_id: session.session_id, plan_id: plan.plan_id, revision: plan.revision, sha256: plan.sha256, file_id: plan.plan_id, path: plan.file_path, source_summary_path: session.source_path, source_summary_sha256: session.source_sha256, conversation_id: session.conversation_id, text: `Đã tạo plan ${plan.plan_id}. Vào trang Coding để xem và approve plan. Chưa RUN.`, run_started: false };
 }

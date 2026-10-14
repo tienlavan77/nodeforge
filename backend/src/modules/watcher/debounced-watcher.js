@@ -44,6 +44,7 @@ export function createDebouncedWatcher({ rawWatcher, projectId, root, debounceMs
   const pendingDeletes = new Map();
   const pendingAdds = new Map();
   const listeners = Object.keys(RAW_EVENT_TYPES).map((rawType) => [rawType, (path) => schedule(rawType, path)]);
+  listeners.push(["error", reportError]);
   for (const [rawType, listener] of listeners) rawWatcher.on(rawType, listener);
 
   function schedule(rawType, path) {
@@ -53,7 +54,7 @@ export function createDebouncedWatcher({ rawWatcher, projectId, root, debounceMs
     const effectiveType = existing?.rawType === "add" && rawType === "change" ? "add" : rawType;
     const timer = setTimeout(() => {
       pending.delete(path);
-      void handleStableEvent(effectiveType, path);
+      void handleStableEvent(effectiveType, path).catch(reportError);
     }, debounceMs);
     pending.set(path, { rawType: effectiveType, timer });
   }
@@ -142,8 +143,14 @@ export function createDebouncedWatcher({ rawWatcher, projectId, root, debounceMs
     const payload = { path: relativePath(path), operation };
     if (oldPath) payload.old_path = relativePath(oldPath);
     const event = { event_id: createEventId(), type, project_id: projectId, timestamp: clock().toISOString(), payload };
-    validateEvent(event);
-    events.emit("event", event);
+    try { validateEvent(event); events.emit("event", event); }
+    catch (error) { reportError(error); return; }
+  }
+
+  // Reports a failed filesystem event without terminating indexing for other project files.
+  function reportError(error) {
+    if (events.listenerCount("watcher.error")) events.emit("watcher.error", error);
+    else console.error("Project watcher event failed.", error);
   }
 
   function relativePath(path) {

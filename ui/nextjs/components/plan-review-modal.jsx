@@ -33,6 +33,7 @@ export function PlanReviewModal({ client, projectId, sprintId, planId, initialPl
   const [token, setToken] = useState("");
   const [comments, setComments] = useState("");
   const [message, setMessage] = useState("");
+  const [handoffPending, setHandoffPending] = useState(false);
   const [draftText, setDraftText] = useState("");
   const [legacyPlan, setLegacyPlan] = useState(null);
   const [legacyDependencies, setLegacyDependencies] = useState([]);
@@ -130,6 +131,7 @@ export function PlanReviewModal({ client, projectId, sprintId, planId, initialPl
           await client.decidePlan(projectId, plan, decision, token, comments, decisionIds.current.get(key));
         }
         setPlan({ ...current, status: "approved" });
+        setHandoffPending(true);
         const result = await client.handoffPlan(projectId, plan, token);
         if (result.status === "handoff_in_progress") { setMessage("Approved. Sprint Leader handoff is still in progress; Continue handoff checks its receipt."); setState("ready"); return; }
         if (result.status !== "handed_to_sprint_leader") throw new Error("Approved; handoff has not completed. Continue handoff to reconcile its receipt.");
@@ -145,7 +147,7 @@ export function PlanReviewModal({ client, projectId, sprintId, planId, initialPl
       setState("decided");
       await onChanged?.({ decision, plan, handoff });
     } catch (error) { setMessage(error.message); setState("ready"); }
-    finally { submitting.current = false; }
+    finally { submitting.current = false; setHandoffPending(false); }
   }
 
   // Retries sprint readiness after approval when an operational dependency becomes satisfied.
@@ -177,7 +179,7 @@ export function PlanReviewModal({ client, projectId, sprintId, planId, initialPl
       {editing && <><label>Revised plan JSON<textarea rows={18} value={draftText} onChange={(event) => setDraftText(event.target.value)} /></label><div className="settings-actions"><button type="button" disabled={state === "submitting"} onClick={revise}>Save revision</button><button type="button" onClick={() => setEditing(false)}>Cancel edit</button></div></>}
       {!editing && (plan.status === "awaiting_human_approval" || plan.format === "markdown" && plan.status === "approved" && plan.handoff_status !== "completed") && <div className="plan-review-decision-fields"><label>Owner token<input type="password" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)} placeholder="Enter owner token" /></label>{plan.status === "awaiting_human_approval" && <label>Review comments<textarea value={comments} onChange={(event) => setComments(event.target.value)} rows={3} placeholder="Optional note for this decision" /></label>}<div className="settings-actions"><button type="button" disabled={!token || state === "submitting" || !choicesComplete} onClick={() => decide("approved")}>{plan.status === "approved" ? "Continue handoff" : "Approve"}</button>{plan.status === "awaiting_human_approval" && <><button type="button" disabled={!token || state === "submitting"} onClick={() => decide("changes_requested")}>Request changes</button><button type="button" disabled={!token || state === "submitting"} onClick={() => decide("rejected")}>Reject</button></>}</div></div>}
       {plan.status === "approved" && registry && !["ready", "running", "done"].includes(registry.status) && <button type="button" disabled={state === "submitting"} onClick={markReady}>Mark sprint ready</button>}
-      {state === "submitting" && <p role="status">Đang xử lý handoff với Sprint Leader…</p>}
+      {state === "submitting" && <p role="status">{handoffPending ? "Owner đã duyệt plan. Node đang chuyển cho Sprint Leader lập Sprint Plan; chưa RUN ticket." : "Đang lưu hoặc kiểm tra revision/quyết định của owner…"}</p>}
       {message && <p role="status">{message}</p>}
     </div>}
   </EntityDetailsModal>;

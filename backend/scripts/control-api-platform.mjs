@@ -65,7 +65,7 @@ export function createControlApiPlatform({ config, database, indexDb, fileServic
   const internalBus = new EventEmitter();
   const eventPublisher = createEventPublisher({ store: eventStore, subscriptions });
   const taskStore = createTaskStore({ database, projectId });
-  const ticketStatusStore = createTicketStatusStore({ database, projectId, publisher: eventPublisher, onEvent: createTicketStatusLogger({ internalBus, logEvent }) });
+  const ticketStatusStore = createTicketStatusStore({ database, projectId, publisher: eventPublisher, onEvent: createTicketStatusLogger({ internalBus, logEvent }), retryFailedTickets: true });
   const verificationOrchestrator = createVerificationOrchestrator({ projectRoot, projectId });
   const testService = createTestService({ verificationOrchestrator, fileService, projectRoot, publisher: eventPublisher, internalBus, projectLogger: createTestJobLogger({ logEvent }) });
   const history = createHistoryStore({ subscriptions });

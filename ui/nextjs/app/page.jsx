@@ -133,7 +133,7 @@ export default function HomePage() {
   useProjectEventStream({
     client, projectId: PROJECT_ID, activeConversationIdRef, agentDirectoryRef,
     setMessages, setAgentTyping, setWatcherEvents, setWatcherPulseId, setWatcherState,
-    setAgentProcess, setAgentActivities, agentDisplayName, onProjectEvent: noteStreamInterruption
+    setAgentProcess, setAgentActivities, agentDisplayName, onProjectEvent: noteStreamInterruption, onConversationReconnect: loadConversationMessages
   });
 
   // Starts an unsaved chat without creating a conversation or cancelling the previous agent run.
@@ -172,7 +172,11 @@ export default function HomePage() {
   const { sendMessage, editMessage, retryMessage, retryLastMessage } = createHomeMessageHandlers({
     client, projectId: PROJECT_ID, architectureConversationId: null, chatStateKey: CHAT_STATE_KEY,
     selectedArchitectureManager, activeConversationId, setActiveConversationId, onConversationCreated: handleConversationCreated,
-    setChatState, setMessages, setAgentTyping, sendingRef, lastSentRef, writeChatState, messageIntent: MESSAGE_INTENTS.normalChat
+    setChatState, setMessages, setAgentTyping, sendingRef, lastSentRef, writeChatState, messageIntent: MESSAGE_INTENTS.normalChat,
+    onCommandResult: (result) => {
+      planEvents.publishCommandResult(result);
+      if (result?.payload?.plan_id) void loadConversationMessages(result.conversation_id, { preserve: true });
+    }
   });
   const sendQueuedMessage = (text, responseContentType) => {
     followLatest();
@@ -216,8 +220,8 @@ export default function HomePage() {
             <ConversationProjectGit client={client} projectId={PROJECT_ID} />
             <ArchitectureExecutionControls client={client} projectId={PROJECT_ID} conversationId={activeConversationId} executionId={lastSentRef.current?.conversationId === activeConversationId ? lastSentRef.current.correlationId : messages.findLast((message) => message.from === "owner" && message.correlation_id)?.correlation_id} agentTyping={agentTyping} interruptionSignal={architectureInterruption} />
           </div>
-          <ArchitectureClarifications key={streamConversationId ?? "no-conversation"} client={client} projectId={PROJECT_ID} conversationId={streamConversationId} agentId={selectedArchitectureManager?.id} planEvents={planEvents} />
-          <HomeChatComposer key={conversationRevision} onSend={submitMessage} />
+          <ArchitectureClarifications key={streamConversationId ?? "no-conversation"} client={client} projectId={PROJECT_ID} conversationId={streamConversationId} agentId={selectedArchitectureManager?.id} planEvents={planEvents} onPlanCreated={(result) => loadConversationMessages(result.conversation_id, { preserve: true })} />
+          <HomeChatComposer key={conversationRevision} projectId={PROJECT_ID} agentId={selectedArchitectureManager?.id} onSend={submitMessage} />
           <SystemToolMode key={selectedArchitectureManager?.id} agent={selectedArchitectureManager} client={client} projectId={PROJECT_ID} busy={agentTyping} onSaved={(saved) => setAgentDirectory((current) => current.map((agent) => (agent.agent_id ?? agent.id) === saved.agent_id ? { ...agent, ...saved } : agent))} />
         </div>
       </section>

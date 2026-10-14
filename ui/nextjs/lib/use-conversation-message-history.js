@@ -1,6 +1,7 @@
 // Loads earlier owner conversation messages while preserving the reader's scroll position.
 import { useLayoutEffect, useRef, useState } from "react";
 import { mergeConversationRevisions } from "./conversation-message-revisions.js";
+import { reconcileConversationHistory } from "./conversation-history-reconciliation.js";
 
 const PAGE_SIZE = 50;
 
@@ -31,32 +32,36 @@ export function useConversationMessageHistory({ client, projectId, chatMessagesR
   }, [messages, chatMessagesRef]);
 
   // Loads the newest page and resets the cursor when the owner changes conversations.
-  async function loadConversationMessages(conversationId) {
+  async function loadConversationMessages(conversationId, { preserve = false } = {}) {
+    if (preserve && conversationRef.current !== conversationId) return;
     conversationRef.current = conversationId;
     const revision = ++loadRevisionRef.current;
     loadingRef.current = null;
-    cursorRef.current = null;
-    restoreRef.current = null;
-    followLatestRef.current = true;
-    setMessages([]);
-    setHasOlder(false);
+    if (!preserve) {
+      cursorRef.current = null;
+      restoreRef.current = null;
+      followLatestRef.current = true;
+      setMessages([]);
+      setHasOlder(false);
+    }
     setOlderLoading(false);
     setHistoryError("");
-    setMessagesLoading(Boolean(conversationId));
+    if (!preserve) setMessagesLoading(Boolean(conversationId));
     if (!conversationId) return;
     try {
       const result = await client.getConversationMessages({ projectId, conversationId, limit: PAGE_SIZE, order: "desc" });
       if (conversationRef.current !== conversationId || loadRevisionRef.current !== revision) return;
       const items = Array.isArray(result) ? result : result?.items ?? [];
-      cursorRef.current = result?.next_cursor ?? null;
-      setHasOlder(Boolean(cursorRef.current));
+      if (!preserve) {
+        cursorRef.current = result?.next_cursor ?? null;
+        setHasOlder(Boolean(cursorRef.current));
+      }
       setMessages((current) => {
         const history = mergeConversationRevisions(items.slice().reverse().map(toMessage));
-        const existing = new Set(history.map((message) => message.stream_key));
-        return mergeConversationRevisions([...history, ...current.filter((message) => message.pending || !existing.has(message.stream_key))]);
+        return reconcileConversationHistory(current, history);
       });
     } catch (error) {
-      if (conversationRef.current === conversationId && loadRevisionRef.current === revision) { setMessages([]); setHistoryError(error.message); }
+      if (conversationRef.current === conversationId && loadRevisionRef.current === revision) { if (!preserve) setMessages([]); setHistoryError(error.message); }
     } finally {
       if (conversationRef.current === conversationId && loadRevisionRef.current === revision) setMessagesLoading(false);
     }
@@ -120,7 +125,7 @@ export function useConversationMessageHistory({ client, projectId, chatMessagesR
     const declaredType = content && typeof content === "object" ? content.content_type : undefined;
     const contentType = !isAgent ? "text/plain" : declaredType === "text/markdown" || declaredType === "text/plain"
       ? declaredType : declaredType === undefined && content.markdown_provenance === "owner-markdown-opt-in-v1" ? "text/markdown" : "text/plain";
-    return { id: originalId, source_message_id: record.id, conversation_id: record.conversation_id, stream_key: `${isOwner ? "owner" : "agent"}:${originalId}`,
+    return { id: originalId, source_message_id: record.id, correlation_id: record.correlation_id, conversation_id: record.conversation_id, stream_key: `${isOwner ? "owner" : "agent"}:${originalId}`,
       text: String(text ?? ""), content_type: contentType, response_content_type: isOwner && content.response_content_type === "text/markdown" ? "text/markdown" : "text/plain", from: isOwner ? "owner" : record.kind === "failure" || record.kind === "system" ? "system" : "agent",
       nickname: isOwner ? "You" : agentDisplayName(record.agent_id, agentDirectoryRef.current),
       timestamp: record.timestamp ?? new Date().toISOString() };

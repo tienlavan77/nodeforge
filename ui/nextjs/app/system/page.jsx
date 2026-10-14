@@ -128,7 +128,7 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
   useProjectEventStream({
     client, projectId: PROJECT_ID, activeConversationIdRef, agentDirectoryRef, setMessages, setAgentTyping,
     setWatcherEvents, setWatcherPulseId, setWatcherState, setAgentProcess, setAgentActivities,
-    agentDisplayName, onProjectEvent: noteStreamInterruption
+    agentDisplayName, onProjectEvent: noteStreamInterruption, onConversationReconnect: loadConversationMessages
   });
 
   // Starts an unsaved chat without creating a conversation or cancelling the previous agent run.
@@ -210,7 +210,7 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
             <ConversationProjectGit client={client} projectId={PROJECT_ID} />
             <SystemExecutionControls client={client} projectId={PROJECT_ID} conversationId={activeConversationId} executionId={lastSentRef.current?.conversationId === activeConversationId ? lastSentRef.current.correlationId : messages.findLast((message) => message.from === "owner" && message.correlation_id)?.correlation_id} agentTyping={agentTyping} interruptionSignal={systemInterruption} />
           </div>
-          <HomeChatComposer key={conversationRevision} onSend={submitMessage} />
+          <HomeChatComposer key={conversationRevision} projectId={PROJECT_ID} agentId={selectedAgent?.id} onSend={submitMessage} />
           <SystemToolMode key={selectedAgent?.id} agent={selectedAgent} client={client} projectId={PROJECT_ID} busy={agentTyping} onSaved={(saved) => setAgentDirectory((current) => current.map((agent) => (agent.agent_id ?? agent.id) === saved.agent_id ? { ...agent, ...saved } : agent))} />
         </div>
       </section>

@@ -45,6 +45,10 @@ export function createFilesystemWatcher({ root, ignore = [], chokidarOptions = {
     watcher.on(event, (path) => events.emit(event, path));
   }
   watcher.on("ready", () => events.emit("ready"));
+  watcher.on("error", (error) => {
+    if (events.listenerCount("error")) events.emit("error", error);
+    else console.error("Project filesystem watcher failed.", error);
+  });
 
   return Object.freeze({
     ignored: Object.freeze(ignored),

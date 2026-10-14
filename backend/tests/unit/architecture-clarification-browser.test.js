@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createServer } from "node:http";
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { build } from "esbuild";
 import { clarificationFixture, question } from "./architecture-clarification-fixture.js";
@@ -16,16 +16,17 @@ test("Chromium: explicit answers, reload recovery, review and confirm generate e
   const pending = await fixture.start();
   const ownerChatService = createOwnerChatService({ bus: { send() {}, sendFast() {} }, commandService: fixture.command, agentStream: async function* ({ payload }) { yield { text: await fixture.provider(payload.text) }; } });
   const source = `import React,{useState,useEffect} from "./ui/nextjs/node_modules/react/index.js"; import {createRoot} from "./ui/nextjs/node_modules/react-dom/client.js"; import {ArchitectureClarificationCard} from "./ui/nextjs/components/architecture-clarification-card.jsx";
-  function Fixture(){ const [session,setSession]=useState(null); async function refresh(){const result=await fetch('/session');const value=await result.json();setSession(value);window.session=value;} useEffect(()=>{refresh()},[]);
+  function Fixture(){ const [session,setSession]=useState(null); async function refresh(){const result=await fetch('/session');const value=await result.json();setSession(value);window.session=value;} window.refresh=refresh; useEffect(()=>{refresh()},[]);
   async function save(current,selections,notes,token,cancel){const response=await fetch('/session',{method:'PATCH',headers:{'content-type':'application/json',authorization:'Bearer '+token},body:JSON.stringify({version:current.version,source_sha256:current.source_sha256,selections,notes,cancel})});const result=await response.json();if(!response.ok)throw new Error(result.message);setSession(result);window.session=result;return result;}
   async function confirm(current,token){const response=await fetch('/confirm',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+token},body:JSON.stringify({version:current.version,source_sha256:current.source_sha256})});const result=await response.json();if(!response.ok)throw new Error(result.message);await refresh();}
-  return session?<ArchitectureClarificationCard session={session} onSave={save} onConfirm={confirm} onReload={refresh} onReanalyze={refresh} onOpenPlan={()=>{window.planOpened=true}}/>:null; } createRoot(document.getElementById('root')).render(<Fixture/>);`;
+  return session?<ArchitectureClarificationCard session={session} onSave={save} onConfirm={confirm} onReload={refresh} onReanalyze={refresh}/>:null; } createRoot(document.getElementById('root')).render(<Fixture/>);`;
   const compiled = await build({ stdin: { contents: source, resolveDir: process.cwd(), loader: "jsx" }, bundle: true, write: false, jsx: "automatic", alias: { react: join(process.cwd(), "ui/nextjs/node_modules/react") }, define: { "process.env.NODE_ENV": '"production"' } });
-  const css = await readFile("ui/nextjs/app/styles/architecture-clarifications.css", "utf8");
+  const styles = await build({ entryPoints: ["ui/nextjs/app/globals.css"], bundle: true, write: false });
+  const css = styles.outputFiles[0].text;
   const server = createServer(async (request, response) => {
     try {
       if (request.url === "/app.js") { response.setHeader("Content-Type", "application/javascript"); response.end(compiled.outputFiles[0].text); return; }
-      if (request.url === "/") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(`<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>:root{--app-border:#bbb;--app-panel:#fff;--app-surface-alt:#eee;--app-accent:#2563eb}body{font-family:Arial;max-width:760px;margin:24px auto;padding:12px}${css}</style></head><body><div id="root"></div><script src="/app.js"></script></body></html>`); return; }
+      if (request.url === "/") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(`<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}body{min-width:0;max-width:780px;margin:0 auto;padding:12px}.claude-composer-wrap{margin-inline:auto}</style></head><body><div class="claude-composer-wrap"><div id="root" class="architecture-clarifications"></div></div><script src="/app.js"></script></body></html>`); return; }
       response.setHeader("Content-Type", "application/json");
       if (request.method === "GET") { response.end(JSON.stringify(await fixture.command.planningSessions.get(pending.session_id))); return; }
       let text = ""; for await (const chunk of request) text += chunk;
@@ -43,6 +44,39 @@ test("Chromium: explicit answers, reload recovery, review and confirm generate e
   await page.wait("window.session && document.querySelectorAll('input[type=radio]').length === 2");
   assert.equal(await page.evaluate("document.querySelectorAll('input[type=radio]:checked').length"), 0);
   assert.equal(fixture.records.length, 0);
+  await page.click("document.querySelectorAll('.architecture-clarification-option')[1]");
+  await page.wait("document.querySelectorAll('input[type=radio]')[1].checked");
+  assert.deepEqual((await fixture.command.planningSessions.get(pending.session_id)).selections, {});
+  assert.equal(await page.evaluate("document.body.textContent.includes('chưa được lưu')"), true);
+  await page.evaluate("window.refresh()");
+  await page.evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+  assert.equal(await page.evaluate("document.querySelectorAll('input[type=radio]')[1].checked"), true);
+  for (const theme of ["dark", "light"]) {
+    await page.evaluate(`document.documentElement.dataset.theme = '${theme}'`);
+    for (const width of [1280, 375]) {
+      await page.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width === 375 });
+      assert.equal(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), true);
+      assert.equal(await page.evaluate("[...document.querySelectorAll('.architecture-clarification-card, .architecture-clarification-card *')].every(element => getComputedStyle(element).fontSize === '12px')"), true);
+      assert.equal(await page.evaluate("document.querySelector('.architecture-clarification-card').scrollWidth <= document.querySelector('.architecture-clarification-card').clientWidth"), true);
+      assert.equal(await page.evaluate("getComputedStyle(document.querySelector('.architecture-clarification-option:has(input:checked)')).borderTopColor === getComputedStyle(document.querySelector('input[type=radio]')).accentColor"), true);
+      assert.equal(await page.evaluate("getComputedStyle(document.querySelector('textarea')).backgroundColor === getComputedStyle(document.querySelector('input[type=password]')).backgroundColor"), true);
+      const screenshot = await page.send("Page.captureScreenshot", { format: "png" });
+      await writeFile(`.forge/runtime/architecture-clarification-${theme}-${width}.png`, Buffer.from(screenshot.data, "base64"));
+    }
+  }
+  await page.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+  await page.evaluate("document.documentElement.dataset.theme = 'dark'");
+  await page.click("[...document.querySelectorAll('button')].find(control=>control.textContent==='Tiếp theo →')");
+  await page.wait("document.querySelector('legend').textContent.includes('Đóng panel')");
+  await page.click("document.querySelectorAll('.architecture-clarification-option')[0]");
+  await page.wait("document.querySelectorAll('input[type=radio]')[0].checked");
+  await page.click("[...document.querySelectorAll('button')].find(control=>control.textContent==='Xem lại quyết định')");
+  await page.wait("document.querySelector('h4')?.textContent === 'Xem lại quyết định'");
+  assert.equal(await page.evaluate("[...document.querySelectorAll('button')].find(control=>control.textContent==='Xác nhận & tạo plan').disabled"), true);
+  assert.deepEqual((await fixture.command.planningSessions.get(pending.session_id)).selections, {});
+  await page.send("Page.reload");
+  await page.wait("window.session && document.querySelectorAll('input[type=radio]').length === 2");
+  assert.equal(await page.evaluate("document.querySelectorAll('input[type=radio]:checked').length"), 0);
   await page.click("document.querySelector('input[type=password]')"); await page.send("Input.insertText", { text: "TEST-OWNER" });
   await page.click("document.querySelectorAll('input[type=radio]')[1]");
   await page.wait("window.session.selections.STORAGE === 'SERVER'");
@@ -64,6 +98,7 @@ test("Chromium: explicit answers, reload recovery, review and confirm generate e
   assert.equal(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), true);
   await page.click("[...document.querySelectorAll('button')].find(control=>control.textContent==='Xác nhận & tạo plan')");
   await page.wait("window.session.status === 'completed'");
+  assert.equal(await page.evaluate("Boolean(document.querySelector('.architecture-clarification-card'))"), false);
   assert.equal(fixture.records.length, 1);
   assert.equal(fixture.records[0].status, "awaiting_human_approval");
   const decisions = readArchitectureDecisions(fixture.records[0].markdown);
