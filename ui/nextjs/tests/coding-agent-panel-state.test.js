@@ -120,15 +120,17 @@ test("saved identity pairs that are malformed, foreign, or duplicate are dropped
   const restored = readCodingAgentPanelMembership(() => storage, projectId);
   assert.equal(restored.readable, true);
   assert.deepEqual(restored.open.map((entry) => entry.agentId), ["coder-1"]);
-  assert.deepEqual(restored.closed.map((entry) => entry.agentId), ["leader"]);
+  assert.deepEqual(restored.closed.map((entry) => entry.agentId), ["reviewer", "leader"]);
   assert.equal(restored.restoredOpen.length, 1);
 });
 
 test("restore without reopening keeps closures guarded through buffered and markerless activity", () => {
   let registry = deliver(createCodingAgentPanelRegistry(), [started("leader", 1, "run-1")]);
   registry = closeCodingAgentPanel(registry, projectId, "leader");
-  const membership = codingAgentPanelMembership(registry);
-  assert.deepEqual(membership.closed, [[projectId, "leader"]]);
+  const storage = makeStorage();
+  storage.data[codingAgentPanelStateKey(projectId)] = serializeCodingAgentPanelMembership(registry);
+  const membership = readCodingAgentPanelMembership(() => storage, projectId);
+  assert.deepEqual(membership.closed.map((entry) => entry.agentId), ["leader"]);
   const hydrated = hydrateCodingAgentPanelRegistry(createInitialCodingAgentPanelRegistry(), membership, agents);
   assert.equal(hydrated.closed[codingAgentPanelKey(projectId, "leader")], Infinity);
   const buffered = deliver(hydrated, [action("leader", "working", projectId, 5)]);
@@ -143,11 +145,15 @@ test("released restored closures reopen only at a later new-run boundary", () =>
   let registry = deliver(createCodingAgentPanelRegistry(), [started("leader", 1, "run-1")]);
   registry = closeCodingAgentPanel(registry, projectId, "leader");
   const leaderKey = codingAgentPanelKey(projectId, "leader");
-  const membership = codingAgentPanelMembership(registry);
+  const membership = readCodingAgentPanelMembership(() => makeStorage({
+    [codingAgentPanelStateKey(projectId)]: serializeCodingAgentPanelMembership(registry)
+  }), projectId);
   const hydrated = hydrateCodingAgentPanelRegistry(createInitialCodingAgentPanelRegistry(), membership, agents);
-  const released = releaseRestoredPanelClosures(hydrated, { restoredClosed: [leaderKey] });
-  assert.equal(released.closed[leaderKey], 0);
-  assert.equal(deliver(released, [started("leader", 1, "run-1")]).panels.length, 0);
+  const buffered = deliver(hydrated, [started("leader", 1, "run-1")]);
+  assert.equal(buffered.panels.length, 0);
+  const released = releaseRestoredPanelClosures(buffered, membership);
+  assert.equal(released.closed[leaderKey], 1);
+  assert.equal(deliver(released, [{ ...started("leader", 1, "run-1"), event_id: "replay" }]).panels.length, 0);
   const reopened = applyCodingAgentPanelRunPolicy(released, projectId, [started("leader", 2, "run-2")], agents);
   assert.deepEqual(reopened.panels.map((panel) => panel.agentId), ["leader"]);
 });
