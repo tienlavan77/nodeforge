@@ -14,6 +14,7 @@ import { createCodingPlanEvents } from "../../lib/coding-plan-events.js";
 import { PROJECT_ID } from "../../lib/home-page-constants.js";
 import { agentDisplayName } from "../../lib/home-page-watcher-events.js";
 import { createCodingAgentPanelRegistry, updateCodingAgentPanelRegistry, setCodingAgentPanelSource, closeCodingAgentPanel } from "../../lib/coding-agent-panel-registry.js";
+import { createCodingAgentPanelStatePersister, hydrateCodingAgentPanelRegistry, readCodingAgentPanelMembership, releaseRestoredPanelClosures } from "../../lib/coding-agent-panel-state.js";
 
 // Show coding operations without exposing conversation-specific sidebar controls.
 export default function CodingPage() {
@@ -29,6 +30,21 @@ export default function CodingPage() {
   const agentDirectoryRef = useRef([]);
   agentDirectoryRef.current = agents;
   const [agentPanelRegistry, setAgentPanelRegistry] = useState(createCodingAgentPanelRegistry);
+  const panelStateStorage = useCallback(() => (typeof window === "undefined" ? null : window.localStorage), []);
+  const panelPersister = useMemo(() => createCodingAgentPanelStatePersister({
+    getStorage: panelStateStorage,
+    log: (error) => console.error("Unable to persist coding panel presence", error)
+  }), [panelStateStorage]);
+  const restoredPanelMembershipRef = useRef(null);
+  const panelsHydratedRef = useRef(false);
+
+  // Restore saved open/closed presence once before defaults or live run evidence are processed.
+  useEffect(() => {
+    restoredPanelMembershipRef.current = readCodingAgentPanelMembership(panelStateStorage, PROJECT_ID,
+      (error) => console.error("Unable to read coding panel presence", error));
+    setAgentPanelRegistry((current) => hydrateCodingAgentPanelRegistry(current, restoredPanelMembershipRef.current, agentDirectoryRef.current));
+    panelsHydratedRef.current = true;
+  }, [panelStateStorage]);
 
   // Retain working identities at delivery time independently of the shared fifty-action buffer.
   const onProjectEvent = useCallback((event) => {
@@ -40,8 +56,26 @@ export default function CodingPage() {
     setAgentPanelRegistry((current) => setCodingAgentPanelSource(current, status));
   }, []);
   useEffect(() => {
-    setAgentPanelRegistry((current) => updateCodingAgentPanelRegistry(current, PROJECT_ID, [], agents));
+    setAgentPanelRegistry((current) => {
+      let next = updateCodingAgentPanelRegistry(current, PROJECT_ID, [], agents);
+      const membership = restoredPanelMembershipRef.current;
+      if (membership) {
+        next = hydrateCodingAgentPanelRegistry(next, membership, agents);
+        next = releaseRestoredPanelClosures(next, membership);
+        restoredPanelMembershipRef.current = null;
+      }
+      return next;
+    });
   }, [agents]);
+
+  // Persist identity membership only after saved presence is restored so defaults never overwrite storage.
+  useEffect(() => {
+    if (!panelsHydratedRef.current) return;
+    panelPersister.save(PROJECT_ID, agentPanelRegistry);
+  }, [agentPanelRegistry, panelPersister]);
+
+  // Write the latest membership before unmount so navigation preserves the final open/closed set.
+  useEffect(() => () => panelPersister.flush(), [panelPersister]);
 
   // Close only the selected project/agent panel while preserving its same-run closure policy.
   const onAgentPanelClose = useCallback((projectId, agentId) => {
