@@ -21,6 +21,7 @@ export default function CodingPage() {
   const client = useMemo(() => createNodeClient(), []);
   const planEvents = useMemo(() => createCodingPlanEvents(PROJECT_ID), []);
   const [agents, setAgents] = useState([]);
+  const [agentsLoaded, setAgentsLoaded] = useState(false);
   const [openSidebar, setOpenSidebar] = useState(false);
   const [dashboardState, setDashboardState] = useState({ status: "loading", dashboard: null, error: null });
   const dashboardLoader = useMemo(() => createCodingDashboardLoader({ client, projectId: PROJECT_ID, onState: setDashboardState }), [client]);
@@ -43,7 +44,6 @@ export default function CodingPage() {
     restoredPanelMembershipRef.current = readCodingAgentPanelMembership(panelStateStorage, PROJECT_ID,
       (error) => console.error("Unable to read coding panel presence", error));
     setAgentPanelRegistry((current) => hydrateCodingAgentPanelRegistry(current, restoredPanelMembershipRef.current, agentDirectoryRef.current));
-    panelsHydratedRef.current = true;
   }, [panelStateStorage]);
 
   // Retain working identities at delivery time independently of the shared fifty-action buffer.
@@ -56,6 +56,7 @@ export default function CodingPage() {
     setAgentPanelRegistry((current) => setCodingAgentPanelSource(current, status));
   }, []);
   useEffect(() => {
+    if (!agentsLoaded) return;
     setAgentPanelRegistry((current) => {
       let next = updateCodingAgentPanelRegistry(current, PROJECT_ID, [], agents);
       const membership = restoredPanelMembershipRef.current;
@@ -64,9 +65,10 @@ export default function CodingPage() {
         next = releaseRestoredPanelClosures(next, membership);
         restoredPanelMembershipRef.current = null;
       }
+      panelsHydratedRef.current = true;
       return next;
     });
-  }, [agents]);
+  }, [agents, agentsLoaded]);
 
   // Persist identity membership only after saved presence is restored so defaults never overwrite storage.
   useEffect(() => {
@@ -100,6 +102,7 @@ export default function CodingPage() {
     client.getAgents().then((payload) => {
       if (!active) return;
       setAgents(Array.isArray(payload) ? payload : payload?.agents ?? payload?.items ?? []);
+      setAgentsLoaded(true);
     }).catch((error) => console.error("Unable to load coding agents", error));
     void loadWorkspaceMonitor();
     return () => { active = false; dashboardLoader.cancel(); };
