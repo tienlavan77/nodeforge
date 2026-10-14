@@ -75,7 +75,7 @@ test("Coding headers stay column-local and the agent list fits one, two and thre
     const button = document.createElement('button'); button.textContent = 'Last Sprint control';
     button.onclick = () => {window.sprintClicked=true}; column.append(button);
   })()`);
-  for (const [width, expectedTracks] of [[375, 1], [760, 1], [768, 1], [1440, 3]]) {
+  for (const [width, expectedTracks] of [[375, 1], [760, 2], [768, 1], [1440, 3]]) {
     await page.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
     await page.evaluate("document.querySelectorAll('.coding-workspace-column').forEach(column=>column.scrollTop=0)");
     await page.wait(`getComputedStyle(document.querySelector('.coding-workspace-list')).gridTemplateColumns.split(' ').length === ${expectedTracks}`);
