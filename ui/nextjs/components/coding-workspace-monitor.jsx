@@ -5,20 +5,24 @@ import { codingAgentProfile, codingAgentPanelActions, codingAgentPanelStatus } f
 import { SprintPlanDashboard } from "./sprint-plan-panels.jsx";
 import { CodingSprintDashboardState } from "./coding-sprint-dashboard-state.js";
 import { CodingArchitecturePlans } from "./coding-architecture-plans.jsx";
+import { GitStatusIndicator } from "./git-status-indicator.jsx";
 
 // Render the legacy Sprint Plan experience alongside active Coding workspace agents.
 export function CodingWorkspaceMonitor({ planEvents, projectId, dashboard, dashboardState, client, onRefresh, onSprintDeleted, onTicketDeleted, agentActivities = [], agentDirectory = [], onAgentPanelClose, agentPanelRegistry = { panels: [], activity: {}, sourceStatus: "unknown" } }) {
   const panels = agentPanelRegistry.panels.filter((panel) => panel.projectId === projectId);
   return <main className="coding-workspace-monitor" aria-label="Coding workspace monitor">
     <section className="coding-workspace-column coding-sprint-plan" aria-labelledby="coding-sprint-plan-heading">
-      <h1 id="coding-sprint-plan-heading">Sprint Plan</h1>
+      <header className="coding-workspace-column-header"><h1 id="coding-sprint-plan-heading">Sprint Plan</h1></header>
       {projectId && <CodingArchitecturePlans planEvents={planEvents} client={client} projectId={projectId} onHandoffCompleted={onRefresh} />}
       <CodingSprintDashboardState state={dashboardState ?? { status: "ready", dashboard }} onRetry={() => onRefresh?.({ manual: true })}>
         <SprintPlanDashboard dashboard={dashboard} client={client} onRefresh={onRefresh} onSprintDeleted={onSprintDeleted} onTicketDeleted={onTicketDeleted} hideHeading defaultCollapsed />
       </CodingSprintDashboardState>
     </section>
     <section className="coding-workspace-column coding-workspace-agent" aria-labelledby="coding-workspace-agent-heading">
-      <h1 id="coding-workspace-agent-heading">Workspace Agent</h1>
+      <header className="coding-workspace-column-header">
+        <h1 id="coding-workspace-agent-heading">Workspace Agent</h1>
+        <div className="coding-workspace-git-status"><GitStatusIndicator client={client} projectId={projectId} /></div>
+      </header>
       <div className="coding-workspace-list">
         {panels.map((panel) => {
           const profile = codingAgentProfile(agentDirectory, panel.agentId, projectId);
