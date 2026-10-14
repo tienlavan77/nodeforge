@@ -11,9 +11,9 @@ import { ticketAllowedPrefixes } from "./nodeforge-task-scope.js";
 import { COMPLEXITY_FALLBACK, buildCodexTicketPrompt, buildCodexToolTestPrompt, buildToolTicketPrompt, buildToolTestPrompt } from "./nodeforge-task-prompts.js";
 import { assertTicketExecutionCompleted, collectToolCalls, extractFinalAgentReport, sdkToolEvent } from "./nodeforge-task-sdk-events.js";
 import { bindEngineeringTools } from "../../tools/engineering-tool-binding.js";
-import { ENGINEERING_TOOL_NAMES, engineeringToolDefinitions } from "../../tools/engineering-tool-catalog.js";
+import { CODER_TOOL_NAMES, coderToolDefinitions } from "../../tools/engineering-tool-catalog.js";
 
-const CODER_FORGE_TOOL_NAMES = new Set([...ENGINEERING_TOOL_NAMES, "search_code", "run_test", "check_test", "report_done"].map((name) => `mcp__forge__${name}`));
+const CODER_FORGE_TOOL_NAMES = new Set(CODER_TOOL_NAMES.map((name) => `mcp__forge__${name}`));
 
 // Creates SDK executors that keep Claude and Claude Code ticket policies aligned.
 export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger, checkpoints }) {
@@ -40,11 +40,12 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
     const context = runtimeGovernance.createExecutionContext({
       task_id: request.task_id, execution_id: executionId,
       agent_identity: { agent_id: selected.agent_id, agent_name: selected.agent_name, role: selected.role, provider: selected.provider ?? null },
-      capabilities: [...(candidateDiscoveryEnabled ? ["select_code_graph_candidates"] : []), "search_code", "read_file", ...(selected.role === "coder" ? [...ENGINEERING_TOOL_NAMES, "rg_files", "rg_search", "sed_lines"] : []), ...(selected.role === "coder" ? [] : ["Read", "Glob", "Grep"]), "write_diff", "edit_diff", "run_test", "check_test", "git_status", "git_diff", "commit_changes", "report_done"],
+      capabilities: selected.role === "coder" && !labMode ? [...CODER_TOOL_NAMES] : [...(candidateDiscoveryEnabled ? ["select_code_graph_candidates"] : []), "search_code", "read_file", "Read", "Glob", "Grep", "write_diff", "edit_diff", "run_test", "check_test", "git_status", "git_diff", "commit_changes", "report_done"],
       allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, changed_paths: [...resumeState.changedPaths],
       context_budget: { max_bytes: 1000000, max_calls: 12 }, discovery_budget: complexity.discovery_budget,
-      discovery_candidate_calls: complexity.candidate_calls, discovery_search_calls: complexity.search_calls,
-      discovery_read_calls: complexity.read_calls,
+      discovery_candidate_calls: selected.role === "coder" && !labMode ? undefined : complexity.candidate_calls,
+      discovery_search_calls: selected.role === "coder" && !labMode ? undefined : complexity.search_calls,
+      discovery_read_calls: selected.role === "coder" && !labMode ? undefined : complexity.read_calls,
       allow_discovery_escalation: true,
       lifecycle: "RUNNING", audit_context: { correlation_id: request.correlation_id }
     });
@@ -56,9 +57,8 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
     try {
       result = await claudeSdkGateway.execute({
         agentId: selected.agent_id, correlationId: request.correlation_id, cwd: projectRoot, abortSignal: request.abortSignal,
-        options: createClaudeForgeOptions({ mcpServers, allowedTools: forgeSdkToolNames.filter((name) => {
+        options: createClaudeForgeOptions({ mcpServers, allowedTools: (selected.role === "coder" && !labMode ? [...CODER_FORGE_TOOL_NAMES] : forgeSdkToolNames).filter((name) => {
           if (name === "mcp__forge__respond_to_review" || (!candidateDiscoveryEnabled && name === "mcp__forge__select_code_graph_candidates")) return false;
-          if (selected.role === "coder") return CODER_FORGE_TOOL_NAMES.has(name);
           return !["mcp__forge__Read", "mcp__forge__Glob", "mcp__forge__Grep"].includes(name);
         }) }, { effort: complexity.effort, thinking: complexity.thinking }),
         resumeSessionId: resumeState.sessionId,
@@ -111,11 +111,12 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
     const context = runtimeGovernance.createExecutionContext({
       task_id: request.task_id, execution_id: executionId,
       agent_identity: { agent_id: selected.agent_id, agent_name: selected.agent_name, role: selected.role, provider: selected.provider ?? null },
-      capabilities: [...(candidateDiscoveryEnabled ? ["select_code_graph_candidates"] : []), "search_code", "read_file", ...(selected.role === "coder" ? [...ENGINEERING_TOOL_NAMES, "rg_files", "rg_search", "sed_lines"] : ["rg_files", "rg_search", "sed_lines"]), "write_diff", "edit_diff", "run_test", "check_test", "git_status", "git_diff", "commit_changes", "report_done"],
+      capabilities: selected.role === "coder" && !labMode ? [...CODER_TOOL_NAMES] : [...(candidateDiscoveryEnabled ? ["select_code_graph_candidates"] : []), "search_code", "read_file", "rg_files", "rg_search", "sed_lines", "write_diff", "edit_diff", "run_test", "check_test", "git_status", "git_diff", "commit_changes", "report_done"],
       allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, changed_paths: [...resumeState.changedPaths],
       context_budget: { max_bytes: 1000000, max_calls: 12 }, discovery_budget: complexity.discovery_budget,
-      discovery_candidate_calls: complexity.candidate_calls, discovery_search_calls: complexity.search_calls,
-      discovery_read_calls: complexity.read_calls,
+      discovery_candidate_calls: selected.role === "coder" && !labMode ? undefined : complexity.candidate_calls,
+      discovery_search_calls: selected.role === "coder" && !labMode ? undefined : complexity.search_calls,
+      discovery_read_calls: selected.role === "coder" && !labMode ? undefined : complexity.read_calls,
       allow_discovery_escalation: true,
       lifecycle: "RUNNING", audit_context: { correlation_id: request.correlation_id }
     });
@@ -123,7 +124,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
     const checkpointed = checkpointedRegistry({ store: checkpoints, registry: toolRegistry, taskId: request.task_id, targetPath, allowedPrefixes, complexity, selected, correlationId: request.correlation_id, resumeState, labMode: Boolean(labMode) });
     const binding = selected.role === "coder" && !labMode ? bindEngineeringTools({ registry: checkpointed, context: toolContext }) : { registry: checkpointed, context: toolContext };
     const definitions = selected.role === "coder" && !labMode
-      ? [...engineeringToolDefinitions(), searchCodeDefinition, runTestDefinition, checkTestDefinition, reportDoneDefinition]
+      ? coderToolDefinitions()
       : [...(candidateDiscoveryEnabled ? [selectCodeGraphCandidatesDefinition] : []), searchCodeDefinition, readFileDefinition, rgFilesDefinition, rgSearchDefinition, sedLinesDefinition, writeDiffDefinition, editDiffDefinition, runTestDefinition, checkTestDefinition, gitStatusDefinition, gitDiffDefinition, commitChangesDefinition, reportDoneDefinition];
     const forgeToolNames = new Set(definitions.map((definition) => definition.name));
     const codexToolEvents = [];

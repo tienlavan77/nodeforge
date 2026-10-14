@@ -1,5 +1,6 @@
 // Normalizes Claude and Codex SDK events into governed Forge tool results.
 import { ConfigurationError } from "../../shared/errors.js";
+import { engineeringToolName } from "../../tools/engineering-tool-names.js";
 
 // Converts completed Codex SDK MCP events into Forge tool-event records.
 export function sdkToolEvent(event, forgeToolNames) {
@@ -25,7 +26,7 @@ export function sdkToolEvent(event, forgeToolNames) {
 export function assertTicketExecutionCompleted(toolEvents, { labMode = false, missingCode = "TOOL_EXECUTION_FAILED", priorTools = [] } = {}) {
   if (!Array.isArray(toolEvents) || toolEvents.length === 0) throw Object.assign(new ConfigurationError("Agent did not expose Forge tool calls to the session."), { code: missingCode });
   const successful = [...priorTools.filter((name) => typeof name === "string" && name !== "report_done").map((tool) => ({ tool, status: "success" })), ...toolEvents.filter((event) => event.status !== "failed")];
-  const names = successful.map((event) => event.name ?? event.tool);
+  const names = successful.map((event) => engineeringToolName(event.name ?? event.tool));
   const failedReport = [...toolEvents].reverse().find((event) => (event.name ?? event.tool) === "report_done" && event.status === "failed");
   const failedCommit = [...toolEvents].reverse().find((event) => (event.name ?? event.tool) === "commit_changes" && event.status === "failed");
   if (!names.includes("report_done")) {
@@ -108,7 +109,7 @@ function normalizeToolErrorCode(block) {
 
 // Normalizes tool names exposed with or without the Forge MCP prefix.
 function normalizeForgeToolName(name) {
-  return typeof name === "string" ? name.replace(/^mcp__forge__/, "") : null;
+  return typeof name === "string" ? engineeringToolName(name.replace(/^mcp__forge__/, "")) : null;
 }
 
 // Bounds tool diagnostics and redacts potentially large content payloads.

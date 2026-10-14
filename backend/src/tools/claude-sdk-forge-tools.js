@@ -2,7 +2,7 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { claudeFileDefinitions } from "./claude-file-tools.js";
-import { engineeringToolDefinitions } from "./engineering-tool-catalog.js";
+import { coderToolDefinitions } from "./engineering-tool-catalog.js";
 
 const searchCodeInput = {
   query: z.string().min(1),
@@ -90,7 +90,7 @@ export function createForgeSdkMcpServer({ registry, context = {}, includeCommit 
     ["respond_to_review", "Submit a reasoned response to open Reviewer findings; this does not close them.", respondToReviewInput]
   ];
   const definitions = includeEngineeringTools
-    ? [...engineeringToolDefinitions().map(({ name, description, input_schema }) => [name, description, z.fromJSONSchema(input_schema).shape]), ...lifecycleDefinitions.filter(([name]) => ["search_code", "run_test", "check_test", "report_done", "respond_to_review"].includes(name))]
+    ? coderToolDefinitions().map(({ name, description, input_schema }) => [name, description, z.fromJSONSchema(input_schema).shape])
     : lifecycleDefinitions;
 
   const excluded = new Set(excludeTools);

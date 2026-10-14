@@ -41,7 +41,7 @@ export function assertReadNotRepeated(cache, input) {
   if (!path) return;
   const cached = cache?.[readCacheKey(input)];
   if (!cached) return;
-  throw Object.assign(new ConfigurationError(`Repeat read refused: ${path} with this window is unchanged since your earlier read (sha ${String(cached.sha256 ?? "").slice(0, 12)}). Reuse the content and sha256 you already have; do not call read_file again for it. If you edited the file since, that read is already invalidated — otherwise move on to edit_diff, write_diff, run_test, commit_changes, or report_done.`), { code: "READ_REPEATED", tool: "read_file" });
+  throw Object.assign(new ConfigurationError(`Repeat read refused: ${path} with this window is unchanged since your earlier read (sha ${String(cached.sha256 ?? "").slice(0, 12)}). Reuse the content and sha256 you already have; do not call read_file again for it. If you edited the file since, that read is already invalidated — otherwise move on to edit_diff, write_diff, run_check, commit_changes, or report_done.`), { code: "READ_REPEATED", tool: "read_file" });
 }
 
 // Caches a successful read result for repeat-read refusal.

@@ -3,6 +3,7 @@
 // previous execution instead of restarting blind. Only compact turn summaries
 // are persisted; file contents never go through the checkpoint.
 import { ConfigurationError } from "../../shared/errors.js";
+import { engineeringToolName } from "../../tools/engineering-tool-names.js";
 import { assertReadNotRepeated, forgetRead, rememberRead, sanitizeReadCache, snapshotReadCache } from "./ticket-read-cache.js";
 
 const MAX_HISTORY_TURNS = 12;
@@ -22,8 +23,8 @@ export function createResumeState(resume) {
     sessionId: typeof clean?.session_id === "string" ? clean.session_id : null,
     threadId: typeof clean?.thread_id === "string" ? clean.thread_id : null,
     turnCount: Number.isInteger(clean?.last_completed_turn) ? clean.last_completed_turn : 0,
-    completedTools: Array.isArray(clean?.completed_tools) ? [...clean.completed_tools] : [],
-    turnHistory: Array.isArray(clean?.turn_history) ? [...clean.turn_history] : [],
+    completedTools: Array.isArray(clean?.completed_tools) ? clean.completed_tools.map(engineeringToolName) : [],
+    turnHistory: Array.isArray(clean?.turn_history) ? clean.turn_history.map((entry) => ({ ...entry, tool: engineeringToolName(entry.tool) })) : [],
     changedPaths: Array.isArray(clean?.changed_paths) ? [...clean.changed_paths] : [],
     emptyCommitSeen: clean?.empty_commit_seen === true,
     readCache: sanitizeReadCache(clean?.read_cache),
@@ -33,6 +34,7 @@ export function createResumeState(resume) {
 
 // recordTurn - appends a compact turn entry; returns the entry for checkpointing.
 export function recordTurn(state, name, input, result) {
+  name = engineeringToolName(name);
   const entry = {
     turn: state.turnCount + 1,
     tool: name,
@@ -153,6 +155,7 @@ export function buildResumePrompt(prompt, state, meta = {}) {
     : `Tools already completed successfully (do NOT call them again for the same inputs): ${(state.completedTools ?? []).join(", ") || "(none recorded)"}.`;
   return [
     `RESUMED RUN: a previous execution stopped after completing turn ${state.turnCount}.`,
+    "The current tool catalog replaces legacy rg_files/rg_search/sed_lines with list_files/search_text/read_lines. Historical search_code, run_test and check_test entries are receipts only; they are not available in the current Coder catalog. Use search_text for source discovery and run_check for focused checks. Do not repeat completed mutations.",
     state.sessionId ? "Provider session resumed; earlier assistant context may be available, but the worktree is the source of truth." : "No provider session survived; the worktree below is the source of truth.",
     "Completed turns (do NOT repeat these tool calls with the same inputs):",
     history,
