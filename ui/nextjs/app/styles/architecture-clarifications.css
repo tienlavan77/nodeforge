@@ -1,15 +1,45 @@
 /* Presents owner policy questions as readable, responsive Architecture conversation cards. */
-.architecture-clarifications { display: grid; gap: 1rem; max-height: 65vh; overflow-y: auto; padding: 0.5rem; }
-.architecture-clarification-card { border: 1px solid var(--app-border); background: var(--app-panel); border-radius: 12px; padding: 1rem; }
-.architecture-clarification-card h3 { margin-top: 0; }
-.architecture-clarification-card nav, .architecture-clarification-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.75rem 0; }
-.architecture-clarification-card button { padding: 0.4rem 0.7rem; border: 1px solid var(--app-border); border-radius: 6px; background: var(--app-surface-alt); color: inherit; cursor: pointer; }
-.architecture-clarification-card button:disabled { opacity: 0.5; cursor: not-allowed; }
-.architecture-clarification-card button:focus-visible, .architecture-clarification-card input:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
-.architecture-clarification-card [aria-current="step"] { border-color: var(--app-accent); }
-.architecture-clarification-card fieldset { border: 1px solid var(--app-border); margin: 1rem 0; }
-.architecture-clarification-option { display: flex; gap: 0.6rem; padding: 0.75rem; margin: 0.5rem 0; border: 1px solid var(--app-border); border-radius: 8px; cursor: pointer; }
-.architecture-clarification-option span span { display: block; margin-top: 0.3rem; }
-.architecture-clarification-card textarea { display: block; width: 100%; min-height: 4rem; }
-.architecture-clarification-card code { overflow-wrap: anywhere; }
-@media (max-width: 640px) { .architecture-clarification-card { padding: 0.65rem; } .architecture-clarification-card nav button { flex: 1 1 45%; } }
+.architecture-clarification-card, .architecture-clarification-card *, .claude-composer-wrap .architecture-clarifications, .claude-composer-wrap .architecture-clarifications * { font-size: 12px !important; }
+.architecture-clarifications { display: grid; min-width: 0; gap: 12px; max-height: min(52dvh, 560px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--app-button-border) transparent; }
+.architecture-clarifications:has(.architecture-clarification-card) { margin-bottom: 12px; }
+.architecture-clarification-card { min-width: 0; padding: 16px; border: 1px solid var(--app-button-border); border-radius: 14px; background: var(--app-panel); color: var(--app-text); font: inherit; line-height: 1.5; overflow-wrap: anywhere; }
+.architecture-clarification-card h3, .architecture-clarification-card h4 { margin: 0 0 8px; color: var(--app-text); font-weight: 600; letter-spacing: -.01em; }
+.architecture-clarification-card p { margin: 8px 0; color: var(--app-muted); }
+.architecture-clarification-source { padding-bottom: 12px; border-bottom: 1px solid var(--app-border); }
+.architecture-clarification-card code { padding: 2px 4px; border-radius: 4px; background: var(--app-input); color: var(--app-text); overflow-wrap: anywhere; }
+.architecture-clarification-token, .architecture-clarification-notes { display: grid; min-width: 0; gap: 6px; margin-top: 12px; color: var(--app-muted); }
+.architecture-clarification-card input[type="password"], .architecture-clarification-card textarea { box-sizing: border-box; width: 100%; min-width: 0; padding: 9px 11px; border: 1px solid var(--app-button-border); border-radius: 8px; background: var(--app-input); color: var(--app-text); font: inherit; line-height: 1.5; }
+.architecture-clarification-card input::placeholder, .architecture-clarification-card textarea::placeholder { color: var(--app-muted); }
+.architecture-clarification-card textarea { min-height: 76px; resize: vertical; }
+.architecture-clarification-card nav { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0; }
+.architecture-clarification-card button { max-width: 100%; min-height: 34px; padding: 7px 10px; border: 1px solid var(--app-button-border); border-radius: 7px; background: var(--app-button-bg); color: var(--app-button-text); font: inherit; line-height: 1.4; text-align: left; white-space: normal; overflow-wrap: anywhere; cursor: pointer; }
+.architecture-clarification-card button:hover:not(:disabled) { border-color: var(--app-accent); background: color-mix(in srgb, var(--app-accent) 12%, var(--app-button-bg)); }
+.architecture-clarification-card button:disabled { opacity: .5; cursor: not-allowed; }
+.architecture-clarification-card :is(button, input, textarea):focus-visible { outline: 2px solid var(--app-accent); outline-offset: 3px; }
+.architecture-clarification-card nav button { flex: 1 1 180px; background: transparent; color: var(--app-muted); }
+.architecture-clarification-card nav [aria-current="step"] { border-color: var(--app-accent); background: color-mix(in srgb, var(--app-accent) 10%, var(--app-panel)); color: var(--app-text); }
+.architecture-clarification-card fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.architecture-clarification-card legend { width: 100%; padding: 0; color: var(--app-text); font-weight: 600; }
+.architecture-clarification-option { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: start; gap: 10px; margin: 8px 0; padding: 12px; border: 1px solid var(--app-border); border-radius: 10px; background: var(--app-input); cursor: pointer; }
+.architecture-clarification-option:hover { border-color: var(--app-button-border); }
+.architecture-clarification-option:has(input:checked) { border-color: var(--app-accent); background: color-mix(in srgb, var(--app-accent) 10%, var(--app-input)); }
+.architecture-clarification-option:focus-within { outline: 2px solid var(--app-accent); outline-offset: 2px; }
+.architecture-clarification-option input[type="radio"] { width: 16px; height: 16px; margin: 3px 0 0; accent-color: var(--app-accent); cursor: pointer; }
+.architecture-clarification-option > span { min-width: 0; }
+.architecture-clarification-option strong { color: var(--app-text); font-weight: 600; }
+.architecture-clarification-description { display: block; margin-top: 5px; color: var(--app-muted); }
+.architecture-clarification-recommendation { display: inline-block; margin: 0 0 0 6px; padding: 1px 6px; border: 1px solid var(--app-button-border); border-radius: 5px; background: var(--app-button-bg); color: var(--app-accent); font-weight: 500; }
+.architecture-clarification-review > p { padding: 10px 12px; border: 1px solid var(--app-border); border-radius: 8px; background: var(--app-input); }
+.architecture-clarification-review strong { color: var(--app-text); }
+.architecture-clarification-review button { margin: 6px 0 0 6px; }
+.architecture-clarification-card :is([role="status"], [role="alert"]) { padding: 10px 12px; border-left: 2px solid var(--app-accent); border-radius: 0 7px 7px 0; background: var(--app-surface-alt); color: var(--app-text); }
+.architecture-clarification-card [role="alert"] button { margin-top: 8px; }
+.architecture-clarification-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 14px; padding: 12px 0 0; border-top: 1px solid var(--app-border); background: var(--app-panel); }
+.architecture-clarification-actions .architecture-clarification-primary { margin-left: auto; border-color: var(--app-accent); background: color-mix(in srgb, var(--app-accent) 15%, var(--app-button-bg)); color: var(--app-text); font-weight: 600; }
+@media (max-width: 640px) {
+  .architecture-clarification-card { padding: 12px; border-radius: 12px; }
+  .architecture-clarification-card nav button { flex-basis: 100%; }
+  .architecture-clarification-option { padding: 10px; }
+  .architecture-clarification-actions button { flex: 1 1 120px; text-align: center; }
+  .architecture-clarification-actions .architecture-clarification-primary { flex-basis: 100%; margin-left: 0; }
+}

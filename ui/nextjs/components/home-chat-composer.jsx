@@ -1,27 +1,22 @@
 "use client";
 // Keeps the project chat draft responsive and lets message actions load text for editing.
 
-import { useEffect, useRef, useState } from "react";
+import { createElement, useEffect, useRef, useState } from "react";
+import { appendConversationComposerHistory, conversationComposerHistoryKey, readConversationComposerHistory, saveConversationComposerHistory } from "../lib/conversation-composer-history.js";
 
-const HISTORY_KEY = "nodeforge:project-chat-history";
-const MAX_HISTORY = 50;
+// Resets input recall and drafts when switching agents so one agent never receives another agent's recalled message.
+export function HomeChatComposer({ projectId, agentId, onSend, editRequest }) {
+  const historyKey = conversationComposerHistoryKey(projectId, agentId);
+  return createElement(ScopedHomeChatComposer, { key: historyKey ?? "unbound", historyKey, onSend, editRequest });
+}
 
 // Owns the draft locally and sends it through the existing conversation handler.
-export function HomeChatComposer({ onSend, editRequest }) {
+function ScopedHomeChatComposer({ historyKey, onSend, editRequest }) {
   const [draft, setDraft] = useState("");
-  const [history, setHistory] = useState([]);
+  const [history, setHistory] = useState(() => readConversationComposerHistory(historyKey));
   const [historyIndex, setHistoryIndex] = useState(-1);
   const composingRef = useRef(false);
   const textareaRef = useRef(null);
-
-  useEffect(() => {
-    try {
-      const stored = JSON.parse(window.localStorage.getItem(HISTORY_KEY) || "[]");
-      if (Array.isArray(stored)) setHistory(stored.filter((item) => typeof item === "string").slice(-MAX_HISTORY));
-    } catch (error) {
-      console.warn("Unable to restore project chat history", error);
-    }
-  }, []);
 
   useEffect(() => {
     if (!editRequest || typeof editRequest.text !== "string") return;
@@ -32,12 +27,9 @@ export function HomeChatComposer({ onSend, editRequest }) {
 
   // Stores a sent message for quick retrieval without allowing unbounded browser storage growth.
   function remember(text) {
-    setHistory((current) => {
-      const next = current[current.length - 1] === text ? current : [...current, text].slice(-MAX_HISTORY);
-      try { window.localStorage.setItem(HISTORY_KEY, JSON.stringify(next)); }
-      catch (error) { console.warn("Unable to save project chat history", error); }
-      return next;
-    });
+    const next = appendConversationComposerHistory(history, text);
+    setHistory(next);
+    saveConversationComposerHistory(historyKey, next);
   }
 
   // Submits the current draft and clears only the text accepted for sending.

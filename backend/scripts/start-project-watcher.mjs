@@ -30,6 +30,7 @@ const rawWatcher = createFilesystemWatcher({
 });
 const logger = createRuntimeLogger({ logEvent, source: "project-watcher" });
 const watcher = createDebouncedWatcher({ rawWatcher, projectId, root: process.cwd() });
+watcher.on("watcher.error", (error) => logger.error("Project watcher reported an event error.", { event_name: "watcher.failed", payload: { error: error.message, code: error.code ?? null } }));
 const embeddingJobs = createEmbeddingJobStore({ database: indexDb });
 const { embeddingStore, embeddingProvider, ollamaConfig } = createRetrievalDependencies({ database: indexDb });
 const embeddingModel = ollamaConfig.model;

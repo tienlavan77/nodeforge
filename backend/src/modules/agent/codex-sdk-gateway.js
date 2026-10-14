@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ConfigurationError, ForgeError } from "../../shared/errors.js";
 import { createCodexForgeMcpSession } from "./codex-forge-mcp-session.js";
+import { createCodexSdkLog } from "./codex-sdk-log.js";
 
 const SAFE_URL = /^https:\/\//;
 
@@ -13,7 +14,8 @@ export function createCodexSdkGateway({
   CodexClass = DefaultCodex,
   timeoutMs = 3600000,
   environment = process.env,
-  codexHomeRoot = join(process.cwd(), ".forge", "runtime", "nf", "codex-homes")
+  codexHomeRoot = join(process.cwd(), ".forge", "runtime", "nf", "codex-homes"),
+  terminalOutput = process.stdout
 } = {}) {
   if (typeof configuration?.getById !== "function") throw new ConfigurationError("Codex SDK Gateway requires Node Agent Configuration.");
   if (typeof credentialResolver !== "function") throw new ConfigurationError("Codex SDK Gateway requires a credential resolver.");
@@ -38,6 +40,8 @@ export function createCodexSdkGateway({
     let mcpSession;
     let turnFailure = null;
     let streamError = null;
+    let terminalFailure;
+    const terminal = createCodexSdkLog({ profile: { ...profile, model: options.model ?? profile.model }, correlationId, credential, output: terminalOutput });
     try {
       mcpSession = options.forgeTools ? await createCodexForgeMcpSession(options.forgeTools) : null;
       const bridgePath = fileURLToPath(new URL("../../../scripts/codex-forge-mcp-bridge.mjs", import.meta.url));
@@ -118,6 +122,7 @@ export function createCodexSdkGateway({
       let usage = null;
       for await (const rawEvent of streamed.events) {
         const event = sanitizeItems(rawEvent, credential);
+        terminal.event(event);
         if (event.type === "thread.started") onSessionReady?.(event.thread_id ?? thread?.id ?? null, mcpSession?.tools?.map((tool) => tool.name) ?? []);
         if (typeof onEvent === "function") {
           try { await onEvent(event); }
@@ -147,6 +152,7 @@ export function createCodexSdkGateway({
         thread_id: thread.id
       };
     } catch (error) {
+      terminalFailure = error;
       if (abortSignal?.aborted) throw abortSignal.reason;
       if (error?.name === "AbortError" || controller.signal.aborted) throw new ConfigurationError(`Codex SDK request timed out for ${profile.agent_id}.`, { cause: error });
       if (turnFailure) throw new ConfigurationError(`Codex SDK turn failed for ${profile.agent_id}: ${turnFailure}`, { cause: error });
@@ -161,6 +167,7 @@ export function createCodexSdkGateway({
       const message = rawMessage.replace(/Reading prompt from stdin\.{3}\s*/g, "").replace(/\s*\r?\n\s*/g, " ");
       throw new ConfigurationError(`Codex SDK request failed for ${profile.agent_id}: ${message}`, { cause: error });
     } finally {
+      terminal.close(terminalFailure);
       abortSignal?.removeEventListener("abort", stop);
       clearTimeout(timeout);
       await mcpSession?.close?.();

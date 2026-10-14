@@ -3,13 +3,13 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 // Uses persisted attempt and time instead of random job IDs to enforce the retry limit.
-export async function latestTicketVerificationAttempt({ projectRoot, taskId, context, policyVersion, loadJob }) {
+export async function latestTicketVerificationAttempt({ projectRoot, taskId, context, policyVersion, runnerRevision = null, loadJob }) {
   let names;
   try { names = await readdir(join(projectRoot, ".forge/runtime/ticket-verification", taskId, "jobs")); }
   catch (error) { if (error.code === "ENOENT") return null; throw error; }
   const jobs = (await Promise.all(names.filter((name) => /^VERIFY-[A-Za-z0-9-]+\.json$/.test(name))
     .map((name) => loadJob(name.slice(0, -5)))))
-    .filter((job) => job?.commit_sha === context.review_commit_sha && job.source_revision === context.source_revision && (!policyVersion || job.policy_version === policyVersion));
+    .filter((job) => job?.commit_sha === context.review_commit_sha && job.source_revision === context.source_revision && (!policyVersion || job.policy_version === policyVersion) && (job.runner_revision ?? null) === runnerRevision);
   if (!jobs.length) return null;
   const latest = jobs.sort((left, right) =>
     (Number(right.attempt) || 1) - (Number(left.attempt) || 1)

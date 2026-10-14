@@ -27,7 +27,11 @@ export async function handleTicketExecutionFailure({ error, failedRequest, selec
   if (!checkpoint || checkpoint.status === "completed") {
     await agentOccupancy.release({ claimId: claim.claim_id, taskId, supervisorId: ownerId, reason: "agent_failed_terminal" });
     if (failedRequest.payload?.direct_code !== true && !failedRequest.payload?.tool_test) await publishTicketOutcome("task.failed", failedRequest, ownerId, { error: { code: error.code ?? "TOOL_TICKET_FAILED", message: error.message } });
-  } else projectLogger({ event_name: "agent.occupancy_retained", level: "info", status: "info", message: "Coder claim retained for a resumable checkpoint.", task_id: taskId, source: "nodeforge-task-integration", payload: { claim_id: claim.claim_id, checkpoint_status: checkpoint.status } });
+  } else {
+    await checkpoints.save({ ...checkpoint, status: "failed", failure: { code: error.code ?? "TOOL_TICKET_FAILED", message: error.message, at: new Date().toISOString() } });
+    await agentOccupancy.release({ claimId: claim.claim_id, taskId, supervisorId: ownerId, reason: "agent_failed_resumable" });
+    if (failedRequest.payload?.direct_code !== true && !failedRequest.payload?.tool_test) await publishTicketOutcome("task.failed", failedRequest, ownerId, { retryable: true, error: { code: error.code ?? "TOOL_TICKET_FAILED", message: error.message } });
+  }
 }
 
 // Separates SDK transport and process failures from review decisions while retaining the Coder checkpoint.

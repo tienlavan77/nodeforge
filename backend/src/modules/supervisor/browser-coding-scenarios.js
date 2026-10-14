@@ -1,5 +1,6 @@
 // Checks the approved Coding panel and Sprint callback behaviors against real browser DOM elements.
 import assert from "node:assert/strict";
+import { verifyCodingLifecycleAssertion } from "./browser-coding-lifecycle-scenarios.js";
 
 const panels = ".coding-agent-monitor";
 const ids = ["leader", "coder-1", "coder-2", "reviewer"];
@@ -27,6 +28,7 @@ async function assertRetained(page) {
 // Executes one exact approved assertion, failing on missing panels, misleading identities or callback drift.
 export async function verifyCodingAssertion(index, page) {
   await page.evaluate(() => window.browserFixture.reset());
+  if (index >= 10 && index <= 12) return verifyCodingLifecycleAssertion(index, page);
   if ([0, 1, 2].includes(index)) {
     await update(page, { events: ids.map((id) => event(id)) });
     assert.equal(await page.locator(panels).count(), 4);

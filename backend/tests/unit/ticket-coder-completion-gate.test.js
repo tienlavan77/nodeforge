@@ -30,7 +30,7 @@ test("legacy pending Coder evidence fails retryably without human review, integr
   assert.equal(events[0].payload.error.code, "CODER_EVIDENCE_PENDING");
   assert.deepEqual(events[0].payload.criterion_ids, ["AC-1"]);
   assert.equal(claimReleases.length, 1);
-  assert.deepEqual(actions, []);
+  assert.deepEqual(actions, ["release_ledger"]);
 });
 
 // Lets a fully verified report continue through the existing terminal path.

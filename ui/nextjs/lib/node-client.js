@@ -7,6 +7,8 @@ import { forgeV1, controlApiBase } from "./node-client-url.js";
 import { createTicketHumanReviewClient } from "./ticket-human-review-client.js";
 import { createOwnerExecutionClient } from "./owner-execution-client.js";
 import { createArchitectureClarificationClient } from "./architecture-clarification-client.js";
+import { requestConversationMessages } from "./conversation-message-request.js";
+import { createReconnectingEventSource } from "./reconnecting-event-source.js";
 
 export { detectMessageIntent, MESSAGE_INTENTS, normalizeTicketInput };
 
@@ -206,7 +208,7 @@ export function createNodeClient() {
       if (conversationId) params.set("conversationId", conversationId);
       if (cursor) params.set("cursor", cursor);
       if (order) params.set("order", order);
-      return requestJson(forgeV1(`/conversations/${encodeURIComponent(conversationId)}/messages`, { ...Object.fromEntries(params), project: projectId }), { fallbackError: "Node could not load conversation messages." });
+      return requestConversationMessages(forgeV1(`/conversations/${encodeURIComponent(conversationId)}/messages`, { ...Object.fromEntries(params), project: projectId }));
     },
     async saveConversationMarkdown({ projectId, conversationId, messageId, confirmOverwrite = false }) {
       return requestJson(forgeV1(`/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/markdown-file`, { project: projectId }), {
@@ -216,7 +218,7 @@ export function createNodeClient() {
     },
     connectConversationStream({ projectId, conversationId, afterMessageId, onMessage, onReplayComplete, onError }) {
       if (typeof onMessage !== "function") throw new Error("Conversation stream requires an onMessage handler.");
-      const source = new EventSource(forgeV1("/stream", { project: projectId, ...(afterMessageId ? { after: afterMessageId } : {}) }));
+      const source = createReconnectingEventSource((cursor) => forgeV1("/stream", { project: projectId, ...(cursor ? { after: cursor } : {}) }), { afterEventId: afterMessageId });
       const delivered = new Set();
       ["conversation.message.owner", "conversation.message.delta", "conversation.message.received", "conversation.tool"].forEach((eventType) => source.addEventListener(eventType, (event) => {
         const message = JSON.parse(event.data);

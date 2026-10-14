@@ -5,13 +5,13 @@ import { assertTicketStatus, assertTicketStatusTransition } from "./ticket-statu
 import { validExecutionBasis, retainedExecutionDetails, matchesTicketExecution } from "./ticket-execution-identity.js";
 
 // Creates a transactional ticket status tracker with versioned transitions.
-export function createTicketStatusStore({ database, projectId, clock = () => new Date(), createId = () => `STATUS-${randomUUID()}`, onEvent = () => {}, publisher, logger = console } = {}) {
+export function createTicketStatusStore({ database, projectId, clock = () => new Date(), createId = () => `STATUS-${randomUUID()}`, onEvent = () => {}, publisher, logger = console, retryFailedTickets = false } = {}) {
   if (!database?.run || !database?.all) throw new ConfigurationError("Ticket Status Store requires a database.");
   if (typeof projectId !== "string" || !projectId) throw new ConfigurationError("Ticket Status Store requires a project_id.");
   if (typeof clock !== "function" || typeof createId !== "function" || typeof onEvent !== "function" || (publisher !== undefined && typeof publisher.publish !== "function")) throw new ConfigurationError("Invalid Ticket Status Store options.");
   ensureTables();
 
-  return Object.freeze({ create, get, getStatus, updateStatus, beginExecution, claimExecutionLaunch, completeByHumanReview, listByStatus, getHistory, dependenciesReady, retry, resetDoneForRetry, reconcileTerminalStatus });
+  return Object.freeze({ create, get, getStatus, updateStatus, beginExecution, claimExecutionLaunch, reconcileExecutionLaunch, completeByHumanReview, listByStatus, getHistory, dependenciesReady, retry, resetDoneForRetry, reconcileTerminalStatus });
 
   // Creates a pending status entry for a ticket.
   function create(ticketId, details = {}) {
@@ -55,6 +55,20 @@ export function createTicketStatusStore({ database, projectId, clock = () => new
     emit("ticket.status_change", { project_id: projectId, ticket_id: ticketId, from: current.status, to: nextStatus, version, reason, details, timestamp: now });
     if (nextStatus === "blocked") emit("ticket.dependency_blocked", { project_id: projectId, ticket_id: ticketId, details, timestamp: now });
     if (nextStatus === "pending" && current.status === "failed") emit("ticket.retry", { project_id: projectId, ticket_id: ticketId, timestamp: now });
+    if (nextStatus === "failed" && retryFailedTickets && !updated.details.launch_claim) return retry(ticketId, { reason: "ticket_failed_retry_ready", last_failure: { error, details, failed_at: now, execution_id: details.execution_id } });
+    return updated;
+  }
+
+  // Reconciles a settled inline executor so terminal tickets no longer retain launch ownership.
+  function reconcileExecutionLaunch(ticketId, { executionId, requestId, jobId, disposition } = {}) {
+    if (!["executor_returned", "executor_failed"].includes(disposition)) throw statusError("STATUS_CONFLICT", "Executor has no terminal disposition.");
+    const current = get(ticketId);
+    const receipt = current?.details.launch_claim;
+    if (!receipt && current?.details.launch_reconciliation?.execution_id === executionId && current.details.launch_reconciliation.request_id === requestId && current.details.launch_reconciliation.job_id === jobId) return current;
+    if (!receipt || receipt.execution_id !== executionId || receipt.request_id !== requestId || receipt.job_id !== jobId || !matchesTicketExecution(current, executionId, receipt.execution_basis)) throw statusError("STATUS_CONFLICT", "Settled executor does not own this ticket launch.");
+    const updated = transitionWithoutGuard(ticketId, current, current.status, { ...current.details, launch_claim: null,
+      launch_reconciliation: { execution_id: executionId, request_id: requestId, job_id: jobId, disposition, reconciled_at: nowIso(), receipt }, reason: "execution_launch_reconciled" });
+    if (updated.status === "failed" && retryFailedTickets) return retry(ticketId, { reason: "ticket_failed_retry_ready", last_failure: { error: current.error, details: current.details, failed_at: current.updated_at, execution_id: executionId } });
     return updated;
   }
 

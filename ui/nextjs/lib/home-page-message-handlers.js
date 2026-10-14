@@ -19,6 +19,7 @@ export function createHomeMessageHandlers({
   lastSentRef,
   writeChatState,
   messageIntent,
+  onCommandResult,
   executionRole = "architecture-manager"
 }) {
   async function sendMessage(draft, responseContentType = "text/plain") {
@@ -54,7 +55,7 @@ export function createHomeMessageHandlers({
     setMessages((current) => [...current, { id: messageId, stream_key: `owner:${messageId}`, text, response_content_type: declaredContentType, from: "owner", nickname: "You", timestamp, correlation_id: correlationId, pending: true }]);
     setAgentTyping(true);
     try {
-      await client.postOwnerMessage({
+      const result = await client.postOwnerMessage({
         projectId,
         conversationId,
         agentId: selectedArchitectureManager.id,
@@ -64,6 +65,7 @@ export function createHomeMessageHandlers({
         intent: messageIntent,
         responseContentType: declaredContentType
       });
+      onCommandResult?.(result);
     } catch (error) {
       setAgentTyping(false);
       setMessages((current) => current.map((message) => message.id === messageId ? { ...message, pending: false, failed: true } : message));
@@ -85,7 +87,8 @@ export function createHomeMessageHandlers({
     setMessages((current) => current.map((item) => item.stream_key === message.stream_key ? { ...item, text, pending: true, correlation_id: correlationId } : item));
     setAgentTyping(true);
     try {
-      await client.postOwnerMessage({ projectId, conversationId, agentId: selectedArchitectureManager.id, messageId, correlationId, text, intent: messageIntent, responseContentType: message.response_content_type, supersedesMessageId: message.id });
+      const result = await client.postOwnerMessage({ projectId, conversationId, agentId: selectedArchitectureManager.id, messageId, correlationId, text, intent: messageIntent, responseContentType: message.response_content_type, supersedesMessageId: message.id });
+      onCommandResult?.(result);
       setMessages((current) => current.map((item) => item.stream_key === message.stream_key ? { ...item, source_message_id: messageId, pending: false } : item));
       lastSentRef.current = { text, conversationId, messageId, correlationId };
     } catch (error) {
@@ -106,7 +109,7 @@ export function createHomeMessageHandlers({
     setChatState("");
     setAgentTyping(true);
     try {
-      await client.postOwnerMessage({
+      const result = await client.postOwnerMessage({
         projectId,
         conversationId: targetConversationId,
         agentId: selectedArchitectureManager.id,
@@ -116,6 +119,7 @@ export function createHomeMessageHandlers({
         intent: messageIntent,
         responseContentType: message.response_content_type ?? message.responseContentType
       });
+      onCommandResult?.(result);
     } catch (error) {
       setAgentTyping(false);
       setChatState(error?.message ?? "Node rejected the owner message retry.");

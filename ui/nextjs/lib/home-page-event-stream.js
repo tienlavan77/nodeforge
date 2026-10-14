@@ -1,6 +1,6 @@
 // Subscribes the home workspace to the project-wide SSE stream: live chat messages, watcher activity, agent-process status, and dashboard-refresh triggers.
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { applyWatcherEvent } from "./home-page-watcher-events.js";
 
 // Wires the home workspace's single project event stream and reconciles chat/watcher/dashboard state from it.
@@ -20,12 +20,25 @@ export function useProjectEventStream({
   onSprintDeleted,
   onTicketDeleted,
   onProjectEvent,
+  onConversationReconnect,
   agentDisplayName
 }) {
+  const reconnectRef = useRef(onConversationReconnect);
+  reconnectRef.current = onConversationReconnect;
   useEffect(() => {
+    let opened = false;
     const stream = client.connectProjectStream({
       projectId,
-      onOpen: () => { setWatcherState("connected"); onProjectEvent?.({ project_id: projectId, event_type: "stream.connected" }); },
+      onOpen: () => {
+        setWatcherState("connected"); onProjectEvent?.({ project_id: projectId, event_type: "stream.connected" });
+        if (opened && activeConversationIdRef.current) {
+          const conversationId = activeConversationIdRef.current;
+          void Promise.resolve().then(() => reconnectRef.current?.(conversationId, { preserve: true })).catch((error) => {
+            console.error("Conversation reconnect recovery failed.", error);
+          });
+        }
+        opened = true;
+      },
       onEvent: (event) => {
         if (event.project_id && event.project_id !== projectId) return;
         onProjectEvent?.(event);

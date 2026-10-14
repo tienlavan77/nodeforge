@@ -193,7 +193,7 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
   }
 
   // Releases file claims only after a ticket has reached an explicit terminal decision.
-  async function release(taskId) {
+  async function release(taskId, { close = true } = {}) {
     return locked(`ticket:${taskId}`, async () => {
       const manifest = await load(taskId);
       if (manifest.state === "closed") return Object.keys(manifest.entries);
@@ -201,7 +201,7 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
         const current = await claim(path);
         if (current?.task_id === taskId) await fileService.deleteFile({ path: claimPath(path) });
       });
-      manifest.state = "closed";
+      manifest.state = close ? "closed" : "active";
       await save(taskId, manifest);
       return Object.keys(manifest.entries);
     });
@@ -214,5 +214,25 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
   }
   // Persists the ticket manifest after an ownership or revision transition.
   async function save(taskId, manifest) { await fileService.atomicWrite({ path: manifestPath(taskId), content: JSON.stringify(manifest), replace: true }); }
-  return Object.freeze({ load, write, snapshot, prepareCommit, recordCommit, importLegacy, release, withCommitTransaction });
+  // Reclaims unchanged source for a retry while refusing files now owned or modified by another ticket.
+  async function resume(taskId) {
+    return locked(`ticket:${taskId}`, async () => {
+      let manifest = await load(taskId);
+      if (manifest.state === "closed") return;
+      const acquired = [];
+      try {
+        for (const [path, entry] of Object.entries(manifest.entries)) await locked(`path:${path}`, async () => {
+          const owner = await claim(path);
+          if (owner && owner.task_id !== taskId) throw failure("FILE_CLAIM_CONFLICT", `${path} is owned by ticket ${owner.task_id}.`);
+          if (entry.pending) manifest = await recover(taskId, path, manifest);
+          if (sha(await readOptional(path)) !== entry.latest_sha) throw failure("TICKET_SOURCE_CHANGED", `Root source changed outside ticket ${taskId}: ${path}.`);
+          if (!owner) { await fileService.atomicWrite({ path: claimPath(path), content: JSON.stringify({ task_id: taskId, path, claim_id: entry.claim_id ?? randomUUID() }), replace: false }); acquired.push(path); }
+        });
+      } catch (error) {
+        for (const path of acquired) await locked(`path:${path}`, async () => { if ((await claim(path))?.task_id === taskId) await fileService.deleteFile({ path: claimPath(path) }); });
+        throw error;
+      }
+    });
+  }
+  return Object.freeze({ load, write, snapshot, prepareCommit, recordCommit, importLegacy, release, resume, withCommitTransaction });
 }

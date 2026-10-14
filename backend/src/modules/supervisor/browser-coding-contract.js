@@ -9,7 +9,10 @@ export const CODING_BROWSER_ASSERTIONS = [
   "For AC-3, change event IDs, timestamps, and display labels without changing project or agent identity and verify panel element continuity.",
   "For AC-5, supply missing, malformed, ambiguous, and foreign-project identity and verify no incorrectly attributed panel or action.",
   "For AC-9, disconnect the source and restore cached panel presence without live evidence; verify honest unknown or disconnected state rather than a claim of current execution.",
-  "For AC-10, exercise existing Sprint Plan rendering, controls, and callbacks with controlled clients and confirm unchanged visible behavior and callback arguments."
+  "For AC-10, exercise existing Sprint Plan rendering, controls, and callbacks with controlled clients and confirm unchanged visible behavior and callback arguments.",
+  "Render same-named coders with distinct project/agent keys and verify their summaries never cross panels.",
+  "Activate one panel's accessible close control by keyboard and pointer; only that panel disappears.",
+  "Deliver same-run working events and verify the closed panel stays absent; deliver a new-run boundary with working status and verify only that agent reopens."
 ];
 
 // Refuses unsupported prose instead of silently claiming a generic browser smoke covered the approved plan.

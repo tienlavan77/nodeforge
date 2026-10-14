@@ -1,5 +1,6 @@
 // Shares one project SSE connection across workspace panels and recovers subscriptions.
 import { isProjectStreamEvent, PROJECT_EVENT_TYPES } from "./project-stream-event.js";
+import { createReconnectingEventSource } from "./reconnecting-event-source.js";
 
 // Creates a reference-counted project stream so Sprint panels do not exhaust browser connections.
 export function createProjectStreamClient(forgeV1) {
@@ -11,7 +12,7 @@ export function createProjectStreamClient(forgeV1) {
     const key = `${projectId}\0${afterEventId ?? ""}`;
     let stream = streams.get(key);
     if (!stream) {
-      const source = new EventSource(forgeV1("/stream", { project: projectId, ...(afterEventId ? { after: afterEventId } : {}) }));
+      const source = createReconnectingEventSource((cursor) => forgeV1("/stream", { project: projectId, ...(cursor ? { after: cursor } : {}) }), { afterEventId });
       stream = { source, subscribers: new Set(), delivered: new Set(), lastEventId: afterEventId ?? null };
       streams.set(key, stream);
       const shared = stream;
@@ -30,7 +31,7 @@ export function createProjectStreamClient(forgeV1) {
       PROJECT_EVENT_TYPES.forEach((type) => source.addEventListener(type, handleEvent));
       source.onopen = () => { for (const subscriber of shared.subscribers) subscriber.onOpen?.(); };
       source.onerror = (error) => {
-        const reconnecting = source.readyState === 0;
+        const reconnecting = source.readyState === 0 || source.readyState === 2;
         notifyError(Object.assign(new Error(reconnecting ? "Project stream is reconnecting." : "Project stream connection failed.", { cause: error }), { code: reconnecting ? "STREAM_RECONNECTING" : "STREAM_CONNECTION_FAILED" }));
       };
     }

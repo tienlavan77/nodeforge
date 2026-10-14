@@ -22,6 +22,12 @@ export function createCodingPlanEvents(projectId) {
       if (event.project_id !== projectId) return;
       for (const listener of listeners) listener(event);
     },
+    // Reconciles durable planning results returned over HTTP even when the matching SSE notification was missed.
+    publishCommandResult(result) {
+      if (result?.project_id !== projectId || typeof result.conversation_id !== "string" || !["owner.command.result", "owner.command.error"].includes(result.message_type)) return;
+      const event = { project_id: projectId, event_type: result.message_type === "owner.command.error" ? "conversation.message.failed" : "conversation.message.completed", payload: { conversation_id: result.conversation_id } };
+      for (const listener of listeners) listener(event);
+    },
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); }
   };
 }
