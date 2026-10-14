@@ -152,7 +152,8 @@ test("rg_search cache preserves native output for case, word, limit and no match
     ]) {
       const expected = await native.execute(input, context);
       const actual = await cached.execute(input, context);
-      assert.deepEqual(actual, expected);
+      // Ripgrep does not promise cross-file order unless an explicit sort flag is supplied.
+      assert.deepEqual({ ...actual, stdout: actual.stdout.split("\n").sort() }, { ...expected, stdout: expected.stdout.split("\n").sort() });
     }
   } finally { await rm(root, { recursive: true, force: true }); }
 });

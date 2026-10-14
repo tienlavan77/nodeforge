@@ -8,16 +8,16 @@ import { ConfigurationError } from "../shared/errors.js";
 import { authorizeTool, isAgentPathAllowed } from "./tool-authorization.js";
 
 // Creates a scoped Forge tool that lists files from the approved project root.
-export function createRgFilesTool({ projectRoot, logger = createRuntimeLogger({ logEvent }), environment = process.env } = {}) {
+export function createRgFilesTool({ projectRoot, logger = createRuntimeLogger({ logEvent }), environment = process.env, toolName = "rg_files" } = {}) {
   if (typeof projectRoot !== "string" || !isAbsolute(projectRoot)) throw new ConfigurationError("rg_files requires an absolute project root.");
-  return Object.freeze({ name: "rg_files", execute });
+  return Object.freeze({ name: toolName, execute });
 
   // Lists files using only approved ripgrep flags in the order provided by the agent.
   async function execute(input = {}, context = {}) {
     const started = Date.now();
     let args;
     try {
-      authorizeTool("rg_files", context);
+      authorizeTool(toolName, context);
       args = buildArgs(input);
     } catch (error) {
       emit("forge.rg_files_rejected", "failed", context, { error_code: error.code ?? "RG_FILES_INPUT_INVALID", error: error.message, duration_ms: Date.now() - started });
@@ -45,9 +45,9 @@ export function createRgFilesTool({ projectRoot, logger = createRuntimeLogger({ 
   // Records scoped execution and failures through the project's runtime log service.
   function emit(eventName, status, context, payload) {
     logger.emit({
-      event_name: eventName, level: status === "failed" ? "error" : "info", status,
-      message: `rg_files ${status}.`, task_id: context?.task_id ?? context?.taskId ?? "RG-FILES-UNSCOPED",
-      correlation_id: context?.correlation_id, source: "rg-files-tool",
+      event_name: eventName.replace("rg_files", toolName), level: status === "failed" ? "error" : "info", status,
+      message: `${toolName} ${status}.`, task_id: context?.task_id ?? context?.taskId ?? "RG-FILES-UNSCOPED",
+      correlation_id: context?.correlation_id, source: `${toolName.replaceAll("_", "-")}-tool`,
       ...(payload.error_code ? { error_code: payload.error_code } : {}),
       payload: { agent_id: context?.agent_identity?.agent_id, execution_id: context?.execution_id, ...payload }
     });

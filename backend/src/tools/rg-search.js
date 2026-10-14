@@ -9,16 +9,16 @@ import { ConfigurationError } from "../shared/errors.js";
 import { authorizeTool, isAgentPathAllowed } from "./tool-authorization.js";
 
 // Creates a scoped content search tool with the project's runtime logger.
-export function createRgSearchTool({ projectRoot, codeCache, logger = createRuntimeLogger({ logEvent }), environment = process.env } = {}) {
+export function createRgSearchTool({ projectRoot, codeCache, logger = createRuntimeLogger({ logEvent }), environment = process.env, toolName = "rg_search" } = {}) {
   if (typeof projectRoot !== "string" || !isAbsolute(projectRoot)) throw new ConfigurationError("rg_search requires an absolute project root.");
-  return Object.freeze({ name: "rg_search", execute });
+  return Object.freeze({ name: toolName, execute });
 
   // Validates the agent request before running ripgrep and records every outcome.
   async function execute(input = {}, context = {}) {
     const started = Date.now();
     let args;
     try {
-      authorizeTool("rg_search", context);
+      authorizeTool(toolName, context);
       args = buildArgs(input);
       if (input.paths.some((path) => !isAgentPathAllowed(path, context))) throw invalidInput("rg_search path is outside the approved task scope.");
       await validatePaths(projectRoot, input.paths, environment);
@@ -46,9 +46,9 @@ export function createRgSearchTool({ projectRoot, codeCache, logger = createRunt
   // Persists search events without storing matched source lines or the query text.
   function emit(eventName, context, payload) {
     const status = eventName === "completed" ? "success" : eventName === "started" ? "started" : "failed";
-    logger.emit({ event_name: `forge.rg_search_${eventName}`, level: status === "failed" ? "error" : "info", status,
-      message: `rg_search ${status}.`, task_id: context?.task_id ?? context?.taskId ?? "RG-SEARCH-UNSCOPED",
-      correlation_id: context?.correlation_id, source: "rg-search-tool",
+    logger.emit({ event_name: `forge.${toolName}_${eventName}`, level: status === "failed" ? "error" : "info", status,
+      message: `${toolName} ${status}.`, task_id: context?.task_id ?? context?.taskId ?? "RG-SEARCH-UNSCOPED",
+      correlation_id: context?.correlation_id, source: `${toolName.replaceAll("_", "-")}-tool`,
       ...(payload.error_code ? { error_code: payload.error_code } : {}),
       payload: { agent_id: context?.agent_identity?.agent_id, execution_id: context?.execution_id, ...payload }
     });

@@ -13,9 +13,9 @@ const MAX_LINES = 80;
 const MAX_OUTPUT_BYTES = 200000;
 
 // Creates a read-only sed tool that can reuse read_file's symbol lookup.
-export function createSedLinesTool({ projectRoot, fileService, codeCache, symbolLookup, logger = createRuntimeLogger({ logEvent }), environment = process.env } = {}) {
+export function createSedLinesTool({ projectRoot, fileService, codeCache, symbolLookup, logger = createRuntimeLogger({ logEvent }), environment = process.env, toolName = "sed_lines" } = {}) {
   if (typeof projectRoot !== "string" || !isAbsolute(projectRoot)) throw new ConfigurationError("sed_lines requires an absolute project root.");
-  return Object.freeze({ name: "sed_lines", execute });
+  return Object.freeze({ name: toolName, execute });
 
   // Validates scope and line range, runs sed, and records every outcome.
   async function execute(input = {}, context = {}) {
@@ -23,7 +23,7 @@ export function createSedLinesTool({ projectRoot, fileService, codeCache, symbol
     let args;
     let normalized;
     try {
-      authorizeTool("sed_lines", context);
+      authorizeTool(toolName, context);
       normalized = normalizeInput(input, projectRoot);
       args = buildArgs(normalized);
       if (!isAgentPathAllowed(normalized.path, context) || (fileService && !approvedPath(normalized.path, context))) throw invalidInput("sed_lines path is outside the Node-approved file scope.");
@@ -71,9 +71,9 @@ export function createSedLinesTool({ projectRoot, fileService, codeCache, symbol
   // Persists execution metadata without logging source text or symbol contents.
   function emit(eventName, context, payload) {
     const status = eventName === "completed" ? "success" : eventName === "started" ? "started" : "failed";
-    logger.emit({ event_name: `forge.sed_lines_${eventName}`, level: status === "failed" ? "error" : "info", status,
-      message: `sed_lines ${status}.`, task_id: context?.task_id ?? context?.taskId ?? "SED-LINES-UNSCOPED",
-      correlation_id: context?.correlation_id, source: "sed-lines-tool",
+    logger.emit({ event_name: `forge.${toolName}_${eventName}`, level: status === "failed" ? "error" : "info", status,
+      message: `${toolName} ${status}.`, task_id: context?.task_id ?? context?.taskId ?? "SED-LINES-UNSCOPED",
+      correlation_id: context?.correlation_id, source: `${toolName.replaceAll("_", "-")}-tool`,
       ...(payload.error_code ? { error_code: payload.error_code } : {}),
       payload: { agent_id: context?.agent_identity?.agent_id, execution_id: context?.execution_id, ...payload }
     });

@@ -1,12 +1,16 @@
 // Defines one versioned engineering tool contract while keeping authority in Node-issued execution policy.
-import { readFileDefinition, writeDiffDefinition, editDiffDefinition, gitStatusDefinition, gitDiffDefinition } from "./index.js";
+import { readFileDefinition, writeDiffDefinition, editDiffDefinition, gitStatusDefinition, gitDiffDefinition, reportDoneDefinition } from "./index.js";
 import { rgFilesDefinition, rgSearchDefinition, sedLinesDefinition } from "./agent-command-tools.js";
 import { ownerSearchTreeDefinition } from "./owner-search-tree.js";
 import { runCheckDefinition, commitChangesDefinition, pushCommitDefinition } from "./owner-engineer-tools.js";
 
-export const ENGINEERING_CATALOG_VERSION = "forge-engineering-v1";
-export const ENGINEERING_TOOL_NAMES = Object.freeze(["search_tree", "list_files", "search_text", "read_file", "read_lines", "write_diff", "edit_diff", "git_status", "git_diff", "run_check", "commit_changes", "push_commit"]);
-export const ENGINEERING_ALIASES = Object.freeze({ rg_files: "list_files", rg_search: "search_text", sed_lines: "read_lines" });
+import { ENGINEERING_CATALOG_VERSION, ENGINEERING_TOOL_NAMES } from "./engineering-tool-names.js";
+export { ENGINEERING_CATALOG_VERSION, ENGINEERING_TOOL_NAMES, ENGINEERING_ALIASES, CODER_TOOL_NAMES } from "./engineering-tool-names.js";
+
+// Adds ticket completion to the same engineering tools supplied to System Engineer.
+export function coderToolDefinitions() {
+  return [...engineeringToolDefinitions(), reportDoneDefinition];
+}
 
 // Returns provider-neutral descriptors without granting repository or ticket permissions.
 export function engineeringToolDefinitions() {

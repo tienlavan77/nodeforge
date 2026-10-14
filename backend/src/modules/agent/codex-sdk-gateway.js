@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { ConfigurationError, ForgeError } from "../../shared/errors.js";
 import { createCodexForgeMcpSession } from "./codex-forge-mcp-session.js";
 import { createCodexSdkLog } from "./codex-sdk-log.js";
+import { assertCodexThreadAvailable, codexThreadBusyError } from "./codex-thread-writer.js";
 
 const SAFE_URL = /^https:\/\//;
 
@@ -32,6 +33,7 @@ export function createCodexSdkGateway({
     const credential = await resolveCredential(profile.credential_ref);
     const codexHome = join(codexHomeRoot, profile.agent_id);
     mkdirSync(codexHome, { recursive: true, mode: 0o700 });
+    assertCodexThreadAvailable(codexHome, resumeThreadId);
     const controller = new AbortController();
     const stop = () => controller.abort(abortSignal.reason);
     abortSignal?.addEventListener("abort", stop, { once: true });
@@ -154,6 +156,7 @@ export function createCodexSdkGateway({
     } catch (error) {
       terminalFailure = error;
       if (abortSignal?.aborted) throw abortSignal.reason;
+      if (/thread(?:-store conflict:|\/resume:)[\s\S]*already has an active writer/i.test(String(error?.message ?? ""))) throw codexThreadBusyError(resumeThreadId, error);
       if (error?.name === "AbortError" || controller.signal.aborted) throw new ConfigurationError(`Codex SDK request timed out for ${profile.agent_id}.`, { cause: error });
       if (turnFailure) throw new ConfigurationError(`Codex SDK turn failed for ${profile.agent_id}: ${turnFailure}`, { cause: error });
       if (streamError) throw new ConfigurationError(`Codex SDK request failed for ${profile.agent_id}: ${streamError}`, { cause: error });
