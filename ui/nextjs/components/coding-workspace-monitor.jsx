@@ -7,7 +7,7 @@ import { CodingSprintDashboardState } from "./coding-sprint-dashboard-state.js";
 import { CodingArchitecturePlans } from "./coding-architecture-plans.jsx";
 
 // Render the legacy Sprint Plan experience alongside active Coding workspace agents.
-export function CodingWorkspaceMonitor({ planEvents, projectId, dashboard, dashboardState, client, onRefresh, onSprintDeleted, onTicketDeleted, agentActivities = [], agentDirectory = [], agentPanelRegistry = { panels: [], activity: {}, sourceStatus: "unknown" } }) {
+export function CodingWorkspaceMonitor({ planEvents, projectId, dashboard, dashboardState, client, onRefresh, onSprintDeleted, onTicketDeleted, agentActivities = [], agentDirectory = [], onAgentPanelClose, agentPanelRegistry = { panels: [], activity: {}, sourceStatus: "unknown" } }) {
   const panels = agentPanelRegistry.panels.filter((panel) => panel.projectId === projectId);
   return <main className="coding-workspace-monitor" aria-label="Coding workspace monitor">
     <section className="coding-workspace-column coding-sprint-plan" aria-labelledby="coding-sprint-plan-heading">
@@ -24,7 +24,7 @@ export function CodingWorkspaceMonitor({ planEvents, projectId, dashboard, dashb
           const profile = codingAgentProfile(agentDirectory, panel.agentId, projectId);
           const actions = codingAgentPanelActions(agentActivities, agentDirectory, projectId, panel.agentId);
           return <article key={panel.key} data-panel-key={panel.key} data-agent-id={panel.agentId} data-project-id={panel.projectId} className="coding-agent-monitor">
-            <header><strong>{profile?.agent_name ?? profile?.name ?? panel.agentId}</strong><span>{profile?.role?.replaceAll("_", " ") ?? "Unknown role"}</span></header>
+            <header><strong>{profile?.agent_name ?? profile?.name ?? panel.agentId}</strong><span>{profile?.role?.replaceAll("_", " ") ?? "Unknown role"}</span><button type="button" aria-label={`Close agent panel ${panel.agentId} in project ${panel.projectId}`} onClick={() => onAgentPanelClose?.(panel.projectId, panel.agentId)}>Close</button></header>
             <p>Activity: {codingAgentPanelStatus(agentPanelRegistry, panel)} · Profile: {profile?.status ?? "unknown"}</p>
             {actions.map((activity, index) => <div key={index}>
               <p>{activity.payload.summary}</p>
