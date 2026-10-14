@@ -36,7 +36,7 @@ export function createCodingPlanEvents(projectId) {
 export function codingPlanRefresh(event, projectId) {
   if (event.project_id !== projectId) return null;
   const type = event.event_type ?? "";
-  if (type === "stream.connected") return { refresh: true };
+  if (type === "stream.connected") return { refresh: true, ifStale: true };
   if (type.startsWith("plan.request.")) return { refresh: false, planIds: event.payload?.plan_id ? [event.payload.plan_id] : [] };
   if (type.startsWith("plan.")) return event.payload?.plan_id ? { refresh: false, planIds: [event.payload.plan_id] } : { refresh: true };
   if (["sprint.created", "sprint.updated", "sprint.deleted"].includes(type)) return event.payload?.sprint_id ? { refresh: false, sprintIds: [event.payload.sprint_id] } : { refresh: true };

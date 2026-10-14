@@ -20,6 +20,9 @@ export function createAgentCommandTools({ projectRoot, fileService, codeSearch, 
   return {
     rg_files: wrap(createRgFilesTool({ projectRoot, logger }), "rg_files", false),
     rg_search: wrap(createRgSearchTool({ projectRoot, codeCache, logger }), "rg_search", false),
-    sed_lines: wrap(createSedLinesTool({ projectRoot, fileService, codeCache, symbolLookup: codeSearch?.symbolsForFile?.bind(codeSearch), logger }), "sed_lines", false)
+    sed_lines: wrap(createSedLinesTool({ projectRoot, fileService, codeCache, symbolLookup: codeSearch?.symbolsForFile?.bind(codeSearch), logger }), "sed_lines", false),
+    list_files: wrap(createRgFilesTool({ projectRoot, logger, toolName: "list_files" }), "list_files", false),
+    search_text: wrap(createRgSearchTool({ projectRoot, codeCache, logger, toolName: "search_text" }), "search_text", false),
+    read_lines: wrap(createSedLinesTool({ projectRoot, fileService, codeCache, symbolLookup: codeSearch?.symbolsForFile?.bind(codeSearch), logger, toolName: "read_lines" }), "read_lines", false)
   };
 }

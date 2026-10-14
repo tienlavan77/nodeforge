@@ -5,9 +5,7 @@ import { resolve } from "node:path";
 import { ConfigurationError } from "../shared/errors.js";
 import { authorizeTool, isAgentPathAllowed } from "./tool-authorization.js";
 import { assertCoderWorkflowReadOnly, assertRoleFileAccess } from "../infrastructure/filesystem/file-service-role-policy.js";
-import { ENGINEERING_CATALOG_VERSION, engineeringToolDefinitions, engineeringToolReadiness } from "./engineering-tool-catalog.js";
-import { searchCodeDefinition, runTestDefinition, checkTestDefinition, reportDoneDefinition, respondToReviewDefinition } from "./index.js";
-import { rgFilesDefinition, rgSearchDefinition, sedLinesDefinition } from "./agent-command-tools.js";
+import { ENGINEERING_CATALOG_VERSION, coderToolDefinitions, engineeringToolDefinitions, engineeringToolReadiness } from "./engineering-tool-catalog.js";
 
 // Advertises locked tools explicitly and validates every call against the same schema before scoped dispatch.
 export function bindEngineeringTools({ registry, context }) {
@@ -21,7 +19,7 @@ export function bindEngineeringTools({ registry, context }) {
   }
   const manifest = context.execution_context?.approved_baseline?.file_checksums;
   const mutablePaths = manifest ? new Set(Object.keys(manifest)) : null;
-  const definitions = [...engineeringToolDefinitions(), searchCodeDefinition, runTestDefinition, checkTestDefinition, reportDoneDefinition, respondToReviewDefinition, rgFilesDefinition, rgSearchDefinition, sedLinesDefinition];
+  const definitions = coderToolDefinitions();
   const scopedRegistry = { ...registry };
   for (const definition of engineeringToolDefinitions()) if (typeof scopedRegistry[definition.name]?.execute !== "function") scopedRegistry[definition.name] = lockedTool(definition.name, "A compatible scoped Node service is unavailable for this execution.");
   const ajv = new Ajv2020({ strict: false, allErrors: true, coerceTypes: false, removeAdditional: false });
@@ -33,7 +31,7 @@ export function bindEngineeringTools({ registry, context }) {
     if (!validate(input)) throw failure("TOOL_INPUT_INVALID", `Invalid ${definition.name} arguments.`, validate.errors);
     if (locked.has(definition.name) || typeof scopedRegistry[definition.name]?.execute !== "function") throw failure("TOOL_LOCKED", locked.get(definition.name) ?? "A compatible execution-scoped service is unavailable.");
     authorizeTool(definition.name, bound);
-    if (["read_file", "read_lines", "write_diff", "edit_diff", "sed_lines"].includes(definition.name)) {
+    if (["read_file", "read_lines", "write_diff", "edit_diff"].includes(definition.name)) {
       await assertPath(input.path, bound);
       if (["write_diff", "edit_diff"].includes(definition.name)) {
         assertCoderWorkflowReadOnly(bound.agent_identity?.role, "write", input.path);

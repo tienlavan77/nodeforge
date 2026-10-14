@@ -7,14 +7,27 @@ export function reviewableArchitecturePlans(plans) {
 }
 
 // Refetches current revisions and ignores responses from cancelled or superseded requests.
-export function createCodingPlanLoader({ client, projectId, onState }) {
+export function createCodingPlanLoader({ client, projectId, onState, now = Date.now, staleMs = 30000 }) {
   let generation = 0;
   let revisions = new Map();
   let snapshot = { status: "loading", plans: [], error: null };
-  return { load, cancel: () => { generation += 1; } };
+  let lastRefresh = -Infinity;
+  let activeLoad = null;
+  return { load, cancel: () => { generation += 1; activeLoad = null; } };
+
+  // Coalesces background reconnect and tab-return reads while explicit decisions always revalidate.
+  function load(options = {}) {
+    if (options.ifStale) {
+      if (activeLoad) return activeLoad;
+      if (snapshot.status === "ready" && now() - lastRefresh < staleMs) return Promise.resolve();
+    }
+    const pending = loadSnapshot(options).finally(() => { if (activeLoad === pending) activeLoad = null; });
+    activeLoad = pending;
+    return pending;
+  }
 
   // Reconciles plan-store authority without requiring a Sprint ID or reloading the Sprint dashboard.
-  async function load({ refresh = true, planIds = [], sprintIds = [] } = {}) {
+  async function loadSnapshot({ refresh = true, planIds = [], sprintIds = [] } = {}) {
     const request = ++generation;
     refresh = refresh || snapshot.status === "error";
     try {
@@ -34,6 +47,7 @@ export function createCodingPlanLoader({ client, projectId, onState }) {
       revisions = new Map(entries);
       const plans = entries.map(([, plan]) => plan);
       snapshot = { status: "ready", plans: reviewableArchitecturePlans(plans), requests, diagnostics_error_code: diagnostics.error, error: null };
+      if (refresh) lastRefresh = now();
     } catch (error) {
       if (request !== generation) return;
       snapshot = { ...snapshot, status: "error", error: error.message };

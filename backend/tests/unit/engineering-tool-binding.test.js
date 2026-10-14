@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bindEngineeringTools } from "../../src/tools/engineering-tool-binding.js";
-import { ENGINEERING_TOOL_NAMES } from "../../src/tools/engineering-tool-catalog.js";
+import { ENGINEERING_TOOL_NAMES, CODER_TOOL_NAMES } from "../../src/tools/engineering-tool-catalog.js";
 
 // Creates an issued ticket fixture; no owner conversation permissions or ledger are included.
 function fixture(projectRoot = process.cwd()) {
@@ -85,10 +85,10 @@ test("Coder can read canonical source windows and commit through its scoped serv
   assert.deepEqual(calls.map(({ name }) => name), ["read_file", "commit_changes"]);
 });
 
-test("lifecycle and verification extensions stay separate from focused run_check", async () => {
-  const { bound, calls } = fixture();
-  await bound.registry.run_test.execute({});
-  await bound.registry.check_test.execute({ job_id: "JOB" });
-  assert.deepEqual(calls.map(({ name }) => name), ["run_test", "check_test"]);
-  for (const name of ["report_done", "respond_to_review", "search_code", "rg_files", "rg_search", "sed_lines"]) assert.ok(bound.definitions.some((definition) => definition.name === name));
+test("Coder receives the common engineering catalog plus completion with no retired extensions", () => {
+  const { bound } = fixture();
+  assert.deepEqual(bound.definitions.map(({ name }) => name), CODER_TOOL_NAMES);
+  for (const name of ["respond_to_review", "search_code", "rg_files", "rg_search", "sed_lines", "run_test", "check_test"]) {
+    assert.equal(bound.registry[name], undefined);
+  }
 });

@@ -6,7 +6,7 @@ import { architecturePlanName, createCodingPlanLoader } from "../lib/coding-plan
 import { applyCodingPlanLifecycle, codingPlanRefresh } from "../lib/coding-plan-events.js";
 import { codingArchitecturePlanList, codingPlanArchiveKey, codingPlanArchiveStorageKey, readCodingPlanArchives, setCodingPlanArchived } from "../lib/coding-plan-archive.js";
 
-// Reconciles plan revisions on project stream reconnect, tab return and bounded fallback polling.
+// Reconciles plan revisions on real changes and stale tab returns without background polling.
 export function CodingArchitecturePlans({ client, projectId, planEvents, onHandoffCompleted }) {
   const [snapshot, setSnapshot] = useState({ status: "loading", plans: [], error: null });
   const [archives, setArchives] = useState({ projectId: null, keys: [] });
@@ -36,8 +36,8 @@ export function CodingArchitecturePlans({ client, projectId, planEvents, onHando
     setReview(null);
     setSnapshot({ status: "loading", plans: [], error: null });
     // Coalesces stream bursts without interpreting their payload as approval authority.
-    const invalidate = (options = { refresh: true }) => {
-      pending = { refresh: pending?.refresh === true || options.refresh === true, planIds: [...new Set([...(pending?.planIds ?? []), ...(options.planIds ?? [])])], sprintIds: [...new Set([...(pending?.sprintIds ?? []), ...(options.sprintIds ?? [])])] };
+    const invalidate = (options = { refresh: true, ifStale: true }) => {
+      pending = { refresh: pending?.refresh === true || options.refresh === true, ifStale: (pending?.ifStale ?? true) && options.ifStale === true, planIds: [...new Set([...(pending?.planIds ?? []), ...(options.planIds ?? [])])], sprintIds: [...new Set([...(pending?.sprintIds ?? []), ...(options.sprintIds ?? [])])] };
       if (!scheduled && document.visibilityState !== "hidden") scheduled = setTimeout(() => {
         scheduled = null;
         if (document.visibilityState === "hidden") return;

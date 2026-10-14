@@ -37,7 +37,7 @@ test("legacy discovery aliases have identical argument schemas", () => {
 
 test("readiness distinguishes missing grants from missing compatible services", () => {
   const status = engineeringToolReadiness({ capabilities: ["run_check", "read_file"], registry: { read_file: { execute() {} } } });
-  assert.equal(status.catalog_version, "forge-engineering-v1");
+  assert.equal(status.catalog_version, "forge-engineering-v2");
   assert.deepEqual(status.tools.find(({ name }) => name === "read_file"), { name: "read_file", state: "available", reason: null });
   assert.match(status.tools.find(({ name }) => name === "run_check").reason, /service/);
   assert.match(status.tools.find(({ name }) => name === "push_commit").reason, /not granted/);
@@ -51,16 +51,6 @@ test("canonical discovery names consume the same governed discovery budget categ
   await governance.dispatch("search_tree", {}, context, async () => { calls += 1; return { entries: [] }; });
   await assert.rejects(governance.dispatch("search_tree", {}, context, async () => { calls += 1; return {}; }));
   assert.equal(calls, 1);
-});
-
-test("canonical aliases invoke the original governed service with its internal capability", async () => {
-  const old = Object.fromEntries(["rg_files", "rg_search", "sed_lines"].map((name) => [name, { execute: async (input, context) => ({ input, context, name }) }]));
-  const tools = engineeringToolImplementations({ registry: old });
-  for (const [alias, name] of Object.entries(ENGINEERING_ALIASES)) {
-    const result = await tools[name].execute({}, { task_id: "T", capabilities: [name] });
-    assert.equal(result.name, alias);
-    assert.deepEqual(result.context.capabilities, [name, alias]);
-  }
 });
 
 test("ticket tree exposes approved files and ancestors, not unrelated project areas", async () => {

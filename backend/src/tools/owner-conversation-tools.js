@@ -29,9 +29,6 @@ export function createOwnerConversationTools({ role, projectRoot, fileService, c
     edit_diff: createEditDiffTool({ fileService: scopedFiles, codeCache }),
     delete_file: createOwnerDeleteFileTool({ fileService: scopedFiles, codeCache: scopedCache })
   };
-  implementations.list_files = base.rg_files;
-  implementations.search_text = base.rg_search;
-  implementations.read_lines = base.sed_lines;
   if (role === "system_engineer" && gitService?.status && gitService?.diffWorkingTree) Object.assign(implementations, createGitReadTools({ gitService, logger: { emit: () => {} } }));
   const engineerTools = role === "system_engineer" ? createOwnerEngineerTools({ testService, gitService, conversationStateStore }) : { definitions: [], implementations: {} };
   Object.assign(implementations, engineerTools.implementations);
@@ -47,11 +44,7 @@ export function createOwnerConversationTools({ role, projectRoot, fileService, c
       log("started");
       authorizeTool(definition.name, toolContext);
       await authorizeOwnerTool(definition.name, input, toolContext, projectRoot);
-      const legacyCapabilities = { list_files: "rg_files", search_text: "rg_search", read_lines: "sed_lines" };
-      const implementationContext = legacyCapabilities[definition.name]
-        ? { ...toolContext, capabilities: [...new Set([...(toolContext.capabilities ?? []), legacyCapabilities[definition.name]])] }
-        : toolContext;
-      const result = await implementations[definition.name].execute(input, implementationContext);
+      const result = await implementations[definition.name].execute(input, toolContext);
       if ((definition.name === "write_diff" || definition.name === "edit_diff") && conversationStateStore && conversationId) {
         const previous = (await conversationStateStore.get(conversationId))?.owner_changed_paths ?? [];
         await conversationStateStore.update(conversationId, { owner_changed_paths: [...new Set([...previous, ...(toolContext.changed_paths ?? [])])], owner_last_commit_sha: null });
