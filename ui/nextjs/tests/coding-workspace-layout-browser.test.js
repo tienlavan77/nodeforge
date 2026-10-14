@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createServer } from "node:http";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { build } from "esbuild";
 import { launchProjectChromium } from "../../../backend/tests/helpers/chromium-cdp.js";
@@ -35,6 +35,7 @@ const measure = `(() => {
 })()`;
 
 test("Coding headers stay column-local and the agent list fits one, two and three tracks", { timeout: 60000 }, async (context) => {
+  await mkdir(join(process.cwd(), ".forge/runtime"), { recursive: true });
   const directory = await mkdtemp(join(process.cwd(), ".forge/runtime/coding-layout-"));
   context.after(() => rm(directory, { recursive: true, force: true, maxRetries: 6, retryDelay: 100 }));
   const compiled = await build({ stdin: { contents: `
