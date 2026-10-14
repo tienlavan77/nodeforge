@@ -33,7 +33,7 @@ function activityKey(event, projectId) {
 
 // Provide an in-memory registry boundary without implementing persistence or closed-panel policy.
 export function createCodingAgentPanelRegistry() {
-  return { panels: [], pending: {}, activity: {}, sourceStatus: "unknown" };
+  return { panels: [], pending: {}, activity: {}, runs: {}, closed: {}, sourceStatus: "unknown" };
 }
 
 // Preserve unclosed identities while invalidating cached execution claims on source transitions.
@@ -45,19 +45,50 @@ export function setCodingAgentPanelSource(registry, sourceStatus) {
 export function updateCodingAgentPanelRegistry(registry, projectId, events, agents) {
   const pending = { ...registry.pending };
   const activity = { ...registry.activity };
+  const runs = { ...registry.runs };
+  const closed = { ...registry.closed };
   const panels = [...registry.panels];
   for (const event of events) {
     const key = activityKey(event, projectId);
     if (!key) continue;
-    if (event.payload.status === "working") pending[key] = { key, projectId, agentId: event.payload.agent_id };
+    const previous = runs[key] ?? { version: 0, correlations: [], started: [] };
+    const correlation = event.correlation_id ?? event.payload.correlation_id;
+    const started = event.payload.activity_type === "started"
+      ? event.event_id ?? event.id ?? event.timestamp : null;
+    const hasCorrelation = typeof correlation === "string" && correlation.length > 0;
+    const hasStarted = typeof started === "string" && started.length > 0;
+    const newRun = hasCorrelation ? !previous.correlations.includes(correlation)
+      : hasStarted && !previous.started.includes(started);
+    runs[key] = {
+      version: previous.version + (newRun ? 1 : 0),
+      correlations: hasCorrelation && !previous.correlations.includes(correlation) ? [...previous.correlations, correlation] : previous.correlations,
+      started: hasStarted && !previous.started.includes(started) ? [...previous.started, started] : previous.started
+    };
+    if (event.payload.status === "working") {
+      if (closed[key] !== undefined && runs[key].version > closed[key]) delete closed[key];
+      if (closed[key] === undefined) pending[key] = { key, projectId, agentId: event.payload.agent_id };
+    }
     activity[key] = event.payload.status;
   }
   for (const entry of Object.values(pending)) {
-    if (entry.projectId !== projectId || !codingAgentProfile(agents, entry.agentId, projectId)) continue;
+    if (closed[entry.key] !== undefined || entry.projectId !== projectId || !codingAgentProfile(agents, entry.agentId, projectId)) continue;
     if (!panels.some((panel) => panel.key === entry.key)) panels.push(entry);
     delete pending[entry.key];
   }
-  return { ...registry, panels, pending, activity };
+  return { ...registry, panels, pending, activity, runs, closed };
+}
+
+// Respect a human close for this exact agent until evidence establishes a new working run.
+export function closeCodingAgentPanel(registry, projectId, agentId) {
+  const key = codingAgentPanelKey(projectId, agentId);
+  if (!key || !registry.panels.some((panel) => panel.key === key)) return registry;
+  const pending = { ...registry.pending };
+  delete pending[key];
+  return {
+    ...registry, pending,
+    panels: registry.panels.filter((panel) => panel.key !== key),
+    closed: { ...registry.closed, [key]: registry.runs?.[key]?.version ?? 0 }
+  };
 }
 
 // Isolate each panel's actions by exact project and agent identity, never by labels or roles.

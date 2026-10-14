@@ -3,7 +3,7 @@ import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { CodingWorkspaceMonitor } from "@ticket/ui/components/coding-workspace-monitor.jsx";
-import { createCodingAgentPanelRegistry, updateCodingAgentPanelRegistry, setCodingAgentPanelSource } from "@ticket/ui/lib/coding-agent-panel-registry.js";
+import { createCodingAgentPanelRegistry, updateCodingAgentPanelRegistry, setCodingAgentPanelSource, closeCodingAgentPanel } from "@ticket/ui/lib/coding-agent-panel-registry.js";
 import "@ticket/ui/app/styles/workspace-monitors.css";
 import "@ticket/ui/app/styles/sprint-ticket.css";
 import "@ticket/ui/app/styles/ticket-dialogs.css";
@@ -48,6 +48,8 @@ function BrowserFixture() {
     flushSync(() => setSnapshot({ registry, directory, activities: events }));
   };
   return React.createElement(CodingWorkspaceMonitor, { projectId, dashboard, client, agentDirectory: snapshot.directory, agentActivities: snapshot.activities, agentPanelRegistry: snapshot.registry,
+    // Exercise the real accessible panel control using the same exact-identity registry boundary as Coding.
+    onAgentPanelClose: (scope, agentId) => setSnapshot((current) => ({ ...current, registry: closeCodingAgentPanel(current.registry, scope, agentId) })),
     onRefresh: () => { calls.push({ name: "refresh", args: [] }); }, onTicketDeleted: (...args) => { calls.push({ name: "ticketDeleted", args }); }, onSprintDeleted: (...args) => { calls.push({ name: "sprintDeleted", args }); } });
 }
 
