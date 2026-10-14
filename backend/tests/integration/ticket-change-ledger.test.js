@@ -66,3 +66,49 @@ test("ticket reapplies a reverted file change instead of claiming a stale repeat
     assert.equal((await ledger.write({ taskId: "TICKET-A", path, before: original, after: changed })).repeated, true);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+for (const mode of ["resume", "write", "repeat"]) {
+  test(`failed ticket releases resources and ${mode} reacquires the same claim for commit`, async () => {
+    const root = await mkdtemp(join(tmpdir(), "nodeforge-ticket-reclaim-"));
+    const path = "ui/panel.js";
+    const files = createFileService({ projectRoot: root });
+    const logs = [];
+    const ledger = createTicketChangeLedger({ fileService: files, projectId: "PROJECT-TEST", projectLogger: (event) => logs.push(event) });
+    try {
+      await files.atomicWrite({ path, content: "original", replace: true });
+      await ledger.write({ taskId: "TICKET-A", path, before: "original", after: "changed" });
+      const original = await ledger.snapshot("TICKET-A");
+      await ledger.release("TICKET-A", { close: false });
+      assert.equal(await files.readFile({ path }), "changed");
+      assert.equal((await ledger.load("TICKET-A")).state, "active");
+      if (mode === "resume") await ledger.resume("TICKET-A");
+      if (mode === "write") await ledger.write({ taskId: "TICKET-A", path, before: "changed", after: "fixed" });
+      if (mode === "repeat") assert.equal((await ledger.write({ taskId: "TICKET-A", path, before: "original", after: "changed" })).repeated, true);
+      const restarted = createTicketChangeLedger({ fileService: createFileService({ projectRoot: root }), projectId: "PROJECT-TEST" });
+      await restarted.withCommitTransaction("TICKET-A", async (manifest) => {
+        assert.equal(manifest.entries[path].claim_id, original.entries[path].claim_id);
+        assert.equal(manifest.revision, mode === "write" ? 2 : 1);
+      });
+      assert.equal(logs.find((event) => event.event_name === "ticket.file_claims_released").payload.resumable, true);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+}
+
+test("released ticket cannot steal another ticket's file or hide source drift during resume", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-ticket-reclaim-conflict-"));
+  const path = "ui/panel.js";
+  const files = createFileService({ projectRoot: root });
+  const ledger = createTicketChangeLedger({ fileService: files, projectId: "PROJECT-TEST" });
+  try {
+    await files.atomicWrite({ path, content: "original", replace: true });
+    await ledger.write({ taskId: "TICKET-A", path, before: "original", after: "changed" });
+    await ledger.release("TICKET-A", { close: false });
+    await files.atomicWrite({ path, content: "outside change", replace: true });
+    await assert.rejects(ledger.resume("TICKET-A"), { code: "TICKET_SOURCE_CHANGED" });
+    await ledger.write({ taskId: "TICKET-B", path, before: "outside change", after: "ticket B" });
+    await assert.rejects(ledger.resume("TICKET-A"), { code: "FILE_CLAIM_CONFLICT" });
+    await ledger.release("TICKET-A", { close: false });
+    await ledger.withCommitTransaction("TICKET-B", async () => {});
+    assert.equal(await files.readFile({ path }), "ticket B");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

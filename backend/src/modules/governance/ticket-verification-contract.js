@@ -1,6 +1,7 @@
 // Validates criterion-to-check mappings so Forge can verify ticket completion deterministically.
 import { createRequire } from "node:module";
 import Ajv2020 from "ajv/dist/2020.js";
+import { assertCodingBrowserStep } from "../supervisor/browser-coding-contract.js";
 import { ConfigurationError } from "../../shared/errors.js";
 
 const require = createRequire(import.meta.url);
@@ -21,6 +22,10 @@ export function assertTicketVerificationContract(ticket) {
     if (!step || !KINDS.has(step.kind) || !Array.isArray(step.criterion_ids) || !step.criterion_ids.length) throw failure("Each verification step requires a supported kind and criterion_ids.");
     if (step.kind === "test" && !nonBlank(step.test_path)) throw failure("A test verification step requires test_path.");
     if (step.kind === "browser" && (!Array.isArray(step.assertions) || !step.assertions.length || !Array.isArray(step.viewports) || !step.viewports.length)) throw failure("A browser verification step requires assertions and viewports.");
+    if (step.kind === "browser") {
+      try { assertCodingBrowserStep(step); }
+      catch (error) { throw failure(error.message); }
+    }
     for (const id of step.criterion_ids) {
       if (!expected.has(id)) throw failure(`Verification plan references unknown criterion ${id}.`);
       seen.add(id);

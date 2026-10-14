@@ -13,7 +13,7 @@ import { buildTicketVerificationPlan } from "../../src/modules/supervisor/ticket
 import { verifyCodingAssertion } from "../../src/modules/supervisor/browser-coding-scenarios.js";
 import { launchProjectChromium } from "../helpers/chromium-cdp.js";
 
-const step = { criterion_ids: ["AC-1", "AC-2", "AC-4", "AC-6", "AC-7", "AC-9", "AC-10"], kind: "browser", viewports: [375, 768, 1440], assertions: CODING_BROWSER_ASSERTIONS.slice(10) };
+const step = { criterion_ids: ["AC-1", "AC-2", "AC-4", "AC-6", "AC-7", "AC-9", "AC-10"], kind: "browser", viewports: [375, 768, 1440], assertions: CODING_BROWSER_ASSERTIONS.slice(10, 13) };
 
 // Reuses real scenario functions through the project's existing Chromium CDP helper when the shell lacks Playwright's Node runtime.
 function scenarioPage(page) {
@@ -75,7 +75,7 @@ test("new approved identity and lifecycle prose is registered without accepting 
   assert.doesNotThrow(() => assertCodingBrowserStep(step));
   const commands = await buildTicketVerificationPlan([], process.cwd(), { verificationPlan: [step] });
   assert.deepEqual(commands[0].browser_step, step);
-  for (const invalid of ["Close all panels", step.assertions[2] + " Skip reopening", "Exercise blocked localStorage and malformed saved data; verify the UI remains operable and a diagnostic is recorded."]) {
+  for (const invalid of ["Close all panels", step.assertions[2] + " Skip reopening", "Skip storage failures"]) {
     assert.throws(() => assertCodingBrowserStep({ ...step, assertions: [invalid] }), { code: "VERIFY_BROWSER_SCENARIO_REQUIRED" });
   }
 });
