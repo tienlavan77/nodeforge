@@ -42,9 +42,12 @@
 .coding-workspace-shell .coding-workspace-column { min-height: 0; box-sizing: border-box; overflow-wrap: anywhere; }
 
 /* Keep the legacy Sprint Plan and live Coding agents visible side by side. */
-.coding-workspace-monitor { display: grid; min-height: 100vh; grid-template-columns: minmax(0, 1fr) minmax(260px, 2fr); gap: 1px; background: var(--app-border); color: var(--app-text); }
-.coding-workspace-column { min-width: 0; overflow: auto; padding: 28px; background: var(--app-panel); }
-.coding-workspace-column h1 { margin: 0 0 18px; font-size: 16px; }
+.coding-workspace-monitor { display: grid; min-height: 100vh; grid-template-columns: minmax(0, 1fr) minmax(260px, 2fr); grid-template-rows: minmax(0, 1fr); gap: 1px; background: var(--app-border); color: var(--app-text); }
+.coding-workspace-column { min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scroll-padding-top: 110px; padding: 0 28px 28px; background: var(--app-panel); }
+.coding-workspace-column-header { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 28px 0 18px; margin-bottom: 18px; background: var(--app-panel); border-bottom: 1px solid var(--app-border); }
+.coding-workspace-column-header h1 { min-width: 0; margin: 0; font-size: 16px; }
+.coding-workspace-git-status { margin-left: auto; min-width: 0; max-width: 100%; }
+.coding-workspace-agent { container-type: inline-size; container-name: coding-agents; }
 .coding-sprint-plan .sprint-plan-dashboard { padding: 0; border: 0; }
 .coding-architecture-plans { display: grid; min-width: 0; gap: 12px; margin-bottom: 24px; padding: 16px; border: 1px solid var(--app-border); border-radius: 10px; background: var(--app-surface-alt); color: var(--app-text); font: 12px/1.5 'Space Grotesk', sans-serif; }
 .coding-architecture-plans > h2 { margin: 0; font-size: 14px; font-weight: 600; }
@@ -62,11 +65,17 @@
 .coding-architecture-plan-actions > button:focus-visible, .coding-architecture-plans > p > button:focus-visible, .coding-architecture-plans > button:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
 .coding-architecture-plan-actions > button:disabled { opacity: .55; cursor: not-allowed; }
 @media (max-width: 640px) { .coding-architecture-plans { padding: 12px; gap: 10px; } .coding-architecture-plan-card { padding: 12px; } .coding-architecture-plan-actions > button { width: 100%; } }
-.coding-workspace-list { display: grid; gap: 10px; }
+.coding-workspace-list { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 10px; }
+@container coding-agents (min-width: 490px) { .coding-workspace-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container coding-agents (min-width: 740px) { .coding-workspace-list { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .coding-agent-monitor { min-width: 0; padding: 14px; border: 1px solid var(--app-border); background: var(--app-surface-alt); }
-.coding-agent-monitor header { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.coding-agent-monitor header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 10px; }
+.coding-agent-monitor header > strong, .coding-agent-monitor header > span { min-width: 0; overflow-wrap: anywhere; }
+.coding-agent-monitor header > button { flex-shrink: 0; }
+.coding-workspace-git-status .workspace-git-status { max-width: 100%; flex-wrap: wrap; justify-content: flex-end; white-space: normal; }
+.coding-workspace-git-status .workspace-git-status > strong, .coding-workspace-git-status .workspace-git-status > small { min-width: 0; overflow-wrap: anywhere; }
 .coding-agent-monitor strong { display: block; overflow-wrap: anywhere; }
 .coding-agent-monitor p { margin: 7px 0; overflow-wrap: anywhere; }
 .coding-agent-monitor small, .coding-agent-monitor header span, .coding-workspace-empty { color: var(--app-muted); }
 .coding-workspace-empty { margin: 0; padding: 14px 0; }
-@media (max-width: 760px) { .coding-workspace-monitor { min-height: auto; grid-template-columns: 1fr; } .coding-workspace-column { padding: 20px; } }
+@media (max-width: 760px) { .coding-workspace-monitor { min-height: auto; grid-template-columns: 1fr; grid-template-rows: repeat(2, minmax(0, 1fr)); } .coding-workspace-column { padding: 0 20px 20px; } .coding-workspace-column-header { padding-top: 20px; } }
