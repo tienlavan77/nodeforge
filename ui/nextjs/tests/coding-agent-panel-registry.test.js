@@ -154,8 +154,8 @@ test("close respects exact identity through same-run activity, replay and reconn
       { ...started("coder-1", 4, "conflict"), agent_id: "coder-2" }]);
     assert.deepEqual(registry.panels, retained);
   }
-  const runs = registry.runs;
   for (const source of ["error", "connecting", "connected"]) {
+    const runs = registry.runs;
     registry = setCodingAgentPanelSource(registry, source);
     assert.deepEqual(registry.activity, {});
     assert.strictEqual(registry.runs, runs);
@@ -220,7 +220,7 @@ test("AC-10: Sprint Plan component contracts and Coding ingress wiring remain in
   assert.match(page, /planEvents\.publish\(event\)/);
   assert.match(page, /updateCodingAgentPanelRegistry\(current,\s*PROJECT_ID,\s*\[event\]/);
   assert.match(page, /setWatcherState\s*:\s*setPanelSource/);
-  const closeControl = monitor.match(/<button\b[^>]*>Close<\/button>/)?.[0];
+  const closeControl = monitor.match(/<button\b[\s\S]*?>\s*Close\s*<\/button>/)?.[0];
   assert.ok(closeControl);
   assert.match(closeControl, /type\s*=\s*"button"/);
   assert.match(closeControl, /aria-label\s*=\s*\{`Close agent panel \$\{panel\.agentId\} in project \$\{panel\.projectId\}`\}/);
