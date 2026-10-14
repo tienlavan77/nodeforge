@@ -1,5 +1,6 @@
 // Completes a ticket from verified Coder evidence without dispatching an inline Reviewer.
 import { ConfigurationError } from "../../shared/errors.js";
+import { releaseTicketAttempt } from "./ticket-attempt-release.js";
 
 // Records the verified commit and releases ticket claims after a complete Coder report.
 export async function completeCoderTicket({ workspace, agentOccupancy, claim, taskId, ownerId, request, publishTicketOutcome, result }) {
@@ -11,7 +12,7 @@ export async function completeCoderTicket({ workspace, agentOccupancy, claim, ta
   try {
     artifact = workspace ? await finalizeCoderWorkspace(workspace, taskId) : null;
   } catch (error) {
-    await agentOccupancy.release({ claimId: claim.claim_id, taskId, supervisorId: ownerId, reason: "coder_completion_failed" });
+    await releaseTicketAttempt({ workspace, agentOccupancy, claim, taskId, ownerId, reason: "coder_completion_failed" });
     if (error.code === "CODER_EVIDENCE_PENDING") {
       await publishTicketOutcome("task.failed", request, ownerId, { reason: error.code, retryable: true, criterion_ids: error.details?.criterion_ids ?? [], error: { code: error.code, message: error.message } });
       return { status: "failed", reason: error.code };

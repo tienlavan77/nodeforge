@@ -3,6 +3,7 @@ import { extractTicketJson } from "./ticket-draft-parser.js";
 import { startSprintLeaderProgress } from "./sprint-leader-progress.js";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { invalidSprintTicketPriorities, repairSprintTicketPriorities, TICKET_PRIORITY_VALUES } from "../modules/governance/sprint-ticket-priority.js";
 
 const RULES_PATH = "workflows/agents/sprint-leader/README.md";
 
@@ -27,7 +28,12 @@ export function createSprintPlanLeader({ sdkGateway, projectRoot, toolOptions, l
         options
       });
       const plan = extractTicketJson(typeof result?.text === "string" ? result.text : collectText(result?.messages));
-      const draft = stripLegacyCandidateFields(plan);
+      let draft = stripLegacyCandidateFields(plan);
+      if (invalidSprintTicketPriorities(draft).length) {
+        const repaired = await sdkGateway.execute({ agentId, correlationId: `${correlationId}-PRIORITY-REPAIR`, cwd: projectRoot ?? process.cwd(), options,
+          prompt: `${prompt}\n\nPriority-only repair of the frozen Sprint draft below. Change ONLY invalid ticket priority fields to string values ${TICKET_PRIORITY_VALUES.join("|")}. Numeric priorities have no defined mapping: select the appropriate priority from the approved scope yourself. Preserve all Sprint/ticket IDs, ticket order, acceptance criteria, verification plans, dependencies, file budgets and every other field exactly. Return the full JSON draft. This is the only automatic repair attempt.\n${JSON.stringify(draft)}` });
+        draft = repairSprintTicketPriorities(draft, extractTicketJson(typeof repaired?.text === "string" ? repaired.text : collectText(repaired?.messages)));
+      }
       stopProgress(draft ? "success" : "failed", { plan_id: draft?.id ?? null, ticket_count: draft?.tickets?.length ?? 0, discovered_paths: discoveredPaths.size });
       return draft;
     } catch (error) {
@@ -61,6 +67,7 @@ function buildPlanPrompt({ projectId, brief, feedback, rules }) {
     "Investigate the project with the supplied read-only Forge search_tree, list_files, search_text, search_code, read_file, and read_lines tools before drafting tickets. Search for relevant components and, when possible, identify existing related files. read_file accepts offset and limit for bounded source windows; limit MUST be an integer from 1 through 80. Cite actual observations; if discovery is unavailable, state the uncertainty. Do not use built-in shell, file, network, or write tools.",
     "Write newly authored prose in English. Approved acceptance criteria and coverage references MUST retain their exact original wording and language, including Vietnamese; never replace them with translations. During verification repair, preserve the supplied frozen draft and acceptance_criteria order exactly and change ONLY verification_plan. Number AC IDs against that final unchanged array.",
     "Every ticket MUST include implementation_type as a one-item array: frontend|backend|security. Do not return the legacy style field. File references are discovery hints, not an immutable edit manifest; the Coder verifies actual change scope.",
+    `Ticket priority is optional; if included it MUST be one string from ${TICKET_PRIORITY_VALUES.join("|")}. Never use numeric ranks, numeric strings, P0/P1 labels, arrays, objects or null. Use ticket order and dependencies for sequencing, not numeric priority. During priority-only repair, change ONLY the rejected priority fields and preserve all other fields exactly.`,
     "Respond with ONLY one ```json fenced block containing the sprint plan JSON object. No prose outside the block.",
     "Plan fields: id (sprint id), roadmap_id, project_id, objective, tickets (each with title, objective, acceptance_criteria, verification_plan, exactly one implementation_type, a positive integer file_budget sized to the work; no global maximum, optional priority/dependencies/change_nature/outcome_refs), exit_criteria, and human_plan. If included, change_nature must be presentation-only for visual frontend changes or test-only for test-only work; omit it otherwise.",
     "Each ticket MUST include verification_plan. Give criteria stable positional IDs AC-1, AC-2, and so on. Every criterion must appear in at least one step: {criterion_ids:[\"AC-1\"],kind:\"test\",test_path:\"...\"} for an executable focused test; kind build|lint|typecheck|schema_validation|backend_tests for Node-owned checks; kind browser with nonempty string assertions and viewports as a nonempty array of unique positive integer widths in CSS pixels, e.g. viewports:[375,768,1440], for UI behavior. Do NOT use viewport objects, numeric strings, device names, width-by-height strings, decimals, zero or duplicate widths; kind governance or human only when no automated proof is appropriate. Do not claim a build proves a visual behavior. This plan is executed by Forge after commit and is shown unchanged to Coder.",

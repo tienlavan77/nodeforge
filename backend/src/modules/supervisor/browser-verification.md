@@ -33,9 +33,20 @@ installer never runs `install-deps` or modifies system packages.
 `browser-coding-contract.js` maps exact approved assertion text to concrete
 scenarios in `browser-coding-scenarios.js`. The current suite implements the ten
 Coding panel/Sprint-control assertions used by `TICKET-44DB0ADE-01`, including
-AC-10. Every approved viewport runs every assertion. Unsupported assertions
+AC-10, plus the three identity/accessible-close/next-run lifecycle assertions
+approved for `TICKET-CODING-PANELS-dfb362ac-01`. These lifecycle scenarios exercise
+same-named agents, foreign-project events, Enter-key and pointer closing,
+same-run working/idle/working, reconnect, and explicit new-run reopening while
+retaining the other agent's DOM panel. Persistence and layout assertions from
+other tickets still require their own matching scenarios. Every approved viewport runs every assertion. Unsupported assertions
 fail with `VERIFY_BROWSER_SCENARIO_REQUIRED`; add a matching Node-owned scenario
 rather than downgrading the plan or treating a smoke test as acceptance.
+
+The focused lifecycle regression can use `NODEFORGE_BROWSER_COMMIT=<commit>`
+to bundle an isolated Git archive of that exact ticket UI. It uses the existing
+project Chromium/CDP test helper; this regression is not a ticket evidence
+artifact. The production Playwright runner still requires its supported Node
+runtime and generates the immutable browser receipt through ticket verification.
 
 Each receipt records the complete step SHA-256, browser/tool versions, viewport,
 and successful assertion list. The verification artifact binds this receipt to

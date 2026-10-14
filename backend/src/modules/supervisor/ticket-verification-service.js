@@ -9,6 +9,7 @@ import { materializeTicketArchive } from "./ticket-archive-materialization.js";
 import { buildTicketVerificationPlan, requiresSchemaVerification } from "./ticket-verification-plan.js";
 import { createTicketVerificationRecovery } from "./ticket-verification-recovery.js";
 import { latestTicketVerificationAttempt } from "./ticket-verification-attempts.js";
+import { ticketVerificationRunnerRevision } from "./ticket-verification-runner-revision.js";
 import { createTicketFocusedCheck } from "./ticket-focused-check.js";
 import { coversVerificationPolicy } from "./ticket-verification-policy.js";
 import { browserCommandOutput } from "./browser-verification-evidence.js";
@@ -41,15 +42,16 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
     }
     if (context?.state !== "committed" || !context.review_commit_sha) throw fail("TICKET_COMMIT_REQUIRED", "Commit ticket changes before running final verification.");
     await assertIdentity(context);
-    const previous = await latestTicketVerificationAttempt({ projectRoot, taskId, context, policyVersion: POLICY_VERSION, loadJob: (id) => loadJson(jobPath(id)) });
-    if (previous?.status === "failed" && previous.attempt >= MAX_SAME_REVISION_ATTEMPTS) throw fail("VERIFY_RETRY_UNCHANGED", `Verification failed ${MAX_SAME_REVISION_ATTEMPTS} times for this commit and source revision. Create a new revision or record a retryable environment exception.`);
+    const runnerRevision = await ticketVerificationRunnerRevision(context.verification_plan);
+    const previous = await latestTicketVerificationAttempt({ projectRoot, taskId, context, policyVersion: POLICY_VERSION, runnerRevision, loadJob: (id) => loadJson(jobPath(id)) });
+    if (previous?.status === "failed" && previous.attempt >= MAX_SAME_REVISION_ATTEMPTS) throw fail("VERIFY_RETRY_UNCHANGED", `Verification failed ${MAX_SAME_REVISION_ATTEMPTS} times for this commit, source revision, and runner revision. Last failure: ${previous.error?.code ?? "VERIFY_FAILED"}. Repair the reported cause; unchanged retries are blocked, but browser runner repairs do not require ticket code changes.`);
     if (previous?.status === "running") {
       if (jobs.has(previous.job_id)) return previous;
       await getTestResult({ jobId: previous.job_id });
       if (previous.attempt >= MAX_SAME_REVISION_ATTEMPTS) throw fail("VERIFY_RETRY_UNCHANGED", `Verification was interrupted ${MAX_SAME_REVISION_ATTEMPTS} times for this commit and source revision.`);
     }
     const id = `VERIFY-${randomUUID()}`;
-    const job = { job_id: id, task_id: taskId, attempt: (previous?.attempt ?? 0) + 1, status: "running", source_revision: context.source_revision, commit_sha: context.review_commit_sha, policy_version: POLICY_VERSION, started_at: new Date().toISOString() };
+    const job = { job_id: id, task_id: taskId, attempt: (previous?.attempt ?? 0) + 1, status: "running", source_revision: context.source_revision, commit_sha: context.review_commit_sha, policy_version: POLICY_VERSION, runner_revision: runnerRevision, started_at: new Date().toISOString() };
     await saveJob(job);
     const run = verify(context, job).catch(async (error) => {
       const failed = { ...job, status: "failed", error: { code: error.code ?? "VERIFY_FAILED", message: safeOutput(error.message) }, finished_at: new Date().toISOString() };
