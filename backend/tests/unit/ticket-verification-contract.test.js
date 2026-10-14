@@ -9,7 +9,7 @@ test("verification contract maps every criterion to a typed check", () => {
     acceptance_criteria: ["Navigation works", "Layout has no overflow"],
     verification_plan: [
       { criterion_ids: ["AC-1"], kind: "test", test_path: "ui/nextjs/tests/navigation.test.js" },
-      { criterion_ids: ["AC-2"], kind: "browser", viewports: [375, 1440], assertions: ["document width has no overflow"] }
+      { criterion_ids: ["AC-2"], kind: "browser", scenario_path: "ui/nextjs/tests/navigation.browser.mjs", viewports: [375, 1440], assertions: ["document width has no overflow"] }
     ]
   };
   assert.equal(assertTicketVerificationContract(ticket), true);
@@ -32,7 +32,7 @@ test("browser verification rejects non-integer, non-positive, duplicate or missi
 
 // Rejects the rest of the step schema at the same early gate, without coercion or dropping unknown fields.
 test("verification contract checks all step fields against the canonical ticket schema", () => {
-  const valid = { kind: "browser", criterion_ids: ["AC-1"], assertions: ["No overflow"], viewports: [375, 1440] };
+  const valid = { scenario_path: "ui/nextjs/tests/layout.browser.mjs", kind: "browser", criterion_ids: ["AC-1"], assertions: ["No overflow"], viewports: [375, 1440] };
   for (const patch of [{ assertions: [123] }, { assertions: [""] }, { notes: {} }, { criterion_ids: ["AC-1", "AC-1"] }, { unexpected: "field" }]) {
     assert.throws(() => assertTicketVerificationContract({ acceptance_criteria: ["No overflow"], verification_plan: [{ ...valid, ...patch }] }), { code: "TICKET_VERIFICATION_PLAN_INVALID" });
   }
@@ -40,4 +40,9 @@ test("verification contract checks all step fields against the canonical ticket 
   const original = structuredClone(ticket);
   assert.equal(assertTicketVerificationContract(ticket), true);
   assert.deepEqual(ticket, original);
+});
+
+// Rejects browser prose at planning time when neither a legacy adapter nor a planned module can execute it.
+test("unimplemented browser prose requires a planned scenario before Sprint admission", () => {
+  assert.throws(() => assertTicketVerificationContract({ acceptance_criteria: ["New behavior"], verification_plan: [{ kind: "browser", criterion_ids: ["AC-1"], assertions: ["Check a new feature"], viewports: [375] }] }), (error) => error.code === "TICKET_VERIFICATION_PLAN_INVALID" && /scenario_path/.test(error.message));
 });

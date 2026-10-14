@@ -155,7 +155,7 @@ test("verification service persists browser evidence and rejects missing receipt
       if (result.status !== "running") break;
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
-    assert.equal(result.status, "passed");
+    assert.equal(result.status, "passed", JSON.stringify(result));
     assert.deepEqual(commands.map((command) => command.kind), ["browser", "build"]);
     const artifact = await service.assertPassedArtifact();
     assert.equal(artifact.policy_version, "ticket-verification-v6");

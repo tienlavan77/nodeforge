@@ -96,14 +96,17 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
       if (repeated) {
         if (repeated.after_sha !== sha(after)) throw failure("TICKET_OPERATION_CONFLICT", `Ticket write ID was reused for different content: ${path}.`);
         const live = await readOptional(path);
-        if (existing.latest_sha === repeated.after_sha && sha(live) === repeated.after_sha) return { path, sha256: repeated.after_sha, repeated: true };
+        if (existing.latest_sha === repeated.after_sha && sha(live) === repeated.after_sha) {
+          if (!owned) await fileService.atomicWrite({ path: claimPath(path), content: JSON.stringify({ task_id: taskId, path, claim_id: existing.claim_id ?? randomUUID() }), replace: false });
+          return { path, sha256: repeated.after_sha, repeated: true };
+        }
         if (operationId) throw failure("TICKET_OPERATION_CONFLICT", `Ticket write ID was reused after source changed: ${path}.`);
       }
       const id = repeated ? key(`${contentId}\0${manifest.revision + 1}`) : contentId;
       const live = await readOptional(path);
       if (sha(live) !== sha(before)) throw failure("CHECKSUM_MISMATCH", `Root source changed before writing ${path}.`);
       if (existing && existing.latest_sha !== sha(live)) throw failure("TICKET_SOURCE_CHANGED", `Root source changed outside ticket ${taskId}: ${path}.`);
-      const owner = owned ?? { task_id: taskId, path, claim_id: randomUUID() };
+      const owner = owned ?? { task_id: taskId, path, claim_id: existing?.claim_id ?? randomUUID() };
       if (!owned) await fileService.atomicWrite({ path: claimPath(path), content: JSON.stringify(owner), replace: false });
       const entry = existing ?? { path, claim_id: owner.claim_id ?? null, initial_sha: sha(before), initial_content: before, latest_sha: sha(before), operations: [], pending: null };
       const operation = { id, before_sha: sha(before), after_sha: sha(after), before, after };
@@ -203,6 +206,7 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
       });
       manifest.state = close ? "closed" : "active";
       await save(taskId, manifest);
+      projectLogger({ event_name: "ticket.file_claims_released", level: "info", status: "success", message: "Ticket file claims released; source and resume journal preserved.", task_id: taskId, source: "ticket-change-ledger", payload: { path_count: Object.keys(manifest.entries).length, resumable: !close } });
       return Object.keys(manifest.entries);
     });
   }

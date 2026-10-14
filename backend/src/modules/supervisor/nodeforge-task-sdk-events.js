@@ -64,6 +64,7 @@ export function collectToolCalls(messages) {
     ...item,
     status: failedIds.has(item.id) ? "failed" : "success",
     error_code: resultsById.get(item.id)?.error_code ?? null,
+    error: resultsById.get(item.id)?.error ?? null,
     tool: item.name
   }));
 }
@@ -72,7 +73,7 @@ export function collectToolCalls(messages) {
 function extractToolEvents(message) {
   const blocks = [message?.content, message?.message?.content, message?.message, message].flatMap((value) => Array.isArray(value) ? value : [value]);
   return blocks.filter((item) => item?.type === "tool_use" || item?.type === "tool_result")
-    .map((item) => ({ type: item.type, id: item.id ?? item.tool_use_id ?? null, is_error: item.is_error === true, error_code: normalizeToolErrorCode(item), name: normalizeForgeToolName(item.name ?? item.tool_name), tool_name: item.name ?? item.tool_name ?? null }));
+    .map((item) => ({ type: item.type, id: item.tool_use_id ?? item.id ?? null, is_error: item.is_error === true, error_code: normalizeToolErrorCode(item), error: normalizeToolError(item), name: normalizeForgeToolName(item.name ?? item.tool_name), tool_name: item.name ?? item.tool_name ?? null }));
 }
 
 // Extracts structured error codes returned by SDK MCP tools.
@@ -95,16 +96,22 @@ function extractResultErrorCode(item) {
 function normalizeToolErrorCode(block) {
   if (typeof block?.error_code === "string") return block.error_code;
   if (typeof block?.error?.code === "string") return block.error.code;
-  const content = Array.isArray(block?.content) ? block.content : [];
-  const text = content.find((part) => typeof part?.text === "string")?.text;
-  if (!text) return null;
-  try {
-    const parsed = JSON.parse(text);
-    return typeof parsed?.error_code === "string" ? parsed.error_code : null;
-  // eslint-disable-next-line no-silent-catch -- Error-code probe: non-JSON content means no structured code.
-  } catch {
-    return null;
+  return normalizeToolError(block)?.code ?? null;
+}
+
+// Preserves Forge failure diagnostics when Claude flattens MCP content into a string.
+function normalizeToolError(block) {
+  if (block?.error && typeof block.error === "object") return diagnosticValue(block.error);
+  const content = typeof block?.content === "string" ? [{ text: block.content }] : block?.content;
+  for (const part of Array.isArray(content) ? content : []) {
+    if (typeof part?.text !== "string") continue;
+    try {
+      const parsed = JSON.parse(part.text);
+      if (typeof parsed?.error_code === "string") return { code: parsed.error_code, message: typeof parsed.message === "string" ? parsed.message : undefined };
+    // eslint-disable-next-line no-silent-catch -- Tool content can contain ordinary text instead of structured failure diagnostics.
+    } catch { continue; }
   }
+  return null;
 }
 
 // Normalizes tool names exposed with or without the Forge MCP prefix.

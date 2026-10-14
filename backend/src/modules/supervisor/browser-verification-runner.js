@@ -1,12 +1,16 @@
 // Runs approved Coding assertions in real Chromium against the committed ticket UI, never the live API.
+import { runProjectBrowserScenario } from "./browser-project-scenario.js";
+import { realpath } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer } from "node:http";
 import { once } from "node:events";
-import { join, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, sep } from "node:path";
 import { assertCodingBrowserStep, CODING_BROWSER_ASSERTIONS } from "./browser-coding-contract.js";
 import { verifyCodingAssertion } from "./browser-coding-scenarios.js";
 import { browserStepSha } from "./browser-verification-evidence.js";
+import { buildCodingBrowserFixture } from "./browser-coding-bundle.js";
+import { verifyCodingLayoutAssertion } from "./browser-coding-layout-scenarios.js";
+import { verifyCodingPresenceAssertion } from "./browser-coding-presence-scenarios.js";
 
 // Loads explicitly installed browser tools without downloading packages or browser binaries during a ticket RUN.
 export function loadBrowserTools(projectRoot) {
@@ -23,12 +27,21 @@ export function loadBrowserTools(projectRoot) {
 // Serves only the compiled ticket fixture on loopback and returns a complete assertion-by-viewport receipt.
 export async function runBrowserVerification({ step, sourceRoot, projectRoot, tools = loadBrowserTools(projectRoot) }) {
   assertCodingBrowserStep(step);
-  if (resolve(sourceRoot) !== resolve(projectRoot) && !resolve(sourceRoot).startsWith(`${resolve(projectRoot)}${sep}`)) throw new Error("Browser source must remain inside the project root.");
-  const bundle = await tools.build({ entryPoints: [fileURLToPath(new URL("./browser-coding-fixture.js", import.meta.url))], bundle: true, write: false, outdir: "browser-fixture", platform: "browser", jsx: "automatic",
-    alias: { "@ticket/ui": resolve(sourceRoot, "ui/nextjs"), react: resolve(sourceRoot, "ui/nextjs/node_modules/react"), "react-dom": resolve(sourceRoot, "ui/nextjs/node_modules/react-dom") }, define: { "process.env.NODE_ENV": '"production"' }, logLevel: "silent" });
-  const assets = new Map(bundle.outputFiles.map((file) => [file.path.endsWith(".css") ? "/fixture.css" : "/fixture.js", file.text]));
+  const [sourcePath, projectPath] = await Promise.all([realpath(sourceRoot), realpath(projectRoot)]);
+  if (sourcePath !== projectPath && !sourcePath.startsWith(`${projectPath}${sep}`)) throw new Error("Browser source must remain inside the project root.");
+  if (step.scenario_path) return runProjectBrowserScenario({ step, sourceRoot, tools });
+  const assets = new Map();
+  const fixtureFor = (index) => index >= 17 ? "layout" : index >= 13 ? "presence" : "fixture";
+  for (const fixture of new Set(step.assertions.map((assertion) => fixtureFor(CODING_BROWSER_ASSERTIONS.indexOf(assertion))))) {
+    const bundle = await buildCodingBrowserFixture({ build: tools.build, sourceRoot, presence: fixture === "presence", layout: fixture === "layout" });
+    for (const file of bundle.outputFiles) assets.set(`/${fixture}.${file.path.endsWith(".css") ? "css" : "js"}`, file.text);
+  }
   const server = createServer((request, response) => {
-    if (request.url === "/") { response.setHeader("Content-Type", "text/html"); response.end('<!doctype html><html><head><link rel="stylesheet" href="/fixture.css"></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>'); }
+    if (["/", "/presence", "/layout", "/away"].includes(request.url)) {
+      const fixture = request.url === "/layout" ? "layout" : request.url === "/presence" ? "presence" : "fixture";
+      response.setHeader("Content-Type", "text/html");
+      response.end(request.url === "/away" ? '<!doctype html><html><body>Away</body></html>' : `<!doctype html><html><head><link rel="stylesheet" href="/${fixture}.css"></head><body><div id="root"></div><script src="/${fixture}.js"></script></body></html>`);
+    }
     else if (assets.has(request.url)) { response.setHeader("Content-Type", request.url.endsWith(".css") ? "text/css" : "text/javascript"); response.end(assets.get(request.url)); }
     else { response.statusCode = 404; response.end(); }
   });
@@ -46,10 +59,20 @@ export async function runBrowserVerification({ step, sourceRoot, projectRoot, to
         const errors = [];
         page.on("pageerror", (error) => errors.push(error.message));
         page.setDefaultTimeout(10000);
-        await page.goto(origin);
-        if (await page.evaluate(() => window.innerWidth) !== width) throw new Error("Browser viewport does not match the approved width.");
-        await page.waitForFunction(() => Boolean(window.browserFixture?.update));
-        for (const assertion of step.assertions) await verifyCodingAssertion(CODING_BROWSER_ASSERTIONS.indexOf(assertion), page);
+        let currentFixture;
+        for (const assertion of step.assertions) {
+          const index = CODING_BROWSER_ASSERTIONS.indexOf(assertion);
+          const fixture = fixtureFor(index);
+          if (fixture !== currentFixture) {
+            await page.goto(`${origin}${fixture === "fixture" ? "/" : `/${fixture}`}`);
+            if (await page.evaluate(() => window.innerWidth) !== width) throw new Error("Browser viewport does not match the approved width.");
+            await page.waitForFunction((name) => Boolean(name === "layout" ? window.layoutFixture : name === "presence" ? window.presenceFixture : window.browserFixture?.update), fixture);
+            currentFixture = fixture;
+          }
+          if (index >= 17) await verifyCodingLayoutAssertion(index, page);
+          else if (index >= 13) await verifyCodingPresenceAssertion(index, page);
+          else await verifyCodingAssertion(index, page);
+        }
         if (errors.length) throw new Error(`Browser page errors: ${errors.join("; ")}`);
         results.push({ viewport: width, assertions: [...step.assertions], passed: true });
       } finally { await context.close(); }

@@ -117,7 +117,7 @@ test("viewport schema failures use verification-only repair and pass real ingest
   for (const legacy of [false, true]) {
     const state = await fixture(context, (attempt, input) => {
       const draft = candidate();
-      draft.tickets[0].verification_plan = [{ kind: "browser", criterion_ids: ["AC-1"], assertions: ["No horizontal overflow"], viewports: attempt === 1 ? [{ width: 375, height: 812 }, "1440"] : [375, 1440] }];
+      draft.tickets[0].verification_plan = [{ scenario_path: "ui/nextjs/tests/layout.browser.mjs", kind: "browser", criterion_ids: ["AC-1"], assertions: ["No horizontal overflow"], viewports: attempt === 1 ? [{ width: 375, height: 812 }, "1440"] : [375, 1440] }];
       if (attempt > 1) {
         assert.match(input.brief, /FINAL frozen acceptance_criteria/);
         draft.tickets[0].acceptance_criteria = ["Changed scope"];
@@ -145,7 +145,7 @@ test("viewport schema failures use verification-only repair and pass real ingest
 test("invalid viewport repairs remain blocked across owner retries", async (context) => {
   const state = await fixture(context, () => {
     const draft = candidate();
-    draft.tickets[0].verification_plan = [{ kind: "browser", criterion_ids: ["AC-1"], assertions: ["No overflow"], viewports: ["375"] }];
+    draft.tickets[0].verification_plan = [{ scenario_path: "ui/nextjs/tests/layout.browser.mjs", kind: "browser", criterion_ids: ["AC-1"], assertions: ["No overflow"], viewports: ["375"] }];
     return draft;
   });
   for (let attempt = 1; attempt <= 3; attempt++) {

@@ -1,6 +1,8 @@
 // Builds governed ticket and tool-lab prompts for Claude and Codex agents.
 import { isBackendTicket } from "./nodeforge-task-scope.js";
 
+const BROWSER_SCENARIO_INSTRUCTIONS = "Browser verification: implement each approved scenario_path module in your commit. Export createBrowserFixture({sourceRoot,build}) => {html,assets} with real bundled project components, and browserAssertions as an object mapping EVERY exact approved assertion string to async ({page,viewport,origin}) functions that assert behavior or throw. assets maps local URL paths to text content. Node owns Chromium, approved viewport execution, network isolation and receipts; do not return fabricated receipts or replace browser checks with unit tests. See backend/src/modules/supervisor/browser-verification.md for the contract.";
+
 export const COMPLEXITY_FALLBACK = Object.freeze({ effort: "medium", discovery_budget: 8, thinking: { type: "enabled", budgetTokens: 4096 } });
 
 // Builds the Codex ticket instructions for governed implementation work.
@@ -39,6 +41,7 @@ export function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, comp
     "Use the whole-file sha256 returned by read_file/read_lines as before_checksum for write_diff/edit_diff. Use JSON null only when creating a new file.",
     "Node derives commit paths from the ticket ledger and runs the listed verification plan after commit. Do not invent, omit, or downgrade a criterion; add focused tests when the plan calls for them. Node owns artifacts and criterion evidence.",
     "For extra focused checks, commit first and call run_check({type,command}); it returns the final result and a source-bound receipt directly. Final acceptance still uses Node's verification plan. Use push_commit({commit_sha}) only when pushing is requested, with the exact latest ticket commit SHA.",
+    BROWSER_SCENARIO_INSTRUCTIONS,
     "When the ticket is satisfied, call commit_changes with a concise message and no paths, then call report_done with a summary and any scope rationale or human evidence. Node supplies changed files, criterion IDs, command evidence, and artifact identity. Do not call Reviewer tools or submit finding resolutions. Stop after the complete report."
   ].filter((line) => line !== undefined).join("\n");
 }
@@ -128,6 +131,7 @@ export function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, compl
     "For an existing file, use edit_diff with a small exact anchor and replacement. Use write_diff only for a new file or an existing file within the 250-line limit. If write_diff returns DESTRUCTIVE_OVERWRITE or CONTENT_TOO_LARGE, retry with edit_diff; do not stop or report done.",
     "If a governed tool call fails, fix the inputs and retry — do not continue with write_diff/commit_changes on an unknown target.",
     "For extra focused checks, commit first and call run_check({type,command}); it returns the final result and a source-bound receipt directly. Final acceptance still uses Node's verification plan. Use push_commit({commit_sha}) only when pushing is requested, with the exact latest ticket commit SHA.",
+    BROWSER_SCENARIO_INSTRUCTIONS,
     "Mandatory completion sequence: call commit_changes with a concise message and no paths, then call report_done with a summary and any scope rationale or human evidence. Node derives commit paths, runs the listed verification plan, and attaches criterion IDs, changed files, and command evidence. Do not call Reviewer tools or submit finding resolutions. Stop only after report_done succeeds. CODER_EVIDENCE_PENDING means completion was rejected: run the missing checks and retry with verified acceptance coverage; do not hand incomplete evidence to Human Review."
   ].join("\n");
 }
@@ -137,7 +141,7 @@ function formatVerificationPlan(ticket) {
   const ownerPolicy = ticket?.owner_decisions?.length ? `Owner-approved policy decisions for this exact Sprint Plan: ${JSON.stringify(ticket.owner_decisions)}\n` : "";
   if (!Array.isArray(ticket?.verification_plan) || !ticket.verification_plan.length) return ownerPolicy;
   return ownerPolicy + ticket.verification_plan.map((step) => {
-    const details = [step.test_path ? `test_path=${step.test_path}` : "", Array.isArray(step.viewports) ? `viewports=${step.viewports.join(",")}` : "", Array.isArray(step.assertions) ? `assertions=${step.assertions.join("; ")}` : ""].filter(Boolean);
+    const details = [step.scenario_path ? `scenario_path=${step.scenario_path}` : "", step.test_path ? `test_path=${step.test_path}` : "", Array.isArray(step.viewports) ? `viewports=${step.viewports.join(",")}` : "", Array.isArray(step.assertions) ? `assertions=${step.assertions.join("; ")}` : ""].filter(Boolean);
     return `- ${step.criterion_ids?.join(", ") ?? "unbound"}: ${step.kind}${details.length ? ` (${details.join("; ")})` : ""}`;
   }).join("\n");
 }
