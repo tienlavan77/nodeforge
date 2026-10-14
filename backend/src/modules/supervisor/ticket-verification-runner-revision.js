@@ -5,11 +5,14 @@ import { readFile } from "node:fs/promises";
 const RUNNER_FILES = [
   "../../../scripts/verify-ticket-browser.mjs",
   "./browser-verification-runner.js",
+  "./browser-project-scenario.js", "./browser-coding-layout-fixture.js", "./browser-coding-layout-scenarios.js",
   "./browser-verification-evidence.js",
   "./browser-coding-contract.js",
   "./browser-coding-scenarios.js",
   "./browser-coding-lifecycle-scenarios.js",
-  "./browser-coding-fixture.js"
+  "./browser-coding-fixture.js",
+  "./browser-coding-bundle.js", "./browser-coding-presence-fixture.js",
+  "./browser-coding-presence-adapters.js", "./browser-coding-presence-scenarios.js"
 ];
 
 // Identifies the actual external browser runner and Node runtime separately from the immutable ticket revision.

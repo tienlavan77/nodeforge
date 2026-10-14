@@ -10,6 +10,7 @@ import { createTicketWorkspaceRuntime } from "./ticket-workspace-runtime.js";
 import { completeCoderTicket } from "./ticket-coder-completion.js";
 import { handleTicketExecutionFailure } from "./ticket-execution-failure.js";
 import { selectTicketCoder, selectTicketReviewer, isOpenAiProfile, isCodexProfile, isOllamaProfile } from "./ticket-agent-provider-routing.js";
+import { preflightBrowserVerification } from "./browser-verification-preflight.js";
 import { prepareTicketExecutionContext } from "./ticket-execution-context.js";
 import { createCodeCacheService } from "../context/code-cache-service.js";
 import { releaseTicketAttempt } from "./ticket-attempt-release.js";
@@ -85,6 +86,7 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
     const taskId = task_id ?? ticket.id;
     payload = payload.dependency_expectations === undefined ? payload : structuredClone(payload);
     assertDependencySubmission({ projectId: project_id ?? ticket.project_id, ticket, payload, sprintRegistry, ticketStatusStore });
+    await preflightBrowserVerification(ticket.verification_plan, { projectRoot });
     const workspace = resolveTicketWorkspace ? await resolveTicketWorkspace(taskId) : null;
     assertDependencySubmission({ projectId: project_id ?? ticket.project_id, ticket, payload, sprintRegistry, ticketStatusStore });
     const ticketRuntime = workspace ? createTicketWorkspaceRuntime({ workspace, gateways: { claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway }, agentResolver, runtimeGovernance, projectLogger, checkpoints, protocolStorage }) : { executors, reviewer };

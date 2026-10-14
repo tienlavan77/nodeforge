@@ -28,7 +28,55 @@ or host browser libraries also fail verification, never bypass it.
 Installing Linux system libraries is a separate administrator action; this
 installer never runs `install-deps` or modifies system packages.
 
-## Approved coverage
+## Project browser modules
+
+New browser steps declare `scenario_path` in the immutable verification plan:
+
+```json
+{
+  "criterion_ids": ["AC-1"],
+  "kind": "browser",
+  "scenario_path": "ui/nextjs/tests/navigation.browser.mjs",
+  "assertions": ["Save updates the status"],
+  "viewports": [375, 768, 1440]
+}
+```
+
+Use a `.browser.js` or `.browser.mjs` module under `backend/tests/` or
+`ui/nextjs/tests/`. Traversal, absolute paths, runtime paths and module symlinks
+outside the committed archive are rejected. The Coder implements this file in
+the ticket commit; the module counts against the ticket's file budget.
+
+The module exports:
+
+- `createBrowserFixture({sourceRoot, build})`: return `{html, assets}`. `html`
+  is nonempty HTML; `assets` maps local URL paths (e.g. `/fixture.js`,
+  `/fixture.css`) to text content. Use the provided esbuild function to bundle
+  **actual components from sourceRoot** with `write:false`; controlled external
+  I/O can be replaced, but do not recreate the behavior under test in mock DOM.
+- `browserAssertions`: an object whose own keys match **every approved
+  assertion string**, with async functions taking `{page, viewport, origin}`.
+  `page` is a Playwright page, `viewport` the approved width in CSS pixels.
+  Assert real DOM/behavior and throw on failure. These functions return no
+  evidence; Node creates the receipt.
+
+Node validates the contract, serves the fixture on a temporary loopback port,
+opens a fresh page for each assertion at every approved width, and blocks
+browser requests outside that fixture origin. Context storage is shared within
+one viewport; use reload/navigation within a scenario for lifecycle checks.
+Uncaught browser page errors also fail the check. Like other repository tests,
+modules execute Node code; this contract is not a sandbox for untrusted code.
+
+Sprint admission rejects browser prose without a supported scenario or a planned
+module path. Before workspace mutation or Coder reservation, RUN also validates that each browser
+step has a supported legacy scenario or a valid planned module path and that
+root browser tools/Chromium are installed and Chromium can actually launch. A planned module need not exist yet:
+Coder is responsible for implementing it. Missing exports, missing committed
+files or failing assertions remain verification failures, with no PASS receipt.
+SL and Coder prompts describe this same contract. A runner repair changes the
+runner fingerprint, allowing a bounded retry of the same committed ticket.
+
+## Legacy approved coverage
 
 `browser-coding-contract.js` maps exact approved assertion text to concrete
 scenarios in `browser-coding-scenarios.js`. The current suite implements the ten
@@ -37,8 +85,15 @@ AC-10, plus the three identity/accessible-close/next-run lifecycle assertions
 approved for `TICKET-CODING-PANELS-dfb362ac-01`. These lifecycle scenarios exercise
 same-named agents, foreign-project events, Enter-key and pointer closing,
 same-run working/idle/working, reconnect, and explicit new-run reopening while
-retaining the other agent's DOM panel. Persistence and layout assertions from
-other tickets still require their own matching scenarios. Every approved viewport runs every assertion. Unsupported assertions
+retaining the other agent's DOM panel. The four presence assertions approved for
+`TICKET-CODING-PANELS-dfb362ac-02` run the committed Coding page itself with
+controlled directory/stream clients and real localStorage. They cover debounced
+identity-only saves, reload/navigation, buffer refill, retained closure with a
+delayed directory, next-run reopening, and logged storage failures. Only external
+I/O and unrelated sidebar chrome are replaced; page effects and panel components
+come from the exact source archive. Five layout assertions for ticket `…-03` also
+run real committed components, seven overflowing panels, independently scrolling
+columns, sticky headers, project-scoped Git status and reachable controls. Every approved viewport runs every assertion. Unsupported assertions
 fail with `VERIFY_BROWSER_SCENARIO_REQUIRED`; add a matching Node-owned scenario
 rather than downgrading the plan or treating a smoke test as acceptance.
 
@@ -61,7 +116,8 @@ Human/governance decisions are not supplied by browser tests.
 ## Focused checks
 
 ```sh
-node --test backend/tests/unit/browser-verification.test.js
+TMPDIR=/tmp node --test backend/tests/unit/browser-verification.test.js backend/tests/unit/ticket-verification-contract.test.js
+TMPDIR=/tmp NODEFORGE_BROWSER_TEST=1 node --test backend/tests/unit/browser-project-scenario.test.js backend/tests/unit/browser-coding-layout.test.js
 ```
 
 To run one approved browser step manually, invoke
