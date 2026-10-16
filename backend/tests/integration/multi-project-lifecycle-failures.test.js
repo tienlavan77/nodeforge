@@ -2,8 +2,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+import { getProjectId } from "../../src/modules/projects/project-registry.js";
 import { startProjectRuntime } from "../../src/modules/projects/project-runtime.js";
 import { createOllamaEmbeddingProvider } from "../../src/modules/index/ollama-embedding-provider.js";
 import { fixture, waitFor, fdCount } from "./multi-project-lifecycle-support.js";
@@ -40,11 +41,10 @@ test("foundation rolls back partial startup and retries with the same project id
     assert.ok(rawClosed > 0);
     assert.ok(providerClosed > 0);
     if (before !== null) await waitFor(async () => (await fdCount()) <= before);
-    const identityPath = join(context.roots[1], ".forge", "runtime", "nf", "project.json");
-    const identity = JSON.parse(await readFile(identityPath, "utf8"));
+    const identity = await getProjectId(context.roots[1]);
     fail = false;
     const second = await manager.add(context.roots[1]);
-    assert.equal(second.projectId, identity.project_id);
+    assert.equal(second.projectId, identity);
     assert.equal(manager.list()[0].projectId, first.projectId);
     assert.equal(manager.list().length, 2);
   } finally { await context.cleanup(); }

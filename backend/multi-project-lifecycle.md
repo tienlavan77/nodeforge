@@ -18,7 +18,11 @@ production acceptance.
 explicit `catalogPath`, restores its projects, and returns internal `add(root)`,
 `remove(root)`, `list()`, `get(root)`, and `close()` operations. This is an
 in-process composition capability, not an approved public transport contract.
-The caller owns the manager and must await `close()` on shutdown. Use one manager
+The caller owns the manager and must await `close()` on shutdown. Control API
+composition can pass it as `projectLifecycle` to `startControlApi`; shutdown then
+awaits all project runtimes even if another resource fails, removes signal
+handlers, and clears the HTTP shutdown fallback timer. This adds no route.
+Use one manager
 per global catalog; concurrent processes writing the same catalog are unsupported.
 Keep the global catalog outside per-project runtime directories. It stores only
 canonical roots and project IDs, not database handles, workers, or stream state.
