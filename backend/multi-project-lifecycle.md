@@ -29,7 +29,9 @@ canonical roots and project IDs, not database handles, workers, or stream state.
 
 Admission resolves symlinks, reuses `ProjectRegistry` identity, reconciles the
 baseline, and starts one watcher pipeline, bus, database, and durable embedding
-worker per project. Successful admission persists catalog membership atomically.
+worker per project. Unchanged legacy index rows without current-model vectors
+receive durable embedding jobs automatically. Successful admission persists
+catalog membership atomically.
 Concurrent admission/removal is serialized. Catalog-write failure rolls the new
 runtime back without deleting the per-root identity. A copied identity cannot be
 registered for two roots. Failed restart entries remain in the catalog, appear in
