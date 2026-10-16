@@ -184,7 +184,7 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrch
       const result = await dispatchTicket({ projectId, ticketId: parts[1].slice(0, -4), conversationId: "CONV-BUILDER", ...(runRequestsFresh(url, body) ? { fresh: true } : {}) });
       return { status: 202, body: { ...result, request_id: requestId, correlation_id: correlationId } };
     }
-    const stopResult = routeTicketStop({ method, parts, projectId, dispatchTicket });
+    const stopResult = await routeTicketStop({ method, parts, projectId, dispatchTicket });
     if (stopResult) return stopResult;
     if (method === "POST" && parts.length === 3 && parts[0] === "sprints" && parts[2] === "draft") {
       if (!sprintOrchestrationService?.run) throw unavailable("Sprint Plan Drafting");

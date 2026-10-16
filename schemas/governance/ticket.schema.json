@@ -66,6 +66,10 @@
       }
     },
     "vocabulary_hints": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "execution_policy": { "type": "object", "additionalProperties": false, "properties": {
+      "review_gate": { "type": "string", "enum": ["off", "on"], "default": "off" },
+      "max_review_revisions": { "type": "integer", "minimum": 0, "default": 2 }
+    } },
     "candidate_files": { "type": "array", "items": { "$ref": "#/$defs/candidateFile" }, "minItems": 1 },
     "candidates_produced_by": { "type": "string" },
     "candidates_produced_at": { "$ref": "../core/common.schema.json#/$defs/timestamp" },

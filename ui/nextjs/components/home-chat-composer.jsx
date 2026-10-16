@@ -13,6 +13,7 @@ export function HomeChatComposer({ projectId, agentId, onSend, editRequest }) {
 // Owns the draft locally and sends it through the existing conversation handler.
 function ScopedHomeChatComposer({ historyKey, onSend, editRequest }) {
   const [draft, setDraft] = useState("");
+  const [markdownReply, setMarkdownReply] = useState(false);
   const [history, setHistory] = useState(() => readConversationComposerHistory(historyKey));
   const [historyIndex, setHistoryIndex] = useState(-1);
   const composingRef = useRef(false);
@@ -40,7 +41,7 @@ function ScopedHomeChatComposer({ historyKey, onSend, editRequest }) {
     if (!text) return;
     remember(text);
     setHistoryIndex(-1);
-    const responseContentType = "text/plain";
+    const responseContentType = markdownReply ? "text/markdown" : "text/plain";
     // Clear synchronously so the last typed character cannot remain visible while Node handles the request.
     setDraft("");
     void onSend(text, responseContentType);
@@ -76,6 +77,7 @@ function ScopedHomeChatComposer({ historyKey, onSend, editRequest }) {
         if (event.currentTarget.value.trim()) event.currentTarget.form?.requestSubmit();
       }
     }} placeholder="Chat or paste a ticket..." rows="3" aria-label="Chat or ticket input" />
+    <label className="home-composer-markdown"><input type="checkbox" checked={markdownReply} onChange={(event) => setMarkdownReply(event.target.checked)} />Markdown reply</label>
     </div>
     <button type="submit" aria-label="Send message" disabled={!draft.trim()}>&#8593;</button>
   </form>;

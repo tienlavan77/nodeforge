@@ -31,9 +31,12 @@ import { createSprintPlanLeader } from "../src/application/sprint-plan-leader.js
 import { createTicketFileStore } from "../src/application/ticket-file-store.js";
 import { createSprintLeaderToolOptions } from "../src/tools/sprint-leader-forge-tools.js";
 import { ConfigurationError } from "../src/shared/errors.js";
+import { createAgentExecutionActivity, createAgentActivityLogger } from "../src/application/agent-execution-activity.js";
 
 export function createControlApiPlatform({ config, database, indexDb, fileService, agentGateway, claudeSdkGateway, codexSdkGateway, openaiSdkGateway, agentRoleResolver, logEvent, draftPlan, sprintRegistry } = {}) {
   const { projectId, cwd: projectRoot } = config;
+  const internalBus = new EventEmitter();
+  const executionActivity = createAgentExecutionActivity({ projectId, eventBus: internalBus });
   const { search: codeSearch, fileGraph, embeddingStore, embeddingProvider } = createRetrievalDependencies({ database: indexDb });
   // Freshness checker compares indexed sha with live disk reads so candidates
   // served to agents are flagged stale instead of silently outdated. Best
@@ -41,10 +44,10 @@ export function createControlApiPlatform({ config, database, indexDb, fileServic
   const freshnessChecker = fileService?.readForIndex ? createIndexFreshnessChecker({ database: indexDb, fileService }) : null;
   const relevantTreeSelector = createRelevantTreeSelector({ search: codeSearch, fileGraph, embeddingStore, embeddingProvider, freshnessChecker, maxFiles: 30, defaultDepth: 1 });
   // Sprint Leader planning uses its configured SDK provider and Forge read tools.
-  const sprintPlanSdkGateway = createRoleSdkGateway({ claudeSdkGateway, codexSdkGateway, openaiSdkGateway, agentRoleResolver });
+  const sprintPlanSdkGateway = createRoleSdkGateway({ claudeSdkGateway, codexSdkGateway, openaiSdkGateway, agentRoleResolver, onActivity: executionActivity });
   // Grants the resolved Sprint Leader an isolated read-only Forge session per planning request.
   const sprintLeaderLogger = createSprintLeaderLogger(logEvent);
-  const sprintLeaderToolLogger = createRuntimeLogger({ logEvent, source: "sprint-leader-forge-tools" });
+  const sprintLeaderToolLogger = createRuntimeLogger({ logEvent: createAgentActivityLogger({ logEvent, executionActivity }), source: "sprint-leader-forge-tools" });
   const toolOptions = ({ agentId, correlationId, discoveredPaths }) => {
     const profile = agentRoleResolver.resolveProfile("sprint_leader");
     if (profile.agent_id !== agentId) throw new ConfigurationError("Sprint Leader profile changed before tool dispatch.");
@@ -62,7 +65,6 @@ export function createControlApiPlatform({ config, database, indexDb, fileServic
   const provenance = createTicketProvenanceTracker({ roadmaps, decisions });
   const eventStore = createPersistentEventStore({ database });
   const subscriptions = createSubscriptionRegistry();
-  const internalBus = new EventEmitter();
   const eventPublisher = createEventPublisher({ store: eventStore, subscriptions });
   const taskStore = createTaskStore({ database, projectId });
   const ticketStatusStore = createTicketStatusStore({ database, projectId, publisher: eventPublisher, onEvent: createTicketStatusLogger({ internalBus, logEvent }), retryFailedTickets: true });
@@ -77,11 +79,11 @@ export function createControlApiPlatform({ config, database, indexDb, fileServic
   const proseTicketService = createProseTicketService({ roadmapStore: roadmaps });
   const ticketFileStore = createTicketFileStore({ database, fileService });
   const sprintPlanUpload = createSprintPlanUploadService({ roadmaps, publisher: eventPublisher, projectRoot, isRunning: (sprintId) => sprintOrchestration.isRunning(sprintId) });
-  return { projectId, indexDb, codeSearch, fileGraph, relevantTreeSelector, freshnessChecker, ticketSprintLeader, sprintPlanLeader, memoryRetriever, communications, conversations, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, verificationOrchestrator, testService, contextEngine, sprintOrchestration, proseTicketService, ticketFileStore, sprintPlanUpload, taskSummaries: summaries, projectMemory: memory };
+  return { projectId, indexDb, codeSearch, fileGraph, relevantTreeSelector, freshnessChecker, ticketSprintLeader, sprintPlanLeader, memoryRetriever, communications, conversations, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, executionActivity, eventPublisher, taskStore, ticketStatusStore, verificationOrchestrator, testService, contextEngine, sprintOrchestration, proseTicketService, ticketFileStore, sprintPlanUpload, taskSummaries: summaries, projectMemory: memory };
 }
 
 // Selects the SDK gateway for sprint leader drafting without touching gateway internals.
-export function createRoleSdkGateway({ claudeSdkGateway, codexSdkGateway, openaiSdkGateway, agentRoleResolver }) {
+export function createRoleSdkGateway({ claudeSdkGateway, codexSdkGateway, openaiSdkGateway, agentRoleResolver, onActivity }) {
   if (!claudeSdkGateway && !codexSdkGateway && !openaiSdkGateway) return undefined;
   return {
     async execute(request) {
@@ -89,7 +91,9 @@ export function createRoleSdkGateway({ claudeSdkGateway, codexSdkGateway, openai
       const gateway = selectSdkGateway(request?.agentId, { claudeSdkGateway, codexSdkGateway, openaiSdkGateway, agentRoleResolver });
       const provider = profile?.provider ?? (gateway === codexSdkGateway ? "codex" : "claude");
       try {
+        onActivity?.({ agentId: request.agentId, correlationId: request.correlationId, phase: "started", summary: "Sprint Leader started planning." });
         const result = await gateway.execute({ ...request, ...(gateway === openaiSdkGateway ? { agent: profile } : {}), ...(gateway === codexSdkGateway ? { onEvent: async (event) => { assertSprintLeaderCodexEvent(event); await request.onEvent?.(event); } } : {}) });
+        onActivity?.({ agentId: request.agentId, correlationId: request.correlationId, phase: "completed", summary: "Sprint Leader finished planning." });
         return {
           ...result,
           _gateway_diagnostics: {
@@ -98,6 +102,7 @@ export function createRoleSdkGateway({ claudeSdkGateway, codexSdkGateway, openai
           }
         };
       } catch (error) {
+        onActivity?.({ agentId: request.agentId, correlationId: request.correlationId, phase: "failed", summary: "Sprint Leader planning failed." });
         error.gatewayDiagnostics = { provider, model: profile?.model ?? null };
         throw error;
       }

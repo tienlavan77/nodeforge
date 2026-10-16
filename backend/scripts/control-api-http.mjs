@@ -29,7 +29,7 @@ export function createControlApiHttp({ services } = {}) {
   const markdownResponseFileService = projectId && projectRoot && typeof conversations?.get === "function" && typeof communications?.getById === "function" && typeof fileService?.atomicCreate === "function" && typeof fileService?.atomicWrite === "function"
     ? createMarkdownResponseFileService({ projectId, projectRoot, conversations, communications, fileService, logger: logEvent })
     : null;
-  const projectStream = createProjectStream({ projectId, watcherSnapshot: createWatcherSnapshotService({ indexDb }), subscriptions, eventBus: internalBus, bus });
+  const projectStream = createProjectStream({ projectId, watcherSnapshot: createWatcherSnapshotService({ indexDb }), subscriptions, eventBus: internalBus, bus, agentActivitySnapshot: services.executionActivity?.snapshot });
   const onWatcherEvent = createWatcherCacheEvents({ projectId, codeCache, logger: agentLoopLogger.emit });
   return createHttpApi({
     ownerChatService,

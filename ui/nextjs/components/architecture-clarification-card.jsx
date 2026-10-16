@@ -1,10 +1,11 @@
 // Lets the owner answer Architecture questions, review the choices and generate a plan without approving it implicitly.
 "use client";
 import { useEffect, useId, useRef, useState } from "react";
+import { architectureClarificationError } from "../lib/architecture-clarification-error.js";
 
 // Shows a durable, source-bound question wizard with explicit choices and a separate confirmation step.
 export function ArchitectureClarificationCard({ session, onSave, onConfirm, onReload, onReanalyze }) {
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(session.status === "generation_failed" ? session.questions.length : 0);
   const [selections, setSelections] = useState(session.selections);
   const [notes, setNotes] = useState(session.notes);
   const [token, setToken] = useState("");
@@ -18,7 +19,8 @@ export function ArchitectureClarificationCard({ session, onSave, onConfirm, onRe
     if (draftBasis.current === basis) return;
     draftBasis.current = basis;
     setSelections(session.selections); setNotes(session.notes);
-  }, [basis, session.selections, session.notes]);
+    if (session.status === "generation_failed") setStep(session.questions.length);
+  }, [basis, session.selections, session.notes, session.status, session.questions.length]);
   const questions = session.questions;
   const editable = ["awaiting_owner_decisions", "generation_failed"].includes(session.status);
   const complete = questions.every((question) => Object.hasOwn(selections, question.id));
@@ -30,7 +32,7 @@ export function ArchitectureClarificationCard({ session, onSave, onConfirm, onRe
     if (inFlight.current) return;
     inFlight.current = true; setBusy(true); setError("");
     try { await action(); }
-    catch (reason) { setError(reason.message); }
+    catch (reason) { setError(architectureClarificationError(reason)); }
     finally { inFlight.current = false; setBusy(false); }
   }
 
@@ -44,13 +46,13 @@ export function ArchitectureClarificationCard({ session, onSave, onConfirm, onRe
 
   if (session.status === "completed") return null;
   return <section className="architecture-clarification-card" aria-label="Architecture owner decisions">
-    <h3>Architecture cần owner chốt quyết định</h3>
+    <h3>{session.status === "generation_failed" ? "Chưa tạo được plan" : "Architecture cần owner chốt quyết định"}</h3>
     <p className="architecture-clarification-source">Nguồn: <code>{session.source_path}</code> · {Object.keys(selections).length}/{questions.length} lựa chọn · {Object.keys(session.selections).length} đã lưu</p>
     {session.status === "source_changed" && <><p role="alert">File nguồn đã thay đổi. Không dùng các lựa chọn cũ để tạo plan.</p><button type="button" onClick={() => act(() => onReanalyze(session))} disabled={busy}>Phân tích lại nguồn</button></>}
     {session.status === "cancelled" && <p>Yêu cầu đã hủy. Không tạo plan hoặc chạy ticket.</p>}
     {session.status === "generating" && <p role="status">Đang tạo plan từ các quyết định đã chốt.</p>}
     {editable && <>
-      <p>Chờ owner quyết định. Khuyến nghị chưa được chọn sẵn. Xác nhận lựa chọn không phải approval plan.</p>
+      <p>{session.status === "generation_failed" ? "Không cần trả lời lại các lựa chọn đã lưu. Có thể thử tạo plan lại hoặc sửa lựa chọn; thao tác này không phải approval plan." : "Chờ owner quyết định. Khuyến nghị chưa được chọn sẵn. Xác nhận lựa chọn không phải approval plan."}</p>
       <label className="architecture-clarification-token">Owner token <input type="password" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)} placeholder="Nhập để lưu và xác nhận lựa chọn" /></label>
       {unsaved && <p role="status">Lựa chọn hoặc ghi chú chưa được lưu. Nhập Owner token để lưu hoặc xác nhận; reload sẽ mất phần nháp chưa lưu.</p>}
       <nav aria-label="Tiến độ câu hỏi">{questions.map((item, index) => <button type="button" key={item.id} aria-current={step === index ? "step" : undefined} disabled={busy} onClick={() => act(async () => { if (token) await onSave(session, selections, notes, token); setStep(index); })}>{index + 1}. {item.title}{Object.hasOwn(selections, item.id) ? " ✓" : ""}</button>)}</nav>
@@ -65,15 +67,15 @@ export function ArchitectureClarificationCard({ session, onSave, onConfirm, onRe
         const option = item.options.find((entry) => entry.id === selections[item.id]);
         return <p key={item.id}><strong>{item.title}</strong> → {option?.label ?? "Chưa chọn"}: {option?.description}{notes[item.id] && <span> · Ghi chú: {notes[item.id]}</span>} <button type="button" disabled={busy} onClick={() => setStep(index)}>Sửa</button></p>;
       })}</div>}
-      {session.status === "generation_failed" && <p role="alert">Lựa chọn đã được giữ lại; tạo plan chưa hoàn tất ({session.error_code}). Có thể thử lại hoặc sửa lựa chọn.</p>}
+      {session.status === "generation_failed" && !error && <p role="alert">{architectureClarificationError(session).message}</p>}
       <div className="architecture-clarification-actions">
         <button type="button" disabled={busy || !token} onClick={() => act(() => onSave(session, selections, notes, token, true))}>Hủy yêu cầu</button>
         <button type="button" disabled={busy || !token || !unsaved} onClick={() => act(() => onSave(session, selections, notes, token))}>Lưu lựa chọn</button>
         {step > 0 && <button type="button" disabled={busy} onClick={() => act(async () => { if (token) await onSave(session, selections, notes, token); setStep(step - 1); })}>← Quay lại</button>}
-        {question ? <button className="architecture-clarification-primary" type="button" disabled={busy || !Object.hasOwn(selections, question.id)} onClick={() => act(async () => { if (token) await onSave(session, selections, notes, token); setStep(step + 1); })}>{step + 1 === questions.length ? "Xem lại quyết định" : "Tiếp theo →"}</button> : <button className="architecture-clarification-primary" type="button" disabled={busy || !complete || !token} onClick={() => act(async () => { const current = unsaved ? await onSave(session, selections, notes, token) : session; await onConfirm(current, token); })}>Xác nhận &amp; tạo plan</button>}
+        {question ? <button className="architecture-clarification-primary" type="button" disabled={busy || !Object.hasOwn(selections, question.id)} onClick={() => act(async () => { if (token) await onSave(session, selections, notes, token); setStep(step + 1); })}>{step + 1 === questions.length ? "Xem lại quyết định" : "Tiếp theo →"}</button> : <button className="architecture-clarification-primary" type="button" disabled={busy || !complete || !token} onClick={() => act(async () => { const current = unsaved ? await onSave(session, selections, notes, token) : session; await onConfirm(current, token); })}>{session.status === "generation_failed" ? "Thử tạo plan lại" : "Xác nhận & tạo plan"}</button>}
       </div>
     </>}
     {busy && <p role="status">Đang xử lý…</p>}
-    {error && <p role="alert">{error} <button type="button" onClick={onReload}>Tải lại phiên</button></p>}
+    {error && <p role="alert">{error.message} {error.reload && <button type="button" disabled={busy} onClick={() => act(onReload)}>Cập nhật lựa chọn</button>}</p>}
   </section>;
 }

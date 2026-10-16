@@ -42,7 +42,8 @@ export function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, comp
     "Node derives commit paths from the ticket ledger and runs the listed verification plan after commit. Do not invent, omit, or downgrade a criterion; add focused tests when the plan calls for them. Node owns artifacts and criterion evidence.",
     "For extra focused checks, commit first and call run_check({type,command}); it returns the final result and a source-bound receipt directly. Final acceptance still uses Node's verification plan. Use push_commit({commit_sha}) only when pushing is requested, with the exact latest ticket commit SHA.",
     BROWSER_SCENARIO_INSTRUCTIONS,
-    "When the ticket is satisfied, call commit_changes with a concise message and no paths, then call report_done with a summary and any scope rationale or human evidence. Node supplies changed files, criterion IDs, command evidence, and artifact identity. Do not call Reviewer tools or submit finding resolutions. Stop after the complete report."
+    "When the ticket is satisfied, call commit_changes with a concise message and no paths, then call report_done with a summary and any scope rationale or human evidence. Node supplies changed files, criterion IDs, command evidence, and artifact identity. Do not call Reviewer tools or submit finding resolutions. Stop after the complete report.",
+    "If scope, contract authority, access, security, or ambiguous acceptance blocks implementation, call report_done with status: blocked, summary, blocker: {reason_code, owner_action}, and source evidence. Do not invent authority or create a commit merely to report a blocker. CODER_BLOCKED acknowledges escalation, not completion; stop and await an owner decision."
   ].filter((line) => line !== undefined).join("\n");
 }
 
@@ -132,6 +133,7 @@ export function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, compl
     "If a governed tool call fails, fix the inputs and retry — do not continue with write_diff/commit_changes on an unknown target.",
     "For extra focused checks, commit first and call run_check({type,command}); it returns the final result and a source-bound receipt directly. Final acceptance still uses Node's verification plan. Use push_commit({commit_sha}) only when pushing is requested, with the exact latest ticket commit SHA.",
     BROWSER_SCENARIO_INSTRUCTIONS,
+    "For a scope, contract, access, security, or acceptance blocker, call report_done with status: blocked, summary, blocker: {reason_code, owner_action}, and source evidence. Do not invent authority or a commit. CODER_BLOCKED acknowledges escalation, not completion: stop and await an owner decision. This is the only exception to the completion sequence below.",
     "Mandatory completion sequence: call commit_changes with a concise message and no paths, then call report_done with a summary and any scope rationale or human evidence. Node derives commit paths, runs the listed verification plan, and attaches criterion IDs, changed files, and command evidence. Do not call Reviewer tools or submit finding resolutions. Stop only after report_done succeeds. CODER_EVIDENCE_PENDING means completion was rejected: run the missing checks and retry with verified acceptance coverage; do not hand incomplete evidence to Human Review."
   ].join("\n");
 }
