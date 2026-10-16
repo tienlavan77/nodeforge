@@ -39,6 +39,9 @@ export function createDebouncedWatcher({ rawWatcher, projectId, root, debounceMs
   }
 
   const events = new EventEmitter();
+  const tasks = new Set();
+  let closed = false;
+  let closing;
   const pending = new Map();
   const contentHashes = new Map();
   const pendingDeletes = new Map();
@@ -54,7 +57,8 @@ export function createDebouncedWatcher({ rawWatcher, projectId, root, debounceMs
     const effectiveType = existing?.rawType === "add" && rawType === "change" ? "add" : rawType;
     const timer = setTimeout(() => {
       pending.delete(path);
-      void handleStableEvent(effectiveType, path).catch(reportError);
+      const task = handleStableEvent(effectiveType, path).catch(reportError).finally(() => tasks.delete(task));
+      tasks.add(task);
     }, debounceMs);
     pending.set(path, { rawType: effectiveType, timer });
   }
@@ -81,6 +85,7 @@ export function createDebouncedWatcher({ rawWatcher, projectId, root, debounceMs
     }
 
     const hash = await getContentHash(path);
+    if (closed) return;
     if (hash) contentHashes.set(path, hash);
 
     if (rawType === "add") {
@@ -167,6 +172,8 @@ export function createDebouncedWatcher({ rawWatcher, projectId, root, debounceMs
       return this;
     },
     close() {
+      if (closing) return closing;
+      closed = true;
       for (const { timer } of pending.values()) clearTimeout(timer);
       for (const { timer } of pendingDeletes.values()) clearTimeout(timer);
       for (const { timer } of pendingAdds.values()) clearTimeout(timer);
@@ -174,7 +181,11 @@ export function createDebouncedWatcher({ rawWatcher, projectId, root, debounceMs
       pendingDeletes.clear();
       pendingAdds.clear();
       for (const [rawType, listener] of listeners) rawWatcher.off?.(rawType, listener);
-      return rawWatcher.close?.();
+      closing = Promise.resolve().then(() => rawWatcher.close?.()).finally(async () => {
+        await Promise.allSettled([...tasks]);
+        events.removeAllListeners();
+      });
+      return closing;
     }
   });
 }

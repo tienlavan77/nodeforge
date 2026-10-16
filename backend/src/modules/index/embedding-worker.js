@@ -11,6 +11,8 @@ export function createEmbeddingWorker({ database, jobs, embeddingStore, embeddin
   if (typeof model !== "string" || !model) throw new ConfigurationError("Embedding worker model is required.");
   let stopped = false;
   let running = false;
+  let loopTask;
+  let wake;
   return Object.freeze({ runOnce, start, stop });
 
   // Claims and processes one ready job, returning whether work was performed.
@@ -49,16 +51,31 @@ export function createEmbeddingWorker({ database, jobs, embeddingStore, embeddin
   }
 
   // Runs the worker loop with a bounded polling interval.
-  async function start({ pollMs = 1000 } = {}) {
+  function start({ pollMs = 1000 } = {}) {
+    if (loopTask) return loopTask;
+    if (!Number.isFinite(pollMs) || pollMs <= 0) throw new ConfigurationError("Worker poll interval must be positive.");
     stopped = false;
+    loopTask = loop(pollMs).finally(() => { loopTask = undefined; });
+    return loopTask;
+  }
+
+  // Drains this project's embedding queue without leaving a polling timer after removal.
+  async function loop(pollMs) {
     while (!stopped) {
       const worked = await runOnce();
-      if (!worked) await new Promise((resolve) => setTimeout(resolve, pollMs));
+      if (!worked && !stopped) await new Promise((resolveWait) => {
+        const timer = setTimeout(finish, pollMs);
+        // Wakes the idle worker immediately when the project is removed.
+        function finish() { clearTimeout(timer); wake = undefined; resolveWait(); }
+        wake = finish;
+      });
     }
   }
 
   // Requests a clean stop after the current Ollama request finishes.
   function stop() {
     stopped = true;
+    wake?.();
+    return loopTask;
   }
 }
