@@ -1,6 +1,7 @@
 // Executes OpenAI Agents SDK runs with per-agent provider and timeout control.
 import { Agent, Runner, shellTool, tool, webSearchTool } from "@openai/agents";
 import { ConfigurationError } from "../../shared/errors.js";
+import { sdkFailureEvidence } from "./sdk-failure-evidence.js";
 
 // Creates a gateway that runs an Agent via the OpenAI Agents SDK.
 export function createOpenAiSdkGateway({ providerFactory, runner = createTracingDisabledRunner(), AgentClass = Agent, timeoutMs = 3600000 } = {}) {
@@ -52,9 +53,9 @@ export function createOpenAiSdkGateway({ providerFactory, runner = createTracing
       };
     } catch (error) {
       if (abortSignal?.aborted) throw abortSignal.reason ?? error;
-      if (error?.name === "AbortError" || controller.signal.aborted) throw new ConfigurationError(`OpenAI SDK request timed out for ${normalized.agent_id}.`, { cause: error });
+      if (error?.name === "AbortError" || controller.signal.aborted) throw sdkFailureEvidence(new ConfigurationError(`OpenAI SDK request timed out for ${normalized.agent_id}.`, { cause: error }), error, { aborted: true });
       if (error instanceof ConfigurationError) throw error;
-      throw new ConfigurationError(`OpenAI SDK request failed for ${normalized.agent_id}: ${error?.message ?? "unknown SDK error"}`, { cause: error });
+      throw sdkFailureEvidence(new ConfigurationError(`OpenAI SDK request failed for ${normalized.agent_id}: ${error?.message ?? "unknown SDK error"}`, { cause: error }), error);
     } finally {
       abortSignal?.removeEventListener("abort", abort);
       clearTimeout(timer);

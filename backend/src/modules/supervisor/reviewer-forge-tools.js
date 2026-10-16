@@ -10,6 +10,7 @@ import { createSedLinesTool } from "../../tools/sed-lines.js";
 import { readFileDefinition, searchCodeDefinition, sedLinesDefinition } from "../../tools/index.js";
 import { createOwnerSearchTreeTool, ownerSearchTreeDefinition } from "../../tools/owner-search-tree.js";
 import { createClaudeFileTools, claudeFileDefinitions } from "../../tools/claude-file-tools.js";
+import { createCommittedReviewWindow } from "./committed-review-window.js";
 
 const MAX_OUTPUT_BYTES = 128_000;
 const MAX_RESULT_BYTES = 16_000;
@@ -53,7 +54,7 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
   const implementations = {
     read_file: createReadFileTool({ fileService: scopedFiles, codeCache: reviewCache, maxChars: MAX_RESULT_BYTES }),
     ...(codeSearch?.search ? { search_code: createSearchCodeTool({ codeSearch, codeCache: reviewCache, projectLogger }) } : {}),
-    ...((codeCache && ["codex", "openai"].includes(reviewer.provider)) ? { sed_lines: createSedLinesTool({ projectRoot, fileService: scopedFiles, codeCache: reviewCache, logger: { emit: projectLogger } }) } : {}),
+    ...((codeCache && ["codex", "openai"].includes(reviewer.provider)) ? { sed_lines: fileService.committedReview ? createCommittedReviewWindow(scopedFiles) : createSedLinesTool({ projectRoot, fileService: scopedFiles, codeCache: reviewCache, logger: { emit: projectLogger } }) } : {}),
     ...(includeClaudeFileTools && codeCache ? createClaudeFileTools({ fileService: scopedFiles, projectRoot, codeCache: reviewCache }) : {})
   };
   if (typeof fileService.listFiles === "function" && typeof fileService.listDirectories === "function") implementations.search_tree = createOwnerSearchTreeTool({ fileService: scopedFiles });

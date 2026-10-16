@@ -5,6 +5,7 @@ import { createOwnerClaudeMcpTools } from "../../tools/owner-claude-mcp-tools.js
 import { createClaudeForgeOptions } from "../../tools/claude-forge-options.js";
 import { assertReviewerReadPath, createReviewerForgeTools } from "./reviewer-forge-tools.js";
 import { assertTicketReviewEvidence } from "./ticket-review-evidence.js";
+import { assertReviewFindingGuidance } from "./review-finding-guidance.js";
 
 // Creates a reviewer that receives bounded source evidence through Forge File Service.
 export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, fileService, rulesFileService, gitService, codeSearch, codeCache, projectRoot, executionContexts, verificationService, reviewFindings, projectLogger = () => {} } = {}) {
@@ -44,7 +45,7 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
       "Act only as an independent code reviewer. Do not edit files. Check the ticket against the current source and verification evidence.",
       "You must follow the Reviewer role rules below before evaluating the ticket.",
       `Reviewer role rules: ${reviewerRules}`,
-      ticketEvidence ? "Return only JSON with verdict (approved|request_changes), findings (objects with acceptance_criterion, failure, evidence_refs, minimum_change_scope, files when naming required files, and per_file_necessity with one concrete role per demanded file), and adjudications (objects with finding_id, decision retain|refine|withdraw|not_applicable|fixed, reason, evidence_refs). Read the Coder explanation and adjudicate each open response before deciding. A file count alone is not evidence that all files need edits." : "Return only JSON: {\"verdict\":\"approved\"|\"request_changes\",\"findings\":[\"specific finding\"]}.",
+      "Return only JSON with verdict (approved|request_changes), findings (objects with acceptance_criterion, failure, evidence_refs identifying source locations or verification artifacts, minimum_change_scope, files when naming required files, and per_file_necessity with one concrete role per demanded file), and adjudications (objects with finding_id, decision retain|refine|withdraw|not_applicable|fixed, reason, evidence_refs). Read the Coder explanation and adjudicate each open response before deciding. Legacy finding strings require re-review, not invented evidence. A file count alone is not evidence that all files need edits.",
       "Approve only when the supplied evidence establishes every acceptance criterion. Request changes if evidence is insufficient.",
       `Ticket: ${JSON.stringify(job.payload?.ticket ?? {})}`,
       `Coder explanation (inspect claims against code; do not accept them as proof): ${safePromptValue(coderReport)}`,
@@ -74,7 +75,7 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
     projectLogger({ event_name: "review.sdk_dispatch", level: "info", status: "started", message: "Reviewer SDK request dispatched.", task_id: job.task_id, correlation_id: job.correlation_id, source: "review-worker", payload: { request_id: job.request_id, agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, reviewer_id: reviewer.agent_id, provider: reviewer.provider } });
     const response = await gateway.execute({ agent: reviewProfile, agentId: reviewer.agent_id, prompt: `${prompt}\n\n${toolInstruction}`, correlationId: job.correlation_id, cwd: projectRoot, options });
     projectLogger({ event_name: "review.sdk_completed", level: "info", status: "success", message: "Reviewer SDK request completed.", task_id: job.task_id, correlation_id: job.correlation_id, source: "review-worker", payload: { request_id: job.request_id, agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, reviewer_id: reviewer.agent_id, provider: reviewer.provider, response_chars: String(response?.text ?? "").length } });
-    const verdict = parseVerdict(response?.text, { strict: Boolean(ticketEvidence) && !job.payload?.ticket?.execution_policy?.legacy_review_report });
+    const verdict = parseVerdict(response?.text, { strict: Boolean(ticketEvidence) && !job.payload?.ticket?.execution_policy?.legacy_review_report, paths, artifactId: ticketEvidence?.artifact.artifact_id });
     if (ticketEvidence) await assertTicketReviewEvidence({ job, executionContexts, verificationService, gitService, fileService, projectRoot });
     if (verdict.verdict === "approved" && !ticketEvidence) for (const file of files) {
       await assertReviewerReadPath(projectRoot, file.path);
@@ -95,13 +96,12 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
 }
 
 // Accepts only a structured verdict, never treating free-form praise as approval.
-function parseVerdict(text, { strict = false } = {}) {
+function parseVerdict(text, options = {}) {
   let value;
   try { value = JSON.parse(extractVerdictJson(text)); }
   catch (error) { throw reviewError("REVIEW_VERDICT_INVALID", `Reviewer returned invalid JSON: ${error.message}`); }
   if (!["approved", "request_changes"].includes(value?.verdict) || !Array.isArray(value.findings)) throw reviewError("REVIEW_VERDICT_INVALID", "Reviewer returned an invalid verdict or findings.");
-  if (strict && (value.findings.some((item) => typeof item !== "object" || !item.acceptance_criterion?.trim() || !item.failure?.trim() || !item.minimum_change_scope?.trim() || !Array.isArray(item.evidence_refs) || !item.evidence_refs.length || (Array.isArray(item.per_file_necessity) && item.per_file_necessity.some((part) => !part.path || !part.role)) || (Array.isArray(item.files) && item.files.length > 1 && (!Array.isArray(item.per_file_necessity) || item.per_file_necessity.length !== item.files.length || item.per_file_necessity.some((part) => !part?.path?.trim() || !part.role?.trim())))) || !Array.isArray(value.adjudications) || value.adjudications.some((item) => !/^REV-[1-9][0-9]*$/.test(item.finding_id ?? "") || !["retain", "refine", "withdraw", "not_applicable", "fixed"].includes(item.decision) || !item.reason?.trim() || !Array.isArray(item.evidence_refs) || !item.evidence_refs.length))) throw reviewError("REVIEW_VERDICT_INVALID", "Reviewer finding or adjudication lacks required evidence and scope.");
-  if (!strict && value.findings.some((item) => typeof item !== "string" || !item.trim())) throw reviewError("REVIEW_VERDICT_INVALID", "Legacy Reviewer finding is invalid.");
+  assertReviewFindingGuidance(value, options);
   if (value.verdict === "request_changes" && !value.findings.length && !(value.adjudications ?? []).some((item) => ["retain", "refine"].includes(item.decision))) throw reviewError("REVIEW_VERDICT_INVALID", "Requested changes require findings or a retained adjudication.");
   return { verdict: value.verdict, findings: value.findings, adjudications: value.adjudications ?? [] };
 }

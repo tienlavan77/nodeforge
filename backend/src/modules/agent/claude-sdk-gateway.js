@@ -2,6 +2,7 @@
 import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
 import { ConfigurationError } from "../../shared/errors.js";
 import process from "node:process";
+import { sdkFailureEvidence } from "./sdk-failure-evidence.js";
 
 const SAFE_URL = /^https:\/\//;
 const SECRET_FIELD = /(?:api[_-]?key|credential|secret|password|token|authorization)/i;
@@ -94,13 +95,13 @@ export function createClaudeSdkGateway({
     } catch (error) {
       if (abortSignal?.aborted) throw abortSignal.reason;
       if (error?.name === "AbortError" || controller.signal.aborted) {
-        throw new ConfigurationError(`Claude SDK request timed out for ${config.agent_id}.`, { cause: error });
+        throw sdkFailureEvidence(new ConfigurationError(`Claude SDK request timed out for ${config.agent_id}.`, { cause: error }), error, { aborted: true });
       }
       const message = typeof error?.message === "string" && error.message
         ? error.message.replace(credential, "[REDACTED]")
         : "unknown SDK error";
       writeTerminal(`FAIL ${config.agent_name ?? config.agent_id} ${message.slice(0, 240)} correlation=${correlationId}`);
-      throw new ConfigurationError(`Claude SDK request failed for ${config.agent_id}: ${message}`, { cause: error });
+      throw sdkFailureEvidence(new ConfigurationError(`Claude SDK request failed for ${config.agent_id}: ${message}`, { cause: error }), error);
     } finally {
       abortSignal?.removeEventListener("abort", stop);
       clearTimeout(timeout);

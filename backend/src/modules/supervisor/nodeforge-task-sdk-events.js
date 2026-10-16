@@ -9,7 +9,7 @@ export function sdkToolEvent(event, forgeToolNames) {
   if (!item || !["mcp_tool_call", "mcp_tool_result", "tool_use", "tool_result"].includes(item.type)) return null;
   const tool = normalizeForgeToolName(item.name ?? item.tool_name ?? item.tool);
   if (!tool || (forgeToolNames && !forgeToolNames.has(tool)) || (item.server && item.server !== "forge")) return null;
-  const failed = item.status === "failed" || item.is_error === true || item.error != null;
+  const failed = item.status === "failed" || item.is_error === true || item.result?.isError === true || item.error != null;
   return {
     status: failed ? "failed" : "success",
     server: "forge",
@@ -17,7 +17,7 @@ export function sdkToolEvent(event, forgeToolNames) {
     item_id: item.call_id ?? item.id ?? null,
     arguments: diagnosticValue(item.arguments ?? item.input),
     result: diagnosticValue(item.result ?? item.output),
-    error: diagnosticValue(item.error),
+    error: diagnosticValue(normalizeToolError(item.result) ?? item.error),
     error_code: extractResultErrorCode(item)
   };
 }
@@ -34,7 +34,7 @@ export function assertTicketExecutionCompleted(toolEvents, { labMode = false, mi
     if (failedReport) {
       const code = failedReport.error_code ?? failedReport.error?.code ?? "REPORT_FAILED";
       const message = failedReport.error?.message ?? `Agent completion report failed (${code}).`;
-      throw Object.assign(new ConfigurationError(message), { code });
+      throw Object.assign(new ConfigurationError(message), { code, ...(failedReport.error?.details ? { details: failedReport.error.details } : {}) });
     }
     if (failedCommit) {
       const message = failedCommit.error?.message ?? "Agent commit failed before the completion report.";
@@ -107,7 +107,7 @@ function normalizeToolError(block) {
     if (typeof part?.text !== "string") continue;
     try {
       const parsed = JSON.parse(part.text);
-      if (typeof parsed?.error_code === "string") return { code: parsed.error_code, message: typeof parsed.message === "string" ? parsed.message : undefined };
+      if (typeof parsed?.error_code === "string") return { code: parsed.error_code, message: typeof parsed.message === "string" ? parsed.message : undefined, ...(parsed.details ? { details: diagnosticValue(parsed.details) } : {}) };
     // eslint-disable-next-line no-silent-catch -- Tool content can contain ordinary text instead of structured failure diagnostics.
     } catch { continue; }
   }

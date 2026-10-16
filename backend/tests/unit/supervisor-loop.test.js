@@ -127,8 +127,8 @@ test("Supervisor records approved-review integration failure as resumable", asyn
   const agentOccupancy = { getByTask: () => ({ claim_id: "CLAIM-1", agent_id: "coder-1" }), release: async (input) => releases.push(input) };
   const loop = createSupervisorLoop({ runtime: h.runtime, eventBus: { publish: async (event) => h.published.push(event) }, agentOccupancy, integrateTicket: async () => { throw Object.assign(new Error("conflict"), { code: "TICKET_INTEGRATION_CONFLICT" }); } });
   await loop.onEvent(baseEvent({ type: "review.approved", request_id: "REVIEW-1", payload: { reviewer_id: "reviewer-1", verdict: "approved" } }));
-  assert.equal(h.stateOf(), "FAILED");
-  assert.equal(h.published[0].type, "task.failed");
+  assert.equal(h.stateOf(), "NEEDS_HUMAN_REVIEW");
+  assert.equal(h.published[0].type, "task.needs_human_review");
   assert.equal(h.published[0].payload.reason, "TICKET_INTEGRATION_CONFLICT");
   assert.equal(releases[0].reason, "TICKET_INTEGRATION_CONFLICT");
 });

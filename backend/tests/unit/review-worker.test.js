@@ -112,7 +112,7 @@ test("Claude Reviewer receives the same Forge-only SDK boundary as other roles",
   const content = "const ok = true;";
   const worker = createReviewWorker({
     agentResolver: { resolveAvailable: () => ({ agent_id: "reviewer-1", agent_name: "Leader", provider: "claude", role: "reviewer" }) },
-    claudeSdkGateway: { execute: async (input) => { request = input; return { text: '{"verdict":"request_changes","findings":["Inspect the dialog behavior"]}' }; } },
+    claudeSdkGateway: { execute: async (input) => { request = input; return { text: JSON.stringify({ verdict: "request_changes", findings: [{ failure: "Dialog does not close", acceptance_criterion: "Dialog closes", evidence_refs: ["src/a.js:1"], minimum_change_scope: "Fix dialog handler" }] }) }; } },
     fileService: { readForIndex: async ({ path }) => ({ path, sha256: "sha256:abc", size_bytes: content.length, content: path === "workflows/agents/reviewer/README.md" ? "Review the changed source." : content }), listFiles: async () => ["src/a.js"], listDirectories: async () => ["src"] },
     codeCache: { read: async ({ path }) => ({ path, sha256: "sha256:abc", size_bytes: content.length, content: path === "workflows/agents/reviewer/README.md" ? "Review the changed source." : content }) },
     projectRoot: "/project"

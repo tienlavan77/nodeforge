@@ -2,9 +2,16 @@
 // Render conversation messages with inline and fenced code blocks.
 
 import { useState } from "react";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+import { MarkdownPreviewContent } from "./markdown-preview-content.jsx";
 
-// Renders conversation text through the plain-text code and local-link affordances only.
-export function MessageContent({ text, onMarkdownOpen }) {
+// Renders declared Markdown inside the conversation while preserving plain-text code and file links.
+export function MessageContent({ text, contentType = "text/plain", onMarkdownOpen }) {
+  const [plainText, setPlainText] = useState(false);
+  if (contentType === "text/markdown") return <div className="conversation-formatted-message">
+    <button type="button" className="conversation-format-toggle" aria-label={plainText ? "Show Markdown" : "Show plain text"} aria-pressed={plainText} onClick={() => setPlainText((current) => !current)}>{plainText ? "Markdown" : "Plain text"}</button>
+    {plainText ? <pre className="conversation-plaintext">{String(text ?? "")}</pre> : <MarkdownPreviewContent markdown={text} variant="conversation" onMarkdownOpen={onMarkdownOpen} />}
+  </div>;
   const parts = parseCodeBlocks(text);
   return <div className="message-content">{parts.map((part, index) => part.code
     ? <CodeBlock key={`code-${index}`} language={part.language} code={part.code} />
@@ -22,6 +29,7 @@ function TextWithInline({ text, onMarkdownOpen }) {
 }
 
 // Renders one response paragraph while preserving intentional line breaks and inline formatting.
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 function InlineParagraph({ text, onMarkdownOpen }) {
   const segments = [];
   const pattern = /`([^`]+)`/g;

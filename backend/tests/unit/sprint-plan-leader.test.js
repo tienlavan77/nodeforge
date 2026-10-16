@@ -24,6 +24,8 @@ test("runner keeps only file references observed with Forge tools", async () => 
   assert.match(calls[0].prompt, /change ONLY verification_plan/);
   assert.match(calls[0].prompt, /unique positive integer widths in CSS pixels/);
   assert.match(calls[0].prompt, /viewports:\[375,768,1440\]/);
+  assert.match(calls[0].prompt, /fields are strictly limited to: criterion_ids, kind, test_path, scenario_path, assertions, viewports, notes/);
+  assert.match(calls[0].prompt, /never description/);
   assert.doesNotMatch(calls[0].prompt, /numeric viewports/);
   assert.match(calls[0].prompt, /components MUST be an array of nonempty strings/);
   assert.match(calls[0].prompt, /outcome_coverage is not a Sprint Plan schema field/);
@@ -57,4 +59,16 @@ test("runner returns undefined when SDK messages hold no plan JSON", async () =>
   const leader = createSprintPlanLeader({ sdkGateway: { execute: async () => ({ messages: [{ text: "no json here" }] }) }, toolOptions: () => ({ tools: [] }) });
   const plan = await leader.requestPlan({ projectId: "P1", agentId: "A", brief: "b", correlationId: "C" });
   assert.equal(plan, undefined);
+});
+
+// Canonicalizes provider prose before any caller receives the Sprint draft, without another model invocation.
+test("runner preserves verification description as canonical notes", async () => {
+  let calls = 0;
+  const leader = createSprintPlanLeader({ sdkGateway: { execute: async () => {
+    calls++;
+    return { text: JSON.stringify({ id: "SPRINT-1", tickets: [{ acceptance_criteria: ["Lifecycle works"], verification_plan: [{ kind: "test", criterion_ids: ["AC-1"], test_path: "backend/tests/unit/lifecycle.test.js", description: "Verify lifecycle" }] }] }) };
+  } } });
+  const plan = await leader.requestPlan({ projectId: "P1", agentId: "SL", brief: "Lifecycle", correlationId: "CORR-NOTES" });
+  assert.equal(calls, 1);
+  assert.deepEqual(plan.tickets[0].verification_plan, [{ kind: "test", criterion_ids: ["AC-1"], test_path: "backend/tests/unit/lifecycle.test.js", notes: "Verify lifecycle" }]);
 });

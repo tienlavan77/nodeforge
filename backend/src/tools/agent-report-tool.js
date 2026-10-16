@@ -14,6 +14,17 @@ export function createReportDoneTool({ reportService, verificationService, revie
   return Object.freeze({ name: "report_done", async execute(input = {}, context = {}) {
     const ticket = context.ticket ?? context.task;
     if (!ticket?.id) throw error("SCOPE_INVALID", "Node must provide the current ticket for report_done.");
+    if (input.status === "blocked") {
+      const reasons = ["SCOPE_CONFLICT", "CONTRACT_DECISION_REQUIRED", "ACCESS_REQUIRED", "SECURITY_RISK", "ACCEPTANCE_AMBIGUOUS"];
+      if (!input.summary?.trim() || !reasons.includes(input.blocker?.reason_code) || !input.blocker?.owner_action?.trim() || !input.evidence?.length) throw error("INPUT_INVALID", "Blocked reports require a summary, blocker reason, owner action, and source evidence.");
+      const report = await reportService.buildFinalReport({ ticket, status: "needs_human_review", verifyResult: null, filesChanged: context.changed_paths ?? [], reason: "coder_blocked" });
+      report.agent_report = { status: "blocked", summary: input.summary.trim(), blocker: input.blocker, evidence: input.evidence, ...(input.implementation_scope ? { implementation_scope: input.implementation_scope } : {}) };
+      report.criteria_check = (ticket.acceptance_criteria ?? []).map((criterion) => ({ criterion, node_verified: null, status: "evidence_pending" }));
+      await reportService.saveReport(ticket.id, report);
+      await reportService.writeReportFile(ticket.id, report);
+      throw error("CODER_BLOCKED", `${input.blocker.reason_code}: ${input.summary.trim()} Owner action: ${input.blocker.owner_action.trim()}`, { blocker: input.blocker, evidence: input.evidence });
+    }
+    if (input.blocker !== undefined) throw error("INPUT_INVALID", "Blocker details require status blocked.");
     const governed = Boolean(verificationService && !context.lab_mode && !context.labMode);
     const requiresExplanation = Boolean(reviewFindings?.recordCoderReport);
     let artifact = null;

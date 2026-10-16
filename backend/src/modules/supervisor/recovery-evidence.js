@@ -12,7 +12,8 @@ export function reviewRequestBasis(job) {
     execution_id: job.execution_id ?? payload.execution_id, execution_basis: job.execution_basis ?? payload.execution_basis ?? payload.sprint_basis,
     dependency_expectations: payload.dependency_expectations,
     execution_context: job.execution_context ?? payload.execution_context, verification: payload.verification, verification_artifact_id: payload.verification_artifact_id,
-    commit_sha: payload.commit_sha, commit: payload.commit, base_commit: payload.base_commit, changed_paths: payload.changed_paths }));
+    commit_sha: payload.commit_sha, commit: payload.commit, base_commit: payload.base_commit, changed_paths: payload.changed_paths,
+    decision_identity: job.decision_identity, review_policy: job.review_policy, ...(job.automatic_review ? { ticket: payload.ticket } : {}) }));
 }
 
 // Refuses stale Registry-owned review side effects without upgrading a legacy job to the latest attempt.
@@ -29,14 +30,16 @@ export function assertReviewRequestOwnership(job, ticketStatusStore) {
 export function assertCachedReviewResult(job) {
   const result = job.review_result;
   if (!result) return;
+  if (Array.isArray(result.payload?.findings) && result.payload.findings.some((finding) => typeof finding === "string")) throw recoveryConflict("Legacy finding strings require independent re-review; cached prose is not repair evidence.");
   const basis = reviewRequestBasis(job);
   if (result.basis ? !isDeepStrictEqual(result.basis, basis) : Boolean(basis.execution_id || basis.execution_context || basis.verification)) {
     throw recoveryConflict("Cached review verdict has missing or changed execution/source evidence.");
   }
-  const valid = result.type === "review.failed" ? Boolean(result.payload?.error)
+  const valid = ["review.failed", "review.unavailable"].includes(result.type) ? Boolean(result.payload?.error)
+    : result.type === "review.skipped" ? result.payload?.outcome_label === "review_skipped" && Boolean(result.payload.reason_code)
     : result.type === "review.approved" ? result.payload?.verdict === "approved"
       : result.type === "review.request_changes" && result.payload?.verdict === "request_changes";
-  if (!valid || (result.type !== "review.failed" && (!result.payload?.reviewer_id || result.payload.reviewer_id === job.agent_id))) {
+  if (!valid || (!["review.failed", "review.unavailable", "review.skipped"].includes(result.type) && (!result.payload?.reviewer_id || result.payload.reviewer_id === job.agent_id))) {
     throw recoveryConflict("Cached review verdict is not a valid independent Reviewer outcome.");
   }
 }
