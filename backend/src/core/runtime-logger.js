@@ -41,6 +41,12 @@ function humanLine(entry) {
     if (ticket) bits.push(`{${ticket}}`);
     return `[${time}] ${symbol.padEnd(4)} ${bits.join(" ")}`;
   }
+  // Blocker discovery probes get a compact [agent] tool STATE line so SL/AM investigation is visible without exposing paths or content.
+  if (entry.event_name === "supervisor.blocker_tool_call" && tool) {
+    const state = entry.status === "success" ? "PASS" : entry.status === "started" ? "START" : "FAIL";
+    const code = entry.payload?.error_code ? ` (${entry.payload.error_code})` : "";
+    return `[${time}] ${symbol.padEnd(4)} ${agent ? `[${agent}]` : "[blocker]"} ${tool} ${state}${code}${ticket ? ` {${ticket}}` : ""}`;
+  }
   const bits = [entry.message];
   const detail = humanPayloadDetail(entry);
   if (detail) bits.push(detail);

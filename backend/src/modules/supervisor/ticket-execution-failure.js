@@ -16,7 +16,7 @@ export async function handleTicketExecutionFailure({ error, failedRequest, selec
     projectLogger({ event_name: "supervisor.ticket_blocked", level: "warn", status: "blocked", message: error.message, task_id: taskId, correlation_id: failedRequest.correlation_id, source: "nodeforge-task-integration", error_code: error.code });
     const checkpoint = await checkpoints?.load?.(taskId);
     const triage = coderFailureTriage(error);
-    await checkpoints?.save?.({ ...(checkpoint ?? { task_id: taskId }), status: "blocked", phase: "owner_decision", triage, failure: { code: error.code, message: error.message, at: new Date().toISOString() } });
+    await checkpoints?.save?.({ ...(checkpoint ?? { task_id: taskId }), status: "blocked", phase: "owner_decision", triage, failure_request_id: failedRequest.request_id, failure: { code: error.code, message: error.message, at: new Date().toISOString() } });
     if (claim) await agentOccupancy.release({ claimId: claim.claim_id, taskId, supervisorId: ownerId, reason: "coder_blocked" });
     await publishTicketOutcome("task.needs_human_review", failedRequest, ownerId, { reason: error.code, triage, retryable: false, error: { code: error.code, message: error.message } });
     return;

@@ -172,3 +172,24 @@ test("connecting mid-run replays bounded recent tool events as well as lifecycle
   state.activity({ agentId: "CODER-1", correlationId: "CLAIM-1", phase: "completed" });
   assert.deepEqual(state.activity.snapshot(), []);
 });
+
+// Audited Codex Coder tool events stream into the active panel run, and SL/AM blocker triage opens lifecycle activity.
+test("codex ticket tool events and blocker triage reach the activity stream", (context) => {
+  const state = fixture(context, [...directory, { agent_id: "AM-1", role: "architecture_manager" }]);
+  state.activity({ agentId: "CODER-1", correlationId: "CLAIM-1", phase: "started" });
+  state.activity.recordToolEvent({ event_name: "supervisor.agent_tool_event", status: "success", correlation_id: "CORR-UI-RUN-1", payload: { agent_id: "CODER-1", tool: "commit_changes" } });
+  state.activity.recordToolEvent({ event_name: "supervisor.agent_tool_event", status: "failed", correlation_id: "CORR-UI-RUN-1", payload: { agent_id: "CODER-1", tool: "run_test", error: "PRIVATE-CONTENT" } });
+  state.activity.recordToolEvent({ event_name: "supervisor.blocker_triage_started", status: "started", task_id: "TICKET-1", correlation_id: "BLOCKER-JOB-9-architecture_manager", payload: { agent_id: "AM-1", stage: "architecture_manager", job_id: "JOB-9" } });
+  state.activity.recordToolEvent({ event_name: "supervisor.blocker_tool_call", status: "started", task_id: "TICKET-1", correlation_id: "BLOCKER-JOB-9-architecture_manager", payload: { agent_id: "AM-1", role: "architecture_manager", tool: "read_source" } });
+  state.activity.recordToolEvent({ event_name: "supervisor.blocker_tool_call", status: "success", task_id: "TICKET-1", correlation_id: "BLOCKER-JOB-9-architecture_manager", payload: { agent_id: "AM-1", role: "architecture_manager", tool: "read_source" } });
+  state.activity.recordToolEvent({ event_name: "supervisor.blocker_tool_call", status: "failed", task_id: "TICKET-1", correlation_id: "BLOCKER-JOB-9-architecture_manager", payload: { agent_id: "AM-1", role: "architecture_manager", tool: "list_files", error_code: "BLOCKER_TOOL_FAILED" } });
+  state.activity.recordToolEvent({ event_name: "supervisor.blocker_triage_finished", status: "success", task_id: "TICKET-1", correlation_id: "BLOCKER-JOB-9-architecture_manager", payload: { agent_id: "AM-1", stage: "architecture_manager", job_id: "JOB-9" } });
+  const coder = codingAgentPanelActions(state.received, [...directory, { agent_id: "AM-1", role: "architecture_manager" }], projectId, "CODER-1");
+  assert.deepEqual(coder.map((event) => event.payload.activity_type), ["started", "tool_completed", "tool_failed"]);
+  assert(coder.every((event) => event.payload.correlation_id === "CLAIM-1"));
+  const am = codingAgentPanelActions(state.received, [...directory, { agent_id: "AM-1", role: "architecture_manager" }], projectId, "AM-1");
+  assert.deepEqual(am.map((event) => event.payload.activity_type), ["started", "tool_started", "tool_completed", "tool_failed", "completed"]);
+  assert(am.every((event) => event.payload.correlation_id === "BLOCKER-JOB-9-architecture_manager"));
+  assert.deepEqual(state.registry.panels.map((panel) => panel.agentId), ["CODER-1", "AM-1"]);
+  assert.equal(JSON.stringify(state.received).includes("PRIVATE-CONTENT"), false);
+});

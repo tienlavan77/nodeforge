@@ -18,7 +18,7 @@ import { createTicketReviewRepair } from "./ticket-review-repair.js";
 import { automaticReviewPolicy } from "./automatic-review-identity.js";
 export { ticketCandidateScope } from "./nodeforge-task-scope.js";
 // createNodeforgeTaskIntegration - handles createNodeforgeTaskIntegration operation.
-export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, agentResolver, agentOccupancy, ticketStatusStore, sprintRegistry, handoffQueue, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger = () => {}, fileService, gitService, checkpointStore, codeSearch, codeCache, relevantTreeSelector, protocolStorage, resolveTicketWorkspace, shadowComparison, automaticReview, coderRecovery } = {}) {
+export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, agentResolver, agentOccupancy, ticketStatusStore, sprintRegistry, handoffQueue, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger = () => {}, fileService, gitService, checkpointStore, codeSearch, codeCache, relevantTreeSelector, protocolStorage, resolveTicketWorkspace, shadowComparison, automaticReview, coderRecovery, blockerRecovery } = {}) {
   if (typeof supervisorManager?.startTask !== "function" || typeof eventBus?.publish !== "function") throw new ConfigurationError("NodeForge integration requires Supervisor Manager and Event Bus.");
   if (typeof handoffQueue?.enqueue !== "function") throw new ConfigurationError("NodeForge integration requires a sender handoff queue.");
   const checkpoints = checkpointStore ?? (fileService ? createAgentExecutionCheckpointStore({ fileService }) : null);
@@ -94,12 +94,27 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
     const ticketRuntime = workspace ? createTicketWorkspaceRuntime({ workspace, gateways: { claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway }, agentResolver, runtimeGovernance, projectLogger, checkpoints, protocolStorage }) : { executors, reviewer };
     const standalone = payload.direct_code === true || Boolean(payload.tool_test);
     if (!standalone) automaticReviewPolicy(ticket);
+    if (!standalone && ticket.execution_policy?.requires_existing_contract && !blockerRecovery) throw Object.assign(new ConfigurationError("Declared contract prerequisites require automatic blocker recovery."), { code: "BLOCKER_RECOVERY_UNAVAILABLE" });
     if (!standalone && ticket.execution_policy?.review_gate === "on" && (!automaticReview || !workspace || !agentOccupancy)) throw Object.assign(new ConfigurationError("Hard review requires durable ticket evidence and independent occupancy."), { code: "REVIEW_WORKER_UNAVAILABLE" });
     const reviewResume = payload.review_resume ?? null;
     const baseCommit = standalone ? null : reviewResume ? reviewResume.base_commit ?? workspace?.base_commit ?? null : workspace?.base_commit ?? payload.review_base_commit ?? await gitService?.getHead?.() ?? null;
     const ownerId = supervisorManager.getByTask?.(taskId)?.supervisorId ?? `SUP-${taskId}`;
+    // An owner-approved governed successor (automatic foundation split) may have integrated content
+    // that legitimately replaces this ticket's recorded baseline; rebase before any ledger snapshot.
+    const integratedSuccessors = workspace?.root_only && !standalone ? await approvedIntegratedSuccessors(taskId) : [];
+    if (integratedSuccessors.length) {
+      try { await workspace.changeLedger.resume({ integrated_successors: integratedSuccessors }); }
+      catch (error) {
+        await workspace.changeLedger.release({ close: false }).catch(() => {});
+        projectLogger({ event_name: "ticket.baseline_rebase_failed", level: "error", status: "failed", message: error.message, task_id: taskId, source: "nodeforge-task-integration", error_code: error.code ?? "TICKET_BASELINE_REBASE_FAILED", payload: { successor_ids: integratedSuccessors } });
+        throw error;
+      }
+    }
     const executionContext = await prepareTicketExecutionContext({ workspace, taskId, supervisorId: ownerId, ticket });
     if (payload.retry_source_identity && ["source_revision", "manifest_sha", "review_commit_sha", "base_sha"].some((field) => executionContext?.[field] !== payload.retry_source_identity[field])) throw Object.assign(new ConfigurationError("Coder retry source changed during preparation."), { code: "TICKET_EXECUTION_RECONCILIATION_REQUIRED" });
+    if (!standalone && blockerRecovery && await blockerRecovery.preflight({ ticket, task_id: taskId, project_id: project_id ?? ticket.project_id,
+      request_id: request_id ?? `REQ-${taskId}`, correlation_id: correlation_id ?? `CORR-${taskId}`, supervisor_id: ownerId,
+      execution_context: executionContext, payload })) return { task_id: taskId, supervisor_id: ownerId, status: "needs_human_review" };
     assertDependencySubmission({ projectId: project_id ?? ticket.project_id, ticket, payload, sprintRegistry, ticketStatusStore });
     const { selected, claim } = await selectTicketCoder({ resolver: agentResolver, occupancy: agentOccupancy, ticket, taskId, ownerId, role: required_role ?? ticket.required_role, payload });
     if (!selected) throw Object.assign(new ConfigurationError("No enabled and ready Agent Profile is available."), { code: "AGENT_NOT_AVAILABLE" });
@@ -122,7 +137,7 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
     let queued;
     try {
       assertDependencySubmission({ projectId: request.project_id, ticket, payload: request.payload, sprintRegistry, ticketStatusStore });
-      await workspace?.changeLedger?.resume?.();
+      await workspace?.changeLedger?.resume?.({ integrated_successors: integratedSuccessors });
       if (!reviewResume) queued = await handoffQueue.enqueue(request);
     }
     catch (error) {
@@ -203,6 +218,16 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
       : isCodexProfile(selected) ? ticketExecutors.runCodexTask(selected, request)
         : isOllamaProfile(selected) ? ticketExecutors.runOllamaHello(selected, request)
           : ticketExecutors.runToolTicket(selected, request);
+  }
+  // Lists a governed successor only when the project owner's recorded decision names it for this source ticket.
+  async function approvedIntegratedSuccessors(taskId) {
+    if (!checkpoints?.load) return [];
+    let checkpoint;
+    try { checkpoint = await checkpoints.load(taskId); } catch { return []; }
+    const recovery = checkpoint?.blocker_recovery;
+    const replan = recovery?.foundation_replan;
+    if (!recovery?.owner_decision || !replan?.ticket_id || replan.source_ticket_id !== taskId || replan.dispatched !== true) return [];
+    return [replan.ticket_id];
   }
   // Logs an ended attempt's failure while preserving checkpoints and releasing occupancy.
   async function handleExecutionFailure(error, failedRequest, { selected, claim, taskId, ownerId }) {

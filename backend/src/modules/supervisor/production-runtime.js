@@ -29,12 +29,13 @@ import { recoverReviewingSupervisor, reviewRequestBasis, validateRecoveredReview
 import { createProductionAutomaticReview } from "./automatic-review-runtime.js";
 import { createQueuePoller, createProcessMutex, createSignaledQueue } from "./production-runtime-queues.js";
 import { createCoderRecoveryRuntime } from "./coder-recovery-runtime.js";
+import { createProductionBlockerRecovery } from "./blocker-recovery-runtime.js";
 
 const QUEUE_NAMES = ["agent.request", "sender.handoff", "collector.request", "verification.request"];
 const RESUMABLE_STATES = ["CREATED", "READY", "RUNNING", "REPAIRING"];
 
 /** Creates the production wiring for supervisor runtime including stores, buses, managers, and workers. */
-export function createProductionSupervisorRuntime({ fileService, projectRoot = process.cwd(), root = ".forge/runtime", eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, agentRoleResolver, agentOccupancy, ticketStatusStore, sprintRegistry, logger = console, projectLogger = () => {}, checkpointSaved, preparation = {}, attemptBuilderFactory, conversationStateStore, protocolStorage, autoStartWorkers = true, toolGovernance, governanceDatabase, codeSearch, codeCache, relevantTreeSelector, freshnessChecker, enableReadCode = false, testService, gitService, reportService, ticketWorkspaceService, shadowComparison, onEvalCase, coderRecovery, coderRetryPolicy, ticketDisposition } = {}) {
+export function createProductionSupervisorRuntime({ fileService, projectRoot = process.cwd(), root = ".forge/runtime", eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, agentRoleResolver, agentOccupancy, ticketStatusStore, sprintRegistry, architecturePlans, replanFoundation, logger = console, projectLogger = () => {}, checkpointSaved, preparation = {}, attemptBuilderFactory, conversationStateStore, protocolStorage, autoStartWorkers = true, toolGovernance, governanceDatabase, codeSearch, codeCache, relevantTreeSelector, freshnessChecker, enableReadCode = false, testService, gitService, reportService, ticketWorkspaceService, shadowComparison, onEvalCase, coderRecovery, coderRetryPolicy, ticketDisposition } = {}) {
   const hasPreparation = Object.keys(preparation ?? {}).length > 0;
   const queueStore = createFileQueueStore({ fileService, root: `${root}/queues` });
   const stateStore = createSupervisorStateStore({ fileService, root: `${root}/supervisors` });
@@ -59,6 +60,8 @@ export function createProductionSupervisorRuntime({ fileService, projectRoot = p
   const automaticReview = createProductionAutomaticReview({ queueStore, queue: queues["agent.request"], eventBus, fileService, resolveTicketWorkspace, agentResolver: agentRoleResolver, agentOccupancy, gateways: { claudeSdkGateway, openaiSdkGateway, codexSdkGateway }, projectLogger, ticketStatusStore, checkpoints: agentCheckpoints });
   coderRecovery ??= createCoderRecoveryRuntime({ store: queueStore, ticketStatusStore, sprintRegistry, resolveTicketWorkspace, checkpoints: agentCheckpoints,
     eventBus, submitTicket: (input) => baseIntegration.submitTicket(input), disposition: ticketDisposition, agentOccupancy, policy: coderRetryPolicy, logger });
+  const blockerRecovery = createProductionBlockerRecovery({ store: queueStore, fileService, ticketStatusStore, sprintRegistry, resolveTicketWorkspace, checkpoints: agentCheckpoints,
+    eventBus, agentResolver: agentRoleResolver, agentOccupancy, gateways: { claudeSdkGateway, openaiSdkGateway }, submitTicket: (input) => integration.submitTicket(input), stopExecution: (input) => coderRecovery.stopTicket(input), disposition: ticketDisposition, architecturePlans, replanFoundation, projectLogger, logger });
   const supervisorManager = createSupervisorManager({ eventBus, stateStore, preparation, onCreate: (runtime) => {
     const executionContextProvider = createExecutionContextProvider(runtime, runtimeGovernance, toolRegistry);
     const loop = createSupervisorLoop({ runtime, senderQueue: queues["agent.request"], collectorQueue: queues["collector.request"], verificationQueue: queues["verification.request"], sourceRequest: async (taskId, requestId) => (await queueStore.list("agent.request")).find((job) => job.task_id === taskId && (!requestId || job.request_id === requestId) && job.operation !== "review" && job.ticket), eventBus, requestStore: processedRequestStore, agentResolver: agentRoleResolver, agentOccupancy, integrateTicket, automaticReview, coderRecovery, ticketStatusStore, resolveTicketWorkspace, attemptBuilder: typeof attemptBuilderFactory === "function" ? attemptBuilderFactory(runtime, { conversationStateStore, protocolStorage, toolRegistry, governance: runtimeGovernance, executionContextProvider }) : undefined });
@@ -76,7 +79,7 @@ export function createProductionSupervisorRuntime({ fileService, projectRoot = p
       });
     });
   } });
-  const baseIntegration = createNodeforgeTaskIntegration({ supervisorManager, eventBus, agentResolver: agentRoleResolver, agentOccupancy, ticketStatusStore, sprintRegistry, handoffQueue: queues["sender.handoff"], claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger, fileService, gitService, checkpointStore: agentCheckpoints, codeSearch, codeCache, relevantTreeSelector, protocolStorage, resolveTicketWorkspace, shadowComparison, automaticReview, coderRecovery });
+  const baseIntegration = createNodeforgeTaskIntegration({ supervisorManager, eventBus, agentResolver: agentRoleResolver, agentOccupancy, ticketStatusStore, sprintRegistry, handoffQueue: queues["sender.handoff"], claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger, fileService, gitService, checkpointStore: agentCheckpoints, codeSearch, codeCache, relevantTreeSelector, protocolStorage, resolveTicketWorkspace, shadowComparison, automaticReview, coderRecovery, blockerRecovery });
   const integration = { submitTicket: coderRecovery?.runTicket ?? baseIntegration.submitTicket, reviewOnly: baseIntegration.reviewOnly, startTask: async (request) => {
     if (!request?.task_id) throw new ConfigurationError("Production task requires task_id.");
     if (startingTasks.has(request.task_id)) {
@@ -139,13 +142,13 @@ export function createProductionSupervisorRuntime({ fileService, projectRoot = p
   const collectorWorkerLoop = createQueuePoller(queues["collector.request"], "collector-1", signalBus, async (job) => { projectLogger({ event_name: "collector.request_started", level: "info", status: "info", message: "Collector Worker started job.", task_id: job.task_id, correlation_id: job.correlation_id, source: "collector-worker", payload: { request_id: job.request_id, job_id: job.id } }); const workspace = resolveTicketWorkspace ? await resolveTicketWorkspace(job.task_id) : null; const collector = workspace ? createCollectorWorker({ fileService: workspace.fileService, gitService: workspace.gitService, changeLedger: workspace.changeLedger, executionContexts: workspace.executionContexts }) : collectorWorker; const result = await collector.collect(job); await eventBus.publish({ type: "changeset.collected", task_id: job.task_id, supervisor_id: job.supervisor_id, request_id: job.request_id, correlation_id: job.correlation_id, attempt: job.attempt ?? 1, payload: { changed_paths: result.changed_paths, checksums: result.checksums, execution_context: result.execution_context, empty: result.empty } }); projectLogger({ event_name: "collector.request_completed", level: "info", status: "success", message: "Collector Worker completed job.", task_id: job.task_id, correlation_id: job.correlation_id, source: "collector-worker", payload: { request_id: job.request_id, job_id: job.id, changed_count: result.changed_paths.length, empty: result.empty } }); await queues["collector.request"].ack(job.id); });
   const verificationWorkerLoop = createQueuePoller(queues["verification.request"], "verification-1", signalBus, async (job) => { projectLogger({ event_name: "verification.request_started", level: "info", status: "info", message: "Verification Worker started job.", task_id: job.task_id, correlation_id: job.correlation_id, source: "verification-worker", payload: { request_id: job.request_id, job_id: job.id } }); const workspace = resolveTicketWorkspace ? await resolveTicketWorkspace(job.task_id) : null; const result = await verifyTicketChangeset({ workspace, job, legacyWorker: verificationWorker }); await queueStore.save("verification.request", { ...job, verification_result: { basis: reviewRequestBasis(job), payload: result } }); await eventBus.publish({ type: result.status === "passed" ? "verification.passed" : "verification.failed", task_id: job.task_id, supervisor_id: job.supervisor_id, request_id: job.request_id, correlation_id: job.correlation_id, attempt: job.attempt ?? 1, payload: result }); projectLogger({ event_name: "verification.request_completed", level: "info", status: result.status === "passed" ? "success" : "failed", message: "Verification Worker completed job.", task_id: job.task_id, correlation_id: job.correlation_id, source: "verification-worker", payload: { request_id: job.request_id, job_id: job.id, status: result.status } }); await queues["verification.request"].ack(job.id); });
   async function startWorkers() {
-    senderWorker.start(); collectorWorkerLoop.start(); verificationWorkerLoop.start(); await coderRecovery?.start?.();
+    senderWorker.start(); collectorWorkerLoop.start(); verificationWorkerLoop.start(); await coderRecovery?.start?.(); await blockerRecovery?.start();
     for (const name of QUEUE_NAMES) for (const job of await queueStore.list(name)) {
       if (["queued", "leased"].includes(job.status)) signalBus.wakeup({ source: "startup-recovery", target: name, queue: name, job_id: job.id, task_id: job.task_id, supervisor_id: job.supervisor_id, request_id: job.request_id, correlation_id: job.correlation_id, attempt: job.attempt ?? 1 });
     }
   }
   if (autoStartWorkers) void startWorkers();
-  return Object.freeze({ governance: runtimeGovernance, queues, queueStore, stateStore, processedRequestStore, eventBus, signalBus, resultBus, statusBus, supervisorManager, integration, agentRegistry, senderWorker, collectorWorkerLoop, verificationWorkerLoop, startWorkers, recover, agentCheckpoints, coderRecovery });
+  return Object.freeze({ governance: runtimeGovernance, queues, queueStore, stateStore, processedRequestStore, eventBus, signalBus, resultBus, statusBus, supervisorManager, integration, agentRegistry, senderWorker, collectorWorkerLoop, verificationWorkerLoop, startWorkers, recover, agentCheckpoints, coderRecovery, blockerRecovery });
 
   async function recover() {
     logger.debug?.("Supervisor recovery: queue scan started");
@@ -154,6 +157,7 @@ export function createProductionSupervisorRuntime({ fileService, projectRoot = p
     for (const name of QUEUE_NAMES) recoveredQueues[name] = (await queues[name].recover()).length;
     const supervisors = await supervisorManager.recover();
     await automaticReview?.recover();
+    await blockerRecovery?.recover();
     logger.debug?.("Supervisor recovery: manager loaded", { supervisors });
     for (const claim of agentOccupancy?.listActive?.() ?? []) {
       if (retainUnreconciledLaunch({ taskId: claim.task_id, ticketStatusStore, projectLogger })) continue;
@@ -175,6 +179,7 @@ export function createProductionSupervisorRuntime({ fileService, projectRoot = p
       const currentExecution = ticketStatusStore?.get?.(state.task_id);
       if (currentExecution?.details?.execution_id && ["done", "failed", "cancelled"].includes(currentExecution.status)) continue;
       if (currentExecution && await coderRecovery?.hasPending({ projectId: currentExecution.project_id, taskId: state.task_id, executionId: currentExecution.details?.execution_id })) continue;
+      if (currentExecution && await blockerRecovery?.hasPending({ projectId: currentExecution.project_id, taskId: state.task_id, executionId: currentExecution.details?.execution_id })) continue;
       const owner = supervisorManager.getByTask(state.task_id);
       if (!owner || owner.supervisorId !== state.supervisor_id) continue;
       const loop = loops.get(state.supervisor_id);

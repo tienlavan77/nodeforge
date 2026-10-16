@@ -1,5 +1,5 @@
 // Keep Coding agent panels independent of activity history for later persistence and layout integration.
-const ROLES = new Set(["sprint_leader", "coder", "reviewer"]);
+const ROLES = new Set(["sprint_leader", "coder", "reviewer", "architecture_manager"]);
 
 // Reject incomplete or malformed identity rather than attributing work by name or role.
 function validId(value) {

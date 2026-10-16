@@ -9,15 +9,26 @@ import { coderEvidenceResume } from "../modules/supervisor/coder-evidence-resume
 import { approvedTicketDecisions } from "../modules/governance/plan-decision-requests.js";
 
 // Creates one shared ticket RUN entry point so Sprint execution preserves all ticket gates.
-export function createTicketRunDispatch({ disposition, intake, sprintRegistry, ticketStatusStore, checkpoints, queueStore, protocolStorage, conversationStateStore, dispatchTask, coderRecovery }) {
+export function createTicketRunDispatch({ disposition, intake, sprintRegistry, ticketStatusStore, checkpoints, queueStore, protocolStorage, conversationStateStore, dispatchTask, coderRecovery, blockerRecovery }) {
   const active = new Map();
   dispatchTicket.stop = ({ projectId, ticketId } = {}) => {
+    if (blockerRecovery) return stopRecovery({ projectId, ticketId });
+    return stopRun({ projectId, ticketId });
+  };
+  // Cancels parked automatic triage before falling back to the active provider Stop boundary.
+  async function stopRecovery({ projectId, ticketId }) {
+    const current = ticketStatusStore.get(ticketId);
+    if (await blockerRecovery.hasPending({ projectId, taskId: ticketId, executionId: current?.details?.execution_id })) return blockerRecovery.stopTicket({ projectId, ticketId });
+    return stopRun({ projectId, ticketId });
+  }
+  // Preserves synchronous legacy Stop behavior when no parked blocker investigation owns the ticket.
+  function stopRun({ projectId, ticketId }) {
     const run = active.get(ticketId);
     if (coderRecovery?.stopTicket) return coderRecovery.stopTicket({ projectId, ticketId });
     if (!run || run.projectId !== projectId) throw failure("TICKET_NOT_RUNNING", "This ticket has no active RUN to stop.");
     run.controller.abort(Object.assign(new Error("Ticket stopped by owner."), { code: "TICKET_STOPPED" }));
     return { ticket_id: ticketId, status: "stopping" };
-  };
+  }
   return dispatchTicket;
   async function dispatchTicket({ projectId, ticketId, fresh = false, expectedSprintVersion, dependencyExpectations } = {}) {
     dependencyExpectations = dependencyExpectations === undefined ? undefined : structuredClone(dependencyExpectations);
@@ -39,6 +50,7 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
       if (sprintBasis && dependencyExpectations === undefined) dependencyExpectations = await captureDependencyExpectations({ projectId, ticket, sprintRegistry, ticketStatusStore });
       assertDependencyExpectations({ projectId, ticket, expectations: dependencyExpectations, sprintRegistry, ticketStatusStore });
       const current = ticketStatusStore.get(ticketId);
+      if (current?.project_id === projectId && await blockerRecovery?.hasPending({ projectId, taskId: ticketId, executionId: current.details?.execution_id })) return { ticket_id: ticketId, status: "already_running", pipeline: "supervisor", reason: "blocker_recovery_pending" };
       if (current?.project_id === projectId && ["running", "reviewing"].includes(current.status) && await coderRecovery?.hasPending({ projectId, taskId: ticketId, executionId: current.details?.execution_id })) return { ticket_id: ticketId, status: "already_running", pipeline: "supervisor", reason: "operational_recovery_pending" };
       if (current?.status === "cancelled") throw failure("TICKET_CANCELLED", "Cancelled tickets cannot run.");
       if (current?.status === "blocked") throw failure("TICKET_APPROVAL_REQUIRED", "Blocked ticket status requires a human decision before RUN.");
@@ -47,7 +59,10 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
         return { ticket_id: ticketId, status: "completed", pipeline: "supervisor", resumed: true, ...(current.details?.execution_id ? { execution_id: current.details.execution_id } : {}) };
       }
       const storedCheckpoint = await checkpoints.load(ticketId);
-      if (storedCheckpoint?.status === "blocked") throw failure("TICKET_APPROVAL_REQUIRED", "Coder checkpoint requires a human decision before this ticket can run again.");
+      if (!fresh && storedCheckpoint?.status === "blocked" && ["cancelled", "reconciliation_required"].includes(storedCheckpoint.blocker_recovery?.status) && typeof blockerRecovery?.resumeTicket === "function") {
+        return await blockerRecovery.resumeTicket({ projectId, ticketId });
+      }
+      if (storedCheckpoint?.status === "blocked" && !storedCheckpoint.blocker_recovery?.owner_decision) throw failure("TICKET_APPROVAL_REQUIRED", "Coder checkpoint requires a human decision before this ticket can run again.");
       let checkpoint = fresh ? null : storedCheckpoint;
       const reviewerCheckpoint = !fresh && checkpoint?.status === "completed" ? await checkpoints.loadReview(ticketId) : null;
       if (reviewerCheckpoint?.verdict === "approved") throw failure("TICKET_INTEGRATION_RECOVERY_REQUIRED", "Review is approved but ticket completion is missing; recover integration before RUN.");

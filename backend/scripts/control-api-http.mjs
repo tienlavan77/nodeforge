@@ -52,6 +52,7 @@ export function createControlApiHttp({ services } = {}) {
       sprintOrchestrationService: sprintOrchestration,
       reviewTicket,
       ticketHumanReviewService: services.ticketHumanReviewService,
+      ticketBlockerDecisionService: services.ticketBlockerDecisionService,
       runToolLab,
       directCodeRequest,
       onWatcherEvent,

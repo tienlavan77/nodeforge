@@ -140,6 +140,12 @@ export function createForgeV1ConversationRoutes({ conversationCrudService, conve
   function checkpointSummary(byTask, ticketId) {
     const checkpoint = byTask?.get(ticketId);
     if (!checkpoint) return null;
-    return { resumable: true, phase: checkpoint.phase ?? "code", last_completed_turn: checkpoint.last_completed_turn ?? 0, last_tool: checkpoint.last_tool ?? null, updated_at: checkpoint.updated_at ?? null };
+    const lastStage = Array.isArray(checkpoint.stage_progress) ? checkpoint.stage_progress.at(-1) : null;
+    const blockedStatus = checkpoint.blocker_recovery?.status;
+    const resumable = checkpoint.status !== "blocked" || ["cancelled", "reconciliation_required"].includes(blockedStatus);
+    return { resumable, phase: checkpoint.phase ?? "code", active_stage: lastStage?.stage ?? (checkpoint.phase === "review" ? "reviewer" : "coder"),
+      active_stage_status: lastStage?.status ?? checkpoint.status ?? "in_progress", stage_progress: checkpoint.stage_progress ?? [],
+      last_completed_turn: checkpoint.last_completed_turn ?? 0, last_tool: checkpoint.last_tool ?? null, updated_at: checkpoint.updated_at ?? null,
+      blocker_owner_decision: blockedStatus === "owner_required" && !checkpoint.blocker_recovery?.owner_decision };
   }
 }

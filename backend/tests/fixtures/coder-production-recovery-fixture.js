@@ -15,7 +15,7 @@ export const BASIS = { project_id: "P", sprint_id: "SPRINT", plan_id: "PLAN", pl
 export const TICKET = { id: "TASK", project_id: "P", sprint_id: "SPRINT", required_role: "coder", title: "Fix handler", objective: "Fix handler", dependencies: [], acceptance_criteria: ["Handler works"] };
 
 // Creates process-reconstructible recovery services backed by real locked JSON and checkpoint files.
-export async function coderProductionRecoveryFixture({ behavior } = {}) {
+export async function coderProductionRecoveryFixture({ behavior, ticket = TICKET } = {}) {
   const base = resolve(".forge/test-tmp");
   await mkdir(base, { recursive: true });
   const root = await mkdtemp(join(base, "production-retry-"));
@@ -33,6 +33,8 @@ export async function coderProductionRecoveryFixture({ behavior } = {}) {
   const events = [];
   const seen = new Set();
   const statusStore = { get: () => structuredClone(current),
+    listByStatus: (status) => current.status === status ? [{ ...structuredClone(current), ticket_id: "TASK" }] : [],
+    resumeBlockedExecution: (_id, input) => { assert.equal(current.version, input.expectedVersion); input.validate(); current.status = "running"; current.version += 1; },
     updateStatus: (_id, status, details, expected) => {
       assert.equal(current.version, expected.expectedVersion);
       assert.equal(current.details.execution_id, expected.expectedExecutionId);
@@ -48,9 +50,9 @@ export async function coderProductionRecoveryFixture({ behavior } = {}) {
   };
   const registry = { get: () => ({ ...BASIS, status: ready ? "ready" : "blocked" }), assertReady: async () => {
     if (!ready) throw new Error("Plan no longer ready");
-    return { sprint: BASIS, plan: { content: { tickets: ["TASK"], ticket_specs: [TICKET] } } };
+    return { sprint: BASIS, plan: { content: { tickets: ["TASK"], ticket_specs: [ticket] } } };
   } };
-  const workspace = { projectRoot: root, base_commit: "BASE", toolRegistry: Object.fromEntries(["write_diff", "commit_changes", "report_done"].map((name) => [name, { execute: async () => ({}) }])),
+  const workspace = { projectRoot: root, fileService, worktreeFileService: fileService, base_commit: "BASE", toolRegistry: Object.fromEntries(["write_diff", "commit_changes", "report_done"].map((name) => [name, { execute: async () => ({}) }])),
     executionContexts: { load: async () => structuredClone(context), create: async () => context, syncManifest: async () => structuredClone(context),
       update: async (_id, _version, patch) => { context = { ...context, ...patch, version: context.version + 1 }; } },
     changeLedger: { snapshot: async () => ({ revision: 0, entries: {}, commits: {} }), resume: async () => {}, release: async () => {} },
@@ -58,12 +60,15 @@ export async function coderProductionRecoveryFixture({ behavior } = {}) {
     reportService: { assertCoderReport: async () => {}, completeCoderReport: async () => {} },
     integrate: async () => { integrations += 1; } };
   const occupancy = { getByTask: () => claim, claim: async () => { claim = { claim_id: "CLAIM", agent_id: "CODER", supervisor_id: "SUP-TASK" }; return claim; }, release: async () => { claim = null; } };
-  const eventBus = { publish: async (event) => {
+  const subscribers = [];
+  const eventBus = { subscribe: (_id, handler) => { subscribers.push(handler); }, publish: async (event) => {
     if (event.event_id && seen.has(event.event_id)) return;
     if (event.event_id) seen.add(event.event_id);
     events.push(event);
     if (event.type === "task.completed") current.status = "done";
     if (event.type === "task.failed") current.status = "failed";
+    if (event.type === "task.needs_human_review") current.status = "needs_human_review";
+    for (const handler of subscribers) await handler(event);
   } };
   let service;
   let integration;
@@ -78,7 +83,7 @@ export async function coderProductionRecoveryFixture({ behavior } = {}) {
       eventBus, ticketStatusStore: statusStore, sprintRegistry: registry, agentOccupancy: occupancy,
       agentResolver: { resolveAvailable: () => ({ agent_id: "CODER", role: "coder", provider: "codex" }) },
       handoffQueue: createDurableQueue({ name: "sender.handoff", store }), resolveTicketWorkspace: async () => workspace,
-      checkpointStore: checkpoints, runtimeGovernance: { createExecutionContext: (input) => input }, coderRecovery: service,
+      checkpointStore: checkpoints, runtimeGovernance: { createExecutionContext: (input) => input }, coderRecovery: service, blockerRecovery: options.blockerRecovery,
       codexSdkGateway: { execute: async (input) => {
         invocations += 1;
         if (behavior) return behavior(input, invocations);
@@ -87,12 +92,12 @@ export async function coderProductionRecoveryFixture({ behavior } = {}) {
     return service;
   }
   restart();
-  return { store, checkpoints, statusStore, events, restart, registry, workspace,
+  return { store, checkpoints, statusStore, events, restart, registry, workspace, fileService, eventBus, occupancy,
     get service() { return service; }, get invocations() { return invocations; }, get integrations() { return integrations; },
     advance: (delta) => { now += delta; }, staleSource: () => { context.source_revision = "NEW"; },
     cancelDisposition: () => { cancelled = true; }, revokePlan: () => { ready = false; },
     replaceExecution: () => { current.details.execution_id = "REPLACEMENT"; },
-    run: () => service.runTicket({ ticket: TICKET, task_id: "TASK", project_id: "P", request_id: "REQ", correlation_id: "CORR",
+    run: () => service.runTicket({ ticket, task_id: "TASK", project_id: "P", request_id: "REQ", correlation_id: "CORR",
       payload: { execution_id: "EXEC", sprint_basis: BASIS, dependency_expectations: [] } }),
     close: async () => { service.stop(); await rm(root, { recursive: true, force: true }); } };
 }

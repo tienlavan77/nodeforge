@@ -12,7 +12,7 @@ export function createTicketStatusStore({ database, projectId, clock = () => new
   if (typeof clock !== "function" || typeof createId !== "function" || typeof onEvent !== "function" || (publisher !== undefined && typeof publisher.publish !== "function")) throw new ConfigurationError("Invalid Ticket Status Store options.");
   ensureTables();
 
-  return Object.freeze({ create, get, getStatus, updateStatus, beginExecution, resumeReviewExecution, claimExecutionLaunch, reconcileExecutionLaunch, completeByHumanReview, listByStatus, getHistory, dependenciesReady, retry, resetDoneForRetry, reconcileTerminalStatus });
+  return Object.freeze({ create, get, getStatus, updateStatus, beginExecution, resumeReviewExecution, resumeBlockedExecution, claimExecutionLaunch, reconcileExecutionLaunch, completeByHumanReview, listByStatus, getHistory, dependenciesReady, retry, resetDoneForRetry, reconcileTerminalStatus });
 
   // Creates a pending status entry for a ticket.
   function create(ticketId, details = {}) {
@@ -88,7 +88,7 @@ export function createTicketStatusStore({ database, projectId, clock = () => new
   }
 
   // Resumes parked review under the original execution identity only after transactional plan and dependency revalidation.
-  function resumeReviewExecution(ticketId, { executionId, basis, expectedVersion, dependencyExpectations, validate } = {}) {
+  function resumeReviewExecution(ticketId, { executionId, basis, expectedVersion, dependencyExpectations, validate, reason = "review_resume" } = {}) {
     if (typeof validate !== "function" || typeof database.transaction !== "function") throw statusError("STATUS_EXECUTION_INVALID", "Review resume requires transactional authority validation.");
     return database.transaction(() => {
       const current = get(ticketId);
@@ -96,11 +96,14 @@ export function createTicketStatusStore({ database, projectId, clock = () => new
         || current.details.launch_claim || !isDeepStrictEqual(current.details.dependency_expectations, dependencyExpectations)) throw Object.assign(statusError("TICKET_EXECUTION_RECONCILIATION_REQUIRED", "Review resume cannot replace execution, dependency intent, or an unreconciled provider launch."), { statusCode: 409, retryable: false });
       const checked = validate();
       if (checked?.then) throw statusError("STATUS_EXECUTION_INVALID", "Review resume validation must be synchronous.");
-      const updated = transitionWithoutGuard(ticketId, current, "running", { ...current.details, reason: "review_resume" });
-      emit("ticket.status_change", { project_id: projectId, ticket_id: ticketId, from: current.status, to: "running", version: updated.version, reason: "review_resume", details: updated.details, timestamp: updated.updated_at });
+      const updated = transitionWithoutGuard(ticketId, current, "running", { ...current.details, error: null, reason });
+      emit("ticket.status_change", { project_id: projectId, ticket_id: ticketId, from: current.status, to: "running", version: updated.version, reason, details: updated.details, timestamp: updated.updated_at });
       return updated;
     });
   }
+
+  // Restores a resolved blocker under the same transactional execution, dependency and launch-ownership fences.
+  function resumeBlockedExecution(ticketId, options) { return resumeReviewExecution(ticketId, { ...options, reason: "blocker_resolved" }); }
 
   // Records one durable inline launch owner per execution without granting restart or provider redispatch authority.
   function claimExecutionLaunch(ticketId, { executionId, basis, requestId, jobId, supervisorId, agentId, claimId, validate } = {}) {

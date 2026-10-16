@@ -30,6 +30,7 @@ import { createSprintDagRunner } from "../src/modules/supervisor/sprint-dag.js";
 import { createSprintRunDispatch } from "../src/application/sprint-run-dispatch.js";
 import { createCompletionReportService } from "../src/modules/supervisor/completion-report-service.js";
 import { createEvalCaseRecorder } from "../src/modules/eval/eval-case-store.js";
+import { createAutomaticFoundationReplan } from "../src/modules/supervisor/automatic-foundation-replan.js";
 import { createTicketCrudService } from "../src/application/ticket-crud-service.js";
 import { createDirectCodeRequest } from "../src/application/direct-code-request.js";
 import { createCodeCacheService } from "../src/modules/context/code-cache-service.js";
@@ -50,6 +51,7 @@ import { createFileService } from "../src/infrastructure/filesystem/file-service
 import { migrateConversationErrors } from "../src/modules/governance/conversation-error-migration.js";
 import { createSprintLeaderIntakeService } from "../src/application/sprint-leader-intake-service.js";
 import { createTicketHumanReviewService } from "../src/application/ticket-human-review-service.js";
+import { createTicketBlockerDecisionService } from "../src/application/ticket-blocker-decision-service.js";
 import { createTicketRunDispatch } from "../src/application/ticket-run-dispatch.js";
 import { reviewPhaseResume } from "../src/modules/supervisor/review-revision-resume.js";
 
@@ -99,7 +101,11 @@ if (ticketPipelineMode.mode === "shadow") {
   catch (error) { runtimeLogger.emit({ event_name: "ticket.pipeline_shadow_audit_failed", level: "error", status: "failed", message: "Ticket pipeline inventory audit failed; existing workspace gates remain active.", source: "control-api", error_code: error.code ?? "TICKET_PIPELINE_AUDIT_FAILED", payload: { error: error.message } }); }
 }
 const buildBuilderContext = createBuilderContext({ roadmaps, sprintRegistry, indexDb, contextEngine });
-const supervisorRuntime = createProductionSupervisorRuntime({ projectRoot: config.cwd, fileService, root: ".forge/runtime", eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, agentRoleResolver, agentOccupancy, ticketStatusStore, sprintRegistry, codeSearch, codeCache, relevantTreeSelector, freshnessChecker, logger: runtimeLogger, projectLogger: runtimeLogger.emit, projectId,
+let resolveDispatchFoundation;
+const dispatchFoundationReady = new Promise((resolve) => { resolveDispatchFoundation = resolve; });
+const dispatchFoundation = (input) => dispatchFoundationReady.then(() => dispatchTicket({ projectId: input.ticket.project_id, ticketId: input.ticket.id,
+  expectedSprintVersion: input.sprintBasis.version, dependencyExpectations: input.dependencyExpectations }));
+const supervisorRuntime = createProductionSupervisorRuntime({ projectRoot: config.cwd, fileService, root: ".forge/runtime", eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, agentRoleResolver, agentOccupancy, ticketStatusStore, sprintRegistry, architecturePlans: markdownPlanStore, replanFoundation: createAutomaticFoundationReplan({ plans: planStore, markdownPlans: markdownPlanStore, sprintRegistry, ticketStatusStore, projectId, dispatch: (input) => dispatchFoundation?.(input) }), codeSearch, codeCache, relevantTreeSelector, freshnessChecker, logger: runtimeLogger, projectLogger: runtimeLogger.emit, projectId,
   checkpointSaved: async (checkpoint) => {
     if (!checkpoint.task_id?.startsWith("CODE-")) return;
     try {
@@ -129,13 +135,15 @@ await supervisorRuntime.startWorkers();
 const dispatchTask = createApprovedTicketDispatch({ projectId, sprintRegistry, ticketStatusStore, integration: supervisorRuntime.integration });
 const directCodeRequest = createDirectCodeRequest({ fileService, integration: supervisorRuntime.integration, checkpoints: supervisorRuntime.agentCheckpoints, projectId, projectLogger: logEvent });
 const ticketHumanReviewService = createTicketHumanReviewService({ projectId, roadmaps, sprintRegistry, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, agentOccupancy, ticketWorkspaceService, publisher: eventPublisher, projectLogger: runtimeLogger.emit });
+const ticketBlockerDecisionService = createTicketBlockerDecisionService({ projectId, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, publisher: eventPublisher, projectLogger: runtimeLogger.emit });
 
 // Sprint execution runs one level at a time, gating each ticket on its
 // predecessors' terminal ticket status via the execution event bus.
 const sprintDagRunner = createSprintDagRunner({ ticketStatusStore, sprintRegistry, eventBus: supervisorRuntime.eventBus, dispatchTask: ({ ticket, sprintBasis, dependencyExpectations }) => dispatchTicket({ projectId: ticket.project_id, ticketId: ticket.id, expectedSprintVersion: sprintBasis?.version, dependencyExpectations }), logEvent });
 const sprintLeaderIntake = createSprintLeaderIntakeService({ fileService, roadmaps, sprintRegistry, ticketStatusStore, logger: logEvent });
 
-const dispatchTicket = createTicketRunDispatch({ disposition: ticketPipelineDisposition, intake: sprintLeaderIntake, sprintRegistry, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, queueStore: supervisorRuntime.queueStore, protocolStorage, conversationStateStore, dispatchTask, coderRecovery: supervisorRuntime.coderRecovery });
+const dispatchTicket = createTicketRunDispatch({ disposition: ticketPipelineDisposition, intake: sprintLeaderIntake, sprintRegistry, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, queueStore: supervisorRuntime.queueStore, protocolStorage, conversationStateStore, dispatchTask, coderRecovery: supervisorRuntime.coderRecovery, blockerRecovery: supervisorRuntime.blockerRecovery });
+resolveDispatchFoundation();
 const reviewTicket = async ({ projectId: requestedProjectId, ticketId, body = {} } = {}) => {
   const { ticket } = await sprintLeaderIntake.open({ projectId: requestedProjectId, ticketId });
   return supervisorRuntime.integration.reviewOnly({ ticket, task_id: ticketId, project_id: requestedProjectId, request_id: body.request_id, correlation_id: body.correlation_id, commit: body.commit, base_commit: body.base_commit, changed_paths: body.changed_paths, evidence: body.evidence, coder_agent_id: body.coder_agent_id });
@@ -165,7 +173,7 @@ const api = createControlApiHttp({ services: {
   relevantTreeSelector, decisions, agentSettings, sprintPlanUpload, sprintOrchestration, dispatchTicket, runToolLab, directCodeRequest, internalBus,
   proseTicketService, buildBuilderContext, protocolStorage, conversationStateStore, fileService, codeCache, codeSearch, agentGateway, agentConfiguration, sdkGateways: Object.fromEntries([claudeSdkGateway, { ...claudeSdkGateway, provider: "anthropic" }, codexSdkGateway, { ...ollamaSdkGateway }, openaiSdkGateway, ...["xai", "alibaba", "zhipu", "deepseek"].map((provider) => ({ ...openaiSdkGateway, provider }))].map((gateway) => [gateway.provider, gateway])), projectRoot: config.cwd, publishUnifiedStreamEvent,
   ticketCrudService: createTicketCrudService({ roadmaps, sprintRegistry, proseTicketService, ticketFileStore, publisher: eventPublisher, agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId }), agentRoleResolver, sprintLeader: ticketSprintLeader }),
-  dispatchTask, dispatchSprint, reviewTicket, ticketHumanReviewService, logEvent, projectId, executionActivity,
+  dispatchTask, dispatchSprint, reviewTicket, ticketHumanReviewService, ticketBlockerDecisionService, logEvent, projectId, executionActivity,
   architectureWorkspaceService: createArchitectureWorkspaceService({ knowledge, roadmaps, sprintPlans }),
   projectDashboardService: createProjectDashboardService({ roadmaps, sprintPlans, provenance, ticketFileStore, ticketStatusStore, sprintRegistry, eventStore, relevantTreeSelector, logReader: ({ ticket_id }) => readLogEvents({ project_id: projectId, ticket_id }) }),
   conversationAuditHistoryService: createConversationAuditHistoryService({ communications, eventStore, logReader: ({ project_id, task_id, correlation_id, conversation_id, event_name }) => readLogEvents({ project_id, task_id, ticket_id: task_id, conversation_id, event_name, correlation_id }) }),

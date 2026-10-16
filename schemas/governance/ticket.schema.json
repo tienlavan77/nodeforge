@@ -67,6 +67,10 @@
     },
     "vocabulary_hints": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
     "execution_policy": { "type": "object", "additionalProperties": false, "properties": {
+      "requires_existing_contract": { "type": "boolean", "default": false },
+      "contract_evidence": { "type": "array", "maxItems": 8, "items": { "type": "object", "additionalProperties": false,
+        "required": ["path", "sha256", "authority_quote"], "properties": { "path": { "type": "string", "minLength": 1 },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "authority_quote": { "type": "string", "minLength": 20 } } } },
       "review_gate": { "type": "string", "enum": ["off", "on"], "default": "off" },
       "max_review_revisions": { "type": "integer", "minimum": 0, "default": 2 }
     } },

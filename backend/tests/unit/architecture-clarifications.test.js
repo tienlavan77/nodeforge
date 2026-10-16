@@ -20,6 +20,8 @@ test("/plan waits without producing a plan or treating recommendations as owner 
   const result = await start();
   assert.equal(result.status, "awaiting_owner_decisions"); assert.equal(result.plan_id, undefined);
   assert.equal(records.length, 0); assert.equal(prompts.length, 1); assert.equal(result.run_started, false);
+  assert.match(prompts[0], /SL decides within the Sprint Plan; AM decides within the approved system structure/);
+  assert.match(prompts[0], /not ordinary lifecycle implementation details or operational tool\/provider failures/);
   const session = await command.planningSessions.get(result.session_id);
   assert.deepEqual(session.selections, {});
   assert.deepEqual((await create().planningSessions.list("CONV-A"))[0].questions, [question]);

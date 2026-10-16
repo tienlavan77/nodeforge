@@ -1,6 +1,8 @@
 'use client';
 // Lets the project owner inspect Reviewer findings and approve a ticket explicitly.
 import { useEffect, useState } from "react";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+import { TicketBlockerRecovery } from "./ticket-blocker-recovery.jsx";
 
 // Shows the saved verdict before allowing a reasoned Human Review decision.
 export function TicketHumanReview({ ticket, client, projectId, autoOpen = false, onApproved }) {
@@ -45,6 +47,11 @@ export function TicketHumanReview({ ticket, client, projectId, autoOpen = false,
   return <section className="ticket-human-review ticket-content-change-panel" aria-label="Ticket Human Review">
     {!autoOpen && <button type="button" onClick={showReview} disabled={busy}>{busy ? "Loading…" : "Human Review"}</button>}
     {open && <div>
+      <TicketBlockerRecovery recovery={review?.blocker_recovery} onDecide={review?.blocker_recovery?.status === "owner_required" && !review?.blocker_recovery?.owner_decision
+        ? async ({ option_id, reason }) => {
+          await client.decideTicketBlocker(projectId, ticket.id, { actor: "project_owner", reason, optionId: option_id });
+          setReview(await client.getTicketHumanReview(projectId, ticket.id));
+        } : undefined} />
       <p><strong>Reviewer verdict:</strong> {review?.reviewer?.verdict ?? (error ? "Unavailable" : "Loading…")}</p>
       {review?.reviewer?.findings?.length > 0 && <ul>{review.reviewer.findings.map((finding, index) => <li key={`${index}-${finding}`}>{finding}</li>)}</ul>}
       {review?.eligible && <><p>Approval accepts these findings and marks the ticket done. Commits on a separate ticket branch still need integration into the main project.</p>
