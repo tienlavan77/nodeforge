@@ -14,3 +14,13 @@ test("ticket Stop requires a project and reaches the active dispatch", async () 
   assert.deepEqual(received, [{ projectId: "PROJECT-1", ticketId: "TICKET-1" }]);
   await assert.rejects(route("/forge/v1/tickets/TICKET-1:stop"), /project/i);
 });
+
+test("ticket Stop awaits durable cancellation and propagates persistence failures", async () => {
+  const dispatchTicket = async () => ({});
+  dispatchTicket.stop = async () => { await Promise.resolve(); return { status: "stopping" }; };
+  const router = createForgeV1Router({ dispatchTicket });
+  const route = () => router.route("POST", new URL("http://localhost/forge/v1/tickets/TICKET-1:stop?project=PROJECT-1"), { headers: {}, async *[Symbol.asyncIterator]() {} });
+  assert.deepEqual(await route(), { status: 202, body: { status: "stopping" } });
+  dispatchTicket.stop = async () => { throw new Error("Cancellation persistence failed"); };
+  await assert.rejects(route(), /Cancellation persistence failed/);
+});

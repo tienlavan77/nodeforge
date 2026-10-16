@@ -65,6 +65,9 @@
 .markdown-preview-content--conversation { width: 100%; max-width: 100%; min-width: 0; height: auto; min-height: 0; overflow: visible; box-sizing: border-box; padding: 0; overflow-wrap: anywhere; }
 .markdown-preview-content--conversation pre, .markdown-preview-content--conversation .markdown-preview-table-wrap { max-width: 100%; }
 .markdown-preview-content--conversation pre { overflow-x: auto; }
+.conversation-formatted-message { min-width: 0; max-width: 100%; }
+.conversation-format-toggle { margin-bottom: 8px; border: 1px solid var(--app-border); border-radius: 6px; background: var(--app-surface-alt); color: var(--app-muted); padding: 3px 8px; font: 11px 'DM Mono', monospace; cursor: pointer; }
+.conversation-plaintext { margin: 0; max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; color: var(--app-text); }
 .claude-message .markdown-preview-content--conversation { color: var(--app-text); }
 .conversation-markdown-badge { justify-self: start; border: 1px solid var(--app-border); border-radius: 999px; padding: 2px 8px; color: var(--app-muted); font: 10px 'DM Mono', monospace; }
 .conversation-markdown-export-status { margin: 4px 0; color: var(--app-muted); font: 11px 'DM Mono', monospace; overflow-wrap: anywhere; }

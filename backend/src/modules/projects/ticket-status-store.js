@@ -1,5 +1,6 @@
 // Transactional ticket status store with versioned transitions, history, and dependency checks.
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { ConfigurationError } from "../../shared/errors.js";
 import { assertTicketStatus, assertTicketStatusTransition } from "./ticket-status.js";
 import { validExecutionBasis, retainedExecutionDetails, matchesTicketExecution } from "./ticket-execution-identity.js";
@@ -11,7 +12,7 @@ export function createTicketStatusStore({ database, projectId, clock = () => new
   if (typeof clock !== "function" || typeof createId !== "function" || typeof onEvent !== "function" || (publisher !== undefined && typeof publisher.publish !== "function")) throw new ConfigurationError("Invalid Ticket Status Store options.");
   ensureTables();
 
-  return Object.freeze({ create, get, getStatus, updateStatus, beginExecution, claimExecutionLaunch, reconcileExecutionLaunch, completeByHumanReview, listByStatus, getHistory, dependenciesReady, retry, resetDoneForRetry, reconcileTerminalStatus });
+  return Object.freeze({ create, get, getStatus, updateStatus, beginExecution, resumeReviewExecution, claimExecutionLaunch, reconcileExecutionLaunch, completeByHumanReview, listByStatus, getHistory, dependenciesReady, retry, resetDoneForRetry, reconcileTerminalStatus });
 
   // Creates a pending status entry for a ticket.
   function create(ticketId, details = {}) {
@@ -84,6 +85,21 @@ export function createTicketStatusStore({ database, projectId, clock = () => new
     const updated = transitionWithoutGuard(ticketId, current, "running", details);
     emit("ticket.status_change", { project_id: projectId, ticket_id: ticketId, from: current.status, to: "running", version: updated.version, reason: details.reason, details, timestamp: updated.updated_at });
     return updated;
+  }
+
+  // Resumes parked review under the original execution identity only after transactional plan and dependency revalidation.
+  function resumeReviewExecution(ticketId, { executionId, basis, expectedVersion, dependencyExpectations, validate } = {}) {
+    if (typeof validate !== "function" || typeof database.transaction !== "function") throw statusError("STATUS_EXECUTION_INVALID", "Review resume requires transactional authority validation.");
+    return database.transaction(() => {
+      const current = get(ticketId);
+      if (!current || current.version !== expectedVersion || !matchesTicketExecution(current, executionId, basis) || !["needs_human_review", "failed", "pending"].includes(current.status)
+        || current.details.launch_claim || !isDeepStrictEqual(current.details.dependency_expectations, dependencyExpectations)) throw Object.assign(statusError("TICKET_EXECUTION_RECONCILIATION_REQUIRED", "Review resume cannot replace execution, dependency intent, or an unreconciled provider launch."), { statusCode: 409, retryable: false });
+      const checked = validate();
+      if (checked?.then) throw statusError("STATUS_EXECUTION_INVALID", "Review resume validation must be synchronous.");
+      const updated = transitionWithoutGuard(ticketId, current, "running", { ...current.details, reason: "review_resume" });
+      emit("ticket.status_change", { project_id: projectId, ticket_id: ticketId, from: current.status, to: "running", version: updated.version, reason: "review_resume", details: updated.details, timestamp: updated.updated_at });
+      return updated;
+    });
   }
 
   // Records one durable inline launch owner per execution without granting restart or provider redispatch authority.

@@ -6,6 +6,7 @@ import { ConfigurationError, ForgeError } from "../../shared/errors.js";
 import { createCodexForgeMcpSession } from "./codex-forge-mcp-session.js";
 import { createCodexSdkLog } from "./codex-sdk-log.js";
 import { assertCodexThreadAvailable, codexThreadBusyError } from "./codex-thread-writer.js";
+import { sdkFailureEvidence } from "./sdk-failure-evidence.js";
 
 const SAFE_URL = /^https:\/\//;
 
@@ -43,6 +44,7 @@ export function createCodexSdkGateway({
     let turnFailure = null;
     let streamError = null;
     let terminalFailure;
+    let ended = false; let structuredFailure;
     const terminal = createCodexSdkLog({ profile: { ...profile, model: options.model ?? profile.model }, correlationId, credential, output: terminalOutput });
     try {
       mcpSession = options.forgeTools ? await createCodexForgeMcpSession(options.forgeTools) : null;
@@ -137,10 +139,12 @@ export function createCodexSdkGateway({
           usage = event.usage ?? null;
         } else if (event.type === "turn.failed") {
           turnFailure = event.error?.message ?? "Codex turn failed.";
+          structuredFailure = event.error;
         } else if (event.type === "error" && event.message) {
           streamError = event.message;
         }
       }
+      ended = true;
       if (turnFailure) throw new ConfigurationError(`Codex SDK turn failed for ${profile.agent_id}: ${turnFailure}`);
       return {
         agent_id: profile.agent_id,
@@ -157,8 +161,8 @@ export function createCodexSdkGateway({
       terminalFailure = error;
       if (abortSignal?.aborted) throw abortSignal.reason;
       if (/thread(?:-store conflict:|\/resume:)[\s\S]*already has an active writer/i.test(String(error?.message ?? ""))) throw codexThreadBusyError(resumeThreadId, error);
-      if (error?.name === "AbortError" || controller.signal.aborted) throw new ConfigurationError(`Codex SDK request timed out for ${profile.agent_id}.`, { cause: error });
-      if (turnFailure) throw new ConfigurationError(`Codex SDK turn failed for ${profile.agent_id}: ${turnFailure}`, { cause: error });
+      if (error?.name === "AbortError" || controller.signal.aborted) throw sdkFailureEvidence(new ConfigurationError(`Codex SDK request timed out for ${profile.agent_id}.`, { cause: error }), error, { aborted: true });
+      if (turnFailure) throw sdkFailureEvidence(new ConfigurationError(`Codex SDK turn failed for ${profile.agent_id}: ${turnFailure}`, { cause: error }), structuredFailure, { ended });
       if (streamError) throw new ConfigurationError(`Codex SDK request failed for ${profile.agent_id}: ${streamError}`, { cause: error });
       if (/No available channel for model/i.test(String(error?.message ?? ""))) {
         const unavailable = new ForgeError("Gateway has no available channel for the selected model.", { cause: error, code: "SERVICE_UNAVAILABLE" });
@@ -168,7 +172,7 @@ export function createCodexSdkGateway({
       if (error instanceof ConfigurationError) throw error;
       const rawMessage = typeof error?.message === "string" && error.message ? error.message.replaceAll(credential, "[REDACTED]") : "unknown SDK error";
       const message = rawMessage.replace(/Reading prompt from stdin\.{3}\s*/g, "").replace(/\s*\r?\n\s*/g, " ");
-      throw new ConfigurationError(`Codex SDK request failed for ${profile.agent_id}: ${message}`, { cause: error });
+      throw sdkFailureEvidence(new ConfigurationError(`Codex SDK request failed for ${profile.agent_id}: ${message}`, { cause: error }), error);
     } finally {
       terminal.close(terminalFailure);
       abortSignal?.removeEventListener("abort", stop);

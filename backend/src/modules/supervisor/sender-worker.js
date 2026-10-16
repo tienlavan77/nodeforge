@@ -27,7 +27,7 @@ export function createSenderWorker({ queue, agentRegistry, agentResolver, eventB
         // eslint-disable-next-line no-silent-catch -- Raw-response persist is best-effort; failure event still published below.
         await persistAgentResponse({ protocolStorage, taskId: job.task_id, round, response: error.rawResponse, raw: true }).catch(() => {});
       }
-      const event = identityEvent(job, "agent.response.failed", { error: { code: error.code ?? "AGENT_REQUEST_FAILED", message: error.message } });
+      const event = identityEvent(job, "agent.response.failed", { error: { code: error.code ?? "AGENT_REQUEST_FAILED", message: error.message, cause: { code: error.cause?.code }, provider_outcome: error.provider_outcome, retry_safe: error.retry_safe, reconciliation_error: error.reconciliation_error } });
       await eventBus.publish(event); projectLogger({ event_name: "sender.response_failed", level: "error", status: "failed", message: "Sender Worker published agent failure.", task_id: job.task_id, correlation_id: job.correlation_id, source: "sender-worker", error_code: error.code ?? "AGENT_REQUEST_FAILED", payload: { request_id: job.request_id, worker_id: workerId, error: error.message } }); await queue.ack(job.id); return event;
     }
   }

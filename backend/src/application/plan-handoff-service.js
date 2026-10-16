@@ -3,6 +3,7 @@ import { ConfigurationError } from "../shared/errors.js";
 import { assertMarkdownSprintScope, normalizeMarkdownSprintScope } from "../modules/governance/markdown-sprint-scope.js";
 import { planDecisionRequests } from "../modules/governance/plan-decision-requests.js";
 import { invalidSprintTicketPriorities, repairSprintTicketPriorities, TICKET_PRIORITY_VALUES } from "../modules/governance/sprint-ticket-priority.js";
+import { normalizeSprintVerificationNotes } from "../modules/governance/sprint-verification-notes.js";
 
 // Creates one handoff per approved plan revision while retaining generated drafts across retries.
 export function createPlanHandoffService({ projectId, database, planStore, markdownPlanStore, sprintPlanLeader, sprintOrchestration, sprintRegistry, agentRoleResolver, clock = () => new Date().toISOString() } = {}) {
@@ -27,8 +28,13 @@ export function createPlanHandoffService({ projectId, database, planStore, markd
     active.add(key);
     try {
       const correlationId = `CORR-PLAN-HANDOFF-${approved.plan_id}-${approved.revision}`;
-      const priorCandidate = row.generated_json ? JSON.parse(row.generated_json) : null;
-      const retryVerification = markdown && ((row.error_code === "SPRINT_MARKDOWN_SCOPE" && /has an invalid verification plan:/.test(row.error_message ?? "")) || (row.error_code === "SPRINT_PLAN_HANDOFF_FAILED" && /^Sprint Leader returned invalid sprint plan:/.test(row.error_message ?? "") && /\/tickets\/\d+\/verification_plan(?:\/|\s)/.test(row.error_message ?? "")));
+      const storedCandidate = row.generated_json ? JSON.parse(row.generated_json) : null;
+      const priorCandidate = normalizeSprintVerificationNotes(storedCandidate);
+      let retryVerification = markdown && ((row.error_code === "SPRINT_MARKDOWN_SCOPE" && /has an invalid verification plan:/.test(row.error_message ?? "")) || (row.error_code === "SPRINT_PLAN_HANDOFF_FAILED" && /^Sprint Leader returned invalid sprint plan:/.test(row.error_message ?? "") && /\/tickets\/\d+\/verification_plan(?:\/|\s)/.test(row.error_message ?? "")));
+      if (retryVerification && priorCandidate !== storedCandidate) {
+        try { assertMarkdownSprintScope(approved.markdown, normalizeMarkdownSprintScope(approved.markdown, priorCandidate)); retryVerification = false; }
+        catch (error) { if (error.code !== "SPRINT_MARKDOWN_SCOPE") throw error; }
+      }
       const retryComponents = markdown && !retryVerification && row.error_code === "SPRINT_PLAN_HANDOFF_FAILED" && /^Sprint Leader returned invalid sprint plan:/.test(row.error_message ?? "") && /\/human_plan\/components\//.test(row.error_message ?? "");
       const retryPriority = !retryVerification && !retryComponents && invalidSprintTicketPriorities(priorCandidate).length > 0;
       const repairCandidate = (retryVerification || retryComponents || retryPriority) && priorCandidate ? markdown ? normalizeMarkdownSprintScope(approved.markdown, priorCandidate) : structuredClone(priorCandidate) : null;
@@ -51,6 +57,7 @@ export function createPlanHandoffService({ projectId, database, planStore, markd
         if (repairCandidate) generated = retryPriority ? repairSprintTicketPriorities(repairCandidate, generated) : retryComponents
           ? { ...repairCandidate, human_plan: { ...repairCandidate.human_plan, components: structuredClone(generated?.human_plan?.components) } }
           : { ...repairCandidate, tickets: repairCandidate.tickets.map((ticket, index) => ({ ...ticket, verification_plan: structuredClone(generated.tickets[index].verification_plan) })) };
+        generated = normalizeSprintVerificationNotes(generated);
         if (!generated?.id || typeof generated.id !== "string") throw fail("SPRINT_PLAN_HANDOFF_FAILED", "Sprint Leader returned a plan without a sprint ID.");
         // Retain the exact draft before admission; persistence retries reuse it.
         // Only rejected verification, components or priority fields are repaired on a later owner handoff.

@@ -25,6 +25,7 @@ import { createControlApiHttp } from "./control-api-http.mjs";
 import { createProductionSupervisorRuntime } from "../src/modules/supervisor/production-runtime.js";
 import { createTerminalBridge } from "../src/modules/supervisor/terminal-bridge.js";
 import { createRuntimeLogger } from "../src/core/runtime-logger.js";
+import { createAgentActivityLogger } from "../src/application/agent-execution-activity.js";
 import { createSprintDagRunner } from "../src/modules/supervisor/sprint-dag.js";
 import { createSprintRunDispatch } from "../src/application/sprint-run-dispatch.js";
 import { createCompletionReportService } from "../src/modules/supervisor/completion-report-service.js";
@@ -74,15 +75,17 @@ const gitService = createGitService({ projectRoot: config.cwd, mutationLock: (ac
 const reportService = createCompletionReportService({ protocolStorage, fileService, gitService });
 const onEvalCase = createEvalCaseRecorder({ root: config.cwd });
 const { projectId, indexDb: platformIndexDb, codeSearch, fileGraph, relevantTreeSelector, freshnessChecker, ticketSprintLeader, sprintPlanLeader, communications, conversations, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, contextEngine, sprintOrchestration, proseTicketService, ticketFileStore, sprintPlanUpload, taskSummaries, projectMemory } = platform;
+const executionActivity = platform.executionActivity;
 const agentOccupancy = createAgentOccupancyStore({ database, profiles, configuration: agentConfiguration, logger: { error: (_message, details) => logEvent({ timestamp: new Date().toISOString(), event_name: "agent.occupancy_notification_failed", level: "error", status: "failed", message: "Agent occupancy post-commit notification failed.", task_id: details.task_id, project_id: projectId, source: "agent-occupancy-store", error_code: "OCCUPANCY_NOTIFICATION_FAILED", payload: details }) }, onChanged: async (claim) => {
   const timestamp = new Date().toISOString();
   const event = { event_id: `EVT-${randomUUID()}`, type: "agent.status_changed", project_id: projectId, timestamp, task_id: claim.task_id, agent_id: claim.agent_id, payload: { agent_id: claim.agent_id, status: claim.status, previous_status: claim.previous_status, task_id: claim.task_id, supervisor_id: claim.supervisor_id, claim_id: claim.claim_id, reason: claim.release_reason ?? null, updated_at: timestamp }, metadata: { project_id: projectId, source: "agent-occupancy-store" } };
   internalBus.emit("agent.status_changed", event);
+  executionActivity({ agentId: claim.agent_id, correlationId: claim.claim_id, phase: claim.status === "working" ? "started" : "completed", summary: claim.status === "working" ? "Agent claimed ticket execution." : "Agent execution claim released; ticket outcome is tracked separately." });
   await eventPublisher.publish(event);
 } });
 testService = platform.testService;
 const unifiedStreamOrder = createUnifiedStreamOrderer();
-const runtimeLogger = createRuntimeLogger({ logEvent });
+const runtimeLogger = createRuntimeLogger({ logEvent: createAgentActivityLogger({ logEvent, executionActivity }) });
 const codeCache = createCodeCacheService({ projectId, fileService, codeSearch, logger: runtimeLogger.emit });
 const ticketWorkspaceService = createTicketWorkspaceService({ projectRoot: config.cwd, projectId, protocolStorage, stateFileService: fileService, indexDatabase: indexDb, codeSearch, fileGraph, codeCache, rootOnly: process.env.NODEFORGE_TICKET_EXECUTION_MODE === "root-only", projectLogger: runtimeLogger.emit });
 const ticketPipelineInventory = createTicketPipelineInventory({ projectRoot: config.cwd, projectId, fileService });
@@ -104,7 +107,7 @@ const supervisorRuntime = createProductionSupervisorRuntime({ projectRoot: confi
       internalBus.emit("agent.checkpoint.updated", { type: "agent.checkpoint.updated", project_id: input.project_id, payload: { task_id: checkpoint.task_id, sprint_id: input.sprint_id ?? null, status: checkpoint.status === "completed" ? "completed" : "resumable", last_completed_turn: checkpoint.last_completed_turn ?? 0, last_tool: checkpoint.last_tool ?? null, updated_at: checkpoint.updated_at } });
     } catch (error) { runtimeLogger.emit({ event_name: "agent.checkpoint_publish_failed", level: "error", status: "failed", message: "Could not publish direct code checkpoint.", task_id: checkpoint.task_id, source: "control-api", error_code: error.code ?? "CHECKPOINT_PUBLISH_FAILED", payload: { error: error.message } }); }
   },
-  conversationStateStore, protocolStorage, testService, gitService, reportService, ticketWorkspaceService, shadowComparison: ticketPipelineShadow, onEvalCase, enableReadCode: true, autoStartWorkers: false,
+  conversationStateStore, protocolStorage, testService, gitService, reportService, ticketWorkspaceService, ticketDisposition: ticketPipelineDisposition, shadowComparison: ticketPipelineShadow, onEvalCase, enableReadCode: true, autoStartWorkers: false,
   preparation: {
     createTaskSession: async ({ task_id, ticket } = {}) => {
       const existing = taskStore.get(task_id);
@@ -132,7 +135,7 @@ const ticketHumanReviewService = createTicketHumanReviewService({ projectId, roa
 const sprintDagRunner = createSprintDagRunner({ ticketStatusStore, sprintRegistry, eventBus: supervisorRuntime.eventBus, dispatchTask: ({ ticket, sprintBasis, dependencyExpectations }) => dispatchTicket({ projectId: ticket.project_id, ticketId: ticket.id, expectedSprintVersion: sprintBasis?.version, dependencyExpectations }), logEvent });
 const sprintLeaderIntake = createSprintLeaderIntakeService({ fileService, roadmaps, sprintRegistry, ticketStatusStore, logger: logEvent });
 
-const dispatchTicket = createTicketRunDispatch({ disposition: ticketPipelineDisposition, intake: sprintLeaderIntake, sprintRegistry, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, queueStore: supervisorRuntime.queueStore, protocolStorage, conversationStateStore, dispatchTask });
+const dispatchTicket = createTicketRunDispatch({ disposition: ticketPipelineDisposition, intake: sprintLeaderIntake, sprintRegistry, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, queueStore: supervisorRuntime.queueStore, protocolStorage, conversationStateStore, dispatchTask, coderRecovery: supervisorRuntime.coderRecovery });
 const reviewTicket = async ({ projectId: requestedProjectId, ticketId, body = {} } = {}) => {
   const { ticket } = await sprintLeaderIntake.open({ projectId: requestedProjectId, ticketId });
   return supervisorRuntime.integration.reviewOnly({ ticket, task_id: ticketId, project_id: requestedProjectId, request_id: body.request_id, correlation_id: body.correlation_id, commit: body.commit, base_commit: body.base_commit, changed_paths: body.changed_paths, evidence: body.evidence, coder_agent_id: body.coder_agent_id });
@@ -162,7 +165,7 @@ const api = createControlApiHttp({ services: {
   relevantTreeSelector, decisions, agentSettings, sprintPlanUpload, sprintOrchestration, dispatchTicket, runToolLab, directCodeRequest, internalBus,
   proseTicketService, buildBuilderContext, protocolStorage, conversationStateStore, fileService, codeCache, codeSearch, agentGateway, agentConfiguration, sdkGateways: Object.fromEntries([claudeSdkGateway, { ...claudeSdkGateway, provider: "anthropic" }, codexSdkGateway, { ...ollamaSdkGateway }, openaiSdkGateway, ...["xai", "alibaba", "zhipu", "deepseek"].map((provider) => ({ ...openaiSdkGateway, provider }))].map((gateway) => [gateway.provider, gateway])), projectRoot: config.cwd, publishUnifiedStreamEvent,
   ticketCrudService: createTicketCrudService({ roadmaps, sprintRegistry, proseTicketService, ticketFileStore, publisher: eventPublisher, agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId }), agentRoleResolver, sprintLeader: ticketSprintLeader }),
-  dispatchTask, dispatchSprint, reviewTicket, ticketHumanReviewService, logEvent, projectId,
+  dispatchTask, dispatchSprint, reviewTicket, ticketHumanReviewService, logEvent, projectId, executionActivity,
   architectureWorkspaceService: createArchitectureWorkspaceService({ knowledge, roadmaps, sprintPlans }),
   projectDashboardService: createProjectDashboardService({ roadmaps, sprintPlans, provenance, ticketFileStore, ticketStatusStore, sprintRegistry, eventStore, relevantTreeSelector, logReader: ({ ticket_id }) => readLogEvents({ project_id: projectId, ticket_id }) }),
   conversationAuditHistoryService: createConversationAuditHistoryService({ communications, eventStore, logReader: ({ project_id, task_id, correlation_id, conversation_id, event_name }) => readLogEvents({ project_id, task_id, ticket_id: task_id, conversation_id, event_name, correlation_id }) }),

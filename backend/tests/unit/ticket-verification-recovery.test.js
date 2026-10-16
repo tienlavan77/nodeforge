@@ -45,3 +45,15 @@ test("Node automatically uses the second verification attempt and then stops", a
   await assert.rejects(blocked(), { code: "TEST_FAILED" });
   assert.equal(failedStarts, 2);
 });
+
+// Preserves command evidence in the SDK error and never burns unchanged retries on a full disk.
+test("storage failure returns source diagnostic immediately for dispatch and resume", async () => {
+  let starts = 0;
+  const diagnostic = { repairable: false, reason: "VERIFY_STORAGE_EXHAUSTED", artifact_id: "ARTIFACT-1", commands: [{ kind: "unit", argv: ["node", "--test"], exit_code: 1, stderr_redacted: "ENOSPC" }] };
+  const ensure = createTicketVerificationRecovery({ taskId: "TASK", executionContexts: { load: async () => ({ state: "committed", review_commit_sha: "COMMIT" }) },
+    assertIdentity: async () => {}, assertPassedArtifact: async () => { throw Object.assign(new Error("Missing"), { code: "VERIFY_ARTIFACT_MISMATCH" }); },
+    startTests: async () => { starts += 1; return { status: "failed", attempt: 1, error: { code: "VERIFY_STORAGE_EXHAUSTED", message: "Disk full" } }; },
+    getFailureDiagnostic: async () => diagnostic });
+  await assert.rejects(ensure(), (error) => error.code === "VERIFY_STORAGE_EXHAUSTED" && error.verification_diagnostic === diagnostic && error.message.includes("ARTIFACT-1"));
+  assert.equal(starts, 1);
+});

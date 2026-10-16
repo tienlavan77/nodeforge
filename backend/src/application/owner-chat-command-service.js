@@ -61,7 +61,7 @@ export function createOwnerChatCommandService({ projectId, fileService, planStor
   // Keeps source evidence and business scope admission intact after owner clarification has completed.
   async function validateMarkdown(markdown) {
     if (!/^# Plan:\s*\S/.test(markdown) || !/^## 1\. /m.test(markdown) || !/^## 7\. /m.test(markdown)) throw fail("ARCHITECTURE_PLAN_INVALID", `Architecture must return a Markdown plan following ${PLAN_FRAME_PATH}.`);
-    if (!DISCOVERY_COMPLETE_RE.test(markdown) || !await hasSummaryEvidence(markdown, fileService) || !DISCOVERY_UNVERIFIED_RE.test(markdown)) throw fail("DISCOVERY_INCOMPLETE", "Repository discovery must complete with source references and labeled assumptions or unverified areas before drafting.");
+    if (!DISCOVERY_COMPLETE_RE.test(markdown) || !await hasSummaryEvidence(markdown, fileService) || !DISCOVERY_UNVERIFIED_RE.test(markdown)) throw fail("DISCOVERY_INCOMPLETE", "Architecture chưa hoàn tất khảo sát mã nguồn hoặc chưa ghi đủ dẫn chứng và phần giả định/chưa kiểm chứng. Chưa lưu plan; lựa chọn đã lưu vẫn được giữ. Thử tạo plan lại để Architecture bổ sung khảo sát, không cần tải lại phiên.");
     readMarkdownSprintScope(markdown);
     if (!markdownPlanStore?.createRevision) throw fail("MARKDOWN_PLAN_STORE_UNAVAILABLE", "Markdown plan registry is unavailable.");
   }

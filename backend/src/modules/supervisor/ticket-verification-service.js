@@ -13,6 +13,7 @@ import { ticketVerificationRunnerRevision } from "./ticket-verification-runner-r
 import { createTicketFocusedCheck } from "./ticket-focused-check.js";
 import { coversVerificationPolicy } from "./ticket-verification-policy.js";
 import { browserCommandOutput } from "./browser-verification-evidence.js";
+import { createTicketVerificationDiagnostic } from "./ticket-verification-diagnostic.js";
 
 const ROOT = ".forge/runtime/ticket-verification";
 const POLICY_VERSION = "ticket-verification-v6";
@@ -27,9 +28,11 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
   const rootGit = rootOnly ? createTicketRootGit({ projectRoot }) : null;
   const jobPath = (id) => `${ROOT}/${taskId}/jobs/${id}.json`;
   const artifactPath = (id) => `${ROOT}/${taskId}/artifacts/${id}.json`;
-  const ensurePassedArtifact = createTicketVerificationRecovery({ taskId, executionContexts, assertIdentity, assertPassedArtifact, startTests, getTestResult, maxAttempts: MAX_SAME_REVISION_ATTEMPTS });
+  const ensurePassedArtifact = createTicketVerificationRecovery({ taskId, executionContexts, assertIdentity, assertPassedArtifact, startTests, getTestResult, getFailureDiagnostic: () => getFailureDiagnostic(), maxAttempts: MAX_SAME_REVISION_ATTEMPTS });
   const runCheck = createTicketFocusedCheck({ taskId, projectRoot, executionContexts, stateFileService, assertIdentity, assertArchiveSource, runCommand, safeOutput });
-  return Object.freeze({ runCheck, startTests, getTestResult, loadArtifact, assertPassedArtifact, ensurePassedArtifact, assertCleanWorktree });
+  const getFailureDiagnostic = createTicketVerificationDiagnostic({ loadContext: () => executionContexts.load(taskId), loadArtifact,
+    latestJob: async (context) => latestTicketVerificationAttempt({ projectRoot, taskId, context, policyVersion: POLICY_VERSION, runnerRevision: await ticketVerificationRunnerRevision(context.verification_plan), loadJob: (id) => loadJson(jobPath(id)) }) });
+  return Object.freeze({ runCheck, startTests, getTestResult, loadArtifact, assertPassedArtifact, ensurePassedArtifact, assertCleanWorktree, getFailureDiagnostic });
 
   // Starts a durable verification job only after the ticket commit is recorded.
   async function startTests() {

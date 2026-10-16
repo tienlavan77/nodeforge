@@ -2,7 +2,7 @@
 import { ConfigurationError } from "../../shared/errors.js";
 
 // Lets Node recover one stale artifact at a time without sending work back to the Coder.
-export function createTicketVerificationRecovery({ taskId, executionContexts, assertIdentity, assertPassedArtifact, startTests, getTestResult, maxAttempts = 2 }) {
+export function createTicketVerificationRecovery({ taskId, executionContexts, assertIdentity, assertPassedArtifact, startTests, getTestResult, getFailureDiagnostic, maxAttempts = 2 }) {
   let recovery = null;
   return async function ensurePassedArtifact() {
     try { return await assertPassedArtifact(); }
@@ -25,7 +25,13 @@ export function createTicketVerificationRecovery({ taskId, executionContexts, as
         result = await getTestResult({ jobId: job.job_id });
       }
       if (result.status === "passed") return assertPassedArtifact();
-      if ((result.attempt ?? job.attempt ?? maxAttempts) >= maxAttempts) throw failure(result.error?.code ?? "VERIFY_RECOVERY_FAILED", result.error?.message ?? "Current ticket verification failed after bounded retries.");
+      if (result.error?.code === "VERIFY_STORAGE_EXHAUSTED" || (result.attempt ?? job.attempt ?? maxAttempts) >= maxAttempts) {
+        let diagnostic;
+        try { diagnostic = await getFailureDiagnostic?.(); }
+        catch (error) { diagnostic = { repairable: false, diagnostic_unavailable: error.message }; }
+        const message = result.error?.message ?? "Current ticket verification failed after bounded retries.";
+        throw Object.assign(failure(result.error?.code ?? "VERIFY_RECOVERY_FAILED", diagnostic ? `${message} Verification evidence: ${JSON.stringify(diagnostic)}` : message), { verification_diagnostic: diagnostic });
+      }
     }
   }
 }

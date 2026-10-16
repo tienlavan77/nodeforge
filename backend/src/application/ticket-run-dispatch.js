@@ -9,10 +9,11 @@ import { coderEvidenceResume } from "../modules/supervisor/coder-evidence-resume
 import { approvedTicketDecisions } from "../modules/governance/plan-decision-requests.js";
 
 // Creates one shared ticket RUN entry point so Sprint execution preserves all ticket gates.
-export function createTicketRunDispatch({ disposition, intake, sprintRegistry, ticketStatusStore, checkpoints, queueStore, protocolStorage, conversationStateStore, dispatchTask }) {
+export function createTicketRunDispatch({ disposition, intake, sprintRegistry, ticketStatusStore, checkpoints, queueStore, protocolStorage, conversationStateStore, dispatchTask, coderRecovery }) {
   const active = new Map();
   dispatchTicket.stop = ({ projectId, ticketId } = {}) => {
     const run = active.get(ticketId);
+    if (coderRecovery?.stopTicket) return coderRecovery.stopTicket({ projectId, ticketId });
     if (!run || run.projectId !== projectId) throw failure("TICKET_NOT_RUNNING", "This ticket has no active RUN to stop.");
     run.controller.abort(Object.assign(new Error("Ticket stopped by owner."), { code: "TICKET_STOPPED" }));
     return { ticket_id: ticketId, status: "stopping" };
@@ -38,6 +39,7 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
       if (sprintBasis && dependencyExpectations === undefined) dependencyExpectations = await captureDependencyExpectations({ projectId, ticket, sprintRegistry, ticketStatusStore });
       assertDependencyExpectations({ projectId, ticket, expectations: dependencyExpectations, sprintRegistry, ticketStatusStore });
       const current = ticketStatusStore.get(ticketId);
+      if (current?.project_id === projectId && ["running", "reviewing"].includes(current.status) && await coderRecovery?.hasPending({ projectId, taskId: ticketId, executionId: current.details?.execution_id })) return { ticket_id: ticketId, status: "already_running", pipeline: "supervisor", reason: "operational_recovery_pending" };
       if (current?.status === "cancelled") throw failure("TICKET_CANCELLED", "Cancelled tickets cannot run.");
       if (current?.status === "blocked") throw failure("TICKET_APPROVAL_REQUIRED", "Blocked ticket status requires a human decision before RUN.");
       if (current?.details?.reason === "human_review_approved" || current?.status === "done" && !fresh) {
@@ -58,11 +60,14 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
       const resume = checkpoint?.phase === "coder_evidence_required" ? checkpoint : checkpoint && checkpoint.status !== "completed" ? await reviewRevisionResume(queueStore, ticketId, checkpoint) : null;
       const reviewResume = !fresh && checkpoint?.status === "completed" ? reviewPhaseResume(checkpoint, reviewerCheckpoint) : null;
       if (controller.signal.aborted) throw controller.signal.reason;
-      const executionId = sprintBasis && ticketStatusStore.beginExecution ? `RUN-${randomUUID()}` : null;
+      const retainReviewExecution = Boolean(reviewResume && ticketStatusStore.resumeReviewExecution && matchesTicketExecution(current, current?.details?.execution_id, sprintBasis));
+      const executionId = retainReviewExecution ? current.details.execution_id : sprintBasis && ticketStatusStore.beginExecution ? `RUN-${randomUUID()}` : null;
       if (executionId) {
         await sprintRegistry.assertReady(ticket.sprint_id, { expectedVersion: sprintBasis.version });
         assertDependencyExpectations({ projectId, ticket, expectations: dependencyExpectations, sprintRegistry, ticketStatusStore });
-        ticketStatusStore.beginExecution(ticketId, { executionId, basis: sprintBasis, expectedVersion: current?.version ?? 0, fresh, dependencyExpectations });
+        if (retainReviewExecution) ticketStatusStore.resumeReviewExecution(ticketId, { executionId, basis: sprintBasis, expectedVersion: current.version, dependencyExpectations,
+          validate: () => assertDependencyExpectations({ projectId, ticket, expectations: dependencyExpectations, sprintRegistry, ticketStatusStore }) });
+        else ticketStatusStore.beginExecution(ticketId, { executionId, basis: sprintBasis, expectedVersion: current?.version ?? 0, fresh, dependencyExpectations });
       } else prepareStatus(ticketStatusStore, ticketId, fresh);
       const correlationId = `CORR-UI-RUN-${ticketId}-${Date.now()}`;
       let result;
