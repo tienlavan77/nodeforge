@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { readFile, rename, symlink, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createFilesystemWatcher } from "../../src/infrastructure/filesystem/watcher.js";
+import { startProjectWatch } from "../../src/modules/watcher/watch-project.js";
 import { startProjectRuntime } from "../../src/modules/projects/project-runtime.js";
 import { fixture, waitFor, fdCount, response } from "./multi-project-lifecycle-support.js";
 import "./multi-project-lifecycle-failures.test.js";
@@ -29,6 +30,12 @@ test("foundation serves two isolated projects and cleans resources across restar
               on(type, handler) {
                 if (type === "error") errorHandlers.add(handler);
                 raw.on(type, handler);
+                return this;
+              },
+              // Preserves readiness and startup-error subscriptions on the production watcher facade.
+              once(type, handler) {
+                if (type === "error") errorHandlers.add(handler);
+                raw.once(type, handler);
                 return this;
               },
               // Removes startup and pipeline error handlers exactly as production teardown does.
@@ -159,5 +166,35 @@ test("Control API shutdown awaits two project runtimes and releases legacy resou
     assert.deepEqual(released, ["index", "control", "lock"]);
     assert.deepEqual([process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")], signals);
     assert.equal(api.server.listening, false);
+  } finally { await context.cleanup(); }
+});
+
+// Upgrades an existing single-project index to semantic readiness without another command.
+test("foundation supplies embeddings for an unchanged legacy watcher baseline", async () => {
+  const context = await fixture();
+  try {
+    const watch = await startProjectWatch({ projectRoot: context.roots[0] });
+    await watch.close();
+    const manager = await context.open();
+    await manager.add(context.roots[0]);
+    const runtime = await manager.get(context.roots[0]);
+    assert.equal(runtime.database.all("SELECT COUNT(*) AS count FROM files")[0].count, 1);
+    await waitFor(() => runtime.database.all("SELECT COUNT(*) AS count FROM symbol_embeddings")[0].count > 0);
+  } finally { await context.cleanup(); }
+});
+
+// Proves shutdown closes admissions already queued without leaking a newly started runtime.
+test("foundation shutdown drains pending admission and preserves restart membership", async () => {
+  const context = await fixture();
+  try {
+    const manager = await context.open();
+    const admission = manager.add(context.roots[0]);
+    const closing = manager.close();
+    const admitted = await admission;
+    await closing;
+    assert.deepEqual(manager.list(), []);
+    assert.ok(context.providers.every((provider) => provider.closed));
+    const restored = await context.open();
+    assert.deepEqual(restored.list(), [admitted]);
   } finally { await context.cleanup(); }
 });

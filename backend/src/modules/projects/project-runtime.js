@@ -1,7 +1,7 @@
 // Composes an isolated index, watcher, embedding worker, and activity stream for one project.
 import { EventEmitter } from "node:events";
 import { startProjectWatch } from "../watcher/watch-project.js";
-import { createEmbeddingJobStore } from "../index/embedding-job-store.js";
+import { checksumEmbeddingText, createEmbeddingJobStore } from "../index/embedding-job-store.js";
 import { createEmbeddingWorker } from "../index/embedding-worker.js";
 import { createRetrievalDependencies } from "../index/retrieval-dependencies.js";
 import { createSubscriptionRegistry } from "../events/subscription-registry.js";
@@ -15,6 +15,7 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
   let database;
   let retrieval;
   let worker;
+  let embeddingJobs;
   let workerTask;
   let watch;
   let stream;
@@ -38,12 +39,14 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
         retrieval = createRetrievalDependencies({ database, ollamaConfig });
         embeddingProvider ??= retrieval.embeddingProvider;
         const jobs = createEmbeddingJobStore({ database });
+        embeddingJobs = jobs;
         jobs.recoverProcessing();
         worker = createEmbeddingWorker({ database, jobs, embeddingStore: retrieval.embeddingStore, embeddingProvider, model: retrieval.ollamaConfig.model, logger: workerLogger });
         return { indexOptions: { embeddingJobs: jobs, embeddingModel: retrieval.ollamaConfig.model }, close: stopEmbedding };
       }
     });
     stream = createProjectStream({ projectId, indexDb: database, subscriptions, eventBus: bus });
+    queueMissingEmbeddings();
     workerTask = worker.start();
     workerTask = workerTask.catch((error) => {
       embeddingError = error.message;
@@ -59,6 +62,20 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
       throw new AggregateError([error, cleanupError], "Project runtime startup and rollback failed.");
     }
     throw error;
+  }
+
+  // Upgrades unchanged legacy indexes and changed embedding models without rebuilding project identity.
+  function queueMissingEmbeddings() {
+    const model = retrieval.ollamaConfig.model;
+    for (const symbol of database.all(`SELECT s.symbol_id, s.name, s.kind, sc.content,
+      e.embedding_model, e.content_checksum FROM symbols s
+      LEFT JOIN symbol_content_fts sc ON sc.symbol_id = s.symbol_id
+      LEFT JOIN symbol_embeddings e ON e.symbol_id = s.symbol_id`)) {
+      const contentChecksum = checksumEmbeddingText(`${symbol.name}\n${symbol.kind}\n${symbol.content ?? ""}`);
+      if (symbol.embedding_model !== model || symbol.content_checksum !== contentChecksum) {
+        embeddingJobs.enqueue({ symbolId: symbol.symbol_id, contentChecksum, model });
+      }
+    }
   }
 
   // Owns each SSE connection so project removal clears subscriptions and heartbeat timers.
