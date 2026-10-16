@@ -12,6 +12,38 @@ import { startProjectRuntime } from "../../src/modules/projects/project-runtime.
 import { fixture, waitFor, fdCount, response } from "./multi-project-lifecycle-support.js";
 import "./multi-project-lifecycle-failures.test.js";
 
+// Keeps failed restart retries from replacing stable catalog identity while other projects serve.
+test("retry preserves catalog identity until the per-root identity is repaired", async () => {
+  const context = await fixture();
+  try {
+    const initial = await context.open();
+    const first = await initial.add(context.roots[0]);
+    const second = await initial.add(context.roots[1]);
+    await initial.close();
+    const catalogBefore = await readFile(context.catalogPath, "utf8");
+    let repaired = false;
+    const manager = await context.open({ registry: {
+      // Models a changed per-root identity followed by an explicit identity repair.
+      async getOrCreate(root) {
+        if (root === first.root) return repaired ? first.projectId : "PROJECT-replaced";
+        return second.projectId;
+      }
+    } });
+    assert.equal(manager.startupErrors.length, 1);
+    assert.deepEqual(manager.list(), [second]);
+    const healthy = await manager.get(second.root);
+    await assert.rejects(manager.add(first.root), /Catalog and per-root project identity differ/);
+    assert.deepEqual(manager.list(), [second]);
+    assert.equal(await manager.get(first.root), undefined);
+    assert.equal(await readFile(context.catalogPath, "utf8"), catalogBefore);
+    assert.equal(await manager.get(second.root), healthy);
+    assert.equal(healthy.status().closed, false);
+    repaired = true;
+    assert.deepEqual(await manager.add(first.root), first);
+    assert.equal(manager.list().length, 2);
+  } finally { await context.cleanup(); }
+});
+
 // Proves two projects serve independently with stable identity, watcher indexing, vectors, and SSE.
 test("foundation serves two isolated projects and cleans resources across restart", async () => {
   const context = await fixture();

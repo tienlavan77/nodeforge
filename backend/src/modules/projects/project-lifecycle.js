@@ -56,7 +56,8 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
       const canonical = await canonicalRoot(root);
       const existing = runtimes.get(canonical);
       if (existing) return { root: canonical, projectId: existing.projectId };
-      const entry = await activate(canonical);
+      const persisted = catalog.list().find((entry) => entry.root === canonical);
+      const entry = await activate(canonical, persisted?.projectId);
       try {
         await catalog.replace([...catalog.list().filter((item) => item.root !== canonical), entry]);
       } catch (error) {
