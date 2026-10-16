@@ -74,9 +74,10 @@ function startIndexPipeline({ watcher, indexer, internalBus, validateEvent, logg
       logger.error("Rejected invalid watcher event before indexing", { error: error.message });
     }
   };
+  const pending = new Set();
   // Indexer handles every watcher event; on success emit indexed + verification hooks.
   const onIndexEvent = (event) => {
-    void indexer.handle(event)
+    const task = indexer.handle(event)
       .then((indexed) => {
         if (indexed) {
           logger.info("Indexed watcher event", { event_type: event.type, path: event.payload.path });
@@ -85,7 +86,9 @@ function startIndexPipeline({ watcher, indexer, internalBus, validateEvent, logg
         // Always emit completion so verification can decide (even when indexer skips binary files).
         internalBus.emit("watcher.indexed", { ...event, indexed: Boolean(indexed) });
       })
-      .catch((error) => logger.error("Indexing watcher event failed", { error: error.message, event_type: event.type }));
+      .catch((error) => logger.error("Indexing watcher event failed", { error: error.message, event_type: event.type }))
+      .finally(() => pending.delete(task));
+    pending.add(task);
   };
 
   watcher.on("event", onWatcherEvent);
@@ -93,6 +96,10 @@ function startIndexPipeline({ watcher, indexer, internalBus, validateEvent, logg
   return async () => {
     watcher.off?.("event", onWatcherEvent);
     internalBus.off("event", onIndexEvent);
-    await watcher.close?.();
+    try {
+      await watcher.close?.();
+    } finally {
+      await Promise.allSettled([...pending]);
+    }
   };
 }
