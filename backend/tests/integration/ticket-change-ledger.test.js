@@ -112,3 +112,86 @@ test("released ticket cannot steal another ticket's file or hide source drift du
     assert.equal(await files.readFile({ path }), "ticket B");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+// Ledger digest helper shared by the foundation-successor rebase cases below.
+const ledgerKey = (value) => createHash("sha256").update(value).digest("hex");
+const ledgerManifestPath = (taskId) => `.forge/runtime/ticket-changes/${ledgerKey("PROJECT-TEST")}/tickets/${ledgerKey(taskId)}.json`;
+const ledgerClaimPath = (path) => `.forge/runtime/ticket-changes/${ledgerKey("PROJECT-TEST")}/claims/${ledgerKey(path)}.json`;
+
+// Prepares a source ticket whose released baseline drifted through one governed successor write.
+async function driftScenario(root) {
+  const path = "backend/src/project-lifecycle.js";
+  const files = createFileService({ projectRoot: root });
+  const ledger = createTicketChangeLedger({ fileService: files, projectId: "PROJECT-TEST" });
+  await files.atomicWrite({ path, content: "base", replace: true });
+  await ledger.write({ taskId: "TICKET-SOURCE", path, before: "base", after: "source v1" });
+  await ledger.release("TICKET-SOURCE", { close: false });
+  await ledger.write({ taskId: "TICKET-FOUNDATION", path, before: "source v1", after: "foundation v2" });
+  const successor = await ledger.load("TICKET-FOUNDATION");
+  successor.commits = { [successor.revision]: "7fe94fad0e8b9b1f70e838b2d902b2e6e1d20e46" };
+  await files.atomicWrite({ path: ledgerManifestPath("TICKET-FOUNDATION"), content: JSON.stringify(successor), replace: true });
+  await ledger.release("TICKET-FOUNDATION", { close: true });
+  return { files, ledger, path };
+}
+
+test("approved closed successor rebases the released baseline and preserves commit eligibility", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-ticket-rebase-"));
+  try {
+    const { files, ledger, path } = await driftScenario(root);
+    await assert.rejects(ledger.resume("TICKET-SOURCE"), { code: "TICKET_SOURCE_CHANGED" });
+    const logs = [];
+    const observed = createTicketChangeLedger({ fileService: files, projectId: "PROJECT-TEST", projectLogger: (event) => logs.push(event) });
+    await observed.resume("TICKET-SOURCE", { integrated_successors: ["TICKET-FOUNDATION"] });
+    const manifest = await observed.load("TICKET-SOURCE");
+    assert.equal(manifest.entries[path].latest_sha, `sha256:${createHash("sha256").update("foundation v2").digest("hex")}`);
+    const rebase = manifest.entries[path].operations.at(-1);
+    assert.equal(rebase.integrated_from, "TICKET-FOUNDATION");
+    assert.equal(rebase.status, "completed");
+    assert.equal(rebase.after, "foundation v2");
+    assert.equal(manifest.revision, rebase.revision);
+    assert.equal(logs.find((event) => event.event_name === "ticket.source_integration_rebased").payload.commit_sha, "7fe94fad0e8b9b1f70e838b2d902b2e6e1d20e46");
+    // The reacquired claim keeps the original claim identity so later commits stay eligible.
+    assert.deepEqual(JSON.parse(await files.readFile({ path: ledgerClaimPath(path) })), { task_id: "TICKET-SOURCE", path, claim_id: manifest.entries[path].claim_id });
+    await observed.snapshot("TICKET-SOURCE");
+    await observed.withCommitTransaction("TICKET-SOURCE", (drain) => assert.equal(drain.entries[path].operations.at(-1).integrated_from, "TICKET-FOUNDATION"));
+    // A second resume is idempotent: no drift remains and no duplicate rebase operation appears.
+    await observed.resume("TICKET-SOURCE", { integrated_successors: ["TICKET-FOUNDATION"] });
+    assert.equal((await observed.load("TICKET-SOURCE")).entries[path].operations.filter((item) => item.integrated_from).length, 1);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("resume rejects successors that forked elsewhere, lack receipts, or are ambiguous", async () => {
+  const sha = (content) => `sha256:${createHash("sha256").update(content).digest("hex")}`;
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-ticket-rebase-reject-"));
+  try {
+    const { files, ledger, path } = await driftScenario(root);
+    const successor = JSON.parse(await files.readFile({ path: ledgerManifestPath("TICKET-FOUNDATION") }));
+    // A successor that did not start at this ticket's baseline is unrelated drift.
+    const forked = structuredClone(successor);
+    forked.task_id = "TICKET-FORKED";
+    forked.entries[path].initial_sha = sha("different base");
+    forked.entries[path].initial_content = "different base";
+    forked.entries[path].operations[0].before_sha = sha("different base");
+    await files.atomicWrite({ path: ledgerManifestPath("TICKET-FORKED"), content: JSON.stringify(forked), replace: true });
+    await assert.rejects(ledger.resume("TICKET-SOURCE", { integrated_successors: ["TICKET-FORKED"] }), { code: "TICKET_SOURCE_CHANGED" });
+    // A closed successor without a commit receipt cannot prove integration.
+    const uncommitted = structuredClone(successor);
+    uncommitted.task_id = "TICKET-UNCOMMITTED";
+    uncommitted.commits = {};
+    await files.atomicWrite({ path: ledgerManifestPath("TICKET-UNCOMMITTED"), content: JSON.stringify(uncommitted), replace: true });
+    await assert.rejects(ledger.resume("TICKET-SOURCE", { integrated_successors: ["TICKET-UNCOMMITTED"] }), { code: "TICKET_SOURCE_CHANGED" });
+    // Two equally valid successors cannot silently choose one.
+    const ambiguous = structuredClone(successor);
+    ambiguous.task_id = "TICKET-FOUNDATION-A";
+    await files.atomicWrite({ path: ledgerManifestPath("TICKET-FOUNDATION-A"), content: JSON.stringify(ambiguous), replace: true });
+    await assert.rejects(ledger.resume("TICKET-SOURCE", { integrated_successors: ["TICKET-FOUNDATION", "TICKET-FOUNDATION-A"] }), { code: "TICKET_SOURCE_CHANGED" });
+    // Rejection leaves no claims acquired and the source manifest unchanged.
+    await assert.rejects(files.readFile({ path: ledgerClaimPath(path) }), { code: "ENOENT" });
+    const manifest = await ledger.load("TICKET-SOURCE");
+    assert.equal(manifest.entries[path].latest_sha, sha("source v1"));
+    assert.equal(manifest.revision, 1);
+    // The approved single successor still rebases cleanly after every rejection.
+    await ledger.resume("TICKET-SOURCE", { integrated_successors: ["TICKET-FOUNDATION"] });
+    assert.equal((await ledger.load("TICKET-SOURCE")).entries[path].latest_sha, sha("foundation v2"));
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

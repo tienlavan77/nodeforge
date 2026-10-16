@@ -84,19 +84,32 @@ test("D3 actual SDK exceptions retry after 30 seconds, preserve budgets on resta
   } finally { await fixture.close(); }
 });
 
-test("D3 retry resumes Coder checkpoint and completes through normal integration", async () => {
-  const fixture = await coderProductionRecoveryFixture({ behavior: async ({ onEvent }, invocation) => {
+test("D3 retry resumes the latest persisted checkpoint and provider thread after restart", async () => {
+  const fixture = await coderProductionRecoveryFixture({ behavior: async ({ onEvent, resumeThreadId, prompt }, invocation) => {
     if (invocation === 1) throw sdkFailureEvidence(Object.assign(new Error("Rejected"), { code: "CONFIGURATION_ERROR" }), { status: 503 });
-    for (const tool of ["write_diff", "commit_changes", "report_done"]) await onEvent({ type: "item.completed", item: { id: tool, type: "mcp_tool_call", server: "forge", tool, status: "completed" } });
+    assert.equal(resumeThreadId, "THREAD-CHECKPOINT");
+    assert.match(prompt, /RESUMED RUN: a previous execution stopped after completing turn 7\./);
+    assert.match(prompt, /backend\/src\/handler.js/);
+    assert.match(prompt, /turn 7 commit_changes/);
+    await onEvent({ type: "item.completed", item: { id: "report", type: "mcp_tool_call", server: "forge", tool: "report_done", status: "completed" } });
     return { text: "Reported" };
   } });
   try {
-    await fixture.run(); fixture.advance(30_000);
+    await fixture.run();
+    const checkpoint = await fixture.checkpoints.load("TASK");
+    assert.equal(checkpoint.phase, "operational_retry_pending");
+    await fixture.checkpoints.save({ ...checkpoint, thread_id: "THREAD-CHECKPOINT", last_completed_turn: 7,
+      completed_tools: ["write_diff", "commit_changes"], changed_paths: ["backend/src/handler.js"],
+      turn_history: [{ turn: 7, tool: "commit_changes", target: "backend/src/handler.js", outcome: "committed" }] });
+    fixture.advance(30_000);
     await fixture.restart().tick();
     assert.equal(fixture.invocations, 2);
     assert.equal(fixture.integrations, 1);
     assert.equal(fixture.statusStore.get().status, "done");
     assert.deepEqual(fixture.events.map((event) => event.type), ["task.completed"]);
+    const completed = await fixture.checkpoints.load("TASK");
+    assert.equal(completed.thread_id, "THREAD-CHECKPOINT");
+    assert.equal(completed.status, "completed");
   } finally { await fixture.close(); }
 });
 

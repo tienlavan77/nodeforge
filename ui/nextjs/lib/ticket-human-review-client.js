@@ -10,6 +10,10 @@ export function createTicketHumanReviewClient({ forgeV1, requestJson }) {
     // Records a project-owner approval with a reason tied to the displayed verdict.
     approveTicketHumanReview(projectId, ticketId, { actor, reason, reviewerUpdatedAt }) {
       return requestJson(forgeV1(`/tickets/${encodeURIComponent(ticketId)}/human-review`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, actor, reason, reviewer_updated_at: reviewerUpdatedAt }), fallbackError: "Node could not approve Human Review." });
+    },
+    // Records the owner's chosen option for an AM blocker escalation proposal.
+    decideTicketBlocker(projectId, ticketId, { actor, reason, optionId }) {
+      return requestJson(forgeV1(`/tickets/${encodeURIComponent(ticketId)}/blocker-decision`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, actor, reason, option_id: optionId }), fallbackError: "Node could not record the blocker decision." });
     }
   };
 }

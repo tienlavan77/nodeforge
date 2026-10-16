@@ -51,6 +51,9 @@ export function recordTurn(state, name, input, result) {
 // checkpointPayload - builds a checkpoint save that never drops session identity.
 export function checkpointPayload(state, extra = {}) {
   if (!state) throw new ConfigurationError("Resume checkpoint payload requires run state.");
+  const prior = Array.isArray(state.resume?.stage_progress) ? state.resume.stage_progress : [];
+  const coderEntry = { stage: "coder", status: extra.status ?? "in_progress", turn: state.turnCount, last_tool: extra.last_tool ?? null, at: new Date().toISOString() };
+  const stageProgress = prior.at(-1)?.stage === "coder" ? [...prior.slice(0, -1), coderEntry] : [...prior, coderEntry];
   return {
     ...(state.resume ?? {}),
     session_id: state.sessionId ?? state.resume?.session_id ?? null,
@@ -61,6 +64,7 @@ export function checkpointPayload(state, extra = {}) {
     empty_commit_seen: state.emptyCommitSeen === true,
     read_cache: snapshotReadCache(state.readCache),
     coder_rules_read: state.coderRulesRead === true,
+    stage_progress: stageProgress,
     ...extra
   };
 }
@@ -158,6 +162,8 @@ export function buildResumePrompt(prompt, state, meta = {}) {
     "The current tool catalog replaces legacy rg_files/rg_search/sed_lines with list_files/search_text/read_lines. Historical search_code, run_test and check_test entries are receipts only; they are not available in the current Coder catalog. Use search_text for source discovery and run_check for focused checks. Do not repeat completed mutations.",
     state.sessionId ? "Provider session resumed; earlier assistant context may be available, but the worktree is the source of truth." : "No provider session survived; the worktree below is the source of truth.",
     "Completed turns (do NOT repeat these tool calls with the same inputs):",
+    ...(state.resume.blocker_recovery?.status === "resolved" ? [`Automatic blocker investigation resolved an issue within existing approved scope. This is guidance, not new contract/permission approval: ${state.resume.blocker_recovery.disposition.guidance}`] : []),
+    ...(state.resume.blocker_recovery?.owner_decision ? [`Project owner decided blocker option "${state.resume.blocker_recovery.owner_decision.option_id}" (${state.resume.blocker_recovery.owner_decision.option_description ?? ""})${state.resume.blocker_recovery.owner_decision.reason ? ` — Reason: ${state.resume.blocker_recovery.owner_decision.reason}` : ""}. Continue implementation strictly within this chosen option.`] : []),
     history,
     `Files already changed in the worktree: ${[...new Set([...state.changedPaths, ...(meta.changedPaths ?? [])])].join(", ") || "(none)"} — verify with read_file if needed, then continue with the next unfinished step.`,
     `Previous agent: ${meta.agentId ?? state.resume.agent_id ?? "unknown"} (${meta.provider ?? state.resume.provider ?? "unknown provider"}).`,
