@@ -1,5 +1,8 @@
 // Verifies the approved foundation package with real concurrent project runtimes, not a mocked CLI.
 import test from "node:test";
+import { once } from "node:events";
+import { createServer } from "node:http";
+import { startControlApi } from "../../scripts/control-api-lifecycle.mjs";
 import assert from "node:assert/strict";
 import { readFile, rename, symlink, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -20,8 +23,27 @@ test("foundation serves two isolated projects and cleans resources across restar
           // Keeps the production filesystem pipeline while exposing its error event to the test.
           watcherFactory(options) {
             const raw = createFilesystemWatcher(options);
-            rawWatchers.push(raw);
-            return raw;
+            const errorHandlers = new Set();
+            const facade = {
+              // Preserves production watching and captures its registered error callbacks.
+              on(type, handler) {
+                if (type === "error") errorHandlers.add(handler);
+                raw.on(type, handler);
+                return this;
+              },
+              // Removes startup and pipeline error handlers exactly as production teardown does.
+              off(type, handler) {
+                if (type === "error") errorHandlers.delete(handler);
+                raw.off(type, handler);
+                return this;
+              },
+              // Closes the actual filesystem watcher owned by this runtime.
+              close() { return raw.close(); },
+              // Delivers an error through the same handlers used by the real filesystem watcher.
+              fail(error) { for (const handler of [...errorHandlers]) handler(error); }
+            };
+            rawWatchers.push(facade);
+            return facade;
           }
         });
       }
@@ -62,7 +84,7 @@ test("foundation serves two isolated projects and cleans resources across restar
     await unlink(join(context.roots[0], "renamed.js"));
     await waitFor(() => events.some((event) => event.type === "watcher.file_deleted"));
     await waitFor(() => runtimes[0].database.all("SELECT COUNT(*) AS count FROM files")[0].count === 1);
-    rawWatchers[0].emit("error", new Error("Injected recoverable watcher error"));
+    rawWatchers[0].fail(new Error("Injected recoverable watcher error"));
     await writeFile(join(context.roots[0], "sample.js"), "export function recovered() { return 9; }\n");
     await waitFor(() => runtimes[0].database.all("SELECT name FROM symbols WHERE name = 'recovered'").length);
     await waitFor(() => sinks[0].chunks.join("").includes("added.js"));
@@ -109,5 +131,33 @@ test("foundation repeated add/remove does not leak project descriptors", { skip:
     await manager.close();
     assert.ok(context.providers.every((provider) => provider.closed));
     await waitFor(async () => (await fdCount()) <= before, "Project lifecycle leaked file descriptors.");
+  } finally { await context.cleanup(); }
+});
+
+// Exercises the actual Control API shutdown composition without defining management endpoints.
+test("Control API shutdown awaits two project runtimes and releases legacy resources on failure", async () => {
+  const context = await fixture();
+  try {
+    const manager = await context.open();
+    await Promise.all(context.roots.map((root) => manager.add(root)));
+    const signals = [process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")];
+    const released = [];
+    const api = startControlApi({
+      api: { createServer: () => createServer() }, port: 0, host: "127.0.0.1",
+      projectLifecycle: manager,
+      indexDb: { close: async () => released.push("index") },
+      controlDb: { close: async () => released.push("control") },
+      processLock: { release: () => released.push("lock") },
+      ticketWorkspaceService: { close: async () => { throw new Error("Injected workspace cleanup failure"); } }
+    });
+    await once(api.server, "listening");
+    const shutdown = api.shutdown();
+    assert.equal(api.shutdown(), shutdown);
+    await assert.rejects(shutdown, AggregateError);
+    assert.deepEqual(manager.list(), []);
+    assert.ok(context.providers.every((provider) => provider.closed));
+    assert.deepEqual(released, ["index", "control", "lock"]);
+    assert.deepEqual([process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")], signals);
+    assert.equal(api.server.listening, false);
   } finally { await context.cleanup(); }
 });
