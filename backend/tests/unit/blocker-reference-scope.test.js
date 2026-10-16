@@ -1,0 +1,104 @@
+// Reproduces AM's Sprint-reference/Architecture-scope mismatch and verifies actionable, authority-preserving correction.
+import assert from "node:assert/strict";
+import test from "node:test";
+import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
+import { blockerAuthorityPassages, resolveBlockerAuthority } from "../../src/modules/supervisor/blocker-authority-passages.js";
+import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker-recovery-contract.js";
+
+const context = { plan: { content: {} }, ticket: { objective: "Reuse the existing approved handler without changing the public contract." },
+  architecture: { basis: { plan_id: "ARCH", revision: 1, sha256: "a".repeat(64) }, markdown: "Keep the existing in-process topology and all public interfaces unchanged." } };
+const rationale = "Reuse the approved internal handler without changing scope, interfaces or delegated authority.";
+
+test("a genuine Sprint ID reported as Architecture gets scope feedback and valid alternatives, not unknown-reference feedback", () => {
+  const passages = blockerAuthorityPassages(context);
+  const sprint = passages.find((entry) => entry.scope === "sprint");
+  const architecture = passages.find((entry) => entry.scope === "architecture");
+  const value = { authority_scope: "architecture", authority_reference: { passage_id: sprint.passage_id, rationale } };
+  assert.throws(() => resolveBlockerAuthority(value, context), (error) => {
+    const feedback = error.validation_errors[0];
+    assert.equal(feedback.path, "/authority_scope");
+    assert.equal(feedback.reason, "reference_scope_mismatch");
+    assert.equal(feedback.expected, "sprint");
+    assert.equal(feedback.received, "architecture");
+    assert.equal(feedback.passage_id, sprint.passage_id);
+    assert.ok(feedback.valid_references.some((entry) => entry.passage_id === architecture.passage_id && entry.scope === "architecture"));
+    assert.equal(error.retryable_disposition, true);
+    return true;
+  });
+  assert.equal(value.authority_scope, "architecture");
+  assert.equal(resolveBlockerAuthority({ ...value, authority_reference: { passage_id: architecture.passage_id, rationale } }, context), context.architecture.markdown);
+});
+
+test("unknown references receive bounded same-scope alternatives without becoming approved by fallback", () => {
+  assert.throws(() => resolveBlockerAuthority({ authority_scope: "architecture", authority_reference: { passage_id: "invented", rationale } }, context), (error) => {
+    const feedback = error.validation_errors[0];
+    assert.equal(feedback.reason, "reference_unknown");
+    assert.equal(feedback.expected.scope, "architecture");
+    assert.ok(feedback.expected.references.length > 0 && feedback.expected.references.length <= 8);
+    assert.ok(feedback.expected.references.every((entry) => entry.scope === "architecture"));
+    return true;
+  });
+});
+
+test("AM corrects the diagnosed scope after restart only when Sprint authority genuinely permits resume", async () => {
+  let attempts = 0;
+  const fixture = await blockerRecoveryFixture({ investigate: async (job, resolution) => {
+    if (job.stage === "sprint_leader") return { action: "architecture_required", summary: "Ask AM to reconcile the technical blocker." };
+    attempts += 1;
+    const passage = job.authority_context.passages.find((entry) => entry.scope === "sprint");
+    if (attempts === 2) assert.equal(job.validation_feedback[0].reason, "reference_scope_mismatch");
+    return { ...resolution, authority_scope: attempts === 1 ? "architecture" : "sprint",
+      authority_reference: { passage_id: passage.passage_id, rationale } };
+  } });
+  try {
+    await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
+    await fixture.recovery.tick(); await fixture.recovery.tick();
+    assert.equal((await fixture.ledger()).jobs[0].status, "pending");
+    assert.equal(fixture.base.invocations, 1);
+    await fixture.recreate().tick(); await fixture.recovery.tick();
+    assert.equal((await fixture.ledger()).calls, 3);
+    assert.equal(fixture.base.integrations, 1);
+  } finally { await fixture.close(); }
+});
+
+test("correcting the reference scope alone cannot unblock an unapproved lifecycle transport contract", async () => {
+  let attempts = 0;
+  const fixture = await blockerRecoveryFixture({ reason: "CONTRACT_DECISION_REQUIRED", investigate: async (job, resolution) => {
+    if (job.stage === "sprint_leader") return { action: "architecture_required", summary: "AM must reconcile the transport contract." };
+    attempts += 1;
+    return { ...resolution, authority_scope: attempts === 1 ? "architecture" : "sprint",
+      authority_reference: { passage_id: job.authority_context.passages.find((entry) => entry.scope === "sprint").passage_id, rationale } };
+  } });
+  try {
+    await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
+    for (let turn = 0; turn < 4; turn += 1) await fixture.recovery.tick();
+    const job = (await fixture.ledger()).jobs[0];
+    assert.equal(job.status, "reconciliation_required");
+    assert.match(job.last_error, /approved contract evidence/);
+    assert.equal(fixture.base.invocations, 1);
+    assert.equal(fixture.base.integrations, 0);
+  } finally { await fixture.close(); }
+});
+
+// An AM escalation may cite an Architecture passage under the top-level declared scope; a wrong scope still fails closed.
+test("owner escalation inherits the declared authority scope and remains boundary-enforced", async () => {
+  const context = { plan: { content: {} }, ticket: { objective: "Implement lifecycle without inventing a public management contract." },
+    architecture: { basis: { plan_id: "ARCH", revision: 1, sha256: "a".repeat(64) }, markdown: "Public API structure is owner-approved; new routes, prefixes or payloads require explicit owner authority." } };
+  const passage = blockerAuthorityPassages(context).find((entry) => entry.scope === "architecture");
+  const job = { stage: "architecture_manager", request: { ticket: context.ticket } };
+  const value = { action: "owner_required", summary: "A new management transport contract exceeds AM authority.", authority_scope: "architecture",
+    escalation: { boundary: "owner_scope", rationale: "Only the owner can approve a new public contract.",
+      authority_reference: { passage_id: passage.passage_id, rationale: "The approved Architecture text fixes public API structure as owner authority." } },
+    proposal: { title: "Management transport contract", options: [{ id: "approve", description: "Approve the proposed add/remove/list contract." },
+      { id: "defer", description: "Defer transport work until an approved contract exists." }], recommended_option_id: "approve" } };
+  const validate = (entry) => validateBlockerDisposition(entry, { job, plan: context.plan, architecture: context.architecture,
+    fileService: { readFile: async () => "" }, projectRoot: "/p" });
+  const accepted = await validate(value);
+  assert.equal(accepted.escalation.authority_quote, context.architecture.markdown);
+  await assert.rejects(validate({ ...value, authority_scope: "sprint" }), (error) => {
+    assert.equal(error.validation_errors[0].reason, "reference_scope_mismatch");
+    assert.equal(error.validation_errors[0].expected, "architecture");
+    assert.equal(error.validation_errors[0].received, "sprint");
+    return true;
+  });
+});

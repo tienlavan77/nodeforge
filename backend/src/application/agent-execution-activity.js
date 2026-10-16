@@ -24,7 +24,15 @@ export function createAgentExecutionActivity({ projectId, eventBus, logger = con
   // Surface audited agent tools without exposing their arguments, source contents, or result payloads.
   publish.recordToolEvent = (entry = {}) => {
     if (entry.project_id !== undefined && entry.project_id !== projectId) return;
-    if (!["forge.tool_started", "forge.tool_success", "forge.tool_failed", "sprint_leader.tool_call", "review.tool_call"].includes(entry.event_name)) return;
+    const triagePhase = { started: "started", success: "completed", failed: "failed", blocked: "failed" }[entry.status];
+    if (["supervisor.blocker_triage_started", "supervisor.blocker_triage_finished"].includes(entry.event_name)) {
+      const agentId = entry.payload?.agent_id;
+      const correlationId = entry.correlation_id ?? (entry.payload?.job_id || entry.task_id ? `BLOCKER-${entry.payload?.job_id ?? entry.task_id}` : null);
+      if (typeof agentId === "string" && agentId && correlationId && triagePhase) publish({ agentId, correlationId, phase: triagePhase, summary: entry.message });
+      return;
+    }
+    if (!["forge.tool_started", "forge.tool_success", "forge.tool_failed", "sprint_leader.tool_call", "review.tool_call",
+      "supervisor.agent_tool_event", "agent.tool_call", "agent.tool_result", "supervisor.blocker_tool_call"].includes(entry.event_name)) return;
     const agentId = entry.payload?.agent_id;
     const toolName = entry.payload?.tool;
     const phase = { started: "tool_started", success: "tool_completed", failed: "tool_failed" }[entry.status];

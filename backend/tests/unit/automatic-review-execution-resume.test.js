@@ -35,6 +35,17 @@ test("review resume keeps the original execution basis and increments only the s
   assert.deepEqual(result.details.execution_basis, BASIS);
 });
 
+test("resolved blocker resumes transactionally without replacing execution or approving the ticket", () => {
+  const fixture = resumeStatusFixture();
+  const updated = fixture.store.resumeBlockedExecution("TICKET-1", { executionId: "RUN-ORIGINAL", basis: BASIS,
+    expectedVersion: 3, dependencyExpectations: [], validate: () => {} });
+  assert.equal(updated.status, "running");
+  assert.equal(updated.version, 4);
+  assert.equal(updated.details.execution_id, "RUN-ORIGINAL");
+  assert.equal(updated.details.reason, "blocker_resolved");
+  assert.equal(updated.error, null);
+});
+
 // Refuses stale ownership, fresh dependency intent, unresolved provider launches, or reopening completed tickets.
 test("review resume authority checks fail closed and preserve parked status", () => {
   for (const patch of [{ executionId: "RUN-REPLACEMENT" }, { expectedVersion: 2 }, { basis: { ...BASIS, version: 8 } }, { dependencyExpectations: [{ ticket_id: "NEW-DEPENDENCY" }] }]) {

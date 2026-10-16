@@ -36,7 +36,7 @@ export function createAgentExecutionCheckpointStore({ fileService, root = ".forg
     for (const filePath of await fileService.listFiles({ glob: `${root}/*.json` })) {
       try {
         const checkpoint = JSON.parse(await fileService.readFile({ path: filePath }));
-        if (!["completed", "blocked"].includes(checkpoint.status)) out.push(checkpoint);
+        if (!["completed", "blocked"].includes(checkpoint.status) || (checkpoint.status === "blocked" && Boolean(checkpoint.blocker_recovery))) out.push(checkpoint);
       } catch (error) { if (error?.code !== "ENOENT") throw error; }
     }
     return out;
@@ -50,12 +50,27 @@ export function createAgentExecutionCheckpointStore({ fileService, root = ".forg
     try {
       const current = await loadReview(checkpoint.task_id);
       if (current?.status === "completed" && current.verdict === "approved") return current;
-      return await saveAt(checkpoint, reviewRoot);
+      const saved = await saveAt(checkpoint, reviewRoot);
+      await mirrorReviewToTicket(saved);
+      return saved;
     } finally { await lock?.release(); }
   }
   async function loadReview(taskId) { return loadAt(taskId, reviewRoot); }
   async function completeReview(taskId, details = {}) { return saveReview({ ...(await loadReview(taskId) ?? { task_id: taskId }), ...details, task_id: taskId, status: "completed", completed_at: new Date().toISOString() }); }
   async function clearReview(taskId) { return clearAt(taskId, reviewRoot); }
+
+  // Mirrors Reviewer stage progress into the single ticket checkpoint once Coder work is completed.
+  async function mirrorReviewToTicket(review) {
+    const ticketCheckpoint = await load(review.task_id);
+    if (!ticketCheckpoint || ticketCheckpoint.status !== "completed") return;
+    const prior = Array.isArray(ticketCheckpoint.stage_progress) ? ticketCheckpoint.stage_progress : [];
+    const entry = { stage: "reviewer", status: review.verdict ?? review.status ?? "in_progress", review_attempt: review.review_attempt ?? 0, at: review.updated_at };
+    const stageProgress = prior.at(-1)?.stage === "reviewer" ? [...prior.slice(0, -1), entry] : [...prior, entry];
+    const updated = { ...ticketCheckpoint, review_stage: { status: review.status ?? "in_progress", verdict: review.verdict ?? null,
+      review_attempt: review.review_attempt ?? 0, reviewer_id: review.reviewer_id ?? null, last_error: review.last_error ?? null, updated_at: review.updated_at },
+      stage_progress: stageProgress };
+    await fileService.atomicWrite({ path: pathFor(review.task_id), content: `${JSON.stringify(updated)}\n`, replace: true });
+  }
 
   // Lists Reviewer checkpoints that still need a verdict or a completed Coder revision.
   async function listReviewPending() {

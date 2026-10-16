@@ -14,7 +14,7 @@ export function createTicketHumanReviewService({ projectId, roadmaps, sprintRegi
     const [coder, reviewer] = await Promise.all([checkpoints.load(ticketId), checkpoints.loadReview(ticketId)]);
     const status = ticketStatusStore.get(ticketId);
     const approved = status?.status === "done" && status.details?.reason === "human_review_approved";
-    return { ticket_id: ticket.id, status: ticket.status ?? "planned", approved, eligible: !sprintRegistry && !approved && coder?.status === "completed" && reviewer?.status === "completed" && reviewer?.verdict === "request_changes", reviewer: reviewer ? { verdict: reviewer.verdict ?? null, findings: reviewer.findings ?? [], changed_paths: reviewer.changed_paths ?? [], updated_at: reviewer.updated_at ?? null, reviewer_name: reviewer.reviewer_name ?? null } : null, decision: approved ? status.details : null };
+    return { ticket_id: ticket.id, status: ticket.status ?? "planned", approved, eligible: !sprintRegistry && !approved && coder?.status === "completed" && reviewer?.status === "completed" && reviewer?.verdict === "request_changes", blocker_recovery: coder?.status === "blocked" ? coder.blocker_recovery ?? null : null, reviewer: reviewer ? { verdict: reviewer.verdict ?? null, findings: reviewer.findings ?? [], changed_paths: reviewer.changed_paths ?? [], updated_at: reviewer.updated_at ?? null, reviewer_name: reviewer.reviewer_name ?? null } : null, decision: approved ? status.details : null };
   }
 
   // Completes a ticket only after an owner explicitly accepts the recorded Reviewer findings.

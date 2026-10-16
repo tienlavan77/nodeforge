@@ -100,7 +100,7 @@ export function createTicketWorkspaceService({ projectRoot, projectId, protocolS
     const dirtyPaths = (await worktreeGitService.status()).split("\n").filter(Boolean).map((line) => line.slice(3).replace(/^"|"$/g, ""));
     const foreignDirty = dirtyPaths.some((path) => !["node_modules", "backend/node_modules", "ui/nextjs/node_modules"].includes(path) && !existingChanges.entries[path]);
     const migrationRequired = foreignDirty || workspaceHead !== worktree.base_commit && !Object.keys(existingChanges.commits).length && !existingChanges.pending_commit;
-    const changeLedger = { write: (change) => ledger.write({ ...change, taskId }), snapshot: () => ledger.snapshot(taskId), release: (options) => ledger.release(taskId, options), resume: () => ledger.resume(taskId) };
+    const changeLedger = { write: (change) => ledger.write({ ...change, taskId }), snapshot: () => ledger.snapshot(taskId), release: (options) => ledger.release(taskId, options), resume: (options) => ledger.resume(taskId, options) };
     const gitService = createTicketCommitService({ taskId, ledger, worktreeFileService, gitService: worktreeGitService, projectRoot: worktree.path });
     const testService = createTicketVerificationService({ taskId, projectId, projectRoot: root, worktreeRoot: worktree.path, worktreeFileService, stateFileService, gitService: worktreeGitService, ledger, executionContexts, projectLogger });
     const reviewFindings = createTicketReviewFindingsStore({ taskId, fileService: stateFileService, executionContexts, gitService: worktreeGitService });
