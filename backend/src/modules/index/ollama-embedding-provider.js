@@ -8,7 +8,16 @@ export function createOllamaEmbeddingProvider({ baseUrl = "http://192.168.1.180:
   if (typeof baseUrl !== "string" || !baseUrl) throw new ConfigurationError("Ollama embedding provider requires a base URL.");
   if (typeof model !== "string" || !model) throw new ConfigurationError("Ollama embedding provider requires a model tag.");
   let tail = Promise.resolve();
-  return Object.freeze({ embed, model: () => model });
+  let closed = false;
+  const controllers = new Set();
+  return Object.freeze({ embed, close, model: () => model });
+
+  // Cancels this project's outstanding requests so lifecycle removal can drain its worker.
+  async function close() {
+    closed = true;
+    for (const controller of controllers) controller.abort();
+    await tail;
+  }
 
   function embed(text) {
     const job = tail.then(() => requestOnce(text));
@@ -19,8 +28,10 @@ export function createOllamaEmbeddingProvider({ baseUrl = "http://192.168.1.180:
   }
 
   async function requestOnce(text) {
+    if (closed) throw new ConfigurationError("Project embedding provider is closed.");
     if (typeof text !== "string" || !text.trim()) throw new ConfigurationError("Embedding text is required.");
     const controller = new AbortController();
+    controllers.add(controller);
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetchFn(`${baseUrl.replace(/\/+$/, "")}/api/embeddings`, {
@@ -36,6 +47,7 @@ export function createOllamaEmbeddingProvider({ baseUrl = "http://192.168.1.180:
       return vector.map(Number);
     } finally {
       clearTimeout(timer);
+      controllers.delete(controller);
     }
   }
 }
