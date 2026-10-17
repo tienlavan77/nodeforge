@@ -148,3 +148,15 @@ test("a completed malformed SDK response is audited and corrected with feedback,
     assert.equal(fixture.base.integrations, 1);
   } finally { await fixture.close(); }
 });
+
+test("extracts a valid JSON disposition when an agent prefixes discovery notes before a single fenced JSON block", async () => {
+  const fixture = await blockerRecoveryFixture();
+  try {
+    const worker = createBlockerRecoveryAgent({ agentResolver: { resolveAvailable: () => ({ agent_id: "AM", role: "architecture_manager", provider: "claude", enabled: true, status: "ready" }) },
+      agentOccupancy: { claim: async () => ({ claim_id: "CLAIM" }), release: async () => {} },
+      resolveTicketWorkspace: async () => fixture.base.workspace,
+      gateways: { claudeSdkGateway: { execute: async () => ({ text: `Based on my investigation:\n1. Confirmed contract boundary.\n\n\`\`\`json\n${JSON.stringify({ ...fixture.resolution, boundary_assessment: null, architecture_basis: null })}\n\`\`\`` }) } } });
+    const result = await worker({ id: "JOB", stage: "architecture_manager", request: { task_id: "TASK", ticket: fixture.ticket }, history: [] }, { deadline: Date.now() + 1000 });
+    assert.equal(result.action, "resolved");
+  } finally { await fixture.close(); }
+});

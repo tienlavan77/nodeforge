@@ -143,6 +143,11 @@ const sprintDagRunner = createSprintDagRunner({ ticketStatusStore, sprintRegistr
 const sprintLeaderIntake = createSprintLeaderIntakeService({ fileService, roadmaps, sprintRegistry, ticketStatusStore, logger: logEvent });
 
 const dispatchTicket = createTicketRunDispatch({ disposition: ticketPipelineDisposition, intake: sprintLeaderIntake, sprintRegistry, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, queueStore: supervisorRuntime.queueStore, protocolStorage, conversationStateStore, dispatchTask, coderRecovery: supervisorRuntime.coderRecovery, blockerRecovery: supervisorRuntime.blockerRecovery });
+// Reconciles a retained unknown-provider blocker stage so the owner can clear a stuck ticket and a later RUN may re-arm it.
+const ticketBlockerReconcileService = async ({ projectId: requestedProjectId, ticketId, actor } = {}) => {
+  if (!supervisorRuntime.blockerRecovery?.reconcileTicket) throw Object.assign(new Error("Blocker reconciliation is unavailable."), { code: "BLOCKER_RECONCILE_UNAVAILABLE", statusCode: 409 });
+  return supervisorRuntime.blockerRecovery.reconcileTicket({ projectId: requestedProjectId, ticketId, actor });
+};
 resolveDispatchFoundation();
 const reviewTicket = async ({ projectId: requestedProjectId, ticketId, body = {} } = {}) => {
   const { ticket } = await sprintLeaderIntake.open({ projectId: requestedProjectId, ticketId });
@@ -173,7 +178,7 @@ const api = createControlApiHttp({ services: {
   relevantTreeSelector, decisions, agentSettings, sprintPlanUpload, sprintOrchestration, dispatchTicket, runToolLab, directCodeRequest, internalBus,
   proseTicketService, buildBuilderContext, protocolStorage, conversationStateStore, fileService, codeCache, codeSearch, agentGateway, agentConfiguration, sdkGateways: Object.fromEntries([claudeSdkGateway, { ...claudeSdkGateway, provider: "anthropic" }, codexSdkGateway, { ...ollamaSdkGateway }, openaiSdkGateway, ...["xai", "alibaba", "zhipu", "deepseek"].map((provider) => ({ ...openaiSdkGateway, provider }))].map((gateway) => [gateway.provider, gateway])), projectRoot: config.cwd, publishUnifiedStreamEvent,
   ticketCrudService: createTicketCrudService({ roadmaps, sprintRegistry, proseTicketService, ticketFileStore, publisher: eventPublisher, agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId }), agentRoleResolver, sprintLeader: ticketSprintLeader }),
-  dispatchTask, dispatchSprint, reviewTicket, ticketHumanReviewService, ticketBlockerDecisionService, logEvent, projectId, executionActivity,
+  dispatchTask, dispatchSprint, reviewTicket, ticketHumanReviewService, ticketBlockerDecisionService, ticketBlockerReconcileService, logEvent, projectId, executionActivity,
   architectureWorkspaceService: createArchitectureWorkspaceService({ knowledge, roadmaps, sprintPlans }),
   projectDashboardService: createProjectDashboardService({ roadmaps, sprintPlans, provenance, ticketFileStore, ticketStatusStore, sprintRegistry, eventStore, relevantTreeSelector, logReader: ({ ticket_id }) => readLogEvents({ project_id: projectId, ticket_id }) }),
   conversationAuditHistoryService: createConversationAuditHistoryService({ communications, eventStore, logReader: ({ project_id, task_id, correlation_id, conversation_id, event_name }) => readLogEvents({ project_id, task_id, ticket_id: task_id, conversation_id, event_name, correlation_id }) }),

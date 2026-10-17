@@ -13,6 +13,7 @@ export function blockerDigest(value) { return createHash("sha256").update(JSON.s
 // Requires concrete proposals or independently verifiable, already-approved scope for an automatic resume.
 export async function validateBlockerDisposition(value, { job, plan, architecture, fileService, projectRoot }) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw blockerValidationError("/", "object_required", "Return one disposition object.");
+  value = Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== null && entry !== undefined));
   const unknown = Object.keys(value).find((key) => !["action", "summary", "guidance", "authority_quote", "authority_reference", "evidence", "proposal", "authority_scope", "architecture_basis", "boundary_assessment", "escalation"].includes(key));
   if (unknown !== undefined) throw blockerValidationError("/", "additional_property", `Remove unsupported disposition property: ${unknown}.`);
   if (!["resolved", "architecture_required", "owner_required"].includes(value.action)) throw blockerValidationError("/action", "action_invalid", "Use resolved, architecture_required or owner_required.");

@@ -48,8 +48,9 @@ export function assertArchitectureDisposition(value, { job, architecture, author
 // Field-specific feedback lets AM correct one mistake instead of guessing at a combined rejection.
 export function assertOwnerEscalation(value, { job, plan, architecture, authorityQuote = value.escalation?.authority_quote }) {
   if (job?.stage !== "architecture_manager") throw blockerValidationError("/escalation", "role_not_authorized", "Only AM may request an owner decision; SL must return architecture_required instead.", { retryable: false });
-  const escalation = value.escalation;
-  if (!escalation || typeof escalation !== "object" || Array.isArray(escalation)) throw blockerValidationError("/escalation", "escalation_required", "Provide escalation with boundary, rationale and a grounded authority quote or reference.");
+  const rawEscalation = value.escalation;
+  if (!rawEscalation || typeof rawEscalation !== "object" || Array.isArray(rawEscalation)) throw blockerValidationError("/escalation", "escalation_required", "Provide escalation with boundary, rationale and a grounded authority quote or reference.");
+  const escalation = Object.fromEntries(Object.entries(rawEscalation).filter(([, entry]) => entry !== null && entry !== undefined));
   const unknown = Object.keys(escalation).find((key) => !["boundary", "rationale", "authority_quote", "authority_reference", "authority_scope"].includes(key));
   if (unknown !== undefined) throw blockerValidationError("/escalation", "additional_property", `Remove unsupported escalation property: ${unknown}.`);
   if (escalation.authority_quote !== undefined && escalation.authority_reference !== undefined) throw blockerValidationError("/escalation", "authority_duplicate", "Use either authority_quote or authority_reference, not both.");

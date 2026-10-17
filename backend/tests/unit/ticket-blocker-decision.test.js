@@ -2,16 +2,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createTicketBlockerDecisionService } from "../../src/application/ticket-blocker-decision-service.js";
+import { createEventPublisher } from "../../src/modules/events/event-publisher.js";
 
 const PROPOSAL = { title: "Lifecycle transport contract", options: [
   { id: "owner_approve_transport_contract", description: "Approve the transport contract" },
   { id: "approved_split", description: "Split foundation from transport" }
 ], recommended_option_id: "approved_split" };
 
-function build({ status = "needs_human_review", version = 3, decision = null, savedRecovery = null } = {}) {
+function build({ status = "needs_human_review", version = 3, savedRecovery = null } = {}) {
   const recovery = savedRecovery ?? { job_id: "JOB-1", status: "owner_required", proposal: PROPOSAL, escalation: { boundary: "owner_scope", rationale: "Transport contract is owner scope." } };
   const checkpoint = { task_id: "TASK", status: "blocked", blocker_recovery: recovery };
   const state = { checkpoint: structuredClone(checkpoint), status: { project_id: "P", ticket_id: "TASK", status, version, details: { execution_id: "EXEC-1" } }, published: [] };
+  const publisher = createEventPublisher({ store: { append: (event) => { state.published.push(event); return { accepted: true, event }; } } });
   const service = createTicketBlockerDecisionService({ projectId: "P",
     ticketStatusStore: { get: (ticketId) => ticketId === "TASK" ? state.status : undefined, updateStatus: (ticketId, next, details, guards) => {
       assert.equal(ticketId, "TASK"); assert.equal(next, "pending");
@@ -20,7 +22,7 @@ function build({ status = "needs_human_review", version = 3, decision = null, sa
       return state.status;
     } },
     checkpoints: { load: async () => state.checkpoint, save: async (record) => { state.checkpoint = record; return record; } },
-    publisher: { publish: async (event) => { state.published.push(event); return event; } }, projectLogger: () => {} });
+    publisher, projectLogger: (entry) => { if (entry?.level === "error") throw new Error(entry.message); } });
   return { service, state };
 }
 
@@ -35,8 +37,9 @@ test("records the chosen option, persists it in the checkpoint and returns the t
   assert.equal(state.status.status, "pending");
   assert.equal(state.status.details.reason, "owner_blocker_decision");
   assert.equal(state.status.details.owner_decision.option_id, "approved_split");
-  assert.equal(state.published[0].type, "task.blocker.owner_decision_recorded");
+  assert.equal(state.published[0].event_type, "ticket.updated");
   assert.equal(state.published[0].payload.ticket_id, "TASK");
+  assert.equal(state.published[0].payload.option_id, "approved_split");
 });
 
 test("a RUN after the owner decision resumes instead of demanding another human decision", async () => {

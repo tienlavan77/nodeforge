@@ -2,7 +2,7 @@
 import { requireProject, unavailable } from "./forge-v1-router-utils.js";
 
 // Dispatches ticket review requests while preserving their separate decision records.
-export async function routeTicketReview({ method, parts, projectId, body, requestId, correlationId, reviewTicket, ticketHumanReviewService, ticketBlockerDecisionService }) {
+export async function routeTicketReview({ method, parts, projectId, body, requestId, correlationId, reviewTicket, ticketHumanReviewService, ticketBlockerDecisionService, ticketBlockerReconcileService }) {
   if (parts.length !== 3 || parts[0] !== "tickets") return null;
   if (parts[2] === "review" && method === "POST") {
     if (typeof reviewTicket !== "function") throw unavailable("Review-only Dispatch");
@@ -14,6 +14,13 @@ export async function routeTicketReview({ method, parts, projectId, body, reques
     if (!ticketBlockerDecisionService?.decide) throw unavailable("Ticket Blocker Decision");
     requireProject(projectId);
     if (method === "POST") return { status: 200, body: await ticketBlockerDecisionService.decide({ requestedProjectId: projectId, ticketId: parts[1], actor: body.actor, reason: body.reason, optionId: body.option_id ?? body.optionId }) };
+    return null;
+  }
+  // Reconciles an interrupted (unknown-provider) blocker stage so a later RUN may re-arm it without an automatic provider replay.
+  if (parts[2] === "blocker-reconcile") {
+    if (typeof ticketBlockerReconcileService !== "function") throw unavailable("Ticket Blocker Reconcile");
+    requireProject(projectId);
+    if (method === "POST") return { status: 200, body: await ticketBlockerReconcileService({ projectId, ticketId: parts[1], actor: body.actor }) };
     return null;
   }
   if (parts[2] !== "human-review") return null;

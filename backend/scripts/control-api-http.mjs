@@ -15,7 +15,7 @@ import { createWatcherCacheEvents } from "../src/modules/context/watcher-cache-e
 import { createMarkdownResponseFileService } from "../src/application/markdown-response-file-service.js";
 
 export function createControlApiHttp({ services } = {}) {
-  const { bus, communications, conversations, eventStore, indexDb, subscriptions, agentSettings, sprintPlanUpload, sprintOrchestration, sprintPlanLeader, dispatchSprint, dispatchTicket, reviewTicket, runToolLab, directCodeRequest, codeCache, internalBus, ticketCrudService, buildBuilderContext, protocolStorage, agentGateway, agentConfiguration, sdkGateways, conversationStateStore, fileService, planFileService, projectRoot, publishUnifiedStreamEvent, logEvent, projectId, gitService } = services;
+  const { bus, communications, conversations, eventStore, indexDb, subscriptions, agentSettings, sprintPlanUpload, sprintOrchestration, sprintPlanLeader, dispatchSprint, dispatchTicket, reviewTicket, runToolLab, directCodeRequest, codeCache, internalBus, ticketCrudService, buildBuilderContext, protocolStorage, agentGateway, agentConfiguration, sdkGateways, conversationStateStore, fileService, planFileService, projectRoot, publishUnifiedStreamEvent, logEvent, projectId, gitService, ticketBlockerReconcileService } = services;
   const agentLoopLogger = createRuntimeLogger({ logEvent, source: "owner-chat-agent-loop" });
   const executionCheckpoint = createOwnerExecutionCheckpoint({ fileService, gitService, role: "system_engineer" });
   const architectureCheckpoint = createOwnerExecutionCheckpoint({ fileService, role: "architecture_manager" });
@@ -53,6 +53,7 @@ export function createControlApiHttp({ services } = {}) {
       reviewTicket,
       ticketHumanReviewService: services.ticketHumanReviewService,
       ticketBlockerDecisionService: services.ticketBlockerDecisionService,
+      ticketBlockerReconcileService,
       runToolLab,
       directCodeRequest,
       onWatcherEvent,

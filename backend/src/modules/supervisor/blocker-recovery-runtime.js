@@ -10,20 +10,21 @@ import { preflightBlockerContract } from "./blocker-contract-preflight.js";
 import { approvedBlockerArchitecture } from "./blocker-decision-authority.js";
 import { blockerAuthorityPassages } from "./blocker-authority-passages.js";
 import { recordTicketStage } from "./ticket-stage-progress.js";
+import { blockerRecoveryPolicy } from "./blocker-recovery-policy.js";
 
 const SOURCE_FIELDS = ["source_revision", "base_sha", "manifest_sha", "review_commit_sha"];
 
-// Enables automatic SL/Architecture coordination only for Registry-bound ticket workspaces.
+// Enables automatic SL/Architecture coordination only for Registry-bound ticket workspaces; `limits` defaults to the deploy-time policy.
 export function createProductionBlockerRecovery({ store, fileService, ticketStatusStore, sprintRegistry, resolveTicketWorkspace, checkpoints,
   eventBus, agentResolver, agentOccupancy, gateways, submitTicket, disposition, projectLogger = () => {}, logger = console,
-  investigate, stopExecution, architecturePlans, replanFoundation, clock = Date.now, limits } = {}) {
+  investigate, stopExecution, architecturePlans, replanFoundation, clock = Date.now, limits = blockerRecoveryPolicy() } = {}) {
   if (!ticketStatusStore?.listByStatus || !sprintRegistry || !resolveTicketWorkspace || !agentOccupancy) return null;
   const worker = investigate ?? createBlockerRecoveryAgent({ agentResolver, agentOccupancy, gateways, resolveTicketWorkspace, projectLogger, clock });
   const recovery = createBlockerRecovery({ store, validate, investigate: investigateStage, checkDisposition, resume, notify, clock, logger, ...limits });
   eventBus.subscribe("*", async (event) => {
     if (event.type === "task.needs_human_review" && event.payload?.reason === "CODER_BLOCKED") await captureSafely(event.task_id, event);
   });
-  return Object.freeze({ ...recovery, recover, stopTicket, resumeTicket, preflight: (request) => preflightBlockerContract(request,
+  return Object.freeze({ ...recovery, recover, stopTicket, resumeTicket, reconcileTicket, preflight: (request) => preflightBlockerContract(request,
     { sprintRegistry, resolveTicketWorkspace, checkpoints, eventBus, projectLogger, agentOccupancy }) });
 
   // Recovers existing structured Coder blockers so an owner need not copy logs or reset tickets after deployment.
@@ -207,7 +208,7 @@ export function createProductionBlockerRecovery({ store, fileService, ticketStat
     return { ticket_id: ticketId, status: "stopping" };
   }
 
-  // Re-arms a cancelled or errored SL/AM stage at its recorded checkpoint position; never replays unknown provider calls.
+  // Re-arms a cancelled or errored SL/AM stage at its recorded checkpoint position, auto-reconciling read-only unknown-provider stages on explicit RUN.
   async function resumeTicket({ projectId, ticketId }) {
     const current = ticketStatusStore.get(ticketId);
     if (current?.project_id !== projectId) throw new Error("Ticket belongs to a different project.");
@@ -215,10 +216,37 @@ export function createProductionBlockerRecovery({ store, fileService, ticketStat
     const last = Array.isArray(checkpoint?.stage_progress) ? checkpoint.stage_progress.at(-1) : null;
     if (!checkpoint?.blocker_recovery || !["cancelled", "reconciliation_required"].includes(checkpoint.blocker_recovery.status)
       || (last && !["sprint_leader", "architecture_manager"].includes(last.stage))) throw new Error("Ticket has no resumable blocker recovery stage.");
+    if (checkpoint.blocker_recovery.status === "reconciliation_required"
+      && ["provider_outcome_unknown", "BLOCKER_PROVIDER_UNKNOWN"].includes(checkpoint.blocker_recovery.reason)) await reconcileTicket({ projectId, ticketId });
     const job = await recovery.resumeStage({ projectId, taskId: ticketId, executionId: current?.details?.execution_id, jobId: checkpoint.blocker_recovery.job_id });
     if (!job) throw Object.assign(new Error("Blocker stage cannot resume: the provider outcome is unknown or the ledger was replaced."), { code: "TICKET_EXECUTION_RECONCILIATION_REQUIRED", statusCode: 409 });
+    const claim = await agentOccupancy.getByTask?.(ticketId, job.stage);
+    if (claim?.claim_id) await agentOccupancy.release({ claimId: claim.claim_id, taskId: ticketId, supervisorId: `BLOCKER-${job.id}`, reason: "blocker_stage_resumed" });
     const resumedCheckpoint = (await recordTicketStage({ checkpoints, taskId: ticketId, stage: job.stage, status: "in_progress", details: { job_id: job.id, resumed: true }, logger, clock })) ?? checkpoint;
     await checkpoints.save({ ...resumedCheckpoint, status: "blocked", phase: "blocker_triage_pending", blocker_recovery: { ...resumedCheckpoint.blocker_recovery, job_id: job.id, status: "pending", stage: job.stage } });
     return { ticket_id: ticketId, ...(current?.details?.execution_id ? { execution_id: current.details.execution_id } : {}), status: "accepted", pipeline: "supervisor", resumed: true, resumed_stage: job.stage, resumed_from_turn: checkpoint.last_completed_turn ?? 0, job_id: job.id };
+  }
+
+  // Reconciles a retained unknown-provider stage so a later RUN may re-arm it without an automatic provider replay.
+  async function reconcileTicket({ projectId, ticketId, actor }) {
+    const current = ticketStatusStore.get(ticketId);
+    if (current?.project_id !== projectId) throw new Error("Ticket belongs to a different project.");
+    const checkpoint = await checkpoints.load(ticketId);
+    const parked = checkpoint?.blocker_recovery;
+    if (checkpoint?.status !== "blocked" || parked?.status !== "reconciliation_required"
+      || !["provider_outcome_unknown", "BLOCKER_PROVIDER_UNKNOWN"].includes(parked.reason)) throw new Error("Ticket has no unknown-provider blocker stage awaiting reconciliation.");
+    const reconciled = await recovery.reconcileInterrupted({ projectId, taskId: ticketId, executionId: current?.details?.execution_id, jobId: parked.job_id });
+    if (!reconciled) throw Object.assign(new Error("Blocker reconciliation ledger was replaced."), { code: "TICKET_EXECUTION_RECONCILIATION_REQUIRED", statusCode: 409 });
+    const claim = await agentOccupancy.getByTask?.(ticketId, reconciled.stage);
+    if (claim?.claim_id) await agentOccupancy.release({ claimId: claim.claim_id, taskId: ticketId, supervisorId: `BLOCKER-${reconciled.id}`, reason: "blocker_provider_reconciled" });
+    const reconciledCheckpoint = (await recordTicketStage({ checkpoints, taskId: ticketId, stage: reconciled.stage, status: "reconciled", details: { job_id: reconciled.id, reason: reconciled.outcome_reason }, logger, clock })) ?? checkpoint;
+    await checkpoints.save({ ...reconciledCheckpoint, status: "blocked", phase: "blocker_reconciliation_required", blocker_recovery: { ...reconciledCheckpoint.blocker_recovery, status: "reconciliation_required", reason: reconciled.outcome_reason } });
+    await eventBus.publish({ type: "task.blocker.reconciled", event_id: `BLOCKER-RECONCILED-${reconciled.id}`, task_id: ticketId, project_id: projectId,
+      supervisor_id: `BLOCKER-${reconciled.id}`, request_id: `RECONCILE-${reconciled.id}`, correlation_id: `BLOCKER-${reconciled.id}-${reconciled.stage}`, attempt: 1,
+      payload: { job_id: reconciled.id, stage: reconciled.stage, reason: reconciled.outcome_reason, execution_id: current?.details?.execution_id, execution_basis: current?.details?.execution_basis, actor: actor ?? null } });
+    projectLogger({ event_name: "ticket.blocker_provider_reconciled", level: "info", status: "success", task_id: ticketId,
+      message: `Reconciled an interrupted blocker provider stage; a subsequent RUN may re-arm it at the ${reconciled.stage} checkpoint.`,
+      payload: { job_id: reconciled.id, stage: reconciled.stage, reason: reconciled.outcome_reason, actor: actor ?? null } });
+    return { ticket_id: ticketId, status: "reconciled", job_id: reconciled.id, reconciled_stage: reconciled.stage };
   }
 }

@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import {
   codingAgentPanelKey, codingAgentProfile, createCodingAgentPanelRegistry,
   updateCodingAgentPanelRegistry, codingAgentPanelActions, codingAgentPanelStatus,
-  setCodingAgentPanelSource, closeCodingAgentPanel
+  setCodingAgentPanelSource, closeCodingAgentPanel, openCodingAgentPanel
 } from "../lib/coding-agent-panel-registry.js";
 
 const projectId = "PROJECT-1";
@@ -205,6 +205,20 @@ test("closed policy survives delayed unique profile resolution and source invali
   assert.equal(registry.panels.length, 1);
 });
 
+test("dock open admits an exact validated agent immediately and refuses invalid or duplicate requests", () => {
+  let registry = deliver(createCodingAgentPanelRegistry(), [action("coder-1")]);
+  registry = closeCodingAgentPanel(registry, projectId, "coder-1");
+  const opened = openCodingAgentPanel(registry, projectId, "coder-1", agents);
+  assert.deepEqual(opened.panels.map((panel) => panel.agentId), ["coder-1"]);
+  assert.equal(opened.closed[codingAgentPanelKey(projectId, "coder-1")], undefined);
+  assert.equal(opened.pending[codingAgentPanelKey(projectId, "coder-1")], undefined);
+  assert.strictEqual(openCodingAgentPanel(opened, projectId, "coder-1", agents), opened);
+  assert.strictEqual(openCodingAgentPanel(opened, projectId, "ghost", agents), opened);
+  assert.strictEqual(openCodingAgentPanel(opened, "", "coder-2", agents), opened);
+  registry = deliver(opened, [action("coder-2")]);
+  assert.deepEqual(registry.panels.map((panel) => panel.agentId), ["coder-1", "coder-2"]);
+});
+
 test("AC-10: Sprint Plan component contracts and Coding ingress wiring remain intact", async () => {
   const monitor = await readFile(new URL("../components/coding-workspace-monitor.jsx", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/coding/page.jsx", import.meta.url), "utf8");
@@ -220,12 +234,32 @@ test("AC-10: Sprint Plan component contracts and Coding ingress wiring remain in
   assert.match(page, /planEvents\.publish\(event\)/);
   assert.match(page, /updateCodingAgentPanelRegistry\(current,\s*PROJECT_ID,\s*\[event\]/);
   assert.match(page, /setWatcherState\s*:\s*setPanelSource/);
-  const closeControl = monitor.match(/<button\b[\s\S]*?>\s*Close\s*<\/button>/)?.[0];
+  const closeControl = monitor.match(/<button\b[\s\S]*?>\s*×\s*<\/button>/)?.[0];
   assert.ok(closeControl);
   assert.match(closeControl, /type\s*=\s*"button"/);
   assert.match(closeControl, /aria-label\s*=\s*\{`Close agent panel \$\{panel\.agentId\} in project \$\{panel\.projectId\}`\}/);
   assert.match(closeControl, /onAgentPanelClose\?\.\(panel\.projectId,\s*panel\.agentId\)/);
   assert.match(page, /closeCodingAgentPanel\(current,\s*projectId,\s*agentId\)/);
   assert.match(page, /onAgentPanelClose\s*=\s*\{onAgentPanelClose\}/);
+});
+
+test("AC-16: the monitor reuses System panel chrome and exposes a dock that opens a panel by exact agent identity", async () => {
+  const monitor = await readFile(new URL("../components/coding-workspace-monitor.jsx", import.meta.url), "utf8");
+  const page = await readFile(new URL("../app/coding/page.jsx", import.meta.url), "utf8");
+  // Same floating-panel design tokens used by the System workspace monitors.
+  assert.match(monitor, /className=\{`coding-agent-monitor\$\{minimized \? " is-minimized" : ""\}`\}/);
+  assert.match(monitor, /className="workspace-monitor-header"/);
+  assert.match(monitor, /className="workspace-monitor-content"/);
+  assert.match(monitor, /workspace-monitor-light/);
+  assert.match(monitor, /workspace-monitor-indicator/);
+  assert.match(monitor, /<div className="workspace-monitor-dock" role="group"/);
+  // Dock entries open the panel for the exact agent ID of a currently working, validated identity.
+  const dockButton = monitor.match(/<button key=\{key\}[\s\S]*?<\/button>/)?.[0];
+  assert.ok(dockButton);
+  assert.match(dockButton, /aria-pressed=\{openKeys\.has\(key\)\}/);
+  assert.match(dockButton, /onAgentPanelOpen\?\.\(projectId, agentId\)/);
+  assert.match(monitor, /status === "working"[\s\S]*codingAgentProfile\(agentDirectory, identity\.agentId, projectId\)/);
+  assert.match(page, /openCodingAgentPanel\(current, projectId, agentId, agentDirectoryRef\.current\)/);
+  assert.match(page, /onAgentPanelOpen=\{onAgentPanelOpen\}/);
 });
 

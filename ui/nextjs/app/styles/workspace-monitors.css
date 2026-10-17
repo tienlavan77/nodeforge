@@ -78,4 +78,9 @@
 .coding-agent-monitor p { margin: 7px 0; overflow-wrap: anywhere; }
 .coding-agent-monitor small, .coding-agent-monitor header span, .coding-workspace-empty { color: var(--app-muted); }
 .coding-workspace-empty { margin: 0; padding: 14px 0; }
+/* Match System panel chrome: live dot and status in the header, scrolling bounded activity body. */
+.coding-agent-monitor .workspace-monitor-header { cursor: default; }
+.coding-agent-monitor .workspace-monitor-header strong { display: inline; flex: 1; }
+.coding-agent-monitor.is-minimized .workspace-monitor-header { border-bottom: 0; }
+.coding-workspace-list > .coding-workspace-empty { grid-column: 1 / -1; }
 @media (max-width: 760px) { .coding-workspace-monitor { min-height: auto; grid-template-columns: 1fr; grid-template-rows: repeat(2, minmax(0, 1fr)); } .coding-workspace-column { padding: 0 20px 20px; } .coding-workspace-column-header { padding-top: 20px; } }
