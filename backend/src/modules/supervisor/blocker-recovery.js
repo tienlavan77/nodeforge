@@ -4,6 +4,7 @@ import { blockerResponseEvidence } from "./blocker-validation.js";
 
 const STORE = "blocker.recovery";
 const PENDING = ["pending", "invoking", "resume_pending", "dispatching", "notification_pending", "notifying"];
+const SALVAGED = Symbol("salvaged");
 
 // Creates one execution-wide budget; unknown provider launches are never reclaimed or replayed.
 export function createBlockerRecovery({ store, validate, investigate, checkDisposition, resume, notify, clock = Date.now, logger = console,
@@ -13,7 +14,7 @@ export function createBlockerRecovery({ store, validate, investigate, checkDispo
     || !Number.isSafeInteger(deadlineMs) || deadlineMs < 1000 || deadlineMs > 3_600_000) throw new Error("Blocker recovery requires fenced callbacks and finite limits.");
   let active = false;
   let timer;
-  return Object.freeze({ enqueue, tick, start, stop, hasPending, cancel, resumeStage });
+  return Object.freeze({ enqueue, tick, start, stop, hasPending, cancel, resumeStage, reconcileInterrupted });
 
   // Deduplicates failure redelivery while preserving the budget across new revisions and provider changes.
   async function enqueue(input) {
@@ -50,6 +51,20 @@ export function createBlockerRecovery({ store, validate, investigate, checkDispo
         for (const job of ledger.jobs) if (PENDING.includes(job.status)) { job.status = "cancelled"; job.outcome_reason = "owner_cancelled"; }
         await store.save(STORE, ledger);
       }
+    });
+  }
+
+  // Clears a retained interrupted-provider job after reconciliation so a read-only stage may be re-armed without silently replaying an unowned call.
+  async function reconcileInterrupted({ projectId, taskId, executionId, jobId }) {
+    return store.withLock(STORE, async () => {
+      const ledger = (await store.list(STORE)).find((entry) => entry.project_id === projectId && entry.task_id === taskId && entry.execution_id === executionId);
+      const job = jobId ? ledger?.jobs.find((entry) => entry.id === jobId) : ledger?.jobs.at(-1);
+      if (!ledger || !job) return null;
+      if (job.status !== "reconciliation_required" || !["provider_outcome_unknown", "BLOCKER_PROVIDER_UNKNOWN"].includes(job.outcome_reason))
+        throw new Error("Only a retained unknown-provider blocker stage can be reconciled.");
+      job.outcome_reason = "provider_interrupted_reconciled";
+      await store.save(STORE, ledger);
+      return structuredClone(job);
     });
   }
 
@@ -112,13 +127,9 @@ export function createBlockerRecovery({ store, validate, investigate, checkDispo
         await resume(job);
         return update(work, (current) => { current.status = "resumed"; });
       }
-      const response = await investigate(job, { deadline: work.deadline });
-      const saved = await update(work, (current) => {
-        current.disposition_attempts ??= [];
-        current.disposition_attempts.push({ stage: current.stage, status: "received", received_at: clock(), response: blockerResponseEvidence(response) });
-      });
-      if (!saved) return null;
-      const value = await checkDisposition(response, job);
+      const response = await salvagePersistedAttempt(work, job) ?? await investigateAndRecord(work, job);
+      if (!response) return null;
+      const value = response[SALVAGED] ?? await checkDisposition(response, job);
       return update(work, (current) => {
         current.disposition_attempts.at(-1).status = "accepted";
         delete current.validation_feedback;
@@ -146,13 +157,41 @@ export function createBlockerRecovery({ store, validate, investigate, checkDispo
             && ledger.calls < ledger.policy.max_calls && clock() < ledger.deadline_at;
           current.status = repairable ? "pending" : "notification_pending";
           current.validation_feedback = feedback;
-          if (!repairable) current.outcome_reason ??= correctable
+          if (!repairable) current.outcome_reason = correctable
             ? clock() >= ledger.deadline_at ? "disposition_correction_deadline_exhausted" : "disposition_correction_budget_exhausted"
             : error.code ?? "BLOCKER_RECOVERY_FAILED";
           current.last_error = error.message;
         }
       });
     }
+  }
+
+  // Reuses a persisted same-stage response that failed only envelope extraction (json_invalid with a single fenced JSON block), avoiding an unnecessary provider call.
+  async function salvagePersistedAttempt(work, job) {
+    const prior = (job.disposition_attempts ?? []).findLast((attempt) => attempt.stage === job.stage
+      && attempt.status === "rejected" && attempt.validation_errors?.every((err) => err.reason === "json_invalid"));
+    if (!prior?.response?.text) return null;
+    const fences = [...String(prior.response.text).trim().matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/gi)].map((match) => match[1].trim()).filter(Boolean);
+    if (fences.length !== 1) return null;
+    let verified;
+    try { verified = await checkDisposition(JSON.parse(fences[0]), job); }
+    catch (error) { return error && null; }
+    const saved = await update(work, (current, ledger) => {
+      ledger.calls = Math.max(0, ledger.calls - 1);
+      const target = (current.disposition_attempts ?? []).findLast((attempt) => attempt.stage === current.stage && attempt.status === "rejected");
+      if (target) { target.status = "received"; delete target.validation_errors; }
+    });
+    return saved ? { [SALVAGED]: verified } : null;
+  }
+
+  // Invokes the stage provider and records its raw response evidence before disposition validation.
+  async function investigateAndRecord(work, job) {
+    const response = await investigate(job, { deadline: work.deadline });
+    const saved = await update(work, (current) => {
+      current.disposition_attempts ??= [];
+      current.disposition_attempts.push({ stage: current.stage, status: "received", received_at: clock(), response: blockerResponseEvidence(response) });
+    });
+    return saved ? response : null;
   }
 
   // Writes results only for the stage that still owns the persisted invocation reservation.

@@ -91,6 +91,17 @@ export function closeCodingAgentPanel(registry, projectId, agentId) {
   };
 }
 
+// Open the panel for one validated directory agent without waiting for streamed working evidence (dock button path).
+export function openCodingAgentPanel(registry, projectId, agentId, agents) {
+  const key = codingAgentPanelKey(projectId, agentId);
+  if (!key || !codingAgentProfile(agents, agentId, projectId) || registry.panels.some((panel) => panel.key === key)) return registry;
+  const pending = { ...registry.pending };
+  delete pending[key];
+  const closed = { ...registry.closed };
+  delete closed[key];
+  return { ...registry, pending, closed, panels: [...registry.panels, { key, projectId, agentId }] };
+}
+
 // Isolate each panel's actions by exact project and agent identity, never by labels or roles.
 export function codingAgentPanelActions(events, agents, projectId, agentId) {
   const key = codingAgentPanelKey(projectId, agentId);

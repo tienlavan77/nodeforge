@@ -14,7 +14,7 @@ import { createProductionSupervisorRuntime } from "../../src/modules/supervisor/
 
 const AGENT = "11111111-1111-4111-8111-111111111111";
 const EXPECTED_SOURCES = {
-  "modules/supervisor/production-runtime.js": "bf8af53b00e8455c860c9ae5a8304241676b758e26f7f1246d87c77cc6fb720e",
+  "modules/supervisor/production-runtime.js": "d223ddf89b5a3069ae6d5894884dcaca4b867120ac9d875769fdec8b7428c2a3",
   "modules/supervisor/ticket-launch-recovery.js": "be74b0222137620a5111e1fd10edf68c1f5ca7778a232355fc67237bd6eddf69",
   "modules/agent/agent-occupancy-store.js": "a95defc74f2bf83110a7eb7c4e1e96ac9ad34c2bb3c28ecab1b8ec990dd1a12c",
   "modules/supervisor/durable-queue.js": "ab7b69fdb8f3e3a2065900fc56d459495d864391f52cfba41a30433c0998d951"
