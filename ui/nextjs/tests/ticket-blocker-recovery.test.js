@@ -1,6 +1,7 @@
 // Verifies automatic blocker progress and owner proposals render safely without an approval bypass.
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -66,3 +67,22 @@ test("owner escalation displays the exact AM boundary and rationale", () => {
   assert.match(html, /Replace the approved in-process topology/);
   assert.match(html, /SL tự quyết trong Sprint Plan/);
 });
+
+test("governance handoff shows the review identity without repeating the owner choice or granting RUN", () => {
+  const html = renderToStaticMarkup(createElement(TicketBlockerRecovery, { recovery: { status: "governance_required",
+    owner_decision: { option_id: "http" }, proposal: { title: "Repeat vote", options: [] },
+    governance_handoff: { plan_id: "PLAN-CONTRACT-123", revision: 1, sha256: "a".repeat(64), source_path: ".forge/runtime/nf/plans/PLAN-CONTRACT-123/ke-hoach-r1.md" } }, onDecide: () => {} }));
+  assert.match(html, /PLAN-CONTRACT-123/);
+  assert.match(html, /ke-hoach-r1.md/);
+  assert.match(html, /Chưa cấp approval, RUN/);
+  assert.doesNotMatch(html, /Repeat vote|Ghi quyết định|Ticket đã về pending|AM xác định vấn đề vượt quyền/);
+});
+
+test("Human Approve modal closes on approval and auto-resumes when the blocker decision has no active backend handoff", async () => {
+  const review = await readFile(new URL("../components/ticket-human-review.jsx", import.meta.url), "utf8");
+  const card = await readFile(new URL("../components/ticket-detail-modal.jsx", import.meta.url), "utf8");
+  assert.match(review, /const decided = await client\.decideTicketBlocker\(/);
+  assert.match(review, /onApproved\?\.\(await client\.getTicket\(projectId, ticket\.id\), \{ autoResume: !decided\?\.handoff \}\)/);
+  assert.match(card, /onApproved=\{async \(updatedTicket, options\) => \{ setReviewOpen\(false\); setDetail\(null\); if \(options\?\.autoResume && updatedTicket\?\.status !== "done"\) await run\(\); await onRefresh\?\.\(\); \}\}/);
+});
+
