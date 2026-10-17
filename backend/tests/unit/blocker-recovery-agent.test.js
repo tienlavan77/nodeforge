@@ -15,6 +15,8 @@ test("Codex profiles investigate through the tool-only Agents gateway, not nativ
       resolveTicketWorkspace: async () => fixture.base.workspace,
       gateways: { codexSdkGateway: { execute: async () => assert.fail("Native CLI must not be used") }, openaiSdkGateway: { execute: async (input) => {
         assert.equal(input.agent, profile);
+        assert.match(input.prompt, /BLOCKER-DECISION-HTTP/);
+        assert.match(input.prompt, /Do not ask the owner to choose the same direction again/);
         assert.deepEqual(input.options.forgeTools.definitions.map((definition) => definition.name), ["read_source", "list_files"]);
         assert.equal(input.options.builtinWebSearch, undefined);
         const source = await input.options.forgeTools.registry.read_source.execute({ path: fixture.evidence.path });
@@ -22,7 +24,7 @@ test("Codex profiles investigate through the tool-only Agents gateway, not nativ
         assert.equal(input.options.forgeTools.registry.write_diff, undefined);
         return { text: JSON.stringify(fixture.resolution) };
       } } } });
-    const result = await worker({ id: "JOB", stage: "sprint_leader", request: { task_id: "TASK", ticket: fixture.ticket }, history: [] }, { deadline: Date.now() + 1000 });
+    const result = await worker({ id: "JOB", owner_decisions: [{ decision_id: "BLOCKER-DECISION-HTTP", option_id: "http_management_route" }], stage: "sprint_leader", request: { task_id: "TASK", ticket: fixture.ticket }, history: [] }, { deadline: Date.now() + 1000 });
     assert.equal(result.action, "resolved");
     assert.equal(released, 1);
   } finally { await fixture.close(); }
@@ -155,8 +157,13 @@ test("extracts a valid JSON disposition when an agent prefixes discovery notes b
     const worker = createBlockerRecoveryAgent({ agentResolver: { resolveAvailable: () => ({ agent_id: "AM", role: "architecture_manager", provider: "claude", enabled: true, status: "ready" }) },
       agentOccupancy: { claim: async () => ({ claim_id: "CLAIM" }), release: async () => {} },
       resolveTicketWorkspace: async () => fixture.base.workspace,
-      gateways: { claudeSdkGateway: { execute: async () => ({ text: `Based on my investigation:\n1. Confirmed contract boundary.\n\n\`\`\`json\n${JSON.stringify({ ...fixture.resolution, boundary_assessment: null, architecture_basis: null })}\n\`\`\`` }) } } });
-    const result = await worker({ id: "JOB", stage: "architecture_manager", request: { task_id: "TASK", ticket: fixture.ticket }, history: [] }, { deadline: Date.now() + 1000 });
+      gateways: { claudeSdkGateway: { execute: async ({ prompt }) => {
+        assert.match(prompt, /delegated technical contract design/);
+        assert.match(prompt, /Prefer returning action=resolved with authority_scope=architecture/);
+        assert.match(prompt, /if all six flags are false, you MUST return action=resolved instead of owner_required/);
+        return { text: `Based on my investigation:\n1. Confirmed contract boundary.\n\n\`\`\`json\n${JSON.stringify({ ...fixture.resolution, boundary_assessment: null, architecture_basis: null })}\n\`\`\`` };
+      } } } });
+    const result = await worker({ id: "JOB", fulfillment_decision_id: "BLOCKER-DECISION-1", stage: "architecture_manager", request: { task_id: "TASK", ticket: fixture.ticket }, history: [] }, { deadline: Date.now() + 1000 });
     assert.equal(result.action, "resolved");
   } finally { await fixture.close(); }
 });

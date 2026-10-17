@@ -12,7 +12,94 @@ import { createEmbeddingWorker } from "../../modules/index/embedding-worker.js";
 import { createOllamaEmbeddingProvider } from "../../modules/index/ollama-embedding-provider.js";
 
 // Runs the Forge CLI for index rebuild or file watching.
-export async function runCli(args, { cwd = process.cwd(), stdout = process.stdout, stderr = process.stderr, signalEmitter = process, watchProject = startProjectWatch, embeddingProvider } = {}) {
+// Parses and executes thin CLI project lifecycle subcommands (forge project add/remove/list) over the Control API.
+async function runProjectCli(args, { env, fetchImpl, stdout, stderr }) {
+  const action = args[1];
+  if (action !== "add" && action !== "remove" && action !== "list") return null;
+  let serverUrl = env?.NODEFORGE_CONTROL_API_URL ? String(env.NODEFORGE_CONTROL_API_URL).trim() : "";
+  const positionals = [];
+  for (let i = 2; i < args.length; i += 1) {
+    if (args[i] === "--server") {
+      if (i + 1 >= args.length || !String(args[i + 1]).trim()) {
+        stderr.write("Missing value for --server.\n");
+        return 1;
+      }
+      serverUrl = String(args[i + 1]).trim();
+      i += 1;
+    } else if (String(args[i]).startsWith("--")) {
+      stderr.write(`Unknown option: ${args[i]}\n`);
+      return 1;
+    } else {
+      positionals.push(args[i]);
+    }
+  }
+  if (!serverUrl) {
+    stderr.write("Control API server URL is required via --server <url> or NODEFORGE_CONTROL_API_URL.\n");
+    return 1;
+  }
+  let baseUrl;
+  try {
+    baseUrl = new URL(serverUrl);
+  } catch (error) {
+    stderr.write(`Invalid Control API server URL: ${error.message}\n`);
+    return 1;
+  }
+  if (action === "list") {
+    if (positionals.length !== 0) {
+      stderr.write("Usage: forge project list [--server <url>]\n");
+      return 1;
+    }
+    return invokeLifecycleEndpoint(new URL("/lifecycle/list", baseUrl), { method: "GET" }, { fetchImpl, stdout, stderr });
+  }
+  if (positionals.length !== 1) {
+    stderr.write(`Usage: forge project ${action} <absolute-root> [--server <url>]\n`);
+    return 1;
+  }
+  const root = String(positionals[0]).trim();
+  if (!root || !root.startsWith("/")) {
+    stderr.write("Project root must be a non-empty absolute path.\n");
+    return 1;
+  }
+  return invokeLifecycleEndpoint(
+    new URL(`/lifecycle/${action}`, baseUrl),
+    { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ root }) },
+    { fetchImpl, stdout, stderr }
+  );
+}
+
+// Performs a single-shot HTTP request to a Control API lifecycle endpoint and prints its JSON result or error.
+async function invokeLifecycleEndpoint(endpointUrl, init, { fetchImpl, stdout, stderr }) {
+  try {
+    const response = await fetchImpl(endpointUrl, init);
+    const text = await response.text();
+    let payload = null;
+    try {
+      payload = text ? JSON.parse(text) : null;
+    } catch (error) {
+      stderr.write(`Invalid JSON response (${response.status}): ${error.message}\n`);
+      return 1;
+    }
+    if (!response.ok) {
+      const code = payload?.error?.code ?? `http_${response.status}`;
+      const message = payload?.error?.message ?? (text || "Project lifecycle request failed.");
+      stderr.write(`${code}: ${message}\n`);
+      return 1;
+    }
+    stdout.write(`${JSON.stringify(payload)}\n`);
+    return 0;
+  } catch (error) {
+    stderr.write(`${error.message}\n`);
+    return 1;
+  }
+}
+
+export async function runCli(args, { cwd = process.cwd(), env = process.env, fetchImpl = globalThis.fetch, stdout = process.stdout, stderr = process.stderr, signalEmitter = process, watchProject = startProjectWatch, embeddingProvider } = {}) {
+  if (args[0] === "project") {
+    const exitCode = await runProjectCli(args, { env, fetchImpl, stdout, stderr });
+    if (exitCode !== null) {
+      return exitCode;
+    }
+  }
   if (args[0] === "index" && args[1] === "rebuild" && (args.length === 2 || (args.length === 3 && args[2] === "--force"))) {
     let processed = 0;
     const database = await openIndexDatabase(cwd, { runtimeDir: ".forge/runtime/wc" });

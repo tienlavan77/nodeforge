@@ -8,27 +8,30 @@ function unavailable(role) {
 
 // Selects and claims the exact Coder signed in a ticket contract before SDK dispatch.
 export async function selectTicketCoder({ resolver, occupancy, ticket, taskId, ownerId, role, payload }) {
+  const targetRole = role ?? ticket?.required_role ?? "coder";
   const pinnedId = payload.direct_code || payload.tool_test ? null : ticket.execution_contract?.coder;
   const resume = payload.review_resume;
-  const existing = occupancy && role === "coder" ? occupancy.getByTask(taskId) : null;
+  const existing = occupancy && targetRole === "coder" ? occupancy.getByTask(taskId) : null;
   let selected = resume
     ? resolver.list?.("coder")?.find((profile) => profile.agent_id === resume.agent_id && profile.provider === resume.provider && profile.enabled)
     : payload.direct_code ? selectDirectCoder(resolver, payload.resume_from)
       : pinnedId ? resolver.list?.("coder")?.find((profile) => profile.agent_id === pinnedId && profile.enabled && profile.role === "coder" && (profile.status === "ready" || existing?.agent_id === pinnedId && profile.status === "working"))
-        : resolver.resolveAvailable(role);
+        : resolver.resolveAvailable(targetRole);
   if (pinnedId && selected?.agent_id !== pinnedId) throw unavailable("Coder");
   if (!resume && selected?.role === "coder") assertEngineeringProvider(selected);
-  if (!occupancy || role !== "coder") return { selected, claim: null };
+  if (!occupancy || targetRole !== "coder") return { selected, claim: null };
   if (pinnedId && existing && existing.agent_id !== pinnedId) throw unavailable("Coder");
   const candidates = existing ? [existing.agent_id] : pinnedId || resume ? [selected?.agent_id]
     : [selected?.agent_id, ...(resolver.list?.("coder") ?? []).filter((profile) => profile.enabled && profile.status === "ready").map((profile) => profile.agent_id)];
   for (const agentId of [...new Set(candidates.filter(Boolean))]) {
     if (payload.resume_from?.agent_id && agentId !== payload.resume_from.agent_id) continue;
-    if (!resume) assertEngineeringProvider(resolver.list?.("coder")?.find((profile) => profile.agent_id === agentId) ?? selected);
+    const candidate = resolver.list?.("coder")?.find((profile) => profile.agent_id === agentId) ?? (selected?.agent_id === agentId ? selected : null);
+    if (candidate?.role && candidate.role !== "coder") continue;
+    if (!resume) assertEngineeringProvider(candidate ?? selected);
     const claim = await occupancy.claim({ agentId, taskId, supervisorId: ownerId });
     if (claim) {
       if (pinnedId && claim.agent_id !== pinnedId) throw unavailable("Coder");
-      selected = resolver.list?.("coder")?.find((profile) => profile.agent_id === agentId) ?? selected;
+      selected = candidate ?? selected;
       return { selected, claim };
     }
   }

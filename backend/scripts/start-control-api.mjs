@@ -16,6 +16,7 @@ import { logEvent, readLogEvents } from "../src/core/project-log-service.js";
 import { readControlApiConfig } from "./control-api-config.mjs";
 import { createUnifiedStreamPublisher } from "./control-api-unified-stream.mjs";
 import { startControlApi } from "./control-api-lifecycle.mjs";
+import { createProjectLifecycle } from "../src/modules/projects/project-lifecycle.js";
 import { createBuilderContext } from "./control-api-builder-context.mjs";
 import { createOnWriteVerifier } from "./control-api-file-verification.mjs";
 import { createControlApiAgent } from "./control-api-agent.mjs";
@@ -63,6 +64,7 @@ const storage = await createControlApiStorage({
   onWrite: createOnWriteVerifier({ getTestService: () => testService })
 });
 const { fileService, protocolStorage, conversationStateStore, processLock, controlDb, indexDb } = storage;
+const projectLifecycle = config.projectCatalogPath ? await createProjectLifecycle({ catalogPath: config.projectCatalogPath }) : undefined;
 const database = controlDb;
 const { profiles, agentConfiguration, agentGateway, claudeSdkGateway, codexSdkGateway, openaiSdkGateway, ollamaSdkGateway, agentSettings, agentRoleResolver } = createControlApiAgent({ database, fileService, config });
 const planFileService = createFileService({ projectRoot: config.cwd, allowPlanStorage: true });
@@ -105,7 +107,7 @@ let resolveDispatchFoundation;
 const dispatchFoundationReady = new Promise((resolve) => { resolveDispatchFoundation = resolve; });
 const dispatchFoundation = (input) => dispatchFoundationReady.then(() => dispatchTicket({ projectId: input.ticket.project_id, ticketId: input.ticket.id,
   expectedSprintVersion: input.sprintBasis.version, dependencyExpectations: input.dependencyExpectations }));
-const supervisorRuntime = createProductionSupervisorRuntime({ projectRoot: config.cwd, fileService, root: ".forge/runtime", eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, agentRoleResolver, agentOccupancy, ticketStatusStore, sprintRegistry, architecturePlans: markdownPlanStore, replanFoundation: createAutomaticFoundationReplan({ plans: planStore, markdownPlans: markdownPlanStore, sprintRegistry, ticketStatusStore, projectId, dispatch: (input) => dispatchFoundation?.(input) }), codeSearch, codeCache, relevantTreeSelector, freshnessChecker, logger: runtimeLogger, projectLogger: runtimeLogger.emit, projectId,
+const supervisorRuntime = createProductionSupervisorRuntime({ projectRoot: config.cwd, fileService, root: ".forge/runtime", eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, agentRoleResolver, agentOccupancy, ticketStatusStore, sprintRegistry, architecturePlans: markdownPlanStore, plans: planStore, planFileService, replanFoundation: createAutomaticFoundationReplan({ plans: planStore, markdownPlans: markdownPlanStore, sprintRegistry, ticketStatusStore, projectId, dispatch: (input) => dispatchFoundation?.(input) }), codeSearch, codeCache, relevantTreeSelector, freshnessChecker, logger: runtimeLogger, projectLogger: runtimeLogger.emit, projectId,
   checkpointSaved: async (checkpoint) => {
     if (!checkpoint.task_id?.startsWith("CODE-")) return;
     try {
@@ -135,7 +137,7 @@ await supervisorRuntime.startWorkers();
 const dispatchTask = createApprovedTicketDispatch({ projectId, sprintRegistry, ticketStatusStore, integration: supervisorRuntime.integration });
 const directCodeRequest = createDirectCodeRequest({ fileService, integration: supervisorRuntime.integration, checkpoints: supervisorRuntime.agentCheckpoints, projectId, projectLogger: logEvent });
 const ticketHumanReviewService = createTicketHumanReviewService({ projectId, roadmaps, sprintRegistry, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, agentOccupancy, ticketWorkspaceService, publisher: eventPublisher, projectLogger: runtimeLogger.emit });
-const ticketBlockerDecisionService = createTicketBlockerDecisionService({ projectId, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, publisher: eventPublisher, projectLogger: runtimeLogger.emit });
+const ticketBlockerDecisionService = createTicketBlockerDecisionService({ projectId, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, publisher: eventPublisher, fulfillOwnerDecision: supervisorRuntime.blockerRecovery?.fulfillOwnerDecision, projectLogger: runtimeLogger.emit });
 
 // Sprint execution runs one level at a time, gating each ticket on its
 // predecessors' terminal ticket status via the execution event bus.
@@ -192,6 +194,7 @@ const api = createControlApiHttp({ services: {
     }
     return [...coderPending, ...reviewReady];
   },
-  humanDecisionService: createHumanDecisionService({ decisions, bus })
+  humanDecisionService: createHumanDecisionService({ decisions, bus }),
+  projectLifecycle
 } });
-startControlApi({ api, port, host, indexDb, controlDb, processLock, codeCache, ticketWorkspaceService, workers: [supervisorRuntime.senderWorker, supervisorRuntime.collectorWorkerLoop, supervisorRuntime.verificationWorkerLoop].filter(Boolean) });
+startControlApi({ api, port, host, indexDb, controlDb, processLock, codeCache, ticketWorkspaceService, projectLifecycle, workers: [supervisorRuntime.senderWorker, supervisorRuntime.collectorWorkerLoop, supervisorRuntime.verificationWorkerLoop].filter(Boolean) });
