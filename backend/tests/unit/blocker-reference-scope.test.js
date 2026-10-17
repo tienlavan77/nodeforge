@@ -81,18 +81,21 @@ test("correcting the reference scope alone cannot unblock an unapproved lifecycl
 });
 
 // An AM escalation may cite an Architecture passage under the top-level declared scope; a wrong scope still fails closed.
-test("owner escalation inherits the declared authority scope and remains boundary-enforced", async () => {
+test("owner escalation inherits the declared authority scope, enforces boundary matching and exempts ACCESS_REQUIRED from evidence", async () => {
   const context = { plan: { content: {} }, ticket: { objective: "Implement lifecycle without inventing a public management contract." },
     architecture: { basis: { plan_id: "ARCH", revision: 1, sha256: "a".repeat(64) }, markdown: "Public API structure is owner-approved; new routes, prefixes or payloads require explicit owner authority." } };
   const passage = blockerAuthorityPassages(context).find((entry) => entry.scope === "architecture");
   const job = { stage: "architecture_manager", request: { ticket: context.ticket } };
   const value = { action: "owner_required", summary: "A new management transport contract exceeds AM authority.", authority_scope: "architecture",
+    boundary_assessment: { rationale: "Approving a new public contract changes owner scope.",
+      changes_structure: false, changes_owner_scope: true, changes_security_policy: false, changes_data_semantics: false, overrides_guardrails: false, changes_ticket_contract: false },
+    evidence: [{ path: "backend/src/handler.js", sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" }],
     escalation: { boundary: "owner_scope", rationale: "Only the owner can approve a new public contract.",
       authority_reference: { passage_id: passage.passage_id, rationale: "The approved Architecture text fixes public API structure as owner authority." } },
     proposal: { title: "Management transport contract", options: [{ id: "approve", description: "Approve the proposed add/remove/list contract." },
       { id: "defer", description: "Defer transport work until an approved contract exists." }], recommended_option_id: "approve" } };
-  const validate = (entry) => validateBlockerDisposition(entry, { job, plan: context.plan, architecture: context.architecture,
-    fileService: { readFile: async () => "" }, projectRoot: "/p" });
+  const validate = (entry, customJob = job) => validateBlockerDisposition(entry, { job: customJob, plan: context.plan, architecture: context.architecture,
+    fileService: { readFile: async () => "" }, projectRoot: process.cwd() });
   const accepted = await validate(value);
   assert.equal(accepted.escalation.authority_quote, context.architecture.markdown);
   await assert.rejects(validate({ ...value, authority_scope: "sprint" }), (error) => {
@@ -101,4 +104,21 @@ test("owner escalation inherits the declared authority scope and remains boundar
     assert.equal(error.validation_errors[0].received, "sprint");
     return true;
   });
+  await assert.rejects(validate({ ...value, escalation: { ...value.escalation, boundary: "system_structure" } }), (error) => {
+    assert.equal(error.validation_errors[0].reason, "escalation_boundary_mismatch");
+    return true;
+  });
+  await assert.rejects(validate({ ...value, evidence: undefined }), (error) => {
+    assert.equal(error.validation_errors[0].reason, "evidence_invalid");
+    return true;
+  });
+  const accessAccepted = await validate({ ...value, evidence: undefined }, { ...job, reason_code: "ACCESS_REQUIRED" });
+  assert.equal(accessAccepted.action, "owner_required");
+  const fulfilledResolved = await validate({
+    action: "resolved", summary: "AM finalized HTTP contract within approved structure.", guidance: "Implement POST /lifecycle/add with {root:string}.",
+    authority_scope: "architecture", authority_reference: { passage_id: passage.passage_id, rationale: "Uses approved structure without new public boundary." },
+    architecture_basis: context.architecture.basis, evidence: value.evidence,
+    boundary_assessment: { ...value.boundary_assessment, changes_owner_scope: false }
+  }, { ...job, reason_code: "CONTRACT_DECISION_REQUIRED", fulfillment_decision_id: "BLOCKER-DECISION-1" });
+  assert.equal(fulfilledResolved.action, "resolved");
 });

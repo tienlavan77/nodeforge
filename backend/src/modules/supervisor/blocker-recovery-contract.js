@@ -4,6 +4,7 @@ import { assertReviewerReadPath } from "./reviewer-forge-tools.js";
 import { blockerSprintAuthority, assertArchitectureDisposition, assertOwnerEscalation } from "./blocker-decision-authority.js";
 import { resolveBlockerAuthority } from "./blocker-authority-passages.js";
 import { blockerValidationError } from "./blocker-validation.js";
+import { validateBlockerContractDraft } from "./blocker-contract-draft.js";
 
 export const BLOCKER_REASONS = ["SCOPE_CONFLICT", "CONTRACT_DECISION_REQUIRED", "ACCEPTANCE_AMBIGUOUS", "ACCESS_REQUIRED", "SECURITY_RISK"];
 
@@ -14,15 +15,18 @@ export function blockerDigest(value) { return createHash("sha256").update(JSON.s
 export async function validateBlockerDisposition(value, { job, plan, architecture, fileService, projectRoot }) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw blockerValidationError("/", "object_required", "Return one disposition object.");
   value = Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== null && entry !== undefined));
-  const unknown = Object.keys(value).find((key) => !["action", "summary", "guidance", "authority_quote", "authority_reference", "evidence", "proposal", "authority_scope", "architecture_basis", "boundary_assessment", "escalation"].includes(key));
+  const unknown = Object.keys(value).find((key) => !["action", "summary", "guidance", "authority_quote", "authority_reference", "evidence", "proposal", "authority_scope", "architecture_basis", "boundary_assessment", "escalation", "contract_draft"].includes(key));
   if (unknown !== undefined) throw blockerValidationError("/", "additional_property", `Remove unsupported disposition property: ${unknown}.`);
-  if (!["resolved", "architecture_required", "owner_required"].includes(value.action)) throw blockerValidationError("/action", "action_invalid", "Use resolved, architecture_required or owner_required.");
+  if (!["resolved", "architecture_required", "owner_required", "governance_required"].includes(value.action)) throw blockerValidationError("/action", "action_invalid", "Use resolved, architecture_required, owner_required or governance_required.");
   if (!text(value.summary) || value.summary.length > 8000) throw blockerValidationError("/summary", "summary_invalid", "Provide a nonempty summary within 8000 characters.");
+  if (value.action === "governance_required") return validateBlockerContractDraft(value, { job, fileService, projectRoot });
+  if (value.contract_draft) throw blockerValidationError("/contract_draft", "action_mismatch", "A contract draft requires governance_required; it is not execution authority.");
   if (value.action === "architecture_required") {
     if (job?.stage === "architecture_manager") throw blockerValidationError("/action", "architecture_stage_terminal", "AM must resolve the blocker or return owner_required with a bounded escalation; it cannot delegate the decision back to Architecture.");
     return value;
   }
   if (value.action === "owner_required") {
+    if (job?.fulfillment_decision_id) throw blockerValidationError("/action", "owner_fulfillment_required", "This stage fulfills an existing owner choice. Return resolved within the approved structure or a concrete governance_required draft; technical handoff failures require reconciliation, not another policy vote.", { retryable: false });
     if (job?.stage === "sprint_leader") return { ...value, action: "architecture_required" };
     const proposal = value.proposal;
     if (!proposal || !text(proposal.title) || !Array.isArray(proposal.options) || proposal.options.length < 2 || proposal.options.length > 4
@@ -34,29 +38,40 @@ export async function validateBlockerDisposition(value, { job, plan, architectur
     const escalationQuote = value.escalation?.authority_reference === undefined ? undefined
       : resolveBlockerAuthority({ ...value.escalation, authority_scope: escalationScope ?? "sprint" }, { plan, ticket: job.request.ticket, architecture });
     assertOwnerEscalation(value, { job, plan, architecture, authorityQuote: escalationQuote ?? value.escalation?.authority_quote });
+    if (job?.reason_code !== "ACCESS_REQUIRED") await assertSourceEvidence(value.evidence, { fileService, projectRoot });
     if (escalationQuote !== undefined) value = { ...value, escalation: { ...value.escalation, authority_quote: escalationQuote } };
     return value;
   }
-  if (["ACCESS_REQUIRED", "SECURITY_RISK"].includes(job.reason_code)) throw invalid("Agents cannot resolve access or security authority.");
   const ticket = job.request.ticket;
   const scope = value.authority_scope ?? "sprint";
   if (!["sprint", "architecture"].includes(scope)) throw blockerValidationError("/authority_scope", "scope_invalid", "Use sprint or architecture authority scope.");
+  if (["ACCESS_REQUIRED", "SECURITY_RISK"].includes(job.reason_code) && !(job?.stage === "architecture_manager" && scope === "architecture")) {
+    throw blockerValidationError("/action", "access_or_security_authority_required",
+      "Sprint scope cannot resolve access or security blockers; SL must return architecture_required, and AM must resolve at authority_scope=architecture (with all six boundary_assessment flags false) or return owner_required when new access/security policy is needed.", { retryable: true });
+  }
   const authorityQuote = resolveBlockerAuthority(value, { plan, ticket, architecture });
   if (scope === "architecture") assertArchitectureDisposition(value, { job, architecture, authorityQuote });
   const authority = scope === "architecture" ? architecture.markdown : blockerSprintAuthority(plan, ticket);
   if (!text(authorityQuote) || authorityQuote.length < 20 || !authority.includes(authorityQuote)) throw blockerValidationError("/authority_quote", "authority_not_grounded", "Select a Node-issued authority_reference and explain its applicability, or supply a verbatim approved quote.");
   if (!text(value.guidance) || value.guidance.length > 8000) throw blockerValidationError("/guidance", "guidance_invalid", "Provide concrete implementation guidance within the approved scope.");
-  if (!Array.isArray(value.evidence) || !value.evidence.length || value.evidence.length > 8) throw blockerValidationError("/evidence", "evidence_invalid", "Provide one to eight verifiable source references.");
-  for (const [index, evidence] of value.evidence.entries()) {
+  await assertSourceEvidence(value.evidence, { fileService, projectRoot,
+    requireContractBinding: job.reason_code === "CONTRACT_DECISION_REQUIRED" && (job?.stage !== "architecture_manager" || scope !== "architecture"),
+    contractEvidence: ticket.execution_policy?.contract_evidence ?? [], authorityQuote });
+  return value;
+}
+
+// Verifies 1-16 real source file checksums and enforces pre-approved contract bindings for non-AM stages.
+async function assertSourceEvidence(evidenceList, { fileService, projectRoot, requireContractBinding = false, contractEvidence = [], authorityQuote } = {}) {
+  if (!Array.isArray(evidenceList) || !evidenceList.length || evidenceList.length > 16) throw blockerValidationError("/evidence", "evidence_invalid", "Provide one to sixteen verifiable source references.");
+  for (const [index, evidence] of evidenceList.entries()) {
     if (!evidence || !text(evidence.path)) throw blockerValidationError(`/evidence/${index}/path`, "path_required", "Evidence requires a source path.");
     if (!/^[a-f0-9]{64}$/.test(evidence.sha256 ?? "")) throw blockerValidationError(`/evidence/${index}/sha256`, "checksum_invalid", "Provide the full SHA-256 of the inspected source file.");
     await assertReviewerReadPath(projectRoot, evidence.path);
     const content = await fileService.readFile({ path: evidence.path });
     if (createHash("sha256").update(content).digest("hex") !== evidence.sha256) throw blockerValidationError(`/evidence/${index}/sha256`, "evidence_stale", "Blocker evidence is stale. Re-read the source; do not invent a checksum.");
-    if (job.reason_code === "CONTRACT_DECISION_REQUIRED" && !(ticket.execution_policy?.contract_evidence ?? [])
-      .some((ref) => ref.path === evidence.path && ref.sha256 === evidence.sha256 && ref.authority_quote === authorityQuote)) throw invalid("A contract requires an exact approved contract evidence binding; source existence alone is not approval.");
+    if (requireContractBinding && !contractEvidence.some((ref) => ref.path === evidence.path && ref.sha256 === evidence.sha256 && ref.authority_quote === authorityQuote))
+      throw invalid("A contract requires an exact approved contract evidence binding; source existence alone is not approval.");
   }
-  return value;
 }
 
 // Rejects empty protocol fields rather than treating narrative approval as authority.

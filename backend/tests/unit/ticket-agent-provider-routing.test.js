@@ -40,3 +40,20 @@ test("review binds to its signed Reviewer and rejects another retained claim", (
   assert.equal(selectTicketReviewer(resolver, ticket).agent_id, signedReviewer.agent_id);
   assert.throws(() => selectTicketReviewer(resolver, ticket, { agent_id: earlyReviewer.agent_id }), { code: "REVIEWER_NOT_AVAILABLE" });
 });
+
+test("omitted role defaults to coder and never dispatches an earlier architecture_manager on blocker resume", async () => {
+  const amProfile = { agent_id: "am-early", role: "architecture_manager", enabled: true, status: "ready", provider: "anthropic" };
+  const claimed = [];
+  const requestedRoles = [];
+  const resolver = {
+    list: (role) => role === "coder" ? [earlyCoder, signedCoder] : [amProfile, earlyCoder, signedCoder],
+    resolveAvailable: (role) => { requestedRoles.push(role); return role === "coder" ? earlyCoder : amProfile; }
+  };
+  const occupancy = { getByTask: () => null, claim: async ({ agentId }) => { claimed.push(agentId); return { claim_id: "claim", agent_id: agentId }; } };
+  const result = await selectTicketCoder({ resolver, occupancy, ticket: { id: "A5" }, taskId: "A5", ownerId: "SUP-A5", role: undefined, payload: { resume_from: { agent_id: signedCoder.agent_id } } });
+  assert.deepEqual(requestedRoles, ["coder"]);
+  assert.equal(result.selected.agent_id, signedCoder.agent_id);
+  assert.equal(result.selected.role, "coder");
+  assert.deepEqual(claimed, [signedCoder.agent_id]);
+});
+

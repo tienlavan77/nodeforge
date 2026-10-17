@@ -4,6 +4,8 @@ import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 
 const proposal = { action: "owner_required", summary: "A new public contract needs an owner decision.",
+  boundary_assessment: { rationale: "Adding a new public management contract changes the approved ticket contract.",
+    changes_structure: false, changes_owner_scope: false, changes_security_policy: false, changes_data_semantics: false, overrides_guardrails: false, changes_ticket_contract: true },
   escalation: { boundary: "explicit_owner_guardrail", rationale: "Changing the existing approved contract exceeds delegated implementation authority.", authority_quote: "Reuse backend/src/handler.js under the existing approved contract." }, proposal: {
   title: "Project catalog contract", options: [{ id: "existing", description: "Retain the current transport and defer the new public API." },
     { id: "new", description: "Approve the proposed add/remove/list request and response contract, compatibility and verification requirements." }], recommended_option_id: "existing" } };
@@ -37,7 +39,7 @@ test("blocked Coder automatically dispatches SL then Architecture and resumes th
 });
 
 test("new contract proposal is prepared automatically, published once and never auto-approved", async () => {
-  const fixture = await blockerRecoveryFixture({ reason: "CONTRACT_DECISION_REQUIRED", investigate: async (job) => job.stage === "sprint_leader" ? { action: "architecture_required", summary: "Verify compatible management transport." } : proposal });
+  const fixture = await blockerRecoveryFixture({ reason: "CONTRACT_DECISION_REQUIRED", investigate: async (job, resolution) => job.stage === "sprint_leader" ? { action: "architecture_required", summary: "Verify compatible management transport." } : { ...proposal, evidence: resolution.evidence } });
   try {
     await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
     await fixture.recovery.tick(); await fixture.recovery.tick();
@@ -109,9 +111,9 @@ test("access and security blockers cannot be cleared by agent narrative", async 
     const fixture = await blockerRecoveryFixture({ reason });
     try {
       await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
-      await fixture.recovery.tick(); await fixture.recovery.tick();
+      for (let turn = 0; turn < 6; turn += 1) await fixture.recovery.tick();
       assert.equal(fixture.base.invocations, 1);
-      await fixture.recovery.tick();
+      assert.equal(fixture.base.integrations, 0);
       assert.equal((await fixture.ledger()).jobs[0].status, "reconciliation_required");
     } finally { await fixture.close(); }
   }

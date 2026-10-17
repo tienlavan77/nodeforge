@@ -6,6 +6,95 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { getProjectId } from "../../src/modules/projects/project-registry.js";
 import { startProjectRuntime } from "../../src/modules/projects/project-runtime.js";
+import { createControlApiConfig, runLifecycleCli, startLifecycleHttpServer } from "./multi-project-lifecycle-support.js";
+
+test("Control API lifecycle HTTP routes and thin CLI project add/remove/list operate end-to-end across two roots in one process", async () => {
+  const ctx = await fixture();
+  let server = null;
+  let unconfiguredServer = null;
+  try {
+    assert.equal(createControlApiConfig({ rootDir: ctx.rootA, env: {} }).projectCatalogPath, null);
+    assert.equal(
+      createControlApiConfig({ rootDir: ctx.rootA, env: { NODEFORGE_PROJECT_CATALOG_PATH: ctx.catalogPath } }).projectCatalogPath,
+      ctx.catalogPath
+    );
+    assert.throws(
+      () => createControlApiConfig({ rootDir: ctx.rootA, env: { NODEFORGE_PROJECT_CATALOG_PATH: "relative/catalog.json" } }),
+      /NODEFORGE_PROJECT_CATALOG_PATH must be a non-empty absolute path/
+    );
+    assert.throws(
+      () => createControlApiConfig({ rootDir: ctx.rootA, env: { NODEFORGE_PROJECT_CATALOG_PATH: `${ctx.rootA}/.forge/projects.json` } }),
+      /outside any \.forge directory/
+    );
+
+    unconfiguredServer = await startLifecycleHttpServer(null);
+    const unavailableRes = await fetch(`${unconfiguredServer.baseUrl}/lifecycle/list`);
+    assert.equal(unavailableRes.status, 503);
+    const unavailableBody = await unavailableRes.json();
+    assert.equal(unavailableBody.error.code, "lifecycle_unavailable");
+    assert.equal(unavailableBody.error.retryable, true);
+
+    const lifecycle = await ctx.open();
+    server = await startLifecycleHttpServer(lifecycle);
+
+    const relCli = await runLifecycleCli(["project", "add", "relative/path", "--server", server.baseUrl]);
+    assert.equal(relCli.code, 1);
+    assert.match(relCli.stderr, /absolute path/i);
+
+    const addViaOverride = await runLifecycleCli(["project", "add", ctx.rootA, "--server", server.baseUrl], {
+      env: { NODEFORGE_CONTROL_API_URL: "http://127.0.0.1:1" }
+    });
+    assert.equal(addViaOverride.code, 0);
+    assert.match(addViaOverride.json.project.project_id, /^PROJECT-[0-9a-f-]{36}$/);
+
+    const addViaEnv = await runLifecycleCli(["project", "add", ctx.rootB], {
+      env: { NODEFORGE_CONTROL_API_URL: server.baseUrl }
+    });
+    assert.equal(addViaEnv.code, 0);
+    assert.match(addViaEnv.json.project.project_id, /^PROJECT-[0-9a-f-]{36}$/);
+    assert.notEqual(addViaOverride.json.project.project_id, addViaEnv.json.project.project_id);
+
+    const listBoth = await runLifecycleCli(["project", "list", "--server", server.baseUrl]);
+    assert.equal(listBoth.code, 0);
+    assert.equal(listBoth.json.projects.length, 2);
+    assert.deepEqual(listBoth.json.startup_errors, []);
+
+    const badRootRes = await fetch(`${server.baseUrl}/lifecycle/add`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ root: "relative/root" })
+    });
+    assert.equal(badRootRes.status, 400);
+    assert.equal((await badRootRes.json()).error.code, "invalid_lifecycle_root");
+
+    const extraFieldRes = await fetch(`${server.baseUrl}/lifecycle/add`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ root: ctx.rootA, extra: true })
+    });
+    assert.equal(extraFieldRes.status, 400);
+    assert.equal((await extraFieldRes.json()).error.code, "invalid_lifecycle_root");
+
+    const removeA = await runLifecycleCli(["project", "remove", ctx.rootA, "--server", server.baseUrl]);
+    assert.equal(removeA.code, 0);
+    assert.equal(removeA.json.removed, true);
+
+    const removeAgain = await runLifecycleCli(["project", "remove", ctx.rootA, "--server", server.baseUrl]);
+    assert.equal(removeAgain.code, 0);
+    assert.equal(removeAgain.json.removed, false);
+
+    const listAfterRemove = await runLifecycleCli(["project", "list", "--server", server.baseUrl]);
+    assert.equal(listAfterRemove.code, 0);
+    assert.deepEqual(
+      listAfterRemove.json.projects.map((entry) => entry.project_id),
+      [addViaEnv.json.project.project_id]
+    );
+  } finally {
+    if (server) await server.close();
+    if (unconfiguredServer) await unconfiguredServer.close();
+    await ctx.cleanup();
+  }
+});
 import { createOllamaEmbeddingProvider } from "../../src/modules/index/ollama-embedding-provider.js";
 import { fixture, waitFor, fdCount } from "./multi-project-lifecycle-support.js";
 

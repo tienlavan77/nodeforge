@@ -49,9 +49,9 @@ export function TicketHumanReview({ ticket, client, projectId, autoOpen = false,
     {open && <div>
       <TicketBlockerRecovery recovery={review?.blocker_recovery} onDecide={review?.blocker_recovery?.status === "owner_required" && !review?.blocker_recovery?.owner_decision
         ? async ({ option_id, reason }) => {
-          await client.decideTicketBlocker(projectId, ticket.id, { actor: "project_owner", reason, optionId: option_id });
+          const decided = await client.decideTicketBlocker(projectId, ticket.id, { actor: "project_owner", reason, optionId: option_id });
           setReview(await client.getTicketHumanReview(projectId, ticket.id));
-          await onApproved?.(await client.getTicket(projectId, ticket.id));
+          await onApproved?.(await client.getTicket(projectId, ticket.id), { autoResume: !decided?.handoff });
         } : undefined} />
       <p><strong>Reviewer verdict:</strong> {review?.reviewer?.verdict ?? (error ? "Unavailable" : "Loading…")}</p>
       {review?.reviewer?.findings?.length > 0 && <ul>{review.reviewer.findings.map((finding, index) => <li key={`${index}-${finding}`}>{finding}</li>)}</ul>}

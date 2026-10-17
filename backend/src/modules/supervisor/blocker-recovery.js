@@ -1,6 +1,7 @@
 // Coordinates durable SL-to-Architecture blocker jobs with bounded calls, restart fencing and terminal audit.
 import { blockerDigest, BLOCKER_REASONS } from "./blocker-recovery-contract.js";
 import { blockerResponseEvidence } from "./blocker-validation.js";
+import { createBlockerOwnerFollowUp } from "./blocker-owner-follow-up.js";
 
 const STORE = "blocker.recovery";
 const PENDING = ["pending", "invoking", "resume_pending", "dispatching", "notification_pending", "notifying"];
@@ -14,7 +15,8 @@ export function createBlockerRecovery({ store, validate, investigate, checkDispo
     || !Number.isSafeInteger(deadlineMs) || deadlineMs < 1000 || deadlineMs > 3_600_000) throw new Error("Blocker recovery requires fenced callbacks and finite limits.");
   let active = false;
   let timer;
-  return Object.freeze({ enqueue, tick, start, stop, hasPending, cancel, resumeStage, reconcileInterrupted });
+  const followOwnerDecision = createBlockerOwnerFollowUp({ store, clock, maxCalls, deadlineMs });
+  return Object.freeze({ enqueue, tick, start, stop, hasPending, cancel, resumeStage, reconcileInterrupted, followOwnerDecision });
 
   // Deduplicates failure redelivery while preserving the budget across new revisions and provider changes.
   async function enqueue(input) {
@@ -120,7 +122,7 @@ export function createBlockerRecovery({ store, validate, investigate, checkDispo
     try {
       if (operation === "notification_pending") {
         await notify(job);
-        return update(work, (current) => { current.status = current.resolution?.action === "owner_required" && current.stage === "architecture_manager" ? "owner_required" : "reconciliation_required"; });
+        return update(work, (current) => { current.status = ["owner_required", "governance_required"].includes(current.resolution?.action) && current.stage === "architecture_manager" ? current.resolution.action : "reconciliation_required"; });
       }
       if (operation === "resume_pending") {
         await checkDisposition(job.resolution, job);
@@ -137,7 +139,7 @@ export function createBlockerRecovery({ store, validate, investigate, checkDispo
         current.history.push({ stage: current.stage, disposition: value, completed_at: clock() });
         if (value.action === "resolved") { current.resolution = value; current.status = "resume_pending"; }
         else if (current.stage === "sprint_leader") { current.stage = "architecture_manager"; current.status = "pending"; }
-        else if (value.action === "owner_required") { current.resolution = value; current.status = "notification_pending"; current.outcome_reason = "authority_required"; }
+        else if (["owner_required", "governance_required"].includes(value.action)) { current.resolution = value; current.status = "notification_pending"; current.outcome_reason = value.action === "governance_required" ? "contract_revision_required" : "authority_required"; }
         else { current.status = "notification_pending"; current.outcome_reason = "unresolved_after_architecture"; }
       });
     } catch (error) {
@@ -146,6 +148,10 @@ export function createBlockerRecovery({ store, validate, investigate, checkDispo
         if (error.not_started && operation === "pending") { current.status = "pending"; current.last_error = error.message; ledger.calls -= 1; }
         else {
           const feedback = error.validation_errors ?? [{ path: "/", reason: error.code ?? "BLOCKER_RECOVERY_FAILED", message: error.message }];
+          if (operation === "notification_pending" && current.resolution?.action === "governance_required") {
+            current.failed_governance_disposition = current.resolution;
+            delete current.resolution;
+          }
           if (operation === "pending") {
             current.disposition_attempts ??= [];
             if (error.response_evidence) current.disposition_attempts.push({ stage: current.stage, status: "received", received_at: clock(), response: error.response_evidence });
@@ -166,15 +172,16 @@ export function createBlockerRecovery({ store, validate, investigate, checkDispo
     }
   }
 
-  // Reuses a persisted same-stage response that failed only envelope extraction (json_invalid with a single fenced JSON block), avoiding an unnecessary provider call.
+  // Reuses a persisted same-stage response that now passes validation (e.g. after envelope extraction or validator update), avoiding an unnecessary provider call.
   async function salvagePersistedAttempt(work, job) {
     const prior = (job.disposition_attempts ?? []).findLast((attempt) => attempt.stage === job.stage
-      && attempt.status === "rejected" && attempt.validation_errors?.every((err) => err.reason === "json_invalid"));
+      && attempt.status === "rejected" && attempt.response?.text);
     if (!prior?.response?.text) return null;
-    const fences = [...String(prior.response.text).trim().matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/gi)].map((match) => match[1].trim()).filter(Boolean);
-    if (fences.length !== 1) return null;
+    const trimmed = String(prior.response.text).trim();
+    const fences = [...trimmed.matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/gi)].map((match) => match[1].trim()).filter(Boolean);
+    const candidate = fences.length === 1 ? fences[0] : trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
     let verified;
-    try { verified = await checkDisposition(JSON.parse(fences[0]), job); }
+    try { verified = await checkDisposition(JSON.parse(candidate), job); }
     catch (error) { return error && null; }
     const saved = await update(work, (current, ledger) => {
       ledger.calls = Math.max(0, ledger.calls - 1);

@@ -59,6 +59,11 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
         return { ticket_id: ticketId, status: "completed", pipeline: "supervisor", resumed: true, ...(current.details?.execution_id ? { execution_id: current.details.execution_id } : {}) };
       }
       const storedCheckpoint = await checkpoints.load(ticketId);
+      if (["owner_decided", "governance_required"].includes(storedCheckpoint?.blocker_recovery?.status)
+        || storedCheckpoint?.blocker_recovery?.status === "owner_required" && (storedCheckpoint.blocker_owner_decisions?.length || current?.details?.owner_decision)) {
+        if (!blockerRecovery?.fulfillOwnerDecision) throw failure("BLOCKER_GOVERNANCE_UNAVAILABLE", "Architecture handoff is required before Coder can resume.");
+        return await blockerRecovery.fulfillOwnerDecision({ projectId, ticketId });
+      }
       if (!fresh && storedCheckpoint?.status === "blocked" && ["cancelled", "reconciliation_required"].includes(storedCheckpoint.blocker_recovery?.status) && typeof blockerRecovery?.resumeTicket === "function") {
         return await blockerRecovery.resumeTicket({ projectId, ticketId });
       }

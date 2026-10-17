@@ -9,6 +9,7 @@ const basis = { plan_id: "ARCH-PLAN", revision: 1, sha256: "a".repeat(64) };
 const assessment = { rationale: "Use a compatible internal adapter; retain all owner constraints and ticket criteria.", changes_structure: false,
   changes_owner_scope: false, changes_security_policy: false, changes_data_semantics: false, overrides_guardrails: false, changes_ticket_contract: false };
 const ownerProposal = { action: "owner_required", summary: "A proposed structure change exceeds delegated AM authority.",
+  boundary_assessment: { ...assessment, rationale: "Replacing the in-process worker topology changes system structure.", changes_structure: true },
   escalation: { boundary: "system_structure", rationale: "The proposal would replace the approved in-process topology.", authority_quote: boundaryQuote },
   proposal: { title: "Choose the system boundary", options: [{ id: "retain", description: "Keep the current in-process topology and use its existing adapter." },
     { id: "replace", description: "Approve a separate worker service, including isolation, compatibility, migration and rollout verification." }], recommended_option_id: "retain" } };
@@ -35,9 +36,7 @@ test("SL resolves within Sprint authority and resumes without an AM rubber stamp
   const fixture = await blockerRecoveryFixture({ investigate: async (_job, resolution) => resolution });
   try {
     await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
-    await fixture.recovery.tick();
-    assert.equal((await fixture.ledger()).jobs[0].status, "resume_pending");
-    await fixture.recovery.tick();
+    await fixture.recovery.tick(); assert.equal((await fixture.ledger()).jobs[0].status, "resume_pending"); await fixture.recovery.tick();
     assert.deepEqual(fixture.calls, ["sprint_leader"]);
     assert.equal(fixture.base.integrations, 1);
     assert.equal(fixture.base.events.filter((event) => event.type.includes("owner_decision_required")).length, 0);
@@ -48,8 +47,7 @@ test("SL cannot bypass AM by requesting an owner decision directly", async () =>
   const fixture = await blockerRecoveryFixture({ investigate: async (job, resolution) => job.stage === "sprint_leader" ? ownerProposal : resolution });
   try {
     await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
-    await fixture.recovery.tick();
-    assert.equal((await fixture.ledger()).jobs[0].stage, "architecture_manager");
+    await fixture.recovery.tick(); assert.equal((await fixture.ledger()).jobs[0].stage, "architecture_manager");
     await fixture.recovery.tick(); await fixture.recovery.tick();
     assert.deepEqual(fixture.calls, ["sprint_leader", "architecture_manager"]);
     assert.equal(fixture.base.integrations, 1);
@@ -66,31 +64,28 @@ test("AM decides within the authenticated Architecture structure without creatin
   try {
     await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
     await fixture.recovery.tick(); await fixture.recovery.tick(); await fixture.recovery.tick();
-    assert.equal(fixture.base.integrations, 1);
-    assert.deepEqual((await fixture.ledger()).jobs[0].resolution.architecture_basis, basis);
+    assert.equal(fixture.base.integrations, 1); assert.deepEqual((await fixture.ledger()).jobs[0].resolution.architecture_basis, basis);
     assert.equal((await fixture.base.checkpoints.load("TASK")).blocker_recovery.disposition.authority_scope, "architecture");
     assert.equal(fixture.base.events.filter((event) => event.type.includes("owner_decision_required")).length, 0);
   } finally { await fixture.close(); }
 });
 
 test("only AM crossing an evidenced owner boundary publishes concrete owner alternatives", async () => {
-  const fixture = await architectureFixture(async (job) => job.stage === "sprint_leader"
-    ? { action: "architecture_required", summary: "AM must assess structure impact." } : ownerProposal);
+  const fixture = await architectureFixture(async (job, resolution) => job.stage === "sprint_leader"
+    ? { action: "architecture_required", summary: "AM must assess structure impact." } : { ...ownerProposal, evidence: resolution.evidence });
   try {
     await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
     await fixture.recovery.tick(); await fixture.recovery.tick(); await fixture.recovery.tick(); await fixture.recovery.tick();
     assert.equal((await fixture.ledger()).jobs[0].status, "owner_required");
     assert.equal(fixture.base.events.filter((event) => event.type === "task.blocker.owner_decision_required").length, 1);
     const recovery = (await fixture.base.checkpoints.load("TASK")).blocker_recovery;
-    assert.deepEqual(recovery.escalation, ownerProposal.escalation);
-    assert.equal(recovery.proposal.options.length, 2);
-    assert.equal(fixture.base.integrations, 0);
+    assert.deepEqual(recovery.escalation, ownerProposal.escalation); assert.equal(recovery.proposal.options.length, 2); assert.equal(fixture.base.integrations, 0);
   } finally { await fixture.close(); }
 });
 
 test("AM cannot send routine uncertainty to the owner without identifying an approved boundary", async () => {
-  const fixture = await architectureFixture(async (job) => job.stage === "sprint_leader"
-    ? { action: "architecture_required", summary: "AM should decide." } : { ...ownerProposal, escalation: undefined });
+  const fixture = await architectureFixture(async (job, resolution) => job.stage === "sprint_leader"
+    ? { action: "architecture_required", summary: "AM should decide." } : { ...ownerProposal, evidence: resolution.evidence, escalation: undefined });
   try {
     await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
     await fixture.recovery.tick(); await fixture.recovery.tick(); await fixture.recovery.tick();
@@ -129,10 +124,10 @@ test("AM cannot expand immutable ticket contracts or declare structure changes a
 
 test("AM response-shape errors are corrected before owner escalation and automatic recovery", async () => {
   let attempts = 0;
-  const fixture = await architectureFixture(async (job) => {
+  const fixture = await architectureFixture(async (job, resolution) => {
     if (job.stage === "sprint_leader") return { action: "architecture_required", summary: "Investigate the transport boundary." };
     attempts += 1;
-    return attempts === 1 ? { ...ownerProposal, escalation: undefined } : ownerProposal;
+    return attempts === 1 ? { ...ownerProposal, evidence: resolution.evidence, escalation: undefined } : { ...ownerProposal, evidence: resolution.evidence };
   });
   try {
     await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
@@ -162,18 +157,43 @@ test("SL may use the approved Sprint boundary beyond the ticket's abbreviated ob
   } finally { await fixture.close(); }
 });
 
-test("AM authority cannot bypass an explicit existing-contract evidence prerequisite", async () => {
-  const fixture = await architectureFixture(async (job, resolution) => job.stage === "sprint_leader"
-    ? { action: "architecture_required", summary: "Investigate the contract." }
-    : { ...resolution, authority_scope: "architecture", authority_quote: boundaryQuote, architecture_basis: basis, boundary_assessment: assessment },
-  { reason: "CONTRACT_DECISION_REQUIRED" });
+test("AM authority resolves delegated CONTRACT_DECISION_REQUIRED, ACCESS_REQUIRED and SECURITY_RISK within the approved Architecture structure, and SL self-corrects access/security resolved attempts with retryable feedback", async () => {
+  for (const reason of ["CONTRACT_DECISION_REQUIRED", "ACCESS_REQUIRED", "SECURITY_RISK"]) {
+    let slCalls = 0;
+    const fixture = await architectureFixture(async (job, resolution) => {
+      if (job.stage === "sprint_leader") {
+        slCalls += 1;
+        if (slCalls === 1 && reason !== "CONTRACT_DECISION_REQUIRED") return resolution;
+        if (slCalls === 2) assert.equal(job.validation_feedback[0].reason, "access_or_security_authority_required");
+        return { action: "architecture_required", summary: "Investigate the contract and access scope." };
+      }
+      return { ...resolution, authority_scope: "architecture", authority_quote: boundaryQuote, architecture_basis: basis, boundary_assessment: assessment };
+    }, { reason });
+    try {
+      await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
+      for (let turn = 0; turn < 4; turn += 1) await fixture.recovery.tick();
+      assert.equal(fixture.base.invocations, 2); assert.equal(fixture.base.integrations, 1); assert.equal((await fixture.ledger()).jobs[0].status, "resumed");
+    } finally { await fixture.close(); }
+  }
+});
+
+test("owner_required with all-false boundary_assessment is rejected as delegated_to_architecture and blocks boundary inflation on retry", async () => {
+  let attempts = 0;
+  const fixture = await architectureFixture(async (job, resolution) => {
+    if (job.stage === "sprint_leader") return { action: "architecture_required", summary: "AM must assess contract." };
+    attempts += 1;
+    if (attempts === 1) return { ...ownerProposal, evidence: resolution.evidence, boundary_assessment: assessment };
+    if (attempts === 2) {
+      assert.equal(job.validation_feedback[0].reason, "delegated_to_architecture");
+      return { ...ownerProposal, evidence: resolution.evidence };
+    }
+    assert.equal(job.validation_feedback[0].reason, "boundary_inflation_forbidden");
+    return { ...resolution, authority_scope: "architecture", authority_quote: boundaryQuote, architecture_basis: basis, boundary_assessment: assessment };
+  }, { limits: { maxCalls: 5 } });
   try {
     await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
-    await fixture.recovery.tick(); await fixture.recovery.tick(); await fixture.recovery.tick();
-    assert.equal(fixture.base.invocations, 1);
-    assert.equal(fixture.base.integrations, 0);
-    assert.equal((await fixture.ledger()).jobs[0].status, "reconciliation_required");
-    assert.match((await fixture.ledger()).jobs[0].last_error, /approved contract evidence/);
+    for (let turn = 0; turn < 5; turn += 1) await fixture.recovery.tick();
+    assert.equal(attempts, 3); assert.equal(fixture.base.integrations, 1); assert.equal((await fixture.ledger()).jobs[0].status, "resumed");
   } finally { await fixture.close(); }
 });
 
@@ -221,7 +241,6 @@ test("AM corrects its identity using field feedback and resumes with a grounded 
     assert.equal(fixture.base.integrations, 1);
     assert.equal((await fixture.ledger()).calls, 3);
     assert.equal((await fixture.ledger()).jobs[0].disposition_attempts.at(-1).status, "accepted");
-    assert.equal(fixture.base.events.filter((event) => event.type.includes("owner_decision_required")).length, 0);
   } finally { await fixture.close(); }
 });
 
@@ -234,8 +253,5 @@ test("Architecture identity failures report each precise field instead of one co
   }
   assert.throws(() => assertArchitectureDisposition({ authority_quote: boundaryQuote, boundary_assessment: assessment, architecture_basis: {} },
     { job: { stage: "architecture_manager" }, architecture: { basis, markdown: boundaryQuote } }),
-  (error) => {
-    assert.deepEqual(error.validation_errors.map((entry) => entry.path), ["/architecture_basis/plan_id", "/architecture_basis/revision", "/architecture_basis/sha256"]);
-    return true;
-  });
+  (error) => { assert.deepEqual(error.validation_errors.map((entry) => entry.path), ["/architecture_basis/plan_id", "/architecture_basis/revision", "/architecture_basis/sha256"]); return true; });
 });

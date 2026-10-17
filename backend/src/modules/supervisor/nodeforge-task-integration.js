@@ -116,7 +116,8 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
       request_id: request_id ?? `REQ-${taskId}`, correlation_id: correlation_id ?? `CORR-${taskId}`, supervisor_id: ownerId,
       execution_context: executionContext, payload })) return { task_id: taskId, supervisor_id: ownerId, status: "needs_human_review" };
     assertDependencySubmission({ projectId: project_id ?? ticket.project_id, ticket, payload, sprintRegistry, ticketStatusStore });
-    const { selected, claim } = await selectTicketCoder({ resolver: agentResolver, occupancy: agentOccupancy, ticket, taskId, ownerId, role: required_role ?? ticket.required_role, payload });
+    const effectiveRole = required_role ?? ticket.required_role ?? "coder";
+    const { selected, claim } = await selectTicketCoder({ resolver: agentResolver, occupancy: agentOccupancy, ticket, taskId, ownerId, role: effectiveRole, payload });
     if (!selected) throw Object.assign(new ConfigurationError("No enabled and ready Agent Profile is available."), { code: "AGENT_NOT_AVAILABLE" });
     const request = {
       task_id: task_id ?? ticket.id,
@@ -129,7 +130,7 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
       selected_agent_name: selected.agent_name,
       selected_agent_role: selected.role,
       ...(claim ? { claim_id: claim.claim_id, supervisor_id: ownerId } : {}),
-      required_role: required_role ?? ticket.required_role,
+      required_role: effectiveRole,
       ticket,
       ...(executionContext ? { execution_context: executionContext } : {}),
       payload: baseCommit ? { ...payload, review_base_commit: baseCommit } : payload
@@ -223,7 +224,7 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
   async function approvedIntegratedSuccessors(taskId) {
     if (!checkpoints?.load) return [];
     let checkpoint;
-    try { checkpoint = await checkpoints.load(taskId); } catch { return []; }
+    try { checkpoint = await checkpoints.load(taskId); } catch (error) { projectLogger({ event_name: "ticket.checkpoint_read_skipped", level: "debug", status: "skipped", message: error.message, task_id: taskId, source: "nodeforge-task-integration" }); return []; }
     const recovery = checkpoint?.blocker_recovery;
     const replan = recovery?.foundation_replan;
     if (!recovery?.owner_decision || !replan?.ticket_id || replan.source_ticket_id !== taskId || replan.dispatched !== true) return [];

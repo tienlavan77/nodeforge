@@ -14,7 +14,7 @@ import { createPlanRequestState } from "../src/application/plan-request-state.js
 import { createWatcherCacheEvents } from "../src/modules/context/watcher-cache-events.js";
 import { createMarkdownResponseFileService } from "../src/application/markdown-response-file-service.js";
 
-export function createControlApiHttp({ services } = {}) {
+export function createControlApiHttp({ services = {}, projectLifecycle = services.projectLifecycle } = {}) {
   const { bus, communications, conversations, eventStore, indexDb, subscriptions, agentSettings, sprintPlanUpload, sprintOrchestration, sprintPlanLeader, dispatchSprint, dispatchTicket, reviewTicket, runToolLab, directCodeRequest, codeCache, internalBus, ticketCrudService, buildBuilderContext, protocolStorage, agentGateway, agentConfiguration, sdkGateways, conversationStateStore, fileService, planFileService, projectRoot, publishUnifiedStreamEvent, logEvent, projectId, gitService, ticketBlockerReconcileService } = services;
   const agentLoopLogger = createRuntimeLogger({ logEvent, source: "owner-chat-agent-loop" });
   const executionCheckpoint = createOwnerExecutionCheckpoint({ fileService, gitService, role: "system_engineer" });
@@ -39,6 +39,7 @@ export function createControlApiHttp({ services } = {}) {
     projectDashboardService: services.projectDashboardService,
     conversationAuditHistoryService: services.conversationAuditHistoryService,
     humanDecisionService: services.humanDecisionService,
+    projectLifecycle: services.projectLifecycle,
     agentSettingsService: agentSettings,
     sprintPlanUploadService: sprintPlanUpload,
     sprintOrchestrationService: sprintOrchestration,
@@ -47,6 +48,7 @@ export function createControlApiHttp({ services } = {}) {
     reviewTicket,
     runToolLab,
     forgeV1Router: createForgeV1Router({
+      projectLifecycle: services.projectLifecycle,
       dispatchTicket,
       dispatchSprint,
       sprintOrchestrationService: sprintOrchestration,
@@ -77,8 +79,8 @@ export function createControlApiHttp({ services } = {}) {
       planOwnerAuth: services.planOwnerAuth,
       handoffApprovedPlan: planHandoff ? (input) => planHandoff.handoff(input) : null,
       expectedProjectId: projectId,
-      listResumableCheckpoints: services.listResumableCheckpoints
-      ,projectStream
+      listResumableCheckpoints: services.listResumableCheckpoints,
+      projectStream
     })
   });
 }

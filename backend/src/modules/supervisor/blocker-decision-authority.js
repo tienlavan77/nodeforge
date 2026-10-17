@@ -4,6 +4,13 @@ import { blockerValidationError } from "./blocker-validation.js";
 
 export const OWNER_BOUNDARIES = ["system_structure", "owner_scope", "security_policy", "data_semantics", "explicit_owner_guardrail"];
 const IMPACTS = ["changes_structure", "changes_owner_scope", "changes_security_policy", "changes_data_semantics", "overrides_guardrails", "changes_ticket_contract"];
+const BOUNDARY_TO_IMPACT = {
+  system_structure: ["changes_structure"],
+  owner_scope: ["changes_owner_scope"],
+  security_policy: ["changes_security_policy"],
+  data_semantics: ["changes_data_semantics"],
+  explicit_owner_guardrail: ["overrides_guardrails", "changes_ticket_contract"]
+};
 
 // Loads only the exact authenticated Architecture parent of the already-approved Sprint projection.
 export async function approvedBlockerArchitecture(plan, projectId, architecturePlans) {
@@ -59,6 +66,25 @@ export function assertOwnerEscalation(value, { job, plan, architecture, authorit
   const scope = [blockerSprintAuthority(plan, job.request.ticket, { includeExclusions: true }), architecture?.markdown ?? ""];
   if (typeof authorityQuote !== "string" || authorityQuote.trim().length < 20) throw blockerValidationError("/escalation/authority_quote", "quote_invalid", "Copy one approved Sprint or Architecture passage verbatim (at least 20 characters), or cite escalation.authority_reference={passage_id,rationale} from authority_context.passages.");
   if (!scope.some((entry) => entry.includes(authorityQuote))) throw blockerValidationError("/escalation/authority_quote", "quote_not_grounded", "The authority_quote is not verbatim in the approved Sprint or Architecture text. Copy one passage exactly (no composition, joins, reformatting or added markers), or cite escalation.authority_reference={passage_id,rationale} from Node's authority_context.passages.", { received: authorityQuote.slice(0, 240) });
+  const assessment = value.boundary_assessment;
+  if (!assessment || !text(assessment.rationale) || assessment.rationale.length > 8000 || Object.keys(assessment).some((key) => ![...IMPACTS, "rationale"].includes(key))
+    || IMPACTS.some((field) => typeof assessment[field] !== "boolean")) throw blockerValidationError("/boundary_assessment", "assessment_invalid", "Provide boundary_assessment with a rationale and the six boolean boundary impact flags.");
+  if (IMPACTS.every((field) => assessment[field] === false)) throw blockerValidationError("/boundary_assessment", "delegated_to_architecture", "All boundary impact flags are false; this technical decision is within AM authority. Return action=resolved with concrete guidance instead of escalating to the owner.", { retryable: true });
+  if (value.action === "owner_required" && priorAllFalseAssessment(job)) throw blockerValidationError("/boundary_assessment", "boundary_inflation_forbidden", "A prior attempt in this stage established that all boundary impact flags are false; AM cannot inflate impact flags on retry to escalate.", { retryable: true });
+  const requiredImpacts = BOUNDARY_TO_IMPACT[escalation.boundary] ?? [];
+  if (!requiredImpacts.some((field) => assessment[field] === true)) throw blockerValidationError("/boundary_assessment", "escalation_boundary_mismatch", `Escalation boundary ${escalation.boundary} requires at least one matching impact flag (${requiredImpacts.join(", ")}) to be true.`, { expected: requiredImpacts, received: Object.fromEntries(requiredImpacts.map((field) => [field, assessment[field]])) });
+}
+
+// Detects whether an earlier rejected attempt in the current AM stage already attested that no owner boundaries were crossed.
+function priorAllFalseAssessment(job) {
+  return (job?.disposition_attempts ?? []).some((attempt) => {
+    if (attempt?.stage !== "architecture_manager" || attempt?.status !== "rejected") return false;
+    const raw = attempt.response?.text ?? attempt.response;
+    try {
+      const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+      return Boolean(parsed?.boundary_assessment && IMPACTS.every((field) => parsed.boundary_assessment[field] === false));
+    } catch (error) { return error && false; }
+  });
 }
 
 // Rejects empty authority claims instead of accepting ungrounded agent narrative.

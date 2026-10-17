@@ -1,10 +1,14 @@
 // Wires automatic blocker investigation to parked ticket authority, checkpoint resume and owner-decision audit.
 import { createBlockerRecovery } from "./blocker-recovery.js";
 import { createBlockerRecoveryAgent } from "./blocker-recovery-agent.js";
-import { validateBlockerDisposition, BLOCKER_REASONS } from "./blocker-recovery-contract.js";
+import { validateBlockerDisposition } from "./blocker-recovery-contract.js";
 import { matchesTicketExecution } from "../projects/ticket-execution-identity.js";
 import { assertApprovedTicket } from "../governance/sprint-plan-draft.js";
+import { blockerOwnerDecisions } from "./blocker-owner-decisions.js";
 import { approvedTicketDecisions } from "../governance/plan-decision-requests.js";
+import { createBlockerCapture } from "./blocker-recovery-capture.js";
+import { createBlockerOwnerHandoff } from "./blocker-owner-handoff.js";
+import { createBlockerGovernanceHandoff, notifyBlockerGovernance } from "./blocker-governance-handoff.js";
 import { assertDependencyExpectations } from "./ticket-dependency-expectations.js";
 import { preflightBlockerContract } from "./blocker-contract-preflight.js";
 import { approvedBlockerArchitecture } from "./blocker-decision-authority.js";
@@ -15,21 +19,31 @@ import { blockerRecoveryPolicy } from "./blocker-recovery-policy.js";
 const SOURCE_FIELDS = ["source_revision", "base_sha", "manifest_sha", "review_commit_sha"];
 
 // Enables automatic SL/Architecture coordination only for Registry-bound ticket workspaces; `limits` defaults to the deploy-time policy.
-export function createProductionBlockerRecovery({ store, fileService, ticketStatusStore, sprintRegistry, resolveTicketWorkspace, checkpoints,
+export function createProductionBlockerRecovery({ store, fileService, projectId, ticketStatusStore, sprintRegistry, resolveTicketWorkspace, checkpoints,
   eventBus, agentResolver, agentOccupancy, gateways, submitTicket, disposition, projectLogger = () => {}, logger = console,
-  investigate, stopExecution, architecturePlans, replanFoundation, clock = Date.now, limits = blockerRecoveryPolicy() } = {}) {
+  investigate, stopExecution, architecturePlans, replanFoundation, plans, planFileService, clock = Date.now, limits = blockerRecoveryPolicy() } = {}) {
   if (!ticketStatusStore?.listByStatus || !sprintRegistry || !resolveTicketWorkspace || !agentOccupancy) return null;
   const worker = investigate ?? createBlockerRecoveryAgent({ agentResolver, agentOccupancy, gateways, resolveTicketWorkspace, projectLogger, clock });
   const recovery = createBlockerRecovery({ store, validate, investigate: investigateStage, checkDisposition, resume, notify, clock, logger, ...limits });
+  const capture = createBlockerCapture({ ticketStatusStore, checkpoints, sprintRegistry, architecturePlans, resolveTicketWorkspace, recovery, logger, clock });
+  const fulfillOwnerDecision = createBlockerOwnerHandoff({ store, recovery, checkpoints, ticketStatusStore, inspect, projectLogger });
+  const prepareGovernance = createBlockerGovernanceHandoff({ plans, fileService: planFileService, projectId });
   eventBus.subscribe("*", async (event) => {
     if (event.type === "task.needs_human_review" && event.payload?.reason === "CODER_BLOCKED") await captureSafely(event.task_id, event);
   });
-  return Object.freeze({ ...recovery, recover, stopTicket, resumeTicket, reconcileTicket, preflight: (request) => preflightBlockerContract(request,
+  return Object.freeze({ ...recovery, recover, stopTicket, resumeTicket, reconcileTicket, fulfillOwnerDecision, preflight: (request) => preflightBlockerContract(request,
     { sprintRegistry, resolveTicketWorkspace, checkpoints, eventBus, projectLogger, agentOccupancy }) });
 
   // Recovers existing structured Coder blockers so an owner need not copy logs or reset tickets after deployment.
   async function recover() {
-    for (const current of ticketStatusStore.listByStatus("needs_human_review")) await captureSafely(current.ticket_id ?? current.task_id);
+    for (const current of [...ticketStatusStore.listByStatus("needs_human_review"), ...ticketStatusStore.listByStatus("pending")]) {
+      const taskId = current.ticket_id ?? current.task_id;
+      const saved = await checkpoints.load(taskId);
+      if (["owner_required", "owner_decided"].includes(saved?.blocker_recovery?.status) && blockerOwnerDecisions(saved, current).length) {
+        try { await fulfillOwnerDecision({ projectId: current.project_id, ticketId: taskId }); }
+        catch (error) { logger.error?.("Owner contract fulfillment needs reconciliation.", { task_id: taskId, code: error.code, error: error.message }); }
+      } else await captureSafely(taskId);
+    }
   }
 
   // Keeps one stale Sprint or storage fault from preventing other parked tickets and terminal events from progressing.
@@ -37,37 +51,6 @@ export function createProductionBlockerRecovery({ store, fileService, ticketStat
     try { return await capture(taskId, event); }
     catch (error) { projectLogger({ event_name: "ticket.blocker_capture_failed", level: "error", status: "failed", task_id: taskId,
       message: "Automatic blocker intake failed; checkpoint retained for recovery.", payload: { code: error.code, error: error.message } }); return null; }
-  }
-
-  // Captures only the current blocked checkpoint and exact approved ticket, never an arbitrary error string.
-  async function capture(taskId, event) {
-    const current = ticketStatusStore.get(taskId);
-    if (!current?.details?.execution_id || !["running", "needs_human_review"].includes(current.status) || current.details.launch_claim) return;
-    if (event && !matchesTicketExecution(current, event.payload?.execution_id, event.payload?.execution_basis)) return;
-    const checkpoint = await checkpoints.load(taskId);
-    const reason = checkpoint?.triage?.reason_code;
-    if (checkpoint?.status !== "blocked" || checkpoint.failure?.code !== "CODER_BLOCKED" || !BLOCKER_REASONS.includes(reason)) return;
-    const basis = current.details.execution_basis;
-    const { plan } = await sprintRegistry.assertReady(basis.sprint_id, { expectedVersion: basis.version });
-    const spec = plan.content.ticket_specs?.find((ticket) => ticket.id === taskId);
-    if (!spec) return;
-    const ticket = { ...spec, project_id: current.project_id, sprint_id: basis.sprint_id };
-    const choices = approvedTicketDecisions(plan, taskId);
-    if (choices.length) ticket.owner_decisions = choices;
-    const architecture = await approvedBlockerArchitecture(plan, current.project_id, architecturePlans);
-    const workspace = await resolveTicketWorkspace(taskId);
-    const context = await workspace.executionContexts.load(taskId);
-    if (!context || context.project_id !== current.project_id || context.state === "terminal") return;
-    const job = await recovery.enqueue({ reason_code: reason, failure_at: checkpoint.failure.at, message: checkpoint.failure.message, architecture_basis: architecture?.basis ?? null,
-      evidence: checkpoint.triage.evidence_refs ?? [], request: { task_id: taskId, project_id: current.project_id, ticket,
-        supervisor_id: `SUP-${taskId}`, request_id: checkpoint.failure_request_id ?? event?.request_id ?? `BLOCKED-${checkpoint.failure.at}`,
-        correlation_id: checkpoint.correlation_id ?? `CORR-${taskId}`, execution_context: context,
-        payload: { execution_id: current.details.execution_id, sprint_basis: basis, dependency_expectations: current.details.dependency_expectations } } });
-    const latest = await checkpoints.load(taskId);
-    if (job?.status === "pending" && latest?.failure?.at === checkpoint.failure.at) await checkpoints.save({ ...latest,
-      phase: "blocker_triage_pending", blocker_recovery: { job_id: job.id, status: "pending", reason_code: reason } });
-    if (job) await recordTicketStage({ checkpoints, taskId, stage: "sprint_leader", status: job.status === "pending" ? "in_progress" : job.status, details: { job_id: job.id }, logger, clock });
-    return job;
   }
 
   // Revalidates cancellation, plan, dependency intent, source identity and the exact failure before every stage.
@@ -101,7 +84,7 @@ export function createProductionBlockerRecovery({ store, fileService, ticketStat
     if (!authority) throw new Error("Decision authority changed before investigation.");
     await recordTicketStage({ checkpoints, taskId: job.request.task_id, stage: job.stage, status: "in_progress", details: { job_id: job.id }, logger, clock });
     const { objective, in_scope, out_of_scope, approach, acceptance_criteria } = authority.plan.content;
-    return worker({ ...job, authority_context: { sprint: { objective, in_scope, out_of_scope, approach, acceptance_criteria }, architecture: authority.architecture,
+    return worker({ ...job, owner_decisions: blockerOwnerDecisions({ ...authority.checkpoint, blocker_owner_decisions: [...(job.owner_decisions ?? []), ...(authority.checkpoint.blocker_owner_decisions ?? [])] }, authority.current), authority_context: { sprint: { objective, in_scope, out_of_scope, approach, acceptance_criteria }, architecture: authority.architecture,
       passages: blockerAuthorityPassages({ plan: authority.plan, ticket: job.request.ticket, architecture: authority.architecture }) } }, options);
   }
 
@@ -145,7 +128,7 @@ export function createProductionBlockerRecovery({ store, fileService, ticketStat
           validate: () => assertDependencyExpectations({ projectId: job.request.project_id, ticket: job.request.ticket,
             expectations: job.request.payload.dependency_expectations, sprintRegistry, ticketStatusStore }) });
       });
-      return await submitTicket({ ...job.request, request_id: `BLOCKER-RESUME-${job.id}`,
+      return await submitTicket({ ...job.request, required_role: job.request.required_role ?? job.request.ticket?.required_role ?? "coder", request_id: `BLOCKER-RESUME-${job.id}`,
         payload: { ...job.request.payload, retry_source_identity: job.request.execution_context, resume_from: resumed } });
     } catch (error) {
       const latest = ticketStatusStore.get(job.request.task_id);
@@ -166,6 +149,10 @@ export function createProductionBlockerRecovery({ store, fileService, ticketStat
   async function notify(job) {
     const authority = await inspect(job);
     if (!authority) return;
+    if (job.resolution?.action === "governance_required") {
+      await checkDisposition(job.resolution, job);
+      return notifyBlockerGovernance({ job, authority, prepareGovernance, checkpoints, eventBus, projectLogger });
+    }
     const ownerRequired = job.stage === "architecture_manager" && job.resolution?.action === "owner_required";
     const status = ownerRequired ? "owner_required" : "reconciliation_required";
     const updatedCheckpoint = (await recordTicketStage({ checkpoints, taskId: job.request.task_id, stage: ownerRequired ? "owner_decision" : job.stage ?? "sprint_leader", status,
@@ -177,6 +164,7 @@ export function createProductionBlockerRecovery({ store, fileService, ticketStat
       options: [{ id: "reconcile", description: `Inspect persisted investigation evidence: ${job.outcome_reason}. Do not reset or replay an unknown provider invocation.` }], recommended_option_id: "reconcile" };
     if (authority.current.status === "needs_human_review" && !authority.current.details.launch_claim) await checkpoints.save({ ...updatedCheckpoint, status: "blocked", phase: ownerRequired ? "owner_decision" : "blocker_reconciliation_required", blocker_recovery: {
       job_id: job.id, status, reason: job.outcome_reason, proposal, escalation: ownerRequired ? job.resolution.escalation : null, history: job.history,
+      governance_handoff: updatedCheckpoint.blocker_recovery?.governance_handoff ?? null,
       disposition_attempts: job.disposition_attempts ?? [], validation_feedback: job.validation_feedback ?? [], foundation_replan: foundation, last_error: job.last_error ?? null } });
     const request = job.request;
     await eventBus.publish({ type: `task.blocker.${ownerRequired ? "owner_decision_required" : "reconciliation_required"}`, event_id: `BLOCKER-DECISION-${job.id}`, task_id: request.task_id,
