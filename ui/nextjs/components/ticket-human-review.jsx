@@ -51,6 +51,7 @@ export function TicketHumanReview({ ticket, client, projectId, autoOpen = false,
         ? async ({ option_id, reason }) => {
           await client.decideTicketBlocker(projectId, ticket.id, { actor: "project_owner", reason, optionId: option_id });
           setReview(await client.getTicketHumanReview(projectId, ticket.id));
+          await onApproved?.(await client.getTicket(projectId, ticket.id));
         } : undefined} />
       <p><strong>Reviewer verdict:</strong> {review?.reviewer?.verdict ?? (error ? "Unavailable" : "Loading…")}</p>
       {review?.reviewer?.findings?.length > 0 && <ul>{review.reviewer.findings.map((finding, index) => <li key={`${index}-${finding}`}>{finding}</li>)}</ul>}

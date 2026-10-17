@@ -110,10 +110,11 @@ test("Coding headers stay column-local and the agent list fits one, two and thre
       const column=document.querySelector('.coding-workspace-agent'); const last=column.querySelector('.coding-agent-monitor:last-child > div:last-child');
       const rect=last.getBoundingClientRect();return rect.bottom <= column.getBoundingClientRect().bottom && rect.top >= column.querySelector('.coding-workspace-column-header').getBoundingClientRect().bottom;
     })()`), true, "last activity can be read below the header");
-    await page.click("document.querySelector('.coding-agent-monitor:last-child button')");
+    // System chrome orders minimize before close, so target the explicit close control for the identity contract.
+    await page.click("document.querySelector('.coding-agent-monitor:last-child button[aria-label^=\"Close agent panel\"]')");
     assert.equal(await page.evaluate("window.closedPanels.at(-1).agentId"), "coder-6");
     assert.equal(await page.evaluate(`(() => {
-      const button=document.querySelector('.coding-agent-monitor:last-child button');const rect=button.getBoundingClientRect();
+      const button=document.querySelector('.coding-agent-monitor:last-child button[aria-label^="Close agent panel"]');const rect=button.getBoundingClientRect();
       return document.elementFromPoint(rect.x+rect.width/2,rect.y+rect.height/2)===button;
     })()`), true, "close control is not hidden by the sticky header");
     await page.click("document.querySelector('.coding-sprint-plan > button:last-child')");

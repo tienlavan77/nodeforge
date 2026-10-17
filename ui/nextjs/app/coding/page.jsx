@@ -13,7 +13,7 @@ import { createCodingDashboardLoader } from "../../lib/coding-dashboard-loader.j
 import { createCodingPlanEvents } from "../../lib/coding-plan-events.js";
 import { PROJECT_ID } from "../../lib/home-page-constants.js";
 import { agentDisplayName } from "../../lib/home-page-watcher-events.js";
-import { createCodingAgentPanelRegistry, updateCodingAgentPanelRegistry, setCodingAgentPanelSource, closeCodingAgentPanel } from "../../lib/coding-agent-panel-registry.js";
+import { createCodingAgentPanelRegistry, updateCodingAgentPanelRegistry, setCodingAgentPanelSource, closeCodingAgentPanel, openCodingAgentPanel } from "../../lib/coding-agent-panel-registry.js";
 import { createCodingAgentPanelStatePersister, hydrateCodingAgentPanelRegistry, readCodingAgentPanelMembership, releaseRestoredPanelClosures } from "../../lib/coding-agent-panel-state.js";
 
 // Show coding operations without exposing conversation-specific sidebar controls.
@@ -84,6 +84,11 @@ export default function CodingPage() {
     setAgentPanelRegistry((current) => closeCodingAgentPanel(current, projectId, agentId));
   }, []);
 
+  // Open the panel for the selected working agent from the dock, bypassing streamed evidence for this explicit action.
+  const onAgentPanelOpen = useCallback((projectId, agentId) => {
+    setAgentPanelRegistry((current) => openCodingAgentPanel(current, projectId, agentId, agentDirectoryRef.current));
+  }, []);
+
   // Refresh Registry Sprint scope while preserving structured diagnostics for the active page.
   const loadWorkspaceMonitor = useCallback((options) => dashboardLoader.load(options), [dashboardLoader]);
   // Apply a confirmed Sprint deletion locally instead of resetting the entire Coding dashboard.
@@ -110,6 +115,6 @@ export default function CodingPage() {
 
   return <div className="claude-home-shell coding-workspace-shell">
     <ConversationSidebar open={openSidebar} onOpen={() => setOpenSidebar(true)} onClose={() => setOpenSidebar(false)} agentSectionTitle="Code" projects={[{ id: PROJECT_ID, name: "NodeForge" }]} selectedProjectId={PROJECT_ID} onProjectChange={() => {}} showConversationControls={false} />
-    <CodingWorkspaceMonitor planEvents={planEvents} projectId={PROJECT_ID} dashboard={dashboardState.dashboard} dashboardState={dashboardState} client={client} onRefresh={loadWorkspaceMonitor} onSprintDeleted={onSprintDeleted} onTicketDeleted={onTicketDeleted} agentActivities={agentActivities} agentDirectory={agents} agentPanelRegistry={agentPanelRegistry} onAgentPanelClose={onAgentPanelClose} />
+    <CodingWorkspaceMonitor planEvents={planEvents} projectId={PROJECT_ID} dashboard={dashboardState.dashboard} dashboardState={dashboardState} client={client} onRefresh={loadWorkspaceMonitor} onSprintDeleted={onSprintDeleted} onTicketDeleted={onTicketDeleted} agentActivities={agentActivities} agentDirectory={agents} agentPanelRegistry={agentPanelRegistry} onAgentPanelClose={onAgentPanelClose} onAgentPanelOpen={onAgentPanelOpen} />
   </div>;
 }

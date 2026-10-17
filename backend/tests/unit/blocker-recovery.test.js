@@ -180,7 +180,10 @@ test("a crash after the stage claim never redispatches that provider invocation"
     await fixture.recovery.tick();
     assert.equal(fixture.calls.length, 0);
     assert.equal((await fixture.ledger()).jobs[0].outcome_reason, "provider_outcome_unknown");
-    await assert.rejects(fixture.recovery.resumeTicket({ projectId: "P", ticketId: "TASK" }), { code: "TICKET_EXECUTION_RECONCILIATION_REQUIRED" });
+    // The poller never replays, but an explicit RUN first reconciles the interrupted read-only stage under audit, then re-arms it.
+    const resumed = await fixture.recovery.resumeTicket({ projectId: "P", ticketId: "TASK" });
+    assert.equal(resumed.resumed, true);
+    assert.equal(fixture.calls.length, 0, "RUN must not replay the provider during the resume itself");
   } finally { await fixture.close(); }
 });
 
@@ -218,5 +221,78 @@ test("stopped or failed AM stage resumes at architecture_manager in the same tic
     assert.equal(fixture.base.integrations, 1);
     const finalCheckpoint = await fixture.base.checkpoints.load("TASK");
     assert.equal(finalCheckpoint.status, "completed");
+  } finally { await fixture.close(); }
+});
+
+test("an interrupted unknown-provider stage reconciles so a later resume re-arms without replaying the provider", async () => {
+  const fixture = await blockerRecoveryFixture({ investigate: async () => { throw Object.assign(new Error("Unknown provider outcome"), { code: "BLOCKER_PROVIDER_UNKNOWN" }); } });
+  try {
+    await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
+    await fixture.recovery.tick(); await fixture.recovery.tick();
+    const parked = await fixture.base.checkpoints.load("TASK");
+    assert.equal(parked.blocker_recovery.status, "reconciliation_required");
+    assert.ok(["provider_outcome_unknown", "BLOCKER_PROVIDER_UNKNOWN"].includes(parked.blocker_recovery.reason));
+    const beforeCalls = fixture.calls.length;
+    // An explicit RUN now self-heals: it reconciles the interrupted read-only provider stage under audit, then re-arms it,
+    // instead of parking the owner on a 409. The resume itself must never replay the provider.
+    const resumed = await fixture.recovery.resumeTicket({ projectId: "P", ticketId: "TASK" });
+    assert.equal(resumed.resumed, true);
+    assert.ok(["sprint_leader", "architecture_manager"].includes(resumed.resumed_stage));
+    assert.equal(fixture.calls.length, beforeCalls, "reconcile-and-re-arm must never replay the provider");
+  } finally { await fixture.close(); }
+});
+
+test("an explicit reconcile clears the unknown-provider reason so a later RUN re-arms the stage", async () => {
+  const fixture = await blockerRecoveryFixture({ investigate: async () => { throw Object.assign(new Error("Unknown provider outcome"), { code: "BLOCKER_PROVIDER_UNKNOWN" }); } });
+  try {
+    await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
+    await fixture.recovery.tick(); await fixture.recovery.tick();
+    const beforeCalls = fixture.calls.length;
+    const result = await fixture.recovery.reconcileTicket({ projectId: "P", ticketId: "TASK", actor: "project_owner" });
+    assert.equal(result.status, "reconciled");
+    assert.equal(fixture.calls.length, beforeCalls, "reconciliation must never replay the provider");
+    assert.equal((await fixture.ledger()).jobs.at(-1).outcome_reason, "provider_interrupted_reconciled");
+    const resumed = await fixture.recovery.resumeTicket({ projectId: "P", ticketId: "TASK" });
+    assert.equal(resumed.resumed, true);
+  } finally { await fixture.close(); }
+});
+
+test("reconcile rejects a stage that is not an unknown-provider reconciliation and is idempotent after clearing", async () => {
+  const fixture = await blockerRecoveryFixture();
+  try {
+    await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
+    // Nothing parked at reconciliation yet.
+    await assert.rejects(fixture.recovery.reconcileTicket({ projectId: "P", ticketId: "TASK" }), /unknown-provider blocker stage/);
+  } finally { await fixture.close(); }
+});
+
+test("resuming a stage salvages a persisted fenced JSON attempt without re-invoking the provider", async () => {
+  const fixture = await blockerRecoveryFixture();
+  try {
+    await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
+    await fixture.base.store.withLock("blocker.recovery", async () => {
+      const [ledger] = await fixture.base.store.list("blocker.recovery");
+      const job = ledger.jobs[0];
+      ledger.calls = 2;
+      job.stage = "architecture_manager";
+      job.status = "reconciliation_required";
+      job.outcome_reason = "CONFIGURATION_ERROR";
+      job.disposition_attempts = [{ stage: "architecture_manager", status: "rejected", received_at: 1,
+        response: { text: `Based on my investigation:\n\n\`\`\`json\n${JSON.stringify({ ...fixture.resolution, boundary_assessment: null, architecture_basis: null })}\n\`\`\`` },
+        validation_errors: [{ path: "/", reason: "json_invalid", message: "Unexpected token" }] }];
+      await fixture.base.store.save("blocker.recovery", ledger);
+    });
+    const cp = await fixture.base.checkpoints.load("TASK");
+    await fixture.base.checkpoints.save({ ...cp, phase: "blocker_reconciliation_required", stage_progress: [{ stage: "architecture_manager", status: "reconciliation_required" }],
+      blocker_recovery: { job_id: (await fixture.ledger()).jobs[0].id, status: "reconciliation_required", reason: "CONFIGURATION_ERROR" } });
+    let providerCalls = 0;
+    fixture.recreate({ investigate: async () => { providerCalls += 1; throw new Error("Provider must not be called when persisted attempt is salvageable"); } });
+    const resumed = await fixture.recovery.resumeTicket({ projectId: "P", ticketId: "TASK" });
+    assert.equal(resumed.resumed, true);
+    await fixture.recovery.tick();
+    await fixture.recovery.tick();
+    assert.equal(providerCalls, 0);
+    assert.equal((await fixture.ledger()).jobs[0].status, "resumed");
+    assert.equal(fixture.base.integrations, 1);
   } finally { await fixture.close(); }
 });

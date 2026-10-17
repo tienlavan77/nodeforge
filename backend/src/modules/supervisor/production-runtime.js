@@ -30,6 +30,7 @@ import { createProductionAutomaticReview } from "./automatic-review-runtime.js";
 import { createQueuePoller, createProcessMutex, createSignaledQueue } from "./production-runtime-queues.js";
 import { createCoderRecoveryRuntime } from "./coder-recovery-runtime.js";
 import { createProductionBlockerRecovery } from "./blocker-recovery-runtime.js";
+import { blockerRecoveryPolicy } from "./blocker-recovery-policy.js";
 
 const QUEUE_NAMES = ["agent.request", "sender.handoff", "collector.request", "verification.request"];
 const RESUMABLE_STATES = ["CREATED", "READY", "RUNNING", "REPAIRING"];
@@ -61,7 +62,7 @@ export function createProductionSupervisorRuntime({ fileService, projectRoot = p
   coderRecovery ??= createCoderRecoveryRuntime({ store: queueStore, ticketStatusStore, sprintRegistry, resolveTicketWorkspace, checkpoints: agentCheckpoints,
     eventBus, submitTicket: (input) => baseIntegration.submitTicket(input), disposition: ticketDisposition, agentOccupancy, policy: coderRetryPolicy, logger });
   const blockerRecovery = createProductionBlockerRecovery({ store: queueStore, fileService, ticketStatusStore, sprintRegistry, resolveTicketWorkspace, checkpoints: agentCheckpoints,
-    eventBus, agentResolver: agentRoleResolver, agentOccupancy, gateways: { claudeSdkGateway, openaiSdkGateway }, submitTicket: (input) => integration.submitTicket(input), stopExecution: (input) => coderRecovery.stopTicket(input), disposition: ticketDisposition, architecturePlans, replanFoundation, projectLogger, logger });
+    eventBus, agentResolver: agentRoleResolver, agentOccupancy, gateways: { claudeSdkGateway, openaiSdkGateway }, submitTicket: (input) => integration.submitTicket(input), stopExecution: (input) => coderRecovery.stopTicket(input), disposition: ticketDisposition, architecturePlans, replanFoundation, projectLogger, logger, limits: blockerRecoveryPolicy() });
   const supervisorManager = createSupervisorManager({ eventBus, stateStore, preparation, onCreate: (runtime) => {
     const executionContextProvider = createExecutionContextProvider(runtime, runtimeGovernance, toolRegistry);
     const loop = createSupervisorLoop({ runtime, senderQueue: queues["agent.request"], collectorQueue: queues["collector.request"], verificationQueue: queues["verification.request"], sourceRequest: async (taskId, requestId) => (await queueStore.list("agent.request")).find((job) => job.task_id === taskId && (!requestId || job.request_id === requestId) && job.operation !== "review" && job.ticket), eventBus, requestStore: processedRequestStore, agentResolver: agentRoleResolver, agentOccupancy, integrateTicket, automaticReview, coderRecovery, ticketStatusStore, resolveTicketWorkspace, attemptBuilder: typeof attemptBuilderFactory === "function" ? attemptBuilderFactory(runtime, { conversationStateStore, protocolStorage, toolRegistry, governance: runtimeGovernance, executionContextProvider }) : undefined });

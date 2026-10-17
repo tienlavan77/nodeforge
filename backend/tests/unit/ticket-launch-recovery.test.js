@@ -12,11 +12,11 @@ import { createTicketRunDispatch } from "../../src/application/ticket-run-dispat
 import { assertDependencySubmission, captureDependencyExpectations } from "../../src/modules/supervisor/ticket-dependency-expectations.js";
 
 const SOURCE_IDENTITIES = Object.freeze({
-  "modules/supervisor/production-runtime.js": "bf8af53b00e8455c860c9ae5a8304241676b758e26f7f1246d87c77cc6fb720e",
+  "modules/supervisor/production-runtime.js": "d223ddf89b5a3069ae6d5894884dcaca4b867120ac9d875769fdec8b7428c2a3",
   "modules/supervisor/ticket-launch-recovery.js": "be74b0222137620a5111e1fd10edf68c1f5ca7778a232355fc67237bd6eddf69",
   "modules/supervisor/durable-queue.js": "ab7b69fdb8f3e3a2065900fc56d459495d864391f52cfba41a30433c0998d951",
   "modules/supervisor/ticket-dependency-expectations.js": "cf987d85b7b99e66b119ebfbac89f04f4f2823960ed63f504e971ba2991341ac",
-  "application/ticket-run-dispatch.js": "7906c9cd543411358d0092db3e56b4e741527e293606544f7db9b248f6013161"
+  "application/ticket-run-dispatch.js": "6335a9bccf6619666222c63527bff79a1127767d35f5056af05b2da82e6f35fa"
 });
 
 // Checks the declared source manifest inside the verification run, rather than assigning later reads to an earlier PASS.

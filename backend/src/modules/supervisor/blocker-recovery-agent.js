@@ -56,19 +56,19 @@ export function createBlockerRecoveryAgent({ agentResolver, agentOccupancy, gate
       started = true;
       const timeout = new Promise((_resolve, reject) => {
         controller.signal.addEventListener("abort", () => { unknown = true; reject(Object.assign(new Error("Blocker provider interrupted; do not replay."), { code: "BLOCKER_PROVIDER_UNKNOWN" })); }, { once: true });
-        timer = setTimeout(() => controller.abort(), Math.max(1, Math.min(120_000, deadline - clock())));
+        // A stage may use its full remaining ledger window; the SDK gateway timeout and abortSignal remain the outer backstop.
+        // The previous 120s floor fabricated BLOCKER_PROVIDER_UNKNOWN for legitimately slow SL/Architecture investigations.
+        timer = setTimeout(() => controller.abort(), Math.max(1, deadline - clock()));
       });
       const result = await Promise.race([gateway.execute({ agentId: profile.agent_id, agent: profile,
         correlationId, cwd: workspace.path ?? workspace.projectRoot, prompt, options, abortSignal: controller.signal }), timeout]);
       const text = result?.text ?? "";
       if (Buffer.byteLength(text) > 48_000) throw Object.assign(blockerValidationError("/", "response_too_large", "Return a complete JSON disposition within the 48000-byte response budget."), { response_evidence: blockerResponseEvidence(text) });
-      let value;
-      try { value = JSON.parse(text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")); }
-      catch (error) { throw Object.assign(blockerValidationError("/", "json_invalid", `Return valid JSON only: ${error.message}`), { response_evidence: blockerResponseEvidence(text) }); }
+      const value = parseBlockerDispositionJson(text);
       completed = true;
       return value;
     } catch (error) {
-      if (started && error.code !== "BLOCKER_DISPOSITION_INVALID" && !(error instanceof SyntaxError)) unknown = true;
+      if (started && (controller.signal.aborted || error.code === "BLOCKER_PROVIDER_UNKNOWN" || error.provider_outcome === "unknown")) unknown = true;
       throw error;
     } finally {
       clearTimeout(timer);
@@ -78,6 +78,15 @@ export function createBlockerRecoveryAgent({ agentResolver, agentOccupancy, gate
         message: unknown ? "Blocker provider requires reconciliation; claim retained." : completed ? "Automatic blocker investigation ended." : "Automatic blocker investigation failed without a disposition.", payload: { agent_id: profile.agent_id, stage: job.stage, job_id: job.id, provider_started: started } });
     }
   }
+}
+
+// Parses a pure JSON disposition or a single ```json fenced block when an agent prefixes discovery notes.
+export function parseBlockerDispositionJson(text) {
+  const trimmed = String(text ?? "").trim();
+  const fences = [...trimmed.matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/gi)].map((match) => match[1].trim()).filter(Boolean);
+  const candidate = fences.length === 1 ? fences[0] : trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  try { return JSON.parse(candidate); }
+  catch (error) { throw Object.assign(blockerValidationError("/", "json_invalid", `Return valid JSON only: ${error.message}`), { response_evidence: blockerResponseEvidence(text) }); }
 }
 
 // Keeps unavailable agents pending until the finite deadline without claiming a provider invocation ran.

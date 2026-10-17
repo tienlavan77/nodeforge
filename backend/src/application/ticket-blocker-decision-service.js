@@ -36,7 +36,7 @@ export function createTicketBlockerDecisionService({ projectId, ticketStatusStor
       blocker_decision: { decision_id: decision.decision_id, option_id: decision.option_id, job_id: decision.job_id } },
       { expectedCurrentStatus: "needs_human_review", expectedVersion: current.version });
     try {
-      await publisher?.publish?.({ event_id: `EVT-${randomUUID()}`, type: "task.blocker.owner_decision_recorded", project_id: projectId, timestamp: decision.decided_at,
+      await publisher?.publish?.({ event_id: `EVT-${randomUUID()}`, type: "ticket.updated", project_id: projectId, timestamp: decision.decided_at,
         payload: { ticket_id: ticketId, decision_id: decision.decision_id, option_id: decision.option_id, job_id: decision.job_id, reason: decision.reason } });
     } catch (error) {
       projectLogger({ event_name: "ticket.blocker_decision_publish_failed", level: "error", status: "failed", message: "Owner blocker decision was saved but the UI refresh event failed.", task_id: ticketId, source: "ticket-blocker-decision-service", error_code: error.code ?? "EVENT_PUBLISH_FAILED", payload: { error: error.message } });
