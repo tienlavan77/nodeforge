@@ -6,17 +6,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
 import { createControlApiConfig } from "../../scripts/control-api-config.mjs";
-import { createProjectLifecycle, routeProjectLifecycle } from "../../src/modules/projects/project-lifecycle.js";
+import { createProjectLifecycle } from "../../src/modules/projects/project-lifecycle.js";
+import { createForgeV1Router } from "../../src/transport/http/forge-v1-router.js";
 import { formatErrorBody } from "../../src/shared/error-contract.js";
 import { runCli } from "../../src/transport/cli/index.js";
 
 // Starts an in-process HTTP server exposing the Control API lifecycle management endpoints for integration tests.
 export async function startLifecycleHttpServer(projectLifecycle) {
+  const router = createForgeV1Router({ projectLifecycle });
   const server = createServer(async (request, res) => {
     const requestId = "REQ-test";
     try {
       const url = new URL(request.url ?? "/", "http://127.0.0.1");
-      const routed = await routeProjectLifecycle(request.method ?? "GET", url, request, projectLifecycle);
+      const routed = await router.route(request.method ?? "GET", url, request);
       if (!routed) {
         res.statusCode = 404;
         res.setHeader("content-type", "application/json; charset=utf-8");
