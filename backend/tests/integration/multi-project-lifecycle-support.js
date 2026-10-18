@@ -4,37 +4,16 @@ import { EventEmitter } from "node:events";
 import { mkdtemp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createServer } from "node:http";
+import { createHttpApi } from "../../src/transport/http/server.js";
 import { readControlApiConfig } from "../../scripts/control-api-config.mjs";
 import { createProjectLifecycle } from "../../src/modules/projects/project-lifecycle.js";
 import { createForgeV1Router } from "../../src/transport/http/forge-v1-router.js";
-import { formatErrorBody } from "../../src/shared/error-contract.js";
 import { runCli } from "../../src/transport/cli/index.js";
 
 // Starts an in-process HTTP server exposing the Control API lifecycle management endpoints for integration tests.
 export async function startLifecycleHttpServer(projectLifecycle) {
   const router = createForgeV1Router({ projectLifecycle });
-  const server = createServer(async (request, res) => {
-    const requestId = "REQ-test";
-    try {
-      const url = new URL(request.url ?? "/", "http://127.0.0.1");
-      const routed = await router.route(request.method ?? "GET", url, request);
-      if (!routed) {
-        res.statusCode = 404;
-        res.setHeader("content-type", "application/json; charset=utf-8");
-        res.end(JSON.stringify(formatErrorBody({ statusCode: 404, requestId, fallbackMessage: "Not Found" })));
-        return;
-      }
-      res.statusCode = routed.status ?? 200;
-      res.setHeader("content-type", "application/json; charset=utf-8");
-      res.end(JSON.stringify(routed.body));
-    } catch (error) {
-      const statusCode = error?.statusCode ?? 500;
-      res.statusCode = statusCode;
-      res.setHeader("content-type", "application/json; charset=utf-8");
-      res.end(JSON.stringify(formatErrorBody({ error, statusCode, requestId, fallbackMessage: error?.message ?? "Request failed." })));
-    }
-  });
+  const server = createHttpApi({ forgeV1Router: router }).createServer();
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   const baseUrl = `http://127.0.0.1:${address.port}`;

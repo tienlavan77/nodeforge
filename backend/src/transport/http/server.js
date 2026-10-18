@@ -36,6 +36,16 @@ export function createHttpApi({ ownerChatService, conversationStream, projectStr
         request.once?.("close", () => connection.close());
         return;
       }
+      if (forgeV1Router && (
+        (request.method === "POST" && ["/lifecycle/add", "/lifecycle/remove"].includes(url.pathname)) ||
+        (request.method === "GET" && url.pathname === "/lifecycle/list")
+      )) {
+        const result = await forgeV1Router.route(request.method, url, request);
+        if (result) {
+          writeJson(response, result.status, result.body, origin);
+          return;
+        }
+      }
       if (url.pathname.startsWith("/forge/v1/")) {
         const parts = url.pathname.split("/").filter(Boolean).slice(2);
         if (request.method === "GET" && parts.length === 1 && parts[0] === "stream") {

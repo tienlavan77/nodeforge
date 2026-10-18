@@ -13,18 +13,18 @@ test("Control API lifecycle HTTP routes and thin CLI project add/remove/list ope
   let server = null;
   let unconfiguredServer = null;
   try {
-    assert.equal(createControlApiConfig({ rootDir: ctx.rootA, env: {} }).projectCatalogPath, null);
+    assert.equal(createControlApiConfig({ rootDir: ctx.roots[0], env: {} }).projectCatalogPath, null);
     assert.equal(
-      createControlApiConfig({ rootDir: ctx.rootA, env: { NODEFORGE_PROJECT_CATALOG_PATH: ctx.catalogPath } }).projectCatalogPath,
-      ctx.catalogPath
+      createControlApiConfig({ rootDir: ctx.roots[0], env: { NODEFORGE_PROJECT_CATALOG_PATH: "/tmp/nodeforge-global/projects.json" } }).projectCatalogPath,
+      "/tmp/nodeforge-global/projects.json"
     );
     assert.throws(
-      () => createControlApiConfig({ rootDir: ctx.rootA, env: { NODEFORGE_PROJECT_CATALOG_PATH: "relative/catalog.json" } }),
-      /NODEFORGE_PROJECT_CATALOG_PATH must be a non-empty absolute path/
+      () => createControlApiConfig({ rootDir: ctx.roots[0], env: { NODEFORGE_PROJECT_CATALOG_PATH: "relative/catalog.json" } }),
+      /NODEFORGE_PROJECT_CATALOG_PATH must be a normalized absolute path/
     );
     assert.throws(
-      () => createControlApiConfig({ rootDir: ctx.rootA, env: { NODEFORGE_PROJECT_CATALOG_PATH: `${ctx.rootA}/.forge/projects.json` } }),
-      /outside any \.forge directory/
+      () => createControlApiConfig({ rootDir: ctx.roots[0], env: { NODEFORGE_PROJECT_CATALOG_PATH: `${ctx.roots[0]}/.forge/projects.json` } }),
+      /outside any project \.forge directory/
     );
 
     unconfiguredServer = await startLifecycleHttpServer(null);
@@ -41,13 +41,13 @@ test("Control API lifecycle HTTP routes and thin CLI project add/remove/list ope
     assert.equal(relCli.code, 1);
     assert.match(relCli.stderr, /absolute path/i);
 
-    const addViaOverride = await runLifecycleCli(["project", "add", ctx.rootA, "--server", server.baseUrl], {
+    const addViaOverride = await runLifecycleCli(["project", "add", ctx.roots[0], "--server", server.baseUrl], {
       env: { NODEFORGE_CONTROL_API_URL: "http://127.0.0.1:1" }
     });
     assert.equal(addViaOverride.code, 0);
     assert.match(addViaOverride.json.project.project_id, /^PROJECT-[0-9a-f-]{36}$/);
 
-    const addViaEnv = await runLifecycleCli(["project", "add", ctx.rootB], {
+    const addViaEnv = await runLifecycleCli(["project", "add", ctx.roots[1]], {
       env: { NODEFORGE_CONTROL_API_URL: server.baseUrl }
     });
     assert.equal(addViaEnv.code, 0);
@@ -70,16 +70,16 @@ test("Control API lifecycle HTTP routes and thin CLI project add/remove/list ope
     const extraFieldRes = await fetch(`${server.baseUrl}/lifecycle/add`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ root: ctx.rootA, extra: true })
+      body: JSON.stringify({ root: ctx.roots[0], extra: true })
     });
     assert.equal(extraFieldRes.status, 400);
     assert.equal((await extraFieldRes.json()).error.code, "invalid_lifecycle_root");
 
-    const removeA = await runLifecycleCli(["project", "remove", ctx.rootA, "--server", server.baseUrl]);
+    const removeA = await runLifecycleCli(["project", "remove", ctx.roots[0], "--server", server.baseUrl]);
     assert.equal(removeA.code, 0);
     assert.equal(removeA.json.removed, true);
 
-    const removeAgain = await runLifecycleCli(["project", "remove", ctx.rootA, "--server", server.baseUrl]);
+    const removeAgain = await runLifecycleCli(["project", "remove", ctx.roots[0], "--server", server.baseUrl]);
     assert.equal(removeAgain.code, 0);
     assert.equal(removeAgain.json.removed, false);
 

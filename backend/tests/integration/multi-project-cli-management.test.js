@@ -3,6 +3,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { createServer } from "node:http";
+import { once } from "node:events";
+import { createHttpApi } from "../../src/transport/http/server.js";
 import { fixture, startLifecycleHttpServer } from "./multi-project-lifecycle-support.js";
 
 // Runs the shipped executable without sharing runtime objects or mocked HTTP with the server.
@@ -28,6 +33,122 @@ async function invokeCli(serverUrl, action, root) {
     return JSON.parse(stdout);
   } finally { clearTimeout(timeout); }
 }
+
+// Checks lifecycle dispatch preserves unknown paths, CORS, errors, and unmatched-router fallback.
+test("HTTP lifecycle dispatch is narrow and tolerates unmatched router results", async () => {
+  const calls = [];
+  const api = createHttpApi({ forgeV1Router: { route: async (...args) => { calls.push(args); return null; } } });
+  const server = api.createServer();
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  try {
+    for (const path of ["/lifecycle/list", "/lifecycle/unknown", "/unrelated"]) {
+      const response = await fetch(`${baseUrl}${path}`, { headers: { origin: "http://localhost:3100" } });
+      assert.equal(response.status, 404);
+      assert.equal(response.headers.get("access-control-allow-origin"), "http://localhost:3100");
+      assert.equal((await response.json()).error.message, "Route not found.");
+    }
+    assert.equal(calls.length, 1);
+    const options = await fetch(`${baseUrl}/lifecycle/add`, { method: "OPTIONS" });
+    assert.equal(options.status, 204);
+    assert.equal(calls.length, 1);
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+// Starts the shipped Control API bootstrap with isolated storage and bounded process cleanup.
+async function startServingControlApi(projectRoot, catalogPath) {
+  const reservation = createServer();
+  reservation.listen(0, "127.0.0.1");
+  await once(reservation, "listening");
+  const port = reservation.address().port;
+  await new Promise((resolve, reject) => reservation.close((error) => error ? reject(error) : resolve()));
+  const executable = fileURLToPath(new URL("../../scripts/start-control-api.mjs", import.meta.url));
+  const child = spawn(process.execPath, [executable], {
+    env: { ...process.env, NODE_CONTROL_PROJECT_ROOT: projectRoot,
+      NODE_CONTROL_DATA_DIR: join(projectRoot, ".forge", "runtime", "nf"),
+      NODE_CONTROL_PORT: String(port), NODE_CONTROL_HOST: "127.0.0.1",
+      NODEFORGE_PROJECT_CATALOG_PATH: catalogPath ?? "" },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  let output = "";
+  child.stdout.on("data", (chunk) => { output += chunk; });
+  child.stderr.on("data", (chunk) => { output += chunk; });
+  const exited = new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code, signal) => resolve({ code, signal }));
+  });
+  // Awaits runtime shutdown before deleting the serving process's temporary databases.
+  async function close() {
+    const timeout = setTimeout(() => child.kill("SIGKILL"), 15000);
+    try {
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+      const result = await exited;
+      assert.equal(result.code, 0, `Control API shutdown failed: ${output}`);
+    } finally { clearTimeout(timeout); }
+  }
+  const baseUrl = `http://127.0.0.1:${port}`;
+  try {
+    const deadline = Date.now() + 30000;
+    while (Date.now() < deadline) {
+      if (child.exitCode !== null || child.signalCode !== null) assert.fail(`Control API exited: ${output}`);
+      try {
+        const response = await fetch(`${baseUrl}/lifecycle/list`, { signal: AbortSignal.timeout(500) });
+        if (response.status === (catalogPath ? 200 : 503)) return { baseUrl, close };
+      } catch (error) {
+        output = `${output.slice(-12000)}\nStartup probe: ${error.message}`;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.fail(`Control API did not become ready: ${output}`);
+  } catch (error) {
+    try { await close(); } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], "Serving bootstrap and cleanup failed.");
+    }
+    throw error;
+  }
+}
+
+// Proves shipped bootstrap compatibility and thin-client management across actual process restarts.
+test("shipped Control API owns lifecycle runtimes and retains legacy startup", { timeout: 120000 }, async () => {
+  const directory = await mkdtemp("/tmp/nodeforge-serving-");
+  const original = join(directory, "original");
+  const roots = [join(directory, "first"), join(directory, "second")];
+  const catalogPath = join(directory, "projects.json");
+  let serving;
+  try {
+    for (const root of [original, ...roots]) {
+      await mkdir(root);
+      await writeFile(join(root, "sample.js"), "export function sample() { return 1; }\n");
+    }
+    serving = await startServingControlApi(original);
+    const legacy = await fetch(`${serving.baseUrl}/lifecycle/list`);
+    assert.equal(legacy.status, 503);
+    assert.equal((await legacy.json()).error.code, "lifecycle_unavailable");
+    const workspace = await fetch(`${serving.baseUrl}/projects/PROJECT-NODEFORGE/architecture-workspace`);
+    assert.equal(workspace.status, 200);
+    await serving.close();
+    serving = undefined;
+    serving = await startServingControlApi(original, catalogPath);
+    const first = (await invokeCli(serving.baseUrl, "add", roots[0])).project;
+    const second = (await invokeCli(serving.baseUrl, "add", roots[1])).project;
+    assert.notEqual(first.project_id, second.project_id);
+    assert.deepEqual((await invokeCli(serving.baseUrl, "list")).projects, [first, second]);
+    await serving.close();
+    serving = undefined;
+    serving = await startServingControlApi(original, catalogPath);
+    assert.deepEqual((await invokeCli(serving.baseUrl, "list")).projects, [first, second]);
+    assert.deepEqual(await invokeCli(serving.baseUrl, "remove", first.root), { root: first.root, removed: true });
+    assert.deepEqual(await invokeCli(serving.baseUrl, "remove", first.root), { root: first.root, removed: false });
+    assert.deepEqual((await invokeCli(serving.baseUrl, "list")).projects, [second]);
+    assert.deepEqual(await invokeCli(serving.baseUrl, "remove", second.root), { root: second.root, removed: true });
+  } finally {
+    try { await serving?.close(); }
+    finally { await rm(directory, { recursive: true, force: true }); }
+  }
+});
 
 // Verifies admission, stable identity, duplicate admission, removal, and restart through actual CLI HTTP requests.
 test("thin CLI manages two projects owned by one serving process", { timeout: 60000 }, async () => {
