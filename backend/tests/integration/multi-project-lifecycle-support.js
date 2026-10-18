@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
-import { createControlApiConfig } from "../../scripts/control-api-config.mjs";
+import { readControlApiConfig } from "../../scripts/control-api-config.mjs";
 import { createProjectLifecycle } from "../../src/modules/projects/project-lifecycle.js";
 import { createForgeV1Router } from "../../src/transport/http/forge-v1-router.js";
 import { formatErrorBody } from "../../src/shared/error-contract.js";
@@ -57,7 +57,10 @@ export async function runLifecycleCli(args, { env = {}, fetchImpl = globalThis.f
   return { code, stdout: out.trim(), stderr: err.trim(), json: out.trim() ? JSON.parse(out.trim()) : null };
 }
 
-export { createControlApiConfig };
+// Exercises production bootstrap configuration using temporary project roots.
+export function createControlApiConfig({ rootDir, env }) {
+  return readControlApiConfig({ cwd: rootDir, env });
+}
 import { startProjectRuntime } from "../../src/modules/projects/project-runtime.js";
 
 // Creates two actual indexed roots while keeping global catalog metadata outside both roots.
