@@ -88,7 +88,7 @@ export function checkpointedRegistry({ store, registry, taskId, targetPath, allo
           if (selected?.role === "coder" && !labMode && (name === "write_diff" || name === "edit_diff") && !state.coderRulesRead) {
             throw Object.assign(new ConfigurationError("Read workflows/agents/coder/README.md with a Forge file tool before editing code."), { code: "CODER_RULES_REQUIRED" });
           }
-          if (name === "report_done") assertCommitBeforeReport(state, context, labMode);
+          if (name === "report_done" && input?.status !== "blocked") assertCommitBeforeReport(state, context, labMode);
           if (name === "read_file") assertReadNotRepeated(state.readCache, input);
           result = await tool.execute(input, context);
           if (selected?.role === "coder" && ["read_file", "read_lines", "Read", "sed_lines"].includes(name) && (input?.path === "workflows/agents/coder/README.md" || input?.file_path === "workflows/agents/coder/README.md" || input?.file_path?.endsWith("/workflows/agents/coder/README.md")) && (name === "sed_lines" || name === "read_lines" ? result?.exit_code === 0 : typeof result?.content === "string")) state.coderRulesRead = true;
