@@ -45,8 +45,84 @@ async function fixture(context, multi = true) {
     assert.equal(response.status, status, JSON.stringify(result));
     return result;
   }
-  return { base, request, applications, runtimes, disposal, lifecycle };
+  return { base, origin, request, applications, runtimes, disposal, lifecycle };
 }
+
+// Reads actual HTTP SSE frames with a deadline so missing project delivery fails deterministically.
+async function openStream(url, headers = {}) {
+  const response = await fetch(url, { headers, signal: AbortSignal.timeout(5000) });
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type"), /text\/event-stream/);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  // Waits for the selected project's replay or live marker without assuming HTTP chunk boundaries.
+  async function until(marker) {
+    while (!text.includes(marker)) {
+      const chunk = await reader.read();
+      assert.equal(chunk.done, false, `Stream ended before ${marker}`);
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+    return text;
+  }
+  return { until, close: () => reader.cancel() };
+}
+
+// Publishes canonical conversation messages through each project's production bus and store.
+function sendRoutingMessage(services, id, conversationId = "CONV-SHARED") {
+  return services.bus.send({ id, project_id: services.projectId, conversation_id: conversationId,
+    sender: { id: "OWNER", role: "project_owner" }, recipient: { id: "ARCH", role: "architecture_manager" },
+    message_type: "owner.message", payload: { text: id }, timestamp: new Date().toISOString() });
+}
+
+test("existing conversation SSE selects A/B replay and live buses with B as default", async (context) => {
+  const f = await fixture(context);
+  const services = await Promise.all(["PROJECT-A", "PROJECT-B"].map(f.applications.resolve));
+  for (const service of services) sendRoutingMessage(service, `MSG-REPLAY-${service.projectId}`);
+  for (const service of services) {
+    const other = services.find((candidate) => candidate !== service);
+    const url = new URL(`/projects/${service.projectId}/conversations/CONV-SHARED/stream`, f.origin);
+    const stream = await openStream(url);
+    try {
+      const replay = await stream.until("conversation.replay.complete");
+      assert.ok(replay.includes(`MSG-REPLAY-${service.projectId}`));
+      assert.ok(!replay.includes(`MSG-REPLAY-${other.projectId}`));
+      sendRoutingMessage(other, `MSG-OTHER-${service.projectId}`);
+      sendRoutingMessage(service, `MSG-LIVE-${service.projectId}`);
+      const live = await stream.until(`MSG-LIVE-${service.projectId}`);
+      assert.ok(!live.includes(`MSG-OTHER-${service.projectId}`));
+    } finally { await stream.close(); }
+    const resumed = await openStream(url, { "last-event-id": `MSG-REPLAY-${service.projectId}` });
+    try {
+      const replay = await resumed.until("conversation.replay.complete");
+      assert.ok(replay.includes(`MSG-LIVE-${service.projectId}`));
+      assert.ok(!replay.includes(`MSG-REPLAY-${service.projectId}`));
+    } finally { await resumed.close(); }
+  }
+});
+
+test("existing project SSE selects each runtime and rejects unavailable identifiers", async (context) => {
+  const f = await fixture(context);
+  for (const projectId of ["PROJECT-A", "PROJECT-B"]) {
+    const stream = await openStream(`${f.origin}stream?project=${projectId}`);
+    try {
+      const snapshot = await stream.until("stream.snapshot");
+      assert.ok(snapshot.includes(`"project_id":"${projectId}"`));
+      await f.request("stream/events", { method: "POST", status: 202, body: { project_id: projectId, type: "ticket.updated", payload: { marker: `LIVE-${projectId}` } } });
+      assert.ok((await stream.until(`LIVE-${projectId}`)).includes(`LIVE-${projectId}`));
+    } finally { await stream.close(); }
+  }
+  for (const [path, status, code] of [
+    ["/forge/v1/stream", 400, "PROJECT_REQUIRED"],
+    ["/forge/v1/stream?project=UNKNOWN", 404, "PROJECT_NOT_FOUND"],
+    ["/projects/UNKNOWN/conversations/CONV-SHARED/stream", 404, "PROJECT_NOT_FOUND"],
+    ["/projects/PROJECT-A/conversations/CONV-SHARED/stream?project=PROJECT-B", 409, "PROJECT_CONTEXT_CONFLICT"]
+  ]) {
+    const response = await fetch(new URL(path, f.origin));
+    assert.equal(response.status, status);
+    assert.ok(JSON.stringify(await response.json()).includes(code));
+  }
+});
 
 test("one HTTP server uses selected plan, sprint, Git, direct-code and conversation services", async (context) => {
   const f = await fixture(context);

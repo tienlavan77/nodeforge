@@ -65,6 +65,7 @@ function createControlApiHttpOptions({ services = {}, resolveProjectServices } =
     reviewTicket,
     runToolLab,
     forgeV1Router: createForgeV1Router({
+      conversationStream,
       resolveProjectRouter: resolveProjectServices ? createProjectRouterResolver(resolveProjectServices) : undefined,
       projectLifecycle: services.projectLifecycle,
       dispatchTicket,

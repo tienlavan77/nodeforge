@@ -30,9 +30,10 @@ export function createHttpApi({ ownerChatService, conversationStream, projectStr
       }
       const routeParts = url.pathname.split("/").filter(Boolean);
       if (request.method === "GET" && routeParts.length === 5 && routeParts[0] === "projects" && routeParts[2] === "conversations" && routeParts[4] === "stream") {
-        if (!conversationStream) throw new ConfigurationError("Conversation SSE is not configured.");
+        const stream = forgeV1Router?.resolveStreams ? (await forgeV1Router.resolveStreams({ method: request.method, url, parts: routeParts })).conversationStream : conversationStream;
+        if (!stream) throw new ConfigurationError("Conversation SSE is not configured.");
         applyCorsHeaders(response, origin, true);
-        const connection = await conversationStream.connect({ projectId: routeParts[1], conversationId: routeParts[3], response, afterMessageId: request.headers?.["last-event-id"] ?? url.searchParams.get("after") ?? undefined });
+        const connection = await stream.connect({ projectId: routeParts[1], conversationId: routeParts[3], response, afterMessageId: request.headers?.["last-event-id"] ?? url.searchParams.get("after") ?? undefined });
         request.once?.("close", () => connection.close());
         return;
       }
@@ -49,11 +50,12 @@ export function createHttpApi({ ownerChatService, conversationStream, projectStr
       if (url.pathname.startsWith("/forge/v1/")) {
         const parts = url.pathname.split("/").filter(Boolean).slice(2);
         if (request.method === "GET" && parts.length === 1 && parts[0] === "stream") {
-          if (!projectStream) throw new ConfigurationError("Project SSE is not configured.");
           const projectId = url.searchParams.get("project");
           if (!projectId) throw Object.assign(new ConfigurationError("Project query parameter is required."), { statusCode: 400, code: "PROJECT_REQUIRED" });
+          const stream = forgeV1Router?.resolveStreams ? (await forgeV1Router.resolveStreams({ method: request.method, url, parts })).projectStream : projectStream;
+          if (!stream) throw new ConfigurationError("Project SSE is not configured.");
           applyCorsHeaders(response, origin, true);
-          const connection = projectStream.connect({ requestedProjectId: projectId, response, afterEventId: request.headers?.["last-event-id"] ?? url.searchParams.get("after") ?? undefined });
+          const connection = stream.connect({ requestedProjectId: projectId, response, afterEventId: request.headers?.["last-event-id"] ?? url.searchParams.get("after") ?? undefined });
           request.once?.("close", () => connection.close());
           return;
         }
