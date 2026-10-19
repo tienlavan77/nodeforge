@@ -49,13 +49,22 @@ export async function readLogEvents({ logPath = defaultLogPath(), project_id, ta
 }
 
 // Normalizes, validates against the project log schema, appends to the rotated log file and returns the frozen event.
-export function logEvent(entry) {
+export function logEvent(entry, options) {
   const normalized = normalize(entry);
   if (!validator(normalized)) {
     throw new ConfigurationError(`Invalid project log event: ${validator.errors?.map((error) => `${error.instancePath || "/"} ${error.message}`).join("; ")}`);
   }
-  appendLog(normalized);
+  appendLog(normalized, options);
   return Object.freeze(normalized);
+}
+
+// Binds application log reads and writes to the selected project's root instead of global startup state.
+export function createProjectLogService({ projectRoot, fileService }) {
+  const logPath = projectRoot === process.cwd() ? defaultLogPath() : join(projectRoot, ".forge", "runtime", "nf", "project.log");
+  return Object.freeze({
+    logEvent: (entry) => logEvent(entry, { logPath, fileService, projectRoot }),
+    readLogEvents: (filters) => readLogEvents({ ...filters, logPath })
+  });
 }
 
 // Resolves the project log file path from env or defaults to .forge/runtime/nf/project.log.
@@ -75,16 +84,14 @@ function inTimeRange(timestamp, from, to) { const value = Date.parse(timestamp);
 function parseTime(value, label) { const parsed = Date.parse(value); if (!Number.isFinite(parsed)) throw new ConfigurationError(`Invalid ${label} timestamp.`); return parsed; }
 
 // Serializes the validated event to JSONL, selects rotation target, and appends via FileService or direct fs write.
-function appendLog(event) {
-  const logPath = process.env.NODEFORGE_PROJECT_LOG_PATH ?? join(process.cwd(), ".forge", "runtime", "nf", "project.log");
+function appendLog(event, { logPath = defaultLogPath(), fileService = configuredFileService, projectRoot = process.cwd() } = {}) {
   const maxBytes = Number(process.env.NODEFORGE_PROJECT_LOG_MAX_BYTES ?? 256 * 1024 * 1024);
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new ConfigurationError("Project log max bytes must be a positive integer.");
   const line = `${JSON.stringify(event)}\n`;
   const target = nextLogPath(logPath, maxBytes, Buffer.byteLength(line));
-  if (configuredFileService) {
-    const projectRoot = process.cwd();
+  if (fileService) {
     const relativePath = target.startsWith(`${projectRoot}/`) ? target.slice(projectRoot.length + 1) : target;
-    configuredFileService.appendFileSync({ path: relativePath, content: line });
+    fileService.appendFileSync({ path: relativePath, content: line });
   } else {
     mkdirSync(dirname(logPath), { recursive: true });
     appendFileSync(target, line, { encoding: "utf8", flag: "a" });

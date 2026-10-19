@@ -4,11 +4,13 @@ import { isAbsolute, resolve } from "node:path";
 import { ProjectRegistry } from "./project-registry.js";
 import { createProjectCatalog } from "./project-catalog.js";
 import { startProjectRuntime } from "./project-runtime.js";
+import { createProjectRuntimeDisposal } from "./project-runtime-disposal.js";
 
 // Restores independent project runtimes from global metadata without adding public transport routes.
 export async function createProjectLifecycle({ catalogPath, registry = new ProjectRegistry(), startRuntime = startProjectRuntime, runtimeOptions = {}, logger = console } = {}) {
   const catalog = await createProjectCatalog({ catalogPath });
   const runtimes = new Map();
+  const { registerCleanup, releaseRuntime, isAvailable } = createProjectRuntimeDisposal();
   const startupErrors = [];
   let tail = Promise.resolve();
   let closed = false;
@@ -19,7 +21,7 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
       startupErrors.push({ root: entry.root, error: error.message, ...(error.code ? { code: error.code } : {}) });
     }
   }
-  return Object.freeze({ add, remove, list, get, close, startupErrors: Object.freeze(startupErrors) });
+  return Object.freeze({ add, remove, list, get, close, registerCleanup, startupErrors: Object.freeze(startupErrors) });
 
   // Canonicalizes roots so symlinks and relative aliases cannot start duplicate watchers.
   async function canonicalRoot(root) {
@@ -82,7 +84,7 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
       }
       const runtime = runtimes.get(canonical);
       if (runtime) {
-        await runtime.close();
+        await releaseRuntime(runtime);
         runtimes.delete(canonical);
       }
       const entries = catalog.list();
@@ -94,12 +96,13 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
 
   // Lists only projects actually serving in this process, not failed restart entries.
   function list() {
-    return [...runtimes].map(([root, runtime]) => ({ root, projectId: runtime.projectId }));
+    return closed ? [] : [...runtimes].filter(([, runtime]) => isAvailable(runtime)).map(([root, runtime]) => ({ root, projectId: runtime.projectId }));
   }
 
   // Gives the Control API composition layer a project-local runtime without replacing request resolution.
   async function get(root) {
-    return runtimes.get(await canonicalRoot(root));
+    const runtime = runtimes.get(await canonicalRoot(root));
+    return !closed && runtime && isAvailable(runtime) ? runtime : undefined;
   }
 
   // Rejects new admission and drains queued work before stopping every runtime; membership survives restart.
@@ -112,7 +115,7 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
   // Releases unrelated runtimes even if another project's shutdown reports an error.
   async function shutdown() {
     await tail;
-    const results = await Promise.allSettled([...runtimes.values()].map((runtime) => runtime.close()));
+    const results = await Promise.allSettled([...runtimes.values()].map(releaseRuntime));
     runtimes.clear();
     const errors = results.filter((result) => result.status === "rejected").map((result) => result.reason);
     if (errors.length) throw new AggregateError(errors, "Project lifecycle shutdown failed.");

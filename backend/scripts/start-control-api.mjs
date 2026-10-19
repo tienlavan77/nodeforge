@@ -12,7 +12,7 @@ import { createConversationAuditHistoryService } from "../src/application/conver
 import { createHumanDecisionService } from "../src/application/human-decision-service.js";
 import { createGitService } from "../src/infrastructure/git/git-service.js";
 import { createUnifiedStreamOrderer } from "../src/modules/events/unified-stream-order.js";
-import { logEvent, readLogEvents } from "../src/core/project-log-service.js";
+import { createProjectLogService } from "../src/core/project-log-service.js";
 import { readControlApiConfig } from "./control-api-config.mjs";
 import { createUnifiedStreamPublisher } from "./control-api-unified-stream.mjs";
 import { startControlApi } from "./control-api-lifecycle.mjs";
@@ -23,6 +23,7 @@ import { createControlApiAgent } from "./control-api-agent.mjs";
 import { createControlApiPlatform } from "./control-api-platform.mjs";
 import { createControlApiStorage } from "./control-api-storage.mjs";
 import { createControlApiHttp } from "./control-api-http.mjs";
+import { createProjectApplicationRegistry } from "./control-api-project-applications.mjs";
 import { createProductionSupervisorRuntime } from "../src/modules/supervisor/production-runtime.js";
 import { createTerminalBridge } from "../src/modules/supervisor/terminal-bridge.js";
 import { createRuntimeLogger } from "../src/core/runtime-logger.js";
@@ -42,6 +43,7 @@ import { createTicketPipelineInventory } from "../src/modules/supervisor/ticket-
 import { createTicketPipelineRollout } from "../src/modules/supervisor/ticket-pipeline-rollout.js";
 import { createTicketPipelineShadow } from "../src/modules/supervisor/ticket-pipeline-shadow.js";
 import { createTicketPipelineDisposition } from "../src/modules/supervisor/ticket-pipeline-disposition.js";
+import { createCancelledTicketClaimReconciliation } from "../src/modules/supervisor/ticket-cancelled-claims.js";
 import { createHumanPlanStore } from "../src/modules/governance/human-plan-store.js";
 import { createMarkdownPlanStore } from "../src/modules/governance/markdown-plan-store.js";
 import { createSprintRegistry } from "../src/modules/governance/sprint-registry.js";
@@ -65,6 +67,12 @@ const storage = await createControlApiStorage({
 });
 const { fileService, protocolStorage, conversationStateStore, processLock, controlDb, indexDb } = storage;
 const projectLifecycle = config.projectCatalogPath ? await createProjectLifecycle({ catalogPath: config.projectCatalogPath }) : undefined;
+// Builds a complete application bundle while leaving startup initialization and lifecycle admission intact.
+async function createProjectApplication({ config, storage, onTestService = () => {} }) {
+const { fileService, protocolStorage, conversationStateStore, controlDb, indexDb } = storage;
+let testService;
+const { logEvent, readLogEvents } = createProjectLogService({ projectRoot: config.cwd, fileService });
+try {
 const database = controlDb;
 const { profiles, agentConfiguration, agentGateway, claudeSdkGateway, codexSdkGateway, openaiSdkGateway, ollamaSdkGateway, agentSettings, agentRoleResolver } = createControlApiAgent({ database, fileService, config });
 const planFileService = createFileService({ projectRoot: config.cwd, allowPlanStorage: true });
@@ -88,12 +96,16 @@ const agentOccupancy = createAgentOccupancyStore({ database, profiles, configura
   await eventPublisher.publish(event);
 } });
 testService = platform.testService;
+onTestService(testService);
 const unifiedStreamOrder = createUnifiedStreamOrderer();
 const runtimeLogger = createRuntimeLogger({ logEvent: createAgentActivityLogger({ logEvent, executionActivity }) });
-const codeCache = createCodeCacheService({ projectId, fileService, codeSearch, logger: runtimeLogger.emit });
-const ticketWorkspaceService = createTicketWorkspaceService({ projectRoot: config.cwd, projectId, protocolStorage, stateFileService: fileService, indexDatabase: indexDb, codeSearch, fileGraph, codeCache, rootOnly: process.env.NODEFORGE_TICKET_EXECUTION_MODE === "root-only", projectLogger: runtimeLogger.emit });
+const codeCache = storage.disposal.own(createCodeCacheService({ projectId, fileService, codeSearch, logger: runtimeLogger.emit }), "close", 20);
+const ticketWorkspaceService = storage.disposal.own(createTicketWorkspaceService({ projectRoot: config.cwd, projectId, protocolStorage, stateFileService: fileService, indexDatabase: indexDb, codeSearch, fileGraph, codeCache, rootOnly: process.env.NODEFORGE_TICKET_EXECUTION_MODE === "root-only", projectLogger: runtimeLogger.emit }), "close", 30);
 const ticketPipelineInventory = createTicketPipelineInventory({ projectRoot: config.cwd, projectId, fileService });
-const ticketPipelineDisposition = createTicketPipelineDisposition({ projectId, fileService, inventory: ticketPipelineInventory, projectLogger: runtimeLogger.emit });
+const reconcileCancelledClaims = createCancelledTicketClaimReconciliation({ projectId, fileService, projectLogger: runtimeLogger.emit,
+  isExecutionActive: async (taskId) => agentOccupancy.listActive().some((claim) => claim.task_id === taskId)
+    || ["running", "reviewing"].includes(ticketStatusStore.get(taskId)?.status) || Boolean(ticketStatusStore.get(taskId)?.details?.launch_claim) });
+const ticketPipelineDisposition = createTicketPipelineDisposition({ projectId, fileService, inventory: ticketPipelineInventory, reconcileCancelledClaims, projectLogger: runtimeLogger.emit });
 const ticketPipelineRollout = createTicketPipelineRollout({ projectId, fileService, inventory: ticketPipelineInventory, disposition: ticketPipelineDisposition, projectLogger: runtimeLogger.emit });
 const ticketPipelineShadow = createTicketPipelineShadow({ projectId, fileService, rollout: ticketPipelineRollout, projectLogger: runtimeLogger.emit });
 let ticketPipelineMode = await ticketPipelineRollout.load();
@@ -132,6 +144,7 @@ createTerminalBridge({
   taskSummaries, projectMemory,
   logger: runtimeLogger.emit
 });
+const workers = [supervisorRuntime.senderWorker, supervisorRuntime.collectorWorkerLoop, supervisorRuntime.verificationWorkerLoop].filter(Boolean).map((worker) => storage.disposal.own(worker, "stop", 10));
 await supervisorRuntime.recover();
 await supervisorRuntime.startWorkers();
 const dispatchTask = createApprovedTicketDispatch({ projectId, sprintRegistry, ticketStatusStore, integration: supervisorRuntime.integration });
@@ -174,7 +187,7 @@ const dispatchSprint = createSprintRunDispatch({ projectId, sprintRegistry, spri
 
 const publishUnifiedStreamEvent = createUnifiedStreamPublisher({ unifiedStreamOrder, internalBus, bus, projectId, logEvent });
 
-const api = createControlApiHttp({ services: {
+const services = {
   bus, communications, conversations, eventStore, indexDb: platformIndexDb, subscriptions, knowledge, roadmaps, sprintPlans, provenance, gitService, planFileService, sprintPlanLeader,
   planStore, markdownPlanStore, sprintRegistry, planOwnerAuth, database, agentRoleResolver, testService,
   relevantTreeSelector, decisions, agentSettings, sprintPlanUpload, sprintOrchestration, dispatchTicket, runToolLab, directCodeRequest, internalBus,
@@ -196,5 +209,16 @@ const api = createControlApiHttp({ services: {
   },
   humanDecisionService: createHumanDecisionService({ decisions, bus }),
   projectLifecycle
-} });
-startControlApi({ api, port, host, indexDb, controlDb, processLock, codeCache, ticketWorkspaceService, projectLifecycle, workers: [supervisorRuntime.senderWorker, supervisorRuntime.collectorWorkerLoop, supervisorRuntime.verificationWorkerLoop].filter(Boolean) });
+};
+return { services, storage, codeCache, ticketWorkspaceService, workers };
+} catch (error) {
+  try { await storage.disposal.close(); } catch (cleanupError) {
+    throw new AggregateError([error, cleanupError], "Project application startup and rollback failed.");
+  }
+  throw error;
+}
+}
+const application = await createProjectApplication({ config, storage, onTestService: (value) => { testService = value; } });
+const projectApplications = createProjectApplicationRegistry({ projectLifecycle, defaultApplication: application, defaultRoot: config.cwd, createApplication: createProjectApplication });
+const api = createControlApiHttp({ services: application.services, resolveProjectServices: projectLifecycle ? projectApplications.resolve : undefined });
+startControlApi({ api, port, host, indexDb, controlDb, processLock, codeCache: application.codeCache, ticketWorkspaceService: application.ticketWorkspaceService, projectLifecycle, workers: [...application.workers, { stop: projectApplications.close }] });
