@@ -10,31 +10,27 @@ import { routeSprintCrud } from "./forge-v1-sprint-crud-routes.js";
 import { routeForgeV1Git } from "./forge-v1-git-routes.js";
 import { normalizeParts, unavailable, runRequestsFresh, requireProject, readJson, isSafeMarkdownPath } from "./forge-v1-router-utils.js";
 import { routeProjectLifecycle } from "../../modules/projects/project-lifecycle.js";
+import { resolveProjectRequest, selectProjectRouter } from "./project-request-context.js";
 
 // Creates the Forge v1 HTTP router with checkpoint decoration.
-export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrchestrationService, reviewTicket, ticketHumanReviewService, ticketBlockerDecisionService, ticketBlockerReconcileService, runToolLab, directCodeRequest, projectStream, onWatcherEvent, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, ownerExecutionControl, conversationCrudService, conversationAuditHistoryService, markdownResponseFileService, architectureWorkspaceService, humanDecisionService, agentSettingsService, listResumableCheckpoints, gitService, fileService, expectedProjectId, planStore, markdownPlanStore, sprintRegistry, planOwnerAuth, planRequests, handoffApprovedPlan, projectLifecycle } = {}) {
+export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrchestrationService, reviewTicket, ticketHumanReviewService, ticketBlockerDecisionService, ticketBlockerReconcileService, runToolLab, directCodeRequest, projectStream, onWatcherEvent, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, ownerExecutionControl, conversationCrudService, conversationAuditHistoryService, markdownResponseFileService, architectureWorkspaceService, humanDecisionService, agentSettingsService, listResumableCheckpoints, gitService, fileService, expectedProjectId, planStore, markdownPlanStore, sprintRegistry, planOwnerAuth, planRequests, handoffApprovedPlan, projectLifecycle, resolveProjectRouter } = {}) {
   const conversationRoutes = createForgeV1ConversationRoutes({ conversationCrudService, conversationAuditHistoryService, markdownResponseFileService, ownerChatService, ownerExecutionControl, listResumableCheckpoints, planOwnerAuth });
   return Object.freeze({ route });
 
-  async function route(method, url, request) {
+  async function route(method, url, request, services, resolvedBody) {
     if (url.pathname === "/lifecycle" || url.pathname.startsWith("/lifecycle/")) {
       return routeProjectLifecycle(method, url, request, projectLifecycle);
     }
     const parts = normalizeParts(url.pathname);
     const requestId = request.headers?.["x-request-id"] ?? randomUUID();
     const correlationId = request.headers?.["x-correlation-id"] ?? requestId;
-    const body = method === "POST" || method === "PUT" || method === "PATCH" ? await readJson(request) : {};
-
-    const queryProject = url.searchParams.get("project") ?? undefined;
-    const bodyProject = body.project_id ?? body.project ?? undefined;
-    if (bodyProject && queryProject && bodyProject !== queryProject) {
-      throw Object.assign(new ConfigurationError("Project context differs between query and payload."), {
-        statusCode: 409,
-        code: "PROJECT_CONTEXT_CONFLICT"
-      });
+    const body = resolvedBody ?? (method === "POST" || method === "PUT" || method === "PATCH" ? await readJson(request) : {});
+    const projectId = resolveProjectRequest({ method, url, body, parts });
+    const globalRequest = parts[0] === "agents" || (method === "GET" && parts.length === 1 && ["health", "version"].includes(parts[0]));
+    if (resolveProjectRouter && (projectId !== undefined || !globalRequest)) {
+      const selected = await selectProjectRouter({ projectId, resolveProjectRouter });
+      return selected.route(method, url, request, services, body);
     }
-
-    const projectId = bodyProject ?? queryProject;
     const planResult = await routePlan({ method, parts, body, projectId, expectedProjectId, planStore, markdownPlanStore, sprintRegistry, planOwnerAuth, planRequests, handoffApprovedPlan, headers: request.headers });
     if (planResult) return planResult;
     const directCodeResult = await routeDirectCode({ method, parts, body, projectId, url, directCodeRequest, sprintRegistry });
