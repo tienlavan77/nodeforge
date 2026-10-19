@@ -14,7 +14,7 @@ export async function createControlApiStorage({ config, onWrite, configureLogs =
   if (configureLogs) configureProjectLogFileService(fileService);
   const disposal = createApplicationDisposal();
   try {
-    const processLock = disposal.own(acquireProcessLock(config.dataDir, "control", { fileService }), "release", 60);
+    const processLock = disposal.own(acquireProcessLock(config.dataDir, "control", { fileService, projectRoot: config.cwd }), "release", 60);
     const controlDb = disposal.own(await createDatabaseService({ dataDir: config.dataDir, runtimeDir: "." }), "close", 50);
     const indexDb = disposal.own(await createDatabaseService({ dataDir: config.cwd, runtimeDir: join(".forge", "runtime", "wc") }), "close", 40);
     return { fileService, protocolStorage, conversationStateStore, processLock, controlDb, indexDb, disposal };
