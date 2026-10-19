@@ -19,7 +19,7 @@ export function createProjectStream({ projectId, indexDb, watcherSnapshot, subsc
   return Object.freeze({ connect, ingest });
   function ingest(event = {}) {
     const eventType = event.type ?? event.event_type;
-    if (event.project_id !== projectId) throw Object.assign(new ConfigurationError("Project event belongs to a different project."), { statusCode: 409, code: "PROJECT_CONTEXT_CONFLICT" });
+    if (event.project_id !== projectId || (event.metadata?.project_id !== undefined && event.metadata.project_id !== projectId)) throw Object.assign(new ConfigurationError("Project event belongs to a different project."), { statusCode: 409, code: "PROJECT_CONTEXT_CONFLICT" });
     if (!PROJECT_EVENT_TYPES.has(eventType)) throw Object.assign(new ConfigurationError("Unsupported project stream event."), { statusCode: 400, code: "STREAM_EVENT_NOT_SUPPORTED" });
 
     // Watcher runs in a separate process and sends a deliberately small event
@@ -77,6 +77,8 @@ export function createProjectStream({ projectId, indexDb, watcherSnapshot, subsc
     write(envelope("stream.snapshot", snapshot));
 
     const publish = (event) => {
+      if (event?.project_id !== undefined && event.project_id !== projectId) return;
+      if (event?.metadata?.project_id !== undefined && event.metadata.project_id !== projectId) return;
       if (closed || !PROJECT_EVENT_TYPES.has(event?.event_type) && event?.event_type !== "watcher.indexed") return;
       const conversations = projectConversationEvents(event);
       if (conversations) {
