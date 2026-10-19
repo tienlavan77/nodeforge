@@ -8,6 +8,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 
 import { ConfigurationError } from "../../shared/errors.js";
+import { projectIndexPath } from "../../infrastructure/filesystem/project-index-path.js";
 
 const require = createRequire(import.meta.url);
 const commonSchema = require("../../../../schemas/core/common.schema.json");
@@ -44,6 +45,7 @@ export function createDebouncedWatcher({ rawWatcher, projectId, root, debounceMs
   let closing;
   const pending = new Map();
   const contentHashes = new Map();
+  const rejectedPaths = new Set();
   const pendingDeletes = new Map();
   const pendingAdds = new Map();
   const listeners = Object.keys(RAW_EVENT_TYPES).map((rawType) => [rawType, (path) => schedule(rawType, path)]);
@@ -70,6 +72,15 @@ export function createDebouncedWatcher({ rawWatcher, projectId, root, debounceMs
   }
 
   async function handleStableEvent(rawType, path) {
+    if (rawType === "unlink" && rejectedPaths.has(path)) return;
+    let indexPath;
+    try {
+      indexPath = projectIndexPath(root, path, { allowMissing: rawType === "unlink" });
+      if (rawType !== "unlink") rejectedPaths.delete(path);
+    } catch (error) {
+      rejectedPaths.add(path);
+      throw error;
+    }
     if (rawType === "unlink") {
       const oldHash = contentHashes.get(path);
       const pendingAdd = pendingAdds.get(path);
@@ -90,7 +101,7 @@ export function createDebouncedWatcher({ rawWatcher, projectId, root, debounceMs
       return;
     }
 
-    const hash = await getContentHash(path);
+    const hash = await getContentHash(indexPath);
     if (closed) return;
     if (hash) contentHashes.set(path, hash);
 
