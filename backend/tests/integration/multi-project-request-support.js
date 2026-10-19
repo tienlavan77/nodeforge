@@ -107,8 +107,8 @@ export async function verifyLegacyProjectRequests(f) {
     const dashboard = await legacy(projectId, "dashboard");
     const expected = await services.projectDashboardService.getDashboard(projectId);
     assert.equal(dashboard.project_id, projectId);
-    assert.ok(expected.sprints.length > 0);
-    assert.deepEqual(dashboard.sprints, expected.sprints);
+    assert.ok(expected.roadmap.sprints.length > 0);
+    assert.deepEqual(dashboard.roadmap, expected.roadmap);
     const history = await legacy(projectId, "history", { query: `?correlationId=CORR-${projectId}&order=desc&limit=1` });
     assert.equal(history.items.length, 1);
     assert.equal(history.items[0].id, `MSG-HUMAN-DECISION-${body.decision_id}`);
