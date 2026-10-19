@@ -8,7 +8,7 @@ import { once } from "node:events";
 import { createControlApiHttp } from "../../scripts/control-api-http.mjs";
 import { createProjectApplicationRegistry } from "../../scripts/control-api-project-applications.mjs";
 import { createProjectRuntimeDisposal } from "../../src/modules/projects/project-runtime-disposal.js";
-import { createRoutingApplication, createRoutingStorage } from "./multi-project-request-support.js";
+import { createRoutingApplication, createRoutingStorage, verifyLegacyProjectRequests } from "./multi-project-request-support.js";
 import { SPRINT } from "../fixtures/sprint-registry-migration-fixture.mjs";
 
 // Starts actual transport and production service composition over two independent project roots.
@@ -172,6 +172,10 @@ test("one HTTP server uses selected plan, sprint, Git, direct-code and conversat
     }
     await writeFile(join(f.base, projectId, sessionPath), JSON.stringify(session));
   }
+});
+
+test("legacy project endpoints select root-local services and reject invalid project contexts", async (context) => {
+  await verifyLegacyProjectRequests(await fixture(context));
 });
 
 test("missing, unknown and contradictory identifiers never borrow the default runtime", async (context) => {
