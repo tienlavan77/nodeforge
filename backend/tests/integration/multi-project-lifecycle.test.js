@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { createFilesystemWatcher } from "../../src/infrastructure/filesystem/watcher.js";
 import { startProjectWatch } from "../../src/modules/watcher/watch-project.js";
 import { startProjectRuntime } from "../../src/modules/projects/project-runtime.js";
+import { createOllamaEmbeddingProvider } from "../../src/modules/index/ollama-embedding-provider.js";
 import { fixture, waitFor, fdCount, response } from "./multi-project-lifecycle-support.js";
 import "./multi-project-lifecycle-failures.test.js";
 
@@ -49,10 +50,20 @@ test("foundation serves two isolated projects and cleans resources across restar
   const context = await fixture();
   try {
     const rawWatchers = [];
+    let failedRoot;
+    await rename(join(context.roots[1], "sample.js"), join(context.roots[1], "second.js"));
     const manager = await context.open({
       // Captures real watcher handles to inject a recoverable filesystem error.
       startRuntime(input) {
-        return startProjectRuntime({ ...input, embeddingProvider: { embed: async () => [1, 0, 0] },
+        const embeddingProvider = createOllamaEmbeddingProvider({ model: "lifecycle-test",
+          // Replaces only Ollama I/O so workers and query embeddings use the real provider contract.
+          async fetchFn(url, request) {
+            assert.ok(url.endsWith("/api/embeddings"));
+            assert.equal(JSON.parse(request.body).model, "lifecycle-test");
+            return { ok: input.projectRoot !== failedRoot, status: 503, json: async () => ({ embedding: [1, 0, 0] }) };
+          }
+        });
+        return startProjectRuntime({ ...input, embeddingProvider, ollamaConfig: { model: "lifecycle-test" },
           // Keeps the production filesystem pipeline while exposing its error event to the test.
           watcherFactory(options) {
             const raw = createFilesystemWatcher(options);
@@ -102,9 +113,12 @@ test("foundation serves two isolated projects and cleans resources across restar
     for (const runtime of runtimes) {
       assert.equal(runtime.database.all("SELECT COUNT(*) AS count FROM files")[0].count, 1);
       await waitFor(() => runtime.database.all("SELECT COUNT(*) AS count FROM symbol_embeddings")[0].count > 0);
+      const queryVector = await runtime.embeddingProvider.embed("Find the project entry point");
+      const hits = runtime.embeddingStore.search(queryVector, { model: "lifecycle-test" });
+      assert.deepEqual(hits, [{ path: runtime === runtimes[0] ? "sample.js" : "second.js", score: 1 }]);
+      assert.deepEqual(runtime.embeddingStore.search(queryVector, { model: "incompatible-model" }), []);
     }
-    assert.equal(runtimes[0].database.all("SELECT name FROM symbols")[0].name, "project0");
-    assert.equal(runtimes[1].database.all("SELECT name FROM symbols")[0].name, "project1");
+    assert.deepEqual(runtimes.map((runtime) => runtime.database.all("SELECT name FROM symbols")[0].name), ["project0", "project1"]);
     const sinks = runtimes.map((runtime) => {
       const sink = response();
       runtime.connect({ requestedProjectId: runtime.projectId, response: sink });
@@ -124,8 +138,11 @@ test("foundation serves two isolated projects and cleans resources across restar
     await waitFor(() => events.some((event) => event.type === "watcher.file_deleted"));
     await waitFor(() => runtimes[0].database.all("SELECT COUNT(*) AS count FROM files")[0].count === 1);
     rawWatchers[0].fail(new Error("Injected recoverable watcher error"));
+    failedRoot = context.roots[0];
     await writeFile(join(context.roots[0], "sample.js"), "export function recovered() { return 9; }\n");
     await waitFor(() => runtimes[0].database.all("SELECT name FROM symbols WHERE name = 'recovered'").length);
+    await waitFor(() => runtimes[0].status().embeddingError?.includes("503"));
+    assert.deepEqual(runtimes[1].embeddingStore.search(await runtimes[1].embeddingProvider.embed("Find the project entry point"), { model: "lifecycle-test" }), [{ path: "second.js", score: 1 }]);
     await waitFor(() => sinks[0].chunks.join("").includes("added.js"));
     assert.ok(!sinks[1].chunks.join("").includes("added.js"));
     assert.ok(context.logs.some((entry) => entry.message.includes("watcher event failed")));
@@ -138,7 +155,7 @@ test("foundation serves two isolated projects and cleans resources across restar
     assert.ok(runtimes.every((runtime) => runtime.bus.eventNames().length === 0));
     for (const runtime of runtimes) assert.throws(() => runtime.database.all("SELECT 1"));
     await assert.rejects(manager.add(context.roots[0]), /closed/);
-    await writeFile(join(context.roots[1], "sample.js"), "export function offlineChange() { return 3; }\n");
+    await writeFile(join(context.roots[1], "second.js"), "export function offlineChange() { return 3; }\n");
     const restored = await context.open();
     assert.equal(restored.startupErrors.length, 0);
     assert.deepEqual(restored.list(), [first, second]);
