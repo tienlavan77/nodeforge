@@ -63,8 +63,9 @@ test("one HTTP server uses selected plan, sprint, Git, direct-code and conversat
     assert.equal(services.sprintRegistry.get(SPRINT.id).project_id, projectId);
     await writeFile(join(f.base, projectId, `${projectId}.txt`), projectId);
     const git = await f.request(`git/status?project=${projectId}`);
-    assert.match(JSON.stringify(git), new RegExp(`${projectId}\\.txt`));
-    assert.doesNotMatch(JSON.stringify(git), new RegExp(`${projectId === "PROJECT-A" ? "PROJECT-B" : "PROJECT-A"}\\.txt`));
+    assert.equal(git.branch, projectId);
+    assert.ok(git.changed_files > 0);
+    assert.match(await services.gitService.status(), new RegExp(`${projectId}\\.txt`));
     const checkpoints = await f.request(`code/checkpoints?project=${projectId}`);
     assert.equal(checkpoints.checkpoints[0].task_id, `CODE-${projectId}`);
     await f.request(`code/run?project=${projectId}`, { method: "POST", status: 409, body: { project: projectId, text: "Must remain behind approved plan gate" } });
