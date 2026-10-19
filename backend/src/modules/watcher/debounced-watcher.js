@@ -2,7 +2,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { relative, sep } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { EventEmitter } from "node:events";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
@@ -51,6 +51,12 @@ export function createDebouncedWatcher({ rawWatcher, projectId, root, debounceMs
   for (const [rawType, listener] of listeners) rawWatcher.on(rawType, listener);
 
   function schedule(rawType, path) {
+    const projectPath = relative(resolve(root), resolve(root, path));
+    if (projectPath === ".." || projectPath.startsWith(`..${sep}`) || isAbsolute(projectPath)) {
+      reportError(new ConfigurationError("Watcher path is outside the selected project root."));
+      return;
+    }
+    path = resolve(root, path);
     const existing = pending.get(path);
     if (existing) clearTimeout(existing.timer);
 
