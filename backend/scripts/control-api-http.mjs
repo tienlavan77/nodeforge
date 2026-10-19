@@ -14,7 +14,24 @@ import { createPlanRequestState } from "../src/application/plan-request-state.js
 import { createWatcherCacheEvents } from "../src/modules/context/watcher-cache-events.js";
 import { createMarkdownResponseFileService } from "../src/application/markdown-response-file-service.js";
 
-export function createControlApiHttp({ services = {}, projectLifecycle = services.projectLifecycle } = {}) {
+export function createControlApiHttp({ services = {}, resolveProjectServices } = {}) {
+  return createHttpApi(createControlApiHttpOptions({ services, resolveProjectServices }));
+}
+
+// Lazily composes and reuses application services only for the resolved runtime identity.
+function createProjectRouterResolver(resolveProjectServices) {
+  const routers = new WeakMap();
+  // Refuses unknown or mismatched service bundles instead of borrowing the default project's services.
+  return async function resolveProjectRouter(projectId) {
+    const selected = await resolveProjectServices(projectId);
+    if (!selected || selected.projectId !== projectId) return undefined;
+    if (!routers.has(selected)) routers.set(selected, createControlApiHttpOptions({ services: selected }).forgeV1Router);
+    return routers.get(selected);
+  };
+}
+
+// Composes conversation, plan, sprint, Git, and execution services for one selected project.
+function createControlApiHttpOptions({ services = {}, resolveProjectServices } = {}) {
   const { bus, communications, conversations, eventStore, indexDb, subscriptions, agentSettings, sprintPlanUpload, sprintOrchestration, sprintPlanLeader, dispatchSprint, dispatchTicket, reviewTicket, runToolLab, directCodeRequest, codeCache, internalBus, ticketCrudService, buildBuilderContext, protocolStorage, agentGateway, agentConfiguration, sdkGateways, conversationStateStore, fileService, planFileService, projectRoot, publishUnifiedStreamEvent, logEvent, projectId, gitService, ticketBlockerReconcileService } = services;
   const agentLoopLogger = createRuntimeLogger({ logEvent, source: "owner-chat-agent-loop" });
   const executionCheckpoint = createOwnerExecutionCheckpoint({ fileService, gitService, role: "system_engineer" });
@@ -31,7 +48,7 @@ export function createControlApiHttp({ services = {}, projectLifecycle = service
     : null;
   const projectStream = createProjectStream({ projectId, watcherSnapshot: createWatcherSnapshotService({ indexDb }), subscriptions, eventBus: internalBus, bus, agentActivitySnapshot: services.executionActivity?.snapshot });
   const onWatcherEvent = createWatcherCacheEvents({ projectId, codeCache, logger: agentLoopLogger.emit });
-  return createHttpApi({
+  return {
     ownerChatService,
     conversationStream,
     projectStream,
@@ -48,6 +65,7 @@ export function createControlApiHttp({ services = {}, projectLifecycle = service
     reviewTicket,
     runToolLab,
     forgeV1Router: createForgeV1Router({
+      resolveProjectRouter: resolveProjectServices ? createProjectRouterResolver(resolveProjectServices) : undefined,
       projectLifecycle: services.projectLifecycle,
       dispatchTicket,
       dispatchSprint,
@@ -82,5 +100,5 @@ export function createControlApiHttp({ services = {}, projectLifecycle = service
       listResumableCheckpoints: services.listResumableCheckpoints,
       projectStream
     })
-  });
+  };
 }
