@@ -1,5 +1,7 @@
 // Builds root-local application services for real HTTP multi-project routing witnesses.
 import { EventEmitter } from "node:events";
+import { createTaskStore } from "../../src/modules/projects/task-store.js";
+import { createTaskSessionPreparation, createSessionStore } from "../../src/modules/projects/session-store.js";
 import { execFileSync } from "node:child_process";
 import { createControlApiStorage } from "../../scripts/control-api-storage.mjs";
 import { createHumanPlanStore } from "../../src/modules/governance/human-plan-store.js";
@@ -38,6 +40,8 @@ export async function createRoutingApplication({ config, storage }) {
   });
   const services = {
     projectId, projectRoot: config.cwd, fileService, planFileService, planStore, sprintRegistry,
+    prepareTaskSession: createTaskSessionPreparation({ projectId, fileService, taskStore: createTaskStore({ projectId, database }) }),
+    sessions: createSessionStore({ projectId, fileService }),
     conversations, communications, bus, subscriptions: createSubscriptionRegistry(), internalBus: new EventEmitter(), indexDb: storage.indexDb,
     conversationStateStore: storage.conversationStateStore, protocolStorage: storage.protocolStorage,
     gitService: createGitService({ projectRoot: config.cwd }), directCodeRequest,
