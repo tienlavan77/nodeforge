@@ -1,10 +1,10 @@
 import { closeSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-export function acquireProcessLock(dataDir, role, { fileService } = {}) {
+export function acquireProcessLock(dataDir, role, { fileService, projectRoot = process.cwd() } = {}) {
   const path = join(dataDir, `.nodeforge-${role}.lock`);
   if (fileService?.createLockSync) {
-    const relative = path.startsWith(`${process.cwd()}/`) ? path.slice(process.cwd().length + 1) : path;
+    const relative = path.startsWith(`${projectRoot}/`) ? path.slice(projectRoot.length + 1) : path;
     try {
       const lock = fileService.createLockSync({ path: relative });
       return Object.freeze({ path, release: lock.release });
