@@ -76,6 +76,22 @@ test("one HTTP server uses selected plan, sprint, Git, direct-code and conversat
     assert.equal(listed[0].title, `Conversation ${projectId}`);
     const input = JSON.parse(await readFile(join(f.base, projectId, `.forge/runtime/nf/code-requests/CODE-${projectId}.json`), "utf8"));
     assert.equal(input.project_id, projectId);
+    const prepared = await services.prepareTaskSession({ task_id: `TASK-${projectId}`, project_id: projectId, ticket: { project_id: projectId, title: "Verify selected-project preparation" } });
+    const sessionPath = `.forge/runtime/nf/sessions/${prepared.session_id}.json`;
+    const session = JSON.parse(await readFile(join(f.base, projectId, sessionPath), "utf8"));
+    assert.equal(session.project_id, projectId);
+    assert.equal(typeof session.project_id, "string");
+    assert.deepEqual(await services.sessions.get(prepared.session_id), session);
+    assert.deepEqual(await services.prepareTaskSession({ task_id: `TASK-${projectId}`, project_id: projectId }), prepared);
+    assert.deepEqual(await services.sessions.get(prepared.session_id), session);
+    const otherProjectId = projectId === "PROJECT-A" ? "PROJECT-B" : "PROJECT-A";
+    await assert.rejects(readFile(join(f.base, otherProjectId, sessionPath)), { code: "ENOENT" });
+    for (const invalidProjectId of [undefined, ["PROJECT-A", "PROJECT-B"]]) {
+      const invalid = { ...session, project_id: invalidProjectId };
+      await writeFile(join(f.base, projectId, sessionPath), JSON.stringify(invalid));
+      await assert.rejects(services.sessions.get(prepared.session_id), /Invalid session record/);
+    }
+    await writeFile(join(f.base, projectId, sessionPath), JSON.stringify(session));
   }
 });
 

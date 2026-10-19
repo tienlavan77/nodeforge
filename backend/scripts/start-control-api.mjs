@@ -65,7 +65,7 @@ const storage = await createControlApiStorage({
   config,
   onWrite: createOnWriteVerifier({ getTestService: () => testService })
 });
-const { fileService, protocolStorage, conversationStateStore, processLock, controlDb, indexDb } = storage;
+const { processLock, controlDb, indexDb } = storage;
 const projectLifecycle = config.projectCatalogPath ? await createProjectLifecycle({ catalogPath: config.projectCatalogPath }) : undefined;
 // Builds a complete application bundle while leaving startup initialization and lifecycle admission intact.
 async function createProjectApplication({ config, storage, onTestService = () => {} }) {
@@ -97,6 +97,7 @@ const agentOccupancy = createAgentOccupancyStore({ database, profiles, configura
 } });
 testService = platform.testService;
 onTestService(testService);
+import { createTaskSessionPreparation } from "../src/modules/projects/session-store.js";
 const unifiedStreamOrder = createUnifiedStreamOrderer();
 const runtimeLogger = createRuntimeLogger({ logEvent: createAgentActivityLogger({ logEvent, executionActivity }) });
 const codeCache = storage.disposal.own(createCodeCacheService({ projectId, fileService, codeSearch, logger: runtimeLogger.emit }), "close", 20);
@@ -129,11 +130,7 @@ const supervisorRuntime = createProductionSupervisorRuntime({ projectRoot: confi
   },
   conversationStateStore, protocolStorage, testService, gitService, reportService, ticketWorkspaceService, ticketDisposition: ticketPipelineDisposition, shadowComparison: ticketPipelineShadow, onEvalCase, enableReadCode: true, autoStartWorkers: false,
   preparation: {
-    createTaskSession: async ({ task_id, ticket } = {}) => {
-      const existing = taskStore.get(task_id);
-      if (!existing) taskStore.create({ id: task_id, type: "custom", title: ticket?.title ?? task_id, description: ticket?.objective ?? "", acceptance_criteria: ticket?.acceptance_criteria ?? [], status: "pending", created_at: new Date().toISOString() });
-      return { session_id: `SESSION-${task_id}` };
-    },
+    createTaskSession: createTaskSessionPreparation({ projectId, taskStore, fileService }),
     createBranch: async ({ task_id } = {}) => ticketWorkspaceService.ensure(task_id),
     resolveCodeIndex: async () => `IDX-${indexDb.all("SELECT version FROM index_metadata LIMIT 1")[0]?.version ?? 0}`,
     persist: async () => ({ persisted: true })
@@ -157,7 +154,7 @@ const ticketBlockerDecisionService = createTicketBlockerDecisionService({ projec
 const sprintDagRunner = createSprintDagRunner({ ticketStatusStore, sprintRegistry, eventBus: supervisorRuntime.eventBus, dispatchTask: ({ ticket, sprintBasis, dependencyExpectations }) => dispatchTicket({ projectId: ticket.project_id, ticketId: ticket.id, expectedSprintVersion: sprintBasis?.version, dependencyExpectations }), logEvent });
 const sprintLeaderIntake = createSprintLeaderIntakeService({ fileService, roadmaps, sprintRegistry, ticketStatusStore, logger: logEvent });
 
-const dispatchTicket = createTicketRunDispatch({ disposition: ticketPipelineDisposition, intake: sprintLeaderIntake, sprintRegistry, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, queueStore: supervisorRuntime.queueStore, protocolStorage, conversationStateStore, dispatchTask, coderRecovery: supervisorRuntime.coderRecovery, blockerRecovery: supervisorRuntime.blockerRecovery });
+const dispatchTicket = createTicketRunDispatch({ disposition: ticketPipelineDisposition, intake: sprintLeaderIntake, sprintRegistry, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, queueStore: supervisorRuntime.queueStore, protocolStorage, conversationStateStore, dispatchTask, coderRecovery: supervisorRuntime.coderRecovery, blockerRecovery: supervisorRuntime.blockerRecovery, resumeCompletedReview: supervisorRuntime.resumeCompletedReview, reconcileReviewDependencies: supervisorRuntime.reconcileReviewDependencies });
 // Reconciles a retained unknown-provider blocker stage so the owner can clear a stuck ticket and a later RUN may re-arm it.
 const ticketBlockerReconcileService = async ({ projectId: requestedProjectId, ticketId, actor } = {}) => {
   if (!supervisorRuntime.blockerRecovery?.reconcileTicket) throw Object.assign(new Error("Blocker reconciliation is unavailable."), { code: "BLOCKER_RECONCILE_UNAVAILABLE", statusCode: 409 });
@@ -203,7 +200,7 @@ const services = {
     const reviewReady = [];
     for (const review of reviewPending) {
       const coder = await supervisorRuntime.agentCheckpoints.load(review.task_id);
-      if (coder?.status === "completed" && reviewPhaseResume(coder, review)) reviewReady.push({ ...coder, phase: "review" });
+      if (coder?.status === "completed" && reviewPhaseResume(coder, review)) reviewReady.push({ ...coder, phase: "review", status: review.status, review_stage: { ...coder.review_stage, status: review.status } });
     }
     return [...coderPending, ...reviewReady];
   },
