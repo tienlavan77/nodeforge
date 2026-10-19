@@ -108,8 +108,11 @@ test("existing project SSE selects each runtime and rejects unavailable identifi
     try {
       const snapshot = await stream.until("stream.snapshot");
       assert.ok(snapshot.includes(`"project_id":"${projectId}"`));
-      await f.request("stream/events", { method: "POST", status: 202, body: { project_id: projectId, type: "ticket.updated", payload: { marker: `LIVE-${projectId}` } } });
-      assert.ok((await stream.until(`LIVE-${projectId}`)).includes(`LIVE-${projectId}`));
+      const otherProjectId = projectId === "PROJECT-A" ? "PROJECT-B" : "PROJECT-A";
+      await f.request("stream/events", { method: "POST", status: 202, body: { project_id: otherProjectId, type: "ticket.updated", payload: { ticket_id: `OTHER-${projectId}` } } });
+      await f.request("stream/events", { method: "POST", status: 202, body: { project_id: projectId, type: "ticket.updated", payload: { ticket_id: `LIVE-${projectId}` } } });
+      const live = await stream.until(`LIVE-${projectId}`);
+      assert.ok(!live.includes(`OTHER-${projectId}`));
     } finally { await stream.close(); }
   }
   for (const [path, status, code] of [
