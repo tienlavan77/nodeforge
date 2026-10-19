@@ -6,11 +6,11 @@ import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from "
 import picomatch from "picomatch";
 import { ConfigurationError } from "../../shared/errors.js";
 import { SECRET_PATTERNS, isProtectedPath } from "./protected-path-policy.js";
-const DEFAULT_SECRETS = SECRET_PATTERNS;
-const DEFAULT_IGNORE = [".forge/**", ".node-control/**", "node_modules/**", ".git/**", "dist/**", "coverage/**", ".next/**", ".next.stale-*/**", "**/.DS_Store", "**/._*"];
+import { projectIndexPath } from "./project-index-path.js";
+const DEFAULT_SECRETS = SECRET_PATTERNS; const DEFAULT_IGNORE = [".forge/**", ".node-control/**", "node_modules/**", ".git/**", "dist/**", "coverage/**", ".next/**", ".next.stale-*/**", "**/.DS_Store", "**/._*"];
 const NODE_MODULES_PATH = /^node_modules(?:\/|$)/;
 // Creates a sandboxed FileService scoped to projectRoot with queued writes, secret-path filtering, and atomic/lock operations.
-export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRETS, watcherIgnore = DEFAULT_IGNORE, databaseService, internalBus, onWrite, logger = console, allowPlanStorage = false } = {}) {
+export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRETS, watcherIgnore = DEFAULT_IGNORE, databaseService, internalBus, onWrite, logger = console, allowPlanStorage = false, role } = {}) {
   if (typeof projectRoot !== "string" || !projectRoot) throw new ConfigurationError("FileService requires a project root.");
   const root = resolve(projectRoot);
   const secretMatch = picomatch(secretPatterns, { dot: true });
@@ -181,9 +181,9 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
   async function readForIndex({ path, maxBytes, allowNodeModules = false } = {}) {
     if (typeof path !== "string" || !path) throw new ConfigurationError("FileService indexing path is required.");
     const rel = relative(root, resolve(root, path)).split(sep).join("/");
-    const dependencyRead = allowNodeModules === true && NODE_MODULES_PATH.test(rel);
-    if (isAbsolute(path) || !rel || rel.startsWith("..") || secretMatch(rel) || (ignoreMatch(rel) && !dependencyRead)) throw new ConfigurationError("Refusing to index unsafe, ignored, or secret project path.");
-    const absolute = resolve(root, rel);
+    const forgeAccess = role === "system_engineer" && rel.startsWith(".forge/"); const dependencyRead = allowNodeModules === true && NODE_MODULES_PATH.test(rel);
+    if (isAbsolute(path) || !rel || rel.startsWith("..") || (!forgeAccess && secretMatch(rel)) || (ignoreMatch(rel) && !dependencyRead && !forgeAccess)) throw new ConfigurationError("Refusing to index unsafe, ignored, or secret project path.");
+    const absolute = projectIndexPath(root, rel);
     if (maxBytes !== undefined) { if (!Number.isInteger(maxBytes) || maxBytes < 1) throw new ConfigurationError("FileService read limit is invalid."); if ((await stat(absolute)).size > maxBytes) throw Object.assign(new ConfigurationError(`File exceeds the read limit: ${rel}.`), { code: "FILE_TOO_LARGE" }); }
     let content;
     try { content = await fsReadFile(absolute, "utf8"); } catch (error) { if (error?.code === "ENOENT") throw error; throw new ConfigurationError(`Unable to read file for indexing: ${rel}.`, { cause: error }); }
@@ -210,25 +210,25 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
     queue = job.catch((error) => { logCleanup("queued rename", error); });
     return job;
   }
-  async function listFiles({ glob = "**/*" } = {}) { const files = []; const runtimeListing = glob === ".forge/runtime" || glob.startsWith(".forge/runtime/"); const wildcard = glob.search(/[!*?[]/); const base = wildcard < 0 ? glob : glob.slice(0, wildcard).replace(/\/+$/, ""); const start = base ? resolve(root, base) : root; const startPrefix = base ? base : ""; try { await scan(start, startPrefix); } catch (error) { if (error?.code !== "ENOENT") throw error; } const match = picomatch(glob, { dot: true }); return files.filter((path) => match(path));
-    async function scan(directory, prefix) { for (const entry of await readdir(directory, { withFileTypes: true })) { const rel = prefix ? `${prefix}/${entry.name}` : entry.name; const runtimeAncestor = runtimeListing && (rel === ".forge" || rel === ".forge/runtime" || rel.startsWith(".forge/runtime/")); if (ignoreMatch(rel) && !runtimeAncestor) continue; if (entry.isDirectory()) await scan(resolve(directory, entry.name), rel); else files.push(rel); } }
+  async function listFiles({ glob = "**/*" } = {}) { const files = []; const runtimeListing = glob === ".forge/runtime" || glob.startsWith(".forge/runtime/") || role === "system_engineer" && glob.startsWith(".forge"); const wildcard = glob.search(/[!*?[]/); const base = wildcard < 0 ? glob : glob.slice(0, wildcard).replace(/\/+$/, ""); const start = base ? resolve(root, base) : root; const startPrefix = base ? base : ""; try { await scan(start, startPrefix); } catch (error) { if (error?.code !== "ENOENT") throw error; } const match = picomatch(glob, { dot: true }); return files.filter((path) => match(path));
+    async function scan(directory, prefix) { for (const entry of await readdir(directory, { withFileTypes: true })) { const rel = prefix ? `${prefix}/${entry.name}` : entry.name; const runtimeAncestor = runtimeListing && (rel === ".forge" || rel === ".forge/runtime" || rel.startsWith(".forge/runtime/") || role === "system_engineer" && rel.startsWith(".forge/")); if (ignoreMatch(rel) && !runtimeAncestor) continue; if (entry.isDirectory()) await scan(resolve(directory, entry.name), rel); else files.push(rel); } }
   }
-  async function listDirectories({ glob = "**/*" } = {}) { const directories = []; const runtimeListing = glob === ".forge/runtime" || glob.startsWith(".forge/runtime/"); const start = glob.startsWith(".forge/runtime") ? resolve(root, ".forge/runtime") : root; const startPrefix = glob.startsWith(".forge/runtime") ? ".forge/runtime" : ""; const match = picomatch(glob, { dot: true }); try { await scan(start, startPrefix); } catch (error) { if (error?.code !== "ENOENT") throw error; } return directories.filter((path) => match(path));
-    async function scan(directory, prefix) { for (const entry of await readdir(directory, { withFileTypes: true })) { if (!entry.isDirectory()) continue; const rel = prefix ? `${prefix}/${entry.name}` : entry.name; const runtimeAncestor = runtimeListing && (rel === ".forge" || rel === ".forge/runtime" || rel.startsWith(".forge/runtime/")); if (ignoreMatch(rel) && !runtimeAncestor) continue; await scan(resolve(directory, entry.name), rel); directories.push(rel); } }
+  async function listDirectories({ glob = "**/*" } = {}) { const directories = []; const runtimeListing = glob === ".forge/runtime" || glob.startsWith(".forge/runtime/") || role === "system_engineer" && glob.startsWith(".forge"); const start = glob.startsWith(".forge/runtime") ? resolve(root, ".forge/runtime") : root; const startPrefix = glob.startsWith(".forge/runtime") ? ".forge/runtime" : ""; const match = picomatch(glob, { dot: true }); try { await scan(start, startPrefix); } catch (error) { if (error?.code !== "ENOENT") throw error; } return directories.filter((path) => match(path));
+    async function scan(directory, prefix) { for (const entry of await readdir(directory, { withFileTypes: true })) { if (!entry.isDirectory()) continue; const rel = prefix ? `${prefix}/${entry.name}` : entry.name; const runtimeAncestor = runtimeListing && (rel === ".forge" || rel === ".forge/runtime" || rel.startsWith(".forge/runtime/") || role === "system_engineer" && rel.startsWith(".forge/")); if (ignoreMatch(rel) && !runtimeAncestor) continue; await scan(resolve(directory, entry.name), rel); directories.push(rel); } }
   }
   function safePath(path, { write = false } = {}) {
     if (typeof path !== "string" || !path) throw new ConfigurationError("FileService path is required.");
     const absolute = resolve(root, path);
     const rel = relative(root, absolute).split(sep).join("/");
-    const runtimePath = rel === ".forge/runtime" || rel.startsWith(".forge/runtime/");
+    const forgeAccess = role === "system_engineer" && (rel === ".forge" || rel.startsWith(".forge/")); const runtimePath = rel === ".forge/runtime" || rel.startsWith(".forge/runtime/");
     const planPath = allowPlanStorage && /^\.forge\/runtime\/nf\/plans\/[A-Za-z0-9][A-Za-z0-9._-]*\/(?:[1-9][0-9]*\.(?:json|md)|ke-hoach-r[1-9][0-9]*\.md|(?:revision|decision|markdown|markdown-decision)\.lock)$/.test(rel);
     const summaryPath = allowPlanStorage && /^workflows\/\.nodeforge-summary-[A-Za-z0-9][A-Za-z0-9._-]*\.md$/.test(rel);
-    if (isAbsolute(path) || !rel || rel.startsWith("..") || (!planPath && !summaryPath && isProtectedPath(rel, { operation: write ? "write" : "read" })) || secretMatch(rel) || (ignoreMatch(rel) && !runtimePath && !planPath && !summaryPath)) {
+    if (isAbsolute(path) || !rel || rel.startsWith("..") || (!planPath && !summaryPath && isProtectedPath(rel, { operation: write ? "write" : "read", role })) || (!forgeAccess && secretMatch(rel)) || (ignoreMatch(rel) && !forgeAccess && !runtimePath && !planPath && !summaryPath)) {
       throw new ConfigurationError("Refusing unsafe, ignored, or secret project path.");
     }
     // Runtime state is Node-owned but must be writable through this service; other
     // hidden project paths remain protected from agent file operations.
-    if (write && basename(rel).startsWith(".") && !runtimePath && !planPath && !summaryPath) throw new ConfigurationError("Hidden project paths are not writable.");
+    if (write && basename(rel).startsWith(".") && !forgeAccess && !runtimePath && !planPath && !summaryPath) throw new ConfigurationError("Hidden project paths are not writable.");
     return rel;
   }
   // eslint-disable-next-line no-silent-catch -- Cleanup logging must not change file behavior.

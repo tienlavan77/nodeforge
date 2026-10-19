@@ -1,7 +1,7 @@
 // Proves independent project pipelines preserve runtime data and delivery through failures and recovery.
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -33,6 +33,21 @@ function snapshot(runtime) {
 // Checks actual persisted embeddings for the newly indexed project symbol.
 function embedded(runtime, name) {
   return runtime.database.all("SELECT s.name FROM symbols s JOIN symbol_embeddings e ON e.symbol_id = s.symbol_id WHERE s.name = ?", [name]).length > 0;
+}
+
+// Verifies provider provenance and actual project-scoped semantic results across failures and recovery.
+async function semanticResults(runtime, index) {
+  const vector = index === 0 ? [1, 0, 0] : [0, 1, 0];
+  const expected = Buffer.from(Float32Array.from(vector).buffer).toString("base64");
+  const rows = snapshot(runtime).embeddings;
+  assert.ok(rows.length > 0);
+  for (const row of rows) assert.equal(row.vector, expected);
+  const query = await runtime.embeddingProvider.embed(`Find the own${index} business operation`);
+  const results = runtime.embeddingStore.search(query);
+  assert.ok(results.some(({ path, score }) => path === `own-${index}.js` && score === 1));
+  assert.equal(results.some(({ path }) => path === `own-${1 - index}.js`), false);
+  assert.ok(results.every(({ score }) => score === 1));
+  return results;
 }
 
 // Records real project stream frames using the runtime's own bus and database.
@@ -86,6 +101,7 @@ test("isolates concurrent watcher, index, embedding, session and stream activity
   try {
     await Promise.all(roots.map(async (root, index) => {
       await mkdir(root);
+      await writeFile(join(root, `own-${index}.js`), `export function own${index}() { return ${index}; }\n`);
       await writeFile(join(root, "sample.js"), `export function initial${index}() { return ${index}; }\n`);
     }));
     runtimes.push(...await Promise.all([start(0), start(1)]));
@@ -94,7 +110,9 @@ test("isolates concurrent watcher, index, embedding, session and stream activity
     assert.notEqual(runtimeA.worker, runtimeB.worker);
     assert.notEqual(runtimeA.database, runtimeB.database);
     await waitFor(() => embedded(runtimeA, "initial0") && embedded(runtimeB, "initial1"));
-    assert.notDeepEqual(snapshot(runtimeA).embeddings, snapshot(runtimeB).embeddings);
+    await waitFor(() => embedded(runtimeA, "own0") && embedded(runtimeB, "own1"));
+    await semanticResults(runtimeA, 0);
+    await semanticResults(runtimeB, 1);
     for (const [index, runtime] of runtimes.entries()) {
       assert.equal(runtime.database.databasePath, join(roots[index], ".forge/runtime/wc/index.db"));
       deliveries.push(delivery(runtime));
@@ -115,6 +133,8 @@ test("isolates concurrent watcher, index, embedding, session and stream activity
     await waitFor(() => deliveries.every(({ frames }) => frames.some((frame) => frame.includes("watcher.file_indexed"))));
     assert.equal(snapshot(runtimeA).symbols.some(({ name }) => name === "concurrent1"), false);
     assert.equal(snapshot(runtimeB).symbols.some(({ name }) => name === "concurrent0"), false);
+    await semanticResults(runtimeA, 0);
+    const semanticB = await semanticResults(runtimeB, 1);
     const stableB = snapshot(runtimeB);
     const historyB = [...deliveries[1].frames];
     const errorsA = [];
@@ -127,6 +147,33 @@ test("isolates concurrent watcher, index, embedding, session and stream activity
     assert.equal(indexedA.length, 0);
     assert.match(String(errorsA[0]?.message ?? JSON.stringify(errorsA[0])), /outside/i);
 
+    const stableA = snapshot(runtimeA);
+    const historyA = [...deliveries[0].frames];
+    const links = ["foreign.js", "foreign-dir/sample.js", "broken.js"];
+    await symlink(join(roots[1], "sample.js"), join(roots[0], "foreign.js"));
+    await symlink(roots[1], join(roots[0], "foreign-dir"));
+    await symlink(join(roots[1], "missing.js"), join(roots[0], "broken.js"));
+    const filesA = createFileService({ projectRoot: roots[0] });
+    for (const path of links) {
+      await assert.rejects(filesA.readForIndex({ path }), /Linked paths/);
+      rawWatchers.get(roots[0]).emit("change", join(roots[0], path));
+    }
+    await waitFor(() => errorsA.length === 5);
+    await rm(join(roots[0], "foreign.js"));
+    rawWatchers.get(roots[0]).emit("unlink", join(roots[0], "foreign.js"));
+    rawWatchers.get(roots[0]).emit("unlink", join(roots[0], "foreign-dir/sample.js"));
+    await writeFile(join(roots[0], "barrier.js"), "export function barrierA() { return 8; }\n");
+    rawWatchers.get(roots[0]).emit("change", join(roots[0], "barrier.js"));
+    await waitFor(() => embedded(runtimeA, "barrierA"));
+    assert.deepEqual(snapshot(runtimeA).files.filter(({ path }) => path !== "barrier.js"), stableA.files);
+    assert.equal(snapshot(runtimeA).symbols.some(({ name }) => name === "concurrent1"), false);
+    assert.ok(deliveries[0].frames.slice(historyA.length).every((frame) => !/foreign|broken/.test(frame)));
+    assert.deepEqual(snapshot(runtimeB), stableB);
+    assert.deepEqual(deliveries[1].frames, historyB);
+    assert.equal(indexedA.some((event) => /foreign|broken/.test(JSON.stringify(event))), false);
+    await rm(join(roots[0], "foreign-dir"));
+    await rm(join(roots[0], "broken.js"));
+
     rawWatchers.get(roots[0]).emit("error", new Error("recoverable first watcher failure"));
     failFirst = true;
     await writeFile(join(roots[0], "sample.js"), "export function failedEmbeddingA() { return 5; }\n");
@@ -134,6 +181,7 @@ test("isolates concurrent watcher, index, embedding, session and stream activity
     await waitFor(() => runtimeA.status().embeddingError === "first-project embedding unavailable");
     assert.equal(runtimeB.status().embeddingError, null);
     assert.equal(embedded(runtimeA, "failedEmbeddingA"), false);
+    assert.deepEqual(await semanticResults(runtimeB, 1), semanticB);
     assert.deepEqual(snapshot(runtimeB), stableB);
     assert.deepEqual(deliveries[1].frames, historyB);
     assert.equal(await readFile(sessionPathB, "utf8"), sessionB);
@@ -148,6 +196,8 @@ test("isolates concurrent watcher, index, embedding, session and stream activity
     runtimes[0] = recovered;
     await waitFor(() => embedded(recovered, "recoveredA"));
     assert.notEqual(recovered.bus, runtimeB.bus);
+    await semanticResults(recovered, 0);
+    assert.deepEqual(await semanticResults(runtimeB, 1), semanticB);
     assert.deepEqual(snapshot(runtimeB), stableB);
     assert.deepEqual(deliveries[1].frames, historyB);
     assert.equal(await readFile(sessionPathB, "utf8"), sessionB);

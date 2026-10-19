@@ -39,7 +39,7 @@ export function createFilesystemWatcher({ root, ignore = [], chokidarOptions = {
   const events = new EventEmitter();
   const ignored = [...DEFAULT_WATCHER_IGNORE, ...ignore];
   const matchesIgnoredPath = createProjectIgnoreMatcher(root, ignore);
-  const watcher = chokidar.watch(root, { ...chokidarOptions, ignored: matchesIgnoredPath });
+  const watcher = chokidar.watch(root, { ...chokidarOptions, followSymlinks: false, ignored: matchesIgnoredPath });
 
   for (const event of RAW_EVENTS) {
     watcher.on(event, (path) => events.emit(event, path));
