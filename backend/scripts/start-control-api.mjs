@@ -1,4 +1,5 @@
 import process from "node:process";
+import { createTaskSessionPreparation } from "../src/modules/projects/session-store.js";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { loadNodeforgeEnv } from "./nodeforge-env.mjs";
@@ -97,7 +98,6 @@ const agentOccupancy = createAgentOccupancyStore({ database, profiles, configura
 } });
 testService = platform.testService;
 onTestService(testService);
-import { createTaskSessionPreparation } from "../src/modules/projects/session-store.js";
 const unifiedStreamOrder = createUnifiedStreamOrderer();
 const runtimeLogger = createRuntimeLogger({ logEvent: createAgentActivityLogger({ logEvent, executionActivity }) });
 const codeCache = storage.disposal.own(createCodeCacheService({ projectId, fileService, codeSearch, logger: runtimeLogger.emit }), "close", 20);
