@@ -1,6 +1,7 @@
 // Manages the SQLite index database file, WAL configuration, and incremental schema migrations for code graph storage.
-import { mkdir } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { lstatSync } from "node:fs";
+import { mkdir, realpath } from "node:fs/promises";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { ConfigurationError } from "../../shared/errors.js";
@@ -11,15 +12,32 @@ const DATABASE_FILE = "index.db";
 // Ensures the runtime directory exists on disk and returns its resolved path for database placement.
 export async function ensureRuntimeDir(projectRoot, runtimeDir) {
   assertProjectRoot(projectRoot);
-  const resolvedRuntimeDir = runtimeDir ? resolveRuntimeDir(projectRoot, runtimeDir) : join(projectRoot, ".forge", "runtime");
-  await mkdir(resolvedRuntimeDir, { recursive: true });
-  return resolvedRuntimeDir;
+  const root = resolve(projectRoot);
+  const resolvedRuntimeDir = runtimeDir ? resolveRuntimeDir(root, runtimeDir) : join(root, ".forge", "runtime");
+  const runtimeRelative = relative(root, resolvedRuntimeDir);
+  if (isAbsolute(runtimeRelative) || runtimeRelative === ".." || runtimeRelative.startsWith(`..${sep}`)) {
+    throw new ConfigurationError("Runtime directory must remain inside the project root.");
+  }
+  let directory = await realpath(root);
+  for (const component of runtimeRelative.split(sep).filter(Boolean)) {
+    directory = join(directory, component);
+    if (!assertRuntimeTarget(directory, true)) {
+      try {
+        await mkdir(directory);
+      } catch (error) {
+        if (error.code !== "EEXIST") throw error;
+      }
+    }
+    assertRuntimeTarget(directory, true);
+  }
+  return directory;
 }
 
 // Opens (or creates) the SQLite index database at the runtime dir, applies pragmas and runs pending migrations.
 export async function openIndexDatabase(projectRoot, { busyTimeoutMs = 10000, journalMode = "WAL", runtimeDir: configuredRuntimeDir } = {}) {
   const runtimeDir = await ensureRuntimeDir(projectRoot, configuredRuntimeDir);
   const databasePath = join(runtimeDir, DATABASE_FILE);
+  for (const suffix of ["", "-wal", "-shm", "-journal"]) assertRuntimeTarget(`${databasePath}${suffix}`, false);
   const database = new DatabaseSync(databasePath);
   let closed = false;
 
@@ -59,6 +77,21 @@ export async function openIndexDatabase(projectRoot, { busyTimeoutMs = 10000, jo
       closed = true;
     }
   });
+}
+
+// Rejects redirected runtime storage before another project's persisted data can be opened or changed.
+function assertRuntimeTarget(path, directory) {
+  let status;
+  try {
+    status = lstatSync(path);
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  }
+  if (status.isSymbolicLink() || (directory ? !status.isDirectory() : !status.isFile() || status.nlink !== 1)) {
+    throw new ConfigurationError("Linked or invalid runtime storage is not allowed inside the project root.");
+  }
+  return true;
 }
 
 // Throws if projectRoot is missing or empty.
