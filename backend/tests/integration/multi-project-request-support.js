@@ -16,6 +16,7 @@ import { createSubscriptionRegistry } from "../../src/modules/events/subscriptio
 export async function createRoutingApplication({ config, storage }) {
   execFileSync("git", ["init", "-q"], { cwd: config.cwd });
   const projectId = config.projectId;
+  execFileSync("git", ["symbolic-ref", "HEAD", `refs/heads/${projectId}`], { cwd: config.cwd });
   const database = storage.controlDb;
   const fileService = storage.fileService;
   const planFileService = createFileService({ projectRoot: config.cwd, allowPlanStorage: true });
@@ -25,7 +26,12 @@ export async function createRoutingApplication({ config, storage }) {
   const communications = createAgentCommunicationStore({ database, fileService });
   const bus = createAgentCommunicationBus({ store: communications });
   const taskId = `CODE-${projectId}`;
-  await fileService.atomicWrite({ path: `.forge/runtime/nf/code-requests/${taskId}.json`, content: JSON.stringify({ task_id: taskId, project_id: projectId, mode: "direct_code" }) });
+  try {
+    await fileService.readFile({ path: `.forge/runtime/nf/code-requests/${taskId}.json` });
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    await fileService.atomicCreate({ path: `.forge/runtime/nf/code-requests/${taskId}.json`, content: JSON.stringify({ task_id: taskId, project_id: projectId, mode: "direct_code" }) });
+  }
   const directCodeRequest = createDirectCodeRequest({ fileService, projectId,
     integration: { submitTicket: async () => { throw new Error("Unapproved dispatch must not run"); } },
     checkpoints: { load: async () => null, listPending: async () => [{ task_id: taskId }] }
