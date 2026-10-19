@@ -93,7 +93,12 @@ export function createHttpApi({ ownerChatService, conversationStream, projectStr
   async function route(method, url, request) {
     const parts = url.pathname.split("/").filter(Boolean);
     const projectId = url.searchParams.get("project") ?? undefined;
-    if (forgeV1Router && (parts[0] === "sprints" || parts[0] === "tickets" || parts[0] === "projects" && parts[2] === "tickets")) {
+    if (forgeV1Router && (parts[0] === "sprints" || parts[0] === "tickets" || parts[0] === "projects" && (
+      parts[2] === "tickets" || parts.length === 3 && (
+        method === "POST" && parts[2] === "decisions" ||
+        method === "GET" && ["architecture-workspace", "dashboard", "history"].includes(parts[2])
+      )
+    ))) {
       const canonicalUrl = new URL(url);
       canonicalUrl.pathname = `/forge/v1${url.pathname}`;
       return forgeV1Router.route(method, canonicalUrl, request);
