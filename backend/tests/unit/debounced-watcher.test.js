@@ -23,12 +23,16 @@ function waitForEvent(watcher, predicate = () => true, timeoutMs = 2000) {
   });
 }
 
-test("coalesces five consecutive file changes into one schema-valid watcher event", async () => {
+test("coalesces five consecutive file changes into one schema-valid watcher event", async (context) => {
+  const root = await mkdtemp(join(os.tmpdir(), "nodeforge-debounce-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, "src"));
+  await writeFile(join(root, "src/session.js"), "export const session = true;\n");
   const rawWatcher = new EventEmitter();
   const watcher = createDebouncedWatcher({
     rawWatcher,
     projectId: "PROJECT-001",
-    root: "/project",
+    root,
     debounceMs: 100,
     createEventId: () => "EVT-WATCHER-001"
   });
@@ -36,7 +40,7 @@ test("coalesces five consecutive file changes into one schema-valid watcher even
   watcher.on("event", (event) => events.push(event));
 
   const eventPromise = waitForEvent(watcher);
-  for (let count = 0; count < 5; count += 1) rawWatcher.emit("change", "/project/src/session.js");
+  for (let count = 0; count < 5; count += 1) rawWatcher.emit("change", join(root, "src/session.js"));
   await eventPromise;
 
   assert.deepEqual(events, [{
