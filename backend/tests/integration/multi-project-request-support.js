@@ -10,6 +10,7 @@ import { createAgentCommunicationStore } from "../../src/modules/governance/agen
 import { createAgentCommunicationBus } from "../../src/modules/governance/agent-communication-bus.js";
 import { createDirectCodeRequest } from "../../src/application/direct-code-request.js";
 import { createGitService } from "../../src/infrastructure/git/git-service.js";
+import { createSubscriptionRegistry } from "../../src/modules/events/subscription-registry.js";
 
 // Uses production storage and application factories, isolating only external agent execution.
 export async function createRoutingApplication({ config, storage }) {
@@ -31,7 +32,7 @@ export async function createRoutingApplication({ config, storage }) {
   });
   const services = {
     projectId, projectRoot: config.cwd, fileService, planFileService, planStore, sprintRegistry,
-    conversations, communications, bus, internalBus: new EventEmitter(), indexDb: storage.indexDb,
+    conversations, communications, bus, subscriptions: createSubscriptionRegistry(), internalBus: new EventEmitter(), indexDb: storage.indexDb,
     conversationStateStore: storage.conversationStateStore, protocolStorage: storage.protocolStorage,
     gitService: createGitService({ projectRoot: config.cwd }), directCodeRequest,
     agentConfiguration: { getById: () => null }, agentGateway: { stream: async function* () {} },
