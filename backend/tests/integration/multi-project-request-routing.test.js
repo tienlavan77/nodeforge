@@ -123,7 +123,7 @@ test("existing project SSE selects each runtime and rejects unavailable identifi
   ]) {
     const response = await fetch(new URL(path, f.origin));
     assert.equal(response.status, status);
-    assert.ok(JSON.stringify(await response.json()).includes(code));
+    assert.equal((await response.json()).error.code, code.toLowerCase());
   }
 });
 
@@ -199,6 +199,10 @@ test("single-project HTTP callers retain query and payload compatibility", async
   assert.equal((await f.request("conversations?project_id=PROJECT-B"))[0].title, "Legacy");
   assert.deepEqual(await f.request("plans?project=PROJECT-B"), []);
   await f.request("plans?project=PROJECT-A", { status: 409 });
+  const stream = await openStream(`${f.origin}stream?project=PROJECT-B`);
+  try { await stream.until("stream.snapshot"); } finally { await stream.close(); }
+  const conversation = await openStream(new URL("/projects/PROJECT-B/conversations/CONV-SHARED/stream", f.origin));
+  try { await conversation.until("conversation.replay.complete"); } finally { await conversation.close(); }
 });
 
 test("removal and re-addition replace disposed application bundles", async (context) => {
@@ -208,6 +212,11 @@ test("removal and re-addition replace disposed application bundles", async (cont
   await f.disposal.releaseRuntime(f.runtimes.get(root));
   assert.equal(await f.applications.resolve("PROJECT-A"), undefined);
   await f.request("plans?project=PROJECT-A", { status: 404 });
+  for (const path of ["/forge/v1/stream?project=PROJECT-A", "/projects/PROJECT-A/conversations/CONV-SHARED/stream"]) {
+    const response = await fetch(new URL(path, f.origin));
+    assert.equal(response.status, 404);
+    assert.equal((await response.json()).error.code, "project_not_found");
+  }
   f.runtimes.set(root, { projectId: "PROJECT-A", projectRoot: root, close: async () => {} });
   const second = await f.applications.resolve("PROJECT-A");
   assert.notEqual(first, second);
