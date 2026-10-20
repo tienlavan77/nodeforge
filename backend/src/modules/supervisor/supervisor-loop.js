@@ -37,7 +37,7 @@ export function createSupervisorLoop({ runtime, senderQueue, collectorQueue, ver
     const existing = agentOccupancy.getByTask(runtime.taskId);
     const candidates = existing ? [existing.agent_id] : [request.agent_id, ...(agentResolver?.list?.("coder") ?? []).map((profile) => profile.agent_id)];
     for (const agentId of [...new Set(candidates.filter(Boolean))]) {
-      const claim = await agentOccupancy.claim({ agentId, taskId: runtime.taskId, supervisorId: runtime.supervisorId });
+      const claim = await agentOccupancy.claim({ agentId, taskId: runtime.taskId, supervisorId: runtime.supervisorId, projectId: request.project_id ?? request.ticket?.project_id ?? request.payload?.project_id ?? request.payload?.ticket?.project_id });
       if (claim) return { ...request, agent_id: agentId, selected_agent_id: agentId, selected_agent_role: "coder", claim_id: claim.claim_id, claim_created: claim.created === true };
     }
     throw Object.assign(new ConfigurationError("No unclaimed READY Coder is available."), { code: "AGENT_NOT_AVAILABLE" });
@@ -92,7 +92,7 @@ export function createSupervisorLoop({ runtime, senderQueue, collectorQueue, ver
         const artifact = await workspace.testService.assertPassedArtifact();
         try { job = await automaticReview.prepare({ request: { ...source, supervisor_id: runtime.supervisorId, attempt: event.attempt }, artifact, workspace, inline: false }); }
         catch (error) {
-          preparationFailure = { automatic_review: true, inline_review: true, review_gate: source.ticket.execution_policy?.review_gate ?? "off", outcome_label: "review_failed", error: { code: error.code ?? "REVIEW_FAILED", message: error.message }, artifact_id: artifact.artifact_id };
+          preparationFailure = { automatic_review: true, inline_review: true, review_gate: automaticReviewPolicy(source.ticket).gate, outcome_label: "review_failed", error: { code: error.code ?? "REVIEW_FAILED", message: error.message }, artifact_id: artifact.artifact_id };
           if (preparationFailure.review_gate === "on") { await runtime.transition("REVIEWING", event); await terminal("review.failed", event, preparationFailure); return parkReview(event, preparationFailure.error.code); }
         }
         if (job?.review_policy.gate === "on") { await runtime.transition("REVIEWING", event); await automaticReview.dispatch(job); return true; }
@@ -123,11 +123,9 @@ export function createSupervisorLoop({ runtime, senderQueue, collectorQueue, ver
       await runtime.transition("COMPLETED", event); if (approvedJob) await automaticReview.publishCompletion(approvedJob); else await terminal("task.completed", event, { review: event.payload }); await releaseCoder("accepted"); return true;
     }
     if (event.type === "review.request_changes") {
-      if (event.payload?.verdict !== "request_changes" || !event.payload?.reviewer_id || !Array.isArray(event.payload?.findings) || (!event.payload.findings.length && !(event.payload.adjudications ?? []).some((item) => ["retain", "refine"].includes(item.decision)))) return parkReview(event, "review_verdict_invalid");
-      const source = await sourceRequest?.(runtime.taskId);
+      if (event.payload?.verdict !== "request_changes" || !event.payload?.reviewer_id || !Array.isArray(event.payload?.findings) || (!event.payload.findings.length && !(event.payload.adjudications ?? []).some((item) => ["retain", "refine", "reopen"].includes(item.decision)))) return parkReview(event, "review_verdict_invalid");
       if (event.payload.owner_decision_reason) return parkReview(event, event.payload.owner_decision_reason);
-      const limit = source?.ticket?.execution_policy?.max_review_revisions ?? 2;
-      if (event.payload?.automatic_review ? !(await automaticReview.consumeRepair(await automaticReview.findJob(event.payload.job_key))) : (event.attempt ?? 1) > limit) return parkReview(event, "review_revision_limit");
+      if (event.payload?.automatic_review) await automaticReview.consumeRepair(await automaticReview.findJob(event.payload.job_key));
       await runtime.transition("REPAIRING", event);
       const repairEvent = event.payload?.automatic_review ? { ...event, payload: { ...event.payload, findings: await (await resolveTicketWorkspace(runtime.taskId)).reviewFindings.unresolved() } } : event;
       const request = await startRepairRound(repairEvent, "review_request_changes");
