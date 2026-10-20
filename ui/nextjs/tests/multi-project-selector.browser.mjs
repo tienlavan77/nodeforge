@@ -14,8 +14,10 @@ export async function createBrowserFixture({ sourceRoot, build }) {
     window.addEventListener('unhandledrejection',event=>window.fixtureErrors.push(String(event.reason?.stack??event.reason)));
     window.projects=[{project_id:'PROJECT-A',root:'/projects/a'}];
     window.delayA=new URLSearchParams(location.search).has('delay');
+    // Return persisted conversation identities accepted by the production message handler.
+    const conversation=project=>project==='PROJECT-A'?'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
     // Return representative persisted conversation history from the controlled transport.
-    const history=(project,text)=>({items:[{id:'history-'+project,kind:'agent',agent_id:'architect',conversation_id:'conversation-'+project,timestamp:'2026-10-20T00:00:00Z',content:{text,content_type:'text/plain'}}]});
+    const history=(project,text)=>({items:[{id:'history-'+project,kind:'agent',agent_id:'architect',conversation_id:conversation(project),timestamp:'2026-10-20T00:00:00Z',content:{text,content_type:'text/plain'}}]});
     // Preserve request shapes so assertions can distinguish management, reads, and mutations.
     window.fetch=async(input,init={})=>{
       const url=new URL(input,location.origin);const body=init.body?JSON.parse(init.body):null;
@@ -32,13 +34,13 @@ export async function createBrowserFixture({ sourceRoot, build }) {
         window.projects=window.projects.filter(item=>item.root!==body.root);return Response.json({removed:true,root:body.root});
       }
       if(url.pathname.endsWith('/agents'))return Response.json({agents:[{agent_id:'architect',agent_name:'Architect',role:'architecture_manager',enabled:true}]});
-      if(url.pathname.endsWith('/conversations')&&method==='GET')return Response.json({items:[{id:'conversation-'+project,title:'Conversation '+project,agent_id:'architect',project_id:project}]});
-      if(url.pathname.endsWith('/conversations')&&method==='POST')return Response.json({id:'conversation-'+project,project_id:project,agent_id:'architect'});
+      if(url.pathname.endsWith('/conversations')&&method==='GET')return Response.json({items:[{id:conversation(project),title:'Conversation '+project,agent_id:'architect',project_id:project}]});
+      if(url.pathname.endsWith('/conversations')&&method==='POST')return Response.json({id:conversation(project),project_id:project,agent_id:'architect'});
       if(url.pathname.endsWith('/messages')&&method==='GET'){
         if(window.delayA&&project==='PROJECT-A')return new Promise(resolve=>window.held.push(()=>resolve(Response.json(history(project,'STALE A RESPONSE')))));
         return Response.json(history(project,'History '+project));
       }
-      if(url.pathname.endsWith('/messages')&&method==='POST')return Response.json({status:'accepted',message_id:body.message_id,conversation_id:'conversation-'+project});
+      if(url.pathname.endsWith('/messages')&&method==='POST')return Response.json({status:'accepted',message_id:body.message_id,conversation_id:conversation(project)});
       if(url.pathname.endsWith('/plan-clarifications'))return Response.json([]);
       if(url.pathname.endsWith('/git/status'))return Response.json({branch:'main',clean:true,files:[]});
       return Response.json({items:[],project_id:project});
@@ -131,7 +133,7 @@ export const browserAssertions = {
       for (const release of window.held) release();
       for (const source of window.sources) {
         const project = new URL(source.url).searchParams.get("project");
-        source.emit("conversation.message.owner", { event_id: `event-${project}`, schema_version: 1, project_id: project, timestamp: "2026-10-20T00:00:00Z", event_type: "conversation.message.owner", payload: { conversation_id: `conversation-${project}`, message_id: `message-${project}`, text: project === "PROJECT-A" ? "STALE A EVENT" : "CURRENT B EVENT" } });
+        source.emit("conversation.message.owner", { event_id: `event-${project}`, schema_version: 1, project_id: project, timestamp: "2026-10-20T00:00:00Z", event_type: "conversation.message.owner", payload: { conversation_id: project === "PROJECT-A" ? "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" : "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", message_id: `message-${project}`, text: project === "PROJECT-A" ? "STALE A EVENT" : "CURRENT B EVENT" } });
       }
     });
     await page.getByText("CURRENT B EVENT", { exact: true }).waitFor();
