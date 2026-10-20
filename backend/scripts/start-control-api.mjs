@@ -38,6 +38,7 @@ import { createTicketCrudService } from "../src/application/ticket-crud-service.
 import { createDirectCodeRequest } from "../src/application/direct-code-request.js";
 import { createCodeCacheService } from "../src/modules/context/code-cache-service.js";
 import { createAgentOccupancyStore } from "../src/modules/agent/agent-occupancy-store.js";
+import { createAgentOccupancyNotifications } from "../src/modules/agent/agent-occupancy-notifications.js";
 import { createTicketWorkspaceService } from "../src/modules/supervisor/ticket-workspace-service.js";
 import { withTicketProjectCommitLock } from "../src/modules/supervisor/ticket-project-commit-lock.js";
 import { createTicketPipelineInventory } from "../src/modules/supervisor/ticket-pipeline-inventory.js";
@@ -89,13 +90,8 @@ const reportService = createCompletionReportService({ protocolStorage, fileServi
 const onEvalCase = createEvalCaseRecorder({ root: config.cwd });
 const { projectId, indexDb: platformIndexDb, codeSearch, fileGraph, relevantTreeSelector, freshnessChecker, ticketSprintLeader, sprintPlanLeader, communications, conversations, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, contextEngine, sprintOrchestration, proseTicketService, ticketFileStore, sprintPlanUpload, taskSummaries, projectMemory } = platform;
 const executionActivity = platform.executionActivity;
-const agentOccupancy = createAgentOccupancyStore({ database, profiles, configuration: agentConfiguration, logger: { error: (_message, details) => logEvent({ timestamp: new Date().toISOString(), event_name: "agent.occupancy_notification_failed", level: "error", status: "failed", message: "Agent occupancy post-commit notification failed.", task_id: details.task_id, project_id: projectId, source: "agent-occupancy-store", error_code: "OCCUPANCY_NOTIFICATION_FAILED", payload: details }) }, onChanged: async (claim) => {
-  const timestamp = new Date().toISOString();
-  const event = { event_id: `EVT-${randomUUID()}`, type: "agent.status_changed", project_id: projectId, timestamp, task_id: claim.task_id, agent_id: claim.agent_id, payload: { agent_id: claim.agent_id, status: claim.status, previous_status: claim.previous_status, task_id: claim.task_id, supervisor_id: claim.supervisor_id, claim_id: claim.claim_id, reason: claim.release_reason ?? null, updated_at: timestamp }, metadata: { project_id: projectId, source: "agent-occupancy-store" } };
-  internalBus.emit("agent.status_changed", event);
-  executionActivity({ agentId: claim.agent_id, correlationId: claim.claim_id, phase: claim.status === "working" ? "started" : "completed", summary: claim.status === "working" ? "Agent claimed ticket execution." : "Agent execution claim released; ticket outcome is tracked separately." });
-  await eventPublisher.publish(event);
-} });
+const agentOccupancy = createAgentOccupancyStore({ database, profiles, defaultProjectId: projectId, configuration: agentConfiguration,
+  ...createAgentOccupancyNotifications({ projectId, logEvent, internalBus, executionActivity, eventPublisher }) });
 testService = platform.testService;
 onTestService(testService);
 const unifiedStreamOrder = createUnifiedStreamOrderer();

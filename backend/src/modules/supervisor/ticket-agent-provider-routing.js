@@ -28,7 +28,7 @@ export async function selectTicketCoder({ resolver, occupancy, ticket, taskId, o
     const candidate = resolver.list?.("coder")?.find((profile) => profile.agent_id === agentId) ?? (selected?.agent_id === agentId ? selected : null);
     if (candidate?.role && candidate.role !== "coder") continue;
     if (!resume) assertEngineeringProvider(candidate ?? selected);
-    const claim = await occupancy.claim({ agentId, taskId, supervisorId: ownerId });
+    const claim = await occupancy.claim({ agentId, taskId, supervisorId: ownerId, projectId: ticket.project_id ?? payload.project_id });
     if (claim) {
       if (pinnedId && claim.agent_id !== pinnedId) throw unavailable("Coder");
       selected = candidate ?? selected;

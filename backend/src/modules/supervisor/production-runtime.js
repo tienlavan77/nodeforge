@@ -1,4 +1,5 @@
 // Summary: Wires production supervisor runtime — queue stores, event bus, supervisor manager, and worker signal/result buses.
+import { createReviewDependencyReconciliation } from "./review-dependency-reconciliation.js";
 import { ConfigurationError } from "../../shared/errors.js";
 import { createDurableQueue } from "./durable-queue.js";
 import { retainUnreconciledLaunch } from "./ticket-launch-recovery.js";
@@ -58,9 +59,10 @@ export function createProductionSupervisorRuntime({ fileService, projectId, proj
   const resolveTicketWorkspace = ticketWorkspaceService ? async (taskId) => { const workspace = await ticketWorkspaceService.open(taskId); if (workspace.migrationRequired) throw Object.assign(new ConfigurationError(`Ticket ${taskId} has a pre-ledger worktree commit that requires explicit migration.`), { code: "TICKET_WORKSPACE_MIGRATION_REQUIRED" }); if (!ticketRegistries.has(taskId)) ticketRegistries.set(taskId, createForgeToolRegistry({ protocolStorage, fileService: workspace.fileService, projectRoot: workspace.projectRoot, codeSearch: workspace.codeSearch, codeCache: workspace.codeCache, relevantTreeSelector: workspace.relevantTreeSelector, freshnessChecker: workspace.freshnessChecker, enableReadCode, testService: workspace.testService, gitService: workspace.gitService, changeLedger: workspace.changeLedger, executionContexts: workspace.executionContexts, reviewFindings: workspace.reviewFindings, reportService: workspace.reportService, onEvalCase, governance: runtimeGovernance, projectLogger })); return { ...workspace, toolRegistry: ticketRegistries.get(taskId) }; } : null;
   // Integrates reviewed ticket commits before Supervisor publishes a completed outcome.
   const integrateTicket = resolveTicketWorkspace ? async (taskId, options) => { const workspace = await resolveTicketWorkspace(taskId); await finalizeCoderWorkspace(workspace, taskId, options); } : undefined;
-  const automaticReview = createProductionAutomaticReview({ queueStore, queue: queues["agent.request"], eventBus, fileService, resolveTicketWorkspace, agentResolver: agentRoleResolver, agentOccupancy, gateways: { claudeSdkGateway, openaiSdkGateway, codexSdkGateway }, projectLogger, ticketStatusStore, checkpoints: agentCheckpoints });
+  const reconcileReviewDependencies = createReviewDependencyReconciliation({ ticketStatusStore, sprintRegistry, resolveTicketWorkspace, fileService, projectLogger });
+  const automaticReview = createProductionAutomaticReview({ resumeRepair: (input) => integration.submitTicket(input), queueStore, queue: queues["agent.request"], eventBus, fileService, resolveTicketWorkspace, agentResolver: agentRoleResolver, agentOccupancy, gateways: { claudeSdkGateway, openaiSdkGateway, codexSdkGateway }, projectLogger, ticketStatusStore, checkpoints: agentCheckpoints });
   coderRecovery ??= createCoderRecoveryRuntime({ store: queueStore, ticketStatusStore, sprintRegistry, resolveTicketWorkspace, checkpoints: agentCheckpoints,
-    eventBus, submitTicket: (input) => baseIntegration.submitTicket(input), disposition: ticketDisposition, agentOccupancy, policy: coderRetryPolicy, logger });
+    eventBus, submitTicket: (input) => baseIntegration.submitTicket(input), disposition: ticketDisposition, agentOccupancy, policy: coderRetryPolicy, projectLogger, logger });
   const blockerRecovery = createProductionBlockerRecovery({ store: queueStore, fileService, projectId, ticketStatusStore, sprintRegistry, resolveTicketWorkspace, checkpoints: agentCheckpoints,
     eventBus, agentResolver: agentRoleResolver, agentOccupancy, gateways: { claudeSdkGateway, openaiSdkGateway }, submitTicket: (input) => integration.submitTicket(input), stopExecution: (input) => coderRecovery.stopTicket(input), disposition: ticketDisposition, architecturePlans, plans, planFileService, replanFoundation, projectLogger, logger, limits: blockerRecoveryPolicy() });
   const supervisorManager = createSupervisorManager({ eventBus, stateStore, preparation, onCreate: (runtime) => {
@@ -134,8 +136,8 @@ export function createProductionSupervisorRuntime({ fileService, projectId, proj
       agentRegistry.register(profile.agent_id, { send }, profile);
     }
   }
-  const reviewWorker = agentRoleResolver && fileService?.readForIndex ? createReviewWorker({ agentResolver: agentRoleResolver, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, fileService, gitService, codeSearch, codeCache, projectRoot, projectLogger }) : null;
-  const resolveReviewWorker = resolveTicketWorkspace ? async (job) => { const workspace = await resolveTicketWorkspace(job.task_id); const reviewCache = createCodeCacheService({ projectId: `${workspace.base_commit}:${workspace.branch}`, fileService: workspace.worktreeFileService, logger: projectLogger }); return createReviewWorker({ agentResolver: agentRoleResolver, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, fileService: workspace.worktreeFileService, rulesFileService: fileService, gitService: workspace.gitService, codeCache: reviewCache, projectRoot: workspace.path, executionContexts: workspace.executionContexts, verificationService: workspace.testService, reviewFindings: workspace.reviewFindings, projectLogger }); } : null;
+  const reviewWorker = agentRoleResolver && fileService?.readForIndex ? createReviewWorker({ agentResolver: agentRoleResolver, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, fileService, gitService, codeSearch, codeCache, projectRoot, checkpoints: agentCheckpoints, projectLogger }) : null;
+  const resolveReviewWorker = resolveTicketWorkspace ? async (job) => { const workspace = await resolveTicketWorkspace(job.task_id); const reviewCache = createCodeCacheService({ projectId: `${workspace.base_commit}:${workspace.branch}`, fileService: workspace.worktreeFileService, logger: projectLogger }); return createReviewWorker({ agentResolver: agentRoleResolver, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, fileService: workspace.worktreeFileService, rulesFileService: fileService, gitService: workspace.gitService, codeSearch: workspace.codeSearch ?? codeSearch, codeCache: reviewCache, projectRoot: workspace.path, executionContexts: workspace.executionContexts, verificationService: workspace.testService, reviewFindings: workspace.reviewFindings, checkpoints: agentCheckpoints, projectLogger }); } : null;
   const legacyReviewHandler = createReviewRequestHandler({ reviewWorker, resolveReviewWorker, resolveReviewFindings: resolveTicketWorkspace ? async (job) => (await resolveTicketWorkspace(job.task_id)).reviewFindings : null, checkpointStore: agentCheckpoints, queueStore, queue: queues["agent.request"], eventBus, projectLogger, ticketStatusStore, validateReviewEvidence: resolveTicketWorkspace ? (job) => validateRecoveredReviewEvidence(job, resolveTicketWorkspace) : null }); const reviewHandler = (job) => job.automatic_review ? automaticReview.process(job) : legacyReviewHandler(job);
   const senderWorker = createSenderWorker({ queue: queues["agent.request"], agentRegistry, agentResolver: agentRoleResolver, eventBus, processedStore: processedRequestStore, statusBus, signalBus, projectLogger, protocolStorage, conversationStateStore, toolRegistry, resolveToolRegistry: resolveTicketWorkspace ? async (job) => { const workspace = await resolveTicketWorkspace(job.task_id); job.execution_context = await prepareTicketExecutionContext({ workspace, taskId: job.task_id, supervisorId: job.supervisor_id ?? `SUP-${job.task_id}`, ticket: job.ticket }); return workspace.toolRegistry; } : null, runtimeGovernance, reviewHandler });
   const collectorWorker = createCollectorWorker({ fileService, gitService });
@@ -149,7 +151,7 @@ export function createProductionSupervisorRuntime({ fileService, projectId, proj
     }
   }
   if (autoStartWorkers) void startWorkers();
-  return Object.freeze({ governance: runtimeGovernance, queues, queueStore, stateStore, processedRequestStore, eventBus, signalBus, resultBus, statusBus, supervisorManager, integration, agentRegistry, senderWorker, collectorWorkerLoop, verificationWorkerLoop, startWorkers, recover, agentCheckpoints, coderRecovery, blockerRecovery });
+  return Object.freeze({ reconcileReviewDependencies, governance: runtimeGovernance, queues, queueStore, stateStore, processedRequestStore, eventBus, signalBus, resultBus, statusBus, supervisorManager, integration, agentRegistry, senderWorker, collectorWorkerLoop, verificationWorkerLoop, startWorkers, recover, agentCheckpoints, coderRecovery, blockerRecovery, resumeCompletedReview: automaticReview?.resumeCompleted });
 
   async function recover() {
     logger.debug?.("Supervisor recovery: queue scan started");
@@ -161,19 +163,20 @@ export function createProductionSupervisorRuntime({ fileService, projectId, proj
     await blockerRecovery?.recover();
     logger.debug?.("Supervisor recovery: manager loaded", { supervisors });
     for (const claim of agentOccupancy?.listActive?.() ?? []) {
+      if (projectId != null && claim.project_id != null && claim.project_id !== projectId) continue;
       if (retainUnreconciledLaunch({ taskId: claim.task_id, ticketStatusStore, projectLogger })) continue;
       const snapshot = await stateStore.get(claim.supervisor_id);
       if (!snapshot && claim.supervisor_id === `SUP-${claim.task_id}`) {
         const checkpoint = await agentCheckpoints.load(claim.task_id);
         if (checkpoint?.status !== "completed") continue;
         const directCode = claim.task_id.startsWith("CODE-");
-        if (!directCode) await eventBus.publish({ type: "task.needs_human_review", task_id: claim.task_id, supervisor_id: claim.supervisor_id, request_id: `RECOVER-${claim.claim_id}`, correlation_id: checkpoint.correlation_id ?? `CORR-${claim.task_id}`, attempt: checkpoint.attempt ?? 1, payload: { reason: "review_interrupted" } });
-        await agentOccupancy.release({ claimId: claim.claim_id, taskId: claim.task_id, supervisorId: claim.supervisor_id, reason: directCode ? "direct_code_recovered" : "review_interrupted" });
+        if (!directCode) await eventBus.publish({ type: "task.needs_human_review", project_id: claim.project_id ?? null, metadata: { project_id: claim.project_id ?? null }, task_id: claim.task_id, supervisor_id: claim.supervisor_id, request_id: `RECOVER-${claim.claim_id}`, correlation_id: checkpoint.correlation_id ?? `CORR-${claim.task_id}`, attempt: checkpoint.attempt ?? 1, payload: { reason: "review_interrupted" } });
+        await agentOccupancy.release({ claimId: claim.claim_id, taskId: claim.task_id, supervisorId: claim.supervisor_id, projectId: claim.project_id, reason: directCode ? "direct_code_recovered" : "review_interrupted" });
         continue;
       }
       if (snapshot?.task_id !== claim.task_id || !["COMPLETED", "FAILED", "NEEDS_HUMAN_REVIEW"].includes(snapshot.state)) continue;
-      await agentOccupancy.release({ claimId: claim.claim_id, taskId: claim.task_id, supervisorId: claim.supervisor_id, reason: `recovered_${snapshot.state.toLowerCase()}` });
-      projectLogger({ event_name: "agent.occupancy_reconciled", level: "info", status: "success", message: "Terminal Supervisor claim released during recovery.", task_id: claim.task_id, source: "production-runtime", payload: { claim_id: claim.claim_id, supervisor_id: claim.supervisor_id, terminal_state: snapshot.state } });
+      await agentOccupancy.release({ claimId: claim.claim_id, taskId: claim.task_id, supervisorId: claim.supervisor_id, projectId: claim.project_id, reason: `recovered_${snapshot.state.toLowerCase()}` });
+      projectLogger({ event_name: "agent.occupancy_reconciled", level: "info", status: "success", message: "Terminal Supervisor claim released during recovery.", task_id: claim.task_id, project_id: claim.project_id ?? null, source: "production-runtime", payload: { project_id: claim.project_id ?? null, claim_id: claim.claim_id, supervisor_id: claim.supervisor_id, terminal_state: snapshot.state } });
     }
     for (const state of await stateStore.list({ scope: "pending" })) {
       if (retainUnreconciledLaunch({ taskId: state.task_id, ticketStatusStore, projectLogger })) continue;
