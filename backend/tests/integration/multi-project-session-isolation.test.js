@@ -7,6 +7,27 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createSessionStore } from "../../src/modules/projects/session-store.js";
+import { ensureRuntimeDir, openIndexDatabase } from "../../src/infrastructure/sqlite/index-database.js";
+
+// Preserves first-use runtime creation without allowing missing roots to bypass linked-directory checks.
+test("initializes missing runtime data roots while rejecting redirected missing storage", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "forge-runtime-first-use-"));
+  const dataRoot = join(directory, "first", ".forge/runtime/nf");
+  let database;
+  try {
+    database = await openIndexDatabase(dataRoot, { runtimeDir: "." });
+    assert.equal(database.databasePath, join(dataRoot, "index.db"));
+    assert.deepEqual(database.all("PRAGMA quick_check"), [{ quick_check: "ok" }]);
+    const secondRoot = join(directory, "second");
+    await mkdir(secondRoot);
+    await symlink(join(secondRoot, "missing"), join(directory, "redirected"));
+    await assert.rejects(ensureRuntimeDir(join(directory, "redirected", "nf"), "."), /Linked or invalid runtime storage/);
+    assert.deepEqual(await readdir(secondRoot), []);
+  } finally {
+    await database?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 // Exercises session reads and atomic creation against linked ancestors, files, and missing targets.
 test("rejects redirected session storage without changing the other project's artifacts or events", async () => {

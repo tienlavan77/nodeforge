@@ -1,7 +1,7 @@
 // Manages the SQLite index database file, WAL configuration, and incremental schema migrations for code graph storage.
 import { lstatSync } from "node:fs";
 import { mkdir, realpath } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { ConfigurationError } from "../../shared/errors.js";
@@ -18,7 +18,13 @@ export async function ensureRuntimeDir(projectRoot, runtimeDir) {
   if (isAbsolute(runtimeRelative) || runtimeRelative === ".." || runtimeRelative.startsWith(`..${sep}`)) {
     throw new ConfigurationError("Runtime directory must remain inside the project root.");
   }
-  let directory = await realpath(root);
+  let directory;
+  try {
+    directory = await realpath(root);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    directory = await ensureRuntimeDir(dirname(root), basename(root));
+  }
   for (const component of runtimeRelative.split(sep).filter(Boolean)) {
     directory = join(directory, component);
     if (!assertRuntimeTarget(directory, true)) {
