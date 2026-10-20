@@ -11,6 +11,7 @@ import { createAgentProfileStore } from "../../src/modules/agent/agent-profile-s
 import { createAgentOccupancyStore } from "../../src/modules/agent/agent-occupancy-store.js";
 import { createAgentOccupancyNotifications } from "../../src/modules/agent/agent-occupancy-notifications.js";
 import { createProductionSupervisorRuntime } from "../../src/modules/supervisor/production-runtime.js";
+import { createBlockerRecoveryAgent } from "../../src/modules/supervisor/blocker-recovery-agent.js";
 import { createProjectLogService } from "../../src/core/project-log-service.js";
 import { createRuntimeLogger } from "../../src/core/runtime-logger.js";
 import { createEventPublisher } from "../../src/modules/events/event-publisher.js";
@@ -23,6 +24,51 @@ import { createMemoryRetriever } from "../../src/modules/history/memory-retrieve
 
 const FIRST = "11111111-1111-4111-8111-111111111111";
 const SECOND = "22222222-2222-4222-8222-222222222222";
+
+// Verifies blocker lifecycle logs retain persisted claim ownership, including legacy unknown ownership.
+test("blocker investigations persist claim-derived lifecycle logs instead of the startup project", async () => {
+  const root = await mkdtemp(join(tmpdir(), "multi-project-blocker-"));
+  const database = await openIndexDatabase(root);
+  const defaultProjectId = process.env.NODE_CONTROL_PROJECT_ID;
+  process.env.NODE_CONTROL_PROJECT_ID = "PROJECT-STARTUP";
+  try {
+    const profiles = seedProfiles(database);
+    const occupancy = createAgentOccupancyStore({ database, profiles });
+    const logs = createProjectLogService({ projectRoot: root });
+    const runtimeLogger = createRuntimeLogger({ logEvent: logs.logEvent, output: { write: () => {} } });
+    const profile = { ...profiles.getById(FIRST), provider: "codex" };
+    const worker = createBlockerRecoveryAgent({
+      agentResolver: { resolveAvailable: () => profile }, agentOccupancy: occupancy,
+      projectLogger: runtimeLogger.emit, readFailureEvidence: async () => null,
+      resolveTicketWorkspace: async () => ({ projectRoot: root, root_only: true, fileService: createFileService({ projectRoot: root }) }),
+      gateways: { openaiSdkGateway: { execute: async () => ({ text: '{"action":"resolved"}' }) } }
+    });
+    for (const [jobId, projectId] of [["A", "PROJECT-A"], ["B", "PROJECT-B"], ["LEGACY", null]]) {
+      const taskId = `TASK-${jobId}`;
+      const claim = await occupancy.claim({ agentId: FIRST, taskId, supervisorId: `BLOCKER-${jobId}`, projectId });
+      assert.equal(claim.project_id, projectId);
+      const result = await worker({ id: jobId, stage: "coder", request: { task_id: taskId, project_id: projectId ?? "PROJECT-B" }, history: [] }, { deadline: Date.now() + 10_000 });
+      assert.equal(result.action, "resolved");
+      assert.equal(occupancy.getByTask(taskId), null);
+    }
+    const persisted = createProjectLogService({ projectRoot: root });
+    for (const eventName of ["supervisor.blocker_triage_started", "supervisor.blocker_triage_finished"]) {
+      const all = await persisted.readLogEvents({ event_name: eventName });
+      assert.equal(all.warnings.length, 0);
+      assert.equal(all.events.length, 3);
+      for (const [projectId, taskId] of [["PROJECT-A", "TASK-A"], ["PROJECT-B", "TASK-B"], [null, "TASK-LEGACY"]]) {
+        const captured = await persisted.readLogEvents({ event_name: eventName, project_id: projectId });
+        assert.equal(captured.warnings.length, 0);
+        assert.deepEqual(captured.events.map((entry) => [entry.project_id, entry.task_id, entry.status]), [[projectId, taskId, eventName.endsWith("started") ? "started" : "success"]]);
+      }
+      assert.equal((await persisted.readLogEvents({ event_name: eventName, project_id: "PROJECT-STARTUP" })).events.length, 0);
+    }
+  } finally {
+    if (defaultProjectId === undefined) delete process.env.NODE_CONTROL_PROJECT_ID;
+    else process.env.NODE_CONTROL_PROJECT_ID = defaultProjectId;
+    await database.close(); await rm(root, { recursive: true, force: true });
+  }
+});
 
 // Seeds actual persistent profiles so exclusivity tests execute the production transaction path.
 function seedProfiles(database) {

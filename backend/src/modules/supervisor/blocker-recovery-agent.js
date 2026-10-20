@@ -82,7 +82,7 @@ export function createBlockerRecoveryAgent({ agentResolver, agentOccupancy, gate
         `Prior investigation (historical claims; current Node receipts take precedence): ${JSON.stringify(job.history)}`,
         verificationDecisionPrompt(job)
       ].join("\n\n");
-      projectLogger({ event_name: "supervisor.blocker_triage_started", level: "info", status: "started", task_id: taskId, correlation_id: correlationId, message: job.stage === "coder" ? "Coder is preparing a read-only candidate dossier for the coordinating role." : "Automatic blocker investigation started.", payload: { agent_id: profile.agent_id, stage: job.stage, job_id: job.id } });
+      projectLogger({ event_name: "supervisor.blocker_triage_started", level: "info", status: "started", task_id: taskId, correlation_id: correlationId, project_id: claim.project_id ?? null, message: job.stage === "coder" ? "Coder is preparing a read-only candidate dossier for the coordinating role." : "Automatic blocker investigation started.", payload: { agent_id: profile.agent_id, stage: job.stage, job_id: job.id } });
       started = true;
       await onAgentSelected?.({ agent_id: profile.agent_id, role: profile.role, provider: profile.provider });
       const timeout = new Promise((_resolve, reject) => {
@@ -105,7 +105,7 @@ export function createBlockerRecoveryAgent({ agentResolver, agentOccupancy, gate
       clearTimeout(timer);
       active.delete(job.id);
       if (!unknown) await agentOccupancy.release({ claimId: claim.claim_id, taskId, supervisorId, reason: "blocker_investigation_ended" });
-      projectLogger({ event_name: "supervisor.blocker_triage_finished", level: unknown ? "warn" : completed ? "info" : "error", status: unknown ? "blocked" : completed ? "success" : "failed", task_id: taskId, correlation_id: correlationId,
+      projectLogger({ event_name: "supervisor.blocker_triage_finished", level: unknown ? "warn" : completed ? "info" : "error", status: unknown ? "blocked" : completed ? "success" : "failed", task_id: taskId, correlation_id: correlationId, project_id: claim.project_id ?? null,
         message: unknown ? "Blocker provider requires reconciliation; claim retained." : completed ? "Automatic blocker investigation ended." : "Automatic blocker investigation failed without a disposition.", payload: { agent_id: profile.agent_id, stage: job.stage, job_id: job.id, provider_started: started } });
     }
   }
