@@ -13,7 +13,7 @@ export async function createBrowserFixture({ sourceRoot, build }) {
     window.addEventListener('error',event=>window.fixtureErrors.push(event.error?.stack??event.message));
     window.addEventListener('unhandledrejection',event=>window.fixtureErrors.push(String(event.reason?.stack??event.reason)));
     window.projects=[{project_id:'PROJECT-A',root:'/projects/a'}];
-    window.delayA=new URLSearchParams(location.search).has('delay');
+    window.delayA=location.hash==='#delay';
     // Return persisted conversation identities accepted by the production message handler.
     const conversation=project=>project==='PROJECT-A'?'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
     // Return representative persisted conversation history from the controlled transport.
@@ -73,7 +73,8 @@ async function waitForTransition(page, predicate, label, argument) {
 
 // Start each scenario with a real automatically selected single-project workspace.
 async function openWorkspace(page, origin, delayed = false) {
-  await page.goto(`${origin}/${delayed ? "?delay=1" : ""}`);
+  await page.goto(`${origin}/${delayed ? "#delay" : ""}`);
+  if (delayed) await page.reload();
   await waitForTransition(page, () => document.querySelector('select[aria-label="Project"]')?.value === "PROJECT-A" && window.sources.length > 0, "Initial project selection");
   if (!delayed) {
     try { await page.getByText("History PROJECT-A", { exact: true }).waitFor(); }
