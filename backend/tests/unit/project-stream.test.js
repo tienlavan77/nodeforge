@@ -195,7 +195,7 @@ test("project stream framing validates every emitted event against the v1 schema
   publishStatus({ event_id: "EVT-AGENT-ACTIVITY-1", event_type: "agent.started", project_id: "PROJECT-STREAM-SCHEMA", timestamp: "2026-09-11T00:00:00.000Z", payload: { agent_id: "CODER-1" } });
   const activityFrame = statusResponse.chunks.filter((chunk) => chunk.startsWith("id: ")).at(-1);
   assert.equal(validate(JSON.parse(activityFrame.split("data: ")[1])), true, ajv.errorsText(validate.errors));
-  statusEventBus.emit("agent.activity", { event_type: "agent.activity", task_id: "CORR-SDK", conversation_id: "CONV-SDK", timestamp: "2026-09-11T00:00:01.000Z", payload: { agent_id: "CODER-1", correlation_id: "CORR-SDK", activity_type: "tool_completed", status: "success", summary: "Forge tool search_text succeeded", tool_name: "search_text" } });
+  statusEventBus.emit("agent.activity", { event_type: "agent.activity", project_id: "PROJECT-STREAM-SCHEMA", task_id: "CORR-SDK", conversation_id: "CONV-SDK", timestamp: "2026-09-11T00:00:01.000Z", payload: { agent_id: "CODER-1", correlation_id: "CORR-SDK", activity_type: "tool_completed", status: "success", summary: "Forge tool search_text succeeded", tool_name: "search_text" } });
   const toolFrame = statusResponse.chunks.filter((chunk) => chunk.startsWith("id: ")).at(-1);
   const toolEvent = JSON.parse(toolFrame.split("data: ")[1]);
   assert.equal(validate(toolEvent), true, ajv.errorsText(validate.errors));
