@@ -12,6 +12,7 @@ function fixture() {
   const options = { taskId: "T", projectRoot: "/repo", executionContexts: { load: async () => structuredClone(context) },
     stateFileService: { atomicWrite: async (input) => writes.push(input) }, assertIdentity: async () => ({ "backend/tests/unit/example.test.js": "sha256:source" }),
     assertArchiveSource: async () => {}, safeOutput: (text) => text,
+    captureEnvironment: async () => ({ files: [], manifest: [], sha256: "fixture" }),
     materialize: async (input) => { calls.push(input); return { path: "/archive", temp_dir: "/archive/tmp", cleanup: async () => { cleanups += 1; } }; },
     runCommand: async (input) => { calls.push(input); return { exit_code: 0, stdout: "passed", stderr: "", output_sha256: "sha256:output" }; }
   };

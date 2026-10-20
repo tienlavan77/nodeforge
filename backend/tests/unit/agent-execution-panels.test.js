@@ -13,6 +13,16 @@ import { createCodingAgentPanelRegistry, updateCodingAgentPanelRegistry, closeCo
 const projectId = "PROJECT-PANELS";
 const directory = [{ agent_id: "SL-1", role: "sprint_leader" }, { agent_id: "CODER-1", role: "coder" }, { agent_id: "REVIEWER-1", role: "reviewer" }];
 
+test("approval retry notice reaches the Coder SSE panel as waiting work with no denial payload", (context) => {
+  const state = fixture(context);
+  state.activity.recordToolEvent({ event_name: "supervisor.approval_retry_scheduled", correlation_id: "RUN-CODER",
+    message: "Dịch vụ duyệt lỗi 503; retry mỗi 30 giây. Nhấn Stop để dừng.", payload: { agent_id: "CODER-1", receipts: [{ error: "PRIVATE" }] } });
+  const event = state.received.at(-1);
+  assert.equal(event.payload.status, "working");
+  assert.match(event.payload.summary, /30 giây.*Stop/);
+  assert.equal(JSON.stringify(event).includes("PRIVATE"), false);
+});
+
 // Connects backend activity through the actual SSE projection, client filtering, and panel registry without a provider process.
 function fixture(context, initialDirectory = directory, beforeConnect) {
   const original = globalThis.EventSource;
@@ -180,8 +190,8 @@ test("codex ticket tool events and blocker triage reach the activity stream", (c
   state.activity.recordToolEvent({ event_name: "supervisor.agent_tool_event", status: "success", correlation_id: "CORR-UI-RUN-1", payload: { agent_id: "CODER-1", tool: "commit_changes" } });
   state.activity.recordToolEvent({ event_name: "supervisor.agent_tool_event", status: "failed", correlation_id: "CORR-UI-RUN-1", payload: { agent_id: "CODER-1", tool: "run_test", error: "PRIVATE-CONTENT" } });
   state.activity.recordToolEvent({ event_name: "supervisor.blocker_triage_started", status: "started", task_id: "TICKET-1", correlation_id: "BLOCKER-JOB-9-architecture_manager", payload: { agent_id: "AM-1", stage: "architecture_manager", job_id: "JOB-9" } });
-  state.activity.recordToolEvent({ event_name: "supervisor.blocker_tool_call", status: "started", task_id: "TICKET-1", correlation_id: "BLOCKER-JOB-9-architecture_manager", payload: { agent_id: "AM-1", role: "architecture_manager", tool: "read_source" } });
-  state.activity.recordToolEvent({ event_name: "supervisor.blocker_tool_call", status: "success", task_id: "TICKET-1", correlation_id: "BLOCKER-JOB-9-architecture_manager", payload: { agent_id: "AM-1", role: "architecture_manager", tool: "read_source" } });
+  state.activity.recordToolEvent({ event_name: "supervisor.blocker_tool_call", status: "started", task_id: "TICKET-1", correlation_id: "BLOCKER-JOB-9-architecture_manager", payload: { agent_id: "AM-1", role: "architecture_manager", tool: "read_file" } });
+  state.activity.recordToolEvent({ event_name: "supervisor.blocker_tool_call", status: "success", task_id: "TICKET-1", correlation_id: "BLOCKER-JOB-9-architecture_manager", payload: { agent_id: "AM-1", role: "architecture_manager", tool: "read_file" } });
   state.activity.recordToolEvent({ event_name: "supervisor.blocker_tool_call", status: "failed", task_id: "TICKET-1", correlation_id: "BLOCKER-JOB-9-architecture_manager", payload: { agent_id: "AM-1", role: "architecture_manager", tool: "list_files", error_code: "BLOCKER_TOOL_FAILED" } });
   state.activity.recordToolEvent({ event_name: "supervisor.blocker_triage_finished", status: "success", task_id: "TICKET-1", correlation_id: "BLOCKER-JOB-9-architecture_manager", payload: { agent_id: "AM-1", stage: "architecture_manager", job_id: "JOB-9" } });
   const coder = codingAgentPanelActions(state.received, [...directory, { agent_id: "AM-1", role: "architecture_manager" }], projectId, "CODER-1");
@@ -192,4 +202,38 @@ test("codex ticket tool events and blocker triage reach the activity stream", (c
   assert(am.every((event) => event.payload.correlation_id === "BLOCKER-JOB-9-architecture_manager"));
   assert.deepEqual(state.registry.panels.map((panel) => panel.agentId), ["CODER-1", "AM-1"]);
   assert.equal(JSON.stringify(state.received).includes("PRIVATE-CONTENT"), false);
+});
+
+test("report activity distinguishes pending verification from a failed check without exposing error contents", () => {
+  const eventBus = new EventEmitter();
+  const received = [];
+  eventBus.on("agent.activity", (event) => received.push(event.payload));
+  const activity = createAgentExecutionActivity({ projectId, eventBus });
+  const entry = { event_name: "supervisor.agent_tool_event", status: "failed", correlation_id: "RUN-REPORT",
+    payload: { agent_id: "CODER-1", tool: "report_done", error: { code: "VERIFY_RECOVERY_PENDING", message: "PRIVATE-CONTENT" } } };
+  activity.recordToolEvent(entry);
+  assert.equal(received.at(-1).status, "working");
+  assert.match(received.at(-1).summary, /wait for Node/);
+  activity.recordToolEvent({ ...entry, payload: { ...entry.payload, error: { code: "CODER_EVIDENCE_PENDING", message: "PRIVATE-CONTENT" } } });
+  assert.equal(received.at(-1).status, "failed");
+  assert.match(received.at(-1).summary, /CODER_EVIDENCE_PENDING/);
+  activity.recordToolEvent({ ...entry, error_code: "PRIVATE-CONTENT\nINVALID" });
+  assert.equal(received.at(-1).summary, "Agent tool report_done failed.");
+  assert(!JSON.stringify(received).includes("PRIVATE-CONTENT"));
+});
+
+
+// Node wait transitions remain working activity; only the real tool result completes or fails the operation.
+test("Node verification wait and terminal notices reach the agent panel without source output", () => {
+  const eventBus = new EventEmitter();
+  const received = [];
+  eventBus.on("agent.activity", (event) => received.push(event.payload));
+  const activity = createAgentExecutionActivity({ projectId, eventBus });
+  for (const event_name of ["ticket.verification_waiting", "ticket.verification_wait_finished"]) {
+    activity.recordToolEvent({ event_name, status: "pending", correlation_id: "WAIT", message: "Node verification progress",
+      payload: { agent_id: "CODER-1", job_id: "VERIFY-1", diagnostic: "PRIVATE-CONTENT" } });
+  }
+  assert.equal(received.length, 2);
+  assert(received.every((event) => event.status === "working" && event.tool_name === "report_done"));
+  assert(!JSON.stringify(received).includes("PRIVATE-CONTENT"));
 });

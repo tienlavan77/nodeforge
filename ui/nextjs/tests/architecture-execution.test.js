@@ -4,7 +4,7 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 
 test("Architecture workspace mounts button and double-Escape controls outside the message list", async () => {
-  const page = await readFile("ui/nextjs/app/page.jsx", "utf8");
+  const page = await readFile("ui/nextjs/components/architecture-workspace.jsx", "utf8");
   const controls = await readFile("ui/nextjs/components/architecture-execution-controls.jsx", "utf8");
   const styles = await readFile("ui/nextjs/app/styles/responsive-workspace.css", "utf8");
   assert.match(page, /conversation-statusbar[\s\S]*?<ConversationProjectGit[\s\S]*?<ArchitectureExecutionControls/);
@@ -56,7 +56,7 @@ test("System chat shows Pause, pausing, and recovery states without step counter
 });
 
 test("chat pages request only role-specific agent lists and skip hidden dashboard loading", async () => {
-  const architecture = await readFile("ui/nextjs/app/page.jsx", "utf8");
+  const architecture = await readFile("ui/nextjs/components/architecture-workspace.jsx", "utf8");
   const system = await readFile("ui/nextjs/app/system/page.jsx", "utf8");
   const eventStream = await readFile("ui/nextjs/lib/home-page-event-stream.js", "utf8");
   assert.match(architecture, /getAgents\("architecture_manager"\)/);
@@ -76,7 +76,7 @@ test("chat pages request only role-specific agent lists and skip hidden dashboar
 
 // Verifies mid-run failures re-read the durable checkpoint immediately instead of waiting for a page reload.
 test("stream failures revalidate interrupted recovery controls on both chat pages", async () => {
-  const architecture = await readFile("ui/nextjs/app/page.jsx", "utf8");
+  const architecture = await readFile("ui/nextjs/components/architecture-workspace.jsx", "utf8");
   const system = await readFile("ui/nextjs/app/system/page.jsx", "utf8");
   const architectureControls = await readFile("ui/nextjs/components/architecture-execution-controls.jsx", "utf8");
   const systemControls = await readFile("ui/nextjs/components/system-execution-controls.jsx", "utf8");

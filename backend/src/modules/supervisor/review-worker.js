@@ -5,10 +5,14 @@ import { createOwnerClaudeMcpTools } from "../../tools/owner-claude-mcp-tools.js
 import { createClaudeForgeOptions } from "../../tools/claude-forge-options.js";
 import { assertReviewerReadPath, createReviewerForgeTools } from "./reviewer-forge-tools.js";
 import { assertTicketReviewEvidence } from "./ticket-review-evidence.js";
-import { assertReviewFindingGuidance } from "./review-finding-guidance.js";
+import { requestReviewVerdict, reviewVerdictInstructions } from "./review-verdict-request.js";
+import { REVIEW_AUTONOMY_PROMPT } from "../../shared/implementation-autonomy.js";
+import { createCommittedReviewSource } from "./reviewer-committed-source.js";
+import { createReviewTransportObserver, reviewOperationalFailure } from "./review-operational-failure.js";
+import { readBlockerContracts, blockerContractPrompt } from "./blocker-contract-evidence.js";
 
 // Creates a reviewer that receives bounded source evidence through Forge File Service.
-export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, fileService, rulesFileService, gitService, codeSearch, codeCache, projectRoot, executionContexts, verificationService, reviewFindings, projectLogger = () => {} } = {}) {
+export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, fileService, contractFileService, rulesFileService, gitService, codeSearch, codeCache, projectRoot, executionContexts, verificationService, reviewFindings, checkpoints, projectLogger = () => {} } = {}) {
   if (typeof agentResolver?.resolveAvailable !== "function" || typeof fileService?.readForIndex !== "function" || typeof projectRoot !== "string" || !isAbsolute(projectRoot)) throw new ConfigurationError("Review Worker requires profiles, File Service, and an absolute project root.");
   return Object.freeze({ review });
 
@@ -38,28 +42,70 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
       if (totalBytes > 200_000) throw reviewError("REVIEW_EVIDENCE_TOO_LARGE", "Review source exceeds the bounded evidence budget.");
       files.push({ path, sha256: file.sha256, content: file.content });
     }
-    const patch = job.payload?.base_commit && gitService?.diffPatchFrom ? await gitService.diffPatchFrom(job.payload.base_commit, { paths }) : "";
+    const baseCommit = ticketEvidence?.context.base_sha ?? job.payload?.base_commit;
+    const patchSource = ticketEvidence ? createCommittedReviewSource({ projectRoot, commit: ticketEvidence.context.review_commit_sha, baseCommit }) : gitService;
+    const patch = baseCommit && patchSource?.diffPatchFrom ? await patchSource.diffPatchFrom(baseCommit, { paths }) : "";
     if (Buffer.byteLength(patch, "utf8") > 200_000) throw reviewError("REVIEW_EVIDENCE_TOO_LARGE", "Review patch exceeds the bounded evidence budget.");
     const reviewerRules = await readReviewerRules();
+    const contracts = await readBlockerContracts({ receipts: job.payload?.contract_decisions, fileService: contractFileService ?? fileService,
+      binding: { project_id: job.project_id, task_id: job.task_id, execution_id: job.payload?.execution_id, sprint_basis: job.payload?.sprint_basis } });
     const prompt = [
+      blockerContractPrompt(contracts),
       "Act only as an independent code reviewer. Do not edit files. Check the ticket against the current source and verification evidence.",
       "You must follow the Reviewer role rules below before evaluating the ticket.",
       `Reviewer role rules: ${reviewerRules}`,
-      "Return only JSON with verdict (approved|request_changes), findings (objects with acceptance_criterion, failure, evidence_refs identifying source locations or verification artifacts, minimum_change_scope, files when naming required files, and per_file_necessity with one concrete role per demanded file), and adjudications (objects with finding_id, decision retain|refine|withdraw|not_applicable|fixed, reason, evidence_refs). Read the Coder explanation and adjudicate each open response before deciding. Legacy finding strings require re-review, not invented evidence. A file count alone is not evidence that all files need edits.",
-      "Approve only when the supplied evidence establishes every acceptance criterion. Request changes if evidence is insufficient.",
+      REVIEW_AUTONOMY_PROMPT,
+      "Return only JSON with verdict (approved|request_changes), findings (objects with acceptance_criterion, failure, evidence_refs identifying source locations or verification artifacts, minimum_change_scope, files when naming required files, and per_file_necessity with one concrete role per demanded file), and adjudications (objects with finding_id, decision retain|refine|reopen|withdraw|not_applicable|fixed, reason, evidence_refs). Read the Coder explanation and adjudicate each open response before deciding. Legacy finding strings require re-review, not invented evidence. A file count alone is not evidence that all files need edits.",
+      reviewVerdictInstructions(exchange),
+      "Approve only when the supplied evidence establishes every acceptance criterion. Request changes if evidence is insufficient. Temporary HTTP 429/502/503/504 or connection failures are incomplete review attempts, not implementation findings. Node retains the verified source for Reviewer retry; do not request Coder edits or a new commit solely for a transport failure.",
+      "Read related project source, AGENTS.md and applicable contracts even outside the changed-file delta; project access is read-only. Use list_files for file discovery and search_text for scoped content search when available. Search discovery may reflect current filenames or a newer index; confirm claims against the committed source and supplied fixed-revision patch. git_status and git_diff inspect only approved paths in the current working tree, not the verified commit; never treat them as verification evidence. Git write operations are not available.",
+      'Each per_file_necessity entry must use {"path":"project/relative/file","role":"concrete necessity"}, not a "file" key.',
       `Ticket: ${JSON.stringify(job.payload?.ticket ?? {})}`,
       `Coder explanation (inspect claims against code; do not accept them as proof): ${safePromptValue(coderReport)}`,
       `Prior finding history and Coder responses (adjudicate every open response): ${safePromptValue({ findings: exchange?.findings ?? [], coder_responses: exchange?.coder_responses ?? [], adjudications: exchange?.adjudications ?? [] })}`,
       `Execution context identity: ${JSON.stringify(job.payload?.execution_context ?? null)}`,
       `Verification: ${JSON.stringify(ticketEvidence?.artifact ?? job.payload?.verification ?? {})}`,
-      `Patch since ticket start (new untracked files may appear only in Changed files): ${patch || "<no tracked patch available>"}`,
+      "Evidence scopes: artifact.changed_paths is the latest ticket commit delta; file_checksums and the supplied manifest bind the tracked files at the reviewed revision. The fixed patch spans base_sha to review commit and can include earlier repair commits. Different file counts alone do not establish missing commits or bad checksums. Inspect exact source/hash evidence; this explanation does not waive missing dependency provenance or acceptance coverage.",
+      "Verification scope: ticket acceptance checks must pass. Supplemental regression receipts marked preexisting_failure include the same failure reproduced on base_sha with the same recorded project environment; their nonzero exit is retained evidence, not a missing ticket repair. Do not demand unrelated project fixes solely because such a receipt exists. New or changed regressions and missing acceptance coverage remain blockers; cite concrete source or baseline evidence if disputing attribution.",
+      `Patch since ticket start${ticketEvidence ? " (fixed verified base-to-review commit)" : " (new untracked files may appear only in Changed files)"}: ${patch || "<no tracked patch available>"}`,
       `Changed files: ${JSON.stringify(files)}`,
       job.review_only ? `Review-only target commit: ${job.payload?.commit ?? "<missing>"}` : ""
     ].join("\n\n");
+    const transport = createReviewTransportObserver();
+    const reviewState = { sessionId: null, threadId: null, turnCount: 0, lastTool: null, completedTools: [], turnHistory: [] };
+    const previousReview = await checkpoints?.loadReview?.(job.task_id);
+    const retained = previousReview?.status === "failed" && ["REVIEW_VERDICT_INVALID", "REVIEW_FINDINGS_INVALID", "REVIEW_FINDINGS_UNRESOLVED", "REVIEW_ADJUDICATION_INVALID", "REVIEW_ADJUDICATION_MISSING", "REVIEW_ADJUDICATION_STALE"].includes(previousReview.last_error?.code)
+      && previousReview.task_id === job.task_id
+      && previousReview.reviewer_id === reviewer.agent_id && previousReview.commit === ticketEvidence?.artifact.commit_sha
+      && previousReview.verification?.artifact_id === ticketEvidence?.artifact.artifact_id
+      && ["project_id", "source_revision", "manifest_sha", "base_sha"].every((field) => previousReview.verification[field] === ticketEvidence.artifact[field])
+      ? previousReview.verdict_attempts?.findLast((attempt) => attempt.response_text && !attempt.truncated) : null;
+    if (retained) Object.assign(reviewState, { sessionId: previousReview.session_id, threadId: previousReview.thread_id,
+      turnCount: previousReview.last_completed_turn ?? 0, lastTool: previousReview.last_tool, completedTools: previousReview.completed_tools ?? [], turnHistory: previousReview.turn_history ?? [] });
+    const verdictAttempts = retained ? [...previousReview.verdict_attempts] : [];
+    const saveReviewProgress = (extra = {}) => {
+      if (!checkpoints?.saveReview || !job?.task_id) return Promise.resolve(null);
+      // eslint-disable-next-line no-silent-catch -- Best-effort Reviewer progress checkpoint; never fail review execution for checkpoint persistence.
+      return checkpoints.saveReview({
+        task_id: job.task_id, phase: "review", status: "in_progress", verdict: null,
+        reviewer_id: reviewer.agent_id, reviewer_name: reviewer.agent_name ?? null, provider: reviewer.provider ?? null,
+        coder_id: job.agent_id ?? null, attempt: job.attempt ?? 1, review_attempt: job.review_attempt ?? ((job.outcomes?.length ?? 0) + 1),
+        request_id: job.request_id ?? null, correlation_id: job.correlation_id ?? null,
+        session_id: reviewState.sessionId, thread_id: reviewState.threadId,
+        last_completed_turn: reviewState.turnCount, last_tool: reviewState.lastTool,
+        completed_tools: [...reviewState.completedTools], turn_history: [...reviewState.turnHistory],
+        changed_paths: paths, base_commit: baseCommit ?? null, commit: ticketEvidence?.context.review_commit_sha ?? job.payload?.commit ?? null,
+        verification: ticketEvidence?.artifact ?? job.payload?.verification ?? null,
+        execution_context: ticketEvidence?.context ?? job.payload?.execution_context ?? null,
+        verdict_attempts: verdictAttempts,
+        ...(job.review_only ? { review_only: true } : {}), last_error: null, ...extra
+      }).catch(() => null);
+    };
     let forgeTools;
     let claudeTools;
     try {
-      forgeTools = createReviewerForgeTools({ fileService, projectRoot, job, reviewer, codeSearch, codeCache, ticketEvidence, includeClaudeFileTools: ["claude", "anthropic"].includes(reviewer.provider), projectLogger });
+      forgeTools = createReviewerForgeTools({ fileService, projectRoot, job, reviewer, codeSearch, codeCache, gitService, ticketEvidence, projectLogger });
+      if (forgeTools?.registry) forgeTools = { ...forgeTools, registry: checkpointedReviewRegistry(forgeTools.registry, reviewState, saveReviewProgress, transport) };
       if (["claude", "anthropic"].includes(reviewer.provider)) claudeTools = createOwnerClaudeMcpTools(forgeTools);
     }
     catch (error) {
@@ -67,23 +113,57 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
       projectLogger({ event_name: "review.tools_unavailable", level: "error", status: "failed", message: ticketEvidence ? "Ticket review tools unavailable; review blocked." : "Reviewer tools unavailable; using bounded review evidence.", task_id: job.task_id, correlation_id: job.correlation_id, source: "review-worker", error_code: error.code ?? "REVIEW_TOOLS_UNAVAILABLE", payload: { request_id: job.request_id, agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, reviewer_id: reviewer.agent_id } });
       if (ticketEvidence) throw reviewError("REVIEW_TOOLS_UNAVAILABLE", "Ticket review tools are unavailable; approval requires committed source access.");
     }
-    if (ticketEvidence && !forgeTools?.definitions.some((item) => item.name === (["claude", "anthropic"].includes(reviewer.provider) ? "Read" : "sed_lines"))) throw reviewError("REVIEW_TOOLS_UNAVAILABLE", "Ticket review requires a Forge source-window read tool.");
+    if (ticketEvidence && !forgeTools?.definitions.some((item) => item.name === "read_lines")) throw reviewError("REVIEW_TOOLS_UNAVAILABLE", "Ticket review requires a Forge source-window read tool.");
     const options = ["codex", "openai", "xai", "alibaba", "zhipu", "deepseek"].includes(reviewer.provider) ? { ...(forgeTools ? { forgeTools } : {}) } : claudeTools ? createClaudeForgeOptions(claudeTools) : { tools: [] };
-    const toolInstruction = forgeTools ? `Forge review tools: ${forgeTools.definitions.map((item) => item.name).join(", ")}. ${forgeTools.definitions.some((item) => item.name === "search_code") ? "Use search_code to discover indexed symbols when useful. " : "Use the supplied committed file list for discovery. "}Use read_file for metadata and graph${["claude", "anthropic"].includes(reviewer.provider) ? ", and Read(file_path,start_line,end_line) for source windows of at most 80 lines" : "; use sed_lines(path,start_line,end_line) for source windows of at most 80 lines"}. For manifest files, source results carry review_evidence bound to the passed artifact and commit; reads fail if current source differs. Other reads carry no verified provenance. All reads use Forge File Service and Code Cache. Never use built-in shell, file, write, network, or ticket tools.` : "Forge review tools are unavailable. Decide only from the supplied bounded evidence; request changes when evidence is insufficient.";
+    const correctionTools = { definitions: [], registry: {}, context: forgeTools?.context ?? {} };
+    const correctionOptions = ["claude", "anthropic"].includes(reviewer.provider)
+      ? createClaudeForgeOptions(createOwnerClaudeMcpTools(correctionTools)) : { forgeTools: correctionTools };
+    const toolInstruction = forgeTools ? `Forge review tools: ${forgeTools.definitions.map((item) => item.name).join(", ")}. Use search_tree and list_files to discover files, search_text to search content, read_file for metadata or source, and read_lines(path,start_line,end_line) for source windows of at most 80 lines. Each tool response must fit 16,000 bytes, with 128,000 bytes total per review; use smaller read_lines windows for large files rather than repeatedly requesting full read_file output. For manifest files, source results carry review_evidence bound to the passed artifact and commit; reads fail if source differs. Other reads carry no verified provenance. git_status and git_diff inspect approved paths in the current working tree, not the verified commit. Never use built-in shell, file, write, network, or ticket tools.` : "Forge review tools are unavailable. Decide only from the supplied bounded evidence; request changes when evidence is insufficient.";
     const reviewProfile = reviewer;
+    await saveReviewProgress();
     projectLogger({ event_name: "review.started", level: "info", status: "started", message: "Independent Reviewer started ticket review.", task_id: job.task_id, correlation_id: job.correlation_id, source: "review-worker", payload: { request_id: job.request_id, agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, reviewer_id: reviewer.agent_id, provider: reviewer.provider, changed_count: paths.length, tools: forgeTools?.definitions.map(({ name }) => name) ?? [] } });
     projectLogger({ event_name: "review.sdk_dispatch", level: "info", status: "started", message: "Reviewer SDK request dispatched.", task_id: job.task_id, correlation_id: job.correlation_id, source: "review-worker", payload: { request_id: job.request_id, agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, reviewer_id: reviewer.agent_id, provider: reviewer.provider } });
-    const response = await gateway.execute({ agent: reviewProfile, agentId: reviewer.agent_id, prompt: `${prompt}\n\n${toolInstruction}`, correlationId: job.correlation_id, cwd: projectRoot, options });
-    projectLogger({ event_name: "review.sdk_completed", level: "info", status: "success", message: "Reviewer SDK request completed.", task_id: job.task_id, correlation_id: job.correlation_id, source: "review-worker", payload: { request_id: job.request_id, agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, reviewer_id: reviewer.agent_id, provider: reviewer.provider, response_chars: String(response?.text ?? "").length } });
-    const verdict = parseVerdict(response?.text, { strict: Boolean(ticketEvidence) && !job.payload?.ticket?.execution_policy?.legacy_review_report, paths, artifactId: ticketEvidence?.artifact.artifact_id });
-    if (ticketEvidence) await assertTicketReviewEvidence({ job, executionContexts, verificationService, gitService, fileService, projectRoot });
-    if (verdict.verdict === "approved" && !ticketEvidence) for (const file of files) {
-      await assertReviewerReadPath(projectRoot, file.path);
-      const current = codeCache?.read ? await codeCache.read({ path: file.path }) : await fileService.readForIndex({ path: file.path, maxBytes: 64_000 });
-      if (current.sha256 !== file.sha256) throw reviewError("REVIEW_EVIDENCE_STALE", `Source changed during review: ${file.path}.`);
+    let verdict;
+    try {
+      verdict = await requestReviewVerdict({ prompt: `${prompt}\n\n${toolInstruction}`, exchange, retained,
+        validate: async (value) => { transport.assertAvailable(); return ticketEvidence && reviewFindings?.validateReview ? reviewFindings.validateReview({ ...value,
+          artifactId: ticketEvidence.artifact.artifact_id, commitSha: ticketEvidence.artifact.commit_sha,
+          reviewerId: reviewer.agent_id, sourceRevision: ticketEvidence.artifact.source_revision }) : undefined; },
+        parseOptions: { strict: Boolean(ticketEvidence) && !job.payload?.ticket?.execution_policy?.legacy_review_report,
+          paths, artifactId: ticketEvidence?.artifact.artifact_id, findingIds: exchange ? (exchange.findings ?? []).map((finding) => finding.finding_id) : undefined,
+          pendingResponses: (exchange?.coder_responses ?? []).flatMap((entry) => entry.responses.map((response) => ({ finding_id: response.finding_id, response_id: entry.idempotency_key })))
+            .filter((response) => !(exchange?.adjudications ?? []).some((decision) => decision.finding_id === response.finding_id && decision.response_id === response.response_id)) },
+        revalidate: async () => { if (ticketEvidence) await assertTicketReviewEvidence({ job, executionContexts, verificationService, gitService, fileService, projectRoot }); },
+        onAttempt: async (attempt) => {
+          verdictAttempts.push({ ...attempt, recorded_at: new Date().toISOString() });
+          await saveReviewProgress();
+          projectLogger({ event_name: attempt.status === "invalid" ? "review.verdict_correction" : "review.sdk_completed", level: attempt.status === "invalid" ? "warn" : "info", status: attempt.status,
+            message: attempt.status === "invalid" ? attempt.correction < 2 ? "Reviewer output rejected; returning exact JSON diagnostics to the same Reviewer." : "Reviewer format correction exhausted; response retained at checkpoint, no verdict accepted." : "Reviewer SDK request completed.", task_id: job.task_id, correlation_id: job.correlation_id,
+            payload: { request_id: job.request_id, agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, reviewer_id: reviewer.agent_id, provider: reviewer.provider, correction: attempt.correction, error: attempt.error, response_chars: attempt.response_text.length } });
+        },
+        execute: async (requestPrompt, correction) => { const response = await gateway.execute({
+        agent: reviewProfile, agentId: reviewer.agent_id, prompt: requestPrompt,
+        correlationId: job.correlation_id, cwd: projectRoot, onEvent: transport.observe,
+        ...(correction && reviewer.provider === "codex" && reviewState.threadId ? { resumeThreadId: reviewState.threadId } : {}),
+        ...(correction && ["claude", "anthropic"].includes(reviewer.provider) && reviewState.sessionId ? { resumeSessionId: reviewState.sessionId } : {}),
+        onSessionReady: (id) => {
+          if (typeof id === "string" && id) { if (reviewer.provider === "codex") reviewState.threadId = id; else reviewState.sessionId = id; }
+          void saveReviewProgress();
+        },
+        options: correction ? correctionOptions : options
+      }); transport.assertAvailable(); return response; } });
+      if (ticketEvidence) await assertTicketReviewEvidence({ job, executionContexts, verificationService, gitService, fileService, projectRoot });
+      if (verdict.verdict === "approved" && !ticketEvidence) for (const file of files) {
+        await assertReviewerReadPath(projectRoot, file.path);
+        const current = codeCache?.read ? await codeCache.read({ path: file.path }) : await fileService.readForIndex({ path: file.path, maxBytes: 64_000 });
+        if (current.sha256 !== file.sha256) throw reviewError("REVIEW_EVIDENCE_STALE", `Source changed during review: ${file.path}.`);
+      }
+    } catch (error) {
+      await saveReviewProgress({ status: "failed", last_error: { code: error.code ?? "REVIEW_FAILED", message: error.message } });
+      throw error;
     }
     projectLogger({ event_name: "review.verdict", level: "info", status: verdict.verdict, message: "Independent Reviewer returned a ticket verdict.", task_id: job.task_id, correlation_id: job.correlation_id, source: "review-worker", payload: { agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, reviewer_id: reviewer.agent_id, coder_id: job.agent_id, request_id: job.request_id, findings_count: verdict.findings.length, changed_paths: paths } });
-    return { ...verdict, reviewer_id: reviewer.agent_id, coder_id: job.agent_id, changed_paths: paths, source_revision: ticketEvidence?.context.source_revision ?? null };
+    return { ...verdict, reviewer_id: reviewer.agent_id, reviewer_name: reviewer.agent_name ?? null, provider: reviewer.provider ?? null, coder_id: job.agent_id, changed_paths: paths, source_revision: ticketEvidence?.context.source_revision ?? null, session_id: reviewState.sessionId, thread_id: reviewState.threadId, last_completed_turn: reviewState.turnCount, last_tool: reviewState.lastTool, completed_tools: [...reviewState.completedTools], turn_history: [...reviewState.turnHistory] };
   }
 
   // Loads the canonical Reviewer role contract through Forge File Service before every verdict.
@@ -95,17 +175,6 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
   }
 }
 
-// Accepts only a structured verdict, never treating free-form praise as approval.
-function parseVerdict(text, options = {}) {
-  let value;
-  try { value = JSON.parse(extractVerdictJson(text)); }
-  catch (error) { throw reviewError("REVIEW_VERDICT_INVALID", `Reviewer returned invalid JSON: ${error.message}`); }
-  if (!["approved", "request_changes"].includes(value?.verdict) || !Array.isArray(value.findings)) throw reviewError("REVIEW_VERDICT_INVALID", "Reviewer returned an invalid verdict or findings.");
-  assertReviewFindingGuidance(value, options);
-  if (value.verdict === "request_changes" && !value.findings.length && !(value.adjudications ?? []).some((item) => ["retain", "refine"].includes(item.decision))) throw reviewError("REVIEW_VERDICT_INVALID", "Requested changes require findings or a retained adjudication.");
-  return { verdict: value.verdict, findings: value.findings, adjudications: value.adjudications ?? [] };
-}
-
 // Bounds and redacts untrusted Coder prose before dispatching it to a Reviewer.
 function safePromptValue(value) {
   const raw = JSON.stringify(value ?? null);
@@ -115,36 +184,35 @@ function safePromptValue(value) {
   return output;
 }
 
-// Extracts one JSON object from an SDK response that may wrap it in prose or a fenced block.
-function extractVerdictJson(text) {
-  const source = String(text ?? "").trim().replace(/^```(?:json)?\s*|\s*```$/g, "");
-  if (!source) throw new Error("empty reviewer response");
-  try { JSON.parse(source); return source; } catch (error) { if (!error) throw new Error("invalid JSON"); }
-  const candidates = [];
-  for (let start = source.indexOf("{"); start >= 0; start = source.indexOf("{", start + 1)) {
-    const end = matchingObjectEnd(source, start);
-    if (end < 0) continue;
-    const candidate = source.slice(start, end + 1);
-    try { const value = JSON.parse(candidate); if (value && typeof value === "object") candidates.push({ candidate, value }); } catch (error) { if (!error) throw new Error("invalid JSON candidate"); }
-  }
-  const verdict = candidates.find(({ value }) => typeof value.verdict === "string" && Array.isArray(value.findings));
-  if (verdict) return verdict.candidate;
-  throw new Error("no valid verdict object found");
+// Wraps Reviewer Forge tools so each completed tool call is recorded in the Reviewer checkpoint.
+function checkpointedReviewRegistry(registry, state, saveProgress, transport) {
+  return Object.fromEntries(Object.entries(registry).map(([name, tool]) => [name, typeof tool?.execute !== "function" ? tool : {
+    ...tool,
+    execute: async (input, context) => {
+      try {
+        const result = await tool.execute(input, context);
+        recordReviewTurn(state, name, input, typeof result?.total_lines === "number" ? `read ok (${result.total_lines} lines)` : "ok");
+        await saveProgress();
+        return result;
+      } catch (error) {
+        const outage = reviewOperationalFailure(error);
+        if (outage) transport.observe({ item: { type: "mcp_tool_call", status: "failed", error: outage } });
+        recordReviewTurn(state, name, input, `failed: ${error?.code ?? "REVIEW_TOOL_FAILED"}`);
+        await saveProgress();
+        throw error;
+      }
+    }
+  }]));
 }
 
-// Finds the closing brace for one JSON object while respecting quoted strings.
-function matchingObjectEnd(source, start) {
-  let depth = 0;
-  let quoted = false;
-  let escaped = false;
-  for (let index = start; index < source.length; index += 1) {
-    const char = source[index];
-    if (quoted) { if (escaped) escaped = false; else if (char === "\\") escaped = true; else if (char === '"') quoted = false; continue; }
-    if (char === '"') quoted = true;
-    else if (char === "{") depth += 1;
-    else if (char === "}" && --depth === 0) return index;
-  }
-  return -1;
+// Appends a bounded turn entry for Reviewer tool telemetry without storing file contents.
+function recordReviewTurn(state, tool, input, outcome) {
+  const target = String(input?.path ?? input?.query ?? input?.symbol ?? "").slice(0, 160);
+  state.turnCount += 1;
+  state.lastTool = tool;
+  state.completedTools.push(tool);
+  state.turnHistory.push({ turn: state.turnCount, tool, target, outcome });
+  while (state.turnHistory.length > 12) state.turnHistory.shift();
 }
 
 // Labels review failures so the Supervisor can escalate without accepting unreviewed work.

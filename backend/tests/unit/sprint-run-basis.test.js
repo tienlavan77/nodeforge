@@ -174,12 +174,15 @@ test("production submission requires scoped basis and includes exact binding in 
   const f = await fixture();
   const submitted = [];
   try {
-    const dispatch = createApprovedTicketDispatch({ projectId: PROJECT, sprintRegistry: f.registry, integration: { submitTicket: async (input) => { submitted.push(input); return { status: "accepted" }; } } });
+    const store = createTicketStatusStore({ database: f.database, projectId: PROJECT });
+    const dispatch = createApprovedTicketDispatch({ projectId: PROJECT, sprintRegistry: f.registry, ticketStatusStore: store, integration: { submitTicket: async (input) => { submitted.push(input); return { status: "accepted" }; } } });
     await assert.rejects(dispatch({ ticket: TICKET }), { code: "TICKET_RUN_BASIS_REQUIRED" });
     const sprintBasis = f.registry.get(SPRINT);
     await assert.rejects(dispatch({ ticket: TICKET, sprintBasis: { ...sprintBasis, project_id: "PROJECT-B" } }), { code: "TICKET_RUN_BASIS_REQUIRED" });
     await assert.rejects(dispatch({ ticket: TICKET, sprintBasis: { ...sprintBasis, plan_sha256: "0".repeat(64) } }), { code: "SPRINT_REGISTRY_CONFLICT" });
-    await dispatch({ ticket: TICKET, sprintBasis, resume_from: { turn: 2 } });
+    store.create(TICKET.id);
+    store.beginExecution(TICKET.id, { executionId: "RUN-A", basis: sprintBasis, expectedVersion: 0, dependencyExpectations: [] });
+    await dispatch({ ticket: TICKET, sprintBasis, executionId: "RUN-A", dependencyExpectations: [], resume_from: { turn: 2 } });
     assert.deepEqual(submitted[0].payload.sprint_basis, Object.fromEntries(["project_id", "sprint_id", "version", "plan_id", "plan_revision", "plan_path", "plan_sha256"].map((key) => [key, sprintBasis[key]])));
     assert.deepEqual(submitted[0].payload.resume_from, { turn: 2 });
     assert.equal(submitted.length, 1);

@@ -7,7 +7,7 @@ import { createHomeMessageHandlers } from "../lib/home-page-message-handlers.js"
 
 const persistedId = "123e4567-e89b-42d3-a456-426614174000";
 
-for (const [path, executionRole] of [["../app/page.jsx", "architecture-manager"], ["../app/system/page.jsx", "system-engineer"]]) {
+for (const [path, executionRole] of [["../components/architecture-workspace.jsx", "architecture-manager"], ["../app/system/page.jsx", "system-engineer"]]) {
   const source = await readFile(new URL(path, import.meta.url), "utf8");
   // Exercises the actual route callbacks without mounting unrelated dashboard and stream components.
   test(`${executionRole}: New conversation clears the view and selecting a chat cancels the draft`, () => {

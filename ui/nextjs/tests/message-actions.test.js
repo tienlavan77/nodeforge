@@ -6,7 +6,7 @@ import test from "node:test";
 const actions = await readFile("ui/nextjs/components/conversation-message-actions.jsx", "utf8");
 const styles = await readFile("ui/nextjs/app/styles/message-actions.css", "utf8");
 const handler = await readFile("ui/nextjs/lib/home-page-message-handlers.js", "utf8");
-const home = await readFile("ui/nextjs/app/page.jsx", "utf8");
+const home = await readFile("ui/nextjs/components/architecture-workspace.jsx", "utf8");
 const system = await readFile("ui/nextjs/app/system/page.jsx", "utf8");
 const eventStream = await readFile("ui/nextjs/lib/home-page-event-stream.js", "utf8");
 const history = await readFile("ui/nextjs/lib/use-conversation-message-history.js", "utf8");

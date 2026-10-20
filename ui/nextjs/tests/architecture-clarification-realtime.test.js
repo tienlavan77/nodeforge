@@ -41,7 +41,7 @@ test("HTTP results preserve project and conversation isolation and ignore ordina
 });
 
 test("home conversation forwards HTTP command completions to the mounted Architecture wizard", async () => {
-  const page = await readFile("ui/nextjs/app/page.jsx", "utf8");
+  const page = await readFile("ui/nextjs/components/architecture-workspace.jsx", "utf8");
   assert.match(page, /onCommandResult:\s*\(result\)\s*=>\s*\{\s*planEvents\.publishCommandResult\(result\)/);
   assert.match(page, /onPlanCreated=\{\(result\) => loadConversationMessages\(result\.conversation_id, \{ preserve: true \}\)\}/);
   assert.match(page, /<ArchitectureClarifications[^>]*planEvents=\{planEvents\}/);

@@ -1,22 +1,70 @@
-// Gives SL and Architecture bounded source discovery without file writes, shell tools or network access.
-import { createHash } from "node:crypto";
+// Reuses canonical read-only Forge tools for SL and Architecture blocker investigation.
+import { createDiscoveryProgress } from "./blocker-discovery-checkpoint.js";
 import { createRoleFileService } from "../../infrastructure/filesystem/file-service-role-policy.js";
+import { createGitService } from "../../infrastructure/git/git-service.js";
+import { createAgentCommandTools } from "../../tools/agent-command-tools.js";
+import { createReadFileTool } from "../../tools/agent-lifecycle-tools.js";
+import { createOwnerSearchTreeTool } from "../../tools/owner-search-tree.js";
+import { createGitReadTools } from "../../tools/git-read-tools.js";
+import { engineeringToolDefinitions } from "../../tools/engineering-tool-catalog.js";
 
-// Builds a fresh read-only tool budget for one blocker investigation stage.
-export function blockerRecoveryTools({ fileService, projectRoot, profile, task_id, correlation_id, projectLogger = () => {} }) {
+const READ_TOOLS = ["search_tree", "list_files", "search_text", "read_file", "read_lines", "git_status", "git_diff"];
+
+// Builds a bounded recovery registry from the same implementations and schemas used by other Forge agents.
+export function blockerRecoveryTools({ fileService, projectRoot, profile, task_id, correlation_id, job, gitService = createGitService({ projectRoot }), projectLogger = () => {}, onDiscoveryCheckpoint, clock, deadline, abortSignal }) {
   const files = createRoleFileService({ fileService, projectRoot, role: profile.role });
-  let calls = 0;
-  let bytes = 0;
-  const definitions = [
-    { name: "read_source", description: "Read a source window and full-file SHA-256 to verify an existing contract.", input_schema: { type: "object", additionalProperties: false, required: ["path"], properties: { path: { type: "string" }, offset: { type: "integer", minimum: 1 }, limit: { type: "integer", minimum: 1, maximum: 80 } } } },
-    { name: "list_files", description: "Find existing project source files by glob; no private/runtime files are exposed.", input_schema: { type: "object", additionalProperties: false, required: ["glob"], properties: { glob: { type: "string", maxLength: 200 } } } }
-  ];
-  const implementations = { read_source: readSource, list_files: listFiles };
-  // Audits each discovery call by name and outcome only; inspected paths, windows and content never enter the log.
-  const registry = Object.fromEntries(definitions.map(({ name }) => [name, { execute: async (input) => {
+  const cache = { read: (input) => files.readForIndex({ ...input, maxBytes: 128_000 }) };
+  const baseline = job?.request?.execution_context?.base_sha;
+  const paths = new Set([...(job?.request?.ticket?.execution_policy?.contract_evidence ?? []), ...(job?.evidence ?? [])]
+    .map((ref) => typeof ref === "object" ? ref?.path ?? ref?.reference : ref)
+    .filter((path) => typeof path === "string" && path.length > 0).map((path) => path.replace(/:\d+(?::\d+)?$/, "")));
+  const context = { task_id, correlation_id, project_root: projectRoot, agent_identity: { agent_id: profile.agent_id, role: profile.role }, capabilities: READ_TOOLS };
+  const progress = createDiscoveryProgress({ job, save: onDiscoveryCheckpoint, clock, deadline, abortSignal,
+    onRenew: (payload) => projectLogger({ event_name: "supervisor.blocker_budget_renewed", level: "info", status: "success", task_id, correlation_id,
+      message: "Discovery allowance renewed at its saved checkpoint; continuing the same agent invocation.", payload: { role: profile.role, ...payload } }) });
+  for (const path of progress.snapshot().paths ?? []) paths.add(path);
+  // Pins recovery Git reads to the retained execution without accepting model-supplied revisions or commands.
+  const gitReads = {
+    status: (input) => gitService.status(input),
+    diffWorkingTree: (input) => {
+      if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(baseline ?? "")) throw new Error("Recovery git_diff requires Node's immutable execution baseline.");
+      return gitService.diffPatchFrom(baseline, input);
+    }
+  };
+  const implementations = {
+    ...createAgentCommandTools({ projectRoot, fileService: files, codeCache: cache, projectLogger: () => {}, wrap: (tool) => tool }),
+    search_tree: createOwnerSearchTreeTool({ fileService: files, role: profile.role }),
+    read_file: createReadFileTool({ fileService: files, codeCache: cache, projectRoot }),
+    ...createGitReadTools({ gitService: gitReads, logger: { emit: () => {} } })
+  };
+  const definitions = engineeringToolDefinitions().filter(({ name }) => READ_TOOLS.includes(name)).map((definition) => definition.name === "git_diff"
+    ? { ...definition, description: "Read the patch from Node's fixed ticket baseline to current tracked source for inspected or declared files. Includes staged and committed changes. Accepts no arguments; current untracked source must be read with read_file/read_lines." } : definition);
+  const registry = Object.fromEntries(definitions.map(({ name }) => [name, { execute: async (input = {}) => {
     audit(name, "started");
     try {
-      const result = await implementations[name](input);
+      progress.assertActive();
+      let toolContext = { ...context };
+      if (["read_file", "read_lines"].includes(name)) {
+        await files.assertReadPath(input.path);
+        toolContext = { ...context, allowed_file_paths: [input.path], allowed_prefixes: [] };
+      }
+      if (["git_status", "git_diff"].includes(name)) {
+        if (paths.size > 80) throw new Error("Narrow recovery Git discovery to at most 80 source paths.");
+        for (const path of paths) await files.assertReadPath(path);
+        toolContext = { ...context, allowed_file_paths: [...paths], allowed_prefixes: [] };
+      }
+      let result = await implementations[name].execute(input, toolContext);
+      if (name === "list_files") {
+        const safe = [];
+        for (const path of result.stdout.split("\n").filter(Boolean)) {
+          try { await files.assertReadPath(path); safe.push(path); }
+          catch (error) { if (error.code !== "FILE_ROLE_FORBIDDEN") throw error; }
+        }
+        result = { ...result, stdout: safe.length ? `${safe.join("\n")}\n` : "" };
+      }
+      if (["read_file", "read_lines"].includes(name)) paths.add(input.path);
+      if (name === "git_diff") result = { ...result, baseline_commit: baseline };
+      await progress.complete(name, input, result, paths);
       audit(name, "success");
       return result;
     } catch (error) {
@@ -24,39 +72,12 @@ export function blockerRecoveryTools({ fileService, projectRoot, profile, task_i
       throw error;
     }
   } }]));
-  return { definitions, registry, context: { agent_identity: { agent_id: profile.agent_id, role: profile.role } } };
+  return { definitions, registry, context };
 
-  // Emits one bounded human-visible audit line per discovery attempt for terminal and Coding panel streams.
+  // Emits canonical tool names without copying inspected content or queries into terminal logs.
   function audit(tool, status, extra = {}) {
     projectLogger({ event_name: "supervisor.blocker_tool_call", level: status === "failed" ? "error" : "info", status,
       message: `Blocker discovery ${tool} ${status}.`, task_id, correlation_id, source: "blocker-recovery-tools",
       payload: { agent_id: profile.agent_id, role: profile.role, tool, ...extra } });
   }
-
-  // Returns bounded code evidence while retaining the checksum of the entire inspected source file.
-  async function readSource({ path, offset = 1, limit = 80 }) {
-    reserve();
-    if (!Number.isSafeInteger(offset) || offset < 1 || !Number.isSafeInteger(limit) || limit < 1 || limit > 80) throw new Error("Invalid source window.");
-    const content = await files.readFile({ path });
-    if (Buffer.byteLength(content) > 128_000) throw new Error("Blocker source exceeds the file evidence budget.");
-    return bounded({ path, sha256: createHash("sha256").update(content).digest("hex"), offset,
-      content: content.split("\n").slice(offset - 1, offset - 1 + limit).join("\n") });
-  }
-
-  // Lists a small set of role-visible files for contract discovery instead of granting command execution.
-  async function listFiles({ glob }) {
-    reserve();
-    if (typeof glob !== "string" || !glob || glob.length > 200 || glob.startsWith("/") || glob.includes("..") || glob.includes("\\")) throw new Error("Invalid discovery glob.");
-    return bounded({ paths: (await files.listFiles({ glob })).slice(0, 60) });
-  }
-
-  // Stops excessive discovery rather than letting a parked ticket consume unbounded provider context.
-  function bounded(result) {
-    bytes += Buffer.byteLength(JSON.stringify(result));
-    if (bytes > 120_000) throw new Error("Blocker discovery budget exhausted.");
-    return result;
-  }
-
-  // Counts rejected calls too so malformed or forbidden probes cannot bypass the discovery budget.
-  function reserve() { calls += 1; if (calls > 30) throw new Error("Blocker discovery call budget exhausted."); }
 }

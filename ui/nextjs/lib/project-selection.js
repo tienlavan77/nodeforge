@@ -1,6 +1,7 @@
 // Keep workspace requests and streams isolated to the explicitly selected managed project.
-import { forgeV1 } from "./node-client-url.js";
+import { controlApiBase } from "./node-client-url.js";
 import { requestJson } from "./node-client-request.js";
+import { rememberSelectedProject } from "./project-navigation.js";
 
 let snapshot = { projects: [], projectId: null, generation: 0, loaded: false, error: null };
 const listeners = new Set();
@@ -31,17 +32,21 @@ function publish(update) {
 export function selectProject(projectId) {
   if (!snapshot.projects.some((project) => project.project_id === projectId)) throw new Error("Select an available project.");
   publish({ projectId, error: null });
+  rememberSelectedProject(projectId);
 }
 
+// Return to the global directory without retaining an active project's clients or stream subscriptions.
+export function clearProjectSelection() { publish({ projectId: null, error: null }); }
+
 // Refresh admitted identities and automatically use only the initial single-project configuration.
-export async function refreshProjects() {
+export async function refreshProjects({ selectInitial = true } = {}) {
   const refresh = ++refreshGeneration;
   try {
-    const result = await requestJson(forgeV1("/lifecycle/list"), { cache: "no-store" });
+    const result = await requestJson(`${controlApiBase()}/lifecycle/list`, { cache: "no-store" });
     if (refresh !== refreshGeneration) return;
     const projects = result.projects ?? [];
     const missing = snapshot.projectId && !projects.some((project) => project.project_id === snapshot.projectId);
-    const projectId = missing ? null : snapshot.projectId ?? (!snapshot.loaded && projects.length === 1 ? projects[0].project_id : null);
+    const projectId = missing ? null : snapshot.projectId ?? (selectInitial && !snapshot.loaded && projects.length === 1 ? projects[0].project_id : null);
     publish({ projects, projectId, loaded: true, error: missing ? "Selected project is unavailable. Refresh or select an available project." : null });
   } catch (error) {
     if (refresh === refreshGeneration) publish({ projectId: null, loaded: true, error: error.message });
@@ -51,7 +56,7 @@ export async function refreshProjects() {
 
 // Add a managed root through the strict existing lifecycle contract, then refresh selectable identities.
 export async function addProject(root) {
-  const result = await requestJson(forgeV1("/lifecycle/add"), {
+  const result = await requestJson(`${controlApiBase()}/lifecycle/add`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ root })
   });
   await refreshProjects();
@@ -60,7 +65,7 @@ export async function addProject(root) {
 
 // Remove a managed root without silently routing its workspace to a different project.
 export async function removeProject(root) {
-  const result = await requestJson(forgeV1("/lifecycle/remove"), {
+  const result = await requestJson(`${controlApiBase()}/lifecycle/remove`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ root })
   });
   await refreshProjects();

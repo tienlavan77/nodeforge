@@ -12,7 +12,7 @@ const historySource = await readFile("ui/nextjs/lib/use-conversation-message-his
 const streamSource = await readFile("ui/nextjs/lib/home-page-event-stream.js", "utf8");
 const actionSource = await readFile("ui/nextjs/components/conversation-message-actions.jsx", "utf8");
 const composerSource = await readFile("ui/nextjs/components/home-chat-composer.jsx", "utf8");
-const homeSource = await readFile("ui/nextjs/app/page.jsx", "utf8");
+const homeSource = await readFile("ui/nextjs/components/architecture-workspace.jsx", "utf8");
 const systemSource = await readFile("ui/nextjs/app/system/page.jsx", "utf8");
 
 // Restores formatted Markdown only when the protocol explicitly declares it.

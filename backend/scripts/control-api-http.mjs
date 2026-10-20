@@ -13,6 +13,7 @@ import { createPlanHandoffService } from "../src/application/plan-handoff-servic
 import { createPlanRequestState } from "../src/application/plan-request-state.js";
 import { createWatcherCacheEvents } from "../src/modules/context/watcher-cache-events.js";
 import { createMarkdownResponseFileService } from "../src/application/markdown-response-file-service.js";
+import { createProjectDirectoryLifecycle } from "../src/application/project-directory-lifecycle.js";
 
 export function createControlApiHttp({ services = {}, resolveProjectServices } = {}) {
   return createHttpApi(createControlApiHttpOptions({ services, resolveProjectServices }));
@@ -33,6 +34,7 @@ function createProjectRouterResolver(resolveProjectServices) {
 // Composes conversation, plan, sprint, Git, and execution services for one selected project.
 function createControlApiHttpOptions({ services = {}, resolveProjectServices } = {}) {
   const { bus, communications, conversations, eventStore, indexDb, subscriptions, agentSettings, sprintPlanUpload, sprintOrchestration, sprintPlanLeader, dispatchSprint, dispatchTicket, reviewTicket, runToolLab, directCodeRequest, codeCache, internalBus, ticketCrudService, buildBuilderContext, protocolStorage, agentGateway, agentConfiguration, sdkGateways, conversationStateStore, fileService, planFileService, projectRoot, publishUnifiedStreamEvent, logEvent, projectId, gitService, ticketBlockerReconcileService } = services;
+  const projectLifecycle = createProjectDirectoryLifecycle({ projectLifecycle: services.projectLifecycle, projectId, projectRoot });
   const agentLoopLogger = createRuntimeLogger({ logEvent, source: "owner-chat-agent-loop" });
   const executionCheckpoint = createOwnerExecutionCheckpoint({ fileService, gitService, role: "system_engineer" });
   const architectureCheckpoint = createOwnerExecutionCheckpoint({ fileService, role: "architecture_manager" });
@@ -56,7 +58,7 @@ function createControlApiHttpOptions({ services = {}, resolveProjectServices } =
     projectDashboardService: services.projectDashboardService,
     conversationAuditHistoryService: services.conversationAuditHistoryService,
     humanDecisionService: services.humanDecisionService,
-    projectLifecycle: services.projectLifecycle,
+    projectLifecycle,
     agentSettingsService: agentSettings,
     sprintPlanUploadService: sprintPlanUpload,
     sprintOrchestrationService: sprintOrchestration,
@@ -67,7 +69,7 @@ function createControlApiHttpOptions({ services = {}, resolveProjectServices } =
     forgeV1Router: createForgeV1Router({
       conversationStream,
       resolveProjectRouter: resolveProjectServices ? createProjectRouterResolver(resolveProjectServices) : undefined,
-      projectLifecycle: services.projectLifecycle,
+      projectLifecycle,
       dispatchTicket,
       dispatchSprint,
       sprintOrchestrationService: sprintOrchestration,

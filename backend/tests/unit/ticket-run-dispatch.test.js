@@ -74,6 +74,33 @@ test("shared RUN retains blocked checkpoints and rejects invalid A5 contracts", 
   } finally { await f.close(); }
 });
 
+// Resumes owner-stopped work without inventing an approval or losing Coder progress.
+test("shared RUN resumes a legacy blocked checkpoint caused by owner Stop", async () => {
+  for (const blockerRecovery of [undefined, { status: "resolved" }]) {
+    const f = await fixture();
+    try {
+      f.state.coder = { status: "blocked", failure: { code: "TICKET_STOPPED" }, last_completed_turn: 23, changed_paths: ["backend/example.js"], ...(blockerRecovery ? { blocker_recovery: blockerRecovery } : {}) };
+      await f.dispatch({ projectId: "PROJECT-A", ticketId: "TICKET-A" });
+      assert.equal(f.calls.length, 1);
+      assert.equal(f.calls[0].resume_from.status, "failed");
+      assert.equal(f.calls[0].resume_from.last_completed_turn, 23);
+      assert.deepEqual(f.calls[0].resume_from.changed_paths, ["backend/example.js"]);
+      assert.deepEqual(f.checkpointActions, []);
+    } finally { await f.close(); }
+  }
+});
+
+// Keeps unresolved owner decisions mandatory even if a later Stop overwrote the failure code.
+test("shared RUN does not bypass unresolved blocker recovery after Stop", async () => {
+  const f = await fixture();
+  try {
+    f.state.coder = { status: "blocked", failure: { code: "TICKET_STOPPED" }, blocker_recovery: { status: "owner_required" } };
+    await assert.rejects(f.dispatch({ projectId: "PROJECT-A", ticketId: "TICKET-A" }), { code: "TICKET_APPROVAL_REQUIRED" });
+    assert.equal(f.calls.length, 0);
+    assert.deepEqual(f.checkpointActions, []);
+  } finally { await f.close(); }
+});
+
 // Resumes independent review without clearing completed Coder evidence.
 test("shared RUN forwards completed Coder checkpoint to Reviewer resume", async () => {
   const f = await fixture();

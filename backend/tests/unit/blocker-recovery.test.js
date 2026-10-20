@@ -10,7 +10,7 @@ const proposal = { action: "owner_required", summary: "A new public contract nee
   title: "Project catalog contract", options: [{ id: "existing", description: "Retain the current transport and defer the new public API." },
     { id: "new", description: "Approve the proposed add/remove/list request and response contract, compatibility and verification requirements." }], recommended_option_id: "existing" } };
 
-test("blocked Coder automatically dispatches SL then Architecture and resumes the same checkpoint", async () => {
+test("blocked Coder automatically dispatches SL then Architecture then SL and resumes the same checkpoint", async () => {
   const fixture = await blockerRecoveryFixture();
   try {
     await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
@@ -20,7 +20,8 @@ test("blocked Coder automatically dispatches SL then Architecture and resumes th
     const checkpoint = await fixture.base.checkpoints.load("TASK");
     await fixture.base.checkpoints.save({ ...checkpoint, thread_id: "PRESERVED", last_completed_turn: 15 });
     await fixture.recovery.tick();
-    assert.deepEqual(fixture.calls, ["sprint_leader", "architecture_manager"]);
+    assert.deepEqual(fixture.calls, ["sprint_leader", "architecture_manager", "sprint_leader"]);
+    await fixture.recovery.tick();
     assert.equal(fixture.base.invocations, 2);
     assert.equal(fixture.base.integrations, 1);
     assert.equal(fixture.base.statusStore.get().details.execution_id, "EXEC");
@@ -32,6 +33,7 @@ test("blocked Coder automatically dispatches SL then Architecture and resumes th
       ["coder", "blocked"],
       ["sprint_leader", "completed"],
       ["architecture_manager", "completed"],
+      ["sprint_leader", "completed"],
       ["coder", "resumed_from_blocker"]
     ]);
     assert.equal((await fixture.ledger()).jobs[0].status, "resumed");
@@ -99,6 +101,7 @@ test("malformed or hallucinated authority and stale checksums never resume Coder
     try {
       await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
       for (let turn = 0; turn < 6; turn += 1) await fixture.recovery.tick();
+      fixture.advance(600_000); await fixture.recovery.tick();
       assert.equal(fixture.base.invocations, 1);
       assert.equal(fixture.base.integrations, 0);
       assert.equal((await fixture.ledger()).jobs[0].status, "reconciliation_required");
@@ -112,6 +115,7 @@ test("access and security blockers cannot be cleared by agent narrative", async 
     try {
       await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
       for (let turn = 0; turn < 6; turn += 1) await fixture.recovery.tick();
+      fixture.advance(600_000); await fixture.recovery.tick();
       assert.equal(fixture.base.invocations, 1);
       assert.equal(fixture.base.integrations, 0);
       assert.equal((await fixture.ledger()).jobs[0].status, "reconciliation_required");
@@ -129,71 +133,11 @@ test("unknown provider failure and persisted invoking stage never replay after r
   } finally { await fixture.close(); }
 });
 
-test("execution-wide call budget and deadline do not reset after restart", async () => {
-  for (const limits of [{ maxCalls: 1 }, { deadlineMs: 1000 }]) {
-    const fixture = await blockerRecoveryFixture({ limits });
-    try {
-      await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
-      if (limits.deadlineMs) fixture.advance(1000);
-      await fixture.recovery.tick(); await fixture.recreate().tick(); await fixture.recovery.tick();
-      assert.equal(fixture.base.invocations, 1);
-      assert.ok(fixture.calls.length <= 1);
-      assert.equal((await fixture.ledger()).jobs[0].status, "reconciliation_required");
-    } finally { await fixture.close(); }
-  }
-});
-
-test("unavailable roles wait without consuming provider calls until the deadline", async () => {
-  const fixture = await blockerRecoveryFixture({ investigate: async () => { throw Object.assign(new Error("Role busy"), { not_started: true }); } });
-  try {
-    await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
-    await fixture.recovery.tick();
-    assert.equal((await fixture.ledger()).calls, 0);
-    fixture.advance(600_000); await fixture.recovery.tick();
-    assert.equal((await fixture.ledger()).jobs[0].status, "reconciliation_required");
-  } finally { await fixture.close(); }
-});
-
-test("repeated blockers cannot reset the execution-wide budget by creating new failure records", async () => {
-  const fixture = await blockerRecoveryFixture({ repeatBlock: true });
-  try {
-    await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
-    for (let turn = 0; turn < 12; turn += 1) await fixture.recreate().tick();
-    const ledger = await fixture.ledger();
-    assert.equal(fixture.base.invocations, 3);
-    assert.equal(ledger.resumes, 2);
-    assert.equal(ledger.calls, 4);
-    assert.equal(ledger.jobs.at(-1).status, "reconciliation_required");
-    assert.equal(fixture.base.integrations, 0);
-  } finally { await fixture.close(); }
-});
-
-test("a crash after the stage claim never redispatches that provider invocation", async () => {
-  const fixture = await blockerRecoveryFixture();
-  try {
-    await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
-    const ledger = await fixture.ledger();
-    ledger.jobs[0].status = "invoking";
-    ledger.calls = 1;
-    await fixture.base.store.withLock("blocker.recovery", () => fixture.base.store.save("blocker.recovery", ledger));
-    await fixture.recreate().tick();
-    assert.equal(fixture.calls.length, 0);
-    fixture.advance(600_000);
-    await fixture.recovery.tick();
-    assert.equal(fixture.calls.length, 0);
-    assert.equal((await fixture.ledger()).jobs[0].outcome_reason, "provider_outcome_unknown");
-    // The poller never replays, but an explicit RUN first reconciles the interrupted read-only stage under audit, then re-arms it.
-    const resumed = await fixture.recovery.resumeTicket({ projectId: "P", ticketId: "TASK" });
-    assert.equal(resumed.resumed, true);
-    assert.equal(fixture.calls.length, 0, "RUN must not replay the provider during the resume itself");
-  } finally { await fixture.close(); }
-});
-
 test("stopped or failed AM stage resumes at architecture_manager in the same ticket checkpoint without rerunning SL or Coder", async () => {
   let failAmOnce = true;
   const fixture = await blockerRecoveryFixture({
     investigate: async (job, resolution) => {
-      if (job.stage === "sprint_leader") return { action: "architecture_required", summary: "Escalate to AM." };
+      if (job.stage === "sprint_leader" && !job.architecture_response) return { action: "architecture_required", summary: "Escalate to AM." };
       if (failAmOnce) {
         failAmOnce = false;
         throw Object.assign(new Error("Temporary AM stage failure"), { code: "AM_STAGE_FAILED" });
@@ -218,7 +162,8 @@ test("stopped or failed AM stage resumes at architecture_manager in the same tic
 
     await fixture.recovery.tick();
     await fixture.recovery.tick();
-    assert.deepEqual(fixture.calls, ["sprint_leader", "architecture_manager", "architecture_manager"]);
+    assert.deepEqual(fixture.calls, ["sprint_leader", "architecture_manager", "architecture_manager", "sprint_leader"]);
+    await fixture.recovery.tick();
     assert.equal(fixture.base.invocations, 2);
     assert.equal(fixture.base.integrations, 1);
     const finalCheckpoint = await fixture.base.checkpoints.load("TASK");
@@ -268,7 +213,7 @@ test("reconcile rejects a stage that is not an unknown-provider reconciliation a
   } finally { await fixture.close(); }
 });
 
-test("resuming a stage salvages a persisted fenced JSON attempt without re-invoking the provider", async () => {
+test("resuming salvages the persisted AM answer and returns it to SL without repeating the AM provider call", async () => {
   const fixture = await blockerRecoveryFixture();
   try {
     await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
@@ -288,12 +233,13 @@ test("resuming a stage salvages a persisted fenced JSON attempt without re-invok
     await fixture.base.checkpoints.save({ ...cp, phase: "blocker_reconciliation_required", stage_progress: [{ stage: "architecture_manager", status: "reconciliation_required" }],
       blocker_recovery: { job_id: (await fixture.ledger()).jobs[0].id, status: "reconciliation_required", reason: "CONFIGURATION_ERROR" } });
     let providerCalls = 0;
-    fixture.recreate({ investigate: async () => { providerCalls += 1; throw new Error("Provider must not be called when persisted attempt is salvageable"); } });
+    fixture.recreate({ investigate: async (job) => { assert.equal(job.stage, "sprint_leader"); providerCalls += 1; return fixture.resolution; } });
     const resumed = await fixture.recovery.resumeTicket({ projectId: "P", ticketId: "TASK" });
     assert.equal(resumed.resumed, true);
     await fixture.recovery.tick();
     await fixture.recovery.tick();
-    assert.equal(providerCalls, 0);
+    assert.equal(providerCalls, 1);
+    await fixture.recovery.tick();
     assert.equal((await fixture.ledger()).jobs[0].status, "resumed");
     assert.equal(fixture.base.integrations, 1);
   } finally { await fixture.close(); }

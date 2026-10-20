@@ -89,3 +89,31 @@ test("blocked commit checkpoint remains stored but is not offered for automatic 
   assert.equal((await store.load("T-BLOCKED")).status, "blocked");
   assert.deepEqual(await store.listPending(), []);
 });
+
+test("merges Reviewer turn progress within the same attempt and mirrors to completed ticket checkpoint", async () => {
+  const store = createAgentExecutionCheckpointStore({ fileService: memoryFileService() });
+  await store.complete("T-MIRROR", { agent_id: "coder-1", stage_progress: [{ stage: "coder", status: "completed", turn: 10, last_tool: "report_done", at: "2026-10-18T10:00:00.000Z" }] });
+  await store.saveReview({
+    task_id: "T-MIRROR", status: "in_progress", phase: "review", review_attempt: 1, request_id: "REV-1",
+    reviewer_id: "reviewer-1", reviewer_name: "Leader", provider: "codex", thread_id: "thread-1",
+    last_completed_turn: 3, last_tool: "read_lines", completed_tools: ["read_file", "search_tree", "read_lines"]
+  });
+  await store.saveReview({
+    task_id: "T-MIRROR", status: "failed", phase: "review", review_attempt: 1, request_id: "REV-1",
+    last_error: { code: "REVIEW_VERDICT_INVALID", message: "Invalid findings" }
+  });
+  const review = await store.loadReview("T-MIRROR");
+  assert.equal(review.status, "failed");
+  assert.equal(review.reviewer_id, "reviewer-1");
+  assert.equal(review.thread_id, "thread-1");
+  assert.equal(review.last_completed_turn, 3);
+  assert.equal(review.last_tool, "read_lines");
+  const ticket = await store.load("T-MIRROR");
+  assert.equal(ticket.review_stage.status, "failed");
+  assert.equal(ticket.review_stage.last_completed_turn, 3);
+  assert.equal(ticket.review_stage.last_tool, "read_lines");
+  assert.equal(ticket.stage_progress.at(-1).stage, "reviewer");
+  assert.equal(ticket.stage_progress.at(-1).status, "failed");
+  assert.equal(ticket.stage_progress.at(-1).turn, 3);
+  assert.equal(ticket.stage_progress.at(-1).last_tool, "read_lines");
+});

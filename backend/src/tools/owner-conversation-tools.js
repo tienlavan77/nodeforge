@@ -17,22 +17,22 @@ export function createOwnerConversationTools({ role, projectRoot, fileService, c
   const scopedFiles = createRoleFileService({ fileService, role, projectRoot });
   const scopedCache = codeCache && { ...codeCache, read: async ({ path }) => {
     await scopedFiles.assertReadPath(path);
-    if (role === "system_engineer" && /^node_modules(?:\/|$)/.test(path)) return scopedFiles.readForIndex({ path });
+    if (role === "system_engineer" && /^(?:node_modules|\.forge)(?:\/|$)/.test(path)) return scopedFiles.readForIndex({ path });
     return codeCache.read({ path });
   } };
   const base = createAgentCommandTools({ projectRoot, fileService: scopedFiles, codeSearch, codeCache: scopedCache, projectLogger: () => {}, wrap: (tool) => tool });
   const implementations = {
     ...base,
-    search_tree: createOwnerSearchTreeTool({ fileService: scopedFiles }),
-    read_file: createReadFileTool({ fileService: scopedFiles, codeCache: scopedCache, symbolLookup: codeSearch?.symbolsForFile?.bind(codeSearch) }),
+    search_tree: createOwnerSearchTreeTool({ fileService: scopedFiles, role }),
+    read_file: createReadFileTool({ fileService: scopedFiles, codeCache: scopedCache, projectRoot, symbolLookup: codeSearch?.symbolsForFile?.bind(codeSearch) }),
     write_diff: createWriteDiffTool({ fileService: scopedFiles, codeCache }),
     edit_diff: createEditDiffTool({ fileService: scopedFiles, codeCache }),
     delete_file: createOwnerDeleteFileTool({ fileService: scopedFiles, codeCache: scopedCache })
   };
-  if (role === "system_engineer" && gitService?.status && gitService?.diffWorkingTree) Object.assign(implementations, createGitReadTools({ gitService, logger: { emit: () => {} } }));
+  if (["system_engineer", "reviewer"].includes(role) && gitService?.status && gitService?.diffWorkingTree) Object.assign(implementations, createGitReadTools({ gitService, logger: { emit: () => {} } }));
   const engineerTools = role === "system_engineer" ? createOwnerEngineerTools({ testService, gitService, conversationStateStore }) : { definitions: [], implementations: {} };
   Object.assign(implementations, engineerTools.implementations);
-  const definitions = [...engineeringToolDefinitions(), ownerDeleteFileDefinition]
+  const definitions = [...engineeringToolDefinitions(), ownerDeleteFileDefinition].map((definition) => role === "system_engineer" && definition.name === "search_text" ? { ...definition, input_schema: { ...definition.input_schema, properties: { ...definition.input_schema.properties, paths: { type: "array", minItems: 1, items: { type: "string", pattern: "^(?:[A-Za-z0-9_-]+|\\.forge(?:/[^/]+)*)$" } } } } } : definition)
     .filter(({ name }) => allowed.includes(name) && typeof implementations[name]?.execute === "function");
   const registry = Object.fromEntries(definitions.map((definition) => [definition.name, { execute: async (input, toolContext = context) => {
     const log = (status, error, result) => {
@@ -45,7 +45,7 @@ export function createOwnerConversationTools({ role, projectRoot, fileService, c
       authorizeTool(definition.name, toolContext);
       await authorizeOwnerTool(definition.name, input, toolContext, projectRoot);
       const result = await implementations[definition.name].execute(input, toolContext);
-      if ((definition.name === "write_diff" || definition.name === "edit_diff") && conversationStateStore && conversationId) {
+      if (["write_diff", "edit_diff", "delete_file"].includes(definition.name) && conversationStateStore && conversationId) {
         const previous = (await conversationStateStore.get(conversationId))?.owner_changed_paths ?? [];
         await conversationStateStore.update(conversationId, { owner_changed_paths: [...new Set([...previous, ...(toolContext.changed_paths ?? [])])], owner_last_commit_sha: null });
       }

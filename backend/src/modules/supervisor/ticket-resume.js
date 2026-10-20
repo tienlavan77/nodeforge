@@ -2,7 +2,10 @@
 // history across RUNs so a resumed ticket continues the
 // previous execution instead of restarting blind. Only compact turn summaries
 // are persisted; file contents never go through the checkpoint.
+import { executeReportVerificationWait } from "./ticket-report-verification-wait.js";
+import { admissionPrompt } from "./blocker-execution-admission.js";
 import { ConfigurationError } from "../../shared/errors.js";
+import { blockerContractPrompt } from "./blocker-contract-evidence.js";
 import { engineeringToolName } from "../../tools/engineering-tool-names.js";
 import { assertReadNotRepeated, forgetRead, rememberRead, sanitizeReadCache, snapshotReadCache } from "./ticket-read-cache.js";
 
@@ -20,6 +23,7 @@ export function createResumeState(resume) {
   const clean = normalizeResume(resume);
   return {
     resume: clean,
+    verificationWait: clean?.verification_wait ?? null,
     sessionId: typeof clean?.session_id === "string" ? clean.session_id : null,
     threadId: typeof clean?.thread_id === "string" ? clean.thread_id : null,
     turnCount: Number.isInteger(clean?.last_completed_turn) ? clean.last_completed_turn : 0,
@@ -56,6 +60,7 @@ export function checkpointPayload(state, extra = {}) {
   const stageProgress = prior.at(-1)?.stage === "coder" ? [...prior.slice(0, -1), coderEntry] : [...prior, coderEntry];
   return {
     ...(state.resume ?? {}),
+    verification_wait: state.verificationWait,
     session_id: state.sessionId ?? state.resume?.session_id ?? null,
     thread_id: state.threadId ?? state.resume?.thread_id ?? null,
     last_completed_turn: state.turnCount,
@@ -74,7 +79,7 @@ export function checkpointPayload(state, extra = {}) {
 // compact turn history, and changed paths survive in the shared resume state,
 // so a later RUN continues the previous execution instead of restarting blind.
 // Turn counting starts from the seeded checkpoint for accurate progress.
-export function checkpointedRegistry({ store, registry, taskId, targetPath, allowedPrefixes, complexity, selected, correlationId, resumeState = null, labMode = false }) {
+export function checkpointedRegistry({ store, registry, taskId, targetPath, allowedPrefixes, complexity, selected, correlationId, resumeState = null, labMode = false, projectLogger = () => {} }) {
   if (!store || !registry) return registry;
   const state = resumeState ?? createResumeState(null);
   const wrapped = {};
@@ -90,7 +95,9 @@ export function checkpointedRegistry({ store, registry, taskId, targetPath, allo
           }
           if (name === "report_done" && input?.status !== "blocked") assertCommitBeforeReport(state, context, labMode);
           if (name === "read_file") assertReadNotRepeated(state.readCache, input);
-          result = await tool.execute(input, context);
+          result = name === "report_done" && input?.status !== "blocked"
+            ? await executeReportVerificationWait({ tool, input, context, state, store, taskId, selected, correlationId, projectLogger, checkpointPayload })
+            : await tool.execute(input, context);
           if (selected?.role === "coder" && ["read_file", "read_lines", "Read", "sed_lines"].includes(name) && (input?.path === "workflows/agents/coder/README.md" || input?.file_path === "workflows/agents/coder/README.md" || input?.file_path?.endsWith("/workflows/agents/coder/README.md")) && (name === "sed_lines" || name === "read_lines" ? result?.exit_code === 0 : typeof result?.content === "string")) state.coderRulesRead = true;
           if (name === "read_file") rememberRead(state.readCache, input, result);
           if (name === "write_diff" || name === "edit_diff") forgetRead(state.readCache, input);
@@ -161,15 +168,23 @@ export function buildResumePrompt(prompt, state, meta = {}) {
     `RESUMED RUN: a previous execution stopped after completing turn ${state.turnCount}.`,
     "The current tool catalog replaces legacy rg_files/rg_search/sed_lines with list_files/search_text/read_lines. Historical search_code, run_test and check_test entries are receipts only; they are not available in the current Coder catalog. Use search_text for source discovery and run_check for focused checks. Do not repeat completed mutations.",
     state.sessionId ? "Provider session resumed; earlier assistant context may be available, but the worktree is the source of truth." : "No provider session survived; the worktree below is the source of truth.",
+    ...(state.verificationWait ? [`Node retained verification/report checkpoint: ${JSON.stringify(state.verificationWait)}. Continue from this report draft. Call report_done once to reattach to Node verification; Node waits internally and returns terminal evidence. Do not recreate edits, recommit unchanged source or poll tools.`] : []),
     "Completed turns (do NOT repeat these tool calls with the same inputs):",
     ...(state.resume.blocker_recovery?.status === "resolved" ? [`Automatic blocker investigation resolved an issue within existing approved scope. This is guidance, not new contract/permission approval: ${state.resume.blocker_recovery.disposition.guidance}`] : []),
+    state.resume.blocker_recovery?.status === "approval_retry"
+      ? `NODE OPERATIONAL RETRY: the automatic approval service returned HTTP 503 without a verdict. The 30-second retry wait has elapsed. Resume the unfinished operation from this checkpoint and submit it through the unchanged tool approval path for a fresh verdict. Preserve completed edits; do not restart the ticket, skip approval, change sandbox policy, relocate the operation, or claim approval was granted. Receipts: ${JSON.stringify(state.resume.blocker_recovery.approval_retry?.receipts ?? [])}`
+      : admissionPrompt(state.resume.blocker_recovery?.execution_admission),
+    ...(state.resume.blocker_recovery?.ticket_progress ? [`Retained criterion progress: ${JSON.stringify(state.resume.blocker_recovery.ticket_progress)}. Continue remaining implementation/checks at this checkpoint. Preserve written work; revalidate source and evidence before relying on verified status. Do not recreate a complete proposal dossier or restart completed edits.`] : []),
+    ...(state.resume.blocker_recovery?.status === "resolved" && state.resume.blocker_recovery.disposition?.technical_result ? [`Validated technical handoff: ${JSON.stringify({ result: state.resume.blocker_recovery.disposition.technical_result, evidence: state.resume.blocker_recovery.disposition.evidence })}. Follow these implementation and focused verification steps within the unchanged ticket. Existing tool approval decisions remain enforced; this handoff does not authorize a denied operation.`] : []),
+    ...(state.resume.blocker_recovery?.status === "resolved" && state.resume.blocker_recovery?.coder_exchange?.candidate ? [`Approved Coder candidate dossier (review role: ${state.resume.blocker_recovery.coder_exchange.review_role ?? "architecture_manager"}): ${JSON.stringify(state.resume.blocker_recovery.coder_exchange)}. Preserve the reviewed constraints. This technical review grants no execution-tool permissions; all mutations and verification still use existing gates. A materially changed proposal requires another technical review by the coordinating role.`] : []),
     ...(state.resume.blocker_recovery?.owner_decision ? [`Project owner decided blocker option "${state.resume.blocker_recovery.owner_decision.option_id}" (${state.resume.blocker_recovery.owner_decision.option_description ?? ""})${state.resume.blocker_recovery.owner_decision.reason ? ` — Reason: ${state.resume.blocker_recovery.owner_decision.reason}` : ""}. Continue implementation strictly within this chosen option.`] : []),
+    blockerContractPrompt(state.resume.contract_decisions),
     history,
     `Files already changed in the worktree: ${[...new Set([...state.changedPaths, ...(meta.changedPaths ?? [])])].join(", ") || "(none)"} — verify with read_file if needed, then continue with the next unfinished step.`,
     `Previous agent: ${meta.agentId ?? state.resume.agent_id ?? "unknown"} (${meta.provider ?? state.resume.provider ?? "unknown provider"}).`,
     ...(state.resume.phase === "coder_report_required" ? ["REPORT GATE: the current passed artifact has no complete durable Coder report. Call report_done for this artifact before respond_to_review. If a draft exists, preserve its summary and supply only missing or corrected fields. Do not edit, commit, or rerun tests merely to bypass this report gate."] : []),
     ...(state.resume.phase === "coder_evidence_required" ? [`EVIDENCE RECOVERY: the previous report_done did not complete the ticket. Missing criterion evidence: ${(state.resume.pending_criterion_ids ?? []).join(", ")}. Preserve the existing changes and report summary, run the required checks from the approved verification plan, and retry report_done. Do not repeat completed edits or commits merely to restart the ticket. Stop only after report_done succeeds; do not resume Reviewer or claim completion with pending evidence.`] : []),
-    ...(Array.isArray(state.resume.review_findings) && state.resume.review_findings.length ? ["Reviewer requested a revision of this same ticket. Address these findings:", ...state.resume.review_findings.map((finding) => typeof finding === "string" ? `- ${finding}` : `- ${finding.finding_id}: ${finding.message}`), "You may use respond_to_review to accept or dispute each finding against the current passed artifact, without editing code. If code repair is needed, commit a revision, verify it, and submit a new report_done explanation. Never claim a finding is closed; only Reviewer adjudication can close it."] : []),
+    ...(Array.isArray(state.resume.review_findings) && state.resume.review_findings.length ? ["Reviewer requested a revision of this same ticket. Address these findings:", ...state.resume.review_findings.map((finding) => typeof finding === "string" ? `- ${finding}` : `- ${JSON.stringify(finding)}`), "You may use respond_to_review to accept or dispute each finding against the current passed artifact, without editing code. If code repair is needed, commit a revision, verify it, and submit a new report_done explanation. Never claim a finding is closed; only Reviewer adjudication can close it."] : []),
     "",
     prompt
   ].join("\n");

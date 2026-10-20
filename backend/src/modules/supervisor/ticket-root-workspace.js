@@ -1,4 +1,7 @@
 // Binds a new ticket to project-root source, durable ledger, and immutable commit evidence.
+import { loadCompletedReviewSource, prepareCompletedReviewRepair } from "./completed-review-repair-workspace.js";
+import { prepareFindingReviewRepair } from "./finding-review-repair-workspace.js";
+import { findIntegratedTicketSource } from "./ticket-integrated-source.js";
 import { createHash } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { createGitService } from "../../infrastructure/git/git-service.js";
@@ -117,6 +120,10 @@ export function createTicketRootWorkspace({ projectRoot, projectId, protocolStor
     const reviewFindings = createTicketReviewFindingsStore({ taskId, fileService: stateFileService, executionContexts, gitService: rootGit });
     const reportService = createCompletionReportService({ protocolStorage, fileService: stateFileService, gitService: rootGit });
     const workspace = Object.freeze({ ...identity, projectRoot, migrationRequired: false, fileService: stateFileService, worktreeFileService: committedFiles, gitService: rootGit, worktreeGitService: rootGit, changeLedger, executionContexts, reviewFindings, codeSearch, codeCache, relevantTreeSelector, freshnessChecker, testService, reportService,
+      findIntegratedSource: (path, sha256, targetSha256 = sha256, baselineCommit = null) => findIntegratedTicketSource({ path, sha256, targetSha256, baselineCommit, taskId, projectId, fileService: stateFileService, executionContexts, rootGit: createTicketRootGit({ projectRoot }) }),
+      loadReviewRepairSource: (context) => loadCompletedReviewSource({ taskId, projectId, fileService: stateFileService, executionContexts, context }),
+      beginReviewRepair: ({ binding, cycleId }) => prepareCompletedReviewRepair({ taskId, projectId, fileService: stateFileService, executionContexts, ledger, binding, cycleId }),
+      beginFindingRepair: (reviewKey) => prepareFindingReviewRepair({ taskId, projectId, fileService: stateFileService, executionContexts, ledger, testService, reviewKey }),
       integrate: () => integrateRoot(taskId, identity, testService) });
     opened.set(taskId, workspace);
     return workspace;

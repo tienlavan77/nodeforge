@@ -165,9 +165,15 @@ export function createProductionSupervisorRuntime({ fileService, projectId, proj
     for (const claim of agentOccupancy?.listActive?.() ?? []) {
       if (projectId != null && claim.project_id != null && claim.project_id !== projectId) continue;
       if (retainUnreconciledLaunch({ taskId: claim.task_id, ticketStatusStore, projectLogger })) continue;
+      const currentExecution = ticketStatusStore?.get?.(claim.task_id);
+      const checkpoint = await agentCheckpoints.load(claim.task_id);
+      if (["done", "failed", "cancelled"].includes(currentExecution?.status) && checkpoint?.status === "completed" && claim.supervisor_id?.startsWith("BLOCKER-")) {
+        await agentOccupancy.release({ claimId: claim.claim_id, taskId: claim.task_id, supervisorId: claim.supervisor_id, projectId: claim.project_id, reason: "recovered_terminal_blocker" });
+        projectLogger({ event_name: "agent.occupancy_reconciled", level: "info", status: "success", message: "Terminal blocker claim released during recovery.", task_id: claim.task_id, project_id: claim.project_id ?? null, source: "production-runtime", payload: { project_id: claim.project_id ?? null, claim_id: claim.claim_id, supervisor_id: claim.supervisor_id, terminal_state: currentExecution.status } });
+        continue;
+      }
       const snapshot = await stateStore.get(claim.supervisor_id);
       if (!snapshot && claim.supervisor_id === `SUP-${claim.task_id}`) {
-        const checkpoint = await agentCheckpoints.load(claim.task_id);
         if (checkpoint?.status !== "completed") continue;
         const directCode = claim.task_id.startsWith("CODE-");
         if (!directCode) await eventBus.publish({ type: "task.needs_human_review", project_id: claim.project_id ?? null, metadata: { project_id: claim.project_id ?? null }, task_id: claim.task_id, supervisor_id: claim.supervisor_id, request_id: `RECOVER-${claim.claim_id}`, correlation_id: checkpoint.correlation_id ?? `CORR-${claim.task_id}`, attempt: checkpoint.attempt ?? 1, payload: { reason: "review_interrupted" } });

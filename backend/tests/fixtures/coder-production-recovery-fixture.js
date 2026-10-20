@@ -12,7 +12,7 @@ import { sdkFailureEvidence } from "../../src/modules/agent/sdk-failure-evidence
 import { ConfigurationError } from "../../src/shared/errors.js";
 
 export const BASIS = { project_id: "P", sprint_id: "SPRINT", plan_id: "PLAN", plan_revision: 1, plan_path: "plans/p.md", plan_sha256: "a".repeat(64), version: 1 };
-export const TICKET = { id: "TASK", project_id: "P", sprint_id: "SPRINT", required_role: "coder", title: "Fix handler", objective: "Fix handler", dependencies: [], acceptance_criteria: ["Handler works"] };
+export const TICKET = { id: "TASK", project_id: "P", sprint_id: "SPRINT", execution_policy: { review_gate: "off" }, required_role: "coder", title: "Fix handler", objective: "Fix handler", dependencies: [], acceptance_criteria: ["Handler works"] };
 
 // Creates process-reconstructible recovery services backed by real locked JSON and checkpoint files.
 export async function coderProductionRecoveryFixture({ behavior, ticket = TICKET } = {}) {
@@ -83,7 +83,7 @@ export async function coderProductionRecoveryFixture({ behavior, ticket = TICKET
       eventBus, ticketStatusStore: statusStore, sprintRegistry: registry, agentOccupancy: occupancy,
       agentResolver: { resolveAvailable: () => ({ agent_id: "CODER", role: "coder", provider: "codex" }) },
       handoffQueue: createDurableQueue({ name: "sender.handoff", store }), resolveTicketWorkspace: async () => workspace,
-      checkpointStore: checkpoints, runtimeGovernance: { createExecutionContext: (input) => input }, coderRecovery: service, blockerRecovery: options.blockerRecovery,
+      checkpointStore: checkpoints, automaticReview: options.automaticReview, runtimeGovernance: { createExecutionContext: (input) => input }, coderRecovery: service, blockerRecovery: options.blockerRecovery,
       codexSdkGateway: { execute: async (input) => {
         invocations += 1;
         if (behavior) return behavior(input, invocations);

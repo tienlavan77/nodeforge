@@ -54,6 +54,7 @@ export async function* stream({ url, credential, payload, model, correlationId, 
   if (!response.ok || !response.body) throw new ConfigurationError("Agent Gateway response is invalid.");
   const decoder = new TextDecoder();
   let buffer = "";
+  let usage = {};
   for await (const chunk of response.body) {
     buffer += decoder.decode(chunk, { stream: true });
     const frames = buffer.split("\n\n");
@@ -64,10 +65,16 @@ export async function* stream({ url, credential, payload, model, correlationId, 
       if (!dataLine || dataLine === "[DONE]") continue;
       let event;
       try { event = JSON.parse(dataLine); } catch { throw new ConfigurationError("Agent Gateway stream is invalid."); }
-      if (event.type === "content_block_delta" && typeof event.delta?.text === "string") yield { text: event.delta.text };
+      if (event.type === "message_start") {
+        usage = { ...usage, ...event.message?.usage };
+        yield { usage: mapUsage(usage) };
+      } else if (event.type === "content_block_delta" && typeof event.delta?.text === "string") yield { text: event.delta.text };
       else if (event.type === "response.output_text.delta" && typeof event.delta === "string") yield { text: event.delta };
       else if (event.type === "error") throw new ConfigurationError("Agent Gateway stream failed.");
-      else if (event.type === "message_delta" && event.usage) yield { usage: mapUsage(event.usage) };
+      else if (event.type === "message_delta" && event.usage) {
+        usage = { ...usage, ...event.usage };
+        yield { usage: mapUsage(usage) };
+      }
       if (event.type === "message_stop" || event.type === "response.completed") {
         const rid = event.message?.id ?? event.response?.id ?? event.id;
         if (rid) yield { response_id: rid };

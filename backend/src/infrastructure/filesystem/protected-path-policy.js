@@ -24,9 +24,10 @@ export const PROTECTED_PATTERNS = Object.freeze([
 const matches = picomatch(PROTECTED_PATTERNS, { dot: true });
 
 // Returns true if the normalized path matches secret/protected patterns, with runtime and indexing exceptions.
-export function isProtectedPath(path, { operation = "read", forIndex = false } = {}) {
+export function isProtectedPath(path, { operation = "read", forIndex = false, role } = {}) {
   if (typeof path !== "string" || !path) return true;
   const normalized = path.replaceAll("\\", "/").replace(/^\.\//, "");
+  if (role === "system_engineer" && (normalized === ".forge" || normalized.startsWith(".forge/"))) return false;
   const runtimePath = normalized === ".forge/runtime" || normalized.startsWith(".forge/runtime/");
   if (runtimePath) return false;
   if (matches(normalized)) return true;

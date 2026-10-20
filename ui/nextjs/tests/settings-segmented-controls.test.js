@@ -43,7 +43,7 @@ test("Settings menu replaces the Effort and Tools selects with sliding segmented
 });
 
 test("both chat pages mount the segmented settings control on the selected agent", async () => {
-  const architecture = await readFile("ui/nextjs/app/page.jsx", "utf8");
+  const architecture = await readFile("ui/nextjs/components/architecture-workspace.jsx", "utf8");
   const system = await readFile("ui/nextjs/app/system/page.jsx", "utf8");
   for (const [name, page] of [["architecture", architecture], ["system", system]]) {
     assert.match(page, /import \{ SystemToolMode \} from/, `${name} page must mount SystemToolMode`);

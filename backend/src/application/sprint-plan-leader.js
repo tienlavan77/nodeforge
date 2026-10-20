@@ -1,5 +1,6 @@
 // Drafts a governance sprint plan through the configured Sprint Leader SDK.
 import { extractTicketJson } from "./ticket-draft-parser.js";
+import { PLANNING_AUTONOMY_PROMPT } from "../shared/implementation-autonomy.js";
 import { startSprintLeaderProgress } from "./sprint-leader-progress.js";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -64,6 +65,7 @@ function stripLegacyCandidateFields(plan) {
 function buildPlanPrompt({ projectId, brief, feedback, rules }) {
   return [
     "Draft exactly one governance sprint plan for the sprint brief below.",
+    PLANNING_AUTONOMY_PROMPT,
     `Read and follow the Sprint Leader role rules from ${RULES_PATH} below. The current approved Markdown scope and implementation_type schema take precedence over older terminology in this role file.\n\n${rules}`,
     "Investigate the project with the supplied read-only Forge search_tree, list_files, search_text, search_code, read_file, and read_lines tools before drafting tickets. Search for relevant components and, when possible, identify existing related files. read_file accepts offset and limit for bounded source windows; limit MUST be an integer from 1 through 80. Cite actual observations; if discovery is unavailable, state the uncertainty. Do not use built-in shell, file, network, or write tools.",
     "Write newly authored prose in English. Approved acceptance criteria and coverage references MUST retain their exact original wording and language, including Vietnamese; never replace them with translations. During verification repair, preserve the supplied frozen draft and acceptance_criteria order exactly and change ONLY verification_plan. Number AC IDs against that final unchanged array.",
