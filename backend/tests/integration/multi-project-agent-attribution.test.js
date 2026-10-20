@@ -35,7 +35,7 @@ test("shared agents retain claim-derived project attribution across concurrent w
   const root = await mkdtemp(join(tmpdir(), "multi-project-agent-"));
   let database = await openIndexDatabase(root);
   const subscriptions = createSubscriptionRegistry();
-  const history = createHistoryStore({ subscriptions, database });
+  const history = createHistoryStore({ subscriptions, database: { run: (...args) => database.run(...args), all: (...args) => database.all(...args) } });
   const publisher = createEventPublisher({ store: createEventStore(), subscriptions });
   const logs = createProjectLogService({ projectRoot: root });
   const events = [];
@@ -106,6 +106,7 @@ test("legacy migration preserves unattributed rows and project-aware restart rec
   const events = [];
   try {
     const profiles = seedProfiles(database);
+    database.run("DROP TABLE agent_occupancy");
     database.run("CREATE TABLE agent_occupancy (claim_id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, task_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'coder', supervisor_id TEXT NOT NULL, claimed_at TEXT NOT NULL, released_at TEXT, release_reason TEXT)");
     database.run("INSERT INTO agent_occupancy (claim_id, agent_id, task_id, supervisor_id, claimed_at) VALUES (?, ?, ?, ?, ?)", ["LEGACY", FIRST, "TASK-LEGACY", "SUP-LEGACY", "2026-10-01T00:00:00Z"]);
     const original = database.all("SELECT * FROM agent_occupancy")[0];
