@@ -9,7 +9,9 @@ export async function createBrowserFixture({ sourceRoot, build }) {
     import {ProjectWorkspace} from './components/project-workspace.jsx';
     import HomePage from './app/page.jsx';
     import './app/globals.css';
-    window.calls=[];window.sources=[];window.held=[];
+    window.calls=[];window.sources=[];window.held=[];window.fixtureErrors=[];
+    window.addEventListener('error',event=>window.fixtureErrors.push(event.error?.stack??event.message));
+    window.addEventListener('unhandledrejection',event=>window.fixtureErrors.push(String(event.reason?.stack??event.reason)));
     window.projects=[{project_id:'PROJECT-A',root:'/projects/a'}];
     window.delayA=new URLSearchParams(location.search).has('delay');
     // Return representative persisted conversation history from the controlled transport.
@@ -70,7 +72,7 @@ async function openWorkspace(page, origin, delayed = false) {
 // Add a second managed root using the production form and its actual lifecycle client.
 async function addSecondProject(page) {
   const rootInput = page.getByRole("textbox", { name: "Project root", exact: true });
-  if (await rootInput.count() !== 1) throw new Error(`Project root control unavailable: ${await page.evaluate(() => JSON.stringify({ management: document.querySelector('[aria-label="Project management"]')?.outerHTML, ancestors: [...document.querySelectorAll('[aria-hidden], [inert]')].map(element => element.outerHTML.slice(0, 300)), inputs: [...document.querySelectorAll('input')].map(element => ({ html: element.outerHTML, display: getComputedStyle(element).display, visibility: getComputedStyle(element).visibility })) }))}`);
+  if (await rootInput.count() !== 1) throw new Error(`Project root control unavailable: ${await page.evaluate(() => JSON.stringify({ errors: window.fixtureErrors, body: document.body.innerHTML.slice(0, 1000), calls: window.calls, management: document.querySelector('[aria-label="Project management"]')?.outerHTML, ancestors: [...document.querySelectorAll('[aria-hidden], [inert]')].map(element => element.outerHTML.slice(0, 300)), inputs: [...document.querySelectorAll('input')].map(element => ({ html: element.outerHTML, display: getComputedStyle(element).display, visibility: getComputedStyle(element).visibility })) }))}`);
   await rootInput.fill("/projects/b");
   await page.getByRole("button", { name: "Add project", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('select[aria-label="Project"] option[value="PROJECT-B"]'));
