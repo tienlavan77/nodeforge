@@ -63,10 +63,16 @@ export async function createBrowserFixture({ sourceRoot, build }) {
   };
 }
 
+// Report real request and rendered error state when a transport-driven transition fails.
+async function waitForTransition(page, predicate, label, argument) {
+  try { await page.waitForFunction(predicate, argument); }
+  catch (error) { throw new Error(`${label}: ${error.message}; ${await page.evaluate(() => JSON.stringify({ errors: window.fixtureErrors, calls: window.calls, text: document.body.innerText, projects: window.projects }))}`); }
+}
+
 // Start each scenario with a real automatically selected single-project workspace.
 async function openWorkspace(page, origin, delayed = false) {
   await page.goto(`${origin}/${delayed ? "?delay=1" : ""}`);
-  await page.waitForFunction(() => document.querySelector('select[aria-label="Project"]')?.value === "PROJECT-A" && window.sources.length > 0);
+  await waitForTransition(page, () => document.querySelector('select[aria-label="Project"]')?.value === "PROJECT-A" && window.sources.length > 0, "Initial project selection");
   if (!delayed) {
     try { await page.getByText("History PROJECT-A", { exact: true }).waitFor(); }
     catch (error) { throw new Error(`${error.message}; workspace diagnostics: ${await page.evaluate(() => JSON.stringify({ errors: window.fixtureErrors, body: document.body.innerHTML.slice(0, 2000), calls: window.calls }))}`); }
@@ -79,7 +85,7 @@ async function addSecondProject(page) {
   if (await rootInput.count() !== 1) throw new Error(`Project root control unavailable: ${await page.evaluate(() => JSON.stringify({ errors: window.fixtureErrors, body: document.body.innerHTML.slice(0, 1000), calls: window.calls, management: document.querySelector('[aria-label="Project management"]')?.outerHTML, ancestors: [...document.querySelectorAll('[aria-hidden], [inert]')].map(element => element.outerHTML.slice(0, 300)), inputs: [...document.querySelectorAll('input')].map(element => ({ html: element.outerHTML, display: getComputedStyle(element).display, visibility: getComputedStyle(element).visibility })) }))}`);
   await rootInput.fill("/projects/b");
   await page.getByRole("button", { name: "Add project", exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('select[aria-label="Project"] option[value="PROJECT-B"]'));
+  await waitForTransition(page, () => Boolean(document.querySelector('select[aria-label="Project"] option[value="PROJECT-B"]')), "Added project appears");
 }
 
 // Switch through the real selection control and wait for the replacement workspace's persisted history.
@@ -95,7 +101,7 @@ export const browserAssertions = {
     await chooseSecondProject(page);
     await page.getByRole("textbox", { name: "Chat or ticket input" }).fill("Message for B");
     await page.getByRole("button", { name: "Send message", exact: true }).click();
-    await page.waitForFunction(() => window.calls.some(call => call.method === "POST" && call.path.endsWith("/messages")));
+    await waitForTransition(page, () => window.calls.some(call => call.method === "POST" && call.path.endsWith("/messages")), "Current project message mutation");
     const evidence = await page.evaluate((start) => ({ calls: window.calls.slice(start), sources: window.sources.map(source => ({ project: new URL(source.url).searchParams.get("project"), closed: source.closed })) }), offset);
     const reads = evidence.calls.filter(call => call.method === "GET" && call.path.endsWith("/messages"));
     const writes = evidence.calls.filter(call => call.method === "POST" && call.path.endsWith("/messages"));
