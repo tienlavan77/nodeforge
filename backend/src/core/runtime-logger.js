@@ -81,7 +81,7 @@ export function createRuntimeLogger({ logEvent, output = process.stdout, source 
   const emit = (entry = {}) => {
     const {
       timestamp, event_name, level, status, message, task_id, ticket_id,
-      conversation_id, correlation_id, exit_code, error_code,
+      conversation_id, correlation_id, exit_code, error_code, project_id,
       source: entrySource, payload, ...extras
     } = entry;
     const name = typeof event_name === "string" && event_name ? event_name : "runtime.event";
@@ -99,6 +99,7 @@ export function createRuntimeLogger({ logEvent, output = process.stdout, source 
       task_id: typeof task_id === "string" && task_id ? task_id : `RUNTIME-${name}`,
       request_id: resolvedPayload.request_id ?? null,
       correlation_id: correlation_id ?? null,
+      ...(project_id !== undefined ? { project_id } : {}),
       source: entrySource ?? source,
       message: text,
       ...(error_code || resolvedPayload.error_code ? { error_code: error_code ?? resolvedPayload.error_code } : {}),
@@ -115,6 +116,7 @@ export function createRuntimeLogger({ logEvent, output = process.stdout, source 
         message: normalized.message,
         task_id: normalized.task_id,
         source: normalized.source,
+        ...(project_id !== undefined ? { project_id } : {}),
         ...(ticket_id ? { ticket_id } : {}),
         ...(conversation_id ? { conversation_id } : {}),
         ...(normalized.correlation_id ? { correlation_id: normalized.correlation_id } : {}),

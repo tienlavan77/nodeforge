@@ -12,6 +12,7 @@ import { createAgentOccupancyStore } from "../../src/modules/agent/agent-occupan
 import { createAgentOccupancyNotifications } from "../../src/modules/agent/agent-occupancy-notifications.js";
 import { createProductionSupervisorRuntime } from "../../src/modules/supervisor/production-runtime.js";
 import { createProjectLogService } from "../../src/core/project-log-service.js";
+import { createRuntimeLogger } from "../../src/core/runtime-logger.js";
 import { createEventPublisher } from "../../src/modules/events/event-publisher.js";
 import { createEventStore } from "../../src/modules/events/event-store.js";
 import { createSubscriptionRegistry } from "../../src/modules/events/subscription-registry.js";
@@ -102,7 +103,8 @@ test("legacy migration preserves unattributed rows and project-aware restart rec
   const root = await mkdtemp(join(tmpdir(), "multi-project-agent-legacy-"));
   let database = await openIndexDatabase(root);
   let runtime;
-  const diagnostics = [];
+  const logs = createProjectLogService({ projectRoot: root });
+  const runtimeLogger = createRuntimeLogger({ logEvent: logs.logEvent, output: { write: () => {} } });
   const events = [];
   try {
     const profiles = seedProfiles(database);
@@ -119,7 +121,7 @@ test("legacy migration preserves unattributed rows and project-aware restart rec
     await database.close();
     database = await openIndexDatabase(root);
     occupancy = createAgentOccupancyStore({ database, profiles: createAgentProfileStore({ database }), defaultProjectId: "PROJECT-A", onChanged: (event) => events.push(event) });
-    runtime = createProductionSupervisorRuntime({ fileService: createFileService({ projectRoot: root }), projectRoot: root, projectId: "PROJECT-A", root: "recovery", agentOccupancy: occupancy, autoStartWorkers: false, logger: { debug() {}, info() {} }, projectLogger: (entry) => diagnostics.push(entry), gitService: { status: async () => "" } });
+    runtime = createProductionSupervisorRuntime({ fileService: createFileService({ projectRoot: root }), projectRoot: root, projectId: "PROJECT-A", root: "recovery", agentOccupancy: occupancy, autoStartWorkers: false, logger: { debug() {}, info() {} }, projectLogger: runtimeLogger.emit, gitService: { status: async () => "" } });
     for (const [taskId, supervisorId] of [["TASK-LEGACY", "SUP-LEGACY"], ["TASK-FOREIGN", "SUP-FOREIGN"]]) await runtime.stateStore.save({ task_id: taskId, supervisor_id: supervisorId, state: "COMPLETED", pending_request: {}, updated_at: new Date().toISOString() });
     await runtime.recover();
     assert.equal(occupancy.getByTask("TASK-LEGACY"), null);
@@ -129,9 +131,27 @@ test("legacy migration preserves unattributed rows and project-aware restart rec
     assert.equal(legacy.claimed_at, original.claimed_at);
     assert.equal(legacy.release_reason, "recovered_completed");
     assert.equal(events[0].project_id, null);
-    assert.equal(diagnostics.find((entry) => entry.event_name === "agent.occupancy_reconciled").payload.project_id, null);
+    const diagnostics = await logs.readLogEvents({ event_name: "agent.occupancy_reconciled" });
+    assert.equal(diagnostics.warnings.length, 0);
+    assert.equal(diagnostics.events.length, 1);
+    assert.equal(diagnostics.events[0].project_id, null);
+    assert.equal(diagnostics.events[0].payload.project_id, null);
     const next = await occupancy.claim({ agentId: FIRST, taskId: "TASK-NEW", supervisorId: "SUP-NEW" });
     assert.equal(next.project_id, "PROJECT-A");
+    await runtime.stateStore.save({ task_id: "TASK-NEW", supervisor_id: "SUP-NEW", state: "COMPLETED", pending_request: {}, updated_at: new Date().toISOString() });
+    await runtime.recover();
+    assert.equal(occupancy.getByTask("TASK-NEW"), null);
+    assert.equal(occupancy.getByTask("TASK-FOREIGN").claim_id, foreign.claim_id);
+    runtime.senderWorker.stop(); runtime.collectorWorkerLoop.stop(); runtime.verificationWorkerLoop.stop();
+    runtime = createProductionSupervisorRuntime({ fileService: createFileService({ projectRoot: root }), projectRoot: root, projectId: "PROJECT-B", root: "recovery", agentOccupancy: occupancy, autoStartWorkers: false, logger: runtimeLogger, projectLogger: runtimeLogger.emit, gitService: { status: async () => "" } });
+    await runtime.recover();
+    assert.equal(occupancy.getByTask("TASK-FOREIGN"), null);
+    const reopenedLogs = createProjectLogService({ projectRoot: root });
+    for (const [projectId, taskId] of [["PROJECT-A", "TASK-NEW"], ["PROJECT-B", "TASK-FOREIGN"]]) {
+      const captured = await reopenedLogs.readLogEvents({ project_id: projectId, event_name: "agent.occupancy_reconciled" });
+      assert.equal(captured.warnings.length, 0);
+      assert.deepEqual(captured.events.map((entry) => [entry.project_id, entry.payload.project_id, entry.task_id]), [[projectId, projectId, taskId]]);
+    }
   } finally {
     runtime?.senderWorker.stop(); runtime?.collectorWorkerLoop.stop(); runtime?.verificationWorkerLoop.stop();
     await database.close(); await rm(root, { recursive: true, force: true });
