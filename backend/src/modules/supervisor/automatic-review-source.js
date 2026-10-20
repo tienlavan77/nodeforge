@@ -5,7 +5,7 @@ import { createReviewWorker } from "./review-worker.js";
 import { selectTicketReviewer } from "./ticket-agent-provider-routing.js";
 
 // Builds an independent worker that reads the retained Git commit rather than post-integration source.
-export function createAutomaticReviewWorkerResolver({ resolveTicketWorkspace, agentResolver, agentOccupancy, gateways, checkpoints, projectLogger }) {
+export function createAutomaticReviewWorkerResolver({ resolveTicketWorkspace, agentResolver, agentOccupancy, gateways, checkpoints, projectLogger, fileService }) {
   return async (job) => {
     const workspace = await resolveTicketWorkspace(job.task_id);
     const soft = job.review_policy.gate === "off";
@@ -18,7 +18,7 @@ export function createAutomaticReviewWorkerResolver({ resolveTicketWorkspace, ag
     // Supplies committed bytes for discovery without claiming the current index verifies this revision.
     const read = async (input) => { const file = await source.readForIndex({ ...input, maxBytes: 64_000 }); return { ...file, content_sha256: file.sha256, cache: { status: "bypass" }, index_status: "unavailable" }; };
     const worker = createReviewWorker({ agentResolver, ...gateways, checkpoints, projectLogger, projectRoot: root,
-      fileService: source, codeSearch: workspace.codeSearch, rulesFileService: { readForIndex: async () => ({ content: job.review_rules }) },
+      fileService: source, contractFileService: fileService, codeSearch: workspace.codeSearch, rulesFileService: { readForIndex: async () => ({ content: job.review_rules }) },
       codeCache: { read, prewarm: async (paths) => new Map(await Promise.all(paths.map(async (path) => [path, await read({ path })]))) },
       gitService: soft ? { getHead: async () => job.payload.verification.commit_sha, diffPatchFrom: retained.diffPatchFrom, status: workspace.gitService?.status, diffWorkingTree: workspace.gitService?.diffWorkingTree } : workspace.gitService,
       executionContexts: soft ? { load: async () => ({ ...job.payload.execution_context, state: "reviewing" }) } : workspace.executionContexts,
