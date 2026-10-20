@@ -34,8 +34,8 @@ export function createReconnectingEventSource(urlForCursor, { afterEventId = nul
   function wrap(current, handler) {
     return (event) => {
       if (closed || current !== source) return;
-      if (event.lastEventId) lastEventId = event.lastEventId;
-      handler(event);
+      const accepted = handler(event);
+      if (accepted !== false && event.lastEventId) lastEventId = event.lastEventId;
     };
   }
 
