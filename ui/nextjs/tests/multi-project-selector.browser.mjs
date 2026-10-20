@@ -69,7 +69,9 @@ async function openWorkspace(page, origin, delayed = false) {
 
 // Add a second managed root using the production form and its actual lifecycle client.
 async function addSecondProject(page) {
-  await page.getByRole("textbox", { name: "Project root", exact: true }).fill("/projects/b");
+  const rootInput = page.getByRole("textbox", { name: "Project root", exact: true });
+  if (await rootInput.count() !== 1) throw new Error(`Project root control unavailable: ${await page.evaluate(() => JSON.stringify({ management: document.querySelector('[aria-label="Project management"]')?.outerHTML, ancestors: [...document.querySelectorAll('[aria-hidden], [inert]')].map(element => element.outerHTML.slice(0, 300)), inputs: [...document.querySelectorAll('input')].map(element => ({ html: element.outerHTML, display: getComputedStyle(element).display, visibility: getComputedStyle(element).visibility })) }))}`);
+  await rootInput.fill("/projects/b");
   await page.getByRole("button", { name: "Add project", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('select[aria-label="Project"] option[value="PROJECT-B"]'));
 }
