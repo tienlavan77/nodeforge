@@ -13,6 +13,7 @@ const DATABASE_FILE = "index.db";
 export async function ensureRuntimeDir(projectRoot, runtimeDir) {
   assertProjectRoot(projectRoot);
   const root = resolve(projectRoot);
+  assertProjectRootPath(root);
   const resolvedRuntimeDir = runtimeDir ? resolveRuntimeDir(root, runtimeDir) : join(root, ".forge", "runtime");
   const runtimeRelative = relative(root, resolvedRuntimeDir);
   if (isAbsolute(runtimeRelative) || runtimeRelative === ".." || runtimeRelative.startsWith(`..${sep}`)) {
@@ -98,6 +99,24 @@ function assertRuntimeTarget(path, directory) {
     throw new ConfigurationError("Linked or invalid runtime storage is not allowed inside the project root.");
   }
   return true;
+}
+
+// Rejects symlinked project-root ancestors before realpath can move the containment boundary.
+function assertProjectRootPath(projectRoot) {
+  let currentPath = projectRoot;
+  while (true) {
+    try {
+      const status = lstatSync(currentPath);
+      if (status.isSymbolicLink() || !status.isDirectory()) {
+        throw new ConfigurationError("Linked or invalid runtime storage is not allowed inside the project root.");
+      }
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    const parentPath = dirname(currentPath);
+    if (parentPath === currentPath) return;
+    currentPath = parentPath;
+  }
 }
 
 // Throws if projectRoot is missing or empty.

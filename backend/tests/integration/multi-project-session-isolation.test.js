@@ -20,9 +20,19 @@ test("initializes missing runtime data roots while rejecting redirected missing 
     assert.deepEqual(database.all("PRAGMA quick_check"), [{ quick_check: "ok" }]);
     const secondRoot = join(directory, "second");
     await mkdir(secondRoot);
-    await symlink(join(secondRoot, "missing"), join(directory, "redirected"));
-    await assert.rejects(ensureRuntimeDir(join(directory, "redirected", "nf"), "."), /Linked or invalid runtime storage/);
-    assert.deepEqual(await readdir(secondRoot), []);
+    const foreignDatabase = await openIndexDatabase(secondRoot);
+    const foreignCheck = foreignDatabase.all("PRAGMA quick_check");
+    await foreignDatabase.close();
+    const foreignEntries = (await readdir(secondRoot, { recursive: true })).sort();
+    await symlink(secondRoot, join(directory, "redirected"));
+    await assert.rejects(openIndexDatabase(join(directory, "redirected"), { runtimeDir: "." }), /Linked or invalid runtime storage/);
+    assert.deepEqual((await readdir(secondRoot, { recursive: true })).sort(), foreignEntries);
+    const reopenedForeignDatabase = await openIndexDatabase(secondRoot);
+    assert.deepEqual(reopenedForeignDatabase.all("PRAGMA quick_check"), foreignCheck);
+    await reopenedForeignDatabase.close();
+    const missingRedirect = join(directory, "redirected-missing");
+    await symlink(join(secondRoot, "missing"), missingRedirect);
+    await assert.rejects(ensureRuntimeDir(join(missingRedirect, "nf"), "."), /Linked or invalid runtime storage/);
   } finally {
     await database?.close();
     await rm(directory, { recursive: true, force: true });
