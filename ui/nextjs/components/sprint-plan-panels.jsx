@@ -7,7 +7,7 @@ import { EntityDetailsModal, TicketCard, sortSprintTickets } from "./ticket-deta
 import { SprintTicketScope } from "./sprint-ticket-scope.js";
 import { PlanReviewModal } from "./plan-review-modal.jsx";
 
-const PROJECT_ID = "PROJECT-NODEFORGE";
+import { PROJECT_ID } from "../lib/home-page-constants.js";
 
 // Dashboard for viewing and managing sprint plans.
 export function SprintPlanDashboard({ dashboard, client, onRefresh, onTicketDeleted, onSprintDeleted, hideHeading = false, defaultCollapsed = false }) {
