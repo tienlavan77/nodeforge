@@ -1,7 +1,8 @@
 // Keep sidebar navigation available without resetting conversations, agents, or streaming.
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { getProjectSelection, selectProject, subscribeProjectSelection } from "../lib/project-selection.js";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import Link from "next/link";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
@@ -25,6 +26,12 @@ function SidebarNavigationIcon({ name }) {
 
 // Present a persistent desktop sidebar and a keyboard-accessible mobile navigation rail.
 export function ConversationSidebar({ open, onOpen, onClose, agentSectionTitle = "Architecture", architectureLabel, architectureControl, projects = [], selectedProjectId, onProjectChange, onNewConversation, showConversationControls = true, children }) {
+  const selection = useSyncExternalStore(subscribeProjectSelection, getProjectSelection, getProjectSelection);
+  if (selection.loaded) {
+    projects = selection.projects.map((project) => ({ id: project.project_id, name: project.root }));
+    selectedProjectId = selection.projectId;
+    onProjectChange = selectProject;
+  }
   const [collapsed, setCollapsed] = useState(false);
   const panelRef = useRef(null);
 
