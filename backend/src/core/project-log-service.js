@@ -115,7 +115,7 @@ function normalize(entry) {
   if (!entry || typeof entry !== "object") throw new ConfigurationError("Project log event must be an object.");
   const result = { ...entry };
   if (result.timestamp instanceof Date) result.timestamp = result.timestamp.toISOString();
-  if (!result.project_id) result.project_id = process.env.NODE_CONTROL_PROJECT_ID ?? "PROJECT-NODEFORGE";
+  if (result.project_id === undefined) result.project_id = process.env.NODE_CONTROL_PROJECT_ID ?? "PROJECT-NODEFORGE";
   if (!result.event_id) result.event_id = `LOG-${randomUUID()}`;
   if (!result.sequence) { const current = taskSequences.get(result.task_id) ?? 0; result.sequence = current + 1; taskSequences.set(result.task_id, result.sequence); }
   if (!result.correlation_id && result.conversation_id) result.correlation_id = result.conversation_id;
