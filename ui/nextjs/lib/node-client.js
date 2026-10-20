@@ -9,13 +9,14 @@ import { createOwnerExecutionClient } from "./owner-execution-client.js";
 import { createArchitectureClarificationClient } from "./architecture-clarification-client.js";
 import { requestConversationMessages } from "./conversation-message-request.js";
 import { createReconnectingEventSource } from "./reconnecting-event-source.js";
+import { bindProjectClient } from "./project-selection.js";
 
 export { detectMessageIntent, MESSAGE_INTENTS, normalizeTicketInput };
 
 // Creates the Node control API client.
 export function createNodeClient() {
   const connectProjectStream = createProjectStreamClient(forgeV1);
-  return Object.freeze({
+  return bindProjectClient(Object.freeze({
     ...createTicketHumanReviewClient({ forgeV1, requestJson }),
     ...createOwnerExecutionClient({ forgeV1, requestJson }),
     ...createArchitectureClarificationClient({ forgeV1, requestJson }),
@@ -236,7 +237,7 @@ export function createNodeClient() {
       return { id: `local-${Date.now()}`, agentId, text, timestamp: new Date().toISOString() };
     },
     stream: null
-  });
+  }));
 }
 
 // Returns a normalized error-like object for UI toast and inline display.

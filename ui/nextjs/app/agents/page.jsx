@@ -14,7 +14,7 @@ import { normalizeBackendError } from "../../lib/error-normalizer.js";
 
 import { saveAgentSettingsForm } from "../../lib/agent-settings-save.js";
 
-const PROJECT_ID = "PROJECT-NODEFORGE";
+import { PROJECT_ID } from "../../lib/home-page-constants.js";
 const API_URL = forgeV1("/agents");
 const ROLE_LABELS = { coder: "Coder", reviewer: "Reviewer", sprint_leader: "Sprint leader", architecture_manager: "Architecture manager", system_engineer: "System engineer", linguist: "Linguist" };
 
