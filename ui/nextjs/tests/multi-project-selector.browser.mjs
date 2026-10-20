@@ -19,7 +19,7 @@ export async function createBrowserFixture({ sourceRoot, build }) {
     // Preserve request shapes so assertions can distinguish management, reads, and mutations.
     window.fetch=async(input,init={})=>{
       const url=new URL(input,location.origin);const body=init.body?JSON.parse(init.body):null;
-      const project=url.searchParams.get('project')??body?.project_id??null;
+      const project=url.searchParams.get('project')??url.searchParams.get('project_id')??body?.project_id??null;
       const method=init.method??'GET';window.calls.push({path:url.pathname,query:Object.fromEntries(url.searchParams),body,method});
       if(url.pathname.endsWith('/lifecycle/list'))return Response.json({projects:window.projects});
       if(url.pathname.endsWith('/lifecycle/add')){
@@ -39,6 +39,7 @@ export async function createBrowserFixture({ sourceRoot, build }) {
         return Response.json(history(project,'History '+project));
       }
       if(url.pathname.endsWith('/messages')&&method==='POST')return Response.json({status:'accepted',message_id:body.message_id,conversation_id:'conversation-'+project});
+      if(url.pathname.endsWith('/plan-clarifications'))return Response.json([]);
       if(url.pathname.endsWith('/git/status'))return Response.json({branch:'main',clean:true,files:[]});
       return Response.json({items:[],project_id:project});
     };
