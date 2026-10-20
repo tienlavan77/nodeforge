@@ -147,6 +147,13 @@ test("legacy migration preserves unattributed rows and project-aware restart rec
     await runtime.recover();
     assert.equal(occupancy.getByTask("TASK-FOREIGN"), null);
     const reopenedLogs = createProjectLogService({ projectRoot: root });
+    assert.deepEqual((await reopenedLogs.readLogEvents({ project_id: null, event_name: "agent.occupancy_reconciled" })).events, diagnostics.events);
+    assert.equal((await reopenedLogs.readLogEvents({ event_name: "agent.occupancy_reconciled" })).events.length, 3);
+    assert.equal(logs.logEvent({ ...diagnostics.events[0], project_id: undefined, event_name: "runtime.default_attribution" }).project_id, process.env.NODE_CONTROL_PROJECT_ID ?? "PROJECT-NODEFORGE");
+    for (const projectId of ["", 42, false, {}, []]) {
+      assert.throws(() => logs.logEvent({ ...diagnostics.events[0], project_id: projectId }), /Invalid project log event/);
+    }
+    assert.equal((await reopenedLogs.readLogEvents({ event_name: "agent.occupancy_reconciled" })).events.length, 3);
     for (const [projectId, taskId] of [["PROJECT-A", "TASK-NEW"], ["PROJECT-B", "TASK-FOREIGN"]]) {
       const captured = await reopenedLogs.readLogEvents({ project_id: projectId, event_name: "agent.occupancy_reconciled" });
       assert.equal(captured.warnings.length, 0);
