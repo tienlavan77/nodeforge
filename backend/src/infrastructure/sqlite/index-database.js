@@ -104,7 +104,7 @@ function assertRuntimeTarget(path, directory) {
 // Rejects symlinked project-root ancestors before realpath can move the containment boundary.
 function assertProjectRootPath(projectRoot) {
   let currentPath = projectRoot;
-  while (true) {
+  while (currentPath) {
     try {
       const status = lstatSync(currentPath);
       if (status.isSymbolicLink() || !status.isDirectory()) {
@@ -114,7 +114,7 @@ function assertProjectRootPath(projectRoot) {
       if (error.code !== "ENOENT") throw error;
     }
     const parentPath = dirname(currentPath);
-    if (parentPath === currentPath) return;
+    if (parentPath === currentPath) break;
     currentPath = parentPath;
   }
 }
