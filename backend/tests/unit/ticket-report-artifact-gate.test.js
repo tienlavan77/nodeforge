@@ -8,6 +8,7 @@ import { createReportDoneTool } from "../../src/tools/agent-report-tool.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createTicketReviewFindingsStore } from "../../src/modules/supervisor/ticket-review-findings.js";
 import { createRespondToReviewTool } from "../../src/tools/respond-to-review-tool.js";
+import { createTicketVerificationRecovery } from "../../src/modules/supervisor/ticket-verification-recovery.js";
 
 // Blocks report persistence if the ticket artifact is absent or mismatched.
 test("report_done requires a passed artifact before saving a ticket report", async () => {
@@ -164,4 +165,34 @@ test("respond_to_review cannot bypass a missing report for the current artifact"
   const tool = createRespondToReviewTool({ verificationService: { assertPassedArtifact: async () => artifact }, reviewFindings: { load: async () => ({ coder_reports: [{ artifact_id: "ARTIFACT-OLD", review_commit_sha: "a".repeat(40) }] }), recordResponse: async () => { responses++; } } });
   await assert.rejects(tool.execute({ artifact_id: artifact.artifact_id, review_commit_sha: artifact.commit_sha, source_revision: artifact.source_revision }, {}), { code: "CODER_EXPLANATION_MISSING" });
   assert.equal(responses, 0);
+});
+
+test("report_done holds one request and saves completion only after the passed artifact", async () => {
+  let saved = 0;
+  let written = 0;
+  let starts = 0;
+  const job = { job_id: "VERIFY-REPORT-SLOW", status: "running", attempt: 1 };
+  const artifact = { artifact_id: "ARTIFACT-REPORT-SLOW", commit_sha: "a".repeat(40), changed_paths: ["backend/src/a.js"],
+    file_checksums: { "backend/src/a.js": "sha256:a" }, commands: [{ kind: "lint", exit_code: 0, argv: ["pnpm", "lint"] }] };
+  const ensurePassedArtifact = createTicketVerificationRecovery({ taskId: "T-SLOW", pollMs: 1,
+    executionContexts: { load: async () => ({ state: "committed", review_commit_sha: artifact.commit_sha }) },
+    assertIdentity: async () => {}, assertPassedArtifact: async () => {
+      if (job.status !== "passed") throw Object.assign(new Error("Missing"), { code: "VERIFY_ARTIFACT_MISMATCH" });
+      return artifact;
+    }, startTests: async () => { starts++; return job; }, getTestResult: async () => job });
+  const reportService = { buildFinalReport: async () => ({ status: "submitted_for_review" }),
+    saveReport: async () => { saved++; }, writeReportFile: async () => { written++; } };
+  const tool = createReportDoneTool({ reportService, verificationService: { ensurePassedArtifact } });
+  const context = { ticket: { id: "T-SLOW", acceptance_criteria: ["Lint passes"] } };
+  let started;
+  const waiting = new Promise((resolve) => { started = resolve; });
+  const completion = tool.execute({ summary: "Done" }, { ...context, onVerificationWaiting: started });
+  await waiting;
+  assert.equal(saved, 0);
+  assert.equal(written, 0);
+  job.status = "passed";
+  await completion;
+  assert.equal(saved, 1);
+  assert.equal(written, 1);
+  assert.equal(starts, 1);
 });

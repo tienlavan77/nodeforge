@@ -28,6 +28,9 @@ test("latest verification attempt uses persisted attempt rather than UUID order"
     jobs["VERIFY-repaired-second"] = { ...jobs["VERIFY-repaired"], job_id: "VERIFY-repaired-second", attempt: 2 };
     await writeFile(join(root, ".forge/runtime/ticket-verification/TICKET-1/jobs/VERIFY-repaired-second.json"), JSON.stringify(jobs["VERIFY-repaired-second"]));
     assert.equal((await latestTicketVerificationAttempt(options)).attempt, 2);
+    jobs["VERIFY-repaired"].started_at = "2026-10-05T00:05:00Z";
+    const diagnostic = await latestTicketVerificationAttempt({ ...options, matchRunnerRevision: false });
+    assert.equal(diagnostic.job_id, "VERIFY-repaired"); assert.equal(diagnostic.attempt, 1);
     assert.equal(await latestTicketVerificationAttempt({ ...options, runnerRevision: "runner-next-repair" }), null);
     assert.equal(await latestTicketVerificationAttempt({ ...options, context: { ...options.context, review_commit_sha: "OTHER" } }), null);
     assert.equal(await latestTicketVerificationAttempt({ ...options, context: { ...options.context, source_revision: "OTHER" } }), null);

@@ -216,3 +216,21 @@ test("uses each profile key and a separate Codex home instead of CLI credentials
     rmSync(homeRoot, { recursive: true, force: true });
   }
 });
+
+// Completion tools may await long Node checks within the existing session deadline instead of timing out at 120 seconds.
+test("Codex report tool timeout follows the configured session deadline", async () => {
+  let config;
+  const gateway = createCodexSdkGateway({ timeoutMs: 600_000,
+    configuration: { getById: () => ({ agent_id: "wait", gateway_url: "https://gateway.test", credential_ref: "secret", enabled: true, status: "ready" }) },
+    credentialResolver: () => "key", terminalOutput: { write() {} },
+    CodexClass: class {
+      constructor(options) { config = options.config; }
+      startThread() { return { runStreamed: async () => ({ events: (async function* () { yield { type: "turn.completed" }; })() }) }; }
+    }
+  });
+  await gateway.execute({ agentId: "wait", prompt: "Finish report", correlationId: "WAIT", options: { forgeTools: {
+    registry: { report_done: { execute: async () => ({}) } },
+    definitions: [{ name: "report_done", input_schema: { type: "object", properties: {} } }]
+  } } });
+  assert.equal(config.mcp_servers.forge.tool_timeout_sec, 600);
+});

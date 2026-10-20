@@ -1,4 +1,5 @@
 // Builds provider-specific message arrays and tool-choice hints for Anthropic and OpenAI.
+import { anthropicCacheControl } from "../anthropic-prompt-cache.js";
 export function buildMessages(payload = {}, provider = payload.provider ?? payload.provider_name ?? payload.agent_provider ?? "openai") {
   if (Array.isArray(payload.messages) && payload.messages.length) return payload.messages;
   if (isAnthropicProvider(provider)) return buildAnthropicMessages(payload);
@@ -18,7 +19,7 @@ export function buildAnthropicSystem(payload = {}) {
   for (const block of payload.instruction_blocks ?? []) {
     if (!block?.content) continue;
     const contentBlock = { type: "text", text: String(block.content) };
-    if (block.cacheable) contentBlock.cache_control = { type: "ephemeral" };
+    Object.assign(contentBlock, anthropicCacheControl(payload, block.cacheable));
     blocks.push(contentBlock);
   }
   return blocks.length ? blocks : undefined;
@@ -30,7 +31,7 @@ export function buildAnthropicMessages(payload = {}) {
   for (const block of payload.transcript_blocks ?? []) {
     messages.push({ role: block.role === "assistant" ? "assistant" : "user", content: [{ type: "text", text: transcriptBlockText(block) }] });
   }
-  const userContent = userBlocksContent(payload.user_blocks);
+  const userContent = userBlocksContent(payload.user_blocks, payload);
   if (userContent.length) messages.push({ role: "user", content: userContent });
   if (!messages.length && typeof payload.text === "string" && payload.text) return [{ role: "user", content: [{ type: "text", text: payload.text }] }];
   return messages;
@@ -67,12 +68,12 @@ function isAnthropicProvider(provider) {
 // Anthropic prefix cache matches the longest prefix ending at a cache_control
 // breakpoint. Each cacheable user block keeps its own text entry so stable
 // tiers stay byte-identical and only the boundary carries the marker.
-function userBlocksContent(blocks = []) {
+function userBlocksContent(blocks = [], payload = {}) {
   const content = [];
   for (const block of blocks ?? []) {
     const text = blockText(block);
     if (!text) continue;
-    content.push({ type: "text", text, ...(block.cacheable ? { cache_control: { type: "ephemeral" } } : {}) });
+    content.push({ type: "text", text, ...anthropicCacheControl(payload, block.cacheable) });
   }
   return content;
 }

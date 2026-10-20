@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const queue = await readFile("ui/nextjs/components/conversation-pending-queue.jsx", "utf8");
-const home = await readFile("ui/nextjs/app/page.jsx", "utf8");
+const home = await readFile("ui/nextjs/components/architecture-workspace.jsx", "utf8");
 const system = await readFile("ui/nextjs/app/system/page.jsx", "utf8");
 
 // Prevents the queue UI from bypassing the active-agent status and normal send handlers.

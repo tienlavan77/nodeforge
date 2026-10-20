@@ -14,13 +14,12 @@ function canonicalReviewValue(value) {
   return value;
 }
 
-// Captures review policy once so retries cannot disable the gate or enlarge the repair budget.
-export function automaticReviewPolicy(ticket) {
+// Captures the review gate while allowing finding-driven repairs without a revision cap.
+export function automaticReviewPolicy(ticket, { blocking = false } = {}) {
   const policy = ticket?.execution_policy ?? {};
-  const gate = policy.review_gate ?? "off";
-  const limit = policy.max_review_revisions ?? 2;
-  if (!["off", "on"].includes(gate) || !Number.isSafeInteger(limit) || limit < 0) throw Object.assign(new ConfigurationError("Automatic review policy is invalid."), { code: "REVIEW_POLICY_INVALID" });
-  return { gate, max_review_revisions: limit, max_operational_attempts: 3 };
+  const gate = blocking ? "on" : policy.review_gate ?? "on";
+  if (!["off", "on"].includes(gate)) throw Object.assign(new ConfigurationError("Automatic review policy is invalid."), { code: "REVIEW_POLICY_INVALID" });
+  return { gate, max_operational_attempts: 3 };
 }
 
 // Rejects incomplete artifacts and keys each logical review by all source and contract evidence.
@@ -41,4 +40,12 @@ export function matchesAutomaticReviewContext(context, job) {
   const identity = job.decision_identity;
   return context?.source_revision === identity.source_revision && context.review_commit_sha === identity.review_commit_sha && context.verification_artifact_id === identity.artifact_id
     && context.base_sha === identity.base_sha && context.manifest_sha === identity.manifest_sha;
+}
+
+// Restores the Node-owned repair cycle after operational/blocker resume without changing its review policy.
+export function bindAutomaticReviewCycle(request, context) {
+  const cycle = context?.review_repair_cycle_id;
+  if (!cycle) return request;
+  if (request.payload?.review_cycle_id && request.payload.review_cycle_id !== cycle) throw Object.assign(new ConfigurationError("Review repair cycle differs from the retained execution context."), { code: "REVIEW_POLICY_CONFLICT" });
+  return { ...request, payload: { ...request.payload, review_cycle_id: cycle } };
 }

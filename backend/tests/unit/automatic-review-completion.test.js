@@ -26,30 +26,25 @@ test("hard gate completes report → review → repair revision → approval →
   assert.equal(fixture.events.at(-1).payload.completion, "reviewed");
 });
 
-// Ensures an exhausted budget stays parked rather than accepting unreviewed changes.
-test("revision limit has durable audit and does not integrate", async () => {
-  const fixture = automaticReviewFixture({ limit: 0, review: async () => ({ verdict: "request_changes", findings: [{ failure: "Still wrong", severity: "major" }] }) });
-  const result = await fixture.complete(async () => { throw new Error("Must not repair past limit"); });
-  assert.equal(result.status, "needs_human_review");
-  assert.equal(fixture.integrations, 0);
-  assert(fixture.events.some((event) => event.type === "review.revision_limit"));
-  assert.equal((await fixture.queueStore.list("agent.request"))[0].parking_outcome.outcome_label, "review_revision_limit");
-  assert(!fixture.events.some((event) => ["task.failed", "task.completed"].includes(event.type)));
-});
-
-// Repeated findings can consume at most the original ticket-wide repair budget.
-test("ping-pong cannot reset repair budget through new revision identities", async () => {
-  const fixture = automaticReviewFixture({ limit: 1, review: async () => ({ verdict: "request_changes", findings: [{ failure: "Retained", severity: "major" }] }) });
-  let repairs = 0;
-  const result = await fixture.complete(async ({ request }) => {
-    repairs += 1; fixture.revise();
-    return { request: { ...request, attempt: request.attempt + 1 }, result: { summary: "Revision", tool_events: [{ name: "report_done", status: "success" }] } };
+// Legacy zero/one revision budgets must not stop progressing repairs before independent approval.
+for (const limit of [0, 1]) {
+  test(`repair continues past legacy limit ${limit} until independent approval`, async () => {
+    const fixture = automaticReviewFixture({ limit, review: async (job, calls) => calls <= 4
+      ? { verdict: "request_changes", findings: [{ failure: `Remaining issue ${calls}`, severity: "major" }] }
+      : { verdict: "approved", findings: [], adjudications: [1, 2, 3, 4].map((id) => ({ finding_id: `REV-${id}`, decision: "fixed" })) } });
+    let repairs = 0;
+    const result = await fixture.complete(async ({ request }) => {
+      repairs += 1;
+      fixture.revise();
+      return { request: { ...request, attempt: request.attempt + 1 }, result: { summary: "Repaired", tool_events: [{ name: "report_done", status: "success" }] } };
+    });
+    assert.equal(result.status, "completed");
+    assert.equal(repairs, 4);
+    assert.equal(fixture.calls, 5);
+    assert.equal(fixture.integrations, 1);
+    assert(!fixture.events.some((event) => event.type === "review.revision_limit"));
   });
-  assert.equal(result.status, "needs_human_review");
-  assert.equal(repairs, 1);
-  assert.equal(fixture.calls, 2);
-  assert.equal(fixture.integrations, 0);
-});
+}
 
 // Parks unavailable, provider failures, alias verdicts, blocked responses, and stale revisions without auto-approval.
 for (const [label, review] of [

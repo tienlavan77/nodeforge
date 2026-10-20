@@ -4,6 +4,16 @@ import test from "node:test";
 import { automaticReviewFixture } from "../fixtures/automatic-review-fixture.js";
 import { automaticReviewIdentity, automaticReviewPolicy, reviewDigest } from "../../src/modules/supervisor/automatic-review-identity.js";
 
+test("a Reviewer reopening adjudication without duplicated finding prose reaches the repair event", async () => {
+  const fixture = automaticReviewFixture({ review: async () => ({ verdict: "request_changes", findings: [], adjudications: [{ finding_id: "REV-1", decision: "reopen", reason: "Current evidence shows a remaining case", evidence_refs: ["backend/src/sample.js:1"] }] }) });
+  const recorded = [];
+  fixture.workspace.reviewFindings.recordReview = async (value) => recorded.push(value);
+  const result = await fixture.service.process(await fixture.prepare());
+  assert.equal(result.type, "review.request_changes");
+  assert.equal(recorded[0].adjudications[0].decision, "reopen");
+  assert.equal(fixture.events.at(-1).type, "review.request_changes");
+});
+
 // Requires one logical job per full identity while binding contract, policy, and file checksums separately.
 test("automatic review deduplicates identity and changes jobs for contract, rules, checksums and revision", async () => {
   const fixture = automaticReviewFixture();
@@ -23,16 +33,28 @@ test("automatic review deduplicates identity and changes jobs for contract, rule
 });
 
 // Refuses policy flips and malformed source before any independent provider call.
-test("gate and repair budget cannot be changed during an active ticket", async () => {
+test("gate cannot change and legacy repair limits do not constrain an active ticket", async () => {
   const fixture = automaticReviewFixture();
   await fixture.prepare();
   fixture.request.ticket.execution_policy.review_gate = "off";
   await assert.rejects(fixture.prepare(), { code: "REVIEW_POLICY_CONFLICT" });
   fixture.request.ticket.execution_policy.review_gate = "on";
   fixture.request.ticket.execution_policy.max_review_revisions = 3;
-  await assert.rejects(fixture.prepare(), { code: "REVIEW_POLICY_CONFLICT" });
+  await fixture.prepare();
   assert.throws(() => automaticReviewPolicy({ execution_policy: { review_gate: "bad" } }), { code: "REVIEW_POLICY_INVALID" });
   assert.throws(() => automaticReviewIdentity({ request: fixture.request, artifact: { ...fixture.artifact, status: "failed" }, context: {}, policy: {}, rules: "rules" }), { code: "REVIEW_EVIDENCE_MISMATCH" });
+});
+
+// Retained jobs with numeric legacy caps must coexist with uncapped reviews after API reload.
+test("persisted legacy revision caps do not prevent the next repaired revision", async () => {
+  const fixture = automaticReviewFixture();
+  const job = await fixture.prepare();
+  await fixture.queueStore.save("agent.request", { ...job, review_policy: { ...job.review_policy, max_review_revisions: 0 } });
+  fixture.revise();
+  const next = await fixture.prepare();
+  assert.notEqual(next.id, job.id);
+  assert.equal(await fixture.service.consumeRepair(job), true);
+  assert.equal(await fixture.service.consumeRepair(job), true);
 });
 
 // Reuses a decision after publish failure and process restart, preserving one stable event identity.
@@ -112,6 +134,8 @@ test("soft review runs after completion and replay creates one follow-up backlog
   await fixture.service.process(job);
   await fixture.restart().process(job);
   assert.equal((await fixture.queueStore.list("review.backlog")).length, 1);
+  assert.equal((await fixture.workspace.reviewFindings.load()).findings.length, 1);
+  assert(fixture.order.indexOf("findings") < fixture.order.indexOf("review.request_changes"));
   assert.equal((await fixture.workspace.executionContexts.load()).state, "terminal");
   assert.equal(fixture.integrations, 1);
   assert.equal(fixture.events.filter((event) => event.type === "task.needs_human_review").length, 0);
@@ -169,4 +193,18 @@ test("completed Coder resume retries review on the same identity", async () => {
   assert.equal((await fixture.prepare()).job_key, job.job_key);
   assert.equal((await fixture.service.process(job)).payload.verdict, "approved");
   assert.equal((await fixture.queueStore.list("agent.request"))[0].outcomes.length, 2);
+});
+
+// A failed finding write must never publish a successful soft review or leave Coder with an empty repair store.
+test("soft review cannot publish request_changes when durable finding persistence fails", async () => {
+  const fixture = automaticReviewFixture({ gate: "off", review: async () => ({ verdict: "request_changes", findings: [{ failure: "Missing coverage" }] }) });
+  await fixture.complete();
+  const job = (await fixture.queueStore.list("agent.request"))[0];
+  fixture.workspace.reviewFindings.recordReview = async () => { throw Object.assign(new Error("Finding write failed"), { code: "FINDING_WRITE_FAILED" }); };
+  const result = await fixture.service.process(job);
+  assert.equal(result.type, "review.failed");
+  assert.equal(result.payload.error.code, "FINDING_WRITE_FAILED");
+  assert.equal(fixture.events.filter((event) => event.type === "review.request_changes").length, 0);
+  assert.equal((await fixture.queueStore.list("review.backlog")).length, 0);
+  assert.equal((await fixture.workspace.executionContexts.load()).state, "terminal");
 });

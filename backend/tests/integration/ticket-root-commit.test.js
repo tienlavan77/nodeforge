@@ -22,7 +22,7 @@ const execFile = promisify(callback);
 async function git(root, ...args) { return (await execFile("git", ["-C", root, ...args])).stdout.trim(); }
 const key = (value) => createHash("sha256").update(value).digest("hex");
 
-test("root ticket commit excludes unrelated dirt and rejects a dirty claimed baseline", async () => {
+test("root ticket commit includes whole modified ticket files with preexisting dirt and excludes other files", async () => {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-root-commit-"));
   try {
     await git(root, "init", "-q");
@@ -37,7 +37,7 @@ test("root ticket commit excludes unrelated dirt and rejects a dirty claimed bas
     const files = createFileService({ projectRoot: root });
     const ledger = createTicketChangeLedger({ fileService: files, projectId: "P-ROOT" });
     const service = (taskId) => createTicketRootCommitService({ taskId, projectId: "P-ROOT", projectRoot: root, fileService: files, ledger, gitService: createGitService({ projectRoot: root }) });
-    await writeFile(join(root, "b.js"), "const b = 2;\n");
+    await writeFile(join(root, "b.js"), "// Preexisting owner change\nconst b = 2;\n");
     await git(root, "add", "b.js");
     const indexBefore = await readFile(join(root, ".git/index"));
     await ledger.write({ taskId: "TICKET-A", path: "a.js", before: "const a = 1;\n", after: "const a = 2;\n" });
@@ -45,12 +45,23 @@ test("root ticket commit excludes unrelated dirt and rejects a dirty claimed bas
     assert.deepEqual(await service("TICKET-A").getCommitsForTask("TICKET-A"), [{ sha: result.sha, subject: "ticket A" }]);
     assert.equal(await git(root, "rev-list", "--parents", "-n", "1", result.sha), `${result.sha} ${parent}`);
     assert.equal(await git(root, "diff-tree", "--no-commit-id", "--name-only", "-r", result.sha), "a.js");
-    assert.equal(await readFile(join(root, "b.js"), "utf8"), "const b = 2;\n");
+    assert.equal(await readFile(join(root, "b.js"), "utf8"), "// Preexisting owner change\nconst b = 2;\n");
     assert.deepEqual(await readFile(join(root, ".git/index")), indexBefore);
     assert.equal((await service("TICKET-A").commit("ticket A")).repeated, true);
-    await ledger.write({ taskId: "TICKET-B", path: "b.js", before: "const b = 2;\n", after: "const b = 3;\n" });
-    await assert.rejects(service("TICKET-B").commit("ticket B"), (error) => error.code === "TICKET_BASELINE_CONFLICT");
-    assert.equal(await git(root, "rev-parse", "HEAD"), result.sha);
+    await ledger.write({ taskId: "TICKET-B", path: "b.js", before: "// Preexisting owner change\nconst b = 2;\n", after: "// Preexisting owner change\nconst b = 3;\n" });
+    const manifestBefore = await ledger.load("TICKET-B");
+    const observed = await service("TICKET-B").inspectSource(manifestBefore);
+    assert.equal(observed.files[0].comparison, "preexisting_changes");
+    assert.equal(observed.parent_sha, result.sha);
+    assert.equal(observed.transaction.status, "missing");
+    await writeFile(join(root, "a.js"), "unrelated dirty A\n");
+    const committed = await service("TICKET-B").commit("ticket B");
+    assert.equal(await git(root, "show", `${committed.sha}:b.js`), "// Preexisting owner change\nconst b = 3;");
+    assert.equal(await git(root, "show", `${committed.sha}:a.js`), "const a = 2;");
+    assert.equal(await git(root, "diff-tree", "--no-commit-id", "--name-only", "-r", committed.sha), "b.js");
+    assert.equal((await ledger.load("TICKET-B")).entries["b.js"].initial_sha, manifestBefore.entries["b.js"].initial_sha);
+    assert.deepEqual(await readFile(join(root, ".git/index")), indexBefore);
+    assert.equal(await readFile(join(root, "a.js"), "utf8"), "unrelated dirty A\n");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
@@ -94,7 +105,7 @@ test("archive verification and review remain bound to ticket A after ticket B ad
     assert.equal(result.status, "passed", JSON.stringify(result.error));
     assert.equal(observedSource, "A after\n");
     const artifact = await verification.assertPassedArtifact();
-    assert.equal(artifact.materialization_method, "git-archive");
+    assert.equal(artifact.materialization_method, "ticket-commit-with-project-environment");
     assert.equal(artifact.tree_sha, await git(root, "rev-parse", `${aCommit.sha}^{tree}`));
     const committedFiles = createTicketCommitFileService({ taskId: "TICKET-A", projectRoot: root, executionContexts: contexts });
     const review = await assertTicketReviewEvidence({ job: { task_id: "TICKET-A", payload: { changed_paths: ["a.md"], base_commit: base, commit: aCommit.sha } }, executionContexts: contexts, verificationService: verification, gitService: service("TICKET-A"), fileService: committedFiles, projectRoot: root });
@@ -225,7 +236,7 @@ test("disposable archive runs the real verification command against its committe
     const artifact = await verification.assertPassedArtifact();
     assert.equal(artifact.commands[0].kind, "typecheck");
     assert.equal(artifact.commands[0].exit_code, 0);
-    assert.equal(artifact.materialization_method, "git-archive");
+    assert.equal(artifact.materialization_method, "ticket-commit-with-project-environment");
     assert.equal(artifact.cwd.startsWith(join(root, ".forge/runtime/ticket-verification/archives/")), true);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

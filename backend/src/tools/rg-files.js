@@ -1,4 +1,6 @@
 // Runs ripgrep file listing with approved flags under Node ownership for auditable agent discovery.
+import { lstat } from "node:fs/promises";
+import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { isAbsolute } from "node:path";
 import { rgPath } from "@vscode/ripgrep";
@@ -27,6 +29,11 @@ export function createRgFilesTool({ projectRoot, logger = createRuntimeLogger({ 
     let result;
     try {
       result = await runRipgrep(projectRoot, args, environment);
+      if (context.agent_identity?.role === "system_engineer" && await hasForgeDirectory(projectRoot)) {
+        const forge = await runRipgrep(projectRoot, ["--files", "--hidden", "--no-ignore", ...args.slice(1), "--", ".forge"], environment);
+        if (forge.exit_code > 1 && !forge.stderr.includes("No such file or directory")) throw invalidInput(forge.stderr);
+        result.stdout += forge.stdout;
+      }
       result.stdout = result.stdout.split("\n").filter((path) => path && isAgentPathAllowed(path.replace(/^\.\//, ""), context)).join("\n");
       if (result.stdout) result.stdout += "\n";
     } catch (error) {
@@ -91,4 +98,10 @@ function runRipgrep(cwd, args, environment) {
     child.once("error", reject);
     child.once("close", (code, signal) => resolve({ stdout: Buffer.concat(stdout).toString("utf8"), stderr: Buffer.concat(stderr).toString("utf8"), exit_code: code, signal }));
   });
+}
+
+// Prevents SE discovery from following a Forge root symlink outside the project.
+async function hasForgeDirectory(projectRoot) {
+  try { const entry = await lstat(join(projectRoot, ".forge")); return entry.isDirectory() && !entry.isSymbolicLink(); }
+  catch (error) { if (error.code === "ENOENT") return false; throw error; }
 }

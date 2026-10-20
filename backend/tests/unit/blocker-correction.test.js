@@ -4,6 +4,7 @@ import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 import { blockerAuthorityPassages, resolveBlockerAuthority } from "../../src/modules/supervisor/blocker-authority-passages.js";
 import { blockerResponseEvidence } from "../../src/modules/supervisor/blocker-validation.js";
+import { repeatedDispositionCorrection } from "../../src/modules/supervisor/blocker-disposition-correction.js";
 
 test("SL receives actionable correction feedback and cannot resume until the full disposition validates", async () => {
   let attempts = 0;
@@ -29,20 +30,58 @@ test("SL receives actionable correction feedback and cannot resume until the ful
   } finally { await fixture.close(); }
 });
 
-test("persistent disposition errors exhaust the original call budget across restart, without owner escalation", async () => {
-  const fixture = await blockerRecoveryFixture({ limits: { maxCalls: 2 }, investigate: async (_job, resolution) => ({ ...resolution, guidance: "" }) });
+test("changing invalid inputs can be corrected beyond a legacy call quota without resetting the checkpoint", async () => {
+  let attempt = 0;
+  const fixture = await blockerRecoveryFixture({ limits: { maxCalls: 2 }, investigate: async (_job, resolution) => ++attempt <= 10
+    ? { ...resolution, evidence: [{ ...resolution.evidence[0], sha256: attempt.toString(16).repeat(64) }] } : resolution });
   try {
     await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
-    await fixture.recovery.tick(); await fixture.recreate().tick(); await fixture.recovery.tick();
+    for (let turn = 0; turn < 10; turn += 1) await fixture.recreate().tick();
+    assert.equal((await fixture.ledger()).jobs[0].status, "pending");
+    await fixture.recovery.tick();
+    await fixture.recovery.tick();
     const ledger = await fixture.ledger();
-    assert.equal(ledger.calls, 2);
-    assert.equal(ledger.resumes, 0);
-    assert.equal(ledger.jobs[0].status, "reconciliation_required");
-    assert.equal(ledger.jobs[0].outcome_reason, "disposition_correction_budget_exhausted");
-    assert.equal(ledger.jobs[0].disposition_attempts.length, 2);
-    assert.equal(fixture.base.invocations, 1);
+    assert.equal(ledger.calls, 11);
+    assert.equal(ledger.resumes, 1);
+    assert.equal(ledger.jobs[0].status, "resumed");
+    assert.equal(ledger.jobs[0].disposition_attempts.length, 11);
+    assert.equal(fixture.base.invocations, 2);
     assert.equal(fixture.base.events.filter((event) => event.type.includes("owner_decision_required")).length, 0);
   } finally { await fixture.close(); }
+});
+
+test("unchanged validation failures stop replaying across restart even if SL rewrites its summary", async () => {
+  let attempt = 0;
+  const fixture = await blockerRecoveryFixture({ investigate: async (_job, resolution) => ({ ...resolution,
+    summary: `Reworded reply ${++attempt}`, guidance: "" }) });
+  try {
+    await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
+    const before = await fixture.base.checkpoints.load("TASK");
+    await fixture.recovery.tick();
+    await fixture.recreate().tick();
+    assert.equal((await fixture.ledger()).jobs[0].outcome_reason, "disposition_correction_no_progress");
+    for (let count = 0; count < 3; count += 1) await fixture.recreate().tick();
+    assert.equal(fixture.calls.length, 2);
+    assert.equal(fixture.base.invocations, 1);
+    assert.equal((await fixture.base.checkpoints.load("TASK")).last_completed_turn, before.last_completed_turn);
+  } finally { await fixture.close(); }
+});
+
+test("new source evidence or a changed invalid field can be corrected without a global attempt limit", () => {
+  const job = { id: "J", stage: "sprint_leader", ticket_progress: { evidence_sha256: "SOURCE-1" }, disposition_attempts: [] };
+  const feedback = [{ path: "/guidance", reason: "guidance_invalid" }];
+  // Appends provider evidence exactly as the durable worker does before checking for repeated invalid fields.
+  const record = (guidance) => job.disposition_attempts.push({ assignment_id: "ASSIGNMENT", stage: "sprint_leader",
+    status: "rejected", response: blockerResponseEvidence({ action: "resolved", summary: `Reply ${job.disposition_attempts.length}`, guidance }) });
+  record("");
+  assert.equal(repeatedDispositionCorrection(job, feedback), false);
+  job.ticket_progress.evidence_sha256 = "SOURCE-2";
+  record("");
+  assert.equal(repeatedDispositionCorrection(job, feedback), false);
+  record("x".repeat(8001));
+  assert.equal(repeatedDispositionCorrection(job, feedback), false);
+  record("");
+  assert.equal(repeatedDispositionCorrection(job, feedback), true);
 });
 
 test("deadline and Stop cancel further correction without resetting checkpoints or invocation ownership", async () => {

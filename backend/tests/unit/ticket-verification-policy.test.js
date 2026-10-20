@@ -15,16 +15,28 @@ test("backend policy selects ticket tests, with full suite reserved for an expli
     await mkdir(join(root, "backend/tests/unit"), { recursive: true });
     await mkdir(join(root, "backend/tests/integration"), { recursive: true });
     await mkdir(join(root, "ui/nextjs/tests"), { recursive: true });
+    await mkdir(join(root, "backend/src"), { recursive: true });
+    await writeFile(join(root, "backend/src/sample.js"), "export const sample = true;\n");
     await writeFile(join(root, "backend/tests/unit/first.test.js"), "// First test.\n");
     await writeFile(join(root, "backend/tests/integration/second.test.js"), "// Second test.\n");
     await writeFile(join(root, "ui/nextjs/tests/node-client.test.js"), "import '../lib/node-client.js';\n");
     await writeFile(join(root, "ui/nextjs/tests/unrelated.test.js"), "// Unrelated UI test.\n");
     const commands = await buildTicketVerificationPlan(["backend/src/sample.js", "backend/tests/unit/first.test.js"], root);
-    assert.deepEqual(commands.map(({ kind }) => kind), ["typecheck", "lint", "schema_validation", "backend_tests"]);
-    assert.deepEqual(commands.at(-1).argv.slice(2), ["backend/tests/unit/first.test.js"]);
+    assert.deepEqual(commands.map(({ kind }) => kind), ["typecheck", "lint", "backend_tests", "schema_validation"]);
+    assert.deepEqual(commands.find((command) => command.kind === "backend_tests").argv.slice(2), ["backend/tests/unit/first.test.js"]);
+    assert(commands[0].argv.includes("backend/src/sample.js"));
+    assert(!commands[0].argv.includes("--project"));
+    const deduplicated = await buildTicketVerificationPlan(["backend/src/sample.js", "backend/tests/unit/first.test.js"], root,
+      { verificationPlan: [{ kind: "test", test_path: "backend/tests/unit/first.test.js", criterion_ids: ["AC-1"] }] });
+    assert.equal(deduplicated.filter((command) => ["test", "backend_tests"].includes(command.kind) && command.argv.includes("backend/tests/unit/first.test.js")).length, 1);
+    const deleted = await buildTicketVerificationPlan(["backend/src/deleted.js", "backend/tests/unit/first.test.js"], root);
+    assert(!deleted.some((command) => ["lint", "typecheck"].includes(command.kind) && command.argv.includes("backend/src/deleted.js")));
     const release = await buildTicketVerificationPlan(["backend/src/sample.js", "backend/tests/unit/first.test.js"], root, { fullBackend: true });
-    assert.deepEqual(release.at(-1).argv.slice(2), ["backend/tests/integration/second.test.js", "backend/tests/unit/first.test.js"]);
+    assert.deepEqual(release.find((command) => command.kind === "backend_tests").argv.slice(2), ["backend/tests/integration/second.test.js", "backend/tests/unit/first.test.js"]);
     await assert.rejects(buildTicketVerificationPlan(["backend/src/uncovered.js"], root), (error) => error.code === "VERIFY_TEST_SCOPE_EMPTY");
+    const explicitlyMapped = await buildTicketVerificationPlan(["backend/src/uncovered.js"], root,
+      { verificationPlan: [{ criterion_ids: ["AC-1"], kind: "test", test_path: "backend/tests/integration/second.test.js" }] });
+    assert.deepEqual(explicitlyMapped.find((command) => command.kind === "backend_tests").argv.slice(2), ["backend/tests/integration/second.test.js"]);
     const apiCommands = await buildTicketVerificationPlan(["ui/nextjs/lib/node-client.js"], root);
     assert.equal(apiCommands.some(({ kind }) => kind === "schema_validation"), true);
     assert.deepEqual(apiCommands.find(({ kind }) => kind === "test").argv.slice(2), ["ui/nextjs/tests/node-client.test.js"]);
@@ -33,7 +45,7 @@ test("backend policy selects ticket tests, with full suite reserved for an expli
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("failed schema validation persists a failed artifact and blocks acceptance", async () => {
+test("unattributed schema failure persists evidence and blocks acceptance without blaming ticket code", async () => {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-verification-schema-"));
   const path = "backend/src/sample.js";
   const content = "// Verified source.\nexport const sample = true;\n";
@@ -62,7 +74,7 @@ test("failed schema validation persists a failed artifact and blocks acceptance"
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     assert.equal(job.status, "failed");
-    assert.equal(job.error.code, "VERIFY_COMMAND_FAILED");
+    assert.equal(job.error.code, "VERIFY_BASELINE_UNAVAILABLE");
     const artifact = await service.loadArtifact(job.artifact_id);
     assert.equal(artifact.status, "failed");
     assert.equal(artifact.commands.at(-1).kind, "schema_validation");

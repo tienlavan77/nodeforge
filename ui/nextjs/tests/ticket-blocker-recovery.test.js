@@ -12,6 +12,25 @@ const componentModule = { exports: {} };
 new Function("require", "module", "exports", compiled.outputFiles[0].text)(createRequire(new URL("../package.json", import.meta.url)), componentModule, componentModule.exports);
 const { TicketBlockerRecovery } = componentModule.exports;
 
+test("a waiting ticket card exposes Stop and disables Run while keeping its checkpoint", async () => {
+  const cardBuild = await build({ entryPoints: ["ui/nextjs/components/ticket-detail-modal.jsx"], bundle: true, write: false,
+    platform: "node", format: "cjs", jsx: "automatic", external: ["react", "react/*"] });
+  const cards = { exports: {} };
+  new Function("require", "module", "exports", cardBuild.outputFiles[0].text)(createRequire(new URL("../package.json", import.meta.url)), cards, cards.exports);
+  const html = renderToStaticMarkup(createElement(cards.exports.TicketCard, { projectId: "P", client: {}, ticket: {
+    id: "T", status: "needs_human_review", title: "Continue the ticket", checkpoint: { approval_retry: { interval_ms: 30_000 }, last_completed_turn: 97 } } }));
+  assert.match(html, /30 giây.*Stop/);
+  assert.match(html, /<button[^>]*>Stop<\/button>/);
+  assert.match(html, /<button[^>]*disabled=""[^>]*>Run<\/button>/);
+});
+
+test("approval outage shows the 30-second automatic retry and Stop without owner review controls", () => {
+  const html = renderToStaticMarkup(createElement(TicketBlockerRecovery, { recovery: { status: "approval_retry_pending" }, onDecide: () => {} }));
+  assert.match(html, /503/);
+  assert.match(html, /30 giây.*checkpoint.*Stop/);
+  assert.doesNotMatch(html, /Owner quyết định|Ghi quyết định|SL \/ Architecture/);
+});
+
 test("pending recovery explains that owner need not reset or RUN the ticket", () => {
   const html = renderToStaticMarkup(createElement(TicketBlockerRecovery, { recovery: { status: "pending" } }));
   assert.match(html, /SL \/ Architecture/);

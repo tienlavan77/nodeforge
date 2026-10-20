@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { ConfigurationError } from "../../shared/errors.js";
 import { createTicketRootGit } from "./ticket-root-git.js";
 import { withTicketProjectCommitLock } from "./ticket-project-commit-lock.js";
+import { inspectTicketSource } from "./ticket-source-reconciliation.js";
 
 const fail = (code, message) => Object.assign(new ConfigurationError(message), { code });
 const sha = (value) => value === null ? null : `sha256:${createHash("sha256").update(value).digest("hex")}`;
@@ -20,6 +21,7 @@ export function createTicketRootCommitService({ taskId, projectId, projectRoot, 
   const dispositionPath = (revision) => `.forge/runtime/ticket-root-commits/${key(projectId)}/${key(taskId)}-${revision}-disposition.json`;
   const retryPath = (revision) => `.forge/runtime/ticket-root-commits/${key(projectId)}/${key(taskId)}-${revision}-retry.json`;
   return Object.freeze({ rootOnly: true, commit, reconcileNoRefMove, pushCommit: gitService.pushCommit, status: gitService.status, diffWorkingTree: gitService.diffWorkingTree, diffPatchFrom,
+    inspectSource: (manifest) => inspectTicketSource({ manifest, taskId, projectId, rootGit, gitService, loadJournal, loadManifest: () => ledger.load(taskId) }),
     getHead: gitService.getHead, getCommitParent: gitService.getCommitParent, getChangedFiles: gitService.getChangedFiles, getCommitsForTask, assertAncestor: rootGit.assertAncestor });
 
   // Reports only commits proven by this ticket's durable ledger receipts.
@@ -113,13 +115,8 @@ export function createTicketRootCommitService({ taskId, projectId, projectRoot, 
       const current = await readOptional(path);
       if (sha(current) !== entry.latest_sha) throw fail("TICKET_SOURCE_DRIFT", `Root source differs from the ticket ledger: ${path}.`);
       if (!changed.includes(path)) continue;
-      const pending = entry.operations.filter((item) => item.revision > lastCommitted).sort((a, b) => a.revision - b.revision);
       const parentContent = await rootGit.fileAt(parent, path);
       if (sha(parentContent) === entry.latest_sha) { changed.splice(changed.indexOf(path), 1); continue; }
-      const ticketStates = entry.operations
-        .filter((operation) => operation.revision <= pending[0].revision)
-        .flatMap((operation) => [operation.before_sha, operation.after_sha]);
-      if (!ticketStates.includes(sha(parentContent))) throw fail("TICKET_BASELINE_CONFLICT", `Ticket before-state differs from every recorded ticket state: ${path}.`);
     }
     if (!changed.length) throw fail("GIT_EMPTY_COMMIT", "Ticket operations have no net change against the parent commit.");
     const pathChecksums = Object.fromEntries(expected.map((path) => [path, manifest.entries[path].latest_sha]));

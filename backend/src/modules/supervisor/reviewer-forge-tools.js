@@ -5,26 +5,25 @@ import { isAbsolute, resolve } from "node:path";
 import { ConfigurationError } from "../../shared/errors.js";
 import { assertRoleFileAccess } from "../../infrastructure/filesystem/file-service-role-policy.js";
 import { createReadFileTool } from "../../tools/agent-lifecycle-tools.js";
-import { createSearchCodeTool } from "../../tools/search-code.js";
-import { createSedLinesTool } from "../../tools/sed-lines.js";
-import { readFileDefinition, searchCodeDefinition, sedLinesDefinition } from "../../tools/index.js";
-import { createOwnerSearchTreeTool, ownerSearchTreeDefinition } from "../../tools/owner-search-tree.js";
-import { createClaudeFileTools, claudeFileDefinitions } from "../../tools/claude-file-tools.js";
+import { createRgSearchTool } from "../../tools/rg-search.js";
+import { createGitReadTools } from "../../tools/git-read-tools.js";
+import { createOwnerSearchTreeTool } from "../../tools/owner-search-tree.js";
+import { createRgFilesTool } from "../../tools/rg-files.js";
+import { engineeringToolDefinitions } from "../../tools/engineering-tool-catalog.js";
 import { createCommittedReviewWindow } from "./committed-review-window.js";
+import { dependencyReadPath, isDependencyPath, readDependencyFile } from "../../infrastructure/filesystem/dependency-read.js";
+import { listAgentFileTree } from "../../infrastructure/filesystem/agent-file-tree.js";
 
 const MAX_OUTPUT_BYTES = 128_000;
 const MAX_RESULT_BYTES = 16_000;
 const MAX_FILE_BYTES = 64_000;
 const MAX_WINDOW_LINES = 80;
 const MAX_FILES = 80;
-const reviewerReadFileDefinition = { ...readFileDefinition, description: "Read metadata and graph for one approved file. Use sed_lines or Read to inspect source lines.", input_schema: { type: "object", additionalProperties: false, required: ["path"], properties: { path: { type: "string", minLength: 1 } } } };
-const reviewerSearchCodeDefinition = { ...searchCodeDefinition, description: "Search indexed code inside the fixed Reviewer scope selected by Node. Supply a query; the tool applies allowed prefixes automatically.", input_schema: { type: "object", additionalProperties: false, required: ["query"], properties: { query: { type: "string", minLength: 1, maxLength: 200 }, kind: { type: "string", enum: ["file", "symbol", "content"] }, limit: { type: "integer", minimum: 1, maximum: 20 }, projection: { type: "string", enum: ["minimal", "summary", "graph"] } } } };
-const reviewerReadDefinition = { ...claudeFileDefinitions.find(({ name }) => name === "Read"), description: "Read an approved file source window with file_path, start_line, and end_line; maximum 80 lines." };
-
 // Applies the Reviewer role policy and rejects symlink traversal for all review reads.
 export async function assertReviewerReadPath(projectRoot, path) {
   if (typeof projectRoot !== "string" || !isAbsolute(projectRoot)) throw toolError("REVIEW_PROJECT_INVALID", "Reviewer project root must be absolute.");
   assertRoleFileAccess("reviewer", "read", path);
+  if (isDependencyPath(path)) { dependencyReadPath(projectRoot, path); return; }
   let current = resolve(projectRoot);
   for (const part of path.split("/")) {
     current = resolve(current, part);
@@ -36,10 +35,11 @@ export async function assertReviewerReadPath(projectRoot, path) {
 }
 
 // Creates per-review wrappers around existing read_file and search_tree implementations.
-export function createReviewerForgeTools({ fileService, projectRoot, job, reviewer, codeSearch, codeCache, ticketEvidence, includeClaudeFileTools = false, projectLogger = () => {} }) {
+export function createReviewerForgeTools({ fileService, projectRoot, job, reviewer, codeCache, gitService, ticketEvidence, projectLogger = () => {} }) {
   if (typeof fileService?.readForIndex !== "function" || !isAbsolute(projectRoot ?? "")) throw new ConfigurationError("Reviewer Forge tools require File Service and an absolute project root.");
   const scopedFiles = {
-    readForIndex: async (input) => { await assertReviewerReadPath(projectRoot, input?.path); return fileService.readForIndex({ ...input, maxBytes: MAX_FILE_BYTES }); },
+    readForIndex: async (input) => { await assertReviewerReadPath(projectRoot, input?.path); return isDependencyPath(input?.path)
+      ? readDependencyFile({ ...input, projectRoot, maxBytes: MAX_FILE_BYTES }) : fileService.readForIndex({ ...input, maxBytes: MAX_FILE_BYTES }); },
     listFiles: async (input) => filterPaths(await fileService.listFiles(input)),
     listDirectories: async (input) => filterPaths(await fileService.listDirectories(input))
   };
@@ -49,25 +49,43 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
     const live = await verifiedReviewFile(file, ticketEvidence, fileService, projectRoot);
     return { ...live, content: file.content, sha256: file.sha256, content_sha256: file.sha256, size_bytes: Buffer.byteLength(file.content), cache: { status: "bypass", cached_at: null, expires_at: null }, index_status: "unavailable" };
   } } : codeCache;
-  const allowedPrefixes = [...new Set((job.payload?.changed_paths ?? []).map((path) => path.split("/").slice(0, -1).join("/")).filter(Boolean).concat(["workflows/agents/"]))];
-  const toolContext = { task_id: job.task_id, correlation_id: job.correlation_id, request_id: job.request_id, agent_identity: { agent_id: reviewer.agent_id, role: "reviewer", provider: reviewer.provider }, capabilities: ["read_file", "search_code", "Read", "Glob", "Grep", "search_tree"], project_root: projectRoot, allowed_file_paths: job.payload?.changed_paths ?? [], allowed_prefixes: allowedPrefixes.length ? allowedPrefixes : ["backend/", "ui/", "schemas/", "workflows/"] };
+  // Review discovery covers project source and instructions; the delta is not a read permission boundary.
+  const toolContext = { task_id: job.task_id, correlation_id: job.correlation_id, request_id: job.request_id, agent_identity: { agent_id: reviewer.agent_id, role: "reviewer", provider: reviewer.provider }, capabilities: ["search_tree", "list_files", "search_text", "read_file", "read_lines", "git_status", "git_diff"], project_root: projectRoot };
+  // Keeps text search under the same project, protected-path and symlink rules as direct reads.
+  const searchCache = { read: async ({ path }) => {
+    return scopedFiles.readForIndex({ path });
+  } };
   const implementations = {
-    read_file: createReadFileTool({ fileService: scopedFiles, codeCache: reviewCache, maxChars: MAX_RESULT_BYTES }),
-    ...(codeSearch?.search ? { search_code: createSearchCodeTool({ codeSearch, codeCache: reviewCache, projectLogger }) } : {}),
-    ...((codeCache && ["codex", "openai"].includes(reviewer.provider)) ? { sed_lines: fileService.committedReview ? createCommittedReviewWindow(scopedFiles) : createSedLinesTool({ projectRoot, fileService: scopedFiles, codeCache: reviewCache, logger: { emit: projectLogger } }) } : {}),
-    ...(includeClaudeFileTools && codeCache ? createClaudeFileTools({ fileService: scopedFiles, projectRoot, codeCache: reviewCache }) : {})
+    read_file: createReadFileTool({ fileService: scopedFiles, codeCache: reviewCache, projectRoot, maxChars: MAX_RESULT_BYTES }),
+    search_text: createRgSearchTool({ projectRoot, codeCache: searchCache, toolName: "search_text", logger: { emit: projectLogger } }),
+    ...(gitService?.status && gitService?.diffWorkingTree ? createGitReadTools({ gitService, logger: { emit: projectLogger } }) : {}),
+    list_files: createRgFilesTool({ projectRoot, toolName: "list_files", logger: { emit: projectLogger } }),
+    read_lines: createCommittedReviewWindow(scopedFiles, "read_lines")
   };
   if (typeof fileService.listFiles === "function" && typeof fileService.listDirectories === "function") implementations.search_tree = createOwnerSearchTreeTool({ fileService: scopedFiles });
-  const definitions = [reviewerReadFileDefinition, ...(implementations.search_code ? [reviewerSearchCodeDefinition] : []), ...(implementations.sed_lines ? [sedLinesDefinition] : []), ...(includeClaudeFileTools && codeCache ? claudeFileDefinitions.map((definition) => definition.name === "Read" ? reviewerReadDefinition : definition) : []), ...(implementations.search_tree ? [ownerSearchTreeDefinition] : [])];
+  const definitions = engineeringToolDefinitions().filter(({ name }) => typeof implementations[name]?.execute === "function");
   const context = { ...toolContext, capabilities: definitions.map(({ name }) => name) };
   let outputBytes = 0;
   const registry = Object.fromEntries(definitions.map(({ name }) => [name, { execute: async (input) => {
     const started = Date.now();
     try {
       if (name === "read_file") validateReadInput(input);
-      const toolInput = name === "search_tree" ? boundedTreeInput(input) : name === "search_code" ? boundedSearchInput(input, context) : input;
+      if (["read_file", "read_lines"].includes(name) && typeof input?.path === "string") await assertReviewerReadPath(projectRoot, input.path);
+      const toolInput = name === "search_tree" ? boundedTreeInput(input) : input;
       // The shared read_file discovery state is Coder-oriented; each Reviewer read is independent.
-      const result = await implementations[name].execute(toolInput, { ...context });
+      let readContext = { ...context };
+      if (["git_status", "git_diff"].includes(name)) {
+        const paths = ticketEvidence?.paths ?? job.payload?.changed_paths ?? [];
+        for (const path of paths) await assertReviewerReadPath(projectRoot, path);
+        readContext = { ...context, allowed_file_paths: paths, allowed_prefixes: [] };
+      }
+      let result = name === "search_tree" && isDependencyPath(toolInput?.path)
+        ? await listAgentFileTree({ projectRoot, path: toolInput.path, maxDepth: toolInput.max_depth ?? 3, limit: toolInput.limit ?? 200, assertReadPath: (path) => assertReviewerReadPath(projectRoot, path) })
+        : await implementations[name].execute(toolInput, readContext);
+      if (name === "list_files") {
+        const paths = await filterPaths(result.stdout.split("\n").filter(Boolean));
+        result = { ...result, stdout: paths.length ? `${paths.join("\n")}\n` : "" };
+      }
       const verifiedResult = await bindReviewEvidence(name, toolInput, result, ticketEvidence, fileService, projectRoot);
       const bytes = Buffer.byteLength(JSON.stringify(verifiedResult), "utf8");
       if (bytes > MAX_RESULT_BYTES || outputBytes + bytes > MAX_OUTPUT_BYTES) throw toolError("REVIEW_TOOL_BUDGET", "Reviewer read output budget exceeded.");
@@ -108,8 +126,8 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
 
 // Binds a canonical source window to the verified artifact after checking live source integrity.
 async function bindReviewEvidence(name, input, result, ticketEvidence, fileService, projectRoot) {
-  if (!ticketEvidence || !["sed_lines", "Read", "read_file"].includes(name)) return result;
-  const path = name === "Read" ? result.file_path : input.path;
+  if (!ticketEvidence || !["read_lines", "read_file"].includes(name)) return result;
+  const path = input.path;
   const file = ticketEvidence.files.find((item) => item.path === path);
   if (!file || file.deleted) return result;
   await verifiedReviewFile(file, ticketEvidence, fileService, projectRoot);
@@ -118,11 +136,11 @@ async function bindReviewEvidence(name, input, result, ticketEvidence, fileServi
     const start = result.offset;
     const end = start + result.limit - 1;
     source = { content: canonicalReviewWindow(file.content, start, end, false, input.offset === undefined ? 250 : MAX_WINDOW_LINES, false) };
-  } else if (name === "Read" || name === "sed_lines") {
-    const content = canonicalReviewWindow(file.content, input.start_line, input.end_line, name === "Read");
-    source = name === "Read" ? { content } : { stdout: content };
+  } else if (name === "read_lines") {
+    const content = canonicalReviewWindow(file.content, input.start_line, input.end_line, false);
+    source = { stdout: content };
   }
-  return { ...result, ...source, sha256: file.sha256, total_lines: file.content.split("\n").length, ...(name === "Read" ? { truncated: input.end_line < file.content.split("\n").length } : {}), ...(name === "read_file" ? { content_sha256: file.sha256, size_bytes: Buffer.byteLength(file.content) } : {}), review_evidence: { artifact_id: ticketEvidence.artifact.artifact_id, commit_sha: ticketEvidence.context.review_commit_sha, manifest_sha: ticketEvidence.context.manifest_sha, sha256: file.sha256 } };
+  return { ...result, ...source, sha256: file.sha256, total_lines: file.content.split("\n").length, ...(name === "read_file" ? { content_sha256: file.sha256, size_bytes: Buffer.byteLength(file.content) } : {}), review_evidence: { artifact_id: ticketEvidence.artifact.artifact_id, commit_sha: ticketEvidence.context.review_commit_sha, manifest_sha: ticketEvidence.context.manifest_sha, sha256: file.sha256 } };
 }
 
 // Verifies artifact bytes against the current file before a Reviewer sees ticket source.
@@ -156,12 +174,6 @@ function validateReadInput(input) {
 function boundedTreeInput(input) {
   if (input?.limit !== undefined && (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > MAX_FILES)) throw toolError("REVIEW_TOOL_INPUT", "Reviewer search_tree limit must be at most 80 entries.");
   return { ...(input ?? {}), limit: input?.limit ?? MAX_FILES };
-}
-
-// Restricts Reviewer code search to Node-approved prefixes and bounded metadata results.
-function boundedSearchInput(input, context) {
-  if (!input || typeof input.query !== "string" || !input.query.trim()) throw toolError("REVIEW_TOOL_INPUT", "Reviewer search_code requires a query.");
-  return { ...input, query: input.query.trim(), kind: input.kind ?? "content", limit: Math.min(input.limit ?? 10, 20), allowed_prefixes: context.allowed_prefixes, projection: input.projection ?? "summary" };
 }
 
 // Marks Reviewer policy failures with stable codes for SDK adapters.

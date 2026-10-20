@@ -5,17 +5,17 @@ import { assertDependencySubmission } from "./ticket-dependency-expectations.js"
 import { createAgentExecutionCheckpointStore } from "../agent/agent-execution-checkpoint.js";
 import { createNodeforgeTaskExecutors } from "./nodeforge-task-executors.js";
 import { createReviewWorker } from "./review-worker.js";
-import { ensureReviewStatusReady } from "./review-only-status.js";
+import { runReviewOnly } from "./review-only-task.js";
 import { createTicketWorkspaceRuntime } from "./ticket-workspace-runtime.js";
 import { completeCoderTicket } from "./ticket-coder-completion.js";
 import { handleTicketExecutionFailure } from "./ticket-execution-failure.js";
-import { selectTicketCoder, selectTicketReviewer, isOpenAiProfile, isCodexProfile, isOllamaProfile } from "./ticket-agent-provider-routing.js";
+import { selectTicketCoder, isOpenAiProfile, isCodexProfile, isOllamaProfile } from "./ticket-agent-provider-routing.js";
 import { preflightBrowserVerification } from "./browser-verification-preflight.js";
 import { prepareTicketExecutionContext } from "./ticket-execution-context.js";
-import { createCodeCacheService } from "../context/code-cache-service.js";
+import { prepareTicketReviewContext } from "./ticket-review-context.js";
 import { releaseTicketAttempt } from "./ticket-attempt-release.js";
 import { createTicketReviewRepair } from "./ticket-review-repair.js";
-import { automaticReviewPolicy } from "./automatic-review-identity.js";
+import { automaticReviewPolicy, bindAutomaticReviewCycle } from "./automatic-review-identity.js";
 export { ticketCandidateScope } from "./nodeforge-task-scope.js";
 // createNodeforgeTaskIntegration - handles createNodeforgeTaskIntegration operation.
 export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, agentResolver, agentOccupancy, ticketStatusStore, sprintRegistry, handoffQueue, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger = () => {}, fileService, gitService, checkpointStore, codeSearch, codeCache, relevantTreeSelector, protocolStorage, resolveTicketWorkspace, shadowComparison, automaticReview, coderRecovery, blockerRecovery } = {}) {
@@ -29,54 +29,12 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
     protocolStorage, fileService
   });
   const reviewer = typeof agentResolver?.resolveAvailable === "function" && fileService?.readForIndex
-    ? createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, fileService, gitService, codeSearch, codeCache, projectRoot, projectLogger })
+    ? createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, fileService, gitService, codeSearch, codeCache, projectRoot, checkpoints, projectLogger })
     : null;
+  // Exposes independent review while keeping its execution and evidence checks in one service.
+  const reviewOnly = (input) => runReviewOnly(input, { reviewer, ticketStatusStore, resolveTicketWorkspace, gitService, fileService, agentResolver,
+    claudeSdkGateway, openaiSdkGateway, codexSdkGateway, codeSearch, checkpoints, projectLogger, agentOccupancy, publishTicketOutcome });
   return Object.freeze({ startTask, submitTicket, reviewOnly });
-  // Runs an independent Reviewer against an existing commit without dispatching or modifying the Coder.
-  async function reviewOnly({ ticket, task_id, project_id, request_id, correlation_id, commit, base_commit, changed_paths, evidence = {}, coder_agent_id } = {}) {
-    if (!ticket || typeof ticket !== "object") throw new ConfigurationError("Review-only ticket is required.");
-    if (!commit || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(commit)) throw new ConfigurationError("Review-only commit is required.");
-    if (!reviewer) throw Object.assign(new ConfigurationError("Independent review is unavailable."), { code: "REVIEW_WORKER_UNAVAILABLE" });
-    const reviewTaskId = task_id ?? ticket.id;
-    const reviewExecution = ticketStatusStore?.get?.(reviewTaskId);
-    const reviewPayload = reviewExecution?.details.execution_id ? { execution_id: reviewExecution.details.execution_id, sprint_basis: reviewExecution.details.execution_basis } : {};
-    const workspace = resolveTicketWorkspace ? await resolveTicketWorkspace(reviewTaskId) : null;
-    const useWorkspace = workspace && (workspace.root_only ? (await workspace.gitService.assertAncestor(commit), true) : await workspace.gitService.getHead() === commit);
-    const reviewGitService = useWorkspace ? workspace.gitService : gitService;
-    const reviewWorker = useWorkspace ? createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, fileService: workspace.worktreeFileService, rulesFileService: fileService, gitService: workspace.gitService, codeCache: createCodeCacheService({ projectId: `${workspace.base_commit}:${workspace.branch}`, fileService: workspace.worktreeFileService, logger: projectLogger }), projectRoot: workspace.path, executionContexts: workspace.executionContexts, verificationService: workspace.testService, reviewFindings: workspace.reviewFindings, projectLogger }) : reviewer;
-    const head = await reviewGitService?.getHead?.();
-    if (!workspace?.root_only && head && head !== commit) throw Object.assign(new ConfigurationError(`Review-only commit is not the current checkout: ${commit}.`), { code: "REVIEW_COMMIT_NOT_CHECKED_OUT" });
-    const paths = [...new Set(changed_paths ?? ["ui/nextjs/README.md"])];
-    const reviewBase = base_commit ?? await reviewGitService?.getCommitParent?.(commit);
-    const reviewOwnerId = `SUP-REVIEW-${reviewTaskId}`;
-    const reviewProfile = selectTicketReviewer(agentResolver, ticket);
-    const reviewClaim = await agentOccupancy?.claim?.({ agentId: reviewProfile.agent_id, taskId: reviewTaskId, supervisorId: reviewOwnerId, role: "reviewer" });
-    if (agentOccupancy && !reviewClaim) throw Object.assign(new ConfigurationError("Reviewer is already working on another ticket."), { code: "REVIEWER_NOT_AVAILABLE" });
-    let result;
-    try {
-      result = await reviewWorker.review({
-        review_only: true, task_id: reviewTaskId, project_id, request_id: request_id ?? `REVIEW-${ticket.id}-${Date.now()}`,
-        correlation_id: correlation_id ?? `CORR-REVIEW-${ticket.id}-${Date.now()}`, agent_id: coder_agent_id ?? "review-only-coder", reviewer_id: reviewClaim?.agent_id,
-        payload: { ticket, commit, base_commit: reviewBase, changed_paths: paths, verification: evidence }
-      });
-      if (useWorkspace) { const artifact = await workspace.testService.assertPassedArtifact(); await workspace.reviewFindings.recordReview({ verdict: result.verdict, findings: result.findings, artifactId: artifact.artifact_id, commitSha: artifact.commit_sha }); }
-      const priorReview = await checkpoints?.loadReview?.(reviewTaskId);
-      await checkpoints?.completeReview?.(reviewTaskId, {
-        phase: "review", review_only: true, reviewer_id: result.reviewer_id, reviewer_name: reviewProfile.agent_name,
-        provider: reviewProfile.provider, review_attempt: (priorReview?.review_attempt ?? 0) + 1,
-        request_id: request_id ?? `REVIEW-${ticket.id}`, correlation_id: correlation_id ?? `CORR-REVIEW-${ticket.id}`,
-        changed_paths: paths, base_commit: reviewBase, commit, verdict: result.verdict, findings: result.findings, last_error: null
-      });
-    } finally {
-      if (reviewClaim) await agentOccupancy.release({ claimId: reviewClaim.claim_id, taskId: reviewTaskId, supervisorId: reviewOwnerId, reason: "review_only_completed" });
-    }
-    if (result.verdict === "approved" && useWorkspace) { await workspace.integrate(); await workspace.changeLedger.release(); }
-    if (reviewPayload.execution_id && !matchesTicketExecution(ticketStatusStore.get(reviewTaskId), reviewPayload.execution_id, reviewPayload.sprint_basis)) throw Object.assign(new ConfigurationError("Review completion belongs to an obsolete Ticket execution."), { code: "TICKET_EXECUTION_CONFLICT" });
-    ensureReviewStatusReady(ticketStatusStore, reviewTaskId);
-    const outcomeType = result.verdict === "approved" ? "task.completed" : "task.needs_human_review";
-    await publishTicketOutcome(outcomeType, { task_id: task_id ?? ticket.id, project_id: project_id ?? ticket.project_id, payload: reviewPayload, request_id: request_id ?? `REVIEW-${ticket.id}`, correlation_id: correlation_id ?? `CORR-REVIEW-${ticket.id}` }, `SUP-REVIEW-${ticket.id}`, { review_only: true, commit, verdict: result.verdict, findings: result.findings, reviewer_id: result.reviewer_id, evidence });
-    return { task_id: task_id ?? ticket.id, commit, verdict: result.verdict, findings: result.findings, reviewer_id: result.reviewer_id, status: result.verdict === "approved" ? "approved" : "needs_human_review" };
-  }
   async function submitTicket({ ticket, task_id, project_id, request_id, correlation_id, attempt = 1, payload = {}, required_role, abortSignal } = {}) {
     if (!ticket || typeof ticket !== "object") throw new ConfigurationError("Node Supervisor ticket is required.");
     ticket = { ...ticket };
@@ -88,20 +46,24 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
     const taskId = task_id ?? ticket.id;
     payload = payload.dependency_expectations === undefined ? payload : structuredClone(payload);
     assertDependencySubmission({ projectId: project_id ?? ticket.project_id, ticket, payload, sprintRegistry, ticketStatusStore });
-    await preflightBrowserVerification(ticket.verification_plan, { projectRoot });
+    if (!payload.review_resume) await preflightBrowserVerification(ticket.verification_plan, { projectRoot });
     const workspace = resolveTicketWorkspace ? await resolveTicketWorkspace(taskId) : null;
+    payload = bindAutomaticReviewCycle({ payload }, await workspace?.executionContexts?.load?.(taskId)).payload;
     assertDependencySubmission({ projectId: project_id ?? ticket.project_id, ticket, payload, sprintRegistry, ticketStatusStore });
     const ticketRuntime = workspace ? createTicketWorkspaceRuntime({ workspace, gateways: { claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway }, agentResolver, runtimeGovernance, projectLogger, checkpoints, protocolStorage }) : { executors, reviewer };
     const standalone = payload.direct_code === true || Boolean(payload.tool_test);
-    if (!standalone) automaticReviewPolicy(ticket);
+    if (!standalone) automaticReviewPolicy(ticket, { blocking: Boolean(payload.review_cycle_id) });
     if (!standalone && ticket.execution_policy?.requires_existing_contract && !blockerRecovery) throw Object.assign(new ConfigurationError("Declared contract prerequisites require automatic blocker recovery."), { code: "BLOCKER_RECOVERY_UNAVAILABLE" });
-    if (!standalone && ticket.execution_policy?.review_gate === "on" && (!automaticReview || !workspace || !agentOccupancy)) throw Object.assign(new ConfigurationError("Hard review requires durable ticket evidence and independent occupancy."), { code: "REVIEW_WORKER_UNAVAILABLE" });
+    if (!standalone && automaticReviewPolicy(ticket, { blocking: Boolean(payload.review_cycle_id) }).gate === "on" && (!automaticReview || !workspace || !agentOccupancy)) throw Object.assign(new ConfigurationError("Hard review requires durable ticket evidence and independent occupancy."), { code: "REVIEW_WORKER_UNAVAILABLE" });
     const reviewResume = payload.review_resume ?? null;
     const baseCommit = standalone ? null : reviewResume ? reviewResume.base_commit ?? workspace?.base_commit ?? null : workspace?.base_commit ?? payload.review_base_commit ?? await gitService?.getHead?.() ?? null;
     const ownerId = supervisorManager.getByTask?.(taskId)?.supervisorId ?? `SUP-${taskId}`;
+    if (!reviewResume && payload.resume_from?.review_repair_key && workspace?.beginFindingRepair) {
+      await workspace.beginFindingRepair(payload.resume_from.review_repair_key);
+    }
     // An owner-approved governed successor (automatic foundation split) may have integrated content
     // that legitimately replaces this ticket's recorded baseline; rebase before any ledger snapshot.
-    const integratedSuccessors = workspace?.root_only && !standalone ? await approvedIntegratedSuccessors(taskId) : [];
+    const integratedSuccessors = workspace?.root_only && !standalone && !reviewResume ? await approvedIntegratedSuccessors(taskId) : [];
     if (integratedSuccessors.length) {
       try { await workspace.changeLedger.resume({ integrated_successors: integratedSuccessors }); }
       catch (error) {
@@ -110,9 +72,11 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
         throw error;
       }
     }
-    const executionContext = await prepareTicketExecutionContext({ workspace, taskId, supervisorId: ownerId, ticket });
+    const executionContext = reviewResume
+      ? await prepareTicketReviewContext({ workspace, taskId, supervisorId: ownerId, ticket, resume: reviewResume })
+      : await prepareTicketExecutionContext({ workspace, taskId, supervisorId: ownerId, ticket });
     if (payload.retry_source_identity && ["source_revision", "manifest_sha", "review_commit_sha", "base_sha"].some((field) => executionContext?.[field] !== payload.retry_source_identity[field])) throw Object.assign(new ConfigurationError("Coder retry source changed during preparation."), { code: "TICKET_EXECUTION_RECONCILIATION_REQUIRED" });
-    if (!standalone && blockerRecovery && await blockerRecovery.preflight({ ticket, task_id: taskId, project_id: project_id ?? ticket.project_id,
+    if (!standalone && !reviewResume && blockerRecovery && await blockerRecovery.preflight({ ticket, task_id: taskId, project_id: project_id ?? ticket.project_id,
       request_id: request_id ?? `REQ-${taskId}`, correlation_id: correlation_id ?? `CORR-${taskId}`, supervisor_id: ownerId,
       execution_context: executionContext, payload })) return { task_id: taskId, supervisor_id: ownerId, status: "needs_human_review" };
     assertDependencySubmission({ projectId: project_id ?? ticket.project_id, ticket, payload, sprintRegistry, ticketStatusStore });
@@ -138,7 +102,7 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
     let queued;
     try {
       assertDependencySubmission({ projectId: request.project_id, ticket, payload: request.payload, sprintRegistry, ticketStatusStore });
-      await workspace?.changeLedger?.resume?.({ integrated_successors: integratedSuccessors });
+      if (!reviewResume) await workspace?.changeLedger?.resume?.({ integrated_successors: integratedSuccessors });
       if (!reviewResume) queued = await handoffQueue.enqueue(request);
     }
     catch (error) {
@@ -208,7 +172,7 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
       const current = ticketStatusStore?.get?.(taskId);
       if (!current || ["running", "reviewing"].includes(current.status) && (!request.payload.execution_id || matchesTicketExecution(current, request.payload.execution_id, request.payload.sprint_basis))) {
         await releaseTicketAttempt({ workspace, agentOccupancy, claim, taskId, ownerId, reason: "ticket_completion_failed" });
-        await handleExecutionFailure(error, request, { selected, claim, taskId, ownerId });
+        await handleExecutionFailure(error, error.failed_request ?? request, { selected, claim, taskId, ownerId });
       }
       throw error;
     }
@@ -234,7 +198,6 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
   async function handleExecutionFailure(error, failedRequest, { selected, claim, taskId, ownerId }) {
     return handleTicketExecutionFailure({ error, failedRequest, selected, claim, taskId, ownerId, checkpoints, agentOccupancy, projectLogger, publishTicketOutcome, coderRecovery });
   }
-
   // Sends only a reviewed or explicitly escalated ticket outcome to sprint orchestration.
   async function publishTicketOutcome(type, request, supervisorId, outcome) {
     await eventBus.publish({ type, ...(outcome.event_id ? { event_id: outcome.event_id } : {}), ...(request.project_id ? { project_id: request.project_id } : {}), task_id: request.task_id, supervisor_id: supervisorId, request_id: request.request_id, correlation_id: request.correlation_id, attempt: request.attempt ?? 1, payload: { ...outcome, ...(request.payload?.execution_id ? { execution_id: request.payload.execution_id, execution_basis: request.payload.sprint_basis } : {}) } });

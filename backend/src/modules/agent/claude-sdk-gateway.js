@@ -2,9 +2,11 @@
 import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
 import { ConfigurationError } from "../../shared/errors.js";
 import process from "node:process";
+import { claudeCacheEnvironment, claudeCacheUsage } from "./anthropic-prompt-cache.js";
 import { sdkFailureEvidence } from "./sdk-failure-evidence.js";
 
 const SAFE_URL = /^https:\/\//;
+const USAGE_FIELDS = new Set(["input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "inputTokens", "outputTokens", "cacheCreationInputTokens", "cacheReadInputTokens"]);
 const SECRET_FIELD = /(?:api[_-]?key|credential|secret|password|token|authorization)/i;
 
 // createClaudeSdkGateway — create claude sdk gateway logic.
@@ -82,7 +84,10 @@ export function createClaudeSdkGateway({
       }
       if (sessionId) notify(sessionId);
       writeTerminal(`DONE ${config.agent_name ?? config.agent_id} messages=${messages.length} correlation=${correlationId}`);
+      const usage = claudeCacheUsage(messages);
+      if (usage) writeTerminal(`USAGE ${config.agent_name ?? config.agent_id} input=${usage.input_tokens ?? 0} output=${usage.output_tokens ?? 0} cache_read=${usage.cache_read_input_tokens ?? 0} cache_write=${usage.cache_creation_input_tokens ?? 0} correlation=${correlationId}`);
       return {
+        usage,
         agent_id: config.agent_id,
         agent_name: config.agent_name,
         role: config.role,
@@ -139,6 +144,7 @@ export function createClaudeSdkGateway({
     return {
       ...environment,
       ...(optionsEnv && typeof optionsEnv === "object" ? optionsEnv : {}),
+      ...claudeCacheEnvironment(),
       ANTHROPIC_BASE_URL: baseUrl,
       ANTHROPIC_AUTH_TOKEN: credential,
       ANTHROPIC_API_KEY: ""
@@ -174,6 +180,6 @@ function sanitize(value, credential) {
   if (Array.isArray(value)) return value.map((item) => sanitize(item, credential));
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(Object.entries(value)
-    .filter(([key]) => !SECRET_FIELD.test(key))
+    .filter(([key]) => USAGE_FIELDS.has(key) || !SECRET_FIELD.test(key))
     .map(([key, item]) => [key, sanitize(item, credential)]));
 }

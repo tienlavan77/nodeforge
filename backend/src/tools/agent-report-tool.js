@@ -4,6 +4,7 @@ import { completeNodeReportEvidence } from "./node-report-evidence.js";
 import { assertCoderCoverage } from "../modules/supervisor/completion-report-service.js";
 import { matchesBrowserEvidence } from "../modules/supervisor/browser-verification-evidence.js";
 import { hasOwnerDecisionEvidence } from "../modules/governance/plan-decision-requests.js";
+import { findPassingVerificationCommand } from "./verification-command-evidence.js";
 
 const error = (code, message, details = {}) => Object.assign(new ConfigurationError(message), { code, details });
 
@@ -29,7 +30,8 @@ export function createReportDoneTool({ reportService, verificationService, revie
     const requiresExplanation = Boolean(reviewFindings?.recordCoderReport);
     let artifact = null;
     if (governed) {
-      artifact = await (verificationService.ensurePassedArtifact?.() ?? verificationService.assertPassedArtifact());
+      artifact = await (verificationService.ensurePassedArtifact?.({ abortSignal: context.abortSignal, onWaiting: context.onVerificationWaiting, onSettled: context.onVerificationSettled }) ?? verificationService.assertPassedArtifact());
+      context.abortSignal?.throwIfAborted();
       // Legacy review payloads are ignored; ticket completion is owned by the Coder report and Node verification.
       if (input.finding_resolutions !== undefined) delete input.finding_resolutions;
       context.changed_paths = [...(artifact.changed_paths ?? Object.keys(artifact.file_checksums))];
@@ -54,10 +56,12 @@ export function createReportDoneTool({ reportService, verificationService, revie
     }
     if (typeof input.summary !== "string" || !input.summary.trim()) throw error("INPUT_INVALID", "Report summary is required.");
     if (!governed) assertReportScope(ticket, context);
+    context.abortSignal?.throwIfAborted();
     const report = await reportService.buildFinalReport({ ticket, status: governed ? "submitted_for_review" : context.status ?? "completed", verifyResult: context.verify_result ?? null, filesChanged: context.changed_paths ?? [], reason: "agent_report_done" });
     if (!governed) assertReportVerified(report);
     if (governed) report.criteria_check = input.acceptance_coverage.map((entry) => ({ criterion: entry.criterion, criterion_id: entry.criterion_id, node_verified: entry.status === "verified", status: entry.status, command_kind: entry.command_kind ?? null, test_path: entry.test_path ?? null, artifact_id: artifact.artifact_id }));
     report.agent_report = { ...(report.agent_report ?? {}), ...input, summary: input.summary.trim() };
+    context.abortSignal?.throwIfAborted();
     await reportService.saveReport(ticket.id, report); await reportService.writeReportFile(ticket.id, report);
     if (!governed && typeof onEvalCase === "function") {
       try {
@@ -124,9 +128,12 @@ function assertAcceptanceCoverage(input, artifact, ticket) {
       }
       if (!entry.command_kind) throw error("ACCEPTANCE_COVERAGE_MISSING", `Verified criterion needs a command: ${criterion}`, { criterion_id: `AC-${index + 1}` });
       if (!/\b(build|lint|typecheck|type check|schema validation|compile|syntax)\b/i.test(criterion) && !["test", "backend_tests", "browser"].includes(entry.command_kind)) throw error("ACCEPTANCE_COVERAGE_MISSING", `Behavioral criterion requires a focused test: ${criterion}`, { criterion_id: `AC-${index + 1}` });
-      const command = (artifact.commands ?? []).find((item) => item.kind === entry.command_kind && item.exit_code === 0 && (!entry.test_path || item.argv?.includes(entry.test_path)));
+      const command = entry.command_kind === "browser"
+        ? (artifact.commands ?? []).find((item) => item.kind === "browser" && item.exit_code === 0 && (!entry.test_path || item.argv?.includes(entry.test_path)))
+        : findPassingVerificationCommand(entry, artifact.commands ?? []);
       if (!command || (["test", "backend_tests"].includes(entry.command_kind) && !entry.test_path)) throw error("ACCEPTANCE_COVERAGE_MISSING", `No passing command covers criterion: ${criterion}`, { criterion_id: `AC-${index + 1}` });
       if (entry.command_kind === "browser" && !ticket.verification_plan?.some((step) => step.kind === "browser" && step.criterion_ids?.includes(`AC-${index + 1}`) && matchesBrowserEvidence(step, command.browser_evidence))) throw error("ACCEPTANCE_COVERAGE_MISSING", `No approved browser receipt covers criterion: ${criterion}`, { criterion_id: `AC-${index + 1}` });
+      entry.command_kind = command.kind;
     }
     normalized.push({ ...entry, criterion_id: `AC-${index + 1}`, criterion, status, ...(status !== "verified" ? { command_kind: entry.command_kind ?? null, test_path: entry.test_path ?? null } : {}) });
   }

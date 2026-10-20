@@ -1,6 +1,7 @@
 // agent lifecycle tools - provides agent lifecycle tools functionality for NodeForge.
 import { createHash } from "node:crypto";
 import { isProtectedPath } from "../infrastructure/filesystem/protected-path-policy.js";
+import { isDependencyPath, readDependencyFile } from "../infrastructure/filesystem/dependency-read.js";
 import { assertCoderWorkflowReadOnly } from "../infrastructure/filesystem/file-service-role-policy.js";
 import { isAgentPathAllowed } from "./tool-authorization.js";
 import { ConfigurationError } from "../shared/errors.js";
@@ -14,8 +15,8 @@ const WRITE_DIFF_MAX_LINES = 250;
 const READ_WINDOW_LINE_LIMIT = 80;
 const DOCUMENT_LINE_LIMIT = 250;
 // safePath - handles safePath operation.
-const safePath = (value, operation = "read") => {
-  if (typeof value !== "string" || !value || value.startsWith("/") || value.includes("\\") || value.split("/").some((part) => !part || part === "." || part === "..") || isProtectedPath(value, { operation })) throw error("PATH_FORBIDDEN", "Path is outside the permitted project scope.");
+const safePath = (value, operation = "read", role) => {
+  if (typeof value !== "string" || !value || value.startsWith("/") || value.includes("\\") || value.split("/").some((part) => !part || part === "." || part === "..") || isProtectedPath(value, { operation, role }) || operation !== "read" && isDependencyPath(value)) throw error("PATH_FORBIDDEN", "Path is outside the permitted project scope.");
   return value;
 };
 // checksum - handles checksum operation.
@@ -34,15 +35,16 @@ const checksumDiagnostics = (beforeChecksum, targetExists) => ({
 });
 
 // createReadFileTool - handles createReadFileTool operation.
-export function createReadFileTool({ fileService, codeCache, maxChars = MAX_CONTENT } = {}) {
+export function createReadFileTool({ fileService, codeCache, projectRoot, maxChars = MAX_CONTENT } = {}) {
   if (typeof fileService?.readForIndex !== "function") throw new ConfigurationError("read_file requires File Service.");
   return Object.freeze({ name: "read_file", async execute(input = {}, context = {}) {
-    const path = safePath(input.path);
+    const path = safePath(input.path, "read", context.agent_identity?.role);
     const markdown = /\.md$/i.test(path);
     const symbol = markdown || input.symbol === "" ? undefined : input.symbol ?? undefined;
     const requestedOffset = input.offset ?? undefined;
     const requestedLimit = input.limit ?? undefined;
-    assertAllowed(path, context); const file = codeCache ? await codeCache.read({ path }) : await fileService.readForIndex({ path });
+    assertAllowed(path, context); const file = isDependencyPath(path) && (projectRoot ?? context.project_root)
+      ? await readDependencyFile({ projectRoot: projectRoot ?? context.project_root, path }) : codeCache ? await codeCache.read({ path }) : await fileService.readForIndex({ path });
     if (!file || typeof file.content !== "string") throw error("READ_FAILED", `File could not be read: ${path}`);
     const sha256 = file.sha256 ?? checksum(file.content);
     const sizeBytes = file.size_bytes ?? Buffer.byteLength(file.content);
@@ -89,7 +91,7 @@ export function createReadFileTool({ fileService, codeCache, maxChars = MAX_CONT
 export function createWriteDiffTool({ fileService, codeCache, changeLedger, maxLines = WRITE_DIFF_MAX_LINES } = {}) {
   if (typeof fileService?.atomicWrite !== "function" || typeof fileService?.readFile !== "function") throw new ConfigurationError("write_diff requires File Service readFile and atomicWrite.");
   return Object.freeze({ name: "write_diff", async execute(input = {}, context = {}) {
-    const path = safePath(input.path, "write"); assertCoderWorkflowReadOnly(context.agent_identity?.role, "write", path); assertAllowed(path, context); if (typeof input.content !== "string") throw error("CONTENT_INVALID", "content must be a string.");
+    const path = safePath(input.path, "write", context.agent_identity?.role); assertCoderWorkflowReadOnly(context.agent_identity?.role, "write", path); assertAllowed(path, context); if (typeof input.content !== "string") throw error("CONTENT_INVALID", "content must be a string.");
     const lineCount = input.content ? input.content.split("\n").length - Number(input.content.endsWith("\n")) : 0;
     if (lineCount > maxLines) throw error("CONTENT_TOO_LARGE", `write_diff content has ${lineCount} lines, limit is ${maxLines}. For localized changes use edit_diff.`, { line_count: lineCount, limit: maxLines });
     let current;
@@ -125,7 +127,7 @@ export function createWriteDiffTool({ fileService, codeCache, changeLedger, maxL
 export function createEditDiffTool({ fileService, codeCache, changeLedger, maxChars = MAX_CONTENT } = {}) {
   if (typeof fileService?.atomicWrite !== "function" || typeof fileService?.readFile !== "function") throw new ConfigurationError("edit_diff requires File Service readFile and atomicWrite.");
   return Object.freeze({ name: "edit_diff", async execute(input = {}, context = {}) {
-    const path = safePath(input.path, "write"); assertCoderWorkflowReadOnly(context.agent_identity?.role, "write", path); assertAllowed(path, context);
+    const path = safePath(input.path, "write", context.agent_identity?.role); assertCoderWorkflowReadOnly(context.agent_identity?.role, "write", path); assertAllowed(path, context);
     if (typeof input.anchor !== "string" || !input.anchor.length) throw error("INPUT_INVALID", "anchor must be a non-empty string.");
     if (typeof input.replacement !== "string") throw error("INPUT_INVALID", "replacement must be a string.");
     if (input.anchor.length + input.replacement.length > maxChars) throw error("CONTENT_TOO_LARGE", `anchor + replacement exceeds ${maxChars} chars.`, { limit: maxChars });

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createNodeClient } from "../lib/node-client.js";
-import { addProject, getProjectSelection, refreshProjects, removeProject, selectProject } from "../lib/project-selection.js";
+import { addProject, clearProjectSelection, getProjectSelection, refreshProjects, removeProject, selectProject } from "../lib/project-selection.js";
 import * as workspaceKeys from "../lib/home-page-constants.js";
 
 // Exercise the real client against controlled HTTP and SSE boundaries, never live project workloads.
@@ -16,7 +16,7 @@ test("selected identity covers all client requests and isolates switched or unav
     const url = new URL(input);
     const body = init.body ? JSON.parse(init.body) : null;
     calls.push({ url, body, method: init.method ?? "GET" });
-    if (url.pathname.endsWith("/lifecycle/list")) return Response.json({ projects });
+    if (url.pathname.endsWith("/lifecycle/list")) { assert.equal(url.pathname, "/lifecycle/list"); return Response.json({ projects }); }
     if (url.pathname.endsWith("/lifecycle/add")) {
       assert.deepEqual(body, { root: "/b" });
       projects = [...projects, { project_id: "PROJECT-B", root: body.root }];
@@ -40,8 +40,10 @@ test("selected identity covers all client requests and isolates switched or unav
     emit(type, value) { for (const handler of this.handlers.get(type) ?? []) handler({ data: JSON.stringify(value), lastEventId: value.event_id }); }
   };
   context.after(() => { globalThis.EventSource = originalSource; });
-  await refreshProjects();
-  assert.equal(getProjectSelection().projectId, "PROJECT-A", "sole configured project works without selection");
+  await refreshProjects({ selectInitial: false });
+  assert.equal(getProjectSelection().projectId, null, "the directory does not select even a sole configured project");
+  selectProject("PROJECT-A");
+  assert.equal(getProjectSelection().projectId, "PROJECT-A", "opening the project card admits that project");
   const oldClient = createNodeClient();
   const oldEvents = [];
   oldClient.connectProjectStream({ projectId: "wrong", onEvent: (event) => oldEvents.push(event) });
@@ -99,6 +101,12 @@ test("selected identity covers all client requests and isolates switched or unav
   assert.ok(sources.slice(-2).every((source) => source.url.searchParams.get("project") === "PROJECT-B"));
   sources.at(-2).emit("stream.connected", { event_id: "b", event_type: "stream.connected", schema_version: 1, project_id: "PROJECT-B", timestamp: "now", payload: {} });
   assert.equal(currentEvents.length, 1, "current project events still work");
+  clearProjectSelection();
+  assert.equal(getProjectSelection().projectId, null, "returning home clears the active project");
+  assert.ok(sources.every((source) => source.closed), "the global directory owns no project streams");
+  await refreshProjects({ selectInitial: false });
+  assert.equal(getProjectSelection().projectId, null, "refreshing the directory keeps project selection explicit");
+  selectProject("PROJECT-B");
   stream.close(); conversationStream.close();
   assert.ok(sources.every((source) => source.closed));
   await removeProject("/b");

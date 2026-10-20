@@ -12,6 +12,7 @@ import { COMPLEXITY_FALLBACK, buildCodexTicketPrompt, buildCodexToolTestPrompt, 
 import { assertTicketExecutionCompleted, collectToolCalls, extractFinalAgentReport, sdkToolEvent } from "./nodeforge-task-sdk-events.js";
 import { bindEngineeringTools } from "../../tools/engineering-tool-binding.js";
 import { CODER_TOOL_NAMES, coderToolDefinitions } from "../../tools/engineering-tool-catalog.js";
+import { coderFailureTriage } from "./coder-recovery-policy.js";
 
 const CODER_FORGE_TOOL_NAMES = new Set(CODER_TOOL_NAMES.map((name) => `mcp__forge__${name}`));
 
@@ -50,7 +51,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
       lifecycle: "RUNNING", audit_context: { correlation_id: request.correlation_id }
     });
     const toolContext = { ...context, project_root: projectRoot, execution_context: request.execution_context ?? null, ticket, task: ticket, task_context: ticket, changed_paths: [...resumeState.changedPaths], allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, lab_mode: Boolean(labMode), abortSignal: request.abortSignal, session_id: executionId, target_path: targetPath };
-    const checkpointed = checkpointedRegistry({ store: checkpoints, registry: toolRegistry, taskId: request.task_id, targetPath, allowedPrefixes, complexity, selected, correlationId: request.correlation_id, resumeState, labMode: Boolean(labMode) });
+    const checkpointed = checkpointedRegistry({ store: checkpoints, registry: toolRegistry, taskId: request.task_id, targetPath, allowedPrefixes, complexity, selected, correlationId: request.correlation_id, resumeState, labMode: Boolean(labMode), projectLogger });
     const binding = selected.role === "coder" && !labMode ? bindEngineeringTools({ registry: checkpointed, context: toolContext }) : { registry: checkpointed, context: toolContext };
     const mcpServers = { forge: createForgeSdkMcpServer({ registry: binding.registry, context: binding.context, includeCommit: true, includeClaudeFileTools: false, includeEngineeringTools: selected.role === "coder" && !labMode, excludeTools: ["respond_to_review", ...(candidateDiscoveryEnabled ? [] : ["select_code_graph_candidates"])] }) };
     let result;
@@ -70,7 +71,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
       return { summary: extractFinalAgentReport(result.messages) || "<empty response>", tool_events: toolEvents };
     } catch (error) {
       const failure = normalizeAgentFailure(error);
-      await saveProgressCheckpoint(checkpoints, resumeState, { task_id: request.task_id, correlation_id: request.correlation_id, agent_id: selected?.agent_id ?? null, provider: selected?.provider ?? null, target_path: targetPath, allowed_prefixes: allowedPrefixes, complexity_level: complexity?.level ?? null, changed_paths: [...resumeState.changedPaths], status: "blocked", failure: failureDetail(failure) });
+      await saveProgressCheckpoint(checkpoints, resumeState, { task_id: request.task_id, correlation_id: request.correlation_id, agent_id: selected?.agent_id ?? null, provider: selected?.provider ?? null, target_path: targetPath, allowed_prefixes: allowedPrefixes, complexity_level: complexity?.level ?? null, changed_paths: [...resumeState.changedPaths], status: "blocked", ...(error.code === "CODER_BLOCKED" ? { triage: coderFailureTriage(error), failure_request_id: request.request_id } : {}), failure: failureDetail(failure) });
       throw error;
     }
   }
@@ -121,7 +122,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
       lifecycle: "RUNNING", audit_context: { correlation_id: request.correlation_id }
     });
     const toolContext = { ...context, project_root: projectRoot, execution_context: request.execution_context ?? null, ticket, task: ticket, task_context: ticket, changed_paths: [...resumeState.changedPaths], allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, lab_mode: Boolean(labMode), abortSignal: request.abortSignal, session_id: executionId, target_path: targetPath };
-    const checkpointed = checkpointedRegistry({ store: checkpoints, registry: toolRegistry, taskId: request.task_id, targetPath, allowedPrefixes, complexity, selected, correlationId: request.correlation_id, resumeState, labMode: Boolean(labMode) });
+    const checkpointed = checkpointedRegistry({ store: checkpoints, registry: toolRegistry, taskId: request.task_id, targetPath, allowedPrefixes, complexity, selected, correlationId: request.correlation_id, resumeState, labMode: Boolean(labMode), projectLogger });
     const binding = selected.role === "coder" && !labMode ? bindEngineeringTools({ registry: checkpointed, context: toolContext }) : { registry: checkpointed, context: toolContext };
     const definitions = selected.role === "coder" && !labMode
       ? coderToolDefinitions()
@@ -152,7 +153,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
       return { summary: result.text || "<empty response>", tool_events: codexToolEvents };
     } catch (error) {
       const failure = normalizeAgentFailure(error);
-      await saveProgressCheckpoint(checkpoints, resumeState, { task_id: request.task_id, correlation_id: request.correlation_id, agent_id: selected?.agent_id ?? null, provider: selected?.provider ?? null, target_path: targetPath, allowed_prefixes: allowedPrefixes, complexity_level: complexity?.level ?? null, changed_paths: [...resumeState.changedPaths], status: "blocked", failure: failureDetail(failure) });
+      await saveProgressCheckpoint(checkpoints, resumeState, { task_id: request.task_id, correlation_id: request.correlation_id, agent_id: selected?.agent_id ?? null, provider: selected?.provider ?? null, target_path: targetPath, allowed_prefixes: allowedPrefixes, complexity_level: complexity?.level ?? null, changed_paths: [...resumeState.changedPaths], status: "blocked", ...(error.code === "CODER_BLOCKED" ? { triage: coderFailureTriage(error), failure_request_id: request.request_id } : {}), failure: failureDetail(failure) });
       throw error;
     }
   }

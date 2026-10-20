@@ -14,7 +14,7 @@ export function createCoderOperationalRecovery({ store, policy, validateExecutio
   const approvedPolicy = policy ? structuredClone(policy) : null;
   let timer;
   let active = false;
-  return Object.freeze({ handleFailure, tick, cancel, start, stop, hasPending });
+  return Object.freeze({ handleFailure, tick, cancel, resume, start, stop, hasPending });
 
   // Keeps explicit RUN from replacing an execution whose recovery or provider disposition is still outstanding.
   async function hasPending({ projectId, taskId, executionId }) {
@@ -62,9 +62,9 @@ export function createCoderOperationalRecovery({ store, policy, validateExecutio
         return { handled: classification === "reconcile", outcome: previous.status, record: previous };
       }
       if (previous) return { handled: true, outcome: previous.status, record: previous };
+      if (classification !== "transient") return { handled: false, reason: classification };
       if (!await validateExecution(request)) return { handled: true, outcome: "stale" };
       if (ledger?.cancelled) return { handled: true, outcome: "cancelled" };
-      if (classification !== "transient") return { handled: false, reason: classification };
       const now = clock();
       const next = ledger ?? { id, project_id: request.project_id, task_id: request.task_id, execution_id: executionId,
         policy: approvedPolicy, deadline_at: now + approvedPolicy.deadline_ms, retries: 0, failures: [] };
@@ -129,6 +129,30 @@ export function createCoderOperationalRecovery({ store, policy, validateExecutio
         for (const record of ledger.failures) if (["pending", "terminal_pending"].includes(record.status)) record.status = "cancelled";
         await store.save(STORE, ledger);
       }
+    });
+  }
+
+  // Re-enables future retries for an explicitly resumed execution without replaying cancelled attempts or resetting its budget.
+  async function resume({ request }) {
+    if (!approvedPolicy) return false;
+    const executionId = request?.payload?.execution_id;
+    if (!request?.project_id || !request.task_id || !request.request_id || !executionId) return false;
+    const id = digest([request.project_id, request.task_id, executionId, "coder"]);
+    return store.withLock(STORE, async () => {
+      const ledger = (await store.list(STORE)).find((entry) => entry.id === id);
+      if (!ledger?.cancelled) return false;
+      if (ledger.failures.some((record) => ["invoking", "reconciliation_required"].includes(record.status)))
+        throw Object.assign(new Error("Reconcile the previous Coder invocation before resuming retries."), { code: "TICKET_EXECUTION_RECONCILIATION_REQUIRED" });
+      if (!await validateExecution(request)) throw Object.assign(new Error("Coder retry resume authority changed."), { code: "TICKET_EXECUTION_RECONCILIATION_REQUIRED" });
+      if (!ledger.policy) {
+        ledger.policy = structuredClone(approvedPolicy);
+        ledger.deadline_at = clock() + approvedPolicy.deadline_ms;
+        ledger.retries = 0;
+      }
+      ledger.cancelled = false;
+      ledger.resumes = [...(ledger.resumes ?? []), { request_id: request.request_id, resumed_at: clock() }];
+      await store.save(STORE, ledger);
+      return true;
     });
   }
 

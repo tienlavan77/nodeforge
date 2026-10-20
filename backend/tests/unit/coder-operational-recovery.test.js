@@ -161,3 +161,44 @@ test("old queued failure cannot transition or release a replacement execution ev
     agentOccupancy: { getByTask: forbidden, release: forbidden } });
   assert.equal(await loop.onEvent({ type: "agent.response.failed", supervisor_id: "SUP", request_id: "REQ", payload: { error } }), true);
 });
+
+// An explicit Resume re-arms future infrastructure retries while leaving cancelled child invocations historical.
+test("Resume after Stop schedules a new failure once after 30 seconds and preserves budget", async () => fixture(async ({ create, advance, store, calls }) => {
+  const service = create();
+  await service.cancel({ projectId: "P", taskId: "TASK", executionId: "EXEC" });
+  assert.equal(await service.resume({ request: { ...request, request_id: "RESUME" } }), true);
+  const resumed = (await store.list("coder-operational-recovery"))[0];
+  assert.equal(resumed.cancelled, false);
+  assert.equal(resumed.resumes[0].request_id, "RESUME");
+  const next = { ...request, request_id: "RESUME" };
+  assert.equal((await service.handleFailure({ request: next, error })).outcome, "pending");
+  advance(29_999); await create().tick(); assert.equal(calls.length, 0);
+  advance(1); await create().tick(); assert.equal(calls.length, 1);
+  await service.cancel({ projectId: "P", taskId: "TASK", executionId: "EXEC" });
+  const before = (await store.list("coder-operational-recovery"))[0];
+  await service.resume({ request: { ...next, request_id: "RESUME-AGAIN" } });
+  const after = (await store.list("coder-operational-recovery"))[0];
+  assert.equal(after.retries, before.retries);
+  assert.equal(after.deadline_at, before.deadline_at);
+  assert.deepEqual(after.failures, before.failures);
+}));
+
+// Cancellation must not swallow actual denials or repair failures and pretend they are queued retries.
+test("a cancelled ledger forwards nontransient failures to their own recovery boundary", async () => fixture(async ({ create }) => {
+  const service = create();
+  await service.cancel({ projectId: "P", taskId: "TASK", executionId: "EXEC" });
+  for (const code of ["CODER_BLOCKED", "COMMIT_APPROVAL_REJECTED", "VERIFY_COMMAND_FAILED", "REVIEW_VERDICT_INVALID"])
+    assert.equal((await service.handleFailure({ request, error: { code } })).handled, false);
+}));
+
+// Rejects a stale owner or unknown provider instead of reviving it from a cancelled ledger.
+test("Resume cannot re-arm stale executions or an unknown provider invocation", async () => fixture(async ({ create, store, stale }) => {
+  const service = create();
+  await service.cancel({ projectId: "P", taskId: "TASK", executionId: "EXEC" });
+  const ledger = (await store.list("coder-operational-recovery"))[0];
+  ledger.failures.push({ status: "invoking" }); await store.save("coder-operational-recovery", ledger);
+  await assert.rejects(service.resume({ request }), { code: "TICKET_EXECUTION_RECONCILIATION_REQUIRED" });
+  ledger.failures = []; await store.save("coder-operational-recovery", ledger); stale();
+  await assert.rejects(service.resume({ request }), { code: "TICKET_EXECUTION_RECONCILIATION_REQUIRED" });
+  assert.equal((await store.list("coder-operational-recovery"))[0].cancelled, true);
+}));

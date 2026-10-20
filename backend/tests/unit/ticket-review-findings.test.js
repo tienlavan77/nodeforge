@@ -7,6 +7,32 @@ import { join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createTicketReviewFindingsStore } from "../../src/modules/supervisor/ticket-review-findings.js";
 
+test("Reviewer refinement preserves the durable finding ID and prior evidence instead of creating duplicates", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "nf-review-refinement-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const context = { verification_artifact_id: "ARTIFACT-NEW", review_commit_sha: "a".repeat(40), source_revision: "source" };
+  const files = createFileService({ projectRoot: root });
+  const store = createTicketReviewFindingsStore({ taskId: "TICKET-1", fileService: files, executionContexts: { load: async () => context } });
+  const binding = { artifactId: context.verification_artifact_id, commitSha: context.review_commit_sha, reviewerId: "REVIEWER" };
+  await store.recordReview({ ...binding, verdict: "request_changes", findings: ["Historical read restriction"] });
+  const refinement = { finding_id: "REV-1", failure: "Access is repaired but routing evidence is incomplete", acceptance_criterion: "Routing isolation",
+    evidence_refs: ["backend/router.js:10"], minimum_change_scope: "Add the missing transport witness" };
+  const decision = { finding_id: "REV-1", decision: "refine", reason: "Current source is readable", evidence_refs: ["backend/router.js:10"] };
+  for (let retry = 0; retry < 2; retry++) await store.recordReview({ ...binding, verdict: "request_changes", findings: [refinement], adjudications: [decision] });
+  const record = await store.load();
+  assert.equal(record.findings.length, 1);
+  assert.equal(record.next_id, 2);
+  assert.equal(record.findings[0].finding_id, "REV-1");
+  assert.equal(record.findings[0].history.length, 1);
+  assert.equal(record.findings[0].history[0].message, "Historical read restriction");
+  assert.equal(record.findings[0].finding.failure, refinement.failure);
+  assert.equal((await store.unresolved()).length, 1);
+  await assert.rejects(store.recordReview({ ...binding, verdict: "request_changes", findings: [{ ...refinement, finding_id: "REV-99" }] }), { code: "REVIEW_FINDINGS_INVALID" });
+  await assert.rejects(store.recordReview({ ...binding, verdict: "request_changes", findings: [{ ...refinement, finding_id: "TICKET-R1" }] }), { code: "REVIEW_FINDINGS_INVALID" });
+  await store.recordReview({ ...binding, verdict: "approved", findings: [], adjudications: [{ ...decision, decision: "withdraw" }] });
+  await assert.rejects(store.recordReview({ ...binding, verdict: "request_changes", findings: [refinement] }), { code: "REVIEW_FINDINGS_INVALID" });
+});
+
 // Preserves a repeated finding until a newer verified commit resolves its ID.
 test("finding resolution persists across restart and blocks premature approval", async () => {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-findings-"));

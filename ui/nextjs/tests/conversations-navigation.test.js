@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { runInNewContext } from "node:vm";
 
 const component = await readFile("ui/nextjs/components/ConversationsAccordion.jsx", "utf8");
-const page = await readFile("ui/nextjs/app/page.jsx", "utf8");
+const page = await readFile("ui/nextjs/components/architecture-workspace.jsx", "utf8");
 const sidebar = await readFile("ui/nextjs/components/conversation-sidebar.jsx", "utf8");
 const codePage = await readFile("ui/nextjs/app/code/page.jsx", "utf8");
 const legacyCodePage = await readFile("ui/nextjs/app/coding/page.jsx", "utf8");
@@ -81,10 +81,11 @@ test("home route composes the conversation workspace from existing components", 
   assert.equal(page.includes("<NodeForgeHeader"), false);
   assert.ok(sidebar.includes('onClick={reopen} aria-label="Open conversations sidebar"'));
   assert.ok(sidebar.includes('onClick={newConversation} aria-label="New chat"'));
-  assert.ok(sidebar.includes('<Link href="/" title="Architecture"'));
+  assert.ok(sidebar.includes('<Link href={projectArchitecturePath(selection.projectId ?? selectedProjectId)} title="Architecture"'));
   assert.ok(sidebar.includes('<span>Architecture</span></Link>'));
   assert.ok(sidebar.indexOf('title="Architecture"') < sidebar.indexOf('title="Agents"'));
-  assert.ok(sidebar.includes('<Link href="/coding" title="Code"'));
+  assert.ok(sidebar.includes('<Link href={projectCodingPath(selection.projectId ?? selectedProjectId)} title="Code"'));
+  assert.ok(sidebar.includes('<Link href={projectSystemPath(selection.projectId ?? selectedProjectId)} title="System"'));
   assert.ok(sidebar.indexOf('title="System"') < sidebar.indexOf('title="Code"'));
   assert.ok(sidebar.includes('aria-current={agentSectionTitle === "Code" ? "page" : undefined}'));
   assert.ok(legacyCodePage.includes("<ConversationSidebar"));

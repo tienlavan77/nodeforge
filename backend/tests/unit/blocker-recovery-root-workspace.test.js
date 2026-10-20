@@ -25,11 +25,11 @@ test("root-only SL and Architecture inspect live source and resume before any Re
       gateways: { openaiSdkGateway: { execute: async ({ agent, options }) => {
         roles.push(agent.role);
         const tools = options.forgeTools.registry;
-        assert.deepEqual(Object.keys(tools), ["read_source", "list_files"]);
-        const result = await tools.read_source.execute({ path: fixture.evidence.path });
-        assert.equal(result.sha256, fixture.evidence.sha256);
-        assert((await tools.list_files.execute({ glob: "backend/src/*.js" })).paths.includes(fixture.evidence.path));
-        await assert.rejects(tools.read_source.execute({ path: "../outside" }), { code: "FILE_ROLE_FORBIDDEN" });
+        assert.deepEqual(Object.keys(tools), ["search_tree", "list_files", "search_text", "read_file", "read_lines", "git_status", "git_diff"]);
+        const result = await tools.read_file.execute({ path: fixture.evidence.path });
+        assert.equal(result.sha256, `sha256:${fixture.evidence.sha256}`);
+        assert((await tools.list_files.execute({})).stdout.split("\n").includes(fixture.evidence.path));
+        await assert.rejects(tools.read_file.execute({ path: "../outside" }), { code: "FILE_ROLE_FORBIDDEN" });
         return { text: JSON.stringify(agent.role === "sprint_leader" ? { action: "architecture_required", summary: "Verify the existing architecture." } : fixture.resolution) };
       } } } });
     await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });

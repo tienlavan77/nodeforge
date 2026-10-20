@@ -13,6 +13,26 @@ test("canonical guidance is accepted for strict and compatibility reviews", () =
   for (const strict of [false, true]) assert.doesNotThrow(() => assertReviewFindingGuidance({ findings: [finding], adjudications: [] }, { strict }));
 });
 
+test("wrong per-file key reports the exact finding location without rewriting Reviewer output", () => {
+  const value = { findings: [finding, { ...finding, per_file_necessity: [{ file: "src/dialog.js", role: "Close handler" }] }], adjudications: [] };
+  const original = structuredClone(value);
+  assert.throws(() => assertReviewFindingGuidance(value, { strict: true, paths: ["src/dialog.js"] }),
+    { code: "REVIEW_VERDICT_INVALID", message: 'findings[1].per_file_necessity[0].path must be a non-empty string. Use "path", not "file".' });
+  assert.deepEqual(value, original);
+  const corrected = structuredClone(value);
+  corrected.findings[1].per_file_necessity[0] = { path: "src/dialog.js", role: "Close handler" };
+  assert.doesNotThrow(() => assertReviewFindingGuidance(corrected, { strict: true, paths: ["src/dialog.js"] }));
+});
+
+test("finding diagnostics identify the missing field instead of claiming every field is missing", () => {
+  for (const [field, expected] of [["failure", "failure"], ["acceptance_criterion", "acceptance_criterion"], ["minimum_change_scope", "minimum_change_scope"], ["evidence_refs", "evidence_refs"]]) {
+    assert.throws(() => assertReviewFindingGuidance({ findings: [{ ...finding, [field]: undefined }] }),
+      (error) => error.code === "REVIEW_VERDICT_INVALID" && error.message.startsWith(`findings[0].${expected} `));
+  }
+  assert.throws(() => assertReviewFindingGuidance({ findings: [{ ...finding, per_file_necessity: [{ path: "src/dialog.js", role: "" }] }] }),
+    (error) => error.message.startsWith("findings[0].per_file_necessity[0].role "));
+});
+
 test("legacy prose, blank evidence and missing fix guidance require Reviewer re-review", () => {
   for (const strict of [false, true]) {
     for (const invalid of ["Fix it", null, { ...finding, failure: 42 }, { ...finding, evidence_refs: [""] },

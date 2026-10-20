@@ -1,0 +1,73 @@
+// Ensures independent review and integration retain committed evidence when platform edits change the shared root.
+import assert from "node:assert/strict";
+import test from "node:test";
+import { createHash } from "node:crypto";
+import { execFile as callback } from "node:child_process";
+import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
+import { createTicketRootWorkspace } from "../../src/modules/supervisor/ticket-root-workspace.js";
+import { prepareTicketExecutionContext } from "../../src/modules/supervisor/ticket-execution-context.js";
+import { prepareTicketReviewContext } from "../../src/modules/supervisor/ticket-review-context.js";
+import { assertTicketReviewEvidence } from "../../src/modules/supervisor/ticket-review-evidence.js";
+import { captureVerificationEnvironment, persistVerificationEnvironment } from "../../src/modules/supervisor/ticket-verification-environment.js";
+
+const execFile = promisify(callback);
+// Runs Git only inside the disposable source-evidence fixture.
+async function git(root, ...args) { return (await execFile("git", ["-C", root, ...args])).stdout.trim(); }
+// Computes the same source digest used by persisted verification evidence.
+const hash = (content) => `sha256:${createHash("sha256").update(content).digest("hex")}`;
+
+test("Reviewer resumes and integrates the passed commit despite external live edits; Coder drift and stale evidence remain blocked", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-review-resume-source-"));
+  try {
+    await git(root, "init", "-q");
+    await git(root, "config", "user.name", "NodeForge Test");
+    await git(root, "config", "user.email", "nodeforge-test@localhost");
+    await writeFile(join(root, ".gitignore"), ".forge/\n");
+    await writeFile(join(root, "source.js"), "const value = 1;\n");
+    await git(root, "add", ".gitignore", "source.js");
+    await git(root, "commit", "-qm", "baseline");
+    const files = createFileService({ projectRoot: root });
+    const service = createTicketRootWorkspace({ projectRoot: root, projectId: "PROJECT-1", stateFileService: files,
+      protocolStorage: { save: async () => {}, get: async () => ({ data: { status: "submitted_for_review", criteria_check: [{ status: "verified" }] } }) },
+      indexDatabase: { all: () => [] }, codeSearch: { search: async () => [] }, fileGraph: { getDependencies: () => [], getDependents: () => [] } });
+    const workspace = await service.open("TICKET-1");
+    const ticket = { id: "TICKET-1", project_id: "PROJECT-1", verification_plan: [] };
+    const input = { workspace, ticket, taskId: ticket.id, supervisorId: "SUP-1" };
+    await prepareTicketExecutionContext(input);
+    const submitted = "const value = 2;\n";
+    await workspace.changeLedger.write({ path: "source.js", before: "const value = 1;\n", after: submitted });
+    let context = await workspace.executionContexts.syncManifest(ticket.id, await workspace.changeLedger.snapshot());
+    const commit = await workspace.gitService.commit("ticket change");
+    context = await workspace.executionContexts.update(ticket.id, context.version, { state: "committed", review_commit_sha: commit.sha });
+    const command = { kind: "typecheck", argv: ["node", "check"] };
+    const artifact = { artifact_id: "ARTIFACT-REVIEW", status: "passed", commit_sha: commit.sha, source_revision: context.source_revision,
+      manifest_sha: context.manifest_sha, base_sha: context.base_sha, tree_sha: await git(root, "rev-parse", `${commit.sha}^{tree}`),
+      changed_paths: ["source.js"], file_checksums: { "source.js": hash(submitted) }, policy_version: "ticket-verification-v8",
+      environment: await persistVerificationEnvironment(root, await captureVerificationEnvironment({ projectRoot: root, ticketPaths: ["source.js"] })),
+      planned_commands: [command], commands: [{ ...command, exit_code: 0, output_sha256: hash("") }] };
+    await files.atomicWrite({ path: `.forge/runtime/ticket-verification/${ticket.id}/artifacts/${artifact.artifact_id}.json`, content: JSON.stringify(artifact), replace: false });
+    context = await workspace.executionContexts.update(ticket.id, context.version, { state: "reviewing", verification_artifact_id: artifact.artifact_id });
+    const external = "const value = 3; // platform repair\n";
+    await writeFile(join(root, "source.js"), external);
+    await assert.rejects(prepareTicketExecutionContext(input), { code: "TICKET_SOURCE_CHANGED" });
+    await assert.rejects(workspace.changeLedger.resume(), { code: "TICKET_SOURCE_CHANGED" });
+    const resume = { base_commit: context.base_sha, verification: artifact };
+    assert.deepEqual(await prepareTicketReviewContext({ ...input, resume }), context);
+    const evidence = await assertTicketReviewEvidence({ job: { task_id: ticket.id, payload: { commit: commit.sha, verification: artifact, execution_context: context, changed_paths: artifact.changed_paths } },
+      executionContexts: workspace.executionContexts, verificationService: workspace.testService, gitService: workspace.gitService,
+      fileService: workspace.worktreeFileService, projectRoot: root });
+    assert.equal(evidence.files[0].content, submitted);
+    assert.equal(evidence.files[0].sha256, artifact.file_checksums["source.js"]);
+    assert.equal((await workspace.integrate()).sha, commit.sha);
+    assert.equal(await readFile(join(root, "source.js"), "utf8"), external);
+    assert.deepEqual(await workspace.executionContexts.load(ticket.id), context);
+    await workspace.changeLedger.write({ path: "source.js", before: external, after: "const value = 4;\n" }).then(
+      () => assert.fail("External source must not be adopted by a Coder write"), (error) => assert.equal(error.code, "TICKET_SOURCE_CHANGED"));
+    await workspace.executionContexts.update(ticket.id, context.version, { manifest_sha: "changed-after-verification" });
+    await assert.rejects(prepareTicketReviewContext({ ...input, resume }), { code: "VERIFY_ARTIFACT_MISMATCH" });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

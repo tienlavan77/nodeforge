@@ -11,6 +11,7 @@ const nextConfig = {
   async rewrites() {
     return { afterFiles: [
       { source: "/api/:path*", destination: "/control-api/:path*" },
+      { source: "/lifecycle/:path*", destination: "/control-api/lifecycle/:path*" },
       { source: "/forge/v1/:path*", destination: "/control-api/forge/v1/:path*" },
       { source: "/projects/:path*", destination: "/control-api/projects/:path*" },
       { source: "/tasks/:path*", destination: "/control-api/tasks/:path*" },

@@ -20,7 +20,7 @@ function files(overrides = {}) {
 test("review read tools return bounded source and hide protected paths", async () => {
   const events = [];
   const tools = createReviewerForgeTools({ fileService: files(), projectRoot: "/project", job, reviewer: { agent_id: "reviewer-1", provider: "openai" }, projectLogger: (event) => events.push(event) });
-  assert.deepEqual(tools.definitions.map(({ name }) => name), ["read_file", "search_tree"]);
+  assert.deepEqual(tools.definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "read_lines"]);
   const read = await tools.registry.read_file.execute({ path: "src/a.js", symbol: "sample" });
   assert.match(read.content, /function sample/);
   const window = await tools.registry.read_file.execute({ path: "src/a.js", offset: 2, limit: 2 });
@@ -35,22 +35,26 @@ test("review read tools return bounded source and hide protected paths", async (
   assert.equal(JSON.stringify(events).includes("one"), false);
 });
 
-test("Reviewer definitions expose only the fixed search scope and metadata read", async () => {
-  const tools = createReviewerForgeTools({ fileService: files(), projectRoot: "/project", job, reviewer: { agent_id: "reviewer-1", provider: "codex" }, codeSearch: { search: async () => ({ matches: [] }) } });
-  const read = tools.definitions.find(({ name }) => name === "read_file");
-  const search = tools.definitions.find(({ name }) => name === "search_code");
-  assert.deepEqual(Object.keys(read.input_schema.properties), ["path"]);
-  assert.equal(search.input_schema.properties.allowed_prefixes, undefined);
-  const result = await tools.registry.search_code.execute({ query: "sample", allowed_prefixes: ["backend/"] });
-  assert.deepEqual(result.matches, []);
+test("verified reviews retain only existing tools for Codex, OpenAI and Claude", () => {
+  const ticketEvidence = { files: [source], artifact: { file_checksums: { [source.path]: source.sha256 } }, context: {} };
+  for (const provider of ["codex", "openai", "claude"]) {
+    const tools = createReviewerForgeTools({ fileService: files(), projectRoot: "/project", job, reviewer: { agent_id: "reviewer-1", provider }, codeCache: { read: async () => source }, ticketEvidence });
+    assert.deepEqual(tools.definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "read_lines"]);
+    assert.equal(tools.registry.review_source, undefined);
+    assert.equal(tools.registry.review_diff, undefined);
+    assert.deepEqual(tools.context.capabilities, tools.definitions.map(({ name }) => name));
+  }
 });
 
-test("Claude Reviewer Read uses the Coder file_path schema and rejects a missing path", async () => {
-  const tools = createReviewerForgeTools({ fileService: files(), projectRoot: "/project", job, reviewer: { agent_id: "reviewer-1", provider: "claude" }, includeClaudeFileTools: true, codeCache: { read: async ({ path }) => ({ path, content: "one\ntwo", sha256: "sha256:x" }) } });
-  const read = tools.definitions.find(({ name }) => name === "Read");
-  assert.deepEqual(read.input_schema.required, ["file_path", "start_line", "end_line"]);
-  assert.match((await tools.registry.Read.execute({ file_path: "src/a.js", start_line: 1, end_line: 1 })).content, /one/);
-  await assert.rejects(() => tools.registry.Read.execute({ start_line: 1, end_line: 1 }), (error) => error.code === "CLAUDE_FILE_INPUT_INVALID");
+test("Reviewer source schemas use the same contract on every provider", async () => {
+  for (const provider of ["codex", "openai", "claude", "anthropic", "deepseek"]) {
+    const tools = createReviewerForgeTools({ fileService: files(), projectRoot: "/project", job, reviewer: { agent_id: "reviewer-1", provider } });
+    const read = tools.definitions.find(({ name }) => name === "read_lines");
+    assert.deepEqual(read.input_schema.required, ["path", "start_line", "end_line"]);
+    assert.equal((await tools.registry.read_lines.execute({ path: "src/a.js", start_line: 1, end_line: 1 })).stdout, "function sample() {\n");
+    await assert.rejects(() => tools.registry.read_lines.execute({ start_line: 1, end_line: 1 }), { code: "READ_LINES_INPUT_INVALID" });
+    for (const name of ["search_code", "sed_lines", "Read", "Glob", "Grep"]) assert.equal(tools.registry[name], undefined);
+  }
 });
 
 test("review tools allow more than 12 calls while enforcing output byte budgets", async () => {
@@ -70,10 +74,10 @@ test("review tools allow more than 12 calls while enforcing output byte budgets"
 test("Supervisor passes the same read-only allowlist to every Reviewer provider", async () => {
   for (const provider of ["claude", "anthropic", "openai", "codex"]) {
     let request;
-    const gateway = { execute: async (input) => { request = input; return { text: '{"verdict":"request_changes","findings":["Need a focused test."]}' }; } };
+    const gateway = { execute: async (input) => { request = input; return { text: JSON.stringify({ verdict: "request_changes", findings: [{ failure: "Missing test", acceptance_criterion: "Focused verification", evidence_refs: ["src/a.js:1"], minimum_change_scope: "Add a focused test" }] }) }; } };
     const worker = createReviewWorker({ agentResolver: { resolveAvailable: () => ({ agent_id: "reviewer-1", role: "reviewer", provider }) }, claudeSdkGateway: gateway, openaiSdkGateway: gateway, codexSdkGateway: gateway, fileService: files(), projectRoot: "/project" });
     await worker.review(job);
-    const names = ["read_file", "search_tree"];
+    const names = ["search_tree", "list_files", "search_text", "read_file", "read_lines"];
     if (provider === "claude" || provider === "anthropic") {
       assert.deepEqual(request.options.allowedTools, names.map((name) => `mcp__forge__${name}`));
       assert.deepEqual(request.options.tools, []);
@@ -89,7 +93,7 @@ test("Reviewer falls back to supplied evidence when Forge tools cannot initializ
   let request;
   const fileService = files();
   Object.defineProperty(fileService, "listFiles", { get: () => { throw new Error("Listing service unavailable"); } });
-  const worker = createReviewWorker({ agentResolver: { resolveAvailable: () => ({ agent_id: "reviewer-1", role: "reviewer", provider: "openai" }) }, openaiSdkGateway: { execute: async (input) => { request = input; return { text: '{"verdict":"request_changes","findings":["Evidence insufficient."]}' }; } }, fileService, projectRoot: "/project", projectLogger: (event) => events.push(event) });
+  const worker = createReviewWorker({ agentResolver: { resolveAvailable: () => ({ agent_id: "reviewer-1", role: "reviewer", provider: "openai" }) }, openaiSdkGateway: { execute: async (input) => { request = input; return { text: JSON.stringify({ verdict: "request_changes", findings: [{ failure: "Missing evidence", acceptance_criterion: "Source verification", evidence_refs: ["src/a.js:1"], minimum_change_scope: "Supply source evidence" }] }) }; } }, fileService, projectRoot: "/project", projectLogger: (event) => events.push(event) });
   const result = await worker.review(job);
   assert.equal(result.verdict, "request_changes");
   assert.equal(request.options.forgeTools, undefined);
@@ -115,25 +119,25 @@ test("Reviewer source windows use committed content despite stale cache formatti
     assert.equal(metadata.review_evidence.manifest_sha, "MANIFEST-1");
     const offsetWindow = await codex.registry.read_file.execute({ path, offset: 2, limit: 2 });
     assert.equal(offsetWindow.content, "second\n");
-    const lines = await codex.registry.sed_lines.execute({ path, start_line: 1, end_line: 2 });
+    const lines = await codex.registry.read_lines.execute({ path, start_line: 1, end_line: 2 });
     assert.equal(lines.stdout, "first\nsecond\n");
     assert.equal(lines.sha256, sha256);
     assert.equal(lines.total_lines, 3);
     assert.equal(lines.review_evidence.commit_sha, "COMMIT-1");
     const claude = createReviewerForgeTools({ ...options, reviewer: { agent_id: "reviewer-1", provider: "claude" }, includeClaudeFileTools: true });
-    const lastLine = await claude.registry.Read.execute({ file_path: path, start_line: 3, end_line: 3 });
-    assert.equal(lastLine.content, "     3→");
+    const lastLine = await claude.registry.read_lines.execute({ path, start_line: 3, end_line: 3 });
+    assert.equal(lastLine.stdout, "\n");
     assert.equal(lastLine.total_lines, 3);
-    assert.equal((await claude.registry.Read.execute({ file_path: path, start_line: 2, end_line: 3 })).content, "     2→second\n     3→");
+    assert.equal((await claude.registry.read_lines.execute({ path, start_line: 2, end_line: 3 })).stdout, "second\n\n");
     evidence.files[0].content = "tampered\n";
     await assert.rejects(() => codex.registry.read_file.execute({ path, offset: 2, limit: 1 }), (error) => error.code === "REVIEW_SOURCE_MISMATCH");
-    await assert.rejects(() => claude.registry.Read.execute({ file_path: path, start_line: 3, end_line: 3 }), (error) => error.code === "REVIEW_SOURCE_MISMATCH");
+    await assert.rejects(() => claude.registry.read_lines.execute({ path, start_line: 3, end_line: 3 }), (error) => error.code === "REVIEW_SOURCE_MISMATCH");
     evidence.files[0].content = content;
     await writeFile(join(root, path), "changed\n");
-    await assert.rejects(() => codex.registry.sed_lines.execute({ path, start_line: 1, end_line: 2 }), (error) => error.code === "REVIEW_SOURCE_MISMATCH");
-    await assert.rejects(() => claude.registry.Read.execute({ file_path: path, start_line: 1, end_line: 1 }), (error) => error.code === "REVIEW_SOURCE_MISMATCH");
+    await assert.rejects(() => codex.registry.read_lines.execute({ path, start_line: 1, end_line: 2 }), (error) => error.code === "REVIEW_SOURCE_MISMATCH");
+    await assert.rejects(() => claude.registry.read_lines.execute({ path, start_line: 1, end_line: 1 }), (error) => error.code === "REVIEW_SOURCE_MISMATCH");
     await writeFile(join(root, path), content);
     evidence.artifact.file_checksums[path] = "sha256:wrong";
-    await assert.rejects(() => codex.registry.sed_lines.execute({ path, start_line: 1, end_line: 2 }), (error) => error.code === "REVIEW_SOURCE_MISMATCH");
+    await assert.rejects(() => codex.registry.read_lines.execute({ path, start_line: 1, end_line: 2 }), (error) => error.code === "REVIEW_SOURCE_MISMATCH");
   } finally { await rm(root, { recursive: true, force: true }); }
 });

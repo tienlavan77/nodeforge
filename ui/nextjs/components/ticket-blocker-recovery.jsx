@@ -5,6 +5,9 @@ import { useState } from "react";
 // Presents persisted investigation outcomes separately from Reviewer acceptance and Human Approve.
 export function TicketBlockerRecovery({ recovery, onDecide }) {
   if (!recovery) return null;
+  if (recovery.status === "approval_retry_pending") return <section aria-label="Automatic approval retry" role="status">
+    <p>Dịch vụ duyệt tạm thời lỗi 503. Node tự retry mỗi 30 giây từ checkpoint; nhấn Stop trên ticket nếu muốn tạm dừng.</p>
+  </section>;
   const decision = recovery.owner_decision ?? null;
   const message = recovery.status === "pending" ? "Đang tự động xác minh blocker; không cần reset hoặc RUN lại."
     : recovery.status === "owner_decided" ? "Đã ghi hướng xử lý; đang chờ AM hoàn thiện bàn giao. Coder chưa chạy tiếp."

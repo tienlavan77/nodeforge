@@ -56,7 +56,7 @@ test("two disjoint ticket commits serialize and an overlapping write loses its f
 });
 
 // Keeps a ticket retry commit scoped when its parent contains an earlier journaled state.
-test("ticket retry commits from a recorded earlier state and rejects foreign parent content", async () => {
+test("ticket retry commits whole ticket files even when parent content differs from recorded states", async () => {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-root-retry-state-"));
   try {
     await git(root, "init", "-q");
@@ -82,7 +82,39 @@ test("ticket retry commits from a recorded earlier state and rejects foreign par
     await git(root, "add", "a.md");
     await git(root, "commit", "-qm", "foreign parent");
     await writeFile(join(root, "a.md"), "fourth\n");
-    await assert.rejects(service.commit("reject foreign parent"), { code: "TICKET_BASELINE_CONFLICT" });
+    const changedParent = await git(root, "rev-parse", "HEAD");
+    const final = await service.commit("commit final ticket file");
+    assert.equal(await git(root, "show", `${final.sha}:a.md`), "fourth");
+    assert.equal(await git(root, "rev-list", "--parents", "-n", "1", final.sha), `${final.sha} ${changedParent}`);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("whole-file policy still rejects unrecorded source drift and requested files outside the ticket", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-root-scope-"));
+  try {
+    await git(root, "init", "-q");
+    await git(root, "config", "user.name", "NodeForge Test");
+    await git(root, "config", "user.email", "nodeforge-test@localhost");
+    await writeFile(join(root, "ticket.md"), "HEAD\n");
+    await writeFile(join(root, "outside.md"), "outside\n");
+    await git(root, "add", "ticket.md", "outside.md");
+    await git(root, "commit", "-qm", "baseline");
+    const parent = await git(root, "rev-parse", "HEAD");
+    const indexBefore = await readFile(join(root, ".git/index"));
+    const files = createFileService({ projectRoot: root });
+    const ledger = createTicketChangeLedger({ fileService: files, projectId: "P-SCOPE" });
+    const service = createTicketRootCommitService({ taskId: "T-SCOPE", projectId: "P-SCOPE", projectRoot: root, fileService: files, ledger, gitService: createGitService({ projectRoot: root }) });
+    await writeFile(join(root, "ticket.md"), "preexisting\n");
+    await ledger.write({ taskId: "T-SCOPE", path: "ticket.md", before: "preexisting\n", after: "final\n" });
+    await assert.rejects(service.commit("outside scope", { paths: ["outside.md"] }), { code: "TICKET_COMMIT_SCOPE" });
+    await writeFile(join(root, "ticket.md"), "unrecorded mutation\n");
+    await assert.rejects(service.commit("drifted source"), { code: "TICKET_SOURCE_DRIFT" });
+    assert.equal(await git(root, "rev-parse", "HEAD"), parent);
+    assert.deepEqual(await readFile(join(root, ".git/index")), indexBefore);
+    await writeFile(join(root, "ticket.md"), "final\n");
+    const committed = await service.commit("whole ticket file");
+    assert.equal(await git(root, "show", `${committed.sha}:ticket.md`), "final");
+    assert.equal(await git(root, "diff-tree", "--no-commit-id", "--name-only", "-r", committed.sha), "ticket.md");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

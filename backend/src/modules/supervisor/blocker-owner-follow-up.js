@@ -1,5 +1,5 @@
 // Re-arms Architecture once per durable owner choice without relaunching Coder or fabricating contract approval.
-export function createBlockerOwnerFollowUp({ store, clock, maxCalls, deadlineMs }) {
+export function createBlockerOwnerFollowUp({ store, clock, deadlineMs }) {
   return followOwnerDecision;
 
   // Preserves the original execution and investigation history while fulfilling a recorded direction choice.
@@ -20,7 +20,6 @@ export function createBlockerOwnerFollowUp({ store, clock, maxCalls, deadlineMs 
       delete job.outcome_reason;
       delete job.last_error;
       delete job.validation_feedback;
-      ledger.policy.max_calls = Math.max(ledger.policy.max_calls, ledger.calls + maxCalls);
       ledger.deadline_at = clock() + deadlineMs;
       await store.save("blocker.recovery", ledger);
       return structuredClone(job);

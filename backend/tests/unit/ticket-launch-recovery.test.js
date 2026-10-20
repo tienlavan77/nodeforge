@@ -11,23 +11,19 @@ import { createNodeforgeTaskIntegration } from "../../src/modules/supervisor/nod
 import { createTicketRunDispatch } from "../../src/application/ticket-run-dispatch.js";
 import { assertDependencySubmission, captureDependencyExpectations } from "../../src/modules/supervisor/ticket-dependency-expectations.js";
 
-const SOURCE_IDENTITIES = Object.freeze({
-  "modules/supervisor/production-runtime.js": "d223ddf89b5a3069ae6d5894884dcaca4b867120ac9d875769fdec8b7428c2a3",
-  "modules/supervisor/ticket-launch-recovery.js": "be74b0222137620a5111e1fd10edf68c1f5ca7778a232355fc67237bd6eddf69",
-  "modules/supervisor/durable-queue.js": "ab7b69fdb8f3e3a2065900fc56d459495d864391f52cfba41a30433c0998d951",
-  "modules/supervisor/ticket-dependency-expectations.js": "cf987d85b7b99e66b119ebfbac89f04f4f2823960ed63f504e971ba2991341ac",
-  "application/ticket-run-dispatch.js": "6335a9bccf6619666222c63527bff79a1127767d35f5056af05b2da82e6f35fa"
-});
+const SOURCE_PATHS = [
+  "modules/supervisor/production-runtime.js", "modules/supervisor/ticket-launch-recovery.js",
+  "modules/supervisor/durable-queue.js", "modules/supervisor/ticket-dependency-expectations.js", "application/ticket-run-dispatch.js"
+];
+let sourceIdentities;
 
-// Checks the declared source manifest inside the verification run, rather than assigning later reads to an earlier PASS.
-async function assertSourceManifest() {
-  for (const [path, expected] of Object.entries(SOURCE_IDENTITIES)) {
-    const bytes = await readFile(new URL(`../../src/${path}`, import.meta.url));
-    assert.equal(createHash("sha256").update(bytes).digest("hex"), expected, `Source changed during recovery verification: ${path}`);
-  }
+// Captures the source used by this run so legitimate edits before verification do not invalidate the test fixture.
+async function sourceManifest() {
+  return Object.fromEntries(await Promise.all(SOURCE_PATHS.map(async (path) => [path,
+    createHash("sha256").update(await readFile(new URL(`../../src/${path}`, import.meta.url))).digest("hex")])));
 }
-test.before(assertSourceManifest);
-test.after(assertSourceManifest);
+test.before(async () => { sourceIdentities = await sourceManifest(); });
+test.after(async () => { assert.deepEqual(await sourceManifest(), sourceIdentities, "Source changed during recovery verification"); });
 
 // Creates durable approved fixture identity and cleans up runtime instances before disposing test storage.
 async function withStorage(callback) {

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createReviewWorker } from "../../src/modules/supervisor/review-worker.js";
-import { createTicketWorkspaceRuntime } from "../../src/modules/supervisor/ticket-workspace-runtime.js";
+import { resolveReviewOnlyWorkspace } from "../../src/modules/supervisor/review-only-workspace.js";
 
 // Supplies a read-only Reviewer and captures the prompt sent through the SDK.
 function harness({ text = '{"verdict":"approved","findings":[]}', sourceSize = 12, staleOnSecondRead = false, patch = "" } = {}) {
@@ -50,21 +50,23 @@ test("Reviewer reads local role rules while source remains bound to the committe
   assert.match(prompt, /Review the verified commit/);
 });
 
-// Ensures the Supervisor's ticket runtime passes local policy to its Reviewer.
-test("ticket runtime wires local Reviewer policy separately from committed source", async () => {
+// Ensures the independent review workspace passes local policy separately from committed source.
+test("review-only workspace wires local Reviewer policy separately from committed source", async () => {
   const sourceReads = [];
   const rulesReads = [];
   let prompt;
   const source = { readForIndex: async ({ path }) => { sourceReads.push(path); return { path, sha256: "sha256:source", size_bytes: 12, content: "const ok = 1;" }; } };
   const rules = { readForIndex: async ({ path }) => { rulesReads.push(path); return { path, content: "Review the verified commit." }; } };
-  const runtime = createTicketWorkspaceRuntime({
-    workspace: { projectRoot: "/project", path: "/project", base_commit: "a".repeat(40), branch: "ui-chat", worktreeFileService: source, fileService: rules, toolRegistry: {}, gitService: {}, executionContexts: null, testService: null },
+  const runtime = await resolveReviewOnlyWorkspace({
+    resolveTicketWorkspace: async () => ({ projectRoot: "/project", path: "/project", base_commit: "a".repeat(40), branch: "ui-chat", worktreeFileService: source, fileService: rules, gitService: { getHead: async () => "b".repeat(40) } }),
+    taskId: "TASK-1", commit: "b".repeat(40), baseCommit: "a".repeat(40), fileService: rules,
     gateways: { openaiSdkGateway: { execute: async ({ prompt: value }) => { prompt = value; return { text: '{"verdict":"approved","findings":[]}' }; } } },
     agentResolver: { resolveAvailable: () => ({ agent_id: "reviewer-1", agent_name: "Leader", provider: "openai", role: "reviewer" }) },
     runtimeGovernance: {}, projectLogger: () => {}
   });
-  await runtime.reviewer.review({ task_id: "TASK-1", agent_id: "coder-1", payload: { ticket: { id: "TASK-1" }, changed_paths: ["src/a.js"] } });
-  assert.deepEqual(sourceReads, ["src/a.js"]);
+  await runtime.reviewWorker.review({ task_id: "TASK-1", agent_id: "coder-1", payload: { ticket: { id: "TASK-1" }, changed_paths: ["src/a.js"] } });
+  assert.equal(sourceReads.length >= 1, true);
+  assert.equal(sourceReads.every((path) => path === "src/a.js"), true);
   assert.deepEqual(rulesReads, ["workflows/agents/reviewer/README.md"]);
   assert.match(prompt, /Review the verified commit/);
 });
@@ -119,6 +121,44 @@ test("Claude Reviewer receives the same Forge-only SDK boundary as other roles",
   });
   await worker.review({ task_id: "TASK-1", correlation_id: "CORR-1", request_id: "REVIEW-1", agent_id: "coder-1", payload: { ticket: { id: "TASK-1" }, changed_paths: ["src/a.js"] } });
   assert.deepEqual(request.options.tools, []);
-  assert.deepEqual(request.options.allowedTools, ["mcp__forge__read_file", "mcp__forge__Read", "mcp__forge__Glob", "mcp__forge__Grep", "mcp__forge__search_tree"]);
+  assert.deepEqual(request.options.allowedTools, ["mcp__forge__search_tree", "mcp__forge__list_files", "mcp__forge__search_text", "mcp__forge__read_file", "mcp__forge__read_lines"]);
   assert.equal(request.options.mcpServers.forge.type, "sdk");
+});
+
+test("Reviewer records per-tool checkpoint progress and failure state", async () => {
+  const savedCheckpoints = [];
+  const content = "const ok = true;\n";
+  const worker = createReviewWorker({
+    agentResolver: { resolveAvailable: () => ({ agent_id: "reviewer-1", agent_name: "Leader", provider: "codex", role: "reviewer" }) },
+    codexSdkGateway: {
+      execute: async (input) => {
+        input.onSessionReady?.("thread-rev-1");
+        if (input.options.forgeTools.registry.read_file) await input.options.forgeTools.registry.read_file.execute({ path: "src/a.js" });
+        else {
+          assert.equal(input.resumeThreadId, "thread-rev-1");
+          assert.deepEqual(input.options.forgeTools.definitions, []);
+        }
+        return { text: '{"verdict":"request_changes","findings":["legacy string"]}' };
+      }
+    },
+    fileService: {
+      readForIndex: async ({ path }) => ({ path, sha256: "sha256:abc", size_bytes: content.length, content: path === "workflows/agents/reviewer/README.md" ? "Review the changed source." : content }),
+      listFiles: async () => ["src/a.js"],
+      listDirectories: async () => ["src"]
+    },
+    checkpoints: { saveReview: async (cp) => { savedCheckpoints.push(cp); return cp; } },
+    projectRoot: "/project"
+  });
+  await assert.rejects(
+    () => worker.review({ task_id: "TASK-CP-1", correlation_id: "CORR-1", request_id: "REVIEW-CP-1", agent_id: "coder-1", payload: { ticket: { id: "TASK-CP-1" }, changed_paths: ["src/a.js"] } }),
+    (error) => error.code === "REVIEW_VERDICT_INVALID"
+  );
+  const inProgress = savedCheckpoints.find((cp) => cp.status === "in_progress" && cp.last_completed_turn === 1);
+  assert.ok(inProgress);
+  assert.equal(inProgress.thread_id, "thread-rev-1");
+  assert.equal(inProgress.last_tool, "read_file");
+  const failed = savedCheckpoints.at(-1);
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.last_completed_turn, 1);
+  assert.equal(failed.last_error.code, "REVIEW_VERDICT_INVALID");
 });

@@ -75,8 +75,10 @@ export async function* stream({ url, credential, payload, model, correlationId, 
   const requestBody = {
     model: model || process.env.DEVQUOTE_MODEL || process.env.NODE_AGENT_MODEL || "claude-haiku-4-5",
     max_tokens: 8192,
+    system: buildAnthropicSystem(payload),
     messages: buildAnthropicMessages(payload),
     tools: toAnthropicTools(payload.tools),
+    ...(buildAnthropicToolChoice(payload, payload.tools ?? []) ? { tool_choice: buildAnthropicToolChoice(payload, payload.tools ?? []) } : {}),
     stream: true
   };
 
@@ -100,6 +102,7 @@ export async function* stream({ url, credential, payload, model, correlationId, 
 
   const decoder = new TextDecoder();
   let buffer = "";
+  let usage = {};
   let toolUse;
   let toolInput = "";
 
@@ -121,7 +124,10 @@ export async function* stream({ url, credential, payload, model, correlationId, 
       }
 
       // Anthropic Messages API stream events
-      if (event.type === "content_block_delta" && typeof event.delta?.text === "string") {
+      if (event.type === "message_start") {
+        usage = { ...usage, ...event.message?.usage };
+        yield { usage: mapUsage(usage) };
+      } else if (event.type === "content_block_delta" && typeof event.delta?.text === "string") {
         yield { text: event.delta.text };
       } else if (event.type === "content_block_start" && event.content_block?.type === "tool_use") {
         toolUse = { id: event.content_block.id, name: event.content_block.name };
@@ -140,7 +146,8 @@ export async function* stream({ url, credential, payload, model, correlationId, 
         if (rid) yield { response_id: rid };
         else yield { response_id: "devquote-stream-complete" };
       } else if (event.type === "message_delta" && event.usage) {
-        yield { usage: mapUsage(event.usage) };
+        usage = { ...usage, ...event.usage };
+        yield { usage: mapUsage(usage) };
       } else if (event.type === "error") {
         throw new ConfigurationError("Devquote Gateway stream failed.");
       }

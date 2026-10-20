@@ -54,6 +54,23 @@ test("Coding agent list adapts to one, two or at most three columns without wide
   assert.equal(declarations(".coding-agent-monitor header > button")["flex-shrink"], "0");
 });
 
+test("Only Coding monitor chrome loses padding while panels cap height with scrolling content", () => {
+  assert.equal(declarations(".workspace-monitor-header").padding, "0 10px 0 14px");
+  assert.equal(declarations(".workspace-monitor-header").flex, "none");
+  assert.equal(declarations(".coding-agent-monitor .workspace-monitor-header").padding, "0");
+  assert.equal(declarations(".coding-agent-monitor .workspace-monitor-content").padding, "0");
+  const content = declarations(".workspace-monitor-content");
+  assert.equal(content.padding, "10px 14px");
+  assert.equal(content["min-height"], "0");
+  assert.equal(content.overflow, "auto");
+  const panel = declarations(".coding-agent-monitor");
+  assert.equal(panel.display, "flex");
+  assert.equal(panel["flex-direction"], "column");
+  assert.equal(panel["max-height"], "50vh");
+  assert.equal(panel["box-sizing"], "border-box");
+  assert.equal(panel.overflow, "hidden");
+});
+
 test("Coding restores navigation before the workspace without conversation controls", () => {
   assert.match(page, /className="claude-home-shell coding-workspace-shell"/);
   assert.ok(page.indexOf("<ConversationSidebar") < page.indexOf("<CodingWorkspaceMonitor"));

@@ -1,5 +1,6 @@
 // Drafts a governance ticket through the configured Sprint Leader SDK.
 import { extractTicketJson } from "./ticket-draft-parser.js";
+import { PLANNING_AUTONOMY_PROMPT } from "../shared/implementation-autonomy.js";
 import { startSprintLeaderProgress } from "./sprint-leader-progress.js";
 
 // Creates a runner that asks the sprint leader for one ticket draft with codebase search.
@@ -72,6 +73,7 @@ function stripLegacyCandidateFields(ticket) {
 function buildPrompt({ projectId, content, ticket, feedback }) {
   return [
     "Convert the project owner request below into exactly one governance ticket.",
+    PLANNING_AUTONOMY_PROMPT,
     "Investigate the project with the supplied read-only Forge search_tree, list_files, search_text, search_code, read_file, and read_lines tools before drafting the ticket. Find related existing files when possible and cite only observed facts. If discovery is unavailable, state the uncertainty. Do not use built-in shell, file, network, or write tools.",
     "Write ALL ticket field values (title, objective, acceptance_criteria, verification_plan) in English. If the owner request is in another language (e.g. Vietnamese), translate it into clear technical English.",
     "REQUIRED: Set implementation_type to exactly one value in a one-item array: frontend (UI/component/page/chat UI), backend (API/database/server), or security (auth/permission/credential). Return e.g. [\"frontend\"]. Do not return the legacy style field or combine types.",

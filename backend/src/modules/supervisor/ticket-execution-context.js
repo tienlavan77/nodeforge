@@ -57,7 +57,7 @@ export function createTicketExecutionContextStore({ fileService, projectId, proj
       const current = await load(taskId);
       if (!current) throw fail("TICKET_CONTEXT_MISSING", "Ticket context does not exist.");
       if (current.version !== expectedVersion) throw fail("TICKET_CONTEXT_VERSION_CONFLICT", "Ticket context version changed.");
-      if (!patch || typeof patch !== "object" || Object.keys(patch).some((key) => !["state", "source_revision", "manifest_paths", "manifest_sha", "verification_artifact_id", "review_commit_sha"].includes(key))) throw fail("TICKET_CONTEXT_PATCH_INVALID", "Ticket context update contains an unauthorized field.");
+      if (!patch || typeof patch !== "object" || Object.keys(patch).some((key) => !["state", "source_revision", "manifest_paths", "manifest_sha", "verification_artifact_id", "review_commit_sha", "verification_source"].includes(key))) throw fail("TICKET_CONTEXT_PATCH_INVALID", "Ticket context update contains an unauthorized field.");
       if (patch.state && !STATES.has(patch.state)) throw fail("TICKET_CONTEXT_STATE_INVALID", "Ticket context state is invalid.");
       if (current.state === "terminal" && patch.state && patch.state !== "terminal") throw fail("TICKET_CONTEXT_TERMINAL", "Terminal ticket context cannot reopen.");
       const next = { ...current, ...patch, version: current.version + 1, updated_at: new Date().toISOString() };
@@ -76,7 +76,7 @@ export function createTicketExecutionContextStore({ fileService, projectId, proj
       if (current.approved_baseline && Object.keys(manifest.entries).some((path) => !(path in current.approved_baseline.file_checksums))) throw fail("TICKET_BASELINE_SCOPE", "Ticket ledger includes a path outside the approved baseline manifest.");
       if (current.source_revision === identity.source_revision && current.manifest_sha === identity.manifest_sha) return current;
       if (["integrating", "terminal"].includes(current.state)) throw fail("TICKET_CONTEXT_FROZEN", "Ticket manifest is frozen.");
-      const next = { ...current, ...identity, state: "coding", verification_artifact_id: null, review_commit_sha: null, version: current.version + 1, updated_at: new Date().toISOString() };
+      const next = { ...current, ...identity, state: "coding", verification_artifact_id: null, review_commit_sha: null, verification_source: null, version: current.version + 1, updated_at: new Date().toISOString() };
       await fileService.atomicWrite({ path: pathFor(taskId), content: `${JSON.stringify(next)}\n`, replace: true });
       log("manifest_synced", next);
       return next;

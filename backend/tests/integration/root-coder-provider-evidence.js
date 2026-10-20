@@ -47,7 +47,7 @@ export async function inspectRootCoderCanary(root, ticketId) {
   const commit = (await execFile("git", ["-C", root, "rev-parse", "HEAD"])).stdout.trim();
   const tree = (await execFile("git", ["-C", root, "rev-parse", `${commit}^{tree}`])).stdout.trim();
   assert.equal(artifact.status, "passed");
-  assert.equal(artifact.materialization_method, "git-archive");
+  assert.equal(artifact.materialization_method, "ticket-commit-with-project-environment");
   assert.equal(artifact.commit_sha, commit);
   assert.equal(artifact.tree_sha, tree);
   assert.equal(artifact.manifest_sha, context.manifest_sha);

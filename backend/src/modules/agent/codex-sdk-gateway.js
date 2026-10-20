@@ -75,7 +75,7 @@ export function createCodexSdkGateway({
               NODEFORGE_CODEX_MCP_DEBUG_LOG: options.mcpDebugLog ?? `${process.cwd()}/.forge/runtime/nf/logs/codex-mcp.log`
             },
             startup_timeout_sec: 10,
-            tool_timeout_sec: 120,
+            tool_timeout_sec: mcpSession.tools.some((tool) => tool.name === "report_done") ? Math.ceil(timeoutMs / 1000) : 120,
             // Codex 0.154 defers all MCP tools behind `tool_search` when the
             // model family supports it (e.g. gpt-5.5), so the tool names never
             // appear in the initial request and the model gives up. Omitting

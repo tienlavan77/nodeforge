@@ -154,7 +154,8 @@ export function createSupervisorLoop({ runtime, senderQueue, collectorQueue, ver
   async function terminal(type, event, payload = {}) { await eventBus.publish({ type, task_id: runtime.taskId, supervisor_id: runtime.supervisorId, request_id: event.request_id, correlation_id: event.correlation_id, attempt: event.attempt ?? 1, payload: { ...payload, ...(event.payload?.execution_id ? { execution_id: event.payload.execution_id, execution_basis: event.payload.execution_basis } : {}) } }); }
   // Parks review failures without failing the Coder ticket or bypassing an unresolved finding.
   async function parkReview(event, reason) {
-    if (event.payload?.automatic_review) await automaticReview.park(await automaticReview.findJob(event.payload.job_key), reason);
+    const parked = event.payload?.automatic_review ? await automaticReview.park(await automaticReview.findJob(event.payload.job_key), reason) : null;
+    if (parked?.status === "failed") { await runtime.transition("FAILED", event); await releaseCoder(reason); return { handled: true, retryable: true }; }
     await runtime.transition("NEEDS_HUMAN_REVIEW", event);
     if (!event.payload?.automatic_review) await terminal("task.needs_human_review", event, { reason });
     await releaseCoder(reason);

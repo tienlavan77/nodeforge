@@ -22,7 +22,7 @@ test("legacy pending Coder evidence fails retryably without human review, integr
   assert.deepEqual(actions, []);
   const events = [];
   const claimReleases = [];
-  const result = await completeCoderTicket({ workspace, agentOccupancy: { release: async (entry) => { claimReleases.push(entry); } }, claim: { claim_id: "CLAIM-1" }, taskId: "TICKET-1", ownerId: "SUP-1", request: { request_id: "REQ-1" }, publishTicketOutcome: async (type, _request, _owner, payload) => { events.push({ type, payload }); }, result: { tool_events: [{ tool: "report_done", status: "success" }] } });
+  const result = await completeCoderTicket({ workspace, agentOccupancy: { release: async (entry) => { claimReleases.push(entry); } }, claim: { claim_id: "CLAIM-1" }, taskId: "TICKET-1", ownerId: "SUP-1", request: { request_id: "REQ-1", ticket: { execution_policy: { review_gate: "off" } } }, publishTicketOutcome: async (type, _request, _owner, payload) => { events.push({ type, payload }); }, result: { tool_events: [{ tool: "report_done", status: "success" }] } });
   assert.deepEqual(result, { status: "failed", reason: "CODER_EVIDENCE_PENDING" });
   assert.equal(events.length, 1);
   assert.equal(events[0].type, "task.failed");
@@ -44,7 +44,7 @@ test("verified Coder evidence can enter integration", async () => {
 test("successful verified report completes the ticket after integration", async () => {
   const { workspace, actions } = workspaceWithReport("verified");
   const events = [];
-  const result = await completeCoderTicket({ workspace, agentOccupancy: { release: async () => { actions.push("release_agent"); } }, claim: { claim_id: "CLAIM-1" }, taskId: "TICKET-2", ownerId: "SUP-1", request: { request_id: "REQ-1" }, publishTicketOutcome: async (type, _request, _owner, payload) => { events.push({ type, payload }); actions.push(type); }, result: { summary: "Verified change", tool_events: [{ tool: "report_done", status: "success" }] } });
+  const result = await completeCoderTicket({ workspace, agentOccupancy: { release: async () => { actions.push("release_agent"); } }, claim: { claim_id: "CLAIM-1" }, taskId: "TICKET-2", ownerId: "SUP-1", request: { request_id: "REQ-1", ticket: { execution_policy: { review_gate: "off" } } }, publishTicketOutcome: async (type, _request, _owner, payload) => { events.push({ type, payload }); actions.push(type); }, result: { summary: "Verified change", tool_events: [{ tool: "report_done", status: "success" }] } });
   assert.deepEqual(result, { status: "completed" });
   assert.deepEqual(actions, ["context_update", "integrate", "context_update", "release_ledger", "release_agent", "task.completed"]);
   assert.equal(events.length, 1);

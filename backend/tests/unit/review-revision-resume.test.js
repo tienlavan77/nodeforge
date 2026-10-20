@@ -40,3 +40,20 @@ test("completed Coder revision advances to the next review attempt", () => {
   const resume = reviewPhaseResume({ status: "completed", agent_id: "coder-1", provider: "codex", attempt: 3, changed_paths: ["ui/Dialog.jsx"] }, { status: "completed", verdict: "request_changes", review_attempt: 1, attempt: 2 });
   assert.equal(resume.review_attempt, 2);
 });
+
+// Gives Coder the full structured defect and verification evidence needed for a focused repair.
+test("Coder repair prompt preserves structured finding details", () => {
+  const finding = { finding_id: "REV-1", failure: "Missing session isolation", acceptance_criterion: "AC-3", evidence_refs: ["test:sessions"], files: ["backend/session.js"] };
+  const prompt = buildResumePrompt("Repair ticket", createResumeState({ task_id: "T", review_findings: [finding] }));
+  assert.ok(prompt.includes(JSON.stringify(finding)));
+  assert.ok(!prompt.includes("undefined"));
+});
+
+test("restart retains a prepared finding cycle instead of replacing it with an older queued finding", async () => {
+  for (const phase of ["finding_repair_preparing", "finding_repair_ready"]) {
+    const checkpoint = { task_id: "T-1", status: "in_progress", phase, review_repair_key: `sha256:${"a".repeat(64)}`,
+      attempt: 4, review_findings: [{ finding_id: "REV-4" }], changed_paths: [], last_completed_turn: 0 };
+    const queue = { list: async () => [{ task_id: "T-1", attempt: 3, payload: { review_findings: [{ finding_id: "REV-3" }] } }] };
+    assert.equal(await reviewRevisionResume(queue, "T-1", checkpoint), checkpoint);
+  }
+});

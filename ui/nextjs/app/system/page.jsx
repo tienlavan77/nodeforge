@@ -39,11 +39,10 @@ import { createHomeMessageHandlers } from "../../lib/home-page-message-handlers.
 import { useConversationMessageHistory } from "../../lib/use-conversation-message-history.js";
 import { normalizeUiError } from "../../lib/ui-error.js";
 
-const CODING_AGENT_SELECTION_KEY = `${PROJECT_ID}:coding`;
-const CODING_CHAT_STATE_KEY = `nodeforge:coding:last:${PROJECT_ID}`;
-
 // Opens and restores a conversation with a configured System Engineer agent in the System workspace.
 export default function SystemPage({ sectionTitle = "System" } = {}) {
+  const CODING_AGENT_SELECTION_KEY = `${PROJECT_ID}:coding`;
+  const CODING_CHAT_STATE_KEY = `nodeforge:coding:last:${PROJECT_ID}`;
   const client = useMemo(() => createNodeClient(), []);
   const chatMessagesRef = useRef(null);
   const [agentDirectory, setAgentDirectory] = useState([]);

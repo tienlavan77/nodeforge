@@ -1,7 +1,7 @@
 // Root layout with global styles and metadata.
 import "./globals.css";
 import "./tailwind.css";
-import { ProjectWorkspace } from "../components/project-workspace.jsx";
+import { ProjectRouteBoundary } from "../components/project-route-boundary.jsx";
 
 export const metadata = {
   title: "NodeForge",
@@ -14,7 +14,7 @@ export default function RootLayout({ children }) {
     <html lang="vi" suppressHydrationWarning>
       <body>
 
-        <ProjectWorkspace>{children}</ProjectWorkspace>
+        <ProjectRouteBoundary>{children}</ProjectRouteBoundary>
       </body>
     </html>
   );

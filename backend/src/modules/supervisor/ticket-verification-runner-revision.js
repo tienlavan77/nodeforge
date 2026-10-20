@@ -14,12 +14,13 @@ const RUNNER_FILES = [
   "./browser-coding-bundle.js", "./browser-coding-presence-fixture.js",
   "./browser-coding-presence-adapters.js", "./browser-coding-presence-scenarios.js"
 ];
+const VERIFICATION_FILES = ["./ticket-verification-plan.js", "./ticket-verification-policy.js", "./ticket-verification-regression.js", "./ticket-verification-reporter.js"];
 
 // Identifies the actual external browser runner and Node runtime separately from the immutable ticket revision.
 export async function ticketVerificationRunnerRevision(verificationPlan, { readSource = readFile } = {}) {
-  if (!verificationPlan?.some((step) => step?.kind === "browser")) return null;
   const hash = createHash("sha256").update(process.version);
-  for (const path of RUNNER_FILES) {
+  const paths = [...VERIFICATION_FILES, ...(verificationPlan?.some((step) => step?.kind === "browser") ? RUNNER_FILES : [])];
+  for (const path of paths) {
     const content = await readSource(new URL(path, import.meta.url));
     hash.update(`\0${path}\0`).update(content);
   }

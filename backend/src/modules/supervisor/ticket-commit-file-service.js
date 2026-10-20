@@ -1,4 +1,6 @@
 // Serves Reviewer source from the ticket commit rather than mutable project-root files.
+import { createVerificationReviewSource } from "./ticket-verification-review-source.js";
+import { readFile as readStoredFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { createTicketRootGit } from "./ticket-root-git.js";
@@ -9,7 +11,16 @@ const fail = (code, message) => Object.assign(new ConfigurationError(message), {
 export function createTicketCommitFileService({ taskId, projectRoot, executionContexts }) {
   if (!taskId || !executionContexts?.load) throw fail("CONFIGURATION_ERROR", "Committed Reviewer source requires a ticket context.");
   const git = createTicketRootGit({ projectRoot });
-  return Object.freeze({ readFile, readForIndex, listFiles, listDirectories });
+  return Object.freeze(createVerificationReviewSource({ projectRoot, source: { readFile, readForIndex, listFiles, listDirectories },
+    getTicketPaths: async () => (await executionContexts.load(taskId))?.manifest_paths ?? [],
+    getArtifact: async () => {
+      const context = await executionContexts.load(taskId);
+      if (!context?.verification_artifact_id) return null;
+      if (!/^ARTIFACT-[A-Za-z0-9-]+$/.test(context.verification_artifact_id)) throw fail("REVIEW_EVIDENCE_MISMATCH", "Invalid verification artifact identity.");
+      const artifact = JSON.parse(await readStoredFile(`${projectRoot}/.forge/runtime/ticket-verification/${taskId}/artifacts/${context.verification_artifact_id}.json`, "utf8"));
+      if (artifact.commit_sha !== context.review_commit_sha || artifact.manifest_sha !== context.manifest_sha) throw fail("REVIEW_EVIDENCE_MISMATCH", "Review environment differs from the current ticket artifact.");
+      return artifact;
+    } }));
 
   // Resolves the immutable commit selected for this ticket's review.
   async function commit() {

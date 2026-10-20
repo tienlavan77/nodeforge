@@ -32,7 +32,7 @@ export async function blockerRecoveryFixture({ reason = "SCOPE_CONFLICT", invest
       submitTicket: (input) => base.service.runTicket(input), disposition: { get: async () => null },
       clock: () => now, logger: { warn() {}, error() {} }, limits: { deadlineMs: 600_000, ...(limits ?? {}) },
       investigate: async (job) => { calls.push(job.stage); return investigate ? investigate(job, resolution)
-        : job.stage === "sprint_leader" ? { action: "architecture_required", summary: "This blocker requires Architecture verification." } : resolution; }, ...recoveryOptions, ...options });
+        : job.stage === "sprint_leader" && !job.architecture_response ? { action: "architecture_required", summary: "This blocker requires Architecture verification." } : resolution; }, ...recoveryOptions, ...options });
     base.restart({ blockerRecovery: recovery });
     return recovery;
   }

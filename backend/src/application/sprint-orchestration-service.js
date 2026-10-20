@@ -10,6 +10,7 @@ import addFormats from "ajv-formats";
 import { ConfigurationError } from "../shared/errors.js";
 import { assertTicketVerificationContract } from "../modules/governance/ticket-verification-contract.js";
 import { TICKET_PRIORITY_VALUES } from "../modules/governance/sprint-ticket-priority.js";
+import { PLANNING_AUTONOMY_PROMPT } from "../shared/implementation-autonomy.js";
 
 const require = createRequire(import.meta.url);
 const commonSchema = require("../../../schemas/core/common.schema.json");
@@ -67,7 +68,7 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
         continue;
       }
       const roleTickets = tickets.filter((ticket) => ticket.owner === role || !ticket.owner);
-      const text = `${sprint.objective}\n\nTickets:\n${roleTickets.map((ticket) => `- ${ticket.id}: ${ticket.title} — ${ticket.objective}`).join("\n")}${role === "sprint-leader" ? "\n\nReturn ONLY a ```json block containing the sprint plan JSON valid against sprint-plan.schema.json (required: id, roadmap_id, project_id, objective, tickets[], exit_criteria, human_plan). human_plan must include outcome, in_scope, out_of_scope, approach, components, risks, assumptions, open_questions, evidence_refs and acceptance_criteria. Cite only evidence present in the brief. Every ticket MUST include exactly one implementation_type value (frontend|backend|security) and a positive integer file_budget sized to the work, with no global maximum. Do NOT include style, candidate_files or candidate metadata. No prose outside the block." : ""}${role === "sprint-leader" ? `\nTicket priority is optional; if included it must be a string from ${TICKET_PRIORITY_VALUES.join("|")}, never a numeric rank or null.` : ""}`;
+      const text = `${PLANNING_AUTONOMY_PROMPT}\n\n${sprint.objective}\n\nTickets:\n${roleTickets.map((ticket) => `- ${ticket.id}: ${ticket.title} — ${ticket.objective}`).join("\n")}${role === "sprint-leader" ? "\n\nReturn ONLY a ```json block containing the sprint plan JSON valid against sprint-plan.schema.json (required: id, roadmap_id, project_id, objective, tickets[], exit_criteria, human_plan). human_plan must include outcome, in_scope, out_of_scope, approach, components, risks, assumptions, open_questions, evidence_refs and acceptance_criteria. Cite only evidence present in the brief. Every ticket MUST include exactly one implementation_type value (frontend|backend|security) and a positive integer file_budget sized to the work, with no global maximum. Do NOT include style, candidate_files or candidate metadata. No prose outside the block." : ""}${role === "sprint-leader" ? `\nTicket priority is optional; if included it must be a string from ${TICKET_PRIORITY_VALUES.join("|")}, never a numeric rank or null.` : ""}`;
       const correlationId = `CORR-${sprint.id}-${role}-${randomUUID()}`;
       const agentId = role;
       const conversationId = `CONV-${conversationRole(role)}-${sprint.id}`;

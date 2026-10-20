@@ -71,7 +71,7 @@
       "contract_evidence": { "type": "array", "maxItems": 8, "items": { "type": "object", "additionalProperties": false,
         "required": ["path", "sha256", "authority_quote"], "properties": { "path": { "type": "string", "minLength": 1 },
           "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "authority_quote": { "type": "string", "minLength": 20 } } } },
-      "review_gate": { "type": "string", "enum": ["off", "on"], "default": "off" },
+      "review_gate": { "type": "string", "enum": ["off", "on"], "default": "on" },
       "max_review_revisions": { "type": "integer", "minimum": 0, "default": 2 }
     } },
     "candidate_files": { "type": "array", "items": { "$ref": "#/$defs/candidateFile" }, "minItems": 1 },

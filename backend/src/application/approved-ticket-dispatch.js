@@ -28,6 +28,7 @@ export function createApprovedTicketDispatch({ projectId, sprintRegistry, ticket
         text: `Ticket ${ticket.id}: ${ticket.title ?? ""}\nObjective: ${ticket.objective ?? ""}\nAcceptance: ${(ticket.acceptance_criteria ?? []).join("; ")}`,
         task: { id: ticket.id, title: ticket.title, objective: ticket.objective, dependencies: ticket.dependencies ?? [], acceptance_criteria: ticket.acceptance_criteria ?? [] },
         ticket, sprint_basis: admittedBasis, ...(executionId ? { execution_id: executionId } : {}), ...(dependencyExpectations !== undefined ? { dependency_expectations: dependencyExpectations } : {}),
+        ...(ticketStatusStore?.get(ticket.id)?.details?.review_reopen?.repair_cycle_id ? { review_cycle_id: ticketStatusStore.get(ticket.id).details.review_reopen.repair_cycle_id } : {}),
         ...(resume_from ? { resume_from } : {}),
         ...(review_resume ? { review_resume, review_base_commit: review_resume.base_commit } : {})
       }

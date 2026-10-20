@@ -75,6 +75,26 @@ and stream projections, with deterministic embedding endpoint substitutes and
 Linux descriptor assertions. It does not prove real Ollama availability, public
 Control API management, CLI transport, canary behavior, or production acceptance.
 
-The transport package remains blocked until the owner supplies approved
-identifiers, schemas, errors, and compatibility tests. Do not invent endpoints,
-route aliases, prefixes, or payloads to bypass that gate.
+## Reconciled management transport
+
+The resumed ticket authorizes only `POST /lifecycle/add`,
+`POST /lifecycle/remove`, and `GET /lifecycle/list`. This reconciled contract
+supersedes the earlier transport-blocked description above, but does not remove
+the combined verification gate or grant production acceptance.
+
+Set `NODEFORGE_PROJECT_CATALOG_PATH` to a canonical absolute catalog path outside
+project `.forge` directories to enable management in the Control API. Omitting
+it preserves legacy single-project startup. Run `forge project add <absolute-root>`,
+`forge project remove <absolute-root>`, or `forge project list` with
+`--server <url>` or `NODEFORGE_CONTROL_API_URL`; the explicit flag takes precedence.
+These commands issue one HTTP request and never start a local runtime or server.
+
+Mutation bodies contain only a string `root`. Success responses use `project_id`;
+list includes serving `projects` and `startup_errors`. Errors retain the canonical
+NodeForge error envelope. Missing lifecycle configuration returns 503; invalid
+roots return 400, identity conflicts return 409, and persistence or cleanup
+failures return 500. Failed cleanup never reports successful removal.
+
+The integration suite also exercises a real HTTP listener and the thin CLI.
+Passing implementation checks alone does not establish canary, terminal receipt,
+or release authority evidence. Production remains **NOT ACCEPTED**.

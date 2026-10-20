@@ -1,6 +1,7 @@
 // Normalizes Claude and Codex SDK events into governed Forge tool results.
 import { ConfigurationError } from "../../shared/errors.js";
 import { engineeringToolName } from "../../tools/engineering-tool-names.js";
+import { approvalServiceUnavailable } from "./blocker-approval-retry.js";
 
 // Converts completed Codex SDK MCP events into Forge tool-event records.
 export function sdkToolEvent(event, forgeToolNames) {
@@ -30,6 +31,10 @@ export function assertTicketExecutionCompleted(toolEvents, { labMode = false, mi
   const failedReport = [...toolEvents].reverse().find((event) => (event.name ?? event.tool) === "report_done" && event.status === "failed");
   const failedCommit = [...toolEvents].reverse().find((event) => (event.name ?? event.tool) === "commit_changes" && event.status === "failed");
   if (!names.includes("report_done")) {
+    const unavailable = [...toolEvents].reverse().find((event) => event.status === "failed" && approvalServiceUnavailable(event));
+    if (unavailable && (!failedReport || failedReport.error_code === "CODER_BLOCKED" && failedReport.error?.details?.blocker?.reason_code === "ACCESS_REQUIRED")) {
+      throw Object.assign(new ConfigurationError(unavailable.error.message), { code: "CODER_BLOCKED", details: { blocker: { reason_code: "ACCESS_REQUIRED" } } });
+    }
     if (!labMode && names.includes("respond_to_review")) return;
     if (failedReport) {
       const code = failedReport.error_code ?? failedReport.error?.code ?? "REPORT_FAILED";

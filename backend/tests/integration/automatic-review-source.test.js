@@ -57,13 +57,13 @@ for (const drift of ["modified", "removed"]) {
           sdkCalls += 1;
           assert.match(prompt, /export const total = 1;/);
           assert.doesNotMatch(prompt, /total = 999/);
-          assert(options.forgeTools.definitions.some((tool) => tool.name === "sed_lines"));
+          assert(options.forgeTools.definitions.some((tool) => tool.name === "read_lines"));
           assert(!options.forgeTools.definitions.some((tool) => ["write_diff", "report_done", "commit_changes"].includes(tool.name)));
-          const result = await options.forgeTools.registry.sed_lines.execute({ path: fixture.path, start_line: 1, end_line: 1 });
+          const result = await options.forgeTools.registry.read_lines.execute({ path: fixture.path, start_line: 1, end_line: 1 });
           assert.equal(result.stdout, fixture.content);
           assert.equal(result.review_evidence.commit_sha, fixture.artifact.commit_sha);
           assert.equal(result.review_evidence.sha256, fixture.checksum);
-          await assert.rejects(options.forgeTools.registry.sed_lines.execute({ path: fixture.path, start_line: 1, end_line: 100 }), { code: "SED_LINES_INPUT_INVALID" });
+          await assert.rejects(options.forgeTools.registry.read_lines.execute({ path: fixture.path, start_line: 1, end_line: 100 }), { code: "READ_LINES_INPUT_INVALID" });
           return { text: JSON.stringify({ verdict: "approved", findings: [], adjudications: [] }) };
         } } } });
       assert.equal((await (await resolver(fixture.job)).review()).verdict, "approved");
@@ -80,7 +80,7 @@ test("hard review resolver provides usable read-only SDK tools", async () => {
     fixture.job.review_policy.gate = "on";
     const resolver = createAutomaticReviewWorkerResolver({ resolveTicketWorkspace: async () => fixture.workspace, agentResolver: fixture.agentResolver,
       gateways: { openaiSdkGateway: { execute: async ({ options }) => {
-        const result = await options.forgeTools.registry.sed_lines.execute({ path: fixture.path, start_line: 1, end_line: 1 });
+        const result = await options.forgeTools.registry.read_lines.execute({ path: fixture.path, start_line: 1, end_line: 1 });
         assert.equal(result.stdout, fixture.content);
         return { text: JSON.stringify({ verdict: "approved", findings: [], adjudications: [] }) };
       } } } });

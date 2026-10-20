@@ -1,4 +1,5 @@
 import readline from "node:readline";
+import { request as httpRequest } from "node:http";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
@@ -53,7 +54,7 @@ async function handle(message) {
     const name = message.params?.name;
     const definition = definitions.find((item) => item.name === name);
     if (!definition) return { isError: true, content: [{ type: "text", text: `Unknown Forge tool: ${name}` }] };
-    const response = await fetch(endpoint, {
+    const response = await callForge(endpoint, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method: "tools/call", params: { name, arguments: message.params?.arguments ?? {} } })
@@ -68,4 +69,19 @@ async function handle(message) {
     return body.result ?? { content: [{ type: "text", text: "{}" }] };
   }
   throw Object.assign(new Error(`Unsupported MCP method: ${message.method}`), { code: -32601 });
+}
+
+// Keeps a Node-owned verification call open beyond fetch's fixed header timeout until the SDK ends it.
+function callForge(url, { method, headers, body }) {
+  return new Promise((resolve, reject) => {
+    const request = httpRequest(url, { method, headers }, (response) => {
+      let raw = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk) => { raw += chunk; });
+      response.on("error", reject);
+      response.on("end", () => resolve({ status: response.statusCode, ok: response.statusCode >= 200 && response.statusCode < 300, text: async () => raw }));
+    });
+    request.on("error", reject);
+    request.end(body);
+  });
 }

@@ -31,6 +31,15 @@ function baseEvent(overrides = {}) {
   return { type: "agent.response.received", task_id: "TASK-1", supervisor_id: "SUP-1", request_id: "REQ-1", correlation_id: "CORR-1", attempt: 1, payload: {}, ...overrides };
 }
 
+test("Reviewer reopen decision dispatches repair instead of parking on verdict validation", async () => {
+  const h = harness({ initialState: "REVIEWING" });
+  const result = await h.loop.onEvent(baseEvent({ type: "review.request_changes", payload: { verdict: "request_changes", reviewer_id: "REVIEWER", findings: [], adjudications: [{ finding_id: "REV-1", decision: "reopen", reason: "Remaining case", evidence_refs: ["src/a.js:1"] }] } }));
+  assert.equal(result.handled, true);
+  assert.equal(h.sent.length, 1);
+  assert.deepEqual(h.transitions, [["REVIEWING", "REPAIRING"], ["REPAIRING", "RUNNING"]]);
+  assert.equal(h.published.length, 0);
+});
+
 test("start dispatches attempt 1 through RUNNING", async () => {
   const h = harness();
   const request = { task_id: "TASK-1", request_id: "REQ-1", correlation_id: "CORR-1", agent_id: "builder", ticket: { project_id: "P", id: "TASK-1", title: "T", objective: "O", acceptance_criteria: ["A"] } };

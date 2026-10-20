@@ -1,4 +1,5 @@
 // Dispatches individual and Sprint tickets through the same approval, resume, and status lifecycle.
+import { assertAutomaticReviewResume } from "../modules/supervisor/automatic-review-stage.js";
 import { randomUUID } from "node:crypto";
 import { assertApprovedTicket } from "../modules/governance/sprint-plan-draft.js";
 import { matchesTicketExecution, sameExecutionPlan } from "../modules/projects/ticket-execution-identity.js";
@@ -9,7 +10,7 @@ import { coderEvidenceResume } from "../modules/supervisor/coder-evidence-resume
 import { approvedTicketDecisions } from "../modules/governance/plan-decision-requests.js";
 
 // Creates one shared ticket RUN entry point so Sprint execution preserves all ticket gates.
-export function createTicketRunDispatch({ disposition, intake, sprintRegistry, ticketStatusStore, checkpoints, queueStore, protocolStorage, conversationStateStore, dispatchTask, coderRecovery, blockerRecovery }) {
+export function createTicketRunDispatch({ disposition, intake, sprintRegistry, ticketStatusStore, checkpoints, queueStore, protocolStorage, conversationStateStore, dispatchTask, coderRecovery, blockerRecovery, resumeCompletedReview, reconcileReviewDependencies }) {
   const active = new Map();
   dispatchTicket.stop = ({ projectId, ticketId } = {}) => {
     if (blockerRecovery) return stopRecovery({ projectId, ticketId });
@@ -49,16 +50,26 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
       assertA5ExecutionContract(ticket);
       if (sprintBasis && dependencyExpectations === undefined) dependencyExpectations = await captureDependencyExpectations({ projectId, ticket, sprintRegistry, ticketStatusStore });
       assertDependencyExpectations({ projectId, ticket, expectations: dependencyExpectations, sprintRegistry, ticketStatusStore });
-      const current = ticketStatusStore.get(ticketId);
+      let current = ticketStatusStore.get(ticketId);
       if (current?.project_id === projectId && await blockerRecovery?.hasPending({ projectId, taskId: ticketId, executionId: current.details?.execution_id })) return { ticket_id: ticketId, status: "already_running", pipeline: "supervisor", reason: "blocker_recovery_pending" };
       if (current?.project_id === projectId && ["running", "reviewing"].includes(current.status) && await coderRecovery?.hasPending({ projectId, taskId: ticketId, executionId: current.details?.execution_id })) return { ticket_id: ticketId, status: "already_running", pipeline: "supervisor", reason: "operational_recovery_pending" };
       if (current?.status === "cancelled") throw failure("TICKET_CANCELLED", "Cancelled tickets cannot run.");
+      const storedCheckpoint = await checkpoints.load?.(ticketId);
+      if (!fresh && reconcileReviewDependencies && current?.details?.review_reopen) current = await reconcileReviewDependencies({ projectId, ticket, current,
+        checkpoint: storedCheckpoint, dependencyExpectations, reviewCheckpoint: await checkpoints.loadReview?.(ticketId) });
+      if (!fresh && storedCheckpoint?.status === "blocked" && coderRecovery?.resumeTicket) {
+        const retry = await coderRecovery.resumeTicket({ projectId, ticketId, ticket });
+        if (retry) return retry;
+      }
       if (current?.status === "blocked") throw failure("TICKET_APPROVAL_REQUIRED", "Blocked ticket status requires a human decision before RUN.");
       if (current?.details?.reason === "human_review_approved" || current?.status === "done" && !fresh) {
         if (sprintBasis && !sameExecutionPlan(current.details?.execution_basis, sprintBasis)) throw failure("TICKET_EXECUTION_RECONCILIATION_REQUIRED", "Existing completion is not evidence for this immutable Sprint plan; reconcile or explicitly request a fresh RUN.");
         return { ticket_id: ticketId, status: "completed", pipeline: "supervisor", resumed: true, ...(current.details?.execution_id ? { execution_id: current.details.execution_id } : {}) };
       }
-      const storedCheckpoint = await checkpoints.load(ticketId);
+      if (!fresh && current?.details?.review_reopen && !current.details.review_reopen.repair_cycle_id && current.status === "reviewing") {
+        if (!resumeCompletedReview) throw failure("REVIEW_WORKER_UNAVAILABLE", "Retained review resume is unavailable.");
+        return await resumeCompletedReview({ projectId, ticketId });
+      }
       if (["owner_decided", "governance_required"].includes(storedCheckpoint?.blocker_recovery?.status)
         || storedCheckpoint?.blocker_recovery?.status === "owner_required" && (storedCheckpoint.blocker_owner_decisions?.length || current?.details?.owner_decision)) {
         if (!blockerRecovery?.fulfillOwnerDecision) throw failure("BLOCKER_GOVERNANCE_UNAVAILABLE", "Architecture handoff is required before Coder can resume.");
@@ -67,8 +78,10 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
       if (!fresh && storedCheckpoint?.status === "blocked" && ["cancelled", "reconciliation_required"].includes(storedCheckpoint.blocker_recovery?.status) && typeof blockerRecovery?.resumeTicket === "function") {
         return await blockerRecovery.resumeTicket({ projectId, ticketId });
       }
-      if (storedCheckpoint?.status === "blocked" && !storedCheckpoint.blocker_recovery?.owner_decision) throw failure("TICKET_APPROVAL_REQUIRED", "Coder checkpoint requires a human decision before this ticket can run again.");
-      let checkpoint = fresh ? null : storedCheckpoint;
+      const stoppedCheckpoint = storedCheckpoint?.failure?.code === "TICKET_STOPPED"
+        && (!storedCheckpoint.blocker_recovery || storedCheckpoint.blocker_recovery.status === "resolved");
+      if (storedCheckpoint?.status === "blocked" && !storedCheckpoint.blocker_recovery?.owner_decision && !stoppedCheckpoint) throw failure("TICKET_APPROVAL_REQUIRED", "Coder checkpoint requires a human decision before this ticket can run again.");
+      let checkpoint = fresh ? null : stoppedCheckpoint ? { ...storedCheckpoint, status: "failed" } : storedCheckpoint;
       const reviewerCheckpoint = !fresh && checkpoint?.status === "completed" ? await checkpoints.loadReview(ticketId) : null;
       if (reviewerCheckpoint?.verdict === "approved") throw failure("TICKET_INTEGRATION_RECOVERY_REQUIRED", "Review is approved but ticket completion is missing; recover integration before RUN.");
       if (checkpoint?.status === "completed" && typeof protocolStorage.get === "function") {
@@ -80,7 +93,8 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
       const resume = checkpoint?.phase === "coder_evidence_required" ? checkpoint : checkpoint && checkpoint.status !== "completed" ? await reviewRevisionResume(queueStore, ticketId, checkpoint) : null;
       const reviewResume = !fresh && checkpoint?.status === "completed" ? reviewPhaseResume(checkpoint, reviewerCheckpoint) : null;
       if (controller.signal.aborted) throw controller.signal.reason;
-      const retainReviewExecution = Boolean(reviewResume && ticketStatusStore.resumeReviewExecution && matchesTicketExecution(current, current?.details?.execution_id, sprintBasis));
+      if (reviewResume) await assertAutomaticReviewResume(queueStore, ticketId, current?.details?.execution_id);
+      const retainReviewExecution = Boolean((reviewResume || resume?.review_cycle_id && resume.review_cycle_id === current?.details?.review_reopen?.repair_cycle_id) && ticketStatusStore.resumeReviewExecution && matchesTicketExecution(current, current?.details?.execution_id, sprintBasis));
       const executionId = retainReviewExecution ? current.details.execution_id : sprintBasis && ticketStatusStore.beginExecution ? `RUN-${randomUUID()}` : null;
       if (executionId) {
         await sprintRegistry.assertReady(ticket.sprint_id, { expectedVersion: sprintBasis.version });

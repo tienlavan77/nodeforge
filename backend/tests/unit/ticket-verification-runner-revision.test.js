@@ -7,14 +7,18 @@ const plan = [{ kind: "browser" }];
 
 // Keeps non-browser retry accounting compatible with durable legacy receipts.
 test("non-browser verification does not fingerprint external browser tooling", async () => {
-  assert.equal(await ticketVerificationRunnerRevision([], { readSource: async () => { throw new Error("Unexpected read"); } }), null);
+  const paths = [];
+  const original = await ticketVerificationRunnerRevision([], { readSource: async (url) => { paths.push(url.pathname); return "original"; } });
+  assert(paths.some((path) => path.endsWith("ticket-verification-reporter.js")));
+  assert(!paths.some((path) => path.includes("browser")));
+  assert.notEqual(await ticketVerificationRunnerRevision([], { readSource: async () => "repaired" }), original);
 });
 
 // Distinguishes each external runner repair while stable tooling retains the same retry identity.
 test("browser runner revision changes for every runner dependency", async () => {
   const paths = [];
   const original = await ticketVerificationRunnerRevision(plan, { readSource: async (url) => { paths.push(url.pathname); return "original"; } });
-  assert.equal(paths.length, 14);
+  assert.equal(paths.length, 18);
   assert.ok(paths.some((path) => path.endsWith("browser-coding-presence-scenarios.js")));
   assert.equal(await ticketVerificationRunnerRevision(plan, { readSource: async () => "original" }), original);
   for (const path of paths) {

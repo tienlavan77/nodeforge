@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { getProjectSelection, selectProject, subscribeProjectSelection } from "../lib/project-selection.js";
+import { projectArchitecturePath, projectSystemPath, projectCodingPath } from "../lib/project-navigation.js";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import Link from "next/link";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
@@ -63,7 +64,7 @@ export function ConversationSidebar({ open, onOpen, onClose, agentSectionTitle =
     <ResponsiveWorkspaceRegion name="conversations" title="Conversations" breakpoint={640} open={open} onClose={onClose}>
       <section ref={panelRef} className={`home-conversations-panel home-panel conversation-sidebar${collapsed ? " is-collapsed" : ""}`} aria-label="Conversations">
         <div className="home-sidebar-brand">
-          <div className="home-sidebar-wordmark"><span className="home-sidebar-logo" aria-hidden="true">N</span><span className="home-sidebar-name">NodeForge</span></div>
+          <Link className="home-sidebar-wordmark" href="/" title="All projects" aria-label="All projects" style={{ color: "inherit", textDecoration: "none" }}><span className="home-sidebar-logo" aria-hidden="true">N</span><span className="home-sidebar-name">NodeForge</span></Link>
           <div className="home-sidebar-controls">
             <ThemeToggle />
             <button type="button" className="home-sidebar-collapse" onClick={() => { changeCollapsed(!collapsed); if (!collapsed) onClose(); }} aria-label={collapsed ? "Open conversations sidebar" : "Collapse conversations sidebar"} aria-expanded={!collapsed} title={collapsed ? "Open conversations sidebar" : "Collapse conversations sidebar"}>
@@ -89,13 +90,13 @@ export function ConversationSidebar({ open, onOpen, onClose, agentSectionTitle =
           <details className="claude-sidebar-projects" open>
             <summary title="Projects"><SidebarNavigationIcon name="projects" /><span>Projects</span></summary>
             <div className="claude-sidebar-project-list">
-              {projects.map((project) => <button type="button" className={`claude-sidebar-project-link${project.id === selectedProjectId ? " is-selected" : ""}`} key={project.id} onClick={() => onProjectChange?.(project.id)} aria-current={project.id === selectedProjectId ? "page" : undefined}><span>{project.name}</span>{project.id === selectedProjectId && <i aria-label="Selected project">✓</i>}</button>)}
+              {projects.map((project) => <Link href={projectArchitecturePath(project.id)} className={`claude-sidebar-project-link${project.id === selectedProjectId ? " is-selected" : ""}`} key={project.id} onClick={() => onProjectChange?.(project.id)} aria-current={project.id === selectedProjectId ? "page" : undefined}><span>{project.name}</span>{project.id === selectedProjectId && <i aria-label="Selected project">✓</i>}</Link>)}
             </div>
           </details>
-          <Link href="/" title="Architecture" aria-current={!['System', 'Code'].includes(agentSectionTitle) ? "page" : undefined}><SidebarNavigationIcon name="architecture" /><span>Architecture</span></Link>
+          <Link href={projectArchitecturePath(selection.projectId ?? selectedProjectId)} title="Architecture" aria-current={!['System', 'Code'].includes(agentSectionTitle) ? "page" : undefined}><SidebarNavigationIcon name="architecture" /><span>Architecture</span></Link>
           <Link href="/agents" title="Agents"><SidebarNavigationIcon name="agents" /><span>Agents</span></Link>
-          <Link href="/system" title="System" aria-current={agentSectionTitle === "System" ? "page" : undefined}><SidebarNavigationIcon name="coding" /><span>System</span></Link>
-          <Link href="/coding" title="Code" aria-current={agentSectionTitle === "Code" ? "page" : undefined}><SidebarNavigationIcon name="coding" /><span>Code</span></Link>
+          <Link href={projectSystemPath(selection.projectId ?? selectedProjectId)} title="System" aria-current={agentSectionTitle === "System" ? "page" : undefined}><SidebarNavigationIcon name="coding" /><span>System</span></Link>
+          <Link href={projectCodingPath(selection.projectId ?? selectedProjectId)} title="Code" aria-current={agentSectionTitle === "Code" ? "page" : undefined}><SidebarNavigationIcon name="coding" /><span>Code</span></Link>
         </nav>
         {children}
       </section>

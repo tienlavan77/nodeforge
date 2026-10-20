@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createTicketWorkspaceService } from "../../src/modules/supervisor/ticket-workspace-service.js";
+import { captureVerificationEnvironment, persistVerificationEnvironment } from "../../src/modules/supervisor/ticket-verification-environment.js";
 import { prepareTicketExecutionContext } from "../../src/modules/supervisor/ticket-execution-context.js";
 
 const execFile = promisify(callback);
@@ -40,7 +41,8 @@ test("root-only workspace uses the project source and leaves historical worktree
     const command = { kind: "typecheck", argv: ["node", "check"] };
     const artifact = { artifact_id: "ARTIFACT-ROOT", status: "passed", commit_sha: result.sha, source_revision: committed.source_revision,
       manifest_sha: committed.manifest_sha, base_sha: committed.base_sha, tree_sha: await git(root, "rev-parse", `${result.sha}^{tree}`),
-      policy_version: "ticket-verification-v3", planned_commands: [command], commands: [{ ...command, exit_code: 0, output_sha256: `sha256:${createHash("sha256").update("").digest("hex")}` }] };
+      changed_paths: ["source.js"], environment: await persistVerificationEnvironment(root, await captureVerificationEnvironment({ projectRoot: root, ticketPaths: ["source.js"] })),
+      policy_version: "ticket-verification-v7", planned_commands: [command], commands: [{ ...command, exit_code: 0, output_sha256: `sha256:${createHash("sha256").update("").digest("hex")}` }] };
     await fileService.atomicWrite({ path: ".forge/runtime/ticket-verification/TICKET-ROOT/artifacts/ARTIFACT-ROOT.json", content: JSON.stringify(artifact), replace: false });
     await workspace.executionContexts.update("TICKET-ROOT", committed.version, { state: "verified", verification_artifact_id: artifact.artifact_id });
     const competingIntegrations = await Promise.all([workspace.integrate(), workspace.integrate()]);

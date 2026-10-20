@@ -46,7 +46,7 @@ test("corrupted or unavailable storage is logged and does not break sending", (c
 });
 
 test("Architecture and System Engineer pages provide actual project and agent identity to the composer", async () => {
-  const home = await readFile("ui/nextjs/app/page.jsx", "utf8");
+  const home = await readFile("ui/nextjs/components/architecture-workspace.jsx", "utf8");
   const system = await readFile("ui/nextjs/app/system/page.jsx", "utf8");
   assert.match(home, /<HomeChatComposer[^>]*projectId=\{PROJECT_ID\}[^>]*agentId=\{selectedArchitectureManager\?\.id\}/);
   assert.match(system, /<HomeChatComposer[^>]*projectId=\{PROJECT_ID\}[^>]*agentId=\{selectedAgent\?\.id\}/);

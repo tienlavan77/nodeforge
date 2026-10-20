@@ -4,7 +4,7 @@ import { authorizeTool } from "./tool-authorization.js";
 import { assertRoleFileAccess, roleWritePrefixes } from "../infrastructure/filesystem/file-service-role-policy.js";
 
 const READ_TOOLS = Object.freeze(["search_tree", "list_files", "search_text", "read_file", "read_lines"]);
-const ROLE_TOOLS = Object.freeze({ architecture_manager: Object.freeze([...READ_TOOLS, "write_diff", "edit_diff", "delete_file"]), system_engineer: Object.freeze([...READ_TOOLS, "write_diff", "edit_diff", "run_check", "git_status", "git_diff", "commit_changes", "push_commit"]), sprint_leader: READ_TOOLS, coder: READ_TOOLS, reviewer: READ_TOOLS, linguist: Object.freeze(["read_file", "read_lines"]), runtime: Object.freeze([]) });
+const ROLE_TOOLS = Object.freeze({ architecture_manager: Object.freeze([...READ_TOOLS, "write_diff", "edit_diff", "delete_file"]), system_engineer: Object.freeze([...READ_TOOLS, "write_diff", "edit_diff", "run_check", "git_status", "git_diff", "delete_file", "commit_changes", "push_commit"]), sprint_leader: READ_TOOLS, coder: READ_TOOLS, reviewer: Object.freeze([...READ_TOOLS, "git_status", "git_diff"]), linguist: Object.freeze(["read_file", "read_lines"]), runtime: Object.freeze([]) });
 const PRIVATE_PATH = /(^|\/)(?:\.[^/]+|node_modules|vendor|dist|build|coverage|cache|\.next|(?:secret|secrets|credential|credentials|private|id_rsa|id_ed25519)(?:[._-]|$)|[^/]+\.(?:pem|key|p12|pfx|crt|keystore)$)/i;
 const WRITE_TOOLS = new Set(["write_diff", "edit_diff"]);
 
@@ -23,7 +23,7 @@ export async function authorizeOwnerTool(name, input, context, projectRoot) {
   if (!ownerRoleTools(context.agent_identity?.role).includes(name)) throw forbidden("Tool is not permitted for this role.");
   if (!WRITE_TOOLS.has(name) && name !== "delete_file") return;
   const path = input?.path;
-  if (typeof path !== "string" || isPrivate(path)) throw forbidden("Architecture file path is private or unsafe.");
+  if (typeof path !== "string" || (isPrivate(path) && !(context.agent_identity?.role === "system_engineer" && path.startsWith(".forge/")))) throw forbidden("Architecture file path is private or unsafe.");
   try { assertRoleFileAccess(context.agent_identity?.role, name === "delete_file" ? "delete" : "write", path); }
   catch (error) { throw forbidden(error.message); }
   if (projectRoot && typeof projectRoot !== "string") throw forbidden("Project root is invalid.");
