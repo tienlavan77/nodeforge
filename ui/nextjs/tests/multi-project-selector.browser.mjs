@@ -66,7 +66,10 @@ export async function createBrowserFixture({ sourceRoot, build }) {
 async function openWorkspace(page, origin, delayed = false) {
   await page.goto(`${origin}/${delayed ? "?delay=1" : ""}`);
   await page.waitForFunction(() => document.querySelector('select[aria-label="Project"]')?.value === "PROJECT-A" && window.sources.length > 0);
-  if (!delayed) await page.getByText("History PROJECT-A", { exact: true }).waitFor();
+  if (!delayed) {
+    try { await page.getByText("History PROJECT-A", { exact: true }).waitFor(); }
+    catch (error) { throw new Error(`${error.message}; workspace diagnostics: ${await page.evaluate(() => JSON.stringify({ errors: window.fixtureErrors, body: document.body.innerHTML.slice(0, 2000), calls: window.calls }))}`); }
+  }
 }
 
 // Add a second managed root using the production form and its actual lifecycle client.
