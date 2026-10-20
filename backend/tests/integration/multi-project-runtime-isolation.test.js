@@ -6,6 +6,7 @@ import { ensureRuntimeDir, openIndexDatabase } from "../../src/infrastructure/sq
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import "./multi-project-session-isolation.test.js";
 import { startProjectRuntime } from "../../src/modules/projects/project-runtime.js";
 import { createSessionStore } from "../../src/modules/projects/session-store.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";

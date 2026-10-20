@@ -229,7 +229,7 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
     // Runtime state is Node-owned but must be writable through this service; other
     // hidden project paths remain protected from agent file operations.
     if (write && basename(rel).startsWith(".") && !forgeAccess && !runtimePath && !planPath && !summaryPath) throw new ConfigurationError("Hidden project paths are not writable.");
-    return rel;
+    if (rel === ".forge/runtime/nf/sessions" || rel.startsWith(".forge/runtime/nf/sessions/")) projectIndexPath(root, rel, { allowMissing: true }); return rel;
   }
   // eslint-disable-next-line no-silent-catch -- Cleanup logging must not change file behavior.
   function logCleanup(operation, error) { if (error?.code === "ENOENT") return; try { logger.error?.("FileService cleanup failed.", { operation, error: error?.message, code: error?.code }); } catch { /* cleanup logging must not change file behavior */ } }
