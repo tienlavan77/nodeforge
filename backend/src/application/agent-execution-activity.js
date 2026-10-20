@@ -7,7 +7,8 @@ export function createAgentExecutionActivity({ projectId, eventBus, logger = con
   if (!projectId || typeof eventBus?.emit !== "function") throw new ConfigurationError("Agent execution activity requires a project and event bus.");
   const active = new Map();
   const recent = new Map();
-  const publish = ({ agentId, correlationId, phase, summary, toolName }) => {
+  const publish = ({ agentId, correlationId, phase, summary, toolName, project_id }) => {
+    if (project_id !== undefined && project_id !== projectId) return;
     if (typeof agentId !== "string" || !agentId || typeof correlationId !== "string" || !correlationId || !["started", "completed", "failed", "tool_started", "tool_completed", "tool_failed"].includes(phase)) return;
     const event = { event_id: `EVT-${randomUUID()}`, event_type: "agent.activity", project_id: projectId, correlation_id: correlationId, timestamp: new Date().toISOString(),
       payload: { agent_id: agentId, correlation_id: correlationId, activity_type: phase, status: ["started", "tool_started"].includes(phase) ? "working" : ["failed", "tool_failed"].includes(phase) ? "failed" : "success",
@@ -24,6 +25,14 @@ export function createAgentExecutionActivity({ projectId, eventBus, logger = con
   // Surface audited agent tools without exposing their arguments, source contents, or result payloads.
   publish.recordToolEvent = (entry = {}) => {
     if (entry.project_id !== undefined && entry.project_id !== projectId) return;
+    if (["ticket.verification_waiting", "ticket.verification_wait_finished"].includes(entry.event_name)) {
+      publish({ agentId: entry.payload?.agent_id, correlationId: entry.correlation_id, phase: "tool_started", toolName: "report_done", summary: entry.message });
+      return;
+    }
+    if (entry.event_name === "supervisor.approval_retry_scheduled") {
+      publish({ agentId: entry.payload?.agent_id, correlationId: entry.correlation_id, phase: "tool_started", toolName: "approval_review", summary: entry.message });
+      return;
+    }
     const triagePhase = { started: "started", success: "completed", failed: "failed", blocked: "failed" }[entry.status];
     if (["supervisor.blocker_triage_started", "supervisor.blocker_triage_finished"].includes(entry.event_name)) {
       const agentId = entry.payload?.agent_id;
@@ -41,7 +50,12 @@ export function createAgentExecutionActivity({ projectId, eventBus, logger = con
     const suppliedCorrelation = entry.correlation_id ?? entry.payload?.execution_id;
     const run = running.find((event) => event.correlation_id === suppliedCorrelation) ?? (running.length === 1 ? running[0] : null);
     const correlationId = run?.correlation_id ?? suppliedCorrelation;
-    publish({ agentId, correlationId, phase, toolName, summary: `Agent tool ${toolName.slice(0, 100)} ${entry.status}.` });
+    const code = entry.error_code ?? entry.payload?.error_code ?? entry.payload?.error?.code;
+    const errorCode = entry.status === "failed" && typeof code === "string" && /^[A-Z][A-Z0-9_]{0,79}$/.test(code) ? code : null;
+    const pending = toolName === "report_done" && errorCode === "VERIFY_RECOVERY_PENDING";
+    const summary = pending ? "Node verification is still running; wait for Node to return the result."
+      : `Agent tool ${toolName.slice(0, 100)} ${entry.status}${errorCode ? ` (${errorCode})` : ""}.`;
+    publish({ agentId, correlationId, phase: pending ? "tool_started" : phase, toolName, summary });
   };
   return publish;
 }
