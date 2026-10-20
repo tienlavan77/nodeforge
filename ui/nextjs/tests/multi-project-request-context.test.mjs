@@ -109,6 +109,6 @@ test("selected identity covers all client requests and isolates switched or unav
   assert.equal(calls.length, before, "no fallback request is sent");
   selectProject("PROJECT-A");
   unavailable = true;
-  await assert.rejects(createNodeClient().getProjectDashboard("PROJECT-A"), { code: "PROJECT_NOT_FOUND" });
+  await assert.rejects(createNodeClient().getProjectDashboard("PROJECT-A"), { code: "project_not_found" });
   assert.equal(getProjectSelection().projectId, null, "server loss enters recoverable state");
 });

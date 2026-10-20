@@ -105,7 +105,7 @@ export function bindProjectClient(client) {
     if (!result?.then) return result;
     return result.then((value) => { assertCurrent(selection); return value; }, (error) => {
       assertCurrent(selection);
-      if (["PROJECT_NOT_FOUND", "PROJECT_UNAVAILABLE", "PROJECT_NOT_ADMITTED"].includes(error.code)) {
+      if (["PROJECT_NOT_FOUND", "PROJECT_UNAVAILABLE", "PROJECT_NOT_ADMITTED"].includes(String(error.code).toUpperCase())) {
         publish({ projectId: null, error: "Selected project is unavailable. Refresh or select an available project." });
       }
       throw error;
