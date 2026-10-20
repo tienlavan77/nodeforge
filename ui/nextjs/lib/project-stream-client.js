@@ -18,11 +18,11 @@ export function createProjectStreamClient(forgeV1) {
       const shared = stream;
       const notifyError = (error) => { for (const subscriber of shared.subscribers) subscriber.onError?.(error); };
       const handleEvent = (event) => {
-        if (event.lastEventId) shared.lastEventId = event.lastEventId;
         let data;
         try { data = JSON.parse(event.data); }
-        catch (error) { notifyError(Object.assign(new Error("Project stream returned invalid JSON.", { cause: error }), { code: "STREAM_INVALID_JSON" })); return; }
-        if (!isProjectStreamEvent(data, projectId)) { notifyError(Object.assign(new Error("Project stream returned an invalid event."), { code: "STREAM_INVALID_EVENT" })); return; }
+        catch (error) { notifyError(Object.assign(new Error("Project stream returned invalid JSON.", { cause: error }), { code: "STREAM_INVALID_JSON" })); return false; }
+        if (!isProjectStreamEvent(data, projectId)) { notifyError(Object.assign(new Error("Project stream returned an invalid event."), { code: "STREAM_INVALID_EVENT" })); return false; }
+        if (event.lastEventId) shared.lastEventId = event.lastEventId;
         if (shared.delivered.has(data.event_id)) return;
         shared.delivered.add(data.event_id);
         if (shared.delivered.size > 5000) shared.delivered.delete(shared.delivered.values().next().value);

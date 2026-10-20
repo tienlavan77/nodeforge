@@ -73,12 +73,18 @@ export function createProjectStream({ projectId, indexDb, watcherSnapshot, subsc
     });
 
     write(envelope("stream.connected", { stream_id: streamId, replay_from: afterEventId ?? null }));
-    const snapshot = watcherSnapshot?.snapshot?.() ?? { watcher: { recent_events: indexDb.all("SELECT path, language, size_bytes, sha256, indexed_at FROM files WHERE indexed_at IS NOT NULL ORDER BY indexed_at DESC LIMIT 4").map((file) => ({ event_id: `SNAPSHOT-${file.path}-${file.indexed_at}`, event_type: "watcher.file_indexed", timestamp: file.indexed_at, payload: { ...file, operation: "indexer.updated", activity: [`Filesystem change: ${file.path}`, `Watcher event: watcher.file_indexed ${file.path}`, `Indexer updated: ${file.path}`] } })) } };
+    let snapshot = watcherSnapshot?.snapshot?.({ projectId }) ?? { watcher: { recent_events: indexDb.all("SELECT path, language, size_bytes, sha256, indexed_at FROM files WHERE indexed_at IS NOT NULL ORDER BY indexed_at DESC LIMIT 4").map((file) => ({ event_id: `SNAPSHOT-${file.path}-${file.indexed_at}`, event_type: "watcher.file_indexed", timestamp: file.indexed_at, payload: { ...file, operation: "indexer.updated", activity: [`Filesystem change: ${file.path}`, `Watcher event: watcher.file_indexed ${file.path}`, `Indexer updated: ${file.path}`] } })) } };
+    if (snapshot.watcher?.recent_events) {
+      snapshot = { ...snapshot, watcher: { ...snapshot.watcher, recent_events: snapshot.watcher.recent_events
+        .filter((event) => (event.project_id === undefined || event.project_id === projectId) && (event.metadata?.project_id === undefined || event.metadata.project_id === projectId)) } };
+    }
     write(envelope("stream.snapshot", snapshot));
 
     const publish = (event) => {
+      if ((event?.project_id ?? event?.metadata?.project_id) !== projectId) return;
       if (event?.project_id !== undefined && event.project_id !== projectId) return;
       if (event?.metadata?.project_id !== undefined && event.metadata.project_id !== projectId) return;
+      event = { ...event, project_id: projectId };
       if (closed || !PROJECT_EVENT_TYPES.has(event?.event_type) && event?.event_type !== "watcher.indexed") return;
       const conversations = projectConversationEvents(event);
       if (conversations) {
@@ -90,20 +96,20 @@ export function createProjectStream({ projectId, indexDb, watcherSnapshot, subsc
     };
     const subscription = subscriptions.subscribe("*", publish);
     const onConversationMessage = (message) => {
-      if (closed || message?.project_id !== projectId) return;
+      if (closed || message?.project_id !== projectId || (message.metadata?.project_id !== undefined && message.metadata.project_id !== projectId)) return;
       const projected = projectConversationMessages(message);
       for (const event of projected) write(envelope(event.event_type, event.payload));
     };
     bus?.subscribeAll?.(onConversationMessage);
-    const onInternalEvent = (event) => publish({ ...event, event_type: "watcher.indexed", project_id: event.project_id ?? projectId });
+    const onInternalEvent = (event) => publish({ ...event, event_type: "watcher.indexed", project_id: event.project_id ?? event.metadata?.project_id });
     eventBus?.on?.("watcher.indexed", onInternalEvent);
     const conversationEventTypes = ["agent.text_stream", "agent.message.delta", "agent.message.received", "agent.status_changed", "agent.checkpoint.updated", "agent.activity"];
     const conversationListeners = conversationEventTypes.map((eventType) => {
-      const listener = (event) => publish({ ...event, event_type: event.event_type ?? eventType, project_id: event.project_id ?? event.metadata?.project_id ?? projectId });
+      const listener = (event) => publish({ ...event, event_type: event.event_type ?? eventType, project_id: event.project_id ?? event.metadata?.project_id });
       eventBus?.on?.(eventType, listener);
       return { eventType, listener };
     });
-    for (const event of agentActivitySnapshot?.() ?? []) publish(event);
+    for (const event of agentActivitySnapshot?.({ projectId }) ?? []) publish(event);
     const heartbeat = setInterval(() => {
       if (!closed && !response.writableEnded) response.write(": keep-alive\n\n");
     }, heartbeatMs);
