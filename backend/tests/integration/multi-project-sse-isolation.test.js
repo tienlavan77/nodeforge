@@ -46,7 +46,7 @@ function streamFixture() {
 
 // Supplies valid business activity while varying project attribution independently.
 function activityEvent(projectId) {
-  return { event_type: "agent.activity", project_id, payload: {
+  return { event_type: "agent.activity", project_id: projectId, payload: {
     agent_id: "CODER-1", activity_type: "started", status: "working", summary: `Work for ${projectId}`
   } };
 }
