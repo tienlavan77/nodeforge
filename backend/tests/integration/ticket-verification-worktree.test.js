@@ -63,9 +63,9 @@ test("backend ticket worktree verification executes named test files", { timeout
     const result = await finished(workspace.testService, started.job_id);
     assert.equal(result.status, "passed", JSON.stringify(result.error ?? result.result));
     const artifact = await workspace.testService.assertPassedArtifact();
-    assert.deepEqual(artifact.commands.map(({ kind, exit_code }) => [kind, exit_code]), [["typecheck", 0], ["lint", 0], ["schema_validation", 0], ["backend_tests", 0]]);
-    assert.ok(artifact.commands[3].argv.some((item) => item.endsWith("backend/tests/unit/witness.test.js")));
-    assert.equal(artifact.policy_version, "ticket-verification-v4");
+    assert.deepEqual(artifact.commands.map(({ kind, exit_code }) => [kind, exit_code]), [["typecheck", 0], ["lint", 0], ["backend_tests", 0], ["schema_validation", 0]]);
+    assert.ok(artifact.commands[2].argv.some((item) => item.endsWith("backend/tests/unit/witness.test.js")));
+    assert.equal(artifact.policy_version, "ticket-verification-v8");
     assert.equal(artifact.commands.every((command) => /^sha256:[a-f0-9]{64}$/.test(command.output_sha256)), true);
     assert.ok(artifact.commit_sha && artifact.base_sha && artifact.source_revision && artifact.manifest_sha);
   } finally {

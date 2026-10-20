@@ -83,3 +83,63 @@ test("ticket RUN uses original execution for operational Reviewer resume", async
   assert(dispatched.review_resume);
   assert.equal(fixture.store.get("TICKET-1").details.execution_id, "RUN-ORIGINAL");
 });
+
+// Continues an interrupted review without clearing the completed Coder work or changing execution identity.
+test("reviewing ticket resumes under its original execution", () => {
+  const fixture = resumeStatusFixture();
+  fixture.setRow({ status: "reviewing" });
+  const resumed = fixture.resume();
+  assert.equal(resumed.status, "running");
+  assert.equal(resumed.details.execution_id, "RUN-ORIGINAL");
+});
+
+// Explicit legacy review reopening must bypass terminal Coder preparation and preserve its completed checkpoint.
+test("Owner reopened review RUN uses retained review callback without clearing Coder", async () => {
+  const fixture = resumeStatusFixture();
+  fixture.setRow({ status: "reviewing", details_json: JSON.stringify({ execution_id: "RUN-ORIGINAL", execution_basis: BASIS, dependency_expectations: [], review_reopen: { job_id: "OLD-REVIEW" } }) });
+  const ticket = { id: "TICKET-1", project_id: "PROJECT-1", sprint_id: "SPRINT-1", title: "Review", objective: "Verify", dependencies: [], acceptance_criteria: ["Works"] };
+  let retained;
+  const dispatch = createTicketRunDispatch({ disposition: { get: async () => null }, intake: { open: async () => ({ ticket }) },
+    sprintRegistry: { get: () => BASIS, assertReady: async () => ({ sprint: BASIS, plan: { content: { tickets: [ticket.id], ticket_specs: [ticket] } } }) },
+    ticketStatusStore: fixture.store, checkpoints: { clear: async () => { throw new Error("Coder checkpoint must remain intact"); } },
+    dispatchTask: async () => { throw new Error("Coder must not run"); }, resumeCompletedReview: async (input) => { retained = input; return { status: "reviewing", resumed: true }; } });
+  assert.equal((await dispatch({ projectId: "PROJECT-1", ticketId: "TICKET-1" })).resumed, true);
+  assert.deepEqual(retained, { projectId: "PROJECT-1", ticketId: "TICKET-1" });
+  assert.equal(fixture.store.get("TICKET-1").details.execution_id, "RUN-ORIGINAL");
+});
+
+// Resumes a failed Coder repair under the retained execution instead of replaying the legacy review.
+test("finding repair RUN keeps its cycle and Coder turn after an operational stop", async () => {
+  const fixture = resumeStatusFixture();
+  fixture.setRow({ status: "failed", details_json: JSON.stringify({ execution_id: "RUN-ORIGINAL", execution_basis: BASIS, dependency_expectations: [], review_reopen: { job_id: "OLD", repair_cycle_id: "cycle" } }) });
+  const ticket = { id: "TICKET-1", project_id: "PROJECT-1", sprint_id: "SPRINT-1", title: "Fix", objective: "Verify", dependencies: [], acceptance_criteria: ["Works"] };
+  const checkpoint = { status: "failed", phase: "review_repair", review_cycle_id: "cycle", last_completed_turn: 67 };
+  let request;
+  const dispatch = createTicketRunDispatch({ disposition: { get: async () => null }, intake: { open: async () => ({ ticket }) },
+    sprintRegistry: { get: () => BASIS, assertReady: async () => ({ sprint: BASIS, plan: { content: { tickets: [ticket.id], ticket_specs: [ticket] } } }) },
+    ticketStatusStore: fixture.store, checkpoints: { load: async () => checkpoint, clear: async () => { throw new Error("No reset"); } },
+    queueStore: { list: async () => [] }, protocolStorage: {},
+    resumeCompletedReview: async () => { throw new Error("No old review replay"); },
+    dispatchTask: async (input) => { request = input; return { status: "accepted" }; } });
+  const result = await dispatch({ projectId: "PROJECT-1", ticketId: "TICKET-1" });
+  assert.equal(result.execution_id, "RUN-ORIGINAL");
+  assert.equal(request.resume_from.last_completed_turn, 67);
+  assert.equal(request.resume_from.review_cycle_id, "cycle");
+  assert.equal(fixture.store.get("TICKET-1").status, "running");
+});
+
+// RUN must reach the timed outage adapter before the generic blocked-checkpoint human gate.
+test("RUN connects a parked checkpoint to timed Coder recovery without launching immediately", async () => {
+  const fixture = resumeStatusFixture();
+  const ticket = { id: "TICKET-1", project_id: "PROJECT-1", sprint_id: "SPRINT-1", title: "Fix", objective: "Verify", dependencies: [], acceptance_criteria: ["Works"] };
+  let received;
+  const dispatch = createTicketRunDispatch({ disposition: { get: async () => null }, intake: { open: async () => ({ ticket }) },
+    sprintRegistry: { get: () => BASIS, assertReady: async () => ({ sprint: BASIS, plan: { content: { tickets: [ticket.id], ticket_specs: [ticket] } } }) },
+    ticketStatusStore: fixture.store, checkpoints: { load: async () => ({ status: "blocked", last_completed_turn: 93 }) },
+    coderRecovery: { resumeTicket: async (input) => { received = input; return { status: "recovery_pending", resumed_from_turn: 93 }; } },
+    dispatchTask: async () => assert.fail("Wait for the retry timer") });
+  const result = await dispatch({ projectId: "PROJECT-1", ticketId: "TICKET-1" });
+  assert.equal(result.status, "recovery_pending");
+  assert.equal(result.resumed_from_turn, 93);
+  assert.equal(received.ticket.id, ticket.id);
+});

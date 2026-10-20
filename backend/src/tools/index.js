@@ -62,13 +62,13 @@ export function createForgeToolRegistry({ protocolStorage, fileService, projectR
   const retrievalBudgets = new Map();
   const lifecycle = {};
   Object.assign(lifecycle, createAgentCommandTools({ projectRoot, fileService, codeSearch, codeCache, projectLogger, wrap }));
-  Object.assign(lifecycle, engineeringToolImplementations({ registry: lifecycle, fileService, wrap }));
+  Object.assign(lifecycle, engineeringToolImplementations({ registry: lifecycle, fileService, projectRoot, wrap }));
   if (fileService?.readForIndex && fileService?.listFiles && fileService?.readFile && fileService?.atomicWrite && fileService?.deleteFile && projectRoot) {
     const scopedFiles = createRoleFileService({ fileService, role: "coder", projectRoot });
     const scopedCache = codeCache && { ...codeCache, read: async ({ path }) => { await scopedFiles.assertReadPath(path); return codeCache.read({ path }); } };
     for (const [name, tool] of Object.entries(createClaudeFileTools({ fileService: scopedFiles, projectRoot, codeCache: scopedCache }))) lifecycle[name] = wrap(tool, name);
   }
-  if (fileService?.readForIndex && fileService?.readFile && fileService?.atomicWrite) lifecycle.read_file = wrap(createReadFileTool({ fileService, codeCache, symbolLookup: codeSearch?.symbolsForFile?.bind(codeSearch), maxChars }), "read_file");
+  if (fileService?.readForIndex && fileService?.readFile && fileService?.atomicWrite) lifecycle.read_file = wrap(createReadFileTool({ fileService, codeCache, projectRoot, symbolLookup: codeSearch?.symbolsForFile?.bind(codeSearch), maxChars }), "read_file");
   if (fileService?.readFile && fileService?.atomicWrite) {
     lifecycle.write_diff = wrap(createWriteDiffTool({ fileService, codeCache, changeLedger, maxChars }), "write_diff");
     lifecycle.edit_diff = wrap(createEditDiffTool({ fileService, codeCache, changeLedger, maxChars }), "edit_diff");
@@ -120,7 +120,7 @@ export function createForgeToolRegistry({ protocolStorage, fileService, projectR
           const taskId = context.task_id ?? context.taskId;
           const manifest = await changeLedger.snapshot();
           let current = await executionContexts.syncManifest(taskId, manifest);
-          if (name === "commit_changes" && (current.state !== "verified" || current.review_commit_sha !== result.sha)) current = await executionContexts.update(taskId, current.version, { state: "committed", review_commit_sha: result.sha, verification_artifact_id: null });
+          if (name === "commit_changes" && !(result.repeated && current.verification_source?.ticket_commit_sha === result.sha) && (current.state !== "verified" || current.review_commit_sha !== result.sha)) current = await executionContexts.update(taskId, current.version, { state: "committed", review_commit_sha: result.sha, verification_artifact_id: null, verification_source: null });
           context.execution_context = current;
         }
         logToolEvent("success", name, input, context, { duration_ms: Date.now() - started, result });

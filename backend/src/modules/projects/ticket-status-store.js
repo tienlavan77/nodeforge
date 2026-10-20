@@ -1,4 +1,5 @@
 // Transactional ticket status store with versioned transitions, history, and dependency checks.
+import { createReviewDependencyStatus } from "./ticket-review-dependency-status.js";
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { ConfigurationError } from "../../shared/errors.js";
@@ -11,8 +12,9 @@ export function createTicketStatusStore({ database, projectId, clock = () => new
   if (typeof projectId !== "string" || !projectId) throw new ConfigurationError("Ticket Status Store requires a project_id.");
   if (typeof clock !== "function" || typeof createId !== "function" || typeof onEvent !== "function" || (publisher !== undefined && typeof publisher.publish !== "function")) throw new ConfigurationError("Invalid Ticket Status Store options.");
   ensureTables();
+  const reconcileReviewDependencies = createReviewDependencyStatus({ database, get, transition: transitionWithoutGuard, emit });
 
-  return Object.freeze({ create, get, getStatus, updateStatus, beginExecution, resumeReviewExecution, resumeBlockedExecution, claimExecutionLaunch, reconcileExecutionLaunch, completeByHumanReview, listByStatus, getHistory, dependenciesReady, retry, resetDoneForRetry, reconcileTerminalStatus });
+  return Object.freeze({ create, get, getStatus, reconcileReviewDependencies, updateStatus, reopenReview, beginExecution, resumeReviewExecution, resumeBlockedExecution, claimExecutionLaunch, reconcileExecutionLaunch, completeByHumanReview, listByStatus, getHistory, dependenciesReady, retry, resetDoneForRetry, reconcileTerminalStatus });
 
   // Creates a pending status entry for a ticket.
   function create(ticketId, details = {}) {
@@ -39,7 +41,7 @@ export function createTicketStatusStore({ database, projectId, clock = () => new
     if (!current) throw statusError("STATUS_NOT_FOUND", `Ticket status not found: ${ticketId}.`);
     if (expectedCurrentStatus !== undefined && current.status !== expectedCurrentStatus) throw statusError("STATUS_CONFLICT", `Ticket status changed from expected ${expectedCurrentStatus}; current is ${current.status}.`);
     if (expectedVersion !== undefined && current.version !== expectedVersion || expectedExecutionId !== undefined && current.details.execution_id !== expectedExecutionId) throw statusError("STATUS_CONFLICT", `Ticket execution changed: ${ticketId}.`);
-    details = { ...details, ...retainedExecutionDetails(current.details) };
+    details = { ...(current.details?.review_reopen ? { review_reopen: current.details.review_reopen } : {}), ...details, ...retainedExecutionDetails(current.details) };
     assertTicketStatusTransition(current.status, nextStatus);
     const now = nowIso();
     const version = current.version + 1;
@@ -92,7 +94,7 @@ export function createTicketStatusStore({ database, projectId, clock = () => new
     if (typeof validate !== "function" || typeof database.transaction !== "function") throw statusError("STATUS_EXECUTION_INVALID", "Review resume requires transactional authority validation.");
     return database.transaction(() => {
       const current = get(ticketId);
-      if (!current || current.version !== expectedVersion || !matchesTicketExecution(current, executionId, basis) || !["needs_human_review", "failed", "pending"].includes(current.status)
+      if (!current || current.version !== expectedVersion || !matchesTicketExecution(current, executionId, basis) || !["needs_human_review", "failed", "pending", "reviewing"].includes(current.status)
         || current.details.launch_claim || !isDeepStrictEqual(current.details.dependency_expectations, dependencyExpectations)) throw Object.assign(statusError("TICKET_EXECUTION_RECONCILIATION_REQUIRED", "Review resume cannot replace execution, dependency intent, or an unreconciled provider launch."), { statusCode: 409, retryable: false });
       const checked = validate();
       if (checked?.then) throw statusError("STATUS_EXECUTION_INVALID", "Review resume validation must be synchronous.");
@@ -149,6 +151,15 @@ export function createTicketStatusStore({ database, projectId, clock = () => new
   // Reconcile a stale runtime completion when the canonical roadmap marks the ticket failed.
   // Resets a stale done ticket to pending for retry.
   function resetDoneForRetry(ticketId, details = {}) { const current = get(ticketId); if (!current) throw statusError("STATUS_NOT_FOUND", `Ticket status not found: ${ticketId}.`); if (current.status !== "done") throw statusError("STATUS_RETRY_INVALID", `Only stale done tickets can be reset: ${ticketId}.`); return transitionWithoutGuard(ticketId, current, "pending", { ...details, reason: details.reason ?? "roadmap_failed_retry" }); }
+  // Reopens completed review on explicit Owner evidence while preserving the integrated execution identity.
+  function reopenReview(ticketId, { expectedVersion, executionId, binding } = {}) {
+    return database.transaction(() => {
+      const current = get(ticketId);
+      if (typeof executionId !== "string" || !executionId || current?.status !== "done" || current.version !== expectedVersion || current.details.execution_id !== executionId || current.details.launch_claim
+        || !binding?.job_id || !binding.commit || !binding.artifact_id || !binding.owner_request || !binding.receipt) throw statusError("REVIEW_REOPEN_CONFLICT", "Review reopening requires exact completed execution and Owner evidence.");
+      return transitionWithoutGuard(ticketId, current, "reviewing", { ...current.details, reason: "owner_review_reopen", review_reopen: structuredClone(binding) });
+    });
+  }
   // Reconciles a terminal status mismatch from roadmap truth.
   function reconcileTerminalStatus(ticketId, nextStatus, details = {}) {
     const current = get(ticketId);

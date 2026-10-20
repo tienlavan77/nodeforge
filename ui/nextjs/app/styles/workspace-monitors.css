@@ -68,7 +68,7 @@
 .coding-workspace-list { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 10px; }
 @container coding-agents (min-width: 490px) { .coding-workspace-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @container coding-agents (min-width: 740px) { .coding-workspace-list { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-.coding-agent-monitor { min-width: 0; padding: 14px; border: 1px solid var(--app-border); background: var(--app-surface-alt); }
+.coding-agent-monitor { display: flex; flex-direction: column; min-width: 0; min-height: 0; max-height: 50vh; box-sizing: border-box; overflow: hidden; padding: 14px; border: 1px solid var(--app-border); background: var(--app-surface-alt); }
 .coding-agent-monitor header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 10px; }
 .coding-agent-monitor header > strong, .coding-agent-monitor header > span { min-width: 0; overflow-wrap: anywhere; }
 .coding-agent-monitor header > button { flex-shrink: 0; }
@@ -79,7 +79,8 @@
 .coding-agent-monitor small, .coding-agent-monitor header span, .coding-workspace-empty { color: var(--app-muted); }
 .coding-workspace-empty { margin: 0; padding: 14px 0; }
 /* Match System panel chrome: live dot and status in the header, scrolling bounded activity body. */
-.coding-agent-monitor .workspace-monitor-header { cursor: default; }
+.coding-agent-monitor .workspace-monitor-header { padding: 0; cursor: default; }
+.coding-agent-monitor .workspace-monitor-content { padding: 0; }
 .coding-agent-monitor .workspace-monitor-header strong { display: inline; flex: 1; }
 .coding-agent-monitor.is-minimized .workspace-monitor-header { border-bottom: 0; }
 .coding-workspace-list > .coding-workspace-empty { grid-column: 1 / -1; }

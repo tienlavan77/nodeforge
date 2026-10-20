@@ -1,5 +1,5 @@
 // Derives ticket report facts from immutable Node verification evidence.
-import { matchesBrowserEvidence } from "../modules/supervisor/browser-verification-evidence.js";
+import { findPassingVerificationCommand } from "./verification-command-evidence.js";
 import { hasOwnerDecisionEvidence } from "../modules/governance/plan-decision-requests.js";
 
 // Adds source, command, and scope facts without claiming unproven behavior passed.
@@ -10,7 +10,7 @@ export function completeNodeReportEvidence(input, ticket, artifact) {
   const coverage = completeCoverage(input.acceptance_coverage, criteria, artifact.commands ?? [], ticket?.verification_plan, ticket);
   const evidence = Array.isArray(input.evidence) && input.evidence.length ? input.evidence : [
     { type: "verification", reference: artifact.artifact_id, result: "passed" },
-    ...(artifact.commands ?? []).map((command) => ({ type: "command", reference: command.output_sha256 ?? artifact.artifact_id, result: `${command.kind}: exit ${command.exit_code}` }))
+    ...(artifact.commands ?? []).map((command) => ({ type: "command", reference: command.output_sha256 ?? artifact.artifact_id, result: `${command.kind}: exit ${command.exit_code}${command.disposition === "preexisting_failure" ? `; supplemental preexisting failure reproduced at baseline ${command.baseline.commit_sha}, excluded from ticket responsibility` : ""}` }))
   ];
   return {
     ...input,
@@ -43,19 +43,14 @@ function coverageFromPlan(criteria, commands, verificationPlan, ticket) {
     const steps = verificationPlan.filter((step) => step.criterion_ids?.includes(criterionId));
     const ownerApproved = hasOwnerDecisionEvidence(ticket, criterionId);
     const required = steps.filter((step) => step.kind !== "governance" && !(step.kind === "human" && ownerApproved));
-    const missing = required.filter((step) => !hasPassingCommand(step, commands));
+    const missing = required.filter((step) => !findPassingVerificationCommand(step, commands));
     if (missing.length) return { criterion_id: criterionId, criterion, status: "evidence_pending", command_kind: null, test_path: null, missing_checks: missing.map((step) => ({ kind: step.kind, ...(step.test_path ? { test_path: step.test_path } : {}) })) };
     const passing = required[0];
-    if (passing) return { criterion_id: criterionId, criterion, status: "verified", command_kind: passing.kind, ...(passing.test_path ? { test_path: passing.test_path } : {}) };
+    if (passing) return { criterion_id: criterionId, criterion, status: "verified", command_kind: findPassingVerificationCommand(passing, commands).kind, ...(passing.test_path ? { test_path: passing.test_path } : {}) };
     if (ownerApproved && steps.some((step) => step.kind === "human")) return { criterion_id: criterionId, criterion, status: "verified", command_kind: "human", decision_id: ticket.owner_decision_basis.decision_id };
     if (steps.length) return { criterion_id: criterionId, criterion, status: "not_applicable", command_kind: null, test_path: null };
     return { criterion_id: criterionId, criterion, status: "evidence_pending", command_kind: null, test_path: null };
   });
-}
-
-// Matches an approved command step to a successful receipt without trusting agent claims.
-function hasPassingCommand(step, commands) {
-  return commands.some((command) => command.kind === step.kind && command.exit_code === 0 && (!step.test_path || command.argv?.includes(step.test_path)) && (step.kind !== "browser" || matchesBrowserEvidence(step, command.browser_evidence)));
 }
 
 // Resolves legacy criterion text and stable IDs without accepting an unknown criterion.

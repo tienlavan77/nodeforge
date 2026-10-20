@@ -39,7 +39,7 @@ test("filters activities by selected agent without leaking other agents or unbou
 
 // Connects both page selections to the filter used by activity rows and the activity indicator.
 test("home and system monitors receive the selected page agent", async () => {
-  const home = await readFile(new URL("../app/page.jsx", import.meta.url), "utf8");
+  const home = await readFile(new URL("../components/architecture-workspace.jsx", import.meta.url), "utf8");
   const system = await readFile(new URL("../app/system/page.jsx", import.meta.url), "utf8");
   const monitor = await readFile(new URL("../components/WorkspaceMonitorPanels.jsx", import.meta.url), "utf8");
   assert.match(home, /<WorkspaceMonitorPanels[^>]*selectedAgentId=\{selectedArchitectureManager\?\.id \?\? ""\}/);

@@ -19,6 +19,8 @@ import { createTicketReviewFindingsStore } from "./ticket-review-findings.js";
 import { migrateLegacyTicket } from "./ticket-legacy-migration.js";
 import { createTicketRootWorkspace } from "./ticket-root-workspace.js";
 import { createTerminalReceiptWriter } from "./terminal-receipt-writer.js";
+import { findIntegratedTicketSource } from "./ticket-integrated-source.js";
+import { createTicketRootGit } from "./ticket-root-git.js";
 
 const execFile = promisify(execFileCallback);
 const SAFE_TASK = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -95,6 +97,7 @@ export function createTicketWorkspaceService({ projectRoot, projectId, protocolS
     const freshnessChecker = createIndexFreshnessChecker({ database: indexDatabase, fileService });
     const relevantTreeSelector = createRelevantTreeSelector({ search: codeSearch, fileGraph, freshnessChecker });
     const worktreeGitService = createGitService({ projectRoot: worktree.path });
+    const rootGit = createTicketRootGit({ projectRoot: root });
     const existingChanges = await ledger.load(taskId);
     const workspaceHead = await worktreeGitService.getHead();
     const dirtyPaths = (await worktreeGitService.status()).split("\n").filter(Boolean).map((line) => line.slice(3).replace(/^"|"$/g, ""));
@@ -105,7 +108,36 @@ export function createTicketWorkspaceService({ projectRoot, projectId, protocolS
     const testService = createTicketVerificationService({ taskId, projectId, projectRoot: root, worktreeRoot: worktree.path, worktreeFileService, stateFileService, gitService: worktreeGitService, ledger, executionContexts, projectLogger });
     const reviewFindings = createTicketReviewFindingsStore({ taskId, fileService: stateFileService, executionContexts, gitService: worktreeGitService });
     const reportService = createCompletionReportService({ protocolStorage, fileService: stateFileService, gitService });
-    return Object.freeze({ ...worktree, projectRoot: root, migrationRequired, fileService, worktreeFileService, gitService, worktreeGitService, changeLedger, executionContexts, reviewFindings, integrate: () => integration.integrate({ taskId, worktree: worktree.path, ledger }), codeSearch, codeCache, relevantTreeSelector, freshnessChecker, testService, reportService });
+    return Object.freeze({
+      ...worktree,
+      projectRoot: root,
+      migrationRequired,
+      fileService,
+      worktreeFileService,
+      gitService,
+      worktreeGitService,
+      changeLedger,
+      executionContexts,
+      reviewFindings,
+      integrate: () => integration.integrate({ taskId, worktree: worktree.path, ledger }),
+      findIntegratedSource: (path, sha256, targetSha256 = sha256, baselineCommit = null) => findIntegratedTicketSource({
+        path,
+        sha256,
+        targetSha256,
+        baselineCommit,
+        taskId,
+        projectId,
+        fileService: stateFileService,
+        executionContexts,
+        rootGit
+      }),
+      codeSearch,
+      codeCache,
+      relevantTreeSelector,
+      freshnessChecker,
+      testService,
+      reportService
+    });
   }
 
   // Makes existing package installs available without copying or indexing dependency directories.

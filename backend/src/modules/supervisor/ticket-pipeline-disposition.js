@@ -13,7 +13,7 @@ function fingerprint(ticket) {
 }
 
 // Stores explicit migration, cancellation, or human review decisions through File Service.
-export function createTicketPipelineDisposition({ projectId, fileService, inventory, projectLogger = () => {} } = {}) {
+export function createTicketPipelineDisposition({ projectId, fileService, inventory, reconcileCancelledClaims, projectLogger = () => {} } = {}) {
   if (!projectId || !fileService?.readFile || !fileService?.atomicWrite || !fileService?.createLock || !inventory?.inspect) throw fail("CONFIGURATION_ERROR", "Ticket disposition requires project persistence and inventory.");
   const root = `.forge/runtime/ticket-pipeline-disposition/${hash(projectId)}`;
   return Object.freeze({ decide, inspect, get });
@@ -21,11 +21,12 @@ export function createTicketPipelineDisposition({ projectId, fileService, invent
   // Keeps an owner cancellation effective when later runtime activity changes its inventory fingerprint.
   async function get(taskId) {
     if (!SAFE_ID.test(taskId ?? "")) throw fail("TICKET_DISPOSITION_INPUT", "A valid ticket ID is required.");
-    try {
-      const record = JSON.parse(await fileService.readFile({ path: `${root}/${taskId}.json` }));
-      if (record.project_id !== projectId || record.task_id !== taskId) throw fail("TICKET_DISPOSITION_INVALID", "Ticket disposition identity is invalid.");
-      return record;
-    } catch (error) { if (error.code === "ENOENT") return null; throw error; }
+    let record;
+    try { record = JSON.parse(await fileService.readFile({ path: `${root}/${taskId}.json` })); }
+    catch (error) { if (error.code === "ENOENT") return null; throw error; }
+    if (record.project_id !== projectId || record.task_id !== taskId) throw fail("TICKET_DISPOSITION_INVALID", "Ticket disposition identity is invalid.");
+    if (record.disposition === "cancelled") await reconcileCancelledClaims?.(record);
+    return record;
   }
 
   // Records an owner decision only against the current inventory snapshot.
@@ -45,11 +46,15 @@ export function createTicketPipelineDisposition({ projectId, fileService, invent
       let prior = null;
       try { prior = JSON.parse(await fileService.readFile({ path })); }
       catch (error) { if (error.code !== "ENOENT") throw error; }
-      if (prior && prior.inventory_fingerprint === snapshot && prior.disposition === disposition && prior.actor_id === actorId && JSON.stringify(prior.evidence_refs) === JSON.stringify(evidenceRefs)) return prior;
+      if (prior && prior.inventory_fingerprint === snapshot && prior.disposition === disposition && prior.actor_id === actorId && JSON.stringify(prior.evidence_refs) === JSON.stringify(evidenceRefs)) {
+        if (prior.disposition === "cancelled") await reconcileCancelledClaims?.(prior);
+        return prior;
+      }
       if (prior) throw fail("TICKET_DISPOSITION_CONFLICT", "A prior owner decision exists; reconcile it explicitly before changing disposition.");
       const record = { project_id: projectId, task_id: taskId, inventory_fingerprint: snapshot, disposition, actor_id: actorId, actor_role: actorRole, evidence_refs: evidenceRefs, decided_at: new Date().toISOString() };
       await fileService.atomicWrite({ path, content: `${JSON.stringify(record)}\n`, replace: false });
       projectLogger({ event_name: "ticket.pipeline_disposition_saved", level: "info", status: "success", message: "Legacy ticket disposition recorded.", task_id: taskId, source: "ticket-pipeline-disposition", payload: { disposition, actor_id: actorId } });
+      if (record.disposition === "cancelled") await reconcileCancelledClaims?.(record);
       return record;
     } finally { await lock.release(); }
   }

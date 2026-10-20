@@ -1,5 +1,6 @@
 // Connects bounded Coder recovery to approved dispatch, durable cancellation, and current ticket authority.
 import { createCoderOperationalRecovery } from "./coder-operational-recovery.js";
+import { resumeCoderCheckpointRetry } from "./coder-checkpoint-retry.js";
 import { coderRecoveryPolicy } from "./coder-recovery-policy.js";
 import { matchesTicketExecution } from "../projects/ticket-execution-identity.js";
 import { assertDependencySubmission } from "./ticket-dependency-expectations.js";
@@ -7,11 +8,11 @@ import { assertApprovedTicket } from "../governance/sprint-plan-draft.js";
 
 // Builds real retry adapters while leaving standalone/direct-code requests and human authority unchanged.
 export function createCoderRecoveryRuntime({ store, ticketStatusStore, sprintRegistry, resolveTicketWorkspace, checkpoints,
-  eventBus, submitTicket, disposition, agentOccupancy, policy = coderRecoveryPolicy(), clock, logger = console } = {}) {
+  eventBus, submitTicket, disposition, agentOccupancy, policy = coderRecoveryPolicy(), clock, projectLogger = () => {}, logger = console } = {}) {
   if (!ticketStatusStore || !sprintRegistry || !resolveTicketWorkspace) return null;
   const active = new Map();
   const recovery = createCoderOperationalRecovery({ store, policy, validateExecution, dispatch, publishTerminal, clock, logger });
-  return Object.freeze({ ...recovery, runTicket, stopTicket });
+  return Object.freeze({ ...recovery, runTicket, stopTicket, resumeTicket: (input) => policy && !active.has(input.ticketId) ? resumeCoderCheckpointRetry({ ...input, recovery, ticketStatusStore, sprintRegistry, checkpoints, resolveTicketWorkspace, disposition, projectLogger }) : null });
 
   // Rechecks approved scope, dependency intent, cancellation and exact source before retry reservation and launch.
   async function validateExecution(request) {
@@ -66,7 +67,17 @@ export function createCoderRecoveryRuntime({ store, ticketStatusStore, sprintReg
     input.abortSignal?.addEventListener("abort", abort, { once: true });
     if (input.abortSignal?.aborted) abort();
     active.set(taskId, controller);
-    try { return await submitTicket({ ...input, abortSignal: controller.signal }); }
+    try {
+      if (input.payload.resume_from && !input.payload.operational_retry) {
+        if (controller.signal.aborted) throw controller.signal.reason;
+        const workspace = await resolveTicketWorkspace(taskId);
+        const context = await workspace.executionContexts.load(taskId);
+        const resumed = await recovery.resume({ request: { ...input, task_id: taskId, execution_context: context } });
+        if (resumed) logger.info?.("Coder checkpoint resumed; future transient failures retry after 30 seconds. Stop cancels retries.", { task_id: taskId, execution_id: input.payload.execution_id });
+      }
+      if (controller.signal.aborted) throw controller.signal.reason;
+      return await submitTicket({ ...input, abortSignal: controller.signal });
+    }
     finally { active.delete(taskId); input.abortSignal?.removeEventListener("abort", abort); }
   }
 

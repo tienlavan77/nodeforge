@@ -1,8 +1,7 @@
 // Searches project source text with approved ripgrep flags under Forge task control.
-import { spawn } from "node:child_process";
 import { lstat, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
-import { rgPath } from "@vscode/ripgrep";
+import { runProjectRipgrep as runRipgrep } from "./project-ripgrep-runner.js";
 import { logEvent } from "../core/project-log-service.js";
 import { createRuntimeLogger } from "../core/runtime-logger.js";
 import { ConfigurationError } from "../shared/errors.js";
@@ -19,9 +18,9 @@ export function createRgSearchTool({ projectRoot, codeCache, logger = createRunt
     let args;
     try {
       authorizeTool(toolName, context);
-      args = buildArgs(input);
+      args = buildArgs(input, context);
       if (input.paths.some((path) => !isAgentPathAllowed(path, context))) throw invalidInput("rg_search path is outside the approved task scope.");
-      await validatePaths(projectRoot, input.paths, environment);
+      await validatePaths(projectRoot, input.paths, environment, context);
     } catch (error) {
       emit("rejected", context, { error_code: error.code ?? "RG_SEARCH_INPUT_INVALID", error: error.message, duration_ms: Date.now() - started });
       throw error;
@@ -29,7 +28,7 @@ export function createRgSearchTool({ projectRoot, codeCache, logger = createRunt
     emit("started", context, { command: safeCommand(args), cwd: projectRoot });
     let result;
     try {
-      result = codeCache ? await searchCached(projectRoot, args, codeCache, environment, (error, path) => emit("cache_read_skipped", context, { error_code: error.code ?? "RG_SEARCH_CACHE_READ_FAILED", path })) : await runRipgrep(projectRoot, args, environment);
+      result = codeCache && !input.paths.some((path) => path === ".forge" || path.startsWith(".forge/")) ? await searchCached(projectRoot, args, codeCache, environment, (error, path) => emit("cache_read_skipped", context, { error_code: error.code ?? "RG_SEARCH_CACHE_READ_FAILED", path }), context.abortSignal) : await runRipgrep(projectRoot, args, environment, undefined, { signal: context.abortSignal });
     } catch (error) {
       emit("failed", context, { command: safeCommand(args), cwd: projectRoot, error_code: error.code ?? "RG_SEARCH_SPAWN_FAILED", error: error.message, duration_ms: Date.now() - started });
       throw error;
@@ -56,20 +55,22 @@ export function createRgSearchTool({ projectRoot, codeCache, logger = createRunt
 }
 
 // Searches content supplied by the shared cache while ripgrep still selects files and matches lines.
-async function searchCached(cwd, args, codeCache, environment, onSkipped) {
+async function searchCached(cwd, args, codeCache, environment, onSkipped, signal) {
   const expression = args.indexOf("--regexp");
   const flags = args.slice(0, expression);
   const scopes = args.slice(expression + 3);
-  const selectors = flags.filter((flag) => flag.startsWith("--glob=") || flag.startsWith("--iglob=") || flag.startsWith("--type=") || flag.startsWith("--type-not="));
+  const selectors = flags.filter((flag) => flag === "--hidden" || flag === "--no-ignore" || flag.startsWith("--glob=") || flag.startsWith("--iglob=") || flag.startsWith("--type=") || flag.startsWith("--type-not="));
   const matchFlags = flags.filter((flag) => !selectors.includes(flag));
-  const listing = await runRipgrep(cwd, ["--files", "-0", ...selectors, "--", ...scopes], environment);
+  const listing = await runRipgrep(cwd, ["--files", "-0", ...selectors, "--", ...scopes], environment, undefined, { signal });
+  if (listing.truncated) throw invalidInput("Search scope contains too many filenames; narrow the requested directories or filters.");
   if (listing.exit_code > 1 || listing.signal) return listing;
-  const syntax = await runRipgrep(cwd, [...matchFlags, "--regexp", args[expression + 1], "--", "-"], environment, "");
+  const syntax = await runRipgrep(cwd, [...matchFlags, "--regexp", args[expression + 1], "--", "-"], environment, "", { signal });
   if (syntax.exit_code > 1 || syntax.signal) return syntax;
   let stdout = "";
   let stderr = "";
   let matched = false;
   for (const path of listing.stdout.split("\0").filter(Boolean)) {
+    signal?.throwIfAborted();
     let source;
     try { source = await codeCache.read({ path }); }
     catch (error) {
@@ -77,9 +78,10 @@ async function searchCached(cwd, args, codeCache, environment, onSkipped) {
       if (error.code === "ENOENT" || error.code === "FILE_TOO_LARGE" || error.name === "ConfigurationError") { onSkipped(error, path); continue; }
       throw error;
     }
-    const result = await runRipgrep(cwd, [...matchFlags, "--no-filename", "--regexp", args[expression + 1], "--", "-"], environment, source.content);
+    const result = await runRipgrep(cwd, [...matchFlags, "--no-filename", "--regexp", args[expression + 1], "--", "-"], environment, source.content, { signal });
     if (result.stdout) stdout += result.stdout.split("\n").map((line, index, lines) => index === lines.length - 1 && !line ? "" : `${path}:${line}`).join("\n");
     stderr += result.stderr;
+    if (Buffer.byteLength(stdout) > 200000 || result.truncated) return { stdout: Buffer.from(stdout).subarray(0, 200000).toString("utf8"), stderr, exit_code: 0, signal: null, truncated: true, output_limit_bytes: 200000 };
     if (result.exit_code === 0) matched = true;
     if (result.exit_code > 1 || result.signal) return { stdout, stderr, exit_code: result.exit_code, signal: result.signal };
   }
@@ -93,13 +95,14 @@ function safeCommand(args) {
 }
 
 // Builds only the prioritized content search flags; regex remains a single argv item.
-function buildArgs(input) {
+function buildArgs(input, context) {
   if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => !["pattern", "paths", "flags"].includes(key))) throw invalidInput("rg_search accepts pattern, paths, and flags only.");
   if (typeof input.pattern !== "string" || !input.pattern || input.pattern.length > 500 || input.pattern.includes("\0")) throw invalidInput("rg_search pattern must contain 1–500 characters and no NUL byte.");
-  if (!Array.isArray(input.paths) || !input.paths.length || input.paths.some((path) => typeof path !== "string" || !/^[A-Za-z0-9_-]+$/.test(path))) throw invalidInput("rg_search paths must be top-level project directories.");
+  if (!Array.isArray(input.paths) || !input.paths.length || input.paths.some((path) => typeof path !== "string" || (!/^[A-Za-z0-9_-]+$/.test(path) && !(isForgeScope(path, context))))) throw invalidInput("rg_search paths must be top-level project directories.");
+  if (input.paths.some((path) => isForgeScope(path, context)) && input.paths.length !== 1) throw invalidInput("Search .forge separately from source directories.");
   const flags = input.flags ?? [];
   if (!Array.isArray(flags) || flags.some((flag) => typeof flag !== "string" || !isAllowedFlag(flag))) throw invalidInput("rg_search received an unsupported flag.");
-  return [...flags, "--regexp", input.pattern, "--", ...input.paths];
+  return [...(input.paths.some((path) => isForgeScope(path, context)) ? ["--hidden", "--no-ignore", "--glob=!.git/**"] : []), ...flags, "--regexp", input.pattern, "--", ...input.paths];
 }
 
 // Keeps optional flags within line numbering, matching, narrowing, and per-file limits.
@@ -111,15 +114,19 @@ function isAllowedFlag(flag) {
 }
 
 // Rejects symlink paths, directories outside the real project root, and absent scopes.
-async function validatePaths(projectRoot, paths, environment) {
+async function validatePaths(projectRoot, paths, environment, context) {
   const root = await realpath(projectRoot);
-  const listed = await runRipgrep(projectRoot, ["--files"], environment);
-  if (listed.exit_code > 1 || listed.signal) throw invalidInput("rg_search could not verify project ignore rules.");
+
   for (const path of paths) {
-    const candidate = join(projectRoot, path);
+    context.abortSignal?.throwIfAborted();
+    let candidate = projectRoot;
+    for (const part of path.split("/")) { candidate = join(candidate, part); if ((await lstat(candidate)).isSymbolicLink()) throw invalidInput("rg_search cannot traverse symlink paths."); }
     const stat = await lstat(candidate);
     const target = await realpath(candidate);
     if (!stat.isDirectory() || stat.isSymbolicLink() || relative(root, target).startsWith("..") || isAbsolute(relative(root, target))) throw invalidInput("rg_search path must be a real project directory.");
+    if (isForgeScope(path, context)) continue;
+    const listed = await runRipgrep(projectRoot, ["--files", "--", path], environment, undefined, { signal: context.abortSignal });
+    if (listed.exit_code > 1 || listed.signal) throw invalidInput("rg_search could not verify project ignore rules.");
     if (!listed.stdout.split("\n").some((file) => file.startsWith(`${path}/`))) throw invalidInput("rg_search path is ignored or has no searchable files.");
   }
 }
@@ -131,22 +138,8 @@ function invalidInput(message) {
   return error;
 }
 
-// Captures native ripgrep output while disabling inherited config and shell expansion.
-function runRipgrep(cwd, args, environment, input) {
-  return new Promise((resolve, reject) => {
-    const env = { ...environment };
-    delete env.RIPGREP_CONFIG_PATH;
-    delete env.RG_CONFIG_PATH;
-    const child = spawn(rgPath, args, { cwd, env, shell: false, stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"] });
-    const stdout = [];
-    const stderr = [];
-    child.stdout.on("data", (chunk) => stdout.push(chunk));
-    child.stderr.on("data", (chunk) => stderr.push(chunk));
-    child.once("error", reject);
-    if (input !== undefined) {
-      child.stdin.on("error", (error) => { if (error.code !== "EPIPE") reject(error); });
-      child.stdin.end(input);
-    }
-    child.once("close", (code, signal) => resolve({ stdout: Buffer.concat(stdout).toString("utf8"), stderr: Buffer.concat(stderr).toString("utf8"), exit_code: code, signal }));
-  });
+
+// Authorizes narrowly scoped runtime searches only for System Engineer without accepting traversal.
+function isForgeScope(path, context) {
+  return context.agent_identity?.role === "system_engineer" && typeof path === "string" && (path === ".forge" || path.startsWith(".forge/")) && !/[\\\0]/.test(path) && path.split("/").every((part) => part && part !== "." && part !== "..");
 }

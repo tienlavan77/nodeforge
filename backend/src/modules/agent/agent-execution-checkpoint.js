@@ -50,7 +50,9 @@ export function createAgentExecutionCheckpointStore({ fileService, root = ".forg
     try {
       const current = await loadReview(checkpoint.task_id);
       if (current?.status === "completed" && current.verdict === "approved") return current;
-      const saved = await saveAt(checkpoint, reviewRoot);
+      const sameAttempt = current && (!checkpoint.request_id || !current.request_id || current.request_id === checkpoint.request_id);
+      const merged = sameAttempt ? { ...current, ...checkpoint } : checkpoint;
+      const saved = await saveAt(merged, reviewRoot);
       await mirrorReviewToTicket(saved);
       return saved;
     } finally { await lock?.release(); }
@@ -64,10 +66,15 @@ export function createAgentExecutionCheckpointStore({ fileService, root = ".forg
     const ticketCheckpoint = await load(review.task_id);
     if (!ticketCheckpoint || ticketCheckpoint.status !== "completed") return;
     const prior = Array.isArray(ticketCheckpoint.stage_progress) ? ticketCheckpoint.stage_progress : [];
-    const entry = { stage: "reviewer", status: review.verdict ?? review.status ?? "in_progress", review_attempt: review.review_attempt ?? 0, at: review.updated_at };
+    const entry = { stage: "reviewer", status: review.verdict ?? review.status ?? "in_progress", review_attempt: review.review_attempt ?? 0,
+      ...(review.last_completed_turn !== undefined ? { turn: review.last_completed_turn } : {}),
+      ...(review.last_tool !== undefined ? { last_tool: review.last_tool } : {}), at: review.updated_at };
     const stageProgress = prior.at(-1)?.stage === "reviewer" ? [...prior.slice(0, -1), entry] : [...prior, entry];
     const updated = { ...ticketCheckpoint, review_stage: { status: review.status ?? "in_progress", verdict: review.verdict ?? null,
-      review_attempt: review.review_attempt ?? 0, reviewer_id: review.reviewer_id ?? null, last_error: review.last_error ?? null, updated_at: review.updated_at },
+      review_attempt: review.review_attempt ?? 0, reviewer_id: review.reviewer_id ?? null,
+      ...(review.last_completed_turn !== undefined ? { last_completed_turn: review.last_completed_turn } : {}),
+      ...(review.last_tool !== undefined ? { last_tool: review.last_tool } : {}),
+      last_error: review.last_error ?? null, updated_at: review.updated_at },
       stage_progress: stageProgress };
     await fileService.atomicWrite({ path: pathFor(review.task_id), content: `${JSON.stringify(updated)}\n`, replace: true });
   }

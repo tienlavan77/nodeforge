@@ -17,14 +17,17 @@ test("Codex profiles investigate through the tool-only Agents gateway, not nativ
         assert.equal(input.agent, profile);
         assert.match(input.prompt, /BLOCKER-DECISION-HTTP/);
         assert.match(input.prompt, /Do not ask the owner to choose the same direction again/);
-        assert.deepEqual(input.options.forgeTools.definitions.map((definition) => definition.name), ["read_source", "list_files"]);
+        assert.match(input.prompt, /SL ROLE CONTRACT/);
+        assert.match(input.prompt, /authority_scope\?: sprint, coder_request/);
+        assert.doesNotMatch(input.prompt, /FULFILLMENT STAGE for recorded owner decision/);
+        assert.deepEqual(input.options.forgeTools.definitions.map((definition) => definition.name), ["search_tree", "list_files", "search_text", "read_file", "read_lines", "git_status", "git_diff"]);
         assert.equal(input.options.builtinWebSearch, undefined);
-        const source = await input.options.forgeTools.registry.read_source.execute({ path: fixture.evidence.path });
-        assert.equal(source.sha256, fixture.evidence.sha256);
+        const source = await input.options.forgeTools.registry.read_file.execute({ path: fixture.evidence.path });
+        assert.equal(source.sha256, `sha256:${fixture.evidence.sha256}`);
         assert.equal(input.options.forgeTools.registry.write_diff, undefined);
         return { text: JSON.stringify(fixture.resolution) };
       } } } });
-    const result = await worker({ id: "JOB", owner_decisions: [{ decision_id: "BLOCKER-DECISION-HTTP", option_id: "http_management_route" }], stage: "sprint_leader", request: { task_id: "TASK", ticket: fixture.ticket }, history: [] }, { deadline: Date.now() + 1000 });
+    const result = await worker({ id: "JOB", fulfillment_decision_id: "BLOCKER-DECISION-HTTP", owner_decisions: [{ decision_id: "BLOCKER-DECISION-HTTP", option_id: "http_management_route" }], stage: "sprint_leader", request: { task_id: "TASK", ticket: fixture.ticket }, history: [] }, { deadline: Date.now() + 1000 });
     assert.equal(result.action, "resolved");
     assert.equal(released, 1);
   } finally { await fixture.close(); }
@@ -45,20 +48,20 @@ test("timed out SDK never releases a potentially active provider claim or silent
   } finally { await fixture.close(); }
 });
 
-test("read-only investigation rejects traversal and counts unsuccessful probes against its budget", async () => {
+test("read-only investigation keeps traversal forbidden without exhausting allowance for permitted reads", async () => {
   const fixture = await blockerRecoveryFixture();
   try {
     const logs = [];
     const tools = blockerRecoveryTools({ fileService: fixture.base.fileService, projectRoot: fixture.base.workspace.projectRoot,
       profile: { agent_id: "SL", role: "sprint_leader" }, task_id: "TICKET-1", correlation_id: "BLOCKER-JOB-SL", projectLogger: (entry) => logs.push(entry) });
-    for (let count = 0; count < 30; count += 1) await assert.rejects(tools.registry.read_source.execute({ path: "../outside" }));
-    await assert.rejects(tools.registry.read_source.execute({ path: fixture.evidence.path }), /budget/);
+    for (let count = 0; count < 30; count += 1) await assert.rejects(tools.registry.read_file.execute({ path: "../outside" }));
+    assert.equal((await tools.registry.read_file.execute({ path: fixture.evidence.path })).sha256, `sha256:${fixture.evidence.sha256}`);
     // Every probe (accepted or rejected) is audited by tool name and outcome only, with a fixed budget-exhaustion failure line.
     assert.equal(logs.filter((entry) => entry.event_name === "supervisor.blocker_tool_call" && entry.status === "started").length, 31);
-    assert.equal(logs.filter((entry) => entry.status === "failed").length, 31);
-    assert.equal(logs.at(-1).payload.error_code, "BLOCKER_TOOL_FAILED");
+    assert.equal(logs.filter((entry) => entry.status === "failed").length, 30);
+    assert.equal(logs.at(-1).status, "success");
     assert(logs.every((entry) => entry.task_id === "TICKET-1" && entry.correlation_id === "BLOCKER-JOB-SL"));
-    assert(logs.every((entry) => entry.payload.tool === "read_source" && entry.payload.agent_id === "SL"));
+    assert(logs.every((entry) => entry.payload.tool === "read_file" && entry.payload.agent_id === "SL"));
     assert.equal(JSON.stringify(logs).includes("../outside"), false);
     assert.equal(JSON.stringify(logs).includes(fixture.evidence.path), false);
   } finally { await fixture.close(); }
@@ -74,13 +77,13 @@ test("successful and rejected discovery calls audit bounded lifecycle lines arou
       agentOccupancy: { claim: async () => ({ claim_id: "CLAIM" }), release: async () => {} },
       resolveTicketWorkspace: async () => fixture.base.workspace,
       gateways: { openaiSdkGateway: { execute: async (input) => {
-        await input.options.forgeTools.registry.read_source.execute({ path: fixture.evidence.path });
-        await assert.rejects(input.options.forgeTools.registry.list_files.execute({ glob: "../outside*" }));
+        await input.options.forgeTools.registry.read_file.execute({ path: fixture.evidence.path });
+        await assert.rejects(input.options.forgeTools.registry.list_files.execute({ flags: ["--pre=command"] }));
         return { text: JSON.stringify(fixture.resolution) };
       } } } });
     await worker({ id: "JOB", stage: "architecture_manager", request: { task_id: "TICKET-1", ticket: fixture.ticket }, history: [] }, { deadline: Date.now() + 1000 });
     const calls = logs.filter((entry) => entry.event_name === "supervisor.blocker_tool_call");
-    assert.deepEqual(calls.map((entry) => [entry.payload.tool, entry.status]), [["read_source", "started"], ["read_source", "success"], ["list_files", "started"], ["list_files", "failed"]]);
+    assert.deepEqual(calls.map((entry) => [entry.payload.tool, entry.status]), [["read_file", "started"], ["read_file", "success"], ["list_files", "started"], ["list_files", "failed"]]);
     assert(calls.every((entry) => entry.correlation_id === "BLOCKER-JOB-architecture_manager"));
     // Lifecycle events share the same correlation so all triage activity merges into one Coding panel run.
     for (const name of ["supervisor.blocker_triage_started", "supervisor.blocker_triage_finished"]) {
@@ -160,7 +163,7 @@ test("extracts a valid JSON disposition when an agent prefixes discovery notes b
       gateways: { claudeSdkGateway: { execute: async ({ prompt }) => {
         assert.match(prompt, /delegated technical contract design/);
         assert.match(prompt, /Prefer returning action=resolved with authority_scope=architecture/);
-        assert.match(prompt, /if all six flags are false, you MUST return action=resolved instead of owner_required/);
+        assert.match(prompt, /if all six flags are false, return resolved only when the blocker is actually cleared, otherwise reconciliation_required/);
         return { text: `Based on my investigation:\n1. Confirmed contract boundary.\n\n\`\`\`json\n${JSON.stringify({ ...fixture.resolution, boundary_assessment: null, architecture_basis: null })}\n\`\`\`` };
       } } } });
     const result = await worker({ id: "JOB", fulfillment_decision_id: "BLOCKER-DECISION-1", stage: "architecture_manager", request: { task_id: "TASK", ticket: fixture.ticket }, history: [] }, { deadline: Date.now() + 1000 });

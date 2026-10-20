@@ -35,7 +35,9 @@ export function blockerSprintAuthority(plan, ticket, { includeExclusions = false
 
 // Requires explicit bounded impact assessment for AM's technical choices within the approved system structure.
 export function assertArchitectureDisposition(value, { job, architecture, authorityQuote = value.authority_quote }) {
-  if (job.stage !== "architecture_manager") throw blockerValidationError("/authority_scope", "role_not_authorized", "Only AM may decide at Architecture scope.", { retryable: false });
+  if (job.stage !== "architecture_manager") throw blockerValidationError("/authority_scope", "role_not_authorized",
+    "Only AM may decide at Architecture scope. SL must use Sprint scope and a Sprint authority reference for its own coordination decision; preserve the validated AM answer separately. If a new design decision remains, return architecture_required.",
+    { expected: "sprint", received: value.authority_scope ?? null, retryable: job.stage === "sprint_leader" });
   if (!architecture) throw blockerValidationError("/architecture_basis", "approved_parent_unavailable", "No authenticated approved Architecture parent is available.", { retryable: false });
   const identityErrors = ["plan_id", "revision", "sha256"].filter((field) => value.architecture_basis?.[field] !== architecture.basis[field])
     .flatMap((field) => blockerValidationError(`/architecture_basis/${field}`, "identity_mismatch", "Copy the exact Node-verified Architecture identity; reasoning may be paraphrased but identity cannot.",
@@ -69,7 +71,7 @@ export function assertOwnerEscalation(value, { job, plan, architecture, authorit
   const assessment = value.boundary_assessment;
   if (!assessment || !text(assessment.rationale) || assessment.rationale.length > 8000 || Object.keys(assessment).some((key) => ![...IMPACTS, "rationale"].includes(key))
     || IMPACTS.some((field) => typeof assessment[field] !== "boolean")) throw blockerValidationError("/boundary_assessment", "assessment_invalid", "Provide boundary_assessment with a rationale and the six boolean boundary impact flags.");
-  if (IMPACTS.every((field) => assessment[field] === false)) throw blockerValidationError("/boundary_assessment", "delegated_to_architecture", "All boundary impact flags are false; this technical decision is within AM authority. Return action=resolved with concrete guidance instead of escalating to the owner.", { retryable: true });
+  if (IMPACTS.every((field) => assessment[field] === false)) throw blockerValidationError("/boundary_assessment", "delegated_to_architecture", "All boundary impact flags are false; no new owner policy decision is established. Return action=resolved only when the blocker is cleared, otherwise action=reconciliation_required with the remaining technical prerequisite and concrete guidance.", { retryable: true });
   if (value.action === "owner_required" && priorAllFalseAssessment(job)) throw blockerValidationError("/boundary_assessment", "boundary_inflation_forbidden", "A prior attempt in this stage established that all boundary impact flags are false; AM cannot inflate impact flags on retry to escalate.", { retryable: true });
   const requiredImpacts = BOUNDARY_TO_IMPACT[escalation.boundary] ?? [];
   if (!requiredImpacts.some((field) => assessment[field] === true)) throw blockerValidationError("/boundary_assessment", "escalation_boundary_mismatch", `Escalation boundary ${escalation.boundary} requires at least one matching impact flag (${requiredImpacts.join(", ")}) to be true.`, { expected: requiredImpacts, received: Object.fromEntries(requiredImpacts.map((field) => [field, assessment[field]])) });

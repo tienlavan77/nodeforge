@@ -1,5 +1,8 @@
 // Builds governed ticket and tool-lab prompts for Claude and Codex agents.
 import { isBackendTicket } from "./nodeforge-task-scope.js";
+import { CODER_AUTONOMY_PROMPT } from "../../shared/implementation-autonomy.js";
+
+const VERIFICATION_SCOPE_INSTRUCTIONS = "Verification scope: the ticket verification_plan and changed tests are mandatory acceptance checks. Additional import-related tests, shared schema validation and UI build are supplemental regression checks. Node compares failing supplemental checks against the pre-ticket source with the same recorded environment. Do not expand ticket scope to repair preexisting_failure checks. Repair introduced/changed failures using diagnostic blocking fields; unattributed failures require baseline evidence, not speculative changes. Never weaken assertions, skip tests, or downgrade acceptance criteria to obtain PASS.";
 
 const BROWSER_SCENARIO_INSTRUCTIONS = "Browser verification: implement each approved scenario_path module in your commit. Export createBrowserFixture({sourceRoot,build}) => {html,assets} with real bundled project components, and browserAssertions as an object mapping EVERY exact approved assertion string to async ({page,viewport,origin}) functions that assert behavior or throw. assets maps local URL paths to text content. Node owns Chromium, approved viewport execution, network isolation and receipts; do not return fabricated receipts or replace browser checks with unit tests. See backend/src/modules/supervisor/browser-verification.md for the contract.";
 
@@ -25,7 +28,9 @@ export function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, comp
     `Ticket ${ticket?.id ?? ""}: ${ticket?.title ?? ""}`,
     `Objective: ${ticket?.objective ?? ""}`,
     ...(acceptance ? ["Acceptance criteria:", acceptance] : []),
+    CODER_AUTONOMY_PROMPT,
     ...(verification ? ["Forge verification plan (Forge reruns this after commit):", verification] : []),
+    VERIFICATION_SCOPE_INSTRUCTIONS,
     ...ticketVocabularyHints(ticket),
     "",
     ...instructions,
@@ -39,11 +44,11 @@ export function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, comp
     "Symbol check: if the expected symbol is missing or no longer matches the ticket, rediscover with search_text instead of editing blind.",
     "Stay within the ticket scope for every tool. read_lines requires path, start_line and end_line; read no more than 80 lines per call.",
     "Use the whole-file sha256 returned by read_file/read_lines as before_checksum for write_diff/edit_diff. Use JSON null only when creating a new file.",
-    "Node derives commit paths from the ticket ledger and runs the listed verification plan after commit. Do not invent, omit, or downgrade a criterion; add focused tests when the plan calls for them. Node owns artifacts and criterion evidence.",
+    "Node derives commit paths from the ticket ledger and commits the full final content of every file Coder changed in this ticket, including preexisting changes within those files; files outside the ticket are excluded. A dirty pre-ticket file or a different Git parent is not a commit blocker. Current file hashes must still match the recorded ticket writes. Node runs the listed verification plan after commit. Do not invent, omit, or downgrade a criterion; add focused tests when the plan calls for them. Node owns artifacts and criterion evidence.",
     "For extra focused checks, commit first and call run_check({type,command}); it returns the final result and a source-bound receipt directly. Final acceptance still uses Node's verification plan. Use push_commit({commit_sha}) only when pushing is requested, with the exact latest ticket commit SHA.",
     BROWSER_SCENARIO_INSTRUCTIONS,
-    "When the ticket is satisfied, call commit_changes with a concise message and no paths, then call report_done with a summary and any scope rationale or human evidence. Node supplies changed files, criterion IDs, command evidence, and artifact identity. Do not call Reviewer tools or submit finding resolutions. Stop after the complete report.",
-    "If scope, contract authority, access, security, or ambiguous acceptance blocks implementation, call report_done with status: blocked, summary, blocker: {reason_code, owner_action}, and source evidence. Do not invent authority or create a commit merely to report a blocker. CODER_BLOCKED acknowledges escalation, not completion; stop and await an owner decision."
+    "When the ticket is satisfied, call commit_changes with a concise message and no paths, then call report_done with a summary and any scope rationale or human evidence. Node supplies changed files, criterion IDs, command evidence, and artifact identity. Node holds report_done while verification runs and returns the terminal result to this same session. Wait for the tool result; do not poll, recommit unchanged source or start duplicate tests. After PASS, finish the final report. After FAIL, repair only the evidenced cause using the returned command output and artifact reference. Do not call Reviewer tools or submit finding resolutions. Stop only after report_done succeeds.",
+    "If scope, contract authority, access, security, or ambiguous acceptance blocks implementation, call report_done with status: blocked, summary, blocker: {reason_code, owner_action}, and source evidence. Do not invent authority or create a commit merely to report a blocker. CODER_BLOCKED acknowledges escalation, not completion; stop this invocation. Node routes the retained checkpoint to SL, who consults AM only for a missing design decision; Owner is needed only for an evidenced boundary beyond existing authority."
   ].filter((line) => line !== undefined).join("\n");
 }
 
@@ -73,6 +78,7 @@ function ticketVocabularyHints(ticket = {}) {
 function coderProjectConventions(readTool = "read_file") {
   return [
     "Project conventions (AGENTS.md):",
+    "- Installed backend/UI node_modules are read-only context. Locate package guidance with search_tree at its exact directory, then read_file/read_lines using the returned filename; do not guess .md versus .mdx or request Architecture approval merely to read it.",
     "- New files/functions only: add a short summary comment stating the business purpose alongside the technical description, in the same language as the code, without secrets. Do not add summaries to existing files/functions.",
     `- Before naming a new file/function/module/variable, call ${readTool} on vocabulary/glossary.md and use the standardized term; prefer ticket vocabulary_hints when present. Never edit vocabulary/glossary.md.`,
     `- Every file must stay at or under 250 lines (check ${readTool} total_lines); split the file instead of growing past the limit.`,
@@ -117,7 +123,9 @@ export function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, compl
     `Ticket ${ticket?.id ?? ""}: ${ticket?.title ?? ""}`,
     `Objective: ${ticket?.objective ?? ""}`,
     ...(acceptance ? ["Acceptance criteria:", acceptance] : []),
+    CODER_AUTONOMY_PROMPT,
     ...(verification ? ["Forge verification plan (Forge reruns this after commit):", verification] : []),
+    VERIFICATION_SCOPE_INSTRUCTIONS,
     ...ticketVocabularyHints(ticket),
     "",
     ...instructions,
@@ -133,8 +141,8 @@ export function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, compl
     "If a governed tool call fails, fix the inputs and retry — do not continue with write_diff/commit_changes on an unknown target.",
     "For extra focused checks, commit first and call run_check({type,command}); it returns the final result and a source-bound receipt directly. Final acceptance still uses Node's verification plan. Use push_commit({commit_sha}) only when pushing is requested, with the exact latest ticket commit SHA.",
     BROWSER_SCENARIO_INSTRUCTIONS,
-    "For a scope, contract, access, security, or acceptance blocker, call report_done with status: blocked, summary, blocker: {reason_code, owner_action}, and source evidence. Do not invent authority or a commit. CODER_BLOCKED acknowledges escalation, not completion: stop and await an owner decision. This is the only exception to the completion sequence below.",
-    "Mandatory completion sequence: call commit_changes with a concise message and no paths, then call report_done with a summary and any scope rationale or human evidence. Node derives commit paths, runs the listed verification plan, and attaches criterion IDs, changed files, and command evidence. Do not call Reviewer tools or submit finding resolutions. Stop only after report_done succeeds. CODER_EVIDENCE_PENDING means completion was rejected: run the missing checks and retry with verified acceptance coverage; do not hand incomplete evidence to Human Review."
+    "For a scope, contract, access, security, or acceptance blocker, call report_done with status: blocked, summary, blocker: {reason_code, owner_action}, and source evidence. Do not invent authority or a commit. CODER_BLOCKED acknowledges escalation, not completion: stop this invocation. Node routes the retained checkpoint to SL; consult AM only for a missing design decision, not to repeat a retained contract. Owner is needed only beyond existing authority. This is the only exception to the completion sequence below.",
+    "Mandatory completion sequence: call commit_changes with a concise message and no paths, then call report_done with a summary and any scope rationale or human evidence. Node derives commit paths, runs the listed verification plan, and attaches criterion IDs, changed files, and command evidence. Node holds report_done while verification runs and returns the terminal result to this same session. Wait for the tool result; do not poll, recommit unchanged source or start duplicate tests. After PASS, finish the final report. After FAIL, repair only the evidenced cause using the returned command output and artifact reference. Do not call Reviewer tools or submit finding resolutions. Stop only after report_done succeeds. CODER_EVIDENCE_PENDING means completion was rejected: run the missing checks and retry with verified acceptance coverage; do not hand incomplete evidence to Human Review."
   ].join("\n");
 }
 

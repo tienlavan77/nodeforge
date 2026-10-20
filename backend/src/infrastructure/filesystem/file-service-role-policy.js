@@ -1,8 +1,11 @@
 // Gives agents role-scoped File Service access so project workflows stay under Node governance.
 import { ConfigurationError } from "../../shared/errors.js";
 import { isProtectedPath } from "./protected-path-policy.js";
+import { createFileService } from "./file-service.js";
+import { listAgentFileTree } from "./agent-file-tree.js";
 import { lstat } from "node:fs/promises";
 import { resolve } from "node:path";
+import { dependencyReadPath, isDependencyPath, readDependencyFile } from "./dependency-read.js";
 
 const ARCHITECTURE_WRITE_PREFIXES = Object.freeze(["docs/", "Skills/", "workflows/"]);
 const NODE_MODULES_PATH = /(^|\/)node_modules(?:\/|$)/;
@@ -19,14 +22,15 @@ export function assertCoderWorkflowReadOnly(role, operation, path) {
 
 // Checks role permissions before File Service reads, writes, or deletes a path.
 export function assertRoleFileAccess(role, operation, path) {
-  const systemEngineerDependencyRead = role === "system_engineer" && operation === "read" && NODE_MODULES_PATH.test(path ?? "");
+  const forgeAccess = role === "system_engineer" && typeof path === "string" && (path === ".forge" || path.startsWith(".forge/"));
+  const dependencyRead = operation === "read" && isDependencyPath(path);
   const safe = typeof path === "string" && path.length > 0 && !path.startsWith("/") && !path.includes("\\") && !path.includes("\0")
-    && path.split("/").every((part) => part && part !== "." && part !== ".." && (role === "system_engineer" && operation === "read" || !part.startsWith(".")))
-    && !isProtectedPath(path, { operation: operation === "read" ? "read" : "write" })
-    && (systemEngineerDependencyRead || !NODE_MODULES_PATH.test(path))
-    && !FORBIDDEN_READ_PATH.test(path);
+    && path.split("/").every((part) => part && part !== "." && part !== ".." && (forgeAccess || dependencyRead || role === "system_engineer" && operation === "read" || !part.startsWith(".")))
+    && !isProtectedPath(path, { operation: operation === "read" ? "read" : "write", role })
+    && (forgeAccess || dependencyRead || !NODE_MODULES_PATH.test(path))
+    && (forgeAccess || dependencyRead && !/(^|\/)(?:secrets?|credentials?|private)(?:[._/-]|$)/i.test(path) || !FORBIDDEN_READ_PATH.test(path));
   const writeArea = role === "architecture_manager" && (path === "ARCHITECTURE.md" || ARCHITECTURE_WRITE_PREFIXES.some((prefix) => path?.startsWith(prefix)));
-  const allowed = safe && (operation === "read" || (operation === "write" && (writeArea || role === "system_engineer")) || (operation === "delete" && role === "architecture_manager" && path.startsWith("workflows/")));
+  const allowed = safe && (forgeAccess || operation === "read" || (operation === "write" && (writeArea || role === "system_engineer")) || (operation === "delete" && role === "architecture_manager" && path.startsWith("workflows/")));
   if (!allowed) throw Object.assign(new ConfigurationError(`File access is not permitted for role ${role}: ${operation} ${path ?? "<missing>"}.`), { code: "FILE_ROLE_FORBIDDEN" });
 }
 
@@ -34,9 +38,13 @@ export function assertRoleFileAccess(role, operation, path) {
 export function createRoleFileService({ fileService, role, projectRoot }) {
   if (!fileService?.readFile || !fileService?.readForIndex || !fileService?.atomicWrite || !fileService?.deleteFile) throw new ConfigurationError("Role File Service requires read, write, and delete operations.");
   if (typeof projectRoot !== "string" || !projectRoot) throw new ConfigurationError("Role File Service requires a project root.");
+  const forgeFiles = role === "system_engineer" ? createFileService({ projectRoot, role }) : null;
+  // Selects the role-authorized service only for project-local Forge state.
+  const serviceFor = (path) => forgeFiles && (path === ".forge" || path?.startsWith(".forge/")) ? forgeFiles : fileService;
   // Reject symlink components so an agent cannot reach outside the project through an approved relative path.
   async function checkPath(operation, path) {
     assertRoleFileAccess(role, operation, path);
+    if (operation === "read" && isDependencyPath(path)) { dependencyReadPath(projectRoot, path); return; }
     let current = resolve(projectRoot);
     for (const part of path.split("/")) {
       current = resolve(current, part);
@@ -47,18 +55,28 @@ export function createRoleFileService({ fileService, role, projectRoot }) {
     }
   }
   return Object.freeze({
+    listTree: (input) => listAgentFileTree({ ...input, projectRoot, assertReadPath: (path) => checkPath("read", path) }),
     assertReadPath: async (path) => checkPath("read", path),
-    readFile: async (input) => { await checkPath("read", input?.path); return fileService.readFile(input); },
+    readFile: async (input) => { await checkPath("read", input?.path); return isDependencyPath(input?.path) ? (await readDependencyFile({ projectRoot, ...input })).content : serviceFor(input?.path).readFile(input); },
     readForIndex: async (input) => {
       await checkPath("read", input?.path);
+      if (isDependencyPath(input?.path)) return readDependencyFile({ projectRoot, ...input });
       const allowNodeModules = role === "system_engineer" && NODE_MODULES_PATH.test(input?.path ?? "");
-      return fileService.readForIndex({ ...input, allowNodeModules });
+      return serviceFor(input?.path).readForIndex({ ...input, allowNodeModules });
     },
-    atomicWrite: async (input) => { await checkPath("write", input?.path); return fileService.atomicWrite(input); },
-    deleteFile: async (input) => { await checkPath("delete", input?.path); return fileService.deleteFile(input); },
-    listFiles: async (input) => filterListed("read", await fileService.listFiles(input)),
-    listDirectories: async (input) => filterListed("read", await fileService.listDirectories(input))
+    atomicWrite: async (input) => { await checkPath("write", input?.path); return serviceFor(input?.path).atomicWrite(input); },
+    deleteFile: async (input) => { await checkPath("delete", input?.path); return serviceFor(input?.path).deleteFile(input); },
+    listFiles: async (input) => filterListed("read", await list("listFiles", input)),
+    listDirectories: async (input) => filterListed("read", await list("listDirectories", input))
   });
+
+  // Includes SE runtime discovery without exposing ignored state to other roles.
+  async function list(method, input) {
+    const paths = await fileService[method](input);
+    if (!forgeFiles) return paths;
+    const forgePaths = await forgeFiles[method]({ ...input, glob: input?.glob?.startsWith(".forge") ? input.glob : ".forge/**" });
+    return [...new Set([...paths, ...forgePaths])];
+  }
 
   // Hides private and symlinked entries from agent directory discovery.
   async function filterListed(operation, paths) {

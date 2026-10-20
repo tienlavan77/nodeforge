@@ -8,6 +8,7 @@ import { logEvent } from "../core/project-log-service.js";
 import { createRuntimeLogger } from "../core/runtime-logger.js";
 import { ConfigurationError } from "../shared/errors.js";
 import { authorizeTool, isAgentPathAllowed } from "./tool-authorization.js";
+import { dependencyReadPath, isDependencyPath, readDependencyFile } from "../infrastructure/filesystem/dependency-read.js";
 
 const MAX_LINES = 80;
 const MAX_OUTPUT_BYTES = 200000;
@@ -35,7 +36,8 @@ export function createSedLinesTool({ projectRoot, fileService, codeCache, symbol
     emit("started", context, { command: ["sed", ...args], cwd: projectRoot });
     let result;
     try {
-      result = codeCache && !context.project_wide_access ? await readCachedLines(codeCache, normalized) : await runSed(projectRoot, args, environment);
+      result = isDependencyPath(normalized.path) ? await readCachedLines({ read: ({ path }) => readDependencyFile({ projectRoot, path }) }, normalized)
+        : codeCache && !context.project_wide_access ? await readCachedLines(codeCache, normalized) : await runSed(projectRoot, args, environment);
     } catch (error) {
       emit("failed", context, { command: ["sed", ...args], cwd: projectRoot, error_code: error.code ?? "SED_LINES_SPAWN_FAILED", error: error.message, duration_ms: Date.now() - started });
       throw error;
@@ -50,7 +52,8 @@ export function createSedLinesTool({ projectRoot, fileService, codeCache, symbol
     let metadata = {};
     if (fileService && !context.project_wide_access) {
       try {
-        const file = codeCache ? await codeCache.read({ path: normalized.path }) : await fileService.readForIndex({ path: normalized.path });
+        const file = isDependencyPath(normalized.path) ? await readDependencyFile({ projectRoot, path: normalized.path })
+          : codeCache ? await codeCache.read({ path: normalized.path }) : await fileService.readForIndex({ path: normalized.path });
         if (typeof file?.content !== "string") throw invalidInput("sed_lines could not verify the file checksum.");
         metadata = { sha256: file.sha256 ?? `sha256:${createHash("sha256").update(file.content, "utf8").digest("hex")}`, total_lines: file.content.split("\n").length };
       } catch (error) {
@@ -116,6 +119,7 @@ function buildArgs(input) {
 
 // Checks every path segment and ripgrep's baseline listing before sed reads it.
 async function validatePath(projectRoot, path, environment, context = {}) {
+  if (isDependencyPath(path)) { dependencyReadPath(projectRoot, path); return; }
   const root = await realpath(projectRoot);
   let current = projectRoot;
   for (const part of path.split("/")) {

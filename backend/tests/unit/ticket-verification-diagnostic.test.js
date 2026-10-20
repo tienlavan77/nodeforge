@@ -21,7 +21,7 @@ test("failed command artifact carries identity, argv, exit code and redacted out
   const result = await verifyTicketChangeset({ workspace, job: { payload: { changed_paths: ["src/dialog.js"] } } });
   assert.equal(result.repairable, true);
   assert.equal(result.verification_diagnostic.artifact_id, "ARTIFACT-1");
-  assert.deepEqual(result.verification_diagnostic.commands[0], { ...artifact.commands[0], output_truncated: false });
+  assert.deepEqual(result.verification_diagnostic.commands[0], { ...artifact.commands[0], blocking: true, output_truncated: false });
   assert.deepEqual(result.failed_paths, []);
   const sent = [];
   const loop = createSupervisorLoop({ runtime: { taskId: "TASK", supervisorId: "SUP", transition: async () => {} },
