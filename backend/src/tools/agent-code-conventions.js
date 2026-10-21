@@ -93,8 +93,8 @@ export function countBudgetLines(content) {
       if (!character.trim()) continue;
       const identifier = /^[A-Za-z_$][\w$]*/.exec(rest);
       if (identifier) {
-        afterControl = lastToken !== "." && /^(?:else|do|return|yield|throw|case|delete|void|typeof|new|in|instanceof|await)$/.test(identifier[0]);
-        lastToken = lastToken === "." ? "property" : identifier[0];
+        afterControl = lastToken !== "." && lastToken !== "#" && /^(?:else|do|return|yield|throw|case|delete|void|typeof|new|in|instanceof|await)$/.test(identifier[0]);
+        lastToken = lastToken === "." || lastToken === "#" ? "property" : identifier[0];
         index += identifier[0].length - 1;
         code = true;
         continue;
