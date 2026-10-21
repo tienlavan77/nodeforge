@@ -66,6 +66,20 @@ test("keyword property division permits boundary writes and edits with accurate 
   }
 });
 
+// Verifies private-property division preserves compliant lifecycle writes, edits, and metadata.
+test("private-property division permits valid class boundary writes and edits", async () => {
+  const content = `// Processes account values within the private-field boundary.\nclass Account {\n  #return;\n  read(divisor) {\n    return this.#return / divisor; /* explanation\n continued */\n    const next = 1;\n  }\n}\n${Array.from({ length: 243 }, (_, index) => `value${index};`).join("\n")}`;
+  const state = fixture();
+  await createWriteDiffTool({ fileService: state.fileService }).execute({ path: "account.js", content, before_checksum: null });
+  const readTool = createReadFileTool({ fileService: state.fileService });
+  const read = await readTool.execute({ path: "account.js", offset: 1, limit: 2 });
+  assert.equal(read.code_lines, 250);
+  assert.equal(read.total_lines, 252);
+  await createEditDiffTool({ fileService: state.fileService }).execute({ path: "account.js", anchor: "divisor;", replacement: "otherDivisor;", before_checksum: state.sha256() });
+  assert.equal(state.read(), content.replace("divisor;", "otherDivisor;"));
+  assert.equal((await readTool.execute({ path: "account.js", offset: 1, limit: 2 })).code_lines, 250);
+});
+
 test("write_diff rejects code overflow with legacy and new diagnostic fields and performs no write", async () => {
   const state = fixture();
   await assert.rejects(() => createWriteDiffTool({ fileService: state.fileService }).execute({ path: "account.js", content: source(251, 60), before_checksum: null }), (error) => {
