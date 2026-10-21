@@ -147,7 +147,7 @@ test("write_diff rejects code overflow with legacy and new diagnostic fields and
 
 test("regex statements cannot bypass write or edit overflow protection or read metadata", async () => {
   for (const statement of [
-    "if (ready) /[/*]/.test(value);",
+    "if (ready) /[/*]/.test(value);", "function process() { return\n{} /[/*]/.test(value); }", "function process() { return // reason\n{} /[/*]/.test(value); }", "function* process() { yield\n{} /[/*]/.test(value); }",
     "if (ready) run(); else /[/*]/.test(value);",
     "if (ready) run(); else /* reason */ /[/*]/.test(value);",
     "do /[/*]/.test(value); while (ready);",
