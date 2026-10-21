@@ -77,6 +77,16 @@ test("regex context survives statement keywords and intervening comments without
   }
 });
 
+test("keyword-named properties preserve division and real multiline comments", () => {
+  for (const property of ["else", "do", "return", "yield", "throw", "case", "delete", "void", "typeof", "new", "in", "instanceof", "await", "if", "while", "for", "with", "switch", "catch"]) {
+    for (const expression of [`account.${property}`, `account?.${property}`, `account. /* reason */ ${property}`, `account.${property}(ready)`]) {
+      assert.equal(countBudgetLines(`${expression} / divisor; /* explanation\n continued */\nconst next = 1;`), 2, expression);
+      assert.equal(countBudgetLines(`${expression} / divisor; // explanation\n// continued\nconst next = 1;`), 2, expression);
+    }
+  }
+  assert.equal(countBudgetLines("account.\nreturn / divisor; /* explanation\n continued */\nconst next = 1;"), 3);
+});
+
 test("CRLF, trailing newlines and comment-only padding preserve the budget boundary", () => {
   const code = Array.from({ length: 250 }, (_, index) => `value${index};`).join("\r\n");
   assert.equal(countBudgetLines(`// purpose\r\n${code}\r\n\r\n/* reason */\r\n`), 250);

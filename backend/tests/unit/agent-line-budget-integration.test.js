@@ -47,6 +47,25 @@ test("write_diff accepts more than 250 physical lines at the 250-code-line bound
   assert.deepEqual(JSON.parse(state.read()), Array(248).fill(0));
 });
 
+test("keyword property division permits boundary writes and edits with accurate metadata", async () => {
+  for (const expression of ["account.return", "account?.throw", "account. /* reason */ do", "account.await", "account.in", "account.if(ready)"]) {
+    const content = `// Documents account processing.\n${expression} / divisor; /* explanation\n continued */\n${Array.from({ length: 249 }, (_, index) => `value${index};`).join("\n")}`;
+    const state = fixture();
+    await createWriteDiffTool({ fileService: state.fileService }).execute({ path: "account.js", content, before_checksum: null });
+    assert.equal(state.read(), content, expression);
+    const readTool = createReadFileTool({ fileService: state.fileService });
+    const read = await readTool.execute({ path: "account.js", offset: 1, limit: 2 });
+    assert.equal(read.code_lines, 250, expression);
+    assert.equal(read.total_lines, 252, expression);
+    await createEditDiffTool({ fileService: state.fileService }).execute({ path: "account.js", anchor: "divisor;", replacement: "otherDivisor;", before_checksum: state.sha256() });
+    assert.equal(state.read(), content.replace("divisor;", "otherDivisor;"), expression);
+    assert.equal(state.writes(), 2, expression);
+    const edited = await readTool.execute({ path: "account.js", offset: 1, limit: 2 });
+    assert.equal(edited.code_lines, 250, expression);
+    assert.equal(edited.total_lines, 252, expression);
+  }
+});
+
 test("write_diff rejects code overflow with legacy and new diagnostic fields and performs no write", async () => {
   const state = fixture();
   await assert.rejects(() => createWriteDiffTool({ fileService: state.fileService }).execute({ path: "account.js", content: source(251, 60), before_checksum: null }), (error) => {
