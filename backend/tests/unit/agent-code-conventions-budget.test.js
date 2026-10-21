@@ -184,6 +184,17 @@ test("restricted-production line breaks end return and yield before statement bl
   assert.equal(countBudgetLines("function process() { return\n{} /[/*]/.test(value); }\nconst next = 1;\nconst last = 2;"), 4);
 });
 
+test("for-await control headers preserve regex statements and subsequent code", () => {
+  for (const header of ["for await", "for /* reason */ await", "for await /* reason */", "for\nawait", "for await\n"]) {
+    for (const body of ["/[/*]/.test(item);", "/* reason */ /[/*]/.test(item);", "{ /[/*]/.test(item); } /[/*]/.test(items);"]) {
+      const statement = `async function process() { ${header} (const item of items) ${body} }`;
+      assert.equal(countBudgetLines(`${statement}\nconst next = 1;\nconst last = 2;`), statement.split("\n").length + 2, statement);
+    }
+  }
+  assert.equal(countBudgetLines("async function process() { for await (const item of items) /[/*]/.test(item); }\nconst next = 1;\nconst last = 2;"), 3);
+  assert.equal(countBudgetLines("async function process() { for await (const item of items) item / divisor; /* reason\n continued */\nconst next = 1; }"), 2);
+});
+
 test("keyword-named properties preserve division and real multiline comments", () => {
   for (const property of ["else", "do", "return", "yield", "throw", "case", "delete", "void", "typeof", "new", "in", "instanceof", "await", "if", "while", "for", "with", "switch", "catch"]) {
     for (const expression of [`account.${property}`, `account?.${property}`, `account. /* reason */ ${property}`, `account.${property}(ready)`]) {
