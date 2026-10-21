@@ -132,7 +132,14 @@ test("object-expression closures preserve division and real multiline comments",
     assert.equal(countBudgetLines(`${statement} /* explanation\n continued */\nconst next = 1;`), 2, statement);
   }
   for (const statement of [
-    "class Account {} /[/*]/.test(value);",
+    "switch (value) { case 1: { run(); } /[/*]/.test(value); }",
+    "switch (value) { default: { run(); } /[/*]/.test(value); }",
+    "switch (value) { case ready ? 1 : 2: { run(); } /[/*]/.test(value); }",
+    "switch (value) { case { key: ready ? 1 : 2 }: { run(); } /[/*]/.test(value); }",
+    "switch (value) { case values[ready ? 1 : 2]: { run(); } /[/*]/.test(value); }",
+    "switch (value) { case ready?.value ?? 1: { run(); } /[/*]/.test(value); }",
+    "switch (value) { case 1: switch (next) { case 2: {} /[/*]/.test(value); } }",
+    "class Account {} /[/*]/.test(value);", 
     "class Account extends Base {} /[/*]/.test(value);",
     "class Account extends mixin({ value: 1 }) { method() { return {}; } } /[/*]/.test(value);",
     "class Account extends (class {}) {} /[/*]/.test(value);",

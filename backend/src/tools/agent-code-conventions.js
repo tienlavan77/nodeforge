@@ -67,6 +67,8 @@ export function countBudgetLines(content) {
   const parentheses = [];
   const braces = [];
   const pendingClasses = [];
+  const pendingCases = [];
+  let brackets = 0;
   let pendingFunction = null;
   let functionBody = null;
   let asyncExpression = false;
@@ -100,6 +102,9 @@ export function countBudgetLines(content) {
       if (!character.trim()) continue;
       const identifier = /^[A-Za-z_$][\w$]*/.exec(rest);
       if (identifier) {
+        if (statementStart && !braces.at(-1) && /^(?:case|default)$/.test(identifier[0])) {
+          pendingCases.push({ braces: braces.length, parentheses: parentheses.length, brackets, conditional: 0 });
+        }
         const expression = /^(?:[=(:,[!&|?+*%/^~<>-]|return|yield|throw|case|delete|void|typeof|new|in|instanceof|await)$/.test(lastToken);
         if (identifier[0] === "function" && lastToken !== "." && lastToken !== "#") {
           pendingFunction = lastToken === "async" ? asyncExpression : expression;
@@ -144,7 +149,16 @@ export function countBudgetLines(content) {
       const parenthesis = character === ")" ? parentheses.pop() : null;
       afterControl = Boolean(parenthesis?.control);
       functionBody = parenthesis?.functionExpression ?? null;
-      const labelColon = character === ":" && labelCandidate;
+      if (character === "[") brackets++;
+      if (character === "]") brackets--;
+      const pendingCase = pendingCases.at(-1);
+      const caseBoundary = pendingCase?.braces === braces.length
+        && pendingCase?.parentheses === parentheses.length && pendingCase?.brackets === brackets;
+      if (caseBoundary && character === "?" && !/^[?.]/.test(line[index + 1] ?? "") && line[index - 1] !== "?") pendingCase.conditional++;
+      const caseColon = caseBoundary && character === ":" && pendingCase.conditional === 0;
+      if (caseBoundary && character === ":" && !caseColon) pendingCase.conditional--;
+      if (caseColon) pendingCases.pop();
+      const labelColon = character === ":" && (labelCandidate || caseColon);
       lastToken = character === "}" && braces.pop() ? "literal" : labelColon ? ";" : character;
       statementStart = labelColon || character === ";" || afterControl
         || character === "{" && !braces.at(-1) || character === "}" && lastToken === "}";
