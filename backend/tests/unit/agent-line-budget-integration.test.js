@@ -150,7 +150,7 @@ test("regex statements cannot bypass write or edit overflow protection or read m
     "if (ready) /[/*]/.test(value);", "function process() { return\n{} /[/*]/.test(value); }", "function process() { return // reason\n{} /[/*]/.test(value); }", "function* process() { yield\n{} /[/*]/.test(value); }",
     "if (ready) run(); else /[/*]/.test(value);", "debugger\n/[/*]/.test(value);", "debugger // reason\n/[/*]/.test(value);", "debugger /* reason\n continued */ /[/*]/.test(value);",
     "if (ready) run(); else /* reason */ /[/*]/.test(value);",
-    "do /[/*]/.test(value); while (ready);", ...["break", "continue"].flatMap((transfer) => ["\n", "\r\n", " // reason\n", " /* reason\n continued */ "].map((separator) => `outer: while (ready) { if (stop) ${transfer} /* label */ outer${separator}/[/*]/.test(value);\nconst next = 1;\n}`)),
+    "do /[/*]/.test(value); while (ready);", ...["break", "continue"].flatMap((transfer) => ["outer", "outeré", "外側", "𐐀outer", "outer\u0301", "outer\u200c\u200d", "outer\\u00e9", "outer\\u{1D49C}"].flatMap((label) => ["\n", "\r\n", " // reason\n", " /* reason\n continued */ "].map((separator) => `${label}: while (ready) { if (stop) ${transfer} /* label */ ${label}${separator}/[/*]/.test(value);\nconst next = 1;\n}`))),
     "do /* reason */ /[/*]/.test(value); while (ready);",
     "const pattern = (() => { return /* reason */ /[/*]/; })();",
     "const result = value + /[/*]/.test(input);",
