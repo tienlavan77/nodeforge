@@ -186,11 +186,18 @@ export function countBudgetLines(content) {
 }
 
 // Rejects mixed natural-language summaries while allowing technical identifiers in business documentation.
-export function validateCommentLanguage(comment) {
-  const prose = String(comment ?? "")
-    .replace(/`[^`]*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|@[A-Za-z][\w-]*\b/g, " ")
-    .replace(/https?:\/\/\S+|\b[\w.-]+\([^)]*\)|\b\w+(?:[._/-]\w+)+\b/g, " ")
+// Removes annotation-shaped tokens before classifying the natural-language portion of a summary.
+function stripTechnicalTokens(comment) {
+  return String(comment ?? "")
+    .replace(/`[^`]*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, " ")
+    .replace(/@[A-Za-z][\w-]*\b/g, " ")
+    .replace(/https?:\/\/\S+|\b[\w.-]+\([^)]*\)|\b\w+(?:[._\/-]\w+)+\b/g, " ")
     .replace(/\b(?:[a-z]+[A-Z][A-Za-z0-9]*|[A-Z][A-Z0-9_]+|\w*\d\w*)\b/g, " ");
+}
+
+// Rejects mixed natural-language summaries while allowing technical identifiers in business documentation.
+export function validateCommentLanguage(comment) {
+  const prose = stripTechnicalTokens(comment);
   const vietnamese = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i.test(prose.normalize("NFC"));
   const english = /\b(?:the|this|that|these|those|is|are|was|were|be|been|being|will|would|should|must|could|does|has|have|with|for|from|into|returns|checks|creates|updates|validates|ensures|handles|allows|rejects|reads|writes)\b/i.test(prose);
   return !vietnamese || !english;
