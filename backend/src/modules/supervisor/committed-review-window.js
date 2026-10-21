@@ -1,4 +1,5 @@
 // Reads authorized source windows from retained review commits even after the live file changes or disappears.
+import { countBudgetLines } from "../../tools/agent-code-conventions.js";
 import { ConfigurationError } from "../../shared/errors.js";
 import { authorizeTool, isAgentPathAllowed } from "../../tools/tool-authorization.js";
 
@@ -12,6 +13,6 @@ export function createCommittedReviewWindow(fileService, toolName = "sed_lines")
     }
     const file = await fileService.readForIndex({ path: input.path, maxBytes: 64_000 });
     const lines = file.content.split("\n");
-    return { stdout: lines.slice(input.start_line - 1, input.end_line).join("\n") + (input.start_line <= lines.length ? "\n" : ""), stderr: "", exit_code: 0, signal: null };
+    return { stdout: lines.slice(input.start_line - 1, input.end_line).join("\n") + (input.start_line <= lines.length ? "\n" : ""), stderr: "", exit_code: 0, signal: null, total_lines: lines.length, code_lines: countBudgetLines(file.content) };
   } };
 }
