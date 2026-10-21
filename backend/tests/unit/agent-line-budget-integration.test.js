@@ -46,7 +46,6 @@ test("write_diff accepts more than 250 physical lines at the 250-code-line bound
   await createWriteDiffTool({ fileService: state.fileService }).execute({ path: "account.json", content, before_checksum: null });
   assert.deepEqual(JSON.parse(state.read()), Array(248).fill(0));
 });
-
 // Verifies object division at the edit budget boundary without charging multiline comment continuations.
 test("object-expression division permits boundary writes and edits with accurate metadata", async () => {
   for (const statement of [
@@ -71,6 +70,7 @@ test("object-expression division permits boundary writes and edits with accurate
     "const ratio = async function () {} / divisor;",
     "const ratio = function (value = (() => 1)()) { if (value) { run(); } } / divisor;",
     "const ratio = function () { return function () {}; } / divisor;",
+    "class Account { class = {} / divisor; /* explanation\n continued */ }", "class Account { static class = {} / divisor; /* explanation\n continued */ }",
     "const ratio = { class: {} / divisor };", "const ratio = { class /* property */: {} / divisor };",
     "const ratio = { class: { class: {} / divisor } / divisor };", "const ratio = { class: class {} / divisor };",
     "const ratio = {} / divisor;",
@@ -79,7 +79,7 @@ test("object-expression division permits boundary writes and edits with accurate
     "function calculate() { return { value: 1 } / divisor; }",
     "if (ready) { run(); } /[/*]/.test(value);"
   ]) {
-    const content = `// Documents account processing.\n${statement} /* explanation\n continued */\n${Array.from({ length: 249 }, (_, index) => `value${index};`).join("\n")}`;
+    const content = `// Documents account processing.\n${statement} /* explanation\n continued */\n${Array.from({ length: 249 - (statement.includes("\n") ? 1 : 0) }, (_, index) => `value${index};`).join("\n")}`;
     const state = fixture();
     const writeTool = createWriteDiffTool({ fileService: state.fileService });
     await writeTool.execute({ path: "account.js", content, before_checksum: null });
