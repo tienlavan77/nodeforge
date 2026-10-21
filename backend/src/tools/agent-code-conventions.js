@@ -106,7 +106,7 @@ export function countBudgetLines(content) {
         code = true;
         continue;
       }
-      if (character === "/" && (afterControl || /^(?:[=(:,!&|?;{}\[+*%/^~<>-]|)$/.test(lastToken))) { quote = "/"; regexClass = false; }
+      if (character === "/" && (afterControl || /^(?:[=(:,!&|?;{}[+*%/^~<>-]|)$/.test(lastToken))) { quote = "/"; regexClass = false; }
       if (character === "\"" || character === "'" || character === "`") quote = character;
       if (character === "(") parentheses.push(/^(?:if|while|for|with|switch|catch)$/.test(lastToken));
       afterControl = character === ")" ? Boolean(parentheses.pop()) : false;
