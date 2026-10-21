@@ -57,6 +57,26 @@ test("write_diff rejects code overflow with legacy and new diagnostic fields and
   assert.equal(state.writes(), 0);
 });
 
+test("regex statements cannot bypass write or edit overflow protection or read metadata", async () => {
+  const content = `// Documents account processing.\nif (ready) /[/*]/.test(value);\n${Array.from({ length: 249 }, (_, index) => `value${index};`).join("\n")}`;
+  const state = fixture(content);
+  const read = await createReadFileTool({ fileService: state.fileService }).execute({ path: "account.js", offset: 1, limit: 2 });
+  assert.equal(read.code_lines, 250);
+  assert.equal(read.total_lines, 251);
+  await assert.rejects(() => createWriteDiffTool({ fileService: state.fileService }).execute({ path: "account.js", content: `${content}\nnext;`, before_checksum: state.sha256() }), (error) => {
+    assert.equal(error.code, "CONTENT_TOO_LARGE");
+    assert.equal(error.details.code_lines, 251);
+    return true;
+  });
+  await assert.rejects(() => createEditDiffTool({ fileService: state.fileService }).execute({ path: "account.js", anchor: "value248;", replacement: "value248;\nnext;", before_checksum: state.sha256() }), (error) => {
+    assert.equal(error.code, "CONTENT_TOO_LARGE");
+    assert.equal(error.details.code_lines, 251);
+    return true;
+  });
+  assert.equal(state.read(), content);
+  assert.equal(state.writes(), 0);
+});
+
 test("destructive overwrite measures existing code, preserves diagnostics and permits localized oversized edits", async () => {
   const state = fixture(source(260, 40));
   await assert.rejects(() => createWriteDiffTool({ fileService: state.fileService }).execute({ path: "account.js", content: source(1), before_checksum: state.sha256() }), (error) => {
