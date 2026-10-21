@@ -77,6 +77,7 @@ export function countBudgetLines(content) {
   let lastToken = "";
   let statementStart = true;
   let labelCandidate = false;
+  let pendingTransfer = false;
   let afterControl = false;
   let count = 0;
   for (const line of String(content ?? "").split("\n")) {
@@ -119,6 +120,8 @@ export function countBudgetLines(content) {
         functionBody = null;
         afterControl = lastToken !== "." && lastToken !== "#" && /^(?:else|do|return|yield|throw|case|delete|void|typeof|new|in|instanceof|await)$/.test(identifier[0]);
         labelCandidate = statementStart;
+        pendingTransfer = lastToken !== "." && lastToken !== "#" && /^(?:break|continue)$/.test(identifier[0])
+          || pendingTransfer && /^(?:break|continue)$/.test(lastToken);
         lastToken = lastToken === "." || lastToken === "#" ? "property"
           : lastToken === "for" && identifier[0] === "await" ? "for await" : identifier[0];
         statementStart = /^(?:else|do)$/.test(lastToken);
@@ -126,6 +129,7 @@ export function countBudgetLines(content) {
         code = true;
         continue;
       }
+      pendingTransfer = false;
       if (rest.startsWith("++") || rest.startsWith("--")) {
         lastToken = rest.slice(0, 2);
         statementStart = false;
@@ -173,7 +177,8 @@ export function countBudgetLines(content) {
       code = true;
     }
     if (code) count++;
-    if (!quote && /^(?:return|break|continue|yield|debugger)$/.test(lastToken)) {
+    if (!quote && (pendingTransfer || /^(?:return|break|continue|yield|debugger)$/.test(lastToken))) {
+      pendingTransfer = false;
       lastToken = ";";
       afterControl = false;
       statementStart = true;

@@ -150,7 +150,7 @@ test("regex statements cannot bypass write or edit overflow protection or read m
     "if (ready) /[/*]/.test(value);", "function process() { return\n{} /[/*]/.test(value); }", "function process() { return // reason\n{} /[/*]/.test(value); }", "function* process() { yield\n{} /[/*]/.test(value); }",
     "if (ready) run(); else /[/*]/.test(value);", "debugger\n/[/*]/.test(value);", "debugger // reason\n/[/*]/.test(value);", "debugger /* reason\n continued */ /[/*]/.test(value);",
     "if (ready) run(); else /* reason */ /[/*]/.test(value);",
-    "do /[/*]/.test(value); while (ready);",
+    "do /[/*]/.test(value); while (ready);", ...["break", "continue"].flatMap((transfer) => ["\n", "\r\n", " // reason\n", " /* reason\n continued */ "].map((separator) => `outer: while (ready) { if (stop) ${transfer} /* label */ outer${separator}/[/*]/.test(value);\nconst next = 1;\n}`)),
     "do /* reason */ /[/*]/.test(value); while (ready);",
     "const pattern = (() => { return /* reason */ /[/*]/; })();",
     "const result = value + /[/*]/.test(input);",
