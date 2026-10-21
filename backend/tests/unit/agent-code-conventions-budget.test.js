@@ -50,13 +50,31 @@ test("regex context survives statement keywords and intervening comments without
     "return /* reason */ /[/*]/;",
     "throw /* reason */ /[/*]/;",
     "yield /* reason */ /[/*]/;",
-    "const pattern = /* reason */ /[/*]/;"
+    "const pattern = /* reason */ /[/*]/;",
+    "const result = value + /[/*]/.test(input);",
+    "const result = value - /[/*]/.test(input);",
+    "const result = value * /[/*]/.test(input);",
+    "const result = value ** /[/*]/.test(input);",
+    "const result = value % /[/*]/.test(input);",
+    "const result = value / /[/*]/.test(input);",
+    "const result = value + /* reason */ /[/*]/.test(input);",
+    "const result = value << /[/*]/.test(input);",
+    "const result = value ^ /[/*]/.test(input);",
+    "const result = ~ /[/*]/.test(input);"
   ]) {
     assert.equal(countBudgetLines(`${statement}\nconst next = 1;\nconst last = 2;`), 3, statement);
   }
   assert.equal(countBudgetLines("return value /* reason */ / divisor; /* explanation\n continued */\nconst next = 1;"), 2);
   assert.equal(countBudgetLines("do calculate(value) / divisor; while (ready); /* explanation\n continued */\nconst next = 1;"), 2);
   assert.equal(countBudgetLines("return /* reason\n continued */ /[/*]/;\nconst next = 1;"), 3);
+  for (const statement of [
+    "value++ / divisor;", "value-- / divisor;", "value / divisor;",
+    "'value' / divisor;", "\"value\" / divisor;", "`value` / divisor;",
+    "/[/*]/ / divisor;", "value + /[/*]/.test(input);"
+  ]) {
+    assert.equal(countBudgetLines(`${statement} /* explanation\n continued */\nconst next = 1;\nconst last = 2;`), 3, statement);
+    assert.equal(countBudgetLines(`${statement} // explanation\n// continued\nconst next = 1;`), 2, statement);
+  }
 });
 
 test("CRLF, trailing newlines and comment-only padding preserve the budget boundary", () => {
