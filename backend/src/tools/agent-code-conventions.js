@@ -95,11 +95,11 @@ export function countBudgetLines(content) {
       if (identifier) {
         lastToken = identifier[0];
         index += lastToken.length - 1;
-        afterControl = lastToken === "else";
+        afterControl = /^(?:else|do|return|yield|throw|case|delete|void|typeof|new|in|instanceof|await)$/.test(lastToken);
         code = true;
         continue;
       }
-      if (character === "/" && (afterControl || /(?:^|[=(:,!&|?;{}[]|\b(?:return|yield|throw|case))\s*$/.test(line.slice(0, index)))) { quote = "/"; regexClass = false; }
+      if (character === "/" && (afterControl || /^(?:[=(:,!&|?;{}\[]|)$/.test(lastToken))) { quote = "/"; regexClass = false; }
       if (character === "\"" || character === "'" || character === "`") quote = character;
       if (character === "(") parentheses.push(/^(?:if|while|for|with|switch|catch)$/.test(lastToken));
       afterControl = character === ")" ? Boolean(parentheses.pop()) : false;
