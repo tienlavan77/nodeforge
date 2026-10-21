@@ -47,6 +47,38 @@ test("write_diff accepts more than 250 physical lines at the 250-code-line bound
   assert.deepEqual(JSON.parse(state.read()), Array(248).fill(0));
 });
 
+// Verifies object division at the edit budget boundary without charging multiline comment continuations.
+test("object-expression division permits boundary writes and edits with accurate metadata", async () => {
+  for (const statement of [
+    "const ratio = {} / divisor;",
+    "const ratio = { value: { nested: 1 } } / divisor;",
+    "const ratio = ({ value: 1 }) / divisor;",
+    "function calculate() { return { value: 1 } / divisor; }",
+    "if (ready) { run(); } /[/*]/.test(value);"
+  ]) {
+    const content = `// Documents account processing.\n${statement} /* explanation\n continued */\n${Array.from({ length: 249 }, (_, index) => `value${index};`).join("\n")}`;
+    const state = fixture();
+    const writeTool = createWriteDiffTool({ fileService: state.fileService });
+    await writeTool.execute({ path: "account.js", content, before_checksum: null });
+    const readTool = createReadFileTool({ fileService: state.fileService });
+    const read = await readTool.execute({ path: "account.js", offset: 2, limit: 2 });
+    assert.equal(read.code_lines, 250, statement);
+    assert.equal(read.total_lines, 252, statement);
+    assert.equal(state.read(), content, statement);
+    const editTool = createEditDiffTool({ fileService: state.fileService });
+    await editTool.execute({ path: "account.js", anchor: "value0;", replacement: "updatedValue;", before_checksum: state.sha256() });
+    const edited = content.replace("value0;", "updatedValue;");
+    assert.equal(state.read(), edited, statement);
+    const metadata = await readTool.execute({ path: "account.js", offset: 2, limit: 2 });
+    assert.equal(metadata.code_lines, 250, statement);
+    assert.equal(metadata.total_lines, 252, statement);
+    await assert.rejects(editTool.execute({ path: "account.js", anchor: "updatedValue;", replacement: "updatedValue;\nextraValue;", before_checksum: state.sha256() }), { code: "CONTENT_TOO_LARGE" });
+    await assert.rejects(writeTool.execute({ path: "overflow.js", content: `${edited}\nextraValue;`, before_checksum: null }), { code: "CONTENT_TOO_LARGE" });
+    assert.equal(state.read(), edited, statement);
+    assert.equal(state.writes(), 2, statement);
+  }
+});
+
 test("keyword property division permits boundary writes and edits with accurate metadata", async () => {
   for (const expression of ["account.return", "account?.throw", "account. /* reason */ do", "account.await", "account.in", "account.if(ready)"]) {
     const content = `// Documents account processing.\n${expression} / divisor; /* explanation\n continued */\n${Array.from({ length: 249 }, (_, index) => `value${index};`).join("\n")}`;

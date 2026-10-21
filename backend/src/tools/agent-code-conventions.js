@@ -65,6 +65,7 @@ export function countBudgetLines(content) {
   let escaped = false;
   let regexClass = false;
   const parentheses = [];
+  const braces = [];
   let lastToken = "";
   let afterControl = false;
   let count = 0;
@@ -109,8 +110,10 @@ export function countBudgetLines(content) {
       if (character === "/" && (afterControl || /^(?:[=(:,!&|?;{}[+*%/^~<>-]|)$/.test(lastToken))) { quote = "/"; regexClass = false; }
       if (character === "\"" || character === "'" || character === "`") quote = character;
       if (character === "(") parentheses.push(/^(?:if|while|for|with|switch|catch)$/.test(lastToken));
+      if (character === "{") braces.push(!afterControl && /^(?:[=(:,[!&|?+*%/^~<>-]|return|yield|throw)$/.test(lastToken)
+        || afterControl && /^(?:return|yield|throw)$/.test(lastToken));
       afterControl = character === ")" ? Boolean(parentheses.pop()) : false;
-      lastToken = character;
+      lastToken = character === "}" && braces.pop() ? "literal" : character;
       code = true;
     }
     if (code) count++;

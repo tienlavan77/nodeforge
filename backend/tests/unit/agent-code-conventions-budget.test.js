@@ -77,6 +77,30 @@ test("regex context survives statement keywords and intervening comments without
   }
 });
 
+// Verifies completed object expressions retain division while statement blocks permit regex statements.
+test("object-expression closures preserve division and real multiline comments", () => {
+  for (const statement of [
+    "const ratio = {} / divisor;",
+    "const ratio = { value: { nested: 1 } } / divisor;",
+    "const ratio = ({ value: 1 }) / divisor;",
+    "const values = [{} / divisor];",
+    "function calculate() { return { value: 1 } / divisor; }",
+    "function calculate() { return /* reason */ {} / divisor; }",
+    "if (ready) { const ratio = {} / divisor; }"
+  ]) {
+    assert.equal(countBudgetLines(`${statement} /* explanation\n continued */\nconst next = 1;`), 2, statement);
+  }
+  for (const statement of [
+    "if (ready) { run(); } /[/*]/.test(value);",
+    "if (ready) { if (next) { run(); } } /[/*]/.test(value);",
+    "while (ready) { run(); } /[/*]/.test(value);",
+    "if (ready) { run(); } else { run(); } /[/*]/.test(value);",
+    "{ const ratio = {}; } /[/*]/.test(value);"
+  ]) {
+    assert.equal(countBudgetLines(`${statement}\nconst next = 1;\nconst last = 2;`), 3, statement);
+  }
+});
+
 test("keyword-named properties preserve division and real multiline comments", () => {
   for (const property of ["else", "do", "return", "yield", "throw", "case", "delete", "void", "typeof", "new", "in", "instanceof", "await", "if", "while", "for", "with", "switch", "catch"]) {
     for (const expression of [`account.${property}`, `account?.${property}`, `account. /* reason */ ${property}`, `account.${property}(ready)`]) {
