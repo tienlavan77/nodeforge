@@ -50,6 +50,12 @@ test("write_diff accepts more than 250 physical lines at the 250-code-line bound
 // Verifies object division at the edit budget boundary without charging multiline comment continuations.
 test("object-expression division permits boundary writes and edits with accurate metadata", async () => {
   for (const statement of [
+    "const ratio = function () {} / divisor;",
+    "const ratio = function named() {} / divisor;",
+    "const ratio = function* () {} / divisor;",
+    "const ratio = async function () {} / divisor;",
+    "const ratio = function (value = (() => 1)()) { if (value) { run(); } } / divisor;",
+    "const ratio = function () { return function () {}; } / divisor;",
     "const ratio = {} / divisor;",
     "const ratio = { value: { nested: 1 } } / divisor;",
     "const ratio = ({ value: 1 }) / divisor;",

@@ -66,6 +66,9 @@ export function countBudgetLines(content) {
   let regexClass = false;
   const parentheses = [];
   const braces = [];
+  let pendingFunction = null;
+  let functionBody = null;
+  let asyncExpression = false;
   let lastToken = "";
   let afterControl = false;
   let count = 0;
@@ -94,6 +97,12 @@ export function countBudgetLines(content) {
       if (!character.trim()) continue;
       const identifier = /^[A-Za-z_$][\w$]*/.exec(rest);
       if (identifier) {
+        const expression = /^(?:[=(:,[!&|?+*%/^~<>-]|return|yield|throw)$/.test(lastToken);
+        if (identifier[0] === "function" && lastToken !== "." && lastToken !== "#") {
+          pendingFunction = lastToken === "async" ? asyncExpression : expression;
+        }
+        if (identifier[0] === "async") asyncExpression = expression;
+        functionBody = null;
         afterControl = lastToken !== "." && lastToken !== "#" && /^(?:else|do|return|yield|throw|case|delete|void|typeof|new|in|instanceof|await)$/.test(identifier[0]);
         lastToken = lastToken === "." || lastToken === "#" ? "property" : identifier[0];
         index += identifier[0].length - 1;
@@ -109,10 +118,15 @@ export function countBudgetLines(content) {
       }
       if (character === "/" && (afterControl || /^(?:[=(:,!&|?;{}[+*%/^~<>-]|)$/.test(lastToken))) { quote = "/"; regexClass = false; }
       if (character === "\"" || character === "'" || character === "`") quote = character;
-      if (character === "(") parentheses.push(/^(?:if|while|for|with|switch|catch)$/.test(lastToken));
-      if (character === "{") braces.push(!afterControl && /^(?:[=(:,[!&|?+*%/^~<>-]|return|yield|throw)$/.test(lastToken)
-        || afterControl && /^(?:return|yield|throw)$/.test(lastToken));
-      afterControl = character === ")" ? Boolean(parentheses.pop()) : false;
+      if (character === "(") {
+        parentheses.push({ control: /^(?:if|while|for|with|switch|catch)$/.test(lastToken), functionExpression: pendingFunction });
+        pendingFunction = null;
+      }
+      if (character === "{") braces.push(functionBody ?? (!afterControl && /^(?:[=(:,[!&|?+*%/^~<>-]|return|yield|throw)$/.test(lastToken)
+        || afterControl && /^(?:return|yield|throw)$/.test(lastToken)));
+      const parenthesis = character === ")" ? parentheses.pop() : null;
+      afterControl = Boolean(parenthesis?.control);
+      functionBody = parenthesis?.functionExpression ?? null;
       lastToken = character === "}" && braces.pop() ? "literal" : character;
       code = true;
     }
