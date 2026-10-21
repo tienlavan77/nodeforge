@@ -163,6 +163,16 @@ test("object-expression closures preserve division and real multiline comments",
   }
 });
 
+test("switch clauses after automatic semicolon insertion preserve statement blocks", () => {
+  for (const ending of ["break", "run()", "value++", "continue outer", "return", "throw value"]) {
+    for (const label of ["case 2", "default", "case ready ? 2 : 3", "case { key: 2 }"]) {
+      const statement = `outer: while (ready) { switch (value) { case 1: ${ending}\n${label}: { run(); } /[/*]/.test(value); } }`;
+      assert.equal(countBudgetLines(`${statement}\nconst next = 1;\nconst last = 2;`), 4, statement);
+    }
+  }
+  assert.equal(countBudgetLines("switch (value) { case 1: break\ncase 2: { run(); } /[/*]/.test(value); }\nconst next = 1;\nconst last = 2;"), 4);
+});
+
 test("keyword-named properties preserve division and real multiline comments", () => {
   for (const property of ["else", "do", "return", "yield", "throw", "case", "delete", "void", "typeof", "new", "in", "instanceof", "await", "if", "while", "for", "with", "switch", "catch"]) {
     for (const expression of [`account.${property}`, `account?.${property}`, `account. /* reason */ ${property}`, `account.${property}(ready)`]) {
