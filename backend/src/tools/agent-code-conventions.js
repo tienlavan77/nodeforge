@@ -97,7 +97,7 @@ export function countBudgetLines(content) {
       if (!character.trim()) continue;
       const identifier = /^[A-Za-z_$][\w$]*/.exec(rest);
       if (identifier) {
-        const expression = /^(?:[=(:,[!&|?+*%/^~<>-]|return|yield|throw)$/.test(lastToken);
+        const expression = /^(?:[=(:,[!&|?+*%/^~<>-]|return|yield|throw|case|delete|void|typeof|new|in|instanceof|await)$/.test(lastToken);
         if (identifier[0] === "function" && lastToken !== "." && lastToken !== "#") {
           pendingFunction = lastToken === "async" ? asyncExpression : expression;
         }
