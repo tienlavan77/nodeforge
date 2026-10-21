@@ -173,6 +173,17 @@ test("switch clauses after automatic semicolon insertion preserve statement bloc
   assert.equal(countBudgetLines("switch (value) { case 1: break\ncase 2: { run(); } /[/*]/.test(value); }\nconst next = 1;\nconst last = 2;"), 4);
 });
 
+test("restricted-production line breaks end return and yield before statement blocks", () => {
+  for (const separator of ["\n", "\r\n", " // reason\n", " /* reason\n continued */ ", "\n/* reason */\n"]) {
+    for (const prefix of ["function process() { return", "function* process() { yield"]) {
+      const content = `${prefix}${separator}{} /[/*]/.test(value); }\nconst next = 1;\nconst last = 2;`;
+      assert.equal(countBudgetLines(content), 4, content);
+    }
+  }
+  assert.equal(countBudgetLines("function process() { return /* reason */ {} / divisor; /* explanation\n continued */\nconst next = 1; }"), 2);
+  assert.equal(countBudgetLines("function process() { return\n{} /[/*]/.test(value); }\nconst next = 1;\nconst last = 2;"), 4);
+});
+
 test("keyword-named properties preserve division and real multiline comments", () => {
   for (const property of ["else", "do", "return", "yield", "throw", "case", "delete", "void", "typeof", "new", "in", "instanceof", "await", "if", "while", "for", "with", "switch", "catch"]) {
     for (const expression of [`account.${property}`, `account?.${property}`, `account. /* reason */ ${property}`, `account.${property}(ready)`]) {

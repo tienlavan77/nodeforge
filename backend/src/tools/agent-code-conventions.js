@@ -172,6 +172,12 @@ export function countBudgetLines(content) {
       code = true;
     }
     if (code) count++;
+    if (!quote && /^(?:return|break|continue|yield)$/.test(lastToken)) {
+      lastToken = ";";
+      afterControl = false;
+      statementStart = true;
+      labelCandidate = false;
+    }
     if (quote !== "`" && !escaped) quote = null;
     escaped = false;
   }
