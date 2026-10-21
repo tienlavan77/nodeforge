@@ -6,24 +6,49 @@ import { checksumEmbeddingText } from "./embedding-job-store.js";
 
 // Includes complete adjacent symbol comments without crossing code or a previous symbol.
 function symbolCommentStart(lines, start, prevSymbolEndLine) {
-  let extendedStart = start;
-  let blockOpening = null;
-  for (let index = start - 2; index >= prevSymbolEndLine; index -= 1) {
+  const commentStarts = new Map();
+  let blockStart = null;
+  let blockClosing = null;
+  let groupStart = null;
+  for (let index = prevSymbolEndLine; index < start - 1; index += 1) {
     const trimmed = lines[index].trim();
-    if (!blockOpening) {
+    if (blockClosing === null) {
       if (/^(?:\/\/|#)/.test(trimmed)) {
-        extendedStart = index + 1;
+        groupStart = commentStarts.get(index - 1) ?? index;
+        commentStarts.set(index, groupStart);
         continue;
       }
-      if (trimmed.endsWith("*/")) blockOpening = "/*";
-      else if (trimmed.endsWith("-->")) blockOpening = "<!--";
-      else break;
+      if (trimmed.startsWith("/*")) blockClosing = "*/";
+      else if (trimmed.startsWith("<!--")) blockClosing = "-->";
+      else continue;
+      blockStart = index;
+      groupStart = commentStarts.get(index - 1) ?? index;
     }
-    const openingIndex = trimmed.indexOf(blockOpening);
-    if (openingIndex < 0) continue;
-    if (openingIndex !== 0) break;
-    extendedStart = index + 1;
-    blockOpening = null;
+    const closingIndex = trimmed.indexOf(blockClosing, index === blockStart ? (blockClosing === "*/" ? 2 : 4) : 0);
+    if (closingIndex < 0) continue;
+    if (trimmed.slice(closingIndex + blockClosing.length).trim() === "") {
+      commentStarts.set(index, groupStart);
+    }
+    blockStart = null;
+    blockClosing = null;
+  }
+  let extendedStart = start;
+  let blankLines = 0;
+  for (let index = start - 2; index >= prevSymbolEndLine; index -= 1) {
+    const commentStart = commentStarts.get(index);
+    if (commentStart !== undefined) {
+      if (commentStart === 0 && blankLines > 0) break;
+      extendedStart = commentStart + 1;
+      index = commentStart;
+      continue;
+    }
+    const trimmed = lines[index].trim();
+    if (trimmed === "" && blankLines === 0) {
+      blankLines += 1;
+      continue;
+    }
+    if (/^@[\w.]+(?:\([^\n]*\))?$/.test(trimmed)) continue;
+    break;
   }
   return extendedStart;
 }
