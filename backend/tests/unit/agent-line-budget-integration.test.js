@@ -148,7 +148,7 @@ test("regex statements cannot bypass write or edit overflow protection or read m
   for (const statement of [
     ...["for await", "for /* reason */ await", "for\nawait", "for await /* reason */"].map((header) => `async function process() { ${header} (const item of items) /[/*]/.test(item); }`),
     "if (ready) /[/*]/.test(value);", "function process() { return\n{} /[/*]/.test(value); }", "function process() { return // reason\n{} /[/*]/.test(value); }", "function* process() { yield\n{} /[/*]/.test(value); }",
-    "if (ready) run(); else /[/*]/.test(value);",
+    "if (ready) run(); else /[/*]/.test(value);", "debugger\n/[/*]/.test(value);", "debugger // reason\n/[/*]/.test(value);", "debugger /* reason\n continued */ /[/*]/.test(value);",
     "if (ready) run(); else /* reason */ /[/*]/.test(value);",
     "do /[/*]/.test(value); while (ready);",
     "do /* reason */ /[/*]/.test(value); while (ready);",
