@@ -173,6 +173,15 @@ test("switch clauses after automatic semicolon insertion preserve statement bloc
   assert.equal(countBudgetLines("switch (value) { case 1: break\ncase 2: { run(); } /[/*]/.test(value); }\nconst next = 1;\nconst last = 2;"), 4);
 });
 
+// Keep semicolonless debugger statements from hiding later work in the code budget.
+test("semicolonless debugger preserves regex statements without changing property division", () => {
+  assert.equal(countBudgetLines("debugger\n/[/*]/.test(value);\nconst next = 1;\nconst last = 2;"), 4);
+  assert.equal(countBudgetLines("debugger // reason\r\n/[/*]/.test(value);\r\nconst next = 1;\r\nconst last = 2;"), 4);
+  assert.equal(countBudgetLines("debugger /* reason\n continued */ /[/*]/.test(value);\nconst next = 1;\nconst last = 2;"), 4);
+  assert.equal(countBudgetLines("account.debugger\n/ divisor; /* reason\n continued */\nconst next = 1;"), 3);
+  assert.equal(countBudgetLines("class Account { #debugger; read() { this.#debugger\n/ divisor; /* reason\n continued */\nconst next = 1; } }"), 3);
+});
+
 test("restricted-production line breaks end return and yield before statement blocks", () => {
   for (const separator of ["\n", "\r\n", " // reason\n", " /* reason\n continued */ ", "\n/* reason */\n"]) {
     for (const prefix of ["function process() { return", "function* process() { yield"]) {
