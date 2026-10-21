@@ -85,6 +85,7 @@ test("keyword-named properties preserve division and real multiline comments", (
     }
   }
   assert.equal(countBudgetLines("account.\nreturn / divisor; /* explanation\n continued */\nconst next = 1;"), 3);
+  assert.equal(countBudgetLines("class Account {\n  #return;\n  read(divisor) {\n    return this.#return / divisor; /* explanation\n continued */\n    const next = 1;\n  }\n}"), 7);
 });
 
 test("CRLF, trailing newlines and comment-only padding preserve the budget boundary", () => {
