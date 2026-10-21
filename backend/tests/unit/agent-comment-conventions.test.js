@@ -31,7 +31,7 @@ test("file headers and adjacent function summaries recognize complete multiline 
 
 test("comment language accepts technical tokens and rejects mixed natural-language syntax", () => {
   const vietnamese = "X\u1eed l\u00fd y\u00eau c\u1ea7u an to\u00e0n";
-  for (const suffix of ["", " `read_file` API ES2022 countBudgetLines code_lines", " backend/src/tools.js https://example.test", " `the` `returns` `is`", " isReady() READ_FILE"]) {
+  for (const suffix of ["", " `read_file` API ES2022 countBudgetLines code_lines", " backend/src/tools.js https://example.test", " `the` `returns` `is`", " \"is\" @returns", " isReady() READ_FILE"]) {
     assert.equal(validateCommentLanguage(`${vietnamese}${suffix}`), true, suffix);
   }
   assert.equal(validateCommentLanguage("Returns the account summary with technical identifiers."), true);
