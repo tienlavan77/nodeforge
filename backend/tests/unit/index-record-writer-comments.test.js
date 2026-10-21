@@ -112,6 +112,69 @@ test("preserves full search content while keeping the provider's 4000-character 
   assert.equal(fixture.embeddings[0], `target [function]\n${content}`.slice(0, 4000));
 });
 
+for (const code of ["const pattern = /a*/", "const pattern = /a*/;", "const text = '*/'", "const text = '-->'"]) {
+  test(`does not treat executable delimiter text as documentation: ${code}`, () => {
+    const fixture = createFixture([symbolAt(3)]);
+    fixture.writer.indexContent("FILE", "example.js", `/* File header */\n${code}\nfunction target() {}`);
+    assert.deepEqual(symbolContents(fixture), ["function target() {}"]);
+    assert.deepEqual(fixture.embeddings, ["target [function]\nfunction target() {}"]);
+  });
+}
+
+for (const comments of [
+  ["/*", " * Explain /* syntax", " */"],
+  ["/*", "/* is literal comment prose", " */"],
+  ["<!--", "Explain <!-- syntax", "-->"]
+]) {
+  test(`preserves literal opening delimiters inside ${comments[0]} documentation`, () => {
+    const content = [...comments, "function target() {}"].join("\n");
+    const fixture = createFixture([symbolAt(comments.length + 1)]);
+    fixture.writer.indexContent("FILE", "example.js", content);
+    assert.deepEqual(symbolContents(fixture), [content]);
+    assert.deepEqual(fixture.embeddings, [`target [function]\n${content}`]);
+  });
+}
+
+for (const [label, adjacency, retained] of [
+  ["one blank", [""], true],
+  ["two blanks", ["", ""], false],
+  ["decorator", ["@cached"], true],
+  ["multiple decorators", ["@service.cached", "@retry(3)"], true],
+  ["decorator and one blank", ["", "@cached"], true],
+  ["decorator and two blanks", ["", "@cached", ""], false],
+  ["intervening code", ["const other = true;"], false]
+]) {
+  test(`respects ${label} adjacency and preserves source coordinates`, () => {
+    const comments = ["// Own purpose", "// Own detail"];
+    const body = ["function target() {", "  return true;", "}"];
+    const lines = ["const setting = true;", ...comments, ...adjacency, ...body];
+    const start = lines.length - body.length + 1;
+    const fixture = createFixture([symbolAt(start, lines.length)]);
+    fixture.writer.indexContent("FILE", "example.js", lines.join("\n"));
+    const expected = (retained ? [...comments, ...adjacency, ...body] : body).join("\n");
+    assert.deepEqual(symbolContents(fixture), [expected]);
+    assert.deepEqual(fixture.embeddings, [`target [function]\n${expected}`]);
+    const record = fixture.records.find(({ sql }) => sql.startsWith("INSERT INTO symbol_content_fts"));
+    assert.deepEqual(record.params.slice(6), [start, lines.length]);
+  });
+}
+
+test("does not connect a separated file header through decorators to an undocumented symbol", () => {
+  const fixture = createFixture([symbolAt(4)]);
+  fixture.writer.indexContent("FILE", "example.js", "/* File header */\n\n@cached\nfunction target() {}");
+  assert.deepEqual(symbolContents(fixture), ["function target() {}"]);
+  assert.deepEqual(fixture.embeddings, ["target [function]\nfunction target() {}"]);
+});
+
+test("keeps nearby comments bounded by a previous decorated symbol", () => {
+  const lines = ["function previous() {", "// Previous purpose", "}", "// Own purpose", "", "@cached", "function target() {}"];
+  const fixture = createFixture([symbolAt(1, 3, "previous"), symbolAt(7)]);
+  fixture.writer.indexContent("FILE", "example.js", lines.join("\n"));
+  const expected = lines.slice(3).join("\n");
+  assert.equal(symbolContents(fixture)[1], expected);
+  assert.equal(fixture.embeddings[1], `target [function]\n${expected}`);
+});
+
 test("queues embeddings asynchronously with a checksum covering the complete comment", async () => {
   const content = "// first\n// second\n// third\n// fourth\n// fifth\nfunction target() {}";
   const fixture = createFixture([symbolAt(6)], { queued: true });
