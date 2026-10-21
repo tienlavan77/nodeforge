@@ -66,6 +66,7 @@ export function countBudgetLines(content) {
   let regexClass = false;
   const parentheses = [];
   const braces = [];
+  const pendingClasses = [];
   let pendingFunction = null;
   let functionBody = null;
   let asyncExpression = false;
@@ -101,6 +102,9 @@ export function countBudgetLines(content) {
         if (identifier[0] === "function" && lastToken !== "." && lastToken !== "#") {
           pendingFunction = lastToken === "async" ? asyncExpression : expression;
         }
+        if (identifier[0] === "class" && lastToken !== "." && lastToken !== "#") {
+          pendingClasses.push({ expression, parentheses: parentheses.length, braces: braces.length });
+        }
         if (identifier[0] === "async") asyncExpression = expression;
         functionBody = null;
         afterControl = lastToken !== "." && lastToken !== "#" && /^(?:else|do|return|yield|throw|case|delete|void|typeof|new|in|instanceof|await)$/.test(identifier[0]);
@@ -122,8 +126,13 @@ export function countBudgetLines(content) {
         parentheses.push({ control: /^(?:if|while|for|with|switch|catch)$/.test(lastToken), functionExpression: pendingFunction });
         pendingFunction = null;
       }
-      if (character === "{") braces.push(functionBody ?? (!afterControl && /^(?:[=(:,[!&|?+*%/^~<>-]|return|yield|throw)$/.test(lastToken)
-        || afterControl && /^(?:return|yield|throw)$/.test(lastToken)));
+      if (character === "{") {
+        const pendingClass = pendingClasses.at(-1);
+        const classBody = pendingClass?.parentheses === parentheses.length && pendingClass?.braces === braces.length
+          ? pendingClasses.pop().expression : null;
+        braces.push(classBody ?? functionBody ?? (!afterControl && /^(?:[=(:,[!&|?+*%/^~<>-]|return|yield|throw)$/.test(lastToken)
+          || afterControl && /^(?:return|yield|throw)$/.test(lastToken)));
+      }
       const parenthesis = character === ")" ? parentheses.pop() : null;
       afterControl = Boolean(parenthesis?.control);
       functionBody = parenthesis?.functionExpression ?? null;
