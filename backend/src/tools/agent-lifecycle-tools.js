@@ -8,7 +8,7 @@ import { ConfigurationError } from "../shared/errors.js";
 import { loadAgentContextConventions } from "../modules/supervisor/agent-context-conventions.js";
 import { resolveSymbolWindow, scopedGraph } from "./agent-file-index-view.js";
 import { extractorRegistry } from "../modules/index/parser/index.js";
-import { hasFileHeaderComment, extractFunctionSignatures, hasPrecedingComment } from "./agent-code-conventions.js";
+import { hasFileHeaderComment, extractFunctionSignatures, hasPrecedingComment, extractFileHeaderComment, extractPrecedingCommentBlock, countBudgetLines, validateCommentLanguage } from "./agent-code-conventions.js";
 import { discoveryNotice, recordRead, resetExploration } from "./exploration-state.js";
 const MAX_CONTENT = 200000;
 const WRITE_DIFF_MAX_LINES = 250;
@@ -51,7 +51,7 @@ export function createReadFileTool({ fileService, codeCache, projectRoot, maxCha
     const hasWindow = requestedOffset !== undefined || requestedLimit !== undefined;
     const lines = file.content.split("\n");
     const symbols = codeCache ? file.code_index?.symbols ?? [] : extractorRegistry.extract(path, file.content).symbols;
-    const metadata = { path, sha256, size_bytes: sizeBytes, total_lines: lines.length,
+    const metadata = { path, sha256, size_bytes: sizeBytes, total_lines: lines.length, code_lines: countBudgetLines(file.content),
       cache: file.cache ?? { status: "bypass", cached_at: null, expires_at: null }, content_sha256: file.content_sha256 ?? sha256,
       indexed_sha256: file.indexed_sha256 ?? null, index_version: file.index_version ?? null,
       index_status: file.index_status ?? "unavailable", code_index: file.code_index ?? { path, symbols },
@@ -91,9 +91,10 @@ export function createReadFileTool({ fileService, codeCache, projectRoot, maxCha
 export function createWriteDiffTool({ fileService, codeCache, changeLedger, maxLines = WRITE_DIFF_MAX_LINES } = {}) {
   if (typeof fileService?.atomicWrite !== "function" || typeof fileService?.readFile !== "function") throw new ConfigurationError("write_diff requires File Service readFile and atomicWrite.");
   return Object.freeze({ name: "write_diff", async execute(input = {}, context = {}) {
-    const path = safePath(input.path, "write", context.agent_identity?.role); assertCoderWorkflowReadOnly(context.agent_identity?.role, "write", path); assertAllowed(path, context); if (typeof input.content !== "string") throw error("CONTENT_INVALID", "content must be a string.");
+    const path = safePath(input.path, "write", context.agent_identity?.role); assertCoderWorkflowReadOnly(context.agent_identity?.role, "write", path); assertAllowed(path, context, "write"); if (typeof input.content !== "string") throw error("CONTENT_INVALID", "content must be a string.");
     const lineCount = input.content ? input.content.split("\n").length - Number(input.content.endsWith("\n")) : 0;
-    if (lineCount > maxLines) throw error("CONTENT_TOO_LARGE", `write_diff content has ${lineCount} lines, limit is ${maxLines}. For localized changes use edit_diff.`, { line_count: lineCount, limit: maxLines });
+    const codeLines = countBudgetLines(input.content);
+    if (codeLines > maxLines) throw error("CONTENT_TOO_LARGE", `write_diff content has ${codeLines} code lines, limit is ${maxLines}. Split the module or use edit_diff for localized changes.`, { line_count: lineCount, code_lines: codeLines, total_lines: input.content.split("\n").length, limit: maxLines });
     let current;
     try {
       current = await fileService.readFile({ path });
@@ -110,9 +111,11 @@ export function createWriteDiffTool({ fileService, codeCache, changeLedger, maxL
       const actual = checksum(current);
       if (typeof input.before_checksum !== "string" || input.before_checksum !== actual) throw error("CHECKSUM_MISMATCH", `Checksum mismatch for ${path}.`, checksumDiagnostics(input.before_checksum, true));
       const currentLines = current ? current.split("\n").length - Number(current.endsWith("\n")) : 0;
-      if (currentLines > maxLines) throw error("DESTRUCTIVE_OVERWRITE", `${path} has ${currentLines} lines, over the ${maxLines}-line write_diff limit. Use edit_diff with an exact anchor for localized changes.`, { path, current_lines: currentLines, limit: maxLines });
+      const currentCodeLines = countBudgetLines(current);
+      if (currentCodeLines > maxLines) throw error("DESTRUCTIVE_OVERWRITE", `${path} has ${currentCodeLines} code lines, over the ${maxLines}-line write_diff limit. Use edit_diff with an exact anchor for localized changes.`, { path, current_lines: currentLines, code_lines: currentCodeLines, total_lines: current.split("\n").length, limit: maxLines });
     }
     assertSummaryEnforced(input.content, current, path);
+    assertEditSummaryEnforced(current ?? "", input.content);
     if (changeLedger) await changeLedger.write({ path, before: current, after: input.content });
     else await fileService.atomicWrite({ path, content: input.content, replace: true });
     codeCache?.invalidate({ path });
@@ -127,7 +130,7 @@ export function createWriteDiffTool({ fileService, codeCache, changeLedger, maxL
 export function createEditDiffTool({ fileService, codeCache, changeLedger, maxChars = MAX_CONTENT } = {}) {
   if (typeof fileService?.atomicWrite !== "function" || typeof fileService?.readFile !== "function") throw new ConfigurationError("edit_diff requires File Service readFile and atomicWrite.");
   return Object.freeze({ name: "edit_diff", async execute(input = {}, context = {}) {
-    const path = safePath(input.path, "write", context.agent_identity?.role); assertCoderWorkflowReadOnly(context.agent_identity?.role, "write", path); assertAllowed(path, context);
+    const path = safePath(input.path, "write", context.agent_identity?.role); assertCoderWorkflowReadOnly(context.agent_identity?.role, "write", path); assertAllowed(path, context, "write");
     if (typeof input.anchor !== "string" || !input.anchor.length) throw error("INPUT_INVALID", "anchor must be a non-empty string.");
     if (typeof input.replacement !== "string") throw error("INPUT_INVALID", "replacement must be a string.");
     if (input.anchor.length + input.replacement.length > maxChars) throw error("CONTENT_TOO_LARGE", `anchor + replacement exceeds ${maxChars} chars.`, { limit: maxChars });
@@ -145,6 +148,8 @@ export function createEditDiffTool({ fileService, codeCache, changeLedger, maxCh
     if (parts.length === 1) throw error("ANCHOR_NOT_FOUND", `Anchor was not found in ${path}. Read the file again and copy the exact text.`, { path });
     if (occurrence === "first" && parts.length > 2) throw error("ANCHOR_NOT_UNIQUE", `Anchor occurs ${parts.length - 1} times in ${path}; include more surrounding lines to make it unique.`, { path, occurrences: parts.length - 1 });
     const replaced = parts.join(input.replacement);
+    const codeLines = countBudgetLines(replaced);
+    if (codeLines > WRITE_DIFF_MAX_LINES && codeLines > countBudgetLines(current)) throw error("CONTENT_TOO_LARGE", `edit_diff would increase the code-line budget to ${codeLines}; split the module before adding code beyond ${WRITE_DIFF_MAX_LINES} lines.`, { line_count: replaced.split("\n").length - Number(replaced.endsWith("\n")), code_lines: codeLines, total_lines: replaced.split("\n").length, limit: WRITE_DIFF_MAX_LINES });
     const newFunctions = assertEditSummaryEnforced(current, replaced);
     if (changeLedger) await changeLedger.write({ path, before: current, after: replaced });
     else await fileService.atomicWrite({ path, content: replaced, replace: true });
@@ -160,8 +165,8 @@ export { createRunTestTool, createCheckTestTool, createCommitChangesTool } from 
 export { createReportDoneTool } from "./agent-report-tool.js";
 
 // assertAllowed - handles assertAllowed operation.
-function assertAllowed(path, context) {
-  if (isAgentPathAllowed(path, context)) return;
+function assertAllowed(path, context, operation = "read") {
+  if (isAgentPathAllowed(path, context, { operation })) return;
   throw error("PATH_FORBIDDEN", `Path is not approved: ${path}`);
 }
 
@@ -179,8 +184,8 @@ function assertSummaryEnforced(content, existing, path) {
   }
   // Enforcement applies only to newly created files. Existing overwrites are
   // reviewed via comment-quality lint, not tool rejection.
-  if (hasFileHeaderComment(content)) return;
-  throw error("SUMMARY_REQUIRED", "New file must start with a concise summary comment describing its purpose. Add the comment at the very top of write_diff content.", { path: "write_diff.content" });
+  if (!hasFileHeaderComment(content)) throw error("SUMMARY_REQUIRED", "New file must start with a detailed summary comment describing its business purpose and technical behavior in one natural language. Do not mix Vietnamese and English prose; technical identifiers are allowed.", { path: "write_diff.content" });
+  if (!validateCommentLanguage(extractFileHeaderComment(content))) throw error("SUMMARY_REQUIRED", "New file summary mixes Vietnamese and English prose. Write a detailed summary entirely in one natural language; technical identifiers are allowed.", { path: "write_diff.content" });
 }
 
 // assertEditSummaryEnforced - handles assertEditSummaryEnforced operation.
@@ -191,8 +196,9 @@ function assertEditSummaryEnforced(before, after) {
   for (const sig of afterFuncs) {
     if (beforeFuncs.has(sig)) continue;
     newFunctions.push(sig);
-    if (hasPrecedingComment(after, sig)) continue;
-    throw error("SUMMARY_REQUIRED", `New function "${sig}" must have a concise summary comment immediately before its definition. Add the comment on the line(s) right above the function declaration in the replacement.`, { function: sig });
+    if (!hasPrecedingComment(after, sig)) throw error("SUMMARY_REQUIRED", `New function "${sig}" must have a detailed summary comment immediately before its definition describing business purpose and technical behavior in one natural language.`, { function: sig });
+    const lineIndex = after.split("\n").findIndex((line) => extractFunctionSignatures(line).has(sig));
+    if (!validateCommentLanguage(extractPrecedingCommentBlock(after, lineIndex))) throw error("SUMMARY_REQUIRED", `New function "${sig}" summary mixes Vietnamese and English prose. Use one natural language with detailed business purpose and technical behavior; technical identifiers are allowed.`, { function: sig });
   }
   return newFunctions;
 }
@@ -202,7 +208,7 @@ async function buildConventionReminder(context, { newFile = false, newFunctions 
   const ticket = context?.ticket ?? context?.task ?? context?.task_context;
   const projectRoot = context?.project_root ?? context?.projectRoot ?? process.cwd();
   const conventions = await loadAgentContextConventions({ projectRoot, ticket });
-  const lines = ["Convention reminder: add a short summary comment describing the business purpose before new code."];
+  const lines = ["Convention reminder: add a detailed summary comment describing business purpose and technical behavior before new code. Use one natural language throughout each comment, not mixed Vietnamese and English prose; technical identifiers are allowed."];
   if (newFile) lines.push("This is a new file; put the summary comment at the top of the file.");
   if (newFunctions.length) lines.push(`New function(s): ${newFunctions.join(", ")}. Put the summary comment immediately before each definition.`);
   if (conventions.mappings.length) lines.push(`Relevant vocabulary mapping(s): ${conventions.mappings.map(formatConventionMapping).join("; ")}`);

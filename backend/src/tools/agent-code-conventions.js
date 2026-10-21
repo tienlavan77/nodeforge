@@ -2,8 +2,21 @@
 
 // Checks whether a new source file starts with a purpose comment.
 export function hasFileHeaderComment(content) {
-  const head = content.trimStart().split("\n").slice(0, 3).join("\n").trim();
-  return /^(?:\/\/|\/\*|#|<!--)/.test(head);
+  return Boolean(extractFileHeaderComment(content));
+}
+
+// Extracts only the new file's purpose summary without validating unrelated legacy comments.
+export function extractFileHeaderComment(content) {
+  const lines = content.trimStart().split("\n");
+  if (/^(?:\/\/|#(?:\s|!))/.test(lines[0])) {
+    let end = 0;
+    while (end < lines.length && /^(?:\/\/|#(?:\s|!))/.test(lines[end].trim())) end++;
+    return lines.slice(0, end).join("\n");
+  }
+  const closer = lines[0].startsWith("/*") ? "*/" : lines[0].startsWith("<!--") ? "-->" : null;
+  if (!closer) return "";
+  const end = content.trimStart().indexOf(closer);
+  return end < 0 ? "" : content.trimStart().slice(0, end + closer.length);
 }
 
 // Finds declared function names before and after an agent edit.
@@ -19,8 +32,78 @@ export function extractFunctionSignatures(content) {
 // Checks that a new function has a purpose comment immediately above it.
 export function hasPrecedingComment(content, fnName) {
   const lines = content.split("\n");
-  const idx = lines.findIndex((line) => new RegExp(`\\bfunction\\s+${fnName}\\b`).test(line));
+  const idx = lines.findIndex((line) => extractFunctionSignatures(line).has(fnName));
   if (idx <= 0) return false;
-  const prev = lines[idx - 1]?.trim() ?? "";
-  return /^(?:\/\/|\/\*|#|<!--)/.test(prev);
+  return Boolean(extractPrecedingCommentBlock(content, idx));
+}
+
+// Retrieves the complete adjacent summary so new business behavior can be documented and checked.
+export function extractPrecedingCommentBlock(content, lineIndex) {
+  const lines = content.split("\n");
+  const end = lineIndex - 1;
+  if (end < 0) return "";
+  const last = lines[end].trim();
+  if (/^(?:\/\/|#(?:\s|!))/.test(last)) {
+    let start = end;
+    while (start > 0 && /^(?:\/\/|#(?:\s|!))/.test(lines[start - 1].trim())) start--;
+    return lines.slice(start, end + 1).join("\n");
+  }
+  const opener = last.endsWith("*/") ? "/*" : last.endsWith("-->") ? "<!--" : null;
+  if (!opener) return "";
+  for (let start = end; start >= 0; start--) {
+    const line = lines[start].trim();
+    if (line.startsWith(opener)) return lines.slice(start, end + 1).join("\n");
+    if (start < end && (line.includes("*/") || line.includes("-->"))) break;
+  }
+  return "";
+}
+
+// Counts executable or document lines without charging blank lines and standalone comments to the edit budget.
+export function countBudgetLines(content) {
+  let block = null;
+  let quote = null;
+  let escaped = false;
+  let regexClass = false;
+  let count = 0;
+  for (const line of String(content ?? "").split("\n")) {
+    let code = false;
+    for (let index = 0; index < line.length; index++) {
+      const character = line[index];
+      const rest = line.slice(index);
+      if (block) {
+        if (rest.startsWith(block)) { index += block.length - 1; block = null; }
+        continue;
+      }
+      if (quote) {
+        if (character.trim()) code = true;
+        if (escaped) escaped = false;
+        else if (character === "\\") escaped = true;
+        else if (quote === "/" && character === "[") regexClass = true;
+        else if (quote === "/" && character === "]") regexClass = false;
+        else if (character === quote && !regexClass) quote = null;
+        continue;
+      }
+      if (rest.startsWith("//")) break;
+      if (character === "#" && !line.slice(0, index).trim() && /^(?:#!|#\s)/.test(rest)) break;
+      if (rest.startsWith("/*")) { block = "*/"; index++; continue; }
+      if (rest.startsWith("<!--")) { block = "-->"; index += 3; continue; }
+      if (character === "/" && /(?:^|[=(:,!&|?;{}\[]|\b(?:return|yield|throw|case))\s*$/.test(line.slice(0, index))) { quote = "/"; regexClass = false; }
+      if (character === "\"" || character === "'" || character === "`") quote = character;
+      if (character.trim()) code = true;
+    }
+    if (code) count++;
+    if (quote !== "`" && !escaped) quote = null;
+    escaped = false;
+  }
+  return count;
+}
+
+// Rejects mixed natural-language summaries while allowing technical identifiers in business documentation.
+export function validateCommentLanguage(comment) {
+  const prose = String(comment ?? "")
+    .replace(/`[^`]*`|https?:\/\/\S+|\b[\w.-]+\([^)]*\)|\b\w+(?:[._/-]\w+)+\b/g, " ")
+    .replace(/\b(?:[a-z]+[A-Z][A-Za-z0-9]*|[A-Z][A-Z0-9_]+|\w*\d\w*)\b/g, " ");
+  const vietnamese = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i.test(prose.normalize("NFC"));
+  const english = /\b(?:the|this|that|these|those|is|are|was|were|be|been|being|will|would|should|must|could|does|has|have|with|for|from|into|returns|checks|creates|updates|validates|ensures|handles|allows|rejects|reads|writes)\b/i.test(prose);
+  return !vietnamese || !english;
 }
