@@ -120,6 +120,9 @@ test("object-expression closures preserve division and real multiline comments",
     "const ratio = function /* purpose */ () /* purpose */ {} / divisor;",
     "const ratio = {} / divisor;",
     "const ratio = { value: { nested: 1 } } / divisor;",
+    "const ratio = ready ? value : {} / divisor;",
+    "account: { const ratio = { value: {} / divisor }; }",
+    "account: { const ratio = ready ? value : {} / divisor; }",
     "const ratio = ({ value: 1 }) / divisor;",
     "const values = [{} / divisor];",
     "function calculate() { return { value: 1 } / divisor; }",
@@ -140,7 +143,14 @@ test("object-expression closures preserve division and real multiline comments",
     "if (ready) { if (next) { run(); } } /[/*]/.test(value);",
     "while (ready) { run(); } /[/*]/.test(value);",
     "if (ready) { run(); } else { run(); } /[/*]/.test(value);",
-    "{ const ratio = {}; } /[/*]/.test(value);"
+    "{ const ratio = {}; } /[/*]/.test(value);",
+    "account: { run(); } /[/*]/.test(value);",
+    "account: /* purpose */ { run(); } /[/*]/.test(value);",
+    "outer: inner: { run(); } /[/*]/.test(value);",
+    "if (ready) account: { run(); } /[/*]/.test(value);",
+    "if (ready) {} else account: { run(); } /[/*]/.test(value);",
+    "do account: { run(); } while (ready); /[/*]/.test(value);",
+    "function calculate() { account: { run(); } /[/*]/.test(value); }"
   ]) {
     assert.equal(countBudgetLines(`${statement}\nconst next = 1;\nconst last = 2;`), 3, statement);
   }
