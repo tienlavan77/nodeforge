@@ -182,6 +182,20 @@ test("semicolonless debugger preserves regex statements without changing propert
   assert.equal(countBudgetLines("class Account { #debugger; read() { this.#debugger\n/ divisor; /* reason\n continued */\nconst next = 1; } }"), 3);
 });
 
+// Preserve labeled loop exits as statement boundaries without changing property division.
+test("labeled break and continue preserve regex statements after automatic semicolon insertion", () => {
+  for (const transfer of ["break", "continue"]) {
+    for (const separator of ["\n", "\r\n", " // reason\n", " /* reason\n continued */ ", "\n/* reason */\n"]) {
+      const content = `outer: while (ready) { if (stop) ${transfer} /* label */ outer${separator}/[/*]/.test(value);\nconst next = 1;\n}`;
+      assert.equal(countBudgetLines(content), 4, content);
+    }
+    assert.equal(countBudgetLines(`outer: while (ready) { if (stop) ${transfer} outer\n/[/*]/.test(value);\nconst next = 1;\n}`), 4);
+    assert.equal(countBudgetLines(`outer: while (ready) { ${transfer} outer; /[/*]/.test(value); }\nconst next = 1;`), 2);
+    assert.equal(countBudgetLines(`account.${transfer}\n/ divisor; /* reason\n continued */\nconst next = 1;`), 3);
+    assert.equal(countBudgetLines(`class Account { #${transfer}; read() { this.#${transfer}\n/ divisor; /* reason\n continued */\nconst next = 1; } }`), 3);
+  }
+});
+
 test("restricted-production line breaks end return and yield before statement blocks", () => {
   for (const separator of ["\n", "\r\n", " // reason\n", " /* reason\n continued */ ", "\n/* reason */\n"]) {
     for (const prefix of ["function process() { return", "function* process() { yield"]) {
