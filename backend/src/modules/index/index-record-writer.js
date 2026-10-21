@@ -37,7 +37,8 @@ function symbolCommentStart(lines, start, prevSymbolEndLine) {
   for (let index = start - 2; index >= prevSymbolEndLine; index -= 1) {
     const commentStart = commentStarts.get(index);
     if (commentStart !== undefined) {
-      if (commentStart === 0 && blankLines > 0) break;
+      if (blankLines > 0 && prevSymbolEndLine === 0
+        && lines.slice(0, commentStart).every((line) => /^(?:<\?(?:php)?)?$/i.test(line.trim()))) break;
       extendedStart = commentStart + 1;
       index = commentStart;
       continue;

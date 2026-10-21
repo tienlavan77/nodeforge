@@ -76,6 +76,26 @@ for (const header of ["// File header", "# File header", "/* File header */", "<
   });
 }
 
+for (const [path, prefix] of [["example.php", ["<?php"]], ["example.js", ["", "  "]]]) {
+  for (const header of ["// File header", "# File header", "/* File header */", "<!-- File header -->"]) {
+    test(`excludes a separated ${header} after the ${path} preamble from search and embeddings`, () => {
+      const lines = [...prefix, header, "", "function target() {}"];
+      const fixture = createFixture([symbolAt(lines.length)]);
+      fixture.writer.indexContent("FILE", path, lines.join("\n"));
+      assert.deepEqual(symbolContents(fixture), ["function target() {}"]);
+      assert.deepEqual(fixture.embeddings, ["target [function]\nfunction target() {}"]);
+    });
+  }
+  test(`preserves adjacent symbol documentation after the ${path} preamble and header`, () => {
+    const documentation = "// Own purpose\n// Own detail\nfunction target() {}";
+    const lines = [...prefix, "/* File header */", "", ...documentation.split("\n")];
+    const fixture = createFixture([symbolAt(lines.length)]);
+    fixture.writer.indexContent("FILE", path, lines.join("\n"));
+    assert.deepEqual(symbolContents(fixture), [documentation]);
+    assert.deepEqual(fixture.embeddings, [`target [function]\n${documentation}`]);
+  });
+}
+
 test("stops at intervening code and preserves only the symbol's own comments", () => {
   const fixture = createFixture([symbolAt(5)]);
   fixture.writer.indexContent("FILE", "example.js", [
