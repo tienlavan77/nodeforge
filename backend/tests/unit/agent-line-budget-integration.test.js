@@ -159,7 +159,7 @@ test("regex statements cannot bypass write or edit overflow protection or read m
     "const result = value ** /[/*]/.test(input);",
     "const result = value % /[/*]/.test(input);",
     "const result = value / /[/*]/.test(input);",
-    "const result = value + /* reason */ /[/*]/.test(input);"
+    "const result = value + /* reason */ /[/*]/.test(input);", ...["case 1", "default", "case ready ? 1 : 2", "case { key: ready ? 1 : 2 }", "case values[ready ? 1 : 2]", "case ready?.value ?? 1"].map((label) => `switch (value) { ${label}: { run(); } /[/*]/.test(value); }`)
   ]) {
     const content = `// Documents account processing.\n${statement}\n${Array.from({ length: 249 }, (_, index) => `value${index};`).join("\n")}`;
     const state = fixture(content);
