@@ -64,6 +64,9 @@ export function countBudgetLines(content) {
   let quote = null;
   let escaped = false;
   let regexClass = false;
+  const parentheses = [];
+  let lastToken = "";
+  let afterControl = false;
   let count = 0;
   for (const line of String(content ?? "").split("\n")) {
     let code = false;
@@ -87,9 +90,21 @@ export function countBudgetLines(content) {
       if (character === "#" && !line.slice(0, index).trim() && /^(?:#!|#\s)/.test(rest)) break;
       if (rest.startsWith("/*")) { block = "*/"; index++; continue; }
       if (rest.startsWith("<!--")) { block = "-->"; index += 3; continue; }
-      if (character === "/" && /(?:^|[=(:,!&|?;{}[]|\b(?:return|yield|throw|case))\s*$/.test(line.slice(0, index))) { quote = "/"; regexClass = false; }
+      if (!character.trim()) continue;
+      const identifier = /^[A-Za-z_$][\w$]*/.exec(rest);
+      if (identifier) {
+        lastToken = identifier[0];
+        index += lastToken.length - 1;
+        afterControl = false;
+        code = true;
+        continue;
+      }
+      if (character === "/" && (afterControl || /(?:^|[=(:,!&|?;{}[]|\b(?:return|yield|throw|case))\s*$/.test(line.slice(0, index)))) { quote = "/"; regexClass = false; }
       if (character === "\"" || character === "'" || character === "`") quote = character;
-      if (character.trim()) code = true;
+      if (character === "(") parentheses.push(/^(?:if|while|for|with|switch|catch)$/.test(lastToken));
+      afterControl = character === ")" ? Boolean(parentheses.pop()) : false;
+      lastToken = character;
+      code = true;
     }
     if (code) count++;
     if (quote !== "`" && !escaped) quote = null;
@@ -101,7 +116,8 @@ export function countBudgetLines(content) {
 // Rejects mixed natural-language summaries while allowing technical identifiers in business documentation.
 export function validateCommentLanguage(comment) {
   const prose = String(comment ?? "")
-    .replace(/`[^`]*`|https?:\/\/\S+|\b[\w.-]+\([^)]*\)|\b\w+(?:[._/-]\w+)+\b/g, " ")
+    .replace(/`[^`]*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|@[A-Za-z][\w-]*\b/g, " ")
+    .replace(/https?:\/\/\S+|\b[\w.-]+\([^)]*\)|\b\w+(?:[._/-]\w+)+\b/g, " ")
     .replace(/\b(?:[a-z]+[A-Z][A-Za-z0-9]*|[A-Z][A-Z0-9_]+|\w*\d\w*)\b/g, " ");
   const vietnamese = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i.test(prose.normalize("NFC"));
   const english = /\b(?:the|this|that|these|those|is|are|was|were|be|been|being|will|would|should|must|could|does|has|have|with|for|from|into|returns|checks|creates|updates|validates|ensures|handles|allows|rejects|reads|writes)\b/i.test(prose);

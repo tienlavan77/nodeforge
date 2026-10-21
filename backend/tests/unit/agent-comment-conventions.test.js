@@ -41,6 +41,24 @@ test("comment language accepts technical tokens and rejects mixed natural-langua
   assert.equal(validateCommentLanguage(`// First English sentence.\n// ${vietnamese} returns data.`), false);
 });
 
+test("quoted tokens and JSDoc tags preserve monolingual summaries through lifecycle enforcement", async () => {
+  for (const summary of ['// X\u1eed l\u00fd token "is" an to\u00e0n.', "// X\u1eed l\u00fd token 'returns' an to\u00e0n.", "/** X\u1eed l\u00fd y\u00eau c\u1ea7u.\n * @returns k\u1ebft qu\u1ea3\n */"]) {
+    assert.equal(validateCommentLanguage(summary), true, summary);
+    assert.equal(validateCommentLanguage(`${summary}\n// X\u1eed l\u00fd the response.`), false, summary);
+    const state = fixture();
+    const content = `${summary}\nfunction processAccount() {}`;
+    await createEditDiffTool({ fileService: state.fileService }).execute({ path: "existing.js", before_checksum: state.sha256(), anchor: state.read(), replacement: content });
+    assert.equal(state.read(), content);
+    let written = null;
+    const fileService = {
+      readFile: async () => { throw Object.assign(new Error("Absent"), { code: "ENOENT" }); },
+      atomicWrite: async (input) => { written = input.content; }
+    };
+    await createWriteDiffTool({ fileService }).execute({ path: "new.js", before_checksum: null, content });
+    assert.equal(written, content);
+  }
+});
+
 test("new file mixed summaries fail closed without a write", async () => {
   let writes = 0;
   const fileService = {
