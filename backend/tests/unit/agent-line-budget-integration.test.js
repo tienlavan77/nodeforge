@@ -50,6 +50,12 @@ test("write_diff accepts more than 250 physical lines at the 250-code-line bound
 // Verifies object division at the edit budget boundary without charging multiline comment continuations.
 test("object-expression division permits boundary writes and edits with accurate metadata", async () => {
   for (const statement of [
+    ...["class {}", "class Named {}", "class extends Base {}", "class extends (class {}) {}",
+      "class extends class {} {}", "class Named extends mixin({ value: 1 }) { method() { return {}; } }",
+      ...["void", "typeof", "delete", "await", "new"].map((keyword) => `${keyword} class {}`)
+    ].map((expression) => `const ratio = ${expression} / divisor;`),
+    "class Account {} /[/*]/.test(value);",
+    "class Account extends Base {} /[/*]/.test(value);",
     "const ratio = function () {} / divisor;",
     ...["void", "typeof", "delete", "await", "new"].flatMap((keyword) => [
       `const ratio = ${keyword} function () {} / divisor;`,

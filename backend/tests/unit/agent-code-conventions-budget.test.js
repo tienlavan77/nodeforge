@@ -80,6 +80,14 @@ test("regex context survives statement keywords and intervening comments without
 // Verifies completed object expressions retain division while statement blocks permit regex statements.
 test("object-expression closures preserve division and real multiline comments", () => {
   for (const statement of [
+    "const ratio = class {} / divisor;",
+    "const ratio = class Named {} / divisor;",
+    "const ratio = class extends Base {} / divisor;",
+    "const ratio = class Named extends mixin({ value: 1 }) { method() { return {}; } } / divisor;",
+    "const ratio = class extends (class {}) {} / divisor;",
+    "const ratio = class extends class {} {} / divisor;",
+    "function calculate() { return class {} / divisor; }",
+    ...["void", "typeof", "delete", "await", "new"].map((keyword) => `const ratio = ${keyword} class {} / divisor;`),
     "const ratio = function () {} / divisor;",
     ...["void", "typeof", "delete", "await", "new"].flatMap((keyword) => [
       `const ratio = ${keyword} function () {} / divisor;`,
@@ -109,6 +117,10 @@ test("object-expression closures preserve division and real multiline comments",
     assert.equal(countBudgetLines(`${statement} /* explanation\n continued */\nconst next = 1;`), 2, statement);
   }
   for (const statement of [
+    "class Account {} /[/*]/.test(value);",
+    "class Account extends Base {} /[/*]/.test(value);",
+    "class Account extends mixin({ value: 1 }) { method() { return {}; } } /[/*]/.test(value);",
+    "class Account extends (class {}) {} /[/*]/.test(value);",
     "function calculate() {} /[/*]/.test(value);",
     "async function calculate() {} /[/*]/.test(value);",
     "function* calculate() {} /[/*]/.test(value);",
