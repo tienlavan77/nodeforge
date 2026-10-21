@@ -80,6 +80,15 @@ test("regex context survives statement keywords and intervening comments without
 // Verifies completed object expressions retain division while statement blocks permit regex statements.
 test("object-expression closures preserve division and real multiline comments", () => {
   for (const statement of [
+    "const ratio = function () {} / divisor;",
+    "const ratio = function named() {} / divisor;",
+    "const ratio = function* () {} / divisor;",
+    "const ratio = async function () {} / divisor;",
+    "const ratio = async function* named() {} / divisor;",
+    "const ratio = function (value = (() => 1)()) { if (value) { run(); } } / divisor;",
+    "const ratio = function () { return function () {}; } / divisor;",
+    "function calculate() { return function () {} / divisor; }",
+    "const ratio = function /* purpose */ () /* purpose */ {} / divisor;",
     "const ratio = {} / divisor;",
     "const ratio = { value: { nested: 1 } } / divisor;",
     "const ratio = ({ value: 1 }) / divisor;",
@@ -91,6 +100,9 @@ test("object-expression closures preserve division and real multiline comments",
     assert.equal(countBudgetLines(`${statement} /* explanation\n continued */\nconst next = 1;`), 2, statement);
   }
   for (const statement of [
+    "function calculate() {} /[/*]/.test(value);",
+    "async function calculate() {} /[/*]/.test(value);",
+    "function* calculate() {} /[/*]/.test(value);",
     "if (ready) { run(); } /[/*]/.test(value);",
     "if (ready) { if (next) { run(); } } /[/*]/.test(value);",
     "while (ready) { run(); } /[/*]/.test(value);",
