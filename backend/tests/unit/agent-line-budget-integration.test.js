@@ -64,7 +64,14 @@ test("regex statements cannot bypass write or edit overflow protection or read m
     "if (ready) run(); else /* reason */ /[/*]/.test(value);",
     "do /[/*]/.test(value); while (ready);",
     "do /* reason */ /[/*]/.test(value); while (ready);",
-    "const pattern = (() => { return /* reason */ /[/*]/; })();"
+    "const pattern = (() => { return /* reason */ /[/*]/; })();",
+    "const result = value + /[/*]/.test(input);",
+    "const result = value - /[/*]/.test(input);",
+    "const result = value * /[/*]/.test(input);",
+    "const result = value ** /[/*]/.test(input);",
+    "const result = value % /[/*]/.test(input);",
+    "const result = value / /[/*]/.test(input);",
+    "const result = value + /* reason */ /[/*]/.test(input);"
   ]) {
     const content = `// Documents account processing.\n${statement}\n${Array.from({ length: 249 }, (_, index) => `value${index};`).join("\n")}`;
     const state = fixture(content);

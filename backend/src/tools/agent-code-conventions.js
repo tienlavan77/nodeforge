@@ -83,7 +83,7 @@ export function countBudgetLines(content) {
         else if (character === "\\") escaped = true;
         else if (quote === "/" && character === "[") regexClass = true;
         else if (quote === "/" && character === "]") regexClass = false;
-        else if (character === quote && !regexClass) quote = null;
+        else if (character === quote && !regexClass) { quote = null; lastToken = "literal"; afterControl = false; }
         continue;
       }
       if (rest.startsWith("//")) break;
@@ -99,7 +99,14 @@ export function countBudgetLines(content) {
         code = true;
         continue;
       }
-      if (character === "/" && (afterControl || /^(?:[=(:,!&|?;{}\[]|)$/.test(lastToken))) { quote = "/"; regexClass = false; }
+      if (rest.startsWith("++") || rest.startsWith("--")) {
+        lastToken = rest.slice(0, 2);
+        index++;
+        afterControl = false;
+        code = true;
+        continue;
+      }
+      if (character === "/" && (afterControl || /^(?:[=(:,!&|?;{}\[+*%/^~<>-]|)$/.test(lastToken))) { quote = "/"; regexClass = false; }
       if (character === "\"" || character === "'" || character === "`") quote = character;
       if (character === "(") parentheses.push(/^(?:if|while|for|with|switch|catch)$/.test(lastToken));
       afterControl = character === ")" ? Boolean(parentheses.pop()) : false;
