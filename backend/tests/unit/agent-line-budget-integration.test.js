@@ -159,9 +159,9 @@ test("regex statements cannot bypass write or edit overflow protection or read m
     "const result = value ** /[/*]/.test(input);",
     "const result = value % /[/*]/.test(input);",
     "const result = value / /[/*]/.test(input);",
-    "const result = value + /* reason */ /[/*]/.test(input);", ...["case 1", "default", "case ready ? 1 : 2", "case { key: ready ? 1 : 2 }", "case values[ready ? 1 : 2]", "case ready?.value ?? 1"].map((label) => `switch (value) { ${label}: { run(); } /[/*]/.test(value); }`)
+    "const result = value + /* reason */ /[/*]/.test(input);", ...["case 1", "default", "case ready ? 1 : 2", "case { key: ready ? 1 : 2 }", "case values[ready ? 1 : 2]", "case ready?.value ?? 1", "case 1: break\ncase 2", "case 1: run()\ndefault", "case 1: value++\ncase ready ? 2 : 3", "case 1: break\ncase { key: 2 }"].map((label) => `switch (value) { ${label}: { run(); } /[/*]/.test(value); }`)
   ]) {
-    const content = `// Documents account processing.\n${statement}\n${Array.from({ length: 249 }, (_, index) => `value${index};`).join("\n")}`;
+    const content = `// Documents account processing.\n${statement}\n${Array.from({ length: 250 - statement.split("\n").length }, (_, index) => `value${index};`).join("\n")}`;
     const state = fixture(content);
     const read = await createReadFileTool({ fileService: state.fileService }).execute({ path: "account.js", offset: 1, limit: 2 });
     assert.equal(read.code_lines, 250);
@@ -171,7 +171,7 @@ test("regex statements cannot bypass write or edit overflow protection or read m
       assert.equal(error.details.code_lines, 251);
       return true;
     });
-    await assert.rejects(() => createEditDiffTool({ fileService: state.fileService }).execute({ path: "account.js", anchor: "value248;", replacement: "value248;\nnext;", before_checksum: state.sha256() }), (error) => {
+    await assert.rejects(() => createEditDiffTool({ fileService: state.fileService }).execute({ path: "account.js", anchor: "value0;", replacement: "value0;\nnext;", before_checksum: state.sha256() }), (error) => {
       assert.equal(error.code, "CONTENT_TOO_LARGE");
       assert.equal(error.details.code_lines, 251);
       return true;

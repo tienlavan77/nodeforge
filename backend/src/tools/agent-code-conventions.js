@@ -68,6 +68,8 @@ export function countBudgetLines(content) {
   const braces = [];
   const pendingClasses = [];
   const pendingCases = [];
+  const switchBodies = [];
+  let switchBody = false;
   let brackets = 0;
   let pendingFunction = null;
   let functionBody = null;
@@ -102,7 +104,8 @@ export function countBudgetLines(content) {
       if (!character.trim()) continue;
       const identifier = /^[A-Za-z_$][\w$]*/.exec(rest);
       if (identifier) {
-        if (statementStart && !braces.at(-1) && /^(?:case|default)$/.test(identifier[0])) {
+        if (switchBodies.at(-1) === braces.length && lastToken !== "." && lastToken !== "#"
+          && /^(?:case|default)$/.test(identifier[0])) {
           pendingCases.push({ braces: braces.length, parentheses: parentheses.length, brackets, conditional: 0 });
         }
         const expression = /^(?:[=(:,[!&|?+*%/^~<>-]|return|yield|throw|case|delete|void|typeof|new|in|instanceof|await)$/.test(lastToken);
@@ -134,12 +137,13 @@ export function countBudgetLines(content) {
       if (character === "/" && (afterControl || /^(?:[=(:,!&|?;{}[+*%/^~<>-]|)$/.test(lastToken))) { quote = "/"; regexClass = false; }
       if (character === "\"" || character === "'" || character === "`") quote = character;
       if (character === "(") {
-        parentheses.push({ control: /^(?:if|while|for|with|switch|catch)$/.test(lastToken), functionExpression: pendingFunction });
+        parentheses.push({ control: /^(?:if|while|for|with|switch|catch)$/.test(lastToken), switch: lastToken === "switch", functionExpression: pendingFunction });
         pendingFunction = null;
       }
       if (/^[:=;]$/.test(character) && pendingClasses.at(-1)?.parentheses === parentheses.length
         && pendingClasses.at(-1)?.braces === braces.length) pendingClasses.pop();
       if (character === "{") {
+        if (switchBody) switchBodies.push(braces.length + 1);
         const pendingClass = pendingClasses.at(-1);
         const classBody = pendingClass?.parentheses === parentheses.length && pendingClass?.braces === braces.length
           ? pendingClasses.pop().expression : null;
@@ -148,6 +152,8 @@ export function countBudgetLines(content) {
       }
       const parenthesis = character === ")" ? parentheses.pop() : null;
       afterControl = Boolean(parenthesis?.control);
+      switchBody = Boolean(parenthesis?.switch);
+      if (character === "}" && switchBodies.at(-1) === braces.length) switchBodies.pop();
       functionBody = parenthesis?.functionExpression ?? null;
       if (character === "[") brackets++;
       if (character === "]") brackets--;
