@@ -71,6 +71,8 @@ export function countBudgetLines(content) {
   let functionBody = null;
   let asyncExpression = false;
   let lastToken = "";
+  let statementStart = true;
+  let labelCandidate = false;
   let afterControl = false;
   let count = 0;
   for (const line of String(content ?? "").split("\n")) {
@@ -108,13 +110,17 @@ export function countBudgetLines(content) {
         if (identifier[0] === "async") asyncExpression = expression;
         functionBody = null;
         afterControl = lastToken !== "." && lastToken !== "#" && /^(?:else|do|return|yield|throw|case|delete|void|typeof|new|in|instanceof|await)$/.test(identifier[0]);
+        labelCandidate = statementStart;
         lastToken = lastToken === "." || lastToken === "#" ? "property" : identifier[0];
+        statementStart = /^(?:else|do)$/.test(lastToken);
         index += identifier[0].length - 1;
         code = true;
         continue;
       }
       if (rest.startsWith("++") || rest.startsWith("--")) {
         lastToken = rest.slice(0, 2);
+        statementStart = false;
+        labelCandidate = false;
         index++;
         afterControl = false;
         code = true;
@@ -138,7 +144,11 @@ export function countBudgetLines(content) {
       const parenthesis = character === ")" ? parentheses.pop() : null;
       afterControl = Boolean(parenthesis?.control);
       functionBody = parenthesis?.functionExpression ?? null;
-      lastToken = character === "}" && braces.pop() ? "literal" : character;
+      const labelColon = character === ":" && labelCandidate;
+      lastToken = character === "}" && braces.pop() ? "literal" : labelColon ? ";" : character;
+      statementStart = labelColon || character === ";" || afterControl
+        || character === "{" && !braces.at(-1) || character === "}" && lastToken === "}";
+      labelCandidate = false;
       code = true;
     }
     if (code) count++;
