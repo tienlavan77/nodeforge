@@ -126,7 +126,7 @@ export function countBudgetLines(content) {
         parentheses.push({ control: /^(?:if|while|for|with|switch|catch)$/.test(lastToken), functionExpression: pendingFunction });
         pendingFunction = null;
       }
-      if (character === ":" && pendingClasses.at(-1)?.parentheses === parentheses.length
+      if (/^[:=;]$/.test(character) && pendingClasses.at(-1)?.parentheses === parentheses.length
         && pendingClasses.at(-1)?.braces === braces.length) pendingClasses.pop();
       if (character === "{") {
         const pendingClass = pendingClasses.at(-1);

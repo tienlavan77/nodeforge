@@ -79,7 +79,14 @@ test("regex context survives statement keywords and intervening comments without
 
 // Verifies completed object expressions retain division while statement blocks permit regex statements.
 test("object-expression closures preserve division and real multiline comments", () => {
+  assert.equal(countBudgetLines("class Account { class = {} / divisor; /* explanation\n continued */\n}\nconst next = 1;"), 3);
+  assert.equal(countBudgetLines("class Account { class; next = {} / divisor; /* explanation\n continued */\n}\nconst next = 1;"), 3);
   for (const statement of [
+    "class Account { class = {} / divisor; }",
+    "class Account { class /* field */ = {} / divisor; }",
+    "class Account { static class = {} / divisor; }",
+    "class Account { class; next = {} / divisor; }",
+    "class Account { class = class {} / divisor; }",
     "const ratio = { class: {} / divisor };",
     "const ratio = { class /* property */: {} / divisor };",
     "const ratio = { class: { class: {} / divisor } / divisor };",
