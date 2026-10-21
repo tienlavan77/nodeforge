@@ -95,7 +95,7 @@ export function countBudgetLines(content) {
       if (identifier) {
         lastToken = identifier[0];
         index += lastToken.length - 1;
-        afterControl = false;
+        afterControl = lastToken === "else";
         code = true;
         continue;
       }
