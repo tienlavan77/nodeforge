@@ -119,7 +119,8 @@ export function countBudgetLines(content) {
         functionBody = null;
         afterControl = lastToken !== "." && lastToken !== "#" && /^(?:else|do|return|yield|throw|case|delete|void|typeof|new|in|instanceof|await)$/.test(identifier[0]);
         labelCandidate = statementStart;
-        lastToken = lastToken === "." || lastToken === "#" ? "property" : identifier[0];
+        lastToken = lastToken === "." || lastToken === "#" ? "property"
+          : lastToken === "for" && identifier[0] === "await" ? "for await" : identifier[0];
         statementStart = /^(?:else|do)$/.test(lastToken);
         index += identifier[0].length - 1;
         code = true;
@@ -137,7 +138,7 @@ export function countBudgetLines(content) {
       if (character === "/" && (afterControl || /^(?:[=(:,!&|?;{}[+*%/^~<>-]|)$/.test(lastToken))) { quote = "/"; regexClass = false; }
       if (character === "\"" || character === "'" || character === "`") quote = character;
       if (character === "(") {
-        parentheses.push({ control: /^(?:if|while|for|with|switch|catch)$/.test(lastToken), switch: lastToken === "switch", functionExpression: pendingFunction });
+        parentheses.push({ control: /^(?:if|while|for(?: await)?|with|switch|catch)$/.test(lastToken), switch: lastToken === "switch", functionExpression: pendingFunction });
         pendingFunction = null;
       }
       if (/^[:=;]$/.test(character) && pendingClasses.at(-1)?.parentheses === parentheses.length
