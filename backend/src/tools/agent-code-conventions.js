@@ -191,7 +191,7 @@ function stripTechnicalTokens(comment) {
   return String(comment ?? "")
     .replace(/`[^`]*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, " ")
     .replace(/@[A-Za-z][\w-]*\b/g, " ")
-    .replace(/https?:\/\/\S+|\b[\w.-]+\([^)]*\)|\b\w+(?:[._\/-]\w+)+\b/g, " ")
+    .replace(/https?:\/\/\S+|\b[\w.-]+\([^)]*\)|\b\w+(?:[._/-]\w+)+\b/g, " ")
     .replace(/\b(?:[a-z]+[A-Z][A-Za-z0-9]*|[A-Z][A-Z0-9_]+|\w*\d\w*)\b/g, " ");
 }
 
