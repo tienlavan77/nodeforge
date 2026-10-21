@@ -81,6 +81,15 @@ test("regex context survives statement keywords and intervening comments without
 test("object-expression closures preserve division and real multiline comments", () => {
   for (const statement of [
     "const ratio = function () {} / divisor;",
+    ...["void", "typeof", "delete", "await", "new"].flatMap((keyword) => [
+      `const ratio = ${keyword} function () {} / divisor;`,
+      `const ratio = ${keyword} /* reason */ function named() {} / divisor;`,
+      `const ratio = ${keyword} function* () {} / divisor;`
+    ]),
+    "const ratio = void async function () {} / divisor;",
+    "const ratio = value in function () {} / divisor;",
+    "const ratio = value instanceof function () {} / divisor;",
+    "switch (value) { case function () {} / divisor: break; }",
     "const ratio = function named() {} / divisor;",
     "const ratio = function* () {} / divisor;",
     "const ratio = async function () {} / divisor;",
