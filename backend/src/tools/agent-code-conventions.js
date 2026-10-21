@@ -87,7 +87,7 @@ export function countBudgetLines(content) {
       if (character === "#" && !line.slice(0, index).trim() && /^(?:#!|#\s)/.test(rest)) break;
       if (rest.startsWith("/*")) { block = "*/"; index++; continue; }
       if (rest.startsWith("<!--")) { block = "-->"; index += 3; continue; }
-      if (character === "/" && /(?:^|[=(:,!&|?;{}\[]|\b(?:return|yield|throw|case))\s*$/.test(line.slice(0, index))) { quote = "/"; regexClass = false; }
+      if (character === "/" && /(?:^|[=(:,!&|?;{}[]|\b(?:return|yield|throw|case))\s*$/.test(line.slice(0, index))) { quote = "/"; regexClass = false; }
       if (character === "\"" || character === "'" || character === "`") quote = character;
       if (character.trim()) code = true;
     }
