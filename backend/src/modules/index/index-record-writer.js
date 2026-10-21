@@ -4,6 +4,30 @@ import { extname } from "node:path";
 
 import { checksumEmbeddingText } from "./embedding-job-store.js";
 
+// Includes complete adjacent symbol comments without crossing code or a previous symbol.
+function symbolCommentStart(lines, start, prevSymbolEndLine) {
+  let extendedStart = start;
+  let blockOpening = null;
+  for (let index = start - 2; index >= prevSymbolEndLine; index -= 1) {
+    const trimmed = lines[index].trim();
+    if (!blockOpening) {
+      if (/^(?:\/\/|#)/.test(trimmed)) {
+        extendedStart = index + 1;
+        continue;
+      }
+      if (trimmed.endsWith("*/")) blockOpening = "/*";
+      else if (trimmed.endsWith("-->")) blockOpening = "<!--";
+      else break;
+    }
+    const openingIndex = trimmed.indexOf(blockOpening);
+    if (openingIndex < 0) continue;
+    if (openingIndex !== 0) break;
+    extendedStart = index + 1;
+    blockOpening = null;
+  }
+  return extendedStart;
+}
+
 // Creates database writers that preserve file extraction and symbol search records.
 export function createIndexRecordWriter({ database, graph, embeddingJobs, embeddingStore, embeddingProvider, embeddingModel, logger }) {
   return Object.freeze({
@@ -39,15 +63,12 @@ export function createIndexRecordWriter({ database, graph, embeddingJobs, embedd
     database.run("INSERT INTO file_content_fts (file_id, path, language, content) VALUES (?, ?, ?, ?)", [fileId, path, languageForPath(path), content]);
     const lines = content.split(/\r?\n/);
     const rows = database.all("SELECT symbol_id, name, kind, start_line, end_line FROM symbols WHERE file_id = ? ORDER BY start_line, name", [fileId]);
+    let prevSymbolEndLine = 0;
     for (const symbol of rows) {
       const start = Math.max(1, symbol.start_line ?? 1);
       const end = Math.min(lines.length, Math.max(start, symbol.end_line ?? start));
-      let extendedStart = start;
-      for (let idx = start - 2; idx >= Math.max(0, start - 4); idx -= 1) {
-        const trimmed = (lines[idx] ?? "").trim();
-        if (/^(?:\/\/|\/\*|\*|#|<!--)/.test(trimmed)) extendedStart = idx + 1;
-        else break;
-      }
+      const extendedStart = symbolCommentStart(lines, start, prevSymbolEndLine);
+      prevSymbolEndLine = Math.max(prevSymbolEndLine, end);
       const symbolContent = lines.slice(extendedStart - 1, end).join("\n");
       database.run("INSERT INTO symbol_content_fts (symbol_id, file_id, path, name, kind, content, start_line, end_line) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [symbol.symbol_id, fileId, path, symbol.name, symbol.kind, symbolContent, symbol.start_line, symbol.end_line]);
       queueSymbolEmbedding({ symbolId: symbol.symbol_id, name: symbol.name, kind: symbol.kind, path, content: symbolContent });
