@@ -185,9 +185,11 @@ test("semicolonless debugger preserves regex statements without changing propert
 // Preserve labeled loop exits as statement boundaries without changing property division.
 test("labeled break and continue preserve regex statements after automatic semicolon insertion", () => {
   for (const transfer of ["break", "continue"]) {
-    for (const separator of ["\n", "\r\n", " // reason\n", " /* reason\n continued */ ", "\n/* reason */\n"]) {
-      const content = `outer: while (ready) { if (stop) ${transfer} /* label */ outer${separator}/[/*]/.test(value);\nconst next = 1;\n}`;
-      assert.equal(countBudgetLines(content), 4, content);
+    for (const label of ["outer", "outeré", "外側", "𐐀outer", "outer\u0301", "outer\u200c\u200d", "outer\\u00e9", "outer\\u{1D49C}"]) {
+      for (const separator of ["\n", "\r\n", " // reason\n", " /* reason\n continued */ ", "\n/* reason */\n"]) {
+        const content = `${label}: while (ready) { if (stop) ${transfer} /* label */ ${label}${separator}/[/*]/.test(value);\nconst next = 1;\n}`;
+        assert.equal(countBudgetLines(content), 4, content);
+      }
     }
     assert.equal(countBudgetLines(`outer: while (ready) { if (stop) ${transfer} outer\n/[/*]/.test(value);\nconst next = 1;\n}`), 4);
     assert.equal(countBudgetLines(`outer: while (ready) { ${transfer} outer; /[/*]/.test(value); }\nconst next = 1;`), 2);

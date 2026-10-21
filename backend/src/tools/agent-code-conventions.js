@@ -103,7 +103,7 @@ export function countBudgetLines(content) {
       if (rest.startsWith("/*")) { block = "*/"; index++; continue; }
       if (rest.startsWith("<!--")) { block = "-->"; index += 3; continue; }
       if (!character.trim()) continue;
-      const identifier = /^[A-Za-z_$][\w$]*/.exec(rest);
+      const identifier = /^(?:[$_\p{ID_Start}]|\\u(?:[\da-fA-F]{4}|\{[\da-fA-F]+\}))(?:[$\u200c\u200d\p{ID_Continue}]|\\u(?:[\da-fA-F]{4}|\{[\da-fA-F]+\}))*/u.exec(rest);
       if (identifier) {
         if (switchBodies.at(-1) === braces.length && lastToken !== "." && lastToken !== "#"
           && /^(?:case|default)$/.test(identifier[0])) {
