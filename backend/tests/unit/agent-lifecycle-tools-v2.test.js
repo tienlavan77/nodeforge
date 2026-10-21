@@ -12,7 +12,6 @@ async function harness() {
   const fileService = createFileService({ projectRoot: root });
   return { root, fileService };
 }
-
 test("read_file returns a bounded line window with whole-file checksum", async () => {
   const { fileService } = await harness();
   await writeFile(join(fileService.projectRoot ?? process.cwd(), "x"), "", () => {});
@@ -30,7 +29,6 @@ test("read_file returns a bounded line window with whole-file checksum", async (
   await assert.rejects(() => tool.execute({ path: "big.txt", offset: 31 }, {}), /OFFSET_OUT_OF_RANGE|beyond the last line/);
   await assert.rejects(() => tool.execute({ path: "big.txt", offset: 1, limit: 81 }, {}), /limit must be an integer/);
 });
-
 test("read_file returns metadata for large files and requires a source window", async () => {
   const { fileService } = await harness();
   const symbolCalls = [];
@@ -49,7 +47,6 @@ test("read_file returns metadata for large files and requires a source window", 
   assert.equal(window.truncated, false);
   assert.equal(Array.isArray(window.symbol_map), true);
 });
-
 test("read_file returns metadata for an 81-line project file", async () => {
   const { fileService } = await harness();
   const content = Array.from({ length: 81 }, (_, index) => `line-${index + 1}`).join("\n");
@@ -62,18 +59,21 @@ test("read_file returns metadata for an 81-line project file", async () => {
   assert.equal(window.content.split("\n").length, 41);
   assert.equal(window.sha256, metadata.sha256);
 });
-
 test("coder can read workflow rules but cannot edit workflow files", async () => {
   const { fileService } = await harness();
   await fileService.atomicWrite({ path: "workflows/agents/coder/README.md", content: "Coder rules\n", replace: true });
   const context = { agent_identity: { role: "coder" }, allowed_prefixes: ["workflows/"] };
   const read = await createReadFileTool({ fileService }).execute({ path: "workflows/agents/coder/README.md" }, context);
   assert.equal(read.content, "Coder rules\n");
-  await assert.rejects(() => createReadFileTool({ fileService }).execute({ path: "workflows/agents/coder/README.md", offset: 1, limit: 80 }, context), (error) => error.code === "INPUT_INVALID");
+  const window = await createReadFileTool({ fileService }).execute({ path: "workflows/agents/coder/README.md", offset: 1, limit: 80 }, context);
+  assert.equal(window.content, "Coder rules\n");
+  assert.equal(window.total_lines, 2);
+  assert.equal(window.code_lines, 1);
+  assert.equal(window.sha256, read.sha256);
+  await assert.rejects(() => createReadFileTool({ fileService }).execute({ path: "workflows/agents/coder/README.md", offset: 1, limit: 251 }, context), (error) => error.code === "INPUT_INVALID");
   await assert.rejects(() => createEditDiffTool({ fileService }).execute({ path: "workflows/agents/coder/README.md", before_checksum: read.sha256, anchor: "Coder", replacement: "Other" }, context), (error) => error.code === "FILE_ROLE_FORBIDDEN");
   await assert.rejects(() => createWriteDiffTool({ fileService }).execute({ path: "workflows/new.md", before_checksum: null, content: "Rules\n" }, context), (error) => error.code === "FILE_ROLE_FORBIDDEN");
 });
-
 test("repeated windowed reads hit EXPLORATION_STAGNANT and a successful edit resets the streak", async () => {
   const { fileService } = await harness();
   const read = createReadFileTool({ fileService });
@@ -92,7 +92,6 @@ test("repeated windowed reads hit EXPLORATION_STAGNANT and a successful edit res
   await read.execute(input2, context);
   await assert.rejects(() => read.execute(input2, context), (error) => error.code === "EXPLORATION_STAGNANT");
 });
-
 test("write_diff rejects content over 250 lines with CONTENT_TOO_LARGE", async () => {
   const { fileService } = await harness();
   const tool = createWriteDiffTool({ fileService });
@@ -106,7 +105,6 @@ test("write_diff rejects content over 250 lines with CONTENT_TOO_LARGE", async (
   await tool.execute({ path: "ok.txt", content: `// Boundary fixture\n${Array.from({ length: 249 }, () => "x").join("\n")}\n`, before_checksum: null }, {});
   await tool.execute({ path: "wide.txt", content: `// Wide fixture\n${"x".repeat(8193)}\n`, before_checksum: null }, {});
 });
-
 test("write_diff rejects replacing an existing file over 250 lines", async () => {
   const { fileService } = await harness();
   const tool = createWriteDiffTool({ fileService });
@@ -120,7 +118,6 @@ test("write_diff rejects replacing an existing file over 250 lines", async () =>
   });
   assert.equal(await fileService.readFile({ path: "large.css" }), original);
 });
-
 test("edit_diff replaces a unique anchor, verifies checksum, and reports errors", async () => {
   const { fileService } = await harness();
   const read = createReadFileTool({ fileService });
@@ -143,7 +140,6 @@ test("edit_diff replaces a unique anchor, verifies checksum, and reports errors"
   });
   await assert.rejects(() => edit.execute({ path: "ghost.js", before_checksum: null, anchor: "x", replacement: "y" }, {}), (error) => error.code === "CHECKSUM_MISMATCH");
 });
-
 test("edit_diff with occurrence=all replaces every match and skips uniqueness check", async () => {
   const { fileService } = await harness();
   const read = createReadFileTool({ fileService });
@@ -155,7 +151,6 @@ test("edit_diff with occurrence=all replaces every match and skips uniqueness ch
   const after = await read.execute({ path: "multi.txt", offset: 1, limit: 80 }, {});
   assert.equal(after.content, "DONE\nkeep\nDONE\n");
 });
-
 test("write_diff and edit_diff record changed paths and commit_changes uses them", async () => {
   const { fileService } = await harness();
   const context = { task_id: "T-CHANGE", capabilities: ["commit_changes"], changed_paths: [], allowed_file_paths: ["new-file.txt", "multi.txt"] };
@@ -173,7 +168,6 @@ test("write_diff and edit_diff record changed paths and commit_changes uses them
   assert.deepEqual(committed[0].paths, ["new-file.txt", "multi.txt"]);
   assert.equal(committed[0].message, "feat: apply agent changes");
 });
-
 test("commit_changes without any applied change reports SCOPE_INVALID", async () => {
   const context = { task_id: "T-EMPTY", capabilities: ["commit_changes"], changed_paths: [] };
   const commit = createCommitChangesTool({ gitService: { commit: async () => { throw new Error("must not be called"); } } });
@@ -204,47 +198,39 @@ function fakeReportService({ changedPaths = [], verifyResult = { pass: true, rea
     writeReportFile: async () => {}
   };
 }
-
 test("report_done blocks a real ticket whose only change is the tool-lab marker", async () => {
   const report = createReportDoneTool({ reportService: fakeReportService({ verifyResult: { pass: true, ready_for_review: true }, criteria: ["Add header status to watcher"] }) });
   await assert.rejects(() => report.execute({ summary: "done" }, { ticket: { id: "T-WATCH", title: "Add Agent Process Status to the Watcher Header", objective: "Update the watcher UI", acceptance_criteria: ["Watcher header aligned right"] }, changed_paths: ["backend/tool-lab-target.txt"] }), (error) => error.code === "REPORT_SCOPE_INVALID");
 });
-
 test("report_done blocks a UI ticket that did not change a UI path", async () => {
   const report = createReportDoneTool({ reportService: fakeReportService() });
   await assert.rejects(() => report.execute({ summary: "done" }, { ticket: { id: "T-UI", title: "Add Agent Process Status to the Watcher Header", objective: "Update the watcher UI", acceptance_criteria: ["Watcher header aligned right"] }, changed_paths: ["backend/scripts/helper.mjs"] }), (error) => error.code === "REPORT_SCOPE_INVALID");
 });
-
 test("report_done allows a UI ticket that changed a ui/nextjs path", async () => {
   const report = createReportDoneTool({ reportService: fakeReportService() });
   const result = await report.execute({ summary: "done" }, { ticket: { id: "T-UI-OK", title: "Add Agent Process Status to the Watcher Header", objective: "Update the watcher UI", acceptance_criteria: ["build passes"] }, changed_paths: ["ui/nextjs/components/NodeForgePanels.jsx"], verify_result: { pass: true, ready_for_review: true } });
   assert.ok(result);
 });
-
 test("report_done accepts a directory target when a file inside it changed", async () => {
   const report = createReportDoneTool({ reportService: fakeReportService() });
   const result = await report.execute({ summary: "done" }, { ticket: { id: "T-DIR", title: "Add modal dialog", objective: "Update ui/nextjs/components", acceptance_criteria: ["build passes"] }, target_path: "ui/nextjs/components", changed_paths: ["ui/nextjs/components/Dialog.jsx"], verify_result: { pass: true, ready_for_review: true } });
   assert.ok(result);
 });
-
 test("report_done blocks completed when a build/test criterion is not node-verified", async () => {
   const report = createReportDoneTool({ reportService: fakeReportService({ verifyResult: null, criteria: ["The watcher header includes an agent process status area aligned to the right.", "The UI build passes after the header change."] }) });
   await assert.rejects(() => report.execute({ summary: "done" }, { ticket: { id: "T-UNVERIFIED", title: "Add Agent Process Status to the Watcher Header", objective: "Update the watcher UI", acceptance_criteria: ["The UI build passes after the header change."] }, changed_paths: ["ui/nextjs/components/NodeForgePanels.jsx"] }), (error) => error.code === "REPORT_UNVERIFIED");
 });
-
 test("report_done allows tool-lab mode to record backend/tool-lab-target.txt", async () => {
   const report = createReportDoneTool({ reportService: fakeReportService({ criteria: ["Tool lab marker"] }) });
   const result = await report.execute({ summary: "done" }, { ticket: { id: "CODEX-TOOL-LAB-1", title: "Tool lab", objective: "Run lab", acceptance_criteria: ["lab"] }, lab_mode: true, changed_paths: ["backend/tool-lab-target.txt"], verify_result: null });
   assert.ok(result);
 });
-
 test("report_done does not require every sprint leader candidate file", async () => {
   const report = createReportDoneTool({ reportService: fakeReportService() });
   const ticket = { id: "T-PATCH", title: "Pin conversations", objective: "Pin conversations", acceptance_criteria: ["build passes"], candidate_files: [{ path: "backend/src/application/conversation-crud-service.js", role: "PATCH", symbol: "persistConversationPin", reason: "edit persistConversationPin" }, { path: "ui/nextjs/components/ConversationsBlock.jsx", role: "PATCH", symbol: "PinButton", reason: "edit PinButton" }] };
   const result = await report.execute({ summary: "done" }, { ticket, changed_paths: ["backend/src/application/conversation-crud-service.js"], verify_result: { pass: true, ready_for_review: true } });
   assert.ok(result);
 });
-
 test("report_done ignores legacy candidate role metadata", async () => {
   const report = createReportDoneTool({ reportService: fakeReportService() });
   const ticket = { id: "T-PATCH-REUSE", title: "Pin conversations", objective: "Pin conversations", acceptance_criteria: ["build passes"], candidate_files: [{ path: "backend/src/application/conversation-crud-service.js", role: "PATCH", symbol: "persistConversationPin", reason: "edit persistConversationPin" }, { path: "ui/nextjs/lib/node-client.js", role: "REUSE", symbol: "createConversation", reason: "reuse createConversation" }] };
