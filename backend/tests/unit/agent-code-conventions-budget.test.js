@@ -43,6 +43,22 @@ test("regex statements after control-flow parentheses cannot hide subsequent cod
   assert.equal(countBudgetLines("if (ready) run(); else calculate(value) / divisor; /* explanation\n continued */\nconst next = 1;"), 2);
 });
 
+test("regex context survives statement keywords and intervening comments without hiding code", () => {
+  for (const statement of [
+    "do /[/*]/.test(value); while (ready);",
+    "do /* reason */ /[/*]/.test(value); while (ready);",
+    "return /* reason */ /[/*]/;",
+    "throw /* reason */ /[/*]/;",
+    "yield /* reason */ /[/*]/;",
+    "const pattern = /* reason */ /[/*]/;"
+  ]) {
+    assert.equal(countBudgetLines(`${statement}\nconst next = 1;\nconst last = 2;`), 3, statement);
+  }
+  assert.equal(countBudgetLines("return value /* reason */ / divisor; /* explanation\n continued */\nconst next = 1;"), 2);
+  assert.equal(countBudgetLines("do calculate(value) / divisor; while (ready); /* explanation\n continued */\nconst next = 1;"), 2);
+  assert.equal(countBudgetLines("return /* reason\n continued */ /[/*]/;\nconst next = 1;"), 3);
+});
+
 test("CRLF, trailing newlines and comment-only padding preserve the budget boundary", () => {
   const code = Array.from({ length: 250 }, (_, index) => `value${index};`).join("\r\n");
   assert.equal(countBudgetLines(`// purpose\r\n${code}\r\n\r\n/* reason */\r\n`), 250);

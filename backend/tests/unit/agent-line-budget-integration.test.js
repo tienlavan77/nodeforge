@@ -58,8 +58,15 @@ test("write_diff rejects code overflow with legacy and new diagnostic fields and
 });
 
 test("regex statements cannot bypass write or edit overflow protection or read metadata", async () => {
-  for (const statement of ["if (ready)", "if (ready) run(); else", "if (ready) run(); else /* reason */"]) {
-    const content = `// Documents account processing.\n${statement} /[/*]/.test(value);\n${Array.from({ length: 249 }, (_, index) => `value${index};`).join("\n")}`;
+  for (const statement of [
+    "if (ready) /[/*]/.test(value);",
+    "if (ready) run(); else /[/*]/.test(value);",
+    "if (ready) run(); else /* reason */ /[/*]/.test(value);",
+    "do /[/*]/.test(value); while (ready);",
+    "do /* reason */ /[/*]/.test(value); while (ready);",
+    "return /* reason */ /[/*]/;"
+  ]) {
+    const content = `// Documents account processing.\n${statement}\n${Array.from({ length: 249 }, (_, index) => `value${index};`).join("\n")}`;
     const state = fixture(content);
     const read = await createReadFileTool({ fileService: state.fileService }).execute({ path: "account.js", offset: 1, limit: 2 });
     assert.equal(read.code_lines, 250);
