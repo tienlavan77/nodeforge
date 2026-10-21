@@ -77,7 +77,7 @@ test("object-expression division permits boundary writes and edits with accurate
     "const ratio = { value: { nested: 1 } } / divisor;",
     "const ratio = ({ value: 1 }) / divisor;",
     "function calculate() { return { value: 1 } / divisor; }",
-    "if (ready) { run(); } /[/*]/.test(value);"
+    "if (ready) { run(); } /[/*]/.test(value);", "account: { run(); } /[/*]/.test(value);", "outer: inner: { run(); } /[/*]/.test(value);", "if (ready) account: { run(); } /[/*]/.test(value);", "account: /* purpose */ { run(); } /[/*]/.test(value);", "account: { const ratio = { value: {} / divisor }; }"
   ]) {
     const content = `// Documents account processing.\n${statement} /* explanation\n continued */\n${Array.from({ length: 249 - (statement.includes("\n") ? 1 : 0) }, (_, index) => `value${index};`).join("\n")}`;
     const state = fixture();
