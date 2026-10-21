@@ -32,6 +32,15 @@ test("quoted comment markers, URLs and regex character classes remain code", () 
   assert.equal(countBudgetLines(content), 7);
 });
 
+test("regex statements after control-flow parentheses cannot hide subsequent code", () => {
+  for (const statement of ["if (ready)", "if (check(value))", "while (ready)", "for (; ready;)", "if /* reason */ (ready)", "if\n(ready)"]) {
+    const content = `${statement} /[/*]/.test(value);\nconst next = 1;\nconst last = 2;`;
+    assert.equal(countBudgetLines(content), content.split("\n").length, statement);
+  }
+  assert.equal(countBudgetLines("if (ready) /[/*]/.test(value);\n/* explanation\n continued */\nconst next = 1;"), 2);
+  assert.equal(countBudgetLines("const ratio = calculate(value) / divisor; /* explanation\n continued */\nconst next = 1;"), 2);
+});
+
 test("CRLF, trailing newlines and comment-only padding preserve the budget boundary", () => {
   const code = Array.from({ length: 250 }, (_, index) => `value${index};`).join("\r\n");
   assert.equal(countBudgetLines(`// purpose\r\n${code}\r\n\r\n/* reason */\r\n`), 250);
