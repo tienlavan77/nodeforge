@@ -71,6 +71,8 @@ test("object-expression division permits boundary writes and edits with accurate
     "const ratio = async function () {} / divisor;",
     "const ratio = function (value = (() => 1)()) { if (value) { run(); } } / divisor;",
     "const ratio = function () { return function () {}; } / divisor;",
+    "const ratio = { class: {} / divisor };", "const ratio = { class /* property */: {} / divisor };",
+    "const ratio = { class: { class: {} / divisor } / divisor };", "const ratio = { class: class {} / divisor };",
     "const ratio = {} / divisor;",
     "const ratio = { value: { nested: 1 } } / divisor;",
     "const ratio = ({ value: 1 }) / divisor;",
