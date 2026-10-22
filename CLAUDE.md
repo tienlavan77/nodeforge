@@ -2,12 +2,10 @@
 
 ## Code summary comments
 
-- When creating a new file, add a short summary comment at the top of the file.
-- When creating a new function, add a short summary comment right before the function definition.
-- The summary should describe the purpose of the file or function, not narrate each line of code.
-- The summary should state the **business purpose** alongside the technical description when possible — e.g. "Retry a failed response generation" instead of just "Calls the retry API". This summary is used as embedding content for semantic search (`select_code_graph_candidates`), so the closer it reads to how a user or ticket would describe the feature, the more accurate retrieval will be.
-- Do not add a summary to an existing file or function unless it is newly created.
-- The summary must be written in the same language as the file's code and must not contain secrets.
+- For new files and new functions/symbols only, add detailed purpose comments at the top of the file and directly before the new definition.
+- Describe the **business purpose** alongside the **technical description**, rather than narrating each line. Detailed multiline comments are allowed and help semantic search retrieve the intended behavior.
+- Write each comment entirely in English or entirely in Vietnamese; do not mix sentence structure between languages. Technical identifiers, tags and paths may remain unchanged. Never include secrets.
+- Do not add summaries to existing files/functions/symbols or rewrite historical comments merely to apply this rule.
 
 ## Vocabulary glossary
 
@@ -19,10 +17,9 @@
 
 ## File size limits
 
-- Every file must stay at or under 250 lines. If a change would push a file over this limit, split the file instead of adding to it.
-- This threshold is set near the 90th percentile of the current codebase (measured n=207 files, 2026-09-22: p50=72 lines/1 export/5 functions, p75=123/2 exports/9 functions, p90=246/3/17, p95=309/6/25) — it caps outlier growth, not the typical file size. Re-measure and adjust if the codebase's overall size distribution shifts significantly.
-- No exceptions once over the limit — split rather than justify staying over.
-- This exists in part because oversized, many-symbol files distort retrieval scoring (many weak partial term matches accumulate into a misleadingly high relevance score for an otherwise unrelated file) — keeping files smaller is a defense against this, complementary to fixing the scoring itself.
+- Every file, across all file types, must stay at or under 250 `code_lines`, excluding comment-only and blank lines. Split the file rather than exceed this limit.
+- Physical `total_lines` and line addresses remain unchanged; they are source coordinates, not the code budget. Source read windows remain limited to 80 physical lines.
+- Keeping substantive code small improves retrieval precision without penalizing detailed purpose comments.
 
 ## Focus and reporting
 
