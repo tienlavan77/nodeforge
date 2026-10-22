@@ -6,15 +6,67 @@ import { createOpenAiSdkGateway } from "../../src/modules/agent/openai-sdk-gatew
 import { createOwnerSearchTreeTool } from "../../src/tools/owner-search-tree.js";
 import { RunContext } from "@openai/agents";
 import { createClaudeSdkGateway } from "../../src/modules/agent/claude-sdk-gateway.js";
-import { authorizeOwnerTool, ownerWritePrefixes } from "../../src/tools/owner-role-tool-policy.js";
+import { authorizeOwnerTool, ownerWritePrefixes, ownerRoleTools } from "../../src/tools/owner-role-tool-policy.js";
 import { createOwnerDeleteFileTool } from "../../src/tools/owner-delete-file.js";
 import { createReadFileTool } from "../../src/tools/agent-lifecycle-tools.js";
 import { createOwnerConversationTools } from "../../src/tools/owner-conversation-tools.js";
 import { createOwnerBuiltinSearchShell } from "../../src/tools/owner-builtin-search-shell.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// Proves planning admits only existing discovery plus authorized Git reads, never mutations.
+test("Architecture Manager exposes executable Git reads in normal and planning contexts", async () => {
+  assert.ok(ownerRoleTools("architecture_manager").includes("git_status"));
+  assert.ok(ownerRoleTools("architecture_manager").includes("git_diff"));
+  const calls = [];
+  const gitService = { status: async () => { calls.push("status"); return " M backend/a.js\n"; }, diffWorkingTree: async () => { calls.push("diff"); return "diff content"; } };
+  for (const planning_input_only of [false, true]) {
+    const context = { task_id: "AM-GIT", planning_input_only, capabilities: [...ownerRoleTools("architecture_manager")], agent_identity: { role: "architecture_manager" } };
+    const options = { role: "architecture_manager", projectRoot: process.cwd(), fileService: fileService(), context };
+    const { registry } = createOwnerConversationTools({ ...options, gitService });
+    assert.equal((await registry.git_status.execute({})).stdout, " M backend/a.js\n");
+    assert.equal((await registry.git_diff.execute({})).stdout, "diff content");
+    for (const name of ["run_check", "commit_changes", "push_commit", "shell"]) assert.equal(registry[name], undefined);
+    for (const name of ["write_diff", "edit_diff", "delete_file"]) {
+      assert.equal(Boolean(registry[name]), !planning_input_only);
+      if (planning_input_only) await assert.rejects(() => authorizeOwnerTool(name, { path: "workflows/plan.md" }, context, process.cwd()), { code: "TOOL_FORBIDDEN" });
+    }
+    const unavailable = createOwnerConversationTools(options).registry;
+    assert.equal(unavailable.git_status, undefined);
+    assert.equal(unavailable.git_diff, undefined);
+    await assert.rejects(() => registry.git_status.execute({}, { ...context, capabilities: [] }), { code: "TOOL_FORBIDDEN" });
+  }
+  assert.deepEqual(calls, ["status", "diff", "status", "diff"]);
+});
+
+// Checks published conversation schemas against real nested searches and SE-only runtime access.
+test("owner search schemas and execution agree on nested directories and files", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-owner-search-"));
+  try {
+    await mkdir(join(root, "backend/src/tools"), { recursive: true });
+    await mkdir(join(root, ".forge/runtime"), { recursive: true });
+    await writeFile(join(root, "backend/src/tools/example.js"), "needle\n");
+    await writeFile(join(root, ".forge/runtime/example.txt"), "needle\n");
+    const shared = JSON.parse(await readFile(new URL("../../../schemas/agent/tools/rg-search.schema.json", import.meta.url), "utf8"));
+    for (const role of ["architecture_manager", "reviewer", "system_engineer"]) {
+      const context = { task_id: "OWNER-SEARCH", capabilities: ["search_text"], agent_identity: { role } };
+      const { definitions, registry } = createOwnerConversationTools({ role, projectRoot: root, fileService: createFileService({ projectRoot: root }), context });
+      const pattern = new RegExp(definitions.find(({ name }) => name === "search_text").input_schema.properties.paths.items.pattern);
+      for (const path of ["backend", "backend/src/tools", "backend/src/tools/example.js"]) {
+        assert.ok(pattern.test(path));
+        assert.ok(new RegExp(shared.properties.paths.items.pattern).test(path));
+        assert.match((await registry.search_text.execute({ pattern: "needle", paths: [path] })).stdout, /backend\/src\/tools\/example.js/);
+      }
+      for (const path of [".forge", ".forge/runtime", ".forge/runtime/example.txt"]) {
+        assert.equal(pattern.test(path), role === "system_engineer");
+        if (role === "system_engineer") assert.match((await registry.search_text.execute({ pattern: "needle", paths: [path] })).stdout, /\.forge\/runtime\/example.txt/);
+        else await assert.rejects(() => registry.search_text.execute({ pattern: "needle", paths: [path] }));
+      }
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 // Builds a minimal project file service so Owner tools can be registered without touching disk.
 function fileService() { return { readFile() {}, readForIndex() {}, atomicWrite() {}, deleteFile() {}, listDirectories: async () => [], listFiles: async () => [] }; }
@@ -141,7 +193,8 @@ test("read_file returns cached Markdown content for Architecture and Coder while
   const codeCache = { read: async ({ path }) => { reads.push(path); return { path, content: path.endsWith(".md") ? markdown : "const value = 1;\n", code_index: { path, symbols: [] } }; } };
   const read = createReadFileTool({ fileService: { readForIndex: async () => { throw new Error("Cache should serve this read."); } }, codeCache });
   for (const role of ["architecture_manager", "coder"]) {
-    const result = await read.execute({ path: "workflows/plan.md" }, { agent_identity: { role } });
+    if (role === "coder") await assert.rejects(() => read.execute({ path: "workflows/plan.md" }, { agent_identity: { role } }), { code: "PATH_FORBIDDEN" });
+    const result = await read.execute({ path: "workflows/plan.md" }, { agent_identity: { role }, allowed_file_paths: ["workflows/plan.md"] });
     assert.equal(result.content, markdown);
     assert.equal(result.truncated, false);
     assert.equal(result.total_lines, 193);

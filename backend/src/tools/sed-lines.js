@@ -9,6 +9,8 @@ import { logEvent } from "../core/project-log-service.js";
 import { createRuntimeLogger } from "../core/runtime-logger.js";
 import { ConfigurationError } from "../shared/errors.js";
 import { authorizeTool, isAgentPathAllowed } from "./tool-authorization.js";
+import { assertExecutionFileAccess } from "./execution-file-access.js";
+import { recordRead, discoveryNotice } from "./exploration-state.js";
 import { dependencyReadPath, isDependencyPath, readDependencyFile } from "../infrastructure/filesystem/dependency-read.js";
 
 const MAX_LINES = 80;
@@ -28,7 +30,8 @@ export function createSedLinesTool({ projectRoot, fileService, codeCache, symbol
       authorizeTool(toolName, context);
       normalized = normalizeInput(input, projectRoot);
       args = buildArgs(normalized);
-      if (!isAgentPathAllowed(normalized.path, context) || (fileService && !approvedPath(normalized.path, context))) throw invalidInput("sed_lines path is outside the Node-approved file scope.");
+      if (typeof fileService?.assertReadPath === "function") await fileService.assertReadPath(normalized.path);
+      if (!isAgentPathAllowed(normalized.path, context) || (fileService && [context.allowed_file_paths, context.allowedFilePaths, context.allowed_prefixes, context.allowedPrefixes].some(Array.isArray) && !approvedPath(normalized.path, context))) throw invalidInput("sed_lines path is outside the Node-approved file scope.");
       await validatePath(projectRoot, normalized.path, environment, context);
     } catch (error) {
       emit("rejected", context, { error_code: error.code ?? "SED_LINES_INPUT_INVALID", error: error.message, duration_ms: Date.now() - started });
@@ -37,13 +40,18 @@ export function createSedLinesTool({ projectRoot, fileService, codeCache, symbol
     emit("started", context, { command: ["sed", ...args], cwd: projectRoot });
     let result;
     try {
-      result = isDependencyPath(normalized.path) ? await readCachedLines({ read: ({ path }) => readDependencyFile({ projectRoot, path }) }, normalized)
-        : codeCache && !context.project_wide_access ? await readCachedLines(codeCache, normalized) : await runSed(projectRoot, args, environment);
+      const reader = isDependencyPath(normalized.path) ? { read: ({ path }) => readDependencyFile({ projectRoot, path }) }
+        : !context.project_wide_access && codeCache ? codeCache
+        : !context.project_wide_access && fileService ? { read: ({ path }) => fileService.readForIndex({ path }) } : null;
+      if (context.file_access_version === 2 && !reader) throw invalidInput("Versioned line reads require an object-bound File Service reader.");
+      result = reader ? await readCachedLines(reader, normalized) : await runSed(projectRoot, args, environment);
     } catch (error) {
       emit("failed", context, { command: ["sed", ...args], cwd: projectRoot, error_code: error.code ?? "SED_LINES_SPAWN_FAILED", error: error.message, duration_ms: Date.now() - started });
       throw error;
     }
     const success = result.exit_code === 0 && !result.signal;
+    assertExecutionFileAccess(context);
+    if (!isAgentPathAllowed(normalized.path, context)) throw invalidInput("sed_lines read authority changed before delivery.");
     emit(success ? "completed" : "failed", context, {
       command: ["sed", ...args], cwd: projectRoot, exit_code: result.exit_code, signal: result.signal,
       stdout_bytes: Buffer.byteLength(result.stdout), stderr_bytes: Buffer.byteLength(result.stderr),
@@ -62,6 +70,8 @@ export function createSedLinesTool({ projectRoot, fileService, codeCache, symbol
         throw error;
       }
     }
+    recordRead(context, { path: normalized.path, window: `${normalized.start_line}-${normalized.end_line}` });
+    metadata.discovery_budget = discoveryNotice(context);
     if (typeof symbolLookup !== "function") return { ...result, ...metadata };
     try {
       const symbols = await symbolLookup(normalized.path);
@@ -99,11 +109,14 @@ function normalizeInput(input, projectRoot) {
 async function readCachedLines(codeCache, input) {
   const file = await codeCache.read({ path: input.path });
   const lines = file.content.split("\n");
-  return { stdout: lines.slice(input.start_line - 1, input.end_line).join("\n") + (input.start_line <= lines.length ? "\n" : ""), stderr: "", exit_code: 0, signal: null, cache: file.cache, index_status: file.index_status };
+  const stdout = lines.slice(input.start_line - 1, input.end_line).join("\n") + (input.start_line <= lines.length ? "\n" : "");
+  if (Buffer.byteLength(stdout) > MAX_OUTPUT_BYTES) throw Object.assign(invalidInput(`sed_lines output exceeds ${MAX_OUTPUT_BYTES} bytes.`), { code: "SED_LINES_OUTPUT_TOO_LARGE" });
+  return { stdout, stderr: "", exit_code: 0, signal: null, cache: file.cache, index_status: file.index_status };
 }
 
 // Allows agent reads only inside the file scope issued by Node for the task.
 function approvedPath(path, context) {
+  if (context.file_access_version !== undefined || context.file_access_policy !== undefined) return isAgentPathAllowed(path, context);
   if (context.project_wide_access === true && context.agent_identity?.role === "system_engineer") return true;
   if (context.agent_identity?.role === "coder" && (path === "docs" || path.startsWith("docs/"))) return true;
   const files = context.allowed_file_paths ?? context.allowedFilePaths ?? [];

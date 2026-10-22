@@ -8,6 +8,7 @@ import test from "node:test";
 import { createRuntimeLogger } from "../../src/core/runtime-logger.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createSedLinesTool } from "../../src/tools/sed-lines.js";
+import { createRoleFileService } from "../../src/infrastructure/filesystem/file-service-role-policy.js";
 
 const context = { task_id: "SED-1", capabilities: ["sed_lines"], correlation_id: "C-SED" };
 
@@ -35,6 +36,57 @@ test("sed_lines reads exact source lines and reuses symbol lookup", async () => 
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+// Verifies owner discovery awaits authorization and counts exact windows without implicit ignore grants.
+test("read_lines admits unscoped owner reads but preserves authorization and ignore checks", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-owner-lines-"));
+  try {
+    await mkdir(join(root, ".git"));
+    await writeFile(join(root, ".gitignore"), "ignored.js\n");
+    await writeFile(join(root, "visible.js"), "one\ntwo\n");
+    await writeFile(join(root, "ignored.js"), "ignored\n");
+    const base = createFileService({ projectRoot: root });
+    const events = [];
+    const fileService = { ...base, assertReadPath: async (path) => { await Promise.resolve(); events.push(`authorized:${path}`); }, readForIndex: async (input) => { events.push(`read:${input.path}`); return base.readForIndex(input); } };
+    const tool = createSedLinesTool({ projectRoot: root, fileService, toolName: "read_lines", logger: captureLogger([]) });
+    for (const role of ["architecture_manager", "reviewer"]) {
+      const scoped = { task_id: "OWNER", capabilities: ["read_lines"], agent_identity: { role } };
+      events.length = 0;
+      const result = await tool.execute({ path: "visible.js", start_line: 2, end_line: 2 }, scoped);
+      assert.equal(result.stdout, "two\n");
+      assert.equal(events[0], "authorized:visible.js");
+      assert.deepEqual(scoped.exploration_state.seen_reads, ["visible.js#2-2"]);
+      assert.ok(result.discovery_budget);
+      await assert.rejects(() => tool.execute({ path: "ignored.js", start_line: 1, end_line: 1 }, scoped), /hidden or ignored/);
+      assert.equal((await tool.execute({ path: "ignored.js", start_line: 1, end_line: 1 }, { ...scoped, allowed_file_paths: ["ignored.js"] })).stdout, "ignored\n");
+    }
+    events.length = 0;
+    const denied = createSedLinesTool({ projectRoot: root, fileService: { ...fileService, assertReadPath: async () => { throw new Error("denied"); } }, logger: captureLogger([]) });
+    await assert.rejects(() => denied.execute({ path: "visible.js", start_line: 1, end_line: 1 }, context), /denied/);
+    assert.deepEqual(events, []);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+// Confirms role authorization protects cache reads and retains the existing output byte ceiling.
+test("read_lines cache cannot bypass sensitive paths, symlinks or byte ceilings", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-lines-cache-"));
+  try {
+    await writeFile(join(root, "visible.js"), "safe\n");
+    await writeFile(join(root, ".env"), "private\n");
+    await symlink(join(root, "visible.js"), join(root, "link.js"));
+    let reads = 0;
+    const codeCache = { read: async () => { reads += 1; return { content: "x".repeat(200001) }; } };
+    for (const role of ["architecture_manager", "reviewer"]) {
+      const context = { task_id: "CACHE", capabilities: ["read_lines"], agent_identity: { role } };
+      const fileService = createRoleFileService({ role, projectRoot: root, fileService: createFileService({ projectRoot: root }) });
+      const tool = createSedLinesTool({ projectRoot: root, fileService, codeCache, toolName: "read_lines", logger: captureLogger([]) });
+      for (const path of [".env", "link.js"]) await assert.rejects(() => tool.execute({ path, start_line: 1, end_line: 1 }, context), { code: "FILE_ROLE_FORBIDDEN" });
+      assert.equal(reads, role === "architecture_manager" ? 0 : 1);
+      await assert.rejects(() => tool.execute({ path: "visible.js", start_line: 1, end_line: 1 }, context), { code: "SED_LINES_OUTPUT_TOO_LARGE" });
+      assert.deepEqual(context.exploration_state?.seen_reads ?? [], []);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 // Supplies the whole-file checksum needed by Codex edit_diff without exposing read_file.
 test("sed_lines returns a scoped whole-file checksum for Codex edits", async () => {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-sed-checksum-"));
@@ -47,7 +99,8 @@ test("sed_lines returns a scoped whole-file checksum for Codex edits", async () 
     assert.equal(result.stdout, "one\n");
     assert.match(result.sha256, /^sha256:[a-f0-9]{64}$/);
     assert.equal(result.total_lines, 3);
-    await assert.rejects(() => tool.execute({ path: "backend/example.js", start_line: 1, end_line: 1 }, context), /Node-approved file scope/);
+    assert.equal((await tool.execute({ path: "backend/example.js", start_line: 1, end_line: 1 }, { ...context })).stdout, "one\n");
+    await assert.rejects(() => tool.execute({ path: "backend/example.js", start_line: 1, end_line: 1 }, { ...context, allowed_file_paths: [] }), /Node-approved file scope/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
