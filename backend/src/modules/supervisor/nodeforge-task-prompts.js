@@ -21,12 +21,12 @@ export function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, comp
     "Use the canonical Forge tools search_tree, list_files, search_text, read_file and read_lines to discover files and inspect current source; add focused tests for changed behavior.",
     ...(backendRequired ? ["If backend behavior is required, locate the relevant backend implementation and tests from the ticket rather than assuming a fixed route or service file."] : [])
   ];
-  if (directCode) instructions.splice(0, 2, `This is a direct coding request. Do not use graph candidate retrieval. Discover with search_tree, list_files or search_text inside approved prefixes ${allowedJson}; use read_file/read_lines for source. You may read and edit schemas/, read workflows/ only, and must not access docs/.`);
+  if (directCode) instructions.splice(0, 2, `This is a direct coding request. Do not use graph candidate retrieval. Discover with search_tree, list_files or search_text inside approved prefixes ${allowedJson}; use read_file/read_lines for source. You may read and edit schemas/, read workflows/ only unless an exact document edit is explicitly approved in the ticket/manifest and reconciled by SL/Forge under existing tool authorization; keep all other workflows read-only, and must not access docs/.`);
   if (immutableScope) instructions.splice(0, 2, `This ticket has a signed immutable manifest. Work only on these exact paths ${allowedJson}; do not use prepass or candidate retrieval and do not infer a target_path. Read relevant manifest files with read_file/read_lines and edit only manifest paths.`);
   return [
     `Complete the following ticket using Forge tools only; do not use built-in shell, file, patch, or search tools.`,
     REVIEW_QUERY_INSTRUCTIONS,
-    "Before editing code, read workflows/agents/coder/README.md with read_lines; this workflows path is read-only for coders.",
+    "Before editing code, read workflows/agents/coder/README.md with read_lines; this workflows path is read-only for coders unless its exact document edit is explicitly approved in the ticket/manifest and reconciled by SL/Forge under existing tool authorization. Keep all other workflows read-only; never change permissions or bypass an actual tool denial.",
     "",
     `Ticket ${ticket?.id ?? ""}: ${ticket?.title ?? ""}`,
     `Objective: ${ticket?.objective ?? ""}`,
@@ -117,12 +117,12 @@ export function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, compl
     "Use the canonical Forge tools search_tree, list_files, search_text, read_file and read_lines to discover files and inspect current source; add focused tests for changed behavior.",
     ...(backendRequired ? ["If backend behavior is required, locate the relevant backend implementation and tests from the ticket rather than assuming a fixed route or service file."] : [])
   ];
-  if (directCode) instructions.splice(0, 2, `This is a direct coding request. Do not use graph candidate retrieval. Discover with search_tree, list_files or search_text inside approved prefixes ${allowedJson}; use read_file/read_lines for source. You may read and edit schemas/, read workflows/ only, and must not access docs/.`);
+  if (directCode) instructions.splice(0, 2, `This is a direct coding request. Do not use graph candidate retrieval. Discover with search_tree, list_files or search_text inside approved prefixes ${allowedJson}; use read_file/read_lines for source. You may read and edit schemas/, read workflows/ only unless an exact document edit is explicitly approved in the ticket/manifest and reconciled by SL/Forge under existing tool authorization; keep all other workflows read-only, and must not access docs/.`);
   if (immutableScope) instructions.splice(0, 2, `This ticket has a signed immutable manifest. Work only on these exact paths ${allowedJson}; do not use prepass or candidate retrieval and do not infer a target_path. Read relevant manifest files with read_file/read_lines, then edit only manifest paths.`);
   return [
     "Complete the following ticket using Forge tools only; do not use built-in shell, file, patch, or search tools.",
     REVIEW_QUERY_INSTRUCTIONS,
-    "Before editing code, read workflows/agents/coder/README.md with read_lines using start_line:1 and end_line up to 80; this workflows path is read-only for coders.",
+    "Before editing code, read workflows/agents/coder/README.md with read_lines using start_line:1 and end_line up to 80; this workflows path is read-only for coders unless its exact document edit is explicitly approved in the ticket/manifest and reconciled by SL/Forge under existing tool authorization. Keep all other workflows read-only; never change permissions or bypass an actual tool denial.",
     "",
     `Ticket ${ticket?.id ?? ""}: ${ticket?.title ?? ""}`,
     `Objective: ${ticket?.objective ?? ""}`,
