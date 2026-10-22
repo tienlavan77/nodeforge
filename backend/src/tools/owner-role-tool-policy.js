@@ -4,7 +4,7 @@ import { authorizeTool } from "./tool-authorization.js";
 import { assertRoleFileAccess, roleWritePrefixes } from "../infrastructure/filesystem/file-service-role-policy.js";
 
 const READ_TOOLS = Object.freeze(["search_tree", "list_files", "search_text", "read_file", "read_lines"]);
-const ROLE_TOOLS = Object.freeze({ architecture_manager: Object.freeze([...READ_TOOLS, "write_diff", "edit_diff", "delete_file"]), system_engineer: Object.freeze([...READ_TOOLS, "write_diff", "edit_diff", "run_check", "git_status", "git_diff", "delete_file", "commit_changes", "push_commit"]), sprint_leader: READ_TOOLS, coder: READ_TOOLS, reviewer: Object.freeze([...READ_TOOLS, "git_status", "git_diff"]), linguist: Object.freeze(["read_file", "read_lines"]), runtime: Object.freeze([]) });
+const ROLE_TOOLS = Object.freeze({ architecture_manager: Object.freeze([...READ_TOOLS, "git_status", "git_diff", "write_diff", "edit_diff", "delete_file"]), system_engineer: Object.freeze([...READ_TOOLS, "write_diff", "edit_diff", "run_check", "git_status", "git_diff", "delete_file", "commit_changes", "push_commit"]), sprint_leader: READ_TOOLS, coder: READ_TOOLS, reviewer: Object.freeze([...READ_TOOLS, "git_status", "git_diff"]), linguist: Object.freeze(["read_file", "read_lines"]), runtime: Object.freeze([]) });
 const PRIVATE_PATH = /(^|\/)(?:\.[^/]+|node_modules|vendor|dist|build|coverage|cache|\.next|(?:secret|secrets|credential|credentials|private|id_rsa|id_ed25519)(?:[._-]|$)|[^/]+\.(?:pem|key|p12|pfx|crt|keystore)$)/i;
 const WRITE_TOOLS = new Set(["write_diff", "edit_diff"]);
 
@@ -20,6 +20,7 @@ export function ownerWritePrefixes(role) { return roleWritePrefixes(role); }
 // Enforces owner role, path, and authorization policy before tool execution.
 export async function authorizeOwnerTool(name, input, context, projectRoot) {
   authorizeTool(name, context);
+  if (context.planning_input_only === true && ![...READ_TOOLS, "git_status", "git_diff"].includes(name)) throw forbidden("Planning input permits discovery and Git reads only.");
   if (!ownerRoleTools(context.agent_identity?.role).includes(name)) throw forbidden("Tool is not permitted for this role.");
   if (!WRITE_TOOLS.has(name) && name !== "delete_file") return;
   const path = input?.path;

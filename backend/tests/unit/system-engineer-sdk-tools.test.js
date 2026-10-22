@@ -13,6 +13,32 @@ import { join } from "node:path";
 // Builds a minimal project file service so Owner tools can be registered without touching disk.
 function fileService() { return { readFile() {}, readForIndex() {}, atomicWrite() {}, deleteFile() {}, listDirectories: async () => [], listFiles: async () => [] }; }
 
+// Exercises real capability selection while mocking only provider execution and persistence.
+test("owner WebSearch selection follows SDK support without opening native Forge mutations", async () => {
+  for (const role of ["architecture_manager", "system_engineer"]) for (const tool_mode of ["forge", "builtin"]) for (const available of [false, true]) {
+    let request;
+    const profile = { agent_id: role, role, provider: "codex", tool_mode };
+    const sdk = { conversationMode: "thread", builtinWebSearchAvailable: () => available, execute: async (input) => { request = input; return { text: "done" }; } };
+    const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => profile }, sdkGateways: { codex: sdk }, fallbackStream: async function* () {}, fileService: fileService(), conversationStateStore: memoryStateStore(), projectRoot: "/project", projectLogger: () => {} });
+    const consume = async () => { for await (const chunk of stream({ agentId: role, payload: { text: "inspect" }, correlationId: "CAPABILITY", conversationId: "CAPABILITY" })) assert.equal(chunk.text, "done"); };
+    if (role === "architecture_manager" && tool_mode === "builtin") {
+      await assert.rejects(consume, /Built-in mode requires/);
+      assert.equal(request, undefined);
+      continue;
+    }
+    await consume();
+    assert.equal(request.options.builtinWebSearch, available);
+    if (!available) assert.match(request.prompt, /does not support native web search/);
+    if (tool_mode === "forge") {
+      assert.equal(request.options.sandboxMode, "read-only");
+      assert.equal(request.options.webSearchMode, available ? "live" : "disabled");
+      for (const type of ["file_change", "command_execution", "local_shell_call"]) await assert.rejects(() => request.onEvent({ type: "item.started", item: { type } }), { code: "TOOL_FORBIDDEN" });
+      if (available) await request.onEvent({ type: "item.started", item: { type: "web_search" } });
+      else await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "web_search" } }), { code: "TOOL_FORBIDDEN" });
+    }
+  }
+});
+
 // Keeps SDK tool tests focused on persisted conversation state without a filesystem store.
 function memoryStateStore() {
   const states = new Map();
@@ -37,10 +63,10 @@ test("System Engineer exposes the same Forge discovery and engineering tools acr
     assert.deepEqual(names, expected, provider);
     for (const name of ["search_tree", "list_files", "search_text"]) assert.ok(names.includes(name), `${provider} must expose Forge search tool ${name}`);
     if (["claude", "anthropic"].includes(provider)) {
-      assert.equal(request.options.allowedTools.includes("WebSearch"), false);
-      assert.deepEqual(request.options.tools, []);
+      assert.equal(request.options.allowedTools.includes("WebSearch"), true);
+      assert.deepEqual(request.options.tools, ["WebSearch"]);
     }
-    assert.equal(request.options.builtinWebSearch, false, provider);
+    assert.equal(request.options.builtinWebSearch, provider !== "ollama", provider);
     assert.equal(request.options.builtinSearchShell, undefined, `${provider} must use Forge search tools`);
   }
 });
@@ -58,8 +84,8 @@ test("System Engineer translates the request to English and is instructed to sea
   for await (const chunk of stream({ agentId: "engineer", payload: { text: "inspect and fix the project" }, correlationId: "CORR-SYSTEM-ENGINEER", conversationId: "CONV-SYSTEM-ENGINEER", eventSink: (event) => activities.push(event) })) assert.equal(typeof chunk.text, "string");
   assert.deepEqual(request.options.forgeTools.definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "read_lines", "write_diff", "edit_diff", "git_status", "git_diff", "run_check", "commit_changes", "push_commit", "delete_file"]);
   assert.equal(request.options.sandboxMode, "read-only");
-  assert.equal(request.options.networkAccessEnabled, false);
-  assert.equal(request.options.webSearchMode, "disabled");
+  assert.equal(request.options.networkAccessEnabled, true);
+  assert.equal(request.options.webSearchMode, "live");
   assert.deepEqual(request.options.config, { default_permissions: "audit" });
   assert.match(request.options.configOverrides[0], /permissions\.audit\.filesystem/);
   assert.match(request.options.configOverrides[0], /"\/project"="read"/);
@@ -69,20 +95,20 @@ test("System Engineer translates the request to English and is instructed to sea
   assert.deepEqual(logs.map(({ event_name }) => event_name), ["owner.sdk_route", "owner.sdk_request_started", "owner.sdk_request_completed"]);
   await request.onEvent({ type: "item.started", item: { id: "CALL-1", type: "mcp_tool_call", server: "forge", tool: "search_text" } });
   await request.onEvent({ type: "item.completed", item: { id: "CALL-1", type: "mcp_tool_call", server: "forge", tool: "search_text", status: "completed" } });
-  assert.deepEqual(activities.map(({ payload }) => [payload.activity_type, payload.status, payload.tool_name]), [["tool_started", "working", "search_text"], ["tool_completed", "success", "search_text"]]);
+  assert.deepEqual(activities.map(({ payload }) => [payload.activity_type, payload.status, payload.tool_name]), [["completed", "success", undefined], ["tool_started", "working", "search_text"], ["tool_completed", "success", "search_text"]]);
   assert.ok(activities.every(({ event_type, conversation_id }) => event_type === "agent.activity" && conversation_id === "CONV-SYSTEM-ENGINEER"));
   await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "command_execution", command: "git status" } }), { code: "TOOL_FORBIDDEN" });
   await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "command_execution", command: "rg --files backend/src" } }), { code: "TOOL_FORBIDDEN" });
   await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "command_execution", command: "rg --pre cat secret" } }), { code: "TOOL_FORBIDDEN" });
   await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "command_execution", command: "rg --file=/etc/passwd secret" } }), { code: "TOOL_FORBIDDEN" });
   await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "file_change" } }), { code: "TOOL_FORBIDDEN" });
-  await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "web_search" } }), { code: "TOOL_FORBIDDEN" });
+  await request.onEvent({ type: "item.started", item: { type: "web_search" } });
   await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "local_shell_call" } }), { code: "TOOL_FORBIDDEN" });
   await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "mcp_tool_call", server: "filesystem", tool: "read_file" } }), { code: "TOOL_FORBIDDEN" });
   await assert.rejects(() => request.onEvent({ type: "item.started", item: { type: "mcp_tool_call", server: "forge", tool: "Bash" } }), { code: "TOOL_FORBIDDEN" });
 });
 
-test("System Engineer Forge mode disables all native tools", async () => {
+test("System Engineer Forge mode enables only native WebSearch",  async () => {
   let request;
   const profile = { agent_id: "engineer", agent_name: "Engineer", role: "system_engineer", provider: "anthropic" };
   const sdk = { conversationMode: "history", execute: async (input) => { request = input; return { text: "done" }; } };
@@ -91,7 +117,7 @@ test("System Engineer Forge mode disables all native tools", async () => {
   const conversationStateStore = memoryStateStore();
   const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => profile }, sdkGateways: { anthropic: sdk }, fallbackStream: async function* () {}, fileService: fileService(), conversationStateStore, testService, gitService, projectRoot: "/project", projectLogger: () => {} });
   for await (const chunk of stream({ agentId: "engineer", payload: { text: "inspect" }, correlationId: "CORR-ENGINEER-CLAUDE", conversationId: "CONV-ENGINEER-CLAUDE" })) assert.equal(typeof chunk.text, "string");
-  assert.deepEqual(request.options.tools, []);
+  assert.deepEqual(request.options.tools, ["WebSearch"]);
   assert.ok(request.options.allowedTools.includes("mcp__forge__search_text"));
   assert.ok(request.options.allowedTools.includes("mcp__forge__list_files"));
   assert.ok(request.options.allowedTools.includes("mcp__forge__edit_diff"));
@@ -114,8 +140,9 @@ test("Claude gateway preserves Forge-only tools for System Engineer", async () =
   const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => profile }, sdkGateways: { anthropic: gateway }, fallbackStream: async function* () {}, fileService: fileService(), testService: { runCheck: async () => ({ status: "passed" }) }, gitService: { status: async () => "", diffWorkingTree: async () => "" }, projectRoot: "/project", projectLogger: logger });
   const chunks = [];
   for await (const chunk of stream({ agentId: "engineer", payload: { text: "find a source file" }, correlationId: "CORR-CLAUDE-SEARCH", conversationId: "CONV-CLAUDE-SEARCH" })) chunks.push(chunk.text);
-  assert.deepEqual(sdkOptions.tools, []);
-  assert.equal(sdkOptions.allowedTools.includes("WebSearch"), false);
+  assert.deepEqual(sdkOptions.tools, ["WebSearch"]);
+  assert.equal(sdkOptions.allowedTools.includes("WebSearch"), true);
+  for (const name of ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]) assert.equal(sdkOptions.allowedTools.includes(name), false);
   assert.ok(sdkOptions.allowedTools.includes("mcp__forge__search_text"));
   assert.deepEqual(chunks, ["Found the source."]);
   assert.equal(events.some((event) => event.event_name === "owner.builtin_search"), false);

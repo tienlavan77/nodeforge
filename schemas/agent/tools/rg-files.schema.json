@@ -7,8 +7,8 @@
   "properties": {
     "flags": {
       "type": "array",
-      "description": "Optional ripgrep flags in CLI order. Supported: exclusion --glob=!PATTERN or --iglob=!PATTERN, --max-depth=N, --type=TYPE, --type-not=TYPE, --sort=path. Flags that include hidden or ignored files are rejected. Use [] for the default rg --files listing.",
-      "items": { "type": "string", "minLength": 1 }
+      "description": "Optional ripgrep flags in CLI order: --glob=PATTERN, --iglob=PATTERN, --glob=!PATTERN, --iglob=!PATTERN, --max-depth=N, --type=TYPE, --type-not=TYPE, --sort=path. Globs narrow the default file list without exposing hidden or ignored files.",
+      "items": { "type": "string", "minLength": 1, "pattern": "^(?!.*(?:\\.\\.|\\u0000))(?:--i?glob=!?[^!].*|--max-depth=\\d+|--type(?:-not)?=[A-Za-z0-9_-]+|--sort=path)$" }
     }
   },
   "additionalProperties": false

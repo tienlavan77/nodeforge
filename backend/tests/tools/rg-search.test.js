@@ -1,6 +1,6 @@
 // Verifies scoped project content search, prioritized flags, and runtime logging.
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, unlink, writeFile, symlink, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -11,6 +11,40 @@ import { createFileService } from "../../src/infrastructure/filesystem/file-serv
 import { createCodeCacheService } from "../../src/modules/context/code-cache-service.js";
 
 const context = { task_id: "SEARCH-1", capabilities: ["rg_search"], correlation_id: "C-SEARCH" };
+
+// Proves nested and exact-file admission preserves ignore, role, symlink and output boundaries.
+test("rg_search accepts real nested files without expanding search authority", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-search-paths-"));
+  try {
+    await mkdir(join(root, ".git"));
+    await mkdir(join(root, "backend/src/tools"), { recursive: true });
+    await mkdir(join(root, "backend/private"));
+    await mkdir(join(root, "ignored"));
+    await mkdir(join(root, ".forge/runtime"), { recursive: true });
+    await writeFile(join(root, ".gitignore"), "ignored/\nbackend/src/tools/ignored.js\n");
+    for (const path of ["backend/src/tools/kept.js", "backend/src/tools/ignored.js", "backend/private/token.js", "ignored/one.js", ".forge/runtime/one.txt"]) await writeFile(join(root, path), "needle\n");
+    await symlink(join(root, "backend/src/tools/kept.js"), join(root, "backend/link.js"));
+    await symlink(join(root, "backend/src"), join(root, "backend/alias"));
+    const tool = createRgSearchTool({ projectRoot: root, logger: captureLogger([]) });
+    const scoped = { ...context, agent_identity: { role: "reviewer" }, allowed_prefixes: ["backend"] };
+    const schema = JSON.parse(await readFile(new URL("../../../schemas/agent/tools/rg-search.schema.json", import.meta.url), "utf8"));
+    for (const path of ["backend", "backend/src/tools", "backend/src/tools/kept.js"]) {
+      assert.ok(new RegExp(schema.properties.paths.items.pattern).test(path));
+      const result = await tool.execute({ pattern: "needle", paths: [path] }, scoped);
+      assert.match(result.stdout, /backend\/src\/tools\/kept.js:needle/);
+      assert.doesNotMatch(result.stdout, /private|ignored|alias|link/);
+    }
+    for (const path of ["backend/../src", "backend/./src", "backend//src", "backend/src/", "backend/\\src", "backend/\0src", ".hidden", "backend/link.js", "backend/alias/tools", "ignored", "ignored/one.js", "backend/src/tools/ignored.js", "backend/private/token.js"]) await assert.rejects(() => tool.execute({ pattern: "needle", paths: [path] }, scoped));
+    await assert.rejects(() => tool.execute({ pattern: "needle", paths: ["backend/src/tools/kept.js"] }, { ...scoped, allowed_file_paths: [] , allowed_prefixes: [] }));
+    for (const role of ["architecture_manager", "reviewer", "coder", "system_engineer"]) {
+      const owner = { ...context, agent_identity: { role }, allowed_prefixes: [".forge"] };
+      for (const path of [".forge", ".forge/runtime", ".forge/runtime/one.txt"]) {
+        if (role === "system_engineer") assert.match((await tool.execute({ pattern: "needle", paths: [path] }, owner)).stdout, /\.forge\/runtime\/one.txt/);
+        else await assert.rejects(() => tool.execute({ pattern: "needle", paths: [path] }, owner));
+      }
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 // Captures project log events without writing to the test process output.
 function captureLogger(events) {
@@ -45,7 +79,7 @@ test("rg_search runs prioritized flags inside approved project paths", async () 
 });
 
 // Rejects forbidden coder paths before ripgrep or Code Cache can read their contents.
-test("rg_search blocks coder docs and allows schema search", async () => {
+test("rg_search allows safe coder docs and schema discovery", async () => {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-rg-coder-"));
   try {
     for (const dir of ["docs", "schemas"]) await mkdir(join(root, dir));
@@ -54,8 +88,8 @@ test("rg_search blocks coder docs and allows schema search", async () => {
     const events = [];
     const tool = createRgSearchTool({ projectRoot: root, logger: captureLogger(events) });
     const scoped = { ...context, agent_identity: { role: "coder" }, allowed_prefixes: ["docs/", "schemas/"] };
-    await assert.rejects(() => tool.execute({ pattern: "needle", paths: ["docs"] }, scoped), (error) => error.code === "RG_SEARCH_INPUT_INVALID");
-    assert.deepEqual(events.map((event) => event.event_name), ["forge.rg_search_rejected"]);
+    assert.match((await tool.execute({ pattern: "needle", paths: ["docs"] }, scoped)).stdout, /docs\/guide\.md/);
+    assert.deepEqual(events.map((event) => event.event_name), ["forge.rg_search_started", "forge.rg_search_completed"]);
     const result = await tool.execute({ pattern: "needle", paths: ["schemas"] }, scoped);
     assert.match(result.stdout, /schemas\/contract\.json/);
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -92,7 +126,7 @@ test("rg_search rejects unsafe scope and flags", async () => {
     await writeFile(join(root, "backend", "one.js"), "keyword\n");
     const events = [];
     const tool = createRgSearchTool({ projectRoot: root, logger: captureLogger(events) });
-    await assert.rejects(() => tool.execute({ pattern: "x", paths: ["../outside"] }, context), /top-level project directories/);
+    await assert.rejects(() => tool.execute({ pattern: "x", paths: ["../outside"] }, context), /safe relative project files or directories/);
     await assert.rejects(() => tool.execute({ pattern: "x", paths: ["backend"], flags: ["--no-ignore"] }, context), /unsupported flag/);
     await assert.rejects(() => tool.execute({ pattern: "x", paths: ["backend"], flags: ["--pre=sh"] }, context), /unsupported flag/);
     await assert.rejects(() => tool.execute({ pattern: "x", paths: ["backend"], flags: ["--context=2"] }, context), /unsupported flag/);
