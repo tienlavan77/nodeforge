@@ -24,11 +24,11 @@ export function runProjectRipgrep(cwd, args, environment, input, { signal, maxOu
     if (signal?.aborted) abort();
     let pending = Buffer.alloc(0);
     // Filters baseline filename records before buffering so unrelated project size cannot deny narrow discovery.
-    // The pending record retains the same byte ceiling, including when a malformed record has no newline.
+    // The pending record retains the same byte ceiling, including when a malformed record has no NUL.
     const captureFiltered = (chunk) => {
       const records = Buffer.concat([pending, chunk]);
       let start = 0;
-      for (let end = records.indexOf(10); end !== -1; end = records.indexOf(10, start)) {
+      for (let end = records.indexOf(0); end !== -1; end = records.indexOf(0, start)) {
         const record = records.subarray(start, end + 1);
         if (record.length > maxOutputBytes) { truncated = true; child.kill("SIGKILL"); return; }
         if (stdoutLineFilter(record.subarray(0, -1).toString("utf8"))) capture(stdout, record);
