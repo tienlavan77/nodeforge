@@ -74,6 +74,32 @@ test("rg_search narrow scopes survive baseline filename output above 200000 byte
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+// Proves legal newline-bearing filenames cannot impersonate ignored targets during membership verification.
+// Both cached and filesystem search must reject the exact ignored file before reading its content.
+test("rg_search rejects ignored exact files despite newline-bearing decoy records", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-search-newline-"));
+  try {
+    await mkdir(join(root, ".git"));
+    await mkdir(join(root, "backend"));
+    await mkdir(join(root, "decoy\nbackend"));
+    await writeFile(join(root, ".gitignore"), "backend/ignored.js\n");
+    await writeFile(join(root, "backend/ignored.js"), "private-needle\n");
+    await writeFile(join(root, "backend/kept.js"), "public-needle\n");
+    await writeFile(join(root, "decoy\nbackend/ignored.js"), "decoy\n");
+    const baseline = await runProjectRipgrep(root, ["--files", "-0"], process.env);
+    assert.ok(baseline.stdout.split("\0").includes("decoy\nbackend/ignored.js"));
+    assert.ok(!baseline.stdout.split("\0").includes("backend/ignored.js"));
+    const reads = [];
+    for (const codeCache of [undefined, { read: async ({ path }) => { reads.push(path); return { content: await readFile(join(root, path), "utf8") }; } }]) {
+      const tool = createRgSearchTool({ projectRoot: root, logger: captureLogger([]), codeCache });
+      await assert.rejects(() => tool.execute({ pattern: "private-needle", paths: ["backend/ignored.js"] }, context), /ignored or has no searchable files/);
+      const result = await tool.execute({ pattern: "needle", paths: ["backend"] }, context);
+      assert.equal(result.stdout, "backend/kept.js:public-needle\n");
+    }
+    assert.deepEqual(reads, ["backend/kept.js"]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 // Captures project log events without writing to the test process output.
 function captureLogger(events) {
   return createRuntimeLogger({ logEvent: (event) => events.push(event), output: { write() {} } });
