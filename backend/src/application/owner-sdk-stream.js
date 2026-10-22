@@ -7,6 +7,7 @@ import { createOwnerClaudeMcpTools } from "../tools/owner-claude-mcp-tools.js";
 import { createClaudeForgeOptions } from "../tools/claude-forge-options.js";
 import { executionDigest } from "./owner-execution-checkpoint.js";
 import { checkpointOwnerTools } from "./owner-execution-tools.js";
+import { withSystemEngineerEvents } from "./system-engineer-sdk-events.js";
 
 // Builds a role-scoped SDK stream with Forge-owned discovery and persisted conversation state.
 export function createOwnerSdkStream({ agentConfiguration, sdkGateways, fallbackStream, conversationStateStore, conversationMessages, executionCheckpoint, architectureCheckpoint, fileService, codeCache, codeSearch, gitService, testService, projectRoot, projectLogger }) {
@@ -27,7 +28,8 @@ export function createOwnerSdkStream({ agentConfiguration, sdkGateways, fallback
   // Selects an SDK by profile provider and returns its live text to the owner conversation.
   async function* stream({ agentId, payload, correlationId, conversationId, eventSink }) {
     const profile = agentConfiguration.getById(agentId);
-    const sdk = sdkGateways?.[profile?.provider];
+    const sdk = withSystemEngineerEvents(sdkGateways?.[profile?.provider], { profile, conversationId, correlationId, eventSink,
+      contentType: payload.response_content_type === "text/markdown" ? "text/markdown" : "text/plain" });
     projectLogger?.({ event_name: "owner.sdk_route", level: "info", status: "started", message: "Owner chat request reached SDK router.", task_id: correlationId, correlation_id: correlationId, conversation_id: conversationId, source: "owner-sdk-stream", payload: { agent_id: agentId, role: profile?.role ?? null, provider: profile?.provider ?? null, sdk_available: typeof sdk?.execute === "function" } });
     if (!(["architecture_manager", "system_engineer"].includes(profile?.role))) { yield* fallbackStream({ agentId, payload, correlationId, eventSink }); return; }
     if (typeof sdk?.execute !== "function") throw new ConfigurationError(`No SDK conversation adapter is configured for provider ${profile.provider}.`);
@@ -62,7 +64,7 @@ export function createOwnerSdkStream({ agentConfiguration, sdkGateways, fallback
       const sameProvider = state?.sdk_provider === profile.provider;
       const retainedState = sameProvider && (state?.sdk_tool_mode ?? "forge") === toolMode ? state : {};
       const storedMessages = !sameProvider && conversationMessages?.getByConversationId?.(conversationId);
-      const history = Array.isArray(storedMessages) ? storedMessages.filter((message) => message.correlation_id !== correlationId && typeof message.payload?.text === "string").flatMap((message) => message.message_type === "owner.message" ? [{ role: "User", text: message.payload.text }] : message.message_type?.endsWith(".message.received") ? [{ role: "Assistant", text: message.payload.text }] : []).slice(-8) : (state?.sdk_history ?? []);
+      const history = Array.isArray(storedMessages) ? storedMessages.filter((message) => message.correlation_id !== correlationId && typeof message.payload?.text === "string").flatMap((message) => message.message_type === "owner.message" ? [{ role: "User", text: message.payload.text }] : message.message_type?.endsWith(".message.received") || message.payload?.sdk_event?.type === "conversation_turn" ? [{ role: "Assistant", text: message.payload.text }] : []).slice(-8) : (state?.sdk_history ?? []);
       const resumeThreadId = payload.resume_of ? null : payload.continue_execution ? checkpoint?.provider_thread_id : checkpoint?.provider_thread_id ?? retainedState.sdk_thread_id;
       if (payload.continue_execution && !resumeThreadId) throw Object.assign(new ConfigurationError("Provider session is unavailable; choose Restart instead of Continue."), { code: "EXECUTION_SESSION_UNAVAILABLE", statusCode: 409 });
       const recovery = payload.continue_execution || payload.resume_of;

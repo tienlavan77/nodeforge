@@ -30,12 +30,12 @@ export function assertTicketExecutionCompleted(toolEvents, { labMode = false, mi
   const names = successful.map((event) => engineeringToolName(event.name ?? event.tool));
   const failedReport = [...toolEvents].reverse().find((event) => (event.name ?? event.tool) === "report_done" && event.status === "failed");
   const failedCommit = [...toolEvents].reverse().find((event) => (event.name ?? event.tool) === "commit_changes" && event.status === "failed");
+  if (!labMode && toolEvents.some((event) => (event.name ?? event.tool) === "respond_to_review" && event.status !== "failed")) return;
   if (!names.includes("report_done")) {
     const unavailable = [...toolEvents].reverse().find((event) => event.status === "failed" && approvalServiceUnavailable(event));
     if (unavailable && (!failedReport || failedReport.error_code === "CODER_BLOCKED" && failedReport.error?.details?.blocker?.reason_code === "ACCESS_REQUIRED")) {
       throw Object.assign(new ConfigurationError(unavailable.error.message), { code: "CODER_BLOCKED", details: { blocker: { reason_code: "ACCESS_REQUIRED" } } });
     }
-    if (!labMode && names.includes("respond_to_review")) return;
     if (failedReport) {
       const code = failedReport.error_code ?? failedReport.error?.code ?? "REPORT_FAILED";
       const message = failedReport.error?.message ?? `Agent completion report failed (${code}).`;

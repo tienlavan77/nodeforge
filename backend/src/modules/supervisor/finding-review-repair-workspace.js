@@ -38,6 +38,12 @@ export async function prepareFindingReviewRepair({ taskId, projectId, fileServic
         if (receipt.task_id !== taskId || receipt.project_id !== projectId || receipt.cycle_id !== cycleId || receipt.review_key !== reviewKey) throw fail();
         assertSource({ ...receipt, taskId, projectId, executionContexts });
         const currentContext = await executionContexts.load(taskId), currentManifest = await ledger.load(taskId);
+        if (persisted && currentContext?.version > receipt.context.version && matchesResumedContext(currentContext, receipt.context, cycleId) && ["verified", "reviewing"].includes(currentContext.state)
+          && currentContext.review_commit_sha === receipt.context.review_commit_sha && currentContext.verification_artifact_id === receipt.artifact.artifact_id
+          && isDeepStrictEqual(currentManifest, receipt.manifest)) {
+          await testService.assertPassedArtifact();
+          return { cycle_id: cycleId, receipt: receiptPath, unchanged_source: true };
+        }
         if (currentContext?.source_repair_cycle_id === cycleId && currentManifest.source_repair_cycle_id === cycleId) return { cycle_id: cycleId, receipt: receiptPath };
         const nextManifest = { project_id: projectId, task_id: taskId, state: "active", revision: receipt.manifest.revision + 1,
           entries: {}, commits: {}, pending_commit: null, source_repair_cycle_id: cycleId };
@@ -52,6 +58,15 @@ export async function prepareFindingReviewRepair({ taskId, projectId, fileServic
       } finally { await ledgerLock.release(); }
     } finally { await contextLock.release(); }
   });
+}
+
+// Recognizes unchanged verified source restored by current or earlier Node versions without resetting its journal again.
+function matchesResumedContext(current, archived, cycleId) {
+  if (!current || current.resumed_finding_cycle_id && current.resumed_finding_cycle_id !== cycleId) return false;
+  const actual = { ...current, version: archived.version, updated_at: archived.updated_at };
+  const expected = { ...archived, version: archived.version, updated_at: archived.updated_at };
+  delete actual.resumed_finding_cycle_id; delete expected.resumed_finding_cycle_id;
+  return isDeepStrictEqual(actual, expected);
 }
 
 // Loads one archived finding cycle so later contract checks retain the original write provenance.

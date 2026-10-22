@@ -6,7 +6,7 @@ import { materializeTicketArchive } from "./ticket-archive-materialization.js";
 import { persistVerificationEnvironment } from "./ticket-verification-environment.js";
 
 // Overlays only non-ticket environment files on the committed ticket tree and retains evidence without committing them.
-export async function materializeTicketVerification({ projectRoot, commitSha, ticketPaths, environment }) {
+export async function materializeTicketVerification({ projectRoot, commitSha, ticketPaths, environment, overlayFiles = null }) {
   const archive = await materializeTicketArchive({ projectRoot, commitSha });
   try {
     const owned = new Set(ticketPaths);
@@ -24,9 +24,21 @@ export async function materializeTicketVerification({ projectRoot, commitSha, ti
       await rm(path, { force: true, recursive: true });
       await writeFile(path, file.bytes); await chmod(path, file.mode);
     }
+    if (overlayFiles && typeof overlayFiles === "object") {
+      for (const [relativePath, content] of Object.entries(overlayFiles)) {
+        const targetPath = join(archive.path, relativePath);
+        if (content === null) {
+          await rm(targetPath, { force: true, recursive: true });
+        } else {
+          await mkdir(dirname(targetPath), { recursive: true });
+          await rm(targetPath, { force: true, recursive: true });
+          await writeFile(targetPath, content);
+        }
+      }
+    }
     const ticketSource = new Map();
     for (const path of ticketPaths) ticketSource.set(path, await ticketFileHash(archive.path, path));
-    return { ...archive, environment: await persistVerificationEnvironment(projectRoot, environment), method: "ticket-commit-with-project-environment",
+    return { ...archive, environment: await persistVerificationEnvironment(projectRoot, environment), method: overlayFiles ? "ticket-pre-commit-with-project-environment" : "ticket-commit-with-project-environment",
       // Detects regression tests altering baseline ticket files before failure attribution.
       assertTicketSource: async () => {
         for (const [path, expected] of ticketSource) {

@@ -5,6 +5,7 @@ import { assertCoderCoverage } from "../modules/supervisor/completion-report-ser
 import { matchesBrowserEvidence } from "../modules/supervisor/browser-verification-evidence.js";
 import { hasOwnerDecisionEvidence } from "../modules/governance/plan-decision-requests.js";
 import { findPassingVerificationCommand } from "./verification-command-evidence.js";
+import { readCompletedCoderReport } from "./completed-coder-report.js";
 
 const error = (code, message, details = {}) => Object.assign(new ConfigurationError(message), { code, details });
 
@@ -15,6 +16,15 @@ export function createReportDoneTool({ reportService, verificationService, revie
   return Object.freeze({ name: "report_done", async execute(input = {}, context = {}) {
     const ticket = context.ticket ?? context.task;
     if (!ticket?.id) throw error("SCOPE_INVALID", "Node must provide the current ticket for report_done.");
+    if (input.status === "needs_context") {
+      if (!input.summary?.trim()) throw error("INPUT_INVALID", "needs_context reports require a summary explaining the missing symbol or contract.");
+      const report = await reportService.buildFinalReport({ ticket, status: "needs_human_review", verifyResult: null, filesChanged: context.changed_paths ?? [], reason: "coder_needs_context" });
+      report.agent_report = { status: "needs_context", summary: input.summary.trim(), ...(input.evidence ? { evidence: input.evidence } : {}) };
+      report.criteria_check = (ticket.acceptance_criteria ?? []).map((criterion) => ({ criterion, node_verified: null, status: "evidence_pending" }));
+      await reportService.saveReport(ticket.id, report);
+      await reportService.writeReportFile(ticket.id, report);
+      throw error("CODER_NEEDS_CONTEXT", `NEEDS_CONTEXT: ${input.summary.trim()}`, { summary: input.summary.trim(), ...(input.evidence ? { evidence: input.evidence } : {}) });
+    }
     if (input.status === "blocked") {
       const reasons = ["SCOPE_CONFLICT", "CONTRACT_DECISION_REQUIRED", "ACCESS_REQUIRED", "SECURITY_RISK", "ACCEPTANCE_AMBIGUOUS"];
       if (!input.summary?.trim() || !reasons.includes(input.blocker?.reason_code) || !input.blocker?.owner_action?.trim() || !input.evidence?.length) throw error("INPUT_INVALID", "Blocked reports require a summary, blocker reason, owner action, and source evidence.");
@@ -35,18 +45,19 @@ export function createReportDoneTool({ reportService, verificationService, revie
       // Legacy review payloads are ignored; ticket completion is owned by the Coder report and Node verification.
       if (input.finding_resolutions !== undefined) delete input.finding_resolutions;
       context.changed_paths = [...(artifact.changed_paths ?? Object.keys(artifact.file_checksums))];
-      input = completeNodeReportEvidence(input, ticket, artifact);
+      const completed = requiresExplanation ? await readCompletedCoderReport({ reviewFindings, artifact, input }) : null;
+      input = completed ?? completeNodeReportEvidence(input, ticket, artifact);
       if (requiresExplanation) {
         input = canonicalizeCoverageHints(input, ticket);
         input.acceptance_coverage = assertAcceptanceCoverage(input, artifact, ticket);
-        input = await reviewFindings.recordCoderReportDraft({ report: input, artifact });
+        if (!completed) input = await reviewFindings.recordCoderReportDraft({ report: input, artifact });
         const missing = missingExplanation(input);
         if (missing.length) throw error("CODER_EXPLANATION_REQUIRED", `Coder report saved. Supplement only these missing fields with report_done: ${missing.join(", ")}.`, { missing_fields: missing, artifact_id: artifact.artifact_id });
         assertExplanation(input, artifact);
         input.acceptance_criteria ??= [...(ticket.acceptance_criteria ?? [])];
         validateGovernedScope(input, artifact);
         assertCoderCoverage(input.acceptance_coverage);
-        await reviewFindings.recordCoderReport({ report: input, artifact, idempotencyKey: `${artifact.artifact_id}:report` });
+        if (!completed) await reviewFindings.recordCoderReport({ report: input, artifact, idempotencyKey: `${artifact.artifact_id}:report` });
       }
       else {
         input.acceptance_coverage = assertAcceptanceCoverage(input, artifact, ticket);

@@ -72,6 +72,9 @@ export function createProjectStreamPublisher({ projectId, indexDb } = {}) {
     if (operation === "agent.activity") {
       const activityTypes = ["started", "step_started", "step_completed", "progress", "tool_started", "tool_completed", "tool_failed", "tool_result", "completed", "failed"];
       if (typeof payload.agent_id !== "string" || !activityTypes.includes(payload.activity_type) || !["working", "success", "failed"].includes(payload.status) || typeof payload.summary !== "string") return null;
+      if (payload.agent_role === "system_engineer" && payload.sdk_event && typeof payload.sdk_event === "object") {
+        return { event_type: operation, payload: { ...payload, conversation_id: event.conversation_id ?? payload.conversation_id } };
+      }
       return { event_type: operation, payload: { agent_id: payload.agent_id, activity_type: payload.activity_type, status: payload.status, summary: payload.summary.slice(0, 500), ...(typeof event.conversation_id === "string" ? { conversation_id: event.conversation_id } : {}), ...(typeof payload.correlation_id === "string" ? { correlation_id: payload.correlation_id } : {}), ...(typeof payload.tool_name === "string" ? { tool_name: payload.tool_name.slice(0, 100) } : {}) } };
     }
     if (operation === "agent.checkpoint.updated") return { event_type: operation, payload: { task_id: payload.task_id, sprint_id: payload.sprint_id ?? null, status: payload.status, last_completed_turn: payload.last_completed_turn ?? 0, last_tool: payload.last_tool ?? null, updated_at: payload.updated_at ?? event.timestamp ?? null } };

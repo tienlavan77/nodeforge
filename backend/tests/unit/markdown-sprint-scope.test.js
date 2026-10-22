@@ -64,3 +64,28 @@ test("outcome O5 accepts SUMMARY-<uuid> but still rejects unfilled placeholders"
   assert.throws(() => readMarkdownSprintScope(outcome.replace("Thống nhất summary contract", "<guardrail cần điền>")), { code: "SPRINT_MARKDOWN_SCOPE" });
   assert.throws(() => readMarkdownSprintScope(outcome.replace("Thống nhất summary contract; artifact thủ công ngoài runtime không phải SUMMARY hợp lệ", "")), { code: "SPRINT_MARKDOWN_SCOPE" });
 });
+
+// Protect meaningful code examples and Markdown layout from being mistaken for unfinished Architecture fields.
+test("outcome O1 accepts HTML line breaks and comment syntax from the line-budget plan", () => {
+  const acceptance = "`countBudgetLines(content)` excludes blank lines and comments (`//`, `#!`, `/* ... */`, `<!-- ... -->`), preserving `#privateField`.<br> `write_diff` accepts `code_lines` ≤ 250;<br/> `read_file` retains `total_lines` and returns `code_lines`.";
+  const plan = `## 5. Outcomes\n| O1 | Count source lines | ${acceptance} | Preserve compatibility |\n## 6. Risks`;
+  const [outcome] = readMarkdownSprintScope(plan);
+  assert.equal(outcome.id, "O1");
+  assert.equal(outcome.acceptance_criteria.length, 2);
+  assert.ok(outcome.acceptance_criteria[0].includes("<!-- ... -->"));
+  for (const example of ["<br>", "<br />", "<BR/>", "<strong>verified</strong>", "<!-- source example -->", "<https://example.com/docs>", "`Promise<Result>`", "`<Widget enabled />`", "``const tag = `<custom-element>`;``"]) {
+    assert.doesNotThrow(() => readMarkdownSprintScope(plan.replace(acceptance, `Verify ${example} behavior`)), example);
+  }
+  for (const placeholder of ["<kết quả cần giao>", "<tiêu chí>", "<guardrail cần điền>", "<TBD>", "`<tiêu chí>`"]) {
+    assert.throws(() => readMarkdownSprintScope(plan.replace("Count source lines", placeholder)), { code: "SPRINT_MARKDOWN_SCOPE" }, placeholder);
+  }
+  assert.throws(() => readMarkdownSprintScope(plan.replace(acceptance, "")), { code: "SPRINT_MARKDOWN_SCOPE" });
+  assert.throws(() => readMarkdownSprintScope(plan.replace(acceptance, `${acceptance} <tiêu chí>`)), { code: "SPRINT_MARKDOWN_SCOPE" });
+});
+
+// Apply the same placeholder rules to older approved work-group plans while preserving their projection contract.
+test("legacy work groups accept code and HTML but reject unfinished fields", () => {
+  const plan = markdown.replace("Return errors", "Return errors<br> `Promise<Result>` `<!-- ... -->`");
+  assert.equal(readMarkdownSprintScope(plan).length, 2);
+  assert.throws(() => readMarkdownSprintScope(markdown.replace("Return errors", "<objective cần điền>")), { code: "SPRINT_MARKDOWN_SCOPE" });
+});

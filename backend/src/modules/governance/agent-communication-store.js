@@ -6,6 +6,8 @@ import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 
 import { ConfigurationError } from "../../shared/errors.js";
+import { redactSystemEngineerEvent } from "../../shared/system-engineer-event-redaction.js";
+import { systemEngineerTurnRecord } from "./system-engineer-turn-record.js";
 
 const require = createRequire(import.meta.url);
 const commonSchema = require("../../../../schemas/core/common.schema.json");
@@ -31,6 +33,18 @@ export function createAgentCommunicationStore({ validateMessage = createAgentMes
   // Validates, redacts, and indexes a new agent message.
   function append(message) {
     validateMessage(message);
+    const turn = systemEngineerTurnRecord(message, getById);
+    if (turn?.previous) {
+      if (turn.stored === turn.previous) return structuredClone(turn.previous);
+      const stored = Object.freeze(redact(structuredClone(turn.stored)));
+      if (database) {
+        const location = appendRawMessage(storageRoot, stored, fileService);
+        database.run("UPDATE agent_communications SET raw_file = ?, byte_offset = ?, byte_length = ? WHERE message_id = ?", [location.raw_file, location.byte_offset, location.byte_length, stored.id]);
+      } else messages[messages.findIndex((entry) => entry.id === stored.id)] = stored;
+      messagesById.set(stored.id, database ? true : stored);
+      return structuredClone(stored);
+    }
+    if (turn) message = turn.stored;
     if (messagesById.has(message.id)) throw new ConfigurationError(`Agent Message already exists: ${message.id}.`);
     const stored = Object.freeze(redact(structuredClone(message)));
     if (database) {
@@ -224,6 +238,7 @@ function fileKey(value) {
 
 // Deep-clones a value while replacing sensitive keys with [REDACTED].
 function redact(value) {
+  if (value?.agent_role === "system_engineer" && value.sdk_event && typeof value.sdk_event === "object") return redactSystemEngineerEvent(value);
   if (Array.isArray(value)) return value.map(redact);
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, SENSITIVE.test(key) ? "[REDACTED]" : redact(item)]));

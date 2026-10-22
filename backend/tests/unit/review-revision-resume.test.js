@@ -41,11 +41,13 @@ test("completed Coder revision advances to the next review attempt", () => {
   assert.equal(resume.review_attempt, 2);
 });
 
-// Gives Coder the full structured defect and verification evidence needed for a focused repair.
-test("Coder repair prompt preserves structured finding details", () => {
+// Gives Coder an exact finding locator without embedding potentially oversized historical evidence.
+test("Coder repair prompt references exact findings through query_review", () => {
   const finding = { finding_id: "REV-1", failure: "Missing session isolation", acceptance_criterion: "AC-3", evidence_refs: ["test:sessions"], files: ["backend/session.js"] };
   const prompt = buildResumePrompt("Repair ticket", createResumeState({ task_id: "T", review_findings: [finding] }));
-  assert.ok(prompt.includes(JSON.stringify(finding)));
+  assert.ok(prompt.includes("REV-1"));
+  assert.ok(prompt.includes("query_review"));
+  assert.ok(!prompt.includes("test:sessions"));
   assert.ok(!prompt.includes("undefined"));
 });
 

@@ -2,6 +2,7 @@
 import { createBlockerVerificationResume } from "./blocker-verification-resume.js";
 import { createBlockerFailureClassification, requiresBlockerAdmission } from "./blocker-failure-classification.js";
 import { createBlockerSourceResume } from "./blocker-source-resume.js";
+import { inspectReviewResponseReadiness } from "./review-response-readiness.js";
 
 // Returns ordinary verification refresh plus a source-bound recovery for obsolete missing-denial errors.
 export function createBlockerReconciliationRefresh({ inspect, clock = Date.now, projectLogger = () => {}, readFailureEvidence, sprintRegistry, ticketStatusStore }) {
@@ -11,6 +12,46 @@ export function createBlockerReconciliationRefresh({ inspect, clock = Date.now, 
   return async (job) => {
     if (await refreshVerification(job)) return true;
     if (await refreshSource(job)) return true;
+    if (job.reason_code === "ACCESS_REQUIRED" && job.ticket_progress?.failure_classification) {
+      const authority = await inspect(job);
+      const classification = authority ? await classify(job, authority.workspace) : null;
+      const progress = { ...job.ticket_progress, failure_classification: classification };
+      if (classification?.category === "technical_failure" && !requiresBlockerAdmission({ ...job, ticket_progress: progress })
+        && JSON.stringify(classification) !== JSON.stringify(job.ticket_progress.failure_classification)) {
+        job.history.push({ stage: "sprint_leader", event: "technical_failure_classification_refreshed", completed_at: clock(),
+          previous_resolution: job.resolution ?? null, previous_feedback: job.validation_feedback ?? [] });
+        job.ticket_progress = progress;
+        delete job.validation_feedback; delete job.resolution;
+        projectLogger({ event_name: "supervisor.blocker_classification_refreshed", level: "info", status: "pending", task_id: job.request.task_id,
+          message: "Original technical receipts now clear the obsolete access classification; SL will reassess the retained checkpoint.", payload: { job_id: job.id, classification } });
+        return true;
+      }
+    }
+    if (job.outcome_reason === "technical_reconciliation_waiting_for_evidence") {
+      const authority = await inspect(job);
+      const delivery = authority ? await inspectReviewResponseReadiness(authority.workspace, job.request?.task_id) : null;
+      if (delivery?.status === "available" && JSON.stringify(delivery) !== JSON.stringify(job.ticket_progress?.review_response_delivery ?? null)) {
+        job.history.push({ stage: "sprint_leader", event: "review_response_delivery_available", completed_at: clock(), previous_resolution: job.resolution ?? null });
+        job.ticket_progress = { ...job.ticket_progress, review_response_delivery: delivery };
+        delete job.validation_feedback; delete job.resolution;
+        projectLogger({ event_name: "supervisor.blocker_review_response_ready", level: "info", status: "pending", task_id: job.request.task_id,
+          message: "Verified finding-response delivery is available; SL will resume Coder without changing its completed report.", payload: { job_id: job.id, artifact_id: delivery.artifact_id } });
+        return true;
+      }
+      const retained = await authority?.workspace.inspectFindingReviewSource?.();
+      if (retained?.status === "available_for_unchanged_response"
+        && JSON.stringify(retained) !== JSON.stringify(job.ticket_progress?.retained_review_source ?? null)) {
+        job.history.push({ stage: "sprint_leader", event: "review_source_evidence_available", completed_at: clock(),
+          previous_resolution: job.resolution ?? null, retained_review_source: retained });
+        job.ticket_progress = { ...job.ticket_progress, retained_review_source: retained };
+        delete job.validation_feedback;
+        delete job.resolution;
+        projectLogger({ event_name: "supervisor.blocker_review_evidence_ready", level: "info", status: "pending", task_id: job.request.task_id,
+          message: "Retained verified review source is available; SL will resume evidence-only recovery without duplicate edits or commits.",
+          payload: { job_id: job.id, artifact_id: retained.artifact_id, commit_sha: retained.commit_sha } });
+        return true;
+      }
+    }
     if (job.outcome_reason !== "EXECUTION_ADMISSION_EVIDENCE_REQUIRED" || job.execution_admission) return false;
     const authority = await inspect(job);
     if (!authority) return false;

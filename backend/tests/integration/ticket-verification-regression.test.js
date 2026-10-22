@@ -104,9 +104,27 @@ test("existing supplemental failure is retained as evidence and does not block A
   } finally { await f.close(); }
 });
 
+test("the same failed regex predicate remains preexisting when unrelated generated content changes", async () => {
+  const f = await fixture({ assertion: "assert.match('prompt version ' + String(value), /required contract/)" });
+  try {
+    const { job, artifact } = await verify(f);
+    assert.equal(job.status, "passed", JSON.stringify(job));
+    const result = artifact.commands.find((command) => command.baseline);
+    assert.equal(result.disposition, "preexisting_failure");
+    assert.notEqual(result.stdout_redacted, result.baseline.stdout_redacted);
+    assert.equal(result.failure_sha256, result.baseline.failure_sha256);
+    assert.equal((await f.service.assertPassedArtifact()).artifact_id, artifact.artifact_id);
+    const changed = structuredClone(artifact);
+    const command = changed.commands.find((entry) => entry.baseline);
+    command.stdout_redacted = command.stdout_redacted.replaceAll("required contract", "different contract");
+    assert.equal(coversVerificationPolicy(changed, artifact.changed_paths, f.context.verification_plan), false);
+  } finally { await f.close(); }
+});
+
 for (const [name, options, disposition] of [
   ["new regression", { assertion: "assert.equal(value, 1)" }, "introduced_failure"],
   ["different assertion failure", { assertion: "assert.equal(value, 0)" }, "changed_failure"],
+  ["new regex regression", { assertion: "assert.match(String(value), /1/)" }, "introduced_failure"],
   ["missing baseline", { missingBaseline: true }, "unattributed_failure"]
 ]) {
   test(`${name} blocks completion instead of being waived because both commands failed`, async () => {

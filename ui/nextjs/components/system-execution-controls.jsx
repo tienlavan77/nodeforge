@@ -5,13 +5,14 @@ import { useEffect, useRef, useState } from "react";
 import { awaitingOwnerExecutionRecovery, watchOwnerExecutionRecovery } from "../lib/owner-execution-recovery.js";
 
 // Shows durable execution status and requires a second Escape key press to pause active work.
-export function SystemExecutionControls({ client, projectId, conversationId, executionId, agentTyping, interruptionSignal = 0 }) {
+export function SystemExecutionControls({ client, projectId, conversationId, executionId, agentTyping, interruptionSignal = 0, onDecision }) {
   const [executions, setExecutions] = useState([]);
   const [, setHint] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const lastEscape = useRef(0);
   const inFlight = useRef(false);
+  const revision = useRef(0);
   const scopedExecutions = executions.filter((entry) => entry.conversation_id === conversationId);
   const current = scopedExecutions.find((entry) => entry.status === "running")
     ?? scopedExecutions.find((entry) => entry.status === "pausing")
@@ -22,15 +23,16 @@ export function SystemExecutionControls({ client, projectId, conversationId, exe
   useEffect(() => {
     if (!conversationId) { setExecutions([]); return undefined; }
     let mounted = true;
+    const requestRevision = revision.current;
     // Refreshes the owner's recovery options when a turn or Control API process changes.
     const refresh = async () => {
       try {
         const response = await client.listOwnerExecutions(projectId, conversationId);
-        if (mounted) {
+        if (mounted && requestRevision === revision.current) {
           setExecutions((previous) => (response.items ?? []).map((entry) => previous.some((item) => item.execution_id === entry.execution_id && item.status === "pausing") && entry.status === "running" ? { ...entry, status: "pausing" } : entry));
           setError("");
         }
-      } catch (reason) { if (mounted) setError(reason.message ?? "Unable to load executions."); }
+      } catch (reason) { if (mounted && requestRevision === revision.current) setError(reason.message ?? "Unable to load executions."); }
     };
     void refresh();
     return () => { mounted = false; };
@@ -39,8 +41,10 @@ export function SystemExecutionControls({ client, projectId, conversationId, exe
   const awaitingStop = awaitingOwnerExecutionRecovery(current);
   useEffect(() => {
     if (!conversationId || !awaitingStop) return undefined;
+    const requestRevision = revision.current;
     return watchOwnerExecutionRecovery({ client, projectId, conversationId, executionId: currentId,
-      onUpdate: (items) => { setExecutions(items); setError(""); }, onError: setError });
+      onUpdate: (items) => { if (requestRevision === revision.current) { setExecutions(items); setError(""); } },
+      onError: (message) => { if (requestRevision === revision.current) setError(message); } });
   }, [client, projectId, conversationId, currentId, awaitingStop]);
 
   useEffect(() => {
@@ -66,16 +70,18 @@ export function SystemExecutionControls({ client, projectId, conversationId, exe
   async function decide(action) {
     if (inFlight.current || !conversationId) return;
     inFlight.current = true;
+    revision.current += 1;
     setBusy(true);
     setError("");
     try {
       const record = action === "pause" && executionId && agentTyping ? { conversation_id: conversationId, execution_id: executionId, status: "running" } : current;
       if (!record || (action === "pause" && record.status !== "running")) throw new Error("No active System Engineer execution to pause yet.");
-      await client.decideOwnerExecution(projectId, conversationId, record.execution_id, action);
+      const result = await client.decideOwnerExecution(projectId, conversationId, record.execution_id, action);
       setExecutions((previous) => {
-        const status = action === "pause" ? "pausing" : action === "continue" ? "running" : action === "restart" ? "restarted" : "discarded";
-        return previous.some((entry) => entry.execution_id === record.execution_id) ? previous.map((entry) => entry.execution_id === record.execution_id ? { ...entry, status } : entry) : [...previous, { ...record, status }];
+        const status = action === "pause" ? "pausing" : (result?.status ?? (action === "continue" || action === "restart" ? "running" : "discarded"));
+        return previous.some((entry) => entry.execution_id === record.execution_id) ? previous.map((entry) => entry.execution_id === record.execution_id ? { ...entry, ...result, status } : entry) : [...previous, { ...record, ...result, status }];
       });
+      onDecision?.({ action, executionId: record.execution_id, nextExecutionId: result?.execution_id });
     } catch (reason) { setError(reason.message ?? "Unable to update execution."); }
     finally { inFlight.current = false; setBusy(false); }
   }

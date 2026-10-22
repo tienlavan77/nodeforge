@@ -15,6 +15,14 @@ test("an absent report without a failed commit keeps its existing error", () => 
   assert.throws(() => assertTicketExecutionCompleted([{ tool: "edit_diff", status: "success" }]), (error) => error.code === "AGENT_REPORT_MISSING");
 });
 
+// A verified response is sufficient even when the agent also replays its existing report without edits.
+test("evidence-only response completes with or without replaying the saved report", () => {
+  for (const report of [[], [{ tool: "report_done", status: "success" }], [{ tool: "report_done", status: "failed", error_code: "CODER_REPORT_CONFLICT" }]])
+    assert.doesNotThrow(() => assertTicketExecutionCompleted([...report, { tool: "respond_to_review", status: "success" }]));
+  assert.throws(() => assertTicketExecutionCompleted([{ tool: "respond_to_review", status: "failed", error_code: "REVIEW_RESPONSE_STALE" }],
+    { priorTools: ["respond_to_review"] }), { code: "AGENT_REPORT_MISSING" });
+});
+
 test("a resumed report accepts persisted successful edit and commit turns", () => {
   assert.doesNotThrow(() => assertTicketExecutionCompleted([{ tool: "report_done", status: "success" }], { priorTools: ["edit_diff", "commit_changes", "run_test"] }));
   assert.throws(() => assertTicketExecutionCompleted([{ tool: "read_file", status: "success" }], { priorTools: ["edit_diff", "commit_changes", "report_done"] }), (error) => error.code === "AGENT_REPORT_MISSING");

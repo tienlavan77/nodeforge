@@ -44,7 +44,7 @@ export function createExplorationState() {
     discovery_limit: DISCOVERY_LIMIT, escalations: 0, allow_escalation: true,
     candidate_limit: null, search_limit: null, read_limit: null,
     candidate_calls: 0, search_calls: 0, read_calls: 0,
-    edit_must_start_by: null,
+    edit_must_start_by: null, preedit_extensions: 0,
     explicit_target: null, target_read: false
   };
 }
@@ -70,6 +70,7 @@ export function cloneExplorationState(state) {
     search_calls: countOr(state.search_calls),
     read_calls: countOr(state.read_calls),
     edit_must_start_by: positiveOrNull(state.edit_must_start_by ?? fallback.edit_must_start_by),
+    preedit_extensions: countOr(state.preedit_extensions),
     explicit_target: typeof state.explicit_target === "string" && state.explicit_target ? state.explicit_target : null,
     target_read: state.target_read === true
   };

@@ -6,6 +6,7 @@ import { blockerValidationError } from "./blocker-validation.js";
 import { readBlockerVerificationEvidence } from "./blocker-verification-evidence.js";
 import { createTicketContractSource } from "./ticket-contract-source.js";
 import { blockerDependencyProgress } from "./blocker-dependency-progress.js";
+import { inspectReviewResponseReadiness } from "./review-response-readiness.js";
 
 // Identifies evidence rather than agent wording so repeated requests cannot masquerade as new work.
 const digest = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -16,6 +17,14 @@ export async function buildBlockerTicketProgress({ job, checkpoint, workspace, r
   const context = await workspace.executionContexts.load(job.request.task_id);
   const dependencies = blockerDependencyProgress({ request: job.request, sprintRegistry, ticketStatusStore });
   const review_access = await inspectBlockerReviewAccess({ job, workspace, checkpoint, reviewCheckpoint, context });
+  const retained_review_source = await workspace.inspectFindingReviewSource?.() ?? null;
+  const review_response_delivery = await inspectReviewResponseReadiness(workspace, job.request.task_id);
+  const reviewExchange = await workspace.reviewFindings?.load?.();
+  const review_findings = (reviewExchange?.findings ?? []).map((entry) => {
+    const finding = { ...entry }; delete finding.history; delete finding.refinements;
+    return { ...finding, original: entry.history?.[0] ?? null,
+      latest_adjudication: reviewExchange.adjudications?.findLast((decision) => decision.finding_id === finding.finding_id) ?? null };
+  });
   const diagnostics = [];
   const contract_source = [];
   const refs = ticket.execution_policy?.contract_evidence ?? [];
@@ -57,7 +66,7 @@ export async function buildBlockerTicketProgress({ job, checkpoint, workspace, r
   });
   const evidence = { execution_id: job.request.payload?.execution_id, source_revision: context?.source_revision,
     manifest_sha: context?.manifest_sha, commit_sha: context?.review_commit_sha, artifact_id: artifact?.artifact_id ?? null,
-    changed_files: changedFiles, criteria, diagnostics, contract_source, dependencies, source_reconciliation, verification, review_access,
+    changed_files: changedFiles, criteria, diagnostics, contract_source, dependencies, source_reconciliation, verification, review_access, retained_review_source, review_findings, review_response_delivery,
     architecture_decision: job.architecture_response?.disposition ?? null };
   const assigned = new Set(criteria.flatMap((entry) => entry.files.map((file) => file.path)));
   return { ...evidence, evidence_sha256: digest({ ...evidence, criteria: criteria.map(({ criterion_id, implementation, verification, files, checks }) => ({ criterion_id, implementation, verification, files, checks })) }), last_completed_turn: checkpoint.last_completed_turn,
