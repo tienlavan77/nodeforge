@@ -14,7 +14,7 @@ const RUNNER_FILES = [
   "./browser-coding-bundle.js", "./browser-coding-presence-fixture.js",
   "./browser-coding-presence-adapters.js", "./browser-coding-presence-scenarios.js"
 ];
-const VERIFICATION_FILES = ["./ticket-verification-plan.js", "./ticket-verification-policy.js", "./ticket-verification-regression.js", "./ticket-verification-reporter.js"];
+const VERIFICATION_FILES = ["./ticket-verification-plan.js", "./ticket-verification-policy.js", "./ticket-verification-regression.js", "./ticket-verification-reporter.js", "./verification-failure-identity.js"];
 
 // Identifies the actual external browser runner and Node runtime separately from the immutable ticket revision.
 export async function ticketVerificationRunnerRevision(verificationPlan, { readSource = readFile } = {}) {

@@ -1,5 +1,6 @@
 // Persists Reviewer findings and Coder resolutions across ticket revisions and restarts.
 import { ConfigurationError } from "../../shared/errors.js";
+import { createReviewRecordStorage } from "./review-record-storage.js";
 import { acquireTicketFileLock } from "./ticket-file-lock.js";
 
 const ROOT = ".forge/runtime/ticket-review-findings";
@@ -9,12 +10,12 @@ const fail = (code, message) => Object.assign(new ConfigurationError(message), {
 export function createTicketReviewFindingsStore({ taskId, fileService, executionContexts, gitService } = {}) {
   if (!/^[A-Za-z0-9._:-]+$/.test(taskId ?? "") || !fileService?.readFile || !fileService?.atomicWrite || !executionContexts?.load) throw fail("CONFIGURATION_ERROR", "Finding store requires ticket identity, File Service, and execution context.");
   const path = `${ROOT}/${taskId}.json`;
-  return Object.freeze({ load, recordCoderReportDraft, recordCoderReport, recordResponse, recordReview, validateReview, recordResolutions, assertResolved, unresolved });
+  const records = createReviewRecordStorage({ taskId, fileService });
+  return Object.freeze({ load, loadQuery: records.loadQuery, queryRecords: records.queryRecords, recordCoderReportDraft, recordCoderReport, recordResponse, recordReview, validateReview, recordResolutions, assertResolved, unresolved });
 
   // Loads the durable finding history without fabricating a prior verdict.
   async function load() {
-    try { return JSON.parse(await fileService.readFile({ path })); }
-    catch (error) { if (error.code === "ENOENT") return { task_id: taskId, version: 0, next_id: 1, findings: [], coder_reports: [], coder_responses: [], adjudications: [] }; throw error; }
+    return await records.load() ?? { task_id: taskId, version: 0, next_id: 1, findings: [], coder_reports: [], coder_responses: [], adjudications: [] };
   }
 
   // Keeps the first Coder report and adds only missing explanation fields for the same verified artifact.
@@ -88,7 +89,8 @@ export function createTicketReviewFindingsStore({ taskId, fileService, execution
         if (!current.findings.some((item) => item.finding_id === response.finding_id && !isClosed(current, item)) || ids.has(response.finding_id) || !["accept", "dispute"].includes(response.position) || !response.rationale?.trim() || !Array.isArray(response.files) || !Array.isArray(response.evidence_refs) || !response.evidence_refs.length || response.evidence_refs.some((ref) => !String(ref).trim())) throw fail("REVIEW_RESPONSE_INVALID", "Response must cite one open finding with a position, rationale and evidence.");
         ids.add(response.finding_id);
       }
-      const entry = { idempotency_key: idempotencyKey, task_id: taskId, actor, responses, artifact_id: artifact.artifact_id, review_commit_sha: artifact.commit_sha, source_revision: artifact.source_revision, manifest_sha: artifact.manifest_sha, recorded_at: new Date().toISOString() };
+      const finding_revisions = await records.findingBindings(responses.map((response) => response.finding_id));
+      const entry = { idempotency_key: idempotencyKey, task_id: taskId, actor, responses, finding_revisions, artifact_id: artifact.artifact_id, review_commit_sha: artifact.commit_sha, source_revision: artifact.source_revision, manifest_sha: artifact.manifest_sha, recorded_at: new Date().toISOString() };
       await save({ ...current, version: (current.version ?? 0) + 1, coder_responses: [...(current.coder_responses ?? []), entry] });
       return entry;
     });
@@ -106,7 +108,9 @@ export function createTicketReviewFindingsStore({ taskId, fileService, execution
 
   // Adds or reopens Reviewer findings while preserving IDs from earlier attempts.
   async function recordReview({ verdict, findings, adjudications = [], artifactId, commitSha, reviewerId, sourceRevision, validateOnly = false }) {
-    if (!["approved", "request_changes"].includes(verdict) || !Array.isArray(findings) || !Array.isArray(adjudications) || verdict === "approved" && findings.length) throw fail("REVIEW_FINDINGS_INVALID", "Review verdict or finding list is invalid.");
+    const invalidApprovedFindings = verdict === "approved" && Array.isArray(findings) && findings.some((finding) => !finding || typeof finding !== "object" || String(finding.severity ?? "").toLowerCase() !== "minor" || finding.defer_to_backlog !== true);
+    if (!["approved", "request_changes"].includes(verdict) || !Array.isArray(findings) || !Array.isArray(adjudications) || invalidApprovedFindings) throw fail("REVIEW_FINDINGS_INVALID", "Review verdict or finding list is invalid.");
+    findings = structuredClone(findings);
     return locked(async () => {
       const current = await load();
       const context = await executionContexts.load(taskId);
@@ -116,10 +120,12 @@ export function createTicketReviewFindingsStore({ taskId, fileService, execution
       next.adjudications ??= [];
       const pendingResponses = (next.coder_responses ?? []).flatMap((entry) => entry.responses.map((response) => ({ response, entry }))).filter(({ response, entry }) => !next.adjudications.some((decision) => decision.finding_id === response.finding_id && decision.response_id === entry.idempotency_key));
       if (pendingResponses.some(({ response, entry }) => !adjudications.some((decision) => decision.finding_id === response.finding_id && (decision.response_id === entry.idempotency_key || !decision.response_id)))) throw fail("REVIEW_ADJUDICATION_MISSING", "Reviewer must adjudicate each pending Coder response.");
-      if (verdict === "request_changes") for (const finding of findings) {
+      for (const finding of findings) {
         const message = typeof finding === "string" ? finding : finding?.failure;
         if (typeof message !== "string" || !message.trim()) throw fail("REVIEW_FINDINGS_INVALID", "Review finding text is required.");
         if (typeof finding === "object" && (!finding.acceptance_criterion?.trim() || !finding.minimum_change_scope?.trim() || !Array.isArray(finding.evidence_refs) || !finding.evidence_refs.length || (Array.isArray(finding.files) && finding.files.length > 1 && (!Array.isArray(finding.per_file_necessity) || finding.per_file_necessity.length !== finding.files.length || finding.per_file_necessity.some((part) => !part?.path?.trim() || !part.role?.trim()))))) throw fail("REVIEW_FINDINGS_INVALID", "Review finding requires criterion, evidence, minimum scope and per-file necessity for multi-file demands.");
+        const severity = typeof finding === "object" && typeof finding.severity === "string" ? finding.severity.toLowerCase() : "major";
+        const deferred = verdict === "approved" && severity === "minor" && finding?.defer_to_backlog === true;
         const explicitId = typeof finding === "object" ? finding.finding_id : null;
         const prior = next.findings.find((item) => explicitId ? item.finding_id === explicitId : item.message === message.trim() && !isClosed(next, item));
         if (explicitId && (!prior || !/^REV-[1-9][0-9]*$/.test(explicitId))) throw fail("REVIEW_FINDINGS_INVALID", "Refined finding must use an existing persisted REV identity; omit IDs on new findings.");
@@ -130,17 +136,22 @@ export function createTicketReviewFindingsStore({ taskId, fileService, execution
             prior.history = [...(prior.history ?? []), { message: prior.message, finding: prior.finding, status: prior.status, review_commit_sha: prior.review_commit_sha, artifact_id: prior.artifact_id }];
             prior.message = message.trim(); prior.finding = finding;
           }
-          prior.status = "open"; prior.review_commit_sha = commitSha; prior.artifact_id = artifactId; continue;
+          prior.severity = severity;
+          prior.defer_to_backlog = Boolean(finding?.defer_to_backlog);
+          prior.status = deferred ? "deferred_to_backlog" : "open"; prior.review_commit_sha = commitSha; prior.artifact_id = artifactId; continue;
         }
-        next.findings.push({ finding_id: `REV-${next.next_id++}`, message: message.trim(), ...(typeof finding === "object" ? { finding } : { legacy: true }), severity: "major", status: "open", changed_paths: [], evidence_refs: [], resolved_revision: null, review_commit_sha: commitSha, artifact_id: artifactId });
+        const allocatedId = `REV-${next.next_id++}`;
+        if (typeof finding === "object" && !finding.finding_id) finding.finding_id = allocatedId;
+        next.findings.push({ finding_id: allocatedId, message: message.trim(), ...(typeof finding === "object" ? { finding } : { legacy: true }), severity, defer_to_backlog: Boolean(finding?.defer_to_backlog), status: deferred ? "deferred_to_backlog" : "open", changed_paths: [], evidence_refs: [], resolved_revision: null, review_commit_sha: commitSha, artifact_id: artifactId });
       }
+      const findingBindings = adjudications.length ? await records.findingBindings(adjudications.map((decision) => decision.finding_id)) : {};
       const decisions = new Set();
       for (const decision of adjudications) {
         const target = next.findings.find((item) => item.finding_id === decision.finding_id);
         if (!target || !["retain", "refine", "reopen", "withdraw", "not_applicable", "fixed"].includes(decision.decision) || !decision.reason?.trim() || !Array.isArray(decision.evidence_refs) || !decision.evidence_refs.length || decision.evidence_refs.some((ref) => typeof ref !== "string" || !ref.trim()) || !reviewerId || decisions.has(decision.finding_id)) throw fail("REVIEW_ADJUDICATION_INVALID", "Reviewer decision needs a known finding, reason and evidence.");
         decisions.add(decision.finding_id);
         if (["retain", "refine", "reopen"].includes(decision.decision) && verdict !== "request_changes") throw fail("REVIEW_ADJUDICATION_INVALID", "Opening or retaining a finding requires request_changes, not approval.");
-        const entry = { ...decision, previous_status: current.findings.find((finding) => finding.finding_id === decision.finding_id)?.status ?? "open", reviewer_id: reviewerId, task_id: taskId, review_commit_sha: commitSha, artifact_id: artifactId, source_revision: context.source_revision, recorded_at: new Date().toISOString() };
+        const entry = { ...decision, finding_revision: findingBindings[decision.finding_id]?.revision ?? null, finding_record_sha256: findingBindings[decision.finding_id]?.record_sha256 ?? null, previous_status: current.findings.find((finding) => finding.finding_id === decision.finding_id)?.status ?? "open", reviewer_id: reviewerId, task_id: taskId, review_commit_sha: commitSha, artifact_id: artifactId, source_revision: context.source_revision, recorded_at: new Date().toISOString() };
         const petition = pendingResponses.find(({ response }) => response.finding_id === decision.finding_id);
         if (petition) entry.response_id = petition.entry.idempotency_key;
         const previous = next.adjudications.findLast((item) => item.finding_id === entry.finding_id);
@@ -154,7 +165,7 @@ export function createTicketReviewFindingsStore({ taskId, fileService, execution
         if (decision.decision === "refine") target.refinements = [...(target.refinements ?? []), entry];
       }
       if (verdict === "approved") {
-        const unresolved = next.findings.filter((item) => item.severity !== "minor" && !isClosed(next, item));
+        const unresolved = next.findings.filter((item) => (item.severity !== "minor" || item.defer_to_backlog !== true) && !isClosed(next, item));
         if (unresolved.length) throw fail("REVIEW_FINDINGS_UNRESOLVED", `Required Reviewer findings remain unresolved: ${unresolved.map((item) => item.finding_id).join(", ")}.`);
       }
       if (!validateOnly) await save(next);
@@ -193,10 +204,11 @@ export function createTicketReviewFindingsStore({ taskId, fileService, execution
   }
 
   // Returns only required findings that still need code or evidence.
-  async function unresolved() { const record = await load(); return record.findings.filter((item) => item.severity !== "minor" && !isClosed(record, item)); }
+  async function unresolved() { const record = await load(); return record.findings.filter((item) => (item.severity !== "minor" || item.defer_to_backlog !== true) && !isClosed(record, item)); }
 
-  // Closes a finding only on an independent Reviewer decision in the durable history.
+  // Closes a finding only on an independent Reviewer decision or deferred minor backlog disposition in the durable history.
   function isClosed(record, finding) {
+    if (finding.status === "deferred_to_backlog" && finding.severity === "minor" && finding.defer_to_backlog === true) return true;
     const latest = (record.adjudications ?? []).findLast((item) => item.finding_id === finding.finding_id);
     return Boolean(latest && ["fixed", "withdraw", "not_applicable"].includes(latest.decision));
   }
@@ -212,5 +224,5 @@ export function createTicketReviewFindingsStore({ taskId, fileService, execution
   async function locked(action) { const lock = await acquireTicketFileLock(fileService, `${path}.lock`); try { return await action(); } finally { await lock.release(); } }
 
   // Persists the full finding history through Forge File Service.
-  async function save(record) { await fileService.atomicWrite({ path, content: `${JSON.stringify(record)}\n`, replace: true }); }
+  async function save(record) { await records.save(record); }
 }

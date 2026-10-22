@@ -91,22 +91,27 @@ export function createBlockerAdmission({ store, inspect, clock = Date.now, proje
       const review = input.review;
       if (!review || !["allow", "deny"].includes(review.verdict) || typeof review.reason !== "string" || !review.reason.trim() || review.reason.length > 8000
         || review.verdict === "allow" && (typeof review.guidance !== "string" || !review.guidance.trim() || review.guidance.length > 8000)) throw admissionError("Supply verdict, reason and explicit permitted guidance for allow.", "EXECUTION_ADMISSION_INPUT", 400);
+      if (review.operation !== undefined && (review.operation !== "commit_changes" || review.scope !== "ticket_changes"
+        || !request.receipts?.length || request.receipts.some((receipt) => receipt.tool !== "commit_changes"))) {
+        throw admissionError("Owner commit instruction must cover only the retained ticket commit denial.", "COMMIT_AUTHORIZATION_SCOPE");
+      }
       if (review.request_sha256 !== request.sha256) throw admissionError("Admission request identity differs from the reviewed request.", "EXECUTION_ADMISSION_IDENTITY_MISMATCH");
       if (request.decision) {
         if (request.decision.verdict === review.verdict && request.decision.reason === review.reason && request.decision.guidance === (review.guidance ?? null)
-          && request.decision.actor === actor) return { ticket_id: ticketId, execution_admission: request };
+          && request.decision.actor === actor && request.decision.operation === review.operation && request.decision.scope === review.scope) return { ticket_id: ticketId, execution_admission: request };
         throw admissionError("This admission request already has an immutable decision.", "EXECUTION_ADMISSION_DECISION_CONFLICT");
       }
       if (job.status !== "reconciliation_required") throw admissionError("Wait for the retained admission notification before reviewing.");
       request.decision = { decision_id: `ADMISSION-${randomUUID()}`, actor, verdict: review.verdict, reason: review.reason,
-        guidance: review.guidance ?? null, request_sha256: request.sha256, decided_at: clock() };
+        guidance: review.guidance ?? null, request_sha256: request.sha256, decided_at: clock(),
+        ...(review.operation ? { operation: review.operation, scope: review.scope } : {}) };
       request.status = review.verdict === "allow" ? "owner_allowed" : "owner_denied";
       job.history.push({ stage: "sprint_leader", event: "execution_admission_reviewed", decision: request.decision, completed_at: clock() });
       await store.save(STORE, ledger);
       return { ticket_id: ticketId, execution_admission: request };
     });
     projectLogger({ event_name: "ticket.blocker_execution_admission", level: "info", status: "blocked", task_id: ticketId,
-      message: "Optional execution review evidence retained; no agent launched. RUN returns to SL at the retained checkpoint without requiring this review.",
+      message: result.execution_admission.decision?.operation === "commit_changes" ? "Owner commit instruction recorded for this ticket; resume SL to hand implementation back to Coder. No commit or agent launch performed by this review." : "Optional execution review evidence retained; no agent launched. RUN returns to SL at the retained checkpoint without requiring this review.",
       payload: { request_sha256: result.execution_admission.sha256, decision: result.execution_admission.decision ?? null } });
     if (result.source_changed) throw admissionError("Source changed; a new review request was persisted. Read and review its new SHA.", "EXECUTION_ADMISSION_SOURCE_CHANGED");
     return result;
@@ -128,5 +133,8 @@ async function sourceBinding(paths, authority) {
 
 // Keeps the trusted receipt visible to both SL and the resumed Coder while retaining tool-level checks.
 export function admissionPrompt(admission) {
+  if (admission?.decision?.verdict === "allow" && admission.decision.operation === "commit_changes") {
+    return `NODE RECORDED OWNER COMMIT INSTRUCTION: ${JSON.stringify(admission)}. The owner explicitly requested Coder to implement remaining guidance, run focused checks, and commit ticket changes. SL must hand actionable implementation back to the retained Coder checkpoint; a future commit or final verification result is not a prerequisite to that handoff. Coder uses commit_changes after repair and focused checks; Node then performs commit-bound verification and continues independent review. This recorded instruction supplies the previously missing owner request; it does not waive the actual tool approval or any source, claim, scope or verification gate. If approval rejects the new operation, retain the new reason and escalate it; do not repeat or work around that denial.`;
+  }
   return admission ? `NODE EXECUTION ADMISSION REVIEW: ${JSON.stringify(admission)}. This is optional historical review evidence, not a mandatory Owner gate for resuming SL and not tool permission. SL must identify a materially safer permitted alternative or a concrete remaining blocker; never retry a denied operation by relabeling or relocating it. Actual tool approval, source, claim and verification gates still run. No runtime acceptance is granted.` : "";
 }

@@ -5,10 +5,11 @@ import { createForgeV1ConversationRoutes } from "./forge-v1-conversation-routes.
 import { routeTicketReview } from "./forge-v1-ticket-review-routes.js";
 import { routePlan } from "./forge-v1-plan-routes.js";
 import { routeDirectCode } from "./forge-v1-direct-code-routes.js";
+import { routeTicketRun } from "./forge-v1-ticket-run-route.js";
 import { routeTicketStop } from "./forge-v1-ticket-stop-route.js";
 import { routeSprintCrud } from "./forge-v1-sprint-crud-routes.js";
 import { routeForgeV1Git } from "./forge-v1-git-routes.js";
-import { normalizeParts, unavailable, runRequestsFresh, requireProject, readJson, isSafeMarkdownPath } from "./forge-v1-router-utils.js";
+import { normalizeParts, unavailable, requireProject, readJson, isSafeMarkdownPath } from "./forge-v1-router-utils.js";
 import { routeProjectLifecycle } from "../../modules/projects/project-lifecycle.js";
 import { resolveProjectRequest, selectProjectRouter } from "./project-request-context.js";
 
@@ -184,16 +185,8 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrch
       if (sprintRegistry && ((expectedProjectId && parts[1] !== expectedProjectId) || (projectId && parts[1] !== projectId))) throw Object.assign(new ConfigurationError("Ticket project differs from this runtime or request context."), { code: "PROJECT_CONTEXT_CONFLICT", statusCode: 409 });
       return { status: 200, body: await sprintPlanUploadService.removeTicket({ projectId: parts[1], ticketId: parts[3], ...(sprintRegistry ? { sprintRegistry, planStore } : {}) }) };
     }
-    if (method === "POST" && parts.length === 5 && parts[0] === "projects" && parts[2] === "tickets" && parts[4] === "run") {
-      if (typeof dispatchTicket !== "function") throw unavailable("Ticket Dispatch");
-      const result = await dispatchTicket({ projectId: parts[1], ticketId: parts[3], conversationId: "CONV-BUILDER", ...(runRequestsFresh(url, body) ? { fresh: true } : {}) });
-      return { status: 202, body: { ...result, request_id: requestId, correlation_id: correlationId } };
-    }
-    if (method === "POST" && parts.length === 2 && parts[0] === "tickets" && parts[1].endsWith(":run")) {
-      if (typeof dispatchTicket !== "function") throw unavailable("Ticket Dispatch");
-      const result = await dispatchTicket({ projectId, ticketId: parts[1].slice(0, -4), conversationId: "CONV-BUILDER", ...(runRequestsFresh(url, body) ? { fresh: true } : {}) });
-      return { status: 202, body: { ...result, request_id: requestId, correlation_id: correlationId } };
-    }
+    const runResult = await routeTicketRun({ method, parts, projectId, body, url, headers: request.headers, planOwnerAuth, dispatchTicket, requestId, correlationId });
+    if (runResult) return runResult;
     const stopResult = await routeTicketStop({ method, parts, projectId, dispatchTicket });
     if (stopResult) return stopResult;
     if (method === "POST" && parts.length === 3 && parts[0] === "sprints" && parts[2] === "draft") {
@@ -230,10 +223,7 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrch
       return { status: 202, body: { ...result, request_id: requestId, correlation_id: correlationId } };
     }
 
-    if (method === "POST" && parts.length === 5 && parts[0] === "projects" && parts[2] === "tickets" && parts[4].endsWith(":run")) {
-      if (typeof dispatchTicket !== "function") throw unavailable("Ticket Dispatch");
-      return { status: 202, body: await dispatchTicket({ projectId: parts[1], ticketId: parts[3] ?? parts[4].slice(0, -4), conversationId: "CONV-BUILDER", ...(runRequestsFresh(url, body) ? { fresh: true } : {}) }) };
-    }
+
 
     throw Object.assign(new ConfigurationError("Route not found."), { statusCode: 404 });
   }

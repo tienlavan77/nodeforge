@@ -2,12 +2,14 @@
 import { ConfigurationError } from "../../shared/errors.js";
 import { releaseTicketAttempt } from "./ticket-attempt-release.js";
 import { automaticReviewPolicy, bindAutomaticReviewCycle } from "./automatic-review-identity.js";
+import { inspectReviewRepairProgress } from "./review-repair-progress.js";
 
 // Records the verified commit and releases ticket claims after a complete Coder report.
-export async function completeCoderTicket({ workspace, agentOccupancy, claim, taskId, ownerId, request, publishTicketOutcome, result, automaticReview, runRepair, projectLogger = () => {} }) {
+export async function completeCoderTicket({ workspace, agentOccupancy, claim, taskId, ownerId, request, publishTicketOutcome, result, automaticReview, runRepair, checkpoints, projectLogger = () => {} }) {
   request = bindAutomaticReviewCycle(request, await workspace?.executionContexts?.load?.(taskId));
   const resumedFromCompletedCoder = Boolean(request?.payload?.review_resume && workspace);
-  if (!resumedFromCompletedCoder && !result.tool_events?.some((event) => (event.name ?? event.tool) === "report_done" && event.status !== "failed")) {
+  const submittedResponse = workspace && result.tool_events?.some((event) => (event.name ?? event.tool) === "respond_to_review" && event.status !== "failed");
+  if (!resumedFromCompletedCoder && !submittedResponse && !result.tool_events?.some((event) => (event.name ?? event.tool) === "report_done" && event.status !== "failed")) {
     throw Object.assign(new ConfigurationError("Coder completion requires report_done for the verified ticket artifact."), { code: "AGENT_REPORT_MISSING" });
   }
   let artifact = null;
@@ -25,7 +27,7 @@ export async function completeCoderTicket({ workspace, agentOccupancy, claim, ta
     if (automaticReview && workspace) {
       while (!reviewed) {
         artifact = await workspace.testService.assertPassedArtifact();
-        await workspace.reportService.assertCoderReport(taskId);
+        await workspace.reportService.assertCoderReport(taskId, request.ticket);
         try { reviewJob = await automaticReview.prepare({ request: { ...request, supervisor_id: ownerId }, artifact, workspace }); }
         catch (error) {
           projectLogger({ event_name: "review.prepare_failed", level: "error", status: "failed", message: error.message, task_id: taskId, source: "ticket-coder-completion", error_code: error.code });
@@ -46,11 +48,32 @@ export async function completeCoderTicket({ workspace, agentOccupancy, claim, ta
         }
         const findings = await workspace.reviewFindings.unresolved();
         previousReviewKey = reviewJob.job_key;
-        ({ request, result } = await runRepair({ request, findings, outcome }));
+        let unchangedRepair = null;
+        let progress;
+        do {
+          ({ request, result } = await runRepair({ request, findings, outcome: { ...outcome,
+            payload: { ...outcome.payload, ...(progress ? { repair_implementation_required: progress } : {}) } } }));
+          progress = await inspectReviewRepairProgress({ workspace, artifact, findings, result });
+          if (progress?.signature === unchangedRepair) {
+            const reason = "REVIEW_REPAIR_NO_PROGRESS";
+            const retained = await checkpoints?.load?.(taskId);
+            if (retained) await checkpoints.save({ ...retained, status: "failed", phase: "finding_repair_ready",
+              repair_implementation_required: progress, failure: { code: reason, message: progress.instruction } });
+            await releaseTicketAttempt({ workspace, agentOccupancy, claim, taskId, ownerId, reason });
+            await publishTicketOutcome("task.failed", request, ownerId, { reason, retryable: true,
+              error: { code: reason, message: "Accepted findings remain unchanged after an explicit implementation handoff. Resume Coder from its checkpoint; another Reviewer pass cannot repair the source." } });
+            return { status: "failed", reason };
+          }
+          if (progress) {
+            unchangedRepair = progress.signature;
+            projectLogger({ event_name: "review.implementation_required", level: "info", status: "pending", task_id: taskId,
+              message: "Coder accepted unresolved findings without changing their verified source; continue implementation before another review.", payload: { finding_ids: progress.finding_ids, commit_sha: artifact.commit_sha } });
+          }
+        } while (progress);
       }
     }
     if (reviewJob) await automaticReview.recordCompletion(reviewJob, { summary: result.summary, artifact_id: artifact.artifact_id, commit_sha: artifact.commit_sha, completion: reviewed ? "reviewed" : "coder_verified" });
-    artifact = workspace ? await finalizeCoderWorkspace(workspace, taskId, { reviewed }) : null;
+    artifact = workspace ? await finalizeCoderWorkspace(workspace, taskId, { reviewed, ticket: request.ticket }) : null;
   } catch (error) {
     // Route finding-repair blockers to the shared execution handler before review parking can swallow their triage.
     if (error.code === "CODER_BLOCKED") throw error;
@@ -82,9 +105,9 @@ export async function completeCoderTicket({ workspace, agentOccupancy, claim, ta
 }
 
 // Completes a verified workspace only after its Coder report covers every criterion.
-export async function finalizeCoderWorkspace(workspace, taskId, { reviewed = false } = {}) {
+export async function finalizeCoderWorkspace(workspace, taskId, { reviewed = false, ticket } = {}) {
   const artifact = await workspace.testService.assertPassedArtifact();
-  await workspace.reportService.assertCoderReport(taskId);
+  await workspace.reportService.assertCoderReport(taskId, ticket);
   const before = await workspace.executionContexts.load(taskId);
   if (before.state !== "terminal" && before.state !== "integrating") await workspace.executionContexts.update(taskId, before.version, { state: "integrating" });
   await workspace.integrate();

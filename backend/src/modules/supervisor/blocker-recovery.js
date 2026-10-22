@@ -24,7 +24,7 @@ export function createBlockerRecovery({ store, validate, investigate, checkDispo
   let timer;
   const followOwnerDecision = createBlockerOwnerFollowUp({ store, clock, deadlineMs });
   return Object.freeze({ enqueue, tick, start, stop, hasPending, cancel, resumeStage, reconcileInterrupted, followOwnerDecision });
-  // Deduplicates failure redelivery while preserving audit counters and deadlines across new revisions and provider changes.
+  // Gives each newly observed Coder failure a full recovery window while preserving deadlines for duplicate delivery and restart.
   async function enqueue(input) {
     if (!BLOCKER_REASONS.includes(input.reason_code)) return null;
     const request = input.request;
@@ -39,6 +39,7 @@ export function createBlockerRecovery({ store, validate, investigate, checkDispo
       if (ledger.cancelled) return existing ?? null;
       if (existing) { if (scheduleApprovalRetry(existing, input.approval_retry, clock())) await store.save(STORE, ledger); return existing; }
       const job = { ...structuredClone(input), id: jobId, stage: "sprint_leader", status: "pending", created_at: clock(), history: [] };
+      ledger.deadline_at = job.created_at + deadlineMs;
       delete job.approval_retry; scheduleApprovalRetry(job, input.approval_retry, clock());
       ledger.jobs.push(job);
       await store.save(STORE, ledger);

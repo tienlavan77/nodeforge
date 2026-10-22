@@ -13,8 +13,8 @@ export function engineeringToolImplementations({ fileService, projectRoot, wrap 
         if (!isAgentPathAllowed(input.path, context)) throw new Error("Dependency tree is outside the approved project scope.");
         return createOwnerSearchTreeTool({ fileService: createRoleFileService({ fileService, projectRoot, role: context.agent_identity?.role }) }).execute(input, context);
       }
-      const scope = [...(context.allowed_file_paths ?? []), ...(context.allowed_prefixes ?? [])];
-      const visible = (path) => isAgentPathAllowed(path, context);
+      const scope = [...(context.allowed_file_paths ?? []), ...(context.allowed_prefixes ?? []), ...(context.agent_identity?.role === "coder" ? ["docs"] : [])];
+      const visible = (path) => isAgentPathAllowed(path, context, { operation: "read" });
       const tree = createOwnerSearchTreeTool({ fileService: {
         listFiles: async () => (await fileService.listFiles()).filter(visible),
         listDirectories: async () => (await fileService.listDirectories()).filter((path) => visible(path) || scope.some((entry) => entry.startsWith(`${path}/`)))

@@ -6,6 +6,24 @@ import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js"
 
 const receipt = { event_id: "TECHNICAL", tool: "commit_changes", error: { code: "TICKET_BASELINE_CONFLICT", message: "Parent differs from before-state." } };
 
+// Keeps immutable report delivery errors in technical recovery without weakening genuine access denials.
+test("completed report conflicts are technical for multiple tickets while mixed denials retain admission", async () => {
+  const conflicts = ["TOOL_INPUT_INVALID", "CODER_REPORT_CONFLICT", "CODER_REPORT_CONFLICT"].map((code) => ({
+    event_id: code, tool: "report_done", error: { code, message: "Completed report field conflicts with the stored value." }
+  }));
+  for (const id of ["FIRST", "SECOND"]) {
+    for (const denial of [null, { code: "APPROVAL_DENIED", message: "Approval denied" },
+      { code: "CODER_REPORT_CONFLICT", message: "Permission denied for this operation" }]) {
+      const job = jobFixture(id);
+      const classify = createBlockerFailureClassification({ readFailureEvidence: async () => ({ status: "captured",
+        receipts: [...conflicts, ...(denial ? [{ event_id: "DENIAL", tool: "report_done", error: denial }] : [])] }) });
+      job.ticket_progress = { failure_classification: await classify(job, { projectRoot: "/project" }) };
+      assert.equal(requiresBlockerAdmission(job), Boolean(denial));
+      assert.equal(job.ticket_progress.failure_classification.category, denial ? "access_or_unknown" : "technical_failure");
+    }
+  }
+});
+
 // Supplies independent original failure identities for generic ticket classification tests.
 function jobFixture(taskId = "T") {
   return { id: `JOB-${taskId}`, reason_code: "ACCESS_REQUIRED", failure_at: "2026-10-19T06:00:00Z",

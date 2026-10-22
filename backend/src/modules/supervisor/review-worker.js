@@ -10,6 +10,7 @@ import { REVIEW_AUTONOMY_PROMPT } from "../../shared/implementation-autonomy.js"
 import { createCommittedReviewSource } from "./reviewer-committed-source.js";
 import { createReviewTransportObserver, reviewOperationalFailure } from "./review-operational-failure.js";
 import { readBlockerContracts, blockerContractPrompt } from "./blocker-contract-evidence.js";
+import { createReviewExchangeEvidence, attachReviewExchangeTools } from "./review-exchange-evidence.js";
 
 // Creates a reviewer that receives bounded source evidence through Forge File Service.
 export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, fileService, contractFileService, rulesFileService, gitService, codeSearch, codeCache, projectRoot, executionContexts, verificationService, reviewFindings, checkpoints, projectLogger = () => {} } = {}) {
@@ -27,7 +28,8 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
     const gateway = reviewer.provider === "codex" ? codexSdkGateway : ["openai", "xai", "alibaba", "zhipu", "deepseek"].includes(reviewer.provider) ? openaiSdkGateway : ["claude", "anthropic"].includes(reviewer.provider) ? claudeSdkGateway : null;
     if (!gateway?.execute) throw reviewError("REVIEWER_PROVIDER_UNAVAILABLE", "The Reviewer provider has no SDK review path.");
     const ticketEvidence = executionContexts ? await assertTicketReviewEvidence({ job, executionContexts, verificationService, gitService, fileService, projectRoot }) : null;
-    const exchange = reviewFindings?.load ? await reviewFindings.load() : null;
+    const exchange = reviewFindings?.load ? await (reviewFindings.loadQuery ?? reviewFindings.load)() : null;
+    const exchangeEvidence = createReviewExchangeEvidence(job.task_id, exchange);
     const coderReport = ticketEvidence ? (exchange?.coder_reports ?? []).filter((entry) => entry.artifact_id === ticketEvidence.artifact.artifact_id).at(-1) ?? null : (exchange?.coder_reports ?? []).at(-1) ?? null;
     if (ticketEvidence && !coderReport && !job.payload?.ticket?.execution_policy?.legacy_review_report) throw reviewError("CODER_EXPLANATION_MISSING", "Reviewer needs the Coder's durable explanation before issuing findings.");
     if (ticketEvidence?.context.state === "verified") await executionContexts.update(job.task_id, ticketEvidence.context.version, { state: "reviewing" });
@@ -47,8 +49,12 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
     const patch = baseCommit && patchSource?.diffPatchFrom ? await patchSource.diffPatchFrom(baseCommit, { paths }) : "";
     if (Buffer.byteLength(patch, "utf8") > 200_000) throw reviewError("REVIEW_EVIDENCE_TOO_LARGE", "Review patch exceeds the bounded evidence budget.");
     const reviewerRules = await readReviewerRules();
-    const contracts = await readBlockerContracts({ receipts: job.payload?.contract_decisions, fileService: contractFileService ?? fileService,
+    const contracts = await readBlockerContracts({ receipts: job.payload?.contract_decisions, fileService: contractFileService ?? fileService, allowContinuation: true,
       binding: { project_id: job.project_id, task_id: job.task_id, execution_id: job.payload?.execution_id, sprint_basis: job.payload?.sprint_basis } });
+    const filesTotalBytes = files.reduce((sum, file) => sum + (file.content ? Buffer.byteLength(file.content, "utf8") : 0), 0);
+    const promptFiles = filesTotalBytes > 64_000
+      ? files.map((file) => ({ path: file.path, sha256: file.sha256, deleted: Boolean(file.deleted), line_count: file.content ? file.content.split("\n").length : 0, notice: "Full file omitted from initial prompt (>64 KB total); use review_diff, read_file, or read_lines to inspect." }))
+      : files;
     const prompt = [
       blockerContractPrompt(contracts),
       "Act only as an independent code reviewer. Do not edit files. Check the ticket against the current source and verification evidence.",
@@ -61,14 +67,14 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
       "Read related project source, AGENTS.md and applicable contracts even outside the changed-file delta; project access is read-only. Use list_files for file discovery and search_text for scoped content search when available. Search discovery may reflect current filenames or a newer index; confirm claims against the committed source and supplied fixed-revision patch. git_status and git_diff inspect only approved paths in the current working tree, not the verified commit; never treat them as verification evidence. Git write operations are not available.",
       'Each per_file_necessity entry must use {"path":"project/relative/file","role":"concrete necessity"}, not a "file" key.',
       `Ticket: ${JSON.stringify(job.payload?.ticket ?? {})}`,
-      `Coder explanation (inspect claims against code; do not accept them as proof): ${safePromptValue(coderReport)}`,
-      `Prior finding history and Coder responses (adjudicate every open response): ${safePromptValue({ findings: exchange?.findings ?? [], coder_responses: exchange?.coder_responses ?? [], adjudications: exchange?.adjudications ?? [] })}`,
+      `Coder explanation reference (retrieve with query_review before deciding): ${JSON.stringify(coderReport ? { kind: "report", id: coderReport.idempotency_key ?? coderReport.artifact_id, artifact_id: coderReport.artifact_id, commit_sha: coderReport.review_commit_sha } : null)}`,
+      exchangeEvidence.prompt,
       `Execution context identity: ${JSON.stringify(job.payload?.execution_context ?? null)}`,
       `Verification: ${JSON.stringify(ticketEvidence?.artifact ?? job.payload?.verification ?? {})}`,
       "Evidence scopes: artifact.changed_paths is the latest ticket commit delta; file_checksums and the supplied manifest bind the tracked files at the reviewed revision. The fixed patch spans base_sha to review commit and can include earlier repair commits. Different file counts alone do not establish missing commits or bad checksums. Inspect exact source/hash evidence; this explanation does not waive missing dependency provenance or acceptance coverage.",
       "Verification scope: ticket acceptance checks must pass. Supplemental regression receipts marked preexisting_failure include the same failure reproduced on base_sha with the same recorded project environment; their nonzero exit is retained evidence, not a missing ticket repair. Do not demand unrelated project fixes solely because such a receipt exists. New or changed regressions and missing acceptance coverage remain blockers; cite concrete source or baseline evidence if disputing attribution.",
       `Patch since ticket start${ticketEvidence ? " (fixed verified base-to-review commit)" : " (new untracked files may appear only in Changed files)"}: ${patch || "<no tracked patch available>"}`,
-      `Changed files: ${JSON.stringify(files)}`,
+      `Changed files: ${JSON.stringify(promptFiles)}`,
       job.review_only ? `Review-only target commit: ${job.payload?.commit ?? "<missing>"}` : ""
     ].join("\n\n");
     const transport = createReviewTransportObserver();
@@ -105,6 +111,7 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
     let claudeTools;
     try {
       forgeTools = createReviewerForgeTools({ fileService, projectRoot, job, reviewer, codeSearch, codeCache, gitService, ticketEvidence, projectLogger });
+      forgeTools = attachReviewExchangeTools(forgeTools, exchangeEvidence, { job, reviewer, projectLogger });
       if (forgeTools?.registry) forgeTools = { ...forgeTools, registry: checkpointedReviewRegistry(forgeTools.registry, reviewState, saveReviewProgress, transport) };
       if (["claude", "anthropic"].includes(reviewer.provider)) claudeTools = createOwnerClaudeMcpTools(forgeTools);
     }
@@ -118,7 +125,7 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
     const correctionTools = { definitions: [], registry: {}, context: forgeTools?.context ?? {} };
     const correctionOptions = ["claude", "anthropic"].includes(reviewer.provider)
       ? createClaudeForgeOptions(createOwnerClaudeMcpTools(correctionTools)) : { forgeTools: correctionTools };
-    const toolInstruction = forgeTools ? `Forge review tools: ${forgeTools.definitions.map((item) => item.name).join(", ")}. Use search_tree and list_files to discover files, search_text to search content, read_file for metadata or source, and read_lines(path,start_line,end_line) for source windows of at most 80 lines. Each tool response must fit 16,000 bytes, with 128,000 bytes total per review; use smaller read_lines windows for large files rather than repeatedly requesting full read_file output. For manifest files, source results carry review_evidence bound to the passed artifact and commit; reads fail if source differs. Other reads carry no verified provenance. git_status and git_diff inspect approved paths in the current working tree, not the verified commit. Never use built-in shell, file, write, network, or ticket tools.` : "Forge review tools are unavailable. Decide only from the supplied bounded evidence; request changes when evidence is insufficient.";
+    const toolInstruction = forgeTools ? `Forge review tools: ${forgeTools.definitions.map((item) => item.name).join(", ")}. Use search_tree and list_files to discover files, search_text to search content, read_file for metadata or source, and read_lines(path,start_line,end_line) for source windows of at most 80 lines. Each tool response must fit 16,000 bytes, with 128,000 bytes total per review; use smaller read_lines windows for large files rather than repeatedly requesting full read_file output. Use query_review for exact historical findings and reports; follow its cursor until complete rather than reading evidence JSON files. For manifest files, source results carry review_evidence bound to the passed artifact and commit; reads fail if source differs. Other reads carry no verified provenance. git_status and git_diff inspect approved paths in the current working tree, not the verified commit. Never use built-in shell, file, write, network, or ticket tools.` : "Forge review tools are unavailable. Decide only from the supplied bounded evidence; request changes when evidence is insufficient.";
     const reviewProfile = reviewer;
     await saveReviewProgress();
     projectLogger({ event_name: "review.started", level: "info", status: "started", message: "Independent Reviewer started ticket review.", task_id: job.task_id, correlation_id: job.correlation_id, source: "review-worker", payload: { request_id: job.request_id, agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, reviewer_id: reviewer.agent_id, provider: reviewer.provider, changed_count: paths.length, tools: forgeTools?.definitions.map(({ name }) => name) ?? [] } });
@@ -173,15 +180,6 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
     if (!file?.content) throw reviewError("REVIEWER_RULES_UNAVAILABLE", "Reviewer role rules could not be loaded.");
     return file.content;
   }
-}
-
-// Bounds and redacts untrusted Coder prose before dispatching it to a Reviewer.
-function safePromptValue(value) {
-  const raw = JSON.stringify(value ?? null);
-  let output = raw.length > 32_000 ? `${raw.slice(0, 32_000)}...[TRUNCATED; inspect durable record before approval]` : raw;
-  output = output.replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]");
-  for (const [name, secret] of Object.entries(process.env)) if (/(?:api.?key|secret|token|password|credential)/i.test(name) && typeof secret === "string" && secret.length >= 8) output = output.split(secret).join("[REDACTED]");
-  return output;
 }
 
 // Wraps Reviewer Forge tools so each completed tool call is recorded in the Reviewer checkpoint.

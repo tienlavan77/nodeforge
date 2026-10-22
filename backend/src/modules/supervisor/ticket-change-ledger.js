@@ -195,19 +195,41 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
     });
   }
 
-  // Releases file claims only after a ticket has reached an explicit terminal decision.
-  async function release(taskId, { close = true } = {}) {
+  // Releases file claims only after a ticket has reached an explicit terminal decision, rolling back or unlinking new files when requested.
+  async function release(taskId, { close = true, rollback: shouldRollback = false } = {}) {
+    if (shouldRollback) return rollback(taskId, { close });
     return locked(`ticket:${taskId}`, async () => {
       const manifest = await load(taskId);
       if (manifest.state === "closed") return Object.keys(manifest.entries);
       for (const path of Object.keys(manifest.entries)) await locked(`path:${path}`, async () => {
-        const current = await claim(path);
-        if (current?.task_id === taskId) await fileService.deleteFile({ path: claimPath(path) });
+        if ((await claim(path))?.task_id === taskId) await fileService.deleteFile({ path: claimPath(path) });
       });
       manifest.state = close ? "closed" : "active";
       await save(taskId, manifest);
       projectLogger({ event_name: "ticket.file_claims_released", level: "info", status: "success", message: "Ticket file claims released; source and resume journal preserved.", task_id: taskId, source: "ticket-change-ledger", payload: { path_count: Object.keys(manifest.entries).length, resumable: !close } });
       return Object.keys(manifest.entries);
+    });
+  }
+
+  // Reverts ticket-owned edits to their initial baseline and unlinks newly created files (initial_sha === null).
+  async function rollback(taskId, { close = true } = {}) {
+    return locked(`ticket:${taskId}`, async () => {
+      const manifest = await load(taskId);
+      if (manifest.state === "closed") return Object.keys(manifest.entries);
+      const paths = Object.keys(manifest.entries);
+      for (const path of paths) await locked(`path:${path}`, async () => {
+        const entry = manifest.entries[path];
+        const current = await claim(path);
+        if (!current || current.task_id === taskId) {
+          if (entry.initial_sha === null) { try { await fileService.deleteFile({ path }); } catch (error) { if (error.code !== "ENOENT") throw error; } }
+          else if (typeof entry.initial_content === "string") await fileService.atomicWrite({ path, content: entry.initial_content, replace: true });
+          if (current?.task_id === taskId) await fileService.deleteFile({ path: claimPath(path) });
+        }
+      });
+      Object.assign(manifest, { entries: {}, pending_commit: null, state: close ? "closed" : "active" });
+      await save(taskId, manifest);
+      projectLogger({ event_name: "ticket.changes_rolled_back", level: "info", status: "success", message: "Ticket changes rolled back and newly created files unlinked.", task_id: taskId, source: "ticket-change-ledger", payload: { path_count: paths.length, closed: close } });
+      return paths;
     });
   }
 
@@ -291,5 +313,5 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
     if (!commits.length) return null;
     return { commit_sha: commits[0][1], revision: Number(commits[0][0]) };
   }
-  return Object.freeze({ load, write, snapshot, prepareCommit, recordCommit, importLegacy, release, resume, withCommitTransaction });
+  return Object.freeze({ load, write, snapshot, prepareCommit, recordCommit, importLegacy, release, rollback, resume, withCommitTransaction });
 }

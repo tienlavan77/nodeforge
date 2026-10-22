@@ -71,6 +71,14 @@ const INPUT_DEFAULTS = Object.freeze({
   edit_diff: Object.freeze({ occurrence: "first" })
 });
 
+// Describes tool fields to Claude while Node's engineering binding validates the full conditional JSON schema.
+function engineeringInputShape(inputSchema) {
+  const transport = structuredClone(inputSchema);
+  // Zod cannot convert allOf/if/then/else; removing this transport-only branch does not change Node validation.
+  delete transport.allOf;
+  return z.fromJSONSchema(transport).shape;
+}
+
 export function createForgeSdkMcpServer({ registry, context = {}, includeCommit = false, includeClaudeFileTools = false, includeEngineeringTools = false, excludeTools = [] } = {}) {
   if (!registry || typeof registry !== "object") throw new TypeError("Forge SDK MCP server requires a tool registry.");
 
@@ -90,7 +98,7 @@ export function createForgeSdkMcpServer({ registry, context = {}, includeCommit 
     ["respond_to_review", "Submit a reasoned response to open Reviewer findings; this does not close them.", respondToReviewInput]
   ];
   const definitions = includeEngineeringTools
-    ? coderToolDefinitions().map(({ name, description, input_schema }) => [name, description, z.fromJSONSchema(input_schema).shape])
+    ? coderToolDefinitions().map(({ name, description, input_schema }) => [name, description, engineeringInputShape(input_schema)])
     : lifecycleDefinitions;
 
   const excluded = new Set(excludeTools);
@@ -145,5 +153,6 @@ export const forgeSdkToolNames = Object.freeze([
   "mcp__forge__git_diff",
   "mcp__forge__commit_changes",
   "mcp__forge__report_done",
-  "mcp__forge__respond_to_review"
+  "mcp__forge__respond_to_review",
+  "mcp__forge__query_review"
 ]);

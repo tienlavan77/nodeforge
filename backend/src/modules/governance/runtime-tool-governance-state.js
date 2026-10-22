@@ -117,7 +117,14 @@ export function normalizeScope(scope, taskId, executionId) { const result = { ..
 export function resourceList(resource) { return resource === undefined ? [] : Array.isArray(resource) ? resource : [resource]; }
 
 // Checks whether a resource is inside the allowed paths or prefixes.
-export function resourceAllowed(resource, allowed = {}) { if (typeof resource !== "string" || !resource) return false; const paths = allowed.allowed_file_paths ?? allowed.file_paths ?? allowed.paths ?? []; const prefixes = allowed.allowed_prefixes ?? allowed.prefixes ?? []; if (!paths.length && !prefixes.length) return false; return paths.includes(resource) || prefixes.some((prefix) => resource === prefix || resource.startsWith(`${prefix.replace(/\/$/, "")}/`)); }
+export function resourceAllowed(resource, allowed = {}, { operation = "read", role = null } = {}) {
+  if (typeof resource !== "string" || !resource) return false;
+  if (operation === "read" && role === "coder" && (resource === "docs" || resource.startsWith("docs/"))) return true;
+  const paths = allowed.allowed_file_paths ?? allowed.file_paths ?? allowed.paths ?? [];
+  const prefixes = allowed.allowed_prefixes ?? allowed.prefixes ?? [];
+  if (!paths.length && !prefixes.length) return false;
+  return paths.includes(resource) || prefixes.some((prefix) => resource === prefix || resource.startsWith(`${prefix.replace(/\/$/, "")}/`));
+}
 
 // Builds a compound key for task and execution lookup.
 export function contextKey(taskId, executionId) { return `${taskId}\0${executionId}`; }

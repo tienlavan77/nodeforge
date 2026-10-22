@@ -1,10 +1,19 @@
 // Constrains Sprint tickets to approved work groups or outcome coverage in a readable plan.
+import { splitMarkdownTableRow } from "./markdown-table-row.js";
 import { ConfigurationError } from "../../shared/errors.js";
 import { assertTicketVerificationContract } from "./ticket-verification-contract.js";
 
 function fail(message) { return Object.assign(new ConfigurationError(message), { code: "SPRINT_MARKDOWN_SCOPE", statusCode: 422 }); }
 function normalized(value) { return String(value ?? "").replace(/\s+/g, " ").trim().replace(/[.!?]+$/, "").toLocaleLowerCase("en"); }
-function hasUnfilledPlaceholder(value) { return /<[^>]+>/.test(String(value ?? "").replace(/\bSUMMARY-<uuid>/g, "")); }
+// Reject unfinished plan template fields while preserving Markdown formatting and literal source examples.
+function hasUnfilledPlaceholder(value) {
+  const text = String(value ?? "").replace(/\bSUMMARY-<uuid>/g, "")
+    .replace(/(`+)([\s\S]*?)\1/g, (span, delimiter, code) => /^\s*<[^>]+>\s*$/.test(code) && !/\/\s*>\s*$|=/.test(code) ? code : "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<\/?(?:br|p|div|span|strong|em|b|i|code|pre|ul|ol|li|a|img|details|summary|hr|sup|sub)(?:\s[^<>]*?)?\s*\/?\s*>/gi, "")
+    .replace(/<(?:https?:\/\/|mailto:)[^<>\s]+>/gi, "");
+  return /<[^>]+>/.test(text);
+}
 
 // Reads the approved Markdown contract without discarding outcome evidence.
 export function readMarkdownSprintScope(markdown) {
@@ -13,13 +22,14 @@ export function readMarkdownSprintScope(markdown) {
   if (start < 0) throw fail("Approved Markdown requires a section 5 work-group table.");
   const end = lines.findIndex((line, index) => index > start && /^## 6\. /.test(line));
   const section = lines.slice(start + 1, end < 0 ? undefined : end);
-  const rows = section.filter((line) => /^\|\s*\d+\s*\|/.test(line)).map((line) => line.split("|").slice(1, -1).map((cell) => cell.replace(/[`*]/g, "").trim()));
+  const rows = section.filter((line) => /^\|\s*\d+\s*\|/.test(line)).map(splitMarkdownTableRow);
   if (!rows.length) return readOutcomeRows(section);
-  return rows.map((cells, index) => {
+  return rows.map((rawCells, index) => {
+    const cells = rawCells.map((cell) => cell.replace(/[`*]/g, "").trim());
     const [position, title, implementationType, objective, dependencyText, budgetText, acceptanceText] = cells;
     const budget = Number(String(budgetText ?? "").match(/\b(\d+)\s*files?\b/i)?.[1]);
     const acceptanceCriteria = String(acceptanceText ?? "").split(";").map((value) => value.trim()).filter(Boolean);
-    if (cells.length !== 7 || Number(position) !== index + 1 || !title || !objective || !dependencyText || !acceptanceCriteria.length || hasUnfilledPlaceholder(cells.join(" ")) || !["frontend", "backend", "security"].includes(implementationType) || !Number.isInteger(budget) || budget < 1) throw fail(`Approved Markdown work group ${index + 1} is incomplete or invalid.`);
+    if (cells.length !== 7 || Number(position) !== index + 1 || !title || !objective || !dependencyText || !acceptanceCriteria.length || hasUnfilledPlaceholder(rawCells.join(" ")) || !["frontend", "backend", "security"].includes(implementationType) || !Number.isInteger(budget) || budget < 1) throw fail(`Approved Markdown work group ${index + 1} is incomplete or invalid.`);
     return { position: index + 1, title, objective, dependency_labels: /^[—–-]$|^none$/i.test(dependencyText) ? [] : dependencyText.split(/[,;]/).map((value) => value.trim()), implementation_type: implementationType, file_budget: budget, acceptance_criteria: acceptanceCriteria };
   });
 }
@@ -104,15 +114,16 @@ export function assertMarkdownSprintScope(markdown, sprint) {
 
 // Parses outcome identities, criteria, guardrails, and mandatory dependencies as durable scope.
 function readOutcomeRows(lines) {
-  const rows = lines.filter((line) => /^\|\s*O[1-9][0-9]*\s*\|/i.test(line)).map((line) => line.split("|").slice(1, -1).map((cell) => cell.replace(/[`*]/g, "").trim()));
+  const rows = lines.filter((line) => /^\|\s*O[1-9][0-9]*\s*\|/i.test(line)).map(splitMarkdownTableRow);
   if (!rows.length) throw fail("Approved Markdown section 5 needs an outcome table or ordered work groups.");
-  const outcomes = rows.map((cells) => {
+  const outcomes = rows.map((rawCells) => {
+    const cells = rawCells.map((cell) => cell.replace(/[`*]/g, "").trim());
     const [id, outcome, acceptance, guardrailText = "", dependencyText = ""] = cells;
     const acceptanceCriteria = String(acceptance ?? "").split(";").map((item) => item.trim()).filter(Boolean);
-    const rawGuardrails = String(guardrailText).split(";").map((item) => item.trim()).filter((item) => !/^[—–-]$|^none$/i.test(item));
+    const rawGuardrails = String(guardrailText).split(";").map((item) => item.trim()).filter((item) => item && !/^[—–-]$|^none$/i.test(item));
     const mandatoryDependencies = String(dependencyText).split(/[,;]/).map((item) => item.trim()).filter(Boolean);
     const guardrails = cells.length === 4 ? rawGuardrails.filter((item) => !/^O[1-9][0-9]*$/i.test(item)) : rawGuardrails;
-    if ((cells.length !== 4 && cells.length !== 5) || !/^O[1-9][0-9]*$/i.test(id) || !outcome || !acceptanceCriteria.length || (cells.length === 5 ? !guardrails.length : !String(guardrailText).trim()) || hasUnfilledPlaceholder(cells.join(" "))) throw fail(`Approved outcome ${id ?? "?"} is incomplete.`);
+    if ((cells.length !== 4 && cells.length !== 5) || !/^O[1-9][0-9]*$/i.test(id) || !outcome || !acceptanceCriteria.length || (cells.length === 5 ? !guardrails.length : !String(guardrailText).trim()) || hasUnfilledPlaceholder(rawCells.join(" "))) throw fail(`Approved outcome ${id ?? "?"} is incomplete.`);
     if (cells.length === 4 && rawGuardrails.some((item) => /^O[1-9][0-9]*$/i.test(item))) mandatoryDependencies.push(...rawGuardrails.filter((item) => /^O[1-9][0-9]*$/i.test(item)).map((item) => item.toUpperCase()));
     return { kind: "outcome", id: id.toUpperCase(), outcome, acceptance_criteria: acceptanceCriteria, guardrails, mandatory_dependencies: mandatoryDependencies };
   });

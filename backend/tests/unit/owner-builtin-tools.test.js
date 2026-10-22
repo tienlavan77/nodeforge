@@ -75,7 +75,11 @@ test("Codex native execution omits Forge, streams activity and saves session mod
   assert.deepEqual(chunks, [{ text: "Done" }]);
   assert.equal(state.sdk_tool_mode, "builtin");
   assert.equal(state.sdk_thread_id, "THREAD");
-  assert.deepEqual(activities.map((value) => value.payload.activity_type), ["tool_started", "tool_completed"]);
+  assert.deepEqual(activities.filter((value) => !value.payload.sdk_event).map((value) => value.payload.activity_type), ["tool_started", "tool_completed"]);
+  const snapshots = activities.filter((value) => value.payload.sdk_event);
+  assert.equal(snapshots.length, 4);
+  assert.deepEqual(snapshots.at(-1).payload.sdk_event.entries.map((entry) => entry.type), ["command_execution", "text"]);
+  assert.equal(snapshots.at(-1).payload.sdk_event.status, "success");
   assert.ok(logs.some((value) => value.event_name === "owner.tool_call" && value.payload.tool === "command_execution"));
 });
 

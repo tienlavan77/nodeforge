@@ -46,6 +46,6 @@ export function ArchitectureClarifications({ client, projectId, conversationId, 
   if (!conversationId) return null;
   return <div className="architecture-clarifications">
     {snapshot.error && <p role="alert">{snapshot.error} <button type="button" onClick={() => loader.load()}>Thử lại</button></p>}
-    {snapshot.sessions.filter((session) => session.status !== "completed").map((session) => <ArchitectureClarificationCard key={session.session_id} session={session} onSave={save} onConfirm={confirm} onReload={() => loader.load()} onReanalyze={reanalyze} />)}
+    {snapshot.sessions.filter((session) => !["completed", "cancelled"].includes(session.status)).map((session) => <ArchitectureClarificationCard key={session.session_id} session={session} onSave={save} onConfirm={confirm} onReload={() => loader.load()} onReanalyze={reanalyze} />)}
   </div>;
 }

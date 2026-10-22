@@ -1,6 +1,7 @@
 "use client";
 // ArchitectureWorkspace presents the NodeForge conversation workspace while preserving its existing project and stream contracts.
 
+import { applyOwnerExecutionDecision } from "../lib/owner-execution-decision.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { ConversationSidebar } from "../components/conversation-sidebar.jsx";
@@ -219,7 +220,7 @@ export default function ArchitectureWorkspace() {
           <PendingConversationQueue pendingMessages={pendingMessages} onCancel={cancelPendingMessage} />
           <div className="conversation-statusbar">
             <ConversationProjectGit client={client} projectId={PROJECT_ID} />
-            <ArchitectureExecutionControls client={client} projectId={PROJECT_ID} conversationId={activeConversationId} executionId={lastSentRef.current?.conversationId === activeConversationId ? lastSentRef.current.correlationId : messages.findLast((message) => message.from === "owner" && message.correlation_id)?.correlation_id} agentTyping={agentTyping} interruptionSignal={architectureInterruption} />
+            <ArchitectureExecutionControls onDecision={(decision) => applyOwnerExecutionDecision({ ...decision, setAgentTyping, setMessages, setChatState, lastSentRef })} client={client} projectId={PROJECT_ID} conversationId={activeConversationId} executionId={lastSentRef.current?.conversationId === activeConversationId ? lastSentRef.current.correlationId : messages.findLast((message) => message.from === "owner" && message.correlation_id)?.correlation_id} agentTyping={agentTyping} interruptionSignal={architectureInterruption} />
           </div>
           <ArchitectureClarifications key={streamConversationId ?? "no-conversation"} client={client} projectId={PROJECT_ID} conversationId={streamConversationId} agentId={selectedArchitectureManager?.id} planEvents={planEvents} onPlanCreated={(result) => loadConversationMessages(result.conversation_id, { preserve: true })} />
           <HomeChatComposer key={conversationRevision} projectId={PROJECT_ID} agentId={selectedArchitectureManager?.id} onSend={submitMessage} />

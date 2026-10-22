@@ -10,6 +10,7 @@ import { blockerValidationError } from "./blocker-validation.js";
 import { validateBlockerContractDraft } from "./blocker-contract-draft.js";
 import { assertVerificationWait } from "./blocker-verification-wait.js";
 import { requiresBlockerAdmission } from "./blocker-failure-classification.js";
+import { createBlockerEvidenceFiles } from "./blocker-evidence-files.js";
 
 export const BLOCKER_REASONS = ["SCOPE_CONFLICT", "CONTRACT_DECISION_REQUIRED", "ACCEPTANCE_AMBIGUOUS", "ACCESS_REQUIRED", "SECURITY_RISK"];
 
@@ -36,23 +37,25 @@ export async function validateBlockerDisposition(value, { job, plan, architectur
   if (unknown !== undefined) throw blockerValidationError("/", "additional_property", `Remove unsupported disposition property: ${unknown}.`);
   if (!["resolved", "architecture_required", "owner_required", "governance_required", "reconciliation_required", "coder_requested", "candidate_prepared", "sprint_required"].includes(value.action)) throw blockerValidationError("/action", "action_invalid", "Use resolved, architecture_required, owner_required, governance_required, reconciliation_required, coder_requested, candidate_prepared or sprint_required.");
   if (!text(value.summary) || value.summary.length > 8000) throw blockerValidationError("/summary", "summary_invalid", "Provide a nonempty summary within 8000 characters.");
+  const { files: evidenceFiles } = createBlockerEvidenceFiles({ projectRoot, profile: { role: job?.stage }, taskId: job?.request?.task_id, job,
+    files: { assertReadPath: (path) => assertReviewerReadPath(projectRoot, path), readFile: (input) => fileService.readFile(input) } });
   validateCriterionUpdates(value, job);
-  if (job.stage === "coder" || value.action === "candidate_prepared") return validateCoderCandidate(value, { job, fileService, projectRoot });
+  if (job?.stage === "coder" || value.action === "candidate_prepared") return validateCoderCandidate(value, { job, fileService, projectRoot });
   if (value.candidate !== undefined || value.coder_request !== undefined && value.action !== "coder_requested") throw blockerValidationError("/", "candidate_action_mismatch", "Candidate data belongs to candidate_prepared and requests to coder_requested.");
   if (value.action === "sprint_required") {
     const authorityQuote = resolveBlockerAuthority(value, { plan, ticket: job.request.ticket, architecture });
     assertArchitectureDisposition(value, { job, architecture, authorityQuote });
     if (!text(value.guidance) || value.guidance.length > 8000 || requiresBlockerAdmission(job))
       throw blockerValidationError("/guidance", "sprint_handoff_invalid", "Delegate implementation guidance only; access/security boundaries remain with AM.");
-    await assertSourceEvidence(value.evidence, { fileService, projectRoot });
+    await assertSourceEvidence(value.evidence, { fileService, projectRoot, evidenceFiles });
     return { ...value, authority_quote: authorityQuote };
   }
   if (value.action === "coder_requested") {
     validateCoderRequest(value, job);
-    if (value.evidence !== undefined) await assertSourceEvidence(value.evidence, { fileService, projectRoot });
+    if (value.evidence !== undefined) await assertSourceEvidence(value.evidence, { fileService, projectRoot, evidenceFiles });
     return value;
   }
-  if (job.stage === "sprint_leader" && job.coder_exchange?.candidate && value.action === "resolved") {
+  if (job?.stage === "sprint_leader" && job.coder_exchange?.candidate && value.action === "resolved") {
     validateCandidateReview(value.candidate_review, job);
     await assertCandidateSources(job.coder_exchange.candidate, { fileService, projectRoot });
   } else if (value.candidate_review !== undefined) throw blockerValidationError("/candidate_review", "candidate_action_mismatch", "A candidate verdict requires the current AM resolved or coder_requested response.");
@@ -62,12 +65,12 @@ export async function validateBlockerDisposition(value, { job, plan, architectur
   if (value.action === "reconciliation_required") {
     assertVerificationWait(value, job);
     if (!text(value.guidance) || value.guidance.length > 8000) throw blockerValidationError("/guidance", "guidance_invalid", "Identify the unresolved technical prerequisite and the required reconciliation without authorizing Coder resume.");
-    if (value.evidence !== undefined) await assertSourceEvidence(value.evidence, { fileService, projectRoot });
+    if (value.evidence !== undefined) await assertSourceEvidence(value.evidence, { fileService, projectRoot, evidenceFiles });
     return value;
   }
   if (value.action === "architecture_required") {
     if (job?.stage === "architecture_manager") throw blockerValidationError("/action", "architecture_stage_terminal", "AM must resolve the blocker, report reconciliation_required or return owner_required with a bounded escalation; it cannot delegate the decision back to Architecture.");
-    if (value.evidence !== undefined) await assertSourceEvidence(value.evidence, { fileService, projectRoot });
+    if (value.evidence !== undefined) await assertSourceEvidence(value.evidence, { fileService, projectRoot, evidenceFiles });
     return value;
   }
   if (value.action === "owner_required") {
@@ -83,7 +86,7 @@ export async function validateBlockerDisposition(value, { job, plan, architectur
     const escalationQuote = value.escalation?.authority_reference === undefined ? undefined
       : resolveBlockerAuthority({ ...value.escalation, authority_scope: escalationScope ?? "sprint" }, { plan, ticket: job.request.ticket, architecture });
     assertOwnerEscalation(value, { job, plan, architecture, authorityQuote: escalationQuote ?? value.escalation?.authority_quote });
-    if (job?.reason_code !== "ACCESS_REQUIRED") await assertSourceEvidence(value.evidence, { fileService, projectRoot });
+    if (job?.reason_code !== "ACCESS_REQUIRED") await assertSourceEvidence(value.evidence, { fileService, projectRoot, evidenceFiles });
     if (escalationQuote !== undefined) value = { ...value, escalation: { ...value.escalation, authority_quote: escalationQuote } };
     return value;
   }
@@ -93,7 +96,7 @@ export async function validateBlockerDisposition(value, { job, plan, architectur
   const delegated = job.stage === "sprint_leader" && job.sprint_delegation;
   if (delegated) {
     assertArchitectureDisposition(job.sprint_delegation, { job: { ...job, stage: "architecture_manager" }, architecture });
-    await assertSourceEvidence(job.sprint_delegation.evidence, { fileService, projectRoot });
+    await assertSourceEvidence(job.sprint_delegation.evidence, { fileService, projectRoot, evidenceFiles });
   }
   const accessAnswer = delegated && job.sprint_delegation.action === "resolved" && job.sprint_delegation.technical_result?.admission?.status === "within_existing_permissions";
   if (requiresBlockerAdmission(job) && !accessAnswer && !(job?.stage === "architecture_manager" && scope === "architecture")) {
@@ -111,14 +114,14 @@ export async function validateBlockerDisposition(value, { job, plan, architectur
     if (!refs.length) throw invalid("A contract requires approved contract evidence; source existence alone is not approval.");
     for (const ref of refs) await assertDeclaredContractEvidence(ref, { plan, ticket, architecture, verifyContractSource });
   }
-  await assertSourceEvidence(value.evidence, { fileService, projectRoot,
+  await assertSourceEvidence(value.evidence, { fileService, projectRoot, evidenceFiles,
     requireContractBinding,
     contractEvidence: ticket.execution_policy?.contract_evidence ?? [], authorityQuote, verifyContractSource });
   return { ...value, authority_quote: authorityQuote };
 }
 
 // Verifies 1-16 real source file checksums and enforces pre-approved contract bindings for non-AM stages.
-async function assertSourceEvidence(evidenceList, { fileService, projectRoot, requireContractBinding = false, contractEvidence = [], authorityQuote, verifyContractSource } = {}) {
+async function assertSourceEvidence(evidenceList, { fileService, projectRoot, evidenceFiles, requireContractBinding = false, contractEvidence = [], authorityQuote, verifyContractSource } = {}) {
   if (!Array.isArray(evidenceList) || !evidenceList.length || evidenceList.length > 16) throw blockerValidationError("/evidence", "evidence_invalid", "Provide one to sixteen verifiable source references.");
   for (const [index, evidence] of evidenceList.entries()) {
     if (!evidence || !text(evidence.path)) throw blockerValidationError(`/evidence/${index}/path`, "path_required", "Evidence requires a source path.");
@@ -131,9 +134,10 @@ async function assertSourceEvidence(evidenceList, { fileService, projectRoot, re
         continue;
       }
     }
-    await assertReviewerReadPath(projectRoot, evidence.path);
+    if (evidenceFiles) await evidenceFiles.assertReadPath(evidence.path);
+    else await assertReviewerReadPath(projectRoot, evidence.path);
     let content;
-    try { content = await fileService.readFile({ path: evidence.path }); }
+    try { content = await (evidenceFiles ?? fileService).readFile({ path: evidence.path }); }
     catch (error) {
       if (!["ENOENT", "FILE_NOT_FOUND"].includes(error.code)) throw error;
       throw blockerValidationError(`/evidence/${index}/path`, "evidence_missing", "The cited source file does not exist. Remove its invented source checksum; cite inspected existing source and report the absent proposed file as a diagnostic. No mutation or retry permission is granted.");

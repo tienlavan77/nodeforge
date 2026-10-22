@@ -1,6 +1,5 @@
 import process from "node:process";
 import { createTaskSessionPreparation } from "../src/modules/projects/session-store.js";
-import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { loadNodeforgeEnv } from "./nodeforge-env.mjs";
 
@@ -18,6 +17,7 @@ import { readControlApiConfig } from "./control-api-config.mjs";
 import { createUnifiedStreamPublisher } from "./control-api-unified-stream.mjs";
 import { startControlApi } from "./control-api-lifecycle.mjs";
 import { createProjectLifecycle } from "../src/modules/projects/project-lifecycle.js";
+import { createControlApiProjectRuntime } from "./control-api-project-runtime.mjs";
 import { createBuilderContext } from "./control-api-builder-context.mjs";
 import { createOnWriteVerifier } from "./control-api-file-verification.mjs";
 import { createControlApiAgent } from "./control-api-agent.mjs";
@@ -68,7 +68,7 @@ const storage = await createControlApiStorage({
   onWrite: createOnWriteVerifier({ getTestService: () => testService })
 });
 const { processLock, controlDb, indexDb } = storage;
-const projectLifecycle = config.projectCatalogPath ? await createProjectLifecycle({ catalogPath: config.projectCatalogPath }) : undefined;
+const projectLifecycle = config.projectCatalogPath ? await createProjectLifecycle({ catalogPath: config.projectCatalogPath, startRuntime: createControlApiProjectRuntime({ projectRoot: config.cwd, projectId: config.projectId }) }) : undefined;
 // Builds a complete application bundle while leaving startup initialization and lifecycle admission intact.
 async function createProjectApplication({ config, storage, onTestService = () => {} }) {
 const { fileService, protocolStorage, conversationStateStore, controlDb, indexDb } = storage;

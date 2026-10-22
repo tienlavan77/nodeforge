@@ -2,10 +2,11 @@
 import { ConfigurationError } from "../../shared/errors.js";
 
 /** Builds and persists the owner-facing report from Node-owned artifacts. */
-export function createCompletionReportService({ protocolStorage, fileService, gitService } = {}) {
+export function createCompletionReportService({ protocolStorage, fileService, gitService, recoverCoderReport } = {}) {
   if (typeof protocolStorage?.save !== "function" || typeof protocolStorage?.get !== "function") throw new ConfigurationError("Report service requires Protocol Storage.");
   if (typeof fileService?.atomicWrite !== "function") throw new ConfigurationError("Report service requires File Service.");
-  return Object.freeze({ buildFinalReport, saveReport, writeReportFile, completeAcceptedReport, assertCoderReport, completeCoderReport, getCommitsForTask });
+  const service = Object.freeze({ buildFinalReport, saveReport, writeReportFile, completeAcceptedReport, assertCoderReport, completeCoderReport, getCommitsForTask });
+  return service;
 
   async function getCommitsForTask(taskId) { return typeof gitService?.getCommitsForTask === "function" ? gitService.getCommitsForTask(taskId) : []; }
 
@@ -19,10 +20,13 @@ export function createCompletionReportService({ protocolStorage, fileService, gi
     return { ticket: { id: ticket.id, title: ticket.title, objective: ticket.objective }, status: status ?? null, reason, error, agent_report: agentReport, verify_result: verifyResult, files_changed: filesChanged, commits, criteria_check: verified, generated_at: new Date().toISOString() };
   }
 
-  async function saveReport(taskId, report) { return protocolStorage.save(`task/${taskId}/final_report`, report, { schemaId: "https://forge.local/schemas/agent/final-report.schema.json", replace: true }); }
+  async function saveReport(taskId, report) {
+    const name = recoverCoderReport && !["submitted_for_review", "completed"].includes(report.status) ? "operational_report" : "final_report";
+    return protocolStorage.save(`task/${taskId}/${name}`, report, { schemaId: "https://forge.local/schemas/agent/final-report.schema.json", replace: true });
+  }
   // Promotes a submitted Coder explanation only after independent approval and integration.
   async function completeAcceptedReport(taskId) {
-    const current = (await protocolStorage.get(`task/${taskId}/final_report`)).data;
+    const current = await assertCoderReport(taskId);
     if (current.status === "completed") return current;
     if (current.status !== "submitted_for_review") throw new ConfigurationError("Accepted report requires a submitted Coder explanation.");
     const completed = { ...current, status: "completed", reason: "reviewer_approved", generated_at: new Date().toISOString() };
@@ -31,8 +35,11 @@ export function createCompletionReportService({ protocolStorage, fileService, gi
     return completed;
   }
   // Requires every criterion to have a normalized Coder coverage status before integration.
-  async function assertCoderReport(taskId) {
-    const current = (await protocolStorage.get(`task/${taskId}/final_report`)).data;
+  async function assertCoderReport(taskId, ticket) {
+    let current;
+    try { current = (await protocolStorage.get(`task/${taskId}/final_report`)).data; }
+    catch (error) { if (!recoverCoderReport || error.code !== "ENOENT") throw error; }
+    if (recoverCoderReport) current = await recoverCoderReport(taskId, current, service, ticket);
     if (current.status !== "submitted_for_review" && current.status !== "completed") throw new ConfigurationError("Coder completion requires a submitted report.");
     assertCoderCoverage(current.criteria_check);
     return current;
@@ -48,7 +55,8 @@ export function createCompletionReportService({ protocolStorage, fileService, gi
   }
   async function writeReportFile(taskId, report) {
     const markdown = renderMarkdown(report);
-    return fileService.atomicWrite({ path: `.forge/runtime/reports/${taskId}.md`, content: markdown, replace: true });
+    const suffix = recoverCoderReport && !["submitted_for_review", "completed"].includes(report.status) ? ".operational" : "";
+    return fileService.atomicWrite({ path: `.forge/runtime/reports/${taskId}${suffix}.md`, content: markdown, replace: true });
   }
 }
 

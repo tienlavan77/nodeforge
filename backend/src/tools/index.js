@@ -1,4 +1,5 @@
 // Summary: Exposes Forge-owned agent tools through one provider-neutral registry.
+import { createQueryReviewTool } from "./query-review-tool.js";
 
 import { createRequire } from "node:module";
 import { createReadTranscriptBlocksTool } from "./read-transcript-blocks.js";
@@ -88,6 +89,7 @@ export function createForgeToolRegistry({ protocolStorage, fileService, projectR
   }
   if (reportService?.buildFinalReport) lifecycle.report_done = wrap(createReportDoneTool({ reportService, verificationService: testService?.assertPassedArtifact ? testService : null, reviewFindings, onEvalCase }), "report_done");
   if (reviewFindings?.recordResponse && testService?.assertPassedArtifact) lifecycle.respond_to_review = wrap(createRespondToReviewTool({ reviewFindings, verificationService: testService }), "respond_to_review");
+  if (reviewFindings?.load) lifecycle.query_review = wrap(createQueryReviewTool({ load: reviewFindings.loadQuery ?? reviewFindings.load, queryRecords: reviewFindings.queryRecords }), "query_review");
   function wrap(tool, name, preauthorize = true) { return Object.freeze({ ...tool, async execute(input, context = {}) { const scoped = withDefaultBudget(context); if (preauthorize) authorizeTool(name, scoped); return dispatch(name, tool, input, scoped); } }); }
   const registry = {
     read_transcript_blocks: Object.freeze({ ...transcriptTool, async execute(input, context = {}) { const scoped = withDefaultBudget(context); authorizeTool("read_transcript_blocks", scoped); return dispatch("read_transcript_blocks", transcriptTool, input, scoped); } }),
@@ -181,6 +183,7 @@ export function createForgeToolRegistry({ protocolStorage, fileService, projectR
       commit_changes: "commit thay đổi",
       report_done: "báo cáo hoàn tất",
       respond_to_review: "phản hồi review",
+      query_review: "tra cứu review",
       git_status: "xem trạng thái Git",
       git_diff: "xem thay đổi Git",
       read_transcript_blocks: "đọc phiên bản"
@@ -196,6 +199,7 @@ export function createForgeToolRegistry({ protocolStorage, fileService, projectR
 
 function toolResultHint(name, result) {
   if (result === null || result === undefined) return "";
+  if (name === "query_review") return `${result.complete ? "complete" : "more"} records=${result.records?.length ?? 1}`;
   if (name === "git_status") return `${result.working_tree ?? "unknown"} files=${result.changed_files ?? 0}`;
   if (name === "git_diff") return result.has_changes ? "changes" : "clean";
   if (name === "select_code_graph_candidates") return pathHint(result.selected);

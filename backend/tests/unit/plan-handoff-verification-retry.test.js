@@ -1,4 +1,4 @@
-// Verifies owner-triggered handoff retries repair rejected verification coverage without weakening criteria or replay safety.
+// Verifies automatic handoff repairs and retained retries repair rejected verification coverage without weakening criteria or replay safety.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -53,13 +53,9 @@ test("six mapped ticket criteria do not implicitly cover six appended approved c
   assert.deepEqual(frozen.tickets[0].acceptance_criteria, [...ticketCriteria, ...approvedCriteria]);
 });
 
-// Repairs a retained invalid candidate on the next owner handoff, then replays without another provider dispatch.
-test("Continue handoff repairs rejected coverage with final criteria and exact draft identity", async (context) => {
+// Repair coverage in the first approved handoff, then replay without another provider dispatch.
+test("one handoff repairs rejected coverage with final criteria and exact draft identity", async (context) => {
   const state = await fixture(context, (attempt) => candidate(attempt > 1));
-  await assert.rejects(state.service.handoff({ plan: state.plan }), { code: "SPRINT_MARKDOWN_SCOPE" });
-  assert.equal(state.requests.length, 1);
-  assert.equal(state.ingests, 0);
-  assert.ok(state.receipt().generated_json);
   const result = await state.service.handoff({ plan: state.plan });
   assert.equal(result.status, "handed_to_sprint_leader");
   assert.equal(state.requests.length, 2);
@@ -81,11 +77,11 @@ test("Continue handoff repairs rejected coverage with final criteria and exact d
 });
 
 // Keeps coverage failures blocking and avoids an unbounded provider repair loop within a handoff.
-test("a second incomplete SL response still fails without ingestion or automatic retries", async (context) => {
+test("an incomplete repair stops after one automatic correction without ingestion", async (context) => {
   const state = await fixture(context, () => candidate());
   for (let attempt = 1; attempt <= 2; attempt++) {
     await assert.rejects(state.service.handoff({ plan: state.plan }), { code: "SPRINT_MARKDOWN_SCOPE" });
-    assert.equal(state.requests.length, attempt);
+    assert.equal(state.requests.length, attempt * 2);
     assert.equal(state.ingests, 0);
   }
 });
@@ -93,7 +89,6 @@ test("a second incomplete SL response still fails without ingestion or automatic
 // Preserves the repaired candidate on ingestion failures so storage retries do not call the provider again.
 test("ingestion retry reuses a successfully repaired candidate", async (context) => {
   const state = await fixture(context, (attempt) => candidate(attempt > 1), 1);
-  await assert.rejects(state.service.handoff({ plan: state.plan }), { code: "SPRINT_MARKDOWN_SCOPE" });
   await assert.rejects(state.service.handoff({ plan: state.plan }), { code: "SPRINT_PLAN_HANDOFF_FAILED" });
   assert.equal(state.requests.length, 2);
   const result = await state.service.handoff({ plan: state.plan });
@@ -111,7 +106,6 @@ test("verification repair cannot change Sprint or ticket IDs", async (context) =
       if (attempt > 1 && field === "ticket") draft.tickets[0].id = "TICKET-OTHER";
       return draft;
     });
-    await assert.rejects(state.service.handoff({ plan: state.plan }), { code: "SPRINT_MARKDOWN_SCOPE" });
     await assert.rejects(state.service.handoff({ plan: state.plan }), { code: "SPRINT_VERIFICATION_REPAIR_IDENTITY" });
     assert.equal(state.ingests, 0);
     assert.equal(JSON.parse(state.receipt().generated_json).id, "SPRINT-COVERAGE");
@@ -132,7 +126,7 @@ test("repeated incomplete repairs cannot grow acceptance criteria from twelve to
     await assert.rejects(state.service.handoff({ plan: state.plan }), (error) => error.code === "SPRINT_MARKDOWN_SCOPE" && !error.message.includes("AC-13"));
     const persisted = JSON.parse(state.receipt().generated_json);
     assert.deepEqual(persisted.tickets[0].acceptance_criteria, [...ticketCriteria, ...approvedCriteria]);
-    assert.equal(state.requests.length, attempt);
+    assert.equal(state.requests.length, attempt * 2);
     assert.equal(state.ingests, 0);
   }
 });
@@ -152,9 +146,9 @@ test("verification repair ignores scope changes and preserves the exact admitted
     }
     return draft;
   });
-  await assert.rejects(state.service.handoff({ plan: state.plan }), { code: "SPRINT_MARKDOWN_SCOPE" });
-  const frozen = JSON.parse(state.receipt().generated_json);
   await state.service.handoff({ plan: state.plan });
+  const frozen = normalizeMarkdownSprintScope(markdown, candidate());
+  frozen.project_id = "PROJECT-A"; frozen.roadmap_id = "ROADMAP-PROJECT-A";
   const persisted = JSON.parse(state.receipt().generated_json);
   const expected = structuredClone(frozen);
   expected.tickets[0].verification_plan = candidate(true).tickets[0].verification_plan;
@@ -174,7 +168,7 @@ test("legacy translated twelve-criterion draft stays at eighteen across failed a
     return draft;
   });
   state.plan.markdown = markdown.replace(approvedCriteria.join("; "), originalCriteria.join("; "));
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  for (let attempt = 1; attempt <= 1; attempt++) {
     await assert.rejects(state.service.handoff({ plan: state.plan }), (error) => error.message.includes("does not cover AC-13, AC-14, AC-15, AC-16, AC-17, AC-18"));
     assert.deepEqual(JSON.parse(state.receipt().generated_json).tickets[0].acceptance_criteria, [...ticketCriteria, ...approvedCriteria, ...originalCriteria]);
   }
@@ -182,4 +176,27 @@ test("legacy translated twelve-criterion draft stays at eighteen across failed a
   assert.equal(JSON.parse(state.receipt().generated_json).tickets[0].acceptance_criteria.length, 18);
   assert.equal(state.requests.length, 3);
   assert.equal(state.ingests, 1);
+});
+
+// Keep simultaneous owner clicks behind the same lock throughout automatic correction and final ingestion.
+test("concurrent handoffs cannot duplicate SL correction or sprint registration", async (context) => {
+  let releaseRepair;
+  let startedRepair;
+  const ready = new Promise((resolve) => { startedRepair = resolve; });
+  const state = await fixture(context, async (attempt) => {
+    if (attempt === 1) return candidate();
+    startedRepair();
+    await new Promise((resolve) => { releaseRepair = resolve; });
+    return candidate(true);
+  });
+  const first = state.service.handoff({ plan: state.plan });
+  await ready;
+  assert.equal((await state.service.handoff({ plan: state.plan })).status, "handoff_in_progress");
+  assert.equal(state.requests.length, 2);
+  assert.equal(state.ingests, 0);
+  releaseRepair();
+  assert.equal((await first).status, "handed_to_sprint_leader");
+  assert.equal(state.ingests, 1);
+  assert.equal((await state.service.handoff({ plan: state.plan })).replayed, true);
+  assert.equal(state.requests.length, 2);
 });

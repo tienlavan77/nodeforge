@@ -1,24 +1,32 @@
 // Launches bounded Coder repairs with durable handoff, dependency authority, and fresh finding-aware SDK checkpoints.
+import { currentReviewFindings } from "./review-query-records.js";
 import { assertDependencySubmission } from "./ticket-dependency-expectations.js";
 import { prepareTicketExecutionContext } from "./ticket-execution-context.js";
 import { setAutomaticReviewStage } from "./automatic-review-stage.js";
+import { reviewRepairRecovery } from "./review-repair-handoff.js";
 
 // Builds a repair runner that retains the same ticket scope and records launch ownership before another provider turn.
 export function createTicketReviewRepair({ workspace, taskId, ownerId, ticket, selected, checkpoints, handoffQueue, ticketStatusStore, sprintRegistry, abortSignal, execute }) {
   return async ({ request: previous, findings, outcome }) => {
+    const exchange = await workspace.reviewFindings?.loadQuery?.();
+    const references = currentReviewFindings(findings, exchange);
     const request = { ...previous, attempt: (previous.attempt ?? 1) + 1, request_id: `${previous.request_id}-REPAIR-${previous.attempt ?? 1}`,
-      payload: { ...previous.payload, review_findings: findings, review_resume: null } };
+      payload: { ...previous.payload, review_findings: references, review_resume: null } };
     const validate = () => assertDependencySubmission({ projectId: request.project_id, ticket, payload: request.payload, sprintRegistry, ticketStatusStore });
     validate();
     if (abortSignal?.aborted) throw abortSignal.reason;
     setAutomaticReviewStage({ task_id: taskId, project_id: previous.project_id, source_request: previous,
       payload: previous.payload, review_policy: { gate: "on" } }, ticketStatusStore, "running");
     const retained = await checkpoints?.load?.(taskId);
-    const resume = { task_id: taskId, status: "in_progress", agent_id: selected.agent_id, provider: selected.provider,
-      contract_decisions: retained?.contract_decisions ?? [], blocker_recovery: retained?.blocker_recovery ?? null, changed_paths: previous.execution_context?.manifest_paths ?? [],
-      review_findings: findings, attempt: request.attempt, session_id: null, thread_id: null, last_completed_turn: 0, completed_tools: [], turn_history: [], read_cache: {}, coder_rules_read: false };
+    const resume = outcome.payload.repair_implementation_required && retained
+      ? { ...retained, status: "in_progress", review_findings: references,
+        blocker_recovery: reviewRepairRecovery(retained.blocker_recovery, outcome.payload.job_key), attempt: request.attempt }
+      : { task_id: taskId, status: "in_progress", agent_id: selected.agent_id, provider: selected.provider,
+      contract_decisions: retained?.contract_decisions ?? [], blocker_recovery: reviewRepairRecovery(retained?.blocker_recovery, outcome.payload.job_key), changed_paths: previous.execution_context?.manifest_paths ?? [],
+      review_findings: references, attempt: request.attempt, session_id: null, thread_id: null, last_completed_turn: 0, completed_tools: [], turn_history: [], read_cache: {}, coder_rules_read: false };
+    if (outcome.payload.repair_implementation_required) resume.repair_implementation_required = outcome.payload.repair_implementation_required;
     request.payload.resume_from = resume;
-    if (workspace.beginFindingRepair) {
+    if (workspace.beginFindingRepair && !outcome.payload.repair_implementation_required) {
       resume.phase = "finding_repair_preparing";
       resume.review_repair_key = outcome.payload.job_key;
       resume.changed_paths = [];
@@ -34,7 +42,7 @@ export function createTicketReviewRepair({ workspace, taskId, ownerId, ticket, s
       validate();
       if (request.payload.dependency_expectations !== undefined) launch = ticketStatusStore.claimExecutionLaunch(taskId, { executionId: request.payload.execution_id, basis: request.payload.sprint_basis,
         requestId: request.request_id, jobId: job.id, supervisorId: ownerId, agentId: selected.agent_id, claimId: request.claim_id, validate });
-      await checkpoints?.saveReview?.({ task_id: taskId, status: "completed", verdict: "request_changes", findings: outcome.payload.findings, review_findings: findings, attempt: previous.attempt });
+      await checkpoints?.saveReview?.({ task_id: taskId, status: "completed", verdict: "request_changes", findings: outcome.payload.findings, review_findings: references, attempt: previous.attempt });
       await checkpoints?.save?.(resume);
       const result = await execute({ ...request, abortSignal });
       if (abortSignal?.aborted) throw abortSignal.reason;

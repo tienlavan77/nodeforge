@@ -28,7 +28,7 @@ export function createClaudeSdkGateway({
 
   return Object.freeze({ execute, provider: "claude", conversationMode: "history" });
 
-  async function execute({ agentId, prompt, correlationId, cwd, additionalDirectories = [], options = {}, resumeSessionId, onSessionReady, abortSignal } = {}) {
+  async function execute({ agentId, prompt, correlationId, cwd, additionalDirectories = [], options = {}, resumeSessionId, onSessionReady, onEvent, abortSignal } = {}) {
     const config = getEnabledConfig(agentId);
     assertString(prompt, "Claude SDK prompt");
     assertString(correlationId, "Claude SDK correlation_id");
@@ -76,6 +76,7 @@ export function createClaudeSdkGateway({
       for await (const message of session) {
         const clean = sanitize(message, credential);
         messages.push(clean);
+        if (config.role === "system_engineer") await onEvent?.(clean);
         reportBuiltinToolEvents(clean, onBuiltinToolEvent, builtinSearchCalls);
         if (clean.type === "stream_event" && clean.event?.type === "content_block_delta" && clean.event.delta?.type === "text_delta") onTextDelta?.(clean.event.delta.text);
         const sid = clean?.session_id ?? null;

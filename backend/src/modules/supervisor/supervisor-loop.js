@@ -88,7 +88,7 @@ export function createSupervisorLoop({ runtime, senderQueue, collectorQueue, ver
         automaticReviewPolicy(source.ticket);
         event = { ...event, payload: { ...event.payload, execution_id: source.payload?.execution_id ?? event.payload?.execution_id, execution_basis: source.payload?.sprint_basis ?? event.payload?.execution_basis } };
         const workspace = await resolveTicketWorkspace(runtime.taskId);
-        await workspace.reportService.assertCoderReport(runtime.taskId);
+        await workspace.reportService.assertCoderReport(runtime.taskId, source.ticket);
         const artifact = await workspace.testService.assertPassedArtifact();
         try { job = await automaticReview.prepare({ request: { ...source, supervisor_id: runtime.supervisorId, attempt: event.attempt }, artifact, workspace, inline: false }); }
         catch (error) {

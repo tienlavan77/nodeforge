@@ -7,12 +7,14 @@ import { createReadFileTool } from "../../tools/agent-lifecycle-tools.js";
 import { createOwnerSearchTreeTool } from "../../tools/owner-search-tree.js";
 import { createGitReadTools } from "../../tools/git-read-tools.js";
 import { engineeringToolDefinitions } from "../../tools/engineering-tool-catalog.js";
+import { createBlockerEvidenceFiles } from "./blocker-evidence-files.js";
 
 const READ_TOOLS = ["search_tree", "list_files", "search_text", "read_file", "read_lines", "git_status", "git_diff"];
 
 // Builds a bounded recovery registry from the same implementations and schemas used by other Forge agents.
 export function blockerRecoveryTools({ fileService, projectRoot, profile, task_id, correlation_id, job, gitService = createGitService({ projectRoot }), projectLogger = () => {}, onDiscoveryCheckpoint, clock, deadline, abortSignal }) {
-  const files = createRoleFileService({ fileService, projectRoot, role: profile.role });
+  const { files, isEvidencePath } = createBlockerEvidenceFiles({
+    files: createRoleFileService({ fileService, projectRoot, role: profile.role }), projectRoot, profile, taskId: task_id, job });
   const cache = { read: (input) => files.readForIndex({ ...input, maxBytes: 128_000 }) };
   const baseline = job?.request?.execution_context?.base_sha;
   const paths = new Set([...(job?.request?.ticket?.execution_policy?.contract_evidence ?? []), ...(job?.evidence ?? [])]
@@ -49,9 +51,10 @@ export function blockerRecoveryTools({ fileService, projectRoot, profile, task_i
         toolContext = { ...context, allowed_file_paths: [input.path], allowed_prefixes: [] };
       }
       if (["git_status", "git_diff"].includes(name)) {
-        if (paths.size > 80) throw new Error("Narrow recovery Git discovery to at most 80 source paths.");
-        for (const path of paths) await files.assertReadPath(path);
-        toolContext = { ...context, allowed_file_paths: [...paths], allowed_prefixes: [] };
+        const sourcePaths = [...paths].filter((path) => !isEvidencePath(path));
+        if (sourcePaths.length > 80) throw new Error("Narrow recovery Git discovery to at most 80 source paths.");
+        for (const path of sourcePaths) await files.assertReadPath(path);
+        toolContext = { ...context, allowed_file_paths: sourcePaths, allowed_prefixes: [] };
       }
       let result = await implementations[name].execute(input, toolContext);
       if (name === "list_files") {
@@ -68,7 +71,10 @@ export function blockerRecoveryTools({ fileService, projectRoot, profile, task_i
       audit(name, "success");
       return result;
     } catch (error) {
-      audit(name, "failed", { error_code: error.code ?? "BLOCKER_TOOL_FAILED" });
+      const path = input?.path;
+      const logPath = ["read_file", "read_lines"].includes(name) && typeof path === "string" && path.length <= 512
+        && /^[A-Za-z0-9._:/-]+$/.test(path) && !path.startsWith("/") && path.split("/").every((part) => part && part !== "." && part !== "..");
+      audit(name, "failed", { error_code: error.code ?? "BLOCKER_TOOL_FAILED", ...(logPath ? { path } : {}) });
       throw error;
     }
   } }]));

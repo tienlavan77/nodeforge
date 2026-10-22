@@ -1,6 +1,7 @@
 // Verifies focused Coder checks persist commit-bound receipts without granting final acceptance.
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createHash } from "node:crypto";
 import { createTicketFocusedCheck } from "../../src/modules/supervisor/ticket-focused-check.js";
 
 // Models Node services while capturing identity, source selection and immutable receipt writes.
@@ -59,4 +60,25 @@ test("failed checks return failed receipts rather than final acceptance", async 
   const receipt = await createTicketFocusedCheck(options)({ type: "test", command: "node --test backend/tests/unit/example.test.js" });
   assert.equal(receipt.status, "failed");
   assert.equal(JSON.parse(writes[0].content).exit_code, 1);
+});
+
+test("Coder can test uncommitted ledger edits without a commit and receives pre-commit evidence only", async () => {
+  const { options, context, calls, writes } = fixture();
+  const path = context.manifest_paths[0], content = "// Focused test fixture.\nconst changed = true;\n";
+  const checksum = `sha256:${createHash("sha256").update(content).digest("hex")}`;
+  context.review_commit_sha = null;
+  context.base_sha = "b".repeat(40);
+  context.state = "coding";
+  options.ledger = { snapshot: async () => ({ entries: { [path]: { latest_sha: checksum } } }) };
+  options.executionContexts.syncManifest = async () => structuredClone(context);
+  options.worktreeFileService = { readFile: async () => content };
+  options.assertIdentity = async () => assert.fail("Pre-commit checks must not require a recorded commit");
+  const result = await createTicketFocusedCheck(options)({ type: "test", command: `node --test ${path}` });
+  assert.equal(result.status, "passed");
+  assert.equal(result.pre_commit, true);
+  assert.equal(result.commit_sha, null);
+  assert.equal(calls[0].commitSha, context.base_sha);
+  assert.deepEqual(calls[0].overlayFiles, { [path]: content });
+  assert.equal(JSON.parse(writes[0].content).pre_commit, true);
+  assert.equal(context.state, "coding");
 });

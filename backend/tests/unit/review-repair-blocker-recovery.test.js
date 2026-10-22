@@ -1,9 +1,35 @@
 // Verifies finding repairs retain AM evidence and send structured blockers to the normal recovery handler.
 import assert from "node:assert/strict";
 import test from "node:test";
+import { currentReviewFindings } from "../../src/modules/supervisor/review-query-records.js";
 import { createTicketReviewRepair } from "../../src/modules/supervisor/ticket-review-repair.js";
 import { completeCoderTicket } from "../../src/modules/supervisor/ticket-coder-completion.js";
 import { handleTicketExecutionFailure } from "../../src/modules/supervisor/ticket-execution-failure.js";
+
+// Keeps the Coder's latest session and completed edits when Node corrects an acknowledgement-only repair.
+test("implementation correction continues the current Coder checkpoint without rotating its journal again", async () => {
+  let checkpoint = { task_id: "TASK", status: "completed", phase: "finding_repair_ready", review_repair_key: "REVIEW",
+    last_completed_turn: 17, thread_id: "THREAD", changed_paths: ["source.js"], completed_tools: ["read_lines", "edit_diff"],
+    contract_decisions: [{ path: "contract" }], blocker_recovery: { status: "resolved", disposition: { guidance: "Old delivery only" } } };
+  let rotations = 0;
+  const repair = createTicketReviewRepair({ taskId: "TASK", ownerId: "SUP", ticket: { id: "TASK" },
+    selected: { agent_id: "CODER", provider: "codex" }, checkpoints: { load: async () => checkpoint,
+      save: async (value) => { checkpoint = value; }, saveReview: async () => {}, complete: async () => {} },
+    workspace: { beginFindingRepair: async () => { rotations++; } }, handoffQueue: { enqueue: async () => ({ id: "JOB" }) },
+    execute: async (request) => {
+      const resume = request.payload.resume_from;
+      assert.equal(resume.last_completed_turn, 17);
+      assert.equal(resume.thread_id, "THREAD");
+      assert.deepEqual(resume.changed_paths, ["source.js"]);
+      assert.deepEqual(resume.completed_tools, ["read_lines", "edit_diff"]);
+      assert.equal(resume.blocker_recovery.status, "superseded_by_review");
+      assert.equal(resume.repair_implementation_required.instruction, "Implement the accepted defect");
+      return { tool_events: [{ tool: "report_done", status: "success" }] };
+    } });
+  await repair({ request: { task_id: "TASK", project_id: "P", request_id: "REQ", payload: {} }, findings: [{ finding_id: "REV-1" }],
+    outcome: { payload: { job_key: "REVIEW", repair_implementation_required: { instruction: "Implement the accepted defect" } } } });
+  assert.equal(rotations, 0);
+});
 
 test("repair blocker escapes review parking with the actual repair request and latest checkpoint intact", async () => {
   const decisions = [{ path: "receipt", sha256: "a".repeat(64) }];
@@ -17,7 +43,7 @@ test("repair blocker escapes review parking with the actual repair request and l
   const runRepair = createTicketReviewRepair({ taskId: "TASK", ownerId: "SUP", ticket: request.ticket, selected: { agent_id: "CODER", provider: "codex" },
     checkpoints, workspace: {}, handoffQueue: { enqueue: async () => ({ id: "JOB" }) }, execute: async (repair) => {
       assert.deepEqual(repair.payload.resume_from.contract_decisions, decisions);
-      assert.deepEqual(repair.payload.resume_from.review_findings, findings);
+      assert.deepEqual(repair.payload.resume_from.review_findings, currentReviewFindings(findings));
       checkpoint = { ...checkpoint, status: "blocked", last_completed_turn: 22, thread_id: "THREAD", changed_paths: ["runtime-logger.js"] };
       throw blocked;
     } });
@@ -41,7 +67,7 @@ test("repair blocker escapes review parking with the actual repair request and l
   assert.equal(checkpoint.last_completed_turn, 22);
   assert.equal(checkpoint.thread_id, "THREAD");
   assert.deepEqual(checkpoint.contract_decisions, decisions);
-  assert.deepEqual(checkpoint.review_findings, findings);
+  assert.deepEqual(checkpoint.review_findings, currentReviewFindings(findings));
   assert.equal(events[0].type, "task.needs_human_review");
   assert.equal(events[0].payload.reason, "CODER_BLOCKED");
 });

@@ -25,14 +25,17 @@ export async function publishAutomaticReviewParking({ job, reason, queueStore, e
 // Replays persisted event intent without mutating a completed ticket or fabricating a Reviewer verdict.
 export async function publishAutomaticReviewOutcome({ job, queueStore, queue, eventBus, checkpoints, repairCount, locked }) {
   const soft = job.review_policy.gate === "off";
-  if (soft && job.review_result.type === "review.request_changes") {
+  const deferredMinorOnApprove = job.review_result.type === "review.approved" && Array.isArray(job.review_result.payload.findings)
+    && job.review_result.payload.findings.some((finding) => String(finding?.severity ?? "").toLowerCase() === "minor" && finding?.defer_to_backlog === true);
+  if ((soft && job.review_result.type === "review.request_changes") || deferredMinorOnApprove) {
     for (const [index, finding] of job.review_result.payload.findings.entries()) {
+      if (deferredMinorOnApprove && (String(finding?.severity ?? "").toLowerCase() !== "minor" || finding?.defer_to_backlog !== true)) continue;
       const findingId = finding.finding_id ?? finding.id ?? `REV-${index + 1}`;
       const id = `TICKET-REVIEW-${reviewDigest({ job_key: job.job_key, finding_id: findingId }).slice(7)}`;
       await locked(async () => {
         if ((await queueStore.list("review.backlog")).some((item) => item.id === id)) return;
         await queueStore.save("review.backlog", { id, task_id: id, source_task_id: job.task_id, job_key: job.job_key, finding_id: findingId,
-          status: "planned", owner: "sprint_leader", finding, priority: String(finding.severity).toLowerCase() === "blocker" ? "critical" : "high",
+          status: "planned", owner: "sprint_leader", finding, priority: String(finding.severity).toLowerCase() === "blocker" ? "critical" : String(finding.severity).toLowerCase() === "minor" ? "low" : "high",
           ticket: { id, project_id: job.project_id, title: `Review follow-up: ${job.payload.ticket.title ?? job.task_id}`, objective: finding.failure ?? finding.message ?? String(finding),
             acceptance_criteria: [finding.acceptance_criterion ?? "Independently verify and resolve the retained review finding."], status: "planned", source_task_id: job.task_id },
           decision_identity: job.decision_identity, created_at: new Date().toISOString() });

@@ -47,9 +47,22 @@ test("Protocol Storage accepts canonical refs and rejects traversal or malformed
   const service = { readFile() {}, atomicCreate() {} };
   const storage = createProtocolStorage({ projectRoot: "/project", fileService: service });
   assert.equal(storage.normalizeRef("task/FORGE-NOTIFY-004/round_1/request"), "task/FORGE-NOTIFY-004/round_1/request");
+  assert.equal(storage.normalizeRef("task/FORGE-NOTIFY-004/operational_report"), "task/FORGE-NOTIFY-004/operational_report");
   for (const ref of ["../secret", "/absolute", "task/x/round_1\\request", "task/x/round_0/request", "task/x/round_1/other", "task/x/round_1/request/", "task//round_1/request", "task/x/round_1/request\0x"]) {
     assert.throws(() => storage.normalizeRef(ref), (error) => error.code === "STORAGE_INVALID_REF");
   }
+});
+
+test("Protocol Storage persists operational recovery reports as task records", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forge-storage-"));
+  const files = createFileService({ projectRoot: root });
+  const storage = createProtocolStorage({ projectRoot: root, fileService: files });
+  const ref = "task/TASK-OPERATIONAL/operational_report";
+  await storage.save(ref, { status: "blocked", reason: "ACCESS_REQUIRED" });
+  assert.deepEqual((await storage.get(ref)).data, { reason: "ACCESS_REQUIRED", status: "blocked" });
+  assert.deepEqual(await storage.list("TASK-OPERATIONAL"), [ref]);
+  assert.deepEqual(await storage.clearTask("TASK-OPERATIONAL"), { task_id: "TASK-OPERATIONAL", deleted: 2 });
+  assert.equal(await storage.exists(ref), false);
 });
 
 test("Protocol Storage serializes JSON deterministically", () => {

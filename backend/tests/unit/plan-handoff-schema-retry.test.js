@@ -29,6 +29,7 @@ async function fixture(context, requestPlan, storageFailures = 0) {
   const agentRoleResolver = { resolveProfile: () => ({ agent_id: "LEADER-SCHEMA" }) };
   const orchestration = createSprintOrchestrationService({
     sprintPlans: { getSprintById: () => null }, sprintRegistry, agentRoleResolver,
+    // eslint-disable-next-line require-yield -- Any attempted execution must fail before yielding agent work.
     agentGateway: { stream: async function* () { throw new Error("Handoff must not RUN agents"); } },
     publisher: { publish: (event) => events.push(event) },
     draftPlan: async (draft) => {
@@ -117,8 +118,9 @@ test("viewport schema failures use verification-only repair and pass real ingest
   for (const legacy of [false, true]) {
     const state = await fixture(context, (attempt, input) => {
       const draft = candidate();
-      draft.tickets[0].verification_plan = [{ scenario_path: "ui/nextjs/tests/layout.browser.mjs", kind: "browser", criterion_ids: ["AC-1"], assertions: ["No horizontal overflow"], viewports: attempt === 1 ? [{ width: 375, height: 812 }, "1440"] : [375, 1440] }];
-      if (attempt > 1) {
+      const repairing = legacy || attempt > 1;
+      draft.tickets[0].verification_plan = [{ scenario_path: "ui/nextjs/tests/layout.browser.mjs", kind: "browser", criterion_ids: ["AC-1"], assertions: ["No horizontal overflow"], viewports: !repairing ? [{ width: 375, height: 812 }, "1440"] : [375, 1440] }];
+      if (repairing) {
         assert.match(input.brief, /FINAL frozen acceptance_criteria/);
         draft.tickets[0].acceptance_criteria = ["Changed scope"];
         draft.human_plan.components = [{ name: "Changed component" }];
@@ -126,18 +128,21 @@ test("viewport schema failures use verification-only repair and pass real ingest
       }
       return draft;
     });
-    await assert.rejects(state.service.handoff({ plan: state.plan }), (error) => error.code === "SPRINT_MARKDOWN_SCOPE" && error.message.includes("/viewports/0 must be integer"));
-    assert.equal(state.drafts.length, 0);
-    const frozen = JSON.parse(state.receipt().generated_json);
-    if (legacy) state.database.run("UPDATE markdown_plan_handoffs SET error_code=?,error_message=? WHERE plan_id=?", ["SPRINT_PLAN_HANDOFF_FAILED", "Sprint Leader returned invalid sprint plan: /tickets/0/verification_plan/0/viewports/0 must be integer", state.plan.plan_id]);
+    const frozen = candidate();
+    frozen.tickets[0].verification_plan = [{ scenario_path: "ui/nextjs/tests/layout.browser.mjs", kind: "browser", criterion_ids: ["AC-1"], assertions: ["No horizontal overflow"], viewports: [{ width: 375, height: 812 }, "1440"] }];
+    if (legacy) {
+      state.database.run("INSERT INTO markdown_plan_handoffs(plan_id,revision,project_id,sha256,status,generated_json,error_code,error_message,updated_at) VALUES (?,?,?,?,?,?,?,?,?)", [state.plan.plan_id, 1, state.plan.project_id, state.plan.sha256, "candidate", JSON.stringify(frozen), "SPRINT_PLAN_HANDOFF_FAILED", "Sprint Leader returned invalid sprint plan: /tickets/0/verification_plan/0/viewports/0 must be integer", new Date().toISOString()]);
+    }
     await state.service.handoff({ plan: state.plan });
+    const finalSnapshot = JSON.parse(state.receipt().generated_json);
+    frozen.tickets[0].coverage = finalSnapshot.tickets[0].coverage;
     const expected = structuredClone(frozen);
     expected.tickets[0].verification_plan[0].viewports = [375, 1440];
     assert.deepEqual(JSON.parse(state.receipt().generated_json), expected);
     assert.equal(state.drafts.length, 1);
-    assert.equal(state.requests.length, 2);
+    assert.equal(state.requests.length, legacy ? 1 : 2);
     assert.equal((await state.service.handoff({ plan: state.plan })).replayed, true);
-    assert.equal(state.requests.length, 2);
+    assert.equal(state.requests.length, legacy ? 1 : 2);
   }
 });
 
@@ -150,7 +155,7 @@ test("invalid viewport repairs remain blocked across owner retries", async (cont
   });
   for (let attempt = 1; attempt <= 3; attempt++) {
     await assert.rejects(state.service.handoff({ plan: state.plan }), (error) => error.code === "SPRINT_MARKDOWN_SCOPE" && error.message.includes("must be integer"));
-    assert.equal(state.requests.length, attempt);
+    assert.equal(state.requests.length, attempt * 2);
     assert.equal(state.drafts.length, 0);
     assert.deepEqual(JSON.parse(state.receipt().generated_json).tickets[0].acceptance_criteria, ["Approved API works"]);
   }

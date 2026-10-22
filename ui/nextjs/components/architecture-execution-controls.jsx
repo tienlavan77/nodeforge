@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { awaitingOwnerExecutionRecovery, watchOwnerExecutionRecovery } from "../lib/owner-execution-recovery.js";
 
 // Shows durable Architecture attempts and stops only the active conversation after owner action.
-export function ArchitectureExecutionControls({ client, projectId, conversationId, executionId, agentTyping, interruptionSignal = 0 }) {
+export function ArchitectureExecutionControls({ client, projectId, conversationId, executionId, agentTyping, interruptionSignal = 0, onDecision }) {
   const [executions, setExecutions] = useState([]);
   const [error, setError] = useState("");
   const [, setHint] = useState("");
@@ -13,6 +13,7 @@ export function ArchitectureExecutionControls({ client, projectId, conversationI
   const [ownerToken, setOwnerToken] = useState("");
   const lastEscape = useRef(0);
   const inFlight = useRef(false);
+  const revision = useRef(0);
   const current = executions.find((entry) => entry.conversation_id === conversationId && entry.status === "running")
     ?? executions.find((entry) => entry.conversation_id === conversationId && entry.status === "pausing")
     ?? executions.find((entry) => entry.conversation_id === conversationId && ["manual_required", "interrupted"].includes(entry.status));
@@ -25,15 +26,16 @@ export function ArchitectureExecutionControls({ client, projectId, conversationI
   useEffect(() => {
     if (!conversationId) return undefined;
     let mounted = true;
+    const requestRevision = revision.current;
     // Refreshes the selected Architecture attempt after reload or a provider interruption.
     async function refresh() {
       try {
         const result = await client.listOwnerExecutions(projectId, conversationId);
-        if (mounted) {
+        if (mounted && requestRevision === revision.current) {
           setExecutions((previous) => (result.items ?? []).map((entry) => previous.some((item) => item.execution_id === entry.execution_id && item.status === "pausing") && entry.status === "running" ? { ...entry, status: "pausing" } : entry));
           setError("");
         }
-      } catch (reason) { if (mounted) setError(reason.message ?? "Unable to load Architecture executions."); }
+      } catch (reason) { if (mounted && requestRevision === revision.current) setError(reason.message ?? "Unable to load Architecture executions."); }
     }
     void refresh();
     return () => { mounted = false; };
@@ -42,25 +44,30 @@ export function ArchitectureExecutionControls({ client, projectId, conversationI
   const awaitingStop = awaitingOwnerExecutionRecovery(current);
   useEffect(() => {
     if (!conversationId || !awaitingStop) return undefined;
+    const requestRevision = revision.current;
     return watchOwnerExecutionRecovery({ client, projectId, conversationId, executionId: current?.execution_id,
-      onUpdate: (items) => { setExecutions(items); setError(""); }, onError: setError });
+      onUpdate: (items) => { if (requestRevision === revision.current) { setExecutions(items); setError(""); } },
+      onError: (message) => { if (requestRevision === revision.current) setError(message); } });
   }, [client, projectId, conversationId, current?.execution_id, awaitingStop]);
 
   // Sends pause and recovery actions for the selected Architecture execution.
   async function decide(action) {
     if (inFlight.current || !conversationId) return;
     inFlight.current = true;
+    revision.current += 1;
     setBusy(true);
     setError("");
     try {
       const record = action === "pause" && executionId && agentTyping ? { conversation_id: conversationId, execution_id: executionId, status: "running" } : current;
       if (!record || (action === "pause" && record.status !== "running")) throw new Error("No active Architecture execution to pause yet.");
-      if (action === "reconcile") { await client.reconcileOwnerExecution(projectId, conversationId, record.execution_id, undefined, ownerToken); setOwnerToken(""); }
-      else await client.decideOwnerExecution(projectId, conversationId, record.execution_id, action);
+      let result;
+      if (action === "reconcile") { result = await client.reconcileOwnerExecution(projectId, conversationId, record.execution_id, undefined, ownerToken); setOwnerToken(""); }
+      else result = await client.decideOwnerExecution(projectId, conversationId, record.execution_id, action);
       setExecutions((items) => {
-        const status = action === "pause" ? "pausing" : action === "reconcile" ? "interrupted" : action === "continue" ? "running" : action === "restart" ? "restarted" : "discarded";
-        return items.some((entry) => entry.execution_id === record.execution_id) ? items.map((entry) => entry.execution_id === record.execution_id ? { ...entry, status } : entry) : [...items, { ...record, status }];
+        const status = action === "pause" ? "pausing" : action === "reconcile" ? "interrupted" : (result?.status ?? (action === "continue" || action === "restart" ? "running" : "discarded"));
+        return items.some((entry) => entry.execution_id === record.execution_id) ? items.map((entry) => entry.execution_id === record.execution_id ? { ...entry, ...result, status } : entry) : [...items, { ...record, ...result, status }];
       });
+      onDecision?.({ action, executionId: record.execution_id, nextExecutionId: result?.execution_id });
     } catch (reason) { setError(reason.message ?? "Architecture recovery was blocked."); }
     finally { inFlight.current = false; setBusy(false); }
   }

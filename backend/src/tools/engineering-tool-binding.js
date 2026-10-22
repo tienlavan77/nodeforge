@@ -19,6 +19,12 @@ export function bindEngineeringTools({ registry, context }) {
   }
   const manifest = context.execution_context?.approved_baseline?.file_checksums;
   const mutablePaths = manifest ? new Set(Object.keys(manifest)) : null;
+  const createPrefixes = context.execution_context?.approved_baseline?.authorized_create_prefixes
+    ?? context.authorized_create_prefixes
+    ?? [];
+  const mutableFileBudget = context.execution_context?.approved_baseline?.mutable_file_budget
+    ?? context.mutable_file_budget
+    ?? null;
   const definitions = coderToolDefinitions();
   const scopedRegistry = { ...registry };
   for (const definition of engineeringToolDefinitions()) if (typeof scopedRegistry[definition.name]?.execute !== "function") scopedRegistry[definition.name] = lockedTool(definition.name, "A compatible scoped Node service is unavailable for this execution.");
@@ -32,10 +38,19 @@ export function bindEngineeringTools({ registry, context }) {
     if (locked.has(definition.name) || typeof scopedRegistry[definition.name]?.execute !== "function") throw failure("TOOL_LOCKED", locked.get(definition.name) ?? "A compatible execution-scoped service is unavailable.");
     authorizeTool(definition.name, bound);
     if (["read_file", "read_lines", "write_diff", "edit_diff"].includes(definition.name)) {
-      await assertPath(input.path, bound);
-      if (["write_diff", "edit_diff"].includes(definition.name)) {
+      const isWrite = ["write_diff", "edit_diff"].includes(definition.name);
+      await assertPath(input.path, bound, isWrite ? "write" : "read");
+      if (isWrite) {
         assertCoderWorkflowReadOnly(bound.agent_identity?.role, "write", input.path);
-        if (mutablePaths && !mutablePaths.has(input.path)) throw failure("PATH_FORBIDDEN", "Write path is outside the immutable approved manifest.");
+        const inCreatePrefix = Array.isArray(createPrefixes) && createPrefixes.some((prefix) => {
+          const clean = String(prefix).replace(/\/+$/, "");
+          return clean && (input.path === clean || input.path.startsWith(`${clean}/`));
+        });
+        if (mutablePaths && !mutablePaths.has(input.path) && !inCreatePrefix) throw failure("PATH_FORBIDDEN", "Write path is outside the immutable approved manifest.");
+        if (Number.isInteger(mutableFileBudget) && mutableFileBudget > 0) {
+          const tracked = new Set([...(mutablePaths ?? []), ...(bound.changed_paths ?? []), input.path]);
+          if (tracked.size > mutableFileBudget) throw failure("PATH_FORBIDDEN", "Write path exceeds the ticket mutable file budget.");
+        }
       }
     }
     return scopedRegistry[definition.name].execute(input, bound);
@@ -44,9 +59,12 @@ export function bindEngineeringTools({ registry, context }) {
 }
 
 // Rejects private, out-of-scope and symlinked file paths before ticket reads or mutations.
-async function assertPath(path, context) {
+async function assertPath(path, context, operation = "read") {
   assertRoleFileAccess(context.agent_identity?.role, "read", path);
-  if (!isAgentPathAllowed(path, context)) throw failure("PATH_FORBIDDEN", "Path is outside the execution scope.");
+  const effectiveContext = operation === "write" && Array.isArray(context.authorized_create_prefixes) && context.authorized_create_prefixes.length
+    ? { ...context, allowed_prefixes: [...(context.allowed_prefixes ?? []), ...context.authorized_create_prefixes] }
+    : context;
+  if (!isAgentPathAllowed(path, effectiveContext, { operation })) throw failure("PATH_FORBIDDEN", "Path is outside the execution scope.");
   let current = resolve(context.project_root);
   for (const part of path.split("/")) {
     current = resolve(current, part);

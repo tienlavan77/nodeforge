@@ -11,21 +11,37 @@ export function createPlanHandoffService({ projectId, database, planStore, markd
   const active = new Set();
   return Object.freeze({ handoff });
 
+  // Complete one bounded technical repair under the same approval and lock instead of requiring another owner click.
+  async function handoff(input) {
+    const key = `${input.plan.plan_id}:${input.plan.revision}`;
+    if (active.has(key)) return { status: "handoff_in_progress", plan_handoff: true };
+    active.add(key);
+    try {
+      try { return await handoffAttempt(input); }
+      catch (error) {
+        const verification = error.code === "SPRINT_MARKDOWN_SCOPE" && /has an invalid verification plan:/.test(error.message);
+        const representation = error.code === "SPRINT_PLAN_HANDOFF_FAILED" && /^Sprint Leader returned invalid sprint plan:/.test(error.message)
+          && /\/tickets\/\d+\/verification_plan(?:\/|\s)/.test(error.message);
+        if (input.plan.format !== "markdown" || !(verification || representation)) throw error;
+        const retained = read(input.plan, "markdown_plan_handoffs");
+        if (!retained?.generated_json) throw error;
+        return await handoffAttempt(input);
+      }
+    } finally { active.delete(key); }
+  }
+
   // Rechecks approval, then reuses the indexed Sprint Leader result for repeat commands.
-  async function handoff({ plan, conversationId }) {
+  async function handoffAttempt({ plan, conversationId }) {
     const markdown = plan.format === "markdown";
     const approved = markdown ? await markdownPlanStore.assertApproved({ planId: plan.plan_id, revision: plan.revision, sha256: plan.sha256 }) : await planStore.assertExecutable({ planId: plan.plan_id, revision: plan.revision, sha256: plan.sha256 });
     const table = markdown ? "markdown_plan_handoffs" : "plan_handoffs";
     if (approved.project_id !== projectId) throw fail("PROJECT_CONTEXT_CONFLICT", "Approved plan belongs to a different project.");
     if (typeof sprintPlanLeader?.requestPlan !== "function" || typeof sprintOrchestration?.ingestAgentCompletion !== "function") throw fail("SPRINT_LEADER_UNAVAILABLE", "Sprint Leader planning gateway is unavailable.");
-    const key = `${approved.plan_id}:${approved.revision}`;
-    if (active.has(key)) return { status: "handoff_in_progress", plan_handoff: true };
     const now = clock();
     database.transaction(() => database.run(`INSERT OR IGNORE INTO ${table}(plan_id,revision,project_id,sha256,status,updated_at) VALUES (?,?,?,?,?,?)`, [approved.plan_id, approved.revision, projectId, approved.sha256, "started", now]));
     let row = read(approved, table);
     if (row.project_id !== projectId || row.sha256 !== approved.sha256) throw fail("PLAN_HANDOFF_STALE", "Handoff receipt differs from the approved plan.");
     if (row.status === "completed" && (!markdown || await registryHasApprovedChild(row.sprint_id, approved))) return { status: "handed_to_sprint_leader", sprint_id: row.sprint_id, plan_handoff: true, replayed: true };
-    active.add(key);
     try {
       const correlationId = `CORR-PLAN-HANDOFF-${approved.plan_id}-${approved.revision}`;
       const storedCandidate = row.generated_json ? JSON.parse(row.generated_json) : null;
@@ -60,7 +76,7 @@ export function createPlanHandoffService({ projectId, database, planStore, markd
         generated = normalizeSprintVerificationNotes(generated);
         if (!generated?.id || typeof generated.id !== "string") throw fail("SPRINT_PLAN_HANDOFF_FAILED", "Sprint Leader returned a plan without a sprint ID.");
         // Retain the exact draft before admission; persistence retries reuse it.
-        // Only rejected verification, components or priority fields are repaired on a later owner handoff.
+        // Retained technical failures can be repaired automatically within the current approved handoff.
         database.run(`UPDATE ${table} SET status=?,sprint_id=?,generated_json=?,updated_at=? WHERE plan_id=? AND revision=? AND sha256=?`, ["candidate", generated.id, JSON.stringify(generated), clock(), approved.plan_id, approved.revision, approved.sha256]);
       }
       if (markdown) {
@@ -88,7 +104,7 @@ export function createPlanHandoffService({ projectId, database, planStore, markd
     } catch (error) {
       database.run(`UPDATE ${table} SET error_code=?,error_message=?,updated_at=? WHERE plan_id=? AND revision=?`, [error.code ?? "PLAN_HANDOFF_FAILED", error.message, clock(), approved.plan_id, approved.revision]);
       throw error;
-    } finally { active.delete(key); }
+    }
   }
 
   // Confirms replay still resolves the immutable child of the exact approved Architecture plan.

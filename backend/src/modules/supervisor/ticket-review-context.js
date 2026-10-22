@@ -16,6 +16,6 @@ export async function prepareTicketReviewContext({ workspace, taskId, supervisor
     || artifact.manifest_sha !== context.manifest_sha || artifact.base_sha !== context.base_sha
     || resume.base_commit && resume.base_commit !== context.base_sha
     || resume.verification && ["artifact_id", "commit_sha", "source_revision", "manifest_sha", "base_sha"].some((field) => resume.verification[field] !== artifact[field])) throw invalid();
-  await workspace.reportService.assertCoderReport(taskId);
+  await workspace.reportService.assertCoderReport(taskId, ticket);
   return context;
 }

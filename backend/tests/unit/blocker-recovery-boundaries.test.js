@@ -10,7 +10,8 @@ test("a rejected transactional resume restores the parked checkpoint without inv
   const fixture = await blockerRecoveryFixture();
   try {
     await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
-    await fixture.recovery.tick(); await fixture.recovery.tick();
+    for (let step = 0; step < 5 && (await fixture.ledger()).jobs[0].status !== "resume_pending"; step += 1) await fixture.recovery.tick();
+    assert.equal((await fixture.ledger()).jobs[0].status, "resume_pending");
     fixture.base.statusStore.resumeBlockedExecution = () => { throw Object.assign(new Error("Resume CAS rejected"), { code: "STATUS_CONFLICT" }); };
     await fixture.recovery.tick();
     const checkpoint = await fixture.base.checkpoints.load("TASK");
