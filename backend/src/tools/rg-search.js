@@ -6,6 +6,9 @@ import { logEvent } from "../core/project-log-service.js";
 import { createRuntimeLogger } from "../core/runtime-logger.js";
 import { ConfigurationError } from "../shared/errors.js";
 import { authorizeTool, isAgentPathAllowed } from "./tool-authorization.js";
+import { assertExecutionFileAccess } from "./execution-file-access.js";
+import { assertRoleFileAccess, createRoleFileService } from "../infrastructure/filesystem/file-service-role-policy.js";
+import { createFileService } from "../infrastructure/filesystem/file-service.js";
 
 // Creates a scoped content search tool with the project's runtime logger.
 export function createRgSearchTool({ projectRoot, codeCache, logger = createRuntimeLogger({ logEvent }), environment = process.env, toolName = "rg_search" } = {}) {
@@ -21,6 +24,7 @@ export function createRgSearchTool({ projectRoot, codeCache, logger = createRunt
       args = buildArgs(input, context);
       if (input.paths.some((path) => !isAgentPathAllowed(path, context))) throw invalidInput("rg_search path is outside the approved task scope.");
       await validatePaths(projectRoot, input.paths, environment, context);
+      if (context.file_access_version === 2 && !codeCache) throw invalidInput("Versioned search requires an authorized content reader.");
     } catch (error) {
       emit("rejected", context, { error_code: error.code ?? "RG_SEARCH_INPUT_INVALID", error: error.message, duration_ms: Date.now() - started });
       throw error;
@@ -28,12 +32,16 @@ export function createRgSearchTool({ projectRoot, codeCache, logger = createRunt
     emit("started", context, { command: safeCommand(args), cwd: projectRoot });
     let result;
     try {
-      result = codeCache && !input.paths.some((path) => path === ".forge" || path.startsWith(".forge/")) ? await searchCached(projectRoot, args, codeCache, environment, (error, path) => emit("cache_read_skipped", context, { error_code: error.code ?? "RG_SEARCH_CACHE_READ_FAILED", path }), context.abortSignal) : await runRipgrep(projectRoot, args, environment, undefined, { signal: context.abortSignal });
+      // Keep uncached search behind the same role-scoped File Service as conversation reads.
+      const files = createRoleFileService({ projectRoot, role: context.agent_identity?.role, fileService: createFileService({ projectRoot, role: context.agent_identity?.role }) });
+      const reader = codeCache && !input.paths.some((path) => isForgeScope(path, context)) ? codeCache : { read: (input) => files.readForIndex(input) };
+      result = await searchCached(projectRoot, args, reader, environment, (error, path) => emit("cache_read_skipped", context, { error_code: error.code ?? "RG_SEARCH_CACHE_READ_FAILED", path }), context);
     } catch (error) {
       emit("failed", context, { command: safeCommand(args), cwd: projectRoot, error_code: error.code ?? "RG_SEARCH_SPAWN_FAILED", error: error.message, duration_ms: Date.now() - started });
       throw error;
     }
     const status = result.exit_code === 0 || result.exit_code === 1 ? "completed" : "failed";
+    assertExecutionFileAccess(context);
     emit(status, context, {
       command: safeCommand(args), cwd: projectRoot, exit_code: result.exit_code, signal: result.signal,
       stdout_bytes: Buffer.byteLength(result.stdout), stderr_bytes: Buffer.byteLength(result.stderr),
@@ -55,7 +63,8 @@ export function createRgSearchTool({ projectRoot, codeCache, logger = createRunt
 }
 
 // Searches content supplied by the shared cache while ripgrep still selects files and matches lines.
-async function searchCached(cwd, args, codeCache, environment, onSkipped, signal) {
+async function searchCached(cwd, args, codeCache, environment, onSkipped, context) {
+  const signal = context.abortSignal;
   const expression = args.indexOf("--regexp");
   const flags = args.slice(0, expression);
   const scopes = args.slice(expression + 3);
@@ -63,7 +72,10 @@ async function searchCached(cwd, args, codeCache, environment, onSkipped, signal
   const matchFlags = flags.filter((flag) => !selectors.includes(flag));
   const listing = await runRipgrep(cwd, ["--files", "-0", ...selectors, "--", ...scopes], environment, undefined, { signal });
   if (listing.truncated) throw invalidInput("Search scope contains too many filenames; narrow the requested directories or filters.");
-  if (listing.exit_code > 1 || listing.signal) return listing;
+  if (listing.exit_code > 1 || listing.signal) {
+    if (context.file_access_version === 2) throw invalidInput("Search could not enumerate the authorized scope.");
+    return listing;
+  }
   const syntax = await runRipgrep(cwd, [...matchFlags, "--regexp", args[expression + 1], "--", "-"], environment, "", { signal });
   if (syntax.exit_code > 1 || syntax.signal) return syntax;
   let stdout = "";
@@ -71,6 +83,11 @@ async function searchCached(cwd, args, codeCache, environment, onSkipped, signal
   let matched = false;
   for (const path of listing.stdout.split("\0").filter(Boolean)) {
     signal?.throwIfAborted();
+    if (!isAgentPathAllowed(path, context)) continue;
+    if (context.agent_identity?.role) {
+      try { assertRoleFileAccess(context.agent_identity.role, "read", path); }
+      catch (error) { if (error.code === "FILE_ROLE_FORBIDDEN") continue; throw error; }
+    }
     let source;
     try { source = await codeCache.read({ path }); }
     catch (error) {
@@ -98,7 +115,7 @@ function safeCommand(args) {
 function buildArgs(input, context) {
   if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => !["pattern", "paths", "flags"].includes(key))) throw invalidInput("rg_search accepts pattern, paths, and flags only.");
   if (typeof input.pattern !== "string" || !input.pattern || input.pattern.length > 500 || input.pattern.includes("\0")) throw invalidInput("rg_search pattern must contain 1–500 characters and no NUL byte.");
-  if (!Array.isArray(input.paths) || !input.paths.length || input.paths.some((path) => typeof path !== "string" || (!/^[A-Za-z0-9_-]+$/.test(path) && !(isForgeScope(path, context))))) throw invalidInput("rg_search paths must be top-level project directories.");
+  if (!Array.isArray(input.paths) || !input.paths.length || input.paths.some((path) => typeof path !== "string" || (!/^[A-Za-z0-9_-][A-Za-z0-9._-]*(?:\/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$/.test(path) && !(isForgeScope(path, context))))) throw invalidInput("rg_search paths must be safe relative project files or directories.");
   if (input.paths.some((path) => isForgeScope(path, context)) && input.paths.length !== 1) throw invalidInput("Search .forge separately from source directories.");
   const flags = input.flags ?? [];
   if (!Array.isArray(flags) || flags.some((flag) => typeof flag !== "string" || !isAllowedFlag(flag))) throw invalidInput("rg_search received an unsupported flag.");
@@ -119,15 +136,16 @@ async function validatePaths(projectRoot, paths, environment, context) {
 
   for (const path of paths) {
     context.abortSignal?.throwIfAborted();
+    if (context.agent_identity?.role) assertRoleFileAccess(context.agent_identity.role, "read", path);
     let candidate = projectRoot;
     for (const part of path.split("/")) { candidate = join(candidate, part); if ((await lstat(candidate)).isSymbolicLink()) throw invalidInput("rg_search cannot traverse symlink paths."); }
     const stat = await lstat(candidate);
     const target = await realpath(candidate);
-    if (!stat.isDirectory() || stat.isSymbolicLink() || relative(root, target).startsWith("..") || isAbsolute(relative(root, target))) throw invalidInput("rg_search path must be a real project directory.");
+    if ((!stat.isDirectory() && !stat.isFile()) || stat.isSymbolicLink() || relative(root, target).startsWith("..") || isAbsolute(relative(root, target))) throw invalidInput("rg_search path must be a real project file or directory.");
     if (isForgeScope(path, context)) continue;
-    const listed = await runRipgrep(projectRoot, ["--files", "--", path], environment, undefined, { signal: context.abortSignal });
-    if (listed.exit_code > 1 || listed.signal) throw invalidInput("rg_search could not verify project ignore rules.");
-    if (!listed.stdout.split("\n").some((file) => file.startsWith(`${path}/`))) throw invalidInput("rg_search path is ignored or has no searchable files.");
+    const listed = await runRipgrep(projectRoot, ["--files"], environment, undefined, { signal: context.abortSignal });
+    if (listed.truncated || listed.exit_code > 1 || listed.signal) throw invalidInput("rg_search could not verify project ignore rules.");
+    if (!listed.stdout.split("\n").some((file) => file === path || file.startsWith(`${path}/`))) throw invalidInput("rg_search path is ignored or has no searchable files.");
   }
 }
 

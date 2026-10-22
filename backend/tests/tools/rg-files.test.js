@@ -1,7 +1,7 @@
 // Verifies Node-owned file discovery returns ripgrep's real output under agent authorization.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -43,6 +43,29 @@ test("rg_files executes exactly rg --files with native ignores and output", asyn
   }
 });
 
+// Proves inclusion selectors remain bounded by baseline ignore and hidden-file rules.
+test("rg_files supports positive and negative glob and iglob without reviving private files", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-glob-inputs-"));
+  try {
+    await mkdir(join(root, ".git"));
+    await writeFile(join(root, ".gitignore"), "ignored.js\n");
+    for (const path of ["kept.js", "UPPER.JS", "skip.js", "other.txt", "ignored.js", ".hidden.js"]) await writeFile(join(root, path), "content");
+    const tool = createRgFilesTool({ projectRoot: root, logger: captureLogger([]) });
+    const schema = JSON.parse(await readFile(new URL("../../../schemas/agent/tools/rg-files.schema.json", import.meta.url), "utf8"));
+    const pattern = new RegExp(schema.properties.flags.items.pattern);
+    for (const flag of ["--glob=*.js", "--iglob=*.JS", "--glob=!skip.js", "--iglob=!SKIP.JS"]) assert.ok(pattern.test(flag));
+    for (const flag of ["--glob=../*.js", "--iglob=bad\0.js", "--hidden", "--no-ignore", "--pre=sh"]) {
+      assert.equal(pattern.test(flag), false);
+      await assert.rejects(() => tool.execute({ flags: [flag] }, context), /unsupported flag/);
+    }
+    for (const [flags, expected] of [
+      [["--glob=*.js", "--glob=!skip.js", "--sort=path"], ["kept.js"]],
+      [["--iglob=*.js", "--iglob=!SKIP.JS", "--sort=path"], ["UPPER.JS", "kept.js"]],
+      [["--glob=ignored.js"], []], [["--glob=.hidden.js"], []]
+    ]) assert.deepEqual((await tool.execute({ flags }, context)).stdout.trim().split("\n").filter(Boolean), expected);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 // Compares approved filtering flags against the same native ripgrep invocation.
 test("rg_files preserves approved flags and their order", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "nodeforge-rg-flags-"));
@@ -69,7 +92,7 @@ test("rg_files requires task capability and approved flags", async () => {
   await assert.rejects(() => tool.execute({}, { task_id: "T-1", capabilities: [] }), (error) => error.code === "TOOL_FORBIDDEN");
   await assert.rejects(() => tool.execute({}, { capabilities: ["rg_files"] }), (error) => error.code === "TOOL_SCOPE_INVALID");
   await assert.rejects(() => tool.execute({ hidden: true }, context), /only a flags array/);
-  for (const flags of [["../outside"], ["--pre=sh"], ["--files-with-matches"], ["--glob", "*.js"], ["--hidden"], ["--no-ignore"], ["--glob=*.js"], ["--iglob=.hidden.js"]]) {
+  for (const flags of [["../outside"], ["--pre=sh"], ["--files-with-matches"], ["--glob", "*.js"], ["--hidden"], ["--no-ignore"], ["--glob=../*.js"], ["--iglob=bad\0.js"]]) {
     await assert.rejects(() => tool.execute({ flags }, context), /unsupported flag/);
   }
   assert.equal(events.length, 11);
