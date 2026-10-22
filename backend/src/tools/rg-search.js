@@ -143,13 +143,13 @@ async function validatePaths(projectRoot, paths, environment, context) {
     const target = await realpath(candidate);
     if ((!stat.isDirectory() && !stat.isFile()) || stat.isSymbolicLink() || relative(root, target).startsWith("..") || isAbsolute(relative(root, target))) throw invalidInput("rg_search path must be a real project file or directory.");
     if (isForgeScope(path, context)) continue;
-    const listed = await runRipgrep(projectRoot, ["--files"], environment, undefined, {
+    const listed = await runRipgrep(projectRoot, ["--files", "-0"], environment, undefined, {
       signal: context.abortSignal,
       // Preserve baseline ignore traversal while buffering only filenames belonging to the requested scope.
       stdoutLineFilter: (file) => file === path || file.startsWith(`${path}/`)
     });
     if (listed.truncated || listed.exit_code > 1 || listed.signal) throw invalidInput("rg_search could not verify project ignore rules.");
-    if (!listed.stdout.split("\n").some((file) => file === path || file.startsWith(`${path}/`))) throw invalidInput("rg_search path is ignored or has no searchable files.");
+    if (!listed.stdout.split("\0").some((file) => file === path || file.startsWith(`${path}/`))) throw invalidInput("rg_search path is ignored or has no searchable files.");
   }
 }
 
