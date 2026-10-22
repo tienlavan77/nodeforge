@@ -6,6 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createRuntimeLogger } from "../../src/core/runtime-logger.js";
 import { createRgSearchTool } from "../../src/tools/rg-search.js";
+import { runProjectRipgrep } from "../../src/tools/project-ripgrep-runner.js";
 import { createSedLinesTool } from "../../src/tools/sed-lines.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createCodeCacheService } from "../../src/modules/context/code-cache-service.js";
@@ -43,6 +44,33 @@ test("rg_search accepts real nested files without expanding search authority", a
         else await assert.rejects(() => tool.execute({ pattern: "needle", paths: [path] }, owner));
       }
     }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+// Keeps authorized narrow discovery available in large repositories without admitting ignored targets.
+// Real unrelated filenames exceed the shared runner ceiling, exercising streamed membership filtering.
+test("rg_search narrow scopes survive baseline filename output above 200000 bytes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-search-large-baseline-"));
+  try {
+    await mkdir(join(root, ".git"));
+    await mkdir(join(root, "backend/src/tools"), { recursive: true });
+    await mkdir(join(root, "unrelated"));
+    await mkdir(join(root, "ignored"));
+    await writeFile(join(root, ".gitignore"), "ignored/\nbackend/src/tools/ignored.js\n");
+    for (const path of ["backend/src/tools/kept.js", "backend/src/tools/ignored.js", "ignored/one.js"]) await writeFile(join(root, path), "needle\n");
+    for (let index = 0; index < 1000; index += 1) await writeFile(join(root, "unrelated", `${String(index).padStart(4, "0")}-${"x".repeat(210)}.js`), "unrelated\n");
+    const baseline = await runProjectRipgrep(root, ["--files"], process.env);
+    assert.equal(baseline.truncated, true);
+    assert.equal(baseline.output_limit_bytes, 200000);
+    assert.ok(Buffer.byteLength(baseline.stdout) <= 200000);
+    const tool = createRgSearchTool({ projectRoot: root, logger: captureLogger([]) });
+    const scoped = { ...context, agent_identity: { role: "reviewer" } };
+    for (const path of ["backend/src/tools/kept.js", "backend/src/tools"]) {
+      const result = await tool.execute({ pattern: "needle", paths: [path] }, scoped);
+      assert.equal(result.exit_code, 0);
+      assert.equal(result.stdout, "backend/src/tools/kept.js:needle\n");
+    }
+    for (const path of ["ignored", "ignored/one.js", "backend/src/tools/ignored.js"]) await assert.rejects(() => tool.execute({ pattern: "needle", paths: [path] }, scoped), /ignored or has no searchable files/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
