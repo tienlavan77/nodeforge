@@ -88,7 +88,8 @@ test("Coder can read canonical source windows and commit through its scoped serv
 test("Coder receives the common engineering catalog plus completion with no retired extensions", () => {
   const { bound } = fixture();
   assert.deepEqual(bound.definitions.map(({ name }) => name), CODER_TOOL_NAMES);
-  for (const name of ["respond_to_review", "search_code", "rg_files", "rg_search", "sed_lines", "run_test", "check_test"]) {
+  assert.equal(typeof bound.registry.respond_to_review.execute, "function");
+  for (const name of ["search_code", "rg_files", "rg_search", "sed_lines", "run_test", "check_test"]) {
     assert.equal(bound.registry[name], undefined);
   }
 });

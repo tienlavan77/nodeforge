@@ -23,14 +23,15 @@ const fail = (code, message) => Object.assign(new ConfigurationError(message), {
 const sha = (content) => `sha256:${createHash("sha256").update(content).digest("hex")}`;
 
 // Runs policy-selected checks in a ticket worktree and writes immutable artifact files.
-export function createTicketVerificationService({ taskId, projectId, projectRoot, worktreeRoot, worktreeFileService, stateFileService, gitService, ledger, executionContexts, rootOnly = false, projectLogger = () => {}, runCommand = executeCommand } = {}) {
+export function createTicketVerificationService({ taskId, projectId, projectRoot, worktreeRoot, worktreeFileService, stateFileService, gitService, ledger, executionContexts, rootOnly = false, resumeReviewSource, projectLogger = () => {}, runCommand = executeCommand } = {}) {
   if (!/^[A-Za-z0-9._:-]+$/.test(taskId ?? "") || !projectId || !worktreeRoot || !worktreeFileService?.readFile || !stateFileService?.atomicWrite || !gitService?.getHead || !ledger?.snapshot || !executionContexts?.load) throw fail("CONFIGURATION_ERROR", "Ticket verification requires worktree, ledger, Git, and context persistence.");
   const jobs = new Map();
   const rootGit = rootOnly ? createTicketRootGit({ projectRoot }) : null;
   const jobPath = (id) => `${ROOT}/${taskId}/jobs/${id}.json`;
   const artifactPath = (id) => `${ROOT}/${taskId}/artifacts/${id}.json`;
+  const checkPath = (id) => `${ROOT}/${taskId}/checks/${id}.json`;
   const ensurePassedArtifact = createTicketVerificationRecovery({ taskId, executionContexts, assertIdentity, assertPassedArtifact, startTests, getTestResult, getFailureDiagnostic: () => getFailureDiagnostic(), maxAttempts: MAX_SAME_REVISION_ATTEMPTS });
-  const runCheck = createTicketFocusedCheck({ taskId, projectRoot, executionContexts, stateFileService, assertIdentity, assertArchiveSource, runCommand, safeOutput });
+  const runCheck = createTicketFocusedCheck({ taskId, projectRoot, worktreeFileService, ledger, executionContexts, stateFileService, assertIdentity, assertArchiveSource, runCommand, safeOutput });
   const getFailureDiagnostic = createTicketVerificationDiagnostic({ loadContext: () => executionContexts.load(taskId), loadArtifact,
     latestJob: async (context) => latestTicketVerificationAttempt({ projectRoot, taskId, context, policyVersion: POLICY_VERSION, matchRunnerRevision: false, loadJob: (id) => loadJson(jobPath(id)) }) });
   return Object.freeze({ runCheck, startTests, getTestResult, loadArtifact, assertPassedArtifact, ensurePassedArtifact, assertCleanWorktree, getFailureDiagnostic });
@@ -71,24 +72,38 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
     return { job_id: id, attempt: job.attempt, status: "running", started_at: job.started_at };
   }
 
-  // Returns a persisted job receipt so polling survives a process restart.
+  // Returns a persisted job or focused-check receipt so polling survives a process restart.
   async function getTestResult({ jobId, taskId: requestedTaskId } = {}) {
     if (requestedTaskId && requestedTaskId !== taskId) throw fail("TEST_JOB_FORBIDDEN", "Verification job belongs to another ticket.");
+    if (/^CHECK-[A-Za-z0-9-]+$/.test(jobId ?? "")) {
+      const check = await loadJson(checkPath(jobId));
+      if (!check) throw fail("TEST_JOB_NOT_FOUND", "Focused check receipt was not found.");
+      if (check.task_id && check.task_id !== taskId) throw fail("TEST_JOB_FORBIDDEN", "Focused check receipt belongs to another ticket.");
+      return { ...check, job_id: check.check_id, stdout_redacted: safeOutput(check.stdout), stderr_redacted: safeOutput(check.stderr) };
+    }
     if (!/^VERIFY-[A-Za-z0-9-]+$|^REUSE-ARTIFACT-[A-Za-z0-9-]+$/.test(jobId ?? "")) throw fail("TEST_JOB_NOT_FOUND", "Verification job ID is invalid.");
-    const job = await loadJson(jobPath(jobId));
+    let job = await loadJson(jobPath(jobId));
     if (!job) throw fail("TEST_JOB_NOT_FOUND", "Verification job was not found.");
+    if (job.task_id && job.task_id !== taskId) throw fail("TEST_JOB_FORBIDDEN", "Verification job belongs to another ticket.");
+    // Completion may persist its terminal receipt while this poll is reading the previous running receipt.
+    if (job.status === "running" && !jobs.has(jobId)) job = await loadJson(jobPath(jobId)) ?? job;
     if (job.status === "running" && !jobs.has(jobId)) { const interrupted = { ...job, status: "failed", error: { code: "VERIFY_INTERRUPTED", message: "Verification was interrupted; run it again." }, finished_at: new Date().toISOString() }; await saveJob(interrupted); return interrupted; }
+    if (job.artifact_id) {
+      const artifact = await loadJson(artifactPath(job.artifact_id));
+      if (artifact) return { ...job, stdout_redacted: safeOutput(artifact.stdout_redacted), stderr_redacted: safeOutput(artifact.stderr_redacted), commands: (artifact.commands ?? []).map((entry) => ({ kind: entry.kind, exit_code: entry.exit_code, stdout_redacted: safeOutput(entry.stdout_redacted), stderr_redacted: safeOutput(entry.stderr_redacted) })) };
+    }
     return job;
   }
 
   // Loads one immutable artifact by ID for report and review gates.
   async function loadArtifact(artifactId) { if (!/^ARTIFACT-[A-Za-z0-9-]+$/.test(artifactId ?? "")) throw fail("VERIFY_ARTIFACT_ID_INVALID", "Verification artifact ID is invalid."); return loadJson(artifactPath(artifactId)); }
 
-  // Rejects stale, failed, or mismatched evidence before a completion report.
+  // Rejects stale, failed, pre-commit, or mismatched evidence before a completion report.
   async function assertPassedArtifact() {
+    if (rootOnly && resumeReviewSource) await resumeReviewSource();
     const context = await executionContexts.load(taskId);
     const artifact = context?.verification_artifact_id ? await loadArtifact(context.verification_artifact_id) : null;
-    if (!artifact || artifact.status !== "passed" || artifact.commit_sha !== context.review_commit_sha || artifact.source_revision !== context.source_revision || artifact.manifest_sha !== context.manifest_sha || artifact.base_sha !== context.base_sha || JSON.stringify(artifact.verification_source ?? null) !== JSON.stringify(context.verification_source ?? null)) throw fail("VERIFY_ARTIFACT_MISMATCH", "A passed verification artifact for the current ticket commit is required.");
+    if (!artifact || artifact.pre_commit === true || !artifact.commit_sha || artifact.status !== "passed" || artifact.commit_sha !== context.review_commit_sha || artifact.source_revision !== context.source_revision || artifact.manifest_sha !== context.manifest_sha || artifact.base_sha !== context.base_sha || JSON.stringify(artifact.verification_source ?? null) !== JSON.stringify(context.verification_source ?? null)) throw fail("VERIFY_ARTIFACT_MISMATCH", "A passed verification artifact for the current ticket commit is required.");
     if (rootOnly && (artifact.policy_version !== POLICY_VERSION || !artifact.environment)) throw fail("VERIFY_ARTIFACT_MISMATCH", "Refresh verification using the current project environment policy.");
     if (artifact.environment) await loadVerificationEnvironment(projectRoot, artifact.environment);
     let policyPaths = context.manifest_paths;
@@ -103,8 +118,6 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
     await assertIdentity(context);
     return artifact;
   }
-
-
   // Rechecks the committed worktree during review while allowing only managed dependency links.
   async function assertCleanWorktree() {
     if (rootOnly) return;

@@ -33,6 +33,9 @@ test("runner keeps only file references observed with Forge tools", async () => 
   assert.doesNotMatch(calls[0].prompt, /Write ALL field values/);
   assert.match(calls[0].prompt, /workflows\/agents\/sprint-leader\/README\.md/);
   assert.match(calls[0].prompt, /Sprint Leader agent rules/);
+  assert.match(calls[0].prompt, /there is no fixed limit on Coder revision\/Reviewer cycles/);
+  assert.match(calls[0].prompt, /Older repository documents prescribing such caps are superseded/);
+  assert.doesNotMatch(calls[0].prompt, /independent-review requirement, retry limit/);
   assert.deepEqual(plan.tickets[0].implementation_type, ["backend"]);
   assert.equal(plan.id, "SPRINT-1");
   assert.equal(plan.tickets[0].candidate_files, undefined);

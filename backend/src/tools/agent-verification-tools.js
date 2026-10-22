@@ -47,7 +47,7 @@ export function createCommitChangesTool({ gitService, changeLedger, logger = cre
       const suppliedPaths = input.paths === undefined ? null : normalizeCommitPaths(input.paths);
       paths = changeLedger ? Object.keys((await changeLedger.snapshot()).entries) : resolveCommitPaths(context);
       if (suppliedPaths && !samePaths(suppliedPaths, paths)) throw error("SCOPE_INVALID", "The commit paths must exactly match the paths recorded by the ticket ledger.", { expected_paths: paths, supplied_paths: suppliedPaths });
-      if (paths.some((path) => !isAgentPathAllowed(path, context))) throw error("SCOPE_INVALID", "Ticket ledger contains a path outside the approved scope.");
+      if (paths.some((path) => !isAgentPathAllowed(path, context, { operation: "write" }))) throw error("SCOPE_INVALID", "Ticket ledger contains a path outside the approved scope.");
       if (!paths.length) throw error("SCOPE_INVALID", "No changed files to commit; write_diff/edit_diff must run first.");
     } catch (cause) {
       emit("rejected", context, { error_code: cause.code ?? "COMMIT_INPUT_INVALID", error: cause.message, duration_ms: Date.now() - started });
@@ -97,6 +97,6 @@ function resolveCommitPaths(context) {
   const allowed = context.allowed_file_paths ?? context.allowedFilePaths;
   const prefixes = context.allowed_prefixes ?? context.allowedPrefixes;
   if (paths.length && !Array.isArray(allowed) && !Array.isArray(prefixes)) throw error("SCOPE_INVALID", "Node-approved file scope is missing.");
-  if (paths.some((path) => !isAgentPathAllowed(path, context) || (context.agent_identity?.role === "coder" && path.startsWith("workflows/")))) throw error("SCOPE_INVALID", "Changed path is outside the Node-approved file scope.");
+  if (paths.some((path) => !isAgentPathAllowed(path, context, { operation: "write" }) || (context.agent_identity?.role === "coder" && path.startsWith("workflows/")))) throw error("SCOPE_INVALID", "Changed path is outside the Node-approved file scope.");
   return paths;
 }

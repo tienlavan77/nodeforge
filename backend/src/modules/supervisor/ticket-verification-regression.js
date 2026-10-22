@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { captureVerificationEnvironment } from "./ticket-verification-environment.js";
 import { materializeTicketVerification } from "./ticket-verification-materialization.js";
 import { browserCommandOutput } from "./browser-verification-evidence.js";
+import { verificationFailureIdentity } from "./verification-failure-identity.js";
 
 // Binds command output and failure identities to their recorded content.
 const digest = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
@@ -34,8 +35,8 @@ export function regressionFailureIdentity(command, output, cwd) {
     catch (error) { if (error instanceof SyntaxError) return null; throw error; }
     const summary = events.findLast((entry) => entry.type === "summary");
     const failures = events.filter((entry) => entry.type === "failure");
-    if (!summary || summary.failed < 1 || summary.cancelled !== 0 || !failures.length || failures.some((entry) => !entry.error?.message)) return null;
-    return digest(JSON.stringify(failures.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))));
+    if (!summary || summary.failed < 1 || summary.cancelled !== 0 || failures.length !== summary.failed || failures.some((entry) => !entry.error?.message)) return null;
+    return digest(JSON.stringify(failures.map(verificationFailureIdentity).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))));
   }
   return stdout.trim() || stderr.trim() ? digest(JSON.stringify([stdout, stderr])) : null;
 }

@@ -1,10 +1,6 @@
 // Let owners choose or add an admitted project before opening an Architecture workspace.
 "use client";
-// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
-import Link from "next/link";
 import { useEffect, useState, useSyncExternalStore } from "react";
-// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
-import { NodeForgeHeader } from "./NodeForgeHeader.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { Dialog } from "./Dialog.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
@@ -41,19 +37,39 @@ export function ProjectDirectory() {
   }
 
   return <div className="app-shell app-shell-control-room projects-directory-shell">
-    <NodeForgeHeader title="NODEFORGE" subtitle="Choose your workspace" project={null} actions={<Link className="history-button" href="/agents">Agents</Link>} />
-    <main className="agents-directory projects-directory" aria-label="Projects directory">
-      <div className="agents-directory-heading projects-directory-heading">
-        <div><p className="eyebrow">YOUR WORKSPACES</p><h1>Projects</h1><p className="projects-directory-description">Choose a project to open its Architecture workspace.</p></div>
-        <button className="history-button" type="button" onClick={load} disabled={loading}>{loading ? "Loading…" : "Refresh"}</button>
-      </div>
-      {error && <div className="projects-directory-error" role="alert"><strong>Could not load projects</strong><p>{error}</p><button className="history-button" type="button" onClick={load} disabled={loading}>Try again</button></div>}
-      {loading && !selection.projects.length && <p role="status" className="agents-directory-state">Loading projects…</p>}
-      {!loading && !error && !selection.projects.length && <p className="agents-directory-state">No projects yet. Add a project to get started.</p>}
-      <div className="agents-card-grid projects-card-grid">
-        {!error && selection.projects.map((project) => <ProjectCard key={project.project_id} project={project} />)}
-        <button className="agent-directory-card agent-add-card project-add-card" type="button" aria-label="Add project" onClick={() => { setFormError(""); setAdding(true); }}><span aria-hidden="true">＋</span><strong>Add project</strong><small>Open another workspace</small></button>
-      </div>
+    <main className="projects-directory" aria-label="Projects directory">
+      <section className="projects-stage" aria-labelledby="projects-brand-title">
+        <div className="projects-hero">
+          <div className="projects-brand-badge"><span className="projects-brand-mark" aria-hidden="true">N</span><span className="projects-brand-kicker"><i aria-hidden="true" />AI ENGINEERING CONTROL ROOM</span></div>
+          <h1 id="projects-brand-title">NodeForge</h1>
+          <p className="projects-hero-lead">Không gian phát triển phần mềm cùng đội ngũ AI — chọn một dự án để bắt đầu điều phối kiến trúc, sprint và mã nguồn.</p>
+        </div>
+        <div className="projects-workspace-panel" aria-label="Project workspaces">
+          <div className="projects-section-bar">
+            <span className="projects-section-label">ACTIVE WORKSPACES</span>
+            <span className="projects-section-count">{loading && !selection.projects.length ? "Syncing…" : `${selection.projects.length} project${selection.projects.length === 1 ? "" : "s"}`}</span>
+          </div>
+          {error && <div className="projects-directory-error" role="alert"><strong>Could not load projects</strong><p>{error}</p><button className="history-button" type="button" onClick={load} disabled={loading}>Try again</button></div>}
+          {loading && !selection.projects.length && <p role="status" className="agents-directory-state">Loading projects…</p>}
+          {!loading && !error && !selection.projects.length && <p className="agents-directory-state">No projects yet. Add a project to get started.</p>}
+          <div className="agents-card-grid projects-card-grid">
+            {!error && selection.projects.map((project) => <ProjectCard key={project.project_id} project={project} />)}
+            <button className="agent-directory-card agent-add-card project-add-card" type="button" aria-label="Add project" onClick={() => { setFormError(""); setAdding(true); }}><span aria-hidden="true">＋</span><strong>Add project</strong><small>Open another workspace</small></button>
+          </div>
+        </div>
+      </section>
+      <section className="projects-introduction" aria-labelledby="projects-introduction-title" lang="vi">
+        <div className="projects-introduction-header">
+          <span className="projects-intro-eyebrow">QUY TRÌNH KHÉP KÍN</span>
+          <h2 id="projects-introduction-title">Từ ý tưởng đến sản phẩm, trong một không gian.</h2>
+          <p>NodeForge kết nối trao đổi, lập kế hoạch và triển khai mã nguồn theo từng dự án. Bạn định hướng và phê duyệt; các agent phối hợp thực hiện với tiến độ và kết quả kiểm tra rõ ràng.</p>
+        </div>
+        <div className="projects-features">
+          <article className="projects-feature-card"><span className="projects-feature-step" aria-hidden="true">01</span><h3>Làm rõ ý tưởng</h3><p>Trao đổi với Architecture Manager để xác định phạm vi và xây dựng kế hoạch có thể xem xét trước khi triển khai.</p></article>
+          <article className="projects-feature-card"><span className="projects-feature-step" aria-hidden="true">02</span><h3>Phối hợp thực hiện</h3><p>Tổ chức công việc theo sprint và ticket, với các agent đảm nhiệm lập kế hoạch, viết mã và review.</p></article>
+          <article className="projects-feature-card"><span className="projects-feature-step" aria-hidden="true">03</span><h3>Theo dõi &amp; kiểm chứng</h3><p>Theo dõi hoạt động của agent, thay đổi Git và kết quả kiểm tra trong không gian riêng của mỗi project.</p></article>
+        </div>
+      </section>
     </main>
     <Dialog open={adding} onClose={() => { if (!saving) setAdding(false); }} labelledBy="project-add-title" panelStyle={{ width: "min(520px, calc(100vw - 32px))", borderRadius: 0, background: "var(--app-panel)" }}>
       <div className="agent-modal project-add-modal">

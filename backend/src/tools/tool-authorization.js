@@ -17,14 +17,19 @@ export function authorizeTool(toolName, context = {}) {
   return true;
 }
 
-// Keeps coder discovery and edits out of documentation regardless of a stale ticket allowlist.
-export function isCoderBlockedPath(path, context = {}) {
-  return context.agent_identity?.role === "coder" && typeof path === "string" && (path === "docs" || path.startsWith("docs/"));
+// Blocks Coder documentation writes unless explicitly authorized, while permitting read-only docs discovery.
+export function isCoderBlockedPath(path, context = {}, { operation = "read" } = {}) {
+  if (context.agent_identity?.role !== "coder" || typeof path !== "string") return false;
+  if (!(path === "docs" || path.startsWith("docs/"))) return false;
+  if (operation === "read") return false;
+  const files = context.allowed_file_paths ?? context.allowedFilePaths;
+  return !(Array.isArray(files) && files.includes(path));
 }
 
 // Checks a project path against the file and directory scope granted to the agent.
-export function isAgentPathAllowed(path, context = {}) {
-  if (isCoderBlockedPath(path, context)) return false;
+export function isAgentPathAllowed(path, context = {}, { operation = "read" } = {}) {
+  if (isCoderBlockedPath(path, context, { operation })) return false;
+  if (operation === "read" && context.agent_identity?.role === "coder" && typeof path === "string" && (path === "docs" || path.startsWith("docs/"))) return true;
   const files = context.allowed_file_paths ?? context.allowedFilePaths;
   const prefixes = context.allowed_prefixes ?? context.allowedPrefixes;
   if (!Array.isArray(files) && !Array.isArray(prefixes)) return true;

@@ -32,7 +32,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
     const candidateDiscoveryEnabled = selected.role !== "coder" && !directCode && !immutableScope;
     const targetPath = labMode?.target_path ?? null;
     const allowedPrefixes = immutableScope ? manifestPaths : [...new Set([...(labMode?.allowed_prefixes ?? []), ...ticketAllowedPrefixes(ticket), "backend/", "ui/", "schemas/", "web/"])];
-    const allowedFilePaths = [...new Set([...(immutableScope ? manifestPaths : ["backend/package.json", ...resumeLedgerPaths(request)]), "workflows/agents/coder/README.md", "AGENTS.md", "package.json", "vocabulary/glossary.md"])];
+    const allowedFilePaths = [...new Set([...(immutableScope ? manifestPaths : ["backend/package.json", ...resumeLedgerPaths(request)]), "workflows/agents/coder/README.md", "workflows/agents/reviewer/README.md", "AGENTS.md", "CLAUDE.md", "package.json", "vocabulary/glossary.md"])];
     const complexity = labMode ? { level: "moderate", ...COMPLEXITY_FALLBACK } : classifyTicketComplexity(ticket);
     if (!labMode && ticket.style?.includes("docs")) complexity.read_calls = Math.max(complexity.read_calls, 5);
     projectLogger({ event_name: "supervisor.ticket_complexity", level: "info", status: "success", message: `Ticket classified as ${complexity.level}.`, task_id: request.task_id, correlation_id: request.correlation_id, source: "nodeforge-task-integration", payload: { complexity_level: complexity.level, effort: complexity.effort, discovery_budget: complexity.discovery_budget, reasoning: complexity.reasoning } });
@@ -50,16 +50,16 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
       allow_discovery_escalation: true,
       lifecycle: "RUNNING", audit_context: { correlation_id: request.correlation_id }
     });
-    const toolContext = { ...context, project_root: projectRoot, execution_context: request.execution_context ?? null, ticket, task: ticket, task_context: ticket, changed_paths: [...resumeState.changedPaths], allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, lab_mode: Boolean(labMode), abortSignal: request.abortSignal, session_id: executionId, target_path: targetPath };
+    const toolContext = { ...context, project_id: request.project_id, project_root: projectRoot, execution_context: request.execution_context ?? null, ticket, task: ticket, task_context: ticket, changed_paths: [...resumeState.changedPaths], allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, lab_mode: Boolean(labMode), abortSignal: request.abortSignal, session_id: executionId, target_path: targetPath };
     const checkpointed = checkpointedRegistry({ store: checkpoints, registry: toolRegistry, taskId: request.task_id, targetPath, allowedPrefixes, complexity, selected, correlationId: request.correlation_id, resumeState, labMode: Boolean(labMode), projectLogger });
     const binding = selected.role === "coder" && !labMode ? bindEngineeringTools({ registry: checkpointed, context: toolContext }) : { registry: checkpointed, context: toolContext };
-    const mcpServers = { forge: createForgeSdkMcpServer({ registry: binding.registry, context: binding.context, includeCommit: true, includeClaudeFileTools: false, includeEngineeringTools: selected.role === "coder" && !labMode, excludeTools: ["respond_to_review", ...(candidateDiscoveryEnabled ? [] : ["select_code_graph_candidates"])] }) };
+    const mcpServers = { forge: createForgeSdkMcpServer({ registry: binding.registry, context: binding.context, includeCommit: true, includeClaudeFileTools: false, includeEngineeringTools: selected.role === "coder" && !labMode, excludeTools: [...(selected.role === "coder" && !labMode ? [] : ["respond_to_review"]), ...(candidateDiscoveryEnabled ? [] : ["select_code_graph_candidates"])] }) };
     let result;
     try {
       result = await claudeSdkGateway.execute({
         agentId: selected.agent_id, correlationId: request.correlation_id, cwd: projectRoot, abortSignal: request.abortSignal,
         options: createClaudeForgeOptions({ mcpServers, allowedTools: (selected.role === "coder" && !labMode ? [...CODER_FORGE_TOOL_NAMES] : forgeSdkToolNames).filter((name) => {
-          if (name === "mcp__forge__respond_to_review" || (!candidateDiscoveryEnabled && name === "mcp__forge__select_code_graph_candidates")) return false;
+          if ((name === "mcp__forge__respond_to_review" && (selected.role !== "coder" || labMode)) || (!candidateDiscoveryEnabled && name === "mcp__forge__select_code_graph_candidates")) return false;
           return !["mcp__forge__Read", "mcp__forge__Glob", "mcp__forge__Grep"].includes(name);
         }) }, { effort: complexity.effort, thinking: complexity.thinking }),
         resumeSessionId: resumeState.sessionId,
@@ -103,7 +103,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
     const candidateDiscoveryEnabled = selected.role !== "coder" && !directCode && !immutableScope;
     const targetPath = labMode?.target_path ?? null;
     const allowedPrefixes = immutableScope ? manifestPaths : [...new Set([...(labMode?.allowed_prefixes ?? []), ...ticketAllowedPrefixes(ticket), "backend/", "ui/", "schemas/", "web/"])];
-    const allowedFilePaths = [...new Set([...(immutableScope ? manifestPaths : ["backend/package.json", ...resumeLedgerPaths(request)]), "workflows/agents/coder/README.md", "AGENTS.md", "package.json", "vocabulary/glossary.md"])];
+    const allowedFilePaths = [...new Set([...(immutableScope ? manifestPaths : ["backend/package.json", ...resumeLedgerPaths(request)]), "workflows/agents/coder/README.md", "workflows/agents/reviewer/README.md", "AGENTS.md", "CLAUDE.md", "package.json", "vocabulary/glossary.md"])];
     const complexity = labMode ? { level: "moderate", ...COMPLEXITY_FALLBACK } : classifyTicketComplexity(ticket);
     if (!labMode && ticket.style?.includes("docs")) complexity.read_calls = Math.max(complexity.read_calls, 5);
     projectLogger({ event_name: "supervisor.ticket_complexity", level: "info", status: "success", message: `Ticket classified as ${complexity.level}.`, task_id: request.task_id, correlation_id: request.correlation_id, source: "nodeforge-task-integration", payload: { complexity_level: complexity.level, effort: complexity.effort, discovery_budget: complexity.discovery_budget, reasoning: complexity.reasoning } });
@@ -121,7 +121,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
       allow_discovery_escalation: true,
       lifecycle: "RUNNING", audit_context: { correlation_id: request.correlation_id }
     });
-    const toolContext = { ...context, project_root: projectRoot, execution_context: request.execution_context ?? null, ticket, task: ticket, task_context: ticket, changed_paths: [...resumeState.changedPaths], allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, lab_mode: Boolean(labMode), abortSignal: request.abortSignal, session_id: executionId, target_path: targetPath };
+    const toolContext = { ...context, project_id: request.project_id, project_root: projectRoot, execution_context: request.execution_context ?? null, ticket, task: ticket, task_context: ticket, changed_paths: [...resumeState.changedPaths], allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, lab_mode: Boolean(labMode), abortSignal: request.abortSignal, session_id: executionId, target_path: targetPath };
     const checkpointed = checkpointedRegistry({ store: checkpoints, registry: toolRegistry, taskId: request.task_id, targetPath, allowedPrefixes, complexity, selected, correlationId: request.correlation_id, resumeState, labMode: Boolean(labMode), projectLogger });
     const binding = selected.role === "coder" && !labMode ? bindEngineeringTools({ registry: checkpointed, context: toolContext }) : { registry: checkpointed, context: toolContext };
     const definitions = selected.role === "coder" && !labMode
@@ -190,6 +190,6 @@ function resumeLedgerPaths(request) {
   const context = request.execution_context;
   if (!request.payload?.resume_from || context?.task_id !== request.task_id || !Array.isArray(context.manifest_paths)) return [];
   return context.manifest_paths.filter((path) => typeof path === "string"
-    && /^(?:backend|schemas|ui|web)\/(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+$/.test(path)
-    && !path.split("/").includes("..") && !isProtectedPath(path, { operation: "write" }));
+    && /^(?:[A-Za-z0-9][A-Za-z0-9._-]*\/)*[A-Za-z0-9][A-Za-z0-9._-]*$/.test(path)
+    && !path.split("/").includes("node_modules") && !isProtectedPath(path, { operation: "write" }));
 }

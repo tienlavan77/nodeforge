@@ -2,6 +2,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { mergeConversationRevisions } from "./conversation-message-revisions.js";
 import { reconcileConversationHistory } from "./conversation-history-reconciliation.js";
+import { systemEngineerConversationEvent } from "./system-engineer-conversation-events.js";
 
 const PAGE_SIZE = 50;
 
@@ -118,6 +119,11 @@ export function useConversationMessageHistory({ client, projectId, chatMessagesR
   // Converts one persisted record to the display shape used by live events.
   function toMessage(record) {
     const content = record.content ?? {};
+    if (record.type === "agent.activity") {
+      const event = systemEngineerConversationEvent({ id: record.id, timestamp: record.timestamp,
+        payload: { ...content, conversation_id: record.conversation_id, correlation_id: record.correlation_id } }, agentDisplayName(record.agent_id, agentDirectoryRef.current));
+      if (event) return event;
+    }
     const text = typeof content === "string" ? content : content.text ?? content.content ?? "";
     const isOwner = record.kind === "owner";
     const originalId = isOwner && typeof content.supersedes_message_id === "string" ? content.supersedes_message_id : record.id;

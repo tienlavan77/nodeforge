@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": [],
   "properties": {
-    "status": { "type": "string", "enum": ["completed", "blocked"] },
+    "status": { "type": "string", "enum": ["completed", "blocked", "needs_context"] },
     "blocker": {
       "type": "object", "additionalProperties": false,
       "required": ["reason_code", "owner_action"],

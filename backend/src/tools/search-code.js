@@ -30,13 +30,13 @@ export function createSearchCodeTool({ codeSearch, codeCache, projectLogger = ()
     if (!["minimal", "summary", "graph"].includes(projection)) throw scopedError("SEARCH_PROJECTION_INVALID", "Search projection must be minimal, summary, or graph.");
     if (!SEARCH_KINDS.has(kind)) throw scopedError("SEARCH_KIND_INVALID", "Search kind must be file, symbol, or content.");
     if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) throw scopedError("SEARCH_LIMIT_INVALID", `Search limit must be an integer between 1 and ${MAX_LIMIT}.`);
-    if (requestedPrefixes.some((prefix) => isCoderBlockedPath(prefix, context) || !approvedPrefixes.some((approved) => isPrefixWithin(prefix, approved)))) throw scopedError("SEARCH_SCOPE_FORBIDDEN", "Search scope must be narrowed to Node-approved allowed_prefixes.");
+    if (requestedPrefixes.some((prefix) => isCoderBlockedPath(prefix, context, { operation: "read" }) || (!(context.agent_identity?.role === "coder" && (prefix === "docs" || prefix.startsWith("docs/"))) && !approvedPrefixes.some((approved) => isPrefixWithin(prefix, approved))))) throw scopedError("SEARCH_SCOPE_FORBIDDEN", "Search scope must be narrowed to Node-approved allowed_prefixes.");
     checkRetrievalBudget(context, query.length + limit * 500, "search_code");
     let searchResult;
     try { searchResult = await codeSearch.search(projection === "minimal" ? { query, kind, limit } : { query, kind, limit, projection }); }
     catch (error) { throw scopedError("SEARCH_BACKEND_ERROR", "Forge Code Search failed.", error); }
     const matches = (Array.isArray(searchResult?.matches) ? searchResult.matches : [])
-      .filter((match) => isPathAllowed(match?.node?.path, requestedPrefixes) && !isIgnoredPath(match?.node?.path) && !isCoderBlockedPath(match.node.path, context))
+      .filter((match) => isPathAllowed(match?.node?.path, requestedPrefixes) && !isIgnoredPath(match?.node?.path) && !isCoderBlockedPath(match.node.path, context, { operation: "read" }))
       .map((match) => toMetadata(match, kind, projection, requestedPrefixes)).slice(0, limit);
     if (codeCache && matches.length) {
       let cached;

@@ -26,15 +26,20 @@ export function createTicketExecutionContextStore({ fileService, projectId, proj
     catch (error) { if (error.code === "ENOENT") return null; throw error; }
   }
 
-  // Rejects writes outside the approved source scope before the root ledger changes a file.
+  // Rejects writes outside the approved source scope or authorized create prefixes before the root ledger changes a file.
   async function assertApprovedPath(taskId, path) {
     const current = await load(taskId);
     if (!current) throw fail("TICKET_CONTEXT_MISSING", "Ticket context does not exist.");
-    if (current.approved_baseline && !Object.hasOwn(current.approved_baseline.file_checksums, path)) throw fail("TICKET_BASELINE_SCOPE", "Ticket write path is outside the approved baseline manifest.");
+    if (!isBaselinePathAuthorized(current, path)) throw fail("TICKET_BASELINE_SCOPE", "Ticket write path is outside the approved baseline manifest.");
+    const budget = current.mutable_file_budget ?? current.approved_baseline?.mutable_file_budget ?? null;
+    if (Number.isInteger(budget) && budget > 0) {
+      const tracked = new Set([...(current.manifest_paths ?? []), path]);
+      if (tracked.size > budget) throw fail("TICKET_FILE_BUDGET_EXCEEDED", "Ticket write path exceeds the mutable file budget.");
+    }
   }
 
   // Creates the context once before dispatch, rejecting a changed owner or baseline.
-  async function create({ taskId, supervisorId, baseSha, baseline = null, verificationPlan = null }) {
+  async function create({ taskId, supervisorId, baseSha, baseline = null, verificationPlan = null, authorizedCreatePrefixes = null, mutableFileBudget = null }) {
     if (!supervisorId || !/^[a-f0-9]{40,64}$/i.test(baseSha ?? "")) throw fail("TICKET_CONTEXT_INPUT", "Context requires Supervisor ownership and a Git baseline SHA.");
     return locked(taskId, async () => {
       const existing = await load(taskId);
@@ -44,7 +49,7 @@ export function createTicketExecutionContextStore({ fileService, projectId, proj
       }
       const now = new Date().toISOString();
       const identity = manifestIdentity({ revision: 0, entries: {} });
-      const record = { task_id: taskId, project_id: projectId, supervisor_id: supervisorId, base_sha: baseSha, execution_root: "project-root", ...(baseline ? { approved_baseline: baseline } : {}), ...(verificationPlan ? { verification_plan: structuredClone(verificationPlan) } : {}), source_revision: identity.source_revision, manifest_paths: [], manifest_sha: identity.manifest_sha, verification_artifact_id: null, review_commit_sha: null, state: "created", version: 1, created_at: now, updated_at: now };
+      const record = { task_id: taskId, project_id: projectId, supervisor_id: supervisorId, base_sha: baseSha, execution_root: "project-root", ...(baseline ? { approved_baseline: baseline } : {}), ...(verificationPlan ? { verification_plan: structuredClone(verificationPlan) } : {}), ...(Array.isArray(authorizedCreatePrefixes) ? { authorized_create_prefixes: [...authorizedCreatePrefixes] } : {}), ...(Number.isInteger(mutableFileBudget) ? { mutable_file_budget: mutableFileBudget } : {}), source_revision: identity.source_revision, manifest_paths: [], manifest_sha: identity.manifest_sha, verification_artifact_id: null, review_commit_sha: null, state: "created", version: 1, created_at: now, updated_at: now };
       await fileService.atomicWrite({ path: pathFor(taskId), content: `${JSON.stringify(record)}\n`, replace: false });
       log("created", record);
       return record;
@@ -73,7 +78,9 @@ export function createTicketExecutionContextStore({ fileService, projectId, proj
     return locked(taskId, async () => {
       const current = await load(taskId);
       if (!current) throw fail("TICKET_CONTEXT_MISSING", "Ticket context does not exist.");
-      if (current.approved_baseline && Object.keys(manifest.entries).some((path) => !(path in current.approved_baseline.file_checksums))) throw fail("TICKET_BASELINE_SCOPE", "Ticket ledger includes a path outside the approved baseline manifest.");
+      if (Object.keys(manifest.entries).some((path) => !isBaselinePathAuthorized(current, path))) throw fail("TICKET_BASELINE_SCOPE", "Ticket ledger includes a path outside the approved baseline manifest.");
+      const budget = current.mutable_file_budget ?? current.approved_baseline?.mutable_file_budget ?? null;
+      if (Number.isInteger(budget) && budget > 0 && Object.keys(manifest.entries).length > budget) throw fail("TICKET_FILE_BUDGET_EXCEEDED", "Ticket ledger exceeds the mutable file budget.");
       if (current.source_revision === identity.source_revision && current.manifest_sha === identity.manifest_sha) return current;
       if (["integrating", "terminal"].includes(current.state)) throw fail("TICKET_CONTEXT_FROZEN", "Ticket manifest is frozen.");
       const next = { ...current, ...identity, state: "coding", verification_artifact_id: null, review_commit_sha: null, verification_source: null, version: current.version + 1, updated_at: new Date().toISOString() };
@@ -81,6 +88,18 @@ export function createTicketExecutionContextStore({ fileService, projectId, proj
       log("manifest_synced", next);
       return next;
     });
+  }
+
+  // Checks whether a path is in the baseline manifest or within an authorized create prefix.
+  function isBaselinePathAuthorized(current, path) {
+    if (typeof path !== "string" || !path || path.startsWith("/") || path.includes("\\") || path.split("/").some((part) => !part || part === "." || part === "..")) return false;
+    const prefixes = current.authorized_create_prefixes ?? current.approved_baseline?.authorized_create_prefixes ?? [];
+    const inPrefix = Array.isArray(prefixes) && prefixes.some((prefix) => {
+      const clean = String(prefix).replace(/\/+$/, "");
+      return clean && (path === clean || path.startsWith(`${clean}/`));
+    });
+    if (!current.approved_baseline) return true;
+    return Object.hasOwn(current.approved_baseline.file_checksums ?? {}, path) || inPrefix;
   }
 
   // Hashes sorted path and before/after identities so replay produces the same revision.
@@ -112,6 +131,14 @@ export async function prepareTicketExecutionContext({ workspace, taskId, supervi
   const manifest = await workspace.changeLedger.snapshot();
   const baseline = ticket?.rollout_package === "A5" ? await verifyTicketBaseline({ workspace, taskId, supervisorId, ticket, existing }) : null;
   if (!existing && (manifest.revision > 0 || Object.keys(manifest.commits).length)) throw fail("TICKET_CONTEXT_MIGRATION_REQUIRED", "Existing ticket changes require explicit context migration before dispatch.");
-  await workspace.executionContexts.create({ taskId, supervisorId, baseSha: workspace.base_commit, baseline, verificationPlan: ticket?.verification_plan ?? null });
+  await workspace.executionContexts.create({
+    taskId,
+    supervisorId,
+    baseSha: workspace.base_commit,
+    baseline,
+    verificationPlan: ticket?.verification_plan ?? null,
+    authorizedCreatePrefixes: ticket?.authorized_create_prefixes ?? ticket?.execution_contract?.authorized_create_prefixes ?? null,
+    mutableFileBudget: ticket?.mutable_file_budget ?? ticket?.execution_contract?.mutable_file_budget ?? null
+  });
   return workspace.executionContexts.syncManifest(taskId, manifest);
 }

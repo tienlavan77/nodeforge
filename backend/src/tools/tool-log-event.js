@@ -45,6 +45,11 @@ export function formatToolLogEvent(status, tool, input, context, extra) {
       Object.assign(payload, extra.error.details);
     }
   }
+  if (status === "success" && tool === "query_review") payload.review_query = {
+    action: input.action, kind: extra.result?.kind ?? input.kind, id: extra.result?.id ?? input.id,
+    revision: extra.result?.revision, snapshot: extra.result?.snapshot, record_sha256: extra.result?.record_sha256,
+    complete: extra.result?.complete, record_count: extra.result?.records?.length, offset: extra.result?.offset
+  };
   if (status === "success" && ["Read", "Glob", "Grep"].includes(tool)) payload.result = { count: resultCount(tool, extra.result) ?? 0, truncated: extra.result?.truncated === true };
   const detail = status === "success" ? discoveryDetail(tool, input, extra.result) : null;
   if (detail) {

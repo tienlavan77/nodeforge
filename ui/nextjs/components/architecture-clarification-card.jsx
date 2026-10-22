@@ -44,7 +44,7 @@ export function ArchitectureClarificationCard({ session, onSave, onConfirm, onRe
     if (token) await act(() => onSave(session, next, notes, token));
   }
 
-  if (session.status === "completed") return null;
+  if (["completed", "cancelled"].includes(session.status)) return null;
   return <section className="architecture-clarification-card" aria-label="Architecture owner decisions">
     <h3>{session.status === "generation_failed" ? "Chưa tạo được plan" : "Architecture cần owner chốt quyết định"}</h3>
     <p className="architecture-clarification-source">Nguồn: <code>{session.source_path}</code> · {Object.keys(selections).length}/{questions.length} lựa chọn · {Object.keys(session.selections).length} đã lưu</p>

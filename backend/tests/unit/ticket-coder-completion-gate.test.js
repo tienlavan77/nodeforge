@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompletionReportService } from "../../src/modules/supervisor/completion-report-service.js";
 import { completeCoderTicket, finalizeCoderWorkspace } from "../../src/modules/supervisor/ticket-coder-completion.js";
+import { automaticReviewFixture } from "../fixtures/automatic-review-fixture.js";
 
 // Builds a workspace with a persisted report and tracks irreversible transitions.
 function workspaceWithReport(status) {
@@ -57,4 +58,48 @@ test("failed report_done cannot complete or request Human Review", async () => {
   const { workspace, actions } = workspaceWithReport("verified");
   await assert.rejects(completeCoderTicket({ workspace, result: { tool_events: [{ tool: "report_done", status: "failed" }] } }), { code: "AGENT_REPORT_MISSING" });
   assert.deepEqual(actions, []);
+});
+
+// Reuses the durable report after evidence-only delivery while retaining artifact and coverage gates.
+test("response-only completion validates the retained report instead of requiring another report_done", async () => {
+  for (const status of ["verified", "evidence_pending"]) {
+    const { workspace, actions } = workspaceWithReport(status);
+    const events = [];
+    const result = await completeCoderTicket({ workspace, agentOccupancy: { release: async () => {} },
+      claim: { claim_id: "CLAIM" }, taskId: "TICKET-2", ownerId: "SUP",
+      request: { request_id: "REQ", ticket: { execution_policy: { review_gate: "off" } } },
+      publishTicketOutcome: async (type) => { events.push(type); },
+      result: { tool_events: [{ tool: "respond_to_review", status: "success" }] } });
+    assert.equal(result.status, status === "verified" ? "completed" : "failed");
+    assert.equal(actions.includes("integrate"), status === "verified");
+    assert.deepEqual(events, [status === "verified" ? "task.completed" : "task.failed"]);
+  }
+});
+
+// A response delivery never creates a missing Coder report or bypasses verification.
+test("failed responses and absent durable reports cannot complete evidence-only delivery", async () => {
+  const { workspace, actions } = workspaceWithReport("verified");
+  await assert.rejects(completeCoderTicket({ workspace,
+    result: { tool_events: [{ tool: "respond_to_review", status: "failed" }] } }), { code: "AGENT_REPORT_MISSING" });
+  workspace.reportService = { ...workspace.reportService,
+    assertCoderReport: async () => { throw Object.assign(new Error("Report unavailable"), { code: "REPORT_MISSING" }); } };
+  await assert.rejects(completeCoderTicket({ workspace, taskId: "TICKET-2", ownerId: "SUP",
+    agentOccupancy: { release: async () => {} }, claim: { claim_id: "CLAIM" },
+    request: { ticket: { execution_policy: { review_gate: "off" } } }, publishTicketOutcome: async () => {},
+    result: { tool_events: [{ tool: "respond_to_review", status: "success" }] } }), { code: "REPORT_MISSING" });
+  assert.equal(actions.includes("integrate"), false);
+});
+
+// Sends evidence-only responses through independent approval before the retained source can integrate.
+test("a successful response-only turn still runs the independent Reviewer before integration", async () => {
+  const fixture = automaticReviewFixture();
+  const request = fixture.request;
+  const result = await completeCoderTicket({ request, workspace: fixture.workspace, taskId: request.task_id,
+    ownerId: request.supervisor_id, claim: { claim_id: "CLAIM" }, agentOccupancy: { release: async () => {} },
+    automaticReview: fixture.service, result: { summary: "Retained finding evidence", tool_events: [{ name: "respond_to_review", status: "success" }] },
+    publishTicketOutcome: async () => {} });
+  assert.equal(result.status, "completed");
+  assert.equal(fixture.calls, 1);
+  assert.equal(fixture.integrations, 1);
+  assert(fixture.order.indexOf("review.approved") < fixture.order.indexOf("integrate"));
 });

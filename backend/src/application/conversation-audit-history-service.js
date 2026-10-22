@@ -1,5 +1,6 @@
 import { ConfigurationError } from "../shared/errors.js";
 import { resolveConversationMessageRole } from "../agents/agent-contract.js";
+import { redactSystemEngineerEvent } from "../shared/system-engineer-event-redaction.js";
 
 // Summary: Projects communication messages as full chat history with user/agent roles.
 const SENSITIVE = /(?:api[_-]?key|credential|secret|password|token|authorization)/i;
@@ -28,10 +29,11 @@ export function createConversationAuditHistoryService({ communications, eventSto
       ? communications.getByConversationId(conversationId)
       : communications.getAll().filter((message) => projectId === undefined || message.project_id === projectId || message.project_id === undefined);
     const records = [
-      ...conversationMessages.map(messageRecord),
+      ...conversationMessages.filter((message) => projectId === undefined || message.project_id === projectId || message.project_id === undefined).map(messageRecord),
     ...(eventStore?.getAll() ?? []).filter((event) => projectId === undefined || (event.project_id ?? event.metadata?.project_id) === projectId).map(eventRecord),
       ...(projectId === undefined ? [] : (history?.getByProject(projectId) ?? []).map(historyRecord))
-    ].filter((record) => matches(record, { agentId, conversationId, correlationId, type }) && (!chatOnly || record.kind === "owner" || record.kind === "failure" || record.type === "owner.command.result" || record.type.endsWith(".message.received")))
+    ].filter((record) => matches(record, { agentId, conversationId, correlationId, type }) && (!chatOnly || record.kind === "owner" || record.kind === "failure" || record.type === "owner.command.result" || record.type.endsWith(".message.received")
+      || record.type === "agent.activity" && record.content?.agent_role === "system_engineer" && record.content?.sdk_event))
       .sort((left, right) => left.timestamp.localeCompare(right.timestamp) || left.sequence - right.sequence);
     const ordered = order === "desc" ? [...records].reverse() : records;
     const start = cursor === undefined ? 0 : Number(cursor);
@@ -44,7 +46,7 @@ export function createConversationAuditHistoryService({ communications, eventSto
 function messageRecord(message, index) {
   return {
     id: message.id, kind: classifyMessage(message), role: roleForMessage(message), author: message.sender?.id ?? null, sequence: index, timestamp: message.timestamp,
-    agent_id: message.sender.id, sender: message.sender.id, sender_role: message.sender?.role ?? null, receiver: message.recipient.id,
+    agent_id: message.message_type === "agent.activity" && message.payload?.agent_role === "system_engineer" ? message.payload.agent_id : message.sender.id, sender: message.sender.id, sender_role: message.sender?.role ?? null, receiver: message.recipient.id,
     conversation_id: message.conversation_id ?? null, correlation_id: message.correlation_id ?? null,
     type: message.message_type, content: redact(message.payload)
   };
@@ -99,6 +101,7 @@ function classifyEvent(event) {
 
 // Redacts sensitive fields from audit payloads.
 function redact(value) {
+  if (value?.agent_role === "system_engineer" && value.sdk_event && typeof value.sdk_event === "object") return redactSystemEngineerEvent(value);
   if (Array.isArray(value)) return value.map(redact);
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, SENSITIVE.test(key) ? "[REDACTED]" : redact(item)]));

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createNodeforgeTaskExecutors } from "../../src/modules/supervisor/nodeforge-task-executors.js";
-import { ENGINEERING_TOOL_NAMES, CODER_TOOL_NAMES, engineeringToolDefinitions } from "../../src/tools/engineering-tool-catalog.js";
+import { CODER_TOOL_NAMES, engineeringToolDefinitions } from "../../src/tools/engineering-tool-catalog.js";
 import { createRuntimeToolGovernance } from "../../src/modules/governance/runtime-tool-governance.js";
 import { createReadFileTool } from "../../src/tools/agent-lifecycle-tools.js";
 import { checkpointedRegistry, createResumeState } from "../../src/modules/supervisor/ticket-resume.js";
@@ -10,7 +10,7 @@ import { checkpointedRegistry, createResumeState } from "../../src/modules/super
 // Creates a provider boundary fixture without launching models or mutating a live ticket.
 function fixture(governance) {
   const requests = {};
-  const registry = Object.fromEntries([...ENGINEERING_TOOL_NAMES, "search_code", "run_test", "check_test", "report_done"].map((name) => [name, { execute: async () => ({ content: "source", exit_code: 0 }) }]));
+  const registry = Object.fromEntries([...CODER_TOOL_NAMES, "search_code", "run_test", "check_test"].map((name) => [name, { execute: async () => ({ content: "source", exit_code: 0 }) }]));
   const executors = createNodeforgeTaskExecutors({ projectRoot: process.cwd(), projectLogger: () => {}, toolRegistry: registry,
     runtimeGovernance: governance ?? { createExecutionContext: (context) => context },
     claudeSdkGateway: { execute: async (request) => {
@@ -39,6 +39,16 @@ test("Claude and Codex ticket executors expose the System Engineer catalog with 
   for (const definition of engineeringToolDefinitions()) assert.deepEqual(requests.codex.options.forgeTools.definitions.find(({ name }) => name === definition.name).input_schema, definition.input_schema);
   assert.equal(requests.claude.options.tools.length, 0);
   assert.equal(requests.codex.options.sandboxMode, "read-only");
+  const response = { responses: [{ finding_id: "REV-2", position: "dispute", rationale: "Existing source is already verified", files: [], evidence_refs: ["ARTIFACT-1"] }],
+    review_commit_sha: "a".repeat(40), artifact_id: "ARTIFACT-1", source_revision: "sha256:source", idempotency_key: "RESPONSE-1" };
+  assert.ok(requests.codex.options.forgeTools.context.capabilities.includes("respond_to_review"));
+  await requests.codex.options.forgeTools.registry.respond_to_review.execute(response);
+  const callTool = requests.claude.options.mcpServers.forge.instance.server._requestHandlers.get("tools/call");
+  const delivered = await callTool({ method: "tools/call", params: { name: "respond_to_review", arguments: response } }, {});
+  assert.notEqual(delivered.isError, true);
+  const invalidReport = await callTool({ method: "tools/call", params: { name: "report_done", arguments: { status: "blocked", summary: "Missing blocker evidence" } } }, {});
+  assert.equal(invalidReport.isError, true);
+  assert.match(invalidReport.content[0].text, /TOOL_INPUT_INVALID/);
   for (const provider of ["claude", "codex"]) assert.doesNotMatch(requests[provider].prompt, /\b(?:Glob|Grep|sed_lines|rg_files|rg_search)\b/);
   await requests.codex.options.forgeTools.registry.push_commit.execute({ commit_sha: "a".repeat(40) });
   for (const type of ["command_execution", "file_change", "local_shell_call"]) await assert.rejects(requests.codex.onEvent({ type: "item.started", item: { type } }), { code: "TOOL_FORBIDDEN" });

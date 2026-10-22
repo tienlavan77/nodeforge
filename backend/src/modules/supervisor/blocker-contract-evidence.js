@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { sameExecutionPlan } from "../projects/ticket-execution-identity.js";
+import { contractContinuation } from "./blocker-contract-continuation.js";
 
 const ROOT = ".forge/runtime/blocker-contract-decisions";
 
@@ -32,18 +33,20 @@ export async function retainBlockerContract({ job, checkpoint, fileService }) {
 }
 
 // Loads immutable receipts against the exact project, ticket, execution and Sprint being reviewed or reconciled.
-export async function readBlockerContracts({ receipts = [], fileService, binding }) {
+export async function readBlockerContracts({ receipts = [], fileService, binding, allowContinuation = false }) {
   const records = [];
   for (const receipt of receipts) {
     if (!/^[a-f0-9]{64}$/.test(receipt.sha256 ?? "") || receipt.path !== `${ROOT}/${receipt.sha256}.json`) throw failure("Invalid AM contract receipt reference.");
     const content = await fileService.readFile({ path: receipt.path });
     if (digest(content) !== receipt.sha256) throw failure("AM contract receipt checksum changed.");
     const record = JSON.parse(content);
-    if (["project_id", "task_id", "execution_id"].some((field) => record[field] !== binding[field])
-      || !matchesContractSprint(record.sprint_basis, binding.sprint_basis)
+    if (["project_id", "task_id"].some((field) => record[field] !== binding[field])
       || record.validation_status !== "validated_technical_contract" || record.disposition?.authority_scope !== "architecture"
       || record.disposition.action !== "resolved" || record.actor && record.actor.role !== "architecture_manager") throw failure("AM contract receipt belongs to another authority or execution.");
-    records.push({ path: receipt.path, sha256: receipt.sha256, record });
+    const exact = record.execution_id === binding.execution_id && matchesContractSprint(record.sprint_basis, binding.sprint_basis);
+    const continuation = !exact && allowContinuation ? await contractContinuation({ record, binding, fileService }) : null;
+    if (!exact && !continuation) throw failure("AM contract receipt cannot be inherited: execution or approved ticket scope changed.");
+    records.push({ path: receipt.path, sha256: receipt.sha256, record, ...(continuation ? { continuation } : {}) });
   }
   return records;
 }

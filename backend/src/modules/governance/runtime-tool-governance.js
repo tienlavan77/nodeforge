@@ -60,7 +60,8 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     const normalized = resolveContext(context);
     assertActive(normalized);
     if (!normalized.capabilities.includes(toolName)) throw governanceError("TOOL_FORBIDDEN", `Agent is not authorized to use ${toolName}.`);
-    for (const item of resourceList(resource)) if (!resourceAllowed(item, normalized.allowed_resources)) throw governanceError("TOOL_RESOURCE_FORBIDDEN", `Resource is outside the execution allowlist: ${item}.`);
+    const operation = EDIT_TOOLS.has(toolName) ? "write" : "read";
+    for (const item of resourceList(resource)) if (!resourceAllowed(item, normalized.allowed_resources, { operation, role: normalized.agent_identity?.role })) throw governanceError("TOOL_RESOURCE_FORBIDDEN", `Resource is outside the execution allowlist: ${item}.`);
     return true;
   }
 
@@ -146,7 +147,7 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     if (toolName === "commit_changes" || toolName === "push_commit" || toolName === "report_done" || toolName === "respond_to_review") return execute(input, buildToolContext(context, normalized, contexts));
     const reservation = await reserveRetrieval(normalized, { tool: toolName, resource, estimatedBytes: input?.max_chars ?? input?.maxChars ?? 0 });
     try {
-      if (DISCOVERY_TOOLS.has(toolName)) assertDiscoveryBudget(normalized, discoveryKind(toolName));
+      if (DISCOVERY_TOOLS.has(toolName)) assertDiscoveryBudget(normalized, discoveryKind(toolName), input);
       const result = await execute(input, buildToolContext(context, normalized, contexts));
       if (EDIT_TOOLS.has(toolName)) markEditStarted(normalized);
       const bytes = Buffer.byteLength(JSON.stringify(result ?? ""), "utf8");

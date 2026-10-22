@@ -1,14 +1,23 @@
+// Bind SDK and supervisor activity to the owning project before live delivery or conversation persistence.
+import { ConfigurationError } from "../src/shared/errors.js";
+
 export function createUnifiedStreamPublisher({ unifiedStreamOrder, internalBus, bus, projectId, logEvent, logger = console } = {}) {
   let sequence = 0;
 
   return function publishUnifiedStreamEvent(event) {
-    const ordered = unifiedStreamOrder.assign(event);
-    internalBus.emit(ordered.event_type, ordered);
-    internalBus.emit("event", ordered);
+    if ([event.project_id, event.metadata?.project_id, event.payload?.project_id].some((identity) => identity !== undefined && identity !== projectId)) {
+      throw Object.assign(new ConfigurationError("Unified stream event belongs to a different project."), { code: "PROJECT_CONTEXT_CONFLICT", statusCode: 409 });
+    }
+    let ordered = unifiedStreamOrder.assign({ ...event, project_id: projectId });
+    const fullSeEvent = ordered.event_type === "agent.activity" && ordered.payload?.agent_role === "system_engineer" && ordered.payload?.sdk_event;
+    if (!fullSeEvent) {
+      internalBus.emit(ordered.event_type, ordered);
+      internalBus.emit("event", ordered);
+    }
     const conversationId = ordered.payload?.conversation_id;
     if (!conversationId) return ordered;
     try {
-      bus.send({
+      const persisted = bus.send({
         id: `MSG-UNIFIED-${ordered.task_id ?? "EVENT"}-${Date.now()}-${++sequence}`,
         project_id: projectId,
         sender: { id: "NODE", role: "node" },
@@ -19,6 +28,8 @@ export function createUnifiedStreamPublisher({ unifiedStreamOrder, internalBus, 
         payload: { ...ordered.payload, task_id: ordered.task_id, sequence: ordered.sequence },
         timestamp: ordered.timestamp
       });
+      if (ordered.payload?.sdk_event?.type === "conversation_turn" && persisted?.payload) ordered = { ...ordered,
+        payload: { ...ordered.payload, sdk_event: persisted.payload.sdk_event, sdk_sequence: persisted.payload.sdk_sequence } };
     } catch (error) {
       const detail = String(error?.message ?? error).slice(0, 2000);
       try {
@@ -31,6 +42,11 @@ export function createUnifiedStreamPublisher({ unifiedStreamOrder, internalBus, 
       } catch (logError) {
         logger.error?.(`[unified-stream] delivery failed: ${detail}; log failed: ${logError.message}`);
       }
+      if (fullSeEvent) throw error;
+    }
+    if (fullSeEvent) {
+      internalBus.emit(ordered.event_type, ordered);
+      internalBus.emit("event", ordered);
     }
     return ordered;
   };

@@ -1,5 +1,6 @@
 // Defines one versioned engineering tool contract while keeping authority in Node-issued execution policy.
-import { readFileDefinition, writeDiffDefinition, editDiffDefinition, gitStatusDefinition, gitDiffDefinition, reportDoneDefinition } from "./index.js";
+import { queryReviewDefinition } from "./query-review-tool.js";
+import { readFileDefinition, writeDiffDefinition, editDiffDefinition, gitStatusDefinition, gitDiffDefinition, reportDoneDefinition, respondToReviewDefinition } from "./index.js";
 import { rgFilesDefinition, rgSearchDefinition, sedLinesDefinition } from "./agent-command-tools.js";
 import { ownerSearchTreeDefinition } from "./owner-search-tree.js";
 import { runCheckDefinition, commitChangesDefinition, pushCommitDefinition } from "./owner-engineer-tools.js";
@@ -9,7 +10,7 @@ export { ENGINEERING_CATALOG_VERSION, ENGINEERING_TOOL_NAMES, ENGINEERING_ALIASE
 
 // Adds ticket completion to the same engineering tools supplied to System Engineer.
 export function coderToolDefinitions() {
-  return [...engineeringToolDefinitions(), reportDoneDefinition];
+  return [...engineeringToolDefinitions(), reportDoneDefinition, respondToReviewDefinition, queryReviewDefinition];
 }
 
 // Returns provider-neutral descriptors without granting repository or ticket permissions.

@@ -4,6 +4,13 @@ import { ConfigurationError } from "../../shared/errors.js";
 // Enforces canonical guidance in legacy and strict reviews without inventing evidence for legacy strings.
 export function assertReviewFindingGuidance(value, { strict = false, paths, artifactId, findingIds, pendingResponses = [] } = {}) {
   value.findings.forEach((finding, index) => assertFinding(finding, index));
+  if (value.verdict === "approved" && value.findings.length) {
+    value.findings.forEach((finding, index) => {
+      if (!finding || typeof finding !== "object" || String(finding.severity ?? "").toLowerCase() !== "minor" || finding.defer_to_backlog !== true) {
+        invalid(`findings[${index}] cannot accompany verdict "approved" unless severity is "minor" and defer_to_backlog is true.`);
+      }
+    });
+  }
   value.findings.forEach((finding, index) => {
     if (finding.finding_id !== undefined && (!/^REV-[1-9][0-9]*$/.test(finding.finding_id)
       || findingIds && !findingIds.includes(finding.finding_id))) invalid(`findings[${index}].finding_id must copy an existing persisted REV-<number> ID; omit finding_id for a new finding. Known IDs: ${JSON.stringify(findingIds ?? [])}.`);

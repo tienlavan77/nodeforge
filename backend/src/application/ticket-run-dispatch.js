@@ -31,7 +31,8 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
     return { ticket_id: ticketId, status: "stopping" };
   }
   return dispatchTicket;
-  async function dispatchTicket({ projectId, ticketId, fresh = false, expectedSprintVersion, dependencyExpectations } = {}) {
+  async function dispatchTicket({ projectId, ticketId, fresh = false, expectedSprintVersion, dependencyExpectations, commitAuthorization } = {}) {
+    if (commitAuthorization && fresh) throw failure("COMMIT_AUTHORIZATION_SCOPE", "Commit consent resumes the retained checkpoint; fresh RUN is not allowed.");
     dependencyExpectations = dependencyExpectations === undefined ? undefined : structuredClone(dependencyExpectations);
     if (active.has(ticketId)) return { ticket_id: ticketId, status: "already_running", pipeline: "supervisor" };
     const controller = new AbortController();
@@ -57,7 +58,7 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
       const storedCheckpoint = await checkpoints.load?.(ticketId);
       if (!fresh && reconcileReviewDependencies && current?.details?.review_reopen) current = await reconcileReviewDependencies({ projectId, ticket, current,
         checkpoint: storedCheckpoint, dependencyExpectations, reviewCheckpoint: await checkpoints.loadReview?.(ticketId) });
-      if (!fresh && storedCheckpoint?.status === "blocked" && coderRecovery?.resumeTicket) {
+      if (!commitAuthorization && !fresh && storedCheckpoint?.status === "blocked" && coderRecovery?.resumeTicket) {
         const retry = await coderRecovery.resumeTicket({ projectId, ticketId, ticket });
         if (retry) return retry;
       }
@@ -76,8 +77,9 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
         return await blockerRecovery.fulfillOwnerDecision({ projectId, ticketId });
       }
       if (!fresh && storedCheckpoint?.status === "blocked" && ["cancelled", "reconciliation_required"].includes(storedCheckpoint.blocker_recovery?.status) && typeof blockerRecovery?.resumeTicket === "function") {
-        return await blockerRecovery.resumeTicket({ projectId, ticketId });
+        return await blockerRecovery.resumeTicket({ projectId, ticketId, ...(commitAuthorization ? { commitAuthorization } : {}) });
       }
+      if (commitAuthorization) throw failure("COMMIT_AUTHORIZATION_SCOPE", "Commit consent requires a retained blocker recovery checkpoint.");
       const stoppedCheckpoint = storedCheckpoint?.failure?.code === "TICKET_STOPPED"
         && (!storedCheckpoint.blocker_recovery || storedCheckpoint.blocker_recovery.status === "resolved");
       if (storedCheckpoint?.status === "blocked" && !storedCheckpoint.blocker_recovery?.owner_decision && !stoppedCheckpoint) throw failure("TICKET_APPROVAL_REQUIRED", "Coder checkpoint requires a human decision before this ticket can run again.");

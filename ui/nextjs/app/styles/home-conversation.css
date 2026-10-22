@@ -68,6 +68,14 @@
 .conversation-formatted-message { min-width: 0; max-width: 100%; }
 .conversation-format-toggle { margin-bottom: 8px; border: 1px solid var(--app-border); border-radius: 6px; background: var(--app-surface-alt); color: var(--app-muted); padding: 3px 8px; font: 11px 'DM Mono', monospace; cursor: pointer; }
 .conversation-plaintext { margin: 0; max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; color: var(--app-text); }
+.system-engineer-event { margin: 0; font: 12px/1.6 'DM Mono', monospace; }
+.system-engineer-event-value { margin: 0; max-height: 11.2em; overflow: auto; border-left: 1px solid var(--app-border); white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.system-engineer-command { margin-block: 12px; min-width: 0; border: 0; background: transparent; padding: 0 12px; font: 12px 'DM Mono', monospace; font-size: 12px !important; }
+.system-engineer-command summary { display: flex; align-items: center; gap: 8px; list-style: none; cursor: pointer; color: var(--app-muted); font: inherit; font-size: 12px !important; }
+.system-engineer-command summary::-webkit-details-marker { display: none; }
+.system-engineer-command-dot { display: inline-block; flex: 0 0 6px; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.system-engineer-command[open] summary { margin-bottom: 6px; }
+.system-engineer-command .system-engineer-event-value { padding-left: 15px; font: 12px/1.6 'DM Mono', monospace; font-size: 12px !important; }
 .claude-message .markdown-preview-content--conversation { color: var(--app-text); }
 .conversation-markdown-badge { justify-self: start; border: 1px solid var(--app-border); border-radius: 999px; padding: 2px 8px; color: var(--app-muted); font: 10px 'DM Mono', monospace; }
 .conversation-markdown-export-status { margin: 4px 0; color: var(--app-muted); font: 11px 'DM Mono', monospace; overflow-wrap: anywhere; }

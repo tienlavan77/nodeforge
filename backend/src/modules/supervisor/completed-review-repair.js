@@ -1,4 +1,5 @@
 // Hands retained review findings to Coder and the existing blocking review/integration pipeline.
+import { currentReviewFindings } from "./review-query-records.js";
 import { restoreCompletedReviewFindings } from "./completed-review-findings.js";
 import { createHash } from "node:crypto";
 import { assertReviewRequestOwnership } from "./recovery-evidence.js";
@@ -14,13 +15,14 @@ export async function dispatchCompletedReviewRepair({ job, prior, workspace, cur
     const finding = entry.finding ?? entry;
     return String(finding.severity).toLowerCase() === "blocker" || baseline && (finding.files ?? []).some((path) => !Object.hasOwn(baseline, path));
   })) throw failure("REVIEW_OWNER_DECISION_REQUIRED", "Finding requires a scope or safety decision before Coder repair.");
+  const references = currentReviewFindings(findings, await workspace.reviewFindings?.loadQuery?.());
   const cycleId = createHash("sha256").update(`${job.id}:${prior.request_id}`).digest("hex");
   const coder = await checkpoints.load(job.task_id);
   if (coder?.status !== "completed" && coder?.review_cycle_id !== cycleId) throw failure("REVIEW_REPAIR_SOURCE_CONFLICT", "Original completed Coder checkpoint is required.");
   assertReviewRequestOwnership(job, ticketStatusStore);
   const prepared = await workspace.beginReviewRepair({ binding: current.details.review_reopen, cycleId });
   await queueStore.save("review.repair", { id: cycleId, task_id: job.task_id, project_id: job.project_id, source_job_id: job.id, receipt: prepared.receipt, repair_consumed: true });
-  const resume = coder.review_cycle_id === cycleId ? coder : { ...coder, status: "in_progress", phase: "review_repair", review_findings: findings, review_cycle_id: cycleId,
+  const resume = coder.review_cycle_id === cycleId ? coder : { ...coder, status: "in_progress", phase: "review_repair", review_findings: references, review_cycle_id: cycleId,
     failure: null, failure_request_id: null, triage: null, blocker_recovery: null, completed_at: null, review_stage: null,
     attempt: (prior.attempt ?? 1) + 1, session_id: null, thread_id: null, changed_paths: [], completed_tools: [], read_cache: {}, coder_rules_read: false };
   await checkpoints.save(resume);
@@ -33,7 +35,7 @@ export async function dispatchCompletedReviewRepair({ job, prior, workspace, cur
   try { return await resumeRepair({ ticket: job.payload.ticket, task_id: job.task_id, project_id: job.project_id, attempt: resume.attempt,
     request_id: `REVIEW-REPAIR-${cycleId}`, correlation_id: `CORR-REVIEW-REPAIR-${cycleId}`,
     payload: { ...job.source_request.payload, execution_id: updated.details.execution_id, sprint_basis: updated.details.execution_basis,
-      dependency_expectations: updated.details.dependency_expectations, review_findings: findings, resume_from: resume, review_cycle_id: cycleId } });
+      dependency_expectations: updated.details.dependency_expectations, review_findings: references, resume_from: resume, review_cycle_id: cycleId } });
   } catch (error) {
     const failed = ticketStatusStore.get(job.task_id);
     if (failed?.status === "running" && failed.details.execution_id === updated.details.execution_id && !failed.details.launch_claim
