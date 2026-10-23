@@ -4,6 +4,7 @@ import { lstat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { ConfigurationError } from "../shared/errors.js";
 import { authorizeTool, isAgentPathAllowed } from "./tool-authorization.js";
+import { assertExecutionFileAccess } from "./execution-file-access.js";
 import { assertCoderWorkflowReadOnly, assertRoleFileAccess } from "../infrastructure/filesystem/file-service-role-policy.js";
 import { ENGINEERING_CATALOG_VERSION, coderToolDefinitions, engineeringToolDefinitions, engineeringToolReadiness } from "./engineering-tool-catalog.js";
 
@@ -12,16 +13,19 @@ export function bindEngineeringTools({ registry, context }) {
   if (!registry || !context?.task_id || !context?.execution_id || !context?.project_root || !context?.agent_identity?.agent_id || context.agent_identity.role !== "coder") throw failure("TOOL_SCOPE_INVALID", "Engineering binding requires a Node-issued Coder execution context.");
   if (!Array.isArray(context.allowed_file_paths) && !Array.isArray(context.allowed_prefixes)) throw failure("TOOL_SCOPE_INVALID", "Engineering binding requires an explicit file or prefix scope.");
   if (context.project_wide_access === true) throw failure("TOOL_SCOPE_INVALID", "Coder engineering binding cannot enable project-wide access.");
+  assertExecutionFileAccess(context);
+  if (context.file_access_version === 2 && context.agent_identity.provider === "codex") throw failure("FILE_ACCESS_PROVIDER_UNSUPPORTED", "Versioned ticket file access requires disabling native filesystem tools; Codex CLI ticket execution is not admitted.");
   const bound = { ...context, engineering_catalog_version: ENGINEERING_CATALOG_VERSION };
   for (const key of ["task_id", "execution_id", "project_root", "agent_identity", "capabilities", "allowed_file_paths", "allowed_prefixes"]) {
     const value = context[key];
     Object.defineProperty(bound, key, { value: value && typeof value === "object" ? Object.freeze(structuredClone(value)) : value, enumerable: true, configurable: false, writable: false });
   }
-  const manifest = context.execution_context?.approved_baseline?.file_checksums;
+  for (const key of ["file_access_policy", "file_access_version"]) Object.defineProperty(bound, key, { value: context[key], enumerable: true, writable: false, configurable: false });
+  const manifest = structuredClone(context.execution_context?.approved_baseline?.file_checksums);
   const mutablePaths = manifest ? new Set(Object.keys(manifest)) : null;
-  const createPrefixes = context.execution_context?.approved_baseline?.authorized_create_prefixes
+  const createPrefixes = structuredClone(context.execution_context?.approved_baseline?.authorized_create_prefixes
     ?? context.authorized_create_prefixes
-    ?? [];
+    ?? []);
   const mutableFileBudget = context.execution_context?.approved_baseline?.mutable_file_budget
     ?? context.mutable_file_budget
     ?? null;
@@ -30,7 +34,8 @@ export function bindEngineeringTools({ registry, context }) {
   for (const definition of engineeringToolDefinitions()) if (typeof scopedRegistry[definition.name]?.execute !== "function") scopedRegistry[definition.name] = lockedTool(definition.name, "A compatible scoped Node service is unavailable for this execution.");
   const ajv = new Ajv2020({ strict: false, allErrors: true, coerceTypes: false, removeAdditional: false });
   const validators = new Map(definitions.map((definition) => [definition.name, (definition.input_schema.$id && ajv.getSchema(definition.input_schema.$id)) || ajv.compile(definition.input_schema)]));
-  const readiness = engineeringToolReadiness({ capabilities: bound.capabilities, registry });
+  const readiness = engineeringToolReadiness({ capabilities: bound.capabilities, registry,
+    lockedReasons: bound.file_access_version === 2 ? { run_check: "Versioned file access is not yet certified for verification subprocesses." } : {} });
   const locked = new Map(readiness.tools.filter((tool) => tool.state === "locked").map((tool) => [tool.name, tool.reason]));
   const implementations = Object.fromEntries(definitions.map((definition) => [definition.name, { execute: async (input = {}) => {
     const validate = validators.get(definition.name);
@@ -53,7 +58,9 @@ export function bindEngineeringTools({ registry, context }) {
         }
       }
     }
-    return scopedRegistry[definition.name].execute(input, bound);
+    const result = await scopedRegistry[definition.name].execute(input, bound);
+    assertExecutionFileAccess(bound);
+    return result;
   } }]));
   return { definitions, registry: implementations, context: bound, readiness };
 }

@@ -22,8 +22,8 @@ function loopFixture(options) {
 }
 
 // Exercises the event-driven path independently of the inline submitTicket completion path.
-test("Supervisor hard gate dispatches, repairs normalized findings, approves and integrates", async () => {
-  const fixture = loopFixture({ review: async (job, calls) => calls === 1 ? { verdict: "request_changes", findings: [{ failure: "Fix result", severity: "major" }] } : { verdict: "approved", findings: [], adjudications: [{ finding_id: "REV-1", decision: "fixed" }] } });
+test("Supervisor hard gate repairs blocker findings before independent approval and integration", async () => {
+  const fixture = loopFixture({ review: async (job, calls) => calls === 1 ? { verdict: "request_changes", findings: [{ failure: "Fix result", severity: "blocker" }] } : { verdict: "approved", findings: [], adjudications: [{ finding_id: "REV-1", decision: "fixed" }] } });
   await fixture.loop.onEvent(fixture.verification());
   assert.equal(fixture.runtime.getState(), "REVIEWING");
   assert.equal(fixture.order.filter((entry) => entry === "integrate").length, 0);

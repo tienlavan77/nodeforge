@@ -1,0 +1,57 @@
+{
+  "$comment": "Binds model-authored communication to Node-owned project, execution, routing and checkpoint identities before dispatch.",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/governance/agent-exchange.schema.json",
+  "title": "Node-owned agent exchange envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "message_id", "in_reply_to", "context", "sender", "recipient", "kind", "subject", "payload", "evidence", "continuation"],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "message_id": { "type": "string", "minLength": 1 },
+    "in_reply_to": { "type": ["string", "null"], "minLength": 1 },
+    "context": {
+      "type": "object", "additionalProperties": false,
+      "required": ["project_id", "ticket_id", "execution_id"],
+      "properties": {
+        "project_id": { "$ref": "#/$defs/text" },
+        "ticket_id": { "$ref": "#/$defs/text" },
+        "execution_id": { "$ref": "#/$defs/text" }
+      }
+    },
+    "sender": { "$ref": "#/$defs/party" },
+    "recipient": { "$ref": "#/$defs/party" },
+    "kind": { "enum": ["consultation_request", "consultation_response", "work_request", "work_result", "review_request", "review_result", "correction"] },
+    "subject": { "$ref": "#/$defs/text" },
+    "payload": { "type": "object" },
+    "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
+    "continuation": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "object", "additionalProperties": false, "required": ["assignment_id", "checkpoint_ref"],
+          "properties": { "assignment_id": { "$ref": "#/$defs/text" }, "checkpoint_ref": { "type": ["string", "null"], "minLength": 1 } } }
+      ]
+    }
+  },
+  "$defs": {
+    "text": { "type": "string", "minLength": 1, "pattern": "\\S" },
+    "party": {
+      "type": "object", "additionalProperties": false, "required": ["agent_id", "role"],
+      "properties": {
+        "agent_id": { "type": ["string", "null"], "minLength": 1 },
+        "role": { "enum": ["node", "project_owner", "architecture_manager", "sprint_leader", "coder", "reviewer"] }
+      }
+    },
+    "evidence": {
+      "type": "object", "additionalProperties": false, "required": ["type", "ref", "purpose"],
+      "properties": {
+        "type": { "enum": ["source", "verification", "finding", "report", "decision", "denial"] },
+        "ref": { "$ref": "#/$defs/text" },
+        "purpose": { "$ref": "#/$defs/text" },
+        "sha256": { "type": "string", "pattern": "^(sha256:)?[a-f0-9]{64}$" }
+      },
+      "if": { "properties": { "type": { "const": "source" } } },
+      "then": { "required": ["sha256"] }
+    }
+  }
+}

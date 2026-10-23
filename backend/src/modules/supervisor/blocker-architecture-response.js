@@ -1,10 +1,13 @@
 // Returns Architecture consultation answers to Sprint Leader without dispatching Coder or approving execution.
+import { completeAuthorityConsultation } from "./blocker-authority-consultation.js";
 import { scheduleTechnicalReconciliation } from "./blocker-technical-reconciliation.js";
 import { waitingAssignments } from "./blocker-waiting-work.js";
 
 // Preserves the AM conclusion as SL input, retaining the original Coder request and checkpoint.
 export function returnArchitectureResponse(job, value, now) {
-  if (job.stage !== "architecture_manager" || !["resolved", "sprint_required", "reconciliation_required"].includes(value.action)) return false;
+  if (job.stage !== "architecture_manager") return false;
+  completeAuthorityConsultation(job, value, now);
+  if (!["resolved", "sprint_required", "reconciliation_required"].includes(value.action)) return false;
   job.architecture_response = { disposition: value, answered_at: now, execution_id: job.request.payload?.execution_id,
     actor: job.history.at(-1)?.actor ?? null };
   if (["resolved", "sprint_required"].includes(value.action) && value.authority_scope === "architecture") job.sprint_delegation = value;

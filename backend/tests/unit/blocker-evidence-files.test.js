@@ -28,7 +28,7 @@ async function fixture(role) {
     ticket: { objective: "Inspect retained verification evidence and continue the approved ticket scope." } },
     ticket_progress: { verification: { status: "observed", commit_sha: identity.commit_sha, source_revision: identity.source_revision,
       job: { job_id: "VERIFY-A", evidence_ref: refs.job }, diagnostic: { artifact_id: "ARTIFACT-A", evidence_ref: refs.artifact },
-      checks: [{ check_id: "CHECK-A", evidence_ref: refs.check }] } } };
+      checks: [{ ...identity, check_id: "CHECK-A", evidence_ref: refs.check }] } } };
   const events = [];
   // Builds the provider-independent registry with observable audit events and isolated Git responses.
   const build = () => blockerRecoveryTools({ fileService: createFileService({ projectRoot: root }), projectRoot: root,
@@ -121,3 +121,33 @@ test("recovery rejects replaced receipt identities and symlink targets", async (
     await assert.rejects(() => tools.registry.read_lines.execute({ path: f.refs.artifact, start_line: 1, end_line: 10 }), { code: "FILE_ROLE_FORBIDDEN" });
   } finally { await f.cleanup(); }
 });
+
+for (const role of ["sprint_leader", "architecture_manager"]) {
+  test(`${role} reads an exact pre-commit check without a verification job, but never treats it as committed acceptance`, async () => {
+    const f = await fixture(role);
+    try {
+      const verification = f.job.ticket_progress.verification;
+      Object.assign(verification, { status: "missing", commit_sha: null, job: null, diagnostic: null });
+      verification.checks[0].commit_sha = null;
+      const receipt = { ...f.identity, check_id: "CHECK-A", commit_sha: null, pre_commit: true, stdout: "41 focused tests passed" };
+      await writeFile(join(f.root, f.refs.check), JSON.stringify(receipt, null, 2));
+      const tools = f.build();
+      const result = await tools.registry.read_file.execute({ path: f.refs.check, offset: 1, limit: 80 });
+      assert.match(result.content, /41 focused tests passed/);
+      assert.match((await tools.registry.read_lines.execute({ path: f.refs.check, start_line: 1, end_line: 80 })).stdout, /41 focused tests passed/);
+      const disposition = { action: "reconciliation_required", summary: "Inspect the focused pre-commit check.",
+        guidance: "Continue verification; this pre-commit check is diagnostic evidence only.", evidence: [{ path: f.refs.check, sha256: result.sha256.slice(7) }] };
+      assert.equal((await validateBlockerDisposition(disposition, { job: f.job, projectRoot: f.root,
+        fileService: createFileService({ projectRoot: f.root }) })).action, "reconciliation_required");
+      for (const path of [f.refs.job, f.refs.artifact, f.refs.check.replace("TICKET-A", "TICKET-B"), ".forge/runtime/agent-checkpoints/TICKET-A.json"])
+        await assert.rejects(() => tools.registry.read_file.execute({ path }), { code: "FILE_ROLE_FORBIDDEN" });
+      for (const delta of [{ pre_commit: false }, { source_revision: "other" }, { commit_sha: "c".repeat(40) }, { task_id: "OTHER" }, { project_id: "OTHER" }]) {
+        await writeFile(join(f.root, f.refs.check), JSON.stringify({ ...receipt, ...delta }));
+        await assert.rejects(() => tools.registry.read_file.execute({ path: f.refs.check, offset: 1, limit: 80 }), { code: "VERIFY_SOURCE_STALE" });
+      }
+      await writeFile(join(f.root, f.refs.check), JSON.stringify(receipt));
+      verification.status = "unavailable";
+      await assert.rejects(() => f.build().registry.read_file.execute({ path: f.refs.check }), { code: "FILE_ROLE_FORBIDDEN" });
+    } finally { await f.cleanup(); }
+  });
+}

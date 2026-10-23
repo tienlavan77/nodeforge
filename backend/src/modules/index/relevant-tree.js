@@ -1,9 +1,10 @@
 // Adds semantic and freshness signals to relevant-file selections.
+import { STATE_DIR_PREFIX } from "../../infrastructure/filesystem/forge-paths.js";
 import { ConfigurationError } from "../../shared/errors.js";
 import { createRelevantTreeScoring } from "./relevant-tree-scoring.js";
 
 // Creates retrieval variants that preserve bounded relevant-file selection.
-export function createRelevantTreeSelector({ search, fileGraph, embeddingStore = null, embeddingProvider = null, freshnessChecker = null, logger = console, maxFiles = 30, defaultDepth = 1, ignoredPaths = [".git/", ".forge/runtime/", ".next/", ".next.stale-"] } = {}) {
+export function createRelevantTreeSelector({ search, fileGraph, embeddingStore = null, embeddingProvider = null, freshnessChecker = null, logger = console, maxFiles = 30, defaultDepth = 1, ignoredPaths = [".git/", STATE_DIR_PREFIX, ".next/", ".next.stale-"] } = {}) {
   if (!search || typeof search.search !== "function") throw new ConfigurationError("Relevant Tree requires Code Search.");
   if (!fileGraph || typeof fileGraph.getDependencies !== "function" || typeof fileGraph.getDependents !== "function") throw new ConfigurationError("Relevant Tree requires File Graph.");
   if (!Number.isInteger(maxFiles) || maxFiles < 1) throw new ConfigurationError("Relevant Tree maxFiles must be a positive integer.");

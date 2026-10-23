@@ -1,10 +1,11 @@
 // Recovers migration-owned immutable plan files left unindexed by a crash without importing approval decisions.
+import { statePath } from "../infrastructure/filesystem/forge-paths.js";
 import { createHash } from "node:crypto";
 import { migrationError, migrationHash } from "./sprint-registry-migration-preview.js";
 
 // Adopts only an exact first revision produced for this migration entry; unrelated files remain untouched.
 export async function recoverSprintMigrationPlan({ projectId, entry, database, fileService, plans }) {
-  const path = `.forge/runtime/nf/plans/${entry.plan_id}/1.json`;
+  const path = `${statePath()}/nf/plans/${entry.plan_id}/1.json`;
   let bytes;
   try { bytes = await fileService.readFile({ path }); }
   catch (error) { if (error.code === "ENOENT") return null; throw error; }

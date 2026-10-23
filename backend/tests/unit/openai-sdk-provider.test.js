@@ -49,6 +49,8 @@ test("enables Responses API by role for native web search while respecting expli
   const profile = (role, options = {}) => factory.normalizeProfile({ agent_id: role, agent_name: role, role, provider: "openai", gateway_url: "https://gateway.example.test/v1", credential_ref: `runtime:${role}:key`, model: "gpt-5.6-sol", ...options });
   assert.equal(profile("architecture_manager").use_responses, true);
   assert.equal(profile("system_engineer").use_responses, true);
+  assert.equal(profile("sprint_leader").use_responses, true);
+  assert.equal(profile("sprint_leader", { use_responses: false }).use_responses, false);
   assert.equal(profile("architecture_manager", { use_responses: false }).use_responses, false);
   assert.equal(profile("coder").use_responses, false);
 });

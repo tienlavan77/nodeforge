@@ -175,3 +175,19 @@ test("SL resumes normal Coder from retained progress without demanding an entire
     assert.match(buildResumePrompt("Ticket", createResumeState({ ...after, status: "in_progress" })), /Retained criterion progress/);
   } finally { await fixture.close(); }
 });
+
+test("source conflicts expose retained Node evidence to SL without attributing unverified live bytes", async () => {
+  const f = progressFixture();
+  let reconciled = false;
+  const receipt = { status: "conflict", live_sha: "live", conflicts: [{ base_start_line: 3 }] };
+  f.workspace.changeLedger.reconcile = async () => { reconciled = true; };
+  f.workspace.changeLedger.snapshot = async () => { throw Object.assign(new Error("Concurrent source"), { code: "TICKET_SOURCE_CHANGED" }); };
+  f.workspace.changeLedger.load = async () => ({ entries: { [f.file.path]: { latest_sha: f.file.sha256, source_reconciliation: receipt } } });
+  f.workspace.gitService = { inspectSource: async (manifest) => ({ files: [{ path: f.file.path, source_reconciliation: manifest.entries[f.file.path].source_reconciliation }] }) };
+  const progress = await buildBlockerTicketProgress(f);
+  assert.equal(reconciled, true);
+  assert.deepEqual(progress.source_reconciliation.files[0].source_reconciliation, receipt);
+  assert.deepEqual(progress.changed_files, []);
+  assert.equal(progress.criteria[0].implementation, "unknown");
+  assert.equal(progress.last_completed_turn, 33);
+});

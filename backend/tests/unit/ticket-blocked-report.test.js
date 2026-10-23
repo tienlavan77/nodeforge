@@ -6,6 +6,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import { createReportDoneTool } from "../../src/tools/agent-report-tool.js";
 import { assertTicketExecutionCompleted, collectToolCalls, sdkToolEvent } from "../../src/modules/supervisor/nodeforge-task-sdk-events.js";
 import { handleTicketExecutionFailure } from "../../src/modules/supervisor/ticket-execution-failure.js";
+import { coderFailureTriage } from "../../src/modules/supervisor/coder-recovery-policy.js";
 
 const ticket = { id: "TICKET-LIFECYCLE", acceptance_criteria: ["Implement approved project management contract"] };
 const input = {
@@ -59,6 +60,27 @@ test("discovery-only blocker is durable and cannot enter completion through eith
     assert.throws(() => { assertTicketExecutionCompleted(events); completionReached = true; }, { code: "CODER_BLOCKED", message: diagnostic.message });
     assert.equal(completionReached, false);
   }
+});
+
+test("blocked report preserves the exact Coder question for SL without requiring Owner action", async () => {
+  const consultation = { question: "Which approved adapter handles this case?", decision_needed: "Choose the existing adapter.",
+    known_decision_refs: ["AM-1"], impact: "One implementation path is unresolved." };
+  const report = { ...input, blocker: { reason_code: "CONTRACT_DECISION_REQUIRED", consultation } };
+  const schema = JSON.parse(await readFile(new URL("../../../schemas/agent/tools/report-done.schema.json", import.meta.url), "utf8"));
+  const validate = new Ajv2020({ strict: true }).compile(schema);
+  assert.equal(validate(report), true);
+  assert.equal(validate({ ...report, blocker: { ...report.blocker, consultation: { ...consultation, question: "" } } }), false);
+  let saved;
+  const tool = createReportDoneTool({ reportService: { buildFinalReport: async (value) => value,
+    saveReport: async (_, value) => { saved = value; }, writeReportFile: async () => {} } });
+  await assert.rejects(tool.execute(report, { ticket }), (error) => {
+    assert.equal(error.code, "CODER_BLOCKED");
+    assert.deepEqual(coderFailureTriage(error).consultation, consultation);
+    assert.equal(coderFailureTriage(error).decision_role, "existing_authority");
+    assert.doesNotMatch(error.message, /Owner action/);
+    return true;
+  });
+  assert.deepEqual(saved.agent_report.blocker.consultation, consultation);
 });
 
 test("owner escalation retains checkpoint evidence and never emits failed or completed", async () => {

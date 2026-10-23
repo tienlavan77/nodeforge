@@ -4,9 +4,10 @@ import { assertDependencySubmission } from "./ticket-dependency-expectations.js"
 import { prepareTicketExecutionContext } from "./ticket-execution-context.js";
 import { setAutomaticReviewStage } from "./automatic-review-stage.js";
 import { reviewRepairRecovery } from "./review-repair-handoff.js";
+import { prepareRepairExchange } from "./review-agent-exchange.js";
 
 // Builds a repair runner that retains the same ticket scope and records launch ownership before another provider turn.
-export function createTicketReviewRepair({ workspace, taskId, ownerId, ticket, selected, checkpoints, handoffQueue, ticketStatusStore, sprintRegistry, abortSignal, execute }) {
+export function createTicketReviewRepair({ workspace, taskId, ownerId, ticket, selected, checkpoints, handoffQueue, ticketStatusStore, sprintRegistry, abortSignal, execute, projectLogger }) {
   return async ({ request: previous, findings, outcome }) => {
     const exchange = await workspace.reviewFindings?.loadQuery?.();
     const references = currentReviewFindings(findings, exchange);
@@ -36,6 +37,9 @@ export function createTicketReviewRepair({ workspace, taskId, ownerId, ticket, s
       delete request.payload.retry_source_identity;
     }
     request.execution_context = await prepareTicketExecutionContext({ workspace, taskId, supervisorId: ownerId, ticket });
+    const communication = await prepareRepairExchange({ request, selected, reviewerId: outcome.payload.reviewer_id, findings: references,
+      projectRoot: workspace.projectRoot ?? workspace.path, reviewRef: outcome.payload.communication?.response_ref, projectLogger });
+    if (communication) { request.payload.agent_exchange = communication; resume.agent_exchange = communication; }
     const job = await handoffQueue.enqueue(request);
     let launch;
     try {

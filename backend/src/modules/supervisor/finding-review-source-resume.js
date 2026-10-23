@@ -1,4 +1,5 @@
 // Reuses verified source for evidence-only review responses when a fresh repair journal has no writes.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { acquireTicketFileLock } from "./ticket-file-lock.js";
@@ -29,11 +30,11 @@ export async function resumeFindingReviewSource({ taskId, projectId, fileService
   if (initial?.state !== "coding" || !initial.source_repair_cycle_id) return false;
   return withTicketProjectCommitLock({ fileService, projectId }, async () => {
     const scope = key(projectId);
-    const contextPath = `.forge/runtime/ticket-execution-contexts/${scope}/${taskId}.json`;
-    const manifestPath = `.forge/runtime/ticket-changes/${scope}/tickets/${key(taskId)}.json`;
+    const contextPath = `${statePath()}/ticket-execution-contexts/${scope}/${taskId}.json`;
+    const manifestPath = `${statePath()}/ticket-changes/${scope}/tickets/${key(taskId)}.json`;
     const contextLock = await acquireTicketFileLock(fileService, `${contextPath}.lock`);
     try {
-      const ledgerLock = await acquireTicketFileLock(fileService, `.forge/runtime/ticket-changes/${scope}/locks/${key(`ticket:${taskId}`)}.lock`);
+      const ledgerLock = await acquireTicketFileLock(fileService, `${statePath()}/ticket-changes/${scope}/locks/${key(`ticket:${taskId}`)}.lock`);
       try {
         const context = await executionContexts.load(taskId);
         if (context?.state !== "coding" || !context.source_repair_cycle_id) return false;
@@ -53,7 +54,7 @@ export async function resumeFindingReviewSource({ taskId, projectId, fileService
           const checksum = content === null ? null : `sha256:${createHash("sha256").update(content).digest("hex")}`;
           if (checksum !== receipt.artifact.file_checksums[path] || checksum !== receipt.manifest.entries[path]?.latest_sha) throw failure();
         }
-        const artifact = JSON.parse(await fileService.readFile({ path: `.forge/runtime/ticket-verification/${taskId}/artifacts/${receipt.artifact.artifact_id}.json` }));
+        const artifact = JSON.parse(await fileService.readFile({ path: `${statePath()}/ticket-verification/${taskId}/artifacts/${receipt.artifact.artifact_id}.json` }));
         if (!isDeepStrictEqual(artifact, receipt.artifact)) throw failure();
         await fileService.atomicWrite({ path: manifestPath, content: JSON.stringify(receipt.manifest), replace: true });
         await fileService.atomicWrite({ path: contextPath, content: JSON.stringify({ ...receipt.context, resumed_finding_cycle_id: receipt.cycle_id,

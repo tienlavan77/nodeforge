@@ -35,7 +35,7 @@ for (const provider of ["openai", "codex", "claude"]) {
         readFailureEvidence: async () => ({ status: "captured", receipts: [] }),
         agentResolver: { resolveAvailable: (role) => ({ agent_id: "SL", role, provider, enabled: true, status: "ready" }) },
         agentOccupancy: fixture.base.occupancy, resolveTicketWorkspace: async () => fixture.base.workspace,
-        gateways: { openaiSdkGateway: gateway, claudeSdkGateway: gateway } });
+        gateways: { openaiSdkGateway: gateway, claudeSdkGateway: gateway, codexSdkGateway: gateway } });
       fixture.recreate({ investigate: worker });
       await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
       await fixture.recovery.tick();

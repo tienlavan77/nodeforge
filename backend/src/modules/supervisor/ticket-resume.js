@@ -25,6 +25,7 @@ export function createResumeState(resume) {
   const clean = normalizeResume(resume);
   return {
     resume: clean,
+    agentExchange: clean?.agent_exchange ?? null,
     verificationWait: clean?.verification_wait ?? null,
     sessionId: typeof clean?.session_id === "string" ? clean.session_id : null,
     threadId: typeof clean?.thread_id === "string" ? clean.thread_id : null,
@@ -62,6 +63,7 @@ export function checkpointPayload(state, extra = {}) {
   const stageProgress = prior.at(-1)?.stage === "coder" ? [...prior.slice(0, -1), coderEntry] : [...prior, coderEntry];
   const payload = {
     ...(state.resume ?? {}),
+    ...(state.agentExchange ? { agent_exchange: state.agentExchange } : {}),
     verification_wait: state.verificationWait,
     session_id: state.sessionId ?? state.resume?.session_id ?? null,
     thread_id: state.threadId ?? state.resume?.thread_id ?? null,

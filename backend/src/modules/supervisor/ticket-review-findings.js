@@ -1,9 +1,10 @@
 // Persists Reviewer findings and Coder resolutions across ticket revisions and restarts.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { ConfigurationError } from "../../shared/errors.js";
 import { createReviewRecordStorage } from "./review-record-storage.js";
 import { acquireTicketFileLock } from "./ticket-file-lock.js";
 
-const ROOT = ".forge/runtime/ticket-review-findings";
+const ROOT = statePath("ticket-review-findings");
 const fail = (code, message) => Object.assign(new ConfigurationError(message), { code });
 
 // Tracks required findings with stable IDs and verified resolution references.

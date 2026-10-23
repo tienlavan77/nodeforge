@@ -13,12 +13,14 @@ import { assertTicketExecutionCompleted, collectToolCalls, extractFinalAgentRepo
 import { bindEngineeringTools } from "../../tools/engineering-tool-binding.js";
 import { CODER_TOOL_NAMES, coderToolDefinitions } from "../../tools/engineering-tool-catalog.js";
 import { coderFailureTriage } from "./coder-recovery-policy.js";
+import { withCoderExchange, coderExchangePrompt } from "./coder-agent-exchange.js";
 
 const CODER_FORGE_TOOL_NAMES = new Set(CODER_TOOL_NAMES.map((name) => `mcp__forge__${name}`));
 
 // Creates SDK executors that keep Claude and Claude Code ticket policies aligned.
 export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger, checkpoints }) {
-  return Object.freeze({ runOpenAiHello, runOllamaHello, runToolTicket, runCodexTask });
+  return Object.freeze({ runOpenAiHello, runOllamaHello,
+    runToolTicket: withCoderExchange(runToolTicket, { projectRoot, projectLogger }), runCodexTask: withCoderExchange(runCodexTask, { projectRoot, projectLogger }) });
 
   async function runToolTicket(selected, request) {
     if (typeof claudeSdkGateway?.execute !== "function") throw new ConfigurationError("NodeForge integration requires a Claude SDK gateway.");
@@ -37,9 +39,10 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
     if (!labMode && ticket.style?.includes("docs")) complexity.read_calls = Math.max(complexity.read_calls, 5);
     projectLogger({ event_name: "supervisor.ticket_complexity", level: "info", status: "success", message: `Ticket classified as ${complexity.level}.`, task_id: request.task_id, correlation_id: request.correlation_id, source: "nodeforge-task-integration", payload: { complexity_level: complexity.level, effort: complexity.effort, discovery_budget: complexity.discovery_budget, reasoning: complexity.reasoning } });
     const resumeState = createResumeState(request.payload?.resume_from ?? null);
+    resumeState.agentExchange = request.payload?.agent_exchange ?? resumeState.agentExchange;
     const priorCompletedTools = [...resumeState.completedTools];
     const context = runtimeGovernance.createExecutionContext({
-      task_id: request.task_id, execution_id: executionId,
+      task_id: request.task_id, execution_id: executionId, project_root: projectRoot, execution_context: request.execution_context, resume_checkpoint: Boolean(request.payload?.resume_from),
       agent_identity: { agent_id: selected.agent_id, agent_name: selected.agent_name, role: selected.role, provider: selected.provider ?? null },
       capabilities: selected.role === "coder" && !labMode ? [...CODER_TOOL_NAMES] : [...(candidateDiscoveryEnabled ? ["select_code_graph_candidates"] : []), "search_code", "read_file", "Read", "Glob", "Grep", "write_diff", "edit_diff", "run_test", "check_test", "git_status", "git_diff", "commit_changes", "report_done"],
       allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, changed_paths: [...resumeState.changedPaths],
@@ -64,7 +67,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
         }) }, { effort: complexity.effort, thinking: complexity.thinking }),
         resumeSessionId: resumeState.sessionId,
         onSessionReady: (sessionId) => { if (typeof sessionId === "string" && sessionId) resumeState.sessionId = sessionId; saveProgressCheckpoint(checkpoints, resumeState, { task_id: request.task_id, execution_context: binding.context.execution_context }); },
-        prompt: buildResumePrompt(labMode ? buildToolTestPrompt(request.task_id, targetPath, allowedPrefixes) : buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, complexity, directCode, immutableScope), resumeState, { agentId: selected.agent_id, provider: selected.provider, changedPaths: toolContext.changed_paths })
+        prompt: `${coderExchangePrompt(request)}\n\n${buildResumePrompt(labMode ? buildToolTestPrompt(request.task_id, targetPath, allowedPrefixes) : buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, complexity, directCode, immutableScope), resumeState, { agentId: selected.agent_id, provider: selected.provider, changedPaths: toolContext.changed_paths })}`
       });
       const toolEvents = collectToolCalls(Array.isArray(result?.messages) ? result.messages : []);
       assertTicketExecutionCompleted(toolEvents, { labMode, missingCode: "CLAUDE_MCP_TOOL_CALLS_MISSING", priorTools: priorCompletedTools });
@@ -108,9 +111,10 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
     if (!labMode && ticket.style?.includes("docs")) complexity.read_calls = Math.max(complexity.read_calls, 5);
     projectLogger({ event_name: "supervisor.ticket_complexity", level: "info", status: "success", message: `Ticket classified as ${complexity.level}.`, task_id: request.task_id, correlation_id: request.correlation_id, source: "nodeforge-task-integration", payload: { complexity_level: complexity.level, effort: complexity.effort, discovery_budget: complexity.discovery_budget, reasoning: complexity.reasoning } });
     const resumeState = createResumeState(request.payload?.resume_from ?? null);
+    resumeState.agentExchange = request.payload?.agent_exchange ?? resumeState.agentExchange;
     const priorCompletedTools = [...resumeState.completedTools];
     const context = runtimeGovernance.createExecutionContext({
-      task_id: request.task_id, execution_id: executionId,
+      task_id: request.task_id, execution_id: executionId, project_root: projectRoot, execution_context: request.execution_context, resume_checkpoint: Boolean(request.payload?.resume_from),
       agent_identity: { agent_id: selected.agent_id, agent_name: selected.agent_name, role: selected.role, provider: selected.provider ?? null },
       capabilities: selected.role === "coder" && !labMode ? [...CODER_TOOL_NAMES] : [...(candidateDiscoveryEnabled ? ["select_code_graph_candidates"] : []), "search_code", "read_file", "rg_files", "rg_search", "sed_lines", "write_diff", "edit_diff", "run_test", "check_test", "git_status", "git_diff", "commit_changes", "report_done"],
       allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, changed_paths: [...resumeState.changedPaths],
@@ -139,7 +143,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
           saveProgressCheckpoint(checkpoints, resumeState, { task_id: request.task_id, execution_context: binding.context.execution_context });
         },
         options: { model: selected.model, forgeTools: { registry: binding.registry, context: binding.context, definitions }, approvalPolicy: labMode?.approval_policy ?? "on-request", ...(selected.role === "coder" ? { sandboxMode: "read-only" } : {}) },
-        prompt: buildResumePrompt(labMode ? buildCodexToolTestPrompt(request.task_id, targetPath, allowedPrefixes) : buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, complexity, directCode, immutableScope), resumeState, { agentId: selected.agent_id, provider: selected.provider, changedPaths: toolContext.changed_paths }),
+        prompt: `${coderExchangePrompt(request)}\n\n${buildResumePrompt(labMode ? buildCodexToolTestPrompt(request.task_id, targetPath, allowedPrefixes) : buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, complexity, directCode, immutableScope), resumeState, { agentId: selected.agent_id, provider: selected.provider, changedPaths: toolContext.changed_paths })}`,
         onEvent: async (event) => {
           if (selected.role === "coder") assertForgeOnlyCodexEvent(event);
           const toolEvent = sdkToolEvent(event, forgeToolNames);

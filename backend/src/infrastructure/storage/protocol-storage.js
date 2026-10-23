@@ -1,11 +1,12 @@
 // Stores versioned protocol artifacts with deterministic serialization, SHA256 checksums, and atomic FileService persistence.
+import { statePath } from "../filesystem/forge-paths.js";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
 
 import { ConfigurationError } from "../../shared/errors.js";
 import { compareRefs, createMetadataValidator, metadataValidationError, protocolError, sortValue, storageConflict, storageError } from "./protocol-storage-helpers.js";
 
-const DEFAULT_ROOT = ".forge/runtime/protocol-storage";
+const DEFAULT_ROOT = statePath("protocol-storage");
 export const protocolStorageDefaults = Object.freeze({ root: DEFAULT_ROOT });
 
 /**

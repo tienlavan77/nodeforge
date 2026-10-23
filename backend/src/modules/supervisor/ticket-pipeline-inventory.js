@@ -1,4 +1,5 @@
 // Classifies existing ticket runtime records before enabling immutable evidence gates.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createHash } from "node:crypto";
 import { execFile as execFileCallback } from "node:child_process";
 import { readdir } from "node:fs/promises";
@@ -14,8 +15,8 @@ const execFile = promisify(execFileCallback);
 export function createTicketPipelineInventory({ projectRoot, projectId, fileService } = {}) {
   if (!projectRoot || !projectId || !fileService?.listFiles || !fileService?.readFile) throw new ConfigurationError("Ticket pipeline inventory requires project File Service and identity.");
   const root = resolve(projectRoot);
-  const contextRoot = `.forge/runtime/ticket-execution-contexts/${hash(projectId)}`;
-  const ledgerRoot = `.forge/runtime/ticket-changes/${hash(projectId)}/tickets`;
+  const contextRoot = `${statePath()}/ticket-execution-contexts/${hash(projectId)}`;
+  const ledgerRoot = `${statePath()}/ticket-changes/${hash(projectId)}/tickets`;
   const worktreeRoot = join(root, ".forge/worktrees/tickets");
   return Object.freeze({ inspect });
 
@@ -34,10 +35,10 @@ export function createTicketPipelineInventory({ projectRoot, projectId, fileServ
     const sources = [
       { glob: `${contextRoot}/*.json`, kind: "context" },
       { glob: `${ledgerRoot}/*.json`, kind: "ledger" },
-      { glob: ".forge/runtime/agent-checkpoints/*.json", kind: "checkpoint" },
-      { glob: ".forge/runtime/ticket-verification/*/jobs/*.json", kind: "cached_job" },
-      { glob: ".forge/runtime/reviewer-checkpoints/*.json", kind: "reviewer_checkpoint" },
-      { glob: ".forge/runtime/ticket-workspaces/*.json", kind: "workspace_state" }
+      { glob: statePath("agent-checkpoints/*.json"), kind: "checkpoint" },
+      { glob: statePath("ticket-verification/*/jobs/*.json"), kind: "cached_job" },
+      { glob: statePath("reviewer-checkpoints/*.json"), kind: "reviewer_checkpoint" },
+      { glob: statePath("ticket-workspaces/*.json"), kind: "workspace_state" }
     ];
     for (const source of sources) for (const path of await fileService.listFiles({ glob: source.glob })) {
       const value = JSON.parse(await fileService.readFile({ path }));

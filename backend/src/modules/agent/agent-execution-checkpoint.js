@@ -1,9 +1,10 @@
 // Persists resumable agent execution checkpoints to the file service under .forge/runtime.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { ConfigurationError } from "../../shared/errors.js";
 import { acquireTicketFileLock } from "../supervisor/ticket-file-lock.js";
 
 // Creates a checkpoint store backed by File Service for save/load/complete lifecycle.
-export function createAgentExecutionCheckpointStore({ fileService, root = ".forge/runtime/agent-checkpoints", reviewRoot = ".forge/runtime/reviewer-checkpoints", onSaved } = {}) {
+export function createAgentExecutionCheckpointStore({ fileService, root = statePath("agent-checkpoints"), reviewRoot = statePath("reviewer-checkpoints"), onSaved } = {}) {
   if (typeof fileService?.readFile !== "function" || typeof fileService?.atomicWrite !== "function") throw new ConfigurationError("Agent execution checkpoint store requires File Service persistence.");
   return Object.freeze({ save, load, complete, clear, listPending, saveReview, loadReview, completeReview, clearReview, listReviewPending });
 

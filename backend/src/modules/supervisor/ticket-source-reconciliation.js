@@ -18,7 +18,7 @@ export async function inspectTicketSource({ manifest, taskId, projectId, rootGit
     const states = operations.filter((item) => item.revision <= (pending[0]?.revision ?? Infinity))
       .flatMap((item) => [item.before_sha, item.after_sha]);
     const parentSha = sha(await rootGit.fileAt(parent, path));
-    files.push({ path, initial_sha: entry.initial_sha, latest_sha: entry.latest_sha, parent_file_sha256: parentSha,
+    files.push({ path, source_reconciliation: entry.source_reconciliation ?? null, initial_sha: entry.initial_sha, latest_sha: entry.latest_sha, parent_file_sha256: parentSha,
       comparison: parentSha === entry.latest_sha ? "already_in_parent" : !pending.length ? "no_pending_operations"
         : states.includes(parentSha) ? "recorded_ticket_state" : "preexisting_changes",
       operations: operations.map(({ id, revision, before_sha, after_sha }) => ({ id, revision, before_sha, after_sha })) });

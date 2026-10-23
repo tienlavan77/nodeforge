@@ -14,9 +14,11 @@ export function coderRecoveryPolicy(environment = process.env) {
 // Assigns triage responsibility without authorizing SL to alter scope, security, contracts, or findings.
 export function coderFailureTriage(error) {
   const reason = error.details?.blocker?.reason_code ?? error.code;
-  const human = ["COMMIT_APPROVAL_REJECTED", "CONTRACT_DECISION_REQUIRED", "ACCESS_REQUIRED", "SECURITY_RISK"].includes(reason)
-    || String(reason).startsWith("HUMAN_REVIEW_");
-  return { reason_code: reason, triage_role: "sprint-leader", decision_role: human ? "owner" : "existing_authority",
+  const consultation = error.details?.consultation ?? error.details?.blocker?.consultation;
+  return { reason_code: reason, triage_role: "sprint-leader", decision_role: "existing_authority",
     allowed_actions: ["inspect_evidence", "clarify_approved_criteria", "propose_follow_up", "escalate"],
-    authority_basis: "existing_authority_no_delegation_expansion", evidence_refs: error.details?.evidence ?? [] };
+    authority_basis: "existing_authority_no_delegation_expansion", evidence_refs: error.details?.evidence ?? [],
+    ...(consultation ? { consultation } : error.details?.blocker?.owner_action ? { consultation: {
+      question: error.details.summary || error.message || reason, decision_needed: error.details.blocker.owner_action,
+      known_decision_refs: [], impact: error.details.summary || error.message || reason } } : {}) };
 }

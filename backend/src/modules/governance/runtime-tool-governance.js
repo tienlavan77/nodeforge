@@ -1,6 +1,8 @@
 // Runtime guard for tool authorization, retrieval budgeting, and execution audit trails.
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
+import { assertExecutionFileAccess, issueExecutionFileAccess } from "../../tools/execution-file-access.js";
+import { isAgentPathAllowed } from "../../tools/tool-authorization.js";
 import { assertDiscoveryBudget, createExplorationState, discoveryKind, markEditStarted } from "../../tools/exploration-state.js";
 import { assertReservation, buildToolContext, cloneBudget, cloneContext, contextKey, distinctCalls, ensureTables, governanceError, isId, loadBudget, loadPersistedBudget, normalizeBudget, normalizeScope, nonNegativeInteger, persistBudget, persistBudgetValues, resourceAllowed, resourceList, withLock } from "./runtime-tool-governance-state.js";
 
@@ -9,7 +11,7 @@ const DISCOVERY_TOOLS = new Set(["select_code_graph_candidates", "search_code", 
 const EDIT_TOOLS = new Set(["write_diff", "edit_diff"]);
 
 // Creates runtime guards for tool authorization, budgeting, and auditing.
-export function createRuntimeToolGovernance({ database, eventStore, clock = () => new Date() } = {}) {
+export function createRuntimeToolGovernance({ database, eventStore, clock = () => new Date(), fileAccessPolicy } = {}) {
   if (database && (typeof database.run !== "function" || typeof database.all !== "function")) {
     throw new ConfigurationError("Runtime governance database requires run() and all().");
   }
@@ -23,6 +25,7 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
 
   // Initializes a scoped execution context with budget and identity.
   function createExecutionContext(input = {}) {
+    if (input.file_access_version !== undefined || input.file_access_policy !== undefined) throw governanceError("FILE_ACCESS_POLICY_INVALID", "Execution creation cannot import file authority from serialized context.");
     const taskId = input.task_id ?? input.taskId;
     const scope = input.execution_scope ?? input.executionScope;
     const executionId = input.execution_id ?? input.executionId ?? scope?.execution_id ?? scope?.executionId;
@@ -50,6 +53,12 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
       exploration_state: explorationState, verify_result: input.verify_result ?? input.verifyResult ?? null,
       audit_context: input.audit_context ?? {}
     };
+    if (fileAccessPolicy && ["coder", "reviewer"].includes(context.agent_identity.role)) {
+      context.project_root = input.project_root;
+      context.file_access_version = 2;
+      context.file_access_policy = issueExecutionFileAccess({ ...fileAccessPolicy, context: { ...input, ...context,
+        allowed_file_paths: context.allowed_resources.allowed_file_paths, allowed_prefixes: context.allowed_resources.allowed_prefixes } });
+    }
     contexts.set(key, context);
     persistBudget(state, context);
     return cloneContext(context);
@@ -58,10 +67,13 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
   // Checks capability and resource allowlist for a tool invocation.
   function authorize(toolName, context = {}, resource) {
     const normalized = resolveContext(context);
+    assertExecutionFileAccess(normalized);
     assertActive(normalized);
     if (!normalized.capabilities.includes(toolName)) throw governanceError("TOOL_FORBIDDEN", `Agent is not authorized to use ${toolName}.`);
     const operation = EDIT_TOOLS.has(toolName) ? "write" : "read";
-    for (const item of resourceList(resource)) if (!resourceAllowed(item, normalized.allowed_resources, { operation, role: normalized.agent_identity?.role })) throw governanceError("TOOL_RESOURCE_FORBIDDEN", `Resource is outside the execution allowlist: ${item}.`);
+    for (const item of resourceList(resource)) if (!(normalized.file_access_version === 2
+      ? item === "." && toolName === "search_tree" && operation === "read" || isAgentPathAllowed(item, normalized, { operation })
+      : resourceAllowed(item, normalized.allowed_resources, { operation, role: normalized.agent_identity?.role }))) throw governanceError("TOOL_RESOURCE_FORBIDDEN", `Resource is outside the execution allowlist: ${item}.`);
     return true;
   }
 
@@ -132,7 +144,7 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
   // Persists and emits an audit record for a tool retrieval attempt.
   async function audit(entry = {}) {
     const timestamp = clock().toISOString();
-    const record = { audit_id: randomUUID(), timestamp, task_id: entry.task_id, execution_id: entry.execution_id, tool: entry.tool, resource: entry.resource ?? null, bytes: Number(entry.bytes) || 0, success: entry.success !== false, error: entry.error?.message ?? entry.error ?? null, correlation_id: entry.correlation_id ?? entry.audit_context?.correlation_id ?? null, agent_identity: entry.agent_identity };
+    const record = { audit_id: randomUUID(), timestamp, task_id: entry.task_id, execution_id: entry.execution_id, tool: entry.tool, resource: entry.resource ?? null, bytes: Number(entry.bytes) || 0, success: entry.success !== false, error: entry.error?.message ?? entry.error ?? null, correlation_id: entry.correlation_id ?? entry.audit_context?.correlation_id ?? null, agent_identity: entry.agent_identity, ...(entry.file_access_policy ? { file_access_policy: entry.file_access_policy.policy } : {}) };
     if (database) database.run("INSERT INTO runtime_tool_audit (audit_id, task_id, execution_id, timestamp, audit_json) VALUES (?, ?, ?, ?, ?)", [record.audit_id, record.task_id, record.execution_id, timestamp, JSON.stringify(record)]);
     if (eventStore?.append) eventStore.append({ event_id: record.audit_id, project_id: entry.project_id ?? "runtime", event_type: "tool.retrieval", timestamp, source: "runtime-tool-governance", task_id: record.task_id, correlation_id: record.correlation_id ?? undefined, payload: record, metadata: { task_id: record.task_id, execution_id: record.execution_id } });
     return record;
@@ -175,11 +187,13 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
       if (context.execution_scope?.task_id && context.execution_scope.task_id !== taskId) throw governanceError("TOOL_SCOPE_INVALID", "execution_scope.task_id does not match task_id.");
       if (context.execution_scope?.execution_id && context.execution_scope.execution_id !== executionId) throw governanceError("TOOL_SCOPE_INVALID", "execution_scope.execution_id does not match execution_id.");
       if (context.agent_identity && JSON.stringify(context.agent_identity) !== JSON.stringify(known.agent_identity)) throw governanceError("TOOL_IDENTITY_INVALID", "Tool caller does not match the execution identity.");
+      if ((context.file_access_version !== undefined || context.file_access_policy !== undefined)
+        && (context.file_access_version !== known.file_access_version || context.file_access_policy !== known.file_access_policy)) throw governanceError("FILE_ACCESS_POLICY_INVALID", "Tool caller cannot replace the Node file access policy.");
       if (context.lifecycle !== undefined) known.lifecycle = context.lifecycle;
       return { ...known, changed_paths: known.changed_paths };
     }
     if (!context.agent_identity) throw governanceError("TOOL_IDENTITY_INVALID", "Unknown execution requires agent_identity.");
     const created = createExecutionContext(context);
-    return Object.assign(created, context);
+    return { ...context, ...created };
   }
 }
