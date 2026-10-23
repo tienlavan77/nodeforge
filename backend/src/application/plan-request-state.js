@@ -1,4 +1,5 @@
 // Persists Architecture planning request progress so Coding can recover generating/error state after missed delivery.
+import { statePath } from "../infrastructure/filesystem/forge-paths.js";
 import { randomUUID } from "node:crypto";
 import { acquireTicketFileLock } from "../modules/supervisor/ticket-file-lock.js";
 
@@ -14,7 +15,7 @@ function processAlive(pid) {
 // Stores bounded project-scoped request snapshots without credentials or generated plan content.
 export function createPlanRequestState({ projectId, fileService }) {
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(projectId ?? "") || !fileService?.createLock || !fileService?.readFile || !fileService?.atomicWrite) throw new TypeError("Plan request state requires a safe project ID and Node File Service.");
-  const path = `.forge/runtime/nf/plan-requests/${projectId}.json`;
+  const path = `${statePath()}/nf/plan-requests/${projectId}.json`;
   return { start, complete, wait, fail, list };
 
   // Records an intentional owner clarification pause without claiming that a plan has been persisted.

@@ -1,7 +1,8 @@
 // Persists one terminal ticket integration receipt for root and worktree workflows.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { ConfigurationError } from "../../shared/errors.js";
 
-const DIRECTORY = ".forge/runtime/ticket-integrations";
+const DIRECTORY = statePath("ticket-integrations");
 const SAFE_TASK = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const fail = (code, message) => Object.assign(new ConfigurationError(message), { code });
 

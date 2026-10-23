@@ -1,4 +1,5 @@
 // Binds a new ticket to project-root source, durable ledger, and immutable commit evidence.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { loadCompletedReviewSource, prepareCompletedReviewRepair } from "./completed-review-repair-workspace.js";
 import { prepareFindingReviewRepair } from "./finding-review-repair-workspace.js";
 import { resumeFindingReviewSource, inspectFindingReviewSource } from "./finding-review-source-resume.js";
@@ -30,7 +31,7 @@ export function createTicketRootWorkspace({ projectRoot, projectId, protocolStor
   const git = createGitService({ projectRoot });
   const rootGit = createTicketRootGit({ projectRoot });
   const receipts = receiptWriter ?? createTerminalReceiptWriter({ fileService: stateFileService, projectLogger });
-  const statePath = (taskId) => `.forge/runtime/ticket-root-workspaces/${key(projectId)}/${key(taskId)}.json`;
+  const workspaceStatePath = (taskId) => `${statePath()}/ticket-root-workspaces/${key(projectId)}/${key(taskId)}.json`;
   const opened = new Map();
   const opening = new Map();
   return Object.freeze({ ensure, open, close: () => opened.clear() });
@@ -38,7 +39,7 @@ export function createTicketRootWorkspace({ projectRoot, projectId, protocolStor
   // Persists the root commit baseline before the Supervisor dispatches a Coder.
   async function ensure(taskId) {
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(taskId ?? "")) throw fail("TICKET_ROOT_ID_INVALID", "Root ticket requires a safe ID.");
-    const lock = await acquireTicketFileLock(stateFileService, `${statePath(taskId)}.lock`);
+    const lock = await acquireTicketFileLock(stateFileService, `${workspaceStatePath(taskId)}.lock`);
     try { return await ensureLocked(taskId); }
     finally { await lock.release(); }
   }
@@ -46,7 +47,7 @@ export function createTicketRootWorkspace({ projectRoot, projectId, protocolStor
   // Reuses the same baseline when two Supervisors prepare one ticket concurrently.
   async function ensureLocked(taskId) {
     let state;
-    try { state = JSON.parse(await stateFileService.readFile({ path: statePath(taskId) })); }
+    try { state = JSON.parse(await stateFileService.readFile({ path: workspaceStatePath(taskId) })); }
     catch (error) { if (error.code !== "ENOENT") throw error; }
     if (state) {
       if (state.project_id !== projectId || state.task_id !== taskId || !/^[a-f0-9]{40,64}$/i.test(state.base_commit)) throw fail("TICKET_ROOT_STATE_INVALID", "Persisted root ticket baseline is invalid.");
@@ -56,13 +57,13 @@ export function createTicketRootWorkspace({ projectRoot, projectId, protocolStor
     }
     const historical = await executionContexts.load(taskId);
     const changes = await ledger.load(taskId);
-    const coderCheckpoint = await optionalState(`.forge/runtime/agent-checkpoints/${taskId}.json`);
-    const reviewerCheckpoint = await optionalState(`.forge/runtime/reviewer-checkpoints/${taskId}.json`);
+    const coderCheckpoint = await optionalState(`${statePath()}/agent-checkpoints/${taskId}.json`);
+    const reviewerCheckpoint = await optionalState(`${statePath()}/reviewer-checkpoints/${taskId}.json`);
     if (historical || coderCheckpoint || reviewerCheckpoint || changes.revision || Object.keys(changes.commits).length) throw fail("TICKET_ROOT_CONTEXT_MIGRATION_REQUIRED", "Existing ticket evidence needs explicit disposition before root-only execution.");
     const branch = await git.currentBranch();
     if (!branch) throw fail("TICKET_ROOT_BRANCH_INVALID", "Root ticket needs a named project branch.");
     const record = { project_id: projectId, task_id: taskId, branch, base_commit: await git.getHead(), root_only: true, created_at: new Date().toISOString() };
-    await stateFileService.atomicWrite({ path: statePath(taskId), content: `${JSON.stringify(record)}\n`, replace: false });
+    await stateFileService.atomicWrite({ path: workspaceStatePath(taskId), content: `${JSON.stringify(record)}\n`, replace: false });
     return { path: projectRoot, branch, base_commit: record.base_commit, root_only: true, reused: false };
   }
 
@@ -74,7 +75,7 @@ export function createTicketRootWorkspace({ projectRoot, projectId, protocolStor
 
   // Record root integration after verifying the exact reviewed commit is still reachable.
   async function integrateRoot(taskId, identity, testService) {
-    const lock = await acquireTicketFileLock(stateFileService, ".forge/runtime/ticket-integrations/integration.lock");
+    const lock = await acquireTicketFileLock(stateFileService, statePath("ticket-integrations/integration.lock"));
     try {
       const artifact = await testService.assertPassedArtifact();
       const branch = (await rootGit.checkedBranch()).slice("refs/heads/".length);
@@ -115,7 +116,7 @@ export function createTicketRootWorkspace({ projectRoot, projectId, protocolStor
     const identity = await ensure(taskId);
     const committedFiles = createTicketCommitFileService({ taskId, projectRoot, executionContexts });
     const rootGit = createTicketRootCommitService({ taskId, projectId, projectRoot, fileService: stateFileService, ledger, gitService: git, expectedBranch: identity.branch, projectLogger });
-    const changeLedger = { write: async (change) => { await executionContexts.assertApprovedPath(taskId, change.path); return ledger.write({ ...change, taskId }); }, snapshot: () => ledger.snapshot(taskId), release: (options) => ledger.release(taskId, options), rollback: (options) => ledger.rollback(taskId, options), resume: (options) => ledger.resume(taskId, options) };
+    const changeLedger = { write: async (change) => { await executionContexts.assertApprovedPath(taskId, change.path); return ledger.write({ ...change, taskId }); }, load: () => ledger.load(taskId), reconcile: () => ledger.reconcile(taskId), snapshot: () => ledger.snapshot(taskId), release: (options) => ledger.release(taskId, options), rollback: (options) => ledger.rollback(taskId, options), resume: (options) => ledger.resume(taskId, options) };
     const freshnessChecker = createIndexFreshnessChecker({ database: indexDatabase, fileService: stateFileService });
     const relevantTreeSelector = createRelevantTreeSelector({ search: codeSearch, fileGraph, freshnessChecker });
     const testService = createTicketVerificationService({ taskId, projectId, projectRoot, worktreeRoot: projectRoot, worktreeFileService: stateFileService, stateFileService, gitService: rootGit, ledger, executionContexts, rootOnly: true, projectLogger,

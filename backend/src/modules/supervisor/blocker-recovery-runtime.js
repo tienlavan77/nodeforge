@@ -24,8 +24,9 @@ import { createBlockerApprovalRetry } from "./blocker-approval-retry.js";
 import { createBlockerFailureClassification } from "./blocker-failure-classification.js";
 import { blockerValidationError } from "./blocker-validation.js";
 import { createBlockerReconciliationRefresh } from "./blocker-reconciliation-refresh.js";
-import { retainBlockerContract, readBlockerContracts, blockerContractPrompt } from "./blocker-contract-evidence.js";
+import { retainBlockerContract, blockerContractPrompt } from "./blocker-contract-evidence.js";
 import { recordBlockerCommitAuthorization, hasBlockerCommitAuthorization } from "./blocker-commit-authorization.js";
+import { readBlockerContractDelegation } from "./blocker-contract-delegation.js";
 const SOURCE_FIELDS = ["source_revision", "base_sha", "manifest_sha", "review_commit_sha"];
 // Enables automatic SL/Architecture coordination only for Registry-bound ticket workspaces; `limits` defaults to the deploy-time policy.
 export function createProductionBlockerRecovery({ store, fileService, projectId, ticketStatusStore, sprintRegistry, resolveTicketWorkspace, checkpoints,
@@ -36,7 +37,7 @@ export function createProductionBlockerRecovery({ store, fileService, projectId,
   const classifyFailure = createBlockerFailureClassification({ readFailureEvidence });
   const admission = createBlockerAdmission({ store, inspect, clock, projectLogger, readFailureEvidence });
   const notify = createBlockerNotification({ inspect, checkDisposition, prepareGovernance: (...args) => prepareGovernance(...args), checkpoints, eventBus, projectLogger, replanFoundation, logger, clock });
-  const recovery = createBlockerRecovery({ store, validate, investigate: investigateStage, checkDisposition, resume, notify, clock, logger, ...limits, refreshWaiting: createBlockerReconciliationRefresh({ inspect, clock, projectLogger, readFailureEvidence, sprintRegistry, ticketStatusStore }) });
+  const recovery = createBlockerRecovery({ store, validate, investigate: investigateStage, checkDisposition, resume, notify, clock, logger, ...limits, refreshWaiting: createBlockerReconciliationRefresh({ inspect, fileService, clock, projectLogger, readFailureEvidence, sprintRegistry, ticketStatusStore }) });
   const approvalRetry = createBlockerApprovalRetry({ inspect, checkpoints, eventBus, projectLogger, clock, readFailureEvidence });
   const capture = createBlockerCapture({ ticketStatusStore, checkpoints, sprintRegistry, architecturePlans, resolveTicketWorkspace, recovery, store, fileService, prepareRetry: approvalRetry.prepare, notifyRetry: approvalRetry.notify, logger, clock });
   const fulfillOwnerDecision = createBlockerOwnerHandoff({ store, recovery, checkpoints, ticketStatusStore, inspect, projectLogger });
@@ -92,12 +93,13 @@ export function createProductionBlockerRecovery({ store, fileService, projectId,
     const authority = await inspect(job);
     if (!authority) throw new Error("Decision authority changed before investigation.");
     const ticket_progress = await buildBlockerTicketProgress({ job, ...authority, sprintRegistry, ticketStatusStore, reviewCheckpoint: await checkpoints.loadReview?.(job.request.task_id) });
-    const contracts = await readBlockerContracts({ receipts: authority.checkpoint.contract_decisions, fileService, allowContinuation: true, binding: { project_id: job.request.project_id, task_id: job.request.task_id, execution_id: job.request.payload.execution_id, sprint_basis: job.request.payload.sprint_basis } });
+    const { contracts, delegation } = await readBlockerContractDelegation({ job, checkpoint: authority.checkpoint, fileService, architecture: authority.architecture });
+    ticket_progress.architecture_decision ??= delegation;
     ticket_progress.failure_classification = await classifyFailure(job, authority.workspace);
     ticket_progress.evidence_sha256 = blockerDigest([ticket_progress.evidence_sha256, ticket_progress.failure_classification]);
     await options.onTicketProgress?.(ticket_progress);
     if (ticket_progress.failure_classification?.category === "technical_failure") projectLogger({ event_name: "supervisor.blocker_failure_classified", level: "info", status: "success", task_id: job.request.task_id,
-      message: "Node classified the retained access label as a technical failure from original receipts; SL coordinates recovery, tool approval remains enforced.",
+      message: "Node classified the retained blocker as a technical failure from execution-bound receipts; SL coordinates recovery, tool approval remains enforced.",
       payload: { job_id: job.id, classification: ticket_progress.failure_classification } });
     const source = ticket_progress.source_reconciliation;
     if (source && job.technical_reconciliation?.work.kind === "source_revision") projectLogger({ event_name: "supervisor.blocker_source_evidence", level: "info", status: "success", task_id: job.request.task_id,
@@ -133,7 +135,9 @@ export function createProductionBlockerRecovery({ store, fileService, projectId,
     if (retained && JSON.stringify(job.ticket_progress?.failure_classification ?? null) !== JSON.stringify(ticket_progress.failure_classification))
       throw blockerValidationError("/action", "failure_classification_changed", "Node's receipt-based failure classification changed. SL must reassess the current blocker before reusing this historical disposition.");
     if (hasBlockerCommitAuthorization(job)) await admission.assertAllowed(job);
+    const { delegation: contractDelegation } = await readBlockerContractDelegation({ job, checkpoint: authority.checkpoint, fileService, architecture: authority.architecture });
     const verified = await validateBlockerDisposition(value, { job: { ...job, ticket_progress }, plan: authority.plan, architecture: authority.architecture,
+      contractDelegation,
       fileService: (authority.workspace.root_only ? authority.workspace.fileService : authority.workspace.worktreeFileService ?? authority.workspace.fileService) ?? fileService,
       projectRoot: authority.workspace.path ?? authority.workspace.projectRoot, verifyContractSource: createTicketContractSource({ request: job.request, workspace: authority.workspace }) });
     if (["coder_requested", "candidate_prepared", "sprint_required"].includes(verified.action) || job.stage === "architecture_manager" && verified.action === "resolved") projectLogger({ event_name: "supervisor.blocker_candidate_handoff", level: "info", status: "success", task_id: job.request.task_id,
@@ -153,7 +157,7 @@ export function createProductionBlockerRecovery({ store, fileService, projectId,
     const checkpoint = (await recordTicketStage({ checkpoints, taskId: job.request.task_id, stage: "coder", status: "resumed_from_blocker", details: { job_id: job.id }, logger, clock })) ?? authority.checkpoint;
     const resumed = { ...checkpoint, contract_decisions: await retainBlockerContract({ job, checkpoint, fileService }), status: "in_progress", phase: "blocker_resolved", blocker_recovery: {
       job_id: job.id, status: job.approval_retry ? "approval_retry" : "resolved", approval_retry: job.approval_retry ?? null,
-      disposition: job.resolution, history: job.history, coder_exchange: job.coder_exchange ?? null, execution_admission: job.execution_admission ?? null, ticket_progress } };
+      disposition: job.resolution, communication: job.communication ?? null, history: job.history, coder_exchange: job.coder_exchange ?? null, execution_admission: job.execution_admission ?? null, ticket_progress } };
     delete resumed.failure;
     try {
       await store.withLock("blocker.recovery", async () => {

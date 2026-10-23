@@ -9,10 +9,21 @@
     "status": { "type": "string", "enum": ["completed", "blocked", "needs_context"] },
     "blocker": {
       "type": "object", "additionalProperties": false,
-      "required": ["reason_code", "owner_action"],
+      "required": ["reason_code"],
+      "anyOf": [{ "required": ["consultation"], "properties": { "consultation": {} } }, { "required": ["owner_action"], "properties": { "owner_action": {} } }],
       "properties": {
         "reason_code": { "type": "string", "enum": ["SCOPE_CONFLICT", "CONTRACT_DECISION_REQUIRED", "ACCESS_REQUIRED", "SECURITY_RISK", "ACCEPTANCE_AMBIGUOUS"] },
-        "owner_action": { "type": "string", "minLength": 1, "maxLength": 4000 }
+        "owner_action": { "type": "string", "minLength": 1, "maxLength": 4000, "description": "Legacy requested decision; Node routes it to SL, not directly to Owner." },
+        "consultation": {
+          "type": "object", "additionalProperties": false,
+          "required": ["question", "decision_needed", "known_decision_refs", "impact"],
+          "properties": {
+            "question": { "type": "string", "minLength": 1, "maxLength": 4000 },
+            "decision_needed": { "type": "string", "minLength": 1, "maxLength": 4000 },
+            "known_decision_refs": { "type": "array", "maxItems": 100, "items": { "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "object" }] } },
+            "impact": { "type": "string", "minLength": 1, "maxLength": 4000 }
+          }
+        }
       }
     },
     "summary": {

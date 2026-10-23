@@ -1,4 +1,5 @@
 // Refreshes stale dependency execution references only at a parked, finding-driven review repair boundary.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { acquireTicketFileLock } from "./ticket-file-lock.js";
@@ -11,7 +12,7 @@ export function createReviewDependencyReconciliation({ ticketStatusStore, sprint
     const repair = binding?.repair_cycle_id ? checkpoint?.review_cycle_id === binding.repair_cycle_id
       : Boolean(binding) && reviewCheckpoint?.status === "completed" && reviewCheckpoint.verdict === "request_changes";
     if (!repair || isDeepStrictEqual(current.details.dependency_expectations, dependencyExpectations)) return current;
-    const lock = await acquireTicketFileLock(fileService, `.forge/runtime/automatic-review-locks/OWNER-${ticket.id}.lock`);
+    const lock = await acquireTicketFileLock(fileService, `${statePath()}/automatic-review-locks/OWNER-${ticket.id}.lock`);
     try {
       if (current.project_id !== projectId || !["reviewing", "failed", "pending"].includes(current.status) || current.details.launch_claim) throw conflict("Dependency repair requires a parked execution without an active launch.");
       const workspace = await resolveTicketWorkspace(ticket.id);
@@ -33,7 +34,7 @@ export function createReviewDependencyReconciliation({ ticketStatusStore, sprint
         review_job_id: binding.job_id, repair_cycle_id: binding.repair_cycle_id ?? null, previous, dependencies: dependencyExpectations, replacements };
       const content = JSON.stringify(evidence);
       const digest = createHash("sha256").update(content).digest("hex");
-      const receipt = { path: `.forge/runtime/review-dependency-reconciliation/${digest}.json`, sha256: `sha256:${digest}` };
+      const receipt = { path: `${statePath()}/review-dependency-reconciliation/${digest}.json`, sha256: `sha256:${digest}` };
       let stored = null;
       try { stored = await fileService.readFile({ path: receipt.path }); }
       catch (error) { if (error.code !== "ENOENT") throw error; }
@@ -59,8 +60,8 @@ export function createReviewDependencyReconciliation({ ticketStatusStore, sprint
     if (context?.state !== "terminal" || context.project_id !== row.project_id || context.task_id !== expected.ticket_id
       || !context.manifest_sha || !context.source_revision || !/^[a-f0-9]{40,64}$/.test(context.base_sha ?? "")
       || !/^[a-f0-9]{40,64}$/.test(context.review_commit_sha ?? "") || !/^ARTIFACT-[A-Za-z0-9-]+$/.test(context.verification_artifact_id ?? "")) throw conflict("Replacement dependency has no completed verification context.");
-    const integration = JSON.parse(await files.readFile({ path: `.forge/runtime/ticket-integrations/${expected.ticket_id}.json` }));
-    const artifact = JSON.parse(await files.readFile({ path: `.forge/runtime/ticket-verification/${expected.ticket_id}/artifacts/${context.verification_artifact_id}.json` }));
+    const integration = JSON.parse(await files.readFile({ path: `${statePath()}/ticket-integrations/${expected.ticket_id}.json` }));
+    const artifact = JSON.parse(await files.readFile({ path: `${statePath()}/ticket-verification/${expected.ticket_id}/artifacts/${context.verification_artifact_id}.json` }));
     if (integration.status !== "completed" || integration.task_id !== expected.ticket_id || integration.commit !== context.review_commit_sha
       || integration.artifact_id !== context.verification_artifact_id || integration.manifest_sha !== context.manifest_sha || integration.source_revision !== context.source_revision
       || artifact.status !== "passed" || artifact.task_id !== expected.ticket_id || artifact.project_id !== row.project_id || artifact.artifact_id !== context.verification_artifact_id

@@ -1,4 +1,5 @@
 // Exposes complete ticket review records through existing read tools without truncating later findings.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createQueryReviewTool, queryReviewDefinition } from "../../tools/query-review-tool.js";
 import { reviewQueryPrompt } from "./review-query-records.js";
 import { createHash } from "node:crypto";
@@ -7,7 +8,7 @@ import { authorizeTool } from "../../tools/tool-authorization.js";
 // Captures immutable, ticket-scoped review records and indexes their exact read locations.
 export function createReviewExchangeEvidence(taskId, exchange) {
   if (!/^[A-Za-z0-9._:-]+$/.test(taskId ?? "")) throw failure("Invalid review ticket identity.");
-  const prefix = `.forge/runtime/review-evidence/${taskId}/`;
+  const prefix = `${statePath()}/review-evidence/${taskId}/`;
   const files = new Map();
   // Serializes one complete evidence record; historical records remain separately addressable.
   function add(name, value) {

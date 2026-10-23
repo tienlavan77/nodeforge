@@ -1,10 +1,11 @@
 // Persists the ticket identity chain so dispatch and recovery agree on one source revision.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createHash } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { acquireTicketFileLock } from "./ticket-file-lock.js";
 import { verifyTicketBaseline } from "./ticket-baseline-guard.js";
 
-const ROOT = ".forge/runtime/ticket-execution-contexts";
+const ROOT = statePath("ticket-execution-contexts");
 const STATES = new Set(["created", "coding", "committed", "verified", "reviewing", "integrating", "terminal"]);
 const SAFE_ID = /^[A-Za-z0-9._:-]+$/;
 const digest = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;

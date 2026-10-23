@@ -1,0 +1,93 @@
+$ node node_modules/eslint/bin/eslint.js --rulesdir eslint-rules "backend/src/**/*.js" "backend/tests/**/*.js" "backend/tests/**/*.mjs" "backend/scripts/**/*.mjs" "eslint-rules/*.js" --no-error-on-unmatched-pattern --max-warnings=0
+
+/home/data/sites/nodeforge/backend/scripts/backfill-symbol-embeddings.mjs
+  4:10  error  'createHash' is defined but never used  no-unused-vars
+
+/home/data/sites/nodeforge/backend/scripts/control-api-agent.mjs
+  37:60  error  'codexCredential' is defined but never used  no-unused-vars
+
+/home/data/sites/nodeforge/backend/scripts/nodeforge-process-lock.mjs
+   1:21  error  'existsSync' is defined but never used  no-unused-vars
+  17:88  error  Empty block statement                   no-empty
+
+/home/data/sites/nodeforge/backend/scripts/repair-npm-bin-links.mjs
+  25:37  error  Unnecessary escape character: \$  no-useless-escape
+  25:49  error  Unnecessary escape character: \$  no-useless-escape
+  25:75  error  Unnecessary escape character: \$  no-useless-escape
+
+/home/data/sites/nodeforge/backend/scripts/start-control-api.mjs
+    2:10   error  'join' is defined but never used                                 no-unused-vars
+    3:10   error  'EventEmitter' is defined but never used                         no-unused-vars
+   35:10   error  'createAgentExecutionCheckpointStore' is defined but never used  no-unused-vars
+   40:21   error  'dataDir' is assigned a value but never used                     no-unused-vars
+   48:9    error  'profiles' is assigned a value but never used                    no-unused-vars
+   55:58   error  'fileGraph' is assigned a value but never used                   no-unused-vars
+   55:154  error  'memoryRetriever' is assigned a value but never used             no-unused-vars
+   55:350  error  'verificationOrchestrator' is assigned a value but never used    no-unused-vars
+   72:42   error  'project_id' is assigned a value but never used                  no-unused-vars
+   77:28   error  'task_id' is assigned a value but never used                     no-unused-vars
+   85:7    error  'terminalBridge' is assigned a value but never used              no-unused-vars
+  103:16   error  'buildFileContext' is defined but never used                     no-unused-vars
+  117:10   error  'isSourceCandidate' is defined but never used                    no-unused-vars
+  122:10   error  'isFrontendTicket' is defined but never used                     no-unused-vars
+  133:54   error  'conversationId' is assigned a value but never used              no-unused-vars
+
+/home/data/sites/nodeforge/backend/scripts/test-select-code-graph-candidates-tool.mjs
+  5:10  error  'readFileSync' is defined but never used   no-unused-vars
+  5:24  error  'writeFileSync' is defined but never used  no-unused-vars
+
+/home/data/sites/nodeforge/backend/src/application/agent-settings-service.js
+  151:34  error  'role' is defined but never used  no-unused-vars
+
+/home/data/sites/nodeforge/backend/src/application/project-agent-preferences-service.js
+  27:10  error  Parsing error: Identifier 'createProjectAgentPreferencesService' has already been declared
+
+/home/data/sites/nodeforge/backend/src/application/sprint-orchestration-service.js
+  101:9   error  'failed' is assigned a value but never used                                                                 no-unused-vars
+  114:69  error  Empty catch block swallows the error. Log it or add eslint-disable-next-line no-silent-catch with a reason  no-silent-catch
+
+/home/data/sites/nodeforge/backend/src/application/test-service.js
+  94:13  error  Empty block statement  no-empty
+
+/home/data/sites/nodeforge/backend/src/modules/agent/agent-profile-store.js
+  131:82  error  Empty block statement  no-empty
+
+/home/data/sites/nodeforge/backend/src/modules/index/code-search.js
+  110:11  error  'phraseTokens' is assigned a value but never used  no-unused-vars
+  111:11  error  'rawTokens' is assigned a value but never used     no-unused-vars
+
+/home/data/sites/nodeforge/backend/src/modules/index/parser/index.js
+  6:10  error  'createJsxUiWalker' is defined but never used  no-unused-vars
+
+/home/data/sites/nodeforge/backend/src/modules/supervisor/explore-pre-pass.js
+  14:62  error  'fileGraph' is assigned a value but never used  no-unused-vars
+
+/home/data/sites/nodeforge/backend/src/modules/supervisor/file-queue-store.js
+  18:103  error  Empty block statement  no-empty
+  28:105  error  Empty block statement  no-empty
+
+/home/data/sites/nodeforge/backend/src/modules/supervisor/sender-worker.js
+   7:292  error  'runtimeGovernance' is assigned a value but never used  no-unused-vars
+  13:18   error  'intervalMs' is assigned a value but never used         no-unused-vars
+
+/home/data/sites/nodeforge/backend/tests/eval/glossary-miner.mjs
+  29:546  error  Parsing error: Unexpected token ,
+
+/home/data/sites/nodeforge/backend/tests/eval/retrieval-cases-auto.js
+  10:20  error  Parsing error: Unexpected token :
+
+/home/data/sites/nodeforge/backend/tests/unit/eval-case-store.test.js
+  56:81  error  Parsing error: Unexpected token ,
+
+/home/data/sites/nodeforge/backend/tests/unit/openai-sdk-supervisor-hello.test.js
+  56:25  error  'prompt' is defined but never used  no-unused-vars
+
+/home/data/sites/nodeforge/backend/tests/unit/project-stream.test.js
+  16:10  error  'runtimeStub' is defined but never used  no-unused-vars
+
+/home/data/sites/nodeforge/backend/tests/unit/supervisor-runtime.test.js
+  5:10  error  'runtimeStub' is defined but never used  no-unused-vars
+
+✖ 44 problems (44 errors, 0 warnings)
+
+[ELIFECYCLE] Command failed with exit code 1.

@@ -1,13 +1,14 @@
 // Shares owner execution recovery policy while keeping System Engineer and Architecture records physically isolated.
+import { statePath } from "../infrastructure/filesystem/forge-paths.js";
 import { ConfigurationError } from "../shared/errors.js";
 
 const ROLE_POLICY = Object.freeze({
   system_engineer: Object.freeze({
-    root: ".forge/runtime/owner-executions", displayName: "System Engineer",
+    root: statePath("owner-executions"), displayName: "System Engineer",
     architectureMutations: false, settleRunChecks: true, allowVerifiedDelete: false, requiresOwnerAuth: false
   }),
   architecture_manager: Object.freeze({
-    root: ".forge/runtime/architecture-executions", displayName: "Architecture Manager",
+    root: statePath("architecture-executions"), displayName: "Architecture Manager",
     architectureMutations: true, settleRunChecks: false, allowVerifiedDelete: true, requiresOwnerAuth: true
   })
 });

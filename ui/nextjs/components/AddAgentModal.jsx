@@ -19,7 +19,7 @@ function SelectMenu({ label, name, value, options, openName, setOpenName, onChan
 }
 
 // Render the agent form through the shared accessible dialog owner.
-export function AddAgentModal({ title = "Add agent", form, modelOptions, apiKeyMasked, saving, error, testState, onTestConnection, onChange, onSubmit, onClose }) {
+export function AddAgentModal({ title = "Add agent", form, modelOptions, apiKeyMasked, saving, error, testState, onTestConnection, onChange, onSubmit, onClose, effortOptions = [] }) {
   // Team selector rendered below Role with options: Backend, Frontend, Security
   const [openName, setOpenName] = useState(null);
   const roles = [{ value: "architecture_manager", label: "Architecture Manager" }, { value: "system_engineer", label: "System Engineer" }, { value: "sprint_leader", label: "Sprint Leader" }, { value: "coder", label: "Coder" }, { value: "reviewer", label: "Reviewer" }, { value: "linguist", label: "Linguist" }];
@@ -36,6 +36,7 @@ export function AddAgentModal({ title = "Add agent", form, modelOptions, apiKeyM
         <SelectMenu label="Provider" name="provider" value={form.provider} options={providers} openName={openName} setOpenName={setOpenName} onChange={onChange} />
         {form.role === "system_engineer" && ["codex", "claude", "anthropic"].includes(form.provider) && <SelectMenu label="Tool mode" name="tool_mode" value={form.tool_mode ?? "forge"} options={[{ value: "forge", label: "Forge tools" }, { value: "builtin", label: "SDK built-in tools" }]} openName={openName} setOpenName={setOpenName} onChange={onChange} />}
         <SelectMenu label="Model" name="model" value={form.model} options={models} openName={openName} setOpenName={setOpenName} onChange={onChange} />
+        {effortOptions.length > 0 && <SelectMenu label="Reasoning effort" name="effort" value={form.effort ?? "medium"} options={effortOptions} openName={openName} setOpenName={setOpenName} onChange={onChange} />}
         <label>Gateway URL<input name="gateway_url" value={form.gateway_url} onChange={onChange} required placeholder="https://..." /></label>
         <label>API key<input name="api_key" type="password" value={form.api_key} onChange={onChange} placeholder={apiKeyMasked || "Optional"} /></label>
         {error && <p id="agent-form-error" className="agent-form-error">{error}</p>}

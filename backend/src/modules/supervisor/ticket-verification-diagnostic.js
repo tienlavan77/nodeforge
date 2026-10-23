@@ -1,4 +1,5 @@
 // Carries immutable command evidence into Coder repair without mistaking infrastructure faults for code defects.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { verificationCommandAccepted } from "./ticket-verification-regression.js";
 
 // Loads the latest failed artifact only when its complete source identity still matches the ticket context.
@@ -30,7 +31,7 @@ export function createTicketVerificationDiagnostic({ loadContext, latestJob, loa
       reason: job.error?.code ?? "VERIFY_DIAGNOSTIC_MISSING", job_id: job.job_id, artifact_id: artifact.artifact_id,
       task_id: artifact.task_id, project_id: artifact.project_id, source_revision: artifact.source_revision,
       commit_sha: artifact.commit_sha, base_sha: artifact.base_sha, manifest_sha: artifact.manifest_sha,
-      evidence_ref: `.forge/runtime/ticket-verification/${artifact.task_id}/artifacts/${artifact.artifact_id}.json`, commands };
+      evidence_ref: `${statePath()}/ticket-verification/${artifact.task_id}/artifacts/${artifact.artifact_id}.json`, commands };
   };
 }
 

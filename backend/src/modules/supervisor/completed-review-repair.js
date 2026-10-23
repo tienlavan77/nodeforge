@@ -3,6 +3,7 @@ import { currentReviewFindings } from "./review-query-records.js";
 import { restoreCompletedReviewFindings } from "./completed-review-findings.js";
 import { createHash } from "node:crypto";
 import { assertReviewRequestOwnership } from "./recovery-evidence.js";
+import { reviewRepairScopeConflict } from "./review-repair-authority.js";
 
 // Starts one resumable repair cycle from a persisted independent request_changes verdict.
 export async function dispatchCompletedReviewRepair({ job, prior, workspace, current, ticketStatusStore, checkpoints, queueStore, resumeRepair, projectLogger }) {
@@ -10,11 +11,7 @@ export async function dispatchCompletedReviewRepair({ job, prior, workspace, cur
   if (prior?.verdict !== "request_changes" || prior.commit !== job.payload.verification.commit_sha || prior.verification?.artifact_id !== job.payload.verification.artifact_id) throw failure("REVIEW_REPAIR_SOURCE_CONFLICT", "Repair requires the exact persisted review verdict.");
   const findings = await restoreCompletedReviewFindings({ job, prior, workspace, projectLogger });
   if (!findings.length) throw failure("REVIEW_FINDINGS_UNAVAILABLE", "No persisted findings are available for Coder repair.");
-  const baseline = job.payload.execution_context.approved_baseline?.file_checksums;
-  if (findings.some((entry) => {
-    const finding = entry.finding ?? entry;
-    return String(finding.severity).toLowerCase() === "blocker" || baseline && (finding.files ?? []).some((path) => !Object.hasOwn(baseline, path));
-  })) throw failure("REVIEW_OWNER_DECISION_REQUIRED", "Finding requires a scope or safety decision before Coder repair.");
+  if (reviewRepairScopeConflict(findings, job.payload.execution_context)) throw failure("REVIEW_OWNER_DECISION_REQUIRED", "Finding requires a scope decision before Coder repair.");
   const references = currentReviewFindings(findings, await workspace.reviewFindings?.loadQuery?.());
   const cycleId = createHash("sha256").update(`${job.id}:${prior.request_id}`).digest("hex");
   const coder = await checkpoints.load(job.task_id);

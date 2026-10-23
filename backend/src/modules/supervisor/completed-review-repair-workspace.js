@@ -1,4 +1,5 @@
 // Starts a fresh repair journal while preserving integrated code and all previous ticket evidence.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createHash } from "node:crypto";
 import { acquireTicketFileLock } from "./ticket-file-lock.js";
 import { withTicketProjectCommitLock } from "./ticket-project-commit-lock.js";
@@ -10,14 +11,14 @@ const key = (value) => createHash("sha256").update(value).digest("hex");
 // Archives a completed cycle and prepares only the next finding-driven repair, with restart recovery.
 export async function prepareCompletedReviewRepair({ taskId, projectId, fileService, executionContexts, ledger, binding, cycleId }) {
   const scope = key(projectId);
-  const manifestPath = `.forge/runtime/ticket-changes/${scope}/tickets/${key(taskId)}.json`;
-  const contextPath = `.forge/runtime/ticket-execution-contexts/${scope}/${taskId}.json`;
-  const integrationPath = `.forge/runtime/ticket-integrations/${taskId}.json`;
-  const receiptPath = `.forge/runtime/ticket-review-repairs/${scope}/${taskId}/${cycleId}.json`;
+  const manifestPath = `${statePath()}/ticket-changes/${scope}/tickets/${key(taskId)}.json`;
+  const contextPath = `${statePath()}/ticket-execution-contexts/${scope}/${taskId}.json`;
+  const integrationPath = `${statePath()}/ticket-integrations/${taskId}.json`;
+  const receiptPath = `${statePath()}/ticket-review-repairs/${scope}/${taskId}/${cycleId}.json`;
   return withTicketProjectCommitLock({ fileService, projectId }, async () => {
     const contextLock = await acquireTicketFileLock(fileService, `${contextPath}.lock`);
     try {
-      const ledgerLock = await acquireTicketFileLock(fileService, `.forge/runtime/ticket-changes/${scope}/locks/${key(`ticket:${taskId}`)}.lock`);
+      const ledgerLock = await acquireTicketFileLock(fileService, `${statePath()}/ticket-changes/${scope}/locks/${key(`ticket:${taskId}`)}.lock`);
       try {
         let receipt = await readOptional(receiptPath);
         const context = await executionContexts.load(taskId);
@@ -78,7 +79,7 @@ export async function loadCompletedReviewSource({ taskId, projectId, fileService
     const cycleId = context.review_repair_cycle_id;
     if (!/^[A-Za-z0-9-]+$/.test(cycleId) || seen.has(cycleId)) throw failure("TICKET_CONTRACT_SOURCE_CONFLICT", "Invalid repair source lineage.");
     seen.add(cycleId);
-    const path = `.forge/runtime/ticket-review-repairs/${key(projectId)}/${taskId}/${cycleId}.json`;
+    const path = `${statePath()}/ticket-review-repairs/${key(projectId)}/${taskId}/${cycleId}.json`;
     const receipt = JSON.parse(await fileService.readFile({ path }));
     const identity = executionContexts.manifestIdentity(receipt.manifest);
     if (receipt.phase !== "ready" || receipt.task_id !== taskId || receipt.project_id !== projectId || receipt.cycle_id !== cycleId

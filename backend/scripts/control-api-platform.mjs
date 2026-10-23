@@ -119,9 +119,9 @@ export function selectSdkGateway(agentId, { claudeSdkGateway, codexSdkGateway, o
   return gateway;
 }
 
-// Prevents Codex built-in file, shell, and network actions during Sprint Leader planning.
+// Prevents Codex built-in file and shell actions while permitting Sprint Leader web research.
 function assertSprintLeaderCodexEvent(event) {
-  if (event?.type === "item.started" && ["command_execution", "file_change", "web_search"].includes(event.item?.type)) throw Object.assign(new ConfigurationError(`Sprint Leader attempted an unapproved built-in tool: ${event.item.type}.`), { code: "TOOL_FORBIDDEN" });
+  if (event?.type === "item.started" && ["command_execution", "file_change"].includes(event.item?.type)) throw Object.assign(new ConfigurationError(`Sprint Leader attempted an unapproved built-in tool: ${event.item.type}.`), { code: "TOOL_FORBIDDEN" });
 }
 function createTicketStatusLogger({ internalBus, logEvent }) {
   // Forwards ticket status events and records failures for operators.

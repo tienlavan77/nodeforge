@@ -1,4 +1,5 @@
 // Supplies current Node-owned file-claim metadata so blocker decisions do not rely on stale competing-owner reports.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createHash } from "node:crypto";
 
 // Reads only project-scoped claim records for the investigation's referenced source paths, never transferring ownership.
@@ -14,7 +15,7 @@ export async function inspectBlockerFileClaims({ job, fileService }) {
     const key = createHash("sha256").update(path).digest("hex");
     let claim = null;
     try {
-      claim = JSON.parse(await fileService.readFile({ path: `.forge/runtime/ticket-changes/${scope}/claims/${key}.json` }));
+      claim = JSON.parse(await fileService.readFile({ path: `${statePath()}/ticket-changes/${scope}/claims/${key}.json` }));
       if (!claim || claim.path !== path || typeof claim.task_id !== "string" || !claim.task_id
         || Object.hasOwn(claim, "claim_id") && (typeof claim.claim_id !== "string" || !claim.claim_id)) throw new Error("Blocker file-claim metadata has an invalid identity.");
     }

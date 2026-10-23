@@ -9,7 +9,7 @@ import { resolveBlockerAuthority } from "./blocker-authority-passages.js";
 import { blockerValidationError } from "./blocker-validation.js";
 import { validateBlockerContractDraft } from "./blocker-contract-draft.js";
 import { assertVerificationWait } from "./blocker-verification-wait.js";
-import { requiresBlockerAdmission } from "./blocker-failure-classification.js";
+import { requiresBlockerAdmission, requiresBlockerContract } from "./blocker-failure-classification.js";
 import { createBlockerEvidenceFiles } from "./blocker-evidence-files.js";
 
 export const BLOCKER_REASONS = ["SCOPE_CONFLICT", "CONTRACT_DECISION_REQUIRED", "ACCEPTANCE_AMBIGUOUS", "ACCESS_REQUIRED", "SECURITY_RISK"];
@@ -30,7 +30,7 @@ export async function assertDeclaredContractEvidence(ref, { plan, ticket, archit
 }
 
 // Requires concrete proposals or independently verifiable, already-approved scope for an automatic resume.
-export async function validateBlockerDisposition(value, { job, plan, architecture, fileService, projectRoot, verifyContractSource }) {
+export async function validateBlockerDisposition(value, { job, plan, architecture, fileService, projectRoot, verifyContractSource, contractDelegation }) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw blockerValidationError("/", "object_required", "Return one disposition object.");
   value = Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== null && entry !== undefined));
   const unknown = Object.keys(value).find((key) => !["action", "summary", "guidance", "authority_quote", "authority_reference", "evidence", "proposal", "authority_scope", "architecture_basis", "boundary_assessment", "escalation", "contract_draft", "reconciliation", "technical_result", "coder_request", "candidate", "candidate_review", "criterion_updates"].includes(key));
@@ -86,7 +86,9 @@ export async function validateBlockerDisposition(value, { job, plan, architectur
     const escalationQuote = value.escalation?.authority_reference === undefined ? undefined
       : resolveBlockerAuthority({ ...value.escalation, authority_scope: escalationScope ?? "sprint" }, { plan, ticket: job.request.ticket, architecture });
     assertOwnerEscalation(value, { job, plan, architecture, authorityQuote: escalationQuote ?? value.escalation?.authority_quote });
-    if (job?.reason_code !== "ACCESS_REQUIRED") await assertSourceEvidence(value.evidence, { fileService, projectRoot, evidenceFiles });
+    if (job?.stage === "architecture_manager" && !Object.values(value.boundary_assessment ?? {}).some((flag) => flag === true))
+      throw blockerValidationError("/boundary_assessment", "delegated_to_architecture", "AM decides within the approved plan. Consult Owner only when a grounded impact flag proves the decision exceeds approved scope or carries material project-structure risk.");
+    await assertSourceEvidence(value.evidence, { fileService, projectRoot, evidenceFiles });
     if (escalationQuote !== undefined) value = { ...value, escalation: { ...value.escalation, authority_quote: escalationQuote } };
     return value;
   }
@@ -99,6 +101,8 @@ export async function validateBlockerDisposition(value, { job, plan, architectur
     await assertSourceEvidence(job.sprint_delegation.evidence, { fileService, projectRoot, evidenceFiles });
   }
   const accessAnswer = delegated && job.sprint_delegation.action === "resolved" && job.sprint_delegation.technical_result?.admission?.status === "within_existing_permissions";
+  const retainedDelegation = job.stage === "sprint_leader" && contractDelegation;
+  if (retainedDelegation) assertArchitectureDisposition(contractDelegation, { job: { ...job, stage: "architecture_manager" }, architecture });
   if (requiresBlockerAdmission(job) && !accessAnswer && !(job?.stage === "architecture_manager" && scope === "architecture")) {
     throw blockerValidationError("/action", "access_or_security_authority_required",
       "Sprint scope cannot resolve access or security blockers; SL must return architecture_required, and AM must resolve at authority_scope=architecture (with all six boundary_assessment flags false) or return owner_required when new access/security policy is needed.", { retryable: true });
@@ -108,7 +112,7 @@ export async function validateBlockerDisposition(value, { job, plan, architectur
   const authority = scope === "architecture" ? architecture.markdown : blockerSprintAuthority(plan, ticket);
   if (!text(authorityQuote) || authorityQuote.length < 20 || !authority.includes(authorityQuote)) throw blockerValidationError("/authority_quote", "authority_not_grounded", "Select a Node-issued authority_reference and explain its applicability, or supply a verbatim approved quote.");
   if (!text(value.guidance) || value.guidance.length > 8000) throw blockerValidationError("/guidance", "guidance_invalid", "Provide concrete implementation guidance within the approved scope.");
-  const requireContractBinding = job.reason_code === "CONTRACT_DECISION_REQUIRED" && !(job.stage === "sprint_leader" && job.sprint_delegation) && (job.stage !== "architecture_manager" || scope !== "architecture");
+  const requireContractBinding = requiresBlockerContract(job) && !delegated && !retainedDelegation && (job.stage !== "architecture_manager" || scope !== "architecture");
   if (requireContractBinding && verifyContractSource) {
     const refs = ticket.execution_policy?.contract_evidence ?? [];
     if (!refs.length) throw invalid("A contract requires approved contract evidence; source existence alone is not approval.");

@@ -1,15 +1,22 @@
 // Parses independent Reviewer verdicts while preserving finding authority and source evidence.
 import { ConfigurationError } from "../../shared/errors.js";
 import { assertReviewFindingGuidance } from "./review-finding-guidance.js";
+import { decodeReviewExchange } from "./review-agent-exchange.js";
 
 // Accepts only a structured verdict, never treating free-form praise as approval.
 export function parseReviewVerdict(text, options = {}) {
   let value;
   try { value = JSON.parse(extractVerdictJson(text)); }
   catch (error) { throw reviewError("REVIEW_VERDICT_INVALID", `Reviewer returned invalid JSON: ${error.message}`); }
+  if (value?.kind) {
+    if (!options.exchangeRequest) throw reviewError("REVIEW_VERDICT_INVALID", "A structured review result requires its Node-issued request.");
+    try { value = decodeReviewExchange(value, options.exchangeRequest); }
+    catch (error) { throw reviewError("REVIEW_VERDICT_INVALID", `Review exchange rejected: ${error.message}`); }
+  }
   if (!["approved", "request_changes"].includes(value?.verdict) || !Array.isArray(value.findings)) throw reviewError("REVIEW_VERDICT_INVALID", "Reviewer returned an invalid verdict or findings.");
   assertReviewFindingGuidance(value, options);
   if (value.verdict === "request_changes" && !value.findings.length && !(value.adjudications ?? []).some((item) => ["retain", "refine", "reopen"].includes(item.decision))) throw reviewError("REVIEW_VERDICT_INVALID", "Requested changes require findings or a retained adjudication.");
+  if (value.exchange_response) options.onExchangeResponse?.(value.exchange_response);
   return { verdict: value.verdict, findings: value.findings, adjudications: value.adjudications ?? [] };
 }
 
@@ -25,7 +32,8 @@ function extractVerdictJson(text) {
     const candidate = source.slice(start, end + 1);
     try { const value = JSON.parse(candidate); if (value && typeof value === "object") candidates.push({ candidate, value }); } catch (error) { if (!error) throw new Error("invalid JSON candidate"); }
   }
-  const verdict = candidates.find(({ value }) => typeof value.verdict === "string" && Array.isArray(value.findings));
+  const verdict = candidates.find(({ value }) => typeof value.kind === "string")
+    ?? candidates.find(({ value }) => typeof value.verdict === "string" && Array.isArray(value.findings));
   if (verdict) return verdict.candidate;
   throw new Error("no valid verdict object found");
 }

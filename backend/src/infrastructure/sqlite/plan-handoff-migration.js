@@ -1,9 +1,10 @@
 // Migrates plan paths and stores durable owner-approved Sprint Leader handoff receipts.
+import { statePath } from "../filesystem/forge-paths.js";
 export const planHandoffMigration = {
   version: 14,
   statements: [
-    "UPDATE plan_revisions SET file_path = replace(file_path, '.forge/plans/', '.forge/runtime/nf/plans/') WHERE file_path LIKE '.forge/plans/%'",
-    "UPDATE sprint_registry SET plan_path = replace(plan_path, '.forge/plans/', '.forge/runtime/nf/plans/') WHERE plan_path LIKE '.forge/plans/%'",
+    `UPDATE plan_revisions SET file_path = replace(file_path, '.forge/plans/', '${statePath("nf/plans")}/') WHERE file_path LIKE '.forge/plans/%'`,
+    `UPDATE sprint_registry SET plan_path = replace(plan_path, '.forge/plans/', '${statePath("nf/plans")}/') WHERE plan_path LIKE '.forge/plans/%'`,
     `CREATE TABLE plan_handoffs (
       plan_id TEXT NOT NULL, revision INTEGER NOT NULL, project_id TEXT NOT NULL,
       sha256 TEXT NOT NULL, status TEXT NOT NULL, sprint_id TEXT,

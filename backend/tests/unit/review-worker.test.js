@@ -123,6 +123,9 @@ test("Claude Reviewer receives the same Forge-only SDK boundary as other roles",
   assert.deepEqual(request.options.tools, []);
   assert.deepEqual(request.options.allowedTools, ["mcp__forge__search_tree", "mcp__forge__list_files", "mcp__forge__search_text", "mcp__forge__read_file", "mcp__forge__read_lines", "mcp__forge__query_review"]);
   assert.equal(request.options.mcpServers.forge.type, "sdk");
+  assert.match(request.prompt, /REVIEW_CHECK_ISOLATION_UNSUPPORTED, never PASS/);
+  assert.match(request.prompt, /including callers outside the manifest/);
+  assert.doesNotMatch(request.prompt, /Other reads carry no verified provenance/);
 });
 
 test("Reviewer records per-tool checkpoint progress and failure state", async () => {

@@ -1,6 +1,5 @@
 // Provides Reviewer-only cached code discovery with path, budget, and audit governance.
 import { createHash } from "node:crypto";
-import { spawn } from "node:child_process";
 import { lstat } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { ConfigurationError } from "../../shared/errors.js";
@@ -11,12 +10,11 @@ import { createGitReadTools } from "../../tools/git-read-tools.js";
 import { createOwnerSearchTreeTool } from "../../tools/owner-search-tree.js";
 import { createRgFilesTool } from "../../tools/rg-files.js";
 import { engineeringToolDefinitions } from "../../tools/engineering-tool-catalog.js";
-import { validateCheckCommand } from "../../tools/owner-engineer-tools.js";
 import { extractorRegistry } from "../index/parser/index.js";
 import { createCommittedReviewWindow } from "./committed-review-window.js";
 import { createCommittedReviewSource } from "./reviewer-committed-source.js";
-import { materializeTicketVerification } from "./ticket-verification-materialization.js";
-import { captureVerificationEnvironment } from "./ticket-verification-environment.js";
+import { createReviewerSnapshotTools } from "./reviewer-snapshot-tools.js";
+import { createVerificationReviewSource } from "./ticket-verification-review-source.js";
 import { dependencyReadPath, isDependencyPath, readDependencyFile } from "../../infrastructure/filesystem/dependency-read.js";
 import { listAgentFileTree } from "../../infrastructure/filesystem/agent-file-tree.js";
 
@@ -25,9 +23,8 @@ const PER_FILE_OUTPUT_BYTES = 16_000;
 const MAX_OUTPUT_BYTES_CAP = 384_000;
 const MAX_RESULT_BYTES = 16_000;
 const MAX_FILE_BYTES = 64_000;
-const MAX_WINDOW_LINES = 80;
+const MAX_WINDOW_LINES = 250;
 const MAX_FILES = 80;
-const MAX_REVIEW_CHECKS = 2;
 // Applies the Reviewer role policy and rejects symlink traversal for all review reads.
 export async function assertReviewerReadPath(projectRoot, path) {
   if (typeof projectRoot !== "string" || !isAbsolute(projectRoot)) throw toolError("REVIEW_PROJECT_INVALID", "Reviewer project root must be absolute.");
@@ -44,22 +41,30 @@ export async function assertReviewerReadPath(projectRoot, path) {
 }
 
 // Creates per-review wrappers around existing read_file, search_tree, review_diff, and run_review_check implementations.
-export function createReviewerForgeTools({ fileService, projectRoot, job, reviewer, codeCache, gitService, ticketEvidence, runReviewCommand = executeReviewCommand, materializeReview = materializeTicketVerification, captureReviewEnvironment = captureVerificationEnvironment, projectLogger = () => {} }) {
+export function createReviewerForgeTools({ fileService, projectRoot, job, reviewer, codeCache, gitService, ticketEvidence, projectLogger = () => {} }) {
   if (typeof fileService?.readForIndex !== "function" || !isAbsolute(projectRoot ?? "")) throw new ConfigurationError("Reviewer Forge tools require File Service and an absolute project root.");
+  if (ticketEvidence && !fileService.committedReview) fileService = createVerificationReviewSource({ projectRoot,
+    source: createCommittedReviewSource({ projectRoot, commit: ticketEvidence.context.review_commit_sha, baseCommit: ticketEvidence.context.base_sha }),
+    getArtifact: async () => ticketEvidence.artifact, getTicketPaths: async () => ticketEvidence.paths ?? ticketEvidence.files.map((file) => file.path) });
+  const snapshot = fileService.committedReview === true;
+  if (snapshot && !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(fileService.reviewCommit ?? "")) throw toolError("REVIEW_REVISION_INVALID", "Snapshot discovery requires a fixed review commit SHA.");
+  if (snapshot && ticketEvidence && fileService.reviewCommit !== ticketEvidence.context.review_commit_sha) throw toolError("REVIEW_REVISION_INVALID", "Snapshot source does not match the review revision.");
   const manifestCount = Math.max(ticketEvidence?.paths?.length ?? 0, job?.payload?.changed_paths?.length ?? 0);
   const maxOutputBytes = Math.min(MAX_OUTPUT_BYTES_CAP, BASE_OUTPUT_BYTES + manifestCount * PER_FILE_OUTPUT_BYTES);
   const scopedFiles = {
-    readForIndex: async (input) => { await assertReviewerReadPath(projectRoot, input?.path); return isDependencyPath(input?.path)
+    readForIndex: async (input) => { if (snapshot) { assertRoleFileAccess("reviewer", "read", input?.path); return fileService.readForIndex({ ...input, maxBytes: MAX_FILE_BYTES }); }
+      await assertReviewerReadPath(projectRoot, input?.path); return isDependencyPath(input?.path)
       ? readDependencyFile({ ...input, projectRoot, maxBytes: MAX_FILE_BYTES }) : fileService.readForIndex({ ...input, maxBytes: MAX_FILE_BYTES }); },
     listFiles: async (input) => filterPaths(await fileService.listFiles(input)),
     listDirectories: async (input) => filterPaths(await fileService.listDirectories(input))
   };
   const reviewCache = ticketEvidence ? { ...(codeCache ?? {}), read: async ({ path }) => {
     const file = ticketEvidence.files.find((item) => item.path === path);
-    if (!file || file.deleted) return codeCache?.read ? codeCache.read({ path }) : scopedFiles.readForIndex({ path });
+    if (!file || file.deleted) return snapshot ? scopedFiles.readForIndex({ path }) : codeCache?.read ? codeCache.read({ path }) : scopedFiles.readForIndex({ path });
     const live = await verifiedReviewFile(file, ticketEvidence, fileService, projectRoot);
     let cached = null;
-    try { if (codeCache?.read) cached = await codeCache.read({ path }); } catch { cached = null; }
+    try { if (!snapshot && codeCache?.read) cached = await codeCache.read({ path }); }
+    catch (error) { projectLogger({ event_name: "review.cache_unavailable", level: "warn", status: "failed", message: "Reviewer cache read failed; using verified source.", error_code: error.code ?? "CACHE_READ_FAILED" }); }
     const symbols = cached?.sha256 === file.sha256 && Array.isArray(cached.code_index?.symbols) && cached.code_index.symbols.length
       ? cached.code_index.symbols
       : extractorRegistry.extract(path, file.content).symbols;
@@ -67,25 +72,25 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
     return { ...live, ...(cached ?? {}), content: file.content, sha256: file.sha256, content_sha256: file.sha256, size_bytes: Buffer.byteLength(file.content),
       cache: { status: "bypass", cached_at: null, expires_at: null }, index_status: indexStatus,
       code_index: { ...(cached?.code_index ?? {}), path, symbols }, code_graph: cached?.sha256 === file.sha256 ? cached.code_graph ?? {} : {} };
-  } } : codeCache;
+  } } : snapshot ? { read: (input) => scopedFiles.readForIndex(input) } : codeCache;
   // Review discovery covers project source and instructions; the delta is not a read permission boundary.
   const toolContext = { task_id: job.task_id, correlation_id: job.correlation_id, request_id: job.request_id, agent_identity: { agent_id: reviewer.agent_id, role: "reviewer", provider: reviewer.provider }, capabilities: ["search_tree", "list_files", "search_text", "read_file", "read_lines", "git_status", "git_diff", "review_diff", "run_review_check"], project_root: projectRoot };
   // Keeps text search under the same project, protected-path and symlink rules as direct reads.
   const searchCache = { read: async ({ path }) => {
     return scopedFiles.readForIndex({ path });
   } };
-  let reviewCheckCount = 0;
   const implementations = {
-    read_file: createReadFileTool({ fileService: scopedFiles, codeCache: reviewCache, projectRoot, maxChars: MAX_RESULT_BYTES }),
+    read_file: createReadFileTool({ fileService: scopedFiles, codeCache: reviewCache, projectRoot, ...(snapshot ? { dependencyReader: (input) => scopedFiles.readForIndex(input) } : {}), maxChars: MAX_RESULT_BYTES }),
     search_text: createRgSearchTool({ projectRoot, codeCache: searchCache, toolName: "search_text", logger: { emit: projectLogger } }),
-    ...(gitService?.status && gitService?.diffWorkingTree ? createGitReadTools({ gitService, logger: { emit: projectLogger } }) : {}),
+    ...(!snapshot && gitService?.status && gitService?.diffWorkingTree ? createGitReadTools({ gitService, logger: { emit: projectLogger } }) : {}),
     list_files: createRgFilesTool({ projectRoot, toolName: "list_files", logger: { emit: projectLogger } }),
     read_lines: createCommittedReviewWindow(scopedFiles, "read_lines"),
     ...(ticketEvidence?.context?.review_commit_sha && ticketEvidence?.context?.base_sha ? {
       review_diff: createReviewDiffTool({ projectRoot, ticketEvidence, job }),
-      run_review_check: createRunReviewCheckTool({ projectRoot, ticketEvidence, getCount: () => reviewCheckCount, incrementCount: () => { reviewCheckCount += 1; }, runReviewCommand, materializeReview, captureReviewEnvironment })
+      run_review_check: createRunReviewCheckTool()
     } : {})
   };
+  if (snapshot) Object.assign(implementations, createReviewerSnapshotTools({ source: fileService, projectRoot }));
   if (typeof fileService.listFiles === "function" && typeof fileService.listDirectories === "function") implementations.search_tree = createOwnerSearchTreeTool({ fileService: scopedFiles });
   const extraDefinitions = [reviewDiffDefinition, runReviewCheckDefinition].filter(({ name }) => typeof implementations[name]?.execute === "function");
   const definitions = [...engineeringToolDefinitions().filter(({ name }) => typeof implementations[name]?.execute === "function"), ...extraDefinitions];
@@ -95,8 +100,11 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
     const started = Date.now();
     try {
       if (name === "read_file") validateReadInput(input);
-      if (["read_file", "read_lines", "review_diff"].includes(name) && typeof input?.path === "string") await assertReviewerReadPath(projectRoot, input.path);
+      if (["read_file", "read_lines", "review_diff"].includes(name) && typeof input?.path === "string") {
+        if (snapshot) assertRoleFileAccess("reviewer", "read", input.path); else await assertReviewerReadPath(projectRoot, input.path);
+      }
       const toolInput = name === "search_tree" ? boundedTreeInput(input) : input;
+      if (snapshot && name === "search_tree" && isDependencyPath(toolInput.path)) throw toolError("REVIEW_DEPENDENCY_EVIDENCE_MISSING", "Snapshot dependency discovery requires recorded environment evidence.");
       // The shared read_file discovery state is Coder-oriented; each Reviewer read is independent.
       let readContext = { ...context };
       if (["git_status", "git_diff"].includes(name)) {
@@ -111,7 +119,9 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
         const paths = await filterPaths(result.stdout.split("\n").filter(Boolean));
         result = { ...result, stdout: paths.length ? `${paths.join("\n")}\n` : "" };
       }
-      const verifiedResult = await bindReviewEvidence(name, toolInput, result, ticketEvidence, fileService, projectRoot);
+      const verified = await bindReviewEvidence(name, toolInput, result, ticketEvidence, fileService, projectRoot);
+      const verifiedResult = snapshot ? { ...verified, review_source: { commit_sha: fileService.reviewCommit,
+        ...(ticketEvidence?.artifact.environment ? { environment: ticketEvidence.artifact.environment } : {}) } } : verified;
       const bytes = Buffer.byteLength(JSON.stringify(verifiedResult), "utf8");
       if (bytes > MAX_RESULT_BYTES || outputBytes + bytes > maxOutputBytes) throw toolError("REVIEW_TOOL_BUDGET", "Reviewer read output budget exceeded.");
       outputBytes += bytes;
@@ -130,7 +140,7 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
     const safe = [];
     for (const path of paths) {
       if (isDependencyPath(path)) continue;
-      try { await assertReviewerReadPath(projectRoot, path); safe.push(path); }
+      try { if (snapshot) assertRoleFileAccess("reviewer", "read", path); else await assertReviewerReadPath(projectRoot, path); safe.push(path); }
       catch (error) { if (error.code !== "FILE_ROLE_FORBIDDEN") throw error; }
     }
     return safe;
@@ -147,7 +157,13 @@ async function bindReviewEvidence(name, input, result, ticketEvidence, fileServi
   if (!ticketEvidence || !["read_lines", "read_file"].includes(name)) return result;
   const path = input.path;
   const file = ticketEvidence.files.find((item) => item.path === path);
-  if (!file || file.deleted) return result;
+  if (!file || file.deleted) {
+    if (!fileService.committedReview) throw toolError("REVIEW_SOURCE_MISMATCH", "Source outside ticket evidence requires a pinned snapshot.");
+    const source = await fileService.readForIndex({ path, maxBytes: MAX_FILE_BYTES });
+    return { ...result, sha256: source.sha256, review_evidence: { artifact_id: ticketEvidence.artifact.artifact_id,
+      commit_sha: ticketEvidence.context.review_commit_sha, manifest_sha: ticketEvidence.context.manifest_sha, sha256: source.sha256,
+      source: source.source ?? "review_commit", ...(source.source === "verification_environment" ? { environment: ticketEvidence.artifact.environment } : {}) } };
+  }
   await verifiedReviewFile(file, ticketEvidence, fileService, projectRoot);
   let source = {};
   if (name === "read_file" && typeof result.content === "string") {
@@ -160,7 +176,7 @@ async function bindReviewEvidence(name, input, result, ticketEvidence, fileServi
 
 // Verifies artifact bytes against the current file before a Reviewer sees ticket source.
 async function verifiedReviewFile(file, evidence, fileService, projectRoot) {
-  await assertReviewerReadPath(projectRoot, file.path);
+  if (fileService.committedReview) assertRoleFileAccess("reviewer", "read", file.path); else await assertReviewerReadPath(projectRoot, file.path);
   let live;
   try { live = await fileService.readForIndex({ path: file.path, maxBytes: MAX_FILE_BYTES }); }
   catch (error) { throw Object.assign(toolError("REVIEW_SOURCE_MISMATCH", `Reviewer source could not be verified: ${file.path}.`), { cause: error }); }
@@ -181,7 +197,7 @@ function canonicalReviewWindow(content, start, end, numbered, maxLines = MAX_WIN
 function validateReadInput(input) {
   if (!input || typeof input !== "object" || Array.isArray(input) || typeof input.path !== "string") throw toolError("REVIEW_TOOL_INPUT", "Reviewer read_file requires a path.");
   if (input.offset !== undefined || input.limit !== undefined) {
-    if (!Number.isInteger(input.offset) || input.offset < 1 || !Number.isInteger(input.limit) || input.limit < 1 || input.limit > MAX_WINDOW_LINES) throw toolError("REVIEW_TOOL_INPUT", "Reviewer read_file window must contain at most 80 lines.");
+    if (!Number.isInteger(input.offset) || input.offset < 1 || !Number.isInteger(input.limit) || input.limit < 1 || input.limit > MAX_WINDOW_LINES) throw toolError("REVIEW_TOOL_INPUT", "Reviewer read_file window must contain at most 250 lines.");
   }
 }
 
@@ -203,47 +219,16 @@ function createReviewDiffTool({ projectRoot, ticketEvidence, job }) {
   } };
 }
 
-// Runs a read-only check on an isolated archive of review_commit_sha without modifying Coder verification artifacts.
-function createRunReviewCheckTool({ projectRoot, ticketEvidence, getCount, incrementCount, runReviewCommand, materializeReview, captureReviewEnvironment }) {
-  return { execute: async (input = {}) => {
-    if (!input || typeof input !== "object" || !["test", "lint", "typecheck"].includes(input.type)) throw toolError("REVIEW_TOOL_INPUT", "run_review_check requires type test, lint, or typecheck.");
-    validateCheckCommand(input.command, input.type);
-    if (/[^A-Za-z0-9_@./:=*?+\s-]|(?:^|[\s/=])\.\.(?:\/|\s|$)/.test(input.command)) throw toolError("REVIEW_TOOL_INPUT", "run_review_check arguments must stay inside the project and use safe tokens.");
-    if (getCount() >= MAX_REVIEW_CHECKS) throw toolError("REVIEW_CHECK_BUDGET", `Reviewer may run at most ${MAX_REVIEW_CHECKS} independent checks per review.`);
-    incrementCount();
-    const commitSha = ticketEvidence.context.review_commit_sha;
-    const ticketPaths = ticketEvidence.paths ?? ticketEvidence.context.manifest_paths ?? [];
-    const environment = await captureReviewEnvironment({ projectRoot, ticketPaths });
-    const archive = await materializeReview({ projectRoot, commitSha, ticketPaths, environment });
-    try {
-      const output = await runReviewCommand({ argv: input.command.trim().split(/\s+/), cwd: archive.path, tempDir: archive.temp_dir, timeoutMs: 60_000 });
-      await archive.assertTicketSource?.();
-      await archive.assertEnvironment?.();
-      return { type: input.type, command: input.command, commit_sha: commitSha, status: output.exit_code === 0 ? "passed" : "failed", exit_code: output.exit_code,
-        stdout: String(output.stdout ?? "").slice(0, 6_000), stderr: String(output.stderr ?? "").slice(0, 6_000),
-        review_evidence: { artifact_id: ticketEvidence.artifact.artifact_id, commit_sha: commitSha, manifest_sha: ticketEvidence.context.manifest_sha } };
-    } finally { await archive.cleanup(); }
+// Keeps the diagnostic tool fail-closed until a real subprocess boundary can enforce the
+// artifact's recorded environment; an archive and post-run checks do not provide isolation.
+function createRunReviewCheckTool() {
+  return { execute: async () => {
+    throw toolError("REVIEW_CHECK_ISOLATION_UNSUPPORTED", "Reviewer checks are unavailable until subprocess isolation and recorded source, dependency and toolchain provenance are enforced. Do not substitute native shell or live dependencies.");
   } };
 }
 
-// Executes one read-only Reviewer command in the isolated archive without a shell.
-function executeReviewCommand({ argv, cwd, tempDir, timeoutMs = 60_000 }) {
-  return new Promise((resolvePromise, reject) => {
-    const env = { ...process.env, PWD: cwd, ...(tempDir ? { TMPDIR: tempDir, TMP: tempDir, TEMP: tempDir } : {}) };
-    delete env.NODE_TEST_CONTEXT;
-    const child = spawn(argv[0], argv.slice(1), { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = ""; let stderr = ""; let timedOut = false;
-    const timer = setTimeout(() => { timedOut = true; child.kill("SIGTERM"); }, timeoutMs);
-    child.stdout.setEncoding("utf8"); child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => { stdout = (stdout + chunk).slice(0, 8_000); });
-    child.stderr.on("data", (chunk) => { stderr = (stderr + chunk).slice(0, 8_000); });
-    child.once("error", (error) => { clearTimeout(timer); reject(error); });
-    child.once("close", (code) => { clearTimeout(timer); resolvePromise({ exit_code: timedOut ? null : code, stdout, stderr }); });
-  });
-}
-
 const reviewDiffDefinition = Object.freeze({ name: "review_diff", description: "Read the committed diff for one file between base_sha (or previous_review_commit) and review_commit_sha.", input_schema: { type: "object", additionalProperties: false, required: ["path"], properties: { path: { type: "string", minLength: 1 }, base: { type: "string", enum: ["base_sha", "previous_review"] } } } });
-const runReviewCheckDefinition = Object.freeze({ name: "run_review_check", description: "Run an isolated read-only test, lint, or typecheck command against review_commit_sha (at most 2 per review).", input_schema: { type: "object", additionalProperties: false, required: ["type", "command"], properties: { type: { type: "string", enum: ["test", "lint", "typecheck"] }, command: { type: "string", minLength: 1, maxLength: 1000 } } } });
+const runReviewCheckDefinition = Object.freeze({ name: "run_review_check", description: "Currently unavailable: returns REVIEW_CHECK_ISOLATION_UNSUPPORTED, never a verification pass. Do not fall back to native commands.", input_schema: { type: "object", additionalProperties: false, required: ["type", "command"], properties: { type: { type: "string", enum: ["test", "lint", "typecheck"] }, command: { type: "string", minLength: 1, maxLength: 1000 } } } });
 
 // Marks Reviewer policy failures with stable codes for SDK adapters.
 function toolError(code, message) { return Object.assign(new ConfigurationError(message), { code }); }

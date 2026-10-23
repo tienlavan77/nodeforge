@@ -1,3 +1,4 @@
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 
@@ -8,7 +9,7 @@ import { createIncrementalIndexer } from "./incremental-indexer.js";
 import { extractorRegistry } from "./parser/index.js";
 import { readContentHash } from "../watcher/debounced-watcher.js";
 
-const CODE_INDEX_RUNTIME_DIR = ".forge/runtime/wc";
+const CODE_INDEX_RUNTIME_DIR = statePath("wc");
 
 export async function rebuildIndex({ projectRoot, database, runtimeDir = CODE_INDEX_RUNTIME_DIR, ignore = [], registry = extractorRegistry, indexer, embeddingJobs = null, embeddingModel = "embeddinggemma", onFile = () => {}, force = false } = {}) {
   await ensureForgeLayout(projectRoot);

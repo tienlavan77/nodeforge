@@ -10,7 +10,7 @@ import { createCompletedReviewResume, isCompletedReviewReopened } from "../../sr
 import { automaticReviewFixture } from "../fixtures/automatic-review-fixture.js";
 
 // Models a retained completed review without running providers or modifying integrated Coder files.
-async function fixture(verdict = "request_changes", dispatchError = null) {
+async function fixture(verdict = "request_changes", dispatchError = null, severity = "major") {
   const f = automaticReviewFixture({ gate: "off" });
   const job = await f.prepare();
   const context = { ...await f.workspace.executionContexts.load(), state: "terminal" };
@@ -28,7 +28,7 @@ async function fixture(verdict = "request_changes", dispatchError = null) {
   } };
   const resume = createCompletedReviewResume({ queueStore: f.queueStore, ticketStatusStore: store,
     fileService: { createLock: async () => ({ release: async () => {} }) }, resolveTicketWorkspace: async () => f.workspace,
-    resolveWorker: async () => ({ review: async () => { calls++; return { verdict, reviewer_id: "reviewer-1", findings: verdict === "approved" ? [] : [{ failure: "Missing coverage" }] }; } }),
+    resolveWorker: async () => ({ review: async () => { calls++; return { verdict, reviewer_id: "reviewer-1", findings: verdict === "approved" ? [] : [{ failure: "Missing coverage", severity }] }; } }),
     resumeRepair: async (input) => { if (dispatchError) throw dispatchError; repairs++; assert.equal(input.payload.resume_from.last_completed_turn, 67); assert.equal(input.payload.resume_from.blocker_recovery, null); return { status: "repair_started" }; },
     checkpoints: { load: async () => ({ status: "completed", last_completed_turn: 67, blocker_recovery: { status: "resolved" } }), save: async () => {}, loadReview: async () => checkpoint, saveReview: async (value) => { checkpoint = value; }, completeReview: async (_id, value) => { checkpoint = { ...value, status: "completed" }; } } });
   return { f, job, context, store, resume: () => resume({ projectId: "PROJECT-1", ticketId: "TICKET-1" }), calls: () => calls, repairs: () => repairs,
@@ -45,6 +45,15 @@ test("retained request_changes hands findings to Coder without replaying origina
   assert.equal(f.checkpoint().verdict, "request_changes");
   assert.equal(f.f.integrations, 0);
   assert.equal(isCompletedReviewReopened(f.job, f.store), true);
+});
+
+// A reopened review retains the same repair authority regardless of how severe its implementation finding is.
+test("reopened blocker finding resumes Coder from the retained checkpoint", async () => {
+  const f = await fixture("request_changes", null, "blocker");
+  assert.equal((await f.resume()).status, "repair_started");
+  assert.equal(f.repairs(), 1);
+  assert.equal(f.store.get().status, "running");
+  assert.equal(f.checkpoint().findings[0].severity, "blocker");
 });
 
 test("only independent approval restores completed status", async () => {

@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { assertRoleFileAccess } from "../../infrastructure/filesystem/file-service-role-policy.js";
 import { createTicketRootGit } from "./ticket-root-git.js";
+import { isDependencyPath } from "../../infrastructure/filesystem/dependency-read.js";
 
 // Pins read-only review evidence to Node-selected revisions, never mutable HEAD or model input.
 export function createCommittedReviewSource({ projectRoot, commit, baseCommit, git = createTicketRootGit({ projectRoot }) }) {
@@ -10,7 +11,7 @@ export function createCommittedReviewSource({ projectRoot, commit, baseCommit, g
   async function check(path, revision, optional = false) {
     if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(revision ?? "")) throw fail("REVIEW_REVISION_INVALID", "Review requires a fixed commit SHA.");
     assertRoleFileAccess("reviewer", "read", path);
-    await git.assertSafePath(path);
+    if (isDependencyPath(path)) throw fail("FILE_ROLE_FORBIDDEN", "Dependency reads require recorded verification environment evidence.");
     const mode = await git.modeAt(revision, path);
     if (!mode && optional) return false;
     if (!mode) throw fail("ENOENT", "File absent from reviewed commit.");
@@ -38,5 +39,25 @@ export function createCommittedReviewSource({ projectRoot, commit, baseCommit, g
     if (Buffer.byteLength(patch) > 200_000) throw fail("REVIEW_EVIDENCE_TOO_LARGE", "Review diff exceeds the read budget.");
     return patch;
   }
-  return { committedReview: true, readForIndex, diffPatchFrom, listFiles: async () => [], listDirectories: async () => [] };
+  // Discovers only regular, role-readable blobs in the pinned tree, never filenames from mutable source.
+  async function listFiles() {
+    if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(commit ?? "")) throw fail("REVIEW_REVISION_INVALID", "Review requires a fixed commit SHA.");
+    const tree = await git.run(["ls-tree", "-r", "-z", "--full-tree", commit], { maxBuffer: 1_000_001 });
+    if (Buffer.byteLength(tree) > 1_000_000) throw fail("REVIEW_EVIDENCE_TOO_LARGE", "Snapshot discovery exceeds its filename budget.");
+    const paths = [];
+    for (const entry of tree.split("\0").filter(Boolean)) {
+      const match = entry.match(/^(100644|100755) blob [a-f0-9]+\t([\s\S]+)$/);
+      if (!match) continue;
+      try { assertRoleFileAccess("reviewer", "read", match[2]); }
+      catch (error) { if (error.code === "FILE_ROLE_FORBIDDEN") continue; throw error; }
+      if (/[\r\n]/.test(match[2]) || isDependencyPath(match[2])) continue;
+      paths.push(match[2]);
+    }
+    return paths.sort();
+  }
+  // Derives safe directory ancestors from the same committed filename set used by snapshot searches.
+  async function listDirectories() {
+    return [...new Set((await listFiles()).flatMap((path) => path.split("/").slice(0, -1).map((_part, index, parts) => parts.slice(0, index + 1).join("/"))))].sort();
+  }
+  return { committedReview: true, reviewCommit: commit, readForIndex, diffPatchFrom, listFiles, listDirectories };
 }

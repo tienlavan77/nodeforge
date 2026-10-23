@@ -1,10 +1,11 @@
 // Captures project dependencies separately from ticket-owned files so verification never expands a ticket commit.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createHash, randomUUID } from "node:crypto";
 import { lstat, readFile, mkdir, writeFile, link, rm } from "node:fs/promises";
 import { dirname, join, posix } from "node:path";
 import { createTicketRootGit } from "./ticket-root-git.js";
 
-const ROOT = ".forge/runtime/ticket-verification/environment";
+const ROOT = statePath("ticket-verification/environment");
 // Identifies captured bytes independently of Git staging or authorship.
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 // Reports corrupt environment evidence without converting it to ticket acceptance.
@@ -55,6 +56,7 @@ async function persistEvidence(path, bytes, checksum) {
 
 // Persists immutable dependency bytes and a source manifest independently of Git staging and ticket authorship.
 export async function persistVerificationEnvironment(projectRoot, environment) {
+  assertVerificationEnvironment(environment);
   for (const file of environment.files) await persistEvidence(join(projectRoot, ROOT, "blobs", file.sha256), file.bytes, file.sha256);
   const manifestPath = `${ROOT}/manifests/${environment.sha256}.json`;
   await persistEvidence(join(projectRoot, manifestPath), JSON.stringify(environment.manifest), environment.sha256);
@@ -66,7 +68,51 @@ export async function loadVerificationEnvironment(projectRoot, binding) {
   if (!/^[a-f0-9]{64}$/.test(binding?.sha256 ?? "") || binding.manifest_path !== `${ROOT}/manifests/${binding.sha256}.json`) throw fail("Verification environment binding is invalid.");
   const bytes = await readFile(join(projectRoot, binding.manifest_path));
   if (hash(bytes) !== binding.sha256) throw fail("Verification environment manifest checksum changed.");
-  return JSON.parse(bytes);
+  let manifest;
+  try { manifest = JSON.parse(bytes); }
+  catch (error) { if (error instanceof SyntaxError) throw fail("Verification environment manifest is not valid JSON."); throw error; }
+  assertVerificationEnvironmentManifest(manifest);
+  return manifest;
+}
+
+// Rejects malformed or overlapping evidence paths before discovery or archive overlays can use
+// a manifest. A matching digest proves byte identity, not that those bytes form a safe file tree.
+export function assertVerificationEnvironmentManifest(manifest) {
+  if (!Array.isArray(manifest)) throw fail("Verification environment manifest must be an array.");
+  const paths = new Set();
+  for (const entry of manifest) {
+    const path = entry?.path;
+    if (typeof path !== "string" || !path || path.startsWith("/") || /^[A-Za-z]:/.test(path)
+      || path.includes("\\") || /\p{Cc}/u.test(path) || posix.normalize(path) !== path
+      || path.split("/").some((part) => !part || [".", "..", ".git", ".forge", ".forge-tmp", "node_modules"].includes(part))
+      || !/^[a-f0-9]{64}$/.test(entry.sha256 ?? "") || ![0o644, 0o755].includes(entry.mode) || paths.has(path)) {
+      throw fail("Verification environment manifest contains an invalid file entry.");
+    }
+    paths.add(path);
+  }
+  for (const path of paths) {
+    const parts = path.split("/");
+    for (let count = 1; count < parts.length; count++) {
+      if (paths.has(parts.slice(0, count).join("/"))) throw fail("Verification environment file paths overlap.");
+    }
+  }
+}
+
+// Validates the complete in-memory snapshot before publishing blobs or modifying an archive.
+// Ticket ownership remains separate: a valid environment must never replace a ticket-owned path.
+export function assertVerificationEnvironment(environment, ticketPaths = []) {
+  assertVerificationEnvironmentManifest(environment?.manifest);
+  if (!Array.isArray(environment.files) || environment.files.length !== environment.manifest.length
+    || hash(JSON.stringify(environment.manifest)) !== environment.sha256) throw fail("Verification environment identity is invalid.");
+  for (let index = 0; index < environment.files.length; index++) {
+    const file = environment.files[index];
+    const entry = environment.manifest[index];
+    if (!file || file.path !== entry.path || file.sha256 !== entry.sha256 || file.mode !== entry.mode
+      || !Buffer.isBuffer(file.bytes) || hash(file.bytes) !== entry.sha256) throw fail("Verification environment bytes differ from the manifest.");
+    if (ticketPaths.some((path) => entry.path === path || entry.path.startsWith(`${path}/`) || path.startsWith(`${entry.path}/`))) {
+      throw fail("Verification environment conflicts with ticket ownership.");
+    }
+  }
 }
 
 // Supplies the exact dependency bytes used by verification to independent review without reading live files.

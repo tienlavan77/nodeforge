@@ -1,4 +1,5 @@
 // Gives each ticket an isolated Git worktree and Forge code services while keeping Supervisor state central.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { lstat, mkdir, readlink, symlink } from "node:fs/promises";
@@ -158,7 +159,7 @@ export function createTicketWorkspaceService({ projectRoot, projectId, protocolS
 
   // Keeps the review baseline stable when the Control API restarts or the main branch advances.
   async function baseCommit(taskId, path) {
-    const statePath = `.forge/runtime/ticket-workspaces/${taskId}.json`;
+    const statePath = `${statePath()}/ticket-workspaces/${taskId}.json`;
     try {
       const state = JSON.parse(await stateFileService.readFile({ path: statePath }));
       if (state.path !== path || !/^[a-f0-9]{40,64}$/i.test(state.base_commit)) throw workspaceError("WORKTREE_STATE_INVALID", "Ticket workspace state does not match its worktree.");

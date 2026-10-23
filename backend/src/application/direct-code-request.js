@@ -1,4 +1,5 @@
 // Saves a direct coding request so Supervisor can dispatch the owner's exact text without creating a sprint ticket.
+import { statePath } from "../infrastructure/filesystem/forge-paths.js";
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../shared/errors.js";
 
@@ -17,7 +18,7 @@ export function createDirectCodeRequest({ fileService, integration, checkpoints,
     if (typeof text !== "string" || !text.trim() || text.length > 50000) throw invalid("Code request must contain 1–50000 characters.");
     if (sprintId !== undefined && (typeof sprintId !== "string" || !sprintId.trim())) throw invalid("sprint_id is invalid.");
     const taskId = `CODE-${clock().getTime()}-${randomUUID()}`;
-    const inputPath = `.forge/runtime/nf/code-requests/${taskId}.json`;
+    const inputPath = `${statePath()}/nf/code-requests/${taskId}.json`;
     const input = { task_id: taskId, project_id: projectId, required_role: "coder", mode: "direct_code", ...(sprintId ? { sprint_id: sprintId } : {}), text, created_at: clock().toISOString() };
     await fileService.atomicCreate({ path: inputPath, content: `${JSON.stringify(input, null, 2)}\n` });
     return dispatch(input);
@@ -48,7 +49,7 @@ export function createDirectCodeRequest({ fileService, integration, checkpoints,
 
   // Loads the owner-authored request without deriving work from a new chat message.
   async function readInput(taskId) {
-    try { return JSON.parse(await fileService.readFile({ path: `.forge/runtime/nf/code-requests/${taskId}.json` })); }
+    try { return JSON.parse(await fileService.readFile({ path: `${statePath()}/nf/code-requests/${taskId}.json` })); }
     catch (error) { if (error?.code === "ENOENT") return null; throw error; }
   }
 
@@ -65,8 +66,8 @@ export function createDirectCodeRequest({ fileService, integration, checkpoints,
     const { task_id: taskId, project_id: projectId, text } = input;
     const requestId = `REQ-${taskId}-${clock().getTime()}`;
     const correlationId = `CORR-${taskId}`;
-    const inputPath = `.forge/runtime/nf/code-requests/${taskId}.json`;
-    const resultPath = `.forge/runtime/nf/code-requests/${taskId}.result.json`;
+    const inputPath = `${statePath()}/nf/code-requests/${taskId}.json`;
+    const resultPath = `${statePath()}/nf/code-requests/${taskId}.result.json`;
     projectLogger({ timestamp: clock().toISOString(), event_name: checkpoint ? "direct_code.resumed" : "direct_code.started", level: "info", status: "started", message: checkpoint ? "Direct code request resumed from checkpoint." : "Direct code request saved and sent to Supervisor.", task_id: taskId, correlation_id: correlationId, source: "direct-code-request", payload: { input_path: inputPath, resumed_from_turn: checkpoint?.last_completed_turn ?? 0 } });
     const ticket = { id: taskId, project_id: projectId, title: text.trim().split("\n")[0].slice(0, 160), objective: text, acceptance_criteria: [], required_role: "coder" };
     let result;

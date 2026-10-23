@@ -1,4 +1,5 @@
 // Controls project-scoped rollout of immutable ticket gates after legacy evidence is classified.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createHash } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { acquireTicketFileLock } from "./ticket-file-lock.js";
@@ -9,7 +10,7 @@ const fail = (code, message) => Object.assign(new ConfigurationError(message), {
 // Persists a project flag and keeps legacy tickets on the observable shadow path by default.
 export function createTicketPipelineRollout({ projectId, fileService, inventory, disposition, releaseGate, projectLogger = () => {} } = {}) {
   if (!projectId || !fileService?.readFile || !fileService?.atomicWrite || !fileService?.createLock || !inventory?.inspect) throw fail("CONFIGURATION_ERROR", "Ticket pipeline rollout requires project persistence and inventory.");
-  const path = `.forge/runtime/ticket-pipeline-rollout/${hash(projectId)}.json`;
+  const path = `${statePath()}/ticket-pipeline-rollout/${hash(projectId)}.json`;
   return Object.freeze({ load, setMode, shadowAudit });
 
   // Reads the project flag without silently enabling hard gates for old tickets.

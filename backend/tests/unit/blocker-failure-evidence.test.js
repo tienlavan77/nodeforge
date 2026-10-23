@@ -66,6 +66,23 @@ test("SL and AM receive failed commit receipts alongside edits without exposing 
   assert.equal((await createBlockerFailureEvidence({ readEvents, toolNames: ["edit_diff", "write_diff"] })(job, "/project")).status, "missing");
 });
 
+test("a checkpoint report resolves explicit prior denial references only within its execution correlation", async () => {
+  const id = "LOG-15c7ae97-0064-4dda-98fc-9424d4bac9d8";
+  const original = event({ event_id: id });
+  original.payload.request_id = "PRIOR-CHECKPOINT";
+  original.payload.error = { message: "This action was rejected due to unacceptable risk.\nReason: The operation expands a permission boundary." };
+  const report = event({ event_id: "REPORT", payload: { request_id: "REQ", tool: "report_done", error: { code: "CODER_BLOCKED" },
+    arguments: { evidence: [{ type: "tool_receipt", reference: id }] } } });
+  const readEvents = async () => ({ events: [original, report, event({ event_id: "UNREFERENCED", payload: original.payload }),
+    { ...original, project_id: "OTHER" }, { ...original, task_id: "OTHER" }, { ...original, correlation_id: "OTHER" },
+    { ...original, timestamp: "2026-10-18T16:16:00.000Z" }], warnings: [] });
+  const evidence = await createBlockerFailureEvidence({ readEvents })(job, "/project");
+  assert.equal(evidence.status, "captured");
+  assert.deepEqual(evidence.receipts.map((receipt) => receipt.event_id), [id]);
+  assert.equal(evidence.receipts[0].request_id, "PRIOR-CHECKPOINT");
+  assert.deepEqual(evidence.receipts[0].arguments, original.payload.arguments);
+});
+
 for (const provider of ["openai", "claude"]) {
   test(`${provider} AM receives original failed edit receipts in the recovery prompt`, async () => {
     const fixture = await blockerRecoveryFixture();

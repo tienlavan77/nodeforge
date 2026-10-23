@@ -5,7 +5,7 @@ import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js"
 import { createBlockerRecoveryAgent } from "../../src/modules/supervisor/blocker-recovery-agent.js";
 import { blockerRecoveryTools } from "../../src/modules/supervisor/blocker-recovery-tools.js";
 
-test("Codex profiles investigate through the tool-only Agents gateway, not native CLI tools", async () => {
+test("Codex profiles investigate through their Codex SDK with read-only Forge tools", async () => {
   const fixture = await blockerRecoveryFixture();
   let released = 0;
   const profile = { agent_id: "SL", role: "sprint_leader", provider: "codex", enabled: true, status: "ready" };
@@ -13,7 +13,7 @@ test("Codex profiles investigate through the tool-only Agents gateway, not nativ
     const worker = createBlockerRecoveryAgent({ agentResolver: { resolveAvailable: () => profile },
       agentOccupancy: { claim: async () => ({ claim_id: "CLAIM" }), release: async () => { released += 1; } },
       resolveTicketWorkspace: async () => fixture.base.workspace,
-      gateways: { codexSdkGateway: { execute: async () => assert.fail("Native CLI must not be used") }, openaiSdkGateway: { execute: async (input) => {
+      gateways: { openaiSdkGateway: { execute: async () => assert.fail("Codex must not fall back to the OpenAI Agents gateway") }, codexSdkGateway: { execute: async (input) => {
         assert.equal(input.agent, profile);
         assert.match(input.prompt, /BLOCKER-DECISION-HTTP/);
         assert.match(input.prompt, /Do not ask the owner to choose the same direction again/);
@@ -22,6 +22,9 @@ test("Codex profiles investigate through the tool-only Agents gateway, not nativ
         assert.doesNotMatch(input.prompt, /FULFILLMENT STAGE for recorded owner decision/);
         assert.deepEqual(input.options.forgeTools.definitions.map((definition) => definition.name), ["search_tree", "list_files", "search_text", "read_file", "read_lines", "git_status", "git_diff"]);
         assert.equal(input.options.builtinWebSearch, undefined);
+        assert.equal(input.options.sandboxMode, "read-only");
+        assert.equal(input.options.networkAccessEnabled, true);
+        assert.equal(input.options.webSearchMode, "live");
         const source = await input.options.forgeTools.registry.read_file.execute({ path: fixture.evidence.path });
         assert.equal(source.sha256, `sha256:${fixture.evidence.sha256}`);
         assert.equal(input.options.forgeTools.registry.write_diff, undefined);

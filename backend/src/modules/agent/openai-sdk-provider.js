@@ -25,7 +25,7 @@ export function createOpenAiSdkProviderFactory({ credentialResolver, ProviderCla
     const model = requireString(profile.model, "OpenAI SDK model");
     const credentialRef = requireString(profile.credential_ref, "OpenAI SDK credential_ref");
     const compatibleProvider = ["ollama", "xai", "alibaba", "zhipu", "deepseek"].includes(profile.provider);
-    const webSearchRole = ["architecture_manager", "system_engineer"].includes(profile.role);
+    const webSearchRole = ["architecture_manager", "system_engineer", "sprint_leader"].includes(profile.role);
     const effort = normalizeReasoningEffort(profile.reasoning?.effort ?? profile.reasoning_effort ?? (compatibleProvider ? "none" : "medium"));
     return Object.freeze({
       agent_id: requireString(profile.agent_id, "OpenAI SDK agent_id"),

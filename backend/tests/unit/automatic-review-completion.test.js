@@ -90,15 +90,25 @@ test("repair with no source or explanation change parks instead of looping indef
   assert.equal(fixture.integrations, 0);
 });
 
-// Escalates an independent safety Blocker without consuming the ordinary Coder repair budget.
-test("safety Blocker requires owner decision, while soft review only creates urgent follow-up", async () => {
+// Keeps serious defects blocked on repair and independent acceptance without treating severity as Owner authority.
+test("blocker uses ordinary Coder repair, while soft review creates urgent follow-up", async () => {
   for (const gate of ["on", "off"]) {
-    const fixture = automaticReviewFixture({ gate, review: async () => ({ verdict: "request_changes", findings: [{ failure: "Risk of data loss", severity: "blocker" }] }) });
-    const result = await fixture.complete(async () => { throw new Error("Blocker must not dispatch ordinary repair"); });
+    let repairs = 0;
+    const fixture = automaticReviewFixture({ gate, review: async (_job, calls) => calls === 1
+      ? { verdict: "request_changes", findings: [{ failure: "Risk of data loss", severity: "blocker" }] }
+      : { verdict: "approved", findings: [], adjudications: [{ finding_id: "REV-1", decision: "fixed" }] } });
+    const result = await fixture.complete(async ({ request }) => {
+      repairs++;
+      assert.equal(fixture.integrations, 0);
+      fixture.revise();
+      return { request, result: { tool_events: [{ name: "report_done", status: "success" }] } };
+    });
     if (gate === "off") await fixture.service.process((await fixture.queueStore.list("agent.request"))[0]);
-    assert.equal(result.status, gate === "on" ? "needs_human_review" : "completed");
-    assert(fixture.events.some((event) => event.type === "review.owner_decision_required"));
-    assert.equal(fixture.integrations, gate === "on" ? 0 : 1);
+    assert.equal(result.status, "completed");
+    assert.equal(repairs, gate === "on" ? 1 : 0);
+    assert.equal(fixture.events.some((event) => event.type === "review.owner_decision_required"), false);
+    assert.equal(fixture.integrations, 1);
+    if (gate === "off") assert.equal((await fixture.queueStore.list("review.backlog"))[0].priority, "critical");
   }
 });
 

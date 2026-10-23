@@ -14,7 +14,7 @@ export function createBlockerSourceResume({ inspect, sprintRegistry, ticketStatu
     const authority = await inspect(job);
     if (!authority) return false;
     const progress = await buildBlockerTicketProgress({ job, ...authority, sprintRegistry, ticketStatusStore });
-    const receipts = (value) => [value?.contract_source ?? [], value?.dependencies ?? null];
+    const receipts = (value) => [value?.contract_source ?? [], value?.dependencies ?? null, value?.source_reconciliation ?? null];
     const digest = (value) => createHash("sha256").update(JSON.stringify(receipts(value))).digest("hex");
     const identity = digest(progress);
     if (!progress.contract_source.every((entry) => entry.status === "validated")

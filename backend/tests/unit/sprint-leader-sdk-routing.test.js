@@ -15,7 +15,10 @@ test("Sprint Leader dispatches Claude, Anthropic, Codex, and OpenAI profiles to 
     assert.equal(calls[0].name, provider === "anthropic" ? "claude" : provider);
     assert.deepEqual(calls[0].request.options.forgeTools.definitions.map(({ name }) => name), ["search_tree"]);
     if (provider === "openai") assert.equal(calls[0].request.agent.agent_id, profile.agent_id);
-    if (provider === "codex") await assert.rejects(calls[0].request.onEvent({ type: "item.started", item: { type: "command_execution" } }), { code: "TOOL_FORBIDDEN" });
+    if (provider === "codex") {
+      await assert.doesNotReject(calls[0].request.onEvent({ type: "item.started", item: { type: "web_search" } }));
+      for (const type of ["command_execution", "file_change"]) await assert.rejects(calls[0].request.onEvent({ type: "item.started", item: { type } }), { code: "TOOL_FORBIDDEN" });
+    }
     await assert.rejects(roleGateway.execute({ agentId: "OTHER", prompt: "Plan" }), /does not match/);
   }
 });

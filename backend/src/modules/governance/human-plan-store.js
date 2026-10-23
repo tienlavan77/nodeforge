@@ -1,4 +1,5 @@
 // Persists human-reviewed plans as immutable files with a SQLite integrity and decision index.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createHash, randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { acquireTicketFileLock } from "../supervisor/ticket-file-lock.js";
@@ -6,7 +7,7 @@ import { planDecisionRequests, validatePlanDecisionSelections, assertPlanOwnerDe
 import { sprintArchitectureDecisions } from "./sprint-architecture-decisions.js";
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-const PLAN_ROOT = ".forge/runtime/nf/plans";
+const PLAN_ROOT = statePath("nf/plans");
 const DECISIONS = new Set(["approved", "rejected", "changes_requested"]);
 const hash = (text) => createHash("sha256").update(text).digest("hex");
 

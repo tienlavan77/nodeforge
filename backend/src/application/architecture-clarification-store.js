@@ -1,4 +1,5 @@
 // Persists source-bound Architecture questions and owner draft answers across reloads without keeping an agent running.
+import { statePath } from "../infrastructure/filesystem/forge-paths.js";
 import { createHash, randomUUID } from "node:crypto";
 import { acquireTicketFileLock } from "../modules/supervisor/ticket-file-lock.js";
 import { architectureSelections, decisionError, validateArchitectureQuestions } from "../modules/governance/architecture-owner-decisions.js";
@@ -7,7 +8,7 @@ const PROCESS_ID = randomUUID();
 // Creates durable clarification sessions isolated to one project and conversation.
 export function createArchitectureClarificationStore({ projectId, fileService }) {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(projectId ?? "")) throw decisionError("PROJECT_CONTEXT_CONFLICT", "Clarification storage requires a safe project identity.");
-  const root = `.forge/runtime/nf/plan-clarifications/${projectId}`;
+  const root = `${statePath()}/nf/plan-clarifications/${projectId}`;
   const indexPath = `${root}/index.json`;
   return { create, get, list, update, source, claim };
 

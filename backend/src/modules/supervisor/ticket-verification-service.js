@@ -1,4 +1,5 @@
 // Verifies the exact ticket commit and persists safe evidence across Control API restarts.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { randomUUID, createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { readFile, readlink } from "node:fs/promises";
@@ -16,7 +17,7 @@ import { coversVerificationPolicy } from "./ticket-verification-policy.js";
 import { runTicketVerificationCommands, verificationCommandAccepted } from "./ticket-verification-regression.js";
 import { createTicketVerificationDiagnostic } from "./ticket-verification-diagnostic.js";
 
-const ROOT = ".forge/runtime/ticket-verification";
+const ROOT = statePath("ticket-verification");
 const POLICY_VERSION = "ticket-verification-v8";
 const MAX_SAME_REVISION_ATTEMPTS = 2;
 const fail = (code, message) => Object.assign(new ConfigurationError(message), { code });

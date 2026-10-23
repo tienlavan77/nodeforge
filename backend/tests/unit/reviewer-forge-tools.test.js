@@ -5,7 +5,6 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createReviewerForgeTools } from "../../src/modules/supervisor/reviewer-forge-tools.js";
 import { createReviewWorker } from "../../src/modules/supervisor/review-worker.js";
 
@@ -36,7 +35,7 @@ test("review read tools return bounded source and hide protected paths", async (
 });
 
 test("verified reviews retain only existing tools for Codex, OpenAI and Claude", () => {
-  const ticketEvidence = { files: [source], artifact: { file_checksums: { [source.path]: source.sha256 } }, context: {} };
+  const ticketEvidence = { files: [source], artifact: { file_checksums: { [source.path]: source.sha256 } }, context: { review_commit_sha: "a".repeat(40) } };
   for (const provider of ["codex", "openai", "claude"]) {
     const tools = createReviewerForgeTools({ fileService: files(), projectRoot: "/project", job, reviewer: { agent_id: "reviewer-1", provider }, codeCache: { read: async () => source }, ticketEvidence });
     assert.deepEqual(tools.definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "read_lines"]);
@@ -77,7 +76,7 @@ test("Supervisor passes the same read-only allowlist to every Reviewer provider"
     const gateway = { execute: async (input) => { request = input; return { text: JSON.stringify({ verdict: "request_changes", findings: [{ failure: "Missing test", acceptance_criterion: "Focused verification", evidence_refs: ["src/a.js:1"], minimum_change_scope: "Add a focused test" }] }) }; } };
     const worker = createReviewWorker({ agentResolver: { resolveAvailable: () => ({ agent_id: "reviewer-1", role: "reviewer", provider }) }, claudeSdkGateway: gateway, openaiSdkGateway: gateway, codexSdkGateway: gateway, fileService: files(), projectRoot: "/project" });
     await worker.review(job);
-    const names = ["search_tree", "list_files", "search_text", "read_file", "read_lines"];
+    const names = ["search_tree", "list_files", "search_text", "read_file", "read_lines", "query_review"];
     if (provider === "claude" || provider === "anthropic") {
       assert.deepEqual(request.options.allowedTools, names.map((name) => `mcp__forge__${name}`));
       assert.deepEqual(request.options.tools, []);
@@ -101,18 +100,19 @@ test("Reviewer falls back to supplied evidence when Forge tools cannot initializ
   assert.equal(events.some((event) => event.event_name === "review.tools_unavailable"), true);
 });
 
-test("Reviewer source windows use committed content despite stale cache formatting and reject real drift", async () => {
+test("Reviewer source windows ignore live drift and stale caches but reject corrupted artifact evidence", async () => {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-review-window-"));
   const path = "backend/src/sample.js";
   const content = "first\nsecond\n";
   const sha256 = `sha256:${createHash("sha256").update(content).digest("hex")}`;
-  const evidence = { files: [{ path, content, sha256 }], artifact: { artifact_id: "ARTIFACT-1", file_checksums: { [path]: sha256 } }, context: { review_commit_sha: "COMMIT-1", manifest_sha: "MANIFEST-1" } };
+  const evidence = { files: [{ path, content, sha256 }], artifact: { artifact_id: "ARTIFACT-1", file_checksums: { [path]: sha256 } }, context: { review_commit_sha: "a".repeat(40), manifest_sha: "MANIFEST-1" } };
   try {
     await mkdir(join(root, "backend/src"), { recursive: true });
     await writeFile(join(root, path), content);
     const cache = { read: async () => ({ path, content: "stale\r\nsource", sha256: "sha256:stale", cache: { status: "hit" } }) };
     const reviewJob = { ...job, payload: { changed_paths: [path] } };
-    const options = { fileService: createFileService({ projectRoot: root }), projectRoot: root, job: reviewJob, reviewer: { agent_id: "reviewer-1", provider: "codex" }, codeCache: cache, ticketEvidence: evidence };
+    const snapshot = { ...files(), committedReview: true, reviewCommit: "a".repeat(40), readForIndex: async () => ({ path, content, sha256 }) };
+    const options = { fileService: snapshot, projectRoot: root, job: reviewJob, reviewer: { agent_id: "reviewer-1", provider: "codex" }, codeCache: cache, ticketEvidence: evidence };
     const codex = createReviewerForgeTools(options);
     const metadata = await codex.registry.read_file.execute({ path });
     assert.equal(metadata.sha256, sha256);
@@ -123,7 +123,7 @@ test("Reviewer source windows use committed content despite stale cache formatti
     assert.equal(lines.stdout, "first\nsecond\n");
     assert.equal(lines.sha256, sha256);
     assert.equal(lines.total_lines, 3);
-    assert.equal(lines.review_evidence.commit_sha, "COMMIT-1");
+    assert.equal(lines.review_evidence.commit_sha, "a".repeat(40));
     const claude = createReviewerForgeTools({ ...options, reviewer: { agent_id: "reviewer-1", provider: "claude" }, includeClaudeFileTools: true });
     const lastLine = await claude.registry.read_lines.execute({ path, start_line: 3, end_line: 3 });
     assert.equal(lastLine.stdout, "\n");
@@ -134,8 +134,8 @@ test("Reviewer source windows use committed content despite stale cache formatti
     await assert.rejects(() => claude.registry.read_lines.execute({ path, start_line: 3, end_line: 3 }), (error) => error.code === "REVIEW_SOURCE_MISMATCH");
     evidence.files[0].content = content;
     await writeFile(join(root, path), "changed\n");
-    await assert.rejects(() => codex.registry.read_lines.execute({ path, start_line: 1, end_line: 2 }), (error) => error.code === "REVIEW_SOURCE_MISMATCH");
-    await assert.rejects(() => claude.registry.read_lines.execute({ path, start_line: 1, end_line: 1 }), (error) => error.code === "REVIEW_SOURCE_MISMATCH");
+    assert.equal((await codex.registry.read_lines.execute({ path, start_line: 1, end_line: 2 })).stdout, content);
+    assert.equal((await claude.registry.read_lines.execute({ path, start_line: 1, end_line: 1 })).stdout, "first\n");
     await writeFile(join(root, path), content);
     evidence.artifact.file_checksums[path] = "sha256:wrong";
     await assert.rejects(() => codex.registry.read_lines.execute({ path, start_line: 1, end_line: 2 }), (error) => error.code === "REVIEW_SOURCE_MISMATCH");

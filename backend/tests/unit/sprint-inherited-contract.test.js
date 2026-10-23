@@ -103,3 +103,18 @@ test("an incomplete predecessor or foreign project never supplies inherited acce
   f.status.details.execution_id = "NEW-ATTEMPT";
   await assert.rejects(buildBlockerTicketProgress({ job: f.job, ...f.authority, ...f.services }), { code: "TICKET_EXECUTION_RECONCILIATION_REQUIRED" });
 });
+
+test("a new reconciliation receipt wakes retained SL even when contract and dependency evidence are unchanged", async (t) => {
+  const f = await inheritedFixture(t);
+  let source = { status: "observed", sha256: "before", files: [] };
+  f.workspace.gitService = { inspectSource: async () => source };
+  f.job.ticket_progress = await buildBlockerTicketProgress({ job: f.job, ...f.authority, ...f.services });
+  source = { status: "observed", sha256: "after", files: [{ path: "source.js", source_reconciliation: { status: "merged" } }] };
+  let now = 1;
+  const refresh = createBlockerSourceResume({ inspect: async () => f.authority, ...f.services, clock: () => now });
+  assert.equal(await refresh(f.job), true);
+  assert.equal(f.job.ticket_progress.source_reconciliation.sha256, "after");
+  f.job.resolution = { reconciliation: { kind: "source_revision" } };
+  now += 30_000;
+  assert.equal(await refresh(f.job), false);
+});

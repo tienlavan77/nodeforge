@@ -1,4 +1,5 @@
 // Starts a finding repair with a fresh write journal while retaining the previously verified source as immutable history.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { acquireTicketFileLock } from "./ticket-file-lock.js";
@@ -13,9 +14,9 @@ const fail = () => Object.assign(new Error("Finding repair does not match its re
 export async function prepareFindingReviewRepair({ taskId, projectId, fileService, executionContexts, ledger, testService, reviewKey }) {
   if (!/^sha256:[a-f0-9]{64}$/.test(reviewKey ?? "")) throw fail();
   const scope = key(projectId), cycleId = reviewKey.slice(7);
-  const receiptPath = `.forge/runtime/ticket-finding-repairs/${scope}/${taskId}/${cycleId}.json`;
-  const manifestPath = `.forge/runtime/ticket-changes/${scope}/tickets/${key(taskId)}.json`;
-  const contextPath = `.forge/runtime/ticket-execution-contexts/${scope}/${taskId}.json`;
+  const receiptPath = `${statePath()}/ticket-finding-repairs/${scope}/${taskId}/${cycleId}.json`;
+  const manifestPath = `${statePath()}/ticket-changes/${scope}/tickets/${key(taskId)}.json`;
+  const contextPath = `${statePath()}/ticket-execution-contexts/${scope}/${taskId}.json`;
   return withTicketProjectCommitLock({ fileService, projectId }, async () => {
     let receipt = await readOptional(fileService, receiptPath);
     if (!receipt) {
@@ -31,7 +32,7 @@ export async function prepareFindingReviewRepair({ taskId, projectId, fileServic
     }
     const contextLock = await acquireTicketFileLock(fileService, `${contextPath}.lock`);
     try {
-      const ledgerLock = await acquireTicketFileLock(fileService, `.forge/runtime/ticket-changes/${scope}/locks/${key(`ticket:${taskId}`)}.lock`);
+      const ledgerLock = await acquireTicketFileLock(fileService, `${statePath()}/ticket-changes/${scope}/locks/${key(`ticket:${taskId}`)}.lock`);
       try {
         const persisted = await readOptional(fileService, receiptPath);
         if (persisted) receipt = persisted;
@@ -73,7 +74,7 @@ function matchesResumedContext(current, archived, cycleId) {
 export async function loadFindingReviewSource({ taskId, projectId, fileService, executionContexts, context }) {
   const cycleId = context?.source_repair_cycle_id;
   if (!/^[a-f0-9]{64}$/.test(cycleId ?? "")) throw fail();
-  const receipt = await readOptional(fileService, `.forge/runtime/ticket-finding-repairs/${key(projectId)}/${taskId}/${cycleId}.json`);
+  const receipt = await readOptional(fileService, `${statePath()}/ticket-finding-repairs/${key(projectId)}/${taskId}/${cycleId}.json`);
   if (!receipt || receipt.task_id !== taskId || receipt.project_id !== projectId || receipt.cycle_id !== cycleId || receipt.review_key !== `sha256:${cycleId}`) throw fail();
   assertSource({ ...receipt, taskId, projectId, executionContexts });
   if (context.base_sha !== receipt.context.base_sha || context.supervisor_id !== receipt.context.supervisor_id) throw fail();

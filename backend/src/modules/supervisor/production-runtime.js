@@ -1,4 +1,5 @@
 // Summary: Wires production supervisor runtime — queue stores, event bus, supervisor manager, and worker signal/result buses.
+import { FORGE_STATE_DIR } from "../../infrastructure/filesystem/forge-paths.js";
 import { createReviewDependencyReconciliation } from "./review-dependency-reconciliation.js";
 import { ConfigurationError } from "../../shared/errors.js";
 import { createDurableQueue } from "./durable-queue.js";
@@ -37,7 +38,7 @@ const QUEUE_NAMES = ["agent.request", "sender.handoff", "collector.request", "ve
 const RESUMABLE_STATES = ["CREATED", "READY", "RUNNING", "REPAIRING"];
 
 /** Creates the production wiring for supervisor runtime including stores, buses, managers, and workers. */
-export function createProductionSupervisorRuntime({ fileService, projectId, projectRoot = process.cwd(), root = ".forge/runtime", eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, agentRoleResolver, agentOccupancy, ticketStatusStore, sprintRegistry, architecturePlans, plans, planFileService, replanFoundation, logger = console, projectLogger = () => {}, checkpointSaved, preparation = {}, attemptBuilderFactory, conversationStateStore, protocolStorage, autoStartWorkers = true, toolGovernance, governanceDatabase, codeSearch, codeCache, relevantTreeSelector, freshnessChecker, enableReadCode = false, testService, gitService, reportService, ticketWorkspaceService, shadowComparison, onEvalCase, coderRecovery, coderRetryPolicy, ticketDisposition } = {}) {
+export function createProductionSupervisorRuntime({ fileService, projectId, projectRoot = process.cwd(), root = FORGE_STATE_DIR, eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, agentRoleResolver, agentOccupancy, ticketStatusStore, sprintRegistry, architecturePlans, plans, planFileService, replanFoundation, logger = console, projectLogger = () => {}, checkpointSaved, preparation = {}, attemptBuilderFactory, conversationStateStore, protocolStorage, autoStartWorkers = true, toolGovernance, governanceDatabase, codeSearch, codeCache, relevantTreeSelector, freshnessChecker, enableReadCode = false, testService, gitService, reportService, ticketWorkspaceService, shadowComparison, onEvalCase, coderRecovery, coderRetryPolicy, ticketDisposition } = {}) {
   const hasPreparation = Object.keys(preparation ?? {}).length > 0;
   const queueStore = createFileQueueStore({ fileService, root: `${root}/queues` });
   const stateStore = createSupervisorStateStore({ fileService, root: `${root}/supervisors` });
@@ -64,7 +65,7 @@ export function createProductionSupervisorRuntime({ fileService, projectId, proj
   coderRecovery ??= createCoderRecoveryRuntime({ store: queueStore, ticketStatusStore, sprintRegistry, resolveTicketWorkspace, checkpoints: agentCheckpoints,
     eventBus, submitTicket: (input) => baseIntegration.submitTicket(input), disposition: ticketDisposition, agentOccupancy, policy: coderRetryPolicy, projectLogger, logger });
   const blockerRecovery = createProductionBlockerRecovery({ store: queueStore, fileService, projectId, ticketStatusStore, sprintRegistry, resolveTicketWorkspace, checkpoints: agentCheckpoints,
-    eventBus, agentResolver: agentRoleResolver, agentOccupancy, gateways: { claudeSdkGateway, openaiSdkGateway }, submitTicket: (input) => integration.submitTicket(input), stopExecution: (input) => coderRecovery.stopTicket(input), disposition: ticketDisposition, architecturePlans, plans, planFileService, replanFoundation, projectLogger, logger, limits: blockerRecoveryPolicy() });
+    eventBus, agentResolver: agentRoleResolver, agentOccupancy, gateways: { claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway }, submitTicket: (input) => integration.submitTicket(input), stopExecution: (input) => coderRecovery.stopTicket(input), disposition: ticketDisposition, architecturePlans, plans, planFileService, replanFoundation, projectLogger, logger, limits: blockerRecoveryPolicy() });
   const supervisorManager = createSupervisorManager({ eventBus, stateStore, preparation, onCreate: (runtime) => {
     const executionContextProvider = createExecutionContextProvider(runtime, runtimeGovernance, toolRegistry);
     const loop = createSupervisorLoop({ runtime, senderQueue: queues["agent.request"], collectorQueue: queues["collector.request"], verificationQueue: queues["verification.request"], sourceRequest: async (taskId, requestId) => (await queueStore.list("agent.request")).find((job) => job.task_id === taskId && (!requestId || job.request_id === requestId) && job.operation !== "review" && job.ticket), eventBus, requestStore: processedRequestStore, agentResolver: agentRoleResolver, agentOccupancy, integrateTicket, automaticReview, coderRecovery, ticketStatusStore, resolveTicketWorkspace, attemptBuilder: typeof attemptBuilderFactory === "function" ? attemptBuilderFactory(runtime, { conversationStateStore, protocolStorage, toolRegistry, governance: runtimeGovernance, executionContextProvider }) : undefined });
@@ -155,6 +156,13 @@ export function createProductionSupervisorRuntime({ fileService, projectId, proj
 
   async function recover() {
     logger.debug?.("Supervisor recovery: queue scan started");
+    // Prune long-finished plain jobs first so the megabyte-scale queue files shrink before every
+    // later list()/recover() scan parses them; jobs carrying review/verification/reconciliation
+    // evidence are retained as durable witnesses, and a worker only rewrites each queue under its
+    // cross-process lock, so a concurrent claim/ack cannot lose an update.
+    const pruned = {};
+    for (const name of QUEUE_NAMES) ({ removed: pruned[name] } = await queueStore.pruneTerminal(name));
+    logger.debug?.("Supervisor recovery: terminal jobs pruned", pruned);
     await migrateLegacyReviewJobs();
     const recoveredQueues = {};
     for (const name of QUEUE_NAMES) recoveredQueues[name] = (await queues[name].recover()).length;

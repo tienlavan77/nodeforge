@@ -12,7 +12,7 @@ import { hasFileHeaderComment, extractFunctionSignatures, hasPrecedingComment, e
 import { discoveryNotice, recordRead, resetExploration } from "./exploration-state.js";
 const MAX_CONTENT = 200000;
 const WRITE_DIFF_MAX_LINES = 250;
-const READ_WINDOW_LINE_LIMIT = 80;
+const READ_WINDOW_LINE_LIMIT = 250;
 const DOCUMENT_LINE_LIMIT = 250;
 // safePath - handles safePath operation.
 const safePath = (value, operation = "read", role) => {
@@ -35,7 +35,7 @@ const checksumDiagnostics = (beforeChecksum, targetExists) => ({
 });
 
 // createReadFileTool - handles createReadFileTool operation.
-export function createReadFileTool({ fileService, codeCache, projectRoot, maxChars = MAX_CONTENT } = {}) {
+export function createReadFileTool({ fileService, codeCache, projectRoot, dependencyReader = readDependencyFile, maxChars = MAX_CONTENT } = {}) {
   if (typeof fileService?.readForIndex !== "function") throw new ConfigurationError("read_file requires File Service.");
   return Object.freeze({ name: "read_file", async execute(input = {}, context = {}) {
     const path = safePath(input.path, "read", context.agent_identity?.role);
@@ -44,8 +44,9 @@ export function createReadFileTool({ fileService, codeCache, projectRoot, maxCha
     const requestedOffset = input.offset ?? undefined;
     const requestedLimit = input.limit ?? undefined;
     assertAllowed(path, context); const file = isDependencyPath(path) && (projectRoot ?? context.project_root)
-      ? await readDependencyFile({ projectRoot: projectRoot ?? context.project_root, path }) : codeCache ? await codeCache.read({ path }) : await fileService.readForIndex({ path });
+      ? await dependencyReader({ projectRoot: projectRoot ?? context.project_root, path }) : codeCache ? await codeCache.read({ path }) : await fileService.readForIndex({ path });
     if (!file || typeof file.content !== "string") throw error("READ_FAILED", `File could not be read: ${path}`);
+    assertAllowed(path, context);
     const sha256 = file.sha256 ?? checksum(file.content);
     const sizeBytes = file.size_bytes ?? Buffer.byteLength(file.content);
     const hasWindow = requestedOffset !== undefined || requestedLimit !== undefined;
@@ -64,7 +65,7 @@ export function createReadFileTool({ fileService, codeCache, projectRoot, maxCha
           notice: lines.length > DOCUMENT_LINE_LIMIT ? `Document continues after line ${DOCUMENT_LINE_LIMIT}; use a line-reading tool for the remainder.` : "Complete Markdown document content." };
       }
       recordRead(context, { path, window: "metadata" });
-      return { ...metadata, notice: "Metadata only. To read source, call read_file with symbol or offset/limit, or read_lines (at most 80 lines)." };
+      return { ...metadata, notice: "Metadata only. To read source, call read_file with symbol or offset/limit, or read_lines (at most 250 lines)." };
     }
     let offset = requestedOffset ?? 1;
     let limit = requestedLimit ?? READ_WINDOW_LINE_LIMIT;

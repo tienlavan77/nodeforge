@@ -1,4 +1,5 @@
 // Rebinds parked review repairs to proven replacement dependency completions without replacing the ticket execution.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { isDeepStrictEqual } from "node:util";
 import { matchesTicketExecution } from "./ticket-execution-identity.js";
 
@@ -12,7 +13,7 @@ export function createReviewDependencyStatus({ database, get, transition, emit }
         || !current.details.review_reopen?.job_id || !current.details.review_reopen.owner_request || current.details.launch_claim
         || !matchesTicketExecution(current, executionId, basis) || !isDeepStrictEqual(current.details.dependency_expectations, previous)
         || !Array.isArray(previous) || !Array.isArray(dependencies) || previous.length !== dependencies.length
-        || !receipt?.path?.startsWith(".forge/runtime/review-dependency-reconciliation/") || !/^sha256:[a-f0-9]{64}$/.test(receipt.sha256 ?? "")) throw conflict("Review repair no longer owns the parked dependency boundary.");
+        || !receipt?.path?.startsWith(statePath("review-dependency-reconciliation/")) || !/^sha256:[a-f0-9]{64}$/.test(receipt.sha256 ?? "")) throw conflict("Review repair no longer owns the parked dependency boundary.");
       for (const before of previous) {
         const after = dependencies.find((entry) => entry.ticket_id === before.ticket_id);
         if (!after || !isDeepStrictEqual({ ...before, execution_id: after.execution_id }, after)) throw conflict("A repair cannot change dependency scope or its immutable plan.");

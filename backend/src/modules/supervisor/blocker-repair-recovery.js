@@ -1,4 +1,5 @@
 // Restores structured repair blockers from exact retained handoffs and tool receipts after older review paths lost triage.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { readLogEvents } from "../../core/project-log-service.js";
@@ -13,7 +14,7 @@ export async function restoreRepairBlocker({ checkpoint, current, store, project
     && entry.payload?.execution_id === current.details.execution_id
     && isDeepStrictEqual(entry.payload.sprint_basis, current.details.execution_basis));
   if (!handoffs.length) return checkpoint;
-  const window = await readEvents({ logPath: process.env.NODEFORGE_PROJECT_LOG_PATH ?? join(projectRoot, ".forge/runtime/nf/project.log"),
+  const window = await readEvents({ logPath: process.env.NODEFORGE_PROJECT_LOG_PATH ?? join(projectRoot, statePath("nf/project.log")),
     project_id: current.project_id, task_id: checkpoint.task_id, correlation_id: checkpoint.correlation_id,
     event_name: "supervisor.agent_tool_event", from: handoffs.map((entry) => entry.created_at).filter(Boolean).sort().at(-1), to: checkpoint.failure.at });
   const report = window.events.filter((event) => event.task_id === checkpoint.task_id && event.project_id === current.project_id
@@ -24,9 +25,10 @@ export async function restoreRepairBlocker({ checkpoint, current, store, project
   if (!report) return checkpoint;
   const details = report.payload.error.details;
   const blocker = details?.blocker ?? report.payload.arguments.blocker;
-  if (!blocker?.reason_code || !blocker.owner_action || !Array.isArray(details?.evidence ?? report.payload.arguments.evidence)) return checkpoint;
+  if (!blocker?.reason_code || (!blocker.owner_action && !blocker.consultation && !details?.consultation) || !Array.isArray(details?.evidence ?? report.payload.arguments.evidence)) return checkpoint;
   return { ...checkpoint, triage: coderFailureTriage({ code: "CODER_BLOCKED", details: {
-    blocker, evidence: details?.evidence ?? report.payload.arguments.evidence } }), failure_request_id: report.payload.request_id,
+    blocker, summary: details?.summary ?? report.payload.arguments.summary, consultation: details?.consultation ?? blocker.consultation,
+    evidence: details?.evidence ?? report.payload.arguments.evidence } }), failure_request_id: report.payload.request_id,
     blocker_recovery_receipt: { event_id: report.event_id, timestamp: report.timestamp, request_id: report.payload.request_id } };
 }
 

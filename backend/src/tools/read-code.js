@@ -4,6 +4,8 @@ import { isAbsolute } from "node:path";
 import { ConfigurationError } from "../shared/errors.js";
 import { isProtectedPath } from "../infrastructure/filesystem/protected-path-policy.js";
 import { assertExecutionScope, checkRetrievalBudget, recordRetrieval } from "./retrieval-governance.js";
+import { assertExecutionFileAccess } from "./execution-file-access.js";
+import { isAgentPathAllowed } from "./tool-authorization.js";
 import { discoveryNotice } from "./exploration-state.js";
 import { resolveSymbolWindow } from "./agent-file-index-view.js";
 
@@ -17,6 +19,7 @@ export function createReadCodeTool({ fileService, codeCache, maxChars = DEFAULT_
   return Object.freeze({ name: "read_code", execute });
 
   async function execute(input = {}, context = {}) {
+    assertExecutionFileAccess(context);
     const taskId = context.task_id ?? context.taskId;
     if (!new Set(context.capabilities ?? []).has("read_code")) throw scopedError("TOOL_FORBIDDEN", "Agent is not authorized to use read_code.");
     if (typeof taskId !== "string" || !taskId) throw scopedError("TOOL_SCOPE_INVALID", "Read Code requires the current task_id.");
@@ -24,8 +27,12 @@ export function createReadCodeTool({ fileService, codeCache, maxChars = DEFAULT_
     const kind = input.kind;
     if (kind !== "file" && kind !== "symbol") throw scopedError("READ_KIND_INVALID", "Read kind must be file or symbol.");
     const path = validatePath(input.path);
-    const allowedFiles = validateAllowedFiles(context.allowed_file_paths ?? context.allowedFilePaths);
-    if (!allowedFiles.has(path)) throw scopedError("READ_PATH_FORBIDDEN", "Read path is outside the exact Node-approved file allowlist.");
+    if (context.file_access_version === 2) {
+      if (!isAgentPathAllowed(path, context, { operation: "read" })) throw scopedError("READ_PATH_FORBIDDEN", "Read path is outside the Node-approved read scope.");
+    } else {
+      const allowedFiles = validateAllowedFiles(context.allowed_file_paths ?? context.allowedFilePaths);
+      if (!allowedFiles.has(path)) throw scopedError("READ_PATH_FORBIDDEN", "Read path is outside the exact Node-approved file allowlist.");
+    }
     const requestedMax = input.max_chars;
     if (!Number.isInteger(requestedMax) || requestedMax < 1000 || requestedMax > maxChars) throw scopedError("READ_LIMIT_INVALID", `max_chars must be an integer between 1000 and ${maxChars}.`);
     const approvedSymbol = kind === "symbol" ? validateSymbol(input, context.allowed_symbols ?? context.allowedSymbols, path) : null;
@@ -35,6 +42,10 @@ export function createReadCodeTool({ fileService, codeCache, maxChars = DEFAULT_
     catch (error) {
       if (error?.code === "ENOENT") throw scopedError("READ_FILE_NOT_FOUND", `Approved file was not found: ${path}.`, error);
       throw scopedError("READ_BACKEND_ERROR", "Forge File Service failed to read the approved file.", error);
+    }
+    assertExecutionFileAccess(context);
+    if ((context.file_access_version !== undefined || context.file_access_policy !== undefined) && !isAgentPathAllowed(path, context, { operation: "read" })) {
+      throw scopedError("READ_PATH_FORBIDDEN", "Read authority changed before delivery.");
     }
     if (!file || typeof file.content !== "string") throw scopedError("READ_BACKEND_ERROR", "Forge File Service returned invalid file content.");
     let symbol = approvedSymbol;

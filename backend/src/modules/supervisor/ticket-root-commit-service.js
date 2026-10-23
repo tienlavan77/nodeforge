@@ -1,4 +1,5 @@
 // Commits only durable ticket changes from the project root with crash-recoverable Git provenance.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -17,9 +18,9 @@ const manifestSha = (manifest) => sha(JSON.stringify(Object.keys(manifest.entrie
 export function createTicketRootCommitService({ taskId, projectId, projectRoot, fileService, ledger, gitService, expectedBranch, projectLogger = () => {} } = {}) {
   if (!taskId || !projectId || !projectRoot || !fileService?.atomicWrite || !ledger?.withCommitTransaction || !gitService?.getHead) throw fail("CONFIGURATION_ERROR", "Root commit service needs ticket, File Service, ledger, and Git.");
   const rootGit = createTicketRootGit({ projectRoot });
-  const journalPath = (revision) => `.forge/runtime/ticket-root-commits/${key(projectId)}/${key(taskId)}-${revision}.json`;
-  const dispositionPath = (revision) => `.forge/runtime/ticket-root-commits/${key(projectId)}/${key(taskId)}-${revision}-disposition.json`;
-  const retryPath = (revision) => `.forge/runtime/ticket-root-commits/${key(projectId)}/${key(taskId)}-${revision}-retry.json`;
+  const journalPath = (revision) => `${statePath()}/ticket-root-commits/${key(projectId)}/${key(taskId)}-${revision}.json`;
+  const dispositionPath = (revision) => `${statePath()}/ticket-root-commits/${key(projectId)}/${key(taskId)}-${revision}-disposition.json`;
+  const retryPath = (revision) => `${statePath()}/ticket-root-commits/${key(projectId)}/${key(taskId)}-${revision}-retry.json`;
   return Object.freeze({ rootOnly: true, commit, reconcileNoRefMove, pushCommit: gitService.pushCommit, status: gitService.status, diffWorkingTree: gitService.diffWorkingTree, diffPatchFrom,
     inspectSource: (manifest) => inspectTicketSource({ manifest, taskId, projectId, rootGit, gitService, loadJournal, loadManifest: () => ledger.load(taskId) }),
     getHead: gitService.getHead, getCommitParent: gitService.getCommitParent, getChangedFiles: gitService.getChangedFiles, getCommitsForTask, assertAncestor: rootGit.assertAncestor });
@@ -200,7 +201,7 @@ export function createTicketRootCommitService({ taskId, projectId, projectRoot, 
 
   // Saves an immutable audit record while leaving the original incomplete transaction untouched.
   async function auditQuarantine(journal, reason) {
-    const path = `.forge/runtime/ticket-root-commits/${key(projectId)}/${key(taskId)}-${journal.revision}-${key(String(journal.transaction_id ?? "missing"))}-${key(reason)}-quarantine.json`;
+    const path = `${statePath()}/ticket-root-commits/${key(projectId)}/${key(taskId)}-${journal.revision}-${key(String(journal.transaction_id ?? "missing"))}-${key(reason)}-quarantine.json`;
     const record = { task_id: taskId, project_id: projectId, transaction_id: journal.transaction_id ?? null, revision: journal.revision, phase: journal.phase, parent_sha: journal.parent_sha, tree_sha: journal.tree_sha ?? null, commit_sha: journal.commit_sha ?? null, manifest_sha: journal.manifest_sha, disposition: "quarantined", reason, actor: "ticket-root-commit-service", recorded_at: new Date().toISOString() };
     try { await fileService.atomicWrite({ path, content: `${JSON.stringify(record)}\n`, replace: false }); }
     catch (error) { if (error.code !== "FILE_ALREADY_EXISTS") throw error; }

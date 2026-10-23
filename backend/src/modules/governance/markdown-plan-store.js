@@ -1,7 +1,9 @@
 // Keeps the owner's readable plan and exact approval immutable before Sprint Leader drafting.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createHash, randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { acquireTicketFileLock } from "../supervisor/ticket-file-lock.js";
+import { createMarkdownPlanSource } from "./markdown-plan-source.js";
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const DECISIONS = new Set(["approved", "rejected", "changes_requested"]);
@@ -13,12 +15,13 @@ function fail(code, message) { return Object.assign(new ConfigurationError(messa
 // Persists readable plan revisions and append-only owner decisions for one project.
 export function createMarkdownPlanStore({ projectId, database, fileService, clock = () => new Date().toISOString() } = {}) {
   if (!projectId || !database?.all || !database?.run || !fileService?.readFile || !fileService?.atomicCreate || !fileService?.createLock) throw fail("MARKDOWN_PLAN_STORE_CONFIG", "Markdown plan store requires project database and File Service.");
-  return Object.freeze({ createRevision, getRevision, list, decide, assertApproved });
+  const sources = createMarkdownPlanSource({ fileService });
+  return Object.freeze({ createRevision, getRevision, list, decide, assertApproved, restoreSourceSnapshot });
 
   // Indexes the exact Markdown bytes and source SUMMARY before they can be reviewed.
   async function createRevision({ planId, expectedRevision = 0, markdown, summaryPath, summarySha256, conversationId = null } = {}) {
     if (!SAFE_ID.test(planId ?? "") || typeof markdown !== "string" || !markdown.trim() || !summaryPath || !/^[a-f0-9]{64}$/.test(summarySha256 ?? "")) throw fail("MARKDOWN_PLAN_INVALID", "Plan ID, Markdown, and SUMMARY checksum are required.");
-    const lock = await acquireTicketFileLock(fileService, `.forge/runtime/nf/plans/${planId}/markdown.lock`);
+    const lock = await acquireTicketFileLock(fileService, `${statePath()}/nf/plans/${planId}/markdown.lock`);
     try {
       const current = database.all("SELECT MAX(revision) AS revision FROM markdown_plan_revisions WHERE plan_id=? AND project_id=?", [planId, projectId])[0]?.revision ?? 0;
       if (current !== expectedRevision) throw fail("PLAN_REVISION_CONFLICT", "Markdown plan revision changed.");
@@ -27,7 +30,8 @@ export function createMarkdownPlanStore({ projectId, database, fileService, cloc
       catch (error) { throw fail("PLAN_SOURCE_MISSING", `SUMMARY is unavailable: ${error.code ?? error.message}.`); }
       if (sha(summary) !== summarySha256) throw fail("PLAN_SOURCE_MISMATCH", "SUMMARY changed before plan persistence.");
       const revision = current + 1;
-      const filePath = `.forge/runtime/nf/plans/${planId}/ke-hoach-r${revision}.md`;
+      await sources.retain({ plan_id: planId, revision, source_sha256: summarySha256 }, summary);
+      const filePath = `${statePath()}/nf/plans/${planId}/ke-hoach-r${revision}.md`;
       const bytes = `${markdown.trim()}\n`;
       await fileService.atomicCreate({ path: filePath, content: bytes });
       const digest = sha(bytes);
@@ -74,7 +78,7 @@ export function createMarkdownPlanStore({ projectId, database, fileService, cloc
   // Records the owner's decision for the exact bytes displayed in the UI.
   async function decide({ planId, revision, sha256, decision, approverId, comments = null, decisionId = `MARKDOWN-DECISION-${randomUUID()}` } = {}) {
     if (!DECISIONS.has(decision) || !SAFE_ID.test(approverId ?? "") || !SAFE_ID.test(decisionId)) throw fail("PLAN_DECISION_INVALID", "A valid owner decision is required.");
-    const lock = await acquireTicketFileLock(fileService, `.forge/runtime/nf/plans/${planId}/markdown-decision.lock`);
+    const lock = await acquireTicketFileLock(fileService, `${statePath()}/nf/plans/${planId}/markdown-decision.lock`);
     try {
       const plan = await getRevision({ planId, revision });
       if (plan.sha256 !== sha256 || plan.status === "superseded") throw fail("PLAN_DECISION_STALE", "Markdown plan identity changed.");
@@ -92,10 +96,12 @@ export function createMarkdownPlanStore({ projectId, database, fileService, cloc
   async function assertApproved({ planId, revision, sha256 } = {}) {
     const plan = await getRevision({ planId, revision });
     if (plan.sha256 !== sha256 || plan.status !== "approved" || plan.decision?.sha256 !== sha256) throw fail("PLAN_APPROVAL_REQUIRED", "Markdown plan requires exact owner approval before Sprint Leader handoff.");
-    let source;
-    try { source = await fileService.readFile({ path: plan.source_path }); }
-    catch (error) { throw fail("PLAN_SOURCE_MISSING", `Approved SUMMARY is unavailable: ${error.code ?? error.message}.`); }
-    if (sha(source) !== plan.source_sha256) throw fail("PLAN_SOURCE_MISMATCH", "Approved Markdown no longer matches its SUMMARY source.");
+    await sources.read(plan);
     return plan;
+  }
+
+  // Restores original source evidence for a legacy revision using exact recorded bytes without changing approval or live documents.
+  async function restoreSourceSnapshot({ planId, revision, summary } = {}) {
+    return sources.retain(await getRevision({ planId, revision }), summary);
   }
 }

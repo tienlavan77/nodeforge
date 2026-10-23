@@ -8,7 +8,7 @@ export function createCommittedReviewWindow(fileService, toolName = "sed_lines")
   return { execute: async (input = {}, context = {}) => {
     authorizeTool(toolName, context);
     if (Object.keys(input).some((key) => !["path", "start_line", "end_line"].includes(key)) || typeof input.path !== "string" || !isAgentPathAllowed(input.path, context)
-      || !Number.isSafeInteger(input.start_line) || input.start_line < 1 || !Number.isSafeInteger(input.end_line) || input.end_line < input.start_line || input.end_line - input.start_line + 1 > 80) {
+      || !Number.isSafeInteger(input.start_line) || input.start_line < 1 || !Number.isSafeInteger(input.end_line) || input.end_line < input.start_line || input.end_line - input.start_line + 1 > 250) {
       throw Object.assign(new ConfigurationError("Committed review window is outside the approved scope or line budget."), { code: toolName === "read_lines" ? "READ_LINES_INPUT_INVALID" : "SED_LINES_INPUT_INVALID" });
     }
     const file = await fileService.readForIndex({ path: input.path, maxBytes: 64_000 });

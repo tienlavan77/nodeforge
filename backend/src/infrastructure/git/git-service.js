@@ -108,9 +108,10 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
     const add = await execute(["add", "--", ...pathspecs], "GIT_ADD_FAILED");
     if (add.exitCode !== 0) throw gitError("GIT_ADD_FAILED", `Git add failed: ${add.stderr ?? "unknown Git error"}`);
     emit("git.add", { paths: safePaths });
-    const staged = await execute(["diff", "--cached", "--name-only", "--", ...pathspecs], "GIT_STATUS_FAILED");
+    // NUL-delimited names keep paths with spaces or non-ASCII characters unquoted so they match the requested raw paths.
+    const staged = await execute(["diff", "--cached", "--name-only", "-z", "--", ...pathspecs], "GIT_STATUS_FAILED");
     if (staged.exitCode !== 0) throw gitError("GIT_STATUS_FAILED", `Git staged diff failed: ${staged.stderr ?? "unknown Git error"}`);
-    const stagedPaths = staged.stdout.split(/\r?\n/).map((path) => path.trim()).filter(Boolean);
+    const stagedPaths = staged.stdout.split("\0").map((path) => path.trim()).filter(Boolean);
     if (stagedPaths.some((path) => !safePaths.includes(path))) throw gitError("GIT_UNEXPECTED_STAGED_PATH", "Git index contains changes outside the requested commit paths.");
     if (!stagedPaths.length) throw gitError("GIT_EMPTY_COMMIT", "Git commit has no changes.");
     const result = await execute(["commit", "--only", "-m", message, "--", ...pathspecs], "GIT_COMMIT_FAILED");

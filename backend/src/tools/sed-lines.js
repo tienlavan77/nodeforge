@@ -13,7 +13,7 @@ import { assertExecutionFileAccess } from "./execution-file-access.js";
 import { recordRead, discoveryNotice } from "./exploration-state.js";
 import { dependencyReadPath, isDependencyPath, readDependencyFile } from "../infrastructure/filesystem/dependency-read.js";
 
-const MAX_LINES = 80;
+const MAX_LINES = 250;
 const MAX_OUTPUT_BYTES = 200000;
 
 // Creates a read-only sed tool that can reuse read_file's symbol lookup.

@@ -1,7 +1,8 @@
 // Summary: Locked file store for supervisor state snapshots, separating pending and completed buckets with atomic promotion.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { ConfigurationError } from "../../shared/errors.js";
 /** Creates a locked file store for supervisor state with pending/complete separation. */
-export function createSupervisorStateStore({ fileService, root = ".forge/runtime/supervisors" } = {}) {
+export function createSupervisorStateStore({ fileService, root = statePath("supervisors") } = {}) {
   if (typeof fileService?.readFile !== "function" || typeof fileService?.atomicWrite !== "function" || typeof fileService?.createLock !== "function") throw new ConfigurationError("Supervisor state store requires File Service persistence and locking.");
   return Object.freeze({ save, get, list, claimTask });
   async function save(state) {

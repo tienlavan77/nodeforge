@@ -18,6 +18,16 @@ import { PROJECT_ID } from "../../lib/home-page-constants.js";
 const API_URL = forgeV1("/agents");
 const ROLE_LABELS = { coder: "Coder", reviewer: "Reviewer", sprint_leader: "Sprint leader", architecture_manager: "Architecture manager", system_engineer: "System engineer", linguist: "Linguist" };
 
+// Providers whose gateways consume a reasoning effort; only these show the Effort selector.
+const REASONING_PROVIDERS = new Set(["codex", "claude", "anthropic", "openai", "xai", "alibaba", "zhipu", "deepseek"]);
+// Effort levels accepted by the Control API agent profile validation.
+const EFFORT_OPTIONS = [{ value: "none", label: "None" }, { value: "low", label: "Low" }, { value: "medium", label: "Medium" }, { value: "high", label: "High" }, { value: "max", label: "Max" }];
+
+// Resolves the reasoning effort selector options for a provider (empty when reasoning is unsupported).
+function effortOptionsForProvider(provider) {
+  return REASONING_PROVIDERS.has(String(provider ?? "").toLowerCase()) ? EFFORT_OPTIONS : [];
+}
+
 // Resolves the display asset for a provider identifier.
 function providerAsset(provider) {
   const key = String(provider ?? "").toLowerCase();
@@ -78,7 +88,7 @@ export default function AgentsPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [editingAgent, setEditingAgent] = useState(null);
-  const [form, setForm] = useState({ role: "architecture_manager", tool_mode: "forge", team: "Backend", agent_name: "", provider: "anthropic", model: getModelOptions(modelCatalog, "anthropic")[0]?.value ?? "", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false });
+  const [form, setForm] = useState({ role: "architecture_manager", tool_mode: "forge", team: "Backend", agent_name: "", provider: "anthropic", model: getModelOptions(modelCatalog, "anthropic")[0]?.value ?? "", effort: "medium", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false });
 
   // Updates a form field value from an input event.
   function updateField(event) {
@@ -87,6 +97,9 @@ export default function AgentsPage() {
       if (event.target.name === "provider") {
         next.model = getModelOptions(modelCatalog, next.provider)[0]?.value ?? "";
         if (next.provider === "ollama") next.gateway_url = "https://ollama.com";
+        // Reset effort to the safe default when switching providers so an unsupported level is never submitted.
+        if (effortOptionsForProvider(next.provider).length === 0) next.effort = "";
+        else if (next.effort && !EFFORT_OPTIONS.some((option) => option.value === next.effort)) next.effort = "medium";
       }
       return next;
     });
@@ -106,7 +119,11 @@ export default function AgentsPage() {
     const role = agent.role ?? "coder";
     const models = getModelOptions(modelCatalog, provider);
     const model = models.some((item) => item.value === agent.model) ? agent.model : models[0]?.value ?? "";
-    setForm({ role, tool_mode: agent.tool_mode ?? "forge", team: agent.team ?? "Backend", agent_name: agent.agent_name ?? "", provider, model, gateway_url: agent.gateway_url ?? "https://gateway.example.test/agent", api_key: "", enabled: agent.enabled === true });
+    const reasoningCapable = effortOptionsForProvider(provider).length > 0;
+    const configuredEffort = agent.reasoning?.effort ?? "";
+    // Mirror the composer default: supported providers show a valid level, and Save persists it as the structured reasoning field.
+    const effort = reasoningCapable ? (EFFORT_OPTIONS.some((option) => option.value === configuredEffort) ? configuredEffort : "medium") : "";
+    setForm({ role, tool_mode: agent.tool_mode ?? "forge", team: agent.team ?? "Backend", agent_name: agent.agent_name ?? "", provider, model, effort, gateway_url: agent.gateway_url ?? "https://gateway.example.test/agent", api_key: "", enabled: agent.enabled === true });
     setFormError("");
     setModalOpen(true);
   }
@@ -155,13 +172,16 @@ export default function AgentsPage() {
     try {
       const models = getModelOptions(modelCatalog, form.provider);
       if (models.length && !models.some((item) => item.value === form.model)) throw new Error("Select an available model for this provider.");
-      const formPayload = { ...form, tool_mode: form.role === "system_engineer" && ["codex", "claude", "anthropic"].includes(form.provider) ? (form.tool_mode ?? "forge") : "forge" };
+      // Strip the flat effort field and send it as the backend's structured reasoning.effort when supported.
+      const { effort, ...formFields } = form;
+      const reasoning = effortOptionsForProvider(form.provider).length && effort ? { effort } : undefined;
+      const formPayload = { ...formFields, tool_mode: form.role === "system_engineer" && ["codex", "claude", "anthropic"].includes(form.provider) ? (form.tool_mode ?? "forge") : "forge", ...(reasoning ? { reasoning } : {}) };
       const requestPayload = form.api_key ? formPayload : Object.fromEntries(Object.entries(formPayload).filter(([key]) => key !== "api_key"));
       const payload = await saveAgentSettingsForm({ url: API_URL, agentId: editingAgent?.agent_id, settings: requestPayload });
       setAgents((current) => editingAgent ? current.map((item) => item.agent_id === editingAgent.agent_id ? payload : item) : [...current, payload]);
       setModalOpen(false);
       setEditingAgent(null);
-      setForm({ role: "architecture_manager", tool_mode: "forge", team: "Backend", agent_name: "", provider: "anthropic", model: getModelOptions(modelCatalog, "anthropic")[0]?.value ?? "", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false });
+      setForm({ role: "architecture_manager", tool_mode: "forge", team: "Backend", agent_name: "", provider: "anthropic", model: getModelOptions(modelCatalog, "anthropic")[0]?.value ?? "", effort: "medium", gateway_url: "https://gateway.example.test/agent", api_key: "", enabled: false });
     } catch (requestError) {
       setFormError(requestError.message || "Agent could not be created.");
     } finally { setSaving(false); }
@@ -199,12 +219,12 @@ export default function AgentsPage() {
         const capabilities = agent.capabilities ?? agent.tools ?? [];
         return <article className="agent-directory-card agent-card-editable" key={id} tabIndex={0} aria-label={`Edit ${name}`} onClick={() => openEdit(agent)} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); openEdit(agent); } }}>
           <div className="agent-card-header"><div className="agent-card-identity"><span className="agent-card-mark">{String(name).slice(0, 1).toUpperCase()}</span><div><strong>{name}</strong><small>{ROLE_LABELS[agent.role] ?? ROLE_LABELS[agent.agent_id] ?? displayValue(agent.role ?? id)}</small></div></div><div className="agent-header-actions"><button type="button" className={`agent-switch ${agent.enabled ? "is-on" : ""}`} onClick={(event) => { event.stopPropagation(); const enabled = !agent.enabled; setAgents((current) => current.map((item) => item.agent_id === id ? { ...item, enabled } : item)); fetch(`${API_URL}/${id}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...agent, enabled }) }).then((response) => response.json()).then((updated) => setAgents((current) => current.map((item) => item.agent_id === id ? updated : item))).catch(() => setAgents((current) => current.map((item) => item.agent_id === id ? { ...item, enabled: agent.enabled } : item))); }} aria-label="Toggle agent"><i /></button></div></div>
-          <div className="agent-card-provider"><span className={`provider-logo provider-${String(agent.provider).toLowerCase()}`}>{providerAsset(agent.provider) ? <img src={providerAsset(agent.provider).src} alt={providerAsset(agent.provider).alt} /> : <span className="provider-letter">{String(agent.provider ?? "?").slice(0, 1).toUpperCase()}</span>}</span><span>{displayValue(agent.model)}</span></div>
+          <div className="agent-card-provider"><span className={`provider-logo provider-${String(agent.provider).toLowerCase()}`}>{providerAsset(agent.provider) ? <img src={providerAsset(agent.provider).src} alt={providerAsset(agent.provider).alt} /> : <span className="provider-letter">{String(agent.provider ?? "?").slice(0, 1).toUpperCase()}</span>}</span><span>{displayValue(agent.model)}</span>{agent.reasoning?.effort && <span className="agent-card-effort" title="Reasoning effort">{displayValue(agent.reasoning.effort)}</span>}</div>
           <div className="agent-card-footer"><div className="agent-status-control">{(() => { const status = agent.status ?? "not_connected"; const statusMap = { ready: { label: "READY", className: "ready" }, working: { label: "WORKING", className: "working" }, not_connected: { label: "NOT CONNECT", className: "not-connect" } }; const display = statusMap[status] || statusMap.not_connected; return <span className={`agent-status-badge agent-status-${display.className}`} style={display.className === "ready" ? { color: "#62d39b" } : undefined}><span className="status-dot" style={display.className === "ready" ? { background: "#62d39b" } : undefined} />{display.label}</span>; })()}<div className="agent-card-actions"><button type="button" className="card-action-button" onClick={(event) => { event.stopPropagation(); testAgent(agent); }} disabled={testingAgent === id}>{testingAgent === id ? "Testing…" : "Test"}</button><button type="button" className="card-action-button danger" onClick={(event) => { event.stopPropagation(); deleteAgent(agent); }}>Delete</button></div></div></div>
         </article>;
       })}</div>}
     </main>
-    {modalOpen && <AddAgentModal title={editingAgent ? "Edit agent" : "Add agent"} testState={testState} onTestConnection={testConnection} form={form} apiKeyMasked={editingAgent?.api_key_masked} modelOptions={getModelOptions(modelCatalog, form.provider)} saving={saving} error={formError} onChange={updateField} onSubmit={addAgent} onClose={() => setModalOpen(false)} />}
+    {modalOpen && <AddAgentModal title={editingAgent ? "Edit agent" : "Add agent"} testState={testState} onTestConnection={testConnection} form={form} apiKeyMasked={editingAgent?.api_key_masked} modelOptions={getModelOptions(modelCatalog, form.provider)} effortOptions={effortOptionsForProvider(form.provider)} saving={saving} error={formError} onChange={updateField} onSubmit={addAgent} onClose={() => setModalOpen(false)} />}
     <Dialog open={Boolean(connectionResult)} onClose={() => setConnectionResult(null)} labelledBy="connection-result-title" variant="confirmation" panelStyle={{ background: "var(--app-panel)" }}>
       {connectionResult && <div className="connection-result-modal"><div className="connection-result-icon">{connectionResult.ok ? "✓" : "!"}</div><p className="eyebrow">AGENT CONNECTION</p><h2 id="connection-result-title">{connectionResult.agent.agent_name ?? connectionResult.agent.agent_id}</h2><strong className={connectionResult.ok ? "connection-result-ok" : "connection-result-failed"}>{connectionResult.ok ? "Connected" : "Connection failed"}</strong><p>{connectionResult.message}</p><button className="history-button" type="button" onClick={() => setConnectionResult(null)}>Close</button></div>}
     </Dialog>

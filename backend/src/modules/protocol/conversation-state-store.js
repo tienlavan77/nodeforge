@@ -1,11 +1,12 @@
 // Chat history store: keeps each agent's chat conversations isolated so the UI shows the selected agent's history.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { ConfigurationError } from "../../shared/errors.js";
 
 const TERMINAL = new Set(["completed", "failed", "needs_human_review"]);
 
 /** Chat history isolated per agent, independent from provider payloads. */
 // Creates the chat history store that keeps one agent's conversations separate from another's.
-export function createConversationStateStore({ fileService, root = ".forge/runtime/protocol-storage/conversations" } = {}) {
+export function createConversationStateStore({ fileService, root = statePath("protocol-storage/conversations") } = {}) {
   if (typeof fileService?.readFile !== "function" || typeof fileService?.atomicWrite !== "function") throw new ConfigurationError("Conversation state store requires File Service readFile and atomicWrite.");
   const states = new Map();
   return Object.freeze({ create, get, list, listByAgent, update, advanceRound, markStatus, clear, rename, archive });

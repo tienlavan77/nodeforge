@@ -1,16 +1,29 @@
 // Reconsiders legacy false admission waits from fresh Node evidence without replaying Coder or clearing real denials.
+import { createBlockerVerificationDelivery } from "./blocker-verification-delivery.js";
+import { createBlockerContractRefresh } from "./blocker-contract-delegation.js";
+import { createBlockerPromptRefresh } from "./blocker-prompt-context.js";
+import { assignAuthorityConsultation } from "./blocker-authority-consultation.js";
 import { createBlockerVerificationResume } from "./blocker-verification-resume.js";
 import { createBlockerFailureClassification, requiresBlockerAdmission } from "./blocker-failure-classification.js";
 import { createBlockerSourceResume } from "./blocker-source-resume.js";
 import { inspectReviewResponseReadiness } from "./review-response-readiness.js";
+import { createBlockerAdmissionRefresh } from "./blocker-admission-refresh.js";
 
 // Returns ordinary verification refresh plus a source-bound recovery for obsolete missing-denial errors.
-export function createBlockerReconciliationRefresh({ inspect, clock = Date.now, projectLogger = () => {}, readFailureEvidence, sprintRegistry, ticketStatusStore }) {
+export function createBlockerReconciliationRefresh({ inspect, fileService, clock = Date.now, projectLogger = () => {}, readFailureEvidence, sprintRegistry, ticketStatusStore }) {
+  const refreshContract = createBlockerContractRefresh({ inspect, fileService, clock, projectLogger });
+  const refreshAdmission = createBlockerAdmissionRefresh({ inspect, clock, projectLogger, readFailureEvidence });
+  const refreshPrompt = createBlockerPromptRefresh({ inspect, clock, projectLogger });
+  const refreshDelivery = createBlockerVerificationDelivery({ inspect, clock, projectLogger });
   const refreshVerification = createBlockerVerificationResume({ inspect, clock, projectLogger });
   const refreshSource = createBlockerSourceResume({ inspect, clock, projectLogger, sprintRegistry, ticketStatusStore });
   const classify = createBlockerFailureClassification({ readFailureEvidence });
   return async (job) => {
+    if (await refreshAdmission(job)) return true;
+    if (await refreshPrompt(job)) return true;
+    if (await refreshContract(job)) return true;
     if (await refreshVerification(job)) return true;
+    if (await refreshDelivery(job)) return true;
     if (await refreshSource(job)) return true;
     if (job.reason_code === "ACCESS_REQUIRED" && job.ticket_progress?.failure_classification) {
       const authority = await inspect(job);
@@ -29,6 +42,11 @@ export function createBlockerReconciliationRefresh({ inspect, clock = Date.now, 
     }
     if (job.outcome_reason === "technical_reconciliation_waiting_for_evidence") {
       const authority = await inspect(job);
+      if (authority && assignAuthorityConsultation(job, job.resolution, clock())) {
+        projectLogger({ event_name: "supervisor.blocker_authority_consultation", level: "info", status: "pending", task_id: job.request.task_id,
+          message: "Unreviewed contract/denial question assigned to Architecture; its answer returns to Sprint Leader. The denied operation remains blocked.", payload: { job_id: job.id } });
+        return true;
+      }
       const delivery = authority ? await inspectReviewResponseReadiness(authority.workspace, job.request?.task_id) : null;
       if (delivery?.status === "available" && JSON.stringify(delivery) !== JSON.stringify(job.ticket_progress?.review_response_delivery ?? null)) {
         job.history.push({ stage: "sprint_leader", event: "review_response_delivery_available", completed_at: clock(), previous_resolution: job.resolution ?? null });

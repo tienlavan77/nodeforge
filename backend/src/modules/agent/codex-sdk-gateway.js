@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ConfigurationError, ForgeError } from "../../shared/errors.js";
 import { createCodexForgeMcpSession } from "./codex-forge-mcp-session.js";
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createCodexSdkLog } from "./codex-sdk-log.js";
 import { assertCodexThreadAvailable, codexThreadBusyError } from "./codex-thread-writer.js";
 import { sdkFailureEvidence } from "./sdk-failure-evidence.js";
@@ -72,7 +73,7 @@ export function createCodexSdkGateway({
               NODEFORGE_CODEX_MCP_URL: mcpSession.url,
               NODEFORGE_CODEX_MCP_TOKEN: mcpSession.token,
               NODEFORGE_CODEX_MCP_DEFINITIONS: JSON.stringify(mcpSession.tools),
-              NODEFORGE_CODEX_MCP_DEBUG_LOG: options.mcpDebugLog ?? `${process.cwd()}/.forge/runtime/nf/logs/codex-mcp.log`
+              NODEFORGE_CODEX_MCP_DEBUG_LOG: options.mcpDebugLog ?? join(process.cwd(), statePath("nf/logs/codex-mcp.log"))
             },
             startup_timeout_sec: 10,
             tool_timeout_sec: mcpSession.tools.some((tool) => tool.name === "report_done") ? Math.ceil(timeoutMs / 1000) : 120,

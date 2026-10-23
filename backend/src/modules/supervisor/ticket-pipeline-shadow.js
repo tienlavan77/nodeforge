@@ -1,4 +1,5 @@
 // Records per-event immutable ticket identity comparisons while legacy routing remains authoritative.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createHash } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { acquireTicketFileLock } from "./ticket-file-lock.js";
@@ -11,7 +12,7 @@ const hash = (value) => createHash("sha256").update(value).digest("hex");
 export function createTicketPipelineShadow({ projectId, fileService, rollout, projectLogger = () => {} } = {}) {
   if (!projectId || !fileService?.readFile || !fileService?.atomicWrite || !fileService?.createLock || !rollout?.load) throw new ConfigurationError("Ticket shadow comparison requires project persistence and rollout mode.");
   const projectHash = hash(projectId);
-  const root = `.forge/runtime/ticket-pipeline-shadow/${projectHash}`;
+  const root = `${statePath()}/ticket-pipeline-shadow/${projectHash}`;
   return Object.freeze({ compare });
 
   // Compares one execution event with persisted context, artifact, review, and integration IDs.
@@ -24,10 +25,10 @@ export function createTicketPipelineShadow({ projectId, fileService, rollout, pr
     try {
       const prior = await read(path);
       if (prior) return prior;
-      const context = await read(`.forge/runtime/ticket-execution-contexts/${projectHash}/${event.task_id}.json`);
-      const artifact = context?.verification_artifact_id ? await read(`.forge/runtime/ticket-verification/${event.task_id}/artifacts/${context.verification_artifact_id}.json`) : null;
-      const review = await read(`.forge/runtime/reviewer-checkpoints/${event.task_id}.json`);
-      const integration = await read(`.forge/runtime/ticket-integrations/${event.task_id}.json`);
+      const context = await read(`${statePath()}/ticket-execution-contexts/${projectHash}/${event.task_id}.json`);
+      const artifact = context?.verification_artifact_id ? await read(`${statePath()}/ticket-verification/${event.task_id}/artifacts/${context.verification_artifact_id}.json`) : null;
+      const review = await read(`${statePath()}/reviewer-checkpoints/${event.task_id}.json`);
+      const integration = await read(`${statePath()}/ticket-integrations/${event.task_id}.json`);
       const checks = {
         context_project: context?.project_id === projectId,
         artifact_id: Boolean(artifact && context?.verification_artifact_id === artifact.artifact_id),

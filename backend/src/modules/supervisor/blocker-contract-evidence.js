@@ -1,10 +1,11 @@
 // Preserves Node-validated AM contracts as immutable evidence shared by SL, Coder and Reviewer.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { sameExecutionPlan } from "../projects/ticket-execution-identity.js";
 import { contractContinuation } from "./blocker-contract-continuation.js";
 
-const ROOT = ".forge/runtime/blocker-contract-decisions";
+const ROOT = statePath("blocker-contract-decisions");
 
 // Hashes a complete contract receipt so a readable copy cannot silently diverge from its durable source.
 function digest(content) { return createHash("sha256").update(content).digest("hex"); }

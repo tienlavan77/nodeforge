@@ -4,11 +4,14 @@ import { ConfigurationError } from "../shared/errors.js";
 import { assertExecutionScope } from "./retrieval-governance.js";
 import { discoveryNotice } from "./exploration-state.js";
 import { extractExplicitPaths, isLegacyBackfillCandidate } from "../modules/index/ticket-scope.js";
+import { assertExecutionFileAccess, executionReadScope } from "./execution-file-access.js";
+import { isAgentPathAllowed } from "./tool-authorization.js";
 
 export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector, freshnessChecker } = {}) {
   return Object.freeze({ name: "select_code_graph_candidates", execute });
 
   async function execute(input = {}, context = {}) {
+    assertExecutionFileAccess(context);
     const taskId = context.task_id ?? context.taskId;
     if (typeof taskId !== "string" || !taskId) throw scopedError("TOOL_SCOPE_INVALID", "Candidate selection requires the current task_id.");
     assertExecutionScope(context, taskId);
@@ -19,19 +22,27 @@ export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector, fres
     if (!Number.isInteger(limit) || limit < 1 || limit > maximum) throw scopedError("GRAPH_CANDIDATE_LIMIT", `Candidate retrieval limit must be between one and ${maximum}.`);
     if (typeof relevantTreeSelector?.selectFreshWithEmbeddings !== "function" && typeof relevantTreeSelector?.select !== "function") throw scopedError("GRAPH_INDEX_UNAVAILABLE", "Code Graph retrieval is not configured.");
     const task = context.task_context ?? {};
+    const allowCandidate = (path) => context.file_access_version !== 2 || isAgentPathAllowed(path, context);
     // Sprint-leader cache: a ticket that already carries manually-traced
     // candidate_files is served directly instead of re-running retrieval.
     // Stale entries (file no longer indexed) fall through to normal retrieval.
-    const cached = await cachedTicketCandidates(task, limit, freshnessChecker);
-    if (cached) return { task_id: taskId, query: input.query.trim(), index_version: cached.index_version ?? null, selected: cached.selected, candidate_source: "ticket", ...(cached.freshness ? { freshness: cached.freshness } : {}), ...(cached.stale_paths?.length ? { stale_paths: cached.stale_paths, freshness_note: "Stale candidates are flagged, not removed — read the file live and verify before editing." } : {}), discovery_budget: discoveryNotice(context) };
+    const cached = await cachedTicketCandidates(task, limit, freshnessChecker, allowCandidate);
+    if (cached) {
+      assertExecutionFileAccess(context);
+      return { task_id: taskId, query: input.query.trim(), index_version: cached.index_version ?? null, selected: cached.selected, candidate_source: "ticket", ...(cached.freshness ? { freshness: cached.freshness } : {}), ...(cached.stale_paths?.length ? { stale_paths: cached.stale_paths, freshness_note: "Stale candidates are flagged, not removed — read the file live and verify before editing." } : {}), discovery_budget: discoveryNotice(context) };
+    }
+    const allowedPrefixes = context.file_access_version === 2 ? executionReadScope(context).prefixes : context.allowed_prefixes;
     const args = context.eval_harness === true
       ? { title: task.title ?? "", objective: task.objective ?? "", acceptance_criteria: task.acceptance_criteria ?? [], style: task.implementation_type ?? task.style, limit, depth: 1 }
-      : { title: task.title ?? "", objective: [task.objective ?? "", input.query.trim(), input.context ?? ""].filter(Boolean).join(" "), acceptance_criteria: task.acceptance_criteria ?? [], style: task.implementation_type ?? task.style, limit, scope: context.scope ?? "all", allowed_prefixes: context.allowed_prefixes, priorFiles: extractExplicitPaths(task), dependencyFiles: Array.isArray(task.dependency_files) ? task.dependency_files : [] };
+      : { title: task.title ?? "", objective: [task.objective ?? "", input.query.trim(), input.context ?? ""].filter(Boolean).join(" "), acceptance_criteria: task.acceptance_criteria ?? [], style: task.implementation_type ?? task.style, limit, scope: context.scope ?? "all", allowed_prefixes: allowedPrefixes, priorFiles: extractExplicitPaths(task).filter(allowCandidate), dependencyFiles: (Array.isArray(task.dependency_files) ? task.dependency_files : []).filter(allowCandidate) };
     // Prefer semantic retrieval with freshness validation; fall back for older test doubles.
     const result = typeof relevantTreeSelector.selectFreshWithEmbeddings === "function"
       ? await relevantTreeSelector.selectFreshWithEmbeddings(args)
       : relevantTreeSelector.select(args);
-    return { task_id: taskId, query: input.query.trim(), index_version: result.index_version ?? null, selected: result.tree.slice(0, limit), ...(result.freshness ? { freshness: result.freshness } : {}), ...(result.stale_paths?.length ? { stale_paths: result.stale_paths, freshness_note: "Stale candidates are flagged, not removed — read the file live and verify before editing." } : {}), discovery_budget: discoveryNotice(context) };
+    assertExecutionFileAccess(context);
+    const selected = (result.tree ?? []).filter((entry) => allowCandidate(entry?.path)).slice(0, limit);
+    const stalePaths = Array.isArray(result.stale_paths) ? result.stale_paths.filter(allowCandidate) : undefined;
+    return { task_id: taskId, query: input.query.trim(), index_version: result.index_version ?? null, selected, ...(result.freshness ? { freshness: result.freshness } : {}), ...(stalePaths?.length ? { stale_paths: stalePaths, freshness_note: "Stale candidates are flagged, not removed — read the file live and verify before editing." } : {}), discovery_budget: discoveryNotice(context) };
   }
 }
 
@@ -44,13 +55,13 @@ function scopedError(code, message) { const error = new ConfigurationError(messa
 // Staleness (renamed/deleted files) is caught downstream: the builder must
 // read_file each PATCH/REUSE path before editing, and a missing file errors
 // at read time, at which point the builder re-discovers via search_code.
-async function cachedTicketCandidates(task, limit, freshnessChecker) {
+async function cachedTicketCandidates(task, limit, freshnessChecker, allowCandidate = () => true) {
   const files = task?.candidate_files;
   if (!Array.isArray(files) || !files.length) return null;
   const selected = [];
   for (const entry of sortTicketCandidates(files).slice(0, limit)) {
     if (!entry || typeof entry.path !== "string" || !entry.path) continue;
-    if (isLegacyBackfillCandidate(entry)) continue;
+    if (isLegacyBackfillCandidate(entry) || !allowCandidate(entry.path)) continue;
     selected.push({ path: entry.path, score: 0, reason: [`ticket:${entry.role ?? "REFERENCE"}`, entry.symbol ? `symbol:${entry.symbol}` : "", entry.reason ?? ""].filter(Boolean), ...(entry.symbol ? { symbol: entry.symbol } : {}), relations: [], node: { path: entry.path }, confidence: "ticket-traced" });
   }
   if (!selected.length) return null;

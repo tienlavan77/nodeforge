@@ -47,13 +47,14 @@ test("read scope does not widen the immutable mutation manifest", async () => {
   assert.equal(calls[0].issued.conversation_id, undefined);
 });
 
-test("Coder docs, workflow writes, protected paths and traversal remain denied", async () => {
+test("Coder docs reads are allowed while workflow writes, protected paths and traversal remain denied", async () => {
   const { bound, calls } = fixture();
-  for (const path of ["docs/guide.md", ".forge/private", "../outside.js", "backend/../outside.js"]) {
+  await bound.registry.read_lines.execute({ path: "docs/guide.md", start_line: 1, end_line: 2 });
+  for (const path of [".forge/private", "../outside.js", "backend/../outside.js"]) {
     await assert.rejects(bound.registry.read_lines.execute({ path, start_line: 1, end_line: 2 }));
   }
   await assert.rejects(bound.registry.write_diff.execute({ path: "workflows/agents/coder/README.md", before_checksum: null, content: "// replace policy" }), { code: "FILE_ROLE_FORBIDDEN" });
-  assert.equal(calls.length, 0);
+  assert.equal(calls.length, 1);
 });
 
 test("symlink components cannot escape an approved path", async () => {

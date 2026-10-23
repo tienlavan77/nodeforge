@@ -210,7 +210,7 @@ test("edit_diff permits comment padding but rejects growth across the code-line 
   await assert.rejects(() => edit.execute({ path: "outside.js", before_checksum: state.sha256(), anchor: "value0;", replacement: "changed;" }, { allowed_file_paths: ["account.js"] }), { code: "PATH_FORBIDDEN" });
 });
 
-test("read_file and committed windows retain physical addresses and the 80-line cap", async () => {
+test("read_file and committed windows retain physical addresses and the 250-line cap", async () => {
   const state = fixture(source(2, 300) + "\n");
   const read = createReadFileTool({ fileService: state.fileService });
   const metadata = await read.execute({ path: "account.js" });
@@ -221,14 +221,14 @@ test("read_file and committed windows retain physical addresses and the 80-line 
   assert.equal(window.sha256, state.sha256());
   assert.equal(window.total_lines, 304);
   assert.equal(window.code_lines, 2);
-  await assert.rejects(() => read.execute({ path: "account.js", offset: 1, limit: 81 }), { code: "INPUT_INVALID" });
+  await assert.rejects(() => read.execute({ path: "account.js", offset: 1, limit: 251 }), { code: "INPUT_INVALID" });
   const committed = createCommittedReviewWindow(state.fileService, "read_lines");
   const context = { task_id: "budget-test", capabilities: ["read_lines"], allowed_file_paths: ["account.js"] };
   const result = await committed.execute({ path: "account.js", start_line: 302, end_line: 303 }, context);
   assert.equal(result.stdout, "value0;\nvalue1;\n");
   assert.equal(result.total_lines, 304);
   assert.equal(result.code_lines, 2);
-  await assert.rejects(() => committed.execute({ path: "account.js", start_line: 1, end_line: 81 }, context), { code: "READ_LINES_INPUT_INVALID" });
+  await assert.rejects(() => committed.execute({ path: "account.js", start_line: 1, end_line: 251 }, context), { code: "READ_LINES_INPUT_INVALID" });
 });
 
 test("sed_lines returns the whole-file code budget without renumbering its physical window", async () => {

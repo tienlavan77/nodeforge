@@ -1,6 +1,7 @@
 // Resolves live symbol windows and scopes graph metadata for safe agent file reads.
 import { extractorRegistry } from "../modules/index/parser/index.js";
 import { assertRoleFileAccess } from "../infrastructure/filesystem/file-service-role-policy.js";
+import { isAgentPathAllowed } from "./tool-authorization.js";
 
 // Finds a requested symbol against current source when indexed line ranges are stale.
 export function resolveSymbolWindow(file, path, symbol) {
@@ -15,6 +16,7 @@ export function scopedGraph(graph, context) {
   const prefixes = context.allowed_prefixes ?? context.allowedPrefixes ?? [];
   const allowed = (path) => {
     if (typeof path !== "string") return false;
+    if (context.file_access_version !== undefined || context.file_access_policy !== undefined) return isAgentPathAllowed(path, context);
     if (context.agent_identity?.role === "architecture_manager") {
       try { assertRoleFileAccess("architecture_manager", "read", path); return true; }
       catch (error) { if (error.code === "FILE_ROLE_FORBIDDEN") return false; throw error; }

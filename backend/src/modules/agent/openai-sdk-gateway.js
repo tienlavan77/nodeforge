@@ -65,7 +65,7 @@ export function createOpenAiSdkGateway({ providerFactory, runner = createTracing
 
   // Allows native web search only for approved roles using the Responses API contract.
   function supportsBuiltinWebSearch(profile) {
-    return ["architecture_manager", "system_engineer"].includes(profile?.role)
+    return ["architecture_manager", "system_engineer", "sprint_leader"].includes(profile?.role)
       && profile?.use_responses !== false
       && !["ollama", "xai", "alibaba", "zhipu", "deepseek"].includes(profile?.provider);
   }

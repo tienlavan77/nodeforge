@@ -36,7 +36,8 @@ export function createBlockerCapture({ ticketStatusStore, checkpoints, sprintReg
     await checkpoints.save(checkpoint);
     const ownerDecisions = blockerOwnerDecisions(checkpoint, current);
     const job = await recovery.enqueue(await prepareRetry({ owner_decisions: ownerDecisions, reason_code: reason, failure_at: checkpoint.failure.at, message: checkpoint.failure.message, architecture_basis: architecture?.basis ?? null,
-      evidence: checkpoint.triage.evidence_refs ?? [], request: { task_id: taskId, project_id: current.project_id, ticket, required_role: ticket.required_role ?? "coder",
+      evidence: checkpoint.triage.evidence_refs ?? [], coder_consultation: checkpoint.triage.consultation ?? null,
+      request: { task_id: taskId, project_id: current.project_id, agent_id: checkpoint.agent_id ?? null, ticket, required_role: ticket.required_role ?? "coder",
         supervisor_id: `SUP-${taskId}`, request_id: checkpoint.failure_request_id ?? event?.request_id ?? `BLOCKED-${checkpoint.failure.at}`,
         correlation_id: checkpoint.correlation_id ?? `CORR-${taskId}`, execution_context: context,
         payload: { execution_id: current.details.execution_id, sprint_basis: basis, dependency_expectations: current.details.dependency_expectations } } }));

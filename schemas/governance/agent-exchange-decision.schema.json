@@ -1,0 +1,74 @@
+{
+  "$comment": "Describes existing recovery authority and candidate metadata inside the shared transport; owning services still validate approval, hashes and live execution binding.",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/governance/agent-exchange-decision.schema.json",
+  "type": "object", "additionalProperties": false, "required": ["action", "summary"],
+  "properties": {
+    "action": { "enum": ["resolved", "sprint_required", "architecture_required", "reconciliation_required", "coder_requested", "owner_required", "governance_required"] },
+    "summary": { "$ref": "#/$defs/text" }, "guidance": { "$ref": "#/$defs/text" },
+    "authority_scope": { "enum": ["sprint", "architecture"] },
+    "authority_quote": { "$ref": "#/$defs/text" },
+    "authority_reference": { "$ref": "#/$defs/authority" },
+    "architecture_basis": {
+      "type": "object", "required": ["plan_id", "revision", "sha256"], "additionalProperties": false,
+      "properties": { "plan_id": { "$ref": "#/$defs/text" }, "revision": { "type": "integer", "minimum": 1 }, "sha256": { "$ref": "#/$defs/hash" } }
+    },
+    "boundary_assessment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["rationale", "changes_structure", "changes_owner_scope", "changes_security_policy", "changes_data_semantics", "overrides_guardrails", "changes_ticket_contract"],
+      "properties": {
+        "rationale": { "$ref": "#/$defs/text" }, "changes_structure": { "type": "boolean" },
+        "changes_owner_scope": { "type": "boolean" }, "changes_security_policy": { "type": "boolean" },
+        "changes_data_semantics": { "type": "boolean" }, "overrides_guardrails": { "type": "boolean" }, "changes_ticket_contract": { "type": "boolean" }
+      }
+    },
+    "evidence": { "$ref": "#/$defs/evidence" },
+    "technical_result": {
+      "type": "object", "additionalProperties": false, "required": ["findings", "implementation_steps", "verification_steps", "admission"],
+      "properties": {
+        "findings": { "$ref": "#/$defs/texts" }, "implementation_steps": { "$ref": "#/$defs/texts" }, "verification_steps": { "$ref": "#/$defs/texts" },
+        "admission": { "type": "object", "additionalProperties": false, "required": ["status", "rationale"],
+          "properties": { "status": { "enum": ["within_existing_permissions", "denied", "unresolved"] }, "rationale": { "$ref": "#/$defs/text" } } }
+      }
+    },
+    "reconciliation": {
+      "type": "object", "additionalProperties": false, "required": ["kind", "prerequisite", "completed_checks", "next_check"],
+      "properties": {
+        "kind": { "enum": ["technical_design", "source_revision", "execution_admission", "dependency", "file_claim", "tooling"] },
+        "prerequisite": { "$ref": "#/$defs/text" }, "completed_checks": { "$ref": "#/$defs/texts" }, "next_check": { "$ref": "#/$defs/text" },
+        "waiting_for": { "type": "array", "items": { "oneOf": [{ "$ref": "#/$defs/text" }, {
+          "type": "object", "additionalProperties": false, "required": ["owner", "operation", "question"],
+          "properties": { "owner": { "enum": ["coder", "architecture_manager", "external"] }, "operation": { "enum": ["inspect", "execute"] }, "question": { "$ref": "#/$defs/text" } }
+        }] } }
+      }
+    },
+    "coder_request": {
+      "type": "object", "additionalProperties": false, "required": ["questions", "constraints"],
+      "properties": { "questions": { "$ref": "#/$defs/texts" }, "constraints": { "$ref": "#/$defs/texts" }, "criterion_ids": { "$ref": "#/$defs/texts" } }
+    },
+    "candidate_review": { "type": "object", "additionalProperties": false, "required": ["candidate_sha256", "verdict", "comments"],
+      "properties": { "candidate_sha256": { "$ref": "#/$defs/hash" }, "verdict": { "enum": ["approved", "changes_requested"] }, "comments": { "$ref": "#/$defs/texts" } } },
+    "criterion_updates": { "type": "array", "items": { "type": "object" } },
+    "escalation": {
+      "type": "object", "required": ["boundary", "rationale"],
+      "properties": { "boundary": { "enum": ["system_structure", "owner_scope", "security_policy", "data_semantics", "explicit_owner_guardrail"] },
+        "rationale": { "$ref": "#/$defs/text" }, "authority_scope": { "enum": ["sprint", "architecture"] },
+        "authority_reference": { "$ref": "#/$defs/authority" }, "authority_quote": { "$ref": "#/$defs/text" } }
+    },
+    "proposal": {
+      "type": "object", "required": ["title", "options", "recommended_option_id"],
+      "properties": { "title": { "$ref": "#/$defs/text" }, "recommended_option_id": { "$ref": "#/$defs/text" },
+        "options": { "type": "array", "minItems": 2, "maxItems": 4, "items": { "type": "object", "required": ["id", "description"], "properties": { "id": { "$ref": "#/$defs/text" }, "description": { "$ref": "#/$defs/text" } } } } }
+    },
+    "contract_draft": { "type": "object", "additionalProperties": false, "required": ["title", "markdown", "evidence"],
+      "properties": { "title": { "$ref": "#/$defs/text" }, "markdown": { "$ref": "#/$defs/text" }, "evidence": { "$ref": "#/$defs/evidence" } } }
+  },
+  "$defs": {
+    "text": { "type": "string", "minLength": 1, "pattern": "\\S" }, "texts": { "type": "array", "items": { "$ref": "#/$defs/text" } },
+    "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "authority": { "type": "object", "additionalProperties": false, "required": ["passage_id", "rationale"],
+      "properties": { "passage_id": { "$ref": "#/$defs/text" }, "rationale": { "$ref": "#/$defs/text" } } },
+    "evidence": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["path", "sha256"],
+      "properties": { "path": { "$ref": "#/$defs/text" }, "sha256": { "$ref": "#/$defs/hash" } } } }
+  }
+}
