@@ -129,11 +129,13 @@ test("resolved technical handoffs require findings, implementation, verification
   } finally { await fixture.close(); }
 });
 
-test("technical prompt retains denial boundaries and assigns research inside the original ticket", () => {
+test("technical prompt separates AM's approved-plan authority from server-side tool authorization", () => {
   const prompt = technicalReconciliationPrompt({ technical_reconciliation: { round: 1, work: technical.reconciliation } });
   assert.match(prompt, /ASSIGNED TECHNICAL WORK/);
   assert.match(prompt, /do not request a separate ticket/i);
-  assert.match(prompt, /AM cannot override automatic approval review/);
+  assert.match(prompt, /AM is the final decision-maker for behavior covered by the approved plan/);
+  assert.match(prompt, /automatic edit-review denial does not override an approved in-scope plan decision/);
+  assert.match(prompt, /Never claim tool permission that Node has not granted/);
   assert.match(prompt, /Node-selected baseline/);
   assert.match(prompt, /without a round-count limit/);
   assert.doesNotMatch(prompt, /stop after three/);

@@ -38,8 +38,9 @@ test("Node retains original denial evidence without adding a separate Owner gate
   assert.equal(f.request.source.length, 2);
   assert.equal(f.request.sha256.length, 64);
   scheduleTechnicalReconciliation(f.job, { ...technical, execution_admission_request: f.request }, 123);
-  assert.equal(f.job.status, "notification_pending");
-  assert.equal(f.job.outcome_reason, "technical_reconciliation_waiting_for_evidence");
+  assert.equal(f.job.status, "pending");
+  assert.equal(f.job.stage, "architecture_manager");
+  assert.equal(f.job.outcome_reason, undefined);
   await assert.rejects(f.service.assertAllowed(f.job), { code: "EXECUTION_ADMISSION_REQUIRED" });
 });
 
@@ -138,7 +139,7 @@ test("legacy parked jobs get a bound request through authenticated inspection; o
   const input = { projectId: "P", ticketId: "T", actor: "OWNER", admission: { method: "GET" } };
   const response = await legacy.access(input);
   assert.equal(response.execution_admission.sha256, f.request.sha256);
-  assert.equal(f.ledger().jobs[0].execution_admission.status, "awaiting_owner_review");
+  assert.equal(f.ledger().jobs[0].execution_admission.status, "awaiting_architecture_review");
   const obsolete = createBlockerAdmission({ ...f.options, inspect: async () => null });
   await assert.rejects(obsolete.access(input), { code: "EXECUTION_ADMISSION_REQUIRED" });
 });
@@ -162,18 +163,18 @@ test("production RUN resumes SL without Owner admission review and retains the o
   try {
     await assert.rejects(f.base.run(), { code: "CODER_BLOCKED" });
     const retainedTurn = (await f.base.checkpoints.load("TASK")).last_completed_turn;
-    await f.recovery.tick(); await f.recovery.tick();
+    for (let turn = 0; turn < 4; turn += 1) await f.recovery.tick();
     assert.equal((await f.ledger()).jobs[0].outcome_reason, "technical_reconciliation_waiting_for_evidence");
     f.recreate();
     for (let turn = 0; turn < 3; turn += 1) await f.recovery.tick();
-    assert.deepEqual(f.calls, ["sprint_leader"]);
+    assert.deepEqual(f.calls, ["sprint_leader", "architecture_manager", "sprint_leader"]);
     assert.equal(f.base.invocations, 1);
     allowed = true;
     const resumed = await f.recovery.resumeTicket({ projectId: "P", ticketId: "TASK" });
     assert.equal(resumed.resumed_stage, "sprint_leader");
     assert.equal(resumed.resumed_from_turn, retainedTurn ?? 0);
     await f.recovery.tick(); await f.recovery.tick();
-    assert.deepEqual(f.calls, ["sprint_leader", "sprint_leader"]);
+    assert.deepEqual(f.calls, ["sprint_leader", "architecture_manager", "sprint_leader", "sprint_leader"]);
     assert.equal(f.base.invocations, 2);
     assert.equal(f.base.statusStore.get().details.execution_id, "EXEC");
     const checkpoint = await f.base.checkpoints.load("TASK");

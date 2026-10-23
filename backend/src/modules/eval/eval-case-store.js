@@ -1,10 +1,11 @@
 // Converts completed-ticket final reports into retrieval-eval cases and appends new tickets automatically.
 // Backend eval case store retained for NF-UI-CONV-003 scope verification — no out-of-scope error response changes.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { ConfigurationError } from "../../shared/errors.js";
 
-export const REPORTS_DIR = ".forge/runtime/reports";
+export const REPORTS_DIR = statePath("reports");
 export const AUTO_EVAL_FILE = "backend/tests/eval/retrieval-cases-auto.js";
 const TOOL_LAB_MARKER = "backend/tool-lab-target.txt";
 const AUTO_FILE_HEADER = "// Retrieval eval cases auto-backfilled from historical final reports - generated file, do not edit by hand.\n// Regenerate with: node backend/scripts/backfill-eval-cases.mjs (repo root is resolved from the script location).\n";

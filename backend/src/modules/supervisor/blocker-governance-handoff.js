@@ -1,4 +1,5 @@
 // Persists AM's source-bound contract as a reviewable governance draft without rebinding the approved Sprint.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createHash } from "node:crypto";
 
 // Binds immutable handoff bytes to their review identity.
@@ -35,7 +36,7 @@ export function createBlockerGovernanceHandoff({ plans, fileService, projectId }
       owner_decisions: job.owner_decisions, job_id: job.id };
     const identity = hash(JSON.stringify({ binding, draft }));
     const planId = `PLAN-CONTRACT-${identity}`;
-    const sourcePath = `.forge/runtime/nf/plans/${planId}/ke-hoach-r1.md`;
+    const sourcePath = `${statePath()}/nf/plans/${planId}/ke-hoach-r1.md`;
     const bytes = `# ${draft.title}\n\nStatus: awaiting_human_approval. This draft does not authorize execution.\n\n${draft.markdown}\n\n## Immutable handoff binding\n\n\`\`\`json\n${JSON.stringify(binding, null, 2)}\n\`\`\`\n`;
     try { await fileService.atomicCreate({ path: sourcePath, content: bytes }); }
     catch (error) {

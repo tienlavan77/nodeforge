@@ -1,9 +1,13 @@
 // Records ticket-owned root writes so watcher indexing and later commits use the same source.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createHash, randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { acquireTicketFileLock } from "./ticket-file-lock.js";
 
-const ROOT = ".forge/runtime/ticket-changes";
+import { createTicketLegacyImport } from "./ticket-legacy-import.js";
+import { createTicketSourceMerge } from "./ticket-source-merge.js";
+
+const ROOT = statePath("ticket-changes");
 // Hashes source snapshots to detect concurrent ticket changes.
 const sha = (content) => content === null ? null : `sha256:${createHash("sha256").update(content).digest("hex")}`;
 // Maps project and file identifiers to private runtime storage names.
@@ -21,6 +25,9 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
   const claimPath = (path) => `${scope}/claims/${key(path)}.json`;
   // Locates a cross-process lock for ticket and path transactions.
   const lockPath = (name) => `${scope}/locks/${key(name)}.lock`;
+
+  const importLegacy = createTicketLegacyImport({ locked, load, failure, claim, sha, readOptional, fileService, claimPath, save, key, projectLogger });
+  const reconcile = createTicketSourceMerge({ locked, load, save, recover, claim, readOptional, fileService, sha, key, failure, projectLogger });
 
   // Holds a ticket revision stable while a root commit is prepared and recorded.
   async function withCommitTransaction(taskId, action) {
@@ -75,7 +82,7 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
       await save(taskId, manifest);
       return manifest;
     }
-    if (sha(live) !== pending.before_sha) throw failure("TICKET_WRITE_RECOVERY_CONFLICT", `Root source changed while recovering ${path}.`);
+    if (sha(live) !== (pending.recovery_before_sha ?? pending.before_sha)) throw failure("TICKET_WRITE_RECOVERY_CONFLICT", `Root source changed while recovering ${path}.`);
     manifest.entries[path].pending = null;
     await save(taskId, manifest);
     return manifest;
@@ -105,7 +112,9 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
       const id = repeated ? key(`${contentId}\0${manifest.revision + 1}`) : contentId;
       const live = await readOptional(path);
       if (sha(live) !== sha(before)) throw failure("CHECKSUM_MISMATCH", `Root source changed before writing ${path}.`);
-      if (existing && existing.latest_sha !== sha(live)) throw failure("TICKET_SOURCE_CHANGED", `Root source changed outside ticket ${taskId}: ${path}.`);
+      if (existing && existing.latest_sha !== sha(live)) {
+        await reconcile.resolve({ taskId, path, manifest, live });
+      }
       const owner = owned ?? { task_id: taskId, path, claim_id: existing?.claim_id ?? randomUUID() };
       if (!owned) await fileService.atomicWrite({ path: claimPath(path), content: JSON.stringify(owner), replace: false });
       const entry = existing ?? { path, claim_id: owner.claim_id ?? null, initial_sha: sha(before), initial_content: before, latest_sha: sha(before), operations: [], pending: null };
@@ -158,40 +167,6 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
       manifest.pending_commit = null;
       await save(taskId, manifest);
       return manifest;
-    });
-  }
-
-  // Imports a verified legacy ticket snapshot without replaying its existing commits.
-  async function importLegacy(taskId, { baseCommit, headCommit, entries }) {
-    return locked(`ticket:${taskId}`, async () => {
-      const manifest = await load(taskId);
-      if (manifest.legacy?.head_commit === headCommit) return manifest;
-      if (manifest.revision || Object.keys(manifest.entries).length || Object.keys(manifest.commits).length) throw failure("TICKET_MIGRATION_CONFLICT", "Ticket already has a change ledger.");
-      const paths = Object.keys(entries).sort();
-      if (!paths.length) throw failure("TICKET_MIGRATION_CONFLICT", "Legacy worktree has no source changes to import.");
-      for (const path of paths) {
-        const owned = await claim(path);
-        if (owned?.task_id && owned.task_id !== taskId) throw failure("FILE_CLAIM_CONFLICT", `${path} is owned by ticket ${owned.task_id}.`);
-        if (sha(await readOptional(path)) !== sha(entries[path].root)) throw failure("TICKET_SOURCE_CHANGED", `Root source changed during migration: ${path}.`);
-      }
-      for (const path of paths) await locked(`path:${path}`, async () => {
-        const owned = await claim(path);
-        if (owned?.task_id && owned.task_id !== taskId) throw failure("FILE_CLAIM_CONFLICT", `${path} is owned by ticket ${owned.task_id}.`);
-        if (sha(await readOptional(path)) !== sha(entries[path].root)) throw failure("TICKET_SOURCE_CHANGED", `Root source changed during migration: ${path}.`);
-        if (!owned) await fileService.atomicWrite({ path: claimPath(path), content: JSON.stringify({ task_id: taskId, path }), replace: false });
-      });
-      const imported = { ...manifest, revision: 0, entries: {}, commits: { 0: headCommit }, legacy: { base_commit: baseCommit, head_commit: headCommit }, pending_commit: null };
-      for (const path of paths) {
-        const { committed, root } = entries[path];
-        imported.entries[path] = { path, initial_sha: sha(committed), initial_content: committed, latest_sha: sha(root), operations: [], pending: null };
-        if (committed !== root) {
-          imported.revision += 1;
-          imported.entries[path].operations.push({ id: key(`legacy\0${taskId}\0${path}\0${sha(root)}`), before_sha: sha(committed), after_sha: sha(root), before: committed, after: root, revision: imported.revision, status: "completed" });
-        }
-      }
-      await save(taskId, imported);
-      projectLogger({ event_name: "ticket.change_migrated", level: "info", status: "success", message: "Legacy ticket changes imported into ledger.", task_id: taskId, source: "ticket-change-ledger", payload: { path_count: paths.length, pending_count: imported.revision, head_commit: headCommit } });
-      return imported;
     });
   }
 
@@ -256,6 +231,8 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
           if (entry.pending) manifest = await recover(taskId, path, manifest);
           const live = await readOptional(path);
           if (sha(live) === manifest.entries[path].latest_sha) return;
+          const receipt = manifest.entries[path].source_reconciliation;
+          if (receipt?.status === "conflict" && receipt.live_sha === sha(live)) return;
           drift.push({ path, live, live_sha: sha(live) });
         });
         // An unexplained changed root always fails closed; every drifted path must be covered by
@@ -313,5 +290,5 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
     if (!commits.length) return null;
     return { commit_sha: commits[0][1], revision: Number(commits[0][0]) };
   }
-  return Object.freeze({ load, write, snapshot, prepareCommit, recordCommit, importLegacy, release, rollback, resume, withCommitTransaction });
+  return Object.freeze({ load, reconcile: reconcile.run, write, snapshot, prepareCommit, recordCommit, importLegacy, release, rollback, resume, withCommitTransaction });
 }

@@ -8,7 +8,7 @@ import { createFileService } from "../../src/infrastructure/filesystem/file-serv
 import { createEditDiffTool, createReadFileTool, createWriteDiffTool } from "../../src/tools/agent-lifecycle-tools.js";
 
 // Allows schema edits and refuses documentation reads and writes for a coder.
-test("coder can edit schemas but cannot access docs", async () => {
+test("coder can edit schemas and read docs but cannot write docs through a prefix grant", async () => {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-coder-scope-"));
   try {
     const fileService = createFileService({ projectRoot: root });
@@ -18,7 +18,7 @@ test("coder can edit schemas but cannot access docs", async () => {
     const read = createReadFileTool({ fileService });
     const schema = await read.execute({ path: "schemas/example.json" }, context);
     await createEditDiffTool({ fileService }).execute({ path: "schemas/example.json", before_checksum: schema.sha256, anchor: "true", replacement: "false" }, context);
-    await assert.rejects(() => read.execute({ path: "docs/guide.md" }, context), (error) => error.code === "PATH_FORBIDDEN");
+    assert.equal((await read.execute({ path: "docs/guide.md" }, context)).content, "Guide\n");
     await assert.rejects(() => createWriteDiffTool({ fileService }).execute({ path: "docs/new.md", before_checksum: null, content: "Guide\n" }, context), (error) => error.code === "PATH_FORBIDDEN");
   } finally { await rm(root, { recursive: true, force: true }); }
 });

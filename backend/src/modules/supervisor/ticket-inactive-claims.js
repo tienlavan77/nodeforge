@@ -1,4 +1,5 @@
 // Releases inactive ticket file ownership, including orphan claims, without discarding source or resumable work.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createHash } from "node:crypto";
 import { acquireTicketFileLock } from "./ticket-file-lock.js";
 
@@ -9,7 +10,7 @@ const key = (value) => createHash("sha256").update(value).digest("hex");
 export async function releaseInactiveTicketClaims({ projectId, taskId, fileService, isExecutionActive, close = false, projectLogger = () => {} }) {
   if (!projectId || !/^[A-Za-z0-9._:-]+$/.test(taskId ?? "") || typeof isExecutionActive !== "function"
     || !fileService?.listFiles || !fileService?.createLock) throw new Error("Inactive claim release requires project identity, persistence and execution fencing.");
-  const scope = `.forge/runtime/ticket-changes/${key(projectId)}`;
+  const scope = `${statePath()}/ticket-changes/${key(projectId)}`;
   const journalPath = `${scope}/tickets/${key(taskId)}.json`;
   const ticketLock = await acquireTicketFileLock(fileService, `${scope}/locks/${key(`ticket:${taskId}`)}.lock`);
   try {

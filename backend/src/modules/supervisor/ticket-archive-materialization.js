@@ -1,4 +1,5 @@
 // Materializes one committed ticket tree for verification without creating a Git worktree.
+import { FORGE_STATE_DIR } from "../../infrastructure/filesystem/forge-paths.js";
 import { spawn } from "node:child_process";
 import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -27,6 +28,8 @@ export async function materializeTicketArchive({ projectRoot, commitSha }) {
     }
     const tempDir = join(path, ".forge-tmp");
     await mkdir(tempDir, { recursive: true });
+    // Project test fixtures may create isolated runtime stores relative to cwd; provide an empty archive-local parent.
+    await mkdir(join(path, FORGE_STATE_DIR), { recursive: true });
     return { path, temp_dir: tempDir, method: "git-archive", commit_sha: commitSha, cleanup: () => rm(path, { recursive: true, force: true }) };
   } catch (error) { await rm(path, { recursive: true, force: true }); throw error; }
 }

@@ -1,4 +1,5 @@
 // Recognizes already integrated project dependencies without claiming their files for a review repair.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createHash } from "node:crypto";
 
 // Proves exact source bytes against a completed same-project integration and its retained terminal context.
@@ -6,7 +7,7 @@ export async function findIntegratedTicketSource({ path, sha256, targetSha256 = 
   if (!/^[a-f0-9]{64}$/.test(sha256 ?? "")) return null;
   targetSha256 = String(targetSha256).replace(/^sha256:/, "");
   if (!/^[a-f0-9]{64}$/.test(targetSha256)) return null;
-  const paths = await fileService.listFiles({ glob: ".forge/runtime/ticket-integrations/*.json" });
+  const paths = await fileService.listFiles({ glob: statePath("ticket-integrations/*.json") });
   for (const receiptPath of paths) {
     const receipt = JSON.parse(await fileService.readFile({ path: receiptPath }));
     if (receipt.status !== "completed" || !["root-only", "worktree"].includes(receipt.workspace_mode) || receipt.task_id === taskId

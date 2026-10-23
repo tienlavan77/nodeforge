@@ -4,6 +4,7 @@ import { runInNewContext } from "node:vm";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { ConfigurationError } from "../shared/errors.js";
 import { isAgentPathAllowed } from "./tool-authorization.js";
+import { assertExecutionFileAccess } from "./execution-file-access.js";
 
 const MAX_FILES = 3000;
 const MAX_OUTPUT = 500;
@@ -27,12 +28,15 @@ export function createClaudeFileTools({ fileService, projectRoot, codeCache }) {
 
   // Reads bounded text lines while preserving the File Service checksum for later edits.
   async function read(input = {}, context = {}) {
+    assertExecutionFileAccess(context);
     const path = scopedPath(input.file_path, false);
     assertScope(path, context);
     const start = input.start_line;
     const end = input.end_line;
     if (!Number.isInteger(start) || start < 1 || !Number.isInteger(end) || end < start || end - start + 1 > MAX_READ_LINES || input.offset !== undefined || input.limit !== undefined) throw invalid("Read start_line or end_line is invalid (maximum 80 lines).");
     const file = codeCache ? await codeCache.read({ path }) : await fileService.readForIndex({ path, maxBytes: 1_000_000 });
+    assertExecutionFileAccess(context);
+    assertScope(path, context);
     const lines = file.content.split("\n");
     if (start > lines.length) throw invalid(`Read start_line exceeds the file (${lines.length} lines).`);
     const slice = lines.slice(start - 1, end);
@@ -41,16 +45,19 @@ export function createClaudeFileTools({ fileService, projectRoot, codeCache }) {
 
   // Matches visible project files using Claude's pattern and optional search directory.
   async function glob(input = {}, context = {}) {
+    assertExecutionFileAccess(context);
     const pattern = validPattern(input.pattern);
     const directory = scopedPath(input.path ?? ".", true);
     const matcher = picomatch(pattern, { dot: false });
     const files = await visibleFiles(directory);
+    assertExecutionFileAccess(context);
     const matches = files.filter((path) => within(path, directory) && inScope(path, context) && (matcher(path) || matcher(relativePath(path, directory))));
     return { files: matches.slice(0, MAX_OUTPUT), total: matches.length, truncated: matches.length > MAX_OUTPUT };
   }
 
   // Searches bounded, File Service approved text files and returns Claude's three output modes.
   async function grep(input = {}, context = {}) {
+    assertExecutionFileAccess(context);
     const directory = scopedPath(input.path ?? ".", true);
     const pattern = validPattern(input.pattern);
     const mode = input.output_mode ?? "files_with_matches";
@@ -68,7 +75,7 @@ export function createClaudeFileTools({ fileService, projectRoot, codeCache }) {
       if (!within(path, directory) || !inScope(path, context) || (filter && !filter(path)) || (extensions && !extensions.some((ext) => path.endsWith(ext)))) continue;
       let file;
       try { file = codeCache ? await codeCache.read({ path }) : await fileService.readForIndex({ path, maxBytes: 1_000_000 }); }
-      catch (error) { if (["FILE_ROLE_FORBIDDEN", "ENOENT", "FILE_TOO_LARGE"].includes(error.code) || /Refusing to index binary file/.test(error.message)) continue; throw error; }
+      catch (error) { if (["FILE_ROLE_FORBIDDEN", "FILE_ACCESS_UNSAFE_PATH", "ENOENT", "FILE_TOO_LARGE"].includes(error.code) || /Refusing to index binary file/.test(error.message)) continue; throw error; }
       const lines = file.content.split("\n");
       const matches = matchLines(file.content, pattern, flags, input.multiline === true);
       if (!matches.length) continue;

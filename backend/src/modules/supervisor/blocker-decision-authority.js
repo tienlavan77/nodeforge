@@ -39,6 +39,9 @@ export function assertArchitectureDisposition(value, { job, architecture, author
     "Only AM may decide at Architecture scope. SL must use Sprint scope and a Sprint authority reference for its own coordination decision; preserve the validated AM answer separately. If a new design decision remains, return architecture_required.",
     { expected: "sprint", received: value.authority_scope ?? null, retryable: job.stage === "sprint_leader" });
   if (!architecture) throw blockerValidationError("/architecture_basis", "approved_parent_unavailable", "No authenticated approved Architecture parent is available.", { retryable: false });
+  if (value.authority_scope !== "architecture") throw blockerValidationError("/authority_scope", "reference_scope_mismatch",
+    "This AM disposition delegates or decides an Architecture-bound contract. Use authority_scope=architecture with a Node-issued Architecture passage and the exact Node-verified architecture_basis.",
+    { expected: "architecture", received: value.authority_scope ?? null });
   const identityErrors = ["plan_id", "revision", "sha256"].filter((field) => value.architecture_basis?.[field] !== architecture.basis[field])
     .flatMap((field) => blockerValidationError(`/architecture_basis/${field}`, "identity_mismatch", "Copy the exact Node-verified Architecture identity; reasoning may be paraphrased but identity cannot.",
       { expected: architecture.basis[field], received: value.architecture_basis?.[field] ?? null }).validation_errors);

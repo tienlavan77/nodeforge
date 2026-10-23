@@ -100,8 +100,9 @@ export function createBlockerRecovery({ store, validate, investigate, checkDispo
     const work = await store.withLock(STORE, async () => {
       for (const ledger of await store.list(STORE)) for (const job of ledger.jobs) {
         if (!ledger.cancelled && job.status === "reconciliation_required" && await refreshWaiting(job)) {
-          job.history.push({ stage: "sprint_leader", event: job.outcome_reason === "EXECUTION_ADMISSION_EVIDENCE_REQUIRED" ? "admission_wait_corrected" : "verification_wait_completed", completed_at: clock() });
-          job.stage = "sprint_leader"; job.status = "pending"; ledger.deadline_at = clock() + deadlineMs;
+          job.stage = job.resolution?.action === "architecture_required" ? "architecture_manager" : "sprint_leader";
+          job.history.push({ stage: job.stage, event: job.stage === "architecture_manager" ? "authority_wait_assigned" : job.outcome_reason === "EXECUTION_ADMISSION_EVIDENCE_REQUIRED" ? "admission_wait_corrected" : "verification_wait_completed", completed_at: clock() });
+          job.status = "pending"; ledger.deadline_at = clock() + deadlineMs;
           delete job.outcome_reason; delete job.last_error;
         }
         const resumeLimited = job.outcome_reason === "resume_budget_exhausted" && job.resolution?.action === "resolved";
@@ -158,6 +159,7 @@ export function createBlockerRecovery({ store, validate, investigate, checkDispo
       const value = response[SALVAGED] ?? await checkDisposition(response, job);
       return update(work, (current) => {
         current.disposition_attempts.at(-1).status = "accepted";
+        if (current.stage === "sprint_leader" && value.action === "architecture_required") current.consultation_request = current.communication?.consultation ?? null;
         delete current.validation_feedback;
         delete current.last_error;
         current.history.push({ stage: current.stage, disposition: value, completed_at: clock(), actor: current.invocation_actor ?? null });
@@ -207,6 +209,7 @@ export function createBlockerRecovery({ store, validate, investigate, checkDispo
   async function investigateAndRecord(work, job) {
     const response = await investigate(job, { deadline: work.deadline, onDiscoveryCheckpoint: createDiscoveryCheckpointWriter({ store, ledgerId: work.ledgerId, job, validate }),
       onAgentSelected: async (actor) => { job.invocation_actor = actor; if (!await update(work, (current) => { current.invocation_actor = actor; })) throw new Error("Investigation ownership changed before provider dispatch."); },
+      onCommunication: async (communication) => { if (!await update(work, (current) => { current.communication = { ...current.communication, ...communication }; })) throw new Error("Communication no longer owns the recovery assignment."); },
       onTicketProgress: async (progress) => { if (!await update(work, (current) => { current.ticket_progress = progress; })) throw new Error("Ticket progress reservation changed; do not invoke provider."); } });
     const saved = await update(work, (current) => {
       current.disposition_attempts ??= [];

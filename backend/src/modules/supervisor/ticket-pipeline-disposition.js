@@ -1,4 +1,5 @@
 // Persists owner decisions for legacy tickets before immutable ticket gates can be enabled.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createHash } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { acquireTicketFileLock } from "./ticket-file-lock.js";
@@ -15,7 +16,7 @@ function fingerprint(ticket) {
 // Stores explicit migration, cancellation, or human review decisions through File Service.
 export function createTicketPipelineDisposition({ projectId, fileService, inventory, reconcileCancelledClaims, projectLogger = () => {} } = {}) {
   if (!projectId || !fileService?.readFile || !fileService?.atomicWrite || !fileService?.createLock || !inventory?.inspect) throw fail("CONFIGURATION_ERROR", "Ticket disposition requires project persistence and inventory.");
-  const root = `.forge/runtime/ticket-pipeline-disposition/${hash(projectId)}`;
+  const root = `${statePath()}/ticket-pipeline-disposition/${hash(projectId)}`;
   return Object.freeze({ decide, inspect, get });
 
   // Keeps an owner cancellation effective when later runtime activity changes its inventory fingerprint.

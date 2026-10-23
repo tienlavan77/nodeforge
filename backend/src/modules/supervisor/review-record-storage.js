@@ -1,4 +1,5 @@
 // Stores new ticket review histories as immutable records behind one atomic, recoverable index.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { reviewRecordHash } from "./review-record-identity.js";
 import { reviewQueryRecord, reviewQueryRecords, redactReviewRecord } from "./review-query-records.js";
 export { reviewRecordHash } from "./review-record-identity.js";
@@ -8,8 +9,8 @@ const collections = ["findings", "coder_reports", "coder_responses", "adjudicati
 // Creates project-local storage; existing legacy tickets keep their original format without migration.
 export function createReviewRecordStorage({ taskId, fileService }) {
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(taskId ?? "")) throw new Error("Invalid review ticket identity.");
-  const legacyPath = `.forge/runtime/ticket-review-findings/${taskId}.json`;
-  const root = `.forge/runtime/review-records/${taskId}`;
+  const legacyPath = `${statePath()}/ticket-review-findings/${taskId}.json`;
+  const root = `${statePath()}/review-records/${taskId}`;
   const indexPath = `${root}/index.json`;
   const backupPath = `${root}/index-backup.json`;
   return { load, loadQuery, queryRecords, findingBindings, save, indexPath };

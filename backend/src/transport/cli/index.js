@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // CLI entry for index rebuild and project file watching.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
@@ -102,7 +103,7 @@ export async function runCli(args, { cwd = process.cwd(), env = process.env, fet
   }
   if (args[0] === "index" && args[1] === "rebuild" && (args.length === 2 || (args.length === 3 && args[2] === "--force"))) {
     let processed = 0;
-    const database = await openIndexDatabase(cwd, { runtimeDir: ".forge/runtime/wc" });
+    const database = await openIndexDatabase(cwd, { runtimeDir: statePath("wc") });
     const model = process.env.OLLAMA_EMBED_MODEL ?? "embeddinggemma";
     const jobs = createEmbeddingJobStore({ database });
     const worker = createEmbeddingWorker({ database, jobs, embeddingStore: createEmbeddingStore({ database }), embeddingProvider: embeddingProvider ?? createOllamaEmbeddingProvider({ baseUrl: process.env.OLLAMA_BASE_URL ?? "http://192.168.1.180:11434", model, timeoutMs: 300000 }), model });

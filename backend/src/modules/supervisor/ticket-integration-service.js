@@ -1,4 +1,5 @@
 // Advances the project branch after approved ticket review without replacing live root files.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { ConfigurationError } from "../../shared/errors.js";
@@ -6,7 +7,7 @@ import { acquireTicketFileLock } from "./ticket-file-lock.js";
 import { createTerminalReceiptWriter } from "./terminal-receipt-writer.js";
 
 const execFile = promisify(execFileCallback);
-const STATE = ".forge/runtime/ticket-integrations";
+const STATE = statePath("ticket-integrations");
 // Labels branch integration conflicts for the Supervisor outcome.
 const failure = (code, message) => Object.assign(new ConfigurationError(message), { code });
 

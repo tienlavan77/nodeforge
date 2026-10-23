@@ -6,6 +6,7 @@ import { matchesBrowserEvidence } from "../modules/supervisor/browser-verificati
 import { hasOwnerDecisionEvidence } from "../modules/governance/plan-decision-requests.js";
 import { findPassingVerificationCommand } from "./verification-command-evidence.js";
 import { readCompletedCoderReport } from "./completed-coder-report.js";
+import { assertAgentExchangePayload } from "../modules/governance/agent-exchange.js";
 
 const error = (code, message, details = {}) => Object.assign(new ConfigurationError(message), { code, details });
 
@@ -27,13 +28,15 @@ export function createReportDoneTool({ reportService, verificationService, revie
     }
     if (input.status === "blocked") {
       const reasons = ["SCOPE_CONFLICT", "CONTRACT_DECISION_REQUIRED", "ACCESS_REQUIRED", "SECURITY_RISK", "ACCEPTANCE_AMBIGUOUS"];
-      if (!input.summary?.trim() || !reasons.includes(input.blocker?.reason_code) || !input.blocker?.owner_action?.trim() || !input.evidence?.length) throw error("INPUT_INVALID", "Blocked reports require a summary, blocker reason, owner action, and source evidence.");
+      if (!input.summary?.trim() || !reasons.includes(input.blocker?.reason_code) || !input.evidence?.length || (!input.blocker.consultation && !input.blocker.owner_action?.trim())) throw error("INPUT_INVALID", "Blocked reports require a summary, blocker reason, consultation for SL, and source evidence.");
+      const consultation = assertAgentExchangePayload("consultation_request", input.blocker.consultation ?? {
+        question: input.summary.trim(), decision_needed: input.blocker.owner_action.trim(), known_decision_refs: [], impact: input.summary.trim() });
       const report = await reportService.buildFinalReport({ ticket, status: "needs_human_review", verifyResult: null, filesChanged: context.changed_paths ?? [], reason: "coder_blocked" });
       report.agent_report = { status: "blocked", summary: input.summary.trim(), blocker: input.blocker, evidence: input.evidence, ...(input.implementation_scope ? { implementation_scope: input.implementation_scope } : {}) };
       report.criteria_check = (ticket.acceptance_criteria ?? []).map((criterion) => ({ criterion, node_verified: null, status: "evidence_pending" }));
       await reportService.saveReport(ticket.id, report);
       await reportService.writeReportFile(ticket.id, report);
-      throw error("CODER_BLOCKED", `${input.blocker.reason_code}: ${input.summary.trim()} Owner action: ${input.blocker.owner_action.trim()}`, { blocker: input.blocker, evidence: input.evidence });
+      throw error("CODER_BLOCKED", `${input.blocker.reason_code}: ${input.summary.trim()} SL decision: ${consultation.decision_needed}`, { summary: input.summary.trim(), blocker: input.blocker, consultation, evidence: input.evidence });
     }
     if (input.blocker !== undefined) throw error("INPUT_INVALID", "Blocker details require status blocked.");
     const governed = Boolean(verificationService && !context.lab_mode && !context.labMode);

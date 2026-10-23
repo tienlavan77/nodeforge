@@ -51,9 +51,9 @@ test("D2 assigns triage without granting acceptance, access, contract or securit
     assert.deepEqual(triage.evidence_refs, ["report:1"]);
     assert.equal(triage.allowed_actions.includes("approve"), false);
     assert.equal(triage.allowed_actions.includes("close_finding"), false);
-    if (["ACCESS_REQUIRED", "SECURITY_RISK", "CONTRACT_DECISION_REQUIRED"].includes(reason_code)) assert.equal(triage.decision_role, "owner");
+    assert.equal(triage.decision_role, "existing_authority");
   }
-  assert.equal(coderFailureTriage({ code: "COMMIT_APPROVAL_REJECTED" }).decision_role, "owner");
+  assert.equal(coderFailureTriage({ code: "COMMIT_APPROVAL_REJECTED" }).decision_role, "existing_authority");
 });
 
 test("D3 actual SDK exceptions retry after 30 seconds, preserve budgets on restart and fail exactly once", async () => {
@@ -203,7 +203,7 @@ test("D2 blocked SDK report carries structured evidence into durable triage with
   try {
     await assert.rejects(fixture.run(), { code: "CODER_BLOCKED" });
     const checkpoint = await fixture.checkpoints.load("TASK");
-    assert.equal(checkpoint.triage.decision_role, "owner");
+    assert.equal(checkpoint.triage.decision_role, "existing_authority");
     assert.deepEqual(checkpoint.triage.evidence_refs, ["src/auth.js:12"]);
     assert.equal(fixture.events[0].type, "task.needs_human_review");
     assert.equal(fixture.integrations, 0);

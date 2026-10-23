@@ -140,7 +140,7 @@ test("O3: pre-commit run_check materializes working ledger overlay with pre_comm
   }
 });
 
-test("O4 & O5: Reviewer elastic budget, symbol outline preservation, review_diff, and run_review_check budget cap", async () => {
+test("O4 & O5: Reviewer retains snapshot reads but cannot bypass unsupported check isolation", async () => {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-o4-o5-"));
   try {
     const path = "src/mod.js";
@@ -150,6 +150,7 @@ test("O4 & O5: Reviewer elastic budget, symbol outline preservation, review_diff
     await writeFile(join(root, path), content);
     const fileService = createFileService({ projectRoot: root });
     const manifestPaths = Array.from({ length: 10 }, (_, idx) => idx === 0 ? path : `src/f${idx}.js`);
+    const snapshotSource = { ...fileService, committedReview: true, reviewCommit: "c".repeat(40), readForIndex: async () => ({ path, content, sha256: fileSha }) };
     const ticketEvidence = {
       paths: manifestPaths,
       files: [{ path, content, sha256: fileSha }],
@@ -157,16 +158,19 @@ test("O4 & O5: Reviewer elastic budget, symbol outline preservation, review_diff
       context: { base_sha: "b".repeat(40), review_commit_sha: "c".repeat(40), manifest_sha: "M-1", manifest_paths: [path] }
     };
     const job = { task_id: "T-REV", request_id: "REQ-1", correlation_id: "CORR-1", payload: { changed_paths: manifestPaths } };
+    let unsafeCalls = 0;
+    const events = [];
     const tools = createReviewerForgeTools({
-      fileService,
+      fileService: snapshotSource,
       projectRoot: root,
       job,
       reviewer: { agent_id: "rev-1", provider: "openai" },
       codeCache: { read: async () => ({ path, content, sha256: fileSha, index_status: "unavailable", code_index: { path, symbols: [] } }) },
       ticketEvidence,
-      captureReviewEnvironment: async () => ({ files: [], sha256: "env" }),
-      materializeReview: async () => ({ path: root, temp_dir: root, assertTicketSource: async () => {}, assertEnvironment: async () => {}, cleanup: async () => {} }),
-      runReviewCommand: async () => ({ exit_code: 0, stdout: "1 passing", stderr: "" })
+      captureReviewEnvironment: async () => { unsafeCalls += 1; },
+      materializeReview: async () => { unsafeCalls += 1; },
+      runReviewCommand: async () => { unsafeCalls += 1; },
+      projectLogger: (event) => events.push(event)
     });
 
     assert.equal(tools.context.max_output_bytes, 288_000);
@@ -180,14 +184,15 @@ test("O4 & O5: Reviewer elastic budget, symbol outline preservation, review_diff
     const symRead = await tools.registry.read_file.execute({ path, symbol: "computeTotal" });
     assert.match(symRead.content, /export function computeTotal/);
 
-    const check1 = await tools.registry.run_review_check.execute({ type: "test", command: "node --test backend/tests/unit/reviewer-forge-tools.test.js" });
-    assert.equal(check1.status, "passed");
-    const check2 = await tools.registry.run_review_check.execute({ type: "test", command: "node --test backend/tests/unit/reviewer-forge-tools.test.js" });
-    assert.equal(check2.status, "passed");
-    await assert.rejects(
-      () => tools.registry.run_review_check.execute({ type: "test", command: "node --test backend/tests/unit/reviewer-forge-tools.test.js" }),
-      { code: "REVIEW_CHECK_BUDGET" }
-    );
+    for (let count = 0; count < 3; count++) {
+      await assert.rejects(
+        tools.registry.run_review_check.execute({ type: "test", command: "node --test backend/tests/unit/reviewer-forge-tools.test.js" }),
+        { code: "REVIEW_CHECK_ISOLATION_UNSUPPORTED" }
+      );
+    }
+    assert.equal(unsafeCalls, 0);
+    assert.match(tools.definitions.find(({ name }) => name === "run_review_check").description, /unavailable/i);
+    assert.equal(events.filter((event) => event.payload?.error?.code === "REVIEW_CHECK_ISOLATION_UNSUPPORTED").length, 3);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

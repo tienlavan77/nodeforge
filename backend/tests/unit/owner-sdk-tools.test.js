@@ -204,7 +204,7 @@ test("read_file returns cached Markdown content for Architecture and Coder while
   assert.deepEqual(reads, ["workflows/plan.md", "workflows/plan.md", "backend/src/example.js"]);
 });
 
-test("read_file permits a 250-line Markdown window and keeps source windows at 80 lines", async () => {
+test("read_file permits a 250-line Markdown window and keeps source windows at 250 lines", async () => {
   const markdown = Array.from({ length: 300 }, (_, index) => `line ${index + 1}`).join("\n");
   const read = createReadFileTool({ fileService: { readForIndex: async ({ path }) => ({ path, content: path.endsWith(".md") ? markdown : "const value = 1;\n" }) } });
   const context = { agent_identity: { role: "architecture_manager" } };
@@ -220,7 +220,8 @@ test("read_file permits a 250-line Markdown window and keeps source windows at 8
   const unusedSymbol = await read.execute({ path: "workflows/long.md", offset: 1, limit: 250, symbol: "target" }, context);
   assert.equal(unusedSymbol.content, sdkWindow.content);
   await assert.rejects(() => read.execute({ path: "backend/code.js", offset: 1, limit: 10, symbol: "target" }, context), (error) => error.code === "INPUT_INVALID");
-  await assert.rejects(() => read.execute({ path: "backend/code.js", offset: 1, limit: 250 }, context), (error) => error.code === "INPUT_INVALID");
+  assert.equal((await read.execute({ path: "backend/code.js", offset: 1, limit: 250 }, context)).content, "const value = 1;\n");
+  await assert.rejects(() => read.execute({ path: "backend/code.js", offset: 1, limit: 251 }, context), (error) => error.code === "INPUT_INVALID");
 });
 
 test("Architecture reads Markdown checksum through its Forge registry and edits that document", async () => {

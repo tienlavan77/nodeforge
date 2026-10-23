@@ -1,4 +1,5 @@
 // Persists schema-valid task sessions in the selected project's Node-managed runtime storage.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createRequire } from "node:module";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
@@ -35,7 +36,7 @@ export function createSessionStore({ projectId, fileService } = {}) {
   async function get(sessionId) {
     assertIdentifier(sessionId);
     let content;
-    try { content = await fileService.readFile({ path: `.forge/runtime/nf/sessions/${sessionId}.json` }); }
+    try { content = await fileService.readFile({ path: `${statePath()}/nf/sessions/${sessionId}.json` }); }
     catch (error) { if (error.code === "ENOENT") return undefined; throw error; }
     return check(JSON.parse(content), sessionId, sessionId.slice("SESSION-".length));
   }
@@ -47,7 +48,7 @@ export function createSessionStore({ projectId, fileService } = {}) {
     const existing = await get(sessionId);
     if (existing) return check(existing, sessionId, taskId);
     const session = check({ id: sessionId, project_id: projectId, task_id: taskId, status: "active", started_at: new Date().toISOString() }, sessionId, taskId);
-    try { await fileService.atomicCreate({ path: `.forge/runtime/nf/sessions/${sessionId}.json`, content: JSON.stringify(session) }); }
+    try { await fileService.atomicCreate({ path: `${statePath()}/nf/sessions/${sessionId}.json`, content: JSON.stringify(session) }); }
     catch (error) {
       if (error.code !== "FILE_ALREADY_EXISTS") throw error;
       const concurrent = await get(sessionId);

@@ -1,4 +1,5 @@
 // Coordinates durable automatic review jobs, attempt recovery, and immutable post-completion follow-up backlog.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { retryOperationalReview, recoverOperationalReview } from "./review-operational-retry.js";
 import { recordAutomaticReviewFindings } from "./automatic-review-findings.js";
 import { ConfigurationError } from "../../shared/errors.js";
@@ -10,6 +11,7 @@ import { publishAutomaticReviewOutcome, publishAutomaticReviewParking } from "./
 import { isCompletedReviewReopened } from "./completed-review-resume.js";
 import { reviewOperationalFailure } from "./review-operational-failure.js";
 import { beginAutomaticReview } from "./automatic-review-stage.js";
+import { reconcileReviewRepairAuthority, reviewRepairScopeConflict } from "./review-repair-authority.js";
 
 const QUEUE = "agent.request";
 const fail = (code, message) => Object.assign(new ConfigurationError(message), { code });
@@ -75,13 +77,13 @@ export function createAutomaticTicketReview({ queueStore, queue, eventBus, fileS
 
   // Holds a distinct job lock during provider execution so separate workers cannot review the same attempt concurrently.
   async function processLocked(job) {
-    const lock = fileService.createLock ? await acquireTicketFileLock(fileService, `.forge/runtime/automatic-review-locks/${job.id}.lock`) : null;
+    const lock = fileService.createLock ? await acquireTicketFileLock(fileService, `${statePath()}/automatic-review-locks/${job.id}.lock`) : null;
     try { return await (operationalRetry ? retryOperationalReview({ job, attempt: processOnce, retry, load, save: (next) => queueStore.save(QUEUE, next), locked, ticketStatusStore, resolveTicketWorkspace, checkpoints, eventBus, projectLogger, clock: retryClock, wait: retryWait }) : processOnce(job)); } finally { await lock?.release(); }
   }
 
   // Writes the complete outcome and event intent before event publication or queue acknowledgement.
   async function processOnce(job) {
-    let current = await load(job.id);
+    let current = await reconcileRepairAuthority(await load(job.id));
     assertReviewRequestOwnership(current, ticketStatusStore);
     if (current.review_result) { assertCachedReviewResult(current); if (!operationalRetry || !current.review_result.payload.error?.retryable) await publish(current); return current.review_result; }
     let result;
@@ -100,9 +102,7 @@ export function createAutomaticTicketReview({ queueStore, queue, eventBus, fileS
         || !Array.isArray(payload.adjudications ?? []) || payload.verdict === "request_changes" && !payload.findings.length && !(payload.adjudications ?? []).some((decision) => ["retain", "refine", "reopen"].includes(decision.decision))) throw fail("REVIEW_VERDICT_INVALID", "Reviewer verdict does not match the independent source revision or finding contract.");
       await recordAutomaticReviewFindings({ job: current, workspace: await resolveTicketWorkspace(current.task_id), payload });
       result = { type: payload.verdict === "approved" ? "review.approved" : "review.request_changes", payload };
-      const approvedPaths = current.payload.execution_context.approved_baseline?.file_checksums;
-      if (payload.verdict === "request_changes" && approvedPaths && payload.findings.some((finding) => (finding.files ?? []).some((path) => !Object.hasOwn(approvedPaths, path)))) result.payload.owner_decision_reason = "review_scope_conflict";
-      else if (payload.verdict === "request_changes" && payload.findings.some((finding) => String(finding.severity).toLowerCase() === "blocker")) result.payload.owner_decision_reason = "review_blocker";
+      if (payload.verdict === "request_changes" && reviewRepairScopeConflict(payload.findings, current.payload.execution_context)) result.payload.owner_decision_reason = "review_scope_conflict";
     } catch (error) {
       if (error.code === "EXECUTION_RECONCILIATION_CONFLICT") throw error;
       const unavailable = ["REVIEWER_NOT_AVAILABLE", "REVIEW_WORKER_UNAVAILABLE", "REVIEWER_PROVIDER_UNAVAILABLE"].includes(error.code);
@@ -129,6 +129,7 @@ export function createAutomaticTicketReview({ queueStore, queue, eventBus, fileS
 
   // Replays a stable review event and materializes deduplicated follow-up tickets without changing the completed ticket.
   async function publish(job) {
+    job = await reconcileRepairAuthority(job);
     assertReviewRequestOwnership(job, ticketStatusStore);
     assertCachedReviewResult(job);
     await publishAutomaticReviewOutcome({ job, queueStore, queue, eventBus, checkpoints, repairCount, locked });
@@ -195,7 +196,7 @@ export function createAutomaticTicketReview({ queueStore, queue, eventBus, fileS
 
   // Recovers deferred post-integration jobs without invoking the Coder or reopening terminal ticket contexts.
   async function recover() {
-    for (const job of await queueStore.list(QUEUE)) {
+    for (let job of await queueStore.list(QUEUE)) {
       if (!job.automatic_review || isCompletedReviewReopened(job, ticketStatusStore)) continue;
       try {
         assertReviewRequestOwnership(job, ticketStatusStore);
@@ -203,6 +204,7 @@ export function createAutomaticTicketReview({ queueStore, queue, eventBus, fileS
         const workspace = await resolveTicketWorkspace(job.task_id);
         const context = await workspace.executionContexts.load(job.task_id);
         if (!matchesAutomaticReviewContext(context, job)) continue;
+        job = await reconcileRepairAuthority(job);
         if (operationalRetry && job.review_result?.payload.error?.retryable && job.operational_retry?.status !== "cancelled") { if (active.has(job.id) || recovering.has(job.id)) continue; recovering.add(job.id); void recoverOperationalReview({ job, checkpoints, resumeReview: resumeRepair, process, recover }).catch(error => projectLogger({ event_name: "review.retry_recovery_failed", level: "error", status: "failed", task_id: job.task_id, message: error.message, error_code: error.code })).finally(() => recovering.delete(job.id)); continue; }
         if (job.running_attempt && !job.review_result) {
           const outcome = await process(job);
@@ -226,6 +228,18 @@ export function createAutomaticTicketReview({ queueStore, queue, eventBus, fileS
         projectLogger({ event_name: "review.recovery_failed", level: "error", status: "blocked", message: error.message, task_id: job.task_id, source: "automatic-review", error_code: error.code });
       }
     }
+  }
+
+  // Persists the corrected Node routing once under the queue lock without invoking Reviewer or altering its verdict.
+  async function reconcileRepairAuthority(job) {
+    if (job.review_result?.payload.owner_decision_reason !== "review_blocker") return job;
+    return locked(async () => {
+      const current = await load(job.id);
+      assertReviewRequestOwnership(current, ticketStatusStore);
+      const next = reconcileReviewRepairAuthority(current);
+      if (next !== current) await queueStore.save(QUEUE, next);
+      return next;
+    });
   }
 
   // Loads the durable job rather than trusting stale delivery snapshots.

@@ -1,4 +1,5 @@
 // Builds and persists Supervisor completion reports from Node-owned ticket artifacts.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { ConfigurationError } from "../../shared/errors.js";
 
 /** Builds and persists the owner-facing report from Node-owned artifacts. */
@@ -56,7 +57,7 @@ export function createCompletionReportService({ protocolStorage, fileService, gi
   async function writeReportFile(taskId, report) {
     const markdown = renderMarkdown(report);
     const suffix = recoverCoderReport && !["submitted_for_review", "completed"].includes(report.status) ? ".operational" : "";
-    return fileService.atomicWrite({ path: `.forge/runtime/reports/${taskId}${suffix}.md`, content: markdown, replace: true });
+    return fileService.atomicWrite({ path: `${statePath()}/reports/${taskId}${suffix}.md`, content: markdown, replace: true });
   }
 }
 

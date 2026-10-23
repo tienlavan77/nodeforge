@@ -30,7 +30,7 @@ for (const provider of ["openai", "codex", "claude"]) {
         agentOccupancy: { claim: async ({ role }) => { assert.equal(role, "coder"); return { claim_id: "PREP" }; }, release: async () => { released += 1; } },
         resolveTicketWorkspace: async () => fixture.base.workspace,
         readFailureEvidence: async () => ({ status: "captured", receipts: [] }),
-        gateways: { openaiSdkGateway: gateway, claudeSdkGateway: gateway }
+        gateways: { openaiSdkGateway: gateway, claudeSdkGateway: gateway, codexSdkGateway: gateway }
       });
       const result = await worker({ id: "JOB", stage: "coder", request: { task_id: "TASK", ticket: fixture.ticket }, history: [],
         coder_checkpoint: { last_completed_turn: 12 }, coder_exchange: { request_id: "REQUEST", request: { questions: ["preserve-initialization-question"] } } }, { deadline: Date.now() + 2000 });

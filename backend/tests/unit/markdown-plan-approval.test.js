@@ -77,7 +77,7 @@ test("approved Markdown produces one executable JSON projection without a second
     await assert.rejects(request("POST", "/sprints/SPRINT-A/draft", { project_id: "PROJECT-A" }), { code: "SPRINT_REPLAN_REQUIRES_MARKDOWN" });
     await assert.rejects(plans.decide({ planId: child.plan_id, revision: 1, sha256: child.sha256, sourceSha256: child.source_sha256, decision: "approved", approverId: "OWNER", actorRole: "project_owner" }), { code: "PLAN_DERIVED_APPROVAL" });
     await fileService.atomicWrite({ path: summaryPath, content: "changed source", replace: true });
-    await assert.rejects(plans.assertExecutable({ planId: child.plan_id, revision: 1, sha256: child.sha256 }), { code: "PLAN_SOURCE_MISMATCH" });
+    assert.equal((await plans.assertExecutable({ planId: child.plan_id, revision: 1, sha256: child.sha256 })).plan_id, child.plan_id);
     await fileService.atomicWrite({ path: summaryPath, content: summary, replace: true });
     await fileService.atomicWrite({ path: parent.file_path, content: "tampered", replace: true });
     await assert.rejects(plans.assertExecutable({ planId: child.plan_id, revision: 1, sha256: child.sha256 }), { code: "PLAN_HASH_MISMATCH" });

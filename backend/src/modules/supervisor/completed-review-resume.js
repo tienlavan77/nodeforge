@@ -1,4 +1,5 @@
 // Resumes Owner-requested review of integrated tickets without reopening terminal Coder contexts.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { dispatchCompletedReviewRepair } from "./completed-review-repair.js";
 import { assertReviewRequestOwnership } from "./recovery-evidence.js";
 import { matchesAutomaticReviewContext } from "./automatic-review-identity.js";
@@ -15,7 +16,7 @@ export function isCompletedReviewReopened(job, store) {
 // Continues retained review only; source files, integration receipts and original review jobs remain unchanged.
 export function createCompletedReviewResume({ queueStore, ticketStatusStore, resolveTicketWorkspace, resolveWorker, checkpoints, fileService, resumeRepair, projectLogger = () => {} }) {
   return async ({ projectId, ticketId }) => {
-    const lock = await acquireTicketFileLock(fileService, `.forge/runtime/automatic-review-locks/OWNER-${ticketId}.lock`);
+    const lock = await acquireTicketFileLock(fileService, `${statePath()}/automatic-review-locks/OWNER-${ticketId}.lock`);
     try {
       const current = ticketStatusStore.get(ticketId);
       const binding = current?.details?.review_reopen;

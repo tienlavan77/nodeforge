@@ -31,7 +31,10 @@ export function useProjectEventStream({
   reconnectRef.current = onConversationReconnect;
   useEffect(() => {
     let opened = false;
-    const stream = client.connectProjectStream({
+    // An unavailable project admission makes stream connection throw synchronously; the workspace must surface an error state, not crash the page.
+    let stream = null;
+    try {
+      stream = client.connectProjectStream({
       projectId,
       onOpen: () => {
         setWatcherState("connected"); onProjectEvent?.({ project_id: projectId, event_type: "stream.connected" });
@@ -125,6 +128,7 @@ export function useProjectEventStream({
       },
       onError: () => setWatcherState("error")
     });
+    } catch { setWatcherState("error"); return undefined; }
     return () => stream.close();
   }, [client, projectId, onProjectEvent]);
 }

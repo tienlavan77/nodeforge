@@ -3,10 +3,11 @@ import { createHash } from "node:crypto";
 import { chmod, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { materializeTicketArchive } from "./ticket-archive-materialization.js";
-import { persistVerificationEnvironment } from "./ticket-verification-environment.js";
+import { assertVerificationEnvironment, persistVerificationEnvironment } from "./ticket-verification-environment.js";
 
 // Overlays only non-ticket environment files on the committed ticket tree and retains evidence without committing them.
 export async function materializeTicketVerification({ projectRoot, commitSha, ticketPaths, environment, overlayFiles = null }) {
+  assertVerificationEnvironment(environment, ticketPaths);
   const archive = await materializeTicketArchive({ projectRoot, commitSha });
   try {
     const owned = new Set(ticketPaths);

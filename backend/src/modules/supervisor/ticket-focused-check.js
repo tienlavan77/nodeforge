@@ -1,4 +1,5 @@
 // Runs focused Coder checks against an immutable committed tree or pre-commit working ledger and persists their receipts.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createHash, randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { validateCheckCommand } from "../../tools/owner-engineer-tools.js";
@@ -58,7 +59,7 @@ export function createTicketFocusedCheck({ taskId, projectRoot, worktreeFileServ
         pre_commit: preCommit, environment: archive.environment ?? null, type, command, status: output.exit_code === 0 ? "passed" : "failed", exit_code: output.exit_code,
         stdout: safeOutput(output.stdout), stderr: safeOutput(output.stderr), output_sha256: output.output_sha256,
         started_at: startedAt, completed_at: new Date().toISOString(), changed_paths: context.manifest_paths };
-      await stateFileService.atomicWrite({ path: `.forge/runtime/ticket-verification/${taskId}/checks/${receipt.check_id}.json`, content: `${JSON.stringify(receipt)}\n`, replace: false });
+      await stateFileService.atomicWrite({ path: `${statePath()}/ticket-verification/${taskId}/checks/${receipt.check_id}.json`, content: `${JSON.stringify(receipt)}\n`, replace: false });
       return receipt;
     } finally { await archive.cleanup(); }
   }

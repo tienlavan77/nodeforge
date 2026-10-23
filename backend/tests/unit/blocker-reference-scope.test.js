@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 import { blockerAuthorityPassages, resolveBlockerAuthority } from "../../src/modules/supervisor/blocker-authority-passages.js";
+import { assertArchitectureDisposition } from "../../src/modules/supervisor/blocker-decision-authority.js";
 import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker-recovery-contract.js";
 
 const context = { plan: { content: {} }, ticket: { objective: "Reuse the existing approved handler without changing the public contract." },
@@ -40,9 +41,18 @@ test("unknown references receive bounded same-scope alternatives without becomin
   });
 });
 
+test("AM Architecture-bound delegation rejects a Sprint reference with the required scope", () => {
+  const sprint = blockerAuthorityPassages(context).find((entry) => entry.scope === "sprint");
+  assert.throws(() => assertArchitectureDisposition({ authority_scope: "sprint", architecture_basis: context.architecture.basis }, {
+    job: { stage: "architecture_manager" }, architecture: context.architecture, authorityQuote: sprint.text
+  }), (error) => error.validation_errors[0].reason === "reference_scope_mismatch"
+    && error.validation_errors[0].expected === "architecture");
+});
+
 test("AM corrects the diagnosed scope after restart only when Sprint authority genuinely permits resume", async () => {
   let attempts = 0;
   const fixture = await blockerRecoveryFixture({ investigate: async (job, resolution) => {
+    if (job.stage === "sprint_leader" && job.architecture_response) return job.architecture_response.disposition;
     if (job.stage === "sprint_leader") return { action: "architecture_required", summary: "Ask AM to reconcile the technical blocker." };
     attempts += 1;
     const passage = job.authority_context.passages.find((entry) => entry.scope === "sprint");
@@ -55,8 +65,8 @@ test("AM corrects the diagnosed scope after restart only when Sprint authority g
     await fixture.recovery.tick(); await fixture.recovery.tick();
     assert.equal((await fixture.ledger()).jobs[0].status, "pending");
     assert.equal(fixture.base.invocations, 1);
-    await fixture.recreate().tick(); await fixture.recovery.tick();
-    assert.equal((await fixture.ledger()).calls, 3);
+    await fixture.recreate().tick(); await fixture.recovery.tick(); await fixture.recovery.tick();
+    assert.equal((await fixture.ledger()).calls, 4);
     assert.equal(fixture.base.integrations, 1);
   } finally { await fixture.close(); }
 });
@@ -81,16 +91,16 @@ test("correcting the reference scope alone cannot unblock an unapproved lifecycl
 });
 
 // An AM escalation may cite an Architecture passage under the top-level declared scope; a wrong scope still fails closed.
-test("owner escalation inherits the declared authority scope, enforces boundary matching and exempts ACCESS_REQUIRED from evidence", async () => {
+test("owner escalation requires evidenced structure risk and preserves scope and boundary validation", async () => {
   const context = { plan: { content: {} }, ticket: { objective: "Implement lifecycle without inventing a public management contract." },
     architecture: { basis: { plan_id: "ARCH", revision: 1, sha256: "a".repeat(64) }, markdown: "Public API structure is owner-approved; new routes, prefixes or payloads require explicit owner authority." } };
   const passage = blockerAuthorityPassages(context).find((entry) => entry.scope === "architecture");
   const job = { stage: "architecture_manager", request: { ticket: context.ticket } };
   const value = { action: "owner_required", summary: "A new management transport contract exceeds AM authority.", authority_scope: "architecture",
-    boundary_assessment: { rationale: "Approving a new public contract changes owner scope.",
-      changes_structure: false, changes_owner_scope: true, changes_security_policy: false, changes_data_semantics: false, overrides_guardrails: false, changes_ticket_contract: false },
+    boundary_assessment: { rationale: "The proposed separate management service changes approved system structure.",
+      changes_structure: true, changes_owner_scope: false, changes_security_policy: false, changes_data_semantics: false, overrides_guardrails: false, changes_ticket_contract: false },
     evidence: [{ path: "backend/src/handler.js", sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" }],
-    escalation: { boundary: "owner_scope", rationale: "Only the owner can approve a new public contract.",
+    escalation: { boundary: "system_structure", rationale: "Only the owner can approve a separate management service.",
       authority_reference: { passage_id: passage.passage_id, rationale: "The approved Architecture text fixes public API structure as owner authority." } },
     proposal: { title: "Management transport contract", options: [{ id: "approve", description: "Approve the proposed add/remove/list contract." },
       { id: "defer", description: "Defer transport work until an approved contract exists." }], recommended_option_id: "approve" } };
@@ -104,7 +114,7 @@ test("owner escalation inherits the declared authority scope, enforces boundary 
     assert.equal(error.validation_errors[0].received, "sprint");
     return true;
   });
-  await assert.rejects(validate({ ...value, escalation: { ...value.escalation, boundary: "system_structure" } }), (error) => {
+  await assert.rejects(validate({ ...value, escalation: { ...value.escalation, boundary: "owner_scope" } }), (error) => {
     assert.equal(error.validation_errors[0].reason, "escalation_boundary_mismatch");
     return true;
   });
@@ -112,13 +122,14 @@ test("owner escalation inherits the declared authority scope, enforces boundary 
     assert.equal(error.validation_errors[0].reason, "evidence_invalid");
     return true;
   });
-  const accessAccepted = await validate({ ...value, evidence: undefined }, { ...job, reason_code: "ACCESS_REQUIRED" });
-  assert.equal(accessAccepted.action, "owner_required");
+  await assert.rejects(validate({ ...value, evidence: undefined }, { ...job, reason_code: "ACCESS_REQUIRED" }), (error) => error.validation_errors[0].reason === "evidence_invalid");
+  await assert.rejects(validate({ ...value, boundary_assessment: { ...value.boundary_assessment, changes_structure: false, changes_owner_scope: true },
+    escalation: { ...value.escalation, boundary: "owner_scope" } }), (error) => error.validation_errors[0].reason === "structure_risk_required");
   const fulfilledResolved = await validate({
     action: "resolved", summary: "AM finalized HTTP contract within approved structure.", guidance: "Implement POST /lifecycle/add with {root:string}.",
     authority_scope: "architecture", authority_reference: { passage_id: passage.passage_id, rationale: "Uses approved structure without new public boundary." },
     architecture_basis: context.architecture.basis, evidence: value.evidence,
-    boundary_assessment: { ...value.boundary_assessment, changes_owner_scope: false }
+    boundary_assessment: { ...value.boundary_assessment, changes_structure: false }
   }, { ...job, reason_code: "CONTRACT_DECISION_REQUIRED", fulfillment_decision_id: "BLOCKER-DECISION-1" });
   assert.equal(fulfilledResolved.action, "resolved");
 });

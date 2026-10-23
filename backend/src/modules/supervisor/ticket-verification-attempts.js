@@ -1,11 +1,12 @@
 // Finds the latest durable verification attempt for one ticket commit and source revision.
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 // Uses persisted attempt and time instead of random job IDs to enforce the retry limit.
 export async function latestTicketVerificationAttempt({ projectRoot, taskId, context, policyVersion, runnerRevision = null, matchRunnerRevision = true, loadJob }) {
   let names;
-  try { names = await readdir(join(projectRoot, ".forge/runtime/ticket-verification", taskId, "jobs")); }
+  try { names = await readdir(join(projectRoot, statePath("ticket-verification"), taskId, "jobs")); }
   catch (error) { if (error.code === "ENOENT") return null; throw error; }
   const jobs = (await Promise.all(names.filter((name) => /^VERIFY-[A-Za-z0-9-]+\.json$/.test(name))
     .map((name) => loadJob(name.slice(0, -5)))))

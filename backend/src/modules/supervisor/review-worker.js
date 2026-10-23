@@ -11,6 +11,7 @@ import { createCommittedReviewSource } from "./reviewer-committed-source.js";
 import { createReviewTransportObserver, reviewOperationalFailure } from "./review-operational-failure.js";
 import { readBlockerContracts, blockerContractPrompt } from "./blocker-contract-evidence.js";
 import { createReviewExchangeEvidence, attachReviewExchangeTools } from "./review-exchange-evidence.js";
+import { prepareReviewExchange, saveReviewExchange } from "./review-agent-exchange.js";
 
 // Creates a reviewer that receives bounded source evidence through Forge File Service.
 export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, fileService, contractFileService, rulesFileService, gitService, codeSearch, codeCache, projectRoot, executionContexts, verificationService, reviewFindings, checkpoints, projectLogger = () => {} } = {}) {
@@ -55,14 +56,18 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
     const promptFiles = filesTotalBytes > 64_000
       ? files.map((file) => ({ path: file.path, sha256: file.sha256, deleted: Boolean(file.deleted), line_count: file.content ? file.content.split("\n").length : 0, notice: "Full file omitted from initial prompt (>64 KB total); use review_diff, read_file, or read_lines to inspect." }))
       : files;
+    const communication = await prepareReviewExchange({ job, reviewer, sourceRef: ticketEvidence?.context.review_commit_sha ?? job.payload?.commit ?? baseCommit,
+      coderReport, exchange, projectRoot, projectLogger });
     const prompt = [
+      communication?.prompt ?? "",
       blockerContractPrompt(contracts),
       "Act only as an independent code reviewer. Do not edit files. Check the ticket against the current source and verification evidence.",
       "You must follow the Reviewer role rules below before evaluating the ticket.",
       `Reviewer role rules: ${reviewerRules}`,
       REVIEW_AUTONOMY_PROMPT,
-      "Return only JSON with verdict (approved|request_changes), findings (objects with acceptance_criterion, failure, evidence_refs identifying source locations or verification artifacts, minimum_change_scope, files when naming required files, and per_file_necessity with one concrete role per demanded file), and adjudications (objects with finding_id, decision retain|refine|reopen|withdraw|not_applicable|fixed, reason, evidence_refs). Read the Coder explanation and adjudicate each open response before deciding. Legacy finding strings require re-review, not invented evidence. A file count alone is not evidence that all files need edits.",
+      `${communication ? "Return the shared review_result with payload.verdict, payload.summary, payload.findings and payload.finding_updates (existing adjudications)." : "Return only JSON with verdict, findings and adjudications."} Verdict is approved|request_changes. Findings require acceptance_criterion, failure, evidence_refs, minimum_change_scope, files when naming required files, and per_file_necessity with one concrete role per demanded file. Adjudications require finding_id, decision retain|refine|reopen|withdraw|not_applicable|fixed, reason and evidence_refs. Read the Coder explanation and adjudicate each open response before deciding. Legacy finding strings require re-review, not invented evidence. A file count alone is not evidence that all files need edits.`,
       reviewVerdictInstructions(exchange),
+      communication ? "For the shared contract, the finding identity rules above apply inside payload.findings and payload.finding_updates. Return the shared envelope fields only, not the legacy top-level verdict/adjudications shape." : "",
       "Approve only when the supplied evidence establishes every acceptance criterion. Request changes if evidence is insufficient. Temporary HTTP 429/502/503/504 or connection failures are incomplete review attempts, not implementation findings. Node retains the verified source for Reviewer retry; do not request Coder edits or a new commit solely for a transport failure.",
       "Read related project source, AGENTS.md and applicable contracts even outside the changed-file delta; project access is read-only. Use list_files for file discovery and search_text for scoped content search when available. Search discovery may reflect current filenames or a newer index; confirm claims against the committed source and supplied fixed-revision patch. git_status and git_diff inspect only approved paths in the current working tree, not the verified commit; never treat them as verification evidence. Git write operations are not available.",
       'Each per_file_necessity entry must use {"path":"project/relative/file","role":"concrete necessity"}, not a "file" key.',
@@ -104,6 +109,7 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
         verification: ticketEvidence?.artifact ?? job.payload?.verification ?? null,
         execution_context: ticketEvidence?.context ?? job.payload?.execution_context ?? null,
         verdict_attempts: verdictAttempts,
+        ...(communication ? { communication: { request_id: communication.request.message_id, request_ref: communication.requestRef } } : {}),
         ...(job.review_only ? { review_only: true } : {}), last_error: null, ...extra
       }).catch(() => null);
     };
@@ -125,18 +131,18 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
     const correctionTools = { definitions: [], registry: {}, context: forgeTools?.context ?? {} };
     const correctionOptions = ["claude", "anthropic"].includes(reviewer.provider)
       ? createClaudeForgeOptions(createOwnerClaudeMcpTools(correctionTools)) : { forgeTools: correctionTools };
-    const toolInstruction = forgeTools ? `Forge review tools: ${forgeTools.definitions.map((item) => item.name).join(", ")}. Use search_tree and list_files to discover files, search_text to search content, read_file for metadata or source, and read_lines(path,start_line,end_line) for source windows of at most 80 lines. Each tool response must fit 16,000 bytes, with 128,000 bytes total per review; use smaller read_lines windows for large files rather than repeatedly requesting full read_file output. Use query_review for exact historical findings and reports; follow its cursor until complete rather than reading evidence JSON files. For manifest files, source results carry review_evidence bound to the passed artifact and commit; reads fail if source differs. Other reads carry no verified provenance. git_status and git_diff inspect approved paths in the current working tree, not the verified commit. Never use built-in shell, file, write, network, or ticket tools.` : "Forge review tools are unavailable. Decide only from the supplied bounded evidence; request changes when evidence is insufficient.";
+    const toolInstruction = forgeTools ? `Forge review tools: ${forgeTools.definitions.map((item) => item.name).join(", ")}. Use search_tree and list_files to discover files, search_text to search content, read_file for metadata or source, and read_lines(path,start_line,end_line) for source windows of at most 80 lines. Each tool response must fit 16,000 bytes, with 128,000 bytes total per review; use smaller read_lines windows for large files rather than repeatedly requesting full read_file output. Use query_review for exact historical findings and reports; follow its cursor until complete rather than reading evidence JSON files. In ticket snapshot reviews, discovery and source reads, including callers outside the manifest, use the pinned review commit or recorded verification environment; source windows carry review_evidence and reads fail if evidence differs. Live git_status and git_diff are unavailable for snapshot reviews; legacy Git reads are not verified commit evidence. run_review_check currently returns REVIEW_CHECK_ISOLATION_UNSUPPORTED, never PASS. If an independent check is required, record the evidence gap under request_changes; do not substitute native shell or live dependencies. Never use built-in shell, file, write, network, or ticket tools.` : "Forge review tools are unavailable. Decide only from the supplied bounded evidence; request changes when evidence is insufficient.";
     const reviewProfile = reviewer;
     await saveReviewProgress();
     projectLogger({ event_name: "review.started", level: "info", status: "started", message: "Independent Reviewer started ticket review.", task_id: job.task_id, correlation_id: job.correlation_id, source: "review-worker", payload: { request_id: job.request_id, agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, reviewer_id: reviewer.agent_id, provider: reviewer.provider, changed_count: paths.length, tools: forgeTools?.definitions.map(({ name }) => name) ?? [] } });
     projectLogger({ event_name: "review.sdk_dispatch", level: "info", status: "started", message: "Reviewer SDK request dispatched.", task_id: job.task_id, correlation_id: job.correlation_id, source: "review-worker", payload: { request_id: job.request_id, agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, reviewer_id: reviewer.agent_id, provider: reviewer.provider } });
     let verdict;
     try {
-      verdict = await requestReviewVerdict({ prompt: `${prompt}\n\n${toolInstruction}`, exchange, retained,
+      verdict = await requestReviewVerdict({ prompt: `${prompt}\n\n${toolInstruction}`, exchange, retained, communication,
         validate: async (value) => { transport.assertAvailable(); return ticketEvidence && reviewFindings?.validateReview ? reviewFindings.validateReview({ ...value,
           artifactId: ticketEvidence.artifact.artifact_id, commitSha: ticketEvidence.artifact.commit_sha,
           reviewerId: reviewer.agent_id, sourceRevision: ticketEvidence.artifact.source_revision }) : undefined; },
-        parseOptions: { strict: Boolean(ticketEvidence) && !job.payload?.ticket?.execution_policy?.legacy_review_report,
+        parseOptions: { exchangeRequest: communication?.request, strict: Boolean(ticketEvidence) && !job.payload?.ticket?.execution_policy?.legacy_review_report,
           paths, artifactId: ticketEvidence?.artifact.artifact_id, findingIds: exchange ? (exchange.findings ?? []).map((finding) => finding.finding_id) : undefined,
           pendingResponses: (exchange?.coder_responses ?? []).flatMap((entry) => entry.responses.map((response) => ({ finding_id: response.finding_id, response_id: entry.idempotency_key })))
             .filter((response) => !(exchange?.adjudications ?? []).some((decision) => decision.finding_id === response.finding_id && decision.response_id === response.response_id)) },
@@ -170,7 +176,7 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
       throw error;
     }
     projectLogger({ event_name: "review.verdict", level: "info", status: verdict.verdict, message: "Independent Reviewer returned a ticket verdict.", task_id: job.task_id, correlation_id: job.correlation_id, source: "review-worker", payload: { agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, reviewer_id: reviewer.agent_id, coder_id: job.agent_id, request_id: job.request_id, findings_count: verdict.findings.length, changed_paths: paths } });
-    return { ...verdict, reviewer_id: reviewer.agent_id, reviewer_name: reviewer.agent_name ?? null, provider: reviewer.provider ?? null, coder_id: job.agent_id, changed_paths: paths, source_revision: ticketEvidence?.context.source_revision ?? null, session_id: reviewState.sessionId, thread_id: reviewState.threadId, last_completed_turn: reviewState.turnCount, last_tool: reviewState.lastTool, completed_tools: [...reviewState.completedTools], turn_history: [...reviewState.turnHistory] };
+    return { ...verdict, communication: await saveReviewExchange(communication, verdict), reviewer_id: reviewer.agent_id, reviewer_name: reviewer.agent_name ?? null, provider: reviewer.provider ?? null, coder_id: job.agent_id, changed_paths: paths, source_revision: ticketEvidence?.context.source_revision ?? null, session_id: reviewState.sessionId, thread_id: reviewState.threadId, last_completed_turn: reviewState.turnCount, last_tool: reviewState.lastTool, completed_tools: [...reviewState.completedTools], turn_history: [...reviewState.turnHistory] };
   }
 
   // Loads the canonical Reviewer role contract through Forge File Service before every verdict.

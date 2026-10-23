@@ -42,7 +42,7 @@ export function createBlockerAdmission({ store, inspect, clock = Date.now, proje
       job_id: job.id, failure_at: job.failure_at, execution_context: job.request.execution_context,
       sprint_basis: job.request.payload.sprint_basis, architecture_basis: job.architecture_basis ?? null,
       receipts, source, technical_evidence: value.evidence ?? [], findings: value.reconciliation.completed_checks, proposed_guidance: value.guidance };
-    const request = { ...binding, sha256: digest(binding), status: "awaiting_owner_review", created_at: clock(),
+    const request = { ...binding, sha256: digest(binding), status: "awaiting_architecture_review", review_policy_version: "architecture-admission-v1", created_at: clock(),
       endpoint: `/forge/v1/tickets/${encodeURIComponent(job.request.task_id)}/blocker-admission?project=${encodeURIComponent(job.request.project_id)}` };
     return { ...value, execution_admission_request: request };
   }
@@ -136,5 +136,5 @@ export function admissionPrompt(admission) {
   if (admission?.decision?.verdict === "allow" && admission.decision.operation === "commit_changes") {
     return `NODE RECORDED OWNER COMMIT INSTRUCTION: ${JSON.stringify(admission)}. The owner explicitly requested Coder to implement remaining guidance, run focused checks, and commit ticket changes. SL must hand actionable implementation back to the retained Coder checkpoint; a future commit or final verification result is not a prerequisite to that handoff. Coder uses commit_changes after repair and focused checks; Node then performs commit-bound verification and continues independent review. This recorded instruction supplies the previously missing owner request; it does not waive the actual tool approval or any source, claim, scope or verification gate. If approval rejects the new operation, retain the new reason and escalate it; do not repeat or work around that denial.`;
   }
-  return admission ? `NODE EXECUTION ADMISSION REVIEW: ${JSON.stringify(admission)}. This is optional historical review evidence, not a mandatory Owner gate for resuming SL and not tool permission. SL must identify a materially safer permitted alternative or a concrete remaining blocker; never retry a denied operation by relabeling or relocating it. Actual tool approval, source, claim and verification gates still run. No runtime acceptance is granted.` : "";
+  return admission ? `NODE EXECUTION ADMISSION REVIEW: ${JSON.stringify(admission)}. The request is assigned to Architecture for a plan-bound decision; its pending status is not an Owner instruction or a reason to wait for an external reviewer. AM must compare the exact attempted operation and original denial with the approved criteria, return an actionable answer to SL, or use owner_required with an evidenced boundary and concrete options when Owner authority is actually necessary. A report_done/CODER_BLOCKED narrative never establishes a new approval denial. Preserve original tool denials: do not retry or reproduce a denied operation by relabeling or relocating it. Actual tool approval, source, claim and verification gates still run. No runtime acceptance is granted.` : "";
 }
