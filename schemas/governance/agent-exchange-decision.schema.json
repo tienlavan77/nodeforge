@@ -36,6 +36,13 @@
       "properties": {
         "kind": { "enum": ["technical_design", "source_revision", "execution_admission", "dependency", "file_claim", "tooling"] },
         "prerequisite": { "$ref": "#/$defs/text" }, "completed_checks": { "$ref": "#/$defs/texts" }, "next_check": { "$ref": "#/$defs/text" },
+        "owner_request": {
+          "$comment": "Requests a direct human answer for technical recovery; it neither escalates AM policy authority nor grants execution permission.",
+          "type": "object", "additionalProperties": false, "required": ["kind", "question", "context"],
+          "properties": { "kind": { "enum": ["information", "tool_authorization"] },
+            "question": { "type": "string", "minLength": 1, "maxLength": 8000, "pattern": "\\S" },
+            "context": { "type": "string", "minLength": 1, "maxLength": 8000, "pattern": "\\S" } }
+        },
         "waiting_for": { "type": "array", "items": { "oneOf": [{ "$ref": "#/$defs/text" }, {
           "type": "object", "additionalProperties": false, "required": ["owner", "operation", "question"],
           "properties": { "owner": { "enum": ["coder", "architecture_manager", "external"] }, "operation": { "enum": ["inspect", "execute"] }, "question": { "$ref": "#/$defs/text" } }

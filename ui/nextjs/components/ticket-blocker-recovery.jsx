@@ -1,14 +1,17 @@
 // Shows automatic SL/Architecture progress and concrete owner proposals without granting approval authority.
 'use client';
 import { useState } from "react";
+// eslint-disable-next-line no-unused-vars -- JSX renders the separate Owner input form.
+import { TicketBlockerOwnerInput } from "./ticket-blocker-owner-input.jsx";
 
 // Presents persisted investigation outcomes separately from Reviewer acceptance and Human Approve.
-export function TicketBlockerRecovery({ recovery, onDecide }) {
+export function TicketBlockerRecovery({ recovery, onDecide, onRespond }) {
   if (!recovery) return null;
   if (recovery.status === "approval_retry_pending") return <section aria-label="Automatic approval retry" role="status">
     <p>Dịch vụ duyệt tạm thời lỗi 503. Node tự retry mỗi 30 giây từ checkpoint; nhấn Stop trên ticket nếu muốn tạm dừng.</p>
   </section>;
   const decision = recovery.owner_decision ?? null;
+  const inputRequest = recovery.status === "reconciliation_required" ? recovery.owner_input_request : null;
   const message = recovery.status === "pending" ? "Đang tự động xác minh blocker; không cần reset hoặc RUN lại."
     : recovery.status === "owner_decided" ? "Đã ghi hướng xử lý; đang chờ AM hoàn thiện bàn giao. Coder chưa chạy tiếp."
     : recovery.status === "governance_required" ? "AM đã lưu bản nháp contract; cần duyệt đúng revision/SHA và bind qua governance trước khi Coder chạy tiếp."
@@ -18,6 +21,12 @@ export function TicketBlockerRecovery({ recovery, onDecide }) {
   return <section aria-label="Automatic blocker recovery">
     <p><strong>SL / Architecture:</strong> {message}</p>
     <p>SL tự quyết trong Sprint Plan → AM tự quyết trong cấu trúc → vượt quyền AM mới hỏi owner.</p>
+    {recovery.status === "reconciliation_required" && recovery.waiting_for?.length > 0 && <div>
+      <h4>Đang chờ</h4><ul>{recovery.waiting_for.map((entry, index) => <li key={index}>
+        {typeof entry === "string" ? entry : `${entry.owner}: ${entry.question}`}</li>)}</ul>
+    </div>}
+    {inputRequest && <TicketBlockerOwnerInput key={inputRequest.request_id} request={inputRequest}
+      response={recovery.owner_response?.request_id === inputRequest.request_id ? recovery.owner_response : null} onRespond={onRespond} />}
     {recovery.status === "owner_required" && recovery.escalation && <p><strong>Ranh giới cần quyết định:</strong> {recovery.escalation.boundary} — {recovery.escalation.rationale}</p>}
     {["owner_required", "reconciliation_required"].includes(recovery.status) && recovery.proposal && <><h4>{recovery.proposal.title}</h4>
       <ul>{recovery.proposal.options.map((option) => <li key={option.id}><strong>{option.id}{option.id === recovery.proposal.recommended_option_id ? " (khuyến nghị)" : ""}</strong>: {option.description}</li>)}</ul>

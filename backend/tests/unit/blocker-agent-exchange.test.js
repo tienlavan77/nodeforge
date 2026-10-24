@@ -149,3 +149,44 @@ test("shared responses carry source evidence for an out-of-plan Owner consultati
   assert.equal(value.response.payload.consultation.owner_boundary_risk.boundary, "approved_scope");
   assert.deepEqual(value.response.payload.consultation.owner_boundary_risk.evidence_refs, ["backend/src/application/tool-policy.js"]);
 });
+
+/** Exercises the production exchange branch for both SDKs: a wrong AM-only
+ * action gets a format correction, then SL resumes Coder without another AM call
+ * or rediscovery of the settled implementation question. */
+for (const provider of ["codex", "claude"]) test(`${provider} SL corrects an AM-only action and resumes Coder without a Node admission wait`, async () => {
+  const f = await blockerRecoveryFixture();
+  const calls = [];
+  try {
+    const profile = { agent_id: "SL", role: "sprint_leader", provider, enabled: true, status: "ready" };
+    const worker = createBlockerRecoveryAgent({ clock: () => 1000, agentResolver: { resolveAvailable: () => profile },
+      agentOccupancy: { claim: async () => ({ claim_id: "C" }), release: async () => {} },
+      resolveTicketWorkspace: async () => f.base.workspace,
+      gateways: { [provider === "codex" ? "codexSdkGateway" : "claudeSdkGateway"]: { execute: async ({ prompt, options, agent }) => {
+        calls.push(agent.role);
+        assert.match(prompt, /^AGENT EXCHANGE v1/);
+        assert.match(prompt, /no separate Node admission step/i);
+        assert.match(prompt, /payload\.decision must use \{action: resolved\|architecture_required\|reconciliation_required\|coder_requested/);
+        assert.match(prompt, /SL cannot return sprint_required/);
+        assert.match(prompt, /After a settled AM answer use resolved to hand work to Coder/);
+        assert.doesNotMatch(prompt, /Return ONLY JSON: \{action/);
+        if (calls.length === 2) {
+          assert.match(prompt, /RESPONSE CORRECTION ONLY/);
+          assert.match(prompt, /role_action_mismatch/);
+          if (provider === "codex") assert.deepEqual(options.forgeTools.definitions, []);
+          else assert.deepEqual(options.allowedTools, []);
+        }
+        return { text: JSON.stringify(response({ ...f.resolution, authority_scope: "sprint",
+          action: calls.length === 1 ? "sprint_required" : "resolved" })) };
+      } } }
+    });
+    f.recreate({ investigate: worker });
+    await assert.rejects(f.base.run(), { code: "CODER_BLOCKED" });
+    for (let turn = 0; turn < 3; turn++) await f.recovery.tick();
+    assert.deepEqual(calls, ["sprint_leader", "sprint_leader"]);
+    const job = (await f.ledger()).jobs[0];
+    assert.equal(job.status, "resumed");
+    assert.equal(job.disposition_attempts[0].validation_errors[0].path, "/action");
+    assert.equal(job.execution_admission, undefined);
+    assert.equal(f.base.integrations, 1);
+  } finally { await f.close(); }
+});

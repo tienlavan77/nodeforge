@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { createBlockerFailureEvidence } from "./blocker-failure-evidence.js";
 import { requiresBlockerAdmission } from "./blocker-failure-classification.js";
 import { blockerValidationError } from "./blocker-validation.js";
+import { blockerHandoffPrompt } from "./blocker-handoff-policy.js";
 
 const STORE = "blocker.recovery";
 const hash = (value) => createHash("sha256").update(value).digest("hex");
@@ -136,5 +137,5 @@ export function admissionPrompt(admission) {
   if (admission?.decision?.verdict === "allow" && admission.decision.operation === "commit_changes") {
     return `NODE RECORDED OWNER COMMIT INSTRUCTION: ${JSON.stringify(admission)}. The owner explicitly requested Coder to implement remaining guidance, run focused checks, and commit ticket changes. SL must hand actionable implementation back to the retained Coder checkpoint; a future commit or final verification result is not a prerequisite to that handoff. Coder uses commit_changes after repair and focused checks; Node then performs commit-bound verification and continues independent review. This recorded instruction supplies the previously missing owner request; it does not waive the actual tool approval or any source, claim, scope or verification gate. If approval rejects the new operation, retain the new reason and escalate it; do not repeat or work around that denial.`;
   }
-  return admission ? `NODE EXECUTION ADMISSION REVIEW: ${JSON.stringify(admission)}. The request is assigned to Architecture for a plan-bound decision; its pending status is not an Owner instruction or a reason to wait for an external reviewer. AM must compare the exact attempted operation and original denial with the approved criteria, return an actionable answer to SL, or use owner_required with an evidenced boundary and concrete options when Owner authority is actually necessary. A report_done/CODER_BLOCKED narrative never establishes a new approval denial. Preserve original tool denials: do not retry or reproduce a denied operation by relabeling or relocating it. Actual tool approval, source, claim and verification gates still run. No runtime acceptance is granted.` : "";
+  return admission ? `HISTORICAL TOOL DECISION EVIDENCE: ${JSON.stringify({ receipts: admission.receipts, decision: admission.decision ?? null })}. ${blockerHandoffPrompt()}` : "";
 }

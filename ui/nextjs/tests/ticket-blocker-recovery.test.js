@@ -12,6 +12,33 @@ const componentModule = { exports: {} };
 new Function("require", "module", "exports", compiled.outputFiles[0].text)(createRequire(new URL("../package.json", import.meta.url)), componentModule, componentModule.exports);
 const { TicketBlockerRecovery } = componentModule.exports;
 
+/** Ensures the full human question is actionable without reclassifying all
+ * reconciliation as Owner policy approval or exposing executable HTML. */
+test("external question exposes a separate authenticated response form with the exact context", () => {
+  const html = renderToStaticMarkup(createElement(TicketBlockerRecovery, { recovery: { status: "reconciliation_required",
+    waiting_for: [{ owner: "external", question: "Obtain the direct response." }], owner_input_request: {
+      request_id: "Q", job_id: "J", execution_id: "E", kind: "tool_authorization", question: "Approve only this exact operation?",
+      context: "Denied because <script>approval</script> is missing." } }, onRespond: () => {} }));
+  assert.match(html, /Approve only this exact operation\?/);
+  assert.match(html, /Obtain the direct response/);
+  assert.match(html, /Denied because &lt;script&gt;/);
+  assert.match(html, /Gửi phản hồi cho SL/);
+  assert.match(html, /Owner token/);
+  assert.match(html, /type="password"/);
+  assert.doesNotMatch(html, /Ghi quyết định|<script>/);
+});
+
+/** Keeps existing answers visible while preventing an accidental second form
+ * submission for the same question after a successful API response. */
+test("answered external question shows the saved answer without presenting the form again", () => {
+  const html = renderToStaticMarkup(createElement(TicketBlockerRecovery, { recovery: { status: "reconciliation_required",
+    owner_input_request: { request_id: "Q", kind: "information", question: "Which runtime?", context: "Need runtime identity." },
+    owner_response: { request_id: "Q", answer: "Runtime A" } }, onRespond: () => {} }));
+  assert.match(html, /Runtime A/);
+  assert.match(html, /Đã ghi phản hồi Owner/);
+  assert.doesNotMatch(html, /<form|Gửi phản hồi/);
+});
+
 test("a waiting ticket card exposes Stop and disables Run while keeping its checkpoint", async () => {
   const cardBuild = await build({ entryPoints: ["ui/nextjs/components/ticket-detail-modal.jsx"], bundle: true, write: false,
     platform: "node", format: "cjs", jsx: "automatic", external: ["react", "react/*"] });

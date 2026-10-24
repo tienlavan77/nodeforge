@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { createTicketStatusStore } from "../../src/modules/projects/ticket-status-store.js";
 import { createNodeforgeTaskIntegration } from "../../src/modules/supervisor/nodeforge-task-integration.js";
@@ -13,7 +13,8 @@ const BASIS = { project_id: "PROJECT-A", sprint_id: "SPRINT-A", plan_id: "PLAN-A
 
 // Runs serial lifecycle SQL tests through Python SQLite without requiring native SQLite in the CLI's Node version.
 async function fixture(context) {
-  const root = await mkdtemp(join(process.cwd(), ".forge/runtime/ticket-terminal-policy-"));
+  await mkdir(join(process.cwd(), ".forge/scratch"), { recursive: true });
+  const root = await mkdtemp(join(process.cwd(), ".forge/scratch/ticket-terminal-policy-"));
   context.after(() => rm(root, { recursive: true, force: true }));
   const path = join(root, "index.db");
   // Reads or commits one isolated SQLite statement; transaction scheduling is not under test in this adapter.

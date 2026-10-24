@@ -43,9 +43,8 @@ export function createTicketSourceMerge({ locked, load, save, recover, claim, re
   // Accepts an explicit Coder edit against the exact conflict version previously observed by Node, never a stale overwrite.
   async function resolve({ taskId, path, manifest, live }) {
     const entry = manifest.entries[path];
-    const receipt = entry.source_reconciliation;
-    if (manifest.pending_commit || receipt?.status !== "conflict" || receipt.ticket_sha !== entry.latest_sha || receipt.live_sha !== sha(live))
-      throw failure("TICKET_SOURCE_CHANGED", `Root source needs reconciliation before writing ${path}.`);
+    if (manifest.pending_commit) throw failure("TICKET_COMMIT_PENDING", `Ticket commit must finish before writing ${path}.`);
+    const receipt = { base_sha: entry.initial_sha, ticket_sha: entry.latest_sha, live_sha: sha(live) };
     const before = entry.operations.at(-1)?.after;
     if (sha(before) !== entry.latest_sha) throw failure("TICKET_SOURCE_CHANGED", `Recorded source is unavailable for ${path}.`);
     await record(taskId, path, manifest, before, live, live, { ...receipt, status: "coder_resolution", merged_sha: sha(live) });

@@ -4,7 +4,7 @@ import { ConfigurationError } from "../shared/errors.js";
 import { readRegistryTicket } from "./registry-ticket-scope.js";
 
 // Exposes Reviewer findings and records an explicit owner approval without rewriting the agent verdict.
-export function createTicketHumanReviewService({ projectId, roadmaps, sprintRegistry, ticketStatusStore, checkpoints, agentOccupancy, ticketWorkspaceService, publisher, projectLogger = () => {} } = {}) {
+export function createTicketHumanReviewService({ projectId, roadmaps, sprintRegistry, ticketStatusStore, checkpoints, agentOccupancy, ticketWorkspaceService, publisher, getBlockerOwnerRequest, projectLogger = () => {} } = {}) {
   if (!projectId || !roadmaps?.getCurrent || !roadmaps?.updateTicketStatus || !ticketStatusStore?.completeByHumanReview || !checkpoints?.load || !checkpoints?.loadReview) throw new ConfigurationError("Ticket Human Review requires roadmap, status, and checkpoint services.");
   return Object.freeze({ get, approve });
 
@@ -14,7 +14,11 @@ export function createTicketHumanReviewService({ projectId, roadmaps, sprintRegi
     const [coder, reviewer] = await Promise.all([checkpoints.load(ticketId), checkpoints.loadReview(ticketId)]);
     const status = ticketStatusStore.get(ticketId);
     const approved = status?.status === "done" && status.details?.reason === "human_review_approved";
-    return { ticket_id: ticket.id, status: ticket.status ?? "planned", approved, eligible: !sprintRegistry && !approved && coder?.status === "completed" && reviewer?.status === "completed" && reviewer?.verdict === "request_changes", blocker_recovery: coder?.status === "blocked" ? coder.blocker_recovery ?? null : null, reviewer: reviewer ? { verdict: reviewer.verdict ?? null, findings: reviewer.findings ?? [], changed_paths: reviewer.changed_paths ?? [], updated_at: reviewer.updated_at ?? null, reviewer_name: reviewer.reviewer_name ?? null } : null, decision: approved ? status.details : null };
+    const ownerRequest = coder?.status === "blocked" && coder.blocker_recovery?.status === "reconciliation_required"
+      ? await getBlockerOwnerRequest?.({ projectId, ticketId }) : null;
+    const recovery = coder?.status === "blocked" ? coder.blocker_recovery ?? null : null;
+    const ownerResponse = ownerRequest ? coder.blocker_owner_inputs?.findLast((entry) => entry.request_id === ownerRequest.request_id) : null;
+    return { ticket_id: ticket.id, status: ticket.status ?? "planned", approved, eligible: !sprintRegistry && !approved && coder?.status === "completed" && reviewer?.status === "completed" && reviewer?.verdict === "request_changes", blocker_recovery: ownerRequest ? { ...recovery, owner_input_request: ownerRequest, ...(ownerResponse ? { owner_response: ownerResponse } : {}) } : recovery, reviewer: reviewer ? { verdict: reviewer.verdict ?? null, findings: reviewer.findings ?? [], changed_paths: reviewer.changed_paths ?? [], updated_at: reviewer.updated_at ?? null, reviewer_name: reviewer.reviewer_name ?? null } : null, decision: approved ? status.details : null };
   }
 
   // Completes a ticket only after an owner explicitly accepts the recorded Reviewer findings.

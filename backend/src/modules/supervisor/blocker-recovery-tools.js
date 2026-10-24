@@ -8,14 +8,24 @@ import { createOwnerSearchTreeTool } from "../../tools/owner-search-tree.js";
 import { createGitReadTools } from "../../tools/git-read-tools.js";
 import { engineeringToolDefinitions } from "../../tools/engineering-tool-catalog.js";
 import { createBlockerEvidenceFiles } from "./blocker-evidence-files.js";
+import { createCodeCacheService } from "../context/code-cache-service.js";
 
 const READ_TOOLS = ["search_tree", "list_files", "search_text", "read_file", "read_lines", "git_status", "git_diff"];
 
 // Builds a bounded recovery registry from the same implementations and schemas used by other Forge agents.
-export function blockerRecoveryTools({ fileService, projectRoot, profile, task_id, correlation_id, job, gitService = createGitService({ projectRoot }), projectLogger = () => {}, onDiscoveryCheckpoint, clock, deadline, abortSignal }) {
+export function blockerRecoveryTools({ fileService, codeCache, projectRoot, profile, task_id, correlation_id, job, gitService = createGitService({ projectRoot }), projectLogger = () => {}, onDiscoveryCheckpoint, clock, deadline, abortSignal }) {
   const { files, isEvidencePath } = createBlockerEvidenceFiles({
     files: createRoleFileService({ fileService, projectRoot, role: profile.role }), projectRoot, profile, taskId: task_id, job });
-  const cache = { read: (input) => files.readForIndex({ ...input, maxBytes: 128_000 }) };
+  const sourceCache = codeCache ?? createCodeCacheService({ projectId: projectRoot,
+    fileService: { readForIndex: (input) => files.readForIndex({ ...input, maxBytes: 128_000 }) }, logger: projectLogger });
+  const cache = { read: async ({ path }) => {
+    await files.assertReadPath(path);
+    // Receipts and context grants must be revalidated against their current assignment on every read.
+    if (isEvidencePath(path)) return files.readForIndex({ path, maxBytes: 128_000 });
+    const file = await sourceCache.read({ path });
+    if (file.size_bytes > 128_000) throw Object.assign(new Error("Recovery source exceeds the read budget."), { code: "FILE_TOO_LARGE" });
+    return file;
+  } };
   const baseline = job?.request?.execution_context?.base_sha;
   const paths = new Set([...(job?.request?.ticket?.execution_policy?.contract_evidence ?? []), ...(job?.evidence ?? [])]
     .map((ref) => typeof ref === "object" ? ref?.path ?? ref?.reference : ref)

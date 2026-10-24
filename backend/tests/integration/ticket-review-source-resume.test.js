@@ -20,7 +20,7 @@ async function git(root, ...args) { return (await execFile("git", ["-C", root, .
 // Computes the same source digest used by persisted verification evidence.
 const hash = (content) => `sha256:${createHash("sha256").update(content).digest("hex")}`;
 
-test("Reviewer resumes and integrates the passed commit despite external live edits; Coder drift and stale evidence remain blocked", async () => {
+test("Reviewer keeps committed evidence while Coder resumes on live source with stale-write protection", async () => {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-review-resume-source-"));
   try {
     await git(root, "init", "-q");
@@ -31,11 +31,12 @@ test("Reviewer resumes and integrates the passed commit despite external live ed
     await git(root, "add", ".gitignore", "source.js");
     await git(root, "commit", "-qm", "baseline");
     const files = createFileService({ projectRoot: root });
+    let finalReport;
     const service = createTicketRootWorkspace({ projectRoot: root, projectId: "PROJECT-1", stateFileService: files,
-      protocolStorage: { save: async () => {}, get: async () => ({ data: { status: "submitted_for_review", criteria_check: [{ status: "verified" }] } }) },
+      protocolStorage: { save: async (_ref, data) => { finalReport = data; }, get: async () => ({ data: finalReport }) },
       indexDatabase: { all: () => [] }, codeSearch: { search: async () => [] }, fileGraph: { getDependencies: () => [], getDependents: () => [] } });
     const workspace = await service.open("TICKET-1");
-    const ticket = { id: "TICKET-1", project_id: "PROJECT-1", verification_plan: [] };
+    const ticket = { id: "TICKET-1", project_id: "PROJECT-1", verification_plan: [], title: "Refresh source", objective: "Preserve reviewed evidence", acceptance_criteria: ["Committed source is reviewed"] };
     const input = { workspace, ticket, taskId: ticket.id, supervisorId: "SUP-1" };
     await prepareTicketExecutionContext(input);
     const submitted = "const value = 2;\n";
@@ -51,10 +52,16 @@ test("Reviewer resumes and integrates the passed commit despite external live ed
       planned_commands: [command], commands: [{ ...command, exit_code: 0, output_sha256: hash("") }] };
     await files.atomicWrite({ path: `.forge/runtime/ticket-verification/${ticket.id}/artifacts/${artifact.artifact_id}.json`, content: JSON.stringify(artifact), replace: false });
     context = await workspace.executionContexts.update(ticket.id, context.version, { state: "reviewing", verification_artifact_id: artifact.artifact_id });
+    const coverage = [{ criterion_id: "AC-1", criterion: ticket.acceptance_criteria[0], status: "verified", artifact_id: artifact.artifact_id }];
+    const report = { summary: "Committed fixture source is ready for review.", acceptance_criteria: ticket.acceptance_criteria, acceptance_coverage: coverage };
+    await workspace.reviewFindings.recordCoderReport({ report, artifact, idempotencyKey: "fixture-report" });
+    finalReport = { ticket, status: "submitted_for_review", criteria_check: coverage, agent_report: report,
+      verify_result: { artifact_id: artifact.artifact_id, commit_id: artifact.commit_sha } };
     const external = "const value = 3; // platform repair\n";
     await writeFile(join(root, "source.js"), external);
-    await assert.rejects(prepareTicketExecutionContext(input), { code: "TICKET_SOURCE_CHANGED" });
-    await assert.rejects(workspace.changeLedger.resume(), { code: "TICKET_SOURCE_CHANGED" });
+    assert.deepEqual(await prepareTicketExecutionContext(input), context);
+    await workspace.changeLedger.resume({ observe_changes: true });
+    await assert.rejects(workspace.changeLedger.snapshot(), { code: "TICKET_SOURCE_CHANGED" });
     const resume = { base_commit: context.base_sha, verification: artifact };
     assert.deepEqual(await prepareTicketReviewContext({ ...input, resume }), context);
     const evidence = await assertTicketReviewEvidence({ job: { task_id: ticket.id, payload: { commit: commit.sha, verification: artifact, execution_context: context, changed_paths: artifact.changed_paths } },
@@ -65,8 +72,9 @@ test("Reviewer resumes and integrates the passed commit despite external live ed
     assert.equal((await workspace.integrate()).sha, commit.sha);
     assert.equal(await readFile(join(root, "source.js"), "utf8"), external);
     assert.deepEqual(await workspace.executionContexts.load(ticket.id), context);
-    await workspace.changeLedger.write({ path: "source.js", before: external, after: "const value = 4;\n" }).then(
-      () => assert.fail("External source must not be adopted by a Coder write"), (error) => assert.equal(error.code, "TICKET_SOURCE_CHANGED"));
+    await assert.rejects(workspace.changeLedger.write({ path: "source.js", before: submitted, after: "const value = 4;\n" }), { code: "CHECKSUM_MISMATCH" });
+    await workspace.changeLedger.write({ path: "source.js", before: external, after: "const value = 4;\n" });
+    assert.equal(await readFile(join(root, "source.js"), "utf8"), "const value = 4;\n");
     await workspace.executionContexts.update(ticket.id, context.version, { manifest_sha: "changed-after-verification" });
     await assert.rejects(prepareTicketReviewContext({ ...input, resume }), { code: "VERIFY_ARTIFACT_MISMATCH" });
   } finally { await rm(root, { recursive: true, force: true }); }

@@ -86,7 +86,7 @@ export function createOwnerSdkStream({ agentConfiguration, sdkGateways, fallback
       const builtinTools = [];
       const roleAllowsBuiltinWebSearch = ["system_engineer", "architecture_manager"].includes(profile.role);
       const sdkSearchAvailable = typeof sdk.builtinWebSearchAvailable === "function" ? sdk.builtinWebSearchAvailable(profile) : sdk.builtinWebSearchAvailable !== false;
-      const allowBuiltinWebSearch = roleAllowsBuiltinWebSearch && sdkSearchAvailable && (!systemEngineer || builtin);
+      const allowBuiltinWebSearch = roleAllowsBuiltinWebSearch && sdkSearchAvailable;
       const webSearchCapabilityNote = roleAllowsBuiltinWebSearch && !allowBuiltinWebSearch ? "\nThis SDK provider does not support native web search. Do not claim to search the web; explain the limitation if the owner asks, and keep using Forge tools for project information." : "";
       const searchToolInstruction = "Use only the supplied Forge tools for repository discovery, reading, editing, checks, and Git.";
       const toolInstruction = builtin ? "You are the project System Engineer. Work directly with the supplied SDK built-in tools. Explore, edit, and verify the project autonomously. Only access project data within the project root; system binaries are for executing tools. Do not use Forge MCP tools. Git commit and push only when the owner requests them. Inspect existing changes before committing; do not discard unrelated work." : sdk.conversationMode === "thread" ? systemEngineer

@@ -12,19 +12,17 @@ export function ProjectWorkspace({ children, projectId }) {
   const selection = useSyncExternalStore(subscribeProjectSelection, getProjectSelection, () => initialSelection);
   const [admitted, setAdmitted] = useState(null);
   const [error, setError] = useState(null);
-  // A directory request that fails outright means the Control API is unreachable; the page keeps its own interface instead of a blocking state screen.
-  const [unreachable, setUnreachable] = useState(false);
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
     let active = true;
-    setAdmitted(null); setError(null); setUnreachable(false);
+    setAdmitted(null); setError(null);
     // Resolve explicit deep links and tab-local selections against the current admitted directory.
     async function load() {
       // Re-admission after a recovered API must replace stale errors, so clear them before each attempt.
       if (active) setError(null);
       try { await refreshProjects(); }
-      catch { if (active) setUnreachable(true); return; }
+      catch (failure) { if (active) setError(failure.message); return; }
       if (!active) return;
-      setUnreachable(false);
       try {
         const current = getProjectSelection();
         const soleProject = current.projects.length === 1 ? current.projects[0].project_id : null;
@@ -39,13 +37,14 @@ export function ProjectWorkspace({ children, projectId }) {
     // Re-run the full admission whenever the window regains focus so a restarted API recovers the workspace automatically.
     window.addEventListener("focus", load);
     return () => { active = false; window.removeEventListener("focus", load); };
-  }, [projectId]);
+  }, [projectId, retry]);
 
   // While the first admission attempt is still resolving, show the loading status without a navigation button.
-  if (!error && !unreachable && !selection.error && !admitted) return <main className="project-workspace-state"><p role="status">Opening project…</p></main>;
-  // Keep the page's existing interface when the API cannot be reached; project-bound operations surface their own recoverable errors within the page.
-  if (unreachable || (!error && admitted && selection.projectId === admitted)) return <Fragment key={selection.generation}>{children}</Fragment>;
+  if (!error && !selection.error && !admitted) return <main className="project-workspace-state"><p role="status">Opening project…</p></main>;
+  // Project-bound children must never run requests until directory admission has established their identity.
+  if (!error && admitted && selection.projectId === admitted) return <Fragment key={selection.generation}>{children}</Fragment>;
   return <main className="project-workspace-state">
     <p role={error || selection.error ? "alert" : "status"}>{error || selection.error || "This project is unavailable. Choose an available project."}</p>
+    <button type="button" onClick={() => setRetry((current) => current + 1)}>Retry</button>
   </main>;
 }

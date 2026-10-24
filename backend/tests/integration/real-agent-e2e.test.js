@@ -9,8 +9,8 @@ const controlApiEntry = fileURLToPath(new URL("../../scripts/start-control-api.m
 
 test("Owner request reaches the real Agent and persisted stream is replayable", { timeout: 120000 }, async (t) => {
   if (!process.env.OPENAI_BASE_URL || !process.env.OPENAI_API_KEY) return t.skip("Real gateway credential is not configured.");
-  await mkdir(join(process.cwd(), ".forge/runtime"), { recursive: true });
-  const dataDir = await mkdtemp(join(process.cwd(), ".forge/runtime/nf150-"));
+  await mkdir(join(process.cwd(), ".forge/scratch"), { recursive: true });
+  const dataDir = await mkdtemp(join(process.cwd(), ".forge/scratch/nf150-"));
   const port = 31250 + Math.floor(Math.random() * 200);
   const child = spawn(process.execPath, [controlApiEntry], { cwd: process.cwd(), env: { ...process.env, NODE_CONTROL_PORT: String(port), NODE_CONTROL_DATA_DIR: dataDir, NODE_SECRET_ENCRYPTION_KEY: "nf150-test-encryption-key", NODE_AGENT_TIMEOUT_MS: "60000" }, stdio: ["ignore", "pipe", "pipe"] });
   t.after(async () => { child.kill("SIGTERM"); await rm(dataDir, { recursive: true, force: true }); });

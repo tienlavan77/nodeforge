@@ -2,8 +2,16 @@
 import { requireProject, unavailable } from "./forge-v1-router-utils.js";
 
 // Dispatches ticket review requests while preserving their separate decision records.
-export async function routeTicketReview({ method, parts, projectId, body, requestId, correlationId, reviewTicket, ticketHumanReviewService, ticketBlockerDecisionService, ticketBlockerReconcileService }) {
+export async function routeTicketReview({ method, parts, projectId, body, requestId, correlationId, reviewTicket, ticketHumanReviewService, ticketBlockerDecisionService, ticketBlockerReconcileService, planOwnerAuth, headers }) {
   if (parts.length !== 3 || parts[0] !== "tickets") return null;
+  if (parts[2] === "blocker-response" && method === "POST") {
+    if (!ticketBlockerDecisionService?.respond) throw unavailable("Ticket Blocker Owner Response");
+    requireProject(projectId);
+    if (!planOwnerAuth?.verify) throw unavailable("Owner authentication");
+    const actor = planOwnerAuth.verify(headers);
+    return { status: 200, body: await ticketBlockerDecisionService.respond({ requestedProjectId: projectId, ticketId: parts[1], actor,
+      jobId: body.job_id, executionId: body.execution_id, requestId: body.request_id, answer: body.answer }) };
+  }
   if (parts[2] === "review" && method === "POST") {
     if (typeof reviewTicket !== "function") throw unavailable("Review-only Dispatch");
     requireProject(projectId);

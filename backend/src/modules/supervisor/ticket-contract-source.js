@@ -53,7 +53,8 @@ export function createTicketContractSource({ request, workspace, git }) {
         provenance: "integrated_project_changes", integration: integrated };
     }
     let manifest;
-    try { manifest = await workspace.changeLedger?.snapshot?.(); }
+    const sourceObservation = workspace.root_only && typeof workspace.changeLedger?.observe === "function";
+    try { manifest = workspace.changeLedger?.observe ? await workspace.changeLedger.observe() : await workspace.changeLedger?.snapshot?.(); }
     catch (error) {
       if (!["TICKET_SOURCE_CHANGED", "TICKET_SOURCE_DRIFT", "FILE_CLAIM_CONFLICT"].includes(error.code)) throw error;
       throw conflict(`${error.code}: ${error.message}`);
@@ -70,7 +71,11 @@ export function createTicketContractSource({ request, workspace, git }) {
         provenance: "integrated_project_changes", integration: integrated };
     }
     let cursor = `sha256:${baselineSha}`;
-    if (!entries.length) throw conflict(`Current contract source is not explained by this ticket's baseline and completed writes: ${ref.path}.`);
+    if (!entries.length) {
+      if (!sourceObservation) throw conflict(`Current contract source is not explained by this ticket's baseline and completed writes: ${ref.path}.`);
+      return { path: ref.path, baseline_commit: baseline, baseline_sha256: ref.sha256, current_sha256: currentSha,
+        provenance: "observed_source_changes", source_review_required: true, recorded_sha256: baselineSha };
+    }
     for (const entry of entries) {
       if (entry.pending || entry.initial_sha !== cursor || (entry.initial_content === null ? null : `sha256:${hash(entry.initial_content)}`) !== cursor || !entry.operations?.length)
         throw conflict(`Ticket contract source has a broken repair chain: ${ref.path}.`);
@@ -84,7 +89,11 @@ export function createTicketContractSource({ request, workspace, git }) {
       }
       if (cursor !== entry.latest_sha) throw conflict(`Ticket contract source journal does not reach recorded bytes: ${ref.path}.`);
     }
-    if (cursor !== (currentSha === null ? null : `sha256:${currentSha}`)) throw conflict(`Ticket contract source journal does not reach current bytes: ${ref.path}.`);
+    if (cursor !== (currentSha === null ? null : `sha256:${currentSha}`)) {
+      if (!sourceObservation) throw conflict(`Ticket contract source journal does not reach current bytes: ${ref.path}.`);
+      return { path: ref.path, baseline_commit: baseline, baseline_sha256: ref.sha256, current_sha256: currentSha,
+        recorded_sha256: cursor?.replace(/^sha256:/, "") ?? null, provenance: "observed_source_changes", source_review_required: true, ledger_revision: manifest.revision };
+    }
     return { path: ref.path, baseline_commit: baseline, baseline_sha256: ref.sha256, current_sha256: currentSha,
       ...(inherited ? { ...inherited, inherited_sha256: baselineSha } : {}), provenance: "ticket_owned_changes", ledger_revision: manifest.revision };
   }

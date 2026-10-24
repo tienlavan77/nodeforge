@@ -10,7 +10,8 @@ export const planMarkdown = "# Plan: Restore panels\n\n## 1. Mục tiêu\n\nRepo
 
 // Builds a source-bound command service whose provider calls and persisted Markdown can be inspected safely.
 export async function clarificationFixture(context, questions = [question]) {
-  const root = await mkdtemp(join(process.cwd(), ".forge/runtime/architecture-choices-test-"));
+  await mkdir(join(process.cwd(), ".forge/scratch"), { recursive: true });
+  const root = await mkdtemp(join(process.cwd(), ".forge/scratch/architecture-choices-test-"));
   context.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(join(root, "workflows/agents/architecture"), { recursive: true });
   await writeFile(join(root, "workflows/agents/architecture/README.md"), "# Architecture frame\n## 1. Goals\n## 7. Acceptance\n");

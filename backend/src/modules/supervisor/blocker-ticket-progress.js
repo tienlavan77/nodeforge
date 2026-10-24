@@ -7,6 +7,7 @@ import { readBlockerVerificationEvidence } from "./blocker-verification-evidence
 import { createTicketContractSource } from "./ticket-contract-source.js";
 import { blockerDependencyProgress } from "./blocker-dependency-progress.js";
 import { inspectReviewResponseReadiness } from "./review-response-readiness.js";
+import { ticketSourceChanges } from "./ticket-source-observation.js";
 
 // Identifies evidence rather than agent wording so repeated requests cannot masquerade as new work.
 const digest = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -38,20 +39,21 @@ export async function buildBlockerTicketProgress({ job, checkpoint, workspace, r
   }
   let manifest = null;
   let artifact = null;
-  try { await workspace.changeLedger?.reconcile?.(); manifest = await workspace.changeLedger?.snapshot?.(); }
+  try { manifest = workspace.changeLedger?.observe ? await workspace.changeLedger.observe() : await workspace.changeLedger?.snapshot?.(); }
   catch (error) {
     if (!["TICKET_SOURCE_CHANGED", "TICKET_SOURCE_DRIFT", "FILE_CLAIM_CONFLICT"].includes(error.code)) throw error;
     diagnostics.push({ code: error.code, message: error.message });
     manifest = await workspace.changeLedger?.load?.() ?? null;
   }
-  if (context?.verification_artifact_id && !diagnostics.length) {
+  const source_changes = ticketSourceChanges(manifest);
+  if (context?.verification_artifact_id && !diagnostics.length && !source_changes.length) {
     try { artifact = await workspace.testService.assertPassedArtifact(); }
     catch (error) {
       if (!["VERIFY_ARTIFACT_MISMATCH", "TICKET_SOURCE_CHANGED", "TICKET_SOURCE_DRIFT", "VERIFY_WORKTREE_DIRTY"].includes(error.code)) throw error;
       diagnostics.push({ code: error.code, message: error.message });
     }
   }
-  const changedFiles = Object.entries(diagnostics.length ? {} : manifest?.entries ?? {}).filter(([, entry]) => entry.source_reconciliation?.status !== "conflict").map(([path, entry]) => ({ path, sha256: entry.latest_sha }));
+  const changedFiles = Object.entries(diagnostics.length ? {} : manifest?.entries ?? {}).filter(([, entry]) => !["changed", "conflict"].includes(entry.source_reconciliation?.status)).map(([path, entry]) => ({ path, sha256: entry.latest_sha }));
   const source_reconciliation = manifest && workspace.gitService?.inspectSource ? await workspace.gitService.inspectSource(manifest) : null;
   const verification = await readBlockerVerificationEvidence({ job, workspace, context });
   const coverage = artifact ? completeNodeReportEvidence({}, ticket, artifact).acceptance_coverage : [];
@@ -67,7 +69,7 @@ export async function buildBlockerTicketProgress({ job, checkpoint, workspace, r
   });
   const evidence = { execution_id: job.request.payload?.execution_id, source_revision: context?.source_revision,
     manifest_sha: context?.manifest_sha, commit_sha: context?.review_commit_sha, artifact_id: artifact?.artifact_id ?? null,
-    changed_files: changedFiles, criteria, diagnostics, contract_source, dependencies, source_reconciliation, verification, review_access, retained_review_source, review_findings, review_response_delivery,
+    changed_files: changedFiles, source_changes, criteria, diagnostics, contract_source, dependencies, source_reconciliation, verification, review_access, retained_review_source, review_findings, review_response_delivery,
     architecture_decision: job.architecture_response?.disposition ?? null };
   const assigned = new Set(criteria.flatMap((entry) => entry.files.map((file) => file.path)));
   return { ...evidence, evidence_sha256: digest({ ...evidence, criteria: criteria.map(({ criterion_id, implementation, verification, files, checks }) => ({ criterion_id, implementation, verification, files, checks })) }), last_completed_turn: checkpoint.last_completed_turn,
@@ -125,7 +127,7 @@ export function ticketProgressPrompt(job) {
     "Node ticket_progress.contract_source supplies explicit historical baseline validation and current ticket-owned write provenance. A validated receipt clears checksum drift as a discovery prerequisite; do not wait for Node to supply that same result again. It does not prove API compatibility or acceptance: preserve the approved contract, implement remaining changes and run the mapped checks. A blocked receipt remains a concrete source/baseline prerequisite.",
     "Node ticket_progress.dependencies with status=validated supplies execution-bound accepted prerequisites. A done ticket is accepted by the pipeline; do not request another acceptance receipt or reapprove its integrated source. The Sprint evolves on shared source: integrated_project_changes proves inherited reviewed bytes while preserving historical approval identity. Implement this ticket on that inherited source; its own criteria still require verification and review.",
     "Node ticket_progress.source_reconciliation supplies read-only journal operation IDs/revisions/hashes, recorded commits, pending commit, current Git parent comparison and any retained transaction. Consume these facts directly; do not ask Coder or an external operator to read the same protected runtime journal. commit_scope=whole_ticket_files means commit the full final content of every file Coder changed in the ticket, including changes already present in those files, and exclude files outside the ticket. preexisting_changes is informational, not a commit blocker. Historical TICKET_BASELINE_CONFLICT from the old parent-equality check does not require journal rebinding, historical-parent reconstruction, or new Architecture approval under this policy. Normal Coder may retry through the current commit service once actual source/claim/execution checks pass; no reset or manual rewriting of journal/receipts is needed. Current source must still match the ticket's latest recorded hashes, and real approval denials remain enforced. Stale observations must be refreshed before use.",
-    "Node source reconciliation receipts preserve base, ticket and live hashes. status=merged means Node retained both disjoint edits. status=conflict supplies exact base line ranges: SL should resolve with concrete instructions for Coder to read the current file and edit only the missing ticket change against its live checksum, preserving concurrent edits. Do not wait for another external journal receipt or new Architecture approval merely for source drift. Node journals this explicit Coder resolution before normal commit and verification.",
+    "Node ticket_progress.source_changes records current versus ticket hashes without approving or rejecting the code. A checksum change alone is not an execution blocker: SL returns actionable work to Coder at its retained checkpoint, preserving settled AM decisions. Coder reads current files, assesses the changes, and writes with fresh whole-file checksums. Node source reconciliation receipts preserve base, ticket and live hashes. status=merged means Node retained both disjoint edits. status=conflict supplies exact base line ranges: SL should resolve with concrete instructions for Coder to read the current file and edit only the missing ticket change against its live checksum, preserving concurrent edits. Do not wait for another external journal receipt or new Architecture approval merely for source drift. Node journals this explicit Coder resolution before normal commit and verification.",
     "Node ticket_progress.verification supplies read-only execution-bound job status, failed command diagnostics and focused check receipts, including failed artifacts not attached to context. Consume these records directly; do not ask an external operator for the same runtime evidence. Old runner versions are diagnostic evidence only, never current acceptance or tool permission. Verification pending/failure is technical recovery, not an approval denial. SL chooses recovery for the concrete failed command; preserve committed work and do not rerun a completed passing check without a new reason.",
     "Node verification.historical_checks and historical_artifacts are hash-pinned, read-only diagnostic evidence for this ticket, not current acceptance or proof of authorship/execution identity. Read them through the supplied exact evidence_ref and compare individual assertion causes, source and environment identities. baseline_evidence.status=not_recorded explicitly means Node found no baseline receipt in the retained ticket checks/artifacts. Do not wait for an unrecorded historical run: SL must coordinate a narrowly scoped permitted Coder baseline comparison when needed, or identify a concrete unavailable prerequisite. Historical failure alone never proves a current failure preexisting. Preserve actual approval denials; do not alter tests or production permission gates to force passing results.",
     "Node ticket_progress.review_access probes the current Reviewer tools against the exact retained review artifact and project instructions. status=verified means that historical PATH_FORBIDDEN is no longer a current read-access prerequisite; this does not close findings or grant approval. SL should resume Coder for remaining implementation/verification work, then independent Reviewer adjudicates prior findings. A blocked access probe is a tooling diagnostic, not an automatic approval denial. Never ask Coder to change Reviewer permissions or invent denial receipts.",

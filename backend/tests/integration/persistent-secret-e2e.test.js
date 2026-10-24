@@ -8,8 +8,8 @@ import { fileURLToPath } from "node:url";
 const controlApiEntry = fileURLToPath(new URL("../../scripts/start-control-api.mjs", import.meta.url));
 
 test("persists an Anthropic Agent credential across Node restart and keeps it out of responses", { timeout: 90000 }, async (t) => {
-  await mkdir(join(process.cwd(), ".forge/runtime"), { recursive: true });
-  const dataDir = await mkdtemp(join(process.cwd(), ".forge/runtime/nf152-")); const port = 31300 + Math.floor(Math.random() * 100);
+  await mkdir(join(process.cwd(), ".forge/scratch"), { recursive: true });
+  const dataDir = await mkdtemp(join(process.cwd(), ".forge/scratch/nf152-")); const port = 31300 + Math.floor(Math.random() * 100);
   const env = { ...process.env, NODE_CONTROL_PORT: String(port), NODE_CONTROL_DATA_DIR: dataDir, NODE_SECRET_ENCRYPTION_KEY: "nf152-test-encryption-key", NODE_AGENT_TIMEOUT_MS: "60000" };
   let child = start(env); t.after(async () => { child.kill("SIGTERM"); await rm(dataDir, { recursive: true, force: true }); });
   await waitForOutput(child.stdout, "Node Control API listening", 20000);
