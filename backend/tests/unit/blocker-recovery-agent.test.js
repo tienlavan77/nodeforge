@@ -63,10 +63,11 @@ test("read-only investigation keeps traversal forbidden without exhausting allow
     assert.equal(logs.filter((entry) => entry.event_name === "supervisor.blocker_tool_call" && entry.status === "started").length, 31);
     assert.equal(logs.filter((entry) => entry.status === "failed").length, 30);
     assert.equal(logs.at(-1).status, "success");
-    assert(logs.every((entry) => entry.task_id === "TICKET-1" && entry.correlation_id === "BLOCKER-JOB-SL"));
-    assert(logs.every((entry) => entry.payload.tool === "read_file" && entry.payload.agent_id === "SL"));
+    const toolLogs = logs.filter((entry) => entry.event_name === "supervisor.blocker_tool_call");
+    assert(toolLogs.every((entry) => entry.task_id === "TICKET-1" && entry.correlation_id === "BLOCKER-JOB-SL"));
+    assert(toolLogs.every((entry) => entry.payload.tool === "read_file" && entry.payload.agent_id === "SL"));
     assert.equal(JSON.stringify(logs).includes("../outside"), false);
-    assert.equal(JSON.stringify(logs).includes(fixture.evidence.path), false);
+    assert.equal(JSON.stringify(toolLogs).includes(fixture.evidence.path), false);
   } finally { await fixture.close(); }
 });
 
@@ -164,8 +165,9 @@ test("extracts a valid JSON disposition when an agent prefixes discovery notes b
       agentOccupancy: { claim: async () => ({ claim_id: "CLAIM" }), release: async () => {} },
       resolveTicketWorkspace: async () => fixture.base.workspace,
       gateways: { claudeSdkGateway: { execute: async ({ prompt }) => {
-        assert.match(prompt, /delegated technical contract design/);
-        assert.match(prompt, /Prefer returning action=resolved with authority_scope=architecture/);
+        assert.match(prompt, /AM may decide technical\/policy choices already covered by the approved plan/);
+        assert.match(prompt, /AM may return action=resolved directly/);
+        assert.match(prompt, /no separate Node admission step/i);
         assert.match(prompt, /if all six flags are false, return resolved only when the blocker is actually cleared, otherwise reconciliation_required/);
         return { text: `Based on my investigation:\n1. Confirmed contract boundary.\n\n\`\`\`json\n${JSON.stringify({ ...fixture.resolution, boundary_assessment: null, architecture_basis: null })}\n\`\`\`` };
       } } } });

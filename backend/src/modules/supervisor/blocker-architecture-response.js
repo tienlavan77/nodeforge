@@ -2,6 +2,7 @@
 import { completeAuthorityConsultation } from "./blocker-authority-consultation.js";
 import { scheduleTechnicalReconciliation } from "./blocker-technical-reconciliation.js";
 import { waitingAssignments } from "./blocker-waiting-work.js";
+import { completeBlockerAdmissionWait } from "./blocker-handoff-policy.js";
 
 // Preserves the AM conclusion as SL input, retaining the original Coder request and checkpoint.
 export function returnArchitectureResponse(job, value, now) {
@@ -18,6 +19,7 @@ export function returnArchitectureResponse(job, value, now) {
   job.resolution = value;
   job.history.push({ stage: "sprint_leader", event: "architecture_answer_returned", action: value.action, completed_at: now });
   if (value.execution_admission_request) job.execution_admission = value.execution_admission_request;
+  if (value.action === "resolved" && value.authority_scope === "architecture") completeBlockerAdmissionWait(job, now);
   if (value.action === "reconciliation_required" && !value.reconciliation?.waiting_for?.length) {
     scheduleTechnicalReconciliation(job, value, now);
     job.stage = "sprint_leader";

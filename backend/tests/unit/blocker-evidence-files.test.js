@@ -107,6 +107,22 @@ test("SL can submit a resolved handoff citing the same receipt read by its tools
   } finally { await f.cleanup(); }
 });
 
+test("disposition citing a Node context delivery copy gets correctable source-evidence feedback instead of a raw role rejection", async () => {
+  const f = await fixture("sprint_leader");
+  try {
+    const path = `.forge/runtime/blocker-context/TICKET-A/${"a".repeat(64)}.json`;
+    const content = JSON.stringify({ section: "ticket_progress", part: 1, content_lines: ["delivery copy"] });
+    await mkdir(join(f.root, ".forge/runtime/blocker-context/TICKET-A"), { recursive: true });
+    await writeFile(join(f.root, path), content);
+    const disposition = { action: "reconciliation_required", summary: "A context copy was cited.",
+      guidance: "Re-cite the original inspected source file.", evidence: [{ path, sha256: createHash("sha256").update(content).digest("hex") }] };
+    await assert.rejects(() => validateBlockerDisposition(disposition, { job: f.job, projectRoot: f.root,
+      fileService: createFileService({ projectRoot: f.root }) }),
+    (error) => error.code === "BLOCKER_DISPOSITION_INVALID" && error.retryable_disposition === true
+      && error.validation_errors[0].reason === "evidence_not_source" && error.validation_errors[0].path === "/evidence/0/path");
+  } finally { await f.cleanup(); }
+});
+
 test("recovery rejects replaced receipt identities and symlink targets", async () => {
   const f = await fixture("sprint_leader");
   try {

@@ -76,6 +76,29 @@ Node persists `ticket_progress` in the recovery job before calling a role. It re
 
 ## Unresolved prerequisites
 
+### Owner input and policy decisions
+
+`reconciliation_required` means technical work or evidence is missing. It does not by itself require Owner approval. `owner_required` remains the existing AM-only escalation for a decision outside approved authority, with a grounded boundary and 2–4 proposal options. The existing `/tickets/:id/blocker-decision` endpoint continues to record those policy choices.
+
+When a specific external answer must come directly from the Owner, SL/AM supplies:
+
+```json
+{
+  "owner_request": {
+    "kind": "tool_authorization",
+    "question": "Do you approve the exact disclosed operation?",
+    "context": "State the attempted operation, the original denial reason, and the effect of granting the request."
+  },
+  "waiting_for": [{"owner": "external", "operation": "execute", "question": "Obtain the direct Owner answer."}]
+}
+```
+
+These fields belong inside `reconciliation`; `kind: information` requests facts rather than authorization. The ticket card exposes **Owner response**, and the existing Human Review evidence API includes `owner_input_request`. Legacy explicit external waits show their stored question and full retained guidance as information requests without interpreting prose as permission.
+
+`POST /forge/v1/tickets/:id/blocker-response?project=:project` accepts `{job_id,execution_id,request_id,answer}` and authenticates the Owner with the existing Owner bearer credential. The server derives the actor; the browser cannot supply one. A changed execution, question or job is rejected. Identical delivery is idempotent; a conflicting second answer is rejected. Stop remains effective.
+
+The answer is persisted under `blocker_owner_inputs` in the original checkpoint. Recovery delivers it once to SL, including after process restart, while retaining Coder's turn and original denial. SL coordinates the next permitted step. No plan approval, tool authorization receipt, source mutation, direct Coder launch or AM policy escalation is created by recording this response. Terminal logs distinguish `blocker_owner_input_recorded` from `blocker_owner_input_delivered`.
+
 ### Historical contract preflight
 
 Contract approval remains bound to its immutable checksum. At dispatch and SL contract resolution, Node verifies that checksum against the file in the ticket's persisted Git baseline, checks project/task/workspace identity and baseline reachability, then compares live source with the ticket journal. Modified source may proceed only with a complete checksum-linked chain of completed writes from the approved bytes to the current bytes. Partial writes, foreign ownership, external drift and malformed chains produce source reconciliation, not fabricated contract approval. Source reads retain existing path and symlink restrictions.

@@ -21,7 +21,10 @@ const KEEP_DIRECTORIES = new Set([
   "agent-checkpoint-decisions", "recovery-backups", "repair-backups", "owner-executions", "architecture-executions",
   "supervisors", "ticket-baselines", "ticket-finding-repairs", "ticket-pipeline-disposition", "ticket-pipeline-rollout",
   "ticket-review-findings", "ticket-review-repairs", "ticket-root-workspaces", "ticket-run-dispositions",
-  "node-runtime", "npm-cache", "pnpm-cli", "browser-tools", "wc", "nf"
+  "node-runtime", "npm-cache", "pnpm-cli", "browser-tools", "wc", "nf",
+  // Live state discovered during cleanup: prompt/exchange storage written by agent-exchange-storage.js
+  // and blocker-prompt-context.js, plus the sandboxed .claude workspace inside the runtime tree.
+  "agent-messages", "blocker-context", ".claude"
 ]);
 // Top-level files that describe live state and must survive cleanup.
 const KEEP_FILES = new Set(["project.json", "index.db", "index.db-shm", "index.db-wal"]);

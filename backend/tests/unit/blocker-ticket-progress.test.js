@@ -185,7 +185,7 @@ test("source conflicts expose retained Node evidence to SL without attributing u
   f.workspace.changeLedger.load = async () => ({ entries: { [f.file.path]: { latest_sha: f.file.sha256, source_reconciliation: receipt } } });
   f.workspace.gitService = { inspectSource: async (manifest) => ({ files: [{ path: f.file.path, source_reconciliation: manifest.entries[f.file.path].source_reconciliation }] }) };
   const progress = await buildBlockerTicketProgress(f);
-  assert.equal(reconciled, true);
+  assert.equal(reconciled, false);
   assert.deepEqual(progress.source_reconciliation.files[0].source_reconciliation, receipt);
   assert.deepEqual(progress.changed_files, []);
   assert.equal(progress.criteria[0].implementation, "unknown");

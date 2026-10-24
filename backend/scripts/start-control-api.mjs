@@ -36,7 +36,6 @@ import { createEvalCaseRecorder } from "../src/modules/eval/eval-case-store.js";
 import { createAutomaticFoundationReplan } from "../src/modules/supervisor/automatic-foundation-replan.js";
 import { createTicketCrudService } from "../src/application/ticket-crud-service.js";
 import { createDirectCodeRequest } from "../src/application/direct-code-request.js";
-import { createCodeCacheService } from "../src/modules/context/code-cache-service.js";
 import { createAgentOccupancyStore } from "../src/modules/agent/agent-occupancy-store.js";
 import { createAgentOccupancyNotifications } from "../src/modules/agent/agent-occupancy-notifications.js";
 import { createTicketWorkspaceService } from "../src/modules/supervisor/ticket-workspace-service.js";
@@ -84,6 +83,7 @@ const sprintRegistry = createSprintRegistry({ projectId: config.projectId, datab
 const planOwnerAuth = createPlanOwnerAuth({ token: process.env.NODEFORGE_PLAN_OWNER_TOKEN, ownerId: process.env.NODEFORGE_PLAN_OWNER_ID });
 const draftPlan = createSprintPlanDraftPersistence({ projectId: config.projectId, planStore, markdownPlanStore, sprintRegistry });
 const platform = createControlApiPlatform({ config, database, indexDb, fileService, agentGateway, claudeSdkGateway, codexSdkGateway, openaiSdkGateway, agentRoleResolver, logEvent, draftPlan, sprintRegistry });
+const codeCache = storage.disposal.own(platform.codeCache, "close", 20);
 await migrateConversationErrors({ database, fileService, projectId: config.projectId });
 const gitService = createGitService({ projectRoot: config.cwd, mutationLock: (action) => withTicketProjectCommitLock({ fileService, projectId: platform.projectId }, action) });
 const reportService = createCompletionReportService({ protocolStorage, fileService, gitService });
@@ -96,7 +96,6 @@ testService = platform.testService;
 onTestService(testService);
 const unifiedStreamOrder = createUnifiedStreamOrderer();
 const runtimeLogger = createRuntimeLogger({ logEvent: createAgentActivityLogger({ logEvent, executionActivity }) });
-const codeCache = storage.disposal.own(createCodeCacheService({ projectId, fileService, codeSearch, logger: runtimeLogger.emit }), "close", 20);
 const ticketWorkspaceService = storage.disposal.own(createTicketWorkspaceService({ projectRoot: config.cwd, projectId, protocolStorage, stateFileService: fileService, indexDatabase: indexDb, codeSearch, fileGraph, codeCache, rootOnly: process.env.NODEFORGE_TICKET_EXECUTION_MODE === "root-only", projectLogger: runtimeLogger.emit }), "close", 30);
 const ticketPipelineInventory = createTicketPipelineInventory({ projectRoot: config.cwd, projectId, fileService });
 const reconcileCancelledClaims = createCancelledTicketClaimReconciliation({ projectId, fileService, projectLogger: runtimeLogger.emit,
@@ -142,8 +141,8 @@ await supervisorRuntime.recover();
 await supervisorRuntime.startWorkers();
 const dispatchTask = createApprovedTicketDispatch({ projectId, sprintRegistry, ticketStatusStore, integration: supervisorRuntime.integration });
 const directCodeRequest = createDirectCodeRequest({ fileService, integration: supervisorRuntime.integration, checkpoints: supervisorRuntime.agentCheckpoints, projectId, projectLogger: logEvent });
-const ticketHumanReviewService = createTicketHumanReviewService({ projectId, roadmaps, sprintRegistry, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, agentOccupancy, ticketWorkspaceService, publisher: eventPublisher, projectLogger: runtimeLogger.emit });
-const ticketBlockerDecisionService = createTicketBlockerDecisionService({ projectId, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, publisher: eventPublisher, fulfillOwnerDecision: supervisorRuntime.blockerRecovery?.fulfillOwnerDecision, projectLogger: runtimeLogger.emit });
+const ticketHumanReviewService = createTicketHumanReviewService({ projectId, roadmaps, sprintRegistry, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, agentOccupancy, ticketWorkspaceService, publisher: eventPublisher, getBlockerOwnerRequest: supervisorRuntime.blockerRecovery?.getOwnerRequest, projectLogger: runtimeLogger.emit });
+const ticketBlockerDecisionService = createTicketBlockerDecisionService({ projectId, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, publisher: eventPublisher, fulfillOwnerDecision: supervisorRuntime.blockerRecovery?.fulfillOwnerDecision, respondOwnerInput: supervisorRuntime.blockerRecovery?.respondOwnerInput, projectLogger: runtimeLogger.emit });
 
 // Sprint execution runs one level at a time, gating each ticket on its
 // predecessors' terminal ticket status via the execution event bus.

@@ -25,7 +25,7 @@ export async function retainBlockerContract({ job, checkpoint, fileService }) {
   const content = `${JSON.stringify(record)}\n`;
   const sha256 = digest(content);
   const path = `${ROOT}/${sha256}.json`;
-  try { await fileService.atomicWrite({ path, content, replace: false }); }
+  try { await fileService.atomicCreate({ path, content }); }
   catch (error) {
     if (!["FILE_ALREADY_EXISTS", "EEXIST"].includes(error.code)) throw error;
     if (await fileService.readFile({ path }) !== content) throw failure("Immutable AM contract receipt conflicts with its identity.");

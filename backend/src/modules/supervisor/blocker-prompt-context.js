@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { createFileService } from "../../infrastructure/filesystem/file-service.js";
 import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
+import { blockerHandoffCorrection } from "./blocker-handoff-policy.js";
 
 // Binds immutable context bytes independently of agent wording or mutable source revisions.
 const hash = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
@@ -56,8 +57,8 @@ export async function createBlockerPromptContext({ job, failureEvidence, project
   const sections = { ticket_progress: job.ticket_progress, authority_context: job.authority_context, contract_context: job.contract_context,
     architecture_response: job.architecture_response, history: job.history, failure_evidence: failureEvidence,
     ticket: job.request.ticket, technical_reconciliation: job.technical_reconciliation, resolution: job.resolution,
-    disposition_attempts: job.validation_feedback ? job.disposition_attempts?.slice(-1) : [], discovery_checkpoints: job.discovery_checkpoints,
-    owner_decisions: job.owner_decisions, coder_exchange: job.coder_exchange, execution_admission: job.execution_admission,
+    disposition_attempts: job.disposition_attempts ?? [], discovery_checkpoints: job.discovery_checkpoints,
+    owner_decisions: job.owner_decisions, owner_inputs: job.owner_inputs, coder_exchange: job.coder_exchange, execution_admission: job.execution_admission,
     message: job.message, evidence: job.evidence, validation_feedback: job.validation_feedback, coder_checkpoint: job.coder_checkpoint,
     coordination_feedback: job.coordination_feedback, waiting_assignments: job.waiting_assignments, waiting_work_history: job.waiting_work_history,
     consultation_request: job.consultation_request };
@@ -89,13 +90,14 @@ export async function createBlockerPromptContext({ job, failureEvidence, project
       passages: job.authority_context.passages?.map(({ passage_id, scope, text }) => ({ passage_id, scope,
         ...(text.length <= 240 ? { text } : { text_excerpt: text.slice(0, 240), read_full_passage_from_section: "authority_context" }) })) } : undefined,
     request: { ...job.request, ticket: compactBlockerPromptValue(job.request.ticket) },
-    disposition_attempts: job.validation_feedback ? job.disposition_attempts?.slice(-1) : [] };
+    disposition_attempts: job.disposition_attempts?.slice(-1) ?? [], handoff_correction: blockerHandoffCorrection(job) };
   for (const key of Object.keys(sections)) if (key !== "ticket" && key !== "failure_evidence" && key in view) view[key] = compactBlockerPromptValue(view[key]);
   const minimalJob = { ...view, request: { ...job.request, ticket: { id: job.request.ticket.id, title: job.request.ticket.title, full_definition_section: "ticket" } },
     ticket_progress: { execution_id: job.ticket_progress?.execution_id, source_revision: job.ticket_progress?.source_revision,
       last_completed_turn: job.ticket_progress?.last_completed_turn, evidence_sha256: job.ticket_progress?.evidence_sha256, full_definition_section: "ticket_progress" },
     contract_context: "Read the contract_context section for exact retained AM decisions before resolving a contract question.",
     architecture_response: undefined, history: [], owner_decisions: [{ full_definition_section: "owner_decisions" }],
+    owner_inputs: job.owner_inputs?.length ? [{ full_definition_section: "owner_inputs" }] : [],
     coder_exchange: job.coder_exchange ? { request_id: job.coder_exchange.request_id, full_definition_section: "coder_exchange" } : undefined,
     execution_admission: job.execution_admission ? { sha256: job.execution_admission.sha256, status: job.execution_admission.status,
       decision: { verdict: job.execution_admission.decision?.verdict, operation: job.execution_admission.decision?.operation }, full_definition_section: "execution_admission" } : undefined,

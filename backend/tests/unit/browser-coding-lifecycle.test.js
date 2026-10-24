@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, rm, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { createServer } from "node:http";
 import { build } from "esbuild";
@@ -56,7 +56,8 @@ async function verifyWithCdp(context, sourceRoot, indices, widths) {
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   context.after(() => new Promise((resolve) => { server.closeAllConnections(); server.close(resolve); }));
-  const profile = await mkdtemp(join(process.cwd(), ".forge/runtime/coding-lifecycle-profile-"));
+  await mkdir(join(process.cwd(), ".forge/scratch"), { recursive: true });
+  const profile = await mkdtemp(join(process.cwd(), ".forge/scratch/coding-lifecycle-profile-"));
   context.after(() => rm(profile, { recursive: true, force: true }));
   const browser = await launchProjectChromium(profile);
   context.after(() => browser.close());
@@ -81,7 +82,8 @@ test("new approved identity and lifecycle prose is registered without accepting 
 });
 
 test("Chromium: exact ticket commit satisfies the three approved assertions at every approved viewport", { skip: process.env.NODEFORGE_BROWSER_TEST !== "1" }, async (context) => {
-  const sourceRoot = await mkdtemp(join(process.cwd(), ".forge/runtime/browser-coding-lifecycle-"));
+  await mkdir(join(process.cwd(), ".forge/scratch"), { recursive: true });
+  const sourceRoot = await mkdtemp(join(process.cwd(), ".forge/scratch/browser-coding-lifecycle-"));
   context.after(() => rm(sourceRoot, { recursive: true, force: true }));
   const commit = process.env.NODEFORGE_BROWSER_COMMIT ?? "HEAD";
   const archive = execFileSync("git", ["archive", commit, "ui/nextjs"], { cwd: process.cwd(), env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" }, maxBuffer: 20 * 1024 * 1024 });

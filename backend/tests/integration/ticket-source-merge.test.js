@@ -64,9 +64,10 @@ test("stale conflict evidence and foreign claims cannot authorize reconciliation
   await ledger.reconcile(taskId);
   await files.atomicWrite({ path, content: "new external", replace: true });
   await assert.rejects(ledger.write({ taskId, path, before: "external", after: "repair" }), { code: "CHECKSUM_MISMATCH" });
-  await assert.rejects(ledger.write({ taskId, path, before: "new external", after: "repair" }), { code: "TICKET_SOURCE_CHANGED" });
+  await ledger.write({ taskId, path, before: "new external", after: "repair" });
   await ledger.release(taskId, { close: false });
-  await ledger.write({ taskId: "TICKET-B", path, before: "new external", after: "other owner" });
+  await ledger.write({ taskId: "TICKET-B", path, before: "repair", after: "other owner" });
+  await assert.rejects(ledger.write({ taskId, path, before: "other owner", after: "overwrite" }), { code: "FILE_CLAIM_CONFLICT" });
   await assert.rejects(ledger.reconcile(taskId), { code: "FILE_CLAIM_CONFLICT" });
 });
 

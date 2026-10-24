@@ -2,13 +2,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createServer } from "node:http";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { build } from "esbuild";
 import { launchProjectChromium } from "../helpers/chromium-cdp.js";
 
 test("Chromium: SE reply recovery preserves live history, drafts and the mounted page", { skip: process.env.NODEFORGE_BROWSER_TEST !== "1" }, async (context) => {
-  const root = await mkdtemp(join(process.cwd(), ".forge/runtime/conversation-reconnect-"));
+  await mkdir(join(process.cwd(), ".forge/scratch"), { recursive: true });
+  const root = await mkdtemp(join(process.cwd(), ".forge/scratch/conversation-reconnect-"));
   context.after(() => rm(root, { recursive: true, force: true }));
   const source = `import React,{useEffect,useMemo,useRef,useState} from './ui/nextjs/node_modules/react/index.js';
     import {createRoot} from './ui/nextjs/node_modules/react-dom/client.js';

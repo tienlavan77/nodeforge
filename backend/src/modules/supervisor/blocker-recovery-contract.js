@@ -3,6 +3,7 @@ import { validateCoderRequest, validateCoderCandidate, validateCandidateReview, 
 import { validateTechnicalReconciliation } from "./blocker-technical-reconciliation.js";
 import { validateCriterionUpdates } from "./blocker-ticket-progress.js";
 import { createHash } from "node:crypto";
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { assertReviewerReadPath } from "./reviewer-forge-tools.js";
 import { blockerSprintAuthority, assertArchitectureDisposition, assertOwnerEscalation } from "./blocker-decision-authority.js";
 import { resolveBlockerAuthority } from "./blocker-authority-passages.js";
@@ -43,6 +44,8 @@ export async function validateBlockerDisposition(value, { job, plan, architectur
   if (job?.stage === "coder" || value.action === "candidate_prepared") return validateCoderCandidate(value, { job, fileService, projectRoot });
   if (value.candidate !== undefined || value.coder_request !== undefined && value.action !== "coder_requested") throw blockerValidationError("/", "candidate_action_mismatch", "Candidate data belongs to candidate_prepared and requests to coder_requested.");
   if (value.action === "sprint_required") {
+    if (job?.stage === "sprint_leader") throw blockerValidationError("/action", "role_action_mismatch",
+      "sprint_required is AM's answer to SL. SL must return resolved with authority_scope=sprint, a Sprint authority reference and concrete guidance to continue Coder from the retained checkpoint when no prerequisite remains; do not repeat the settled AM consultation.");
     const authorityQuote = resolveBlockerAuthority(value, { plan, ticket: job.request.ticket, architecture });
     assertArchitectureDisposition(value, { job, architecture, authorityQuote });
     if (!text(value.guidance) || value.guidance.length > 8000 || requiresBlockerAdmission(job))
@@ -100,9 +103,10 @@ export async function validateBlockerDisposition(value, { job, plan, architectur
     assertArchitectureDisposition(job.sprint_delegation, { job: { ...job, stage: "architecture_manager" }, architecture });
     await assertSourceEvidence(job.sprint_delegation.evidence, { fileService, projectRoot, evidenceFiles });
   }
-  const accessAnswer = delegated && job.sprint_delegation.action === "resolved" && job.sprint_delegation.technical_result?.admission?.status === "within_existing_permissions";
   const retainedDelegation = job.stage === "sprint_leader" && contractDelegation;
   if (retainedDelegation) assertArchitectureDisposition(contractDelegation, { job: { ...job, stage: "architecture_manager" }, architecture });
+  const accessDecision = delegated ? job.sprint_delegation : retainedDelegation;
+  const accessAnswer = accessDecision?.action === "resolved" && accessDecision.technical_result?.admission?.status === "within_existing_permissions";
   if (requiresBlockerAdmission(job) && !accessAnswer && !(job?.stage === "architecture_manager" && scope === "architecture")) {
     throw blockerValidationError("/action", "access_or_security_authority_required",
       "Sprint scope cannot resolve access or security blockers; SL must return architecture_required, and AM must resolve at authority_scope=architecture (with all six boundary_assessment flags false) or return owner_required when new access/security policy is needed.", { retryable: true });
@@ -138,8 +142,14 @@ async function assertSourceEvidence(evidenceList, { fileService, projectRoot, ev
         continue;
       }
     }
-    if (evidenceFiles) await evidenceFiles.assertReadPath(evidence.path);
-    else await assertReviewerReadPath(projectRoot, evidence.path);
+    try {
+      if (evidenceFiles) await evidenceFiles.assertReadPath(evidence.path);
+      else await assertReviewerReadPath(projectRoot, evidence.path);
+    } catch (error) {
+      // A cited Node context delivery copy must return correctable feedback, not a raw role rejection that parks recovery without an automatic-correction round.
+      if (error.code !== "FILE_ROLE_FORBIDDEN" || !String(evidence.path ?? "").startsWith(`${statePath()}/blocker-context/`)) throw error;
+      throw blockerValidationError(`/evidence/${index}/path`, "evidence_not_source", "Blocker evidence must cite inspected original project source files or Node-granted verification receipts, never READ-ONLY FULL CONTEXT INDEX delivery copies. Re-read the original source with read_file and cite its path with the current full-file sha256.");
+    }
     let content;
     try { content = await (evidenceFiles ?? fileService).readFile({ path: evidence.path }); }
     catch (error) {

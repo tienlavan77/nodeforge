@@ -11,6 +11,7 @@ import { blockerResponseEvidence } from "./blocker-validation.js";
 import { createBlockerOwnerFollowUp } from "./blocker-owner-follow-up.js";
 import { scheduleApprovalRetry } from "./blocker-approval-retry.js";
 import { repeatedDispositionCorrection, salvagePersistedDisposition } from "./blocker-disposition-correction.js";
+import { isBlockerSourceRetry } from "./blocker-source-retry.js";
 
 const STORE = "blocker.recovery";
 const PENDING = ["pending", "invoking", "resume_pending", "dispatching", "notification_pending", "notifying", "approval_retry_pending"];
@@ -99,10 +100,10 @@ export function createBlockerRecovery({ store, validate, investigate, checkDispo
   async function tick() {
     const work = await store.withLock(STORE, async () => {
       for (const ledger of await store.list(STORE)) for (const job of ledger.jobs) {
-        if (!ledger.cancelled && job.status === "reconciliation_required" && await refreshWaiting(job)) {
+        if (!ledger.cancelled && (job.status === "reconciliation_required" || isBlockerSourceRetry(job)) && await refreshWaiting(job)) {
           job.stage = job.resolution?.action === "architecture_required" ? "architecture_manager" : "sprint_leader";
           job.history.push({ stage: job.stage, event: job.stage === "architecture_manager" ? "authority_wait_assigned" : job.outcome_reason === "EXECUTION_ADMISSION_EVIDENCE_REQUIRED" ? "admission_wait_corrected" : "verification_wait_completed", completed_at: clock() });
-          job.status = "pending"; ledger.deadline_at = clock() + deadlineMs;
+          job.status = job.resolution?.action === "resolved" ? "resume_pending" : "pending"; ledger.deadline_at = clock() + deadlineMs;
           delete job.outcome_reason; delete job.last_error;
         }
         const resumeLimited = job.outcome_reason === "resume_budget_exhausted" && job.resolution?.action === "resolved";
