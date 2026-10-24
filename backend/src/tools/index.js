@@ -9,6 +9,7 @@ import { createSearchCodeTool } from "./search-code.js";
 import { createReadCodeTool } from "./read-code.js";
 import { createCheckTestTool, createReadFileTool, createWriteDiffTool, createEditDiffTool, createRunTestTool, createCommitChangesTool } from "./agent-lifecycle-tools.js";
 import { createReportDoneTool } from "./agent-report-tool.js";
+import { createTicketReportCommit } from "./ticket-report-commit.js";
 import { createRespondToReviewTool } from "./respond-to-review-tool.js";
 import { createGitReadTools } from "./git-read-tools.js";
 import { createAgentCommandTools } from "./agent-command-tools.js";
@@ -88,6 +89,8 @@ export function createForgeToolRegistry({ protocolStorage, fileService, projectR
     lifecycle.git_diff = wrap(gitReadTools.git_diff, "git_diff", false);
   }
   if (reportService?.buildFinalReport) lifecycle.report_done = wrap(createReportDoneTool({ reportService, verificationService: testService?.assertPassedArtifact ? testService : null, reviewFindings, onEvalCase }), "report_done");
+  if (lifecycle.report_done && gitService?.reconcileRestoredCommit && changeLedger?.load && changeLedger?.snapshot && executionContexts)
+    lifecycle.report_done = Object.freeze({ ...lifecycle.report_done, reconcileCommit: createTicketReportCommit({ gitService, changeLedger, executionContexts }) });
   if (reviewFindings?.recordResponse && testService?.assertPassedArtifact) lifecycle.respond_to_review = wrap(createRespondToReviewTool({ reviewFindings, verificationService: testService }), "respond_to_review");
   if (reviewFindings?.load) lifecycle.query_review = wrap(createQueryReviewTool({ load: reviewFindings.loadQuery ?? reviewFindings.load, queryRecords: reviewFindings.queryRecords }), "query_review");
   function wrap(tool, name, preauthorize = true) { return Object.freeze({ ...tool, async execute(input, context = {}) { const scoped = withDefaultBudget(context); if (preauthorize) authorizeTool(name, scoped); return dispatch(name, tool, input, scoped); } }); }
