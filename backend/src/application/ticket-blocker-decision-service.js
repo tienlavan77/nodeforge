@@ -4,9 +4,9 @@ import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../shared/errors.js";
 
 // Persists the owner's chosen option beside the AM proposal without forging approval authority.
-export function createTicketBlockerDecisionService({ projectId, ticketStatusStore, checkpoints, publisher, fulfillOwnerDecision, projectLogger = () => {} } = {}) {
+export function createTicketBlockerDecisionService({ projectId, ticketStatusStore, checkpoints, publisher, fulfillOwnerDecision, respondOwnerInput, projectLogger = () => {} } = {}) {
   if (!projectId || !ticketStatusStore?.get || !ticketStatusStore?.updateStatus || !checkpoints?.load || !checkpoints?.save) throw new ConfigurationError("Ticket Blocker Decision requires status and checkpoint services.");
-  return Object.freeze({ decide });
+  return Object.freeze({ decide, respond: respondOwnerInput });
 
   // Records the chosen direction and queues AM fulfillment while retaining the blocked Coder checkpoint.
   async function decide({ requestedProjectId, ticketId, actor, reason, optionId }) {

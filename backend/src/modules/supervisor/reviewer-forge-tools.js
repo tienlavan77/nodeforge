@@ -17,6 +17,7 @@ import { createReviewerSnapshotTools } from "./reviewer-snapshot-tools.js";
 import { createVerificationReviewSource } from "./ticket-verification-review-source.js";
 import { dependencyReadPath, isDependencyPath, readDependencyFile } from "../../infrastructure/filesystem/dependency-read.js";
 import { listAgentFileTree } from "../../infrastructure/filesystem/agent-file-tree.js";
+import { createReviewerCodeCache } from "./reviewer-code-cache.js";
 
 const BASE_OUTPUT_BYTES = 128_000;
 const PER_FILE_OUTPUT_BYTES = 16_000;
@@ -49,6 +50,7 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
   const snapshot = fileService.committedReview === true;
   if (snapshot && !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(fileService.reviewCommit ?? "")) throw toolError("REVIEW_REVISION_INVALID", "Snapshot discovery requires a fixed review commit SHA.");
   if (snapshot && ticketEvidence && fileService.reviewCommit !== ticketEvidence.context.review_commit_sha) throw toolError("REVIEW_REVISION_INVALID", "Snapshot source does not match the review revision.");
+  if (snapshot) fileService = createReviewerCodeCache({ source: fileService, projectRoot, artifactId: ticketEvidence?.artifact?.artifact_id, projectLogger });
   const manifestCount = Math.max(ticketEvidence?.paths?.length ?? 0, job?.payload?.changed_paths?.length ?? 0);
   const maxOutputBytes = Math.min(MAX_OUTPUT_BYTES_CAP, BASE_OUTPUT_BYTES + manifestCount * PER_FILE_OUTPUT_BYTES);
   const scopedFiles = {
@@ -62,7 +64,7 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
     const file = ticketEvidence.files.find((item) => item.path === path);
     if (!file || file.deleted) return snapshot ? scopedFiles.readForIndex({ path }) : codeCache?.read ? codeCache.read({ path }) : scopedFiles.readForIndex({ path });
     const live = await verifiedReviewFile(file, ticketEvidence, fileService, projectRoot);
-    let cached = null;
+    let cached = snapshot ? live : null;
     try { if (!snapshot && codeCache?.read) cached = await codeCache.read({ path }); }
     catch (error) { projectLogger({ event_name: "review.cache_unavailable", level: "warn", status: "failed", message: "Reviewer cache read failed; using verified source.", error_code: error.code ?? "CACHE_READ_FAILED" }); }
     const symbols = cached?.sha256 === file.sha256 && Array.isArray(cached.code_index?.symbols) && cached.code_index.symbols.length
@@ -70,21 +72,24 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
       : extractorRegistry.extract(path, file.content).symbols;
     const indexStatus = cached?.sha256 === file.sha256 && cached.index_status && cached.index_status !== "unavailable" ? cached.index_status : "extracted";
     return { ...live, ...(cached ?? {}), content: file.content, sha256: file.sha256, content_sha256: file.sha256, size_bytes: Buffer.byteLength(file.content),
-      cache: { status: "bypass", cached_at: null, expires_at: null }, index_status: indexStatus,
+      cache: cached?.sha256 === file.sha256 && cached.cache ? cached.cache : { status: "bypass", cached_at: null, expires_at: null }, index_status: indexStatus,
       code_index: { ...(cached?.code_index ?? {}), path, symbols }, code_graph: cached?.sha256 === file.sha256 ? cached.code_graph ?? {} : {} };
   } } : snapshot ? { read: (input) => scopedFiles.readForIndex(input) } : codeCache;
   // Review discovery covers project source and instructions; the delta is not a read permission boundary.
   const toolContext = { task_id: job.task_id, correlation_id: job.correlation_id, request_id: job.request_id, agent_identity: { agent_id: reviewer.agent_id, role: "reviewer", provider: reviewer.provider }, capabilities: ["search_tree", "list_files", "search_text", "read_file", "read_lines", "git_status", "git_diff", "review_diff", "run_review_check"], project_root: projectRoot };
   // Keeps text search under the same project, protected-path and symlink rules as direct reads.
   const searchCache = { read: async ({ path }) => {
-    return scopedFiles.readForIndex({ path });
+    await assertReviewerReadPath(projectRoot, path);
+    const file = codeCache?.read ? await codeCache.read({ path }) : await scopedFiles.readForIndex({ path });
+    if (Buffer.byteLength(file.content) > MAX_FILE_BYTES) throw toolError("REVIEW_EVIDENCE_TOO_LARGE", "Reviewer source exceeds the file read budget.");
+    return file;
   } };
   const implementations = {
     read_file: createReadFileTool({ fileService: scopedFiles, codeCache: reviewCache, projectRoot, ...(snapshot ? { dependencyReader: (input) => scopedFiles.readForIndex(input) } : {}), maxChars: MAX_RESULT_BYTES }),
     search_text: createRgSearchTool({ projectRoot, codeCache: searchCache, toolName: "search_text", logger: { emit: projectLogger } }),
     ...(!snapshot && gitService?.status && gitService?.diffWorkingTree ? createGitReadTools({ gitService, logger: { emit: projectLogger } }) : {}),
     list_files: createRgFilesTool({ projectRoot, toolName: "list_files", logger: { emit: projectLogger } }),
-    read_lines: createCommittedReviewWindow(scopedFiles, "read_lines"),
+    read_lines: createCommittedReviewWindow(snapshot || !codeCache?.read ? scopedFiles : { readForIndex: searchCache.read }, "read_lines"),
     ...(ticketEvidence?.context?.review_commit_sha && ticketEvidence?.context?.base_sha ? {
       review_diff: createReviewDiffTool({ projectRoot, ticketEvidence, job }),
       run_review_check: createRunReviewCheckTool()

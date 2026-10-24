@@ -183,7 +183,7 @@ test("review repair accepts an integrated dependency but never unproved live byt
   const f = await fixture(t);
   f.context.review_repair_cycle_id = "owner-cycle";
   f.workspace.loadReviewRepairSource = async () => [];
-  f.workspace.findIntegratedSource = async (path, sha256) => path === f.path && sha256 === hash(f.updated) ? { task_id: "OTHER", commit: "c" } : null;
+  f.workspace.findIntegratedSource = async (path, sha256, targetSha256) => path === f.path && sha256 === f.ref.sha256 && targetSha256 === hash(f.updated) ? { task_id: "OTHER", commit: "c" } : null;
   await f.files.atomicWrite({ path: f.path, content: f.updated, replace: true });
   assert.equal((await f.verify(f.ref)).provenance, "integrated_project_changes");
   await f.files.atomicWrite({ path: f.path, content: "unproved edit", replace: true });

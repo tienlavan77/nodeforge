@@ -5,6 +5,7 @@ import { coderRecoveryPolicy } from "./coder-recovery-policy.js";
 import { matchesTicketExecution } from "../projects/ticket-execution-identity.js";
 import { assertDependencySubmission } from "./ticket-dependency-expectations.js";
 import { assertApprovedTicket } from "../governance/sprint-plan-draft.js";
+import { matchesTicketRetrySource } from "./ticket-retry-source.js";
 
 // Builds real retry adapters while leaving standalone/direct-code requests and human authority unchanged.
 export function createCoderRecoveryRuntime({ store, ticketStatusStore, sprintRegistry, resolveTicketWorkspace, checkpoints,
@@ -25,11 +26,8 @@ export function createCoderRecoveryRuntime({ store, ticketStatusStore, sprintReg
       assertApprovedTicket(plan, request.ticket);
       const workspace = await resolveTicketWorkspace(request.task_id);
       const context = await workspace.executionContexts.load(request.task_id);
-      if (!context || context.state === "terminal" || context.project_id !== request.project_id
-        || context.source_revision !== request.execution_context?.source_revision
-        || context.base_sha !== request.execution_context?.base_sha
-        || context.manifest_sha !== request.execution_context?.manifest_sha
-        || context.review_commit_sha !== request.execution_context?.review_commit_sha) return false;
+      if (context?.project_id !== request.project_id || !matchesTicketRetrySource({ workspace, current: context,
+        expected: request.execution_context, reviewResume: Boolean(payload.review_resume) })) return false;
       assertDependencySubmission({ projectId: request.project_id, ticket: request.ticket, payload, sprintRegistry, ticketStatusStore });
       return true;
     } catch (error) {

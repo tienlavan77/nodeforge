@@ -51,7 +51,7 @@ test("partial, missing, mixed denial and unknown receipts never turn into techni
     { status: "partial", receipts: [receipt] }, { status: "missing", receipts: [] },
     { status: "captured", receipts: [receipt, denied] },
     { status: "captured", receipts: [{ ...receipt, error: { code: "UNKNOWN", message: "Unknown operation failure" } }] },
-    { status: "captured", receipts: [{ ...receipt, error: { ...receipt.error, message: "Approval denied; must not attempt workaround" } }] },
+    { status: "captured", receipts: [{ ...receipt, error: { code: "APPROVAL_DENIED", message: "Approval denied; must not attempt workaround" } }] },
     { status: "captured", receipts: [{ tool: "report_done", error: { code: "CODER_BLOCKED" } }] }
   ]) {
     const job = jobFixture();

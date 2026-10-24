@@ -28,7 +28,7 @@ test("review read tools return bounded source and hide protected paths", async (
   assert.deepEqual(listed.entries.map((entry) => entry.path), ["src/a.js", "src/b.js"]);
   await assert.rejects(() => tools.registry.read_file.execute({ path: ".env" }), (error) => ["PATH_FORBIDDEN", "FILE_ROLE_FORBIDDEN"].includes(error.code));
   await assert.rejects(() => tools.registry.read_file.execute({ path: "../outside" }), (error) => ["PATH_FORBIDDEN", "FILE_ROLE_FORBIDDEN"].includes(error.code));
-  await assert.rejects(() => tools.registry.read_file.execute({ path: "src/a.js", offset: 1, limit: 81 }), (error) => error.code === "REVIEW_TOOL_INPUT");
+  await assert.rejects(() => tools.registry.read_file.execute({ path: "src/a.js", offset: 1, limit: 251 }), (error) => error.code === "REVIEW_TOOL_INPUT");
   assert.equal(events.length, 6);
   assert.equal(events.every((event) => event.task_id === "T-REVIEW" && event.correlation_id === "C-1"), true);
   assert.equal(JSON.stringify(events).includes("one"), false);

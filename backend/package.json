@@ -9,6 +9,8 @@
     "lint": "node ../node_modules/eslint/bin/eslint.js --rulesdir ../eslint-rules \"src/**/*.js\" \"tests/**/*.js\" \"tests/**/*.mjs\" --no-error-on-unmatched-pattern --max-warnings=0",
     "typecheck": "node ../node_modules/typescript/bin/tsc --project ../jsconfig.json",
     "validate:schemas": "node scripts/validate-schemas.mjs",
+    "forge:clean": "node bin/forge-runtime-clean.mjs",
+    "forge:clean:apply": "node bin/forge-runtime-clean.mjs --apply",
     "eval:retrieval": "node tests/eval/run-retrieval-eval.mjs",
     "eval:backfill": "node scripts/backfill-eval-cases.mjs"
   },

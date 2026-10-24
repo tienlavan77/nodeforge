@@ -43,12 +43,15 @@ test("Node rejects admission manufactured from the Coder report and preserves th
   await assert.rejects(admission.prepare(job.resolution, job), (error) => error.validation_errors?.[0].reason === "execution_admission_unsubstantiated");
 });
 
-test("parked jobs rebind to authentic denial and request one fresh AM answer without changing the execution", async () => {
+test("automatic recovery cannot recreate admission; an explicit legacy review retains original receipts", async () => {
   for (const id of ["FIRST", "SECOND"]) {
     const { job, options } = fixture(id);
     const request = structuredClone(job.request);
     const previous = structuredClone(job.execution_admission);
-    const refresh = createBlockerReconciliationRefresh(options);
+    const before = structuredClone(job);
+    assert.equal(await createBlockerReconciliationRefresh(options)(job), false);
+    assert.deepEqual(job, before);
+    const refresh = createBlockerAdmissionRefresh(options);
     assert.equal(await refresh(job), true);
     assert.equal(job.stage, "architecture_manager");
     assert.equal(job.status, "pending");
@@ -87,7 +90,7 @@ test("the shared provider prompt receives the corrected admission instead of the
   assert.equal(job.technical_reconciliation.work.next_check, job.consultation_request.decision_needed);
   const prompt = blockerExchangePrompt({ job, context: { summary: "Read the original evidence context." }, tools: { definitions: [] },
     request: { kind: "consultation_request", recipient: { role: "architecture_manager" }, payload: job.consultation_request, subject: job.resolution.summary } });
-  assert.match(prompt, /NODE ADMISSION STATE/);
+  assert.match(prompt, /HISTORICAL TOOL DECISION EVIDENCE/);
   assert.match(prompt, /awaiting_architecture_review/);
   assert.match(prompt, /not an Owner prohibition or missing external evidence/);
   assert.match(prompt, /"event_id":"DENIAL","tool":"edit_diff"/);

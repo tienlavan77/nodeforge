@@ -1,14 +1,15 @@
 // Verifies failed ticket file claims are released and safe retries retain their original source journal.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket-change-ledger.js";
 
 // Creates real project-local files and a durable claim ledger for a failed ticket.
 async function fixture(context) {
-  const root = await mkdtemp(join(process.cwd(), ".forge/runtime/ticket-failed-release-"));
+  await mkdir(join(process.cwd(), ".forge/scratch"), { recursive: true });
+  const root = await mkdtemp(join(process.cwd(), ".forge/scratch/ticket-failed-release-"));
   context.after(() => rm(root, { recursive: true, force: true }));
   const files = createFileService({ projectRoot: root });
   const ledger = createTicketChangeLedger({ projectId: "PROJECT-A", fileService: files });

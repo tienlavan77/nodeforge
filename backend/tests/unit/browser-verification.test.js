@@ -131,7 +131,8 @@ test("browser runner and fixture exist separately from the committed ticket sour
 
 // Verifies service integration with deterministic command outputs, not a substitute for real Chromium acceptance.
 test("verification service persists browser evidence and rejects missing receipts before artifact reuse", async () => {
-  const root = await mkdtemp(join(process.cwd(), ".forge/runtime/browser-service-"));
+  await mkdir(join(process.cwd(), ".forge/scratch"), { recursive: true });
+  const root = await mkdtemp(join(process.cwd(), ".forge/scratch/browser-service-"));
   const path = "ui/nextjs/lib/example.js";
   const content = "export const example = true;\n";
   const checksum = `sha256:${createHash("sha256").update(content).digest("hex")}`;

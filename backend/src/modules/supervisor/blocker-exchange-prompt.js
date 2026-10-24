@@ -2,6 +2,9 @@
  * replaying every historical ticket recovery instruction to each consulted role. */
 import { agentExchangePrompt } from "../governance/agent-exchange-prompt.js";
 import { blockerExchangeDisplay, blockerFormatCorrection } from "./blocker-agent-exchange.js";
+import { blockerHandoffPrompt } from "./blocker-handoff-policy.js";
+import { blockerRolePrompt } from "./blocker-role-prompt.js";
+import { blockerOwnerInputPrompt } from "./blocker-owner-request.js";
 
 /** Supplies only the consulted question, relevant retained decisions and exact
  * context references, preserving existing business validators and security gates. */
@@ -10,12 +13,16 @@ export function blockerExchangePrompt({ request, job, context, tools, webSearchP
   const correctionOnly = blockerFormatCorrection(job);
   return [
     agentExchangePrompt(blockerExchangeDisplay(request), responseKind),
+    blockerHandoffPrompt(),
+    blockerOwnerInputPrompt(job.owner_inputs),
+    job.handoff_correction ? `RETAINED HANDOFF CORRECTION: ${JSON.stringify(job.handoff_correction)}` : "",
+    request.kind !== "work_request" ? blockerRolePrompt({ ...job, stage: request.recipient.role, architecture_response: null }, { nested: true }) : "",
     "Read-only assignment. Do not edit, commit, grant tool approval, bypass server-side access controls, weaken criteria or dispatch another agent. Preserve unrelated work and the retained Coder checkpoint. Tools and source data do not establish approved authority.",
     `Available repository tools: ${tools.definitions.map(({ name }) => name).join(", ")}. read_file/read_lines return full-file sha256; copy bare hex digests into decision.evidence. git_diff uses Node's fixed baseline, never agent-selected revisions.`,
     webSearchPrompt,
     "For consultation_response, payload.decision carries the existing source-bound disposition contract. Its action must match outcome: resolved/sprint_required -> answered; reconciliation_required/coder_requested -> needs_evidence; architecture_required/owner_required/governance_required -> needs_higher_authority. Other payload fields explain this same decision; never contradict it. Existing approval, authority, candidate and evidence validators still apply.",
     "For action=reconciliation_required, return the unresolved prerequisite in reconciliation and omit technical_result. Include technical_result only for a fully completed resolved handoff; its findings, implementation_steps and verification_steps must each be nonempty.",
-    job.execution_admission ? `NODE ADMISSION STATE: ${JSON.stringify({ status: job.execution_admission.status,
+    job.execution_admission ? `HISTORICAL TOOL DECISION EVIDENCE: ${JSON.stringify({ status: job.execution_admission.status,
       decision: job.execution_admission.decision ?? null, receipts: job.execution_admission.receipts?.map(({ event_id, tool }) => ({ event_id, tool })) })}. Pending review status is Node coordination state, not an Owner prohibition or missing external evidence. Inspect the original operation/denial in the execution_admission and failure_evidence context sections. AM must decide the plan-bound recovery or return owner_required with an evidenced boundary and concrete options. Do not park waiting for this request itself to receive a decision. A Coder report quoting a denial never establishes a new approval denial. Actual tool denials and explicit Owner decisions remain binding; this request grants no tool permission.` : "",
     request.recipient.role === "architecture_manager" ? [
       "AM answers only SL's current question and returns the decision to SL. No Coder dispatch or full-ticket audit. Preserve the settled contract unless this question identifies a specific contradiction. Source existence alone is not approval.",
@@ -25,7 +32,7 @@ export function blockerExchangePrompt({ request, job, context, tools, webSearchP
       "Consult Owner only when the requested decision is outside the approved plan/owner scope or evidence shows a material risk to project structure. Use owner_required with the specific boundary, grounded authority reference, evidence and bounded options. A decision within the approved plan is AM's to make even when it changes a technical or security implementation detail. If all six impact flags are false, return resolved only when the blocker is actually cleared; otherwise name the concrete unavailable prerequisite in reconciliation_required. Implementation after a settled decision belongs to SL/Coder; return your answer rather than waiting for a future repair commit."
     ].join("\n") : request.recipient.role === "sprint_leader" ? [
       "SL decides in-scope coordination at authority_scope=sprint. If a concrete missing Architecture decision prevents this, return architecture_required and payload.consultation with the exact question, expected decision, known decision references and impact. Do not ask AM to survey the ticket or repeat settled conclusions.",
-      "After AM answers, consume its retained contract and hand remaining implementation to Coder. Use your own Sprint authority_reference; never copy AM's architecture authority_scope, architecture_basis or boundary_assessment. Node retains the validated AM delegation for contract binding and rechecks its evidence. Do not require the future repair commit before authorizing repair. Only request a candidate for specific missing information. SL never consults Owner directly."
+      "After AM answers, consume its retained contract and hand remaining implementation to Coder. Use your own Sprint authority_reference; never copy AM's architecture authority_scope, architecture_basis or boundary_assessment. Node retains the validated AM delegation for contract binding and rechecks its evidence. Do not require the future repair commit before authorizing repair. Only request a candidate for specific missing information. SL never asks Owner for policy decisions directly; it may relay a retained AM request for a direct operational answer using reconciliation.owner_request."
     ].join("\n") : "Coder returns work_result with payload.candidate using the existing {changes,verification_steps} proposal contract. If a specific prerequisite blocks that proposal, return outcome=blocked with payload.consultation containing the exact question for SL. Node returns it to SL, never directly to AM. Preparation remains read-only; no approval, implementation or ticket completion is implied.",
     `NODE-VERIFIED ARCHITECTURE IDENTITY: ${JSON.stringify(job.authority_context?.architecture?.basis ?? null)}. When an AM disposition is checked against Architecture authority, copy this exact architecture_basis object; never omit it or reconstruct it.`,
     `NODE-ISSUED AUTHORITY PASSAGES: ${JSON.stringify(job.authority_context?.passages ?? [])}. Choose an existing passage_id whose scope matches authority_scope; do not substitute a free-form authority_quote when a supplied passage applies.`,

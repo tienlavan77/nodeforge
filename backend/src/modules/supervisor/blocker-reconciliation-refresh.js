@@ -7,19 +7,22 @@ import { createBlockerVerificationResume } from "./blocker-verification-resume.j
 import { createBlockerFailureClassification, requiresBlockerAdmission } from "./blocker-failure-classification.js";
 import { createBlockerSourceResume } from "./blocker-source-resume.js";
 import { inspectReviewResponseReadiness } from "./review-response-readiness.js";
-import { createBlockerAdmissionRefresh } from "./blocker-admission-refresh.js";
+import { isBlockerSourceRetry } from "./blocker-source-retry.js";
+import { createBlockerHandoffRefresh } from "./blocker-handoff-policy.js";
 
 // Returns ordinary verification refresh plus a source-bound recovery for obsolete missing-denial errors.
-export function createBlockerReconciliationRefresh({ inspect, fileService, clock = Date.now, projectLogger = () => {}, readFailureEvidence, sprintRegistry, ticketStatusStore }) {
+export function createBlockerReconciliationRefresh({ inspect, fileService, clock = Date.now, projectLogger = () => {}, readFailureEvidence, sprintRegistry, ticketStatusStore, refreshOwnerInput }) {
   const refreshContract = createBlockerContractRefresh({ inspect, fileService, clock, projectLogger });
-  const refreshAdmission = createBlockerAdmissionRefresh({ inspect, clock, projectLogger, readFailureEvidence });
   const refreshPrompt = createBlockerPromptRefresh({ inspect, clock, projectLogger });
   const refreshDelivery = createBlockerVerificationDelivery({ inspect, clock, projectLogger });
   const refreshVerification = createBlockerVerificationResume({ inspect, clock, projectLogger });
   const refreshSource = createBlockerSourceResume({ inspect, clock, projectLogger, sprintRegistry, ticketStatusStore });
   const classify = createBlockerFailureClassification({ readFailureEvidence });
+  const refreshHandoff = createBlockerHandoffRefresh({ inspect, fileService, clock, projectLogger });
   return async (job) => {
-    if (await refreshAdmission(job)) return true;
+    if (await refreshOwnerInput?.(job)) return true;
+    if (isBlockerSourceRetry(job)) return refreshSource(job);
+    if (await refreshHandoff(job)) return true;
     if (await refreshPrompt(job)) return true;
     if (await refreshContract(job)) return true;
     if (await refreshVerification(job)) return true;

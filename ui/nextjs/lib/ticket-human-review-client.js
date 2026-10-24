@@ -14,6 +14,13 @@ export function createTicketHumanReviewClient({ forgeV1, requestJson }) {
     // Records the owner's chosen option for an AM blocker escalation proposal.
     decideTicketBlocker(projectId, ticketId, { actor, reason, optionId }) {
       return requestJson(forgeV1(`/tickets/${encodeURIComponent(ticketId)}/blocker-decision`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, actor, reason, option_id: optionId }), fallbackError: "Node could not record the blocker decision." });
+    },
+    /** Records a direct authenticated answer to a displayed technical question;
+     * request identity prevents a stale browser tab from answering another run. */
+    respondTicketBlocker(projectId, ticketId, { request_id, job_id, execution_id, answer, token }) {
+      return requestJson(forgeV1(`/tickets/${encodeURIComponent(ticketId)}/blocker-response`, { project: projectId }), {
+        method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ project_id: projectId, request_id, job_id, execution_id, answer }), fallbackError: "Node could not record the Owner response." });
     }
   };
 }

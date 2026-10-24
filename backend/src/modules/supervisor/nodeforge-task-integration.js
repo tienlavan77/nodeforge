@@ -16,6 +16,8 @@ import { prepareTicketReviewContext } from "./ticket-review-context.js";
 import { releaseTicketAttempt } from "./ticket-attempt-release.js";
 import { createTicketReviewRepair } from "./ticket-review-repair.js";
 import { automaticReviewPolicy, bindAutomaticReviewCycle } from "./automatic-review-identity.js";
+import { ticketSourceChanges } from "./ticket-source-observation.js";
+import { assertTicketRetrySource } from "./ticket-retry-source.js";
 export { ticketCandidateScope } from "./nodeforge-task-scope.js";
 // createNodeforgeTaskIntegration - handles createNodeforgeTaskIntegration operation.
 export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, agentResolver, agentOccupancy, ticketStatusStore, sprintRegistry, handoffQueue, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger = () => {}, fileService, gitService, checkpointStore, codeSearch, codeCache, relevantTreeSelector, protocolStorage, resolveTicketWorkspace, shadowComparison, automaticReview, coderRecovery, blockerRecovery } = {}) {
@@ -65,7 +67,7 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
     // that legitimately replaces this ticket's recorded baseline; rebase before any ledger snapshot.
     const integratedSuccessors = workspace?.root_only && !standalone && !reviewResume ? await approvedIntegratedSuccessors(taskId) : [];
     if (integratedSuccessors.length) {
-      try { await workspace.changeLedger.resume({ integrated_successors: integratedSuccessors }); }
+      try { await workspace.changeLedger.resume({ integrated_successors: integratedSuccessors, observe_changes: true }); }
       catch (error) {
         await workspace.changeLedger.release({ close: false }).catch(() => {});
         projectLogger({ event_name: "ticket.baseline_rebase_failed", level: "error", status: "failed", message: error.message, task_id: taskId, source: "nodeforge-task-integration", error_code: error.code ?? "TICKET_BASELINE_REBASE_FAILED", payload: { successor_ids: integratedSuccessors } });
@@ -75,7 +77,7 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
     const executionContext = reviewResume
       ? await prepareTicketReviewContext({ workspace, taskId, supervisorId: ownerId, ticket, resume: reviewResume })
       : await prepareTicketExecutionContext({ workspace, taskId, supervisorId: ownerId, ticket });
-    if (payload.retry_source_identity && ["source_revision", "manifest_sha", "review_commit_sha", "base_sha"].some((field) => executionContext?.[field] !== payload.retry_source_identity[field])) throw Object.assign(new ConfigurationError("Coder retry source changed during preparation."), { code: "TICKET_EXECUTION_RECONCILIATION_REQUIRED" });
+    assertTicketRetrySource({ workspace, current: executionContext, expected: payload.retry_source_identity, reviewResume: Boolean(reviewResume), taskId, projectLogger });
     if (!standalone && !reviewResume && blockerRecovery && await blockerRecovery.preflight({ ticket, task_id: taskId, project_id: project_id ?? ticket.project_id,
       request_id: request_id ?? `REQ-${taskId}`, correlation_id: correlation_id ?? `CORR-${taskId}`, supervisor_id: ownerId,
       execution_context: executionContext, payload })) return { task_id: taskId, supervisor_id: ownerId, status: "needs_human_review" };
@@ -102,7 +104,10 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
     let queued;
     try {
       assertDependencySubmission({ projectId: request.project_id, ticket, payload: request.payload, sprintRegistry, ticketStatusStore });
-      if (!reviewResume) await workspace?.changeLedger?.resume?.({ integrated_successors: integratedSuccessors });
+      if (!reviewResume) {
+        await workspace?.changeLedger?.resume?.({ integrated_successors: integratedSuccessors, observe_changes: workspace?.root_only === true });
+        if (workspace?.root_only && workspace.changeLedger.observe) request.payload = { ...request.payload, source_changes: ticketSourceChanges(await workspace.changeLedger.observe()) };
+      }
       if (!reviewResume) queued = await handoffQueue.enqueue(request);
     }
     catch (error) {

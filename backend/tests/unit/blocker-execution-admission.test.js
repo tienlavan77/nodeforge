@@ -178,7 +178,7 @@ test("production RUN resumes SL without Owner admission review and retains the o
     assert.equal(f.base.invocations, 2);
     assert.equal(f.base.statusStore.get().details.execution_id, "EXEC");
     const checkpoint = await f.base.checkpoints.load("TASK");
-    assert.equal(checkpoint.blocker_recovery.execution_admission.decision, undefined);
+    assert.equal(checkpoint.blocker_recovery.execution_admission, null);
   } finally { await f.close(); }
 });
 
@@ -196,7 +196,7 @@ test("denied fixture creation returns the AM answer to SL instead of failing on 
     const job = (await f.ledger()).jobs[0];
     assert.equal(job.stage, "sprint_leader");
     assert.equal(job.architecture_response.disposition.action, "reconciliation_required");
-    assert.equal(job.execution_admission.source.find((entry) => entry.path.endsWith("not-created.js")).sha256, null);
+    assert.equal(job.execution_admission, undefined);
     assert.notEqual(job.outcome_reason, "ENOENT");
     assert.equal(f.base.invocations, 1);
   } finally { await f.close(); }

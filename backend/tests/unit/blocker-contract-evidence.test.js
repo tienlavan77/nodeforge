@@ -5,6 +5,37 @@ import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js"
 import { retainBlockerContract, readBlockerContracts, blockerContractPrompt } from "../../src/modules/supervisor/blocker-contract-evidence.js";
 import { buildResumePrompt, createResumeState } from "../../src/modules/supervisor/ticket-resume.js";
 import { createReviewWorker } from "../../src/modules/supervisor/review-worker.js";
+import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
+
+test("concurrent and repeated AM receipt retention reuses identical bytes without cleanup error logs", async (t) => {
+  const f = await blockerRecoveryFixture(); t.after(f.close);
+  const logs = [];
+  // Uses independent write queues to reproduce two recovery workers retaining the same immutable decision.
+  const open = () => createFileService({ projectRoot: f.base.workspace.projectRoot, logger: { error: (...args) => logs.push(args) } });
+  const first = open(), second = open();
+  const job = { id: "REPEATED", request: { project_id: "P", task_id: "TASK", payload: { execution_id: "EXEC" } },
+    history: [{ stage: "architecture_manager", completed_at: 1000,
+      disposition: { action: "resolved", authority_scope: "architecture", guidance: "Continue the retained checkpoint." } }] };
+  const [left, right] = await Promise.all([first, second].map((fileService) => retainBlockerContract({ job, fileService })));
+  assert.deepEqual(left, right);
+  const original = await first.readFile({ path: left[0].path });
+  const checkpoint = { contract_decisions: left };
+  assert.deepEqual(await retainBlockerContract({ job, checkpoint, fileService: second }), left);
+  assert.equal(await first.readFile({ path: left[0].path }), original);
+  assert.deepEqual(logs, []);
+  await first.atomicWrite({ path: left[0].path, content: "conflicting stored receipt", replace: true });
+  await assert.rejects(retainBlockerContract({ job, checkpoint, fileService: second }), { code: "BLOCKER_CONTRACT_EVIDENCE_INVALID" });
+  assert.equal(await first.readFile({ path: left[0].path }), "conflicting stored receipt");
+  assert.deepEqual(logs, []);
+});
+
+test("AM receipt retention propagates real storage failures instead of treating them as existing evidence", async () => {
+  const error = Object.assign(new Error("Storage unavailable"), { code: "EIO" });
+  const fileService = { atomicCreate: async () => { throw error; }, readFile: async () => assert.fail("Storage failure is not an existing receipt") };
+  const job = { id: "IO", request: { project_id: "P", task_id: "TASK", payload: { execution_id: "EXEC" } },
+    history: [{ stage: "architecture_manager", completed_at: 1000, disposition: { action: "resolved", authority_scope: "architecture" } }] };
+  await assert.rejects(retainBlockerContract({ job, fileService }), (failure) => failure === error);
+});
 
 test("AM receipts retain full terms, actor and chronology without granting Owner approval", async () => {
   const fixture = await blockerRecoveryFixture();

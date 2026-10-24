@@ -10,6 +10,7 @@ import { createRoadmapStore } from "../src/modules/governance/roadmap-store.js";
 import { createSprintPlanProjection } from "../src/modules/governance/sprint-plan-projection.js";
 import { createTicketProvenanceTracker } from "../src/modules/governance/ticket-provenance-tracker.js";
 import { createContextEngine } from "../src/modules/context/context-engine.js";
+import { createCodeCacheService } from "../src/modules/context/code-cache-service.js";
 import { createTaskStore } from "../src/modules/projects/task-store.js";
 import { createTicketStatusStore } from "../src/modules/projects/ticket-status-store.js";
 import { createSubscriptionRegistry } from "../src/modules/events/subscription-registry.js";
@@ -48,10 +49,11 @@ export function createControlApiPlatform({ config, database, indexDb, fileServic
   // Grants the resolved Sprint Leader an isolated read-only Forge session per planning request.
   const sprintLeaderLogger = createSprintLeaderLogger(logEvent);
   const sprintLeaderToolLogger = createRuntimeLogger({ logEvent: createAgentActivityLogger({ logEvent, executionActivity }), source: "sprint-leader-forge-tools" });
+  const codeCache = createCodeCacheService({ projectId, fileService, codeSearch, logger: sprintLeaderToolLogger.emit });
   const toolOptions = ({ agentId, correlationId, discoveredPaths }) => {
     const profile = agentRoleResolver.resolveProfile("sprint_leader");
     if (profile.agent_id !== agentId) throw new ConfigurationError("Sprint Leader profile changed before tool dispatch.");
-    return createSprintLeaderToolOptions({ profile, correlationId, discoveredPaths, projectRoot, fileService, codeSearch, projectLogger: sprintLeaderToolLogger.emit });
+    return createSprintLeaderToolOptions({ profile, correlationId, discoveredPaths, projectRoot, fileService, codeCache, codeSearch, projectLogger: sprintLeaderToolLogger.emit });
   };
   const ticketSprintLeader = sprintPlanSdkGateway ? createTicketSprintLeader({ sdkGateway: sprintPlanSdkGateway, projectRoot, toolOptions, logger: sprintLeaderLogger }) : undefined;
   const sprintPlanLeader = sprintPlanSdkGateway ? createSprintPlanLeader({ sdkGateway: sprintPlanSdkGateway, projectRoot, toolOptions, logger: sprintLeaderLogger }) : undefined;
@@ -79,7 +81,7 @@ export function createControlApiPlatform({ config, database, indexDb, fileServic
   const proseTicketService = createProseTicketService({ roadmapStore: roadmaps });
   const ticketFileStore = createTicketFileStore({ database, fileService });
   const sprintPlanUpload = createSprintPlanUploadService({ roadmaps, publisher: eventPublisher, projectRoot, isRunning: (sprintId) => sprintOrchestration.isRunning(sprintId) });
-  return { projectId, indexDb, codeSearch, fileGraph, relevantTreeSelector, freshnessChecker, ticketSprintLeader, sprintPlanLeader, memoryRetriever, communications, conversations, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, executionActivity, eventPublisher, taskStore, ticketStatusStore, verificationOrchestrator, testService, contextEngine, sprintOrchestration, proseTicketService, ticketFileStore, sprintPlanUpload, taskSummaries: summaries, projectMemory: memory };
+  return { projectId, indexDb, codeCache, codeSearch, fileGraph, relevantTreeSelector, freshnessChecker, ticketSprintLeader, sprintPlanLeader, memoryRetriever, communications, conversations, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, executionActivity, eventPublisher, taskStore, ticketStatusStore, verificationOrchestrator, testService, contextEngine, sprintOrchestration, proseTicketService, ticketFileStore, sprintPlanUpload, taskSummaries: summaries, projectMemory: memory };
 }
 
 // Selects the SDK gateway for sprint leader drafting without touching gateway internals.

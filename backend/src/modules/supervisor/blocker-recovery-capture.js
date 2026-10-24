@@ -6,6 +6,8 @@ import { BLOCKER_REASONS } from "./blocker-recovery-contract.js";
 import { recordTicketStage } from "./ticket-stage-progress.js";
 import { blockerOwnerDecisions } from "./blocker-owner-decisions.js";
 import { restoreRepairBlocker, retainPriorBlockerContracts } from "./blocker-repair-recovery.js";
+import { isBlockerSourceRetry } from "./blocker-source-retry.js";
+import { matchesTicketRetrySource } from "./ticket-retry-source.js";
 
 // Retains only current execution blockers and forwards recorded policy choices without inventing contract approval.
 export function createBlockerCapture({ ticketStatusStore, checkpoints, sprintRegistry, architecturePlans, resolveTicketWorkspace, recovery, store, fileService, prepareRetry = async (input) => input, notifyRetry = async () => {}, logger, clock }) {
@@ -32,6 +34,14 @@ export function createBlockerCapture({ ticketStatusStore, checkpoints, sprintReg
     const architecture = await approvedBlockerArchitecture(plan, current.project_id, architecturePlans);
     const context = await workspace.executionContexts.load(taskId);
     if (!context || context.project_id !== current.project_id || context.state === "terminal") return;
+    if (workspace.root_only) {
+      const ledger = (await store.list("blocker.recovery")).find((entry) => entry.project_id === current.project_id
+        && entry.task_id === taskId && entry.execution_id === current.details.execution_id && !entry.cancelled);
+      const retained = ledger?.jobs.find((job) => job.id === checkpoint.blocker_recovery?.job_id
+        && job.failure_at === checkpoint.failure.at && isBlockerSourceRetry(job));
+      if (retained && matchesTicketRetrySource({ workspace, current: context, expected: retained.request.execution_context,
+        reviewResume: Boolean(retained.request.payload.review_resume) })) return retained;
+    }
     checkpoint = await retainPriorBlockerContracts({ checkpoint, current, store, fileService });
     await checkpoints.save(checkpoint);
     const ownerDecisions = blockerOwnerDecisions(checkpoint, current);

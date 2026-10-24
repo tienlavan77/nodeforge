@@ -47,7 +47,11 @@ export function TicketHumanReview({ ticket, client, projectId, autoOpen = false,
   return <section className="ticket-human-review ticket-content-change-panel" aria-label="Ticket Human Review">
     {!autoOpen && <button type="button" onClick={showReview} disabled={busy}>{busy ? "Loading…" : "Human Review"}</button>}
     {open && <div>
-      <TicketBlockerRecovery recovery={review?.blocker_recovery} onDecide={review?.blocker_recovery?.status === "owner_required" && !review?.blocker_recovery?.owner_decision
+      <TicketBlockerRecovery recovery={review?.blocker_recovery} onRespond={async (response) => {
+        await client.respondTicketBlocker(projectId, ticket.id, response);
+        setReview(await client.getTicketHumanReview(projectId, ticket.id));
+        await onApproved?.(await client.getTicket(projectId, ticket.id), { autoResume: false });
+      }} onDecide={review?.blocker_recovery?.status === "owner_required" && !review?.blocker_recovery?.owner_decision
         ? async ({ option_id, reason }) => {
           const decided = await client.decideTicketBlocker(projectId, ticket.id, { actor: "project_owner", reason, optionId: option_id });
           setReview(await client.getTicketHumanReview(projectId, ticket.id));

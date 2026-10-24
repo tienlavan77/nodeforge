@@ -48,7 +48,7 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrch
     if (directCodeResult) return directCodeResult;
     const conversationResult = await conversationRoutes.routeConversation({ method, parts, url, body, projectId, headers: request.headers });
     if (conversationResult) return conversationResult;
-    const reviewResult = await routeTicketReview({ method, parts, projectId, body, requestId, correlationId, reviewTicket, ticketHumanReviewService, ticketBlockerDecisionService, ticketBlockerReconcileService });
+    const reviewResult = await routeTicketReview({ method, parts, projectId, body, requestId, correlationId, reviewTicket, ticketHumanReviewService, ticketBlockerDecisionService, ticketBlockerReconcileService, planOwnerAuth, headers: request.headers });
     if (reviewResult) return reviewResult;
 
     const gitResult = await routeForgeV1Git({ method, parts, body, projectId, expectedProjectId, gitService });

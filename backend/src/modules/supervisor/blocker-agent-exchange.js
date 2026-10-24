@@ -2,6 +2,7 @@
  * without replacing source, approval, candidate or Architecture validation. */
 import { createAgentExchange, bindAgentExchangeResponse, agentExchangeError } from "../governance/agent-exchange.js";
 import { compactBlockerPromptValue } from "./blocker-prompt-context.js";
+import { blockerHandoffCorrection } from "./blocker-handoff-policy.js";
 
 /** Builds a focused consultation from SL's question rather than assigning AM
  * every unfinished implementation and verification responsibility in the ticket. */
@@ -18,11 +19,15 @@ export function blockerExchangeRequest(job, profile, resolver) {
   const question = questions?.join("\n") || resolution.reconciliation?.next_check || resolution.guidance || resolution.summary || job.message || job.reason_code
     || job.request.ticket?.objective || "Identify the specific unresolved prerequisite for this retained ticket.";
   const known = job.architecture_response ? [{ section: "architecture_response", answered_at: job.architecture_response.answered_at }] : [];
+  const correction = job.stage === "sprint_leader" ? blockerHandoffCorrection(job) : null;
   const payload = job.stage === "coder"
     ? { objective: job.coder_exchange?.request?.questions?.join("\n") || question,
       criterion_ids: job.coder_exchange?.request?.criterion_ids ?? [], decision_refs: known,
       remaining_work: job.coder_exchange?.request?.questions ?? [question], expected_outputs: ["Read-only candidate proposal; no implementation, commit or approval."] }
     : job.stage === "architecture_manager" && job.consultation_request ? job.consultation_request
+      : correction?.expected_action === "resolved" ? { question: correction.instruction,
+        decision_needed: "Submit the corrected Sprint disposition with the settled AM decision and remaining Coder steps.",
+        known_decision_refs: known, impact: "Correct an AM-only action in SL's retained handoff; preserve Coder's checkpoint and normal operation controls." }
       : job.stage === "sprint_leader" && !job.resolution && !job.architecture_response && job.coder_consultation ? job.coder_consultation
       : { question, decision_needed: resolution.reconciliation?.next_check || resolution.summary || question,
       known_decision_refs: known, impact: resolution.reconciliation?.prerequisite || job.reason_code || "The retained ticket cannot continue until this question is answered." };
@@ -102,5 +107,5 @@ export function blockerFormatCorrection(job) {
     ["json_invalid", "schema_invalid", "required", "additionalProperties", "type", "enum", "unexpected_field", "response_kind_mismatch", "binding_mismatch",
       "identity_mismatch", "identity_shape_invalid", "authority_not_grounded", "reference_invalid", "reference_unknown", "reference_scope_mismatch",
       "boundary_not_preserved", "assessment_invalid", "boundary_inflation_forbidden", "delegated_to_architecture", "escalation_boundary_mismatch",
-      "technical_result_incomplete"].includes(entry.reason)));
+      "technical_result_incomplete", "role_not_authorized", "role_action_mismatch"].includes(entry.reason)));
 }

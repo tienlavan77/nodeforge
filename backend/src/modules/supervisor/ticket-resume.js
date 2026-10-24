@@ -5,6 +5,7 @@
 import { currentReviewFindings } from "./review-query-records.js";
 import { executeReportVerificationWait } from "./ticket-report-verification-wait.js";
 import { admissionPrompt } from "./blocker-execution-admission.js";
+import { blockerHandoffPrompt } from "./blocker-handoff-policy.js";
 import { ConfigurationError } from "../../shared/errors.js";
 import { blockerContractPrompt } from "./blocker-contract-evidence.js";
 import { engineeringToolName } from "../../tools/engineering-tool-names.js";
@@ -178,6 +179,7 @@ export function buildResumePrompt(prompt, state, meta = {}) {
     ...(state.verificationWait ? [`Node retained verification/report checkpoint: ${JSON.stringify(state.verificationWait)}. Continue from this report draft. Call report_done once to reattach to Node verification; Node waits internally and returns terminal evidence. Do not recreate edits, recommit unchanged source or poll tools.`] : []),
     "Completed turns (do NOT repeat these tool calls with the same inputs):",
     ...(recovery?.status === "resolved" && recovery.disposition?.guidance ? [`Automatic blocker investigation resolved an issue within existing approved scope. This is guidance, not new contract/permission approval: ${recovery.disposition.guidance}`] : []),
+    ...(recovery?.status === "resolved" ? [blockerHandoffPrompt()] : []),
     ...(state.resume.review_policy_amendment ? ["Node recorded the Owner's review-policy amendment in the current Sprint revision: there is no fixed limit on Coder revision/Reviewer cycles. Earlier review-count caps and exhaustion blockers are superseded. Continue the retained finding repair from this checkpoint; preserve independent review, verification, scope, and existing tool authorization."] : []),
     recovery?.status === "approval_retry"
       ? `NODE OPERATIONAL RETRY: the automatic approval service returned HTTP 503 without a verdict. The 30-second retry wait has elapsed. Resume the unfinished operation from this checkpoint and submit it through the unchanged tool approval path for a fresh verdict. Preserve completed edits; do not restart the ticket, skip approval, change sandbox policy, relocate the operation, or claim approval was granted. Receipts: ${JSON.stringify(recovery.approval_retry?.receipts ?? [])}`

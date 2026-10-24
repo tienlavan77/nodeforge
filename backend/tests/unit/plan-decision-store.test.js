@@ -1,7 +1,7 @@
 // Verifies exact owner policy approvals persist atomically in SQLite and cannot be inherited or replayed with changed choices.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
@@ -44,7 +44,8 @@ function databaseAt(path) {
 
 // Creates an isolated governance database and file authority, never the running project's records.
 async function fixture(context) {
-  const root = await mkdtemp(join(process.env.TMPDIR, "owner-plan-store-"));
+  await mkdir(join(process.cwd(), ".forge/scratch"), { recursive: true });
+  const root = await mkdtemp(join(process.cwd(), ".forge/scratch/owner-plan-store-"));
   context.after(() => rm(root, { recursive: true, force: true }));
   const database = databaseAt(join(root, "index.db"));
   for (const sql of humanPlanMigration.statements) database.run(sql);

@@ -48,6 +48,27 @@ test("SL and AM recover every exact context part, including negations beyond inl
   assert.deepEqual((await x.prepare()).refs, prepared.refs);
 });
 
+/** Ensures clearing current feedback cannot erase the historical rejection
+ * supplied to either SDK, including the exact AM-only action SL must correct. */
+test("cleared feedback still delivers complete disposition history and the specific handoff correction", async (t) => {
+  const x = await fixture(t);
+  x.job.disposition_attempts = [
+    { stage: "sprint_leader", status: "rejected", received_at: 1, response: { text: JSON.stringify({ action: "sprint_required", authority_scope: "sprint" }) },
+      validation_errors: [{ path: "/authority_scope", reason: "role_not_authorized", expected: "sprint", received: "sprint" }] },
+    { stage: "sprint_leader", status: "accepted", received_at: 2, response: { text: JSON.stringify({ action: "reconciliation_required", summary: "Await validation." }) } }
+  ];
+  const prepared = await x.prepare(), tools = x.tools(prepared);
+  assert.equal(prepared.job.handoff_correction.expected_action, "resolved");
+  assert.equal(prepared.minimalJob.handoff_correction.action, "sprint_required");
+  let exact = "";
+  for (const ref of prepared.refs.filter((entry) => entry.section === "disposition_attempts" && entry.part > 0)) {
+    const file = await tools.registry.read_file.execute({ path: ref.path, offset: 1, limit: 80 });
+    exact += JSON.parse(file.content).content_lines.join("");
+  }
+  assert.deepEqual(JSON.parse(exact), x.job.disposition_attempts);
+  assert.equal(x.job.validation_feedback, undefined);
+});
+
 test("context read grants reject unissued snapshots, changed bytes, other assignments and symlinks", async (t) => {
   const x = await fixture(t), prepared = await x.prepare();
   const ref = prepared.refs.find((entry) => entry.part > 0), tools = x.tools(prepared);
@@ -58,6 +79,7 @@ test("context read grants reject unissued snapshots, changed bytes, other assign
     { ...x.job, request: { ...x.job.request, execution_context: { source_revision: "OTHER" } } }]) {
     await assert.rejects(x.tools(prepared, "sprint_leader", assigned).registry.read_file.execute({ path: ref.path }), { code: "BLOCKER_CONTEXT_STALE" });
   }
+  assert.equal((await tools.registry.read_file.execute({ path: ref.path })).sha256, ref.sha256);
   const original = await readFile(join(x.projectRoot, ref.path), "utf8");
   await x.f.base.fileService.atomicWrite({ path: ref.path, content: original.replace('"SOURCE"', '"OTHER"'), replace: true });
   await assert.rejects(tools.registry.read_file.execute({ path: ref.path }), { code: "BLOCKER_CONTEXT_STALE" });

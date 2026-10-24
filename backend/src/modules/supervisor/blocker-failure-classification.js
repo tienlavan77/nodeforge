@@ -51,7 +51,7 @@ export function createBlockerFailureClassification({ readFailureEvidence = creat
     if (job.reason_code !== "ACCESS_REQUIRED") return null;
     const evidence = await readFailureEvidence(job, workspace.projectRoot ?? workspace.path);
     const receipts = (evidence.receipts ?? []).filter((entry) => !(entry.tool === "report_done" && entry.error?.code === "CODER_BLOCKED"));
-    const technical = !job.execution_admission && evidence.status === "captured" && receipts.length > 0
+    const technical = (!job.execution_admission || job.execution_admission.status === "retained_for_audit") && evidence.status === "captured" && receipts.length > 0
       && receipts.every((entry) => TECHNICAL.has(entry.error?.code)
         && !isBlockerApprovalDenial(entry) && !/permission denied/i.test(entry.error?.message ?? ""));
     const ownerCommit = hasBlockerCommitAuthorization(job);
@@ -77,6 +77,6 @@ export function requiresBlockerAdmission(job) {
   if (job.reason_code !== "ACCESS_REQUIRED") return false;
   if (hasBlockerCommitAuthorization(job)) return false;
   const classification = job.ticket_progress?.failure_classification;
-  return Boolean(job.execution_admission || classification?.binding !== failureBinding(job)
+  return Boolean(job.execution_admission && job.execution_admission.status !== "retained_for_audit" || classification?.binding !== failureBinding(job)
     || classification?.category !== "technical_failure" || classification.requires_architecture_admission !== false);
 }

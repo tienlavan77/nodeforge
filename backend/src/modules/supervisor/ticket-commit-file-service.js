@@ -1,5 +1,6 @@
 // Serves Reviewer source from the ticket commit rather than mutable project-root files.
 import { createVerificationReviewSource } from "./ticket-verification-review-source.js";
+import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { readFile as readStoredFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";

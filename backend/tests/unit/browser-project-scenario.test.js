@@ -24,7 +24,8 @@ export const browserAssertions = {
 
 // Creates an isolated source archive containing the approved module without touching runtime ticket data.
 async function fixture(context, source = moduleSource, insideProject = false) {
-  const root = await mkdtemp(join(insideProject ? join(process.cwd(), ".forge/runtime/") : tmpdir(), "browser-scenario-"));
+  await mkdir(join(process.cwd(), ".forge/scratch"), { recursive: true });
+  const root = await mkdtemp(join(insideProject ? join(process.cwd(), ".forge/scratch/") : tmpdir(), "browser-scenario-"));
   context.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(join(root, "ui/nextjs/tests"), { recursive: true });
   await writeFile(join(root, step.scenario_path), source);

@@ -29,7 +29,7 @@ export function createCodeCacheService({ projectId, fileService, codeSearch, clo
       const sha256 = normalizeHash(file.sha256) ?? `sha256:${createHash("sha256").update(file.content).digest("hex")}`;
       status = sizeBytes > maxBytes ? "bypass" : "miss";
       const cachedAt = clock();
-      entry = { content: file.content, sha256, sizeBytes, language: file.language ?? null, cachedAt, expiresAt: cachedAt + ttlMs, fifoSequence: ++sequence };
+      entry = { content: file.content, sha256, sizeBytes, language: file.language ?? null, source: file.source, cachedAt, expiresAt: cachedAt + ttlMs, fifoSequence: ++sequence };
       if (status === "miss") {
         while (usedBytes + sizeBytes > maxBytes && entries.size) invalidate({ path: entries.keys().next().value.slice(projectId.length + 1) });
         entries.set(key, entry);
@@ -44,6 +44,7 @@ export function createCodeCacheService({ projectId, fileService, codeSearch, clo
     log("read", { path, cache_status: status, index_status: indexStatus, size_bytes: entry.sizeBytes });
     return {
       content: entry.content, sha256: entry.sha256, size_bytes: entry.sizeBytes, language: entry.language,
+      ...(entry.source ? { source: entry.source } : {}),
       cache: { status, cached_at: status === "bypass" ? null : new Date(entry.cachedAt).toISOString(), expires_at: status === "bypass" ? null : new Date(entry.expiresAt).toISOString() },
       content_sha256: entry.sha256, indexed_sha256: indexedSha, index_version: index?.index_version ?? null, index_status: indexStatus,
       code_index: index ? { path, language: index.language ?? null, symbols: indexStatus === "fresh" ? index.symbols ?? [] : [] } : {},
@@ -92,7 +93,7 @@ export function createCodeCacheService({ projectId, fileService, codeSearch, clo
       invalidate({ path });
       if (sizeBytes > maxBytes || clock() >= previous.expiresAt) return "invalidated";
       while (usedBytes + sizeBytes > maxBytes && entries.size) invalidate({ path: entries.keys().next().value.slice(projectId.length + 1) });
-      const reordered = [...entries.entries(), [key, { content: file.content, sha256, sizeBytes, language: file.language ?? null, cachedAt: previous.cachedAt, expiresAt: previous.expiresAt, fifoSequence: previous.fifoSequence }]]
+      const reordered = [...entries.entries(), [key, { content: file.content, sha256, sizeBytes, language: file.language ?? null, source: file.source, cachedAt: previous.cachedAt, expiresAt: previous.expiresAt, fifoSequence: previous.fifoSequence }]]
         .sort((left, right) => left[1].fifoSequence - right[1].fifoSequence);
       entries.clear();
       for (const [itemKey, item] of reordered) entries.set(itemKey, item);

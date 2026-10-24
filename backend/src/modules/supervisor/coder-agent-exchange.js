@@ -3,6 +3,7 @@
 import { createFileService } from "../../infrastructure/filesystem/file-service.js";
 import { createAgentExchange, assertAgentExchange } from "../governance/agent-exchange.js";
 import { createAgentExchangeStorage } from "../governance/agent-exchange-storage.js";
+import { ticketSourceChangesPrompt } from "./ticket-source-observation.js";
 
 /** Retains the assignment on resume and records explicit tool-validated results;
  * SDK prose alone cannot satisfy the Coder completion gate. */
@@ -45,6 +46,7 @@ export function withCoderExchange(execute, { projectRoot, projectLogger = () => 
 /** Presents the shared assignment while naming the existing Forge tools that
  * submit its typed result; a narrative final answer never replaces those tools. */
 export function coderExchangePrompt(request) {
-  if (!request.payload?.agent_exchange) return "";
-  return `AGENT EXCHANGE v1 — CURRENT WORK REQUEST: ${JSON.stringify(request.payload.agent_exchange)}\n${request.payload.agent_consultation ? `SL ANSWER TO YOUR RETAINED QUESTION: ${JSON.stringify(request.payload.agent_consultation)}\n` : ""}Answer directly and concisely. Continue the retained checkpoint, preserving completed work and decisions. Submit the work_result through report_done and finding responses through respond_to_review using their supplied tool schemas; Node constructs the common envelope from those validated records. For a blocker use report_done(status=blocked) to consult SL. SL consults AM if necessary; never consult AM directly. Do not use prose as a replacement for a required tool result or claim Reviewer acceptance.`;
+  const sourcePrompt = ticketSourceChangesPrompt(request.payload?.source_changes);
+  if (!request.payload?.agent_exchange) return sourcePrompt;
+  return `${sourcePrompt}AGENT EXCHANGE v1 — CURRENT WORK REQUEST: ${JSON.stringify(request.payload.agent_exchange)}\n${request.payload.agent_consultation ? `SL ANSWER TO YOUR RETAINED QUESTION: ${JSON.stringify(request.payload.agent_consultation)}\n` : ""}Answer directly and concisely. Continue the retained checkpoint, preserving completed work and decisions. Submit the work_result through report_done and finding responses through respond_to_review using their supplied tool schemas; Node constructs the common envelope from those validated records. For a blocker use report_done(status=blocked) to consult SL. SL consults AM if necessary; never consult AM directly. Do not use prose as a replacement for a required tool result or claim Reviewer acceptance.`;
 }

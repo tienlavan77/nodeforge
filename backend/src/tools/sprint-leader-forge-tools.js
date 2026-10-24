@@ -12,10 +12,10 @@ const MAX_RESULT_BYTES = 20_000;
 const MAX_TOTAL_BYTES = 120_000;
 
 // Builds one project-scoped Forge session for a Sprint Leader SDK request.
-export function createSprintLeaderForgeTools({ projectRoot, fileService, codeSearch, profile, correlationId, discoveredPaths = new Set(), projectLogger = () => {} } = {}) {
+export function createSprintLeaderForgeTools({ projectRoot, fileService, codeCache, codeSearch, profile, correlationId, discoveredPaths = new Set(), projectLogger = () => {} } = {}) {
   if (!projectRoot || !fileService?.readForIndex || profile?.role !== "sprint_leader" || !profile.agent_id || !correlationId) throw new ConfigurationError("Sprint Leader Forge tools require a project, profile, and correlation ID.");
   const context = { task_id: correlationId, correlation_id: correlationId, execution_id: correlationId, project_root: projectRoot, allowed_prefixes: [...PREFIXES], agent_identity: { agent_id: profile.agent_id, agent_name: profile.agent_name, role: "sprint_leader", provider: profile.provider }, context_budget: { max_calls: MAX_CALLS, max_bytes: MAX_TOTAL_BYTES, used_calls: 0, used_bytes: 0 } };
-  const base = createOwnerConversationTools({ role: "sprint_leader", projectRoot, fileService, codeSearch, projectLogger, context });
+  const base = createOwnerConversationTools({ role: "sprint_leader", projectRoot, fileService, codeCache, codeSearch, projectLogger, context });
   const definitions = base.definitions.filter(({ name }) => ["search_tree", "list_files", "search_text", "read_file", "read_lines"].includes(name));
   if (definitions.length !== 5) throw new ConfigurationError("Sprint Leader read tools are unavailable.");
   context.capabilities = definitions.map(({ name }) => name);

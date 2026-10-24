@@ -129,7 +129,8 @@ export async function prepareTicketExecutionContext({ workspace, taskId, supervi
   if (!workspace?.executionContexts) return null;
   const existing = await workspace.executionContexts.load(taskId);
   if (existing?.state === "terminal") throw fail("TICKET_CONTEXT_TERMINAL", "Terminal ticket context cannot dispatch another Coder.");
-  const manifest = await workspace.changeLedger.snapshot();
+  const manifest = workspace.root_only && workspace.changeLedger.observe
+    ? await workspace.changeLedger.observe() : await workspace.changeLedger.snapshot();
   const baseline = ticket?.rollout_package === "A5" ? await verifyTicketBaseline({ workspace, taskId, supervisorId, ticket, existing }) : null;
   if (!existing && (manifest.revision > 0 || Object.keys(manifest.commits).length)) throw fail("TICKET_CONTEXT_MIGRATION_REQUIRED", "Existing ticket changes require explicit context migration before dispatch.");
   await workspace.executionContexts.create({
