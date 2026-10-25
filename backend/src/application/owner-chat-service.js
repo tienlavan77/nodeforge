@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import { createOwnerAgentStream } from "./owner-agent-stream.js";
+import { isConversationPlanMessage } from "./conversation-planning-service.js";
 
 const require = createRequire(import.meta.url);
 const commonSchema = require("../../../schemas/core/common.schema.json");
@@ -114,7 +115,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     const ownerMessage = { id: input.message_id, project_id: input.project_id, sender: { id: input.sender_id ?? "project-owner", role: "project_owner" }, recipient: { id: agentId, role: roleForAgent(agentId) }, message_type: "owner.message", conversation_id: input.conversation_id, correlation_id: input.correlation_id, payload: { text: input.payload.text }, timestamp: input.timestamp };
     bus.send(ownerMessage);
     try {
-      if (typeof commandService?.execute !== "function") throw Object.assign(new ConfigurationError("Planning command service is unavailable; the command was not sent to agent chat."), { code: "OWNER_COMMAND_UNAVAILABLE", statusCode: 503 }); const isPlanCommand = /^\/(?:plan|plan-continue)\s+\S+\s*$/i.test(input.payload.text.trim());
+      if (typeof commandService?.execute !== "function") throw Object.assign(new ConfigurationError("Planning command service is unavailable; the command was not sent to agent chat."), { code: "OWNER_COMMAND_UNAVAILABLE", statusCode: 503 }); const isPlanCommand = /^\/(?:plan|plan-continue)\s+\S+\s*$/i.test(input.payload.text.trim()) || isConversationPlanMessage(input.payload.text);
       const result = await commandService.execute({ text: input.payload.text, conversationId: input.conversation_id, project_id: input.project_id, approvedOwnerId: input.approved_owner_id, planningVersion: input.payload.planning_version, planningSourceSha256: input.payload.planning_source_sha256, approvalRevision: input.payload.approval_revision, approvalSha256: input.payload.approval_sha256, approvalComments: input.payload.approval_comments, requestArchitecture: (prompt, conversationId) => streamCommandArchitecture({ input, agentId, prompt, conversationId, exposeText: !isPlanCommand }) });
       const response = responseMessage({ ...input, id: input.message_id, recipient: { id: "NODE", role: "node" } }, "owner.command.result", result, `COMMAND-${input.message_id}`);
       bus.send(response);
