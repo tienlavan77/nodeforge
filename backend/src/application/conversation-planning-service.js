@@ -56,22 +56,64 @@ export function createConversationPlanningService({ projectId, fileService, mark
   }
 
   // Merges one RFC 7396 update into the retained canonical base and locks the next revision.
+  // Business purpose: an owner revises a conversation-created plan inside the same
+  // conversation using the exact same schema, merge engine, renderer and Node-owned
+  // source-anchor mechanism as creation, so approval and handoff contracts stay identical.
+  // Technical description: the base is always the current canonical revision of one plan in
+  // this conversation, never another conversation's plan; the AM patch payload is merged and
+  // fully revalidated before anything is written, so an invalid or ambiguous answer creates
+  // no revision and is answered by asking AM to emit a valid payload instead of Node guessing
+  // from the owner prose. The next revision number is fenced by the retained base revision, so
+  // a concurrent update on the same base either creates exactly one r<n+1> or reports
+  // PLAN_REVISION_CONFLICT without overwriting the accepted revision or source snapshot.
   async function updateFromConversation({ text, conversationId }) {
     assertNoMixedPlanningApproval(text);
     if (!detectPlanUpdateTrigger(text)) return null;
-    const target = markdownPlanStore.list().find((entry) => ANCHOR_PATH_RE.test(entry.source_path ?? ""));
+    const target = markdownPlanStore.list().find((entry) => entry.conversation_id === conversationId && ANCHOR_PATH_RE.test(entry.source_path ?? ""));
     if (!target) throw decisionError("PLAN_UPDATE_TARGET_MISSING", "There is no conversation-created plan revision to update. Create a plan first.");
     const baseBytes = await readConversationPlanSource({ fileService, path: target.source_path, sha256: target.source_sha256 });
-    const patch = String(await requestArchitecture(updatePrompt(text, baseBytes), conversationId) ?? "").trim();
-    const merged = mergeArchitecturePlanJSON(baseBytes, patch);
+    const merged = await requestMergedPatch({ text, conversationId, baseBytes, planId: target.plan_id });
     const revision = target.revision + 1;
-    const anchor = await retainConversationPlanSource({ fileService, planId: target.plan_id, revision, canonicalBytes: canonicalizeArchitecturePlanJSON(merged) });
+    const anchor = await retainFencedPlanSource({ planId: target.plan_id, baseRevision: target.revision, revision, canonicalBytes: canonicalizeArchitecturePlanJSON(merged) });
     const baseMarkdown = renderArchitecturePlanMarkdown({ plan: merged, planId: target.plan_id, revision, sourceSha256: anchor.sha256 });
     await validateMarkdown(baseMarkdown);
     const previous = await markdownPlanStore.getRevision({ planId: target.plan_id, revision: target.revision });
     const decisionSession = carriedSession(previous.markdown) ?? { session_id: `${target.plan_id}-R${revision}`, source_path: anchor.path, source_sha256: anchor.sha256, owner_id: null, confirmed_at: null, questions: [], selections: {}, notes: {} };
     const stored = await markdownPlanStore.createRevision({ planId: target.plan_id, expectedRevision: target.revision, markdown: appendArchitectureDecisions(baseMarkdown, decisionSession), summaryPath: anchor.path, summarySha256: anchor.sha256, conversationId });
     return createdResult(stored, decisionSession);
+  }
+
+  // Requests the Architecture patch payload and merges it fail-closed before anything persists.
+  // Business purpose: an Architecture answer that is not a valid RFC 7396 merge patch must never
+  // be guessed into a plan from the owner's prose; Node rejects it, writes no revision, and the
+  // rejection text asks Architecture to emit a valid payload for the canonical plan instead.
+  // Technical description: the shared merge engine revalidates the whole merged document against
+  // the unchanged Architecture Plan schema, so malformed JSON, non-object patches, empty answers,
+  // root null deletions and schema violations all fail here before anchor or Markdown writes.
+  async function requestMergedPatch({ text, conversationId, baseBytes }) {
+    const patch = String(await requestArchitecture(updatePrompt(text, baseBytes), conversationId) ?? "").trim();
+    try { return mergeArchitecturePlanJSON(baseBytes, patch); }
+    catch (error) {
+      console.warn("Conversation plan update rejected before persistence", { code: error.code ?? "ARCHITECTURE_PLAN_JSON_INVALID", conversation_id: conversationId, reason: error.message });
+      throw decisionError("ARCHITECTURE_PLAN_PATCH_INVALID", `Architecture must return a valid RFC 7396 JSON merge patch payload for the canonical plan; Node never infers a plan from conversation text. No revision was created.`);
+    }
+  }
+
+  // Locks the next revision anchor behind the retained base so a stale update cannot overwrite it.
+  // Business purpose: two concurrent updates read the same current revision, but only one may
+  // create the next revision; the other must report PLAN_REVISION_CONFLICT while leaving the
+  // accepted revision bytes and its Node-owned source snapshot exactly as the winner stored them.
+  // Technical description: the head revision is re-read immediately before anchor retention, and a
+  // revision anchor already holding different canonical bytes is reported as the same conflict,
+  // because an existing anchor proves another update already locked that revision number.
+  async function retainFencedPlanSource({ planId, baseRevision, revision, canonicalBytes }) {
+    const head = markdownPlanStore.list().find((entry) => entry.plan_id === planId);
+    if (!head || head.revision !== baseRevision) throw decisionError("PLAN_REVISION_CONFLICT", `Plan ${planId} no longer has r${baseRevision} as its current revision; this update did not overwrite the accepted revision or its source snapshot.`);
+    try { return await retainConversationPlanSource({ fileService, planId, revision, canonicalBytes }); }
+    catch (error) {
+      if (error.code !== "PLAN_SOURCE_MISMATCH") throw error;
+      throw decisionError("PLAN_REVISION_CONFLICT", `Another update already locked r${revision} of plan ${planId}; its accepted revision and source snapshot stay unchanged.`);
+    }
   }
 
   // Resumes an authenticated /plan-continue clarification and creates exactly one revision.
