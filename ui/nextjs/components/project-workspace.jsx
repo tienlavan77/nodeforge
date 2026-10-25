@@ -39,12 +39,20 @@ export function ProjectWorkspace({ children, projectId }) {
     return () => { active = false; window.removeEventListener("focus", load); };
   }, [projectId, retry]);
 
+  // A workspace that already rendered its admitted project must keep showing its last-known page when a later
+  // refresh fails (API restart or outage); only a first admission that never produced data falls back to a notice.
+  const heldProject = admitted && selection.projectId === admitted;
+  if (heldProject) {
+    const stale = Boolean(error || selection.error);
+    return <Fragment key={selection.generation}>
+      <p role="status" aria-live="polite" className="project-workspace-stale" hidden={!stale}>Connection to the Node API was lost. Showing the last known state; some information may be out of date.</p>
+      {children}
+    </Fragment>;
+  }
   // While the first admission attempt is still resolving, show the loading status without a navigation button.
-  if (!error && !selection.error && !admitted) return <main className="project-workspace-state"><p role="status">Opening project…</p></main>;
-  // Project-bound children must never run requests until directory admission has established their identity.
-  if (!error && admitted && selection.projectId === admitted) return <Fragment key={selection.generation}>{children}</Fragment>;
+  if (!error && !selection.error) return <main className="project-workspace-state"><p role="status">Opening project…</p></main>;
   return <main className="project-workspace-state">
-    <p role={error || selection.error ? "alert" : "status"}>{error || selection.error || "This project is unavailable. Choose an available project."}</p>
+    <p role="alert">{error || selection.error || "This project is unavailable. Choose an available project."}</p>
     <button type="button" onClick={() => setRetry((current) => current + 1)}>Retry</button>
   </main>;
 }

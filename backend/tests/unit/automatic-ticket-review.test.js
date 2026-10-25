@@ -14,6 +14,20 @@ test("a Reviewer reopening adjudication without duplicated finding prose reaches
   assert.equal(fixture.events.at(-1).type, "review.request_changes");
 });
 
+test("Stop preserves pending review without publishing a failure and explicit resume can continue", async () => {
+  const fixture = automaticReviewFixture({ review: async (_job, calls) => {
+    if (calls === 1) throw Object.assign(new Error("Ticket stopped during verification."), { code: "TICKET_STOPPED" });
+    return { verdict: "approved", findings: [], adjudications: [] };
+  } });
+  const job = await fixture.prepare();
+  await assert.rejects(fixture.service.process(job), { code: "TICKET_STOPPED" });
+  const retained = (await fixture.queueStore.list("agent.request"))[0];
+  assert.equal(retained.running_attempt, null); assert.equal(retained.review_result, undefined);
+  assert.equal(retained.outcomes.length, 0); assert.equal(fixture.events.length, 0);
+  assert.equal((await fixture.restart().process(job)).type, "review.approved");
+  assert.equal(fixture.calls, 2);
+});
+
 // Requires one logical job per full identity while binding contract, policy, and file checksums separately.
 test("automatic review deduplicates identity and changes jobs for contract, rules, checksums and revision", async () => {
   const fixture = automaticReviewFixture();

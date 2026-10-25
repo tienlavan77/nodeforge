@@ -5,6 +5,7 @@ import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js"
 import { retainBlockerContract } from "../../src/modules/supervisor/blocker-contract-evidence.js";
 import { readBlockerContractDelegation, createBlockerContractRefresh } from "../../src/modules/supervisor/blocker-contract-delegation.js";
 import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker-recovery-contract.js";
+import { blockerResponseEvidence } from "../../src/modules/supervisor/blocker-validation.js";
 
 const basis = { plan_id: "ARCH-PLAN", revision: 1, sha256: "a".repeat(64) };
 const quote = "Preserve the existing approved interfaces and security restrictions while completing the implementation.";
@@ -100,4 +101,43 @@ test("Owner Stop prevents automatic restoration of the same parked contract job"
   await f.recovery.stopTicket({ projectId: "P", ticketId: "TASK" });
   f.recreate(); await f.recovery.tick();
   assert.deepEqual(f.calls, []);
+});
+
+test("production AM validation consumes an authenticated checkpoint receipt without routing it through Reviewer source access", async (t) => {
+  const { f, decision, checkpoint } = await fixture(t);
+  const ref = checkpoint.contract_decisions[0];
+  const value = { ...decision, evidence: [...decision.evidence, { path: ref.path, sha256: ref.sha256 }] };
+  await f.base.store.withLock("blocker.recovery", async () => {
+    const ledger = await f.ledger();
+    Object.assign(ledger.jobs[0], { stage: "architecture_manager", status: "pending" });
+    await f.base.store.save("blocker.recovery", ledger);
+  });
+  f.recreate({ investigate: async () => value });
+  await f.recovery.tick();
+  const job = (await f.ledger()).jobs[0];
+  assert.equal(job.stage, "sprint_leader");
+  assert.equal(job.status, "pending");
+  assert.deepEqual(job.architecture_response.disposition.evidence, value.evidence);
+  assert.equal((await f.base.checkpoints.load("TASK")).last_completed_turn, checkpoint.last_completed_turn);
+});
+
+test("Resume revalidates the retained AM answer after receipt-reader repair without another provider call", async (t) => {
+  const { f, decision, checkpoint } = await fixture(t);
+  const ref = checkpoint.contract_decisions[0];
+  const value = { ...decision, evidence: [...decision.evidence, { path: ref.path, sha256: ref.sha256 }] };
+  const ledger = await f.ledger();
+  const current = ledger.jobs[0];
+  Object.assign(current, { stage: "architecture_manager", status: "reconciliation_required", outcome_reason: "FILE_ROLE_FORBIDDEN",
+    authority_consultations: [{ status: "assigned", identity: "retained-question" }],
+    disposition_attempts: [{ stage: "architecture_manager", status: "rejected", response: blockerResponseEvidence(value) }] });
+  await f.base.store.save("blocker.recovery", ledger);
+  f.recreate({ investigate: async () => assert.fail("Retained validated answer must not invoke the provider again") });
+  const resumed = await f.recovery.resumeStage({ projectId: ledger.project_id, taskId: ledger.task_id, executionId: ledger.execution_id, jobId: current.id });
+  assert.equal(resumed.stage, "architecture_manager");
+  await f.recovery.tick();
+  const job = (await f.ledger()).jobs[0];
+  assert.equal(job.stage, "sprint_leader"); assert.equal(job.status, "pending");
+  assert.equal(job.disposition_attempts.at(-1).status, "accepted");
+  assert.deepEqual(job.architecture_response.disposition.evidence, value.evidence);
+  assert.equal((await f.base.checkpoints.load("TASK")).last_completed_turn, checkpoint.last_completed_turn);
 });

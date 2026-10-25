@@ -1,19 +1,22 @@
 /** Wraps real Coder executions in durable shared work messages while leaving
  * governed report_done, commit, verification and finding tools authoritative. */
 import { createFileService } from "../../infrastructure/filesystem/file-service.js";
-import { createAgentExchange, assertAgentExchange } from "../governance/agent-exchange.js";
+import { createAgentExchange } from "../governance/agent-exchange.js";
 import { createAgentExchangeStorage } from "../governance/agent-exchange-storage.js";
 import { ticketSourceChangesPrompt } from "./ticket-source-observation.js";
+import { resumeCoderExchange, readCoderConsultation } from "./coder-exchange-resume.js";
 
 /** Retains the assignment on resume and records explicit tool-validated results;
  * SDK prose alone cannot satisfy the Coder completion gate. */
 export function withCoderExchange(execute, { projectRoot, projectLogger = () => {} }) {
   return async (selected, request) => {
     if (selected.role !== "coder" || request.payload?.tool_test || !request.project_id || !request.payload?.execution_id) return execute(selected, request);
-    const storage = createAgentExchangeStorage({ fileService: createFileService({ projectRoot, role: "system_engineer" }), projectLogger });
+    const fileService = createFileService({ projectRoot, role: "system_engineer" });
+    const storage = createAgentExchangeStorage({ fileService, projectLogger });
     const context = { project_id: request.project_id, ticket_id: request.task_id, execution_id: request.payload.execution_id };
     const retained = request.payload?.agent_exchange ?? request.payload?.resume_from?.agent_exchange;
-    const message = retained ? await storage.read(context, assertAgentExchange(retained).message_id) : createAgentExchange({ context, sender: { agent_id: "node", role: "node" },
+    request.abortSignal?.throwIfAborted();
+    const message = retained ? await resumeCoderExchange({ storage, retained, context, selected, request }) : createAgentExchange({ context, sender: { agent_id: "node", role: "node" },
       recipient: { agent_id: selected.agent_id, role: "coder" }, kind: "work_request", subject: request.ticket.title || request.task_id,
       payload: { objective: request.ticket.objective || request.ticket.title || request.task_id,
         criterion_ids: (request.ticket.acceptance_criteria ?? []).map((_, index) => `AC-${index + 1}`), decision_refs: [],
@@ -24,10 +27,7 @@ export function withCoderExchange(execute, { projectRoot, projectLogger = () => 
     const ref = await storage.save(message);
     projectLogger({ event_name: "agent.exchange", level: "info", status: "started", task_id: request.task_id, correlation_id: request.correlation_id,
       message: "Coder continues the retained structured assignment.", payload: { message_id: message.message_id, kind: message.kind, ref: ref.ref } });
-    const consultationId = request.payload?.resume_from?.blocker_recovery?.communication?.response_id;
-    const consultation = consultationId ? await storage.read(context, consultationId) : null;
-    if (consultation && (consultation.kind !== "consultation_response" || consultation.sender.role !== "sprint_leader"
-      || consultation.recipient.role !== "coder" || consultation.recipient.agent_id && consultation.recipient.agent_id !== selected.agent_id)) throw new Error("Retained consultation does not answer this Coder's SL request.");
+    const consultation = await readCoderConsultation({ fileService, storage, context, selected, request });
     const next = { ...request, payload: { ...request.payload, agent_exchange: message, agent_consultation: consultation } };
     request.abortSignal?.throwIfAborted();
     const result = await execute(selected, next);
@@ -48,5 +48,5 @@ export function withCoderExchange(execute, { projectRoot, projectLogger = () => 
 export function coderExchangePrompt(request) {
   const sourcePrompt = ticketSourceChangesPrompt(request.payload?.source_changes);
   if (!request.payload?.agent_exchange) return sourcePrompt;
-  return `${sourcePrompt}AGENT EXCHANGE v1 — CURRENT WORK REQUEST: ${JSON.stringify(request.payload.agent_exchange)}\n${request.payload.agent_consultation ? `SL ANSWER TO YOUR RETAINED QUESTION: ${JSON.stringify(request.payload.agent_consultation)}\n` : ""}Answer directly and concisely. Continue the retained checkpoint, preserving completed work and decisions. Submit the work_result through report_done and finding responses through respond_to_review using their supplied tool schemas; Node constructs the common envelope from those validated records. For a blocker use report_done(status=blocked) to consult SL. SL consults AM if necessary; never consult AM directly. Do not use prose as a replacement for a required tool result or claim Reviewer acceptance.`;
+  return `${sourcePrompt}AGENT EXCHANGE v1 — CURRENT WORK REQUEST: ${JSON.stringify(request.payload.agent_exchange)}\n${request.payload.agent_consultation ? `SL ANSWER TO YOUR RETAINED QUESTION (original context preserved; historical answers are not new execution permission, verification or Reviewer acceptance): ${JSON.stringify(request.payload.agent_consultation)}\n` : ""}Answer directly and concisely. Continue the retained checkpoint, preserving completed work and decisions. Submit the work_result through report_done and finding responses through respond_to_review using their supplied tool schemas; Node constructs the common envelope from those validated records. For a blocker use report_done(status=blocked) to consult SL. SL consults AM if necessary; never consult AM directly. Do not use prose as a replacement for a required tool result or claim Reviewer acceptance.`;
 }

@@ -2,8 +2,10 @@
 import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
 import { ConfigurationError } from "../../shared/errors.js";
 import process from "node:process";
+import { prependNodeBin } from "./node-bin-path.js";
 import { claudeCacheEnvironment, claudeCacheUsage } from "./anthropic-prompt-cache.js";
 import { sdkFailureEvidence } from "./sdk-failure-evidence.js";
+import { claudeSdkResult } from "./claude-sdk-result.js";
 
 const SAFE_URL = /^https:\/\//;
 const USAGE_FIELDS = new Set(["input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "inputTokens", "outputTokens", "cacheCreationInputTokens", "cacheReadInputTokens"]);
@@ -84,6 +86,7 @@ export function createClaudeSdkGateway({
         if (sid) notify(sid);
       }
       if (sessionId) notify(sessionId);
+      const response = claudeSdkResult(messages, { structured: options.outputFormat?.type === "json_schema" });
       writeTerminal(`DONE ${config.agent_name ?? config.agent_id} messages=${messages.length} correlation=${correlationId}`);
       const usage = claudeCacheUsage(messages);
       if (usage) writeTerminal(`USAGE ${config.agent_name ?? config.agent_id} input=${usage.input_tokens ?? 0} output=${usage.output_tokens ?? 0} cache_read=${usage.cache_read_input_tokens ?? 0} cache_write=${usage.cache_creation_input_tokens ?? 0} correlation=${correlationId}`);
@@ -96,7 +99,7 @@ export function createClaudeSdkGateway({
         status: "completed",
         session_id: sessionId,
         messages,
-        text: messages.flatMap((message) => message?.type === "assistant" ? (message.message?.content ?? []).map((block) => block?.text).filter((value) => typeof value === "string") : []).join("\n").trim()
+        ...response
       };
     } catch (error) {
       if (abortSignal?.aborted) throw abortSignal.reason;
@@ -107,7 +110,9 @@ export function createClaudeSdkGateway({
         ? error.message.replace(credential, "[REDACTED]")
         : "unknown SDK error";
       writeTerminal(`FAIL ${config.agent_name ?? config.agent_id} ${message.slice(0, 240)} correlation=${correlationId}`);
-      throw sdkFailureEvidence(new ConfigurationError(`Claude SDK request failed for ${config.agent_id}: ${message}`, { cause: error }), error);
+      const failure = new ConfigurationError(`Claude SDK request failed for ${config.agent_id}: ${message}`, { cause: error });
+      if (error.code?.startsWith("CLAUDE_SDK_")) Object.assign(failure, { code: error.code, provider_outcome: error.provider_outcome, retry_safe: false, sdk_subtype: error.sdk_subtype });
+      throw sdkFailureEvidence(failure, error, { ended: error.provider_outcome === "failed" });
     } finally {
       abortSignal?.removeEventListener("abort", stop);
       clearTimeout(timeout);
@@ -125,7 +130,7 @@ export function createClaudeSdkGateway({
   function reportBuiltinToolEvents(message, callback, calls) {
     if (typeof callback !== "function" || !Array.isArray(message?.message?.content)) return;
     for (const block of message.message.content) {
-      if (message.type === "assistant" && block?.type === "tool_use" && ["Glob", "Grep", "Read", "Write", "Edit", "Bash", "WebSearch"].includes(block.name)) {
+      if (message.type === "assistant" && block?.type === "tool_use" && ["Glob", "Grep", "Read", "Write", "Edit", "Bash", "WebSearch", "Agent"].includes(block.name)) {
         calls.set(block.id, block.name);
         callback({ tool: block.name, status: "started", path: block.input?.file_path ?? block.input?.path, command: block.input?.command });
       } else if (message.type === "user" && block?.type === "tool_result") {
@@ -142,9 +147,13 @@ export function createClaudeSdkGateway({
     if (typeof baseUrl !== "string" || !SAFE_URL.test(baseUrl)) {
       throw new ConfigurationError("Claude SDK third-party gateway URL is unavailable.");
     }
-    return {
+    const env = {
       ...environment,
-      ...(optionsEnv && typeof optionsEnv === "object" ? optionsEnv : {}),
+      ...(optionsEnv && typeof optionsEnv === "object" ? optionsEnv : {})
+    };
+    return {
+      ...env,
+      PATH: prependNodeBin(env.PATH),
       ...claudeCacheEnvironment(),
       ANTHROPIC_BASE_URL: baseUrl,
       ANTHROPIC_AUTH_TOKEN: credential,

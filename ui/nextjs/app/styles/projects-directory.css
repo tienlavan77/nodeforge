@@ -50,6 +50,8 @@
 .project-add-modal { box-sizing: border-box; width: 100%; margin: 0; border: 0; box-shadow: none; }
 .project-add-modal input { box-sizing: border-box; }
 .project-workspace-state { display: grid; justify-items: center; align-content: center; gap: 16px; padding: 24px; min-height: 100dvh; box-sizing: border-box; color: var(--app-muted); }
+.project-workspace-stale { width: 100%; box-sizing: border-box; margin: 0; padding: 10px 16px; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; border-bottom: 1px solid color-mix(in srgb, var(--app-accent) 30%, var(--app-border)); background: color-mix(in srgb, var(--app-accent) 12%, var(--app-panel)); color: var(--app-text); font-size: 13px !important; line-height: 1.5; text-align: center; }
+.project-workspace-stale[hidden] { display: none; }
 @media (max-width: 600px) {
   .projects-directory { padding: 28px 14px 44px; gap: 36px; }
   .projects-stage { gap: 22px; }

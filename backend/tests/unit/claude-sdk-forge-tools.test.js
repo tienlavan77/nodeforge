@@ -78,3 +78,17 @@ test("Claude coder receives Forge Read, Glob, and Grep with familiar arguments",
   assert.equal((await callTool(server, "Grep", { pattern: "agent", output_mode: "content", "-n": true })).isError, undefined);
   assert.deepEqual(received.map(([name]) => name), ["Read", "Glob", "Grep"]);
 });
+
+test("Claude respond_to_review transports the canonical verification request and rejects a glob selector", async () => {
+  let received;
+  const server = createForgeSdkMcpServer({ registry: { respond_to_review: { execute: async (input) => { received = input; return { status: "submitted_for_review" }; } } },
+    context: { task_id: "T-VERIFY" } });
+  const request = { finding_ids: ["REV-1"], criterion_ids: ["AC-1"], test_paths: ["backend/tests/unit/security.test.js"], scope: "ticket",
+    reason: "Need a committed security receipt.", artifact_id: "ARTIFACT-1", commit_sha: "a".repeat(40), source_revision: "source-1" };
+  const input = { review_commit_sha: request.commit_sha, artifact_id: request.artifact_id, source_revision: request.source_revision, idempotency_key: "response-1",
+    responses: [{ finding_id: "REV-1", position: "accept", rationale: "Node must run this exact check.", files: [], evidence_refs: [request.artifact_id], verification_requests: [request] }] };
+  assert.equal((await callTool(server, "respond_to_review", input)).isError, undefined);
+  assert.deepEqual(received, input);
+  input.responses[0].verification_requests[0].test_paths = ["backend/tests/*.test.js"];
+  assert.equal((await callTool(server, "respond_to_review", input)).isError, true);
+});

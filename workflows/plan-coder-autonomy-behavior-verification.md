@@ -19,7 +19,7 @@ Trạng thái: đề xuất để owner review; chưa được approve, không p
 - Phân biệt outcome/contract/guardrail bắt buộc với implementation guidance không bắt buộc.
 - Khảo sát gate máy; sửa có mục tiêu nếu gate đang ép sửa một file/lớp triển khai chỉ vì suy luận từ câu chữ thay vì ràng buộc có thẩm quyền.
 - Giữ mapping outcome → ticket AC → verification/evidence; kiểm thử cả quyền tự quyết và các trường hợp phải chặn.
-- Làm rõ mâu thuẫn file budget trong rulebook dựa trên policy/schema/runtime hiệu lực, không tự bỏ budget ticket.
+- Ghi nhận file budget đã reconcile ở revision rulebook hiện hành (không còn "trần bốn file toàn cục" để gỡ); thay vì sửa xung đột, thêm regression guard để không admission/schema path nào tái áp trần bốn file, và tiếp tục đối chiếu mọi path liên quan trước khi tuyên bố đã thống nhất runtime.
 
 ### Out of scope
 
@@ -56,6 +56,8 @@ Trạng thái: đề xuất để owner review; chưa được approve, không p
 - **Schema:** mặc định giữ contract hiện tại. Không thêm field quyền hạn chỉ để lặp rule. Chỉ đề xuất schema change khi discovery chứng minh không thể truyền/phân biệt constraint và guidance bằng contract hiện có; phải xác định consumers, versioning, migration/rollback trước khi triển khai.
 - **Validator/runtime:** giữ schema/coverage/evidence gates. Đối với gate suy luận từ từ khóa và loại file, phải chứng minh nó đang bảo vệ ràng buộc bắt buộc hay chỉ ép cách làm; sửa trường hợp thứ hai bằng điều kiện có evidence, không xóa toàn bộ scope gate.
 - **Reviewer:** finding bắt buộc chỉ ra hành vi/contract/rule vi phạm hoặc rủi ro cụ thể kèm evidence; guidance đơn thuần không phải lý do request changes. Không ép mọi finding chỉ gắn AC vì security/repo rules vẫn có hiệu lực.
+- **Phân lớp phương pháp và giới hạn bắt buộc:** thứ tự discovery, gợi ý đọc target/README và thời điểm nên edit là advisory, thể hiện qua notice/hint thay vì tự trở thành hard gate. Không diễn đạt thành “throw chỉ dành cho containment”: total resource budget, authorization, contract, verification, exact-revision evidence và commit-before-report cho `pass` vẫn là gate bắt buộc. Runtime prerequisite độc lập phải được nhận diện và kiểm thử riêng; không xóa ngầm khi làm mềm prompt.
+- **Điều kiện chặn trước thay runtime:** với từng gate discovery/report dự kiến sửa, SL phải ghi production governed/legacy entrypoint, call path, điều kiện kích hoạt, constraint đang bảo vệ và witness tái hiện chặn sai qua entrypoint thật. Helper có `throw` hoặc kết quả grep không đủ chứng minh blocker production. Không tái hiện được thì ghi “chưa có căn cứ sửa”, giữ gate hiện hành; chỉ thay khi có evidence và positive/negative regression tests.
 
 ### 3.3. Dependency, compatibility và rollout
 
@@ -74,8 +76,8 @@ Repository discovery hoàn tất cho phạm vi lập đề xuất; chưa khảo 
 
 | Thành phần / khu vực | Vai trò và fact đã xác minh | Evidence |
 | --- | --- | --- |
-| Architecture rulebook | §3–6 đã tách outcome và delivery nhưng §6 còn ghi trần bốn mutable files | [Evidence: workflows/agents/architecture/README.md, §3–6] |
-| SL rulebook | Ticket contract mục 2–4 dùng budget dương theo ticket, không trần bốn file toàn cục | [Evidence: workflows/agents/sprint-leader/README.md, Ticket contract and granularity] |
+| Architecture rulebook | §3–6 đã tách outcome và delivery; §6 hiện ghi budget theo từng ticket và không áp trần bốn file toàn cục | [Evidence: workflows/agents/architecture/README.md, §3–6, revision hiện hành; checksum đã đọc: `sha256:f89a981f59e443a2613252c2d176ae2753b7a848ddfe90f0cabbe8bd111d0443`] |
+| SL rulebook | Ticket contract dùng budget dương theo ticket và không áp trần bốn file toàn cục; đã reconcile với Architecture ở revision hiện hành | [Evidence: workflows/agents/sprint-leader/README.md, Ticket contract and granularity, checksum `sha256:8075cf2524fcc8bcee076177ab4673e07051ae0e20fe59d4667a77be48ce6199`; SL vẫn phải revalidate admission consumers khi lập SP] |
 | Coder rulebook | Đã yêu cầu smallest safe change, giữ contract và focused tests; cần làm rõ quyền tự quyết không xin phép vì khác guidance | [Evidence: workflows/agents/coder/README.md, Mission; Implementation and verification] |
 | Reviewer rulebook | Đã cấm personal style findings và yêu cầu exact-revision evidence | [Evidence: workflows/agents/reviewer/README.md, Independence and scope; Review checks] |
 | Prompt lập SP | Có outcome coverage, frozen AC repair, verification mapping; không nên nới bằng bỏ các ràng buộc này | [Evidence: backend/src/application/sprint-plan-leader.js, buildPlanPrompt, lines 64–83] |
@@ -93,7 +95,7 @@ Các entrypoint khác đã tìm thấy bằng content search nhưng chưa đọc
 
 | Mã | Outcome bắt buộc | Acceptance criteria quan sát được | Dependency / guardrail |
 | --- | --- | --- | --- |
-| O1 | Quyền tự quyết xuyên suốt AM → SL → Coder → Reviewer | Bốn rulebook thống nhất hợp đồng hành vi; Coder được thay giải pháp/thêm test trong boundary không xin phép; Reviewer không reject chỉ vì khác guidance. Mâu thuẫn file budget được giải quyết theo evidence hiệu lực | Không đổi quyền ghi hay tự hạ AC |
+| O1 | Quyền tự quyết xuyên suốt AM → SL → Coder → Reviewer | Bốn rulebook thống nhất hợp đồng hành vi; Coder được thay giải pháp/thêm test trong boundary không xin phép; Reviewer không reject chỉ vì khác guidance. File budget được giữ theo ticket; regression guard phải bảo đảm không admission path nào tái áp trần bốn file toàn cục | Không đổi quyền ghi hay tự hạ AC |
 | O2 | Ticket và prompt không khóa đường đi vô cớ | Prompt SP/tạo/tái tạo ticket, Coder và review trong các luồng được hỗ trợ thể hiện cùng semantics; có fixture AC hành vi và guidance tách biệt; repair giữ nguyên frozen contract. Không có bước yêu cầu duyệt chỉ do đổi helper/thuật toán | O1; giữ protocol/tool contract |
 | O3 | Máy không chặn giải pháp hợp lệ chỉ vì khác cách triển khai dự kiến | Audit tách production governed và legacy: ghi entrypoint/call path, điều kiện kích hoạt, constraint bảo vệ, kết luận giữ/sửa và evidence. Trước khi sửa gate phải tái hiện trường hợp bị chặn sai qua entrypoint thực sự bị ảnh hưởng; không mặc định assertReportScope là nguyên nhân production. Fixture committed delta hợp lệ được qua gate thích hợp; giữ regression file không đổi. Thay gate có positive/negative tests; không tái hiện được thì ghi chưa có căn cứ sửa | O1; giữ manifest, budget, artifact identity và coverage |
 | O4 | Nghiệm thu qua pipeline hỗ trợ, không chỉ hai hàm cùng pass test | Ít nhất hai phương án nội bộ khác nhau, cùng AC/guardrails trong boundary, đều đi qua luồng report/verification/review được hỗ trợ và được nghiệm thu với artifact/evidence riêng, bind đúng revision/commit của từng phương án; không dùng lại proof giữa revisions. Phương án khớp guidance nhưng sai hành vi bị từ chối với evidence chỉ rõ tầng chặn. Có assertion hành vi thực thi và review disposition, không chỉ snapshot prompt hay unit test hai hàm | O2, O3; Reviewer độc lập; tách runtime tests và agent evaluation |
@@ -105,7 +107,7 @@ Các entrypoint khác đã tìm thấy bằng content search nhưng chưa đọc
 Verification phải tách rõ bằng chứng máy và đánh giá agent:
 
 - **Runtime tests xác định được:** schema/coverage và behavioral assertions; fixture tích hợp đi qua entrypoint report, verification và review được hỗ trợ, dùng artifact đúng revision và ghi disposition của từng phương án. Có thể dùng provider/reviewer doubles tại boundary đã khai báo; phải ghi tầng thật/tầng giả lập. Không cần chạy agent thật trong mọi unit test, nhưng hai hàm cùng pass test không đủ đạt O4.
-- **Evaluation hành vi agent:** scenario riêng đánh giá Coder thực sự chọn cách khác guidance và Reviewer không reject chỉ vì khác cách làm. Trước khi chạy, SL/evaluation owner chốt trong ticket verification: provider/model được đánh giá, cấu hình, số run, phạm vi, tiêu chí pass/fail và cách phân biệt lỗi hệ thống/tool/provider với biến thiên hành vi agent; quy định cách xử lý run lỗi hoặc chưa xác định và điều kiện chạy lại. Lưu contract revision, transcript/report, artifact/evidence và kết quả của toàn bộ tập run, kể cả run lỗi/chạy lại, kèm phân loại và giới hạn kết luận theo provider/model đã đánh giá. Không chọn riêng một run thành công để kết luận chung, không đặt chuẩn agent luôn luôn đúng, và không lấy prompt snapshot hoặc runtime double làm chứng cứ agent đã hành xử đúng. Đây là chi tiết verification do SL/evaluation owner cụ thể hóa trước chạy, không mở thêm vòng thiết kế hay approval ngoài contract hiện hành.
+- **Evaluation hành vi agent:** scenario riêng đánh giá Coder thực sự chọn cách khác guidance và Reviewer không reject chỉ vì khác cách làm. Trước khi chạy, SL/evaluation owner chốt trong ticket verification: provider/model được đánh giá, cấu hình, số run (tính cả retry), trần chi phí/token/thời gian và điều kiện dừng khi chạm trần, phạm vi, tiêu chí pass/fail và cách phân biệt lỗi hệ thống/tool/provider với biến thiên hành vi agent; quy định cách xử lý run lỗi hoặc chưa xác định và điều kiện chạy lại. Lưu contract revision, transcript/report, artifact/evidence và kết quả của toàn bộ tập run, kể cả run lỗi/chạy lại, kèm phân loại và giới hạn kết luận theo provider/model đã đánh giá. Không chọn riêng một run thành công để kết luận chung, không đặt chuẩn agent luôn luôn đúng, và không lấy prompt snapshot hoặc runtime double làm chứng cứ agent đã hành xử đúng. Đây là chi tiết verification do SL/evaluation owner cụ thể hóa trước chạy, không mở thêm vòng thiết kế hay approval ngoài contract hiện hành.
 - **Witness tích hợp có giới hạn:** đổi helper/thuật toán → repair hoặc Stop/Resume → verification/review, kiểm không phát sinh owner request chỉ do đổi guidance và quyền/contract vẫn giữ. Thêm witness rollback khi ticket revision mới đang chạy, bao gồm Resume sau rollback. Đây là kiểm chứng tích hợp, không mở rộng scope sang thiết kế lại recovery/versioning.
 - Mỗi witness ghi entrypoint, revision/commit, artifact/evidence và tầng nghiệm thu/chặn. Kết quả runtime và agent evaluation báo cáo riêng; không tuyên bố một lớp chứng minh thay lớp kia.
 
@@ -115,7 +117,7 @@ SL phải mapping mỗi outcome/criteria tới một hoặc nhiều ticket và c
 
 | Rủi ro / câu hỏi | Tác động | Evidence / giả định | Người chốt / cách xử lý |
 | --- | --- | --- | --- |
-| Hai rulebook không thống nhất file cap | Major: delivery tiếp tục bị siết giả | §4: validator được đọc chỉ kiểm nguyên dương; chưa chứng minh mọi schema/admission path không còn trần bốn | SL lập inventory schema/admission consumers và kết quả đối chiếu từng path; AM chốt reconciliation, không suy rộng từ một validator |
+| Hai rulebook mô tả file budget không còn là xung đột đang mở | Major nếu bỏ qua: delivery không được "sửa" một mâu thuẫn đã reconcile; rủi ro thật là chưa chứng minh mọi admission/schema path runtime đã bỏ trần bốn file | §4: cả hai rulebook ở revision hiện hành đều nêu "không áp trần bốn file toàn cục" (checksum `f89a981f...` và `8075cf25...`); validator đã đọc (`assertSprintPlanGovernance`) chỉ kiểm nguyên dương, nhưng chưa khảo sát đầy đủ mọi admission path | Không ghi như xung đột cần gỡ; SL lập inventory schema/admission consumers và thêm regression guard bảo đảm không path nào tái áp trần bốn, rồi đối chiếu từng path. AM chốt reconciliation, không suy rộng từ một validator |
 | Nhầm gate legacy là blocker production | Major: sửa sai chỗ, không giải quyết pain point | assertReportScope chỉ ở !governed; validateGovernedScope và test file không đổi đã có (§4) | SL/Coder truy vết production/legacy riêng và tái hiện sai qua entrypoint trước khi đề xuất sửa; AM xác nhận semantics |
 | Snapshot/version binding không đủ khi rollback hoặc Resume | Blocker rollout phần bị ảnh hưởng | Chưa audit đủ; snapshot Reviewer không chứng minh rule/prompt/runtime cùng được bind | SL/runtime maintainer xác minh binding và witness §3.3/O6; ghi giới hạn rollout nếu thiếu, không đổi semantics giữa execution |
 | Escalation tái xuất hiện qua repair/resume | Major | Chưa có witness tích hợp cho quyền tự quyết trong plan này | SL cung cấp witness O5; ghi gaps, không mở dự án viết lại blocker recovery |
@@ -139,3 +141,65 @@ Không có tradeoff owner mới cần hỏi lại từ yêu cầu hiện tại. 
 - [ ] Không mặc định phải đổi schema; mọi runtime change có evidence và regression proof.
 - [ ] Rollback bảo vệ ticket cũ và ticket revision mới đang chạy, kể cả Resume; có kết luận snapshot/version binding và giới hạn rollout nếu thiếu. Ticket/revision không bị diễn giải lại, mutate hoặc tái sử dụng approval.
 - [ ] Approval phải theo đúng identity/revision/SHA-256 hiệu lực; tạo tài liệu hoặc lập SP không tự RUN/dispatch.
+
+---
+
+# Phụ lục đề xuất: Nới discovery autonomy cho Coder
+
+**Trạng thái:** Owner đã duyệt cập nhật và triển khai trực tiếp trong hội thoại ngày 2026-10-24. Đợt sửa này giới hạn ở discovery autonomy, prompt và regression tests; không tạo Sprint approval, quyền RUN/dispatch hay production acceptance.
+
+**Ghi nhận triển khai:** per-type cap, pre-edit marker và explicit-target bypass được chuyển thành advisory; tổng budget, điều kiện escalation một lần và loop guard `EXPLORATION_STAGNANT` giữ nguyên. Thứ tự đọc README là khuyến nghị, nhưng prerequisite đọc rules thành công trước edit ở runtime vẫn bắt buộc. Không sửa ngoại lệ commit cho `needs_context`, report/recovery contract hoặc quyền ghi. Trường `edit_must_start_by` cũ được giữ để tương thích checkpoint và hiển thị marker; không còn dùng làm ceiling.
+
+**Evidence và giới hạn:** regression qua `createRuntimeToolGovernance().dispatch` kiểm tra cả ba loại discovery vượt marker mà vẫn bị chặn khi hết tổng budget hoặc ra ngoài allowlist. Production Coder hiện không truyền per-type limits; thay đổi này không được mô tả như đã tái hiện/sửa một blocker production. Chưa có witness agent thật, binding/rollback hoặc drain checkpoint; chưa đủ điều kiện cutover/rollout theo §3.3. Các outcomes lớn O1–O6 của phần kế hoạch chính chưa được tuyên bố hoàn tất.
+
+## Mục tiêu và phạm vi bổ sung
+
+Mục tiêu là để Coder tiếp tục khám phá trong boundary của ticket thay vì bị dừng bởi các cap theo loại hoặc deadline edit sớm. Khi đạt cap `candidate`, `search` hoặc `read`, hệ thống nên phát cảnh báo qua `discoveryNotice.suggested_next_action`, còn cap tổng vẫn là hard-throw. `TARGET_KNOWN_SKIP_CANDIDATES` chỉ nên là hint.
+
+Các đề xuất sau **chưa được feedback duyệt thành quyết định** và phải revalidate trước khi chốt: (a) `needs_context` là đường resume không cần commit — feedback thiên về giữ commit-before-report, nên đây là ngoại lệ cần owner/AM chốt, không mặc định được duyệt; (b) hạ `EXPLORATION_STAGNANT` thành cảnh báo — cần xác minh đây chỉ là heuristic về phương pháp hay là cơ chế ngăn vòng lặp tiêu hao tài nguyên trước khi quyết định giữ/sửa. `pass` luôn giữ commit + verification gate.
+
+Phạm vi gồm `exploration-state`, các discovery callers, executor/dispatch, hai prompt builder `buildToolTicketPrompt`/`buildCodexTicketPrompt`, resume/report path và các test blocker, capability, exploration liên quan. `blocker-recovery-contract.js` nằm ngoài phạm vi và không được sửa trong đợt này.
+
+## Guardrails không được nới
+
+- Cap tổng `discovery_budget` và escalation hợp lệ vẫn giới hạn tổng số discovery; cảnh báo per-type không được biến thành quyền vượt cap tổng.
+- Root containment, `allowed_file_paths`, mutable-file budget, tool authorization, contract/AC, verification, commit-before-report cho `pass`, independent Reviewer và exact-revision evidence vẫn giữ nguyên.
+- README trong prompt chuyển thành advisory về thứ tự/khuyến nghị đọc; nếu runtime wrapper có prerequisite bắt buộc độc lập thì phải phân biệt và kiểm thử riêng, không vô tình xóa gate runtime.
+- Coder không được tự đổi AC, public contract, manifest, quyền ghi, budget hoặc tiêu chí nghiệm thu.
+
+## Outcomes và điều kiện nghiệm thu
+
+| Mã | Outcome | Acceptance criteria |
+| --- | --- | --- |
+| O1 | Ba cap theo loại là cảnh báo, không phải hard-throw. | Đạt `candidate`/`search`/`read` cap nhận được `discoveryNotice` có `suggested_next_action`; không nhận `ConfigurationError` tương ứng. Total budget vẫn hard-throw và manifest vẫn được bảo vệ. |
+| O2 | Không còn deadline ép edit sớm. | `edit_must_start_by` là `null` hoặc không thấp hơn trần tổng; discovery có lý do được tiếp tục trong tổng budget và không phát `EXPLORATION_PREEDIT_DEADLINE` sớm. |
+| O3 (đề xuất, cần chốt) | `needs_context` **có thể** là đường resume không cần commit. | Đây là **ngoại lệ cần owner/AM quyết**, không mặc định được feedback duyệt (feedback thiên về giữ commit-before-report). Nếu được duyệt: với worktree đã thay đổi, report `needs_context` được persist/route theo contract và không bị park chỉ vì chưa commit. `pass` luôn yêu cầu commit và verification. Phải revalidate call path production (governed vs legacy, `assertCommitBeforeReport`) trước khi sửa wrapper. |
+| O4 | Target đã biết chỉ tạo hint. | `TARGET_KNOWN_SKIP_CANDIDATES` không còn hard-throw; notice gợi ý đọc target trực tiếp nhưng không chặn đường đi hợp lệ trong total budget. |
+| O5 | README prompt step là advisory có phân lớp rõ. | Hai prompt builder có semantics nhất quán; prompt test phân biệt advisory với runtime prerequisite; các gate security/authorization/review vẫn chạy. |
+| O6 | Regression coverage phản ánh semantics mới. | Cập nhật blocker suite, `coder-reviewer-capabilities.test.js` và exploration tests; giữ negative tests cho total exhaustion, vượt manifest, sai contract, thiếu verification, stale evidence và `pass` chưa commit. |
+
+## Hướng delivery đề xuất
+
+1. Audit state factory, `assertDiscoveryBudget`, `discoveryNotice` và mọi caller để xác định cách trả trạng thái cap mà không làm rò quyền vượt total budget.
+2. Cập nhật executor/provider wiring và prompt builders để hai nhánh có semantics đồng nhất; không thay recovery gate đã loại trừ.
+3. Cập nhật test theo outcomes O1–O6, gồm positive autonomy cases và negative safety cases.
+4. Chỉ rollout phụ lục discovery autonomy sau khi semantics chính (rule/prompt/runtime binding) đã được chứng minh qua repair/resume và rollback witness; drain phải tính cả checkpoint còn quyền Resume, không chỉ process đang chạy. Sau điều kiện đó, SL tự quyết số ticket, thứ tự, manifest và file budget; các path trong tài liệu này chỉ là hướng discovery, không phải allowlist cố định.
+
+## Evidence đã xác minh và điểm cần revalidate
+
+Nguồn phản biện đã đối chiếu trong lượt cập nhật tài liệu: `workflows/feedback-coder-autonomy-plan-system-engineer.md:17–77`, checksum `sha256:d04c1aa648ee3609f0c5076817f65f1ed07250021b208a3c2dc692354f88f4c3`. Phản biện dựa trên đọc file/content search, không phải runtime verification. Các nhận định code dưới đây kế thừa khảo sát trước và feedback, chưa đọc lại source hoặc chạy integration trong lượt cập nhật này; SL phải revalidate source revision, call path và witness trước implementation. Trạng thái untracked/checksum của artifact trong `docs/` cũng là ghi nhận cũ, không phải xác minh mới.
+
+- `workflows/agents/architecture/README.md` đã được đọc; rulebook yêu cầu plan khóa outcome/guardrail và để SL quyết định delivery.
+- `backend/src/tools/exploration-state.js`, symbol `assertDiscoveryBudget`/`discoveryNotice`: hiện có các nhánh hard-throw cho target-known, per-type cap, pre-edit deadline, stagnant exploration và total budget; notice đã có `by_type`, `remaining`, `edit_must_start_by` và `suggested_next_action`. `EXPLORATION_STAGNANT` chưa được phân loại đủ để quyết định chuyển thành notice; phải revalidate xem đây là heuristic phương pháp hay resource-loop guard trước khi sửa.
+- `backend/src/modules/supervisor/ticket-resume.js`, `execute`/`assertCommitBeforeReport`: hiện wrapper kiểm tra commit trước `report_done` với status khác `blocked`; semantics `needs_context` cần được test lại ở integration path trước khi implementation.
+- `docs/coder-autonomy-architecture-plan.md` tồn tại như artifact untracked riêng với checksum `sha256:8d8ff886fd33a43152ec7409abef9c13d94ddee01a775ef08e461ee0f4b8c1ff`; tài liệu này không thay thế approval contract và không được coi là đã chốt.
+
+## Rủi ro và câu hỏi mở
+
+- Nếu caller tiếp tục gọi discovery sau cảnh báo mà không kiểm soát total budget, có nguy cơ mất hard cap; phải có positive/negative test tại entrypoint thật.
+- Bỏ deadline edit có thể làm discovery kéo dài; total budget và escalation là giới hạn bắt buộc, và `suggested_next_action` vẫn nên hướng Coder về edit khi phù hợp.
+- Advisory README không đồng nghĩa bỏ mọi runtime prerequisite; cần audit prompt và wrapper cùng nhau.
+- Khoảng 60 blocker tests có thể chứa expected behavior cũ; cập nhật assertion theo O1–O6 nhưng không xóa coverage an toàn.
+- `blocker-recovery-contract.js` phải không xuất hiện trong mutable files của các ticket thuộc phạm vi này.
+
+**Điều kiện phê duyệt:** Owner xác nhận mục tiêu, in/out scope, guardrails và outcomes của phụ lục này theo identity/revision/SHA-256 hiện hành. Chỉ sau approval mới đề nghị `/plan workflows/plan-coder-autonomy-behavior-verification.md`; việc lưu tài liệu không tự tạo approval hoặc quyền triển khai.

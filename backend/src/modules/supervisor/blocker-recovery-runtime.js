@@ -29,6 +29,7 @@ import { recordBlockerCommitAuthorization } from "./blocker-commit-authorization
 import { readBlockerContractDelegation } from "./blocker-contract-delegation.js";
 import { matchesTicketRetrySource } from "./ticket-retry-source.js";
 import { createBlockerOwnerInput } from "./blocker-owner-input.js";
+import { validateBlockerReviewerEvidence } from "./blocker-reviewer-source.js";
 // Enables automatic SL/Architecture coordination only for Registry-bound ticket workspaces; `limits` defaults to the deploy-time policy.
 export function createProductionBlockerRecovery({ store, fileService, projectId, ticketStatusStore, sprintRegistry, resolveTicketWorkspace, checkpoints,
   eventBus, agentResolver, agentOccupancy, gateways, submitTicket, disposition, projectLogger = () => {}, logger = console,
@@ -100,6 +101,11 @@ export function createProductionBlockerRecovery({ store, fileService, projectId,
     ticket_progress.failure_classification = await classifyFailure(job, authority.workspace);
     ticket_progress.evidence_sha256 = blockerDigest([ticket_progress.evidence_sha256, ticket_progress.failure_classification]);
     await options.onTicketProgress?.(ticket_progress);
+    projectLogger({ event_name: "supervisor.blocker_evidence_delivered", level: "info", status: "success", task_id: job.request.task_id,
+      message: "Recovery evidence delivered with retained verification receipts and explicit Reviewer state.",
+      payload: { job_id: job.id, stage: job.stage, current_verification: ticket_progress.verification.status,
+        retained_job_id: ticket_progress.verification.retained_attempt?.job?.job_id ?? null,
+        receipt_count: ticket_progress.verification.receipt_index?.length ?? 0, review_status: ticket_progress.review_status.status } });
     if (ticket_progress.failure_classification?.category === "technical_failure") projectLogger({ event_name: "supervisor.blocker_failure_classified", level: "info", status: "success", task_id: job.request.task_id,
       message: "Node classified the retained blocker as a technical failure from execution-bound receipts; SL coordinates recovery, tool approval remains enforced.",
       payload: { job_id: job.id, classification: ticket_progress.failure_classification } });
@@ -116,7 +122,7 @@ export function createProductionBlockerRecovery({ store, fileService, projectId,
     if (job.technical_reconciliation && ["sprint_leader", "architecture_manager"].includes(job.stage)) projectLogger({ event_name: "supervisor.blocker_technical_follow_up", level: "info", status: "started", task_id: job.request.task_id,
       message: `${job.stage} is performing technical reconciliation round ${job.technical_reconciliation.round} in the same ticket.`,
       payload: { job_id: job.id, round: job.technical_reconciliation.round, prerequisite: job.technical_reconciliation.work.prerequisite } });
-    await recordTicketStage({ checkpoints, taskId: job.request.task_id, stage: job.stage, status: "in_progress", details: { job_id: job.id }, logger, clock });
+    await recordTicketStage({ checkpoints, taskId: job.request.task_id, stage: job.stage === "reviewer" ? "reviewer_evidence" : job.stage, status: "in_progress", details: { job_id: job.id }, logger, clock });
     const { objective, in_scope, out_of_scope, approach, acceptance_criteria } = authority.plan.content;
     return worker({ ...job, contract_context: blockerContractPrompt(contracts), ticket_progress, coder_checkpoint: { last_completed_turn: authority.checkpoint.last_completed_turn, changed_paths: authority.checkpoint.changed_paths,
       completed_tools: authority.checkpoint.completed_tools, turn_history: authority.checkpoint.turn_history }, owner_decisions: blockerOwnerDecisions({ ...authority.checkpoint, blocker_owner_decisions: [...(job.owner_decisions ?? []), ...(authority.checkpoint.blocker_owner_decisions ?? [])] }, authority.current), authority_context: { sprint: { objective, in_scope, out_of_scope, approach, acceptance_criteria }, architecture: authority.architecture,
@@ -131,14 +137,17 @@ export function createProductionBlockerRecovery({ store, fileService, projectId,
   async function checkDisposition(value, job, { retained = false } = {}) {
     const authority = await inspect(job);
     if (!authority) throw new Error("Blocker authority changed during investigation.");
+    if (job.stage === "reviewer") { const verified = await validateBlockerReviewerEvidence(value, job, authority.workspace.projectRoot ?? authority.workspace.path);
+      await recordTicketStage({ checkpoints, taskId: job.request.task_id, stage: "reviewer_evidence", status: "completed", details: { job_id: job.id, action: verified.action }, logger, clock });
+      return verified; }
     const ticket_progress = await buildBlockerTicketProgress({ job, ...authority, sprintRegistry, ticketStatusStore, reviewCheckpoint: await checkpoints.loadReview?.(job.request.task_id) });
     ticket_progress.failure_classification = await classifyFailure(job, authority.workspace);
     ticket_progress.evidence_sha256 = blockerDigest([ticket_progress.evidence_sha256, ticket_progress.failure_classification]);
     if (retained && JSON.stringify(job.ticket_progress?.failure_classification ?? null) !== JSON.stringify(ticket_progress.failure_classification))
       throw blockerValidationError("/action", "failure_classification_changed", "Node's receipt-based failure classification changed. SL must reassess the current blocker before reusing this historical disposition.");
-    const { delegation: contractDelegation } = await readBlockerContractDelegation({ job, checkpoint: authority.checkpoint, fileService, architecture: authority.architecture });
+    const { delegation: contractDelegation, contracts } = await readBlockerContractDelegation({ job, checkpoint: authority.checkpoint, fileService, architecture: authority.architecture });
     const verified = await validateBlockerDisposition(value, { job: { ...job, ticket_progress }, plan: authority.plan, architecture: authority.architecture,
-      contractDelegation,
+      contractDelegation, contractReceipts: contracts, contractFileService: fileService,
       fileService: (authority.workspace.root_only ? authority.workspace.fileService : authority.workspace.worktreeFileService ?? authority.workspace.fileService) ?? fileService,
       projectRoot: authority.workspace.path ?? authority.workspace.projectRoot, verifyContractSource: createTicketContractSource({ request: job.request, workspace: authority.workspace }) });
     if (["coder_requested", "candidate_prepared", "sprint_required"].includes(verified.action) || job.stage === "architecture_manager" && verified.action === "resolved") projectLogger({ event_name: "supervisor.blocker_candidate_handoff", level: "info", status: "success", task_id: job.request.task_id,
@@ -223,7 +232,7 @@ export function createProductionBlockerRecovery({ store, fileService, projectId,
     if (!job) throw Object.assign(new Error("Blocker stage cannot resume: the provider outcome is unknown or the ledger was replaced."), { code: "TICKET_EXECUTION_RECONCILIATION_REQUIRED", statusCode: 409 });
     const claim = await agentOccupancy.getByTask?.(ticketId, job.history.at(-1)?.event === "sprint_recovery_assigned" ? job.history.at(-1).stage : job.stage);
     if (claim?.claim_id) await agentOccupancy.release({ claimId: claim.claim_id, taskId: ticketId, supervisorId: `BLOCKER-${job.id}`, reason: "blocker_stage_resumed" });
-    const resumedCheckpoint = (await recordTicketStage({ checkpoints, taskId: ticketId, stage: job.stage, status: "in_progress", details: { job_id: job.id, resumed: true }, logger, clock })) ?? checkpoint;
+    const resumedCheckpoint = (await recordTicketStage({ checkpoints, taskId: ticketId, stage: job.stage === "reviewer" ? "reviewer_evidence" : job.stage, status: "in_progress", details: { job_id: job.id, resumed: true }, logger, clock })) ?? checkpoint;
     await checkpoints.save({ ...resumedCheckpoint, status: "blocked", phase: job.approval_retry ? "approval_retry_pending" : "blocker_triage_pending", blocker_recovery: { ...resumedCheckpoint.blocker_recovery, job_id: job.id, status: job.status, stage: job.stage, ...(job.approval_retry ? { approval_retry: job.approval_retry } : {}) } });
     if (job.approval_retry) await approvalRetry.notify(job, { force: true });
     return { ticket_id: ticketId, ...(current?.details?.execution_id ? { execution_id: current.details.execution_id } : {}), status: "accepted", pipeline: "supervisor", resumed: true, resumed_stage: job.stage, resumed_from_turn: checkpoint.last_completed_turn ?? 0, job_id: job.id };
@@ -240,7 +249,7 @@ export function createProductionBlockerRecovery({ store, fileService, projectId,
     if (!reconciled) throw Object.assign(new Error("Blocker reconciliation ledger was replaced."), { code: "TICKET_EXECUTION_RECONCILIATION_REQUIRED", statusCode: 409 });
     const claim = await agentOccupancy.getByTask?.(ticketId, reconciled.stage);
     if (claim?.claim_id) await agentOccupancy.release({ claimId: claim.claim_id, taskId: ticketId, supervisorId: `BLOCKER-${reconciled.id}`, reason: "blocker_provider_reconciled" });
-    const reconciledCheckpoint = (await recordTicketStage({ checkpoints, taskId: ticketId, stage: reconciled.stage, status: "reconciled", details: { job_id: reconciled.id, reason: reconciled.outcome_reason }, logger, clock })) ?? checkpoint;
+    const reconciledCheckpoint = (await recordTicketStage({ checkpoints, taskId: ticketId, stage: reconciled.stage === "reviewer" ? "reviewer_evidence" : reconciled.stage, status: "reconciled", details: { job_id: reconciled.id, reason: reconciled.outcome_reason }, logger, clock })) ?? checkpoint;
     await checkpoints.save({ ...reconciledCheckpoint, status: "blocked", phase: "blocker_reconciliation_required", blocker_recovery: { ...reconciledCheckpoint.blocker_recovery, status: "reconciliation_required", reason: reconciled.outcome_reason } });
     await eventBus.publish({ type: "task.blocker.reconciled", event_id: `BLOCKER-RECONCILED-${reconciled.id}`, task_id: ticketId, project_id: projectId,
       supervisor_id: `BLOCKER-${reconciled.id}`, request_id: `RECONCILE-${reconciled.id}`, correlation_id: `BLOCKER-${reconciled.id}-${reconciled.stage}`, attempt: 1,

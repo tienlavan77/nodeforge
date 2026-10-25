@@ -32,7 +32,7 @@ async function fixture(t, alter = () => {}) {
     history: [{ stage: "architecture_manager", completed_at: 1000, actor: { agent_id: "AM", role: "architecture_manager" },
       disposition: { action: "resolved", authority_scope: "architecture", guidance: "Preserve the Markdown read contract." } }] } });
   const binding = { ...original, execution_id: "EXEC-2", sprint_basis: after };
-  return { fileService, receipts, original, binding };
+  return { fileService, receipts, original, binding, projectRoot: fixture.base.workspace.projectRoot };
 }
 
 test("review-policy amendment inherits the original AM answer without rewriting its authority or execution", async (t) => {
@@ -78,12 +78,12 @@ test("a changed plan file cannot establish continuation even with an unchanged a
 test("the Reviewer receives inherited AM terms with the original receipt and explicit continuation provenance", async (t) => {
   const f = await fixture(t);
   let prompt;
-  const worker = createReviewWorker({ projectRoot: "/project", contractFileService: f.fileService,
+  const worker = createReviewWorker({ projectRoot: f.projectRoot, contractFileService: f.fileService,
     agentResolver: { resolveAvailable: () => ({ agent_id: "REVIEWER", provider: "openai", role: "reviewer" }) },
     fileService: { readForIndex: async ({ path }) => ({ path, sha256: "source", size_bytes: 12, content: "const ok = true;" }) },
     openaiSdkGateway: { execute: async (input) => { prompt = input.prompt; return { text: '{"verdict":"approved","findings":[]}' }; } } });
-  await worker.review({ task_id: "TASK", project_id: "P", agent_id: "CODER", payload: {
-    ...f.binding, ticket: { id: "TASK" }, changed_paths: ["src/file.js"], contract_decisions: f.receipts } });
+  await worker.review({ request_id: "REVIEW-TASK", task_id: "TASK", project_id: "P", agent_id: "CODER", payload: {
+    ...f.binding, commit: "a".repeat(40), ticket: { id: "TASK" }, changed_paths: ["src/file.js"], contract_decisions: f.receipts } });
   assert.match(prompt, /Preserve the Markdown read contract/);
   assert.match(prompt, /review_policy_only_amendment/);
   assert.match(prompt, /EXEC-1/);

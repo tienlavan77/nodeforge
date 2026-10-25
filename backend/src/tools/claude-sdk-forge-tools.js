@@ -3,6 +3,7 @@ import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { claudeFileDefinitions } from "./claude-file-tools.js";
 import { coderToolDefinitions } from "./engineering-tool-catalog.js";
+import { reviewVerificationRequestSchema } from "../modules/supervisor/review-verification-contract.js";
 
 const searchCodeInput = {
   query: z.string().min(1),
@@ -57,7 +58,7 @@ const reportDoneInput = {
 };
 
 const respondToReviewInput = {
-  responses: z.array(z.object({ finding_id: z.string().regex(/^REV-[1-9][0-9]*$/), position: z.enum(["accept", "dispute"]), rationale: z.string().min(1).max(4000), files: z.array(z.string().min(1)).max(30), evidence_refs: z.array(z.string().min(1)).max(30) })).min(1).max(30),
+  responses: z.array(z.object({ finding_id: z.string().regex(/^REV-[1-9][0-9]*$/), position: z.enum(["accept", "dispute"]), rationale: z.string().min(1).max(4000), files: z.array(z.string().min(1)).max(30), evidence_refs: z.array(z.string().min(1)).max(30), verification_requests: z.array(z.fromJSONSchema(reviewVerificationRequestSchema)).min(1).max(8).optional() })).min(1).max(30),
   review_commit_sha: z.string().min(1), artifact_id: z.string().min(1), source_revision: z.string().min(1), idempotency_key: z.string().min(1).max(200)
 };
 

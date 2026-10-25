@@ -24,7 +24,8 @@ export async function prepareReviewExchange({ job, reviewer, sourceRef, coderRep
  * valid; the existing strict Reviewer contract checks their substance next. */
 export function decodeReviewExchange(value, request) {
   const response = bindAgentExchangeResponse(value, request);
-  return { verdict: response.payload.verdict, findings: response.payload.findings, adjudications: response.payload.finding_updates, exchange_response: response };
+  return { verdict: response.payload.verdict, findings: response.payload.findings, adjudications: response.payload.finding_updates,
+    ...(response.payload.verification_requests ? { verification_requests: response.payload.verification_requests } : {}), exchange_response: response };
 }
 
 /** Publishes a validated independent verdict as the response to its exact review

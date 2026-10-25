@@ -60,17 +60,21 @@ export function recordRead(context, { path, window = "full" } = {}) {
   state.unproductive_streak = 0;
 }
 
-// Phase gate: discovery tools (graph/search/read) are capped before the first
-// edit. Gói 2 layers three independent ceilings on top of the total budget:
-//   - candidate bypass when the ticket names a precise target file (2.4);
-//   - per-type caps for candidate/search/read (2.3);
-//   - a pre-edit deadline that forces edit before the total budget is spent (2.11).
-// The total budget keeps its one-time escalation; the new ceilings are hard.
-// Once an edit lands the gate stays open for verification reads.
-export function assertDiscoveryBudget(context, kind = null, options = {}) {
+// Phase gate: discovery tools (graph/search/read) are bounded before the first
+// edit by a single mandatory resource ceiling — the total discovery budget. The
+// former per-type caps (2.3), pre-edit deadline (2.11) and explicit-target
+// candidate bypass (2.4) are method-shaping guidance, not authoritative
+// constraints: a Coder may keep discovering within the boundary it was granted,
+// so crossing a per-type cap or the pre-edit marker no longer throws. Those
+// boundaries now surface as advisory hints via discoveryNotice, which keeps
+// reporting by_type usage, the pre-edit marker and a suggested next action so
+// the agent still receives the steering without losing autonomy. The total
+// budget, its one-time escalation, and stagnation remain hard resource/loop
+// guards. Once an edit lands the gate stays open for verification reads.
+export function assertDiscoveryBudget(context, kind = null) {
   const state = explorationState(context);
   if (!state) return;
-  let limit = Number.isInteger(state.discovery_limit) && state.discovery_limit > 0 ? state.discovery_limit : DISCOVERY_LIMIT;
+  const limit = Number.isInteger(state.discovery_limit) && state.discovery_limit > 0 ? state.discovery_limit : DISCOVERY_LIMIT;
 
   // Post-edit: the gate is open. Keep bookkeeping counts in sync but enforce
   // nothing, so verification reads/searches are never blocked.
@@ -80,42 +84,11 @@ export function assertDiscoveryBudget(context, kind = null, options = {}) {
     return;
   }
 
-  // (2.4) A precise target file makes candidate discovery unnecessary — the
-  // agent already knows the file to read.
-  if (kind === "candidate" && state.explicit_target) {
-    throw Object.assign(new ConfigurationError(`The ticket names an explicit target file (${state.explicit_target}). Skip select_code_graph_candidates and read it directly with read_file, then edit.`), { code: "TARGET_KNOWN_SKIP_CANDIDATES" });
-  }
-
-  const rawReason = options?.target_symbol ?? options?.symbol ?? options?.reason ?? context?.discovery_extension_reason;
-  const hasTargetReason = typeof rawReason === "string" && rawReason.trim().length > 0;
-  const atPreeditDeadline = Number.isInteger(state.edit_must_start_by) && state.discovery_count >= state.edit_must_start_by;
-  const typeLimit = typeLimitFor(state, kind);
-  const atTypeCap = Number.isInteger(typeLimit) && typeUsedFor(state, kind) >= typeLimit;
-
-  if ((atPreeditDeadline || atTypeCap) && hasTargetReason && state.unproductive_streak === 0 && (state.preedit_extensions ?? 0) < 1) {
-    state.preedit_extensions = (state.preedit_extensions ?? 0) + 1;
-    if (Number.isInteger(state.edit_must_start_by)) state.edit_must_start_by += 1;
-    bumpTypeLimit(state, kind);
-    if (Number.isInteger(state.edit_must_start_by) && state.edit_must_start_by > limit) {
-      state.discovery_limit = state.edit_must_start_by;
-      limit = state.discovery_limit;
-    }
-  }
-
-  // (2.3) Per-type caps stop one tool kind from consuming the whole budget.
-  const currentTypeLimit = typeLimitFor(state, kind);
-  if (Number.isInteger(currentTypeLimit) && typeUsedFor(state, kind) >= currentTypeLimit) {
-    throw Object.assign(new ConfigurationError(`${kind} discovery is capped at ${currentTypeLimit} calls per run. Use a different discovery kind, start editing with the context you have, or report_done with status:"needs_context".`), { code: "EXPLORATION_TYPE_BUDGET_EXHAUSTED" });
-  }
-
-  // (2.11) Pre-edit deadline: discovery must stop before the budget is spent unless justified.
-  if (Number.isInteger(state.edit_must_start_by) && state.discovery_count >= state.edit_must_start_by) {
-    throw Object.assign(new ConfigurationError(`Pre-edit deadline reached after ${state.edit_must_start_by} discovery calls. If context is sufficient, use edit_diff or write_diff; if you need one targeted symbol/contract lookup and have no unproductive streak, supply target_symbol/symbol; otherwise call report_done with status:"needs_context" or "blocked".`), { code: "EXPLORATION_PREEDIT_DEADLINE" });
-  }
-
-  // Total budget with the single productive-only escalation (Gói 1). The
-  // boundary call that triggers escalation returns without consuming a slot, so
-  // the extension grants its full extra calls (matches the original semantics).
+  // Total budget with the single productive-only escalation (Gói 1). This is the
+  // only resource ceiling that hard-throws; per-type caps and the pre-edit
+  // marker are advisory. The boundary call that triggers escalation returns
+  // without consuming a slot, so the extension grants its full extra calls
+  // (matches the original semantics).
   if (state.discovery_count >= limit) {
     if (state.allow_escalation !== false && state.escalations < 1 && state.unproductive_streak === 0) {
       state.escalations += 1;
@@ -129,6 +102,11 @@ export function assertDiscoveryBudget(context, kind = null, options = {}) {
   bumpType(state, kind);
 }
 
+// Builds the advisory discovery notice returned alongside every discovery
+// result. Per-type caps and the pre-edit marker are method guidance, not hard
+// gates: when the agent reaches one, this notice steers it toward editing or a
+// different discovery angle rather than the runtime throwing. The only hard
+// stop remains the total budget (see assertDiscoveryBudget).
 export function discoveryNotice(context) {
   const discovery = discoveryCount(context);
   const state = context?.exploration_state;
@@ -139,20 +117,29 @@ export function discoveryNotice(context) {
   } : null;
   const target_read = state?.target_read === true;
   const at_preedit_edge = !discovery.edit_started && Number.isInteger(state?.edit_must_start_by)
-    && discovery.remaining !== null && discovery.remaining <= 0;
+    && discovery.used >= state.edit_must_start_by;
+  const at_type_cap = Boolean(state) && !discovery.edit_started && ["candidate", "search", "read"]
+    .some((kind) => Number.isInteger(typeLimitFor(state, kind)) && typeUsedFor(state, kind) >= typeLimitFor(state, kind));
+  const target_known_hint = Boolean(state?.explicit_target) && !target_read;
   const suggested_next_action =
     discovery.edit_started || discovery.remaining === null
       ? null
       : (discovery.remaining <= 2 || target_read)
         ? "edit_diff_or_write_diff"
-        : "continue_targeted_discovery";
+        : (at_type_cap || at_preedit_edge || target_known_hint)
+          ? "edit_diff_or_write_diff"
+          : "continue_targeted_discovery";
   let message;
   if (discovery.edit_started) {
     message = "Discovery budget no longer applies after the first edit.";
-  } else if (at_preedit_edge) {
-    message = "Discovery must end now: begin edit_diff or write_diff.";
   } else if (target_read) {
     message = "Target file has been read. Edit with this context; further repository discovery must be justified by a specific unseen symbol.";
+  } else if (target_known_hint) {
+    message = `The ticket names an explicit target (${state.explicit_target}). Reading it directly is usually faster than candidate discovery, but discovery stays available within the total budget.`;
+  } else if (at_type_cap) {
+    message = "One discovery tool type has reached its advisory cap; try a different discovery angle, start editing with the context you have, or continue within the total budget if a specific unseen symbol justifies it.";
+  } else if (at_preedit_edge) {
+    message = "You have passed the advisory edit marker. Begin edit_diff or write_diff with the context you have; further discovery is allowed but should be justified by a specific unseen symbol.";
   } else if (discovery.remaining <= 2) {
     message = "Start editing now; only targeted discovery is justified before edit.";
   } else {
@@ -180,24 +167,13 @@ export function discoveryCount(context) {
   const state = explorationState(context);
   if (!state) return { used: 0, remaining: null, limit: DISCOVERY_LIMIT, edit_started: true };
   const limit = Number.isInteger(state.discovery_limit) && state.discovery_limit > 0 ? state.discovery_limit : DISCOVERY_LIMIT;
-  let cap = limit;
-  if (!state.edit_started) {
-    if (Number.isInteger(state.edit_must_start_by)) cap = Math.min(cap, state.edit_must_start_by);
-  }
-  return { used: state.discovery_count, remaining: state.edit_started ? null : Math.max(0, cap - state.discovery_count), limit, edit_started: state.edit_started };
+  return { used: state.discovery_count, remaining: state.edit_started ? null : Math.max(0, limit - state.discovery_count), limit, edit_started: state.edit_started };
 }
 
 function bumpType(state, kind) {
   if (kind === "candidate") state.candidate_calls += 1;
   else if (kind === "search") state.search_calls += 1;
   else if (kind === "read") state.read_calls += 1;
-}
-
-// Synchronously increments the corresponding per-kind limit when granting a conditional pre-edit extension.
-function bumpTypeLimit(state, kind) {
-  if (kind === "candidate" && Number.isInteger(state.candidate_limit)) state.candidate_limit += 1;
-  else if (kind === "search" && Number.isInteger(state.search_limit)) state.search_limit += 1;
-  else if (kind === "read" && Number.isInteger(state.read_limit)) state.read_limit += 1;
 }
 
 function typeLimitFor(state, kind) {

@@ -100,14 +100,14 @@ export function checkpointedRegistry({ store, registry, taskId, targetPath, allo
           if (selected?.role === "coder" && !labMode && (name === "write_diff" || name === "edit_diff") && !state.coderRulesRead) {
             throw Object.assign(new ConfigurationError("Read workflows/agents/coder/README.md with a Forge file tool before editing code."), { code: "CODER_RULES_REQUIRED" });
           }
-          if (name === "report_done" && input?.status !== "blocked") assertCommitBeforeReport(state, context, labMode);
+          if (name === "report_done" && input?.status !== "blocked") await assertCommitBeforeReport(state, context, labMode, tool);
           if (name === "read_file") assertReadNotRepeated(state.readCache, input);
           result = name === "report_done" && input?.status !== "blocked"
             ? await executeReportVerificationWait({ tool, input, context, state, store, taskId, selected, correlationId, projectLogger, checkpointPayload })
             : await tool.execute(input, context);
           if (selected?.role === "coder" && ["read_file", "read_lines", "Read", "sed_lines"].includes(name) && (input?.path === "workflows/agents/coder/README.md" || input?.file_path === "workflows/agents/coder/README.md" || input?.file_path?.endsWith("/workflows/agents/coder/README.md")) && (name === "sed_lines" || name === "read_lines" ? result?.exit_code === 0 : typeof result?.content === "string")) state.coderRulesRead = true;
           if (name === "read_file") rememberRead(state.readCache, input, result);
-          if (name === "write_diff" || name === "edit_diff") forgetRead(state.readCache, input);
+          if (name === "write_diff" || name === "edit_diff") { forgetRead(state.readCache, input); state.emptyCommitSeen = false; }
         } catch (error) {
           if (name === "commit_changes" && error?.code === "GIT_EMPTY_COMMIT") state.emptyCommitSeen = true;
           throw error;
@@ -146,7 +146,7 @@ export function checkpointedRegistry({ store, registry, taskId, targetPath, allo
 }
 
 // assertCommitBeforeReport - blocks completion until applied changes are committed.
-function assertCommitBeforeReport(state, context, labMode) {
+async function assertCommitBeforeReport(state, context, labMode, tool) {
   if (labMode || context?.lab_mode || context?.labMode) return;
   if (state.emptyCommitSeen) return;
   if (state.changedPaths.length === 0) return;
@@ -154,6 +154,7 @@ function assertCommitBeforeReport(state, context, labMode) {
   const lastEdit = Math.max(tools.lastIndexOf("write_diff"), tools.lastIndexOf("edit_diff"));
   const lastCommit = tools.lastIndexOf("commit_changes");
   if (lastCommit === -1 || (lastEdit !== -1 && lastEdit > lastCommit)) {
+    if (await tool.reconcileCommit?.(context)) return;
     throw Object.assign(new ConfigurationError("Changes are present but commit_changes has not succeeded after the last edit. Call commit_changes with an appropriate message before report_done."), { code: "COMMIT_MISSING", tool: "commit_changes" });
   }
 }

@@ -45,8 +45,8 @@ export function assertAgentExchange(message) {
   if (message.kind === "consultation_response") allowed = higher[to] === from;
   if (message.kind === "work_request") allowed = ["sprint_leader", "reviewer", "node"].includes(from) && to === "coder";
   if (message.kind === "work_result") allowed = from === "coder" && ["sprint_leader", "reviewer", "node"].includes(to);
-  if (message.kind === "review_request") allowed = ["coder", "node"].includes(from) && to === "reviewer";
-  if (message.kind === "review_result") allowed = from === "reviewer" && ["coder", "node"].includes(to);
+  if (message.kind === "review_request") allowed = (message.payload.purpose === "blocker_evidence" ? from === "architecture_manager" : ["coder", "node"].includes(from)) && to === "reviewer";
+  if (message.kind === "review_result") allowed = from === "reviewer" && (message.payload.purpose === "blocker_evidence" ? to === "architecture_manager" : ["coder", "node"].includes(to));
   if (message.kind === "correction") allowed = from === "node" && !["node", "project_owner"].includes(to);
   if (!allowed) throw agentExchangeError("/recipient", "route_forbidden", `Forbidden agent route: ${from} -> ${to} (${message.kind}).`);
   if (message.kind.endsWith("_response") || message.kind.endsWith("_result") || message.kind === "correction") {
@@ -83,6 +83,9 @@ export function bindAgentExchangeResponse(content, request) {
     kind: content.kind, subject: content.subject, payload: content.payload, evidence: content.evidence,
     continuation: request.continuation, inReplyTo: request.message_id });
   if (response.kind !== kind) throw agentExchangeError("/kind", "response_kind_mismatch", `Expected ${kind}.`);
+  if (request.kind === "review_request" && (request.payload.purpose === "blocker_evidence" || response.payload.purpose === "blocker_evidence")
+    && (request.payload.purpose !== response.payload.purpose || !isDeepStrictEqual(request.payload.subject, response.payload.subject)))
+    throw agentExchangeError("/payload/subject", "binding_mismatch", "Evidence reports must match the requested purpose, commit and artifact.");
   if (content.schema_version !== undefined) {
     for (const key of owned) if (!isDeepStrictEqual(content[key], response[key])) throw agentExchangeError(`/${key}`, "binding_mismatch", `Node-owned ${key} cannot be replaced.`);
     assertAgentExchange(content);
