@@ -177,7 +177,7 @@ test("the additive slash alias routes updates while quoted, fenced and interroga
     const markdownPlanStore = createMarkdownPlanStore({ projectId: "PROJECT-A", database, fileService });
     const answers = [NO_QUESTIONS, PLAN_JSON, PATCH_JSON];
     let index = 0;
-    const requestArchitecture = async (prompt) => answers[Math.min(index++, answers.length - 1)];
+    const requestArchitecture = async () => answers[Math.min(index++, answers.length - 1)];
     const service = createOwnerChatCommandService({ projectId: "PROJECT-A", fileService, planStore: createHumanPlanStore({ projectId: "PROJECT-A", database, fileService }), markdownPlanStore });
     const created = await service.execute({ text: "Create the architecture plan", conversationId: "CONV-A", project_id: "PROJECT-A", requestArchitecture });
     assert.equal(created.revision, 1);
