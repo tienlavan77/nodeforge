@@ -61,7 +61,7 @@ async function fixture(answers = [NO_QUESTIONS, PLAN_JSON, PATCH_JSON], approval
   const planning = createConversationPlanningService({ projectId: "PROJECT-A", fileService, markdownPlanStore, validateMarkdown, sessions: createArchitectureClarificationStore({ projectId: "PROJECT-A", fileService }), requestArchitecture });
   const calls = { handoffs: 0 };
   const approvedOwnerId = "OWNER";
-  const service = createConversationPlanApprovalService({ projectId: "PROJECT-A", markdownPlanStore, sprintRegistry: { get: () => ({ status: "planned" }), setStatus: async ({ status }) => ({ status }) }, handoffApprovedPlan: async (input) => { calls.handoffs++; return { status: "handed_to_sprint_leader", sprint_id: "SPRINT-SEC", ...(approval.handoff ?? {}) }; }, ...approval });
+  const service = createConversationPlanApprovalService({ projectId: "PROJECT-A", markdownPlanStore, sprintRegistry: { get: () => ({ status: "planned" }), setStatus: async ({ status }) => ({ status }) }, handoffApprovedPlan: async () => { calls.handoffs++; return { status: "handed_to_sprint_leader", sprint_id: "SPRINT-SEC", ...(approval.handoff ?? {}) }; }, ...approval });
   const decisions = () => database.all("SELECT * FROM markdown_plan_decisions");
   const close = async () => { await database.close(); await rm(root, { recursive: true, force: true }); };
   return { database, fileService, markdownPlanStore, planning, calls, service, decisions, approvedOwnerId, close };
