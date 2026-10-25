@@ -40,7 +40,7 @@ test("path-based plan command persists a source-bound draft without running work
   assert.match(draft.source_summary_sha256, /^[a-f0-9]{64}$/);
   assert.equal(draft.run_started, false);
   assert.equal(await readFile(join(root, summary.path), "utf8"), `${summaryMarkdown}\n`);
-  assert.equal(draft.text, `Đã tạo kế hoạch ${draft.plan_id}. Chờ duyệt.`);
+  assert.equal(draft.text, `Đã tạo plan ${draft.plan_id}. Vào trang Coding để xem và approve plan. Chưa RUN.`);
   assert.ok(!draft.text.includes(draft.path));
   assert.match(draft.path, /\/ke-hoach-r1\.md$/);
   assert.ok((await readFile(join(root, draft.path), "utf8")).startsWith(`${markdown}\n`));
