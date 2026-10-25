@@ -17,7 +17,7 @@
 // classification, never a new intent value. Prompt prefixes keep the existing
 // "Architecture clarification discovery" contract so streaming content types are unchanged.
 import { randomUUID } from "node:crypto";
-import { canonicalizeArchitecturePlanJSON, mergeArchitecturePlanJSON, parseArchitecturePlanJSON, renderArchitecturePlanMarkdown } from "../modules/governance/architecture-plan-json.js";
+import { architectureSessionFromRecord, canonicalizeArchitecturePlanJSON, mergeArchitecturePlanJSON, parseArchitecturePlanJSON, renderArchitecturePlanMarkdown } from "../modules/governance/architecture-plan-json.js";
 import { readConversationPlanSource, retainConversationIntakeSource, retainConversationPlanSource } from "../modules/governance/conversation-plan-source.js";
 import { assertNoMixedPlanningApproval, detectPlanCreateTrigger, detectPlanUpdateTrigger, isConversationPlanMessage } from "../modules/governance/conversation-plan-trigger.js";
 import { appendArchitectureDecisions, architectureSelections, decisionError, readArchitectureDecisions } from "../modules/governance/architecture-owner-decisions.js";
