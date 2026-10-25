@@ -19,10 +19,17 @@ const CREATE_PHRASES = [
   /^(?:please\s+)?tạo\s+kế\s+hoạch\s+từ\s+cuộc\s+trao\s+đổi\b[.!]?$/i
 ];
 // Recognized standalone imperative update-plan phrases that carry no JSON of their own.
+// Approved sections 3.2.7-3.2.10 additionally require additive slash aliases so an owner
+// can issue the update in command form inside the same conversation without changing any
+// legacy command contract: `/plan-update`, `/update-plan` and `/revise-plan` on their own
+// line are the only new accepted spellings. They never take arguments, so `/plan <file.md>`,
+// `/approve <plan_id>` and `/plan-continue <CLARIFY-id>` keep exact prior behavior, and the
+// shared line scanner still excludes quoted, fenced and interrogative occurrences.
 const UPDATE_PHRASES = [
   /^(?:please\s+)?update\s+(?:the\s+|this\s+)?(?:architecture\s+)?plan\b[.!]?$/i,
   /^(?:please\s+)?revise\s+(?:the\s+|this\s+)?(?:architecture\s+)?plan\b[.!]?$/i,
-  /^(?:please\s+)?cập\s+nhật\s+(?:kế\s+hoạch|kiến\s+trúc)\b[.!]?$/i
+  /^(?:please\s+)?cập\s+nhật\s+(?:kế\s+hoạch|kiến\s+trúc)\b[.!]?$/i,
+  /^\/(?:plan-update|update-plan|revise-plan)[.!]?$/i
 ];
 // Recognized standalone approve phrases, used only to reject mixed messages.
 const APPROVE_PHRASES = [
