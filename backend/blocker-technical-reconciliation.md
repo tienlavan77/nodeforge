@@ -9,14 +9,42 @@ Recovery retains the approved ticket, execution ID, original deadline, source id
 SL asks AM → AM answers SL → SL requests Coder → Coder answers SL
                                                  ↓
                                   SL validates → original Coder execution resumes
+
+AM requests independent Reviewer evidence → Reviewer reports to AM
+                                            ↓
+                            AM decides → SL coordinates → Coder resumes
 ```
 
 - Only SL may return `coder_requested` and review a candidate. Node rejects this action from AM.
 - AM returns `resolved`, `sprint_required`, or `reconciliation_required` to SL. These AM responses do not dispatch Coder or resume ticket execution.
 - Node persists `architecture_response`; SL receives the complete validated answer and uses it for Coder coordination.
+- Every SL `reconciliation_required` is routed to AM for a technical decision first, including `technical_design`, `source_revision`, `execution_admission`, `dependency`, `file_claim`, and `tooling`. A missing `waiting_for` or an external/Coder evidence owner does not skip AM.
+- AM returns its decision to SL. After consuming that answer, SL coordinates evidence collection or resumes the retained Coder execution. AM does not dispatch Coder directly.
+- Node retains the consultation and answer through Stop/Resume and restart. Unchanged reconciliation evidence reuses the answer; a new technical kind, relevant source identity, original denial or recorded Owner response can justify a new AM decision.
+- Existing parked technical waits receive the same AM routing after execution/authority validation. Cancelled executions and unknown provider invocations are not replayed.
+- Legacy string `waiting_for` entries have no inferred owner. Node no longer assigns Coder merely because the reconciliation kind is `source_revision`. Unowned waits receive one capability-bound AM consultation, including completed preparation assignments and the actual formal review state. AM selects an explicit `{owner,operation,question}` prerequisite or resolves the technical question from available evidence. The recovery preparation handlers support Coder, Architecture, and independent Reviewer inspection. This consultation does not manufacture a Reviewer report or mark the ticket reviewed.
+- New coordination evidence may reopen a legacy answered consultation once; rewording the same wait cannot do so. Architecture must consume that evidence and return an explicitly owned next step, preserving the settled contract and actual tool denials.
 - AM may answer an Architecture question while the Coder candidate remains incomplete. AM is not required to obtain or approve that candidate.
 - Coder feedback returns to SL, including legacy `architecture_required` preparation responses. SL identifies whether an actual Architecture question needs another consultation.
 - Owner/governance boundaries retain the existing validated escalation path; an unresolved policy or denied operation is not a technical approval.
+
+## Independent Reviewer evidence
+
+Recovery exchanges use provider-native JSON Schema output on Claude (`outputFormat`)
+and Codex (`outputSchema`). The schema derives from the canonical exchange contract;
+Node-owned routing and execution fields are excluded. Optional native null slots are
+removed before the existing role, authority, source and execution validators run.
+Claude reads only terminal `structured_output`, never intermediate assistant narration.
+Missing structured output is a formatting correction; an unconfirmed terminal outcome
+retains provider ownership and is not replayed automatically.
+
+AM requests a bounded inspection with `action=reconciliation_required` and `reconciliation.waiting_for:[{owner:"reviewer",operation:"inspect",question,subject:{commit_sha,artifact_id}}]`. The commit must be a full immutable SHA and the artifact must appear in the ticket's Node-issued receipt inventory with that exact commit. Project, ticket, original receipt checksum and persisted artifact identity are checked before dispatch.
+
+Node sends the existing `review_request` envelope from AM to Reviewer with `purpose:"blocker_evidence"`, the exact subject and question. Reviewer returns `review_result` to AM with the same purpose/subject, `outcome:"completed"|"inconclusive"`, a short summary, observations, missing evidence, and checksummed source references. Evidence-only results have no verdict and require empty findings/finding updates. Normal Coder/Reviewer review messages retain their existing contract.
+
+Readers reuse immutable Git snapshots and the recorded verification environment. The canonical Forge tools remain available; `git_diff` is pinned to the artifact baseline/commit while `git_status` is only a current workspace observation. Receipt/context reads retain exact grants and hashes and expose formatted JSON in windows of at most 80 lines and 8,000 characters. No edit, test, commit, approval or agent-launch tool is exposed.
+
+The original recovery ledger retains the nested request, tool checkpoint, result and immutable agent-message report reference. Stop/Resume preserves the Reviewer assignment; unknown provider outcomes remain fenced. The report returns directly to the pending AM consultation, and only AM's subsequent decision returns to SL for Coder coordination. The ticket Coder checkpoint and formal Reviewer checkpoint/findings are preserved. `reviewer_evidence` stage progress does not mark formal review as started or accepted.
 
 ## Discovery allowance and checkpoint
 
@@ -42,6 +70,16 @@ On explicit Stop/Resume, Node supplies retained discovery progress and preserves
 - Node supplies exact historical failed-edit receipts through Project Log Service, scoped to the original failure. These diagnostics never authorize a denied operation.
 - A source-bound AM answer includes the approved authority reference/basis and explicit boundary assessment where Architecture scope is used. Node revalidates source and authority before SL uses the delegated conclusion.
 - SL cannot create access/security permission. For an access/security blocker, SL can finish coordination only using a validated AM resolution establishing a design within existing permissions; execution-tool gates still run.
+
+## Evidence delivery before coordination
+
+SL and AM receive a complete `verification.receipt_index` of retained ticket jobs, checks and artifacts, including failed artifacts with no baseline result. Bounded inline lists do not define evidence availability: the `verification_receipts` context section lists every original path, receipt checksum and source identity, with exact read-only grants through the existing Forge readers.
+
+`verification.retained_attempt` binds the checkpoint's verification wait to its persisted job and artifact by ticket, commit and source revision. A newer coding source may have `verification.status=missing` while that earlier failure remains available as diagnostic evidence. Its historical result never supplies current acceptance. Every SDK prompt, including the minimal indexed form, retains that attempt's identity and receipt paths.
+
+`review_status` combines the Reviewer checkpoint, durable findings/adjudications, Coder-assigned REV references, review stage history and repair cycle. `not_started` requires available evidence stores with no recorded review; unavailable stores produce `unknown`. Existing findings/cycle keep `finding_repair` even when the Reviewer checkpoint is missing. A new Reviewer invocation remains `in_progress`, preserving the prior REV/cycle identities. A null `review_access` probe never implies that a report must exist or that review never ran.
+
+Technical reconciliation may occur before initial review or inside a finding repair. In the latter case, SL/AM retain the original finding context and Coder checkpoint; permitted repairs proceed through verification and back to independent Reviewer adjudication. Neither the evidence projection nor an AM technical decision closes findings or accepts the current source. Terminal/project logs record the receipt count, retained verification job and review state delivered to the coordinating role.
 
 ## Coder preparation
 
@@ -140,9 +178,9 @@ Focused coverage includes RUN without Owner review after restart, preservation o
 ]
 ```
 
-Owners are `coder`, `architecture_manager`, and `external`. Mixed input is separated. SL delegates available read-only Coder questions first; Coder answers SL, never AM directly. A genuinely undecided architecture question is routed through SL to AM. Actual permission, operational dependencies and unprovable ownership remain external prerequisites. Legacy source-revision waits are assigned to read-only Coder comparison; legacy execution-admission/file-claim/dependency/tooling waits remain external until an explicit available investigation is specified. Legacy technical-design waits use AM.
+Owners are `coder`, `architecture_manager`, and `external`. Every SL technical reconciliation goes to AM for decision first, including legacy source-revision, execution-admission, file-claim, dependency and tooling waits. AM answers SL; SL then coordinates available read-only Coder questions and separates any external prerequisites. Coder answers SL, never AM directly. AM's decision cannot invent missing permission, operational facts or ownership evidence; those remain specific external prerequisites when no permitted investigation can establish them.
 
-Node persists `waiting_assignments` and `waiting_work_history` (source/criterion fingerprint, assignment identity, request, answer and timestamps) in the original recovery ledger. Restart retains the assignment; Stop/deadline and source/plan/execution validation still fence provider calls. Explicit RUN on a legacy SL source wait can queue the missing evidence directly instead of asking SL to restate its earlier request. Original execution, completed Coder turn and written work are retained.
+Node persists `waiting_assignments` and `waiting_work_history` (source/criterion fingerprint, assignment identity, request, answer and timestamps) in the original recovery ledger. Restart retains the assignment; Stop/deadline and source/plan/execution validation still fence provider calls. Explicit RUN on a legacy SL wait first restores the AM consultation unless its answer has already been retained for the same evidence. SL consumes that answer before assigning further evidence work. Original execution, completed Coder turn and written work are retained.
 
 After the answer, SL must choose a concrete permitted implementation handoff, ask an identified undecided architecture question, or identify the precise external blocker. The same evidence/criterion scope cannot requeue preparation merely by rewording questions. New inspected source identities can support new investigation even when a blocked provenance summary has not changed. Node emits `supervisor.blocker_waiting_evidence_assigned` with role, kind, job and request identity to the project/terminal logger.
 

@@ -2,6 +2,7 @@ import { Codex as DefaultCodex } from "@openai/codex-sdk";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { prependNodeBin } from "./node-bin-path.js";
 import { ConfigurationError, ForgeError } from "../../shared/errors.js";
 import { createCodexForgeMcpSession } from "./codex-forge-mcp-session.js";
 import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
@@ -243,5 +244,10 @@ function buildCodexChildEnvironment(baseEnvironment, overrides) {
   // The SDK injects the selected profile credential as CODEX_API_KEY after this environment is built.
   delete env.OPENAI_API_KEY;
   delete env.CODEX_API_KEY;
+  // Keep the active Node executable's directory first on PATH so companion
+  // binaries (npm, npx, pnpm) launched by Codex shell commands resolve without
+  // relying on the host shell startup files. Applied after overrides so a
+  // request-supplied PATH cannot undo the normalization.
+  env.PATH = prependNodeBin(env.PATH);
   return env;
 }

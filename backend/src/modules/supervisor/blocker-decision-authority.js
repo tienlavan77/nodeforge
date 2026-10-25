@@ -80,10 +80,15 @@ export function assertOwnerEscalation(value, { job, plan, architecture, authorit
   if (!requiredImpacts.some((field) => assessment[field] === true)) throw blockerValidationError("/boundary_assessment", "escalation_boundary_mismatch", `Escalation boundary ${escalation.boundary} requires at least one matching impact flag (${requiredImpacts.join(", ")}) to be true.`, { expected: requiredImpacts, received: Object.fromEntries(requiredImpacts.map((field) => [field, assessment[field]])) });
 }
 
+// Rejects a retry that inflates boundary flags only when an earlier attempt's all-false assessment was itself the substantive rejection.
+// A prior response rejected for identity, quotation, scope or schema was never a settled no-boundary judgment, so it cannot bar a genuinely evidenced escalation.
+const BOUNDARY_ATTESTATION_REASONS = new Set(["delegated_to_architecture", "boundary_inflation_forbidden"]);
+
 // Detects whether an earlier rejected attempt in the current AM stage already attested that no owner boundaries were crossed.
 function priorAllFalseAssessment(job) {
   return (job?.disposition_attempts ?? []).some((attempt) => {
     if (attempt?.stage !== "architecture_manager" || attempt?.status !== "rejected") return false;
+    if (!(attempt?.validation_errors ?? []).some((error) => BOUNDARY_ATTESTATION_REASONS.has(error?.reason))) return false;
     const raw = attempt.response?.text ?? attempt.response;
     try {
       const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;

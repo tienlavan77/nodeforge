@@ -42,17 +42,18 @@ test("AM returns unresolved findings to SL and unchanged reconciliation parks wi
   } finally { await fixture.close(); }
 });
 
-test("SL retains implementation reconciliation rather than escalating it automatically", async () => {
+test("SL submits implementation reconciliation to AM and consumes the answer without relaunching Coder", async () => {
   const fixture = await blockerRecoveryFixture({ investigate: async () => technical });
   try {
     await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
     await fixture.recovery.tick();
     const job = (await fixture.ledger()).jobs[0];
-    assert.equal(job.stage, "sprint_leader");
+    assert.equal(job.stage, "architecture_manager");
     assert.equal(job.status, "pending");
     assert.equal(job.history[0].disposition.action, "reconciliation_required");
     await fixture.recovery.tick(); await fixture.recovery.tick(); await fixture.recovery.tick();
     assert.equal((await fixture.ledger()).jobs[0].status, "reconciliation_required");
+    assert.deepEqual(fixture.calls, ["sprint_leader", "architecture_manager", "sprint_leader"]);
     assert.equal(fixture.base.invocations, 1);
   } finally { await fixture.close(); }
 });

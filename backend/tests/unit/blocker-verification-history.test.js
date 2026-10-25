@@ -10,6 +10,7 @@ import { createFileService } from "../../src/infrastructure/filesystem/file-serv
 import { createBlockerVerificationDelivery } from "../../src/modules/supervisor/blocker-verification-delivery.js";
 import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker-recovery-contract.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
+import { BLOCKER_RECEIPT_MAX_BYTES } from "../../src/modules/supervisor/blocker-evidence-limits.js";
 
 // Persists current and older-source receipts without a verification job to reproduce the stopped pre-commit ticket.
 async function fixture(t) {
@@ -132,14 +133,14 @@ test("delivery does not wake SL if source moves while receipt readability is bei
   assert.deepEqual(f.job, original);
 });
 
-test("delivery never marks oversized tool receipts as readable", async (t) => {
+test("delivery never marks receipts above the shared storage budget as readable", async (t) => {
   const f = await fixture(t), original = structuredClone(f.job);
-  await f.save("checks", { ...f.old, stdout: "x".repeat(130_000) });
+  await f.save("checks", { ...f.old, stdout: "x".repeat(BLOCKER_RECEIPT_MAX_BYTES) });
   await assert.rejects(createBlockerVerificationDelivery({ inspect: async () => ({ workspace: f.workspace }) })(f.job), /(?:large|limit|bytes)/i);
   assert.deepEqual(f.job, original);
 });
 
-test("parked Node receipt wait resumes SL automatically and Stop prevents the same recovery", async () => {
+test("parked Node receipt wait supplies evidence to AM before SL and Stop prevents the same recovery", async () => {
   for (const stopped of [false, true]) {
     const f = await blockerRecoveryFixture();
     try {
@@ -156,7 +157,7 @@ test("parked Node receipt wait resumes SL automatically and Stop prevents the sa
         await f.base.store.save("blocker.recovery", ledger);
       });
       f.recreate(); await f.recovery.tick();
-      assert.deepEqual(f.calls, stopped ? [] : ["sprint_leader"]);
+      assert.deepEqual(f.calls, stopped ? [] : ["architecture_manager"]);
       assert.equal(f.base.invocations, 1);
       assert.equal((await f.base.checkpoints.load("TASK")).last_completed_turn, before.last_completed_turn);
       assert.equal((await f.base.workspace.executionContexts.load("TASK")).source_revision, context.source_revision);

@@ -3,11 +3,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createBlockerNotification } from "../../src/modules/supervisor/blocker-notification.js";
 import { createExecutionEventBus } from "../../src/modules/supervisor/execution-event-bus.js";
+import { blockerOwnerRequest } from "../../src/modules/supervisor/blocker-owner-request.js";
 
 // Captures terminal, event and checkpoint output without launching or authorizing an agent.
-async function notify(job) {
+async function notify(job, checkpointOverrides = {}) {
   const logs = [], events = [], saved = [];
-  const checkpoint = { task_id: "T", status: "blocked", turn: 97 };
+  const checkpoint = { task_id: "T", status: "blocked", turn: 97, ...checkpointOverrides };
   const bus = createExecutionEventBus({ validate: (event) => {
     assert.equal(event.supervisor_id, "SUP-T"); assert.equal(event.request_id, "REQ-T");
     assert.equal(event.correlation_id, "CORR-T"); assert.equal(event.attempt, 1);
@@ -72,6 +73,32 @@ test("technical Owner input publishes its disclosed question without creating an
   assert.deepEqual(result.checkpoint.blocker_recovery.owner_request, ownerRequest);
   assert.equal(result.checkpoint.blocker_recovery.escalation, null);
   assert(result.events.some((event) => event.type === "ticket.updated" && event.payload.reason === "blocker_owner_input_required"));
+});
+
+/** A failed SL schema correction must report its own error instead of turning
+ * the historical external wait into a second Owner approval request. */
+test("answered Owner input survives SL correction failure without repeating the external question", async () => {
+  const work = { owner_request: { kind: "tool_authorization", question: "Approve the exact operation?", context: "Disclosed capability change." },
+    waiting_for: [{ owner: "external", operation: "execute", question: "Obtain the direct answer." }] };
+  const request = blockerOwnerRequest({ status: "reconciliation_required", job_id: "J", ...work }, "E");
+  const response = { input_id: "I", job_id: "J", execution_id: "E", request_id: request.request_id, answer: "Approved." };
+  for (const checkpointOnly of [false, true]) {
+    const result = await notify({ outcome_reason: "disposition_correction_no_progress", last_error: "Missing technical_result.",
+      technical_reconciliation: { work }, ...(checkpointOnly ? {} : { owner_inputs: [response] }) },
+    checkpointOnly ? { blocker_owner_inputs: [response] } : {});
+    assert.doesNotMatch(result.log.message, /External response required|Approve the exact operation/);
+    assert.match(result.log.message, /disposition_correction_no_progress.*Missing technical_result/);
+    assert.equal(result.event.payload.owner_input_request, null);
+    assert.deepEqual(result.event.payload.waiting_for, []);
+    assert.equal(result.checkpoint.blocker_recovery.owner_response.input_id, "I");
+    assert.equal(result.checkpoint.blocker_recovery.owner_request, null);
+    assert(result.events.some((event) => event.type === "ticket.updated" && event.payload.reason === "blocker_owner_input_recorded"));
+  }
+  for (const changed of [{ job_id: "OTHER" }, { execution_id: "OTHER" }, { request_id: "OTHER" }]) {
+    const result = await notify({ technical_reconciliation: { work }, owner_inputs: [{ ...response, ...changed }] });
+    assert.equal(result.event.payload.owner_input_request.request_id, request.request_id);
+    assert.match(result.log.message, /External response required/);
+  }
 });
 
 test("current source failure is reported separately from a historical tool denial", async () => {

@@ -2,20 +2,22 @@
 import { createHash } from "node:crypto";
 import { transitionCoderCandidate } from "./blocker-coder-candidate.js";
 
-const OWNERS = ["coder", "architecture_manager", "external"];
+const OWNERS = ["coder", "architecture_manager", "reviewer", "external"];
 const text = (value) => typeof value === "string" && value.trim().length > 0 && value.length <= 8000;
 
 // Validates explicit evidence ownership while retaining legacy string inputs from parked checkpoints.
 export function validWaitingInput(input) {
   return text(input) || Boolean(input && typeof input === "object" && !Array.isArray(input)
-    && Object.keys(input).every((key) => ["owner", "question", "operation"].includes(key)) && OWNERS.includes(input.owner) && text(input.question)
+    && Object.keys(input).every((key) => ["owner", "question", "operation", "subject"].includes(key)) && OWNERS.includes(input.owner) && text(input.question)
+    && (input.owner !== "reviewer" || input.operation === "inspect" && input.subject && Object.keys(input.subject).length === 2
+      && /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(input.subject.commit_sha ?? "") && /^ARTIFACT-[A-Za-z0-9-]+$/.test(input.subject.artifact_id ?? ""))
     && (input.operation === undefined || ["inspect", "execute"].includes(input.operation)));
 }
 
-// Resolves legacy source comparisons to Coder and leaves actual permission/dependency decisions external.
+// Retains legacy questions without guessing ownership; only explicit role inputs can dispatch preparation.
 export function waitingAssignments(work) {
   const assignments = (work?.waiting_for ?? []).map((input) => typeof input === "string"
-    ? { owner: work.kind === "source_revision" ? "coder" : work.kind === "technical_design" ? "architecture_manager" : "external", question: input }
+    ? { owner: "unassigned", question: input }
     : { ...input });
   const external = assignments.some((entry) => entry.owner === "external");
   return assignments.map((entry) => ({ ...entry, operation: entry.operation
@@ -107,7 +109,7 @@ export function completeWaitingWork(job, value, now) {
 // Tells each recovery role exactly who supplies missing input and what their response can authorize.
 export function waitingWorkPrompt(job) {
   return [
-    "For waiting_for prefer [{owner:coder|architecture_manager|external,operation:inspect|execute,question:specific missing input}]. Only inspect work can run in read-only preparation. Mark future implementation/tests/verification as execute: they cannot run in preparation, and must wait for a permitted normal Coder handoff. With mixed external prerequisites, an unspecified Coder operation is deferred until SL classifies it explicitly. Assign source comparison/provenance investigation to coder, a genuinely undecided Architecture question to architecture_manager, and actual permission/ownership/operator facts to external. Mixed prerequisites must be separated. Never claim a comparison fixes the source journal or overrides a tool denial.",
+    "For waiting_for use [{owner:coder|architecture_manager|reviewer|external,operation:inspect|execute,question:specific missing input}]. Reviewer requires operation=inspect and subject={commit_sha,artifact_id} from Node's receipt inventory. AM may request independent evidence directly; Reviewer returns facts to AM, which decides and returns its answer to SL. This is separate from Coder/Reviewer formal finding repair. Legacy strings have no known owner; Node does not infer Coder or Reviewer from kind or narrative. Node sends every SL technical reconciliation to AM for decision before assigning its evidence work. After AM answers, SL coordinates those inputs with Coder. Only inspect work can run in read-only preparation. Mark future implementation/tests/verification as execute: they wait for a permitted normal Coder handoff. Mixed prerequisites must be separated. Never claim a comparison fixes the source journal or overrides a tool denial.",
     "SL must consume returned Coder findings and decide resolved with permitted implementation steps, ask one identified AM question, or identify the precise external blocker. Coder preparation answers only the assigned questions with architecture_required and inspected evidence; no writes or full-ticket dossier.",
     job.waiting_assignments ? `NODE EVIDENCE OWNERS: ${JSON.stringify(job.waiting_assignments)}` : "",
     job.waiting_work_history?.length ? `RETAINED EVIDENCE ASSIGNMENTS (findings, not authorization): ${JSON.stringify(job.waiting_work_history)}` : ""

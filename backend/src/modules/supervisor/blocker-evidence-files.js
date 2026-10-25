@@ -3,20 +3,25 @@ import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createFileService } from "../../infrastructure/filesystem/file-service.js";
 import { createRoleFileService } from "../../infrastructure/filesystem/file-service-role-policy.js";
 import { blockerPromptContextGrant, assertBlockerPromptContext } from "./blocker-prompt-context.js";
+import { BLOCKER_RECEIPT_MAX_BYTES } from "./blocker-evidence-limits.js";
 
 // Adds exact, read-only receipt grants to the ordinary role service for the current recovery assignment.
 export function createBlockerEvidenceFiles({ files, projectRoot, profile, taskId, job }) {
   const verification = job?.ticket_progress?.verification;
   const grants = new Map();
   const projectId = job?.request?.project_id;
-  if (["sprint_leader", "architecture_manager"].includes(profile.role)
+  if (["sprint_leader", "architecture_manager", "reviewer"].includes(profile.role)
     && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(taskId ?? "") && job?.request?.task_id === taskId
     && projectId && ["observed", "missing"].includes(verification?.status)) {
     const prefix = `${statePath()}/ticket-verification/${taskId}`;
     for (const [entry, directory, key, pattern] of [
       [verification.status === "observed" ? verification.job : null, "jobs", "job_id", /^VERIFY-[A-Za-z0-9-]+$/],
       [verification.status === "observed" ? verification.diagnostic : null, "artifacts", "artifact_id", /^ARTIFACT-[A-Za-z0-9-]+$/],
+      ...(verification.historical_jobs ?? []).map((record) => [record, "jobs", "job_id", /^VERIFY-[A-Za-z0-9-]+$/]),
       ...(verification.historical_artifacts ?? []).map((artifact) => [artifact, "artifacts", "artifact_id", /^ARTIFACT-[A-Za-z0-9-]+$/]),
+      ...(verification.receipt_index ?? []).map((entry) => entry.type === "jobs" ? [entry, "jobs", "job_id", /^VERIFY-[A-Za-z0-9-]+$/]
+        : entry.type === "artifacts" ? [entry, "artifacts", "artifact_id", /^ARTIFACT-[A-Za-z0-9-]+$/]
+          : [entry, "checks", "check_id", /^CHECK-[A-Za-z0-9-]+$/]),
       ...[...(verification.checks ?? []), ...(verification.historical_checks ?? [])].map((check) => [check, "checks", "check_id", /^CHECK-[A-Za-z0-9-]+$/])
     ]) {
       if (pattern.test(entry?.[key] ?? "") && entry.evidence_ref === `${prefix}/${directory}/${entry[key]}.json`)
@@ -37,8 +42,8 @@ export function createBlockerEvidenceFiles({ files, projectRoot, profile, taskId
 
   // Checks the receipt's persisted identity as well as its path before returning its original bytes and checksum.
   async function readEvidence(input) {
-    const file = await internalFiles.readForIndex(input);
     const context = contextGrant(input.path);
+    const file = await internalFiles.readForIndex(context ? input : { ...input, maxBytes: BLOCKER_RECEIPT_MAX_BYTES });
     if (context) return assertBlockerPromptContext(file, job, context);
     const receipt = JSON.parse(file.content);
     const filename = input.path.split("/").at(-1);

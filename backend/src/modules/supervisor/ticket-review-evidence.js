@@ -21,10 +21,10 @@ export async function assertTicketReviewEvidence({ job, executionContexts, verif
   else if (await gitService.getHead() !== context.review_commit_sha || (verificationService.assertCleanWorktree ? false : (await gitService.status()).trim())) throw fail("REVIEW_COMMIT_STALE", "Ticket worktree no longer represents the verified commit.");
   await verificationService.assertCleanWorktree?.();
   const paths = [...context.manifest_paths].sort();
+  if (!paths.length || paths.length > 24) throw fail("REVIEW_EVIDENCE_INVALID", "Review requires one to twenty-four bounded source files.");
   if (JSON.stringify(paths) !== JSON.stringify(Object.keys(artifact.file_checksums).sort())) throw fail("REVIEW_EVIDENCE_MISMATCH", "Verified file manifest differs from ticket context.");
   if (job.payload?.changed_paths && JSON.stringify([...job.payload.changed_paths].sort()) !== JSON.stringify([...artifact.changed_paths].sort())) throw fail("REVIEW_EVIDENCE_MISMATCH", "Queued review delta differs from the verified commit.");
   const files = [];
-  let totalBytes = 0;
   for (const path of paths) {
     await assertReviewerReadPath(projectRoot, path);
     let file = null;
@@ -32,8 +32,6 @@ export async function assertTicketReviewEvidence({ job, executionContexts, verif
     catch (error) { if (error.code !== "ENOENT") throw error; }
     const checksum = file ? sha(file.content) : null;
     if (checksum !== artifact.file_checksums[path]) throw fail("REVIEW_SOURCE_MISMATCH", `Committed source differs from verification: ${path}.`);
-    totalBytes += file?.size_bytes ?? 0;
-    if (totalBytes > 200_000) throw fail("REVIEW_EVIDENCE_TOO_LARGE", "Ticket review source exceeds its evidence budget.");
     files.push({ path, sha256: checksum, content: file?.content ?? null, deleted: file === null });
   }
   return { context, artifact, files, paths };

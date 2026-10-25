@@ -4,7 +4,7 @@ import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 import { blockerAuthorityPassages, resolveBlockerAuthority } from "../../src/modules/supervisor/blocker-authority-passages.js";
 import { blockerResponseEvidence } from "../../src/modules/supervisor/blocker-validation.js";
-import { repeatedDispositionCorrection } from "../../src/modules/supervisor/blocker-disposition-correction.js";
+import { repeatedDispositionCorrection, blockerCorrectionPrompt } from "../../src/modules/supervisor/blocker-disposition-correction.js";
 
 test("SL receives actionable correction feedback and cannot resume until the full disposition validates", async () => {
   let attempts = 0;
@@ -82,6 +82,48 @@ test("new source evidence or a changed invalid field can be corrected without a 
   assert.equal(repeatedDispositionCorrection(job, feedback), false);
   record("");
   assert.equal(repeatedDispositionCorrection(job, feedback), true);
+});
+
+test("different malformed JSON responses at root are not collapsed into the same null-valued failure", () => {
+  const job = { id: "J", stage: "architecture_manager", disposition_attempts: [] };
+  const feedback = [{ path: "/", reason: "json_invalid", message: "Unclosed object." }];
+  for (const [text, repeated] of [["{\"kind\":", false], ["{\"kind\":\"consultation_response\",\"payload\":{", false],
+    ["{\"kind\":\"consultation_response\",\"payload\":{", true]]) {
+    job.disposition_attempts.push({ assignment_id: "A", stage: job.stage, status: "rejected", response: blockerResponseEvidence(text) });
+    assert.equal(repeatedDispositionCorrection(job, feedback), repeated);
+  }
+  const prompt = blockerCorrectionPrompt({ ...job, validation_feedback: feedback });
+  assert.match(prompt, /JSON RESPONSE CORRECTION/);
+  assert.match(prompt, /current Node capability facts/);
+  assert.doesNotMatch(prompt, /resolved technical handoff/);
+});
+
+test("an unchanged failure may recur after partial progress without stopping SL with no-progress", () => {
+  // Mirrors the READ-WINDOW-SL timeline: missing technical_result, then stale
+  // checksum (a different field), then missing technical_result again with the
+  // same source and assignment. The later reply improved evidence and must get
+  // another correction round instead of being classified as giậm chân.
+  const job = { id: "J", stage: "sprint_leader", ticket_progress: { evidence_sha256: "SOURCE-1" }, disposition_attempts: [] };
+  const record = (response) => job.disposition_attempts.push({ assignment_id: "ASSIGNMENT", stage: "sprint_leader",
+    status: "rejected", response: blockerResponseEvidence(response) });
+
+  record({ action: "resolved" });
+  assert.equal(repeatedDispositionCorrection(job, [{ path: "/technical_result", reason: "technical_result_incomplete" }]), false);
+
+  // The second reply includes a technical_result but the evidence checksum is stale.
+  record({ action: "resolved", technical_result: { findings: ["x"], implementation_steps: ["y"], verification_steps: ["z"],
+    admission: { status: "within_existing_permissions", rationale: "existing" } }, evidence: [{ path: "src/a.js", sha256: "old" }] });
+  assert.equal(repeatedDispositionCorrection(job, [{ path: "/evidence/0/sha256", reason: "evidence_stale" }]), false);
+
+  // The third reply fixes the checksum but omits technical_result again. Same
+  // fingerprint as the first attempt, yet it is not adjacent to it, so this is
+  // an opportunity to correct, not no-progress.
+  record({ action: "resolved", evidence: [{ path: "src/a.js", sha256: "f".repeat(64) }] });
+  assert.equal(repeatedDispositionCorrection(job, [{ path: "/technical_result", reason: "technical_result_incomplete" }]), false);
+
+  // Only an immediately repeated identical failure parks the SL handoff.
+  record({ action: "resolved", evidence: [{ path: "src/a.js", sha256: "f".repeat(64) }] });
+  assert.equal(repeatedDispositionCorrection(job, [{ path: "/technical_result", reason: "technical_result_incomplete" }]), true);
 });
 
 test("deadline and Stop cancel further correction without resetting checkpoints or invocation ownership", async () => {

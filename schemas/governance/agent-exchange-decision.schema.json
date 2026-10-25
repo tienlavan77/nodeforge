@@ -45,7 +45,9 @@
         },
         "waiting_for": { "type": "array", "items": { "oneOf": [{ "$ref": "#/$defs/text" }, {
           "type": "object", "additionalProperties": false, "required": ["owner", "operation", "question"],
-          "properties": { "owner": { "enum": ["coder", "architecture_manager", "external"] }, "operation": { "enum": ["inspect", "execute"] }, "question": { "$ref": "#/$defs/text" } }
+          "properties": { "owner": { "enum": ["coder", "architecture_manager", "reviewer", "external"] }, "operation": { "enum": ["inspect", "execute"] }, "question": { "$ref": "#/$defs/text" }, "subject": { "$ref": "#/$defs/review_subject" } },
+          "if": { "properties": { "owner": { "const": "reviewer" } } },
+          "then": { "required": ["subject"], "properties": { "operation": { "const": "inspect" } } }
         }] } }
       }
     },
@@ -55,7 +57,11 @@
     },
     "candidate_review": { "type": "object", "additionalProperties": false, "required": ["candidate_sha256", "verdict", "comments"],
       "properties": { "candidate_sha256": { "$ref": "#/$defs/hash" }, "verdict": { "enum": ["approved", "changes_requested"] }, "comments": { "$ref": "#/$defs/texts" } } },
-    "criterion_updates": { "type": "array", "items": { "type": "object" } },
+    "criterion_updates": { "type": "array", "items": {
+      "type": "object", "additionalProperties": false, "required": ["criterion_id", "files", "remaining_work"],
+      "properties": { "criterion_id": { "$ref": "#/$defs/text" }, "remaining_work": { "type": "string", "maxLength": 8000 },
+        "files": { "$ref": "#/$defs/evidence" } }
+    } },
     "escalation": {
       "type": "object", "required": ["boundary", "rationale"],
       "properties": { "boundary": { "enum": ["system_structure", "owner_scope", "security_policy", "data_semantics", "explicit_owner_guardrail"] },
@@ -71,6 +77,12 @@
       "properties": { "title": { "$ref": "#/$defs/text" }, "markdown": { "$ref": "#/$defs/text" }, "evidence": { "$ref": "#/$defs/evidence" } } }
   },
   "$defs": {
+    "review_subject": {
+      "$comment": "Pins independent blocker evidence to a retained ticket commit and artifact without granting verification acceptance.",
+      "type": "object", "additionalProperties": false, "required": ["commit_sha", "artifact_id"],
+      "properties": { "commit_sha": { "type": "string", "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$" },
+        "artifact_id": { "type": "string", "pattern": "^ARTIFACT-[A-Za-z0-9-]+$" } }
+    },
     "text": { "type": "string", "minLength": 1, "pattern": "\\S" }, "texts": { "type": "array", "items": { "$ref": "#/$defs/text" } },
     "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "authority": { "type": "object", "additionalProperties": false, "required": ["passage_id", "rationale"],

@@ -1,5 +1,11 @@
 // Persists a Coder's response to Reviewer findings without granting approval authority.
 import { ConfigurationError } from "../shared/errors.js";
+import { createRequire } from "node:module";
+import { assertReviewVerificationRequests, reviewVerificationRequestSchema } from "../modules/supervisor/review-verification-contract.js";
+
+const require = createRequire(import.meta.url);
+export const respondToReviewInputSchema = structuredClone(require("../../../schemas/agent/tools/respond-to-review.schema.json"));
+respondToReviewInputSchema.properties.responses.items.properties.verification_requests.items = reviewVerificationRequestSchema;
 
 // Creates the governed petition tool for an open ticket review.
 export function createRespondToReviewTool({ reviewFindings, verificationService } = {}) {
@@ -12,6 +18,10 @@ export function createRespondToReviewTool({ reviewFindings, verificationService 
       throw error;
     }
     const history = await reviewFindings.load();
+    for (const response of input.responses ?? []) if (response.verification_requests !== undefined) {
+      assertReviewVerificationRequests(response.verification_requests, { artifact, findingIds: [response.finding_id] });
+      if (response.verification_requests.some((request) => !request.finding_ids.includes(response.finding_id))) throw Object.assign(new ConfigurationError("Verification requests must name the response finding."), { code: "REVIEW_RESPONSE_INVALID" });
+    }
     if (!(history.coder_reports ?? []).some((entry) => entry.artifact_id === artifact.artifact_id && entry.review_commit_sha === artifact.commit_sha)) {
       const error = new ConfigurationError("Complete the saved Coder report for this artifact with report_done before responding to Reviewer findings.");
       error.code = "CODER_EXPLANATION_MISSING";

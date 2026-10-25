@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { createFileService } from "../../infrastructure/filesystem/file-service.js";
 import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { blockerHandoffCorrection } from "./blocker-handoff-policy.js";
+import { blockerCorrectionPrompt } from "./blocker-disposition-correction.js";
 
 // Binds immutable context bytes independently of agent wording or mutable source revisions.
 const hash = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
@@ -34,16 +35,38 @@ function progressView(job) {
     path: entry.path, latest_sha: entry.latest_sha, comparison: entry.comparison, reconciliation_status: entry.source_reconciliation?.status,
     operation_count: entry.operations?.length ?? 0, full_journal_section: "ticket_progress" }));
   if (progress.verification) {
+    if (progress.verification.receipt_index) progress.verification.receipt_index = {
+      total: progress.verification.receipt_index.length, full_definition_section: "verification_receipts" };
     // Output stays in hash-bound receipts already exposed through canonical read tools, rather than being repeated in every recovery request.
     const receipts = (entries) => entries?.map((record) => {
       const entry = { ...record };
       for (const key of ["stdout", "stderr", "stdout_redacted", "stderr_redacted"]) delete entry[key];
-      return { ...entry, output_delivery: "Read the exact evidence_ref for complete command output." };
+      return { ...entry, output_delivery: "Read the exact evidence_ref for complete command output, in bounded windows of at most 80 lines and 8 KB; stop at whichever limit is reached first and continue from the returned position." };
     });
     for (const key of ["checks", "historical_checks", "historical_artifacts"]) progress.verification[key] = receipts(progress.verification[key]);
     if (progress.verification.diagnostic) progress.verification.diagnostic.commands = receipts(progress.verification.diagnostic.commands);
   }
   return progress;
+}
+
+/** Delivers the retained failed attempt and explicit review state in every SDK
+ * prompt, even when current source has changed or large context uses indexes.
+ * Historical receipts remain diagnostics, never current verification approval. */
+function evidenceDelivery(job) {
+  const progress = job.ticket_progress;
+  if (!progress) return null;
+  const verification = progress.verification;
+  const retained = verification?.retained_attempt;
+  return { current_verification: { status: verification?.status, source_revision: verification?.source_revision,
+    commit_sha: verification?.commit_sha, job_id: verification?.job?.job_id ?? null, evidence_ref: verification?.job?.evidence_ref ?? null },
+    retained_attempt: retained ? { status: retained.status, diagnostic_only: true, job_id: retained.job?.job_id ?? null,
+      job_status: retained.job?.status ?? null, job_ref: retained.job?.evidence_ref ?? null, error: retained.job?.error,
+      commit_sha: retained.job?.commit_sha ?? null, source_revision: retained.job?.source_revision ?? null,
+      artifact_id: retained.artifact?.artifact_id ?? null, artifact_ref: retained.artifact?.evidence_ref ?? null,
+      commands: retained.artifact?.commands } : null,
+    receipt_count: verification?.receipt_index?.length ?? 0, receipt_index_section: "verification_receipts",
+    review_status: progress.review_status ?? null, runtime_capabilities: progress.runtime_capabilities ?? {},
+    notice: "Current-source verification may be missing while retained diagnostics exist. Read issued receipts before requesting them again. Review phase is independent of technical recovery: preserve existing findings/cycle during finding_repair; unknown is not not_started. Only an evidenced not_started review has no report to retrieve. Historical receipts do not grant acceptance or authorize a denied operation." };
 }
 
 // Persists small immutable JSON parts so each omitted section can be read without introducing a new tool or broad runtime access.
@@ -61,7 +84,7 @@ export async function createBlockerPromptContext({ job, failureEvidence, project
     owner_decisions: job.owner_decisions, owner_inputs: job.owner_inputs, coder_exchange: job.coder_exchange, execution_admission: job.execution_admission,
     message: job.message, evidence: job.evidence, validation_feedback: job.validation_feedback, coder_checkpoint: job.coder_checkpoint,
     coordination_feedback: job.coordination_feedback, waiting_assignments: job.waiting_assignments, waiting_work_history: job.waiting_work_history,
-    consultation_request: job.consultation_request };
+    consultation_request: job.consultation_request, reviewer_evidence: job.reviewer_evidence, verification_receipts: job.ticket_progress?.verification?.receipt_index };
   const refs = [], indexes = [];
   for (const [section, value] of Object.entries(sections)) {
     if (value === undefined || value === null) continue;
@@ -90,11 +113,13 @@ export async function createBlockerPromptContext({ job, failureEvidence, project
       passages: job.authority_context.passages?.map(({ passage_id, scope, text }) => ({ passage_id, scope,
         ...(text.length <= 240 ? { text } : { text_excerpt: text.slice(0, 240), read_full_passage_from_section: "authority_context" }) })) } : undefined,
     request: { ...job.request, ticket: compactBlockerPromptValue(job.request.ticket) },
-    disposition_attempts: job.disposition_attempts?.slice(-1) ?? [], handoff_correction: blockerHandoffCorrection(job) };
+    disposition_attempts: job.disposition_attempts?.slice(-1) ?? [], handoff_correction: blockerHandoffCorrection(job),
+    response_correction_context: blockerCorrectionPrompt(job) };
   for (const key of Object.keys(sections)) if (key !== "ticket" && key !== "failure_evidence" && key in view) view[key] = compactBlockerPromptValue(view[key]);
   const minimalJob = { ...view, request: { ...job.request, ticket: { id: job.request.ticket.id, title: job.request.ticket.title, full_definition_section: "ticket" } },
     ticket_progress: { execution_id: job.ticket_progress?.execution_id, source_revision: job.ticket_progress?.source_revision,
-      last_completed_turn: job.ticket_progress?.last_completed_turn, evidence_sha256: job.ticket_progress?.evidence_sha256, full_definition_section: "ticket_progress" },
+      last_completed_turn: job.ticket_progress?.last_completed_turn, evidence_sha256: job.ticket_progress?.evidence_sha256,
+      review_status: job.ticket_progress?.review_status, full_definition_section: "ticket_progress" },
     contract_context: "Read the contract_context section for exact retained AM decisions before resolving a contract question.",
     architecture_response: undefined, history: [], owner_decisions: [{ full_definition_section: "owner_decisions" }],
     owner_inputs: job.owner_inputs?.length ? [{ full_definition_section: "owner_inputs" }] : [],
@@ -106,7 +131,7 @@ export async function createBlockerPromptContext({ job, failureEvidence, project
     waiting_work_history: [], waiting_assignments: [{ full_definition_section: "waiting_assignments" }], coordination_feedback: "Read coordination_feedback section.",
     message: "Read message and failure_evidence sections for the original failure, including any denied operation.", evidence: [] };
   return { job: view, minimalJob, failureEvidence: compactBlockerPromptValue(failureEvidence), refs,
-    summary: `READ-ONLY FULL CONTEXT INDEX: ${JSON.stringify(indexes)}\nDisplay excerpts are incomplete and grant no authority. Before deciding an unclear contract, denial or acceptance requirement, use read_file/read_lines on its section index, then read the listed parts. Join content_lines within each part and parts in order to recover the original JSON/text. Part hashes and assignment identities are enforced by Node. Context copies are delivery references, not implementation evidence: cite original source/check receipts and Node-issued authority passage IDs in dispositions. Criteria and verification definitions occur once in request.ticket; progress uses their positional IDs/indexes. Full test output stays at verification evidence_ref. Do not request a missing document that this index or an issued receipt already supplies.` };
+    summary: `NODE EVIDENCE DELIVERY: ${JSON.stringify(compactBlockerPromptValue(evidenceDelivery(job)))}\nREAD-ONLY FULL CONTEXT INDEX: ${JSON.stringify(indexes)}\nDisplay excerpts are incomplete and grant no authority. Before deciding an unclear contract, denial or acceptance requirement, use read_file/read_lines on its section index, then read the listed parts. Join content_lines within each part and parts in order to recover the original JSON/text. Part hashes and assignment identities are enforced by Node. Context copies are delivery references, not implementation evidence: cite original source/check receipts and Node-issued authority passage IDs in dispositions. Criteria and verification definitions occur once in request.ticket; progress uses their positional IDs/indexes. Full test output stays at verification evidence_ref: read it in bounded windows of at most 80 lines and 8 KB, stop at whichever limit is reached first, and continue from the returned offset. Do not request a missing document that this index or an issued receipt already supplies.` };
 }
 
 // Reuses identical immutable snapshots quietly and rejects a conflicting existing object before granting any read reference.
@@ -131,7 +156,7 @@ async function persistContextPart(files, record) {
 // Gives existing recovery read tools a checksum-bound grant for one immutable context part from the current execution.
 export function blockerPromptContextGrant(job, taskId, profile, path) {
   const ref = job?.prompt_context_refs?.find((entry) => entry.path === path);
-  return ["sprint_leader", "architecture_manager", "coder"].includes(profile?.role) && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(taskId ?? "")
+  return ["sprint_leader", "architecture_manager", "coder", "reviewer"].includes(profile?.role) && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(taskId ?? "")
     && job?.request?.task_id === taskId && job?.request?.project_id
     && /^sha256:[a-f0-9]{64}$/.test(ref?.sha256 ?? "")
     && path === `${statePath()}/blocker-context/${taskId}/${ref.sha256.slice(7)}.json` ? ref : null;

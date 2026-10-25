@@ -8,7 +8,7 @@ import { inspectVerificationSource } from "./blocker-verification-source.js";
 import { createTicketVerificationDiagnostic } from "./ticket-verification-diagnostic.js";
 
 // Reads only the current ticket's source-bound jobs and checks, including evidence from an earlier runner version.
-export async function readBlockerVerificationEvidence({ job, workspace, context }) {
+export async function readBlockerVerificationEvidence({ job, workspace, context, checkpoint }) {
   const taskId = job.request.task_id;
   if (!/^[A-Za-z0-9._:-]+$/.test(taskId ?? "") || taskId === "." || taskId === "..") throw new Error("Invalid recovery ticket identity.");
   if (context?.task_id !== taskId || !context?.project_id || !job.request.project_id || context.project_id !== job.request.project_id
@@ -22,7 +22,7 @@ export async function readBlockerVerificationEvidence({ job, workspace, context 
       if (!/^ARTIFACT-[A-Za-z0-9-]+$/.test(id)) throw new Error("Invalid recovery artifact identity.");
       return readJson(join(root, "artifacts", `${id}.json`));
     } })() : null;
-  const history = await readBlockerVerificationHistory({ job, workspace, context });
+  const history = await readBlockerVerificationHistory({ job, workspace, context, checkpoint });
   const source_composition = bound && diagnostic ? await inspectVerificationSource({ projectRoot: workspace.projectRoot ?? workspace.path, context, diagnostic }) : null;
   const current = await workspace.executionContexts.load(taskId);
   if (["version", "source_revision", "review_commit_sha", "manifest_sha", "base_sha", "project_id"].some((key) => current?.[key] !== context[key]))

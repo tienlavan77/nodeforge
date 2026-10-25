@@ -49,7 +49,12 @@ export async function refreshProjects({ selectInitial = true } = {}) {
     const projectId = missing ? null : snapshot.projectId ?? (selectInitial && !snapshot.loaded && projects.length === 1 ? projects[0].project_id : null);
     publish({ projects, projectId, loaded: true, error: missing ? "Selected project is unavailable. Refresh or select an available project." : null });
   } catch (error) {
-    if (refresh === refreshGeneration) publish({ projectId: null, loaded: true, error: error.message });
+    if (refresh === refreshGeneration) {
+      // Keep the last admitted directory and project identity during an API restart.
+      // Existing workspace clients must continue rendering their last-known page;
+      // a failed refresh must not silently revoke admission or close its streams.
+      publish({ loaded: true, error: error.message });
+    }
     throw error;
   }
 }

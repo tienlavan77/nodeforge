@@ -53,3 +53,18 @@ test("a blocked-report exception does not waive the commit gate for completion",
   }
   assert.equal(reports.length, 0);
 });
+
+test("a later edit invalidates a previous empty-commit exemption before completion", async () => {
+  const state = createResumeState({ status: "in_progress", changed_paths: ["a.js"], completed_tools: ["commit_changes"] });
+  let reports = 0;
+  const wrapped = checkpointedRegistry({ taskId: "T-EDIT", resumeState: state, store: { save: async () => {} }, registry: {
+    commit_changes: { execute: async () => { throw Object.assign(new Error("No net changes"), { code: "GIT_EMPTY_COMMIT" }); } },
+    edit_diff: { execute: async () => ({ ok: true }) },
+    report_done: { execute: async () => { reports++; return {}; } }
+  } });
+  await assert.rejects(wrapped.commit_changes.execute({}, {}), { code: "GIT_EMPTY_COMMIT" });
+  assert.equal(state.emptyCommitSeen, true);
+  await wrapped.edit_diff.execute({ path: "a.js" }, { changed_paths: ["a.js"] });
+  await assert.rejects(wrapped.report_done.execute({ status: "completed" }, {}), { code: "COMMIT_MISSING" });
+  assert.equal(reports, 0);
+});

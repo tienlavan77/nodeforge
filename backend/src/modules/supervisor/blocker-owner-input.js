@@ -17,7 +17,10 @@ export function createBlockerOwnerInput({ store, checkpoints, ticketStatusStore,
     const ledger = (await store.list("blocker.recovery")).find((entry) => entry.project_id === projectId
       && entry.task_id === ticketId && entry.execution_id === current.details?.execution_id);
     const job = ledger?.jobs.find((entry) => entry.id === checkpoint?.blocker_recovery?.job_id);
-    return job && !ledger.cancelled ? requestFor(job, checkpoint, current) : null;
+    const request = job && !ledger.cancelled ? requestFor(job, checkpoint, current) : null;
+    const answered = request && [...(checkpoint.blocker_owner_inputs ?? []), ...(job.owner_inputs ?? [])].some((entry) =>
+      entry.request_id === request.request_id && entry.job_id === job.id && entry.execution_id === current.details?.execution_id);
+    return answered ? null : request;
   }
 
   /** Records an authenticated answer to the exact displayed request. It does
@@ -93,9 +96,10 @@ export function createBlockerOwnerInput({ store, checkpoints, ticketStatusStore,
 function requestFor(job, checkpoint, current) {
   const recovery = checkpoint?.blocker_recovery;
   if (recovery?.job_id !== job.id) return null;
+  const work = { ...job.technical_reconciliation?.work, ...job.resolution?.reconciliation };
   return blockerOwnerRequest({ ...recovery, guidance: recovery.guidance ?? job.resolution?.guidance,
-    owner_request: recovery.owner_request ?? job.resolution?.reconciliation?.owner_request,
-    waiting_for: recovery.waiting_for ?? job.resolution?.reconciliation?.waiting_for }, current.details?.execution_id);
+    owner_request: work?.owner_request ?? recovery.owner_request,
+    waiting_for: work?.waiting_for ?? recovery.waiting_for }, current.details?.execution_id);
 }
 
 /** Exposes actionable conflicts without treating an Owner response as approval. */

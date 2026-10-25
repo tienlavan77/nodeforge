@@ -10,7 +10,7 @@ import { createReadCodeTool } from "./read-code.js";
 import { createCheckTestTool, createReadFileTool, createWriteDiffTool, createEditDiffTool, createRunTestTool, createCommitChangesTool } from "./agent-lifecycle-tools.js";
 import { createReportDoneTool } from "./agent-report-tool.js";
 import { createTicketReportCommit } from "./ticket-report-commit.js";
-import { createRespondToReviewTool } from "./respond-to-review-tool.js";
+import { createRespondToReviewTool, respondToReviewInputSchema } from "./respond-to-review-tool.js";
 import { createGitReadTools } from "./git-read-tools.js";
 import { createAgentCommandTools } from "./agent-command-tools.js";
 import { createTicketPushTool } from "./ticket-push-tool.js";
@@ -33,7 +33,6 @@ const runTestInputSchema = require("../../../schemas/agent/tools/run-test.schema
 const checkTestInputSchema = require("../../../schemas/agent/tools/check-test.schema.json");
 const commitChangesInputSchema = require("../../../schemas/agent/tools/commit-changes.schema.json");
 const reportDoneInputSchema = require("../../../schemas/agent/tools/report-done.schema.json");
-const respondToReviewInputSchema = require("../../../schemas/agent/tools/respond-to-review.schema.json");
 const gitStatusInputSchema = require("../../../schemas/agent/tools/git-status.schema.json");
 const gitDiffInputSchema = require("../../../schemas/agent/tools/git-diff.schema.json");
 
@@ -54,7 +53,7 @@ export const runTestDefinition = Object.freeze({ name: "run_test", description: 
 export const checkTestDefinition = Object.freeze({ name: "check_test", description: "Poll a started test job by job_id until it reports passed or failed.", input_schema: checkTestInputSchema });
 export const commitChangesDefinition = Object.freeze({ name: "commit_changes", description: "Ask Node to commit ticket ledger paths; supply a message, not file paths.", input_schema: commitChangesInputSchema });
 export const reportDoneDefinition = Object.freeze({ name: "report_done", description: "Submit a completion summary for Node verification, or status blocked with blocker reason_code, owner_action and source evidence to request a decision without claiming completion.", input_schema: reportDoneInputSchema });
-export const respondToReviewDefinition = Object.freeze({ name: "respond_to_review", description: "Submit a Coder response to open Reviewer findings without closing them.", input_schema: respondToReviewInputSchema });
+export const respondToReviewDefinition = Object.freeze({ name: "respond_to_review", description: "Submit a Coder response to open Reviewer findings without closing them. For missing committed test evidence, include typed verification_requests; Node runs them and returns receipts to Reviewer.", input_schema: respondToReviewInputSchema });
 export const gitStatusDefinition = Object.freeze({ name: "git_status", description: "Read project Git status in porcelain format through Node Git Service.", input_schema: gitStatusInputSchema });
 export const gitDiffDefinition = Object.freeze({ name: "git_diff", description: "Read the unstaged working-tree patch through Node Git Service.", input_schema: gitDiffInputSchema });
 

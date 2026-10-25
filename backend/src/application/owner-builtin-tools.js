@@ -4,8 +4,19 @@ import { readdirSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { ConfigurationError } from "../shared/errors.js";
 
-const CLAUDE_TOOLS = ["Read", "Glob", "Grep", "Edit", "Write", "Bash", "WebSearch"];
-const SYSTEM_READ_PATHS = ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc/ld.so.cache", "/dev/null", "/dev/urandom"];
+const CLAUDE_TOOLS = ["Read", "Glob", "Grep", "Edit", "Write", "Bash", "WebSearch", "Agent"];
+const SUBAGENT_TOOLS = ["Read", "Glob", "Grep"];
+const SYSTEM_READ_PATHS = ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/opt", "/etc/ld.so.cache", "/dev/null", "/dev/urandom"];
+
+// Gives the System Engineer a bounded, read-only subagent for parallel repository discovery.
+const SYSTEM_ENGINEER_AGENTS = Object.freeze({
+  explorer: Object.freeze({
+    description: "Read-only repository explorer for locating relevant files, symbols, and implementation details.",
+    prompt: "Inspect the project and report concise evidence with project-relative paths. Do not edit files, run commands, or access data outside the project.",
+    tools: SUBAGENT_TOOLS,
+    model: "inherit"
+  })
+});
 
 // Denies host data without masking merged-/usr library symlinks needed to run project checks.
 function claudeReadDenyPaths(projectRoot) {
@@ -48,7 +59,10 @@ export function ownerBuiltinOptions(profile, projectRoot) {
     try {
       if (!CLAUDE_TOOLS.includes(input.tool_name)) throw new ConfigurationError("Tool is not enabled for direct engineering.");
       const args = input.tool_input ?? {};
-      if (input.tool_name === "Bash") {
+      if (input.agent_id && !SUBAGENT_TOOLS.includes(input.tool_name)) throw new ConfigurationError("Subagents are read-only repository explorers.");
+      if (input.tool_name === "Agent") {
+        if (args.subagent_type !== "explorer") throw new ConfigurationError("Only the explorer subagent is enabled.");
+      } else if (input.tool_name === "Bash") {
         if (args.dangerouslyDisableSandbox || args.run_in_background) throw new ConfigurationError("Native shell must run synchronously inside the sandbox.");
       } else if (input.tool_name !== "WebSearch") {
         await assertBuiltinFilePath(projectRoot, args.file_path ?? args.path ?? ".");
@@ -56,7 +70,7 @@ export function ownerBuiltinOptions(profile, projectRoot) {
       return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } };
     } catch (error) { return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: error.message } }; }
   };
-  return { tools: [...CLAUDE_TOOLS], allowedTools: [...CLAUDE_TOOLS], mcpServers: {}, settingSources: [], permissionMode: "default",
+  return { tools: [...CLAUDE_TOOLS], allowedTools: [...CLAUDE_TOOLS], agents: SYSTEM_ENGINEER_AGENTS, mcpServers: {}, settingSources: [], permissionMode: "default",
     hooks: { PreToolUse: [{ hooks: [guard] }] },
     sandbox: { enabled: true, failIfUnavailable: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false, network: { allowedDomains: ["*"] },
       filesystem: { denyRead: claudeReadDenyPaths(projectRoot), allowRead: [projectRoot, ...SYSTEM_READ_PATHS], allowWrite: [projectRoot] } } };

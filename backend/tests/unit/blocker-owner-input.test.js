@@ -31,7 +31,7 @@ async function fixtureInput({ typed = true, resolved = false } = {}) {
         verification_steps: ["Run the focused handler check."], admission: { status: "within_existing_permissions", rationale: "Fixture handler already uses existing permissions." } } } : pending(typed);
   } });
   await assert.rejects(fixture.base.run(), { code: "CODER_BLOCKED" });
-  await fixture.recovery.tick(); await fixture.recovery.tick();
+  for (let tick = 0; tick < 4; tick += 1) await fixture.recovery.tick();
   const request = await fixture.recovery.getOwnerRequest({ projectId: "P", ticketId: "TASK" });
   const input = { requestedProjectId: "P", ticketId: "TASK", actor: "authenticated-owner", jobId: request.job_id,
     executionId: request.execution_id, requestId: request.request_id, answer: "I supply the requested fact; preserve tool controls." };
@@ -118,7 +118,7 @@ test("stale question, job, execution, project, changed duplicate and stopped rec
     const ledger = await fixture.ledger(); ledger.cancelled = true; await fixture.base.store.save("blocker.recovery", ledger);
     await assert.rejects(fixture.recovery.respondOwnerInput(input), { code: "BLOCKER_OWNER_INPUT_UNAVAILABLE" });
     await fixture.recovery.tick();
-    assert.equal(fixture.calls.length, 1);
+    assert.deepEqual(fixture.calls, ["sprint_leader", "architecture_manager", "sprint_leader"]);
     assert.equal(fixture.base.invocations, 1);
   } finally { await fixture.close(); }
 });
@@ -175,10 +175,33 @@ test("failed UI notification recovers with complete execution metadata and publi
     await fixture.recovery.tick();
     assert.equal((await fixture.ledger()).jobs.at(-1).status, "reconciliation_required");
     assert(events.some((event) => event.type === "ticket.updated" && event.payload.reason === "blocker_owner_input_required"));
-    assert.equal(fixture.calls.length, 1, "Notification retry must not call SL or Coder again");
+    assert.deepEqual(fixture.calls, ["sprint_leader", "architecture_manager", "sprint_leader"], "Notification retry must not invoke another agent");
     await fixture.recovery.respondOwnerInput(input);
     assert(events.some((event) => event.type === "ticket.updated" && event.payload.reason === "blocker_owner_input_recorded"));
     assert.equal(logs.some((entry) => entry.event_name === "ticket.blocker_owner_input_publish_failed"), false);
     assert.equal((await fixture.base.checkpoints.load("TASK")).blocker_owner_inputs.length, 1);
+  } finally { await fixture.close(); }
+});
+
+/** Reconstructs the production sequence: Owner answers, SL omits a required
+ * handoff field twice, and notification must retain the answer and actual cause. */
+test("SL schema failure after Owner response stays a correction without reopening Owner input", async () => {
+  const { fixture, input } = await fixtureInput();
+  try {
+    const recorded = await fixture.recovery.respondOwnerInput(input);
+    assert.equal(await fixture.recovery.getOwnerRequest({ projectId: "P", ticketId: "TASK" }), null);
+    fixture.recreate({ investigate: async () => fixture.resolution });
+    await fixture.recovery.tick(); await fixture.recovery.tick(); await fixture.recovery.tick();
+    const job = (await fixture.ledger()).jobs[0];
+    assert.equal(job.status, "reconciliation_required");
+    assert.equal(job.outcome_reason, "disposition_correction_no_progress");
+    assert.equal(job.owner_inputs[0].input_id, recorded.receipt.input_id);
+    assert.equal(job.validation_feedback[0].path, "/technical_result");
+    const saved = await fixture.base.checkpoints.load("TASK");
+    assert.equal(saved.blocker_recovery.owner_response.input_id, recorded.receipt.input_id);
+    assert.deepEqual(saved.blocker_recovery.waiting_for, []);
+    assert.equal(await fixture.recovery.getOwnerRequest({ projectId: "P", ticketId: "TASK" }), null);
+    assert.equal(fixture.base.invocations, 1, "An invalid SL handoff never dispatches Coder");
+    assert.equal((await fixture.recovery.respondOwnerInput(input)).receipt.input_id, recorded.receipt.input_id);
   } finally { await fixture.close(); }
 });

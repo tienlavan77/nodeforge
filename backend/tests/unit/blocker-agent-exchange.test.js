@@ -7,6 +7,7 @@ import { createBlockerRecoveryAgent } from "../../src/modules/supervisor/blocker
 import { blockerExchangeRequest, blockerExchangeResponse } from "../../src/modules/supervisor/blocker-agent-exchange.js";
 import { blockerExchangePrompt } from "../../src/modules/supervisor/blocker-exchange-prompt.js";
 import { createAgentExchangeStorage } from "../../src/modules/governance/agent-exchange-storage.js";
+import { createClaudeSdkGateway } from "../../src/modules/agent/claude-sdk-gateway.js";
 
 /** Supplies the four model-authored fields with the existing business contract;
  * native validation still controls source hashes and permission prerequisites. */
@@ -50,30 +51,46 @@ test("real recovery routes structured SL -> AM -> SL, saves exchanges and resume
     known_decision_refs: ["AM-EXISTING"], impact: "One adapter implementation is blocked." };
   const f = await blockerRecoveryFixture({ consultation });
   const calls = [];
+  let sdkFailure;
   try {
     const resolver = { resolveProfile: (role) => ({ agent_id: role, role }),
       resolveAvailable: (role) => ({ agent_id: role, role, provider: "anthropic", enabled: true, status: "ready" }) };
     const worker = createBlockerRecoveryAgent({ agentResolver: resolver, clock: () => 1000,
       agentOccupancy: { claim: async () => ({ claim_id: "C" }), release: async () => {} },
       resolveTicketWorkspace: async () => f.base.workspace,
-      gateways: { claudeSdkGateway: { execute: async ({ agent, prompt }) => {
+      gateways: { claudeSdkGateway: { execute: async (input) => {
+        const { agent, prompt, options } = input;
         calls.push(agent.role);
+        assert.equal(options.outputFormat.type, "json_schema");
+        assert.deepEqual(options.outputFormat.schema.properties.kind.enum, ["consultation_response"]);
+        assert(options.tools.every((tool) => tool === "WebSearch"));
         assert.match(prompt, /^AGENT EXCHANGE v1/);
         assert.doesNotMatch(prompt, /transport acceptance|CLI grammar/);
+        let value;
         if (calls.length === 1) {
           assert.match(prompt.split("\n")[0], /Can Coder reuse the approved adapter/);
-          return { text: JSON.stringify(response({ ...f.resolution, action: "architecture_required" }, {
-          question: "Can the existing handler contract be used?", decision_needed: "Confirm its applicability.", known_decision_refs: [], impact: "Coder awaits this answer." })) };
+          value = response({ ...f.resolution, action: "architecture_required" }, {
+          question: "Can the existing handler contract be used?", decision_needed: "Confirm its applicability.", known_decision_refs: [], impact: "Coder awaits this answer." });
         }
         if (agent.role === "architecture_manager") assert.match(prompt.split("\n")[0], /Can the existing handler contract be used/);
-        return { text: JSON.stringify(response(f.resolution)) };
+        value ??= response(f.resolution);
+        const gateway = createClaudeSdkGateway({ configuration: { getById: () => ({ ...agent, credential_ref: "fixture", gateway_url: "https://gateway.test" }) },
+          credentialResolver: () => "fixture-key", terminalOutput: { write() {} },
+          queryFn: ({ options: native }) => (async function* () {
+            assert.deepEqual(native.outputFormat, options.outputFormat);
+            yield { type: "assistant", message: { content: [{ type: "text", text: "I'm retrieving evidence. <tool_call>read_file</tool_call>" }] } };
+            yield { type: "result", subtype: "success", is_error: false, result: "Display text only.", structured_output: value };
+          })() });
+        try { return await gateway.execute(input); }
+        catch (error) { sdkFailure = error; throw error; }
       } } }
     });
     f.recreate({ investigate: worker });
     await assert.rejects(f.base.run(), { code: "CODER_BLOCKED" });
     for (let turn = 0; turn < 4; turn++) await f.recovery.tick();
-    assert.deepEqual(calls, ["sprint_leader", "architecture_manager", "sprint_leader"]);
+    assert.ifError(sdkFailure);
     const job = (await f.ledger()).jobs[0];
+    assert.deepEqual(calls, ["sprint_leader", "architecture_manager", "sprint_leader"], JSON.stringify({ status: job.status, reason: job.reason_code, message: job.message, history: job.history.slice(-2) }));
     assert.equal(job.status, "resumed");
     assert.equal(f.base.integrations, 1);
     const storage = createAgentExchangeStorage({ fileService: f.base.fileService });

@@ -9,6 +9,9 @@ import { createBlockerSourceResume } from "./blocker-source-resume.js";
 import { inspectReviewResponseReadiness } from "./review-response-readiness.js";
 import { isBlockerSourceRetry } from "./blocker-source-retry.js";
 import { createBlockerHandoffRefresh } from "./blocker-handoff-policy.js";
+import { currentBlockerCoordination, refreshBlockerCoordination } from "./blocker-coordination-evidence.js";
+import { refreshBlockerReviewerEvidence } from "./blocker-reviewer-source.js";
+import { refreshBlockerRuntimeCapabilities } from "./blocker-runtime-capabilities.js";
 
 // Returns ordinary verification refresh plus a source-bound recovery for obsolete missing-denial errors.
 export function createBlockerReconciliationRefresh({ inspect, fileService, clock = Date.now, projectLogger = () => {}, readFailureEvidence, sprintRegistry, ticketStatusStore, refreshOwnerInput }) {
@@ -21,6 +24,26 @@ export function createBlockerReconciliationRefresh({ inspect, fileService, clock
   const refreshHandoff = createBlockerHandoffRefresh({ inspect, fileService, clock, projectLogger });
   return async (job) => {
     if (await refreshOwnerInput?.(job)) return true;
+    if (await refreshBlockerRuntimeCapabilities(job, { inspect, clock, projectLogger })) return true;
+    if (job.stage === "reviewer") {
+      const authority = await inspect(job);
+      if (authority && await refreshBlockerReviewerEvidence(job, authority.workspace.projectRoot ?? authority.workspace.path, clock())) {
+        projectLogger({ event_name: "supervisor.blocker_reviewer_report_refreshed", level: "info", status: "pending", task_id: job.request.task_id,
+          message: "Retained independent Reviewer report validates; return it to Architecture without repeating Reviewer discovery.", payload: { job_id: job.id } });
+        return true;
+      }
+    }
+    if (currentBlockerCoordination(job) && await inspect(job) && refreshBlockerCoordination(job, clock())) {
+      projectLogger({ event_name: "supervisor.blocker_coordination_refreshed", level: "info", status: "pending", task_id: job.request.task_id,
+        message: "Current dispatcher capabilities delivered to the retained Architecture question; Coder checkpoint preserved.", payload: { job_id: job.id } });
+      return true;
+    }
+    if (job.resolution?.action === "reconciliation_required" && job.outcome_reason?.startsWith("technical_reconciliation_")
+      && await inspect(job) && assignAuthorityConsultation(job, job.resolution, clock())) {
+      projectLogger({ event_name: "supervisor.blocker_authority_consultation", level: "info", status: "pending", task_id: job.request.task_id,
+        message: "Technical reconciliation assigned to Architecture for decision; its answer returns to Sprint Leader at the retained checkpoint.", payload: { job_id: job.id } });
+      return true;
+    }
     if (isBlockerSourceRetry(job)) return refreshSource(job);
     if (await refreshHandoff(job)) return true;
     if (await refreshPrompt(job)) return true;
@@ -45,11 +68,6 @@ export function createBlockerReconciliationRefresh({ inspect, fileService, clock
     }
     if (job.outcome_reason === "technical_reconciliation_waiting_for_evidence") {
       const authority = await inspect(job);
-      if (authority && assignAuthorityConsultation(job, job.resolution, clock())) {
-        projectLogger({ event_name: "supervisor.blocker_authority_consultation", level: "info", status: "pending", task_id: job.request.task_id,
-          message: "Unreviewed contract/denial question assigned to Architecture; its answer returns to Sprint Leader. The denied operation remains blocked.", payload: { job_id: job.id } });
-        return true;
-      }
       const delivery = authority ? await inspectReviewResponseReadiness(authority.workspace, job.request?.task_id) : null;
       if (delivery?.status === "available" && JSON.stringify(delivery) !== JSON.stringify(job.ticket_progress?.review_response_delivery ?? null)) {
         job.history.push({ stage: "sprint_leader", event: "review_response_delivery_available", completed_at: clock(), previous_resolution: job.resolution ?? null });

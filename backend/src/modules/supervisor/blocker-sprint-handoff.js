@@ -1,6 +1,7 @@
 // Returns implementation recovery to Sprint Leader while preserving Architecture decisions and the original execution.
 import { assignWaitingWork } from "./blocker-waiting-work.js";
 import { requiresBlockerAdmission } from "./blocker-failure-classification.js";
+import { assignAuthorityConsultation } from "./blocker-authority-consultation.js";
 const IMPACTS = ["changes_structure", "changes_owner_scope", "changes_security_policy", "changes_data_semantics", "overrides_guardrails", "changes_ticket_contract"];
 const IMPLEMENTATION_KINDS = ["source_revision", "dependency", "file_claim", "tooling"];
 
@@ -27,6 +28,8 @@ export function delegateSprintRecovery(job, value, now) {
 
 // Restores legacy implementation consultations at SL on explicit resume, retaining all earlier AM evidence in history.
 export function restoreSprintRecovery(job, now) {
+  if (job.stage === "architecture_manager" && job.authority_consultations?.some((entry) => entry.status === "assigned")) return;
+  if (assignAuthorityConsultation(job, job.resolution, now)) return;
   if (job.stage === "sprint_leader" && job.resolution?.action === "reconciliation_required"
     && assignWaitingWork(job, job.resolution, now)) return;
   if (job.stage === "coder" && job.coder_exchange?.review_role !== "sprint_leader" && job.coder_exchange) {

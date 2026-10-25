@@ -13,7 +13,12 @@ export function parseReviewVerdict(text, options = {}) {
     try { value = decodeReviewExchange(value, options.exchangeRequest); }
     catch (error) { throw reviewError("REVIEW_VERDICT_INVALID", `Review exchange rejected: ${error.message}`); }
   }
-  if (!["approved", "request_changes"].includes(value?.verdict) || !Array.isArray(value.findings)) throw reviewError("REVIEW_VERDICT_INVALID", "Reviewer returned an invalid verdict or findings.");
+  if (value?.verdict === "verification_required") {
+    if (value.findings?.length !== 0 || (value.adjudications ?? []).length !== 0 || !Array.isArray(value.verification_requests) || !value.verification_requests.length) throw reviewError("REVIEW_VERDICT_INVALID", "Verification requests must be explicit and cannot create or adjudicate findings before evidence is returned.");
+    if (value.exchange_response) options.onExchangeResponse?.(value.exchange_response);
+    return { verdict: value.verdict, findings: [], adjudications: [], verification_requests: value.verification_requests };
+  }
+  if (!["approved", "request_changes"].includes(value?.verdict) || !Array.isArray(value.findings) || value.verification_requests !== undefined) throw reviewError("REVIEW_VERDICT_INVALID", "Reviewer returned an invalid verdict or findings.");
   assertReviewFindingGuidance(value, options);
   if (value.verdict === "request_changes" && !value.findings.length && !(value.adjudications ?? []).some((item) => ["retain", "refine", "reopen"].includes(item.decision))) throw reviewError("REVIEW_VERDICT_INVALID", "Requested changes require findings or a retained adjudication.");
   if (value.exchange_response) options.onExchangeResponse?.(value.exchange_response);

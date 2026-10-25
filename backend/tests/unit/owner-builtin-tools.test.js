@@ -33,6 +33,13 @@ test("native file hooks deny traversal and symlink escapes and require sandboxed
     assert.equal(options.sandbox.filesystem.denyRead.includes("/"), false);
     assert.equal(options.sandbox.filesystem.denyRead.includes("/lib"), false);
     assert.equal(options.sandbox.filesystem.denyRead.includes("/usr"), false);
+    assert.equal(options.sandbox.filesystem.denyRead.includes("/opt"), false);
+    assert.ok(options.sandbox.filesystem.allowRead.includes("/opt"));
+    assert.deepEqual(options.sandbox.filesystem.allowWrite, [root]);
+    assert.deepEqual(options.agents.explorer.tools, ["Read", "Glob", "Grep"]);
+    assert.equal(options.agents.explorer.model, "inherit");
+    assert.ok(options.tools.includes("Agent"));
+    assert.ok(options.allowedTools.includes("Agent"));
     assert.equal(options.sandbox.filesystem.denyRead.includes("/etc"), true);
     assert.equal(options.sandbox.filesystem.denyRead.includes("/home"), true);
     assert.ok(options.sandbox.filesystem.allowRead.includes(root));
@@ -42,6 +49,10 @@ test("native file hooks deny traversal and symlink escapes and require sandboxed
       assert.equal((await hook(input)).hookSpecificOutput.permissionDecision, "deny");
     }
     assert.equal((await hook({ tool_name: "Write", tool_input: { file_path: join(root, "src/new.js") } })).hookSpecificOutput.permissionDecision, "allow");
+    assert.equal((await hook({ tool_name: "Agent", tool_input: { subagent_type: "explorer", prompt: "Find files" } })).hookSpecificOutput.permissionDecision, "allow");
+    assert.equal((await hook({ tool_name: "Agent", tool_input: { subagent_type: "general-purpose", prompt: "Find files" } })).hookSpecificOutput.permissionDecision, "deny");
+    assert.equal((await hook({ tool_name: "Edit", tool_input: { file_path: join(root, "src/new.js") }, agent_id: "subagent-1" })).hookSpecificOutput.permissionDecision, "deny");
+    assert.equal((await hook({ tool_name: "Read", tool_input: { file_path: join(root, "src/new.js") }, agent_id: "subagent-1" })).hookSpecificOutput.permissionDecision, "allow");
     const codex = ownerBuiltinOptions({ provider: "codex" }, root);
     assert.equal(codex.usePermissionProfile, true);
     assert.equal(codex.sandboxMode, undefined);
@@ -91,14 +102,14 @@ test("Claude gateway preserves native guards and emits command and text streamin
   const native = ownerBuiltinOptions(profile, process.cwd());
   const gateway = createClaudeSdkGateway({ configuration: { getById: () => profile }, credentialResolver: async () => "credential", terminalOutput: { write() {} },
     queryFn: ({ options: value }) => { options = value; return (async function* () {
-      yield { type: "assistant", message: { content: [{ type: "tool_use", id: "tool", name: "Bash", input: { command: "git status" } }] } };
-      yield { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tool", content: "clean" }] } };
+      yield { type: "assistant", message: { content: [{ type: "tool_use", id: "agent", name: "Agent", input: { subagent_type: "explorer", prompt: "Find the relevant file." } }] } };
+      yield { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "agent", content: "backend/src/example.js" }] } };
       yield { type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "Done" } } };
     })(); } });
   await gateway.execute({ agentId: "SE", prompt: "Inspect", correlationId: "C", options: { ...native, onBuiltinToolEvent: (event) => events.push(event), onTextDelta: (text) => deltas.push(text) } });
   assert.equal(typeof options.hooks.PreToolUse[0].hooks[0], "function");
   assert.deepEqual(options.mcpServers, undefined);
-  assert.deepEqual(events.map(({ tool, status }) => [tool, status]), [["Bash", "started"], ["Bash", "success"]]);
+  assert.deepEqual(events.map(({ tool, status }) => [tool, status]), [["Agent", "started"], ["Agent", "success"]]);
   assert.deepEqual(deltas, ["Done"]);
 });
 
@@ -141,6 +152,8 @@ test("Claude and Anthropic native streams omit Forge and publish partial text an
     assert.equal(request.options.forgeTools, undefined);
     assert.deepEqual(request.options.mcpServers, {});
     assert.ok(request.options.tools.includes("Bash"));
+    assert.ok(request.options.tools.includes("Agent"));
+    assert.deepEqual(request.options.agents.explorer.tools, ["Read", "Glob", "Grep"]);
     assert.deepEqual(chunks, [{ text: "Done" }]);
     assert.equal(activity[0].payload.tool_name, "Edit");
   }

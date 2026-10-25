@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { approvedBlockerArchitecture, assertArchitectureDisposition } from "../../src/modules/supervisor/blocker-decision-authority.js";
+import { approvedBlockerArchitecture, assertArchitectureDisposition, assertOwnerEscalation } from "../../src/modules/supervisor/blocker-decision-authority.js";
 
 const boundaryQuote = "Reuse the existing in-process worker topology and public interfaces without changing system structure.";
 const basis = { plan_id: "ARCH-PLAN", revision: 1, sha256: "a".repeat(64) };
@@ -214,6 +214,28 @@ test("owner_required with all-false boundary_assessment is rejected as delegated
     for (let turn = 0; turn < 6; turn += 1) await fixture.recovery.tick();
     assert.equal(attempts, 3); assert.equal(fixture.base.integrations, 1); assert.equal((await fixture.ledger()).jobs[0].status, "resumed");
   } finally { await fixture.close(); }
+});
+
+/** A prior all-false assessment only bars inflation when that assessment was itself
+ * the substantive rejection. A response rejected for identity or quotation was never
+ * a settled no-boundary judgment, so a genuinely evidenced escalation may still proceed. */
+test("boundary inflation is judged from the rejection reason, not from any rejected response body", () => {
+  const evidenced = { action: "owner_required", summary: "A structure change needs Owner direction.",
+    boundary_assessment: { ...assessment, rationale: "Replacing topology changes system structure.", changes_structure: true },
+    escalation: { boundary: "system_structure", rationale: "The proposal replaces the approved topology.", authority_quote: boundaryQuote } };
+  const architecture = { basis, markdown: boundaryQuote };
+  const priorAttempt = (reason) => ({ stage: "architecture_manager", status: "rejected",
+    response: { text: JSON.stringify({ ...evidenced, boundary_assessment: assessment }) },
+    validation_errors: [{ path: "/boundary_assessment", reason }] });
+  const jobFor = (reason) => ({ stage: "architecture_manager", request: { ticket: { objective: boundaryQuote } },
+    disposition_attempts: reason === null ? [] : [priorAttempt(reason)] });
+  // Unrelated rejection (identity or quotation): must not block a genuinely flagged escalation.
+  assert.doesNotThrow(() => assertOwnerEscalation(evidenced, { job: jobFor("identity_mismatch"), plan: {}, architecture }));
+  // No prior rejection: escalation proceeds.
+  assert.doesNotThrow(() => assertOwnerEscalation(evidenced, { job: jobFor(null), plan: {}, architecture }));
+  // Substantive all-false attestation: inflation stays blocked.
+  assert.throws(() => assertOwnerEscalation(evidenced, { job: jobFor("delegated_to_architecture"), plan: {}, architecture }),
+    (error) => error.validation_errors[0].reason === "boundary_inflation_forbidden");
 });
 
 test("Architecture authority rejects cross-project, source-path and parent-checksum mismatches", async () => {

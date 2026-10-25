@@ -3,11 +3,13 @@
 import { createAgentExchange, bindAgentExchangeResponse, agentExchangeError } from "../governance/agent-exchange.js";
 import { compactBlockerPromptValue } from "./blocker-prompt-context.js";
 import { blockerHandoffCorrection } from "./blocker-handoff-policy.js";
+import { blockerReviewerExchange } from "./blocker-reviewer-evidence.js";
 
 /** Builds a focused consultation from SL's question rather than assigning AM
  * every unfinished implementation and verification responsibility in the ticket. */
 export function blockerExchangeRequest(job, profile, resolver) {
   if (!job.request.project_id || !job.request.payload?.execution_id) return null;
+  if (job.stage === "reviewer") return blockerReviewerExchange(job, profile);
   const sourceRole = job.stage === "architecture_manager" ? "sprint_leader" : job.stage === "coder" ? "sprint_leader" : "coder";
   const actor = job.history?.findLast((entry) => entry.stage === sourceRole && entry.actor)?.actor;
   const profiles = resolver?.list?.(sourceRole)?.filter((entry) => entry.enabled) ?? [];
@@ -44,6 +46,9 @@ export function blockerExchangeResponse(value, request) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw agentExchangeError("/", "type", "Return one structured response object.");
   const content = value.kind ? value : legacyContent(value, request);
   const response = bindAgentExchangeResponse(content, request);
+  if (request.kind === "review_request" && request.payload.purpose === "blocker_evidence") return { response,
+    value: { action: "review_evidence_provided", summary: response.payload.summary, review_evidence: response.payload,
+      evidence: response.evidence.map((entry) => ({ path: entry.ref, sha256: entry.sha256?.replace(/^sha256:/, "") })) } };
   if (response.kind === "work_result") {
     if (response.payload.outcome === "blocked" && response.payload.consultation) return { response,
       value: { action: "architecture_required", summary: response.payload.summary, guidance: response.payload.consultation.question } };
@@ -104,7 +109,7 @@ export function blockerExchangeDisplay(request) {
  * authority, identity or schema feedback can be applied without rediscovery. */
 export function blockerFormatCorrection(job) {
   return Boolean(job.validation_feedback?.length && job.validation_feedback.every((entry) =>
-    ["json_invalid", "schema_invalid", "required", "additionalProperties", "type", "enum", "unexpected_field", "response_kind_mismatch", "binding_mismatch",
+    ["json_invalid", "structured_output_missing", "schema_invalid", "required", "additionalProperties", "type", "enum", "unexpected_field", "response_kind_mismatch", "binding_mismatch",
       "identity_mismatch", "identity_shape_invalid", "authority_not_grounded", "reference_invalid", "reference_unknown", "reference_scope_mismatch",
       "boundary_not_preserved", "assessment_invalid", "boundary_inflation_forbidden", "delegated_to_architecture", "escalation_boundary_mismatch",
       "technical_result_incomplete", "role_not_authorized", "role_action_mismatch"].includes(entry.reason)));

@@ -128,6 +128,38 @@ test("discovery budget never escalates for an unproductive agent", async () => {
   await assert.rejects(() => governance.dispatch("search_code", { query: "empty4" }, current, unproductive), (error) => error.code === "EXPLORATION_BUDGET_EXHAUSTED");
 });
 
+// Exercises advisory discovery markers through the governed dispatch boundary,
+// while proving the same boundary still refuses exhausted and forbidden calls.
+test("advisory discovery markers preserve total-budget and resource enforcement", async () => {
+  const { discoveryNotice } = await import("../../src/tools/exploration-state.js");
+  const governance = createRuntimeToolGovernance();
+  const current = governance.createExecutionContext(context({
+    capabilities: ["select_code_graph_candidates", "search_code", "read_file"],
+    retrieval_budget: { max_bytes: 1000000, max_calls: 3 },
+    discovery_budget: 6, allow_discovery_escalation: false,
+    discovery_candidate_calls: 1, discovery_search_calls: 1, discovery_read_calls: 1,
+    discovery_edit_must_start_by: 1, discovery_target_path: "src/a.js"
+  }));
+  let executions = 0;
+  const execute = async (_input, toolContext) => {
+    executions += 1;
+    return discoveryNotice(toolContext);
+  };
+  for (const tool of ["select_code_graph_candidates", "search_code", "read_file"]) {
+    for (let count = 0; count < 2; count += 1) {
+      const notice = await governance.dispatch(tool, { path: "src/a.js" }, current, execute);
+      assert.equal(notice.used, executions);
+      assert.equal(notice.remaining, 6 - executions);
+      assert.ok(notice.suggested_next_action);
+      assert.match(notice.message, /explicit target/);
+    }
+  }
+  await assert.rejects(governance.dispatch("read_file", { path: "src/a.js" }, current, execute), { code: "EXPLORATION_BUDGET_EXHAUSTED" });
+  await assert.rejects(governance.dispatch("read_file", { path: "src/forbidden.js" }, current, execute), { code: "TOOL_RESOURCE_FORBIDDEN" });
+  assert.equal(executions, 6);
+  assert.equal(governance.getBudget(current).reserved_calls, 0);
+});
+
 test("createExecutionContext honors a per-ticket discovery_budget", () => {
   const governance = createRuntimeToolGovernance();
   const current = governance.createExecutionContext(context({ capabilities: ["search_code"], discovery_budget: 4 }));

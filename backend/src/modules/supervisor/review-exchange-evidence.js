@@ -42,7 +42,6 @@ export function createReviewExchangeEvidence(taskId, exchange) {
 // Routes only exact snapshot paths through existing audited read tools; all other access keeps its normal policy.
 export function attachReviewExchangeTools(tools, evidence, { job, reviewer, projectLogger = () => {} } = {}) {
   let bytes = 0;
-  const budget = [...evidence.files.values()].reduce((sum, file) => sum + Buffer.byteLength(file.content), 128_000);
   const context = { ...tools.context, capabilities: [...(tools.context?.capabilities ?? []), "query_review"] };
   const query = createQueryReviewTool({ load: async () => evidence.exchange, taskId: evidence.taskId, projectId: job.project_id });
   const registry = { ...tools.registry, query_review: { execute: async (input) => {
@@ -78,6 +77,7 @@ export function attachReviewExchangeTools(tools, evidence, { job, reviewer, proj
         const result = { path: file.path, total_lines: file.total_lines, sha256: file.sha256, evidence_scope: "ticket_review_history",
           ...(name === "read_file" ? { content, offset: start, limit: end - start + 1 } : { stdout: content, stderr: "", exit_code: 0, signal: null }) };
         const size = Buffer.byteLength(JSON.stringify(result));
+        const budget = [...evidence.files.values()].reduce((sum, file) => sum + Buffer.byteLength(file.content), 128_000);
         if (size > 16_000 || bytes + size > budget) throw failure("Review evidence output budget exceeded; read a smaller window.");
         bytes += size;
         audit("success", { output_bytes: size });

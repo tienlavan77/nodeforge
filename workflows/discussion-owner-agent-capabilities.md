@@ -104,4 +104,51 @@
 - **Out of Scope:** Không thay đổi quyền ghi/xóa file của `architecture_manager` (`ARCHITECTURE.md`, `docs/`, `Skills/`, `workflows/`); không cấp quyền chạy lệnh shell/test hay ghi Git cho AM.
 - **Giả định (Assumptions):** Mọi đường dẫn truyền vào `search_text`, `list_files`, `read_file`, `read_lines` vẫn đi qua `isAgentPathAllowed` và `assertRoleFileAccess` để chặn `.git`, `node_modules` (trừ phạm vi dependency read cho phép), symlink và các file nhạy cảm.
 - **Rủi ro & Giảm thiểu:** Tăng cửa sổ đọc lên 250 dòng vẫn nằm trong trần bảo vệ byte hiện có (`MAX_CONTENT = 200000` trong `agent-lifecycle-tools.js`, `MAX_OUTPUT_BYTES = 200000` trong `sed-lines.js`, và giới hạn byte của Reviewer/Sprint Leader).
-- **Câu hỏi mở (Open Questions):** Không còn câu hỏi mở hay điểm nghẽn nào. Tài liệu đã sẵn sàng để lập kế hoạch triển khai.
+- **Câu hỏi mở (Open Questions):** Không còn câu hỏi mở trong phạm vi đề xuất công cụ ở trên. Các câu hỏi về blocker recovery dưới đây là phạm vi thảo luận bổ sung, chưa phải quyết định triển khai.
+
+## 5. Bổ sung 2026-10-24 — Node có siết AM quá chặt không?
+
+### Mục tiêu và phạm vi
+
+Ghi nhận điều tra ràng buộc AM qua prompt, schema và rule của blocker recovery. Đây là báo cáo thảo luận, không phải plan được duyệt, không sửa runtime hoặc cấp quyền RUN/dispatch. Không thay thế các plan hiện hữu về thẩm quyền AM.
+
+### Kết luận
+
+**Có một điểm siết quá cứng ở retry/escalation đã xác nhận từ source; chưa có số liệu để đánh giá ảnh hưởng vận hành.** AM có quyền quyết kỹ thuật trong cấu trúc đã duyệt. Ma sát nằm ở hợp đồng identity/evidence và việc dùng lời khai trong attempt bị reject để khóa sửa đánh giá về sau. Không thể coi mọi kiểm tra metadata là thừa hoặc mọi reject là reject oan.
+
+`workflows/agents/architecture/README.md:35-37` giao AM quyết trong cấu trúc đã duyệt, không hỏi lại owner về chi tiết đã ủy quyền; vẫn cấm giả mạo approval, đổi contract ticket bất biến hoặc bỏ Reviewer gate.
+
+### Bằng chứng và hiệu chỉnh kết luận trước
+
+- **Exact identity và sáu cờ:** `backend/src/modules/supervisor/blocker-decision-authority.js:37-57` yêu cầu Architecture scope, đúng plan_id/revision/sha256, không có khóa identity thừa, rationale hợp lệ và sáu cờ false. Đây là guardrail cần giữ; chưa đo tần suất retry do sai metadata.
+- **Reference đã thay được quote:** `backend/src/modules/supervisor/blocker-authority-passages.js:16-39` giải passage_id thành passage.text sau khi kiểm tra scope/rationale; `backend/src/modules/supervisor/blocker-recovery-contract.js:51-52` truyền chuỗi đó vào validator. Vì vậy substring check không đồng nghĩa AM phải tự chép quote khi đã dùng reference hợp lệ. Đề xuất trước về việc thêm khả năng này là không cần thiết.
+- **All-false không được hỏi owner:** `backend/src/modules/supervisor/blocker-decision-authority.js:73-78` từ chối owner_required bằng delegated_to_architecture; thông báo cho phép resolved khi thực sự gỡ blocker hoặc reconciliation_required nếu còn prerequisite. Mục tiêu chống đùn đẩy phù hợp phân quyền.
+- **Điểm quá cứng:** `backend/src/modules/supervisor/blocker-decision-authority.js:84-93` chỉ xét attempt có stage architecture_manager và status rejected, parse response rồi kiểm tra sáu cờ false; không phân biệt lý do reject hoặc yêu cầu đánh giá nội dung đã được xác nhận. `:78` dùng kết quả để chặn owner_required có cờ true bằng boundary_inflation_forbidden.
+- **Không chỉ có bốn action:** `backend/src/modules/supervisor/blocker-recovery-contract.js:41-58,75-85` có nhiều action và kiểm tra theo role; sprint_required cho AM trả guidance về SL, reconciliation_required ghi prerequisite còn thiếu. Không đủ căn cứ nói schema buộc AM phải bịa cờ.
+- **Scope prompt cần đối chiếu:** `backend/src/modules/supervisor/blocker-recovery-agent.js:109-110` vừa yêu cầu AM resolved tại Architecture scope, vừa nói AM có thể quyết trong Sprint authority. assertArchitectureDisposition yêu cầu Architecture scope khi được gọi. Cần kiểm tra theo action và exchange prompt trước khi kết luận mọi AM disposition ở Sprint scope đều sai.
+
+Snapshot SHA-256 các file đã đọc: blocker-decision-authority.js `39178c8b81c4ac80f1b555f05bf29a8b385c35e4c50f77ae13ed3bac0a05b18a`; blocker-recovery-contract.js `c77805696cb67e29249911d3a0e402087a7e7608360cd81a37a29b1922f32443`; blocker-authority-passages.js `4962058ec0fac0713deb7598acb51ff7342dd63eca73e2691c92b253027c6edf`; blocker-recovery-agent.js `2eb7b41900baa739474c5727e2111761c5275d34cef291b4aeebbf34e37015a4`. Đây không phải manifest kiểm thử hoặc bằng chứng runtime.
+
+### Tình huống rủi ro cần kiểm chứng
+
+AM nộp all-false nhưng bị reject vì identity/format. Sau discovery bổ sung, AM tìm được evidence thật về boundary cần owner quyết. Rule hiện tại có thể chặn owner_required mới chỉ vì response bị reject trước đó có all-false. Điều này cho thấy khả năng khóa sửa đánh giá; chưa chứng minh đã xảy ra trong runtime hoặc mọi đường phục hồi đều bế tắc. Reconciliation vẫn hợp lệ nhưng không thay thế được một owner decision thực sự cần thiết.
+
+### Đề xuất, chưa phê duyệt triển khai
+
+1. Giữ exact identity, source hash, grounded passage, sáu cờ, immutable contract, Reviewer gate và quyền tool thực tế.
+2. Rà soát chống lật cờ theo lý do reject và evidence mới; cho sửa đánh giá có căn cứ, không cho đổi cờ chỉ để né validator. Regression tests cần phân biệt lỗi metadata, evidence mới và escalation không có căn cứ.
+3. Dùng authority_reference hiện có; không thêm tính năng đã được hỗ trợ.
+4. Chưa thêm resolved_with_note/risk_note: chưa chứng minh summary/guidance không đủ để ghi rủi ro không cần approval; không mở schema chỉ để ghi chú.
+5. Đối chiếu prompt/schema/validator theo action và role trước khi sửa scope. Không sửa plan đã duyệt hoặc suy ra approval từ báo cáo này.
+
+### Giả định, rủi ro và câu hỏi mở
+
+- Cần kiểm chứng response của attempt bị reject do metadata được lưu cùng boundary_assessment đúng dạng helper đọc được.
+- Chưa đọc runtime log, chưa chạy test/build. Không có số disposition, tỷ lệ reject, thời gian retry hay PASS runtime.
+- Cần thống kê disposition_attempts/validation_feedback của architecture_manager theo reason/path/action: số job riêng, số attempt, số job phục hồi sau sửa metadata và số boundary_inflation_forbidden sau lỗi không liên quan. Không tính attempt lặp thành job độc lập.
+- Nới rule có thể cho AM biến uncertainty thành owner policy hoặc đổi cờ để lách delegated authority; evidence mới và lý do sửa đánh giá phải phân biệt được với cùng hồ sơ lặp lại.
+- Quyết định còn mở: có sửa chống lật cờ và đồng bộ scope prompt hay không sau khi đối chiếu trace/test. Yêu cầu lưu báo cáo không phải approval triển khai.
+
+### Kết quả ghi nhận
+
+Bản bổ sung tách facts source khỏi giả thuyết vận hành và hiệu chỉnh các kết luận quá mạnh của thảo luận trước. Phạm vi chỉ là tài liệu; không sửa runtime hoặc các plan thẩm quyền AM hiện hữu.

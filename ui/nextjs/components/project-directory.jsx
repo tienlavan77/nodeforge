@@ -36,7 +36,15 @@ export function ProjectDirectory() {
     finally { setSaving(false); }
   }
 
+  // Keep the directory mounted while loading, retrying, or disconnected. A loaded empty
+  // directory is still a real page, and a failed refresh must not replace it with a notice.
+  const loadingStatus = loading && !selection.loaded;
+  const statusMessage = error || (loadingStatus ? "Loading projects…" : "");
+
   return <div className="app-shell app-shell-control-room projects-directory-shell">
+    <p role={error ? "alert" : "status"} aria-live="polite" className="project-workspace-stale" hidden={!statusMessage}>
+      {error ? <>Connection to the Node API was lost. Showing the last known project list; some information may be out of date. <button className="history-button" type="button" onClick={load} disabled={loading}>{loading ? "Connecting…" : "Try again"}</button></> : statusMessage}
+    </p>
     <main className="projects-directory" aria-label="Projects directory">
       <section className="projects-stage" aria-labelledby="projects-brand-title">
         <div className="projects-hero">
@@ -47,13 +55,11 @@ export function ProjectDirectory() {
         <div className="projects-workspace-panel" aria-label="Project workspaces">
           <div className="projects-section-bar">
             <span className="projects-section-label">ACTIVE WORKSPACES</span>
-            <span className="projects-section-count">{loading && !selection.projects.length ? "Syncing…" : `${selection.projects.length} project${selection.projects.length === 1 ? "" : "s"}`}</span>
+            <span className="projects-section-count">{`${selection.projects.length} project${selection.projects.length === 1 ? "" : "s"}`}</span>
           </div>
-          {error && <div className="projects-directory-error" role="alert"><strong>Could not load projects</strong><p>{error}</p><button className="history-button" type="button" onClick={load} disabled={loading}>Try again</button></div>}
-          {loading && !selection.projects.length && <p role="status" className="agents-directory-state">Loading projects…</p>}
           {!loading && !error && !selection.projects.length && <p className="agents-directory-state">No projects yet. Add a project to get started.</p>}
           <div className="agents-card-grid projects-card-grid">
-            {!error && selection.projects.map((project) => <ProjectCard key={project.project_id} project={project} />)}
+            {selection.projects.map((project) => <ProjectCard key={project.project_id} project={project} />)}
             <button className="agent-directory-card agent-add-card project-add-card" type="button" aria-label="Add project" onClick={() => { setFormError(""); setAdding(true); }}><span aria-hidden="true">＋</span><strong>Add project</strong><small>Open another workspace</small></button>
           </div>
         </div>

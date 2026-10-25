@@ -51,13 +51,23 @@ export function createBlockerFailureClassification({ readFailureEvidence = creat
     if (job.reason_code !== "ACCESS_REQUIRED") return null;
     const evidence = await readFailureEvidence(job, workspace.projectRoot ?? workspace.path);
     const receipts = (evidence.receipts ?? []).filter((entry) => !(entry.tool === "report_done" && entry.error?.code === "CODER_BLOCKED"));
-    const technical = (!job.execution_admission || job.execution_admission.status === "retained_for_audit") && evidence.status === "captured" && receipts.length > 0
-      && receipts.every((entry) => TECHNICAL.has(entry.error?.code)
-        && !isBlockerApprovalDenial(entry) && !/permission denied/i.test(entry.error?.message ?? ""));
+    // A recorded server-side denial is a genuine access boundary; lacking or unrecognized evidence is not.
+    const denial = receipts.some((entry) => entry.error?.code !== "CODER_BLOCKED" && (isBlockerApprovalDenial(entry)
+      || /permission denied/i.test(entry.error?.message ?? "")
+      || /(?:^|_)DENIED$/.test(entry.error?.code ?? "")));
+    const technical = (!job.execution_admission || job.execution_admission.status === "retained_for_audit") && evidence.status === "captured"
+      && receipts.length > 0 && receipts.every((entry) => TECHNICAL.has(entry.error?.code) && !isBlockerApprovalDenial(entry)
+        && !/permission denied/i.test(entry.error?.message ?? ""));
     const ownerCommit = hasBlockerCommitAuthorization(job);
+    // An incomplete or unrecognized evidence set routes to technical reconciliation: re-inspect and capture the
+    // real receipts. It never grants a technical handoff and never demands a policy/AM admission decision, so a
+    // missing receipt cannot be laundered into either permission-to-resume or a fabricated access question.
+    const evidenceIncomplete = !technical && !ownerCommit && !denial;
     return { binding: failureBinding(job), original_reason_code: job.reason_code,
-      category: ownerCommit ? "owner_authorized_commit" : technical ? "technical_failure" : "access_or_unknown", evidence_status: evidence.status,
-      requires_architecture_admission: !technical && !ownerCommit,
+      category: ownerCommit ? "owner_authorized_commit" : technical ? "technical_failure" : denial ? "access_or_unknown" : "evidence_incomplete",
+      evidence_status: evidence.status,
+      requires_architecture_admission: !technical && !ownerCommit && denial,
+      requires_evidence_reconciliation: evidenceIncomplete,
       receipts: receipts.map((entry) => ({ event_id: entry.event_id, tool: entry.tool, code: entry.error?.code })) };
   }
 }
@@ -71,12 +81,24 @@ export function requiresBlockerContract(job) {
     || !["VERIFY_ENVIRONMENT_INVALID", "VERIFY_ATTRIBUTION_REQUIRED", "VERIFY_RECOVERY_READY"].includes(classification.effective_reason_code));
 }
 
-// Keeps access/security authority mandatory unless Node has freshly classified complete technical receipts.
+// Only a fresh Node classification can identify missing diagnostics; agent-authored claims cannot clear it.
+export function requiresEvidenceReconciliation(job) {
+  const classification = job.ticket_progress?.failure_classification;
+  return job.reason_code === "ACCESS_REQUIRED" && classification?.binding === failureBinding(job)
+    && classification.category === "evidence_incomplete" && classification.requires_evidence_reconciliation === true;
+}
+
+// Keeps access/security authority mandatory for an evidenced denial, while incomplete diagnostic evidence
+// remains technical reconciliation rather than being promoted to a policy decision.
 export function requiresBlockerAdmission(job) {
   if (job.reason_code === "SECURITY_RISK") return true;
   if (job.reason_code !== "ACCESS_REQUIRED") return false;
   if (hasBlockerCommitAuthorization(job)) return false;
   const classification = job.ticket_progress?.failure_classification;
-  return Boolean(job.execution_admission && job.execution_admission.status !== "retained_for_audit" || classification?.binding !== failureBinding(job)
-    || classification?.category !== "technical_failure" || classification.requires_architecture_admission !== false);
+  const evidenceReconciliation = classification?.category === "evidence_incomplete"
+    && classification.requires_evidence_reconciliation === true;
+  return Boolean(job.execution_admission && job.execution_admission.status !== "retained_for_audit"
+    || classification?.binding !== failureBinding(job)
+    || classification?.category !== "technical_failure" && !evidenceReconciliation
+    || classification.requires_architecture_admission === true);
 }

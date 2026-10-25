@@ -81,7 +81,7 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
       }
       if (commitAuthorization) throw failure("COMMIT_AUTHORIZATION_SCOPE", "Commit consent requires a retained blocker recovery checkpoint.");
       const stoppedCheckpoint = storedCheckpoint?.failure?.code === "TICKET_STOPPED"
-        && (!storedCheckpoint.blocker_recovery || storedCheckpoint.blocker_recovery.status === "resolved");
+        && (!storedCheckpoint.blocker_recovery || ["resolved", "superseded_by_review"].includes(storedCheckpoint.blocker_recovery.status));
       if (storedCheckpoint?.status === "blocked" && !storedCheckpoint.blocker_recovery?.owner_decision && !stoppedCheckpoint) throw failure("TICKET_APPROVAL_REQUIRED", "Coder checkpoint requires a human decision before this ticket can run again.");
       let checkpoint = fresh ? null : stoppedCheckpoint ? { ...storedCheckpoint, status: "failed" } : storedCheckpoint;
       const reviewerCheckpoint = !fresh && checkpoint?.status === "completed" ? await checkpoints.loadReview(ticketId) : null;
@@ -96,12 +96,12 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
       const reviewResume = !fresh && checkpoint?.status === "completed" ? reviewPhaseResume(checkpoint, reviewerCheckpoint) : null;
       if (controller.signal.aborted) throw controller.signal.reason;
       if (reviewResume) await assertAutomaticReviewResume(queueStore, ticketId, current?.details?.execution_id);
-      const retainReviewExecution = Boolean((reviewResume || resume?.review_cycle_id && resume.review_cycle_id === current?.details?.review_reopen?.repair_cycle_id) && ticketStatusStore.resumeReviewExecution && matchesTicketExecution(current, current?.details?.execution_id, sprintBasis));
-      const executionId = retainReviewExecution ? current.details.execution_id : sprintBasis && ticketStatusStore.beginExecution ? `RUN-${randomUUID()}` : null;
+      const retainExecution = Boolean((reviewResume || resume) && ticketStatusStore.resumeReviewExecution && matchesTicketExecution(current, current?.details?.execution_id, sprintBasis));
+      const executionId = retainExecution ? current.details.execution_id : sprintBasis && ticketStatusStore.beginExecution ? `RUN-${randomUUID()}` : null;
       if (executionId) {
         await sprintRegistry.assertReady(ticket.sprint_id, { expectedVersion: sprintBasis.version });
         assertDependencyExpectations({ projectId, ticket, expectations: dependencyExpectations, sprintRegistry, ticketStatusStore });
-        if (retainReviewExecution) ticketStatusStore.resumeReviewExecution(ticketId, { executionId, basis: sprintBasis, expectedVersion: current.version, dependencyExpectations,
+        if (retainExecution) ticketStatusStore.resumeReviewExecution(ticketId, { executionId, basis: sprintBasis, expectedVersion: current.version, dependencyExpectations, ...(resume ? { reason: "coder_resume" } : {}),
           validate: () => assertDependencyExpectations({ projectId, ticket, expectations: dependencyExpectations, sprintRegistry, ticketStatusStore }) });
         else ticketStatusStore.beginExecution(ticketId, { executionId, basis: sprintBasis, expectedVersion: current?.version ?? 0, fresh, dependencyExpectations });
       } else prepareStatus(ticketStatusStore, ticketId, fresh);

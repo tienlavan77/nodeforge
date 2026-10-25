@@ -6,6 +6,7 @@ import { transformSync } from "esbuild";
 
 const directory = await readFile(new URL("../components/project-directory.jsx", import.meta.url), "utf8");
 const styles = await readFile(new URL("../app/styles/projects-directory.css", import.meta.url), "utf8");
+const workspace = await readFile(new URL("../components/project-workspace.jsx", import.meta.url), "utf8");
 
 // Keep the landing page brand in the main content rather than a navigation header.
 test("project landing page has a standalone brand and valid JSX", () => {
@@ -16,6 +17,24 @@ test("project landing page has a standalone brand and valid JSX", () => {
   assert.match(directory, /aria-label="Add project"/);
   assert.match(directory, /role="alert"/);
   assert.match(directory, /onClick=\{load\}/);
+  assert.match(directory, /Showing the last known project list/);
+  assert.doesNotMatch(directory, /API unavailable/);
+  assert.doesNotMatch(directory, /if \(error\) return <main className="project-workspace-state"/);
+  // The directory shell must always render; only an inline banner may announce a lost connection.
+  assert.ok(directory.includes('<div className="app-shell app-shell-control-room projects-directory-shell">'));
+  assert.match(directory, /className="project-workspace-stale" hidden=\{!statusMessage\}/);
+});
+
+// An admitted workspace must keep its mounted children when a later refresh fails, and only an
+// un-admitted workspace or a genuinely removed project may fall back to the replacement notice.
+test("workspace holds its admitted page during an API outage instead of showing a placeholder", () => {
+  assert.doesNotThrow(() => transformSync(workspace, { loader: "jsx" }));
+  const heldIndex = workspace.indexOf("if (heldProject)");
+  const noticeIndex = workspace.indexOf("return <main className=\"project-workspace-state\">\n    <p role=\"alert\">");
+  assert.ok(heldIndex !== -1, "the held-project branch must exist");
+  assert.ok(heldIndex < noticeIndex, "a held project must render before any outage notice");
+  assert.match(workspace, /if \(heldProject\)[\s\S]*<Fragment key=\{selection\.generation\}>[\s\S]*\{children\}/);
+  assert.doesNotMatch(workspace, /API unavailable/);
 });
 
 // Keep project selection centered while allowing long lists and narrow screens to grow.

@@ -76,7 +76,7 @@ test("shared RUN retains blocked checkpoints and rejects invalid A5 contracts", 
 
 // Resumes owner-stopped work without inventing an approval or losing Coder progress.
 test("shared RUN resumes a legacy blocked checkpoint caused by owner Stop", async () => {
-  for (const blockerRecovery of [undefined, { status: "resolved" }]) {
+  for (const blockerRecovery of [undefined, { status: "resolved" }, { status: "superseded_by_review" }]) {
     const f = await fixture();
     try {
       f.state.coder = { status: "blocked", failure: { code: "TICKET_STOPPED" }, last_completed_turn: 23, changed_paths: ["backend/example.js"], ...(blockerRecovery ? { blocker_recovery: blockerRecovery } : {}) };

@@ -19,6 +19,9 @@ test("Codex profiles investigate through their Codex SDK with read-only Forge to
         assert.match(input.prompt, /Do not ask the owner to choose the same direction again/);
         assert.match(input.prompt, /SL ROLE CONTRACT/);
         assert.match(input.prompt, /authority_scope\?: sprint, coder_request/);
+        assert.match(input.prompt, /Every technical reconciliation goes to AM for decision/);
+        assert.match(input.prompt, /AM returns its decision to SL; only SL coordinates Coder/);
+        assert.doesNotMatch(input.prompt, /do not ask AM to rubber-stamp|AM retains Architecture\/contract decisions only/);
         assert.doesNotMatch(input.prompt, /FULFILLMENT STAGE for recorded owner decision/);
         assert.deepEqual(input.options.forgeTools.definitions.map((definition) => definition.name), ["search_tree", "list_files", "search_text", "read_file", "read_lines", "git_status", "git_diff"]);
         assert.equal(input.options.builtinWebSearch, undefined);

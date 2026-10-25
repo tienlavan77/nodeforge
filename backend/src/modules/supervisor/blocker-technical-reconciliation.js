@@ -5,6 +5,7 @@ import { validWaitingInput, assignWaitingWork } from "./blocker-waiting-work.js"
 import { createHash } from "node:crypto";
 import { blockerValidationError } from "./blocker-validation.js";
 import { validateBlockerOwnerRequest, blockerOwnerRequest } from "./blocker-owner-request.js";
+import { validateReviewerEvidenceRequest } from "./blocker-reviewer-evidence.js";
 
 const KINDS = ["technical_design", "source_revision", "execution_admission", "dependency", "file_claim", "tooling"];
 const text = (value) => typeof value === "string" && value.trim().length > 0 && value.length <= 8000;
@@ -15,6 +16,12 @@ export function validateTechnicalReconciliation(value, job) {
   const work = value.reconciliation;
   if (work !== undefined) {
     validateReconciliationWork(value);
+    validateReviewerEvidenceRequest(value, job);
+    if (job?.stage === "architecture_manager"
+      && job.authority_consultations?.some((entry) => entry.status === "assigned" && entry.coordination_evidence)
+      && work.waiting_for?.some((entry) => typeof entry === "string"))
+      throw blockerValidationError("/reconciliation/waiting_for", "waiting_owner_required",
+        "The current consultation resolves an unowned prerequisite. Supply explicit {owner,operation,question} entries using Node's stated capabilities, or resolve it from available evidence; do not return another unassigned string.");
     const request = blockerOwnerRequest({ status: value.action === "reconciliation_required" ? value.action : null, job_id: job?.id,
       waiting_for: work.waiting_for, owner_request: work.owner_request, guidance: value.guidance }, job?.request?.payload?.execution_id);
     if (request && job?.owner_inputs?.some((entry) => entry.request_id === request.request_id))
@@ -53,7 +60,7 @@ function validateReconciliationWork(value) {
   if (work.waiting_for !== undefined) {
     if (!Array.isArray(work.waiting_for) || !work.waiting_for.length || work.waiting_for.length > 16) throw blockerValidationError("/reconciliation/waiting_for", "waiting_list_invalid", "Provide 1-16 waiting inputs.");
     const index = work.waiting_for.findIndex((entry) => !validWaitingInput(entry));
-    if (index !== -1) throw blockerValidationError(`/reconciliation/waiting_for/${index}`, "waiting_input_invalid", "Use a nonempty question or {owner:coder|architecture_manager|external,operation:inspect|execute,question}.");
+    if (index !== -1) throw blockerValidationError(`/reconciliation/waiting_for/${index}`, "waiting_input_invalid", "Use a nonempty question or explicit {owner,operation,question}. Reviewer inspection also requires subject={commit_sha,artifact_id} from Node's receipt inventory.");
     if (value.action === "resolved") {
       const pending = work.waiting_for.findIndex((entry) => entry?.owner !== "coder" || entry.operation !== "execute");
       if (pending !== -1) throw blockerValidationError(`/reconciliation/waiting_for/${pending}`, "resolved_prerequisite_pending",
@@ -77,8 +84,8 @@ export function scheduleTechnicalReconciliation(job, value, now) {
   const repeated = fingerprints.includes(fingerprint);
   job.resolution = value;
   job.last_error = value.summary;
-  if (assignWaitingWork(job, { ...value, reconciliation: work }, now)) return;
   if (assignAuthorityConsultation(job, { ...value, reconciliation: work }, now)) return;
+  if (assignWaitingWork(job, { ...value, reconciliation: work }, now)) return;
   if (work.waiting_for?.length || repeated) {
     job.status = "notification_pending";
     job.outcome_reason = work.waiting_for?.length ? "technical_reconciliation_waiting_for_evidence" : "technical_reconciliation_no_progress";
@@ -100,9 +107,9 @@ export function scheduleTechnicalReconciliation(job, value, now) {
 export function technicalReconciliationPrompt(job) {
   return [
     "Node coordinates the retained work without a separate admission review prerequisite. Distinguish a tool-review denial from an explicit Owner policy decision. AM is the final decision-maker for behavior covered by the approved plan and may resolve an in-plan conflict with an automated tool-review denial; this does not bypass server-side authorization or approve a tool invocation. Escalate only when the decision exceeds the approved plan/owner scope or creates evidenced project-structure risk. Do not wait for a hypothetical Node approval result or treat RUN as approval of a denied tool operation. Actual tool authorization still runs.",
-    "Technical recovery stays inside this ticket. SL coordinates implementation with Coder; AM handles identified Architecture/contract decisions only; do not request a separate ticket or tell Node/SL/owner to perform technical analysis already delegated to you.",
-    "For a genuine AM consultation SL returns architecture_required with the concrete question in guidance; an optional reconciliation object uses the same validated kind, prerequisite, completed_checks, next_check and waiting_for format. Node delivers that request to AM and returns its answer to SL without dispatching Coder. Use reconciliation_required for technical work that remains with the current coordinator. Neither action authorizes execution.",
-    "For reconciliation_required include reconciliation={kind:technical_design|source_revision|dependency|file_claim|tooling,prerequisite,completed_checks:[concrete findings],next_check}. Node assigns implementation follow-ups to SL without a round-count limit while the original deadline remains valid. Before declaring external permission/contract input unavailable, consult AM with the exact denial and approved authority; AM answers SL and does not grant execution permission. SL consults AM only for an unresolved authority/design decision. After AM resolves it, return actionable guidance to Coder; do not request a Node admission result or unavailable administrative tool. The legacy execution_admission kind exists only to read historical records, not as a new workflow prerequisite. Consume the returned answer and choose a permitted Coder handoff or a concrete grounded boundary. When required external evidence is unavailable, include waiting_for:[specific missing inputs and their owner/source]. Node parks the consultation instead of repeating discovery; explicit resume is required after supplying the input. Changes in wording or incidental source observations are not progress. Stop for unchanged evidence with no progress or a concrete execution boundary. An automated review denial is evidence to reconcile against the approved plan; an explicit Owner prohibition and server-side authorization remain binding.",
+    "Technical recovery stays inside this ticket. Every technical_reconciliation from SL goes to AM for a decision, including source_revision, dependency, file_claim, tooling and technical_design. AM returns its answer to SL; only SL coordinates Coder. Do not request a separate ticket or ask Owner to decide technical work within approved authority.",
+    "SL returns reconciliation_required with reconciliation={kind,prerequisite,completed_checks:[concrete findings],next_check,waiting_for?:[{owner,operation,question}]}. Node routes all such requests to AM before parking externally or assigning evidence preparation to Coder. Explicit architecture_required remains available for a focused consultation. Neither action authorizes execution or grants tool permission.",
+    "AM must decide the requested technical reconciliation within approved authority and return resolved with concrete implementation/verification steps, or identify the exact remaining prerequisite in reconciliation_required. Node returns the answer to SL and retains it across restart; SL consumes the answer instead of resubmitting the same reconciliation on unchanged evidence. A new source-bound prerequisite or a new recorded Owner response can justify a new consultation. AM uses owner_required only for a decision beyond approved authority or an evidenced material project-structure risk. Actual server-side tool authorization remains enforced; no separate Node admission operation exists. Missing factual evidence is not fabricated by an AM approval, and future Coder execution is an output of the handoff rather than a prerequisite for it.",
     "A completed technical handoff uses action=resolved plus technical_result={findings:[baseline/current comparisons and design conclusions],implementation_steps:[concrete file-level changes preserving criteria],verification_steps:[focused checks covering affected criteria],admission:{status:within_existing_permissions|denied|unresolved,rationale}}. The admission field is your assessment of existing authority, not an administrative action or waiting state. Prefer omitting reconciliation after completion. If retained as completed investigation context, any waiting_for must exclusively use {owner:coder,operation:execute,question} for normal implementation/verification after handoff, never an outstanding investigation, external input or permission prerequisite. Source evidence and approved authority validation remain mandatory. Denied/unresolved server-side tool admission cannot resolve the blocker; however an automatic edit-review denial does not override an approved in-scope plan decision. Never claim tool permission that Node has not granted.",
     "Use git_diff for Node-selected baseline-to-current patches and read_file/read_lines for current source and whole-file hashes. Compare the ticket's declared contract evidence with the fixed-baseline patch and current source; explain drift without rewriting immutable bindings. Read further windows when needed. Failure evidence includes the original denial when available; if unavailable, identify that specific missing evidence instead of inventing an admission decision.",
     job.technical_reconciliation ? `ASSIGNED TECHNICAL WORK: ${JSON.stringify({ ...job.technical_reconciliation, max_rounds: null })}. Perform the next check now using read-only tools. Complete the design and revision comparison; do not merely repeat the previous guidance. If still blocked, report new inspected findings and the precise remaining prerequisite. Preserve the original execution and deadline.` : ""

@@ -8,6 +8,7 @@ import { ConfigurationError } from "../../shared/errors.js";
 import { createTicketRootGit } from "./ticket-root-git.js";
 import { withTicketProjectCommitLock } from "./ticket-project-commit-lock.js";
 import { inspectTicketSource } from "./ticket-source-reconciliation.js";
+import { reconcileRestoredTicketCommit } from "./ticket-restored-commit.js";
 
 const fail = (code, message) => Object.assign(new ConfigurationError(message), { code });
 const sha = (value) => value === null ? null : `sha256:${createHash("sha256").update(value).digest("hex")}`;
@@ -21,7 +22,7 @@ export function createTicketRootCommitService({ taskId, projectId, projectRoot, 
   const journalPath = (revision) => `${statePath()}/ticket-root-commits/${key(projectId)}/${key(taskId)}-${revision}.json`;
   const dispositionPath = (revision) => `${statePath()}/ticket-root-commits/${key(projectId)}/${key(taskId)}-${revision}-disposition.json`;
   const retryPath = (revision) => `${statePath()}/ticket-root-commits/${key(projectId)}/${key(taskId)}-${revision}-retry.json`;
-  return Object.freeze({ rootOnly: true, commit, reconcileNoRefMove, pushCommit: gitService.pushCommit, status: gitService.status, diffWorkingTree: gitService.diffWorkingTree, diffPatchFrom,
+  return Object.freeze({ rootOnly: true, commit, reconcileNoRefMove, reconcileRestoredCommit, pushCommit: gitService.pushCommit, status: gitService.status, diffWorkingTree: gitService.diffWorkingTree, diffPatchFrom,
     inspectSource: (manifest) => inspectTicketSource({ manifest, taskId, projectId, rootGit, gitService, loadJournal, loadManifest: () => ledger.load(taskId) }),
     getHead: gitService.getHead, getCommitParent: gitService.getCommitParent, getChangedFiles: gitService.getChangedFiles, getCommitsForTask, assertAncestor: rootGit.assertAncestor });
 
@@ -52,6 +53,16 @@ export function createTicketRootCommitService({ taskId, projectId, projectRoot, 
   async function commit(message, { paths = [] } = {}) {
     if (typeof message !== "string" || !message.trim()) throw fail("GIT_COMMIT_MESSAGE_INVALID", "Ticket commit message is required.");
     return withTicketProjectCommitLock({ fileService, projectId }, () => ledger.withCommitTransaction(taskId, (manifest, record) => commitLocked(message, paths, manifest, record)));
+  }
+
+  // Restores only a proven same-ticket commit association under the normal commit locks.
+  async function reconcileRestoredCommit() {
+    return withTicketProjectCommitLock({ fileService, projectId }, () => ledger.withCommitTransaction(taskId, restoreCommit));
+  }
+
+  // Shares byte-level restoration validation between report recovery and explicit commit retries.
+  async function restoreCommit(manifest, record) {
+    return reconcileRestoredTicketCommit({ taskId, projectId, manifest, record, rootGit, readOptional, loadJournal, saveJournal, manifestSha, projectLogger });
   }
 
   // Opens a same-ticket retry only when a pre-tree transaction could not have advanced Git.
@@ -96,6 +107,8 @@ export function createTicketRootCommitService({ taskId, projectId, projectRoot, 
       else await rootGit.assertAncestor(existing);
       return { sha: existing, repeated: true };
     }
+    const restored = await restoreCommit(manifest, record);
+    if (restored) return restored;
     const lastCommitted = Math.max(0, ...Object.keys(manifest.commits).map(Number));
     const changed = expected.filter((path) => manifest.entries[path].operations.some((item) => item.revision > lastCommitted));
     if (!changed.length) throw fail("GIT_EMPTY_COMMIT", "Ticket has no uncommitted ledger operations.");

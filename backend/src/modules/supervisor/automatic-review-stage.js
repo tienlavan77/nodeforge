@@ -17,11 +17,15 @@ export function setAutomaticReviewStage(job, ticketStatusStore, status) {
 // Saves a Reviewer checkpoint after the ticket has visibly entered its review stage.
 export async function beginAutomaticReview(job, ticketStatusStore, checkpoints) {
   setAutomaticReviewStage(job, ticketStatusStore, "reviewing");
+  const previous = await checkpoints?.loadReview?.(job.task_id);
+  const verification = previous?.review_verification;
   await checkpoints?.saveReview?.({ task_id: job.task_id, phase: "review", status: "in_progress", verdict: null,
     attempt: job.attempt ?? 1, review_attempt: (job.outcomes?.length ?? 0) + 1, request_id: job.request_id,
     correlation_id: job.correlation_id, review_gate: job.review_policy.gate, changed_paths: job.payload?.changed_paths ?? [],
     base_commit: job.payload?.base_commit ?? null, commit: job.payload?.commit ?? null,
-    verification: job.payload?.verification ?? null, execution_context: job.payload?.execution_context ?? null, last_error: null, operational_retry: null });
+    verification: job.payload?.verification ?? null, execution_context: job.payload?.execution_context ?? null, last_error: null, operational_retry: null,
+    ...(verification?.binding?.artifact_id === job.payload?.verification?.artifact_id && verification.binding.execution_id === job.payload?.execution_id
+      ? { review_verification: verification } : {}) });
 }
 
 // Prevents RUN from duplicating a Reviewer invocation whose provider outcome is still unknown.

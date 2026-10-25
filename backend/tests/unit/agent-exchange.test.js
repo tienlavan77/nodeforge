@@ -90,7 +90,7 @@ test("prompt presents the exact question first and only the selected payload def
   assert.ok(prompt.indexOf(input.payload.question) < prompt.indexOf("Payload JSON Schema"));
   assert.doesNotMatch(prompt, /"review_result":|"work_result":/);
   assert.match(prompt, /No preamble/);
-  assert.match(prompt, /Coder and Reviewer never consult AM directly/);
+  assert.match(prompt, /Coder and Reviewer never initiate Architecture consultations directly/);
   assert.match(prompt, /"source","verification","finding","report","decision","denial"/);
   assert.match(prompt, /do not invent labels such as verification_receipt or retained_denial/i);
 });

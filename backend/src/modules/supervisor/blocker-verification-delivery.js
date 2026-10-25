@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { readBlockerVerificationEvidence } from "./blocker-verification-evidence.js";
 import { createBlockerEvidenceFiles } from "./blocker-evidence-files.js";
+import { BLOCKER_RECEIPT_MAX_BYTES } from "./blocker-evidence-limits.js";
 
 // Rechecks internal evidence waits without relaunching Coder, changing authority or manufacturing historical test results.
 export function createBlockerVerificationDelivery({ inspect, clock = Date.now, projectLogger = () => {} }) {
@@ -17,9 +18,9 @@ export function createBlockerVerificationDelivery({ inspect, clock = Date.now, p
     const workspace = authority?.workspace;
     if (!workspace?.executionContexts?.load || !(workspace.projectRoot ?? workspace.path)) return false;
     const context = await workspace.executionContexts.load(job.request.task_id);
-    const verification = await readBlockerVerificationEvidence({ job, workspace, context });
+    const verification = await readBlockerVerificationEvidence({ job, workspace, context, checkpoint: authority.checkpoint });
     if (!["missing", "observed"].includes(verification.status)) return false;
-    const receipts = [...verification.checks, ...verification.historical_checks, ...verification.historical_artifacts];
+    const receipts = verification.receipt_index ?? [...verification.checks, ...verification.historical_checks, ...verification.historical_artifacts];
     if (!receipts.length) return false;
     const identity = createHash("sha256").update(JSON.stringify({ version: 1, source: verification.source_revision, commit: verification.commit_sha,
       receipts: receipts.map(({ evidence_ref, receipt_sha256 }) => ({ evidence_ref, receipt_sha256 })).sort((a, b) => a.evidence_ref.localeCompare(b.evidence_ref)),
@@ -27,7 +28,7 @@ export function createBlockerVerificationDelivery({ inspect, clock = Date.now, p
     if (job.verification_delivery_digest === identity || job.ticket_progress?.verification?.delivery?.sha256 === identity) return false;
     const { files } = createBlockerEvidenceFiles({ files: workspace.fileService, projectRoot: workspace.projectRoot ?? workspace.path,
       profile: { role: "sprint_leader" }, taskId: job.request.task_id, job: { ...job, ticket_progress: { ...job.ticket_progress, verification } } });
-    for (const receipt of receipts) await files.readForIndex({ path: receipt.evidence_ref, maxBytes: 128_000 });
+    for (const receipt of receipts) await files.readForIndex({ path: receipt.evidence_ref, maxBytes: BLOCKER_RECEIPT_MAX_BYTES });
     const current = await workspace.executionContexts.load(job.request.task_id);
     if (["version", "source_revision", "review_commit_sha", "manifest_sha", "base_sha", "project_id"].some((key) => current?.[key] !== context[key])) return false;
     verification.delivery = { status: "readable", sha256: identity, checked_refs: receipts.map((entry) => entry.evidence_ref) };

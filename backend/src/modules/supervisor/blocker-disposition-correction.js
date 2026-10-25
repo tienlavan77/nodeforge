@@ -9,9 +9,41 @@ function retainedDisposition(text) {
   return JSON.parse(fences.length === 1 ? fences[0] : trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""));
 }
 
+/** Keeps schema corrections actionable without discarding a technical handoff
+ * supplied in an earlier reply. Retained fields are agent-authored suggestions;
+ * the next complete response still passes every authority and source validator. */
+export function blockerCorrectionPrompt(job) {
+  if (!job.validation_feedback?.length) return "";
+  if (job.validation_feedback.every((entry) => entry.reason === "json_invalid"))
+    return "JSON RESPONSE CORRECTION: The completed provider response is not valid JSON; no decision from it has been accepted. Return one shorter, complete JSON object with exactly kind, subject, payload and evidence. Close payload before its sibling evidence array and close the outer object. Preserve the assigned question and factual evidence; use current Node capability facts instead of historical capability claims. Do not repeat discovery or request a new Owner decision to fix JSON syntax.";
+  const latest = job.disposition_attempts?.at(-1);
+  let result = null;
+  for (const attempt of (job.disposition_attempts ?? []).slice(-8).reverse()) {
+    if (attempt.stage !== job.stage || attempt.assignment_id !== latest?.assignment_id) continue;
+    try {
+      const response = retainedDisposition(attempt.response?.text);
+      const decision = response?.payload?.decision ?? response;
+      if (decision?.action !== "resolved" || !decision.technical_result) continue;
+      if (Buffer.byteLength(JSON.stringify(decision.technical_result)) > 8000) continue;
+      result = decision.technical_result;
+      break;
+    } catch (error) { if (!(error instanceof SyntaxError)) throw error; }
+  }
+  return "COMPLETE RESPONSE CORRECTION: Fix the named fields and return the entire decision, preserving other completed fields. "
+    + "For a resolved technical handoff include technical_result={findings:[completed facts],implementation_steps:[remaining Coder steps],verification_steps:[focused checks],admission:{status:within_existing_permissions|denied|unresolved,rationale:actual permission basis}}. "
+    + "All three lists must be nonempty; resolved requires within_existing_permissions without overriding any tool denial. Updating evidence must not remove technical_result. "
+    + "A schema failure is a response correction for the assigned role, not a new Owner question or tool denial. Consume recorded Owner inputs. "
+    + (result ? `PREVIOUS AGENT-AUTHORED TECHNICAL RESULT (not validated authority; retain only facts that still apply): ${JSON.stringify(result)}` : "");
+}
+
 // Revalidates same-assignment evidence after a validator fix before making another provider request.
 export async function salvagePersistedDisposition({ work, job, update, checkDisposition }) {
-  const prior = (job.disposition_attempts ?? []).findLast((attempt) => attempt.stage === job.stage && (!attempt.assignment_id || attempt.assignment_id === discoveryAssignment(job))
+  // A reader fix may append progress after an old Reviewer invocation. Reuse
+  // only its revalidated report bound to the unchanged nested AM assignment.
+  const retainedReviewer = job.stage === "reviewer" && job.reviewer_evidence?.retained_response?.request_id === job.reviewer_evidence?.id
+    ? job.reviewer_evidence?.retained_response?.sha256 : null;
+  const prior = (job.disposition_attempts ?? []).findLast((attempt) => attempt.stage === job.stage && (!attempt.assignment_id || attempt.assignment_id === discoveryAssignment(job)
+    || retainedReviewer && attempt.response?.sha256 === retainedReviewer)
     && attempt.status === "rejected" && attempt.response?.text);
   if (!prior?.response?.text) return null;
   let verified;
@@ -25,9 +57,17 @@ export async function salvagePersistedDisposition({ work, job, update, checkDisp
   return saved ? verified : null;
 }
 
-// Detects the same invalid fields on unchanged source even when summaries are rewritten or the API restarts.
+/** Detects an unchanged correction repeated with no forward progress. A prior
+ * fingerprint alone is not enough: the READ-WINDOW-SL sequence fixed one field
+ * (technical_result), then failed another (a stale checksum), then regressed the
+ * first. The intermediate reply that changed the failing-path set proves partial
+ * progress, so SL receives another correction round instead of being parked. A
+ * stop still fires when the failing-path set never narrowed in between (for
+ * example value-only oscillation on the same field, or an unchanged reply on
+ * unchanged source). */
 export function repeatedDispositionCorrection(job, feedback) {
-  const attempt = job.disposition_attempts?.at(-1);
+  const attempts = job.disposition_attempts ?? [];
+  const attempt = attempts.at(-1);
   if (!attempt?.response?.text) return false;
   let response;
   try { response = retainedDisposition(attempt.response.text); }
@@ -35,11 +75,24 @@ export function repeatedDispositionCorrection(job, feedback) {
   const errors = feedback.map(({ path, reason, received }) => {
     const parts = (path ?? "").split("/").slice(1).map((part) => part.replace(/~1/g, "/").replace(/~0/g, "~"));
     const value = parts.reduce((node, part) => node?.[part], response);
-    return { path, reason, value: received ?? value ?? null };
+    return { path, reason, value: response.unparsed && path === "/" ? response.unparsed : received ?? value ?? null };
   }).sort((a, b) => String(a.path).localeCompare(String(b.path)));
+  const paths = errors.map(({ path }) => path).sort();
   const fingerprint = createHash("sha256").update(JSON.stringify({ assignment: attempt.assignment_id ?? discoveryAssignment(job),
     stage: job.stage, source: job.ticket_progress?.evidence_sha256 ?? null, errors })).digest("hex");
-  const repeated = job.disposition_attempts.slice(0, -1).some((entry) => entry.correction_fingerprint === fingerprint);
+  const priorIndex = attempts.slice(0, -1).map((entry) => entry.correction_fingerprint).lastIndexOf(fingerprint);
+  const progressed = priorIndex !== -1 && attempts.slice(priorIndex + 1, -1)
+    .some((entry) => entry.correction_paths && JSON.stringify(entry.correction_paths) !== JSON.stringify(paths));
+  // Repeating an error transition is a cycle, not further partial progress.
+  // Fingerprints already bind assignment, stage and source, so unrelated work
+  // cannot consume this opportunity. Persist the transition across restarts.
+  const previous = attempts.at(-2);
+  const transition = previous?.correction_fingerprint
+    ? createHash("sha256").update(JSON.stringify([previous.correction_fingerprint, fingerprint])).digest("hex") : null;
+  const cycle = transition !== null && attempts.slice(0, -1).some((entry) => entry.correction_transition === transition);
+  const repeated = priorIndex !== -1 && !progressed || cycle;
   attempt.correction_fingerprint = fingerprint;
+  attempt.correction_paths = paths;
+  if (transition) attempt.correction_transition = transition;
   return repeated;
 }

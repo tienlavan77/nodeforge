@@ -16,6 +16,7 @@ import { createTicketFocusedCheck } from "./ticket-focused-check.js";
 import { coversVerificationPolicy } from "./ticket-verification-policy.js";
 import { runTicketVerificationCommands, verificationCommandAccepted } from "./ticket-verification-regression.js";
 import { createTicketVerificationDiagnostic } from "./ticket-verification-diagnostic.js";
+import { createReviewVerificationService } from "./review-verification-service.js";
 
 const ROOT = statePath("ticket-verification");
 const POLICY_VERSION = "ticket-verification-v8";
@@ -33,9 +34,10 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
   const checkPath = (id) => `${ROOT}/${taskId}/checks/${id}.json`;
   const ensurePassedArtifact = createTicketVerificationRecovery({ taskId, executionContexts, assertIdentity, assertPassedArtifact, startTests, getTestResult, getFailureDiagnostic: () => getFailureDiagnostic(), maxAttempts: MAX_SAME_REVISION_ATTEMPTS });
   const runCheck = createTicketFocusedCheck({ taskId, projectRoot, worktreeFileService, ledger, executionContexts, stateFileService, assertIdentity, assertArchiveSource, runCommand, safeOutput });
+  const runReviewVerification = createReviewVerificationService({ taskId, projectId, projectRoot, stateFileService, runCommand, safeOutput, projectLogger });
   const getFailureDiagnostic = createTicketVerificationDiagnostic({ loadContext: () => executionContexts.load(taskId), loadArtifact,
     latestJob: async (context) => latestTicketVerificationAttempt({ projectRoot, taskId, context, policyVersion: POLICY_VERSION, matchRunnerRevision: false, loadJob: (id) => loadJson(jobPath(id)) }) });
-  return Object.freeze({ runCheck, startTests, getTestResult, loadArtifact, assertPassedArtifact, ensurePassedArtifact, assertCleanWorktree, getFailureDiagnostic });
+  return Object.freeze({ runCheck, runReviewVerification, startTests, getTestResult, loadArtifact, assertPassedArtifact, ensurePassedArtifact, assertCleanWorktree, getFailureDiagnostic });
 
   // Starts a durable verification job only after the ticket commit is recorded.
   async function startTests() {

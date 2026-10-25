@@ -7,7 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { isAgentPathAllowed } from "../../src/tools/tool-authorization.js";
-import { assertDiscoveryBudget, cloneExplorationState, recordRead } from "../../src/tools/exploration-state.js";
+import { assertDiscoveryBudget, cloneExplorationState, discoveryNotice, recordRead } from "../../src/tools/exploration-state.js";
 import { createReportDoneTool } from "../../src/tools/agent-report-tool.js";
 import { createCheckTestTool } from "../../src/tools/agent-verification-tools.js";
 import { createTicketFocusedCheck } from "../../src/modules/supervisor/ticket-focused-check.js";
@@ -52,24 +52,29 @@ test("O1: check_test returns redacted diagnostics for the same task_id and block
   await assert.rejects(() => checkTest.execute({ job_id: "CHECK-123" }, { task_id: "TASK-2" }), { code: "TEST_JOB_FORBIDDEN" });
 });
 
-test("O2: pre-edit discovery grants a synchronized +1 extension when target_symbol is supplied and unproductive_streak is 0, and report_done supports needs_context", async () => {
+test("O2: pre-edit discovery keeps per-type and edit-marker guidance advisory, while total budget remains bounded", async () => {
   const context = {
-    exploration_state: cloneExplorationState({ read_limit: 2, search_limit: 2, edit_must_start_by: 2, discovery_limit: 5 })
+    exploration_state: cloneExplorationState({ read_limit: 2, search_limit: 2, edit_must_start_by: 2, discovery_limit: 5, allow_escalation: false })
   };
   assertDiscoveryBudget(context, "read");
   recordRead(context, { path: "backend/src/a.js", window: "1-20" });
   assertDiscoveryBudget(context, "read");
   recordRead(context, { path: "backend/src/b.js", window: "1-20" });
 
-  assert.throws(() => assertDiscoveryBudget(context, "read"), { code: "EXPLORATION_TYPE_BUDGET_EXHAUSTED" });
+  assert.doesNotThrow(() => assertDiscoveryBudget(context, "read"));
+  assert.equal(context.exploration_state.discovery_count, 3);
+  assert.equal(context.exploration_state.read_calls, 3);
+  assert.equal(discoveryNotice(context).suggested_next_action, "edit_diff_or_write_diff");
 
-  assertDiscoveryBudget(context, "read", { target_symbol: "createService" });
-  assert.equal(context.exploration_state.preedit_extensions, 1);
-  assert.equal(context.exploration_state.read_limit, 3);
-  assert.equal(context.exploration_state.edit_must_start_by, 3);
-  recordRead(context, { path: "backend/src/c.js", window: "1-20" });
+  assert.doesNotThrow(() => assertDiscoveryBudget(context, "read"));
+  assert.equal(context.exploration_state.discovery_count, 4);
+  assert.equal(context.exploration_state.read_calls, 4);
 
-  assert.throws(() => assertDiscoveryBudget(context, "read", { target_symbol: "anotherSymbol" }), { code: "EXPLORATION_TYPE_BUDGET_EXHAUSTED" });
+  assert.doesNotThrow(() => assertDiscoveryBudget(context, "read", { target_symbol: "createService" }));
+  assert.equal(context.exploration_state.discovery_count, 5);
+  assert.equal(context.exploration_state.read_calls, 5);
+
+  assert.throws(() => assertDiscoveryBudget(context, "read", { target_symbol: "anotherSymbol" }), { code: "EXPLORATION_BUDGET_EXHAUSTED" });
 
   const saved = [];
   const reportDone = createReportDoneTool({

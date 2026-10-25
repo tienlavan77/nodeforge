@@ -45,8 +45,8 @@ test("complete technical receipts let SL coordinate different tickets without re
   }
 });
 
-test("partial, missing, mixed denial and unknown receipts never turn into technical permission", async () => {
-  const denied = { event_id: "DENIED", tool: "edit_diff", error: { code: "APPROVAL_DENIED", message: "This action was rejected due to unacceptable risk." } };
+test("partial evidence is technical reconciliation, while mixed denial retains admission", async () => {
+  const denied = { event_id: "DENIED", tool: "edit_diff", error: { code: "APPROVAL_DENIED", message: "Approval denied" } };
   for (const evidence of [
     { status: "partial", receipts: [receipt] }, { status: "missing", receipts: [] },
     { status: "captured", receipts: [receipt, denied] },
@@ -57,7 +57,10 @@ test("partial, missing, mixed denial and unknown receipts never turn into techni
     const job = jobFixture();
     const classify = createBlockerFailureClassification({ readFailureEvidence: async () => evidence });
     job.ticket_progress = { failure_classification: await classify(job, { projectRoot: "/project" }) };
-    assert.equal(requiresBlockerAdmission(job), true);
+    const denial = evidence.receipts.some((entry) => entry.error?.code === "APPROVAL_DENIED");
+    assert.equal(requiresBlockerAdmission(job), denial);
+    assert.equal(job.ticket_progress.failure_classification.category, denial ? "access_or_unknown" : "evidence_incomplete");
+    assert.equal(job.ticket_progress.failure_classification.requires_evidence_reconciliation, !denial);
   }
 });
 

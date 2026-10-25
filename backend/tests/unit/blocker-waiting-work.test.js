@@ -7,6 +7,7 @@ import { restoreSprintRecovery } from "../../src/modules/supervisor/blocker-spri
 import { returnArchitectureResponse } from "../../src/modules/supervisor/blocker-architecture-response.js";
 import { transitionCoderCandidate } from "../../src/modules/supervisor/blocker-coder-candidate.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
+import { completeAuthorityConsultation } from "../../src/modules/supervisor/blocker-authority-consultation.js";
 
 // Supplies identity-bound source evidence without asserting the source journal conflict has been resolved.
 function jobFixture() {
@@ -22,10 +23,24 @@ const wait = { action: "reconciliation_required", summary: "Source drift needs e
     waiting_for: [{ owner: "coder", operation: "inspect", question: "Compare the current source and retained journal; distinguish unknown authorship from observed changes." },
       { owner: "external", question: "A real permission decision is required if no permitted alternative exists." }] } };
 
-test("mixed waits assign read-only Coder work first and retain the external denial boundary", () => {
+/** Starts evidence-owner tests after AM has reviewed this exact reconciliation;
+ * the scheduler must then let SL coordinate the already-decided evidence work. */
+function scheduleAfterArchitecture(job, value, now) {
+  const stage = job.stage;
+  job.stage = "architecture_manager";
+  completeAuthorityConsultation(job, value, now);
+  job.stage = stage;
+  scheduleTechnicalReconciliation(job, value, now);
+}
+
+test("mixed waits require AM decision before read-only Coder work and retain the external denial boundary", () => {
   const job = jobFixture();
   validateTechnicalReconciliation(wait, job);
   scheduleTechnicalReconciliation(job, wait, 1);
+  assert.equal(job.stage, "architecture_manager");
+  assert.equal(job.coder_exchange, undefined);
+  returnArchitectureResponse(job, wait, 2);
+  scheduleTechnicalReconciliation(job, wait, 3);
   assert.equal(job.stage, "coder");
   assert.equal(job.status, "pending");
   assert.equal(job.waiting_assignments[1].owner, "external");
@@ -37,7 +52,7 @@ test("mixed waits assign read-only Coder work first and retain the external deni
 
 test("Coder findings return to SL and identical or reworded work cannot repeat across restart", () => {
   const job = jobFixture();
-  scheduleTechnicalReconciliation(job, wait, 1);
+  scheduleAfterArchitecture(job, wait, 1);
   const response = { action: "architecture_required", summary: "The extra authentication argument is outside the journal.",
     guidance: "No journal provenance can be inferred; the source conflict remains. Preserve all changes." };
   completeWaitingWork(job, response, 2);
@@ -55,7 +70,7 @@ test("Coder findings return to SL and identical or reworded work cannot repeat a
 test("future verification and unspecified Coder work behind external prerequisites never launch read-only preparation", () => {
   for (const operation of ["execute", undefined]) {
     const job = jobFixture();
-    scheduleTechnicalReconciliation(job, { ...wait, reconciliation: { ...wait.reconciliation,
+    scheduleAfterArchitecture(job, { ...wait, reconciliation: { ...wait.reconciliation,
       waiting_for: [{ owner: "external", question: "Resolve actual source provenance and the denied mutation first." },
         { owner: "coder", ...(operation ? { operation } : {}), question: "After prerequisites clear, supply real-HTTP verification results." }] } }, 1);
     assert.equal(job.status, "notification_pending");
@@ -88,7 +103,7 @@ test("changed conversation progress and additional supporting files cannot reque
   restarted.ticket_progress.evidence_sha256 = "after-new-SL-wording-and-file-list";
   // Emulates a persisted assignment created by the previous fingerprint algorithm.
   restarted.waiting_work_history[0].fingerprint = "legacy-key-that-included-conversation-progress";
-  scheduleTechnicalReconciliation(restarted, { ...wait, evidence: [...wait.evidence, { path: "review-routes.js", sha256: "b".repeat(64) }] }, 3);
+  scheduleAfterArchitecture(restarted, { ...wait, evidence: [...wait.evidence, { path: "review-routes.js", sha256: "b".repeat(64) }] }, 3);
   assert.equal(restarted.status, "notification_pending");
   assert.equal(restarted.stage, "sprint_leader");
   assert.equal(restarted.waiting_work_history.length, 1);
@@ -125,7 +140,7 @@ test("new Node journal facts permit one comparison but wording and unrelated fil
 
 test("external input remains parked and AM evidence requests return to SL before Coder", () => {
   const external = jobFixture();
-  scheduleTechnicalReconciliation(external, { ...wait, reconciliation: { ...wait.reconciliation,
+  scheduleAfterArchitecture(external, { ...wait, reconciliation: { ...wait.reconciliation,
     waiting_for: [{ owner: "external", question: "The actual mutation remains denied." }] } }, 1);
   assert.equal(external.status, "notification_pending");
   assert.equal(external.coder_exchange, undefined);
@@ -140,7 +155,7 @@ test("external input remains parked and AM evidence requests return to SL before
   assert.equal(am.coder_exchange.review_role, "sprint_leader");
 });
 
-test("explicit Architecture questions use AM, while legacy source waits resume directly into Coder preparation", () => {
+test("explicit Architecture questions and legacy source waits resume into AM before Coder preparation", () => {
   const job = jobFixture();
   scheduleTechnicalReconciliation(job, { ...wait, reconciliation: { ...wait.reconciliation,
     waiting_for: [{ owner: "architecture_manager", question: "Does the existing design permit the observed compatibility boundary?" }] } }, 1);
@@ -148,9 +163,11 @@ test("explicit Architecture questions use AM, while legacy source waits resume d
   const legacy = { ...jobFixture(), status: "reconciliation_required", resolution: { ...wait,
     reconciliation: { ...wait.reconciliation, waiting_for: ["Explain current router provenance and the remaining contract conflict."] } } };
   restoreSprintRecovery(legacy, 2);
-  assert.equal(legacy.stage, "coder");
-  assert.equal(legacy.coder_exchange.review_role, "sprint_leader");
-  assert.equal(legacy.waiting_assignments[0].owner, "coder");
+  assert.equal(legacy.stage, "architecture_manager");
+  assert.equal(legacy.coder_exchange, undefined);
+  assert.equal(legacy.authority_consultations[0].status, "assigned");
+  restoreSprintRecovery(legacy, 3);
+  assert.equal(legacy.stage, "architecture_manager", "Resume must retain the pending AM decision");
 });
 
 test("invalid ownership input is rejected and a retained candidate requires an explicit SL review", () => {
@@ -163,7 +180,7 @@ test("invalid ownership input is rejected and a retained candidate requires an e
   assert.equal(job.coder_exchange.candidate.sha256, "existing-candidate");
 });
 
-test("production SL → Coder evidence → SL survives restart and preserves the original blocked execution", async () => {
+test("production SL → AM → SL → Coder evidence → SL survives restart and preserves the blocked execution", async () => {
   const f = await blockerRecoveryFixture({ investigate: async (job, resolution) => job.stage === "coder"
     ? { action: "architecture_required", summary: "The source comparison is complete; authorship and permission cannot be inferred.", guidance: "Preserve the checkpoint and report the actual external provenance/permission prerequisite." }
     : job.waiting_work_history?.some((entry) => entry.status === "answered")
@@ -174,12 +191,14 @@ test("production SL → Coder evidence → SL survives restart and preserves the
     await assert.rejects(f.base.run(), { code: "CODER_BLOCKED" });
     const before = await f.base.checkpoints.load("TASK");
     await f.recovery.tick();
+    assert.equal((await f.ledger()).jobs[0].stage, "architecture_manager");
+    await f.recovery.tick(); await f.recovery.tick();
     assert.equal((await f.ledger()).jobs[0].stage, "coder");
     f.recreate();
     await f.recovery.tick();
     await f.recovery.tick();
     await f.recovery.tick();
-    assert.deepEqual(f.calls, ["sprint_leader", "coder", "sprint_leader"]);
+    assert.deepEqual(f.calls, ["sprint_leader", "architecture_manager", "sprint_leader", "coder", "sprint_leader"]);
     assert.equal(f.base.invocations, 1);
     assert.equal(f.base.integrations, 0);
     const job = (await f.ledger()).jobs[0];
@@ -189,7 +208,7 @@ test("production SL → Coder evidence → SL survives restart and preserves the
     assert.equal(after.last_completed_turn, before.last_completed_turn);
     assert.equal(f.base.statusStore.get().details.execution_id, "EXEC");
     await f.recovery.tick();
-    assert.deepEqual(f.calls, ["sprint_leader", "coder", "sprint_leader"]);
+    assert.deepEqual(f.calls, ["sprint_leader", "architecture_manager", "sprint_leader", "coder", "sprint_leader"]);
   } finally { await f.close(); }
 });
 
@@ -198,7 +217,7 @@ test("Stop fences an assigned evidence investigation before Coder can be called"
   try {
     await assert.rejects(f.base.run(), { code: "CODER_BLOCKED" });
     await f.recovery.tick();
-    assert.equal((await f.ledger()).jobs[0].stage, "coder");
+    assert.equal((await f.ledger()).jobs[0].stage, "architecture_manager");
     await f.recovery.stopTicket({ projectId: "P", ticketId: "TASK" });
     f.recreate();
     await f.recovery.tick();

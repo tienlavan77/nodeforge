@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { delimiter, dirname } from "node:path";
+import process from "node:process";
 import test from "node:test";
 
 import { createClaudeSdkGateway } from "../../src/modules/agent/claude-sdk-gateway.js";
@@ -16,7 +18,24 @@ test("uses profile effort and allows explicit task overrides on resume", async (
   }
 });
 
-test("executes the selected agent through a third-party gateway", async () => {
+test("prepends the active Node bin directory after environment overrides", async () => {
+  let request;
+  const gateway = createClaudeSdkGateway({
+    configuration: { getById: () => profile() },
+    credentialResolver: () => "secret",
+    environment: { PATH: ["/usr/bin", dirname(process.execPath)].join(delimiter), FORGE_GATEWAY_BASE_URL: "https://fallback.example.test" },
+    queryFn: ({ options }) => { request = options; return query([]); }
+  });
+
+  await gateway.execute({ agentId: "coder", correlationId: "PATH", prompt: "inspect", options: { env: { PATH: "/custom/bin" } } });
+
+  const entries = request.env.PATH.split(delimiter);
+  assert.equal(entries[0], dirname(process.execPath));
+  assert.equal(entries.filter((entry) => entry === dirname(process.execPath)).length, 1);
+  assert.equal(entries.includes("/custom/bin"), true);
+});
+
+ test("executes the selected agent through a third-party gateway", async () => {
   let request;
   const gateway = createClaudeSdkGateway({
     configuration: { getById: () => profile() },
