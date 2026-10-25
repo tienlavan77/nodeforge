@@ -18,8 +18,10 @@ import { join } from "node:path";
 import { createDatabaseService } from "../../src/infrastructure/sqlite/database-service.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createMarkdownPlanStore } from "../../src/modules/governance/markdown-plan-store.js";
+import { createHumanPlanStore } from "../../src/modules/governance/human-plan-store.js";
 import { createArchitectureClarificationStore } from "../../src/application/architecture-clarification-store.js";
 import { createConversationPlanningService } from "../../src/application/conversation-planning-service.js";
+import { createOwnerChatCommandService } from "../../src/application/owner-chat-command-service.js";
 import { retainConversationPlanSource } from "../../src/modules/governance/conversation-plan-source.js";
 import { readArchitectureDecisions } from "../../src/modules/governance/architecture-owner-decisions.js";
 import { readMarkdownSprintScope } from "../../src/modules/governance/markdown-sprint-scope.js";
@@ -131,5 +133,49 @@ test("the anchor keeps the summary identity and refuses a conflicting re-anchor 
     await f.fileService.atomicWrite({ path: created.source_summary_path, content: JSON.stringify({ ...JSON.parse(PLAN_JSON), objective: "silently rewritten" }), replace: true });
     await assert.rejects(() => f.planning.updateFromConversation({ text: "Update the plan", conversationId: "CONV-B" }), { code: "PLAN_SOURCE_MISMATCH" });
     assert.equal(f.markdownPlanStore.list().length, 1, "a tampered anchor creates no further revision");
+  } finally { await f.close(); }
+});
+
+// Builds the real owner command route over shared plan storage for continuation dispatch coverage.
+// Business purpose: /plan-continue is routed by owner-chat-command-service, and conversation
+// sessions share the clarification store with the legacy Markdown planner; this fixture exercises
+// the actual route so a mis-dispatch to planning.resume (Markdown gate, session.plan_id, intake
+// source) fails loudly instead of silently bypassing the JSON contract (AC-8, AC-2).
+// Technical description: wires createOwnerChatCommandService to the real SQLite stores, the real
+// File Service and a scripted Architecture provider, mirroring the creation fixture's answers.
+async function commandFixture(answers) {
+  const root = await mkdtemp(join(tmpdir(), "conversation-route-"));
+  const database = await createDatabaseService({ dataDir: join(root, ".forge/runtime"), runtimeDir: "." });
+  const fileService = createFileService({ projectRoot: root, allowPlanStorage: true, watcherIgnore: [".forge/**", "node_modules/**"] });
+  await fileService.atomicWrite({ path: "backend/src/application/conversation-planning-service.js", content: "// evidence target\n", replace: true });
+  const markdownPlanStore = createMarkdownPlanStore({ projectId: "PROJECT-A", database, fileService });
+  const prompts = [];
+  let index = 0;
+  const requestArchitecture = async (prompt) => { prompts.push(prompt); return answers[Math.min(index++, answers.length - 1)]; };
+  const service = createOwnerChatCommandService({ projectId: "PROJECT-A", fileService, planStore: createHumanPlanStore({ projectId: "PROJECT-A", database, fileService }), markdownPlanStore });
+  const sessions = createArchitectureClarificationStore({ projectId: "PROJECT-A", fileService });
+  return { fileService, markdownPlanStore, service, sessions, prompts, requestArchitecture, close: async () => { await database.close(); await rm(root, { recursive: true, force: true }); } };
+}
+
+test("the authenticated /plan-continue route resumes conversation sessions through the JSON planner, not the legacy Markdown planner", async () => {
+  const f = await commandFixture([QUESTIONS_JSON, PLAN_JSON]);
+  try {
+    const waiting = await f.service.execute({ text: "Create the architecture plan", conversationId: "CONV-C", project_id: "PROJECT-A", requestArchitecture: f.requestArchitecture });
+    assert.equal(waiting.status, "awaiting_owner_decisions");
+    assert.equal(waiting.revision_created, false);
+    assert.match(waiting.source_summary_path, /\/conversation-intake\.json$/);
+    const drafted = await f.sessions.update(waiting.session_id, { expectedVersion: 1, sourceSha256: waiting.source_summary_sha256, selections: { STORAGE: "SERVER" }, notes: {} });
+    const created = await f.service.execute({ text: `/plan-continue ${waiting.session_id}`, conversationId: "CONV-C", project_id: "PROJECT-A", approvedOwnerId: "OWNER", planningVersion: drafted.version, planningSourceSha256: waiting.source_summary_sha256, requestArchitecture: f.requestArchitecture });
+    assert.equal(created.plan_id, waiting.plan_id, "the conversation plan identity from the intake anchor is preserved across continuation");
+    assert.equal(created.revision, 1);
+    assert.equal(created.status, "awaiting_human_approval");
+    assert.equal(created.run_started, false);
+    assert.match(created.source_summary_path, /\/plans\/PLAN-PROJECT-A-[^/]+\/plan-source-r1\.json$/, "the canonical JSON anchor is the retained source snapshot, not the intake file");
+    assert.ok(!f.prompts.at(-1).includes("Return only Markdown"), "the conversation continuation never falls back to the legacy Markdown prompt");
+    const record = readArchitectureDecisions(created.markdown);
+    assert.equal(record.decisions[0].option_id, "SERVER", "confirmed owner choices survive through the route");
+    assert.equal(record.owner_id, "OWNER", "only Node appends the authoritative owner-decision record");
+    const stored = await f.markdownPlanStore.getRevision({ planId: created.plan_id, revision: 1 });
+    assert.deepEqual(JSON.parse(await f.fileService.readFile({ path: stored.source_path })), JSON.parse(PLAN_JSON));
   } finally { await f.close(); }
 });

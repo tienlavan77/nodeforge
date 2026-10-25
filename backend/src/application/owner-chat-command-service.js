@@ -3,7 +3,7 @@ import { ConfigurationError } from "../shared/errors.js";
 import { readMarkdownSprintScope } from "../modules/governance/markdown-sprint-scope.js";
 import { createPlanWithDiagnostics } from "./plan-request-diagnostics.js";
 import { createArchitecturePlanningService } from "./architecture-planning-service.js";
-import { createConversationPlanningService, isConversationPlanMessage } from "./conversation-planning-service.js";
+import { createConversationPlanningService, isConversationPlanMessage, planIdFromIntakePath } from "./conversation-planning-service.js";
 import { createArchitectureClarificationStore } from "./architecture-clarification-store.js";
 import { detectPlanApproveTrigger, detectPlanCreateTrigger } from "../modules/governance/conversation-plan-trigger.js";
 
@@ -62,7 +62,11 @@ export function createOwnerChatCommandService({ projectId, fileService, planStor
     if (inputProjectId && inputProjectId !== projectId) throw fail("PROJECT_CONTEXT_CONFLICT", "Command project differs from the active project.");
     const value = String(text ?? "").trim();
     const continuation = value.match(CONTINUE_RE);
-    if (continuation) return createPlanWithDiagnostics({ projectId, planRequests, publishPlanEvent, createPlan: () => planning.resume({ sessionId: continuation[1], conversationId, ownerId: approvedOwnerId, expectedVersion: planningVersion, sourceSha256: planningSourceSha256, requestArchitecture }) });
+    if (continuation) return createPlanWithDiagnostics({ projectId, planRequests, publishPlanEvent, createPlan: async () => {
+      const resumeSession = await planning.sessions.get(continuation[1]);
+      if (planIdFromIntakePath(resumeSession?.source_path)) return conversationPlanner(requestArchitecture).continuePlan({ sessionId: continuation[1], conversationId, ownerId: approvedOwnerId, expectedVersion: planningVersion, sourceSha256: planningSourceSha256 });
+      return planning.resume({ sessionId: continuation[1], conversationId, ownerId: approvedOwnerId, expectedVersion: planningVersion, sourceSha256: planningSourceSha256, requestArchitecture });
+    } });
     const planMatch = value.match(PLAN_RE);
     if (planMatch) return createPlanWithDiagnostics({ projectId, planRequests, publishPlanEvent,
       createPlan: () => createPlan({ summaryPath: planMatch[1], conversationId, requestArchitecture }) });
