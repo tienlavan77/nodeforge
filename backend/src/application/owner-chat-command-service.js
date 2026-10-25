@@ -3,6 +3,9 @@ import { ConfigurationError } from "../shared/errors.js";
 import { readMarkdownSprintScope } from "../modules/governance/markdown-sprint-scope.js";
 import { createPlanWithDiagnostics } from "./plan-request-diagnostics.js";
 import { createArchitecturePlanningService } from "./architecture-planning-service.js";
+import { createConversationPlanningService, isConversationPlanMessage } from "./conversation-planning-service.js";
+import { createArchitectureClarificationStore } from "./architecture-clarification-store.js";
+import { detectPlanApproveTrigger, detectPlanCreateTrigger } from "../modules/governance/conversation-plan-trigger.js";
 
 const PLAN_RE = /^\/plan\s+(\S+)\s*$/i;
 const APPROVE_RE = /^\/approve\s+(\S+)\s*$/i;
@@ -34,10 +37,25 @@ const DISCOVERY_UNVERIFIED_RE = /(?:assumption|unverified|unknown|uncertain)/i;
 export function createOwnerChatCommandService({ projectId, fileService, planStore, markdownPlanStore, handoffApprovedPlan, sprintRegistry, planRequests, publishPlanEvent } = {}) {
   if (!projectId || !fileService?.readFile || !planStore?.createRevision || !planStore?.assertExecutable) throw new ConfigurationError("Owner command service is not configured.");
   const planning = createArchitecturePlanningService({ projectId, fileService, markdownPlanStore, validateMarkdown, framePath: PLAN_FRAME_PATH });
+  let clarificationSessions;
+  // Builds the conversation planner over one message's Architecture request so Node alone holds revision authority.
+  function conversationPlanner(requestArchitecture) {
+    if (!clarificationSessions) clarificationSessions = createArchitectureClarificationStore({ projectId, fileService });
+    if (typeof requestArchitecture !== "function") throw fail("ARCHITECTURE_UNAVAILABLE", "Architecture is unavailable for conversation planning.");
+    if (!markdownPlanStore?.createRevision) throw fail("MARKDOWN_PLAN_STORE_UNAVAILABLE", "Markdown plan registry is unavailable.");
+    return createConversationPlanningService({ projectId, fileService, markdownPlanStore, validateMarkdown, sessions: clarificationSessions, requestArchitecture });
+  }
   return Object.freeze({ execute, isCommand, planningSessions: planning.sessions });
 
-  // Recognizes only the exact planning command forms from the human plan contract.
-  function isCommand(text) { return PLAN_RE.test(String(text ?? "")) || APPROVE_RE.test(String(text ?? "")) || CONTINUE_RE.test(String(text ?? "")); }
+  // Recognizes exact slash commands plus standalone conversation planning triggers.
+  function isCommand(text) { const value = String(text ?? ""); return PLAN_RE.test(value) || APPROVE_RE.test(value) || CONTINUE_RE.test(value) || isConversationPlanMessage(value); }
+
+  // Runs create or update planning from one owner conversation message with its provider request.
+  async function requestConversationPlan({ text, conversationId, requestArchitecture, planRequests, publishPlanEvent, project_id: inputProjectId } = {}) {
+    if (inputProjectId && inputProjectId !== projectId) throw fail("PROJECT_CONTEXT_CONFLICT", "Command project differs from the active project.");
+    const planner = conversationPlanner(requestArchitecture);
+    return createPlanWithDiagnostics({ projectId, planRequests, publishPlanEvent, createPlan: () => (detectPlanCreateTrigger(text) ? planner.createFromConversation({ text, conversationId }) : planner.updateFromConversation({ text, conversationId })) });
+  }
 
   // Executes a planning command and returns a durable, non-execution result.
   async function execute({ text, conversationId, project_id: inputProjectId, requestArchitecture, approvedOwnerId, approvalRevision, approvalSha256, approvalComments, planningVersion, planningSourceSha256 } = {}) {
@@ -50,6 +68,8 @@ export function createOwnerChatCommandService({ projectId, fileService, planStor
       createPlan: () => createPlan({ summaryPath: planMatch[1], conversationId, requestArchitecture }) });
     const approveMatch = value.match(APPROVE_RE);
     if (approveMatch) return approvePlan({ planId: approveMatch[1], conversationId, approvedOwnerId, approvalRevision, approvalSha256, approvalComments });
+    if (isConversationPlanMessage(value)) return requestConversationPlan({ text: value, conversationId, requestArchitecture, planRequests, publishPlanEvent });
+    if (detectPlanApproveTrigger(value)) throw fail("COMMAND_INVALID", "Approval requires /approve <plan_id> alone; a conversation planning message never approves a plan.");
     throw fail("COMMAND_INVALID", "Supported commands are /plan <project-relative-file.md> and /approve <plan_id>. Ask Architecture Manager in normal chat to summarize the discussion and save the Markdown file.");
   }
 
