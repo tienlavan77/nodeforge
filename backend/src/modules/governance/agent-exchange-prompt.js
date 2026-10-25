@@ -1,6 +1,7 @@
 /** Renders the same structured request contract for every provider, keeping
  * agent responses concise and separating investigation from formatting repair. */
 import { createRequire } from "node:module";
+import { reviewVerificationInstructions } from "../supervisor/review-verification-contract.js";
 const require = createRequire(import.meta.url);
 const envelope = require("../../../../schemas/governance/agent-exchange.schema.json");
 const schema = require("../../../../schemas/governance/agent-exchange-payload.schema.json");
@@ -13,7 +14,7 @@ export function agentExchangePrompt(request, responseKind) {
   while (pending.length) {
     const name = pending.pop();
     if (definitions[name]) continue;
-    definitions[name] = schema.$defs[name];
+    definitions[name] = schema.$defs[name] ?? decisionSchema.$defs[name];
     for (const match of JSON.stringify(definitions[name]).matchAll(/#\/\$defs\/([a-z_]+)/g)) pending.push(match[1]);
   }
   const omitted = request.recipient.role === "architecture_manager" ? ["coder_request", "candidate_review", "criterion_updates"]
@@ -27,6 +28,8 @@ export function agentExchangePrompt(request, responseKind) {
     `Payload JSON Schema: ${JSON.stringify({ ...schema.$defs[responseKind],
       ...(responseKind === "consultation_response" ? { required: [...schema.$defs[responseKind].required, "decision"] } : {}), $defs: definitions })}`,
     responseKind === "consultation_response" ? `Source-bound decision schema (owning validators enforce additional live authority conditions): ${JSON.stringify(decision)}` : "",
-    "Routes: Coder <-> Reviewer for review and repair; Coder consults SL, SL answers Coder; SL consults AM, AM answers SL. Coder and Reviewer never consult AM directly. AM has final authority for technical and policy decisions within the approved plan. AM consults Owner when a decision is outside approved scope/owner authority or presents evidenced risk to project structure. An automated tool-review denial does not itself override an approved plan decision; server-side authorization and independent review remain enforced. For an Owner escalation, use consultation.owner_boundary_risk={boundary,proposed_change,rationale,evidence_refs} to identify either approved_scope or system_structure; legacy structure_change_risk remains accepted for retained messages."
+    responseKind === "review_result" ? `Evidence subject schema: ${JSON.stringify(decisionSchema.$defs.review_subject)}. For purpose=blocker_evidence return observations only, never a verdict or finding changes.` : "",
+    responseKind === "review_result" && request.payload.purpose !== "blocker_evidence" ? reviewVerificationInstructions() : "",
+    "Routes: Coder <-> Reviewer for review and repair; Coder consults SL, SL answers Coder; SL consults AM, AM answers SL. AM may request independent Reviewer evidence using review_request with purpose=blocker_evidence; its review_result returns directly to AM for decision, then AM answers SL. Coder and Reviewer never initiate Architecture consultations directly. AM has final authority for technical and policy decisions within the approved plan. AM consults Owner when a decision is outside approved scope/owner authority or presents evidenced risk to project structure. An automated tool-review denial does not itself override an approved plan decision; server-side authorization and independent review remain enforced. For an Owner escalation, use consultation.owner_boundary_risk={boundary,proposed_change,rationale,evidence_refs} to identify either approved_scope or system_structure; legacy structure_change_risk remains accepted for retained messages."
   ].join("\n\n");
 }

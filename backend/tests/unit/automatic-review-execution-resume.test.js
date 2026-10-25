@@ -128,6 +128,23 @@ test("finding repair RUN keeps its cycle and Coder turn after an operational sto
   assert.equal(fixture.store.get("TICKET-1").status, "running");
 });
 
+test("ordinary Coder checkpoint resume keeps execution without requiring a reopened review cycle", async () => {
+  const fixture = resumeStatusFixture(); fixture.setRow({ status: "pending" });
+  const ticket = { id: "TICKET-1", project_id: "PROJECT-1", sprint_id: "SPRINT-1", title: "Fix", objective: "Verify", dependencies: [], acceptance_criteria: ["Works"] };
+  const checkpoint = { task_id: ticket.id, status: "failed", phase: "finding_repair_ready", last_completed_turn: 4, attempt: 6,
+    agent_exchange: { context: { execution_id: "RUN-ORIGINAL" } } };
+  let request;
+  const dispatch = createTicketRunDispatch({ disposition: { get: async () => null }, intake: { open: async () => ({ ticket }) },
+    sprintRegistry: { get: () => BASIS, assertReady: async () => ({ sprint: BASIS, plan: { content: { tickets: [ticket.id], ticket_specs: [ticket] } } }) },
+    ticketStatusStore: fixture.store, checkpoints: { load: async () => checkpoint, clear: async () => assert.fail("No checkpoint reset") },
+    queueStore: { list: async () => [] }, protocolStorage: {},
+    dispatchTask: async (input) => { request = input; return { status: "accepted" }; } });
+  const result = await dispatch({ projectId: "PROJECT-1", ticketId: ticket.id });
+  assert.equal(result.execution_id, "RUN-ORIGINAL"); assert.equal(result.resumed_from_turn, 4);
+  assert.deepEqual(request.resume_from, checkpoint);
+  assert.equal(fixture.store.get(ticket.id).details.reason, "coder_resume");
+});
+
 // RUN must reach the timed outage adapter before the generic blocked-checkpoint human gate.
 test("RUN connects a parked checkpoint to timed Coder recovery without launching immediately", async () => {
   const fixture = resumeStatusFixture();

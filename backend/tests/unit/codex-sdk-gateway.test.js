@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
+import { dirname, delimiter, join } from "node:path";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import process from "node:process";
 import test from "node:test";
 import { createCodexSdkGateway, normalizeBaseUrl } from "../../src/modules/agent/codex-sdk-gateway.js";
 
@@ -170,6 +171,26 @@ test("does not leak the parent Codex session into the MCP child", async () => {
   assert.equal(codexOptions.env.CODEX_API_KEY, undefined);
   assert.equal(codexOptions.apiKey, "gateway-key");
   assert.equal(codexOptions.env.KEEP_ME, "yes");
+});
+
+test("normalizes the active Node bin directory after Codex environment overrides", async () => {
+  let codexOptions;
+  const gateway = createCodexSdkGateway({
+    configuration: { getById: () => ({ agent_id: "codex-path", agent_name: "Codex Path", role: "coder", gateway_url: "https://gateway.test/v1", credential_ref: "secret", enabled: true, status: "ready" }) },
+    credentialResolver: () => "gateway-key",
+    environment: { PATH: "/usr/bin" },
+    CodexClass: class FakeCodex {
+      constructor(options) { codexOptions = options; }
+      startThread() { return { id: "thread-path", runStreamed: async () => ({ events: (async function* () { yield { type: "turn.completed", usage: null }; })() }) }; }
+    }
+  });
+
+  await gateway.execute({ agentId: "codex-path", correlationId: "CORR-PATH", prompt: "hello", options: { env: { PATH: ["/custom/bin", dirname(process.execPath)].join(delimiter) } } });
+
+  const entries = codexOptions.env.PATH.split(delimiter);
+  assert.equal(entries[0], dirname(process.execPath));
+  assert.equal(entries.filter((entry) => entry === dirname(process.execPath)).length, 1);
+  assert.equal(entries.includes("/custom/bin"), true);
 });
 
 // Classifies an upstream model-channel outage as retryable without exposing gateway diagnostics.

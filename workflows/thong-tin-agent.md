@@ -19,7 +19,10 @@ prompt riêng theo từng lỗi hoặc từng ticket.
 - Coder và Reviewer trao đổi hai chiều về finding, sửa chữa, chứng cứ và kết quả review.
 - Coder cần tham vấn thì hỏi Sprint Leader (SL); SL trả lời lại Coder.
 - SL cần tham vấn thì hỏi Architecture Manager (AM); AM trả lời lại SL.
-- Coder và Reviewer không tham vấn trực tiếp AM.
+- Coder và Reviewer không tự khởi tạo tham vấn thẩm quyền trực tiếp AM.
+- Bổ sung đã được Owner duyệt ngày 2026-10-24: AM được yêu cầu Reviewer khảo sát
+  độc lập một câu hỏi gắn commit/artifact. Reviewer trả báo cáo trực tiếp AM;
+  AM quyết định rồi trả SL để giao Coder. Đây không phải review nghiệm thu ticket.
 - AM chỉ tham vấn Owner khi có nguy cơ phải thay đổi cấu trúc dự án.
 - AM trả quyết định cho SL; SL dùng quyết định đó để làm việc với Coder.
   AM không chuyển thẳng yêu cầu thực hiện cho Coder.
@@ -35,6 +38,8 @@ flowchart LR
     S -->|Trả lời| C
     S -->|Tham vấn| A[Architecture Manager]
     A -->|Trả lời| S
+    A -->|Yêu cầu khảo sát độc lập| R
+    R -->|Báo cáo khảo sát, không cấp approval| A
     A -->|Chỉ khi có nguy cơ thay đổi cấu trúc dự án| O[Owner]
     O -->|Quyết định| A
 ```
@@ -114,6 +119,24 @@ hoặc bằng chứng phê duyệt.
   phản hồi cần sửa; `instruction` yêu cầu sửa đúng schema, giữ kết luận/chứng cứ.
 
 Không bắt AM cung cấp kết quả triển khai thuộc trách nhiệm Coder.
+
+### Khảo sát độc lập do AM yêu cầu
+
+AM trả `reconciliation_required` với `waiting_for:[{owner:"reviewer",operation:"inspect",question,subject:{commit_sha,artifact_id}}]`.
+Node xác minh artifact đã được cấp trong receipt inventory, đúng project/ticket,
+commit và checksum; không suy ra người thực hiện từ câu chữ.
+
+Node dùng `review_request` từ AM đến Reviewer với `purpose:"blocker_evidence"`,
+`question`, `subject` và các trường request review hiện có. `review_result` quay
+về đúng AM/request/execution, giữ nguyên `purpose` và `subject`; payload gồm
+`outcome:"completed"|"inconclusive"`, `summary`, `observations`, `missing_evidence`,
+`findings:[]`, `finding_updates:[]`. Không có `verdict` trong kết quả khảo sát.
+
+Reviewer dùng snapshot commit và môi trường verification đã lưu, chỉ đọc chứng cứ.
+Báo cáo được lưu riêng qua Agent Exchange Storage; ledger giữ reference và kết quả
+ngắn. Node trả báo cáo về cùng lượt AM đang chờ để quyết định, sau đó mới về SL/Coder.
+Stop/Resume giữ assignment và checkpoint; không tự đóng finding, cấp approval,
+coi verification PASS hoặc chuyển ticket sang review nghiệm thu.
 
 ## Reference chứng cứ
 
@@ -208,6 +231,19 @@ với yêu cầu bổ sung có căn cứ, để điều phối lại đúng ngư
    tuyến bị cấm và điều kiện AM tham vấn Owner.
 
 Phạm vi áp dụng là pipeline chung cho các ticket, không hardcode ticket hoặc agent ID.
+
+## Bổ sung verification trong vòng review
+
+Reviewer dùng `verdict: verification_required`, `findings: []`, `finding_updates: []`
+và `verification_requests` khi chỉ thiếu kết quả kiểm chứng. Coder gửi cùng cấu trúc
+trong từng phản hồi `respond_to_review.responses[]`, gắn với finding hiện có.
+Mỗi request gồm `finding_ids`, `criterion_ids`, `test_paths`, `scope`, `reason`,
+`artifact_id`, `commit_sha`, `source_revision`. Schema chuẩn nằm trong
+`agent-exchange-payload.schema.json#/$defs/verification_request`.
+Node chạy đúng test trên commit và môi trường đã lưu, ghi receipt rồi trả lại Reviewer.
+Yêu cầu này không giao Coder sửa code, không tham vấn SL/AM và không tự đóng finding.
+`scope: regression` giữ đối chiếu baseline khi FAIL. Resume giữ intent và tái dùng
+receipt đã hoàn tất; Stop hủy check và continuation. Không suy yêu cầu từ văn xuôi.
 
 ## Triển khai ngày 2026-10-23
 

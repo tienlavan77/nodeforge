@@ -1,7 +1,7 @@
 // Verifies malformed tools and historic read failures do not invent approval denials across ticket recovery.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createBlockerFailureClassification, requiresBlockerAdmission } from "../../src/modules/supervisor/blocker-failure-classification.js";
+import { createBlockerFailureClassification, requiresBlockerAdmission, requiresEvidenceReconciliation } from "../../src/modules/supervisor/blocker-failure-classification.js";
 import { createBlockerAdmission } from "../../src/modules/supervisor/blocker-execution-admission.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 
@@ -37,16 +37,37 @@ test("missing receipts and scope failures produce actionable correction without 
     const job = jobFor("UNKNOWN");
     const readFailureEvidence = async () => evidence;
     job.ticket_progress = { failure_classification: await createBlockerFailureClassification({ readFailureEvidence })(job, { projectRoot: "/project" }) };
-    assert.equal(requiresBlockerAdmission(job), true);
+    assert.equal(requiresBlockerAdmission(job), false);
+    assert.equal(requiresEvidenceReconciliation(job), true);
+    assert.equal(job.ticket_progress.failure_classification.category, "evidence_incomplete");
     const admission = createBlockerAdmission({ readFailureEvidence, inspect: async () => ({ workspace: { projectRoot: "/project" } }) });
     await assert.rejects(admission.prepare(proposal, job), (error) => {
       assert.equal(error.code, "BLOCKER_DISPOSITION_INVALID");
-      assert.equal(error.validation_errors[0].reason, "execution_admission_unsubstantiated");
+      assert.equal(error.validation_errors[0].reason, "execution_admission_misclassified");
       assert.equal(error.retryable_disposition, true);
       return true;
     });
     assert.equal(job.execution_admission, undefined);
   }
+});
+
+test("missing failure receipts require technical investigation, never fabricated access approval or premature resume", async () => {
+  const f = await blockerRecoveryFixture({ reason: "ACCESS_REQUIRED", recoveryOptions: {
+    readFailureEvidence: async () => ({ status: "missing", receipts: [] }) }, investigate: async (job, resolution) => {
+    assert.equal(requiresBlockerAdmission(job), false);
+    assert.equal(requiresEvidenceReconciliation(job), true);
+    return resolution;
+  } });
+  try {
+    await assert.rejects(f.base.run(), { code: "CODER_BLOCKED" });
+    await f.recovery.tick();
+    const job = (await f.ledger()).jobs[0];
+    assert.equal(job.status, "pending");
+    assert.equal(job.validation_feedback[0].reason, "failure_evidence_incomplete");
+    assert.equal(job.execution_admission, undefined);
+    assert.equal(f.base.invocations, 1);
+    assert.deepEqual(f.calls, ["sprint_leader"]);
+  } finally { await f.close(); }
 });
 
 test("coded denials without prose remain protected, including partial evidence and missing path arguments", async () => {

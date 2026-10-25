@@ -54,11 +54,11 @@ test("AM receipts retain full terms, actor and chronology without granting Owner
     assert.match(blockerContractPrompt(read), /not new Owner approval/);
     assert.match(buildResumePrompt("Ticket", createResumeState(checkpoint)), /Keep unattributed legacy rows NULL/);
     let prompt;
-    const worker = createReviewWorker({ projectRoot: "/project", contractFileService: fixture.base.fileService,
+    const worker = createReviewWorker({ projectRoot: fixture.base.workspace.projectRoot, contractFileService: fixture.base.fileService,
       agentResolver: { resolveAvailable: () => ({ agent_id: "REVIEWER", provider: "openai", role: "reviewer" }) },
       fileService: { readForIndex: async ({ path }) => ({ path, sha256: "source", size_bytes: 12, content: "const ok = true;" }) },
       openaiSdkGateway: { execute: async (input) => { prompt = input.prompt; return { text: '{"verdict":"approved","findings":[]}' }; } } });
-    const review = { task_id: "TASK", project_id: "P", agent_id: "CODER", payload: { ticket: { id: "TASK" },
+    const review = { request_id: "REVIEW-TASK", task_id: "TASK", project_id: "P", agent_id: "CODER", payload: { ticket: { id: "TASK" }, commit: "a".repeat(40),
       execution_id: "EXEC", sprint_basis: binding.sprint_basis, changed_paths: ["src/file.js"], contract_decisions: receipts } };
     await worker.review(review);
     assert.match(prompt, /Keep unattributed legacy rows NULL/);

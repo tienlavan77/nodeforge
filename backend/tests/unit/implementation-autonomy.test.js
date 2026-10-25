@@ -26,6 +26,19 @@ test("Codex and Claude preserve the same autonomy and immutable verification bou
   assert.deepEqual(ticket, original);
 });
 
+// Distinguishes discovery-order advice from the independent edit prerequisite
+// for both provider prompts, without weakening the mandatory tool boundary.
+test("both Coder prompts distinguish advisory discovery order from mandatory prerequisites", () => {
+  for (const build of [buildCodexTicketPrompt, buildToolTicketPrompt]) {
+    const prompt = build(ticket, null, ["src/total.js"], COMPLEXITY_FALLBACK);
+    assert.match(prompt, /position among discovery calls is advisory/);
+    assert.match(prompt, /runtime independently requires a successful rules read before the first edit/);
+    assert.match(prompt, /within (?:it|that budget).*discovery is yours to direct|Discovery within that budget is yours to direct/);
+    assert.match(prompt, /bounded total-budget extension/);
+    assert.match(prompt, /Never change permissions or bypass an actual tool denial/);
+  }
+});
+
 test("checkpoint roundtrip and review repair retain autonomy without inventing owner approval", () => {
   const state = createResumeState({ status: "failed", last_completed_turn: 23, thread_id: "thread-autonomy", changed_paths: ["src/total.js"], review_findings: [{ finding_id: "REV-1", message: "Empty input must return zero" }] });
   const resumed = createResumeState(checkpointPayload(state, { status: "failed" }));

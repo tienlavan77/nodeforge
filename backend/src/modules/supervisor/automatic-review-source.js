@@ -5,7 +5,7 @@ import { createReviewWorker } from "./review-worker.js";
 import { selectTicketReviewer } from "./ticket-agent-provider-routing.js";
 
 // Builds an independent worker that reads the retained Git commit rather than post-integration source.
-export function createAutomaticReviewWorkerResolver({ resolveTicketWorkspace, agentResolver, agentOccupancy, gateways, checkpoints, projectLogger, fileService }) {
+export function createAutomaticReviewWorkerResolver({ resolveTicketWorkspace, agentResolver, agentOccupancy, gateways, checkpoints, projectLogger, fileService, eventBus, ticketStatusStore }) {
   return async (job) => {
     const workspace = await resolveTicketWorkspace(job.task_id);
     const soft = job.review_policy.gate === "off";
@@ -22,13 +22,23 @@ export function createAutomaticReviewWorkerResolver({ resolveTicketWorkspace, ag
       codeCache: { read, prewarm: async (paths) => new Map(await Promise.all(paths.map(async (path) => [path, await read({ path })]))) },
       gitService: soft ? { getHead: async () => job.payload.verification.commit_sha, diffPatchFrom: retained.diffPatchFrom, status: workspace.gitService?.status, diffWorkingTree: workspace.gitService?.diffWorkingTree } : workspace.gitService,
       executionContexts: soft ? { load: async () => ({ ...job.payload.execution_context, state: "reviewing" }) } : workspace.executionContexts,
-      verificationService: soft ? { assertPassedArtifact: async () => job.payload.verification, assertCleanWorktree: async () => {} } : workspace.testService,
+      verificationService: soft ? { assertPassedArtifact: async () => job.payload.verification, assertCleanWorktree: async () => {}, runReviewVerification: workspace.testService.runReviewVerification } : workspace.testService,
       reviewFindings: soft ? { load: async () => job.finding_snapshot } : workspace.reviewFindings });
     const claim = await agentOccupancy?.claim?.({ agentId: profile.agent_id, taskId: job.task_id, supervisorId: job.supervisor_id, projectId: job.project_id ?? job.payload.ticket.project_id, role: "reviewer" });
     if (agentOccupancy && !claim) throw Object.assign(new Error("Independent Reviewer is occupied."), { code: "REVIEWER_NOT_AVAILABLE" });
     return { review: async () => {
-      try { return await worker.review({ ...job, reviewer_id: profile.agent_id }); }
-      finally { if (claim) await agentOccupancy.release({ claimId: claim.claim_id, taskId: job.task_id, supervisorId: job.supervisor_id, reason: "review_attempt_finished" }); }
+      const controller = new AbortController();
+      // Stops source checks and Reviewer continuation on the existing execution Stop event, without a polling loop.
+      const assertActive = () => {
+        controller.signal.throwIfAborted();
+        const current = ticketStatusStore?.get(job.task_id);
+        if (current && (current.details?.execution_id !== job.payload.execution_id || current.details?.reason === "TICKET_STOPPED")) throw Object.assign(new Error("Ticket review was stopped or replaced."), { code: "TICKET_STOPPED" });
+      };
+      const unsubscribe = eventBus?.subscribe(job.supervisor_id, (event) => {
+        if (event.task_id === job.task_id && event.payload?.execution_id === job.payload.execution_id && event.payload?.reason === "TICKET_STOPPED") controller.abort(Object.assign(new Error("Ticket stopped by owner."), { code: "TICKET_STOPPED" }));
+      });
+      try { assertActive(); return await worker.review({ ...job, reviewer_id: profile.agent_id, abortSignal: controller.signal, assertActive }); }
+      finally { unsubscribe?.(); if (claim) await agentOccupancy.release({ claimId: claim.claim_id, taskId: job.task_id, supervisorId: job.supervisor_id, reason: "review_attempt_finished" }); }
     } };
   };
 }

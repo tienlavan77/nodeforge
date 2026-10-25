@@ -68,14 +68,36 @@ test("an AM answer on this failure and execution is consumed instead of another 
   assert.equal(assignAuthorityConsultation(current, waiting, 20), true);
 });
 
-test("dependency/operator waits and explicit Coder evidence retain their existing owners", () => {
-  for (const work of [
-    { ...waiting.reconciliation, kind: "dependency" },
-    { ...waiting.reconciliation, kind: "file_claim" },
-    { ...waiting.reconciliation, waiting_for: [{ owner: "coder", operation: "inspect", question: "Inspect the missing file." }] }
-  ]) assert.equal(assignAuthorityConsultation(job(), { ...waiting, reconciliation: work }, 1), false);
+test("all technical reconciliation kinds and evidence owners require AM decision first", () => {
+  for (const kind of ["technical_design", "source_revision", "execution_admission", "dependency", "file_claim", "tooling"]) {
+    for (const waitingFor of [undefined, [{ owner: "external", operation: "execute", question: "Supply the missing fact." }],
+      [{ owner: "coder", operation: "inspect", question: "Inspect the missing file." }]]) {
+      const current = job();
+      assert.equal(assignAuthorityConsultation(current, { ...waiting, reconciliation: { ...waiting.reconciliation, kind, waiting_for: waitingFor } }, 1), true);
+      assert.equal(current.stage, "architecture_manager");
+      assert.equal(current.technical_reconciliation.assigned_role, "architecture_manager");
+      assert.equal(current.coder_exchange, undefined);
+    }
+  }
   const current = job(); current.stage = "architecture_manager";
   assert.equal(assignAuthorityConsultation(current, waiting, 1), false);
+});
+
+/** AM owns technical decisions, while changed evidence may justify a new
+ * consultation without allowing a paraphrase to loop the previous assignment. */
+test("new technical kind, source evidence or Owner answer permits one new AM decision", () => {
+  for (const change of ["kind", "source", "owner_input"]) {
+    const current = job();
+    assignAuthorityConsultation(current, waiting, 1);
+    returnArchitectureResponse(current, waiting, 2);
+    let next = waiting;
+    if (change === "kind") next = { ...waiting, reconciliation: { ...waiting.reconciliation, kind: "tooling" } };
+    if (change === "source") next = { ...waiting, evidence: [{ path: "backend/source.js", sha256: "a".repeat(64) }] };
+    if (change === "owner_input") current.owner_inputs = [{ input_id: "I" }];
+    assert.equal(assignAuthorityConsultation(current, next, 3), true, change);
+    assert.equal(current.authority_consultations.length, 2);
+    assert.equal(current.stage, "architecture_manager");
+  }
 });
 
 test("legacy parked admission waits are assigned after authority validation and log the actual recipient", async () => {
@@ -89,6 +111,22 @@ test("legacy parked admission waits are assigned after authority validation and 
   const before = structuredClone(stale);
   assert.equal(await createBlockerReconciliationRefresh({ inspect: async () => null })(stale), false);
   assert.deepEqual(stale, before);
+});
+
+/** Existing parked executions adopt the common routing policy after restart,
+ * while current authority checks still fence unavailable or replaced tickets. */
+test("parked reconciliation of every kind routes to AM after validation, including waits without external input", async () => {
+  for (const kind of ["technical_design", "source_revision", "execution_admission", "dependency", "file_claim", "tooling"]) {
+    const current = job();
+    Object.assign(current, { status: "reconciliation_required", outcome_reason: "technical_reconciliation_no_progress",
+      resolution: { ...waiting, reconciliation: { ...waiting.reconciliation, kind, waiting_for: undefined } } });
+    const refresh = createBlockerReconciliationRefresh({ inspect: async () => ({ workspace: {} }) });
+    assert.equal(await refresh(current), true, kind);
+    assert.equal(current.stage, "architecture_manager");
+    assert.equal(current.resolution.action, "architecture_required");
+    assert.equal(current.coder_exchange, undefined);
+    assert.equal(await refresh(current), false, "The same pending AM assignment cannot be queued twice");
+  }
 });
 
 test("real recovery calls SL then AM then SL while preserving the denied checkpoint and preventing an automatic cycle", async () => {

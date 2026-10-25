@@ -105,6 +105,13 @@ export function createAutomaticTicketReview({ queueStore, queue, eventBus, fileS
       if (payload.verdict === "request_changes" && reviewRepairScopeConflict(payload.findings, current.payload.execution_context)) result.payload.owner_decision_reason = "review_scope_conflict";
     } catch (error) {
       if (error.code === "EXECUTION_RECONCILIATION_CONFLICT") throw error;
+      if (error.code === "TICKET_STOPPED") {
+        await locked(async () => {
+          const fresh = await load(job.id);
+          if (fresh.running_attempt === current.running_attempt && !fresh.review_result) await queueStore.save(QUEUE, { ...fresh, running_attempt: null });
+        });
+        throw error;
+      }
       const unavailable = ["REVIEWER_NOT_AVAILABLE", "REVIEW_WORKER_UNAVAILABLE", "REVIEWER_PROVIDER_UNAVAILABLE"].includes(error.code);
       result = { type: unavailable ? "review.unavailable" : "review.failed", payload: { outcome_label: unavailable ? "review_unavailable" : "review_failed", error: reviewOperationalFailure(error) ?? { code: error.code ?? "REVIEW_FAILED", message: error.message } } };
       projectLogger({ event_name: "review.automatic_failed", level: "error", status: "failed", message: error.message, task_id: current.task_id, source: "automatic-review", error_code: result.payload.error.code });
