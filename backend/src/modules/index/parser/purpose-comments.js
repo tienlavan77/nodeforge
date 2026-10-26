@@ -5,8 +5,11 @@ import { parse } from "@babel/parser";
 
 /** Produces complete canonical text while retaining punctuation and information order. */
 export function normalizePurposeComment(raw = "") {
-  return raw.replace(/\r\n?/g, "\n").replace(/^\s*(?:\/\*+|<!--)/, "")
-    .replace(/(?:\*\/|-->)\s*$/, "").split("\n")
+  // Match the outer wrapper so literal delimiters remain part of the business contract.
+  const wrapper = raw.match(/^\s*(\/\*+|<!--)/);
+  const content = wrapper ? raw.slice(wrapper[0].length)
+    .replace(wrapper[1] === "<!--" ? /-->\s*$/ : /\*\/\s*$/, "") : raw;
+  return content.replace(/\r\n?/g, "\n").split("\n")
     .map((line) => line.replace(/^\s*(?:\/\/|#(?!!)|\*(?!\/))\s?/, "").trim())
     .join(" ").replace(/\s+/g, " ").trim();
 }
