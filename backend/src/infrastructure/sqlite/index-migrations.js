@@ -187,7 +187,14 @@ const MIGRATIONS = [
   {
     version: 13,
     statements: ["ALTER TABLE plan_revisions ADD COLUMN source_path TEXT", "ALTER TABLE plan_revisions ADD COLUMN source_sha256 TEXT", "ALTER TABLE plan_decisions ADD COLUMN source_sha256 TEXT"]
-  }, planHandoffMigration, markdownPlanMigration, derivedPlanMigration, markdownConversationMigration, sprintRegistryVersionMigration, sprintRegistryArchiveMigration, planDecisionSelectionsMigration
+  }, planHandoffMigration, markdownPlanMigration, derivedPlanMigration, markdownConversationMigration, sprintRegistryVersionMigration, sprintRegistryArchiveMigration, planDecisionSelectionsMigration,
+  {
+    version: 21,
+    statements: [
+      "ALTER TABLE files ADD COLUMN summary TEXT DEFAULT NULL",
+      "ALTER TABLE symbols ADD COLUMN summary TEXT DEFAULT NULL"
+    ]
+  }
 ];
 // Applies unapplied schema versions atomically and records their completion.
 export function runIndexMigrations(database) {

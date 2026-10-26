@@ -13,12 +13,12 @@ export function createCodeSearch({ database } = {}) {
     if (!row) return null;
     const version = indexVersion();
     const node = projectFileNode(createFileNode({ fileId: row.file_id, path: row.path, language: row.language, sha256: row.sha256, sizeBytes: row.size_bytes, indexVersion: version }), "graph", version);
-    return { path: node.path, language: node.language ?? null, sha256: node.sha256 ?? null, size_bytes: node.size_bytes ?? null, symbols: node.symbols, graph: node.graph, index_version: version };
+    return { path: node.path, language: node.language ?? null, sha256: node.sha256 ?? null, size_bytes: node.size_bytes ?? null, summary: node.summary, symbols: node.symbols, graph: node.graph, index_version: version };
   }
 
   function symbolsForFile(path) {
     if (typeof path !== "string" || !path.trim()) throw new ConfigurationError("Code Search symbolsForFile requires a path.");
-    return database.all("SELECT s.name, s.kind, s.start_line, s.end_line FROM symbols s JOIN files f ON f.file_id = s.file_id WHERE f.path = ? ORDER BY s.start_line, s.name", [path]).map((row) => ({ name: row.name, kind: row.kind, start_line: row.start_line, end_line: row.end_line }));
+    return database.all("SELECT s.name, s.kind, s.start_line, s.end_line, s.summary FROM symbols s JOIN files f ON f.file_id = s.file_id WHERE f.path = ? ORDER BY s.start_line, s.name", [path]).map((row) => ({ name: row.name, kind: row.kind, start_line: row.start_line, end_line: row.end_line, summary: row.summary ?? null }));
   }
 
   function search({ query, kind = "all", limit = 20, projection = "minimal" } = {}) {
@@ -56,15 +56,16 @@ export function createCodeSearch({ database } = {}) {
     const rows = database.all("SELECT file_id, path, language, content, snippet(file_content_fts, 3, '»', '«', '…', 40) AS snippet, bm25(file_content_fts, 8.0, 1.0, 0.5) AS rank FROM file_content_fts WHERE file_content_fts MATCH ? ORDER BY rank LIMIT ?", [expression, limit]);
     const fileNodes = new Map(rows.map((row) => [row.file_id, { ...projectFileNode(createFileNode({ fileId: row.file_id, path: row.path, language: row.language, indexVersion: version }), projection, version), snippet: row.snippet }]));
     const symbolRows = database.all("SELECT symbol_id, file_id, path, name, kind, content, start_line, end_line, snippet(symbol_content_fts, 5, '»', '«', '…', 40) AS snippet, bm25(symbol_content_fts, 6.0, 6.0, 1.5, 0.5, 0.0, 0.0) AS rank FROM symbol_content_fts WHERE symbol_content_fts MATCH ? ORDER BY rank LIMIT ?", [expression, limit]);
-    const symbolMatches = symbolRows.filter((row) => !isTestPath(row.path)).map((row) => ({ type: "content", score: 1 / (1 + Math.max(0, Number(row.rank) || 0)) + 0.5, reason: [`symbol_content_match:${query.trim()}`], node: { ...projectFileNode(createFileNode({ fileId: row.file_id, path: row.path, language: symbolLanguage(row.path), indexVersion: version }), "minimal", version), snippet: row.snippet, symbol_name: row.name, symbol_kind: row.kind, start_line: row.start_line, end_line: row.end_line }, index_version: version }));
+    const symbolMatches = symbolRows.filter((row) => !isTestPath(row.path)).map((row) => ({ type: "content", score: 1 / (1 + Math.max(0, Number(row.rank) || 0)) + 0.5, reason: [`symbol_content_match:${query.trim()}`], node: { ...projectFileNode(createFileNode({ fileId: row.file_id, path: row.path, language: symbolLanguage(row.path), indexVersion: version }), "minimal", version), ...(projection === "minimal" ? {} : { summary: database.all("SELECT summary FROM symbols WHERE symbol_id = ?", [row.symbol_id])[0]?.summary ?? null }), snippet: row.snippet, symbol_name: row.name, symbol_kind: row.kind, start_line: row.start_line, end_line: row.end_line }, index_version: version }));
     const fileMatches = rows.filter((row) => !isTestPath(row.path)).map((row) => ({ type: "content", score: 1 / (1 + Math.max(0, Number(row.rank) || 0)), reason: [`content_match:${query.trim()}`], node: fileNodes.get(row.file_id), index_version: version }));
     return [...symbolMatches, ...fileMatches].slice(0, limit);
   }
 
   function projectFileNode(node, mode, version) {
     if (mode === "minimal") return node;
-    const symbols = database.all("SELECT name, kind, start_line, end_line FROM symbols WHERE file_id = ? ORDER BY start_line, name", [node.id]).map((row) => ({ name: row.name, kind: row.kind, start_line: row.start_line, end_line: row.end_line }));
-    const projected = { ...node, symbols };
+    const symbols = database.all("SELECT name, kind, start_line, end_line, summary FROM symbols WHERE file_id = ? ORDER BY start_line, name", [node.id]).map((row) => ({ name: row.name, kind: row.kind, start_line: row.start_line, end_line: row.end_line, summary: row.summary ?? null }));
+    const summary = database.all("SELECT summary FROM files WHERE file_id = ?", [node.id])[0]?.summary ?? null;
+    const projected = { ...node, summary, symbols };
     if (mode === "graph") projected.graph = fileGraph(node.id, version);
     return projected;
   }
@@ -72,7 +73,8 @@ export function createCodeSearch({ database } = {}) {
   function projectSymbolNode(node, row, mode) {
     if (mode === "minimal") return node;
     const file = database.all("SELECT language, sha256, size_bytes FROM files WHERE file_id = ?", [row.file_id])[0] ?? {};
-    return { ...node, language: file.language ?? null, sha256: file.sha256 ?? null, size_bytes: Number.isInteger(file.size_bytes) ? file.size_bytes : null };
+    const summary = database.all("SELECT summary FROM symbols WHERE symbol_id = ?", [row.symbol_id])[0]?.summary ?? null;
+    return { ...node, summary, language: file.language ?? null, sha256: file.sha256 ?? null, size_bytes: Number.isInteger(file.size_bytes) ? file.size_bytes : null };
   }
 
   function fileGraph(fileId, version) {
