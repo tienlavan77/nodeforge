@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { extname } from "node:path";
 
 import { purposeSummaryInput } from "./purpose-summary-input.js";
+import { reconcileSymbols } from "./symbol-reconciliation.js";
 import { purposeComments, purposeCommentBefore } from "./parser/purpose-comments.js";
 
 // Creates database writers that preserve file extraction and symbol search records.
@@ -15,8 +16,9 @@ export function createIndexRecordWriter({ database, graph, embeddingJobs, embedd
   });
 
   // Stores extracted symbols and their import/export relationships.
-  function writeExtraction(fileId, path, extraction) {
-    for (const symbol of extraction.symbols) {
+  function writeExtraction(fileId, path, extraction, content) {
+    if (typeof content === "string") reconcileSymbols(database, fileId, path, extraction.symbols, content);
+    else for (const symbol of extraction.symbols) {
       database.run(
         "INSERT INTO symbols (symbol_id, file_id, name, kind, start_line, end_line) VALUES (?, ?, ?, ?, ?, ?)",
         [createRecordId("SYM"), fileId, symbol.name, symbol.kind, symbol.start_line, symbol.end_line]
@@ -27,11 +29,10 @@ export function createIndexRecordWriter({ database, graph, embeddingJobs, embedd
   }
 
   // Removes full-text and embedding records for a file before reindexing or deletion.
-  function clearContentIndex(fileId) {
+  function clearContentIndex(fileId, preserveDerived = false) {
     database.run("DELETE FROM file_content_fts WHERE file_id = ?", [fileId]);
     database.run("DELETE FROM symbol_content_fts WHERE file_id = ?", [fileId]);
-    // eslint-disable-next-line no-silent-catch -- Embedding cleanup is best-effort; index rows are already deleted.
-    try { embeddingStore?.removeByFile?.(fileId); } catch { /* embedding cleanup is best-effort */ }
+    if (!preserveDerived) embeddingStore?.removeByFile?.(fileId);
   }
 
   // Indexes file and symbol text for full-text search and queues symbol embeddings.
@@ -39,7 +40,7 @@ export function createIndexRecordWriter({ database, graph, embeddingJobs, embedd
     if (typeof content !== "string") return;
     database.run("INSERT INTO file_content_fts (file_id, path, language, content) VALUES (?, ?, ?, ?)", [fileId, path, languageForPath(path), content]);
     const lines = content.split(/\r?\n/);
-    const rows = database.all("SELECT symbol_id, name, kind, start_line, end_line FROM symbols WHERE file_id = ? ORDER BY start_line, name", [fileId]);
+    const rows = database.all("SELECT symbol_id, name, kind, start_line, end_line, summary FROM symbols WHERE file_id = ? ORDER BY start_line, name", [fileId]);
     const document = purposeComments(content, extname(path) === ".php" ? "php" : extname(path) === ".css" ? "css" : "javascript");
     const summary = document.header?.summary ?? null;
     database.run("UPDATE files SET summary = ? WHERE file_id = ?", [summary, fileId]);
@@ -47,6 +48,10 @@ export function createIndexRecordWriter({ database, graph, embeddingJobs, embedd
     for (const symbol of rows) {
       const summary = ["function", "method", "hook", "component"].includes(symbol.kind)
         ? purposeCommentBefore(document, Math.max(1, symbol.start_line ?? 1) - 1)?.summary ?? null : null;
+      if (purposeSummaryInput(symbol.summary)?.checksum !== purposeSummaryInput(summary)?.checksum) {
+        database.run("DELETE FROM symbol_embeddings WHERE symbol_id = ?", [symbol.symbol_id]);
+        database.run("UPDATE embedding_jobs SET status = 'superseded' WHERE symbol_id = ? AND status IN ('pending', 'processing', 'retry_wait')", [symbol.symbol_id]);
+      }
       database.run("UPDATE symbols SET summary = ? WHERE symbol_id = ?", [summary, symbol.symbol_id]);
       if (summary === null) logger?.warn?.("Purpose summary missing.", { path, object: "symbol", name: symbol.name, kind: symbol.kind, symbol_id: symbol.symbol_id, start_line: symbol.start_line ?? null, end_line: symbol.end_line ?? null, summary: null });
       const start = Math.max(1, symbol.start_line ?? 1);
@@ -65,7 +70,18 @@ export function createIndexRecordWriter({ database, graph, embeddingJobs, embedd
     const { checksum, content } = input;
     if (embeddingJobs?.enqueue) {
       queueMicrotask(() => {
-        try { embeddingJobs.enqueue({ symbolId, contentChecksum: checksum, model: embeddingModel }); } catch (error) { logger.debug?.("Embedding job enqueue skipped.", { path, symbol: name, error: error.message }); }
+        try {
+          // Schedules only current summary work, atomically with the final check.
+          const enqueue = () => {
+            const current = database.all("SELECT summary FROM symbols WHERE symbol_id = ?", [symbolId])[0];
+            if (purposeSummaryInput(current?.summary)?.checksum !== checksum) return;
+            const existing = database.all("SELECT content_checksum, embedding_model FROM symbol_embeddings WHERE symbol_id = ?", [symbolId])[0];
+            if (existing?.content_checksum === checksum && existing?.embedding_model === embeddingModel) return;
+            embeddingJobs.enqueue({ symbolId, contentChecksum: checksum, model: embeddingModel });
+          };
+          if (database.transaction) database.transaction(enqueue);
+          else enqueue();
+        } catch (error) { logger.debug?.("Embedding job enqueue skipped.", { path, symbol: name, error: error.message }); }
       });
       return;
     }
@@ -75,7 +91,13 @@ export function createIndexRecordWriter({ database, graph, embeddingJobs, embedd
         const existing = database.all("SELECT content_checksum, embedding_model FROM symbol_embeddings WHERE symbol_id = ?", [symbolId])[0];
         if (existing?.content_checksum === checksum && existing?.embedding_model === embeddingModel) return;
         const vector = await embeddingProvider.embed(content);
-        embeddingStore.upsert({ symbolId, vector, model: embeddingModel, checksum });
+        // Guards direct-provider publication with the same transaction as its final summary check.
+        const publish = () => {
+          const current = database.all("SELECT summary FROM symbols WHERE symbol_id = ?", [symbolId])[0];
+          if (purposeSummaryInput(current?.summary)?.checksum === checksum) embeddingStore.upsert({ symbolId, vector, model: embeddingModel, checksum });
+        };
+        if (database.transaction) database.transaction(publish);
+        else publish();
       } catch (error) {
         logger.debug?.("Symbol embedding skipped.", { path, symbol: name, error: error.message });
       }

@@ -38,8 +38,20 @@ export function createEmbeddingWorker({ database, jobs, embeddingStore, embeddin
         return true;
       }
       const vector = await embeddingProvider.embed(content);
-      embeddingStore.upsert({ symbolId: activeJob.symbol_id, vector, model, checksum });
-      jobs.complete(activeJob.job_id);
+      // Publishes only while both the summary and claimed job remain current.
+      // The synchronous transaction closes the cross-process check/write race.
+      const publish = () => {
+        const current = database.all("SELECT summary FROM symbols WHERE symbol_id = ?", [activeJob.symbol_id])[0];
+        const job = database.all("SELECT status FROM embedding_jobs WHERE job_id = ?", [activeJob.job_id])[0];
+        if (purposeSummaryInput(current?.summary)?.checksum !== checksum || job?.status !== "processing") {
+          jobs.supersede(activeJob.job_id);
+          return;
+        }
+        embeddingStore.upsert({ symbolId: activeJob.symbol_id, vector, model, checksum });
+        jobs.complete(activeJob.job_id);
+      };
+      if (database.transaction) database.transaction(publish);
+      else publish();
       return true;
     } catch (error) {
       if (activeJob?.job_id) jobs.retry(activeJob.job_id, error, { maxAttempts, delayMs: retryDelayMs });
