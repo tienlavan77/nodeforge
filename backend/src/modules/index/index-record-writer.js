@@ -8,6 +8,9 @@ import { purposeComments, purposeCommentBefore } from "./parser/purpose-comments
 
 // Creates database writers that preserve file extraction and symbol search records.
 export function createIndexRecordWriter({ database, graph, embeddingJobs, embeddingStore, embeddingProvider, embeddingModel, logger }) {
+  // Retains unfinished summary work across reindexing so unchanged summaries reuse
+  // the provider request identified by the reconciled symbol, checksum and model.
+  const pendingEmbeddings = new Set();
   return Object.freeze({
     writeExtraction,
     clearContentIndex,
@@ -86,6 +89,9 @@ export function createIndexRecordWriter({ database, graph, embeddingJobs, embedd
       return;
     }
     if (!embeddingStore || !embeddingProvider) return;
+    const pendingKey = JSON.stringify([symbolId, checksum, embeddingModel]);
+    if (pendingEmbeddings.has(pendingKey)) return;
+    pendingEmbeddings.add(pendingKey);
     void (async () => {
       try {
         const existing = database.all("SELECT content_checksum, embedding_model FROM symbol_embeddings WHERE symbol_id = ?", [symbolId])[0];
@@ -100,6 +106,8 @@ export function createIndexRecordWriter({ database, graph, embeddingJobs, embedd
         else publish();
       } catch (error) {
         logger.debug?.("Symbol embedding skipped.", { path, symbol: name, error: error.message });
+      } finally {
+        pendingEmbeddings.delete(pendingKey);
       }
     })().catch((error) => { logger.error?.("Symbol embedding task failed.", { path, symbol: name, error: error.message }); });
   }
