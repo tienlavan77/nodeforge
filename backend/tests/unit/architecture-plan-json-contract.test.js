@@ -60,6 +60,30 @@ test("canonical rendering is identical regardless of object-key insertion order"
   assert.ok(first.includes("Assumption (unverified): Owner reviews before approval."), "complete assumptions rendered");
 });
 
+// Preserves exact AM citations for evidence that spans multiple source windows,
+// including the typographic dashes emitted by the real conversation planning run.
+test("evidence accepts single lines, typographic ranges and multiple source ranges", () => {
+  for (const location of ["L1", "L17-75", "L17-L75", "L17–75", "L17—L75", "L98–106; L136–157; L160–238"]) {
+    const candidate = { ...plan(), evidence: [{ ...plan().evidence[0], location }] };
+    const parsed = parseArchitecturePlanJSON(JSON.stringify(candidate));
+    assert.equal(parsed.evidence[0].location, location);
+    const markdown = renderArchitecturePlanMarkdown({ plan: parsed, planId: "PLAN-A", revision: 1, sourceSha256: SHA });
+    assert.ok(markdown.includes(`#${location}]`));
+  }
+});
+
+// Separates malformed source coordinates from missing evidence so a retry can
+// correct the precise field instead of asking the owner to supply unrelated facts.
+test("invalid evidence reports its indexed field and rejects malformed source ranges", () => {
+  for (const location of ["", "L0", "L75-17", "L1;", "L1; prose", "L1\nL2", "L1–", 17, "L9007199254740992"]) {
+    const candidate = { ...plan(), evidence: [plan().evidence[0], { ...plan().evidence[0], location }] };
+    assert.throws(() => parseArchitecturePlanJSON(JSON.stringify(candidate)), (error) => error.code === "ARCHITECTURE_PLAN_JSON_INVALID" && /evidence\[1\]\.location/.test(error.message));
+  }
+  for (const invalid of [{ path: "/etc/passwd", fact: "A fact" }, { path: "backend/src/a.js", fact: "" }]) {
+    assert.throws(() => parseArchitecturePlanJSON(JSON.stringify({ ...plan(), evidence: [invalid] })), /evidence\[0\].*project source path and a concrete fact/);
+  }
+});
+
 test("the rendered section-5 outcome table is accepted by the unchanged Markdown gates", () => {
   const markdown = renderArchitecturePlanMarkdown({ plan: plan(), planId: "PLAN-A", revision: 1, sourceSha256: SHA });
   assert.match(markdown, /^# Plan:\s*\S/);

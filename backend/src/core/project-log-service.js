@@ -1,4 +1,5 @@
 // Persists and queries append-only JSONL project log events with schema validation, rotation, and filtered reads.
+import { resolveRuntimePath } from "../infrastructure/filesystem/forge-paths.js";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import { appendFileSync, createReadStream, mkdirSync, readdirSync, statSync } from "node:fs";
@@ -60,15 +61,15 @@ export function logEvent(entry, options) {
 
 // Binds application log reads and writes to the selected project's root instead of global startup state.
 export function createProjectLogService({ projectRoot, fileService }) {
-  const logPath = projectRoot === process.cwd() ? defaultLogPath() : join(projectRoot, ".forge", "runtime", "nf", "project.log");
+  const logPath = projectRoot === process.cwd() ? defaultLogPath() : resolveRuntimePath(projectRoot, ".forge/runtime/nf/project.log");
   return Object.freeze({
-    logEvent: (entry) => logEvent(entry, { logPath, fileService, projectRoot }),
-    readLogEvents: (filters) => readLogEvents({ ...filters, logPath })
+    logEvent: (entry) => logEvent(entry, { logPath: resolveRuntimePath(projectRoot, logPath), fileService, projectRoot }),
+    readLogEvents: (filters) => readLogEvents({ ...filters, logPath: resolveRuntimePath(projectRoot, logPath) })
   });
 }
 
 // Resolves the project log file path from env or defaults to .forge/runtime/nf/project.log.
-function defaultLogPath() { return process.env.NODEFORGE_PROJECT_LOG_PATH ?? join(process.cwd(), ".forge", "runtime", "nf", "project.log"); }
+function defaultLogPath() { return resolveRuntimePath(process.cwd(), process.env.NODEFORGE_PROJECT_LOG_PATH ?? ".forge/runtime/nf/project.log"); }
 // Lists base log file and its rotated siblings (.1, .2, ...) within the log directory.
 function logFiles(basePath) {
   const directory = dirname(basePath); const base = basePath.split("/").pop();

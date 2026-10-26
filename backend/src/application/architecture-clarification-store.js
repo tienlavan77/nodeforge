@@ -13,8 +13,9 @@ export function createArchitectureClarificationStore({ projectId, fileService })
   return { create, get, list, update, source, claim };
 
   // Saves discovered questions before returning a non-failure waiting state to chat.
-  async function create({ sourcePath, sourceSha256, conversationId, questions }) {
-    const session = { session_id: `CLARIFY-${randomUUID()}`, plan_id: `PLAN-${projectId}-${randomUUID()}`, project_id: projectId, conversation_id: conversationId, source_path: sourcePath, source_sha256: sourceSha256, questions: validateArchitectureQuestions(questions), selections: {}, notes: {}, status: questions.length ? "awaiting_owner_decisions" : "ready", version: 1, created_at: new Date().toISOString() };
+  async function create({ sourcePath, sourceSha256, conversationId, questions, generating = false }) {
+    const session = { session_id: `CLARIFY-${randomUUID()}`, plan_id: `PLAN-${projectId}-${randomUUID()}`, project_id: projectId, conversation_id: conversationId, source_path: sourcePath, source_sha256: sourceSha256, questions: validateArchitectureQuestions(questions), selections: {}, notes: {}, status: questions.length ? "awaiting_owner_decisions" : generating ? "generating" : "ready", version: 1, created_at: new Date().toISOString(),
+      ...(!questions.length && generating ? { process_id: PROCESS_ID, process_pid: process.pid } : {}) };
     await fileService.atomicCreate({ path: `${root}/${session.session_id}.json`, content: JSON.stringify(session) });
     const lock = await acquireTicketFileLock(fileService, `${indexPath}.lock`);
     try {

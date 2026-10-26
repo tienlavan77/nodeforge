@@ -1,6 +1,5 @@
 // Supplies original failed edit receipts to Architecture without granting access to runtime logs or approval authority.
-import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
-import { join } from "node:path";
+import { statePath, resolveRuntimePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { readLogEvents } from "../../core/project-log-service.js";
 import { assertRoleFileAccess } from "../../infrastructure/filesystem/file-service-role-policy.js";
 import { isBlockerApprovalDenial } from "./blocker-approval-denial.js";
@@ -17,7 +16,7 @@ export function createBlockerFailureEvidence({ readEvents = readLogEvents, toolN
       || !Number.isFinite(Date.parse(job.failure_at))) return { status: "unavailable", reason: "Original failure identity is incomplete.", receipts: [] };
     const key = JSON.stringify([projectRoot, request.project_id, request.task_id, request.request_id, request.correlation_id, job.failure_at]);
     if (cache.has(key)) return cache.get(key);
-    const result = await readEvents({ logPath: process.env.NODEFORGE_PROJECT_LOG_PATH ?? join(projectRoot, statePath("nf/project.log")),
+    const result = await readEvents({ logPath: resolveRuntimePath(projectRoot, process.env.NODEFORGE_PROJECT_LOG_PATH ?? statePath("nf/project.log")),
       project_id: request.project_id, task_id: request.task_id, correlation_id: request.correlation_id, event_name: "supervisor.agent_tool_event", to: job.failure_at });
     const receipts = [];
     const references = referencedDenials(result.events, job);

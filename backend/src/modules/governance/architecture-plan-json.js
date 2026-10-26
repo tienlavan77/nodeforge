@@ -169,11 +169,22 @@ function validateOutcomes(outcomes) {
 
 // Requires each evidence entry to name a real project area path and a concrete fact.
 function validateEvidence(evidence) {
-  for (const entry of evidence) {
+  for (const [index, entry] of evidence.entries()) {
     if (!entry || Array.isArray(entry) || typeof entry !== "object" || !/^(?:backend|schemas|ui|web|docs|workflows)\/[A-Za-z0-9._/-]+$/.test(entry.path ?? "")
-      || (entry.location !== undefined && (typeof entry.location !== "string" || !/^L[0-9]+(?:-L?[0-9]+)?$/.test(entry.location)))
-      || typeof entry.fact !== "string" || !entry.fact.trim()) throw decisionError("ARCHITECTURE_PLAN_JSON_INVALID", "Plan evidence needs a project source path and a concrete fact. No revision was created.");
+      || typeof entry.fact !== "string" || !entry.fact.trim()) throw decisionError("ARCHITECTURE_PLAN_JSON_INVALID", `Plan evidence[${index}] needs a project source path and a concrete fact. No revision was created.`);
+    if (entry.location !== undefined && !validEvidenceLocation(entry.location)) throw decisionError("ARCHITECTURE_PLAN_JSON_INVALID", `Plan evidence[${index}].location must identify source lines, for example L17-L75 or L17–75; L98–106. No revision was created.`);
   }
+}
+
+// Accepts precise source citations containing one or several line ranges without
+// discarding the AM's original coordinates or rejecting typographic range dashes.
+// Each range must address positive lines in ascending order; prose is never a location.
+function validEvidenceLocation(location) {
+  if (typeof location !== "string" || location.length > 1000) return false;
+  return location.split(/;\s*/).every((range) => {
+    const match = /^L([1-9][0-9]*)(?:[-–—]L?([1-9][0-9]*))?$/.exec(range);
+    return Boolean(match && Number.isSafeInteger(Number(match[1])) && (!match[2] || Number.isSafeInteger(Number(match[2])) && Number(match[2]) >= Number(match[1])));
+  });
 }
 
 // Sorts object keys recursively so identical plans always share one canonical representation.

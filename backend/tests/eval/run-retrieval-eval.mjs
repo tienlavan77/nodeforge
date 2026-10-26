@@ -6,8 +6,9 @@ import { createRelevantTreeSelector } from "../../src/modules/index/relevant-tre
 import { createForgeToolRegistry } from "../../src/tools/index.js";
 import { selectEvalCandidates } from "./retrieval-eval-registry.js";
 import { RETRIEVAL_EVAL_CASES } from "./retrieval-cases.js";
+import { REPOSITORY_ROOT } from "../../src/shared/repository-root.js";
 
-const root = new URL("../../..", import.meta.url).pathname;
+const root = REPOSITORY_ROOT;
 const args = Object.fromEntries(process.argv.slice(2).map((a) => a.replace(/^--/, "").split("=")));
 const K_VALUES = String(args.k ?? "4,8").split(",").map(Number);
 const LIMIT = Number(args.limit ?? 8);

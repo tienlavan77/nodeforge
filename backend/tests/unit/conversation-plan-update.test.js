@@ -67,7 +67,7 @@ async function fixture(answers) {
   const markdownPlanStore = createMarkdownPlanStore({ projectId: "PROJECT-A", database, fileService });
   const prompts = [];
   const state = { index: 0 };
-  const requestArchitecture = async (prompt) => { prompts.push(prompt); return answers[Math.min(state.index++, answers.length - 1)]; };
+  const requestArchitecture = async (prompt, conversationId, options) => { assert.equal(options?.responseContentType, "text/plain"); prompts.push(prompt); return answers[Math.min(state.index++, answers.length - 1)]; };
   const planning = createConversationPlanningService({ projectId: "PROJECT-A", fileService, markdownPlanStore, validateMarkdown, sessions: createArchitectureClarificationStore({ projectId: "PROJECT-A", fileService }), requestArchitecture });
   return { database, fileService, markdownPlanStore, planning, prompts, requestArchitecture, close: async () => { await database.close(); await rm(root, { recursive: true, force: true }); } };
 }

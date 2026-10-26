@@ -1,13 +1,15 @@
 import { closeSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { assertRuntimeAvailable } from "../src/infrastructure/filesystem/runtime-layout.js";
 
 export function acquireProcessLock(dataDir, role, { fileService, projectRoot = process.cwd() } = {}) {
+  assertRuntimeAvailable(projectRoot);
   const path = join(dataDir, `.nodeforge-${role}.lock`);
   if (fileService?.createLockSync) {
     const relative = path.startsWith(`${projectRoot}/`) ? path.slice(projectRoot.length + 1) : path;
     try {
       const lock = fileService.createLockSync({ path: relative });
-      return Object.freeze({ path, release: lock.release });
+      return protectRuntimeLock(projectRoot, { path, release: lock.release });
     } catch (error) {
       if (error.code !== "FILE_LOCK_EXISTS") throw error;
       // A crashed startup can leave a lock behind. Reclaim it only when the
@@ -20,7 +22,7 @@ export function acquireProcessLock(dataDir, role, { fileService, projectRoot = p
           if (probe.code === "ESRCH") {
             try { unlinkSync(path); } catch (removeError) { if (removeError.code !== "ENOENT") throw removeError; }
             const retry = fileService.createLockSync({ path: relative });
-            return Object.freeze({ path, release: retry.release });
+            return protectRuntimeLock(projectRoot, { path, release: retry.release });
           }
         }
       }
@@ -48,5 +50,11 @@ export function acquireProcessLock(dataDir, role, { fileService, projectRoot = p
     released = true;
     try { unlinkSync(path); } catch (error) { if (error.code !== "ENOENT") throw error; }
   };
-  return Object.freeze({ path, release });
+  return protectRuntimeLock(projectRoot, { path, release });
+}
+
+/** Closes the startup race with migration: an owner acquired during fencing is released before use. */
+function protectRuntimeLock(projectRoot, lock) {
+  try { assertRuntimeAvailable(projectRoot); return Object.freeze(lock); }
+  catch (error) { lock.release(); throw error; }
 }

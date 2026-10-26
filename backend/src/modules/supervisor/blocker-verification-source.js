@@ -12,7 +12,7 @@ export async function inspectVerificationSource({ projectRoot, context, diagnost
     if (command.exit_code === 0) continue;
     const output = `${command.stdout_redacted ?? ""}\n${command.stderr_redacted ?? ""}`;
     for (const match of output.matchAll(/Cannot find module ['"]([^'"\n]+)['"]/g)) {
-      const archive = /\/\.forge\/runtime\/ticket-verification\/archives\/nodeforge-ticket-archive-[^/]+\/(.+)$/.exec(match[1]);
+      const archive = /\/\.forge\/runtime\/(?:tickets\/)?ticket-verification\/archives\/nodeforge-ticket-archive-[^/]+\/(.+)$/.exec(match[1]);
       if (archive && /^(backend|ui|web|schemas)\//.test(archive[1])) paths.add(archive[1]);
     }
   }

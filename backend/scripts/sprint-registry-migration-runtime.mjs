@@ -1,4 +1,5 @@
 // Adapts migration to the configured control database with read-only preview and exclusive offline apply.
+import { resolveRuntimePath } from "../src/infrastructure/filesystem/forge-paths.js";
 import { DatabaseSync } from "node:sqlite";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile, readdir, lstat, copyFile, chmod } from "node:fs/promises";
@@ -19,8 +20,8 @@ export async function openSprintMigrationRuntime({ config, mode }) {
   let raw;
   try {
     if (mode === "apply") {
-      locks.push(acquireProcessLock(config.dataDir, "control"));
-      locks.push(acquireProcessLock(config.dataDir, "watcher"));
+      locks.push(acquireProcessLock(config.dataDir, "control", { projectRoot: config.cwd }));
+      locks.push(acquireProcessLock(config.dataDir, "watcher", { projectRoot: config.cwd }));
     }
     const databasePath = resolve(config.dataDir, "index.db");
     // Existing-file verification prevents apply from accidentally creating an empty database.
@@ -83,13 +84,13 @@ export async function openSprintMigrationRuntime({ config, mode }) {
       withMaintenance: mode === "apply" ? (action) => action() : undefined,
       // Creates a consistent SQLite backup plus immutable plans, ticket history and source manifest before import.
       backup: async ({ manifest, source }) => {
-        const path = join(config.dataDir, "sprint-migration-backups", `${manifest.manifest_sha256}-${randomUUID()}`);
+        const path = resolveRuntimePath(config.cwd, config.dataDir, "sprint-migration-backups", `${manifest.manifest_sha256}-${randomUUID()}`);
         await mkdir(path, { recursive: true, mode: 0o700 });
         const backupDb = join(path, "index.db");
         raw.prepare("VACUUM INTO ?").run(backupDb);
         await chmod(backupDb, 0o600);
-        await copyMigrationTree(join(config.cwd, ".forge/runtime/nf/plans"), join(path, "plans"));
-        await copyMigrationTree(join(config.cwd, ".forge/runtime/nf/tickets"), join(path, "tickets"));
+        await copyMigrationTree(resolveRuntimePath(config.cwd, ".forge/runtime/nf/plans"), join(path, "plans"));
+        await copyMigrationTree(resolveRuntimePath(config.cwd, ".forge/runtime/nf/tickets"), join(path, "tickets"));
         await writeFile(join(path, "source.json"), JSON.stringify({ manifest, source }), { flag: "wx", mode: 0o600 });
         const hashes = await migrationTreeHashes(path);
         const sha256 = migrationHash(hashes);
@@ -98,7 +99,7 @@ export async function openSprintMigrationRuntime({ config, mode }) {
       },
       // Retains an append-only receipt even when a later retry needs to reconcile partial state.
       writeReceipt: async (receipt) => {
-        const directory = join(config.dataDir, "sprint-migration-receipts");
+        const directory = resolveRuntimePath(config.cwd, config.dataDir, "sprint-migration-receipts");
         await mkdir(directory, { recursive: true, mode: 0o700 });
         const path = join(directory, `${receipt.manifest_sha256}-${randomUUID()}.json`);
         await writeFile(path, JSON.stringify(receipt), { flag: "wx", mode: 0o600 });

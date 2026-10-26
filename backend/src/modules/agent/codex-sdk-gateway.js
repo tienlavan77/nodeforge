@@ -3,9 +3,10 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { prependNodeBin } from "./node-bin-path.js";
+import { codexShellEnvironment } from "./codex-shell-environment.js";
 import { ConfigurationError, ForgeError } from "../../shared/errors.js";
 import { createCodexForgeMcpSession } from "./codex-forge-mcp-session.js";
-import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
+import { statePath, resolveRuntimePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createCodexSdkLog } from "./codex-sdk-log.js";
 import { assertCodexThreadAvailable, codexThreadBusyError } from "./codex-thread-writer.js";
 import { sdkFailureEvidence } from "./sdk-failure-evidence.js";
@@ -18,7 +19,7 @@ export function createCodexSdkGateway({
   CodexClass = DefaultCodex,
   timeoutMs = 3600000,
   environment = process.env,
-  codexHomeRoot = join(process.cwd(), ".forge", "runtime", "nf", "codex-homes"),
+  codexHomeRoot = resolveRuntimePath(process.cwd(), ".forge/runtime/nf/codex-homes"),
   terminalOutput = process.stdout
 } = {}) {
   if (typeof configuration?.getById !== "function") throw new ConfigurationError("Codex SDK Gateway requires Node Agent Configuration.");
@@ -92,11 +93,16 @@ export function createCodexSdkGateway({
       if (mcpSession) {
         onSessionReady?.(mcpSession.tools.map((tool) => tool.name) ?? []);
       }
+      const childEnvironment = buildCodexChildEnvironment(environment, options.env);
+      const shellEnvironment = codexShellEnvironment(childEnvironment, cwd ?? options.workingDirectory ?? process.cwd());
       const codex = new CodexClass({
         apiKey: credential,
         baseUrl: normalizeBaseUrl(profile.gateway_url),
-        env: { ...buildCodexChildEnvironment(environment, options.env), CODEX_HOME: codexHome },
+        env: { ...childEnvironment, ...shellEnvironment, CODEX_HOME: codexHome },
         config: { ...codexConfig, ...options.config,
+          allow_login_shell: false,
+          shell_environment_policy: { ...options.config?.shell_environment_policy, experimental_use_profile: false,
+            set: { ...options.config?.shell_environment_policy?.set, ...shellEnvironment } },
           model_provider: "nodeforge",
           model_providers: { nodeforge: { name: "NodeForge gateway", base_url: normalizeBaseUrl(profile.gateway_url),
             env_key: "CODEX_API_KEY", wire_api: "responses", supports_websockets: false } }
