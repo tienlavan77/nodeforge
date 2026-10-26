@@ -77,6 +77,64 @@ test("direct-provider processing rejects an obsolete summary after awaiting", as
   assert.equal(f.database.all("SELECT * FROM symbol_embeddings").length, 0);
 });
 
+// Exercises reindexing while the direct provider is paused to ensure that source
+// and comment layout changes preserve one request for the same summary identity.
+for (const [label, changed] of [
+  ["implementation", source.replace("{}", "{ return 200; }")],
+  ["comment formatting", source.replace("// Save orders.", "/* Save orders. */")]
+]) {
+  test("direct-provider preserves pending work after " + label + " changes", async (t) => {
+    const f = await summaryFixture(t, source);
+    let finish;
+    let calls = 0;
+    const writer = createIndexRecordWriter({ database: f.database, embeddingStore: f.store,
+      embeddingProvider: { embed: () => {
+        calls += 1;
+        return new Promise((resolve) => { finish = resolve; });
+      } }, embeddingModel: "test-model", logger: console });
+    const { file_id: fileId, symbol_id: symbolId } = f.symbols()[0];
+    writer.clearContentIndex(fileId, true);
+    writer.indexContent(fileId, f.path, source);
+    assert.equal(calls, 1);
+    await f.edit(changed);
+    assert.equal(f.symbols()[0].symbol_id, symbolId);
+    writer.clearContentIndex(fileId, true);
+    writer.indexContent(fileId, f.path, changed);
+    assert.equal(calls, 1);
+    finish([1, 0]);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(f.database.all("SELECT * FROM symbol_embeddings").length, 1);
+    assert.equal(f.database.all("SELECT symbol_id FROM symbol_embeddings")[0].symbol_id, symbolId);
+    writer.clearContentIndex(fileId, true);
+    writer.indexContent(fileId, f.path, changed);
+    assert.equal(calls, 1);
+  });
+}
+
+// Verifies rejected direct requests release their pending identity so a later
+// indexing pass can retry the summary instead of leaving it permanently blocked.
+test("direct-provider retries an unchanged summary after a failed request", async (t) => {
+  const f = await summaryFixture(t, source);
+  let fail;
+  let calls = 0;
+  const writer = createIndexRecordWriter({ database: f.database, embeddingStore: f.store,
+    embeddingProvider: { embed: () => {
+      calls += 1;
+      if (calls === 1) return new Promise((resolve, reject) => { fail = reject; });
+      return Promise.resolve([1, 0]);
+    } }, embeddingModel: "test-model", logger: { debug() {} } });
+  const fileId = f.symbols()[0].file_id;
+  writer.clearContentIndex(fileId, true);
+  writer.indexContent(fileId, f.path, source);
+  fail(new Error("provider unavailable"));
+  await new Promise((resolve) => setImmediate(resolve));
+  writer.clearContentIndex(fileId, true);
+  writer.indexContent(fileId, f.path, source);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls, 2);
+  assert.equal(f.database.all("SELECT * FROM symbol_embeddings").length, 1);
+});
+
 test("failed publication rolls back the vector and job completion together", async (t) => {
   const f = await summaryFixture(t, source);
   f.database.run("CREATE TRIGGER reject_completion BEFORE UPDATE OF status ON embedding_jobs WHEN NEW.status = 'completed' BEGIN SELECT RAISE(ABORT, 'completion failed'); END");
