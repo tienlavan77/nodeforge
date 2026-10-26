@@ -47,9 +47,9 @@ async function fixture() {
   let index = 0;
   const requestArchitecture = async (prompt) => { index++; return prompt.startsWith("Architecture clarification discovery") ? NO_QUESTIONS : PLAN_JSON; };
   const planning = createConversationPlanningService({ projectId: "PROJECT-A", fileService, markdownPlanStore, validateMarkdown, sessions: createArchitectureClarificationStore({ projectId: "PROJECT-A", fileService }), requestArchitecture });
-  const calls = { handoffs: 0, am: 0 };
-  const service = createConversationPlanApprovalService({ projectId: "PROJECT-A", markdownPlanStore, sprintRegistry: { get: () => ({ status: "planned" }), setStatus: async ({ status }) => ({ status }) }, handoffApprovedPlan: async () => { calls.handoffs++; return { status: "handed_to_sprint_leader", sprint_id: "SPRINT-B" }; } });
+  const calls = { handoffs: 0, am: 0, announced: 0, stateAtAnnounce: null };
   const decisions = () => database.all("SELECT * FROM markdown_plan_decisions");
+  const service = createConversationPlanApprovalService({ projectId: "PROJECT-A", markdownPlanStore, sprintRegistry: { get: () => ({ status: "planned" }), setStatus: async ({ status }) => ({ status }) }, handoffApprovedPlan: async () => { calls.handoffs++; return { status: "handed_to_sprint_leader", sprint_id: "SPRINT-B" }; }, announceApprovalIdentity: async (info) => { calls.announced++; calls.stateAtAnnounce = { decisions: decisions().length, handoffs: calls.handoffs, info }; } });
   const close = async () => { await database.close(); await rm(root, { recursive: true, force: true }); };
   return { database, fileService, markdownPlanStore, planning, service, calls, decisions, close, answers, nextAnswer: () => answers[Math.min(index++, answers.length - 1)] };
 }
@@ -68,10 +68,16 @@ test("a mixed create/update-plus-approve message records no decision and require
     }
     assert.equal(f.decisions().length, 0, "no markdown_plan_decisions row is ever written for a mixed message");
     assert.equal(f.calls.handoffs, 0, "a mixed message never reaches handoff");
-    const approved = await f.service.approveFromConversation({ conversationId: "CONV-A", approvedOwnerId: "OWNER", text: "Approve the plan" });
+    const rendered = await f.service.selectPendingRevision({ conversationId: "CONV-A" });
+    await assert.rejects(() => f.service.approveFromConversation({ conversationId: "CONV-A", approvedOwnerId: "OWNER", text: "Approve the plan" }), { code: "PLAN_APPROVAL_CAPTURE_REQUIRED" }, "the separate approval must carry the captured rendered identity; an unpinned delivery is rejected before any side effect");
+    assert.equal(f.decisions().length, 0, "an unpinned standalone approval still records no decision");
+    const approved = await f.service.approveFromConversation({ conversationId: "CONV-A", approvedOwnerId: "OWNER", text: "Approve the plan", approvalRevision: rendered.revision, approvalSha256: rendered.sha256 });
     assert.equal(approved.status, "handed_to_sprint_leader");
     assert.equal(approved.run_started, false);
     assert.equal(f.decisions().length, 1, "only the standalone later approval records a decision");
+    assert.equal(f.calls.announced, 1, "the standalone approval announces exactly once");
+    assert.equal(f.calls.stateAtAnnounce.decisions, 0, "the announcement lands before any decision row exists");
+    assert.equal(f.calls.stateAtAnnounce.handoffs, 0, "the announcement lands before any handoff happens");
   } finally { await f.close(); }
 });
 
@@ -85,6 +91,42 @@ test("quoted, fenced and interrogative approval text produces no approval side e
     }
     assert.equal(f.decisions().length, 0, "inert approval text records no decision");
     assert.equal(f.calls.handoffs, 0, "inert approval text never hands off");
+  } finally { await f.close(); }
+});
+
+// Proves an approval carrying no captured rendered identity is rejected before any side effect.
+test("an approval without the captured revision/SHA-256 fails with PLAN_APPROVAL_CAPTURE_REQUIRED and zero side effects", async () => {
+  const f = await fixture();
+  try {
+    await f.planning.createFromConversation({ text: "Create the architecture plan", conversationId: "CONV-A" });
+    for (const unpinned of [
+      { conversationId: "CONV-A", approvedOwnerId: "OWNER" },
+      { conversationId: "CONV-A", approvedOwnerId: "OWNER", approvalRevision: 1 },
+      { conversationId: "CONV-A", approvedOwnerId: "OWNER", approvalSha256: "f".repeat(64) },
+    ]) {
+      await assert.rejects(() => f.service.approveFromConversation(unpinned), { code: "PLAN_APPROVAL_CAPTURE_REQUIRED" }, "approval without a fully captured rendered identity must fail closed before decide/handoff");
+    }
+    assert.equal(f.decisions().length, 0, "an unpinned approval never writes markdown_plan_decisions");
+    assert.equal(f.calls.handoffs, 0, "an unpinned approval never reaches handoff");
+    assert.equal(f.calls.announced, 0, "an unpinned approval never announces an unverified head");
+  } finally { await f.close(); }
+});
+
+// Proves an update arriving between render capture and approval cannot authorize the new revision.
+test("an intervening update makes the captured r1 identity stale and only the r2 capture can approve", async () => {
+  const f = await fixture();
+  try {
+    const first = await f.planning.createFromConversation({ text: "Create the architecture plan", conversationId: "CONV-A" });
+    const second = await f.planning.updateFromConversation({ text: "Update the plan", conversationId: "CONV-A" });
+    assert.equal(second.revision, 2);
+    await assert.rejects(() => f.service.approveFromConversation({ conversationId: "CONV-A", approvedOwnerId: "OWNER", approvalRevision: first.revision, approvalSha256: first.sha256 }), { code: "PLAN_APPROVAL_STALE" }, "the owner's captured r1 identity is superseded by r2 and cannot authorize it");
+    assert.equal(f.decisions().length, 0, "the redirect attempt records no decision");
+    assert.equal(f.calls.handoffs, 0, "the redirect attempt never reaches handoff");
+    assert.equal(f.calls.announced, 0, "a stale capture never announces a side effect");
+    const approved = await f.service.approveFromConversation({ conversationId: "CONV-A", approvedOwnerId: "OWNER", approvalRevision: second.revision, approvalSha256: second.sha256 });
+    assert.equal(approved.status, "handed_to_sprint_leader", "only a capture matching the newest render approves");
+    assert.equal(f.calls.stateAtAnnounce.decisions, 0, "even the valid approval announces the r2 identity before writing the decision");
+    assert.equal(f.calls.stateAtAnnounce.handoffs, 0);
   } finally { await f.close(); }
 });
 

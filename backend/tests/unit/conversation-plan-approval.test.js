@@ -59,10 +59,10 @@ async function fixture(answers = [NO_QUESTIONS, PLAN_JSON, PATCH_JSON], approval
   const state = { index: 0 };
   const requestArchitecture = async () => answers[Math.min(state.index++, answers.length - 1)];
   const planning = createConversationPlanningService({ projectId: "PROJECT-A", fileService, markdownPlanStore, validateMarkdown, sessions: createArchitectureClarificationStore({ projectId: "PROJECT-A", fileService }), requestArchitecture });
-  const calls = { handoffs: 0 };
+  const calls = { handoffs: 0, announced: 0, stateAtAnnounce: null };
   const approvedOwnerId = "OWNER";
-  const service = createConversationPlanApprovalService({ projectId: "PROJECT-A", markdownPlanStore, sprintRegistry: { get: () => ({ status: "planned" }), setStatus: async ({ status }) => ({ status }) }, handoffApprovedPlan: async () => { calls.handoffs++; return { status: "handed_to_sprint_leader", sprint_id: "SPRINT-SEC", ...(approval.handoff ?? {}) }; }, ...approval });
   const decisions = () => database.all("SELECT * FROM markdown_plan_decisions");
+  const service = createConversationPlanApprovalService({ projectId: "PROJECT-A", markdownPlanStore, sprintRegistry: { get: () => ({ status: "planned" }), setStatus: async ({ status }) => ({ status }) }, handoffApprovedPlan: async () => { calls.handoffs++; return { status: "handed_to_sprint_leader", sprint_id: "SPRINT-SEC", ...(approval.handoff ?? {}) }; }, announceApprovalIdentity: async (info) => { calls.announced++; calls.stateAtAnnounce = { decisions: decisions().length, handoffs: calls.handoffs, info }; }, ...approval });
   const close = async () => { await database.close(); await rm(root, { recursive: true, force: true }); };
   return { database, fileService, markdownPlanStore, planning, calls, service, decisions, approvedOwnerId, close };
 }
@@ -82,6 +82,11 @@ test("approval selects the latest pending revision of the current conversation a
     assert.match(result.announcement, new RegExp(`plan ${created.plan_id} revision 2`));
     assert.ok(result.announcement.includes(updated.sha256), "the announced identity carries the exact reviewed SHA-256");
     assert.match(result.announcement, /CONV-A/);
+    assert.equal(f.calls.announced, 1, "the selected identity is announced through the owner-visible channel exactly once");
+    assert.equal(f.calls.stateAtAnnounce.decisions, 0, "the announcement lands before any decision row exists");
+    assert.equal(f.calls.stateAtAnnounce.handoffs, 0, "the announcement lands before any handoff happens");
+    assert.equal(f.calls.stateAtAnnounce.info.revision, 2);
+    assert.equal(f.calls.stateAtAnnounce.info.sha256, updated.sha256);
     assert.equal(f.decisions().length, 1);
     assert.equal(f.decisions()[0].sha256, updated.sha256, "the decision records the exact rendered checksum");
     assert.equal(f.decisions()[0].decision, "approved");
@@ -166,10 +171,12 @@ test("duplicate approval delivery reuses one decision and never repeats handoff"
     const orchestration = createSprintOrchestrationService({ sprintPlans: { getSprintById: () => { throw new Error("legacy reader must not run"); } }, sprintPlanStore: { save: () => { throw new Error("legacy projection must not be written"); } }, sprintRegistry: registry, draftPlan: draft, agentRoleResolver, agentGateway: { async stream() { throw new Error("legacy agent stream must not run"); } }, publisher: { publish: () => {} } });
     let leaderCalls = 0;
     const handoff = createPlanHandoffService({ projectId: "PROJECT-A", database, planStore: plans, markdownPlanStore, sprintRegistry: registry, sprintOrchestration: orchestration, agentRoleResolver, sprintPlanLeader: { requestPlan: async () => { leaderCalls++; return structuredClone(sprint); } } });
-    const service = createConversationPlanApprovalService({ projectId: "PROJECT-A", markdownPlanStore, sprintRegistry: registry, handoffApprovedPlan: (input) => handoff.handoff(input) });
+    const announcements = [];
+    const service = createConversationPlanApprovalService({ projectId: "PROJECT-A", markdownPlanStore, sprintRegistry: registry, handoffApprovedPlan: (input) => handoff.handoff(input), announceApprovalIdentity: async (info) => { announcements.push({ revision: info.revision, sha256: info.sha256, decisionsWritten: database.all("SELECT * FROM markdown_plan_decisions").length, handoffsWritten: database.all("SELECT * FROM markdown_plan_handoffs").length }); } });
     const first = await service.approveFromConversation({ conversationId: "CONV-A", approvedOwnerId: "OWNER", approvalRevision: parent.revision, approvalSha256: parent.sha256 });
     assert.equal(first.status, "handed_to_sprint_leader");
     assert.equal(first.replayed, false);
+    assert.deepEqual(announcements[0], { revision: parent.revision, sha256: parent.sha256, decisionsWritten: 0, handoffsWritten: 0 }, "the fresh approval announces the captured identity before the first decision row or handoff record exists");
     assert.equal(first.sprint_status, "ready", "the fresh approval marks the registered Sprint ready");
     assert.equal(database.all("SELECT * FROM markdown_plan_handoffs").length, 1);
     assert.equal(database.all("SELECT * FROM markdown_plan_decisions").length, 1);
