@@ -41,7 +41,14 @@ export function createIndexRecordWriter({ database, graph, embeddingJobs, embedd
     const lines = content.split(/\r?\n/);
     const rows = database.all("SELECT symbol_id, name, kind, start_line, end_line FROM symbols WHERE file_id = ? ORDER BY start_line, name", [fileId]);
     const document = purposeComments(content, extname(path) === ".php" ? "php" : extname(path) === ".css" ? "css" : "javascript");
+    const summary = document.header?.summary ?? null;
+    database.run("UPDATE files SET summary = ? WHERE file_id = ?", [summary, fileId]);
+    if (summary === null) logger?.warn?.("Purpose summary missing.", { path, object: "file", file_id: fileId, summary: null });
     for (const symbol of rows) {
+      const summary = ["function", "method", "hook", "component"].includes(symbol.kind)
+        ? purposeCommentBefore(document, Math.max(1, symbol.start_line ?? 1) - 1)?.summary ?? null : null;
+      database.run("UPDATE symbols SET summary = ? WHERE symbol_id = ?", [summary, symbol.symbol_id]);
+      if (summary === null) logger?.warn?.("Purpose summary missing.", { path, object: "symbol", name: symbol.name, kind: symbol.kind, symbol_id: symbol.symbol_id, start_line: symbol.start_line ?? null, end_line: symbol.end_line ?? null, summary: null });
       const start = Math.max(1, symbol.start_line ?? 1);
       const end = Math.min(lines.length, Math.max(start, symbol.end_line ?? start));
       const comment = purposeCommentBefore(document, start - 1);
