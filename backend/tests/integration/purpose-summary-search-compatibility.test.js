@@ -3,6 +3,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
+import { createRoleFileService } from "../../src/infrastructure/filesystem/file-service-role-policy.js";
+import { createReadFileTool } from "../../src/tools/agent-lifecycle-tools.js";
 import { runIndexMigrations } from "../../src/infrastructure/sqlite/index-migrations.js";
 import { createIndexRecordWriter } from "../../src/modules/index/index-record-writer.js";
 import { createCodeSearch } from "../../src/modules/index/code-search.js";
@@ -31,7 +37,17 @@ test("purpose summaries supplement search projections and preserve structural co
   const search = createCodeSearch({ database });
   const beforeMinimal = search.search({ query: "orders", kind: "file" });
   const beforeGraph = search.search({ query: "orders", kind: "file", projection: "graph" }).matches[0].node;
-  const builder = createCodeIndexSummaryBuilder({ indexDb: database, fileService: { readFile: async () => source } });
+  const root = await mkdtemp(join(tmpdir(), "forge-purpose-access-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, "src/private"), { recursive: true });
+  await writeFile(join(root, "src/orders.js"), source);
+  await writeFile(join(root, "src/private/orders.js"), source);
+  const files = createFileService({ projectRoot: root });
+  const scopedFiles = createRoleFileService({ fileService: files, role: "coder", projectRoot: root });
+  const read = createReadFileTool({ fileService: scopedFiles, projectRoot: root });
+  assert.equal(await scopedFiles.readFile({ path: "src/orders.js" }), source);
+  assert.equal((await read.execute({ path: "src/orders.js", offset: 1, limit: 5 })).content, source);
+  const builder = createCodeIndexSummaryBuilder({ indexDb: database, fileService: scopedFiles });
   const beforeContext = await builder.build(["src/orders.js"]);
   database.run("UPDATE files SET summary = NULL");
   database.run("UPDATE symbols SET summary = NULL");
@@ -65,4 +81,25 @@ test("purpose summaries supplement search projections and preserve structural co
   assert.equal("summary" in beforeMinimal.matches[0].node, false);
   assert.deepEqual(await builder.build(["src/orders.js"]), beforeContext);
   assert.equal((await builder.build(["src/orders.js"], { summary: false }))[0].content, source);
+
+  // Populate both summaries for a real file denied by the existing private-path
+  // policy, ensuring persisted index data cannot bypass the read boundary.
+  const deniedPath = "src/private/orders.js";
+  database.run("INSERT INTO files (file_id, path, language, sha256, size_bytes, indexed_at) VALUES ('denied', ?, 'javascript', 'def', 100, 'today')", [deniedPath]);
+  writer.writeExtraction("denied", deniedPath, { symbols: [
+    { name: "save", kind: "function", start_line: 4, end_line: 4 }
+  ], imports: [], exports: [] });
+  writer.indexContent("denied", deniedPath, source);
+  assert.equal(search.fileMetadata(deniedPath).summary, "Orders module.");
+  assert.equal(search.symbolsForFile(deniedPath)[0].summary, "Save orders.");
+  await assert.rejects(() => scopedFiles.readFile({ path: deniedPath }), { code: "FILE_ROLE_FORBIDDEN" });
+  await assert.rejects(() => read.execute({ path: deniedPath }), { code: "FILE_ROLE_FORBIDDEN" });
+  await assert.rejects(() => read.execute({ path: deniedPath, offset: 1, limit: 5 }), { code: "FILE_ROLE_FORBIDDEN" });
+  for (const summary of [true, false]) {
+    const denied = await builder.build([deniedPath], { summary });
+    assert.deepEqual(denied, [{
+      path: deniedPath, exists: false, before_checksum: null,
+      language: "javascript", size_bytes: 0, content: null
+    }]);
+  }
 });
