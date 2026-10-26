@@ -48,7 +48,7 @@ export async function fixture(options = {}) {
   const roots = [join(directory, "first"), join(directory, "second")];
   for (const [index, root] of roots.entries()) {
     await mkdir(root);
-    await writeFile(join(root, "sample.js"), `export function project${index}() { return ${index}; }\n`);
+    await writeFile(join(root, "sample.js"), `// Project lifecycle fixture.\n\n// Provide the project${index} business operation.\nexport function project${index}() { return ${index}; }\n`);
   }
   const logs = [];
   const logger = {
