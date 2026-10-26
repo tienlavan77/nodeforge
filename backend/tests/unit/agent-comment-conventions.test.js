@@ -17,16 +17,17 @@ function fixture(initial = "const existing = 1;") {
 
 test("file headers and adjacent function summaries recognize complete multiline blocks", () => {
   for (const summary of ["// Business purpose.\n// Technical behavior.", "# Business purpose.\n# Technical behavior.", "/* Business purpose.\n * Technical behavior.\n */", "/** Business purpose.\n * Technical behavior.\n */", "<!-- Business purpose.\n Technical behavior.\n -->"]) {
-    const source = `${summary}\nexport function processAccount() {}`;
+    const header = summary.startsWith("#") ? "# Module contract." : summary.startsWith("<!--") ? "<!-- Module contract. -->" : "// Module contract.";
+    const source = `${header}\n\n${summary}\nexport function processAccount() {}`;
     assert.equal(hasFileHeaderComment(source), true, summary);
     assert.equal(hasPrecedingComment(source, "processAccount"), true, summary);
-    assert.equal(extractPrecedingCommentBlock(source, summary.split("\n").length), summary);
+    assert.equal(extractPrecedingCommentBlock(source, source.split("\n").length - 1), summary);
     assert.equal(hasPrecedingComment(`${summary}\n\nfunction processAccount() {}`, "processAccount"), false);
   }
   assert.equal(hasFileHeaderComment("/* unfinished"), false);
   assert.equal(hasFileHeaderComment("<!-- unfinished"), false);
   assert.equal(hasPrecedingComment("const value = 1;\n*/\nfunction processAccount() {}", "processAccount"), false);
-  assert.equal(hasPrecedingComment("// Documents the business operation.\nfunction $process() {}", "$process"), true);
+  assert.equal(hasPrecedingComment("const existing = 1;\n// Documents the business operation.\nfunction $process() {}", "$process"), true);
 });
 
 test("comment language accepts technical tokens and rejects mixed natural-language syntax", () => {
@@ -46,7 +47,7 @@ test("quoted tokens and JSDoc tags preserve monolingual summaries through lifecy
     assert.equal(validateCommentLanguage(summary), true, summary);
     assert.equal(validateCommentLanguage(`${summary}\n// X\u1eed l\u00fd the response.`), false, summary);
     const state = fixture();
-    const content = `${summary}\nfunction processAccount() {}`;
+    const content = `// Module contract.\n\n${summary}\nfunction processAccount() {}`;
     await createEditDiffTool({ fileService: state.fileService }).execute({ path: "existing.js", before_checksum: state.sha256(), anchor: state.read(), replacement: content });
     assert.equal(state.read(), content);
     let written = null;

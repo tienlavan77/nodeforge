@@ -1,4 +1,5 @@
 // Detects file and function comments required for governed agent edits.
+import { purposeComments, purposeCommentBefore } from "../modules/index/parser/purpose-comments.js";
 
 // Checks whether a new source file starts with a purpose comment.
 export function hasFileHeaderComment(content) {
@@ -7,16 +8,7 @@ export function hasFileHeaderComment(content) {
 
 // Extracts only the new file's purpose summary without validating unrelated legacy comments.
 export function extractFileHeaderComment(content) {
-  const lines = content.trimStart().split("\n");
-  if (/^(?:\/\/|#(?:\s|!))/.test(lines[0])) {
-    let end = 0;
-    while (end < lines.length && /^(?:\/\/|#(?:\s|!))/.test(lines[end].trim())) end++;
-    return lines.slice(0, end).join("\n");
-  }
-  const closer = lines[0].startsWith("/*") ? "*/" : lines[0].startsWith("<!--") ? "-->" : null;
-  if (!closer) return "";
-  const end = content.trimStart().indexOf(closer);
-  return end < 0 ? "" : content.trimStart().slice(0, end + closer.length);
+  return purposeComments(content, /^\s*<!--/.test(content) ? "markup" : "php").header?.raw ?? "";
 }
 
 // Finds declared function names before and after an agent edit.
@@ -39,23 +31,15 @@ export function hasPrecedingComment(content, fnName) {
 
 // Retrieves the complete adjacent summary so new business behavior can be documented and checked.
 export function extractPrecedingCommentBlock(content, lineIndex) {
-  const lines = content.split("\n");
-  const end = lineIndex - 1;
-  if (end < 0) return "";
-  const last = lines[end].trim();
-  if (/^(?:\/\/|#(?:\s|!))/.test(last)) {
-    let start = end;
-    while (start > 0 && /^(?:\/\/|#(?:\s|!))/.test(lines[start - 1].trim())) start--;
-    return lines.slice(start, end + 1).join("\n");
-  }
-  const opener = last.endsWith("*/") ? "/*" : last.endsWith("-->") ? "<!--" : null;
-  if (!opener) return "";
-  for (let start = end; start >= 0; start--) {
-    const line = lines[start].trim();
-    if (line.startsWith(opener)) return lines.slice(start, end + 1).join("\n");
-    if (start < end && (line.includes("*/") || line.includes("-->"))) break;
-  }
-  return "";
+  return purposeCommentBefore(purposeComments(content, commentMode(content)), lineIndex)?.raw ?? "";
+}
+
+/** Preserves existing header-check formats without registering additional indexer languages. */
+function commentMode(content) {
+  if (/^\s*<\?php\b/.test(content)) return "php";
+  if (/^\s*<!--/.test(content)) return "markup";
+  if (/^\s*#(?!\!)/.test(content)) return "php";
+  return "javascript";
 }
 
 // Counts executable or document lines without charging blank lines and standalone comments to the edit budget.
