@@ -1,13 +1,16 @@
 // Owns the in-process multi-project catalog and serializes runtime admission and removal.
 import { realpath, stat } from "node:fs/promises";
-import { isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
+import { captureRoot, captureAddRoot, assertRoot, preflightSource, prepareStorage, filesystemError } from "./project-filesystem-safety.js";
+import { inspectProjectStorage } from "./project-identity-safety.js";
+import { createProjectCreateAdmission, openProjectAdmissionStore, assertProjectCreateOwnership } from "./project-create-admission.js";
 import { ProjectRegistry } from "./project-registry.js";
 import { createProjectCatalog } from "./project-catalog.js";
 import { startProjectRuntime } from "./project-runtime.js";
 import { createProjectRuntimeDisposal } from "./project-runtime-disposal.js";
 
 // Restores independent project runtimes from global metadata without adding public transport routes.
-export async function createProjectLifecycle({ catalogPath, registry = new ProjectRegistry(), startRuntime = startProjectRuntime, runtimeOptions = {}, logger = console } = {}) {
+export async function createProjectLifecycle({ catalogPath, registry = new ProjectRegistry(), startRuntime = startProjectRuntime, runtimeOptions = {}, logger = console, operationStore } = {}) {
   const catalog = await createProjectCatalog({ catalogPath });
   const runtimes = new Map();
   const { registerCleanup, releaseRuntime, isAvailable } = createProjectRuntimeDisposal();
@@ -21,7 +24,19 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
       startupErrors.push({ root: entry.root, error: error.message, ...(error.code ? { code: error.code } : {}) });
     }
   }
-  return Object.freeze({ add, remove, list, get, close, registerCleanup, startupErrors: Object.freeze(startupErrors) });
+  return Object.freeze({ create, add, remove, list, get, close, registerCleanup, startupErrors: Object.freeze(startupErrors) });
+
+  // Fences Create through the durable operation store before exclusive directory creation.
+  function create(root, options) {
+    return enqueue(async () => {
+      await catalog.preflight();
+      let store;
+      try { store = operationStore ?? await openProjectAdmissionStore(catalogPath); } catch (error) {
+        throw filesystemError("operation_store", "operation_store_unwritable", dirname(catalogPath), error);
+      }
+      return createProjectCreateAdmission({ store, admit })(root, options);
+    });
+  }
 
   // Canonicalizes roots so symlinks and relative aliases cannot start duplicate watchers.
   async function canonicalRoot(root) {
@@ -42,36 +57,56 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
   async function activate(root, expectedProjectId) {
     const canonical = await canonicalRoot(root);
     if (canonical !== root) throw new Error("Stored project root is no longer canonical.");
-    const projectId = await registry.getOrCreate(canonical);
+    const binding = await captureRoot(canonical);
+    await preflightSource(binding);
+    const projectId = await registry.getOrCreate(canonical, { expectedProjectId, strictIdentity: true, rootBinding: binding });
+    await prepareStorage(binding);
     if (expectedProjectId && expectedProjectId !== projectId) throw new Error("Catalog and per-root project identity differ.");
     if (catalog.list().some((entry) => entry.root !== root && entry.projectId === projectId)) {
       throw new Error("Project identity is already registered for another root.");
     }
-    const runtime = await startRuntime({ ...runtimeOptions, projectRoot: canonical, projectId, logger });
+    await assertRoot(binding);
+    await inspectProjectStorage(binding);
+    let runtime;
+    try { runtime = await startRuntime({ ...runtimeOptions, projectRoot: canonical, projectId, logger }); } catch (error) {
+      throw filesystemError("startup", "project_startup_failed", canonical, error, "Membership and identity are retained. Correct the startup failure and retry Add.");
+    }
     runtimes.set(canonical, runtime);
     return { root: canonical, projectId };
   }
 
   // Adds a fully serving runtime, rolling it back if global membership cannot be persisted.
   function add(root) {
-    return enqueue(async () => {
-      const canonical = await canonicalRoot(root);
-      const existing = runtimes.get(canonical);
-      if (existing) return { root: canonical, projectId: existing.projectId };
-      const persisted = catalog.list().find((entry) => entry.root === canonical);
-      const entry = await activate(canonical, persisted?.projectId);
-      try {
-        await catalog.replace([...catalog.list().filter((item) => item.root !== canonical), entry]);
-      } catch (error) {
-        const runtime = runtimes.get(canonical);
-        runtimes.delete(canonical);
-        try { await runtime.close(); } catch (cleanupError) {
-          throw new AggregateError([error, cleanupError], "Catalog admission and runtime rollback failed.");
-        }
-        throw error;
-      }
-      return entry;
-    });
+    return enqueue(() => admit(root));
+  }
+
+  // Commits verified project membership before opening any runtime, watcher, or index.
+  async function admit(root, ownedBinding) {
+    const binding = ownedBinding ?? await captureAddRoot(root);
+    await assertRoot(binding);
+    await preflightSource(binding);
+    await catalog.preflight();
+    if (!ownedBinding) await assertProjectCreateOwnership({ store: operationStore, catalogPath, binding });
+    const canonical = binding.root;
+    const persisted = catalog.list().find((entry) => entry.root === canonical);
+    let projectId;
+    try { projectId = await registry.getOrCreate(canonical, { expectedProjectId: persisted?.projectId, strictIdentity: true, rootBinding: binding }); } catch (error) {
+      if (error.stage) throw error;
+      throw filesystemError("identity", "identity_conflict", canonical, error, "Reconcile catalog and per-root metadata; do not rewrite identity.");
+    }
+    if (persisted && persisted.projectId !== projectId) throw filesystemError("identity", "identity_conflict", canonical, new Error("Catalog and per-root project identity differ."));
+    if (catalog.list().some((entry) => entry.root !== canonical && entry.projectId === projectId)) {
+      throw filesystemError("identity", "identity_conflict", canonical, null, "This identity is already registered at another root.");
+    }
+    await assertRoot(binding);
+    await inspectProjectStorage(binding);
+    const existing = runtimes.get(canonical);
+    if (existing) return { root: canonical, projectId };
+    const entry = { root: canonical, projectId };
+    if (!persisted) await catalog.replace([...catalog.list(), entry], { guard: () => assertRoot(binding) });
+    await assertRoot(binding);
+    await activate(canonical, projectId);
+    return entry;
   }
 
   // Removes global membership only after all resources for the project have been released.
