@@ -23,6 +23,23 @@ test("wrapping does not lose contract tags, warnings, punctuation or order", () 
   assert.notEqual(normalizePurposeComment("/* b a */"), normalizePurposeComment("/* a b */"));
 });
 
+// Protects literal delimiter contracts from colliding with summaries that omit those words.
+test("only the detected outer wrapper loses its closing delimiter", () => {
+  for (const delimiter of ["*/", "-->"]) {
+    for (const prefix of ["//", "#"]) {
+      const raw = prefix + " Emit literal " + delimiter;
+      assert.equal(normalizePurposeComment(raw), "Emit literal " + delimiter);
+      assert.notEqual(normalizePurposeComment(raw), normalizePurposeComment(prefix + " Emit literal"));
+    }
+    assert.equal(purposeComments("// Emit literal " + delimiter + "\nconst value = 1;").header.summary,
+      "Emit literal " + delimiter);
+  }
+  assert.equal(normalizePurposeComment("/* Emit literal --> */"), "Emit literal -->");
+  assert.equal(normalizePurposeComment("<!-- Emit literal */ -->"), "Emit literal */");
+  assert.equal(normalizePurposeComment("/* <!-- Emit literal --> */"), "<!-- Emit literal -->");
+  assert.equal(normalizePurposeComment("// First line\r\n// Emit literal */\r\n"), "First line Emit literal */");
+});
+
 test("long summaries preserve their final contract rather than truncating", () => {
   const body = Array.from({ length: 600 }, (_, index) => "contract" + index).join(" ");
   assert.equal(normalizePurposeComment("/* " + body + " @returns final */"), body + " @returns final");
