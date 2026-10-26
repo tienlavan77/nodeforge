@@ -1,5 +1,6 @@
 // agent lifecycle tools - provides agent lifecycle tools functionality for NodeForge.
 import { createHash } from "node:crypto";
+import { PURPOSE_COMMENT_GUIDANCE } from "../shared/purpose-comment-guidance.js";
 import { isProtectedPath } from "../infrastructure/filesystem/protected-path-policy.js";
 import { isDependencyPath, readDependencyFile } from "../infrastructure/filesystem/dependency-read.js";
 import { assertCoderWorkflowReadOnly } from "../infrastructure/filesystem/file-service-role-policy.js";
@@ -210,6 +211,7 @@ async function buildConventionReminder(context, { newFile = false, newFunctions 
   const projectRoot = context?.project_root ?? context?.projectRoot ?? process.cwd();
   const conventions = await loadAgentContextConventions({ projectRoot, ticket });
   const lines = ["Convention reminder: add a detailed summary comment describing business purpose and technical behavior before new code. Use one natural language throughout each comment, not mixed Vietnamese and English prose; technical identifiers are allowed."];
+  lines.push(PURPOSE_COMMENT_GUIDANCE);
   if (newFile) lines.push("This is a new file; put the summary comment at the top of the file.");
   if (newFunctions.length) lines.push(`New function(s): ${newFunctions.join(", ")}. Put the summary comment immediately before each definition.`);
   if (conventions.mappings.length) lines.push(`Relevant vocabulary mapping(s): ${conventions.mappings.map(formatConventionMapping).join("; ")}`);
