@@ -136,18 +136,62 @@ test("stale revision is rejected without touching the persisted snapshot", async
   assert.equal(persisted.status, "pending");
 });
 
+// REV-2: a superseded worker cannot publish using a freshly loaded revision; only the current
+// leased attempt can advance execution, and the public API cannot impersonate an internal claim.
+test("stale attempt cannot publish with the latest revision or advance attempts", async () => {
+  const { store } = await freshStore();
+  const { operation } = await store.register({ requestKey: "fenced", kind: "create", root: "/srv/fenced" });
+  const first = await store.claimAttempt(operation.operation_id);
+  await store.releaseAttempt(operation.operation_id, first.attempt);
+  const second = await store.claimAttempt(operation.operation_id);
+  const latest = await store.load(operation.operation_id);
+  for (const patch of [{ stage: "committed" }, { status: "failed", result: { outcome: "failed" } }]) {
+    await assert.rejects(store.transition(operation.operation_id, latest.revision, patch, { attempt: first.attempt }),
+      (error) => error.code === "attempt_stale");
+  }
+  await assert.rejects(store.transition(operation.operation_id, latest.revision, { stage: "committed" }),
+    (error) => error.code === "attempt_required");
+  await assert.rejects(store.transition(operation.operation_id, latest.revision, { attempt: 99 }, { internalClaim: 99 }),
+    (error) => error.code === "attempt_frozen");
+  assert.deepEqual(await store.load(operation.operation_id), latest);
+  const committed = await store.transition(operation.operation_id, latest.revision, { stage: "committed" }, { attempt: second.attempt });
+  assert.equal(committed.stage, "committed");
+  await store.releaseAttempt(operation.operation_id, second.attempt);
+  await assert.rejects(store.transition(operation.operation_id, committed.revision,
+    { stage: "settled", status: "succeeded", result: { outcome: "succeeded" } }, { attempt: second.attempt }),
+  (error) => error.code === "attempt_stale");
+});
+
+// REV-3: independent handles sharing managed storage must reject one conflicting writer, so an
+// accepted revision is never silently overwritten by another read-validate-replace sequence.
+test("two handles accept exactly one transition for the same revision", async () => {
+  const { store, directory } = await freshStore();
+  const other = await createProjectOperationStore({ directory });
+  const { operation } = await store.register({ requestKey: "cas", kind: "add", root: "/srv/cas" });
+  const claimed = await store.claimAttempt(operation.operation_id);
+  const results = await Promise.allSettled([store, other].map((handle) =>
+    handle.transition(operation.operation_id, claimed.revision, { stage: "committed" }, { attempt: claimed.attempt })));
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  const rejected = results.find((result) => result.status === "rejected");
+  assert.equal(rejected.reason.code, "revision_stale");
+  const persisted = await other.load(operation.operation_id);
+  assert.equal(persisted.revision, claimed.revision + 1);
+  assert.equal(persisted.stage, "committed");
+});
+
 // AC-7: every stage change is one atomic snapshot file; a terminal transition without its result
 // in the same write is refused, and no temporary residue is observable after success.
 test("snapshot persistence is atomic and final outcome cannot be split from the stage", async () => {
   const { directory, store } = await freshStore();
   const { operation } = await store.register({ requestKey: "req-5", kind: "add", root: "/srv/app" });
   const claimed = await store.claimAttempt(operation.operation_id);
-  const committed = await store.transition(operation.operation_id, claimed.revision, { stage: "committed" });
-  await assert.rejects(store.transition(operation.operation_id, committed.revision, { stage: "settled", status: "succeeded" }),
+  const execution = { attempt: claimed.attempt };
+  const committed = await store.transition(operation.operation_id, claimed.revision, { stage: "committed" }, execution);
+  await assert.rejects(store.transition(operation.operation_id, committed.revision, { stage: "settled", status: "succeeded" }, execution),
     (error) => error.code === "terminal_requires_result");
   const settled = await store.transition(operation.operation_id, committed.revision, {
     stage: "settled", status: "succeeded", result: { outcome: "succeeded", root: "/srv/app" }
-  });
+  }, execution);
   assert.equal(settled.stage, "settled");
   assert.equal(settled.result.outcome, "succeeded");
   assert.ok(settled.timestamps.settled_at);
@@ -164,15 +208,16 @@ test("throttling keeps final state and watcher disconnect never cancels", async 
   const { store } = await freshStore();
   const { operation } = await store.register({ requestKey: "req-6", kind: "add", root: "/srv/app" });
   let current = await store.claimAttempt(operation.operation_id);
+  const execution = { attempt: current.attempt };
   // Client polls with throttled reads that may miss intermediate stages entirely.
   const poller = (async () => {
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 5));
     return store.load(operation.operation_id);
   })();
-  current = await store.transition(operation.operation_id, current.revision, { stage: "committed" });
+  current = await store.transition(operation.operation_id, current.revision, { stage: "committed" }, execution);
   const final = await store.transition(operation.operation_id, current.revision, {
     stage: "settled", status: "succeeded", result: { outcome: "succeeded", root: "/srv/app" }
-  });
+  }, execution);
   // A throttled poll may observe the intermediate or the final stage, but the final outcome is
   // always present afterwards — no stage change and no terminal result is ever lost.
   const polled = await poller;
