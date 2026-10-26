@@ -73,19 +73,31 @@ test("direct processing replaces legacy vectors and records complete input witho
   assert.equal(database.all("SELECT content_checksum FROM symbol_embeddings")[0].content_checksum, purposeSummaryInput(summary).checksum);
 });
 
-test("worker retains full summary and exposes failed input through durable status", async (t) => {
+test("worker retains full summary, exposes rejection and excludes unreplaced legacy vectors", async (t) => {
   const { database, source, summary } = await fixture(t);
   const jobs = createEmbeddingJobStore({ database });
   writer(database, { embeddingJobs: jobs }).indexContent("f", "orders.js", source);
   await Promise.resolve();
+  const store = createEmbeddingStore({ database });
+  store.upsert({ symbolId: "s", vector: [1, 0], model: "same-model", checksum: "djb2:legacy" });
+  store.upsert({ symbolId: "missing", vector: [1, 0], model: "same-model", checksum: "djb2:legacy" });
+  assert.deepEqual(store.search([1, 0], { model: "same-model" }), []);
+  assert.deepEqual(store.search([1, 0]), []);
   const worker = createEmbeddingWorker({ database, jobs, model: "same-model", maxAttempts: 1,
-    embeddingStore: createEmbeddingStore({ database }),
+    embeddingStore: store,
     embeddingProvider: { embed: async (content) => { assert.equal(content, summary); throw new Error("input rejected"); } } });
   await worker.runOnce();
   assert.equal(jobs.counts().failed, 1);
   assert.match(database.all("SELECT last_error FROM embedding_jobs")[0].last_error, /input rejected/);
   assert.equal(database.all("SELECT summary FROM symbols WHERE symbol_id = 's'")[0].summary, summary);
-  assert.equal(database.all("SELECT * FROM symbol_embeddings").length, 0);
+  assert.equal(database.all("SELECT * FROM symbol_embeddings").length, 2);
+  assert.deepEqual(store.search([1, 0], { model: "same-model" }), []);
+  assert.deepEqual(store.search([1, 0]), []);
+  store.upsert({ symbolId: "s", vector: [1, 0], model: "same-model", checksum: purposeSummaryInput(summary).checksum });
+  assert.deepEqual(store.search([1, 0], { model: "same-model" }), [{ path: "orders.js", score: 1 }]);
+  assert.deepEqual(store.search([1, 0]), [{ path: "orders.js", score: 1 }]);
+  database.run("UPDATE symbols SET summary = NULL WHERE symbol_id = 's'");
+  assert.deepEqual(store.search([1, 0], { model: "same-model" }), []);
 });
 
 test("startup reconciles old contract vectors for an unchanged model", async (t) => {
