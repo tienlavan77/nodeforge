@@ -30,7 +30,7 @@ import { createConversationCrudService } from "../src/application/conversation-c
 import { createTicketSprintLeader } from "../src/application/ticket-sprint-leader.js";
 import { createSprintPlanLeader } from "../src/application/sprint-plan-leader.js";
 import { createTicketFileStore } from "../src/application/ticket-file-store.js";
-import { createSprintLeaderToolOptions } from "../src/tools/sprint-leader-forge-tools.js";
+import { createSprintLeaderToolOptions, createSprintLeaderForgeTools } from "../src/tools/sprint-leader-forge-tools.js";
 import { ConfigurationError } from "../src/shared/errors.js";
 import { createAgentExecutionActivity, createAgentActivityLogger } from "../src/application/agent-execution-activity.js";
 
@@ -50,13 +50,20 @@ export function createControlApiPlatform({ config, database, indexDb, fileServic
   const sprintLeaderLogger = createSprintLeaderLogger(logEvent);
   const sprintLeaderToolLogger = createRuntimeLogger({ logEvent: createAgentActivityLogger({ logEvent, executionActivity }), source: "sprint-leader-forge-tools" });
   const codeCache = createCodeCacheService({ projectId, fileService, codeSearch, logger: sprintLeaderToolLogger.emit });
-  const toolOptions = ({ agentId, correlationId, discoveredPaths }) => {
+  const toolOptions = ({ agentId, correlationId, discoveredPaths, readReceipts }) => {
     const profile = agentRoleResolver.resolveProfile("sprint_leader");
     if (profile.agent_id !== agentId) throw new ConfigurationError("Sprint Leader profile changed before tool dispatch.");
-    return createSprintLeaderToolOptions({ profile, correlationId, discoveredPaths, projectRoot, fileService, codeCache, codeSearch, projectLogger: sprintLeaderToolLogger.emit });
+    return createSprintLeaderToolOptions({ profile, correlationId, discoveredPaths, readReceipts, projectRoot, fileService, codeCache, codeSearch, projectLogger: sprintLeaderToolLogger.emit });
+  };
+  /** Creates a governed metadata reader for repairing retained planning drafts
+   * without invoking an agent or granting additional repository permissions. */
+  const evidenceTools = ({ agentId, correlationId, readReceipts }) => {
+    const profile = agentRoleResolver.resolveProfile("sprint_leader");
+    if (profile.agent_id !== agentId) throw new ConfigurationError("Sprint Leader profile changed before evidence repair.");
+    return createSprintLeaderForgeTools({ profile, correlationId, readReceipts, projectRoot, fileService, codeCache, codeSearch, projectLogger: sprintLeaderToolLogger.emit });
   };
   const ticketSprintLeader = sprintPlanSdkGateway ? createTicketSprintLeader({ sdkGateway: sprintPlanSdkGateway, projectRoot, toolOptions, logger: sprintLeaderLogger }) : undefined;
-  const sprintPlanLeader = sprintPlanSdkGateway ? createSprintPlanLeader({ sdkGateway: sprintPlanSdkGateway, projectRoot, toolOptions, logger: sprintLeaderLogger }) : undefined;
+  const sprintPlanLeader = sprintPlanSdkGateway ? createSprintPlanLeader({ sdkGateway: sprintPlanSdkGateway, projectRoot, toolOptions, evidenceTools, logger: sprintLeaderLogger }) : undefined;
   const communications = createAgentCommunicationStore({ database, fileService });
   const conversations = createConversationCrudService({ database });
   const bus = createAgentCommunicationBus({ store: communications });

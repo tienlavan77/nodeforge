@@ -52,6 +52,22 @@
       "required": ["objective", "criterion_ids", "decision_refs", "remaining_work", "expected_outputs"],
       "properties": {"objective": {"$ref": "#/$defs/text"}, "criterion_ids": {"$ref": "#/$defs/texts"}, "decision_refs": {"$ref": "#/$defs/refs"}, "remaining_work": {"$ref": "#/$defs/texts"}, "expected_outputs": {"$ref": "#/$defs/texts"}}
     },
+    "work_progress": {
+      "$comment": "A completed SDK turn can yield progress to Node without claiming ticket completion or additional authority.",
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "next_action", "summary", "remaining_work"],
+      "properties": {
+        "status": {"enum": ["discovery_complete", "implementation_complete", "verification_complete"]},
+        "next_action": {"enum": ["implement", "verify", "report"]},
+        "summary": {"type": "string", "minLength": 1, "maxLength": 1000, "pattern": "\\S"},
+        "remaining_work": {"type": "array", "minItems": 1, "maxItems": 8, "items": {"type": "string", "minLength": 1, "maxLength": 500, "pattern": "\\S"}}
+      },
+      "allOf": [
+        {"if": {"properties": {"status": {"const": "discovery_complete"}}}, "then": {"properties": {"next_action": {"const": "implement"}}}},
+        {"if": {"properties": {"status": {"const": "implementation_complete"}}}, "then": {"properties": {"next_action": {"const": "verify"}}}},
+        {"if": {"properties": {"status": {"const": "verification_complete"}}}, "then": {"properties": {"next_action": {"const": "report"}}}}
+      ]
+    },
     "work_result": {
       "type": "object",
       "additionalProperties": false,

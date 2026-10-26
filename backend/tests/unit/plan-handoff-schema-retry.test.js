@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { createDatabaseService } from "../../src/infrastructure/sqlite/database-service.js";
 import { createPlanHandoffService } from "../../src/application/plan-handoff-service.js";
 import { createSprintOrchestrationService } from "../../src/application/sprint-orchestration-service.js";
+import { repairSprintContractEvidence } from "../../src/modules/governance/sprint-contract-evidence.js";
 
 const markdown = "# Plan: API\n\n## 5. Outcomes\n| Mã | Outcome | Acceptance criteria | Guardrail |\n| --- | --- | --- | --- |\n| O1 | Publish API | Approved API works | No RUN |\n\n## 6. Risks\nAssumption: review before execution.";
 
@@ -18,7 +19,7 @@ function candidate(components = ["API — validate requests"]) {
 }
 
 // Combines durable SQLite handoff receipts with the production ingestion validator and tracked immutable drafting.
-async function fixture(context, requestPlan, storageFailures = 0) {
+async function fixture(context, requestPlan, storageFailures = 0, repairContractEvidence) {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-schema-retry-"));
   const database = await createDatabaseService({ dataDir: root, runtimeDir: "." });
   context.after(async () => { await database.close(); await rm(root, { recursive: true, force: true }); });
@@ -41,7 +42,7 @@ async function fixture(context, requestPlan, storageFailures = 0) {
   const service = createPlanHandoffService({ projectId: plan.project_id, database, sprintRegistry, agentRoleResolver,
     markdownPlanStore: { assertApproved: async () => plan },
     planStore: { assertExecutable: async () => ({}), getRevision: async () => ({ project_id: plan.project_id, sprint_id: "SPRINT-SCHEMA", sha256: "child-digest", file_path: "child.json", proposal_id: `${plan.plan_id}-R1-${plan.sha256}` }) },
-    sprintPlanLeader: { requestPlan: async (input) => { requests.push(input); return requestPlan(requests.length, input); } },
+    sprintPlanLeader: { repairContractEvidence, requestPlan: async (input) => { requests.push(input); return requestPlan(requests.length, input); } },
     sprintOrchestration: orchestration,
   });
   return { service, plan, requests, drafts, events, database, receipt: () => database.all("SELECT * FROM markdown_plan_handoffs WHERE plan_id=?", [plan.plan_id])[0] };
@@ -159,4 +160,39 @@ test("invalid viewport repairs remain blocked across owner retries", async (cont
     assert.equal(state.drafts.length, 0);
     assert.deepEqual(JSON.parse(state.receipt().generated_json).tickets[0].acceptance_criteria, ["Approved API works"]);
   }
+});
+
+// A pre-existing malformed checksum is repaired in place before real schema ingestion, without replanning or RUN.
+test("retained contract checksum failure resumes the same draft through ingestion", async (context) => {
+  const reads = [];
+  const state = await fixture(context, () => assert.fail("Must reuse the retained draft"), 0, ({ plan }) => repairSprintContractEvidence(plan, { readFile: async (path) => {
+    reads.push(path); return { path, sha256: `sha256:${"c".repeat(64)}` };
+  } }));
+  const frozen = candidate();
+  frozen.tickets[0].execution_policy = { requires_existing_contract: true, contract_evidence: [{ path: "backend/src/example.js", sha256: "e".repeat(65), authority_quote: "Preserve the approved source contract" }] };
+  state.database.run("INSERT INTO markdown_plan_handoffs(plan_id,revision,project_id,sha256,status,sprint_id,generated_json,error_code,error_message,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)", [state.plan.plan_id, 1, state.plan.project_id, state.plan.sha256, "generated", frozen.id, JSON.stringify(frozen), "SPRINT_PLAN_HANDOFF_FAILED", 'Sprint Leader returned invalid sprint plan: /tickets/0/execution_policy/contract_evidence/0/sha256 must match pattern "^[a-f0-9]{64}$"', new Date().toISOString()]);
+  const result = await state.service.handoff({ plan: state.plan });
+  assert.equal(result.status, "handed_to_sprint_leader");
+  assert.deepEqual(reads, ["backend/src/example.js"]);
+  assert.equal(state.requests.length, 0); assert.equal(state.drafts.length, 1);
+  const persisted = JSON.parse(state.receipt().generated_json);
+  const expected = structuredClone(frozen); expected.tickets[0].execution_policy.contract_evidence[0].sha256 = "c".repeat(64);
+  expected.tickets[0].coverage = persisted.tickets[0].coverage;
+  assert.deepEqual(persisted, expected);
+  assert.equal(state.receipt().error_code, null); assert.equal(state.receipt().status, "completed");
+  assert.equal((await state.service.handoff({ plan: state.plan })).replayed, true);
+  assert.equal(reads.length, 1);
+});
+
+// Authorized read failures leave the legacy candidate intact and never fall back to invented hashes or replanning.
+test("forbidden contract evidence cannot change a retained handoff", async (context) => {
+  const state = await fixture(context, () => assert.fail("Must not replan"), 0, ({ plan }) => repairSprintContractEvidence(plan, { readFile: async () => {
+    throw Object.assign(new Error("Forbidden source"), { code: "FILE_ROLE_FORBIDDEN" });
+  } }));
+  const frozen = candidate();
+  frozen.tickets[0].execution_policy = { contract_evidence: [{ path: "backend/secrets/token.js", sha256: "invalid", authority_quote: "Keep the approved source scope" }] };
+  state.database.run("INSERT INTO markdown_plan_handoffs(plan_id,revision,project_id,sha256,status,generated_json,updated_at) VALUES (?,?,?,?,?,?,?)", [state.plan.plan_id, 1, state.plan.project_id, state.plan.sha256, "candidate", JSON.stringify(frozen), new Date().toISOString()]);
+  await assert.rejects(state.service.handoff({ plan: state.plan }), { code: "FILE_ROLE_FORBIDDEN" });
+  assert.deepEqual(JSON.parse(state.receipt().generated_json), frozen);
+  assert.equal(state.requests.length, 0); assert.equal(state.drafts.length, 0);
 });

@@ -47,6 +47,7 @@ export function createCodexSdkGateway({
     let streamError = null;
     let terminalFailure;
     let ended = false; let structuredFailure;
+    let turnCompleted = false;
     const terminal = createCodexSdkLog({ profile: { ...profile, model: options.model ?? profile.model }, correlationId, credential, output: terminalOutput });
     try {
       mcpSession = options.forgeTools ? await createCodexForgeMcpSession(options.forgeTools) : null;
@@ -138,6 +139,7 @@ export function createCodexSdkGateway({
           items.push(event.item);
           if (event.item?.type === "agent_message") finalResponse = event.item.text ?? finalResponse;
         } else if (event.type === "turn.completed") {
+          turnCompleted = true;
           usage = event.usage ?? null;
         } else if (event.type === "turn.failed") {
           turnFailure = event.error?.message ?? "Codex turn failed.";
@@ -154,6 +156,7 @@ export function createCodexSdkGateway({
         role: profile.role,
         correlation_id: correlationId,
         status: "completed",
+        turn_completed: turnCompleted && !streamError,
         text: finalResponse,
         items,
         usage,

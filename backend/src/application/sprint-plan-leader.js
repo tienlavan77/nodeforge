@@ -7,12 +7,24 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { invalidSprintTicketPriorities, repairSprintTicketPriorities, TICKET_PRIORITY_VALUES } from "../modules/governance/sprint-ticket-priority.js";
 import { normalizeSprintVerificationNotes, SPRINT_VERIFICATION_STEP_FIELDS } from "../modules/governance/sprint-verification-notes.js";
+import { repairSprintContractEvidence } from "../modules/governance/sprint-contract-evidence.js";
 
 const RULES_PATH = "workflows/agents/sprint-leader/README.md";
 
 // Creates a runner that asks the sprint leader for one sprint plan with codebase search.
-export function createSprintPlanLeader({ sdkGateway, projectRoot, toolOptions, logger = { error: console.error } } = {}) {
-  return Object.freeze({ requestPlan });
+export function createSprintPlanLeader({ sdkGateway, projectRoot, toolOptions, evidenceTools, logger = { error: console.error } } = {}) {
+  return Object.freeze({ requestPlan, repairContractEvidence });
+
+  /** Repairs source metadata in a retained draft without replaying the planning
+   * SDK or changing its scope. A separate Forge session preserves read authority
+   * and bounded retrieval when no original request receipt remains available. */
+  async function repairContractEvidence({ plan, agentId, correlationId, readReceipts = new Map() }) {
+    let tools;
+    return repairSprintContractEvidence(plan, { readReceipts, readFile: async (path) => {
+      tools ??= evidenceTools?.({ agentId, correlationId: `${correlationId}-CONTRACT-EVIDENCE`, readReceipts });
+      return tools?.registry?.read_file?.execute({ path, offset: 1, limit: 1 });
+    } });
+  }
 
   // Asks the leader to draft one sprint plan, letting it search the codebase first.
   async function requestPlan({ projectId, agentId, brief, feedback, correlationId }) {
@@ -20,9 +32,10 @@ export function createSprintPlanLeader({ sdkGateway, projectRoot, toolOptions, l
     const rules = await readFile(join(projectRoot ?? process.cwd(), RULES_PATH), "utf8");
     const prompt = buildPlanPrompt({ projectId, brief, feedback, rules });
     const discoveredPaths = new Set();
+    const readReceipts = new Map();
     const stopProgress = startSprintLeaderProgress({ logger, kind: "sprint_plan", agentId, correlationId });
     try {
-      const options = toolOptions ? toolOptions({ agentId, correlationId, discoveredPaths }) : { tools: [] };
+      const options = toolOptions ? toolOptions({ agentId, correlationId, discoveredPaths, readReceipts }) : { tools: [] };
       const result = await sdkGateway.execute({
         agentId,
         prompt,
@@ -37,6 +50,7 @@ export function createSprintPlanLeader({ sdkGateway, projectRoot, toolOptions, l
           prompt: `${prompt}\n\nPriority-only repair of the frozen Sprint draft below. Change ONLY invalid ticket priority fields to string values ${TICKET_PRIORITY_VALUES.join("|")}. Numeric priorities have no defined mapping: select the appropriate priority from the approved scope yourself. Preserve all Sprint/ticket IDs, ticket order, acceptance criteria, verification plans, dependencies, file budgets and every other field exactly. Return the full JSON draft. This is the only automatic repair attempt.\n${JSON.stringify(draft)}` });
         draft = repairSprintTicketPriorities(draft, extractTicketJson(typeof repaired?.text === "string" ? repaired.text : collectText(repaired?.messages)));
       }
+      draft = await repairContractEvidence({ plan: draft, agentId, correlationId, readReceipts });
       stopProgress(draft ? "success" : "failed", { plan_id: draft?.id ?? null, ticket_count: draft?.tickets?.length ?? 0, discovered_paths: discoveredPaths.size });
       return draft;
     } catch (error) {
@@ -82,7 +96,7 @@ function buildPlanPrompt({ projectId, brief, feedback, rules }) {
     "human_plan MUST contain outcome, in_scope, out_of_scope, approach, components, risks, assumptions, open_questions, evidence_refs, and acceptance_criteria. components MUST be an array of nonempty strings describing affected components, e.g. [\"backend API — validate plans\"], NEVER objects. risks, assumptions, open_questions, evidence_refs and acceptance_criteria MUST also be arrays of nonempty strings (risks, assumptions and open_questions may be empty). Do not include additional properties at the root or in human_plan; outcome_coverage is not a Sprint Plan schema field. For a components representation repair, change ONLY human_plan.components and preserve every ticket and all other fields exactly. in_scope, out_of_scope and approach may be a nonempty string or an array of nonempty strings. evidence_refs MUST be an array of nonempty strings, not objects. Provide concrete reviewable statements and at least one evidence reference. Cite only facts in the sprint brief or context actually inspected; never invent files or architecture decisions. State unknowns in open_questions.",
     "For outcome-based approved Markdown, every ticket MUST include outcome_refs and a coverage object for each referenced outcome. coverage[O#].criterion_refs MUST copy every approved acceptance criterion for that outcome verbatim, coverage[O#].guardrail_refs MUST copy every approved guardrail verbatim, and coverage[O#].dependency_refs MUST copy every mandatory dependency. Do not omit a guardrail because it is inconvenient; the Node admission gate checks all three lists.",
     "Owner policy decisions are recorded in the approved Architecture plan's Owner decisions section. Consume those exact policies when creating Sprint scope, tickets, dependencies and verification_plan. Do not create human_plan.decision_requests or ask the owner to select options again. Decide delegated implementation details yourself. For a criterion whose only prerequisite is an already recorded owner policy, use kind governance; implementation behavior still needs test/browser evidence. Do not defer policy choices with kind human or open_questions. If authority is genuinely unresolved or contradictory, report ARCHITECTURE_REPLAN_REQUIRED rather than invent approval, change the owner's decision or dispatch work.",
-    "When approved scope requires reusing an existing management/public contract and forbids inventing one, set execution_policy.requires_existing_contract=true. Populate execution_policy.contract_evidence only from inspected source: [{path,sha256,authority_quote}], with a full-file SHA-256 and an exact approved-scope quote of at least 20 characters. If evidence is missing leave the array empty; Node routes discovery to SL/Architecture before Coder, not a blind implementation attempt. Never invent evidence or approval.",
+    "When approved scope requires reusing an existing management/public contract and forbids inventing one, set execution_policy.requires_existing_contract=true. Populate execution_policy.contract_evidence only from inspected source: [{path,sha256,authority_quote}], with a full-file SHA-256 and an exact approved-scope quote of at least 20 characters. Copy sha256 from Forge read_file/read_lines metadata, removing only the sha256: prefix; the JSON field must contain exactly 64 lowercase hexadecimal characters. Never compute a hash from a truncated source window or indexed_sha256, or reconstruct a digest from memory. If evidence is missing leave the array empty; Node routes discovery to SL/Architecture before Coder, not a blind implementation attempt. Never invent evidence or approval.",
     "Create a unique stable TICKET-* id for every ticket. Dependencies must refer only to ticket IDs in this Sprint Plan. Do not include candidate_files or candidate metadata; the Coder discovers implementation paths. Do not include ticket project_id, roadmap_id, sprint_id, status, last_error, or provenance; Node assigns provenance fields.",
     "If approved Markdown Section 5 contains numbered work groups, return one ticket per work group in order; Node binds the approved ticket scope. If Section 5 contains O1/O2 outcome rows, independently split or combine work into scoped tickets and include outcome_refs with approved outcome IDs on every ticket. Cover every outcome and its acceptance criteria without weakening them; preserve guardrails and real dependencies. Node checks explicit outcome coverage and human review checks semantic coverage. Do not add file candidates; the Coder discovers implementation paths. Do not reinterpret the approved business scope.",
     feedback ? `Previous validation feedback: ${feedback}` : undefined,
