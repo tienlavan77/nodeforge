@@ -1,0 +1,23 @@
+{
+  "operation_id": "OPRO-recovery-example-0001",
+  "request_key": "req-2026-10-26-add-frontend",
+  "request_fingerprint": "9f2c3a1e77b0d4a25c1f8b3e6d0a7c24f19e8b5d3a7c6042f18e9d5b3a7c0462",
+  "kind": "add",
+  "root": "/srv/projects/frontend",
+  "project_id": "PROJECT-frontend-01",
+  "attempt": 1,
+  "revision": 4,
+  "stage": "settled",
+  "status": "succeeded",
+  "counters": { "transitions": 4, "attempts": 1 },
+  "timestamps": {
+    "created_at": "2026-10-26T06:00:00.000Z",
+    "updated_at": "2026-10-26T06:00:05.000Z",
+    "settled_at": "2026-10-26T06:00:05.000Z"
+  },
+  "result": {
+    "outcome": "succeeded",
+    "project_id": "PROJECT-frontend-01",
+    "root": "/srv/projects/frontend"
+  }
+}
