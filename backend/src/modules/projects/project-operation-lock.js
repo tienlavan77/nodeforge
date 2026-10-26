@@ -1,24 +1,16 @@
 // Crash-safe compare-and-swap lock shared by every store handle on one directory.
-// Business purpose: optimistic revision control for durable lifecycle snapshots is only sound when
-// the complete read-validate-replace of a mutation is serialized across processes, because two
-// workers that each open their own store handle on the same managed-storage directory could
-// otherwise both read revision N, both pass an expectedRevision=N check, and both replace the
-// snapshot at revision N+1, silently losing the first accepted update. Technical description: the
-// lock is a single wx-created file inside the store directory containing the holder pid and an ISO
-// acquisition timestamp. A contending writer waits and retries with a bounded budget; once the
-// acquisition timestamp is older than the stale threshold it is treated as crash residue and
-// replaced. A process may hold at most one lock at a time, and all store mutations run through one
-// in-memory queue, so contention between two handles never deadlocks the same process against
-// itself; takeover only fires after the full stale window, by which time a live holder has
-// finished. The lock path is returned so the caller unlinks exactly the file it created.
-import { readFile, unlink, writeFile } from "node:fs/promises";
+// Business purpose: preserve accepted lifecycle revisions across concurrent writers and restarts.
+// Technical description: Lamport bakery tickets order uniquely named contenders. A contender
+// publishes its choosing record before scanning tickets, then scans participants again before
+// entering. Dead processes are ignored; elapsed time never revokes a live writer. Each holder
+// removes only its own UUID pathname, so concurrent cleanup cannot delete a successor's lock.
+import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
 const ACQUIRE_BUDGET_MS = 5000;
-const STALE_AFTER_MS = 2000;
-const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
 
-// Acquires the directory lock and runs `fn` while holding it, always releasing the lock afterwards.
+// Acquires the directory lock and runs fn while holding it, always releasing its unique record.
 export async function withCasLock(root, fn) {
   const path = await acquireCasLock(root);
   try {
@@ -28,54 +20,103 @@ export async function withCasLock(root, fn) {
   }
 }
 
-// Waits for exclusive wx-creation of the lock file; stale residue from a crashed holder is
-// unlinked and raced for again, and exhaustion of the budget surfaces a retryable store_busy.
+// Publishes a choosing record before assigning a bakery ticket. The second participant scan
+// includes every contender that could choose an equal or lower ticket; later arrivals see ours.
 async function acquireCasLock(root) {
-  const path = join(root, ".cas.lock");
+  const directory = join(root, ".cas-locks");
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const id = `${process.pid}-${randomUUID()}.json`;
+  const path = join(directory, id);
   const deadline = Date.now() + ACQUIRE_BUDGET_MS;
-  for (;;) {
-    try {
-      await writeFile(path, `${JSON.stringify({ pid: process.pid, acquired_at: new Date().toISOString() })}\n`, { flag: "wx", mode: 0o600 });
-      return path;
-    } catch (error) {
-      if (error.code !== "EEXIST") throw error;
-      if (await reclaimStaleLock(path, Date.now())) continue;
-      if (Date.now() >= deadline) {
-        throw Object.assign(new Error(`The operation store lock at ${path} stayed busy.`), { code: "store_busy", retryable: true });
-      }
-      await delay(1 + Math.floor(Math.random() * 5));
-    }
-  }
-}
-
-// Removes the lock only after reading proof it was acquired past the stale window; unparseable or
-// partially written residue counts as stale because a live holder always writes a complete record
-// before waiting writers can observe it.
-async function reclaimStaleLock(path, now) {
-  let record;
+  await writeFile(path, "0", { flag: "wx", mode: 0o600 });
   try {
-    record = JSON.parse(await readFile(path, "utf8"));
+    // Older implementations used one shared pathname. Never overlap a surviving old writer.
+    await waitForLegacyLock(root, deadline);
+    let ticket = 1;
+    for (const other of await readdir(directory)) {
+      const value = await readTicket(directory, other);
+      if (value !== null) ticket = Math.max(ticket, value + 1);
+    }
+    await writeFile(`${path}.tmp`, String(ticket), { flag: "wx", mode: 0o600 });
+    await rename(`${path}.tmp`, path);
+    for (const other of await readdir(directory)) {
+      if (other === id || !other.endsWith(".json")) continue;
+      for (;;) {
+        const value = await readTicket(directory, other);
+        if (value === null || (value > 0 && (value > ticket || (value === ticket && other > id)))) break;
+        await waitForContender(deadline);
+      }
+    }
+    return path;
   } catch (error) {
-    if (!(error instanceof SyntaxError) && error.code !== "ENOENT") throw error;
-    return false;
+    await releaseCasLock(path);
+    throw error;
   }
-  const acquiredAt = typeof record?.acquired_at === "string" && ISO_TIME.test(record.acquired_at) ? Date.parse(record.acquired_at) : 0;
-  if (!acquiredAt || now - acquiredAt <= STALE_AFTER_MS) return false;
-  await unlink(path).catch((error) => {
-    if (error.code !== "ENOENT") throw error;
-  });
-  return true;
 }
 
-// Deletes the lock file this process created; absence already means released.
+// Reads a participant only while its process may still execute. UUID paths are never reused,
+// making dead-record removal safe even when several contenders observe the same crashed owner.
+async function readTicket(directory, id) {
+  if (!/^\d+-[a-f0-9-]+\.json$/.test(id)) return null;
+  const path = join(directory, id);
+  if (!isProcessAlive(Number(id.split("-")[0]))) {
+    await releaseCasLock(path);
+    return null;
+  }
+  try {
+    const raw = await readFile(path, "utf8");
+    const value = Number(raw);
+    return raw.trim() && Number.isSafeInteger(value) && value >= 0 ? value : 0;
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+// Uses only definite process death as recovery evidence. PID reuse and permission failures
+// conservatively retain ownership rather than admitting overlapping snapshot writers.
+function isProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error.code === "ESRCH") return false;
+    throw error;
+  }
+}
+
+// Preserves exclusivity during upgrade from the previous shared-file protocol; unknown or
+// malformed legacy owners fail closed and require operator inspection rather than unsafe reuse.
+async function waitForLegacyLock(root, deadline) {
+  for (;;) {
+    let record;
+    try {
+      record = JSON.parse(await readFile(join(root, ".cas.lock"), "utf8"));
+    } catch (error) {
+      if (error.code === "ENOENT") return;
+      if (!(error instanceof SyntaxError)) throw error;
+    }
+    if (Number.isSafeInteger(record?.pid) && record.pid > 0 && !isProcessAlive(record.pid)) return;
+    await waitForContender(deadline);
+  }
+}
+
+// Deletes only a uniquely owned participant pathname; no holder ever releases a shared path.
 async function releaseCasLock(path) {
   await unlink(path).catch((error) => {
     if (error.code !== "ENOENT") throw error;
   });
 }
 
-// Yields the event loop between lock polls; the wait is intentionally short so contending
-// transitions resolve well below the stale threshold.
+// Bounds acquisition waiting without treating timeout as permission to revoke another writer.
+async function waitForContender(deadline) {
+  if (Date.now() >= deadline) {
+    throw Object.assign(new Error("The operation store lock stayed busy."), { code: "store_busy", retryable: true });
+  }
+  await delay(5);
+}
+
+// Yields between participant probes so other handles can publish and release their tickets.
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
