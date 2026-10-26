@@ -65,7 +65,8 @@ window.fetch=async(input,init={})=>{
   if(url.pathname.endsWith('/decisions')){window.decisionResult={revision:revision.revision,sha256:body.sha256,decision:body.decision,decision_id:body.decision_id};return Response.json({ok:true,revision:revision.revision,sha256:revision.sha256,decision:body.decision});}
   if(url.pathname.endsWith('/handoff')){window.handoffResult={revision:revision.revision,sha256:body.sha256};return Response.json({status:'handed_to_sprint_leader',sprint_id:'SPRINT-BROWSER',plan_handoff:true,run_started:false});}
   if(url.pathname.endsWith('/plans'))return Response.json([{plan_id:revision.plan_id,revision:revision.revision,project_id:revision.project_id,created_at:revision.created_at,format:'markdown'}]);
-  if(url.pathname.match(/\\\\/plans\\\\/[^/]+\\\\/\\\\d+$/u))return Response.json({...revision});
+  const segs=url.pathname.split('/');
+  if(segs.length===6&&segs[1]==='forge'&&segs[2]==='v1'&&segs[3]==='plans'&&Number.isInteger(Number(segs[5])))return Response.json({...revision});
   return Response.json({items:[]});
 };
 window.markdownRevisionObject=()=>(${JSON.stringify(markdownRevision())});
@@ -93,6 +94,12 @@ async function waitFor(page, predicate, label, argument) {
   catch (error) { throw new Error(`${label}: ${error.message}; ${await page.evaluate(() => JSON.stringify({ errors: window.errors, calls: window.calls.map((call) => `${call.method} ${call.path}`), decision: window.decisionResult, handoff: window.handoffResult, text: document.body.innerText.slice(0, 3000) }))}`); }
 }
 
+// True when a captured request path is the exact plan revision GET endpoint for the conversation plan.
+function isRevisionPath(path) {
+  const segments = String(path).split("/");
+  return segments.length === 6 && segments[1] === "forge" && segments[2] === "v1" && segments[3] === "plans" && segments[4] === PLAN_ID && Number.isInteger(Number(segments[5]));
+}
+
 // Loads the Coding plan review for the conversation-created Markdown revision.
 async function openPlanReview(page, origin) {
   await page.goto(origin);
@@ -106,7 +113,7 @@ export const browserAssertions = {
       body: document.querySelector("pre.plan-review-markdown")?.textContent ?? "",
       identity: document.querySelector(".plan-review-content")?.innerText ?? "",
       errors: window.errors,
-      revisionCalls: window.calls.filter((call) => /\/plans\/[^/]+\/\d+$/u.test(call.path)).map((call) => ({ path: call.path, project: call.query.project }))
+      revisionCalls: window.calls.filter((call) => { const s = call.path.split("/"); return s.length === 6 && s[3] === "plans"; }).map((call) => ({ path: call.path, project: call.query.project }))
     }));
     assert.deepEqual(shown.errors, [], "the real modal renders without page errors");
     assert.equal(shown.body, PLAN_MARKDOWN, "the displayed bytes equal the conversation-rendered plan.markdown exactly");
@@ -114,6 +121,7 @@ export const browserAssertions = {
     assert.match(shown.identity, /revision 1/u, "the displayed revision number matches the returned revision");
     assert.ok(shown.identity.includes(PLAN_SHA256), "the displayed SHA-256 equals the Node-rendered checksum");
     assert.equal(shown.revisionCalls.length, 1, "the modal loads the exact revision through the existing plan revision endpoint");
+    assert.ok(isRevisionPath(shown.revisionCalls[0].path));
     assert.equal(shown.revisionCalls[0].path, `/forge/v1/plans/${PLAN_ID}/1`);
     assert.equal(shown.revisionCalls[0].project, "PROJECT-BROWSER", "the revision read stays project-scoped");
   },
@@ -126,7 +134,7 @@ export const browserAssertions = {
     const evidence = await page.evaluate(() => ({
       decisions: window.calls.filter((call) => call.path.endsWith("/decisions")),
       handoffs: window.calls.filter((call) => call.path.endsWith("/handoff")),
-      run: window.calls.filter((call) => /:run|\/run$|\/code\/run|\/tickets\//u.test(call.path)),
+      run: window.calls.filter((call) => call.path.endsWith(":run") || call.path.endsWith("/run") || call.path.includes("/code/run") || call.path.includes("/tickets/")),
       decision: window.decisionResult, handoff: window.handoffResult, errors: window.errors,
       status: [...document.querySelectorAll("[role='status']")].map((element) => element.textContent).join(" | "),
       text: document.body.innerText
