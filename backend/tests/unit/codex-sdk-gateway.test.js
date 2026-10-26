@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
-import { dirname, delimiter, join } from "node:path";
+import { dirname, delimiter, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import process from "node:process";
 import test from "node:test";
-import { createCodexSdkGateway, normalizeBaseUrl } from "../../src/modules/agent/codex-sdk-gateway.js";
+import { normalizeBaseUrl } from "../../src/modules/agent/codex-sdk-gateway.js";
+import { createTestCodexSdkGateway as createCodexSdkGateway } from "../fixtures/codex-sdk-fixture.js";
+import { codexNodeRuntime } from "../../src/modules/agent/codex-shell-environment.js";
 
 // Keeps native permission profiles effective by omitting legacy sandbox CLI overrides.
 test("native permission profile omits legacy sandbox and network flags", async () => {
@@ -72,6 +74,7 @@ test("runs a ticket through Codex SDK with repository controls", async () => {
   });
   const result = await gateway.execute({ agentId: "codex-1", correlationId: "CORR-1", cwd: "/repo", prompt: "Implement ticket" });
   assert.equal(codexOptions.apiKey, "gateway-key");
+  assert.match(codexOptions.env.CODEX_HOME, /\/\.forge\/scratch\/codex-sdk-test-[^/]+\/codex-1$/);
   assert.equal(codexOptions.baseUrl, "https://gateway.test/v1");
   assert.equal(codexOptions.config.model_provider, "nodeforge");
   assert.equal(codexOptions.config.model_providers.nodeforge.supports_websockets, false);
@@ -173,7 +176,9 @@ test("does not leak the parent Codex session into the MCP child", async () => {
   assert.equal(codexOptions.env.KEEP_ME, "yes");
 });
 
-test("normalizes the active Node bin directory after Codex environment overrides", async () => {
+test("pins Node toolchain PATH in the Codex process and non-login shell after environment overrides", async (t) => {
+  const projectRoot = mkdtempSync(join(tmpdir(), "codex-path-test-"));
+  t.after(() => rmSync(projectRoot, { recursive: true, force: true }));
   let codexOptions;
   const gateway = createCodexSdkGateway({
     configuration: { getById: () => ({ agent_id: "codex-path", agent_name: "Codex Path", role: "coder", gateway_url: "https://gateway.test/v1", credential_ref: "secret", enabled: true, status: "ready" }) },
@@ -185,12 +190,16 @@ test("normalizes the active Node bin directory after Codex environment overrides
     }
   });
 
-  await gateway.execute({ agentId: "codex-path", correlationId: "CORR-PATH", prompt: "hello", options: { env: { PATH: ["/custom/bin", dirname(process.execPath)].join(delimiter) } } });
+  await gateway.execute({ agentId: "codex-path", correlationId: "CORR-PATH", cwd: projectRoot, prompt: "hello", options: { env: { PATH: ["/custom/bin", dirname(process.execPath)].join(delimiter) } } });
 
   const entries = codexOptions.env.PATH.split(delimiter);
-  assert.equal(entries[0], dirname(process.execPath));
+  assert.equal(entries[0], codexNodeRuntime().bin);
+  assert.equal(entries[0], codexOptions.config.shell_environment_policy.set.PATH.split(delimiter)[0]);
   assert.equal(entries.filter((entry) => entry === dirname(process.execPath)).length, 1);
   assert.equal(entries.includes("/custom/bin"), true);
+  assert.equal(codexOptions.config.allow_login_shell, false);
+  assert.equal(codexOptions.config.shell_environment_policy.experimental_use_profile, false);
+  assert.equal(codexOptions.config.shell_environment_policy.set.npm_config_cache, resolve(projectRoot, ".forge/runtime/nf/sdk-cache/npm"));
 });
 
 // Classifies an upstream model-channel outage as retryable without exposing gateway diagnostics.

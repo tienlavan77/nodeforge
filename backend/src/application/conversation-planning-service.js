@@ -49,10 +49,10 @@ export function createConversationPlanningService({ projectId, fileService, mark
     if (!trigger) throw decisionError("PLAN_TRIGGER_REQUIRED", "No standalone plan create trigger is present; the message stays normal conversation.");
     const planId = `PLAN-${projectId}-${randomUUID()}`;
     const intake = await retainConversationIntakeSource({ fileService, planId, intake: { schema_version: 1, project_id: projectId, conversation_id: conversationId, trigger, text: String(text ?? "") } });
-    const questions = parseArchitectureQuestions(String(await requestArchitecture(clarificationPrompt(text), conversationId) ?? "").trim());
-    const session = await sessions.create({ sourcePath: intake.path, sourceSha256: intake.sha256, conversationId, questions });
+    const questions = parseArchitectureQuestions(String(await requestArchitecture(clarificationPrompt(text), conversationId, { responseContentType: "text/plain" }) ?? "").trim());
+    const session = await sessions.create({ sourcePath: intake.path, sourceSha256: intake.sha256, conversationId, questions, generating: !questions.length });
     if (questions.length) return waitingForOwner(session);
-    return generate({ session, sourceText: text, planId });
+    return sessions.claim(session.session_id, (current, save) => generate({ session: current, sourceText: text, planId, save }));
   }
 
   // Merges one RFC 7396 update into the retained canonical base and locks the next revision.
@@ -91,7 +91,7 @@ export function createConversationPlanningService({ projectId, fileService, mark
   // the unchanged Architecture Plan schema, so malformed JSON, non-object patches, empty answers,
   // root null deletions and schema violations all fail here before anchor or Markdown writes.
   async function requestMergedPatch({ text, conversationId, baseBytes }) {
-    const patch = String(await requestArchitecture(updatePrompt(text, baseBytes), conversationId) ?? "").trim();
+    const patch = String(await requestArchitecture(updatePrompt(text, baseBytes), conversationId, { responseContentType: "text/plain" }) ?? "").trim();
     try { return mergeArchitecturePlanJSON(baseBytes, patch); }
     catch (error) {
       console.warn("Conversation plan update rejected before persistence", { code: error.code ?? "ARCHITECTURE_PLAN_JSON_INVALID", conversation_id: conversationId, reason: error.message });
@@ -121,8 +121,11 @@ export function createConversationPlanningService({ projectId, fileService, mark
     if (!ownerId) throw decisionError("PLAN_OWNER_UNAUTHORIZED", "Owner authentication is required to confirm planning choices.");
     return sessions.claim(sessionId, async (session, save) => {
       if (session.conversation_id !== conversationId || session.source_sha256 !== sourceSha256) throw decisionError("ARCHITECTURE_SESSION_STALE", "Clarification identity differs from the reviewed source or conversation.");
+      if (session.status === "completed" && (!session.questions.length || session.owner_id === ownerId && session.confirmation_version === expectedVersion)) return session.result;
+      if (session.status === "cancelled") throw decisionError("ARCHITECTURE_SESSION_STALE", "This planning request was cancelled.");
       const sourceText = await fileService.readFile({ path: session.source_path });
       if (!session.questions.length) return generate({ session, sourceText, planId: planIdFromIntakePath(session.source_path) ?? session.plan_id, save });
+      if (session.confirmation_version === expectedVersion && session.owner_id === ownerId && ["generation_failed", "generating"].includes(session.status)) return generate({ session, sourceText, planId: planIdFromIntakePath(session.source_path) ?? session.plan_id, save });
       if (session.version !== expectedVersion || !["awaiting_owner_decisions", "generation_failed"].includes(session.status)) throw decisionError("ARCHITECTURE_SESSION_STALE", "Reload the latest choices before confirming.");
       const confirmed = await save({ selections: architectureSelections(session.questions, session.selections), owner_id: ownerId, confirmed_at: new Date().toISOString(), confirmation_version: session.version });
       return generate({ session: confirmed, sourceText, planId: planIdFromIntakePath(confirmed.source_path) ?? confirmed.plan_id, save });
@@ -130,24 +133,32 @@ export function createConversationPlanningService({ projectId, fileService, mark
   }
 
   // Locks one revision: Node renders, appends authoritative decisions, then stores anchor-bound bytes.
-  async function generate({ session, sourceText, planId, save = null }) {
-    const existing = markdownPlanStore.list().find((entry) => entry.plan_id === planId);
-    if (existing) {
-      const plan = await markdownPlanStore.getRevision({ planId, revision: existing.revision });
-      const result = createdResult(plan, session);
-      if (save) await save({ status: "completed", result });
+  async function generate({ session, sourceText, planId, save }) {
+    try {
+      const existing = markdownPlanStore.list().find((entry) => entry.plan_id === planId);
+      if (existing) {
+        const plan = await markdownPlanStore.getRevision({ planId, revision: existing.revision });
+        const result = createdResult(plan, session);
+        await save({ status: "completed", result });
+        return result;
+      }
+      await sessions.source(session);
+      await save({ status: "generating", process_pid: process.pid, error_code: null });
+      const decisions = (session.questions ?? []).map((question) => ({ question: question.title, reason: question.reason, selected: question.options.find((option) => option.id === (session.selections ?? {})[question.id]), owner_note: session.notes?.[question.id] ?? "" }));
+      const raw = String(await requestArchitecture(generationPrompt(sourceText, decisions), session.conversation_id ?? "", { responseContentType: "text/plain" }) ?? "").trim();
+      const plan = parseArchitecturePlanJSON(raw);
+      await sessions.source(session);
+      const anchor = await retainConversationPlanSource({ fileService, planId, revision: 1, canonicalBytes: canonicalizeArchitecturePlanJSON(plan) });
+      const baseMarkdown = renderArchitecturePlanMarkdown({ plan, planId, revision: 1, sourceSha256: anchor.sha256 });
+      await validateMarkdown(baseMarkdown);
+      const stored = await markdownPlanStore.createRevision({ planId, expectedRevision: 0, markdown: appendArchitectureDecisions(baseMarkdown, session), summaryPath: anchor.path, summarySha256: anchor.sha256, conversationId: session.conversation_id ?? null });
+      const result = createdResult(stored, session);
+      await save({ status: "completed", result });
       return result;
+    } catch (error) {
+      await save({ status: "generation_failed", error_code: error.code ?? "PLAN_GENERATION_FAILED" });
+      throw error;
     }
-    const decisions = (session.questions ?? []).map((question) => ({ question: question.title, reason: question.reason, selected: question.options.find((option) => option.id === (session.selections ?? {})[question.id]), owner_note: session.notes?.[question.id] ?? "" }));
-    const raw = String(await requestArchitecture(generationPrompt(sourceText, decisions), session.conversation_id ?? "") ?? "").trim();
-    const plan = parseArchitecturePlanJSON(raw);
-    const anchor = await retainConversationPlanSource({ fileService, planId, revision: 1, canonicalBytes: canonicalizeArchitecturePlanJSON(plan) });
-    const baseMarkdown = renderArchitecturePlanMarkdown({ plan, planId, revision: 1, sourceSha256: anchor.sha256 });
-    await validateMarkdown(baseMarkdown);
-    const stored = await markdownPlanStore.createRevision({ planId, expectedRevision: 0, markdown: appendArchitectureDecisions(baseMarkdown, session), summaryPath: anchor.path, summarySha256: anchor.sha256, conversationId: session.conversation_id ?? null });
-    const result = createdResult(stored, session);
-    if (save) await save({ status: "completed", result });
-    return result;
   }
 
   // Saves explicit draft owner choices so an authenticated continuation can confirm them later.
@@ -177,7 +188,7 @@ function clarificationPrompt(sourceText) {
 
 // Builds the strict full-plan JSON instruction so only AM supplies plan content.
 function generationPrompt(sourceText, decisions) {
-  return `Architecture plan generation. Complete repository discovery first, then return ONLY one JSON object matching this shape: ${PLAN_JSON_SHAPE}. Do not return Markdown, prose, comments, approval claims, file writes or RUN claims. Every repository fact needs an evidence entry with a real path under backend/, schemas/, ui/, web/, docs/ or workflows/, and assumptions stay explicit. Apply ALL confirmed owner policies consistently and never re-ask them. Node alone validates, locks the revision and appends the authoritative owner decision record.${decisions?.length ? `\n\nConfirmed owner decisions:\n${JSON.stringify(decisions)}` : ""}\n\nOwner conversation:\n${sourceText}`;
+  return `Architecture plan generation. Complete repository discovery first, then return ONLY one JSON object matching this shape: ${PLAN_JSON_SHAPE}. Do not return Markdown, prose, comments, approval claims, file writes or RUN claims. Every repository fact needs an evidence entry with a real path under backend/, schemas/, ui/, web/, docs/ or workflows/, and assumptions stay explicit. Evidence location is optional; when present use positive source lines such as L17-L75 or L17-L75; L98-L106, never descriptive prose. Apply ALL confirmed owner policies consistently and never re-ask them. Node alone validates, locks the revision and appends the authoritative owner decision record.${decisions?.length ? `\n\nConfirmed owner decisions:\n${JSON.stringify(decisions)}` : ""}\n\nOwner conversation:\n${sourceText}`;
 }
 
 // Builds the RFC 7396 merge-patch instruction against the retained canonical base.

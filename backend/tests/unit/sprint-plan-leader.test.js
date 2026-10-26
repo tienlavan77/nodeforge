@@ -26,6 +26,8 @@ test("runner keeps only file references observed with Forge tools", async () => 
   assert.match(calls[0].prompt, /viewports:\[375,768,1440\]/);
   assert.match(calls[0].prompt, /fields are strictly limited to: criterion_ids, kind, test_path, scenario_path, assertions, viewports, notes/);
   assert.match(calls[0].prompt, /never description/);
+  assert.match(calls[0].prompt, /already approved Architecture handoff MUST NOT contain kind human/);
+  assert.match(calls[0].prompt, /never to substitute for missing behavioral proof/);
   assert.doesNotMatch(calls[0].prompt, /numeric viewports/);
   assert.match(calls[0].prompt, /components MUST be an array of nonempty strings/);
   assert.match(calls[0].prompt, /outcome_coverage is not a Sprint Plan schema field/);

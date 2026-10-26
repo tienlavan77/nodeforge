@@ -1,0 +1,39 @@
+# Runs real filesystem denial coverage on a disposable hosted runner, independently
+# of the project server. No production filesystem is resized or permissioned.
+name: Filesystem verification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  filesystem:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --filter nodeforge --filter @nodeforge/backend
+      - run: docker build -t nodeforge-filesystem-fixtures:node26 backend/test-environments/filesystem
+      - name: Run actual filesystem checks at the checked-out revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .forge/scratch
+          git rev-parse HEAD > .forge/scratch/filesystem-ci-revision.txt
+          node backend/scripts/verify-filesystem-environment.mjs 2>&1 | tee .forge/scratch/filesystem-ci-evidence.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: filesystem-verification-${{ github.sha }}
+          path: |
+            .forge/scratch/filesystem-ci-evidence.log
+            .forge/scratch/filesystem-ci-revision.txt

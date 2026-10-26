@@ -5,16 +5,17 @@
 // Safety model: a fixed KEEP allow-list of code-referenced state directories, a NEEDS-CONFIRM list
 // of orphaned directories reported but never auto-deleted, and conservative classification so an
 // unrecognized entry is preserved rather than removed.
-import { readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { RUNTIME_GROUPS, assertRuntimeAvailable, runtimeStoragePath } from "../src/infrastructure/filesystem/runtime-layout.js";
 
 const projectRoot = resolve(fileURLToPath(new URL("../../", import.meta.url)));
 const runtimeRoot = join(projectRoot, ".forge/runtime");
 
 // State directories referenced by src/ or required by the runtime; never deleted by this tool.
 const KEEP_DIRECTORIES = new Set([
-  "queues", "protocol-storage", "processed-requests", "agent-checkpoints", "reviewer-checkpoints",
+  ...Object.keys(RUNTIME_GROUPS), "queues", "protocol-storage", "processed-requests", "agent-checkpoints", "reviewer-checkpoints",
   "reports", "review-records", "review-dependency-reconciliation", "ticket-changes", "ticket-workspaces",
   "ticket-execution-contexts", "ticket-verification", "ticket-integrations", "ticket-root-commits",
   "ticket-pipeline-shadow", "automatic-review-locks", "evidence-mapping-recovery", "blocker-contract-decisions",
@@ -27,8 +28,10 @@ const KEEP_DIRECTORIES = new Set([
   "agent-messages", "blocker-context", ".claude"
 ]);
 // Top-level files that describe live state and must survive cleanup.
-const KEEP_FILES = new Set(["project.json", "index.db", "index.db-shm", "index.db-wal"]);
+const KEEP_FILES = new Set(["project.json", "runtime-layout.json", ".runtime-layout.lock", "index.db", "index.db-shm", "index.db-wal"]);
 // Directories no longer referenced by src/; reported for owner decision, never auto-deleted here.
+// Retain retired names after owner cleanup: some match RANDOM_SUFFIX and would otherwise
+// become auto-deletable garbage if recovery tooling recreates them.
 const ORPHAN_DIRECTORIES = new Set([
   "review-findings-recovery", "review-format-recovery", "review-limit-recovery", "review-policy-amendment",
   "review-reopen", "review-repair-recovery", "review-reruns", "reviewer-access", "source-reconciliations",
@@ -65,20 +68,10 @@ export function classify(entries) {
 // Locates PID-bearing lock files across the runtime's known lock directories.
 function findLockFiles() {
   const locks = [];
-  const scan = (dir) => {
-    let names;
-    try { names = readdirSync(dir); } catch { return; }
-    for (const name of names) {
-      const full = join(dir, name);
-      if (name === ".forge" || KEEP_DIRECTORIES.has(name) || name === "queues") continue;
-      let info; try { info = statSync(full); } catch { continue; }
-      if (info.isDirectory()) scan(full);
-    }
-  };
   // Only these roots hold queue/owner locks; we do not descend into large state trees.
-  const roots = [join(runtimeRoot, "nf"), join(runtimeRoot, "queues"), join(runtimeRoot, "automatic-review-locks"), join(runtimeRoot, "blocker-contract-decisions")];
+  const roots = [join(runtimeRoot, "nf"), join(runtimeRoot, "queues"), join(projectRoot, runtimeStoragePath(projectRoot, ".forge/runtime/automatic-review-locks")), join(projectRoot, runtimeStoragePath(projectRoot, ".forge/runtime/blocker-contract-decisions"))];
   for (const dir of roots) {
-    let names; try { names = readdirSync(dir); } catch { continue; }
+    let names; try { names = readdirSync(dir); } catch (error) { if (error.code === "ENOENT") continue; throw error; }
     for (const name of names) {
       if (!/\.lock$/i.test(name)) continue;
       locks.push(join(dir, name));
@@ -92,7 +85,7 @@ function gate0({ allowStale }) {
   const stale = [];
   for (const path of findLockFiles()) {
     let pid = null;
-    try { pid = Number.parseInt(readFileSync(path, "utf8").trim(), 10); } catch { /* unreadable lock stays conservative below */ }
+    pid = Number.parseInt(readFileSync(path, "utf8").trim(), 10);
     if (Number.isInteger(pid) && pid > 0 && pidAlive(pid)) {
       console.error(`ABORT: live lock owner pid=${pid} at ${path}. Stop the Control API/watcher first (see README guide).`);
       process.exit(1);
@@ -108,6 +101,7 @@ function listTopLevel() {
 }
 
 function main(argv) {
+  assertRuntimeAvailable(projectRoot);
   const apply = argv.includes("--apply");
   const includeStaleLocks = argv.includes("--include-stale-locks");
   const staleLocks = gate0({ allowStale: includeStaleLocks });

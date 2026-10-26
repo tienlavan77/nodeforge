@@ -1,5 +1,5 @@
 // Materializes one committed ticket tree for verification without creating a Git worktree.
-import { FORGE_STATE_DIR } from "../../infrastructure/filesystem/forge-paths.js";
+import { FORGE_STATE_DIR, statePath, resolveRuntimePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { spawn } from "node:child_process";
 import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -10,7 +10,7 @@ const fail = (code, message) => Object.assign(new ConfigurationError(message), {
 // Creates a disposable archive and exposes a cleanup callback to the verification job.
 export async function materializeTicketArchive({ projectRoot, commitSha }) {
   if (!/^[a-f0-9]{40,64}$/i.test(commitSha ?? "")) throw fail("TICKET_ARCHIVE_COMMIT_INVALID", "Archive verification requires a commit SHA.");
-  const archiveRoot = join(projectRoot, ".forge", "runtime", "ticket-verification", "archives");
+  const archiveRoot = resolveRuntimePath(projectRoot, statePath("ticket-verification"), "archives");
   await mkdir(archiveRoot, { recursive: true });
   const path = await mkdtemp(join(archiveRoot, "nodeforge-ticket-archive-"));
   try {

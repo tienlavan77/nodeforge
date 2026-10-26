@@ -1,6 +1,5 @@
 // Restores structured repair blockers from exact retained handoffs and tool receipts after older review paths lost triage.
-import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
-import { join } from "node:path";
+import { statePath, resolveRuntimePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { isDeepStrictEqual } from "node:util";
 import { readLogEvents } from "../../core/project-log-service.js";
 import { coderFailureTriage } from "./coder-recovery-policy.js";
@@ -14,7 +13,7 @@ export async function restoreRepairBlocker({ checkpoint, current, store, project
     && entry.payload?.execution_id === current.details.execution_id
     && isDeepStrictEqual(entry.payload.sprint_basis, current.details.execution_basis));
   if (!handoffs.length) return checkpoint;
-  const window = await readEvents({ logPath: process.env.NODEFORGE_PROJECT_LOG_PATH ?? join(projectRoot, statePath("nf/project.log")),
+  const window = await readEvents({ logPath: resolveRuntimePath(projectRoot, process.env.NODEFORGE_PROJECT_LOG_PATH ?? statePath("nf/project.log")),
     project_id: current.project_id, task_id: checkpoint.task_id, correlation_id: checkpoint.correlation_id,
     event_name: "supervisor.agent_tool_event", from: handoffs.map((entry) => entry.created_at).filter(Boolean).sort().at(-1), to: checkpoint.failure.at });
   const report = window.events.filter((event) => event.task_id === checkpoint.task_id && event.project_id === current.project_id

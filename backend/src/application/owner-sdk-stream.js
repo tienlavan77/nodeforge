@@ -9,6 +9,7 @@ import { createClaudeForgeOptions } from "../tools/claude-forge-options.js";
 import { executionDigest } from "./owner-execution-checkpoint.js";
 import { checkpointOwnerTools } from "./owner-execution-tools.js";
 import { withSystemEngineerEvents } from "./system-engineer-sdk-events.js";
+import { codexFilesystemEntries } from "../modules/agent/codex-shell-environment.js";
 
 // Builds a role-scoped SDK stream with Forge-owned discovery and persisted conversation state.
 export function createOwnerSdkStream({ agentConfiguration, sdkGateways, fallbackStream, conversationStateStore, conversationMessages, executionCheckpoint, architectureCheckpoint, fileService, codeCache, codeSearch, gitService, testService, projectRoot, projectLogger }) {
@@ -175,8 +176,7 @@ function ownerFailureSummary(error) {
 
 // Constrains Codex shell file access to the project while preserving read access to system binaries.
 function codexFilesystemPolicy(projectRoot) {
-  const root = JSON.stringify(projectRoot);
-  return `permissions.audit.filesystem={":root"="deny","/usr"="read","/bin"="read","/sbin"="read","/lib"="read","/lib64"="read","/etc/ld.so.cache"="read",${root}="read"}`;
+  return `permissions.audit.filesystem={${codexFilesystemEntries(projectRoot, "read").join(",")}}`;
 }
 
 // Allows only the explicitly enabled Codex web search alongside registered Forge MCP tools.

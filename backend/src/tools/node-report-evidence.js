@@ -36,8 +36,10 @@ function completeCoverage(supplied, criteria, commands, verificationPlan, ticket
   return entries;
 }
 
-// Converts the approved criterion map into Node-owned coverage from actual command receipts.
-function coverageFromPlan(criteria, commands, verificationPlan, ticket, supplied) {
+/** Derives coverage from every required approved check and its immutable receipt.
+ * Both report completion and validation use this contract so command order and
+ * criterion language cannot turn valid Node evidence into a rejected report. */
+export function coverageFromPlan(criteria, commands, verificationPlan, ticket, supplied) {
   return criteria.map((criterion, index) => {
     const criterionId = `AC-${index + 1}`;
     const steps = verificationPlan.filter((step) => step.criterion_ids?.includes(criterionId));
@@ -49,8 +51,12 @@ function coverageFromPlan(criteria, commands, verificationPlan, ticket, supplied
         ? { ...step, test_path: hintPath } : step);
     const missing = required.filter((step) => (["test", "backend_tests"].includes(step.kind) && !step.test_path) || !findPassingVerificationCommand(step, commands));
     if (missing.length) return { criterion_id: criterionId, criterion, status: "evidence_pending", command_kind: hint?.command_kind ?? null, test_path: hintPath ?? null, missing_checks: missing.map((step) => ({ kind: step.kind, ...(step.test_path ? { test_path: step.test_path } : {}) })) };
-    const passing = required[0];
-    if (passing) return { criterion_id: criterionId, criterion, status: "verified", command_kind: findPassingVerificationCommand(passing, commands).kind, ...(passing.test_path ? { test_path: passing.test_path } : {}) };
+    const passing = required.find((step) => ["test", "backend_tests", "browser"].includes(step.kind)) ?? required[0];
+    if (passing) return { criterion_id: criterionId, criterion, status: "verified", command_kind: findPassingVerificationCommand(passing, commands).kind, ...(passing.test_path ? { test_path: passing.test_path } : {}),
+      ...(required.length > 1 ? { verified_checks: required.map((step) => {
+        const command = findPassingVerificationCommand(step, commands);
+        return { kind: step.kind, command_kind: command.kind, ...(step.test_path ? { test_path: step.test_path } : {}), ...(command.output_sha256 ? { output_sha256: command.output_sha256 } : {}) };
+      }) } : {}) };
     if (ownerApproved && steps.some((step) => step.kind === "human")) return { criterion_id: criterionId, criterion, status: "verified", command_kind: "human", decision_id: ticket.owner_decision_basis.decision_id };
     if (steps.length) return { criterion_id: criterionId, criterion, status: "not_applicable", command_kind: null, test_path: null };
     return { criterion_id: criterionId, criterion, status: "evidence_pending", command_kind: null, test_path: null };

@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { acquireTicketFileLock } from "../supervisor/ticket-file-lock.js";
 import { createMarkdownPlanSource } from "./markdown-plan-source.js";
+import { verifyArchitectureDecisionSource } from "./sprint-architecture-decisions.js";
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const DECISIONS = new Set(["approved", "rejected", "changes_requested"]);
@@ -96,7 +97,8 @@ export function createMarkdownPlanStore({ projectId, database, fileService, cloc
   async function assertApproved({ planId, revision, sha256 } = {}) {
     const plan = await getRevision({ planId, revision });
     if (plan.sha256 !== sha256 || plan.status !== "approved" || plan.decision?.sha256 !== sha256) throw fail("PLAN_APPROVAL_REQUIRED", "Markdown plan requires exact owner approval before Sprint Leader handoff.");
-    await sources.read(plan);
+    const canonicalBytes = await sources.read(plan);
+    await verifyArchitectureDecisionSource({ parent: plan, canonicalBytes, fileService });
     return plan;
   }
 

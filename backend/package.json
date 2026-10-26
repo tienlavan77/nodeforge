@@ -5,7 +5,7 @@
   "description": "Protocol-driven multi-agent orchestration system.",
   "type": "module",
   "scripts": {
-    "test": "node --test",
+    "test": "node scripts/run-backend-tests.mjs",
     "lint": "node ../node_modules/eslint/bin/eslint.js --rulesdir ../eslint-rules \"src/**/*.js\" \"tests/**/*.js\" \"tests/**/*.mjs\" --no-error-on-unmatched-pattern --max-warnings=0",
     "typecheck": "node ../node_modules/typescript/bin/tsc --project ../jsconfig.json",
     "validate:schemas": "node scripts/validate-schemas.mjs",

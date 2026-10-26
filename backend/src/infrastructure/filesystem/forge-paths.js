@@ -6,6 +6,7 @@
 export const FORGE_DIR = ".forge";
 export const FORGE_STATE_DIR = `${FORGE_DIR}/runtime`;
 export const FORGE_SCRATCH_DIR = `${FORGE_DIR}/scratch`;
+export { RUNTIME_GROUPS, groupedRuntimePath, legacyRuntimePath, runtimeStoragePath, resolveRuntimePath } from "./runtime-layout.js";
 
 // Joins the runtime-state root with relative segments using forward slashes.
 export function statePath(...segments) {

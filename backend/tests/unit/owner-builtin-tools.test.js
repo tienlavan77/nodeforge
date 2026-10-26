@@ -9,6 +9,7 @@ import { createOwnerSdkStream } from "../../src/application/owner-sdk-stream.js"
 import { createClaudeSdkGateway } from "../../src/modules/agent/claude-sdk-gateway.js";
 import { createOwnerExecutionCheckpoint, executionDigest } from "../../src/application/owner-execution-checkpoint.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
+import { codexNodeRuntime } from "../../src/modules/agent/codex-shell-environment.js";
 
 test("tool mode defaults to Forge, pins Continue, and rejects unsupported native providers", () => {
   const profile = { role: "system_engineer", provider: "codex", tool_mode: "builtin" };
@@ -58,7 +59,10 @@ test("native file hooks deny traversal and symlink escapes and require sandboxed
     assert.equal(codex.sandboxMode, undefined);
     assert.match(codex.configOverrides[0], /":root"="deny"/);
     assert.match(codex.configOverrides[0], /":minimal"="read"/);
-    assert.match(codex.configOverrides[0], /"\/etc"="deny"/);
+    assert.match(codex.configOverrides[0], /"\/etc\/shadow"="deny"/);
+    assert.match(codex.configOverrides[0], /"\/etc\/ssl\/private"="deny"/);
+    assert.ok(codex.configOverrides[0].includes(`${JSON.stringify(codexNodeRuntime().root)}="read"`));
+    assert.ok(codex.configOverrides[0].includes('"/etc/ssl"="read"'));
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

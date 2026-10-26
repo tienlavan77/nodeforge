@@ -1,3 +1,4 @@
+import { resolveRuntimePath } from "../src/infrastructure/filesystem/forge-paths.js";
 import { EventEmitter } from "node:events";
 import { createRuntimeLogger } from "../src/core/runtime-logger.js";
 import { createPersistentEventStore } from "../src/modules/events/persistent-event-store.js";
@@ -84,7 +85,7 @@ export function createControlApiPlatform({ config, database, indexDb, fileServic
   const memory = createProjectMemoryStore({ summaries });
   const memoryRetriever = createMemoryRetriever({ memory });
   const contextEngine = createContextEngine({ database: indexDb, projectRoot, projectId });
-  const sprintOrchestration = createSprintOrchestrationService({ sprintPlans, sprintPlanStore: roadmaps, ticketProvenanceTracker: provenance, agentGateway, publisher: eventPublisher, sprintPlanLeader, agentRoleResolver, draftPlan, sprintRegistry, sprintPlanDirectory: `${projectRoot}/.forge/runtime/nf/sprint-plan` });
+  const sprintOrchestration = createSprintOrchestrationService({ sprintPlans, sprintPlanStore: roadmaps, ticketProvenanceTracker: provenance, agentGateway, publisher: eventPublisher, sprintPlanLeader, agentRoleResolver, draftPlan, sprintRegistry, sprintPlanDirectory: resolveRuntimePath(projectRoot, ".forge/runtime/nf/sprint-plan") });
   const proseTicketService = createProseTicketService({ roadmapStore: roadmaps });
   const ticketFileStore = createTicketFileStore({ database, fileService });
   const sprintPlanUpload = createSprintPlanUploadService({ roadmaps, publisher: eventPublisher, projectRoot, isRunning: (sprintId) => sprintOrchestration.isRunning(sprintId) });

@@ -1,6 +1,6 @@
 // Provides completion reporting for governed agent ticket work.
 import { ConfigurationError } from "../shared/errors.js";
-import { completeNodeReportEvidence } from "./node-report-evidence.js";
+import { completeNodeReportEvidence, coverageFromPlan } from "./node-report-evidence.js";
 import { assertCoderCoverage } from "../modules/supervisor/completion-report-service.js";
 import { matchesBrowserEvidence } from "../modules/supervisor/browser-verification-evidence.js";
 import { hasOwnerDecisionEvidence } from "../modules/governance/plan-decision-requests.js";
@@ -75,7 +75,7 @@ export function createReportDoneTool({ reportService, verificationService, revie
     context.abortSignal?.throwIfAborted();
     const report = await reportService.buildFinalReport({ ticket, status: governed ? "submitted_for_review" : context.status ?? "completed", verifyResult: context.verify_result ?? null, filesChanged: context.changed_paths ?? [], reason: "agent_report_done" });
     if (!governed) assertReportVerified(report);
-    if (governed) report.criteria_check = input.acceptance_coverage.map((entry) => ({ criterion: entry.criterion, criterion_id: entry.criterion_id, node_verified: entry.status === "verified", status: entry.status, command_kind: entry.command_kind ?? null, test_path: entry.test_path ?? null, artifact_id: artifact.artifact_id }));
+    if (governed) report.criteria_check = input.acceptance_coverage.map((entry) => ({ criterion: entry.criterion, criterion_id: entry.criterion_id, node_verified: entry.status === "verified", status: entry.status, command_kind: entry.command_kind ?? null, test_path: entry.test_path ?? null, ...(entry.verified_checks ? { verified_checks: entry.verified_checks } : {}), artifact_id: artifact.artifact_id }));
     report.agent_report = { ...(report.agent_report ?? {}), ...input, summary: input.summary.trim() };
     context.abortSignal?.throwIfAborted();
     await reportService.saveReport(ticket.id, report); await reportService.writeReportFile(ticket.id, report);
@@ -126,6 +126,8 @@ function assertExplanation(input, artifact) {
 // Binds every acceptance criterion to a successful command from the immutable artifact.
 function assertAcceptanceCoverage(input, artifact, ticket) {
   const criteria = ticket.acceptance_criteria ?? [];
+  if (Array.isArray(ticket.verification_plan) && ticket.verification_plan.length)
+    return coverageFromPlan(criteria, artifact.commands ?? [], ticket.verification_plan, ticket, input.acceptance_coverage);
   const coverage = input.acceptance_coverage;
   if (!Array.isArray(coverage) || coverage.length !== criteria.length) throw error("ACCEPTANCE_COVERAGE_MISSING", "Provide one acceptance coverage entry per criterion.", { acceptance_criteria: criteria });
   const normalized = [];

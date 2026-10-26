@@ -99,7 +99,7 @@ export function assertMarkdownSprintScope(markdown, sprint) {
     const implementationType = ticket?.implementation_type?.length === 1 ? String(ticket.implementation_type[0]).trim().toLocaleLowerCase("en") : "";
     if (normalized(ticket?.title) !== normalized(row.title) || normalized(ticket?.objective) !== normalized(row.objective) || implementationType !== row.implementation_type || !Number.isInteger(ticket.file_budget) || ticket.file_budget < 1 || ticket.file_budget > row.file_budget) throw fail(`Sprint ticket ${index + 1} changes approved boundaries.`);
     if (!Array.isArray(ticket.acceptance_criteria) || ticket.acceptance_criteria.length !== row.acceptance_criteria.length || row.acceptance_criteria.some((criterion, criterionIndex) => normalized(ticket.acceptance_criteria[criterionIndex]) !== normalized(criterion))) throw fail(`Sprint ticket ${index + 1} changes approved acceptance criteria.`);
-    if (ticket.verification_plan !== undefined) try { assertTicketVerificationContract(ticket); } catch (error) { throw fail(`Sprint ticket ${index + 1} has an invalid verification plan: ${error.message}`); }
+    assertApprovedVerificationPlan(ticket, index + 1);
     const expected = row.dependency_labels.flatMap((label) => {
       const prior = approved.findIndex((candidate, position) => position < index && (normalized(candidate.title) === normalized(label) || String(candidate.position) === label || normalized(`ticket ${candidate.position}`) === normalized(label)));
       if (prior >= 0) return [tickets[prior].id];
@@ -110,6 +110,17 @@ export function assertMarkdownSprintScope(markdown, sprint) {
     if (!Array.isArray(actual) || expected.length !== actual.length || expected.some((id) => !actual.includes(id))) throw fail(`Sprint ticket ${index + 1} changes approved dependencies.`);
   }
   return approved;
+}
+
+// Routes unsupported Owner verification prerequisites through the existing
+// verification-only SL correction before Sprint ingestion wraps the error. This
+// preserves approved criteria and never recasts missing proof as policy approval.
+function assertApprovedVerificationPlan(ticket, label) {
+  if (ticket.verification_plan === undefined) return;
+  try {
+    assertTicketVerificationContract(ticket);
+    if (ticket.verification_plan.some((step) => step.kind === "human")) throw new ConfigurationError("kind human requires a new Owner prerequisite and cannot execute under an already approved Architecture plan. Supply executable test/browser evidence for behavior; record independent Reviewer and deployment limitations in notes. Do not replace missing behavior evidence with governance approval.");
+  } catch (error) { throw fail(`Sprint ticket ${label} has an invalid verification plan: ${error.message}`); }
 }
 
 // Parses outcome identities, criteria, guardrails, and mandatory dependencies as durable scope.
@@ -154,7 +165,7 @@ function assertOutcomeSprintScope(outcomes, sprint) {
   const edges = new Map(ids.map((id) => [id, []]));
   for (const ticket of tickets) {
     if (typeof ticket.title !== "string" || !ticket.title.trim() || typeof ticket.objective !== "string" || !ticket.objective.trim() || !Array.isArray(ticket.implementation_type) || ticket.implementation_type.length !== 1 || !["frontend", "backend", "security"].includes(ticket.implementation_type[0]) || !Number.isInteger(ticket.file_budget) || ticket.file_budget < 1 || !Array.isArray(ticket.acceptance_criteria) || !ticket.acceptance_criteria.length || ticket.acceptance_criteria.some((item) => typeof item !== "string" || !item.trim())) throw fail(`Sprint ticket ${ticket.id} is incomplete or has an invalid file budget.`);
-    if (ticket.verification_plan !== undefined) try { assertTicketVerificationContract(ticket); } catch (error) { throw fail(`Sprint ticket ${ticket.id} has an invalid verification plan: ${error.message}`); }
+    assertApprovedVerificationPlan(ticket, ticket.id);
     if (!Array.isArray(ticket.outcome_refs) || !ticket.outcome_refs.length || ticket.outcome_refs.some((code) => !codes.has(code)) || new Set(ticket.outcome_refs).size !== ticket.outcome_refs.length) throw fail(`Sprint ticket ${ticket.id} must cite approved outcome IDs.`);
     for (const code of ticket.outcome_refs) {
       const outcome = outcomes.find((item) => item.id === code);

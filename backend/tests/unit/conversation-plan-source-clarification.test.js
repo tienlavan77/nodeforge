@@ -57,9 +57,88 @@ async function fixture(answers) {
   const markdownPlanStore = createMarkdownPlanStore({ projectId: "PROJECT-A", database, fileService });
   const prompts = [];
   let index = 0;
-  const planning = createConversationPlanningService({ projectId: "PROJECT-A", fileService, markdownPlanStore, validateMarkdown, sessions: createArchitectureClarificationStore({ projectId: "PROJECT-A", fileService }), requestArchitecture: async (prompt) => { prompts.push(prompt); return answers[Math.min(index++, answers.length - 1)]; } });
-  return { database, fileService, markdownPlanStore, planning, prompts, close: async () => { await database.close(); await rm(root, { recursive: true, force: true }); } };
+  const sessions = createArchitectureClarificationStore({ projectId: "PROJECT-A", fileService });
+  const planning = createConversationPlanningService({ projectId: "PROJECT-A", fileService, markdownPlanStore, validateMarkdown, sessions, requestArchitecture: async (prompt, conversationId, options) => { assert.equal(options?.responseContentType, "text/plain"); prompts.push(prompt); const answer = answers[Math.min(index++, answers.length - 1)]; return typeof answer === "function" ? answer(prompt) : answer; } });
+  return { database, fileService, markdownPlanStore, planning, sessions, prompts, close: async () => { await database.close(); await rm(root, { recursive: true, force: true }); } };
 }
+
+// Persists precise multi-window AM citations through the complete conversation planning flow.
+test("automatic generation locks a plan with AM evidence spanning multiple source ranges", async () => {
+  const candidate = JSON.parse(PLAN_JSON);
+  candidate.evidence[0].location = "L98–106; L136–157; L160–238";
+  const f = await fixture(['{"questions":[]}', JSON.stringify(candidate)]);
+  try {
+    const result = await f.planning.createFromConversation({ text: "Create the architecture plan", conversationId: "CONV-A" });
+    assert.equal(result.revision_created, true);
+    assert.match(result.markdown, /#L98–106; L136–157; L160–238\]/);
+    assert.equal((await f.sessions.list("CONV-A"))[0].status, "completed");
+    assert.equal(f.markdownPlanStore.list().length, 1);
+  } finally { await f.close(); }
+});
+
+// An in-flight automatic plan must never be presented as interrupted or start a second SDK invocation.
+test("automatic conversation generation stays generating and concurrent confirmation replays one completed plan", async () => {
+  const entered = Promise.withResolvers(); const release = Promise.withResolvers();
+  const f = await fixture(['{"questions":[]}', async () => { entered.resolve(); return release.promise; }]);
+  const creation = f.planning.createFromConversation({ text: "Create the architecture plan", conversationId: "CONV-A" });
+  try {
+    await entered.promise;
+    const [session] = await f.sessions.list("CONV-A");
+    assert.equal(session.status, "generating");
+    assert.equal(session.questions.length, 0);
+    assert.equal(session.error_code, null);
+    assert.deepEqual(f.markdownPlanStore.list(), []);
+    const repeated = f.planning.continuePlan({ sessionId: session.session_id, conversationId: "CONV-A", ownerId: "OWNER", expectedVersion: session.version, sourceSha256: session.source_sha256 });
+    release.resolve(PLAN_JSON);
+    const [result, replay] = await Promise.all([creation, repeated]);
+    assert.equal(replay.plan_id, result.plan_id);
+    assert.equal(f.prompts.length, 2, "one discovery and one generation, no overlapping provider turn");
+    assert.equal(f.markdownPlanStore.list().length, 1);
+    const [completed] = await f.sessions.list("CONV-A");
+    assert.equal(completed.status, "completed");
+    assert.equal(completed.result.sha256, result.sha256);
+  } finally { release.resolve(PLAN_JSON); await creation; await f.close(); }
+});
+
+// Automatic generation failures must become real retryable sessions instead of remaining ready forever.
+test("failed automatic generation can retry from its persisted source and closes without a second revision", async () => {
+  const f = await fixture(['{"questions":[]}', () => { throw Object.assign(new Error("offline"), { code: "SERVICE_UNAVAILABLE" }); }, PLAN_JSON]);
+  try {
+    await assert.rejects(f.planning.createFromConversation({ text: "Create the architecture plan", conversationId: "CONV-A" }), { code: "SERVICE_UNAVAILABLE" });
+    const [session] = await f.sessions.list("CONV-A");
+    assert.equal(session.status, "generation_failed");
+    assert.equal(session.error_code, "SERVICE_UNAVAILABLE");
+    assert.equal(f.markdownPlanStore.list().length, 0);
+    const input = { sessionId: session.session_id, conversationId: "CONV-A", ownerId: "OWNER", expectedVersion: session.version, sourceSha256: session.source_sha256 };
+    const result = await f.planning.continuePlan(input);
+    assert.deepEqual(await f.planning.continuePlan(input), result);
+    assert.equal(f.prompts.length, 3);
+    assert.equal(f.markdownPlanStore.list().length, 1);
+    assert.equal((await f.sessions.list("CONV-A"))[0].status, "completed");
+  } finally { await f.close(); }
+});
+
+// Real failures remain retryable, while successful recovery closes the session and preserves the approved choice identity.
+test("conversation generation failure retains confirmed choices and retries without another discovery or token decision", async () => {
+  const f = await fixture([QUESTIONS_JSON, () => { throw Object.assign(new Error("model offline"), { code: "SERVICE_UNAVAILABLE" }); }, PLAN_JSON]);
+  try {
+    const pending = await f.planning.createFromConversation({ text: "Create the architecture plan", conversationId: "CONV-A" });
+    const saved = await f.planning.saveClarificationChoices({ sessionId: pending.session_id, expectedVersion: 1, sourceSha256: pending.source_summary_sha256, selections: { STORAGE: "SERVER" } });
+    const input = { sessionId: saved.session_id, conversationId: "CONV-A", ownerId: "OWNER", expectedVersion: saved.version, sourceSha256: saved.source_sha256 };
+    await assert.rejects(f.planning.continuePlan(input), { code: "SERVICE_UNAVAILABLE" });
+    const [failed] = await createArchitectureClarificationStore({ projectId: "PROJECT-A", fileService: f.fileService }).list("CONV-A");
+    assert.equal(failed.status, "generation_failed");
+    assert.equal(failed.error_code, "SERVICE_UNAVAILABLE");
+    assert.equal(failed.confirmation_version, saved.version);
+    assert.equal(failed.owner_id, "OWNER");
+    const result = await f.planning.continuePlan(input);
+    assert.equal(readArchitectureDecisions(result.markdown).decisions[0].option_id, "SERVER");
+    assert.deepEqual(await f.planning.continuePlan(input), result);
+    await assert.rejects(f.planning.continuePlan({ ...input, ownerId: "OTHER" }), { code: "ARCHITECTURE_SESSION_STALE" });
+    assert.equal(f.prompts.length, 3);
+    assert.equal((await f.sessions.list("CONV-A"))[0].status, "completed");
+  } finally { await f.close(); }
+});
 
 test("outstanding owner clarification pauses creation and writes no revision", async () => {
   const f = await fixture([QUESTIONS_JSON, PLAN_JSON]);

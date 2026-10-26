@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createClaudeSdkGateway } from "../../src/modules/agent/claude-sdk-gateway.js";
-import { createCodexSdkGateway } from "../../src/modules/agent/codex-sdk-gateway.js";
+import { createTestCodexSdkGateway as createCodexSdkGateway } from "../fixtures/codex-sdk-fixture.js";
 
 // Both provider adapters must distinguish a final message from terminal success.
 for (const provider of ["claude", "codex"]) for (const completed of [false, true]) {

@@ -3,6 +3,7 @@ import { lstat, realpath } from "node:fs/promises";
 import { readdirSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { ConfigurationError } from "../shared/errors.js";
+import { codexFilesystemEntries } from "../modules/agent/codex-shell-environment.js";
 
 const CLAUDE_TOOLS = ["Read", "Glob", "Grep", "Edit", "Write", "Bash", "WebSearch", "Agent"];
 const SUBAGENT_TOOLS = ["Read", "Glob", "Grep"];
@@ -50,7 +51,7 @@ export async function assertBuiltinFilePath(projectRoot, path) {
 // Enables SDK tools without a Forge MCP server and keeps shell execution sandboxed.
 export function ownerBuiltinOptions(profile, projectRoot) {
   if (profile.provider === "codex") {
-    const entries = [`":root"="deny"`, `":minimal"="read"`, `"/etc"="deny"`, `"/etc/ld.so.cache"="read"`, `${JSON.stringify(projectRoot)}="write"`];
+    const entries = codexFilesystemEntries(projectRoot, "write");
     return { usePermissionProfile: true, sandboxMode: undefined, networkAccessEnabled: undefined, approvalPolicy: "never", webSearchMode: "live",
       config: { default_permissions: "engineer" }, configOverrides: [`permissions.engineer.filesystem={${entries.join(",")}}`, "permissions.engineer.network.enabled=true"] };
   }
