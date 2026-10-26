@@ -169,7 +169,7 @@ test("foundation isolates unavailable Ollama and cancels active requests at shut
           // Returns an unavailable service for one project and vectors for the independent project.
           async fetchFn() {
             if (broken) throw new Error("Ollama unavailable for first project");
-            return Response.json({ embedding: [1, 0, 0] });
+            return Response.json({ embeddings: [[1, 0, 0]] });
           }
         });
         return startProjectRuntime({ ...input, embeddingProvider: provider });
