@@ -2,6 +2,7 @@
 // Indexing happens once at Watcher index time (cached by sha256); querying happens
 // once per relevant-tree select at Node layer — never inside agent tool loops.
 import { ConfigurationError } from "../../shared/errors.js";
+import { purposeSummaryInput } from "./purpose-summary-input.js";
 
 // Creates an embedding vector store on top of the code index database.
 // Schema lives in index-database.js migration 9 (symbol_embeddings); this module
@@ -33,10 +34,11 @@ export function createEmbeddingStore({ database, logger = console } = {}) {
   function search(queryVector, { limit = 8, allowedPrefixes, model } = {}) {
     if (!Array.isArray(queryVector) || !queryVector.length) return [];
     const rows = model
-      ? database.all("SELECT e.symbol_id, e.vector, e.content_checksum, f.path FROM symbol_embeddings e JOIN symbols s ON s.symbol_id = e.symbol_id JOIN files f ON f.file_id = s.file_id WHERE e.embedding_model = ?", [model])
-      : database.all("SELECT e.symbol_id, e.vector, e.content_checksum, f.path FROM symbol_embeddings e JOIN symbols s ON s.symbol_id = e.symbol_id JOIN files f ON f.file_id = s.file_id");
+      ? database.all("SELECT e.symbol_id, e.vector, e.content_checksum, s.summary, f.path FROM symbol_embeddings e JOIN symbols s ON s.symbol_id = e.symbol_id JOIN files f ON f.file_id = s.file_id WHERE e.embedding_model = ?", [model])
+      : database.all("SELECT e.symbol_id, e.vector, e.content_checksum, s.summary, f.path FROM symbol_embeddings e JOIN symbols s ON s.symbol_id = e.symbol_id JOIN files f ON f.file_id = s.file_id");
     const byPath = new Map();
     for (const row of rows) {
+      if (!row.content_checksum || row.content_checksum !== purposeSummaryInput(row.summary)?.checksum) continue;
       if (allowedPrefixes && !allowedPrefixes.some((prefix) => row.path.startsWith(prefix))) continue;
       const vec = decode(row.vector, logger, row.symbol_id, row.content_checksum);
       if (!vec || vec.length !== queryVector.length) continue;
