@@ -4,13 +4,13 @@ import { createHash, randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { validateCheckCommand } from "../../tools/owner-engineer-tools.js";
 import { materializeTicketVerification } from "./ticket-verification-materialization.js";
-import { captureVerificationEnvironment } from "./ticket-verification-environment.js";
+import { captureVerificationEnvironment, restoreVerificationEnvironment } from "./ticket-verification-environment.js";
 
 const fail = (code, message) => Object.assign(new ConfigurationError(message), { code });
 const sha = (content) => content === null ? null : `sha256:${createHash("sha256").update(content).digest("hex")}`;
 
 // Binds focused verification to the ticket source identity without changing its acceptance state.
-export function createTicketFocusedCheck({ taskId, projectRoot, worktreeFileService, ledger, executionContexts, stateFileService, assertIdentity, assertArchiveSource, runCommand, safeOutput, materialize = materializeTicketVerification, captureEnvironment = captureVerificationEnvironment }) {
+export function createTicketFocusedCheck({ taskId, projectRoot, worktreeFileService, ledger, executionContexts, stateFileService, assertIdentity, assertArchiveSource, runCommand, safeOutput, loadArtifact, materialize = materializeTicketVerification, captureEnvironment = captureVerificationEnvironment, restoreEnvironment = restoreVerificationEnvironment }) {
   // Runs a requested focused check on the recorded commit or pre-commit working ledger without granting final acceptance.
   return async function runCheck({ type, command, signal } = {}) {
     if (!["test", "lint", "typecheck", "build"].includes(type)) throw fail("INPUT_INVALID", "Unknown check type.");
@@ -44,7 +44,14 @@ export function createTicketFocusedCheck({ taskId, projectRoot, worktreeFileServ
       checksums = await assertIdentity(context);
     }
     const commitSha = preCommit ? context.base_sha : context.review_commit_sha;
-    const environment = await captureEnvironment({ projectRoot, ticketPaths: context.manifest_paths });
+    const artifact = !preCommit && context.verification_artifact_id ? await loadArtifact?.(context.verification_artifact_id) : null;
+    if (context.verification_artifact_id && loadArtifact && !artifact) throw fail("VERIFY_CHECK_IDENTITY_MISMATCH", "The recorded verification artifact is missing.");
+    if (artifact?.status === "passed" && (artifact.pre_commit === true || artifact.artifact_id !== context.verification_artifact_id || artifact.task_id !== taskId
+      || artifact.commit_sha !== context.review_commit_sha || artifact.source_revision !== context.source_revision || artifact.manifest_sha !== context.manifest_sha || !artifact.environment))
+      throw fail("VERIFY_CHECK_IDENTITY_MISMATCH", "Focused check differs from the passed verification identity.");
+    const environment = artifact?.status === "passed"
+      ? await restoreEnvironment(projectRoot, artifact.environment, context.manifest_paths)
+      : await captureEnvironment({ projectRoot, ticketPaths: context.manifest_paths });
     const archive = await materialize({ projectRoot, commitSha, ticketPaths: context.manifest_paths, environment, ...(overlayFiles ? { overlayFiles } : {}) });
     try {
       const startedAt = new Date().toISOString();

@@ -6,13 +6,29 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { assertVerificationEnvironment, loadVerificationEnvironment, persistVerificationEnvironment } from "../../src/modules/supervisor/ticket-verification-environment.js";
+import { assertVerificationEnvironment, loadVerificationEnvironment, persistVerificationEnvironment, restoreVerificationEnvironment } from "../../src/modules/supervisor/ticket-verification-environment.js";
 import { materializeTicketVerification } from "../../src/modules/supervisor/ticket-verification-materialization.js";
 import { createVerificationReviewSource } from "../../src/modules/supervisor/ticket-verification-review-source.js";
 import { createReviewerForgeTools } from "../../src/modules/supervisor/reviewer-forge-tools.js";
 
 // Produces fixture digests with exactly the same byte contract as persisted evidence.
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
+
+// Focused acceptance checks must restore the final artifact snapshot rather than
+// borrowing live dependencies, and corrupt recorded bytes must remain a failure.
+test("focused verification restores immutable environment bytes and rejects ownership conflicts", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nf-restore-environment-"));
+  try {
+    const recorded = environment();
+    const binding = await persistVerificationEnvironment(root, recorded);
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src/caller.js"), "unrelated workspace edit");
+    assert.deepEqual(await restoreVerificationEnvironment(root, binding, ["src/ticket.js"]), recorded);
+    await assert.rejects(restoreVerificationEnvironment(root, binding, ["src/caller.js"]), { code: "VERIFY_ENVIRONMENT_INVALID" });
+    await writeFile(join(root, ".forge/runtime/ticket-verification/environment/blobs", recorded.files[0].sha256), "corrupt evidence");
+    await assert.rejects(restoreVerificationEnvironment(root, binding), { code: "VERIFY_ENVIRONMENT_INVALID" });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 // Supplies a consistent manifest and bytes without reading a mutable project dependency.
 function environment(path = "src/caller.js") {

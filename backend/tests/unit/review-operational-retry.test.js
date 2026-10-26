@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { automaticReviewFixture } from "../fixtures/automatic-review-fixture.js";
 import { retryOperationalReview, recoverOperationalReview } from "../../src/modules/supervisor/review-operational-retry.js";
+import { sdkFailureEvidence } from "../../src/modules/agent/sdk-failure-evidence.js";
 
 // Repeated transport failures must keep one review identity and never consume a Coder repair or auto-approve.
 test("temporary Reviewer outages retry every 30 seconds until independent approval", async () => {
@@ -26,6 +27,25 @@ test("temporary Reviewer outages retry every 30 seconds until independent approv
   assert.equal(jobs.length, 1);
   assert.equal(jobs[0].outcomes.length, 5);
   assert.equal(jobs[0].running_attempt, null);
+});
+
+// The model-specific 400 uses the same review/artifact identity and never starts another Coder repair cycle.
+test("temporary model HTTP 400 polls Reviewer after 30 seconds without human review", async () => {
+  let now = 1000;
+  const waits = [];
+  const fixture = automaticReviewFixture({ operationalRetry: true, retryClock: () => now, retryWait: async ms => { waits.push(ms); now += ms; },
+    review: async (_job, calls) => {
+      if (calls === 1) throw sdkFailureEvidence(Object.assign(new Error("Model temporarily unavailable"), { code: "CLAUDE_SDK_RESULT_ERROR" }),
+        { message: "API Error: 400 Lỗi model hiện tại, thử lại sau hoặc liên hệ admin" }, { ended: true });
+      return { verdict: "approved", findings: [] };
+    } });
+  assert.equal((await fixture.complete(() => assert.fail("Model outage cannot dispatch Coder"))).status, "completed");
+  assert.deepEqual(waits, [30_000]);
+  assert.equal(fixture.calls, 2);
+  assert(!fixture.events.some(event => event.type === "task.needs_human_review"));
+  const [job] = await fixture.queueStore.list("agent.request");
+  assert.equal(job.outcomes.length, 2);
+  assert.equal(job.operational_retry.error.status, 400);
 });
 
 // Stop interrupts the pending wait and retains the last failed attempt without dispatching another provider.

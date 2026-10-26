@@ -25,18 +25,20 @@ export function createTicketReviewFindingsStore({ taskId, fileService, execution
       await assertIdentity(artifact);
       const current = await recoverPendingCoderReport(await load(), artifact);
       const completed = (current.coder_reports ?? []).find((entry) => entry.artifact_id === artifact.artifact_id);
-      const previous = (current.coder_report_drafts ?? []).find((entry) => entry.artifact_id === artifact.artifact_id);
+      const previous = (current.coder_report_drafts ?? []).find((entry) => entry.artifact_id === artifact.artifact_id)
+        ?? (artifact.supplemental_base_artifact_id ? (current.coder_report_drafts ?? []).findLast((entry) => entry.artifact_id === artifact.supplemental_base_artifact_id
+          || entry.supplemental_base_artifact_id === artifact.supplemental_base_artifact_id) : null);
       if (!previous && !completed && !report?.summary?.trim()) throw fail("CODER_REPORT_INVALID", "The first Coder report requires a summary.");
       if (previous && (previous.review_commit_sha !== artifact.commit_sha || previous.source_revision !== artifact.source_revision || previous.manifest_sha !== artifact.manifest_sha)) throw fail("CODER_REPORT_CONFLICT", "Coder report identity changed during supplementation.");
       const original = completed?.report ?? previous?.report ?? {};
       const merged = { ...original };
       for (const [key, value] of Object.entries(report ?? {})) {
         if (value === undefined) continue;
-        if ((completed || key === "summary") && Object.hasOwn(original, key) && JSON.stringify(original[key]) !== JSON.stringify(value)) throw fail("CODER_REPORT_CONFLICT", `Coder report field ${key} is already recorded; submit only missing information or a correction to a draft field.`);
+        if (completed && Object.hasOwn(original, key) && JSON.stringify(original[key]) !== JSON.stringify(value)) throw fail("CODER_REPORT_CONFLICT", `Coder report field ${key} is already recorded; submit only missing information or a correction to a draft field.`);
         merged[key] = value;
       }
-      if (completed || previous && JSON.stringify(previous.report) === JSON.stringify(merged)) return merged;
-      const entry = { task_id: taskId, original_report: previous?.original_report ?? previous?.report ?? merged, report: merged, submissions: [...(previous?.submissions ?? []), { fields: Object.keys(report ?? {}), report, submitted_at: new Date().toISOString() }], artifact_id: artifact.artifact_id, review_commit_sha: artifact.commit_sha, source_revision: artifact.source_revision, manifest_sha: artifact.manifest_sha, recorded_at: previous?.recorded_at ?? new Date().toISOString() };
+      if (completed || previous?.artifact_id === artifact.artifact_id && JSON.stringify(previous.report) === JSON.stringify(merged)) return merged;
+      const entry = { task_id: taskId, original_report: previous?.original_report ?? previous?.report ?? merged, report: merged, submissions: [...(previous?.submissions ?? []), { fields: Object.keys(report ?? {}), report, submitted_at: new Date().toISOString() }], artifact_id: artifact.artifact_id, ...(artifact.supplemental_base_artifact_id ? { supplemental_base_artifact_id: artifact.supplemental_base_artifact_id } : {}), review_commit_sha: artifact.commit_sha, source_revision: artifact.source_revision, manifest_sha: artifact.manifest_sha, recorded_at: previous?.recorded_at ?? new Date().toISOString() };
       await save({ ...current, version: (current.version ?? 0) + 1, coder_report_drafts: [...(current.coder_report_drafts ?? []).filter((item) => item.artifact_id !== artifact.artifact_id), entry] });
       return merged;
     });

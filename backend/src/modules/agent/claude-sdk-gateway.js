@@ -97,6 +97,7 @@ export function createClaudeSdkGateway({
         role: config.role,
         correlation_id: correlationId,
         status: "completed",
+        turn_completed: messages.findLast((message) => message.type === "result")?.subtype === "success",
         session_id: sessionId,
         messages,
         ...response

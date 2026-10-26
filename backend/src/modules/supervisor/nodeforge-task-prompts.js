@@ -6,6 +6,10 @@ const REVIEW_QUERY_INSTRUCTIONS = "Use query_review to find exact prior findings
 
 const VERIFICATION_SCOPE_INSTRUCTIONS = "Verification scope: the ticket verification_plan and changed tests are mandatory acceptance checks. Additional import-related tests, shared schema validation and UI build are supplemental regression checks. Node compares failing supplemental checks against the pre-ticket source with the same recorded environment. Do not expand ticket scope to repair preexisting_failure checks. Repair introduced/changed failures using diagnostic blocking fields; unattributed failures require baseline evidence, not speculative changes. Never weaken assertions, skip tests, or downgrade acceptance criteria to obtain PASS.";
 
+/** Gives both SDK providers the same receipt-based report retry contract so
+ * missing evidence does not trigger repeated tests or a rewritten explanation. */
+const REPORT_EVIDENCE_INSTRUCTIONS = `After CODER_EVIDENCE_PENDING, run only the named missing checks with run_check. Include the returned passing receipt in report_done({evidence:[{type:"run_check",reference:"CHECK-...",result:"passed"}]}). Node restores saved draft fields and criterion test bindings before calculating coverage; partial retries need not resubmit unchanged fields. After final verification exists, supplemental checks use its recorded dependency snapshot. Do not repeat passed checks or edit/recommit unchanged source to submit a report. Node still validates receipt identity and actual pass status; pending or failed checks are not completion.`;
+
 const BROWSER_SCENARIO_INSTRUCTIONS = "Browser verification: implement each approved scenario_path module in your commit. Export createBrowserFixture({sourceRoot,build}) => {html,assets} with real bundled project components, and browserAssertions as an object mapping EVERY exact approved assertion string to async ({page,viewport,origin}) functions that assert behavior or throw. assets maps local URL paths to text content. Node owns Chromium, approved viewport execution, network isolation and receipts; do not return fabricated receipts or replace browser checks with unit tests. See backend/src/modules/supervisor/browser-verification.md for the contract.";
 
 export const COMPLEXITY_FALLBACK = Object.freeze({ effort: "medium", discovery_budget: 8, thinking: { type: "enabled", budgetTokens: 4096 } });
@@ -34,6 +38,7 @@ export function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, comp
     CODER_AUTONOMY_PROMPT,
     ...(verification ? ["Forge verification plan (Forge reruns this after commit):", verification] : []),
     VERIFICATION_SCOPE_INSTRUCTIONS,
+    REPORT_EVIDENCE_INSTRUCTIONS,
     ...ticketVocabularyHints(ticket),
     "",
     ...instructions,
@@ -130,6 +135,7 @@ export function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, compl
     CODER_AUTONOMY_PROMPT,
     ...(verification ? ["Forge verification plan (Forge reruns this after commit):", verification] : []),
     VERIFICATION_SCOPE_INSTRUCTIONS,
+    REPORT_EVIDENCE_INSTRUCTIONS,
     ...ticketVocabularyHints(ticket),
     "",
     ...instructions,

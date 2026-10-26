@@ -9,7 +9,8 @@ import { buildResumePrompt, checkpointedRegistry, createResumeState, failureDeta
 import { isProtectedPath } from "../../infrastructure/filesystem/protected-path-policy.js";
 import { ticketAllowedPrefixes } from "./nodeforge-task-scope.js";
 import { COMPLEXITY_FALLBACK, buildCodexTicketPrompt, buildCodexToolTestPrompt, buildToolTicketPrompt, buildToolTestPrompt } from "./nodeforge-task-prompts.js";
-import { assertTicketExecutionCompleted, collectToolCalls, extractFinalAgentReport, sdkToolEvent } from "./nodeforge-task-sdk-events.js";
+import { collectToolCalls, extractFinalAgentReport, sdkToolEvent } from "./nodeforge-task-sdk-events.js";
+import { runTicketSdkTurns } from "./ticket-sdk-turns.js";
 import { bindEngineeringTools } from "../../tools/engineering-tool-binding.js";
 import { CODER_TOOL_NAMES, coderToolDefinitions } from "../../tools/engineering-tool-catalog.js";
 import { coderFailureTriage } from "./coder-recovery-policy.js";
@@ -59,7 +60,10 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
     const mcpServers = { forge: createForgeSdkMcpServer({ registry: binding.registry, context: binding.context, includeCommit: true, includeClaudeFileTools: false, includeEngineeringTools: selected.role === "coder" && !labMode, excludeTools: [...(selected.role === "coder" && !labMode ? [] : ["respond_to_review"]), ...(candidateDiscoveryEnabled ? [] : ["select_code_graph_candidates"])] }) };
     let result;
     try {
-      result = await claudeSdkGateway.execute({
+      const completed = await runTicketSdkTurns({ selected, request, resumeState, checkpoints, projectRoot, projectLogger, priorTools: priorCompletedTools, labMode: Boolean(labMode),
+        prompt: `${coderExchangePrompt(request)}\n\n${buildResumePrompt(labMode ? buildToolTestPrompt(request.task_id, targetPath, allowedPrefixes) : buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, complexity, directCode, immutableScope), resumeState, { agentId: selected.agent_id, provider: selected.provider, changedPaths: toolContext.changed_paths })}`,
+        readToolEvents: (turn) => collectToolCalls(Array.isArray(turn?.messages) ? turn.messages : []),
+        executeTurn: (prompt) => claudeSdkGateway.execute({
         agentId: selected.agent_id, correlationId: request.correlation_id, cwd: projectRoot, abortSignal: request.abortSignal,
         options: createClaudeForgeOptions({ mcpServers, allowedTools: (selected.role === "coder" && !labMode ? [...CODER_FORGE_TOOL_NAMES] : forgeSdkToolNames).filter((name) => {
           if ((name === "mcp__forge__respond_to_review" && (selected.role !== "coder" || labMode)) || (!candidateDiscoveryEnabled && name === "mcp__forge__select_code_graph_candidates")) return false;
@@ -67,11 +71,10 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
         }) }, { effort: complexity.effort, thinking: complexity.thinking }),
         resumeSessionId: resumeState.sessionId,
         onSessionReady: (sessionId) => { if (typeof sessionId === "string" && sessionId) resumeState.sessionId = sessionId; saveProgressCheckpoint(checkpoints, resumeState, { task_id: request.task_id, execution_context: binding.context.execution_context }); },
-        prompt: `${coderExchangePrompt(request)}\n\n${buildResumePrompt(labMode ? buildToolTestPrompt(request.task_id, targetPath, allowedPrefixes) : buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, complexity, directCode, immutableScope), resumeState, { agentId: selected.agent_id, provider: selected.provider, changedPaths: toolContext.changed_paths })}`
-      });
-      const toolEvents = collectToolCalls(Array.isArray(result?.messages) ? result.messages : []);
-      assertTicketExecutionCompleted(toolEvents, { labMode, missingCode: "CLAUDE_MCP_TOOL_CALLS_MISSING", priorTools: priorCompletedTools });
-      return { summary: extractFinalAgentReport(result.messages) || "<empty response>", tool_events: toolEvents };
+        prompt
+      }) });
+      result = completed.result;
+      return { summary: extractFinalAgentReport(result.messages) || "<empty response>", tool_events: completed.toolEvents };
     } catch (error) {
       const failure = normalizeAgentFailure(error);
       await saveProgressCheckpoint(checkpoints, resumeState, { task_id: request.task_id, correlation_id: request.correlation_id, agent_id: selected?.agent_id ?? null, provider: selected?.provider ?? null, target_path: targetPath, allowed_prefixes: allowedPrefixes, complexity_level: complexity?.level ?? null, changed_paths: [...resumeState.changedPaths], status: "blocked", ...(error.code === "CODER_BLOCKED" ? { triage: coderFailureTriage(error), failure_request_id: request.request_id } : {}), failure: failureDetail(failure) });
@@ -135,7 +138,10 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
     const codexToolEvents = [];
     let result;
     try {
-      result = await codexSdkGateway.execute({
+      const completed = await runTicketSdkTurns({ selected, request, resumeState, checkpoints, projectRoot, projectLogger, priorTools: priorCompletedTools, labMode: Boolean(labMode),
+        prompt: `${coderExchangePrompt(request)}\n\n${buildResumePrompt(labMode ? buildCodexToolTestPrompt(request.task_id, targetPath, allowedPrefixes) : buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, complexity, directCode, immutableScope), resumeState, { agentId: selected.agent_id, provider: selected.provider, changedPaths: toolContext.changed_paths })}`,
+        readToolEvents: () => codexToolEvents.splice(0),
+        executeTurn: (prompt) => codexSdkGateway.execute({
         agentId: selected.agent_id, correlationId: request.correlation_id, cwd: projectRoot, resumeThreadId: resumeState.threadId, abortSignal: request.abortSignal,
         onSessionReady: (threadId, toolNames) => {
           if (typeof threadId === "string" && threadId) resumeState.threadId = threadId;
@@ -143,7 +149,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
           saveProgressCheckpoint(checkpoints, resumeState, { task_id: request.task_id, execution_context: binding.context.execution_context });
         },
         options: { model: selected.model, forgeTools: { registry: binding.registry, context: binding.context, definitions }, approvalPolicy: labMode?.approval_policy ?? "on-request", ...(selected.role === "coder" ? { sandboxMode: "read-only" } : {}) },
-        prompt: `${coderExchangePrompt(request)}\n\n${buildResumePrompt(labMode ? buildCodexToolTestPrompt(request.task_id, targetPath, allowedPrefixes) : buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, complexity, directCode, immutableScope), resumeState, { agentId: selected.agent_id, provider: selected.provider, changedPaths: toolContext.changed_paths })}`,
+        prompt,
         onEvent: async (event) => {
           if (selected.role === "coder") assertForgeOnlyCodexEvent(event);
           const toolEvent = sdkToolEvent(event, forgeToolNames);
@@ -151,10 +157,9 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
           codexToolEvents.push(toolEvent);
           projectLogger({ event_name: "supervisor.agent_tool_event", level: toolEvent.status === "failed" ? "error" : "info", status: toolEvent.status === "failed" ? "failed" : "success", message: `Codex Forge MCP tool ${toolEvent.tool} ${toolEvent.status}.`, task_id: request.task_id, ticket_id: request.task_id, correlation_id: request.correlation_id, source: labMode ? "codex-sdk-tool-lab" : "codex-sdk-ticket", payload: { request_id: request.request_id, agent_id: selected.agent_id, server: "forge", tool: toolEvent.tool, item_id: toolEvent.item_id, arguments: toolEvent.arguments, result: toolEvent.result, error: toolEvent.error } });
         }
-      });
-      if (codexToolEvents.length === 0) throw Object.assign(new ConfigurationError("Codex SDK ended without Forge MCP tool calls."), { code: "CODEX_MCP_TOOL_CALLS_MISSING" });
-      assertTicketExecutionCompleted(codexToolEvents, { labMode, missingCode: "CODEX_MCP_TOOL_CALLS_MISSING", priorTools: priorCompletedTools });
-      return { summary: result.text || "<empty response>", tool_events: codexToolEvents };
+      }) });
+      result = completed.result;
+      return { summary: result.text || "<empty response>", tool_events: completed.toolEvents };
     } catch (error) {
       const failure = normalizeAgentFailure(error);
       await saveProgressCheckpoint(checkpoints, resumeState, { task_id: request.task_id, correlation_id: request.correlation_id, agent_id: selected?.agent_id ?? null, provider: selected?.provider ?? null, target_path: targetPath, allowed_prefixes: allowedPrefixes, complexity_level: complexity?.level ?? null, changed_paths: [...resumeState.changedPaths], status: "blocked", ...(error.code === "CODER_BLOCKED" ? { triage: coderFailureTriage(error), failure_request_id: request.request_id } : {}), failure: failureDetail(failure) });

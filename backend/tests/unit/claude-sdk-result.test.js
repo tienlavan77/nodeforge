@@ -5,6 +5,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { claudeSdkResult } from "../../src/modules/agent/claude-sdk-result.js";
 import { createClaudeSdkGateway } from "../../src/modules/agent/claude-sdk-gateway.js";
+import { classifyCoderFailure } from "../../src/modules/supervisor/coder-failure-routing.js";
+import { reviewOperationalFailure } from "../../src/modules/supervisor/review-operational-failure.js";
+import { sdkFailureEvidence } from "../../src/modules/agent/sdk-failure-evidence.js";
 
 /** Constructs an isolated gateway with SDK messages supplied by the test, using
  * no external provider or credential store while preserving option forwarding. */
@@ -80,4 +83,66 @@ test("missing terminal completion retains unknown provider ownership for structu
 test("terminal provider error status remains available to existing transient retry classification", async () => {
   const f = fixture([{ type: "result", subtype: "success", is_error: true, api_error_status: 503, result: "Service temporarily unavailable." }]);
   await assert.rejects(f.execute(), { provider_outcome: "failed", retry_safe: true });
+});
+
+// Real SDK error envelopes, including gateways omitting api_error_status, must reach timed recovery in both roles.
+test("temporary model HTTP 400 is retryable for Coder and Reviewer with the original SDK error preserved", async () => {
+  for (const result of [
+    { result: "API Error: 400 Lỗi model hiện tại, thử lại sau hoặc liên hệ admin (request id: provider-request)" },
+    { api_error_status: 400, errors: ["Lỗi model hiện tại, thử lại sau hoặc liên hệ admin"] },
+    { api_error_status: 400, result: "The model is temporarily unavailable. Please try again later." }
+  ]) {
+    const f = fixture([{ type: "result", subtype: "error_during_execution", is_error: true, ...result }]);
+    await assert.rejects(f.execute({ resumeSessionId: "SAVED-SESSION" }), error => {
+      assert.equal(error.code, "CLAUDE_SDK_RESULT_ERROR");
+      assert.equal(error.status, 400);
+      assert.equal(error.provider_outcome, "failed");
+      assert.equal(error.retry_safe, true);
+      assert.equal(classifyCoderFailure(error), "transient");
+      assert.equal(reviewOperationalFailure(error).status, 400);
+      assert.match(error.message, /model/);
+      return true;
+    });
+    assert.equal(f.options.resume, "SAVED-SESSION");
+    assert.equal(f.closed, true);
+  }
+});
+
+// HTTP 400 alone never grants replay for invalid requests or agent narration about an outage.
+test("request errors and successful narration about model HTTP 400 do not enable polling", async () => {
+  for (const result of [
+    { api_error_status: 400, result: "Invalid request: unsupported tool schema. Try again later." },
+    { api_error_status: 400, result: "Prompt is too long" },
+    { api_error_status: 400, result: "Invalid model identifier" },
+    { api_error_status: 401, result: "API Error: 400 Lỗi model hiện tại, thử lại sau hoặc liên hệ admin" },
+    { api_error_status: 400, result: "Automatic approval denied" }
+  ]) {
+    const f = fixture([{ type: "result", subtype: "error_during_execution", is_error: true, ...result }]);
+    await assert.rejects(f.execute(), error => {
+      assert.equal(error.retry_safe, false);
+      assert.equal(classifyCoderFailure(error), "terminal");
+      assert.equal(reviewOperationalFailure(error), null);
+      return true;
+    });
+  }
+  const text = "API Error: 400 Lỗi model hiện tại, thử lại sau hoặc liên hệ admin";
+  assert.equal((await fixture([{ type: "result", subtype: "success", is_error: false, result: text }]).execute()).text, text);
+});
+
+// Status extracted from SDK prose needs terminal evidence; Stop or uncertain ownership always prevents replay.
+test("temporary model retry requires a rejected request or a confirmed failed turn, never an aborted stream", () => {
+  const message = "API Error: 400 Lỗi model hiện tại, thử lại sau hoặc liên hệ admin";
+  for (const [cause, options] of [
+    [{ message }, {}], [{ message }, { ended: true, aborted: true }],
+    [{ status: 400, message, provider_outcome: "unknown" }, { ended: true }],
+    [{ status: 400, message, provider_outcome: "active" }, { ended: true }],
+    [{ status: 403, message }, { ended: true }]
+  ]) {
+    const failure = sdkFailureEvidence(Object.assign(new Error(message), { code: "CONFIGURATION_ERROR" }), cause, options);
+    assert.notEqual(failure.retry_safe, true);
+    assert.notEqual(classifyCoderFailure(failure), "transient");
+  }
+  const failure = sdkFailureEvidence(Object.assign(new Error(message), { code: "CONFIGURATION_ERROR" }), { status: "400", message });
+  assert.equal(failure.status, 400);
+  assert.equal(classifyCoderFailure(failure), "transient");
 });

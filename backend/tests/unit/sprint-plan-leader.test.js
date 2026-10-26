@@ -75,3 +75,29 @@ test("runner preserves verification description as canonical notes", async () =>
   assert.equal(calls, 1);
   assert.deepEqual(plan.tickets[0].verification_plan, [{ kind: "test", criterion_ids: ["AC-1"], test_path: "backend/tests/unit/lifecycle.test.js", notes: "Verify lifecycle" }]);
 });
+
+// Provider-written malformed hashes are replaced from the same request's trusted Forge metadata.
+test("runner binds malformed contract hashes to request receipts without another SDK call", async () => {
+  const source = { id: "SPRINT-HASH", tickets: [{ execution_policy: { contract_evidence: [{ path: "backend/src/example.js", sha256: "a".repeat(65), authority_quote: "Preserve the approved contract" }] } }] };
+  let calls = 0;
+  const leader = createSprintPlanLeader({ toolOptions: ({ readReceipts }) => {
+    readReceipts.set("backend/src/example.js", { path: "backend/src/example.js", sha256: `sha256:${"b".repeat(64)}` }); return { tools: [] };
+  }, sdkGateway: { execute: async () => { calls++; return { text: JSON.stringify(source) }; } } });
+  const plan = await leader.requestPlan({ projectId: "P1", agentId: "SL", correlationId: "CORR-HASH" });
+  assert.equal(calls, 1);
+  assert.equal(plan.tickets[0].execution_policy.contract_evidence[0].sha256, "b".repeat(64));
+  assert.equal(source.tickets[0].execution_policy.contract_evidence[0].sha256.length, 65);
+});
+
+// Legacy candidates can be repaired without replaying planning or granting provider tools.
+test("retained draft repair calls the governed reader and skips the SDK", async () => {
+  const source = { id: "SPRINT-HASH", tickets: [{ execution_policy: { contract_evidence: [{ path: "backend/src/example.js", sha256: "invalid", authority_quote: "Preserve the approved contract" }] } }] };
+  const reads = [];
+  const leader = createSprintPlanLeader({ sdkGateway: { execute: () => assert.fail("Must not invoke SDK") }, evidenceTools: ({ agentId, correlationId }) => {
+    assert.equal(agentId, "SL"); assert.equal(correlationId, "CORR-HASH-CONTRACT-EVIDENCE");
+    return { registry: { read_file: { execute: async (input) => { reads.push(input); return { path: input.path, sha256: `sha256:${"c".repeat(64)}` }; } } } };
+  } });
+  const plan = await leader.repairContractEvidence({ plan: source, agentId: "SL", correlationId: "CORR-HASH" });
+  assert.deepEqual(reads, [{ path: "backend/src/example.js", offset: 1, limit: 1 }]);
+  assert.equal(plan.tickets[0].execution_policy.contract_evidence[0].sha256, "c".repeat(64));
+});

@@ -11,6 +11,6 @@ export function classifyCoderFailure(error = {}) {
   if (code === "REVIEW_VERDICT_INVALID") return "reviewer";
   if (["VERIFY_COMMAND_FAILED", "CODER_EVIDENCE_PENDING", "CODER_COMPLETION_REQUIRED"].includes(code)) return "repair";
   const cause = error.cause?.code ?? code;
-  const sdkFailure = TRANSIENT.has(code) || ["CONFIGURATION_ERROR", "AGENT_PROCESS_EXITED", "AGENT_REQUEST_FAILED"].includes(code);
+  const sdkFailure = TRANSIENT.has(code) || ["CONFIGURATION_ERROR", "AGENT_PROCESS_EXITED", "AGENT_REQUEST_FAILED", "CLAUDE_SDK_RESULT_ERROR"].includes(code);
   return sdkFailure && TRANSIENT.has(cause) && error.provider_outcome === "failed" && error.retry_safe === true ? "transient" : "terminal";
 }

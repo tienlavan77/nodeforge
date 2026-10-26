@@ -84,7 +84,8 @@ test("buildResumePrompt prioritizes a missing durable Coder report", () => {
   const state = createResumeState({ status: "in_progress", phase: "coder_report_required", review_findings: [{ finding_id: "REV-1", message: "Review this change" }] });
   const prompt = buildResumePrompt("BASE-TICKET", state);
   assert.match(prompt, /Call report_done for this artifact before respond_to_review/);
-  assert.match(prompt, /preserve its summary/);
+  assert.match(prompt, /including summary updates supported by new evidence/);
+  assert.match(prompt, /completed reports remain immutable/);
 });
 
 test("checkpointPayload merges session ids and failure details", () => {

@@ -75,6 +75,19 @@ export async function loadVerificationEnvironment(projectRoot, binding) {
   return manifest;
 }
 
+/** Restores the immutable dependency bytes used by final verification so later
+ * focused acceptance checks remain comparable after unrelated workspace edits.
+ * Corrupt evidence and ticket ownership collisions fail instead of falling back
+ * to a fresh snapshot of the live project. */
+export async function restoreVerificationEnvironment(projectRoot, binding, ticketPaths = []) {
+  const manifest = await loadVerificationEnvironment(projectRoot, binding);
+  const files = [];
+  for (const entry of manifest) files.push({ ...entry, bytes: await readVerificationEnvironmentFile(projectRoot, entry) });
+  const environment = { files, manifest, sha256: binding.sha256 };
+  assertVerificationEnvironment(environment, ticketPaths);
+  return environment;
+}
+
 // Rejects malformed or overlapping evidence paths before discovery or archive overlays can use
 // a manifest. A matching digest proves byte identity, not that those bytes form a safe file tree.
 export function assertVerificationEnvironmentManifest(manifest) {

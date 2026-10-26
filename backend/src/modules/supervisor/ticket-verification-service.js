@@ -17,6 +17,7 @@ import { coversVerificationPolicy } from "./ticket-verification-policy.js";
 import { runTicketVerificationCommands, verificationCommandAccepted } from "./ticket-verification-regression.js";
 import { createTicketVerificationDiagnostic } from "./ticket-verification-diagnostic.js";
 import { createReviewVerificationService } from "./review-verification-service.js";
+import { createTicketReportChecks } from "./ticket-report-checks.js";
 
 const ROOT = statePath("ticket-verification");
 const POLICY_VERSION = "ticket-verification-v8";
@@ -33,11 +34,14 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
   const artifactPath = (id) => `${ROOT}/${taskId}/artifacts/${id}.json`;
   const checkPath = (id) => `${ROOT}/${taskId}/checks/${id}.json`;
   const ensurePassedArtifact = createTicketVerificationRecovery({ taskId, executionContexts, assertIdentity, assertPassedArtifact, startTests, getTestResult, getFailureDiagnostic: () => getFailureDiagnostic(), maxAttempts: MAX_SAME_REVISION_ATTEMPTS });
-  const runCheck = createTicketFocusedCheck({ taskId, projectRoot, worktreeFileService, ledger, executionContexts, stateFileService, assertIdentity, assertArchiveSource, runCommand, safeOutput });
+  const runCheck = createTicketFocusedCheck({ taskId, projectRoot, worktreeFileService, ledger, executionContexts, stateFileService, assertIdentity, assertArchiveSource, runCommand, safeOutput, loadArtifact });
   const runReviewVerification = createReviewVerificationService({ taskId, projectId, projectRoot, stateFileService, runCommand, safeOutput, projectLogger });
+  const reportChecks = createTicketReportChecks({ taskId, loadContext: () => executionContexts.load(taskId),
+    updateContext: (version, changes) => executionContexts.update(taskId, version, changes), loadArtifact,
+    loadCheck: (id) => loadJson(checkPath(id)), saveArtifact: saveReportArtifact, assertIdentity });
   const getFailureDiagnostic = createTicketVerificationDiagnostic({ loadContext: () => executionContexts.load(taskId), loadArtifact,
     latestJob: async (context) => latestTicketVerificationAttempt({ projectRoot, taskId, context, policyVersion: POLICY_VERSION, matchRunnerRevision: false, loadJob: (id) => loadJson(jobPath(id)) }) });
-  return Object.freeze({ runCheck, runReviewVerification, startTests, getTestResult, loadArtifact, assertPassedArtifact, ensurePassedArtifact, assertCleanWorktree, getFailureDiagnostic });
+  return Object.freeze({ runCheck, runReviewVerification, startTests, getTestResult, loadArtifact, assertPassedArtifact, ensurePassedArtifact, prepareReportEvidence: reportChecks.prepareReportEvidence, assertCleanWorktree, getFailureDiagnostic });
 
   // Starts a durable verification job only after the ticket commit is recorded.
   async function startTests() {
@@ -117,6 +121,7 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
       policyPaths = committedPaths;
     }
     if (!coversVerificationPolicy(artifact, policyPaths, context.verification_plan ?? [])) throw fail("VERIFY_ARTIFACT_MISMATCH", "Verification artifact lacks current policy or complete command evidence.");
+    await reportChecks.assertReportChecks(artifact);
     if (rootOnly && artifact.tree_sha !== (await rootGit.run(["rev-parse", `${context.review_commit_sha}^{tree}`])).trim()) throw fail("VERIFY_ARTIFACT_MISMATCH", "Verification artifact tree differs from the ticket commit.");
     await assertIdentity(context);
     return artifact;
@@ -200,6 +205,21 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
 
   // Persists a compact job state without exposing command output to the UI stream.
   async function saveJob(job) { await stateFileService.atomicWrite({ path: jobPath(job.job_id), content: `${JSON.stringify(job)}\n`, replace: true }); }
+
+  /** Publishes supplemental artifacts immutably and accepts an identical retry
+   * after interruption without overwriting earlier verification evidence. */
+  async function saveReportArtifact(artifact) {
+    const content = `${JSON.stringify(artifact)}\n`;
+    const existing = await loadArtifact(artifact.artifact_id);
+    if (existing) {
+      if (JSON.stringify(existing) !== JSON.stringify(artifact)) throw fail("VERIFY_ARTIFACT_MISMATCH", "Supplemental verification artifact identity conflicts with stored evidence.");
+      return;
+    }
+    try { await stateFileService.atomicWrite({ path: artifactPath(artifact.artifact_id), content, replace: false }); }
+    catch (error) {
+      if (!["FILE_ALREADY_EXISTS", "EEXIST"].includes(error.code) || JSON.stringify(await loadArtifact(artifact.artifact_id)) !== JSON.stringify(artifact)) throw error;
+    }
+  }
 
   // Reads a durable receipt and distinguishes absence from corrupt persistence.
   async function loadJson(path) {

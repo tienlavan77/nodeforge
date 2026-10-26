@@ -27,7 +27,7 @@ export function completeNodeReportEvidence(input, ticket, artifact) {
 
 // Retains Coder-supplied evidence and fills omitted criteria with conservative Node evidence.
 function completeCoverage(supplied, criteria, commands, verificationPlan, ticket) {
-  if (Array.isArray(verificationPlan) && verificationPlan.length) return coverageFromPlan(criteria, commands, verificationPlan, ticket);
+  if (Array.isArray(verificationPlan) && verificationPlan.length) return coverageFromPlan(criteria, commands, verificationPlan, ticket, supplied);
   const entries = Array.isArray(supplied) ? [...supplied] : [];
   const covered = new Set(entries.map((entry) => criterionIndex(entry, criteria)).filter((index) => index >= 0));
   for (let index = 0; index < criteria.length; index += 1) {
@@ -37,14 +37,18 @@ function completeCoverage(supplied, criteria, commands, verificationPlan, ticket
 }
 
 // Converts the approved criterion map into Node-owned coverage from actual command receipts.
-function coverageFromPlan(criteria, commands, verificationPlan, ticket) {
+function coverageFromPlan(criteria, commands, verificationPlan, ticket, supplied) {
   return criteria.map((criterion, index) => {
     const criterionId = `AC-${index + 1}`;
     const steps = verificationPlan.filter((step) => step.criterion_ids?.includes(criterionId));
     const ownerApproved = hasOwnerDecisionEvidence(ticket, criterionId);
-    const required = steps.filter((step) => step.kind !== "governance" && !(step.kind === "human" && ownerApproved));
-    const missing = required.filter((step) => !findPassingVerificationCommand(step, commands));
-    if (missing.length) return { criterion_id: criterionId, criterion, status: "evidence_pending", command_kind: null, test_path: null, missing_checks: missing.map((step) => ({ kind: step.kind, ...(step.test_path ? { test_path: step.test_path } : {}) })) };
+    const hint = (supplied ?? []).find((entry) => criterionIndex(entry, criteria) === index);
+    const hintPath = hint?.test_path ?? (hint?.missing_checks?.length === 1 && ["test", "backend_tests"].includes(hint.missing_checks[0].kind) ? hint.missing_checks[0].test_path : undefined);
+    const required = steps.filter((step) => step.kind !== "governance" && !(step.kind === "human" && ownerApproved))
+      .map((step) => ["test", "backend_tests"].includes(step.kind) && !step.test_path && typeof hintPath === "string"
+        ? { ...step, test_path: hintPath } : step);
+    const missing = required.filter((step) => (["test", "backend_tests"].includes(step.kind) && !step.test_path) || !findPassingVerificationCommand(step, commands));
+    if (missing.length) return { criterion_id: criterionId, criterion, status: "evidence_pending", command_kind: hint?.command_kind ?? null, test_path: hintPath ?? null, missing_checks: missing.map((step) => ({ kind: step.kind, ...(step.test_path ? { test_path: step.test_path } : {}) })) };
     const passing = required[0];
     if (passing) return { criterion_id: criterionId, criterion, status: "verified", command_kind: findPassingVerificationCommand(passing, commands).kind, ...(passing.test_path ? { test_path: passing.test_path } : {}) };
     if (ownerApproved && steps.some((step) => step.kind === "human")) return { criterion_id: criterionId, criterion, status: "verified", command_kind: "human", decision_id: ticket.owner_decision_basis.decision_id };

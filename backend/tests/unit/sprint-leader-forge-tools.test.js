@@ -23,8 +23,9 @@ async function fixture(run) {
 // Proves direct searches alone populate provenance, without an indexed-search dependency or prior tree reads.
 test("Sprint Leader exposes exactly five readers and records search_text paths", async () => fixture(async ({ dependencies, profile }) => {
   const discoveredPaths = new Set();
+  const readReceipts = new Map();
   const events = [];
-  const tools = createSprintLeaderForgeTools({ ...dependencies, profile, discoveredPaths, projectLogger: (entry) => events.push(entry) });
+  const tools = createSprintLeaderForgeTools({ ...dependencies, profile, discoveredPaths, readReceipts, projectLogger: (entry) => events.push(entry) });
   const names = ["search_tree", "list_files", "search_text", "read_file", "read_lines"];
   assert.deepEqual(tools.definitions.map(({ name }) => name), names);
   assert.deepEqual(Object.keys(tools.registry), names);
@@ -47,6 +48,8 @@ test("Sprint Leader exposes exactly five readers and records search_text paths",
   assert.ok(tree.entries.some((entry) => entry.path === "backend/src/example.js"));
   const file = await tools.registry.read_file.execute({ path: "backend/src/example.js", offset: 1, limit: 2 });
   assert.match(file.content, /Example source/);
+  assert.deepEqual(readReceipts.get(file.path), { path: file.path, sha256: file.sha256 });
+  assert.deepEqual(Object.keys(readReceipts.get(file.path)).sort(), ["path", "sha256"]);
   const listed = await tools.registry.list_files.execute({ flags: [] });
   assert.match(listed.stdout, /backend\/src\/example\.js/);
   const lines = await tools.registry.read_lines.execute({ path: "backend/src/example.js", start_line: 1, end_line: 2 });

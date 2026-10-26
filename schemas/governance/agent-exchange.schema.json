@@ -21,7 +21,7 @@
     },
     "sender": { "$ref": "#/$defs/party" },
     "recipient": { "$ref": "#/$defs/party" },
-    "kind": { "enum": ["consultation_request", "consultation_response", "work_request", "work_result", "review_request", "review_result", "correction"] },
+    "kind": { "enum": ["consultation_request", "consultation_response", "work_request", "work_progress", "work_result", "review_request", "review_result", "correction"] },
     "subject": { "$ref": "#/$defs/text" },
     "payload": { "type": "object" },
     "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },

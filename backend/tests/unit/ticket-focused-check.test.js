@@ -82,3 +82,27 @@ test("Coder can test uncommitted ledger edits without a commit and receives pre-
   assert.equal(JSON.parse(writes[0].content).pre_commit, true);
   assert.equal(context.state, "coding");
 });
+
+// Missing acceptance checks must run against the same dependency snapshot as
+// the passed artifact so unrelated workspace edits cannot invalidate the receipt.
+test("post-verification focused checks reuse the recorded environment across workspace changes", async () => {
+  const { options, context, calls } = fixture();
+  context.verification_artifact_id = "ARTIFACT-PASSED";
+  context.manifest_sha = "manifest";
+  const binding = { sha256: "recorded-environment" };
+  const pinned = { files: [], manifest: [], sha256: binding.sha256 };
+  options.loadArtifact = async () => ({ artifact_id: context.verification_artifact_id, task_id: "T", status: "passed", commit_sha: context.review_commit_sha, source_revision: context.source_revision, manifest_sha: context.manifest_sha, environment: binding });
+  options.restoreEnvironment = async (projectRoot, environment, paths) => {
+    assert.equal(projectRoot, "/repo"); assert.deepEqual(environment, binding); assert.deepEqual(paths, context.manifest_paths);
+    return pinned;
+  };
+  options.captureEnvironment = async () => assert.fail("A mutable workspace must not replace the passed artifact environment");
+  const materialize = options.materialize;
+  options.materialize = async (input) => ({ ...await materialize(input), environment: binding });
+  const result = await createTicketFocusedCheck(options)({ type: "test", command: "node --test backend/tests/unit/example.test.js" });
+  assert.deepEqual(calls[0].environment, pinned);
+  assert.deepEqual(result.environment, binding);
+  options.loadArtifact = async () => ({ status: "passed", task_id: "T", commit_sha: "different", source_revision: context.source_revision, manifest_sha: context.manifest_sha, environment: binding });
+  await assert.rejects(createTicketFocusedCheck(options)({ type: "test", command: "node --test backend/tests/unit/example.test.js" }), { code: "VERIFY_CHECK_IDENTITY_MISMATCH" });
+  assert.equal(calls.length, 2);
+});

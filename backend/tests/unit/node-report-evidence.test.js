@@ -45,6 +45,21 @@ test("governance-only and unmapped criteria retain distinct coverage states", ()
   assert.equal(coverage([{ kind: "test", criterion_ids: ["AC-2"], test_path: "ui/nextjs/tests/example.test.js" }])[0].status, "evidence_pending");
 });
 
+// A generic backend step needs an explicit test binding, not any unrelated passing test.
+test("a pathless backend plan uses the supplied exact test path without treating the hint as proof", () => {
+  const ticket = { acceptance_criteria: ["Behavior works"], verification_plan: [{ kind: "backend_tests", criterion_ids: ["AC-1"] }] };
+  const commands = [{ kind: "backend_tests", exit_code: 0, argv: ["node", "--test", "backend/tests/unit/legacy.test.js"] }];
+  const input = { acceptance_coverage: [{ criterion_id: "AC-1", command_kind: "backend_tests", test_path: "backend/tests/unit/legacy.test.js" }] };
+  assert.equal(completeNodeReportEvidence({}, ticket, { commands }).acceptance_coverage[0].status, "evidence_pending");
+  assert.equal(completeNodeReportEvidence(input, ticket, { commands }).acceptance_coverage[0].status, "verified");
+  const pending = completeNodeReportEvidence(input, ticket, { commands: [] });
+  assert.equal(pending.acceptance_coverage[0].status, "evidence_pending");
+  assert.equal(pending.acceptance_coverage[0].test_path, input.acceptance_coverage[0].test_path);
+  assert.equal(completeNodeReportEvidence(pending, ticket, { commands }).acceptance_coverage[0].status, "verified");
+  const legacy = { acceptance_coverage: [{ ...pending.acceptance_coverage[0], test_path: null }] };
+  assert.equal(completeNodeReportEvidence(legacy, ticket, { commands }).acceptance_coverage[0].status, "verified");
+});
+
 test("human evidence is diagnosed as a missing capability rather than an automatic Coder retry", () => {
   assert.throws(() => assertCoderCoverage(coverage([{ kind: "human", criterion_ids: ["AC-1"] }])), (error) => {
     assert.deepEqual(error.details.unsupported_check_kinds, ["human"]);
