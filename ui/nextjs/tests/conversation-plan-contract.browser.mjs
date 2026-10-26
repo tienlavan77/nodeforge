@@ -41,7 +41,7 @@ window.fetch=async(input,init={})=>{
   if(url.pathname.match(/\\/plans\\/[^/]+\\/\\d+$/u))return Response.json({...revision});
   return Response.json({items:[]});
 };
-window.markdownRevisionObject=()=>${JSON.stringify(markdownRevision())};
+window.markdownRevisionObject=()=>(${JSON.stringify(markdownRevision())});
 createRoot(document.getElementById('root')).render(
   <PlanReviewModal client={window.client} projectId="PROJECT-BROWSER" planId="${PLAN_ID}" onClose={()=>{}} onChanged={()=>{}} />
 );`;
