@@ -2,16 +2,25 @@
 // Business purpose: a Create/Add lifecycle request must be recoverable after lost responses,
 // throttling or process restarts, so every state change is persisted as one atomic snapshot and
 // retries are reconciled through the request key without ever creating a second operation for the
-// same intent. Technical description: snapshots live at <root>/<sha256(requestKey)>.json written
-// temp+rename under one serialized queue; attempt leases are separate wx-created .lock files whose
-// presence fences attempts that still hold unreleased resources. Terminal statuses may only be
-// stored together with a result in the same snapshot write, so settlement is never half-applied.
+// same intent. Every published result must name the authority that publishes it, because a stale
+// worker must never overwrite state a newer attempt already owns. Technical description: snapshots
+// live at <root>/<sha256(requestKey)>.json written temp+rename; the complete read-validate-replace
+// of every mutation is additionally serialized through the shared compare-and-swap directory lock
+// (project-operation-lock.js), so two handles sharing one storage directory can never both replace
+// the same revision and silently lose one accepted update. Attempt leases are separate wx-created
+// .lock files whose presence fences attempts that still hold unreleased resources. Public
+// transition requires an authority token: { attempt: N } is the execution token (N must equal the
+// persisted attempt AND still hold its open lease) or { recovery: true } is the coordinator token
+// for restart reconciliation and pre-claim bookkeeping. Attempt advancement stays exclusively in
+// claimAttempt, so a patch can never change attempt directly. Terminal statuses may only be stored
+// together with a result in the same snapshot write, so settlement is never half-applied.
 import { createHash, randomUUID } from "node:crypto";
 import { link, mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
   OPERATION_ID_PREFIX, assertStageTransition, computeRequestFingerprint, validateOperationSnapshot
 } from "./project-operation-contract.js";
+import { withCasLock } from "./project-operation-lock.js";
 
 const TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled"]);
 
@@ -90,21 +99,31 @@ export async function createProjectOperationStore({ directory } = {}) {
   }
 
   // Applies a validated stage/status patch under optimistic revision control: a stale expected
-  // revision or an invalid stage move is rejected without touching the persisted snapshot.
-  function transition(operationId, expectedRevision, patch = {}) {
-    return enqueue(async () => {
+  // revision or an invalid stage move is rejected without touching the persisted snapshot. The
+  // read, revision/authority validation and replacement run as one compare-and-swap section under
+  // the directory lock, so a second handle on the same storage that read the same revision is
+  // rejected as stale after re-reading under the lock instead of silently replacing the winner.
+  // Execution-owned publication (stage/status/result of the running attempt) must carry
+  // { attempt: N } matching the persisted attempt with its lease still open; { recovery: true }
+  // is the distinct coordinator authority permitted only for restart-settlement publication.
+  function transition(operationId, expectedRevision, patch = {}, authority = null) {
+    return mutate(async () => {
+      if (patch.attempt !== undefined || authority?.internalClaim !== undefined) {
+        throw failure("attempt_frozen", "Only claimAttempt may advance the attempt.");
+      }
       const current = await findByOperationId(operationId);
       if (!current) throw failure("operation_not_found", `Unknown operation ${operationId}.`);
-      return applyTransition(current, expectedRevision, patch);
+      return applyTransition(current, expectedRevision, patch, authority);
     });
   }
 
-  // Fences execution: claiming an attempt requires releasing the previous attempt's resources
-  // first, because an open lease means runtime or filesystem resources are still unreleased.
-  // The lease file is created before the snapshot moves to attempted, so a crash between the two
-  // leaves an observable lease instead of an unfenced half-started attempt.
+  // Fences execution: claiming an attempt runs under the directory lock and requires releasing
+  // the previous attempt's resources first, because an open lease means runtime or filesystem
+  // resources are still unreleased — so two concurrent retries across two handles can never both
+  // open an attempt. The lease file is created before the snapshot moves to attempted, so a crash
+  // between the two leaves an observable lease instead of an unfenced half-started attempt.
   function claimAttempt(operationId) {
-    return enqueue(async () => {
+    return mutate(async () => {
       const current = await findByOperationId(operationId);
       if (!current) throw failure("operation_not_found", `Unknown operation ${operationId}.`);
       const open = await leasesFor(operationId);
@@ -113,19 +132,27 @@ export async function createProjectOperationStore({ directory } = {}) {
       await writeFile(join(root, leaseName(operationId, attempt)),
         JSON.stringify({ operation_id: operationId, attempt, acquired_at: new Date().toISOString() }), { flag: "wx", mode: 0o600 });
       const stagePatch = current.stage === "intended" ? { stage: "attempted" } : {};
-      return applyTransition(current, current.revision, { ...stagePatch, status: "running", attempt, attempts: attempt });
+      return applyTransition(current, current.revision, { ...stagePatch, status: "running", attempt, attempts: attempt },
+        { internalClaim: attempt });
     });
   }
 
-  // Releases a lease only for the attempt that holds it; a stale attempt token cannot release,
-  // settle or overwrite state owned by a newer attempt.
+  // Releases a lease only for the attempt that holds it; the check and removal happen under the
+  // directory lock so a stale or duplicate attempt token cannot release, settle or overwrite
+  // state owned by a newer attempt.
   function releaseAttempt(operationId, attempt) {
-    return enqueue(async () => {
+    return mutate(async () => {
       const open = await leasesFor(operationId);
       if (!open.includes(attempt)) throw failure("attempt_stale", `Attempt ${attempt} does not hold resources for ${operationId}.`);
       await unlink(join(root, leaseName(operationId, attempt)));
       return true;
     });
+  }
+
+  // Runs one read-validate-replace section under the shared directory lock inside the in-memory
+  // queue; nesting would deadlock by design, so mutations must call this exactly once.
+  function mutate(work) {
+    return enqueue(() => withCasLock(root, work));
   }
 
   // Lists operations with unreleased resources so restart recovery can re-run incomplete steps
@@ -166,11 +193,16 @@ export async function createProjectOperationStore({ directory } = {}) {
   }
 
   // One validated snapshot write shared by transition and claimAttempt, enforcing the revision
-  // precondition and the rule that terminal statuses and settled stages persist their outcome.
-  function applyTransition(current, expectedRevision, patch) {
+  // precondition, the attempt-authority rule and the rule that terminal statuses and settled
+  // stages persist their outcome. Runs inside the caller's compare-and-swap lock section.
+  async function applyTransition(current, expectedRevision, patch, authority) {
     if (!Number.isSafeInteger(expectedRevision) || expectedRevision !== current.revision) {
       throw failure("revision_stale", `Expected revision ${expectedRevision}, found ${current.revision}.`);
     }
+    if (patch.attempt !== undefined && authority?.internalClaim !== patch.attempt) {
+      throw failure("attempt_frozen", "Only claimAttempt may advance the attempt; patches cannot change it directly.");
+    }
+    await assertTransitionAuthority(current, patch, authority);
     const next = structuredClone(current);
     const now = new Date().toISOString();
     if (patch.stage && patch.stage !== current.stage) {
@@ -191,6 +223,37 @@ export async function createProjectOperationStore({ directory } = {}) {
     next.timestamps.updated_at = now;
     validateOperationSnapshot(next);
     return writeSnapshot(snapshotPath(next.request_key), next).then(() => next);
+  }
+
+  // Enforces the authority that publishes an outcome. Execution-owned publication — any patch that
+  // moves stage, status or result — must present { attempt: N } where N equals the snapshot's
+  // current attempt AND N still holds its open lease, so a stale worker whose lease ended or whose
+  // attempt was superseded cannot publish committed or terminal results even while carrying the
+  // latest revision. { recovery: true } is the distinct coordinator authority used by restart
+  // reconciliation after its own catalog/identity/ownership evidence passes; an internal claim may
+  // only pass the claim's own status/stage bookkeeping. A metadata-only patch (project_id,
+  // diagnostic) may travel without an execution token because it publishes no outcome.
+  async function assertTransitionAuthority(current, patch, authority) {
+    const publishes = patch.stage !== undefined || patch.status !== undefined || patch.result !== undefined;
+    if (!publishes) return;
+    if (authority?.recovery === true) return;
+    if (authority?.internalClaim !== undefined) {
+      if (patch.result !== undefined) {
+        throw failure("authority_invalid", "A claim may not publish a final result; settlement belongs to transition.");
+      }
+      return;
+    }
+    const attempt = authority?.attempt;
+    if (!Number.isSafeInteger(attempt)) {
+      throw failure("attempt_required", "Publishing stage, status or result requires the current attempt token or recovery authority.");
+    }
+    if (attempt !== current.attempt) {
+      throw failure("attempt_stale", `Attempt ${attempt} no longer owns ${current.operation_id}; current attempt is ${current.attempt}.`);
+    }
+    const open = await leasesFor(current.operation_id);
+    if (!open.includes(attempt)) {
+      throw failure("attempt_stale", `Attempt ${attempt} does not hold its lease for ${current.operation_id}.`);
+    }
   }
 
   // Finds the snapshot whose persisted operation_id matches, reading every .json in the store.

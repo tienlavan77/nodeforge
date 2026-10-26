@@ -2,14 +2,22 @@
 // Business purpose: after a process restart the backend must reconcile what actually exists before
 // resuming any Create/Add work, because a lost or delayed operation snapshot must never remove
 // catalog membership, replay an already committed Create, or infer success from mere intent.
-// Technical description: recovery is ordered — catalog membership is checked first as the sole
-// source of membership, then per-root identity, artifact ownership and database results; only after
-// all evidence agrees may an incomplete step be re-run. Serving readiness is re-probed inside the
-// current process for every resume, so a persisted "ready" style flag is never trusted, and an
-// attempt whose lease still shows unreleased resources blocks a new runtime instead of leaking one.
+// Technical description: recovery is ordered and evidence-collective — catalog membership is read
+// first as the sole source of membership, then per-root identity, then the recorded database
+// result, then artifact ownership, and a decision is taken only when the gathered evidence agrees.
+// Consequences of that agreement rule two previously unsafe shortcuts: a Create whose membership is
+// already visible in the catalog is settled from evidence even when its snapshot lagged behind in
+// intended/attempted (replay is refused because membership proves the commit), and a recorded
+// "succeeded" database result is never sufficient on its own — it must be corroborated by catalog
+// membership plus verified artifact ownership, otherwise the contradictory evidence fails closed.
+// Only after all checks may an incomplete step be re-run, never while a lease still shows
+// unreleased resources. Serving readiness is re-probed inside the current process for every resume,
+// so a persisted "ready" style flag is never trusted. Settlement writes use the explicit recovery
+// authority, distinct from an attempt token, and recovery never rewrites the catalog.
 import { OPERATION_STAGES, validateOperationSnapshot } from "./project-operation-contract.js";
 
 const TERMINAL_STAGES = new Set(["settled", "abandoned"]);
+const TERMINAL_OUTCOMES = new Set(["succeeded", "failed", "cancelled"]);
 
 // Builds the recovery coordinator over one operation store and the evidence sources it reconciles.
 // `identity` resolves per-root identity, `ownsArtifact` checks artifact ownership, `queryResult`
@@ -40,12 +48,16 @@ export function createProjectOperationRecovery({
     return { decisions, corrupted };
   }
 
-  // Runs the ordered reconciliation for one operation. Catalog membership wins over snapshot
-  // state: a committed Create already visible in the catalog is settled from evidence, never
-  // replayed, and an intended/attempted snapshot without catalog membership is not a success.
+  // Runs the ordered, evidence-collective reconciliation for one operation. Catalog membership is
+  // authoritative and wins over snapshot state in both directions: committed membership settles a
+  // lagging snapshot instead of replaying it, while a lagging or contradictory evidence set fails
+  // closed instead of being papered over by whichever single source happens to look convenient.
   async function recoverOne(snapshot) {
     validateOperationSnapshot(snapshot);
     const base = { operation_id: snapshot.operation_id, stage: snapshot.stage, attempt: snapshot.attempt };
+
+    // Membership evidence first: the catalog is the only source of membership, and a snapshot can
+    // never remove or invent it.
     const membership = catalog.list().find((entry) => entry.root === snapshot.root) ?? null;
 
     // Identity evidence: a snapshot project_id that disagrees with the catalog or the per-root
@@ -66,21 +78,34 @@ export function createProjectOperationRecovery({
       return { ...base, action: "blocked_attempt_open", held_attempts: openLeases.attempts };
     }
 
-    // Database and artifact evidence decide whether the committed result already exists.
+    // Database and artifact evidence are read together, so no single source decides settlement.
     const recorded = await queryResult({ operationId: snapshot.operation_id, projectId: knownProjectId });
-    if (recorded?.outcome === "succeeded" || recorded?.outcome === "failed" || recorded?.outcome === "cancelled") {
-      return settle(snapshot, { outcome: recorded.outcome, projectId: knownProjectId, root: snapshot.root }, base, "settled_from_evidence");
-    }
+    const outcome = TERMINAL_OUTCOMES.has(recorded?.outcome) ? recorded.outcome : null;
+    const createCommitted = snapshot.kind === "create" && membership !== null;
+    const needsOwnership = outcome === "succeeded" || snapshot.stage === "committed" || (createCommitted && outcome === null);
+    const owned = needsOwnership
+      ? await ownsArtifact({ projectId: membership?.projectId ?? knownProjectId, root: snapshot.root })
+      : false;
 
-    // Committed but result unknown: membership already exists, so artifact ownership completes
-    // settlement instead of replaying Create. Intent alone never counts as success here.
-    if (snapshot.stage === "committed") {
-      if (!membership) return { ...base, action: "blocked_membership_lost" };
-      if (!(await ownsArtifact({ projectId: membership.projectId, root: snapshot.root }))) {
-        return { ...base, action: "blocked_membership_lost" };
-      }
+    // A recorded success must be corroborated: without membership plus verified ownership the
+    // evidence contradicts itself, so recovery neither settles nor replays and fails closed.
+    if (outcome === "succeeded" && !(membership && owned)) {
+      return { ...base, action: "blocked_evidence_conflict", evidence: { database: "succeeded", membership: Boolean(membership), ownership: Boolean(owned) } };
+    }
+    // Symmetrically, a recorded non-success for a Create cannot coexist with committed membership.
+    if (outcome && outcome !== "succeeded" && createCommitted && knownProjectId === membership?.projectId) {
+      return { ...base, action: "blocked_evidence_conflict", evidence: { database: outcome, membership: true } };
+    }
+    if (outcome === "failed" || outcome === "cancelled") {
+      return settle(snapshot, { outcome, projectId: knownProjectId, root: snapshot.root }, base, "settled_from_evidence");
+    }
+    // Committed membership proves the Create already ran: ownership completes the settlement even
+    // when the snapshot never advanced, and replay is refused because re-running would double-create.
+    if (membership && (snapshot.stage === "committed" || createCommitted)) {
+      if (!owned) return { ...base, action: "blocked_membership_lost" };
       return settle(snapshot, { outcome: "succeeded", projectId: membership.projectId, root: snapshot.root }, base, "settled_from_evidence");
     }
+    if (snapshot.stage === "committed") return { ...base, action: "blocked_membership_lost" };
 
     // A crashed attempt may have left partial ownership without catalog membership; replaying
     // Create on top of it could double-create artifacts, so recovery fails closed for humans.
@@ -99,8 +124,9 @@ export function createProjectOperationRecovery({
   }
 
   // Repairs a lagging snapshot to settled with the evidenced outcome by walking each approved
-  // intermediate stage; catalog membership is authoritative and was validated above, so recovery
-  // never rewrites membership and never replays work the evidence says already completed.
+  // intermediate stage under the explicit recovery authority; catalog membership is authoritative
+  // and was validated above, so recovery never rewrites membership and never replays work the
+  // evidence says already completed.
   async function settle(snapshot, result, base, action) {
     let current = snapshot;
     const start = OPERATION_STAGES.indexOf(current.stage);
@@ -110,7 +136,7 @@ export function createProjectOperationRecovery({
       const patch = last
         ? { stage: target, status: statusFor(result.outcome), result }
         : { stage: target };
-      current = await store.transition(current.operation_id, current.revision, patch);
+      current = await store.transition(current.operation_id, current.revision, patch, { recovery: true });
       if (current.stage === "settled") break;
     }
     return { ...base, action, outcome: result.outcome };
