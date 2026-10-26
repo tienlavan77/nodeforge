@@ -1,6 +1,6 @@
 // Processes durable embedding jobs and writes vectors through the embedding store.
 import { ConfigurationError } from "../../shared/errors.js";
-import { checksumEmbeddingText } from "./embedding-job-store.js";
+import { purposeSummaryInput } from "./purpose-summary-input.js";
 
 // Creates a single-flight Embedding Worker for a project index database.
 export function createEmbeddingWorker({ database, jobs, embeddingStore, embeddingProvider, model, clock = () => new Date(), maxAttempts = 5, retryDelayMs = 30000, logger = console } = {}) {
@@ -24,20 +24,20 @@ export function createEmbeddingWorker({ database, jobs, embeddingStore, embeddin
       activeJob = jobs.claimNext({ now: clock().toISOString() });
       if (!activeJob) return false;
       const symbol = database.all(
-        `SELECT s.name, s.kind, sc.content FROM symbols s LEFT JOIN symbol_content_fts sc ON sc.symbol_id = s.symbol_id WHERE s.symbol_id = ?`,
+        `SELECT summary FROM symbols WHERE symbol_id = ?`,
         [activeJob.symbol_id]
       )[0];
-      if (!symbol) {
+      const input = purposeSummaryInput(symbol?.summary);
+      if (!input) {
         jobs.supersede(activeJob.job_id);
         return true;
       }
-      const content = symbol.content ?? "";
-      const checksum = checksumEmbeddingText(`${symbol.name}\n${symbol.kind}\n${content}`);
+      const { content, checksum } = input;
       if (checksum !== activeJob.content_checksum || activeJob.model !== model) {
         jobs.supersede(activeJob.job_id);
         return true;
       }
-      const vector = await embeddingProvider.embed(`${symbol.name} [${symbol.kind}]\n${content}`.slice(0, 4000));
+      const vector = await embeddingProvider.embed(content);
       embeddingStore.upsert({ symbolId: activeJob.symbol_id, vector, model, checksum });
       jobs.complete(activeJob.job_id);
       return true;

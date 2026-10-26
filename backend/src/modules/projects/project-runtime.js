@@ -1,7 +1,8 @@
 // Composes an isolated index, watcher, embedding worker, and activity stream for one project.
 import { EventEmitter } from "node:events";
 import { startProjectWatch } from "../watcher/watch-project.js";
-import { checksumEmbeddingText, createEmbeddingJobStore } from "../index/embedding-job-store.js";
+import { createEmbeddingJobStore } from "../index/embedding-job-store.js";
+import { purposeSummaryInput } from "../index/purpose-summary-input.js";
 import { createEmbeddingWorker } from "../index/embedding-worker.js";
 import { createRetrievalDependencies } from "../index/retrieval-dependencies.js";
 import { createSubscriptionRegistry } from "../events/subscription-registry.js";
@@ -67,11 +68,12 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
   // Upgrades unchanged legacy indexes and changed embedding models without rebuilding project identity.
   function queueMissingEmbeddings() {
     const model = retrieval.ollamaConfig.model;
-    for (const symbol of database.all(`SELECT s.symbol_id, s.name, s.kind, sc.content,
+    for (const symbol of database.all(`SELECT s.symbol_id, s.summary,
       e.embedding_model, e.content_checksum FROM symbols s
-      LEFT JOIN symbol_content_fts sc ON sc.symbol_id = s.symbol_id
       LEFT JOIN symbol_embeddings e ON e.symbol_id = s.symbol_id`)) {
-      const contentChecksum = checksumEmbeddingText(`${symbol.name}\n${symbol.kind}\n${symbol.content ?? ""}`);
+      const input = purposeSummaryInput(symbol.summary);
+      if (!input) continue;
+      const contentChecksum = input.checksum;
       if (symbol.embedding_model !== model || symbol.content_checksum !== contentChecksum) {
         embeddingJobs.enqueue({ symbolId: symbol.symbol_id, contentChecksum, model });
       }

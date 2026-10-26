@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import readline from "node:readline";
 import { createRetrievalDependencies } from "../src/modules/index/retrieval-dependencies.js";
+import { purposeSummaryInput } from "../src/modules/index/purpose-summary-input.js";
 
 const args = process.argv.slice(2);
 const limitArg = args.find((a) => a.startsWith("--limit="));
@@ -26,15 +27,13 @@ const database = {
 
 const { embeddingStore: store, embeddingProvider: provider, ollamaConfig } = createRetrievalDependencies({ database, ollamaConfig: { model: MODEL_OVERRIDE, timeoutMs: TIMEOUT_OVERRIDE } });
 const MODEL = ollamaConfig.model;
-const INPUT_LIMIT = MODEL === "all-minilm" ? 400 : 4000;
 
 const symbols = database.all(
   `SELECT s.symbol_id, s.name, s.kind, f.path,
-          COALESCE(sc.content, '') AS content,
+          s.summary,
           e.content_checksum AS stored_checksum, e.embedding_model AS stored_model
    FROM symbols s
    JOIN files f ON f.file_id = s.file_id
-   LEFT JOIN symbol_content_fts sc ON sc.symbol_id = s.symbol_id
    LEFT JOIN symbol_embeddings e ON e.symbol_id = s.symbol_id
    ORDER BY f.path, s.start_line`
 );
@@ -84,11 +83,15 @@ function renderBar(processed) {
 }
 
 for (const sym of queue) {
-  const checksum = checksumText(`${sym.name}\n${sym.kind}\n${sym.content ?? ""}`);
-  if (sym.stored_checksum === checksum && sym.stored_model === MODEL) {
+  const input = purposeSummaryInput(sym.summary);
+  const checksum = input?.checksum;
+  if (!input) {
+    failed += 1;
+    console.error(`skip ${sym.path}#${sym.name}: Purpose summary missing.`);
+  } else if (sym.stored_checksum === checksum && sym.stored_model === MODEL) {
     skipped += 1;
   } else {
-    const text = `${sym.name} [${sym.kind}]\n${sym.content ?? ""}`.slice(0, INPUT_LIMIT);
+    const text = input.content;
     let vector = null;
     let lastError = null;
     for (let attempt = 0; attempt <= RETRIES; attempt += 1) {
@@ -121,8 +124,3 @@ for (const sym of queue) {
 console.log(`Done: ${done}/${queue.length} embedded, ${skipped} skipped (fresh), ${failed} failed.`);
 raw.close();
 
-function checksumText(value) {
-  let hash = 5381;
-  for (let i = 0; i < value.length; i += 1) hash = ((hash * 33) ^ value.charCodeAt(i)) >>> 0;
-  return `djb2:${hash.toString(16)}`;
-}
