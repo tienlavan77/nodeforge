@@ -57,6 +57,8 @@ export function createProjectCreateAdmission({ store, admit }) {
       throw filesystemError("operation_store", "operation_store_unwritable", root, error);
     }
     const authority = { attempt: operation.attempt };
+    let entry;
+    let failure;
     try {
       await assertRoot(target.parent);
       try { await mkdir(target.root, { mode: 0o700 }); } catch (error) {
@@ -74,21 +76,21 @@ export function createProjectCreateAdmission({ store, admit }) {
           "Keep the directory. Reconcile exclusive creation and directory ownership before any retry.");
       }
       await assertRoot(binding);
-      const entry = await admit(binding.root, binding);
+      entry = await admit(binding.root, binding);
       operation = await store.transition(operation.operation_id, operation.revision,
         { stage: "committed", project_id: entry.projectId }, authority);
       await store.transition(operation.operation_id, operation.revision,
         { stage: "settled", status: "succeeded", result: { outcome: "succeeded", project_id: entry.projectId } }, authority);
-      return entry;
     } catch (error) {
-      if (error.stage) throw error;
-      throw filesystemError("operation_store", "create_operation_incomplete", target.root, error,
+      failure = error.stage ? error : filesystemError("operation_store", "create_operation_incomplete", target.root, error,
         "Keep the root and membership. Inspect the operation and retry startup after reconciliation.");
-    } finally {
-      try { await store.releaseAttempt(operation.operation_id, operation.attempt); } catch (error) {
-        throw filesystemError("operation_store", "operation_release_failed", target.root, error,
-          "Reconcile the open attempt lease before retrying.");
-      }
     }
+    try { await store.releaseAttempt(operation.operation_id, operation.attempt); } catch (error) {
+      throw filesystemError("operation_store", "operation_release_failed", target.root,
+        failure ? new AggregateError([failure, error], "Create and attempt release failed.") : error,
+        "Reconcile the open attempt lease before retrying.");
+    }
+    if (failure) throw failure;
+    return entry;
   };
 }
