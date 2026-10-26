@@ -22,6 +22,7 @@ export function ArchitectureClarificationCard({ session, onSave, onConfirm, onRe
     if (session.status === "generation_failed") setStep(session.questions.length);
   }, [basis, session.selections, session.notes, session.status, session.questions.length]);
   const questions = session.questions;
+  const generating = session.status === "generating";
   const editable = ["awaiting_owner_decisions", "generation_failed"].includes(session.status);
   const complete = questions.every((question) => Object.hasOwn(selections, question.id));
   const question = questions[step];
@@ -46,11 +47,11 @@ export function ArchitectureClarificationCard({ session, onSave, onConfirm, onRe
 
   if (["completed", "cancelled"].includes(session.status)) return null;
   return <section className="architecture-clarification-card" aria-label="Architecture owner decisions">
-    <h3>{session.status === "generation_failed" ? "Chưa tạo được plan" : "Architecture cần owner chốt quyết định"}</h3>
-    <p className="architecture-clarification-source">Nguồn: <code>{session.source_path}</code> · {Object.keys(selections).length}/{questions.length} lựa chọn · {Object.keys(session.selections).length} đã lưu</p>
+    <h3>{generating ? "Đang tạo kế hoạch" : session.status === "generation_failed" ? "Chưa tạo được plan" : "Architecture cần owner chốt quyết định"}</h3>
+    <p className="architecture-clarification-source">Nguồn: <code>{session.source_path}</code>{questions.length > 0 && <> · {Object.keys(selections).length}/{questions.length} lựa chọn · {Object.keys(session.selections).length} đã lưu</>}</p>
     {session.status === "source_changed" && <><p role="alert">File nguồn đã thay đổi. Không dùng các lựa chọn cũ để tạo plan.</p><button type="button" onClick={() => act(() => onReanalyze(session))} disabled={busy}>Phân tích lại nguồn</button></>}
     {session.status === "cancelled" && <p>Yêu cầu đã hủy. Không tạo plan hoặc chạy ticket.</p>}
-    {session.status === "generating" && <p role="status">Đang tạo plan từ các quyết định đã chốt.</p>}
+    {generating && <p role="status">{questions.length ? "Đang tạo plan từ các quyết định đã chốt." : "Architecture đang tạo plan từ cuộc trao đổi. Không cần nhập Owner token hoặc gửi lại yêu cầu."}</p>}
     {editable && <>
       <p>{session.status === "generation_failed" ? "Không cần trả lời lại các lựa chọn đã lưu. Có thể thử tạo plan lại hoặc sửa lựa chọn; thao tác này không phải approval plan." : "Chờ owner quyết định. Khuyến nghị chưa được chọn sẵn. Xác nhận lựa chọn không phải approval plan."}</p>
       <label className="architecture-clarification-token">Owner token <input type="password" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)} placeholder="Nhập để lưu và xác nhận lựa chọn" /></label>

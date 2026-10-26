@@ -18,6 +18,7 @@ import { runTicketVerificationCommands, verificationCommandAccepted } from "./ti
 import { createTicketVerificationDiagnostic } from "./ticket-verification-diagnostic.js";
 import { createReviewVerificationService } from "./review-verification-service.js";
 import { createTicketReportChecks } from "./ticket-report-checks.js";
+import { filesystemVerificationCommand } from "./filesystem-verification-command.js";
 
 const ROOT = statePath("ticket-verification");
 const POLICY_VERSION = "ticket-verification-v8";
@@ -246,7 +247,8 @@ function executeCommand({ argv, cwd, tempDir, timeoutMs, signal }) {
   return new Promise((resolve, reject) => {
     const env = { ...process.env, PWD: cwd, ...(tempDir ? { TMPDIR: tempDir, TMP: tempDir, TEMP: tempDir } : {}) };
     delete env.NODE_TEST_CONTEXT;
-    const child = spawn(argv[0], argv.slice(1), { cwd, env, signal, stdio: ["ignore", "pipe", "pipe"] });
+    const launch = filesystemVerificationCommand(argv, cwd, env);
+    const child = spawn(launch[0], launch.slice(1), { cwd, env, signal, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     const stdoutHash = createHash("sha256");

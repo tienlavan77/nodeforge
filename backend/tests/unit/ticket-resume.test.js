@@ -10,7 +10,7 @@ import {
   normalizeResume,
   recordTurn
 } from "../../src/modules/supervisor/ticket-resume.js";
-import { createCodexSdkGateway } from "../../src/modules/agent/codex-sdk-gateway.js";
+import { createTestCodexSdkGateway as createCodexSdkGateway } from "../fixtures/codex-sdk-fixture.js";
 
 function memoryStore() {
   const saved = [];

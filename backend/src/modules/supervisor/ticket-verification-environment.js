@@ -1,5 +1,5 @@
 // Captures project dependencies separately from ticket-owned files so verification never expands a ticket commit.
-import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
+import { statePath, resolveRuntimePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createHash, randomUUID } from "node:crypto";
 import { lstat, readFile, mkdir, writeFile, link, rm } from "node:fs/promises";
 import { dirname, join, posix } from "node:path";
@@ -57,16 +57,16 @@ async function persistEvidence(path, bytes, checksum) {
 // Persists immutable dependency bytes and a source manifest independently of Git staging and ticket authorship.
 export async function persistVerificationEnvironment(projectRoot, environment) {
   assertVerificationEnvironment(environment);
-  for (const file of environment.files) await persistEvidence(join(projectRoot, ROOT, "blobs", file.sha256), file.bytes, file.sha256);
+  for (const file of environment.files) await persistEvidence(resolveRuntimePath(projectRoot, ROOT, "blobs", file.sha256), file.bytes, file.sha256);
   const manifestPath = `${ROOT}/manifests/${environment.sha256}.json`;
-  await persistEvidence(join(projectRoot, manifestPath), JSON.stringify(environment.manifest), environment.sha256);
+  await persistEvidence(resolveRuntimePath(projectRoot, manifestPath), JSON.stringify(environment.manifest), environment.sha256);
   return { sha256: environment.sha256, manifest_path: manifestPath, scope: "project_environment_not_ticket_changes" };
 }
 
 // Reads only immutable environment evidence named by Node's verification artifact.
 export async function loadVerificationEnvironment(projectRoot, binding) {
   if (!/^[a-f0-9]{64}$/.test(binding?.sha256 ?? "") || binding.manifest_path !== `${ROOT}/manifests/${binding.sha256}.json`) throw fail("Verification environment binding is invalid.");
-  const bytes = await readFile(join(projectRoot, binding.manifest_path));
+  const bytes = await readFile(resolveRuntimePath(projectRoot, binding.manifest_path));
   if (hash(bytes) !== binding.sha256) throw fail("Verification environment manifest checksum changed.");
   let manifest;
   try { manifest = JSON.parse(bytes); }
@@ -131,7 +131,7 @@ export function assertVerificationEnvironment(environment, ticketPaths = []) {
 // Supplies the exact dependency bytes used by verification to independent review without reading live files.
 export async function readVerificationEnvironmentFile(projectRoot, entry) {
   if (!/^[a-f0-9]{64}$/.test(entry?.sha256 ?? "")) throw fail("Dependency evidence checksum is invalid.");
-  const bytes = await readFile(join(projectRoot, ROOT, "blobs", entry.sha256));
+  const bytes = await readFile(resolveRuntimePath(projectRoot, ROOT, "blobs", entry.sha256));
   if (hash(bytes) !== entry.sha256) throw fail("Dependency evidence content changed.");
   return bytes;
 }

@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { resolveRuntimePath } from "../src/infrastructure/filesystem/forge-paths.js";
 import { createAgentSettingsService } from "../src/application/agent-settings-service.js";
 import { createNodeAgentConfiguration } from "../src/modules/agent/node-agent-configuration.js";
 import { createAgentGateway } from "../src/modules/agent/agent-gateway.js";
@@ -25,7 +26,7 @@ export function createControlApiAgent({ database, fileService, config, env = pro
   agentConfiguration.sync();
   const agentGateway = createAgentGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference), timeoutMs: config.agentTimeoutMs });
   const claudeSdkGateway = createClaudeSdkGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference), timeoutMs: config.sdkTimeoutMs });
-  const codexSdkGateway = createCodexSdkGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference), timeoutMs: config.sdkTimeoutMs, codexHomeRoot: join(config.dataDir, "codex-homes") });
+  const codexSdkGateway = createCodexSdkGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference), timeoutMs: config.sdkTimeoutMs, codexHomeRoot: resolveRuntimePath(config.cwd, config.dataDir, "codex-homes") });
   const openaiSdkProviderFactory = createOpenAiSdkProviderFactory({ credentialResolver: (reference) => secrets.get(reference) });
   const openaiSdkGateway = createOpenAiSdkGateway({ providerFactory: openaiSdkProviderFactory, timeoutMs: config.sdkTimeoutMs });
   const ollamaSdkGateway = createOllamaSdkGateway({ openaiSdkGateway });

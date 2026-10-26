@@ -1,6 +1,6 @@
 // Supplies retained verification diagnostics to SL without granting runtime file tools or changing acceptance.
 import { readBlockerVerificationHistory, boundedVerificationOutput as bounded } from "./blocker-verification-history.js";
-import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
+import { statePath, resolveRuntimePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { latestTicketVerificationAttempt } from "./ticket-verification-attempts.js";
@@ -13,7 +13,7 @@ export async function readBlockerVerificationEvidence({ job, workspace, context,
   if (!/^[A-Za-z0-9._:-]+$/.test(taskId ?? "") || taskId === "." || taskId === "..") throw new Error("Invalid recovery ticket identity.");
   if (context?.task_id !== taskId || !context?.project_id || !job.request.project_id || context.project_id !== job.request.project_id
     || !(workspace.projectRoot ?? workspace.path)) return { status: "unavailable", reason: "Current project identity is missing or changed." };
-  const root = join(workspace.projectRoot ?? workspace.path, statePath("ticket-verification"), taskId);
+  const root = resolveRuntimePath(workspace.projectRoot ?? workspace.path, statePath("ticket-verification"), taskId);
   const latest = await latestTicketVerificationAttempt({ projectRoot: workspace.projectRoot ?? workspace.path, taskId, context,
     matchRunnerRevision: false, loadJob: (id) => readJson(join(root, "jobs", `${id}.json`)) });
   const bound = latest && latest.task_id === taskId && latest.commit_sha === context.review_commit_sha && latest.source_revision === context.source_revision;
