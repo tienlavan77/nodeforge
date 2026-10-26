@@ -99,6 +99,7 @@ export async function probeStorage(directory, stage, guard = async () => {}) {
   let file;
   let owned = false;
   let fingerprint;
+  let failure;
   try {
     await guard();
     file = await open(path, "wx", 0o600);
@@ -107,8 +108,9 @@ export async function probeStorage(directory, stage, guard = async () => {}) {
     await file.writeFile("NodeForge storage preflight\n");
     await file.sync();
   } catch (error) {
-    throw filesystemError(stage, `${stage}_unwritable`, directory, error);
-  } finally {
+    failure = filesystemError(stage, `${stage}_unwritable`, directory, error);
+  }
+  try {
     await file?.close();
     if (owned) {
       try {
@@ -120,7 +122,12 @@ export async function probeStorage(directory, stage, guard = async () => {}) {
         throw filesystemError("cleanup", "probe_cleanup_failed", path, error, "Remove only this NodeForge probe after verifying directory ownership.");
       }
     }
+  } catch (error) {
+    throw filesystemError("cleanup", "probe_cleanup_failed", path,
+      failure ? new AggregateError([failure, error], "Storage probe and cleanup failed.") : error,
+      "Remove only this NodeForge probe after verifying directory ownership.");
   }
+  if (failure) throw failure;
 }
 
 // Verifies the existing parent and rejects every existing Create target, including dangling links.
