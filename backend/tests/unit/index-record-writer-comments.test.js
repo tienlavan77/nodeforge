@@ -13,9 +13,18 @@ function createFixture(symbols, { queued = false } = {}) {
   const stored = [];
   const database = {
     // Supplies extracted symbols and an empty embedding cache for indexing tests.
-    all(sql) { return sql.includes("FROM symbols") ? symbols : []; },
-    // Records searchable content so tests can assert the persisted symbol text.
-    run(sql, params) { records.push({ sql, params }); }
+    all(sql, params) {
+      if (!sql.includes("FROM symbols")) return [];
+      return sql.includes("WHERE symbol_id = ?") ? symbols.filter((symbol) => symbol.symbol_id === params[0]) : symbols;
+    },
+    // Records searchable content and summary state for asynchronous freshness checks.
+    run(sql, params) {
+      records.push({ sql, params });
+      if (sql.startsWith("UPDATE symbols SET summary")) {
+        const symbol = symbols.find((symbol) => symbol.symbol_id === params[1]);
+        if (symbol) symbol.summary = params[0];
+      }
+    }
   };
   const writer = createIndexRecordWriter({
     database,

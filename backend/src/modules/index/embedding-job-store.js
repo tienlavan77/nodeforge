@@ -14,7 +14,18 @@ export function createEmbeddingJobStore({ database, clock = () => new Date() } =
   function enqueue({ symbolId, contentChecksum, model, priority = 100 } = {}) {
     assertJobInput({ symbolId, contentChecksum, model });
     const now = clock().toISOString();
-    return database.transaction?.(() => insert()) ?? insert();
+    // Savepoints keep enqueue atomic both independently and inside the writer's
+    // freshness transaction, without opening a second top-level transaction.
+    database.run("SAVEPOINT embedding_enqueue");
+    try {
+      const result = insert();
+      database.run("RELEASE embedding_enqueue");
+      return result;
+    } catch (error) {
+      database.run("ROLLBACK TO embedding_enqueue");
+      database.run("RELEASE embedding_enqueue");
+      throw error;
+    }
 
     function insert() {
       const existing = database.all(
@@ -102,7 +113,7 @@ export function createEmbeddingJobStore({ database, clock = () => new Date() } =
   function updateStatus(jobId, status, lastError, nextRetryAt) {
     if (typeof jobId !== "string" || !jobId) throw new ConfigurationError("Embedding job id is required.");
     const now = clock().toISOString();
-    const result = database.run("UPDATE embedding_jobs SET status = ?, last_error = ?, next_retry_at = ?, updated_at = ? WHERE job_id = ?", [status, lastError, nextRetryAt, now, jobId]);
+    const result = database.run("UPDATE embedding_jobs SET status = ?, last_error = ?, next_retry_at = ?, updated_at = ? WHERE job_id = ? AND (status != 'superseded' OR ? = 'superseded')", [status, lastError, nextRetryAt, now, jobId, status]);
     return Number(result.changes ?? 0) === 1;
   }
 }

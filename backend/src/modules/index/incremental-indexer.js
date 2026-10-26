@@ -45,11 +45,11 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
       fileId = files.insert(path, { language: languageForPath(path), sha256, sizeBytes });
       // Created events can be delivered by more than one watcher process.
       // Replace derived rows so replay remains idempotent after the upsert.
-      database.run("DELETE FROM symbols WHERE file_id = ?", [fileId]);
+
       database.run("DELETE FROM imports_exports WHERE file_id = ?", [fileId]);
       database.run("DELETE FROM calls WHERE source_file_id = ?", [fileId]);
-      clearContentIndex(fileId);
-      writeExtraction(fileId, path, extraction);
+      writeExtraction(fileId, path, extraction, snapshot.content);
+      clearContentIndex(fileId, true);
       indexContent(fileId, path, snapshot.content);
       graph.replaceForFile(fileId, path, extraction.imports);
       writeCalls(fileId, path, extraction);
@@ -76,12 +76,12 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
       return false;
     }
     withTransaction(() => {
-      database.run("DELETE FROM symbols WHERE file_id = ?", [file.file_id]);
+
       database.run("DELETE FROM imports_exports WHERE file_id = ?", [file.file_id]);
       database.run("DELETE FROM calls WHERE source_file_id = ?", [file.file_id]);
-      clearContentIndex(file.file_id);
+      writeExtraction(file.file_id, path, extraction, snapshot.content);
+      clearContentIndex(file.file_id, true);
       files.updateHash(file.file_id, sha256, sizeBytes, languageForPath(path));
-      writeExtraction(file.file_id, path, extraction);
       indexContent(file.file_id, path, snapshot.content);
       graph.replaceForFile(file.file_id, path, extraction.imports);
       writeCalls(file.file_id, path, extraction);
@@ -99,11 +99,14 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
     const file = files.findByPath(path);
     if (!file) return false;
 
-    database.run("UPDATE imports_exports SET is_broken = 1 WHERE related_file_id = ?", [file.file_id]);
-    graph.markTargetBroken(file.file_id);
-    clearContentIndex(file.file_id);
-    const removed = files.remove(file.file_id);
-    if (removed) database.run("UPDATE index_metadata SET version = version + 1");
+    let removed;
+    withTransaction(() => {
+      database.run("UPDATE imports_exports SET is_broken = 1 WHERE related_file_id = ?", [file.file_id]);
+      graph.markTargetBroken(file.file_id);
+      clearContentIndex(file.file_id);
+      removed = files.remove(file.file_id);
+      if (removed) database.run("UPDATE index_metadata SET version = version + 1");
+    });
     writeLog(removed ? "index.completed" : "index.skipped", "info", removed ? "File removed from index." : "File was not indexed.", event, path, removed ? "success" : "info");
     return removed;
   }
