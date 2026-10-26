@@ -27,9 +27,14 @@ import { detectPlanApproveTrigger, detectPlanCreateTrigger, detectPlanUpdateTrig
 const SELECTABLE_STATUSES = new Set(["awaiting_human_approval", "approved"]);
 
 // Creates one conversation approval router bound to a single project's plan store and handoff.
-export function createConversationPlanApprovalService({ projectId, markdownPlanStore, handoffApprovedPlan, sprintRegistry } = {}) {
+export function createConversationPlanApprovalService({ projectId, markdownPlanStore, handoffApprovedPlan, sprintRegistry, announceApprovalIdentity } = {}) {
   if (!projectId || !markdownPlanStore?.list || !markdownPlanStore?.getRevision || !markdownPlanStore?.decide || !markdownPlanStore?.assertApproved) {
     throw fail("CONVERSATION_PLAN_APPROVAL_UNAVAILABLE", "Conversation approval needs the project Markdown plan store.");
+  }
+  // Construction fails closed without an owner-visible announcement channel: a component can never be
+  // wired into approval without delivering the selected revision identity BEFORE the first side effect.
+  if (typeof announceApprovalIdentity !== "function") {
+    throw fail("PLAN_APPROVAL_ANNOUNCE_UNAVAILABLE", "Conversation approval needs a channel that announces the selected rendered revision to the owner before authorization.");
   }
   return Object.freeze({ selectPendingRevision, approveFromConversation });
 
@@ -48,14 +53,19 @@ export function createConversationPlanApprovalService({ projectId, markdownPlanS
   }
 
   // Records one owner decision for the conversation's latest pending revision, then hands it off.
+  // Mandatory WYSIWYG fence: approval MUST carry the revision/SHA-256 the owner captured from the
+  // rendered plan (otherwise there is no evidence of what the owner actually saw, and an update
+  // arriving between render and decide could silently redirect the approval to a newer render), and
+  // the selected identity is announced through the owner-visible channel BEFORE any decision write,
+  // authorization gate or handoff, so approval is never blind and never announced only after effects.
   async function approveFromConversation({ conversationId, approvedOwnerId, approvalRevision, approvalSha256, approvalComments = null, text } = {}) {
     if (!approvedOwnerId) throw fail("PLAN_OWNER_UNAUTHORIZED", "Authenticated owner identity is required to approve a plan.");
     assertPureApprovalIntent(text);
     const pending = await selectPendingRevision({ conversationId });
-    if (approvalRevision !== undefined || approvalSha256 !== undefined) {
-      if (approvalRevision !== pending.revision || approvalSha256 !== pending.sha256) throw fail("PLAN_APPROVAL_STALE", "The captured revision/checksum no longer matches the latest rendered plan.");
-    }
+    if (approvalRevision === undefined || approvalSha256 === undefined) throw fail("PLAN_APPROVAL_CAPTURE_REQUIRED", "Approval must carry the rendered revision and SHA-256 the owner saw; an approval without a captured identity is rejected before any decision or handoff.");
+    if (approvalRevision !== pending.revision || approvalSha256 !== pending.sha256) throw fail("PLAN_APPROVAL_STALE", "The captured revision/checksum no longer matches the latest rendered plan.");
     const announcement = announceRevision(pending);
+    await announceApprovalIdentity({ projectId, conversationId, approvedOwnerId, planId: pending.plan_id, revision: pending.revision, sha256: pending.sha256, announcement });
     if (pending.decision) {
       if (pending.decision.approver_id !== approvedOwnerId) throw fail("PLAN_APPROVAL_OWNER_MISMATCH", "The authenticated owner differs from the recorded approval.");
       if (pending.decision.sha256 !== pending.sha256) throw fail("PLAN_APPROVAL_STALE", "The recorded decision does not match the current rendered checksum.");
