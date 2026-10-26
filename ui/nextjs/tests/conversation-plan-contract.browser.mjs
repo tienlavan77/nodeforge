@@ -4,19 +4,46 @@
 // the captured revision and SHA-256 while never granting RUN authority. Node executes this module in Chromium
 // at every approved viewport; only the plan transport is replaced, while the modal, its decision controls, and
 // the real URL-building client come from the committed project source.
-// Technical description: the fixture imports PlanReviewModal and createNodeClient directly and serves the
-// conversation-shaped Markdown revision from a mocked window.fetch, so the assertions observe the real client
-// request paths, Bearer token, and body identities rather than a reimplemented flow.
+// Technical description: the revision displayed here is produced before any expectation exists by calling the
+// unchanged Node conversation rendering contract directly (parseArchitecturePlanJSON, canonicalizeArchitecturePlanJSON
+// and renderArchitecturePlanMarkdown from backend/src/modules/governance/architecture-plan-json.js), then hashing
+// those exact bytes the same way the real Markdown plan store does. The same computed digest is the only value
+// handed to the page, so the assertions compare the modal and its outgoing requests against genuine
+// Node-rendered conversation Markdown rather than handwritten fixture constants. The fixture imports
+// PlanReviewModal and createNodeClient directly and serves that revision from a mocked window.fetch, so the
+// assertions observe the real client request paths, Bearer token, and body identities end to end.
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
+import { canonicalizeArchitecturePlanJSON, parseArchitecturePlanJSON, renderArchitecturePlanMarkdown } from "../../../backend/src/modules/governance/architecture-plan-json.js";
 
-// One Markdown revision with distinctive bytes, in the shape Node renders and stores for conversation plans.
-export const PLAN_MARKDOWN = "# Plan: Contract plan\n\n## 1. Objective\n\nKeep conversation, Coding UI and API bytes identical.\n\n## 5. Outcomes\n\n| Outcome | Result | Acceptance | Guardrails |\n| --- | --- | --- | --- |\n| O6 | Identical contract bytes | The rendered Markdown bytes match their recorded SHA-256 | Approval never starts RUN |\n\n## 6. Verification\n\nFocused integration and browser tests. Repository discovery complete.\n\n## 7. Evidence and assumptions\n\n- [Evidence: backend/src/application/conversation-plan-approval-service.js#L1] Node alone records approval.\n- Assumption (unverified): Owner reviews the rendered revision.\n";
-export const PLAN_SHA256 = "1f3e5d7c9b0a2c4e6f80a1b3c5d7e9f012345678abcdef0123456789abcdef0";
-export const PLAN_SOURCE_SHA256 = "0a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdeffedcba9876543210";
-export const PLAN_ID = "PLAN-CONTRACT-1";
+const PLAN_ID = "PLAN-CONTRACT-1";
 
-// Returns the immutable Markdown revision exactly as the plan store hands it to the Coding page.
+// One canonical Architecture payload in the shape the conversation planning service receives from Architecture.
+const PLAN_PAYLOAD = {
+  title: "Contract plan", objective: "Keep conversation, Coding UI and API bytes identical.",
+  background: "Owner created the plan in chat; discovery complete over the repository. Assumption: approval stays conversation-scoped.",
+  scope: ["Rendered Markdown identity", "Decision and handoff contracts"],
+  outcomes: [{ id: "O6", outcome: "Identical contract bytes", acceptance_criteria: ["The rendered Markdown bytes match their recorded SHA-256"], guardrails: ["Approval never starts RUN"] }],
+  evidence: [{ path: "backend/src/application/conversation-plan-approval-service.js", location: "L1", fact: "Node alone records approval." }],
+  assumptions: ["Owner reviews the rendered revision."], constraints: ["Markdown remains the handed-off contract"],
+  risks: ["Stale revision approval"], verification: "Focused integration and browser tests."
+};
+
+// Replays the unchanged Node conversation rendering contract for this viewport run and derives the same
+// digests the real Markdown plan store records, so every browser expectation is read out of rendered bytes.
+function nodeRenderedConversationRevision() {
+  const sourceSha256 = createHash("sha256").update(canonicalizeArchitecturePlanJSON(parseArchitecturePlanJSON(JSON.stringify(PLAN_PAYLOAD)))).digest("hex");
+  const markdown = renderArchitecturePlanMarkdown({ plan: PLAN_PAYLOAD, planId: PLAN_ID, revision: 1, sourceSha256 });
+  return { markdown, source_sha256: sourceSha256, sha256: createHash("sha256").update(markdown).digest("hex") };
+}
+
+const RENDERED = nodeRenderedConversationRevision();
+export const PLAN_MARKDOWN = RENDERED.markdown;
+export const PLAN_SHA256 = RENDERED.sha256;
+export const PLAN_SOURCE_SHA256 = RENDERED.source_sha256;
+
+// Returns the rendered immutable Markdown revision exactly as the plan store hands it to the Coding page.
 function markdownRevision(status = "awaiting_human_approval") {
   return { plan_id: PLAN_ID, revision: 1, project_id: "PROJECT-BROWSER", file_path: `.forge/runtime/nf/plans/${PLAN_ID}/plan-r1.md`, sha256: PLAN_SHA256, source_path: `.forge/runtime/nf/plans/${PLAN_ID}/plan-source-r1.json`, source_sha256: PLAN_SOURCE_SHA256, conversation_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", created_at: "2026-10-20T00:00:00Z", format: "markdown", markdown: PLAN_MARKDOWN, status, handoff_status: null };
 }
@@ -38,7 +65,7 @@ window.fetch=async(input,init={})=>{
   if(url.pathname.endsWith('/decisions')){window.decisionResult={revision:revision.revision,sha256:body.sha256,decision:body.decision,decision_id:body.decision_id};return Response.json({ok:true,revision:revision.revision,sha256:revision.sha256,decision:body.decision});}
   if(url.pathname.endsWith('/handoff')){window.handoffResult={revision:revision.revision,sha256:body.sha256};return Response.json({status:'handed_to_sprint_leader',sprint_id:'SPRINT-BROWSER',plan_handoff:true,run_started:false});}
   if(url.pathname.endsWith('/plans'))return Response.json([{plan_id:revision.plan_id,revision:revision.revision,project_id:revision.project_id,created_at:revision.created_at,format:'markdown'}]);
-  if(url.pathname.match(/\\/plans\\/[^/]+\\/\\d+$/u))return Response.json({...revision});
+  if(url.pathname.match(/\\\\/plans\\\\/[^/]+\\\\/\\\\d+$/u))return Response.json({...revision});
   return Response.json({items:[]});
 };
 window.markdownRevisionObject=()=>(${JSON.stringify(markdownRevision())});
@@ -52,7 +79,7 @@ export async function createBrowserFixture({ sourceRoot, build }) {
     stdin: { contents: FIXTURE_SOURCE, resolveDir: join(sourceRoot, "ui/nextjs"), loader: "jsx" },
     bundle: true, write: false, jsx: "automatic", outfile: "fixture.js",
     alias: { react: join(sourceRoot, "ui/nextjs/node_modules/react"), "react-dom": join(sourceRoot, "ui/nextjs/node_modules/react-dom") },
-    define: { "process.env.NODE_ENV": '"production"', "process.env.NEXT_PUBLIC_NODE_CONTROL_API_URL": '""', "process.env": "{}" }
+    define: { "process.env.NODE_ENV": "\"production\"", "process.env.NEXT_PUBLIC_NODE_CONTROL_API_URL": "\"\"", "process.env": "{}" }
   });
   return {
     html: '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>',

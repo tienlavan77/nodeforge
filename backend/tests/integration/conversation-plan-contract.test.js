@@ -11,8 +11,11 @@
 // esbuild plus a controlled transport, and prove its decisions and handoff request bodies bind the exact
 // revision and SHA-256 the Node-rendered Markdown locked. AC-3 drives the real conversation approval service,
 // plan handoff service, Sprint registry, and draft persistence so the scope gate runs inside the real handoff
-// attempt, then re-asserts assertMarkdownSprintScope directly on the approved bytes. Only external I/O and the
-// scripted Architecture answer are mocked; Coding UI and validator production files are never modified.
+// attempt, then re-asserts assertMarkdownSprintScope directly on the approved bytes. AC-2 and AC-4 additionally
+// send the same conversation-created revision through the real authenticated plan router with the real owner
+// credential, so a regression in route authentication, Markdown store selection, or decision and handoff request
+// validation fails the submitted tests instead of hiding behind mocked server responses. Only external I/O and
+// the scripted Architecture answer are mocked; Coding UI and validator production files are never modified.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
@@ -33,6 +36,8 @@ import { createPlanHandoffService } from "../../src/application/plan-handoff-ser
 import { createArchitectureClarificationStore } from "../../src/application/architecture-clarification-store.js";
 import { createConversationPlanningService } from "../../src/application/conversation-planning-service.js";
 import { createConversationPlanApprovalService } from "../../src/application/conversation-plan-approval-service.js";
+import { createPlanOwnerAuth } from "../../src/modules/governance/plan-owner-auth.js";
+import { routePlan } from "../../src/transport/http/forge-v1-plan-routes.js";
 import { canonicalizeArchitecturePlanJSON, renderArchitecturePlanMarkdown, parseArchitecturePlanJSON } from "../../src/modules/governance/architecture-plan-json.js";
 
 const PLAN_PAYLOAD = {
@@ -192,4 +197,54 @@ test("the real UI plan client sends the captured revision identity to the decisi
     assert.equal(handoffCall.body.sha256, created.sha256, "the handoff continues the exact reviewed identity");
     assert.equal(handoffCall.headers.authorization, "Bearer OWNER-TOKEN");
   } finally { globalThis.fetch = savedFetch; await f.close(); }
+});
+
+// AC-2 and AC-4 through the real authenticated routes: production routePlan, real owner credential, real
+// Markdown store selection, real decision recording, and the real handoff admission for the same
+// conversation-created revision. Route auth, store selection and request validation regressions must fail here.
+test("the real plan routes authenticate and bind the conversation revision through decisions and handoff", async () => {
+  const f = await fixture();
+  try {
+    await f.planning.createFromConversation({ text: "Create the architecture plan", conversationId: "CONV-A" });
+    // Route the CURRENT conversation head produced through the real create-then-update chat flow, so the
+    // handoff admission below sees the same decision-embedded Markdown the accepted approval path delivers.
+    const created = await f.planning.updateFromConversation({ text: "Update the plan", conversationId: "CONV-A" });
+    assert.equal(created.revision, 2, "the routed revision is the immutable conversation-created head");
+    const plans = createHumanPlanStore({ projectId: "PROJECT-A", database: f.database, fileService: f.fileService, markdownPlans: f.markdownPlanStore });
+    const registry = createSprintRegistry({ projectId: "PROJECT-A", database: f.database, plans });
+    const draft = createSprintPlanDraftPersistence({ projectId: "PROJECT-A", planStore: plans, markdownPlanStore: f.markdownPlanStore, sprintRegistry: registry });
+    const agentRoleResolver = { resolveProfile: () => ({ agent_id: "LEADER-ROUTE" }) };
+    const orchestration = createSprintOrchestrationService({ sprintPlans: { getSprintById: () => { throw new Error("legacy reader must not run"); } }, sprintPlanStore: { save: () => { throw new Error("legacy projection must not be written"); } }, sprintRegistry: registry, draftPlan: draft, agentRoleResolver, agentGateway: { async stream() { throw new Error("legacy agent stream must not run"); } }, publisher: { publish: () => {} } });
+    const scope = readMarkdownSprintScope(created.markdown);
+    let leaderCalls = 0;
+    const handoff = createPlanHandoffService({ projectId: "PROJECT-A", database: f.database, planStore: plans, markdownPlanStore: f.markdownPlanStore, sprintRegistry: registry, sprintOrchestration: orchestration, agentRoleResolver, sprintPlanLeader: { requestPlan: async () => { leaderCalls += 1; return outcomeDraft(scope, "SPRINT-ROUTE", "TICKET-ROUTE-1", "Keep contract bytes"); } } });
+    const context = { projectId: "PROJECT-A", expectedProjectId: "PROJECT-A", planStore: plans, markdownPlanStore: f.markdownPlanStore, sprintRegistry: registry, planOwnerAuth: createPlanOwnerAuth({ token: "fixture-secret", ownerId: "OWNER" }), handoffApprovedPlan: (input) => handoff.handoff(input) };
+    const parts = ["plans", created.plan_id, String(created.revision)];
+    const routedRead = await routePlan({ ...context, method: "GET", parts, body: {} });
+    assert.equal(routedRead.status, 200);
+    assert.equal(routedRead.body.format, "markdown", "the authenticated GET selects the Markdown contract store for the conversation plan");
+    assert.equal(routedRead.body.markdown, created.markdown, "the routed read returns the exact Node-rendered conversation Markdown");
+    assert.equal(routedRead.body.sha256, created.sha256, "the routed read returns the rendered checksum the owner saw in chat");
+    await assert.rejects(routePlan({ ...context, projectId: "PROJECT-B", method: "GET", parts, body: {} }), { code: "PROJECT_CONTEXT_CONFLICT" }, "a cross-project revision read is refused before the store is consulted");
+    await assert.rejects(routePlan({ ...context, method: "POST", parts: [...parts, "decisions"], headers: {}, body: { project_id: "PROJECT-A", sha256: created.sha256, decision: "approved" } }), { code: "PLAN_OWNER_UNAUTHORIZED" }, "an unauthenticated decision never reaches the decision store");
+    assert.equal((await f.markdownPlanStore.getRevision({ planId: created.plan_id, revision: created.revision })).status, "awaiting_human_approval", "the rejected decision left no approval side effect");
+    const routedDecision = await routePlan({ ...context, method: "POST", parts: [...parts, "decisions"], headers: { authorization: "Bearer fixture-secret" }, body: { project_id: "PROJECT-A", sha256: created.sha256, source_sha256: created.source_summary_sha256, decision: "approved", comments: "looks right", decision_id: "DECISION-ROUTE-1" } });
+    assert.equal(routedDecision.status, 201);
+    assert.equal(routedDecision.body.approver_id, "OWNER", "the route records the authenticated owner, never a forged request identity");
+    assert.equal(routedDecision.body.sha256, created.sha256, "the persisted decision binds the rendered checksum");
+    const approvedRevision = await f.markdownPlanStore.getRevision({ planId: created.plan_id, revision: created.revision });
+    assert.equal(approvedRevision.status, "approved");
+    await assert.rejects(routePlan({ ...context, method: "POST", parts: [...parts, "handoff"], headers: { authorization: "Bearer fixture-secret" }, body: { project_id: "PROJECT-A", sha256: "f".repeat(64) } }), { code: "PLAN_APPROVAL_STALE" }, "a handoff checksum differing from the reviewed revision cannot admit the Sprint Leader");
+    assert.equal(leaderCalls, 0, "the rejected handoff never reached Sprint Leader planning");
+    await assert.rejects(routePlan({ ...context, method: "POST", parts: [...parts, "handoff"], headers: { authorization: "Bearer fixture-secret" }, body: { project_id: "PROJECT-A", sha256: created.sha256, actor: "FORGED" } }), { code: "PLAN_ACTION_INPUT_INVALID" }, "the handoff contract accepts only the reviewed project context and checksum");
+    const routedHandoff = await routePlan({ ...context, method: "POST", parts: [...parts, "handoff"], headers: { authorization: "Bearer fixture-secret" }, body: { project_id: "PROJECT-A", sha256: created.sha256 } });
+    assert.equal(routedHandoff.status, 200);
+    assert.equal(routedHandoff.body.status, "handed_to_sprint_leader", "the unchanged scope gate passed inside the routed handoff attempt");
+    assert.equal(routedHandoff.body.sha256, created.sha256, "the routed handoff reports the exact rendered digest");
+    assert.equal(routedHandoff.body.run_started, false, "the routed handoff never starts RUN");
+    assert.equal(leaderCalls, 1, "one routed handoff admits exactly one Sprint Leader draft");
+    const handed = await f.markdownPlanStore.getRevision({ planId: created.plan_id, revision: created.revision });
+    assert.equal(handed.handoff_status, "completed", "the route persisted the durable handoff receipt on the same revision");
+    assert.equal(assertMarkdownSprintScope(handed.markdown, outcomeDraft(scope, "SPRINT-ROUTE", "TICKET-ROUTE-1", "Keep contract bytes")).length, scope.length, "the routed approved bytes still pass the unchanged section 5 gate");
+  } finally { await f.close(); }
 });
