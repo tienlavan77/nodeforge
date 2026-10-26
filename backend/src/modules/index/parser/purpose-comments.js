@@ -7,7 +7,7 @@ import { parse } from "@babel/parser";
 export function normalizePurposeComment(raw = "") {
   return raw.replace(/\r\n?/g, "\n").replace(/^\s*(?:\/\*+|<!--)/, "")
     .replace(/(?:\*\/|-->)\s*$/, "").split("\n")
-    .map((line) => line.replace(/^\s*(?:\/\/|#(?!\!)|\*(?!\/))\s?/, "").trim())
+    .map((line) => line.replace(/^\s*(?:\/\/|#(?!!)|\*(?!\/))\s?/, "").trim())
     .join(" ").replace(/\s+/g, " ").trim();
 }
 
