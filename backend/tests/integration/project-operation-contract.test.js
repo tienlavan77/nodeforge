@@ -12,6 +12,10 @@ import { mkdtemp, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import Ajv2020 from "ajv/dist/2020.js";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { setTimeout as delay } from "node:timers/promises";
+import { withCasLock } from "../../src/modules/projects/project-operation-lock.js";
 import {
   OPERATION_KINDS, OPERATION_STAGES, OPERATION_STAGE_TRANSITIONS, assertStageTransition,
   computeRequestFingerprint, validateOperationSnapshot
@@ -177,6 +181,65 @@ test("two handles accept exactly one transition for the same revision", async ()
   const persisted = await other.load(operation.operation_id);
   assert.equal(persisted.revision, claimed.revision + 1);
   assert.equal(persisted.stage, "committed");
+});
+
+// REV-3: a live writer delayed past the retired stale threshold retains ownership. Its release
+// cannot remove a successor's participant or let a third writer overlap that successor.
+test("delayed live holder and successor retain exclusive ownership", async () => {
+  const { directory } = await freshStore();
+  let releaseFirst, releaseSecond, firstEntered = false, secondEntered = false, thirdEntered = false;
+  const firstGate = new Promise((resolveGate) => { releaseFirst = resolveGate; });
+  const secondGate = new Promise((resolveGate) => { releaseSecond = resolveGate; });
+  const first = withCasLock(directory, async () => { firstEntered = true; await firstGate; });
+  try {
+    while (!firstEntered) await delay(5);
+    await delay(2200);
+    const second = withCasLock(directory, async () => { secondEntered = true; await secondGate; });
+    await delay(40);
+    assert.equal(secondEntered, false);
+    releaseFirst();
+    await first;
+    while (!secondEntered) await delay(5);
+    const third = withCasLock(directory, async () => { thirdEntered = true; });
+    await delay(40);
+    assert.equal(thirdEntered, false);
+    releaseSecond();
+    await Promise.all([second, third]);
+    assert.equal(thirdEntered, true);
+  } finally {
+    releaseFirst();
+    releaseSecond();
+    await first;
+  }
+});
+
+// REV-3: killing a real owner leaves a participant behind. Competing recovery writers must
+// ignore only that dead owner, serialize their work, and release without deleting one another.
+test("competing contenders recover a crashed owner without overlapping", async () => {
+  const { directory } = await freshStore();
+  const moduleUrl = new URL("../../src/modules/projects/project-operation-lock.js", import.meta.url).href;
+  const child = spawn(process.execPath, ["--input-type=module", "-e",
+    `import { withCasLock } from ${JSON.stringify(moduleUrl)};
+     await withCasLock(${JSON.stringify(directory)}, async () => {
+       console.log("held"); await new Promise(() => { setInterval(() => {}, 1000); });
+     });`], { stdio: ["ignore", "pipe", "inherit"] });
+  try {
+    await once(child.stdout, "data");
+    const exited = once(child, "exit");
+    child.kill("SIGKILL");
+    await exited;
+    let active = 0, completed = 0;
+    await Promise.all(Array.from({ length: 8 }, () => withCasLock(directory, async () => {
+      assert.equal(++active, 1);
+      await delay(10);
+      active--;
+      completed++;
+    })));
+    assert.equal(completed, 8);
+    assert.deepEqual(await readdir(join(directory, ".cas-locks")), []);
+  } finally {
+    child.kill("SIGKILL");
+  }
 });
 
 // AC-7: every stage change is one atomic snapshot file; a terminal transition without its result
