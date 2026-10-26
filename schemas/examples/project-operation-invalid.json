@@ -1,0 +1,13 @@
+{
+  "operation_id": "OPRO-invalid-kind-0001",
+  "request_key": "req-invalid",
+  "request_fingerprint": "9f2c3a1e77b0d4a25c1f8b3e6d0a7c24f19e8b5d3a7c6042f18e9d5b3a7c0462",
+  "kind": "delete",
+  "root": "/srv/projects/frontend",
+  "attempt": 1,
+  "revision": 0,
+  "stage": "queued",
+  "status": "pending",
+  "counters": { "transitions": 0, "attempts": 1 },
+  "timestamps": { "created_at": "2026-10-26T06:00:00.000Z", "updated_at": "2026-10-26T06:00:00.000Z" }
+}

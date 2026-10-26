@@ -110,6 +110,8 @@ const fixtures = [
   , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-project-log-index-started.json"]
   , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-project-log-index-completed.json"]
   , ["https://forge.local/schemas/stream/unified-event.schema.json", "schemas/examples/stream-project-log-index-failed.json"]
+  , ["https://forge.local/schemas/project/project-operation.schema.json", "schemas/examples/project-operation.json"]
+  , ["https://forge.local/schemas/project/project-operation.schema.json", "schemas/examples/project-operation-invalid.json", undefined, false]
 ];
 
 async function readJson(file) {
