@@ -9,7 +9,10 @@ export async function handleTicketExecutionFailure({ error, failedRequest, selec
       const checkpoint = await checkpoints?.load?.(taskId);
       if (checkpoint) await checkpoints?.save?.({ ...checkpoint, status: recovery.outcome === "pending" ? "in_progress" : "failed", phase: recovery.outcome === "pending" ? "operational_retry_pending" : "operational_retry_exhausted" });
     }
-    projectLogger?.({ event_name: "supervisor.coder_recovery_decision", level: "warn", status: recovery.outcome, message: "Coder failure routed through durable operational recovery.", task_id: failedRequest.task_id, source: "ticket-execution-failure", payload: { request_id: failedRequest.request_id, failure_id: recovery.record?.failure_id } });
+    projectLogger?.({ event_name: "supervisor.coder_recovery_decision", level: "warn", status: recovery.outcome,
+      message: recovery.outcome === "pending" ? "Dịch vụ model tạm thời không khả dụng. Node sẽ retry sau 30 giây từ checkpoint mới nhất; nhấn Stop để tạm dừng." : "Coder failure routed through durable operational recovery.",
+      task_id: failedRequest.task_id, source: "ticket-execution-failure", payload: { request_id: failedRequest.request_id, failure_id: recovery.record?.failure_id,
+        ...(recovery.outcome === "pending" ? { retry_after_ms: 30_000, available_at: recovery.record.available_at } : {}) } });
     return recovery;
   }
   if (error.code === "CODER_BLOCKED") {

@@ -9,6 +9,7 @@ import { createCoderOperationalRecovery } from "../../src/modules/supervisor/cod
 import { classifyCoderFailure } from "../../src/modules/supervisor/coder-failure-routing.js";
 import { handleTicketExecutionFailure } from "../../src/modules/supervisor/ticket-execution-failure.js";
 import { createSupervisorLoop } from "../../src/modules/supervisor/supervisor-loop.js";
+import { createClaudeSdkGateway } from "../../src/modules/agent/claude-sdk-gateway.js";
 
 const basis = { project_id: "P", sprint_id: "S", plan_id: "PLAN", plan_revision: 1, plan_path: "plans/plan.md", plan_sha256: "a".repeat(64), version: 1 };
 const request = { project_id: "P", task_id: "TASK", request_id: "REQ", supervisor_id: "SUP", attempt: 1,
@@ -64,6 +65,42 @@ test("29.999 seconds cannot dispatch; restart at 30 seconds dispatches exactly o
   await create().tick();
   assert.equal(calls.length, 1);
 }));
+
+// A terminal model outage reuses the saved repair session after 30 seconds; Stop durably cancels the same intent.
+test("SDK model HTTP 400 retries the repair checkpoint after 30 seconds and respects Stop across restart", async () => {
+  const gateway = createClaudeSdkGateway({ configuration: { getById: () => ({ agent_id: "CODER", role: "coder", provider: "claude",
+    enabled: true, status: "ready", gateway_url: "https://gateway.example.test", credential_ref: "test" }) },
+    credentialResolver: () => "test-key", terminalOutput: { write() {} },
+    queryFn: () => (async function* () { yield { type: "result", subtype: "error_during_execution", is_error: true,
+      errors: ["API Error: 400 Lỗi model hiện tại, thử lại sau hoặc liên hệ admin"] }; })() });
+  let failure;
+  await assert.rejects(gateway.execute({ agentId: "CODER", correlationId: "MODEL-400", prompt: "Continue repair" }), error => { failure = error; return true; });
+  for (const stopped of [false, true]) await fixture(async ({ create, advance, calls }) => {
+    let checkpoint = { task_id: "TASK", status: "blocked", phase: "finding_repair_ready", last_completed_turn: 22,
+      session_id: "SAVED-SESSION", changed_paths: ["src/repair.js"], failure: { code: failure.code, message: failure.message } };
+    const resumed = { ...request, payload: { ...request.payload, resume_from: structuredClone(checkpoint) } };
+    const logs = [];
+    const service = create();
+    const result = await handleTicketExecutionFailure({ error: failure, failedRequest: resumed, taskId: "TASK", coderRecovery: service,
+      checkpoints: { load: async () => checkpoint, save: async next => { checkpoint = next; } },
+      projectLogger: log => logs.push(log), publishTicketOutcome: () => assert.fail("Model outage must not require human review") });
+    assert.equal(result.outcome, "pending");
+    assert.equal(checkpoint.status, "in_progress");
+    assert.equal(checkpoint.session_id, "SAVED-SESSION");
+    assert.equal(checkpoint.last_completed_turn, 22);
+    assert.equal(logs[0].payload.retry_after_ms, 30_000);
+    assert.match(logs[0].message, /30 giây.*Stop/);
+    if (stopped) await service.cancel({ projectId: "P", taskId: "TASK", executionId: "EXEC" });
+    advance(29_999); await create().tick(); assert.equal(calls.length, 0);
+    advance(1); await create().tick(); assert.equal(calls.length, stopped ? 0 : 1);
+    if (!stopped) {
+      assert.equal(calls[0].payload.execution_id, "EXEC");
+      assert.equal(calls[0].payload.resume_from.session_id, "SAVED-SESSION");
+      assert.equal(calls[0].payload.resume_from.last_completed_turn, 22);
+      assert.deepEqual(calls[0].payload.resume_from.changed_paths, ["src/repair.js"]);
+    }
+  });
+});
 
 test("both failure routes share the same durable decision before terminal emission", async () => fixture(async ({ create, store }) => {
   const service = create();

@@ -5,7 +5,7 @@ import { assertCoderCoverage } from "../modules/supervisor/completion-report-ser
 import { matchesBrowserEvidence } from "../modules/supervisor/browser-verification-evidence.js";
 import { hasOwnerDecisionEvidence } from "../modules/governance/plan-decision-requests.js";
 import { findPassingVerificationCommand } from "./verification-command-evidence.js";
-import { readCompletedCoderReport } from "./completed-coder-report.js";
+import { readCompletedCoderReport, readCoderReportDraft } from "./completed-coder-report.js";
 import { assertAgentExchangePayload } from "../modules/governance/agent-exchange.js";
 
 const error = (code, message, details = {}) => Object.assign(new ConfigurationError(message), { code, details });
@@ -49,6 +49,8 @@ export function createReportDoneTool({ reportService, verificationService, revie
       if (input.finding_resolutions !== undefined) delete input.finding_resolutions;
       context.changed_paths = [...(artifact.changed_paths ?? Object.keys(artifact.file_checksums))];
       const completed = requiresExplanation ? await readCompletedCoderReport({ reviewFindings, artifact, input }) : null;
+      if (!completed && requiresExplanation) input = await readCoderReportDraft({ reviewFindings, artifact, input, ticket });
+      if (!completed && verificationService.prepareReportEvidence) artifact = await verificationService.prepareReportEvidence({ artifact, evidence: input.evidence });
       input = completed ?? completeNodeReportEvidence(input, ticket, artifact);
       if (requiresExplanation) {
         input = canonicalizeCoverageHints(input, ticket);

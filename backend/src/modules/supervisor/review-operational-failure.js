@@ -1,4 +1,6 @@
 // Keeps temporary Reviewer transport failures resumable without inventing code findings or approval.
+import { temporaryModelFailure } from "../agent/sdk-failure-evidence.js";
+
 const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
 const RETRYABLE_CODES = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN', 'SERVICE_UNAVAILABLE', 'BAD_GATEWAY', 'GATEWAY_TIMEOUT', 'REVIEW_TRANSPORT_FAILED']);
 
@@ -9,7 +11,8 @@ export function reviewOperationalFailure(error) {
   const status = Number(error.statusCode ?? error.status ?? error.response?.status);
   const message = String(error.message ?? '');
   const http = message.match(/\b(?:HTTP(?:\/[\d.]+)?(?:\s+status)?|status(?:\s+code)?|received(?:\s+HTTP)?|unexpected status)\s*[:=]?\s*(429|502|503|504)\b/i);
-  const httpStatus = RETRYABLE_STATUS.has(status) ? status : http ? Number(http[1]) : null;
+  const httpStatus = temporaryModelFailure(error, { ended: error.provider_outcome === "failed" }) ? 400
+    : RETRYABLE_STATUS.has(status) ? status : http ? Number(http[1]) : null;
   if (!httpStatus && !RETRYABLE_CODES.has(error.code)) return null;
   return { code: error.code ?? (httpStatus ? `HTTP_${httpStatus}` : 'REVIEW_TRANSPORT_FAILED'), message,
     ...(httpStatus ? { status: httpStatus } : {}), retryable: true };

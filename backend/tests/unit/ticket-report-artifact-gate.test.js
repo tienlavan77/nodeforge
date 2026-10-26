@@ -133,12 +133,46 @@ test("report_done retries a pending draft without freezing incomplete evidence",
     assert.equal(history.coder_report_drafts[0].report.acceptance_coverage[0].status, "evidence_pending");
     assert.equal(history.coder_report_drafts[0].report.evidence[0].reference, artifact.artifact_id);
     assert.equal(saved, 0);
-    const verified = { summary: "Original report", acceptance_coverage: [{ criterion_id: "AC-1", status: "verified", command_kind: "backend_tests", test_path: "backend/tests/unit/a.test.js" }] };
+    const verified = { summary: "Updated report after completing missing checks", acceptance_coverage: [{ criterion_id: "AC-1", status: "verified", command_kind: "backend_tests", test_path: "backend/tests/unit/a.test.js" }] };
     await tool().execute(verified, context);
     assert.equal(saved, 1);
+    const completed = await store().load();
+    assert.equal(completed.coder_reports[0].report.summary, verified.summary);
+    assert.equal(completed.coder_report_drafts[0].original_report.summary, "Original report");
+    assert.deepEqual(completed.coder_report_drafts[0].submissions.map((entry) => entry.report.summary), ["Original report", verified.summary]);
     await tool().execute(verified, context);
     assert.equal((await store().load()).coder_reports.length, 1);
     await assert.rejects(tool().execute({ ...verified, summary: "Rewritten report" }, context), { code: "CODER_REPORT_CONFLICT" });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+// Supplemental verification must carry the unfinished Coder explanation forward
+// across restart without allowing another source revision to inherit its claims.
+test("supplemental artifacts inherit the latest draft and preserve submission history", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-report-draft-artifact-"));
+  try {
+    const base = { artifact_id: "ARTIFACT-BASE", status: "passed", commit_sha: "commit", source_revision: "source", manifest_sha: "manifest" };
+    let current = base;
+    const fileService = createFileService({ projectRoot: root });
+    const store = () => createTicketReviewFindingsStore({ taskId: "TICKET-DRAFT", fileService, executionContexts: { load: async () => ({ verification_artifact_id: current.artifact_id, review_commit_sha: current.commit_sha, source_revision: current.source_revision, manifest_sha: current.manifest_sha }) } });
+    await store().recordCoderReportDraft({ report: { summary: "Original explanation" }, artifact: base });
+    current = { ...base, artifact_id: "ARTIFACT-SUP-1", supplemental_base_artifact_id: base.artifact_id };
+    const supplemented = await store().recordCoderReportDraft({ report: { evidence: [{ reference: "CHECK-1" }] }, artifact: current });
+    assert.equal(supplemented.summary, "Original explanation");
+    await store().recordCoderReportDraft({ report: { summary: "Explanation after verification" }, artifact: current });
+    current = { ...current, artifact_id: "ARTIFACT-SUP-2" };
+    const latest = await store().recordCoderReportDraft({ report: { evidence: [{ reference: "CHECK-2" }] }, artifact: current });
+    assert.equal(latest.summary, "Explanation after verification");
+    const history = await store().load();
+    assert.equal(history.coder_report_drafts.length, 3);
+    assert.equal(history.coder_report_drafts.at(-1).original_report.summary, "Original explanation");
+    assert.equal(history.coder_report_drafts.at(-1).submissions.length, 4);
+    await store().recordCoderReport({ report: latest, artifact: current, idempotencyKey: "completed" });
+    await assert.rejects(store().recordCoderReportDraft({ report: { summary: "Rewrite completed report" }, artifact: current }), { code: "CODER_REPORT_CONFLICT" });
+    current = { ...current, artifact_id: "ARTIFACT-OTHER-SOURCE", source_revision: "different" };
+    await assert.rejects(store().recordCoderReportDraft({ report: { evidence: [] }, artifact: current }), { code: "CODER_REPORT_CONFLICT" });
+    current = { ...base, artifact_id: "ARTIFACT-UNRELATED", supplemental_base_artifact_id: "ANOTHER-BASE" };
+    await assert.rejects(store().recordCoderReportDraft({ report: {}, artifact: current }), { code: "CODER_REPORT_INVALID" });
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

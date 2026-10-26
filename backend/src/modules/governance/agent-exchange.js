@@ -45,11 +45,12 @@ export function assertAgentExchange(message) {
   if (message.kind === "consultation_response") allowed = higher[to] === from;
   if (message.kind === "work_request") allowed = ["sprint_leader", "reviewer", "node"].includes(from) && to === "coder";
   if (message.kind === "work_result") allowed = from === "coder" && ["sprint_leader", "reviewer", "node"].includes(to);
+  if (message.kind === "work_progress") allowed = from === "coder" && to === "node";
   if (message.kind === "review_request") allowed = (message.payload.purpose === "blocker_evidence" ? from === "architecture_manager" : ["coder", "node"].includes(from)) && to === "reviewer";
   if (message.kind === "review_result") allowed = from === "reviewer" && (message.payload.purpose === "blocker_evidence" ? to === "architecture_manager" : ["coder", "node"].includes(to));
   if (message.kind === "correction") allowed = from === "node" && !["node", "project_owner"].includes(to);
   if (!allowed) throw agentExchangeError("/recipient", "route_forbidden", `Forbidden agent route: ${from} -> ${to} (${message.kind}).`);
-  if (message.kind.endsWith("_response") || message.kind.endsWith("_result") || message.kind === "correction") {
+  if (message.kind.endsWith("_response") || message.kind.endsWith("_result") || ["work_progress", "correction"].includes(message.kind)) {
     if (!message.in_reply_to) throw agentExchangeError("/in_reply_to", "reply_required", "A response must identify its request.");
   }
   if (to === "project_owner" && !ownerBoundaryRisk(message.payload)) throw agentExchangeError("/payload/owner_boundary_risk", "owner_boundary_required", "AM may consult Owner only for evidenced approved-scope or project-structure boundary risk.");
@@ -78,7 +79,7 @@ export function createAgentExchange({ context, sender, recipient, kind, subject,
 export function bindAgentExchangeResponse(content, request) {
   assertAgentExchange(request);
   if (!content || typeof content !== "object" || Array.isArray(content)) throw agentExchangeError("/", "type", "Return one structured response object.");
-  const kind = requiredReply[request.kind];
+  const kind = request.kind === "work_request" && content.kind === "work_progress" ? "work_progress" : requiredReply[request.kind];
   const response = createAgentExchange({ context: request.context, sender: request.recipient, recipient: request.sender,
     kind: content.kind, subject: content.subject, payload: content.payload, evidence: content.evidence,
     continuation: request.continuation, inReplyTo: request.message_id });

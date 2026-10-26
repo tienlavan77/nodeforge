@@ -12,7 +12,7 @@ const MAX_RESULT_BYTES = 20_000;
 const MAX_TOTAL_BYTES = 120_000;
 
 // Builds one project-scoped Forge session for a Sprint Leader SDK request.
-export function createSprintLeaderForgeTools({ projectRoot, fileService, codeCache, codeSearch, profile, correlationId, discoveredPaths = new Set(), projectLogger = () => {} } = {}) {
+export function createSprintLeaderForgeTools({ projectRoot, fileService, codeCache, codeSearch, profile, correlationId, discoveredPaths = new Set(), readReceipts = new Map(), projectLogger = () => {} } = {}) {
   if (!projectRoot || !fileService?.readForIndex || profile?.role !== "sprint_leader" || !profile.agent_id || !correlationId) throw new ConfigurationError("Sprint Leader Forge tools require a project, profile, and correlation ID.");
   const context = { task_id: correlationId, correlation_id: correlationId, execution_id: correlationId, project_root: projectRoot, allowed_prefixes: [...PREFIXES], agent_identity: { agent_id: profile.agent_id, agent_name: profile.agent_name, role: "sprint_leader", provider: profile.provider }, context_budget: { max_calls: MAX_CALLS, max_bytes: MAX_TOTAL_BYTES, used_calls: 0, used_bytes: 0 } };
   const base = createOwnerConversationTools({ role: "sprint_leader", projectRoot, fileService, codeCache, codeSearch, projectLogger, context });
@@ -33,6 +33,7 @@ export function createSprintLeaderForgeTools({ projectRoot, fileService, codeCac
     const bytes = Buffer.byteLength(JSON.stringify(result), "utf8");
     if (bytes > MAX_RESULT_BYTES || outputBytes + bytes > MAX_TOTAL_BYTES) throw fail("SPRINT_LEADER_TOOL_BUDGET", "Sprint Leader read output budget is exhausted.");
     outputBytes += bytes;
+    if (["read_file", "read_lines"].includes(name) && typeof result.path === "string" && /^sha256:[a-f0-9]{64}$/.test(result.sha256 ?? "")) readReceipts.set(result.path, { path: result.path, sha256: result.sha256 });
     if (name === "search_text") recordSearchPaths(result.stdout, discoveredPaths);
     if (name === "search_tree") for (const entry of result.entries) if (entry.type === "file" && typeof entry.path === "string") discoveredPaths.add(entry.path);
     if (name === "read_file" && typeof result.path === "string") discoveredPaths.add(result.path);

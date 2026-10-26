@@ -45,7 +45,9 @@ export function createPlanHandoffService({ projectId, database, planStore, markd
     try {
       const correlationId = `CORR-PLAN-HANDOFF-${approved.plan_id}-${approved.revision}`;
       const storedCandidate = row.generated_json ? JSON.parse(row.generated_json) : null;
-      const priorCandidate = normalizeSprintVerificationNotes(storedCandidate);
+      const normalizedCandidate = normalizeSprintVerificationNotes(storedCandidate);
+      const priorCandidate = normalizedCandidate && typeof sprintPlanLeader.repairContractEvidence === "function"
+        ? await sprintPlanLeader.repairContractEvidence({ plan: normalizedCandidate, agentId: agentRoleResolver?.resolveProfile?.("sprint_leader")?.agent_id, correlationId }) : normalizedCandidate;
       let retryVerification = markdown && ((row.error_code === "SPRINT_MARKDOWN_SCOPE" && /has an invalid verification plan:/.test(row.error_message ?? "")) || (row.error_code === "SPRINT_PLAN_HANDOFF_FAILED" && /^Sprint Leader returned invalid sprint plan:/.test(row.error_message ?? "") && /\/tickets\/\d+\/verification_plan(?:\/|\s)/.test(row.error_message ?? "")));
       if (retryVerification && priorCandidate !== storedCandidate) {
         try { assertMarkdownSprintScope(approved.markdown, normalizeMarkdownSprintScope(approved.markdown, priorCandidate)); retryVerification = false; }
