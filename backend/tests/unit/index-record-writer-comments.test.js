@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createIndexRecordWriter } from "../../src/modules/index/index-record-writer.js";
-import { checksumEmbeddingText } from "../../src/modules/index/embedding-job-store.js";
+import { purposeSummaryInput } from "../../src/modules/index/purpose-summary-input.js";
 
 // Captures indexing writes and embedding requests while preserving the writer's asynchronous behavior.
 function createFixture(symbols, { queued = false } = {}) {
@@ -60,11 +60,11 @@ for (const [path, comments, summary] of [
     fixture.writer.indexContent("FILE", path, content);
     const expected = summary + "\nfunction target() {}";
     assert.deepEqual(symbolContents(fixture), [expected]);
-    assert.deepEqual(fixture.embeddings, [`target [function]\n${expected}`]);
+    assert.deepEqual(fixture.embeddings, [expected.split("\n")[0]]);
     await Promise.resolve();
     assert.equal(fixture.stored.length, 1);
     assert.equal(fixture.stored[0].model, "existing-model");
-    assert.equal(fixture.stored[0].checksum, checksumEmbeddingText(`target\nfunction\n${expected}`));
+    assert.equal(fixture.stored[0].checksum, purposeSummaryInput(expected.split("\n")[0]).checksum);
   });
 }
 
@@ -80,7 +80,7 @@ for (const [path, prefix, header] of [
       const fixture = createFixture([symbolAt(content.split("\n").length)]);
       fixture.writer.indexContent("FILE", path, content);
       assert.deepEqual(symbolContents(fixture), ["function target() {}"]);
-      assert.deepEqual(fixture.embeddings, ["target [function]\nfunction target() {}"]);
+      assert.deepEqual(fixture.embeddings, []);
     });
   }
 }
@@ -112,14 +112,14 @@ test("does not attach a trailing block comment belonging to intervening code", (
   assert.deepEqual(symbolContents(fixture), ["function target() {}"]);
 });
 
-test("preserves full normalized search content while keeping the provider's 4000-character contract", () => {
+test("preserves full normalized search content and complete provider summary", () => {
   const content = "// Module.\n\n" + Array.from({ length: 80 }, () => "// " + "detail ".repeat(12)).join("\n") + "\nfunction target() {}";
   const expected = Array.from({ length: 960 }, () => "detail").join(" ") + "\nfunction target() {}";
   const fixture = createFixture([symbolAt(83)]);
   fixture.writer.indexContent("FILE", "example.js", content);
   assert.deepEqual(symbolContents(fixture), [expected]);
-  assert.equal(fixture.embeddings[0].length, 4000);
-  assert.equal(fixture.embeddings[0], `target [function]\n${expected}`.slice(0, 4000));
+  assert.ok(fixture.embeddings[0].length > 4000);
+  assert.equal(fixture.embeddings[0], expected.split("\n")[0]);
 });
 
 for (const code of ["const pattern = /a*/", "const pattern = /a*/;", "const text = '*/'", "const text = '-->'"]) {
@@ -127,7 +127,7 @@ for (const code of ["const pattern = /a*/", "const pattern = /a*/;", "const text
     const fixture = createFixture([symbolAt(3)]);
     fixture.writer.indexContent("FILE", "example.js", `/* File header */\n${code}\nfunction target() {}`);
     assert.deepEqual(symbolContents(fixture), ["function target() {}"]);
-    assert.deepEqual(fixture.embeddings, ["target [function]\nfunction target() {}"]);
+    assert.deepEqual(fixture.embeddings, []);
   });
 }
 
@@ -141,7 +141,7 @@ for (const [comments, summary] of [
     fixture.writer.indexContent("FILE", "example.js", content);
     const expected = summary + "\nfunction target() {}";
     assert.deepEqual(symbolContents(fixture), [expected]);
-    assert.deepEqual(fixture.embeddings, [`target [function]\n${expected}`]);
+    assert.deepEqual(fixture.embeddings, [expected.split("\n")[0]]);
   });
 }
 
@@ -154,7 +154,7 @@ for (const adjacency of [[], [""], ["", ""]]) {
     fixture.writer.indexContent("FILE", "example.js", lines.join("\n"));
     const expected = ["Own purpose Own detail", ...body].join("\n");
     assert.deepEqual(symbolContents(fixture), [expected]);
-    assert.deepEqual(fixture.embeddings, [`target [function]\n${expected}`]);
+    assert.deepEqual(fixture.embeddings, [expected.split("\n")[0]]);
     const record = fixture.records.find(({ sql }) => sql.startsWith("INSERT INTO symbol_content_fts"));
     assert.deepEqual(record.params.slice(6), [start, lines.length]);
   });
@@ -166,7 +166,7 @@ test("keeps comments bounded by a previous decorated symbol", () => {
   fixture.writer.indexContent("FILE", "example.js", lines.join("\n"));
   const expected = "Own purpose\ntarget() {}";
   assert.equal(symbolContents(fixture)[1], expected);
-  assert.equal(fixture.embeddings[1], `target [function]\n${expected}`);
+  assert.equal(fixture.embeddings[0], "Own purpose");
 });
 
 test("queues embeddings asynchronously with a checksum covering the complete normalized comment", async () => {
@@ -178,7 +178,7 @@ test("queues embeddings asynchronously with a checksum covering the complete nor
   await Promise.resolve();
   assert.deepEqual(fixture.jobs, [{
     symbolId: "SYM-target",
-    contentChecksum: checksumEmbeddingText(`target\nfunction\n${expected}`),
+    contentChecksum: purposeSummaryInput(expected.split("\n")[0]).checksum,
     model: "existing-model"
   }]);
   assert.deepEqual(symbolContents(fixture), [expected]);

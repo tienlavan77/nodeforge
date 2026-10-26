@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { extname } from "node:path";
 
-import { checksumEmbeddingText } from "./embedding-job-store.js";
+import { purposeSummaryInput } from "./purpose-summary-input.js";
 import { purposeComments, purposeCommentBefore } from "./parser/purpose-comments.js";
 
 // Creates database writers that preserve file extraction and symbol search records.
@@ -54,14 +54,15 @@ export function createIndexRecordWriter({ database, graph, embeddingJobs, embedd
       const comment = purposeCommentBefore(document, start - 1);
       const symbolContent = (comment ? comment.summary + "\n" : "") + lines.slice(start - 1, end).join("\n");
       database.run("INSERT INTO symbol_content_fts (symbol_id, file_id, path, name, kind, content, start_line, end_line) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [symbol.symbol_id, fileId, path, symbol.name, symbol.kind, symbolContent, symbol.start_line, symbol.end_line]);
-      queueSymbolEmbedding({ symbolId: symbol.symbol_id, name: symbol.name, kind: symbol.kind, path, content: symbolContent });
+      queueSymbolEmbedding({ symbolId: symbol.symbol_id, name: symbol.name, path, summary });
     }
   }
 
   // Queues symbol embeddings serially and skips symbols whose content checksum is unchanged.
-  function queueSymbolEmbedding({ symbolId, name, kind, path, content }) {
-    if (!symbolId) return;
-    const checksum = checksumEmbeddingText(`${name}\n${kind}\n${content ?? ""}`);
+  function queueSymbolEmbedding({ symbolId, name, path, summary }) {
+    const input = purposeSummaryInput(summary);
+    if (!symbolId || !input) return;
+    const { checksum, content } = input;
     if (embeddingJobs?.enqueue) {
       queueMicrotask(() => {
         try { embeddingJobs.enqueue({ symbolId, contentChecksum: checksum, model: embeddingModel }); } catch (error) { logger.debug?.("Embedding job enqueue skipped.", { path, symbol: name, error: error.message }); }
@@ -71,10 +72,9 @@ export function createIndexRecordWriter({ database, graph, embeddingJobs, embedd
     if (!embeddingStore || !embeddingProvider) return;
     void (async () => {
       try {
-        const checksum = checksumEmbeddingText(`${name}\n${kind}\n${content ?? ""}`);
         const existing = database.all("SELECT content_checksum, embedding_model FROM symbol_embeddings WHERE symbol_id = ?", [symbolId])[0];
         if (existing?.content_checksum === checksum && existing?.embedding_model === embeddingModel) return;
-        const vector = await embeddingProvider.embed(`${name} [${kind}]\n${content ?? ""}`.slice(0, 4000));
+        const vector = await embeddingProvider.embed(content);
         embeddingStore.upsert({ symbolId, vector, model: embeddingModel, checksum });
       } catch (error) {
         logger.debug?.("Symbol embedding skipped.", { path, symbol: name, error: error.message });
