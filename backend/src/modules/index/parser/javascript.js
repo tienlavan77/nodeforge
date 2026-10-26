@@ -7,7 +7,7 @@ export function extractJavaScript(source, options = {}) {
   const extraction = emptyExtraction();
   const ast = parse(source, {
     sourceType: "unambiguous",
-    plugins: ["jsx", "typescript"]
+    plugins: ["jsx", "typescript", "decorators-legacy"]
   });
 
   walk(ast.program, extraction);

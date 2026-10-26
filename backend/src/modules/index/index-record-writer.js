@@ -3,56 +3,7 @@ import { randomUUID } from "node:crypto";
 import { extname } from "node:path";
 
 import { checksumEmbeddingText } from "./embedding-job-store.js";
-
-// Includes complete adjacent symbol comments without crossing code or a previous symbol.
-function symbolCommentStart(lines, start, prevSymbolEndLine) {
-  const commentStarts = new Map();
-  let blockStart = null;
-  let blockClosing = null;
-  let groupStart = null;
-  for (let index = prevSymbolEndLine; index < start - 1; index += 1) {
-    const trimmed = lines[index].trim();
-    if (blockClosing === null) {
-      if (/^(?:\/\/|#)/.test(trimmed)) {
-        groupStart = commentStarts.get(index - 1) ?? index;
-        commentStarts.set(index, groupStart);
-        continue;
-      }
-      if (trimmed.startsWith("/*")) blockClosing = "*/";
-      else if (trimmed.startsWith("<!--")) blockClosing = "-->";
-      else continue;
-      blockStart = index;
-      groupStart = commentStarts.get(index - 1) ?? index;
-    }
-    const closingIndex = trimmed.indexOf(blockClosing, index === blockStart ? (blockClosing === "*/" ? 2 : 4) : 0);
-    if (closingIndex < 0) continue;
-    if (trimmed.slice(closingIndex + blockClosing.length).trim() === "") {
-      commentStarts.set(index, groupStart);
-    }
-    blockStart = null;
-    blockClosing = null;
-  }
-  let extendedStart = start;
-  let blankLines = 0;
-  for (let index = start - 2; index >= prevSymbolEndLine; index -= 1) {
-    const commentStart = commentStarts.get(index);
-    if (commentStart !== undefined) {
-      if (blankLines > 0 && prevSymbolEndLine === 0
-        && lines.slice(0, commentStart).every((line) => /^(?:<\?(?:php)?)?$/i.test(line.trim()))) break;
-      extendedStart = commentStart + 1;
-      index = commentStart;
-      continue;
-    }
-    const trimmed = lines[index].trim();
-    if (trimmed === "" && blankLines === 0) {
-      blankLines += 1;
-      continue;
-    }
-    if (/^@[\w.]+(?:\([^\n]*\))?$/.test(trimmed)) continue;
-    break;
-  }
-  return extendedStart;
-}
+import { purposeComments, purposeCommentBefore } from "./parser/purpose-comments.js";
 
 // Creates database writers that preserve file extraction and symbol search records.
 export function createIndexRecordWriter({ database, graph, embeddingJobs, embeddingStore, embeddingProvider, embeddingModel, logger }) {
@@ -89,13 +40,12 @@ export function createIndexRecordWriter({ database, graph, embeddingJobs, embedd
     database.run("INSERT INTO file_content_fts (file_id, path, language, content) VALUES (?, ?, ?, ?)", [fileId, path, languageForPath(path), content]);
     const lines = content.split(/\r?\n/);
     const rows = database.all("SELECT symbol_id, name, kind, start_line, end_line FROM symbols WHERE file_id = ? ORDER BY start_line, name", [fileId]);
-    let prevSymbolEndLine = 0;
+    const document = purposeComments(content, extname(path) === ".php" ? "php" : extname(path) === ".css" ? "css" : "javascript");
     for (const symbol of rows) {
       const start = Math.max(1, symbol.start_line ?? 1);
       const end = Math.min(lines.length, Math.max(start, symbol.end_line ?? start));
-      const extendedStart = symbolCommentStart(lines, start, prevSymbolEndLine);
-      prevSymbolEndLine = Math.max(prevSymbolEndLine, end);
-      const symbolContent = lines.slice(extendedStart - 1, end).join("\n");
+      const comment = purposeCommentBefore(document, start - 1);
+      const symbolContent = (comment ? comment.summary + "\n" : "") + lines.slice(start - 1, end).join("\n");
       database.run("INSERT INTO symbol_content_fts (symbol_id, file_id, path, name, kind, content, start_line, end_line) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [symbol.symbol_id, fileId, path, symbol.name, symbol.kind, symbolContent, symbol.start_line, symbol.end_line]);
       queueSymbolEmbedding({ symbolId: symbol.symbol_id, name: symbol.name, kind: symbol.kind, path, content: symbolContent });
     }
