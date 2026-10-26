@@ -147,7 +147,7 @@ test("foundation rolls back runtime when global catalog admission fails", async 
     await writeFile(dirname(context.catalogPath), "not a directory");
     await assert.rejects(manager.add(context.roots[0]));
     assert.deepEqual(manager.list(), []);
-    assert.equal(context.providers[0].closed, true);
+    assert.equal(context.providers.length, 0);
     await rm(dirname(context.catalogPath));
     await mkdir(dirname(context.catalogPath));
     await manager.add(context.roots[0]);
