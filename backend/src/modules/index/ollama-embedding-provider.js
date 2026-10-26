@@ -3,7 +3,7 @@
 // Short timeout + throw lets callers fall back without blocking the pipeline.
 import { ConfigurationError } from "../../shared/errors.js";
 
-// Creates an Ollama embedding provider (POST /api/embeddings {model, prompt}).
+// Creates an Ollama embedding provider using /api/embed with truncation explicitly disabled.
 export function createOllamaEmbeddingProvider({ baseUrl = "http://192.168.1.180:11434", model = "all-minilm", fetchFn = globalThis.fetch, timeoutMs = 8000 } = {}) {
   if (typeof baseUrl !== "string" || !baseUrl) throw new ConfigurationError("Ollama embedding provider requires a base URL.");
   if (typeof model !== "string" || !model) throw new ConfigurationError("Ollama embedding provider requires a model tag.");
@@ -34,15 +34,15 @@ export function createOllamaEmbeddingProvider({ baseUrl = "http://192.168.1.180:
     controllers.add(controller);
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const response = await fetchFn(`${baseUrl.replace(/\/+$/, "")}/api/embeddings`, {
+      const response = await fetchFn(`${baseUrl.replace(/\/+$/, "")}/api/embed`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ model, prompt: text.slice(0, 4000) }),
+        body: JSON.stringify({ model, input: text, truncate: false }),
         signal: controller.signal
       });
       if (!response.ok) throw new ConfigurationError(`Ollama embedding failed: ${response.status}.`);
       const payload = await response.json();
-      const vector = payload?.embedding;
+      const vector = payload?.embeddings?.[0];
       if (!Array.isArray(vector) || !vector.length) throw new ConfigurationError("Ollama embedding has no vector.");
       return vector.map(Number);
     } finally {

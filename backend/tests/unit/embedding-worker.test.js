@@ -5,7 +5,8 @@ import { mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { openIndexDatabase } from "../../src/infrastructure/sqlite/index-database.js";
-import { createEmbeddingJobStore, checksumEmbeddingText } from "../../src/modules/index/embedding-job-store.js";
+import { createEmbeddingJobStore } from "../../src/modules/index/embedding-job-store.js";
+import { purposeSummaryInput } from "../../src/modules/index/purpose-summary-input.js";
 import { createEmbeddingWorker } from "../../src/modules/index/embedding-worker.js";
 
 // Creates a migrated temporary index database for each test.
@@ -15,6 +16,7 @@ async function fixture() {
   database.run("INSERT INTO files (file_id, path, language, sha256, size_bytes, indexed_at) VALUES (?, ?, ?, ?, ?, ?)", ["FILE-1", "src/example.js", "javascript", "sha256:test", 10, new Date().toISOString()]);
   database.run("INSERT INTO symbols (symbol_id, file_id, name, kind, start_line, end_line) VALUES (?, ?, ?, ?, ?, ?)", ["SYM-1", "FILE-1", "example", "function", 1, 3]);
   database.run("INSERT INTO symbol_content_fts (symbol_id, file_id, path, name, kind, content, start_line, end_line) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", ["SYM-1", "FILE-1", "src/example.js", "example", "function", "return 1;", 1, 3]);
+  database.run("UPDATE symbols SET summary = ?", ["Protect customer orders."]);
   return { root, database };
 }
 
@@ -22,7 +24,7 @@ test("embedding jobs deduplicate active work and transition through retry", asyn
   const { database } = await fixture();
   try {
     const jobs = createEmbeddingJobStore({ database, clock: () => new Date("2026-09-19T00:00:00.000Z") });
-    const checksum = checksumEmbeddingText("example\nfunction\nreturn 1;");
+    const checksum = purposeSummaryInput("Protect customer orders.").checksum;
     const first = jobs.enqueue({ symbolId: "SYM-1", contentChecksum: checksum, model: "embeddinggemma" });
     const duplicate = jobs.enqueue({ symbolId: "SYM-1", contentChecksum: checksum, model: "embeddinggemma" });
     assert.equal(duplicate.job_id, first.job_id);
@@ -41,7 +43,7 @@ test("worker embeds only when the queued checksum is still current", async () =>
   const { database } = await fixture();
   try {
     const jobs = createEmbeddingJobStore({ database, clock: () => new Date("2026-09-19T00:00:00.000Z") });
-    const checksum = checksumEmbeddingText("example\nfunction\nreturn 1;");
+    const checksum = purposeSummaryInput("Protect customer orders.").checksum;
     jobs.enqueue({ symbolId: "SYM-1", contentChecksum: checksum, model: "embeddinggemma" });
     const vectors = [];
     const worker = createEmbeddingWorker({
