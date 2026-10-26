@@ -60,7 +60,7 @@ test("restart settles committed and failed work from evidence without replay", a
   });
   const committed = await store.register({ requestKey: "req-r1", kind: "create", root: "/srv/a", projectId: "PROJECT-a" });
   const claimA = await store.claimAttempt(committed.operation.operation_id);
-  await store.transition(committed.operation.operation_id, claimA.revision, { stage: "committed" });
+  await store.transition(committed.operation.operation_id, claimA.revision, { stage: "committed" }, { attempt: claimA.attempt });
   await store.releaseAttempt(committed.operation.operation_id, claimA.attempt);
   const prior = await store.register({ requestKey: "req-r2", kind: "add", root: "/srv/b", projectId: "PROJECT-b" });
   const claimB = await store.claimAttempt(prior.operation.operation_id);
@@ -158,7 +158,7 @@ test("intent never becomes success and lost committed membership fails closed", 
   const { store, recovery } = await scenario({ entries: [] });
   const lost = await store.register({ requestKey: "req-r7", kind: "create", root: "/srv/lost", projectId: "PROJECT-lost" });
   const claim = await store.claimAttempt(lost.operation.operation_id);
-  await store.transition(lost.operation.operation_id, claim.revision, { stage: "committed" });
+  await store.transition(lost.operation.operation_id, claim.revision, { stage: "committed" }, { attempt: claim.attempt });
   await store.releaseAttempt(lost.operation.operation_id, claim.attempt);
   const intent = await store.register({ requestKey: "req-r8", kind: "add", root: "/srv/grow" });
   const { decisions } = await recovery.recover();
@@ -171,6 +171,51 @@ test("intent never becomes success and lost committed membership fails closed", 
   const persistedIntent = await store.load(intent.operation.operation_id);
   assert.equal(persistedIntent.stage, "attempted");
   assert.equal(persistedIntent.result, undefined);
+});
+
+// REV-1: catalog membership plus identity and ownership proves Create committed even if a crash
+// left its snapshot at intended or attempted. Restart must settle without claiming or replaying.
+test("catalog commit settles lagging Create snapshots without replay", async () => {
+  for (const stage of ["intended", "attempted"]) {
+    const entries = [{ root: "/srv/lagging", projectId: "PROJECT-lagging" }];
+    const { directory, store } = await scenario({ entries, ownership: new Set(["PROJECT-lagging"]) });
+    const { operation } = await store.register({ requestKey: "lagging", kind: "create", root: "/srv/lagging" });
+    if (stage === "attempted") {
+      const claimed = await store.claimAttempt(operation.operation_id);
+      await store.releaseAttempt(operation.operation_id, claimed.attempt);
+    }
+    const restarted = await openProcess(directory, { entries, ownership: new Set(["PROJECT-lagging"]) });
+    const { decisions } = await restarted.recovery.recover();
+    assert.equal(decisions[0].action, "settled_from_evidence");
+    const persisted = await restarted.store.load(operation.operation_id);
+    assert.equal(persisted.result.outcome, "succeeded");
+    assert.equal(persisted.attempt, stage === "attempted" ? 1 : 0);
+    assert.deepEqual(await restarted.store.openAttempts(), []);
+    assert.equal(restarted.calls.serving.length, 0);
+    assert.equal(restarted.calls.catalogReplace, 0);
+  }
+});
+
+// REV-1: database success cannot manufacture membership or excuse missing ownership. Conflicting
+// evidence must preserve the snapshot and avoid both settlement and a replacement runtime.
+test("database success conflicting with membership or ownership fails closed", async () => {
+  for (const membership of [false, true]) {
+    const results = {};
+    const entries = membership ? [{ root: "/srv/conflict", projectId: "PROJECT-conflict" }] : [];
+    const { store, recovery, calls } = await scenario({
+      entries, results, ownership: new Set(membership ? [] : ["PROJECT-conflict"])
+    });
+    const { operation } = await store.register({
+      requestKey: "conflict", kind: "create", root: "/srv/conflict", projectId: "PROJECT-conflict"
+    });
+    results[operation.operation_id] = { outcome: "succeeded" };
+    const { decisions } = await recovery.recover();
+    assert.equal(decisions[0].action, "blocked_evidence_conflict");
+    assert.deepEqual(await store.load(operation.operation_id), operation);
+    assert.deepEqual(await store.openAttempts(), []);
+    assert.equal(calls.serving.length, 0);
+    assert.equal(calls.catalogReplace, 0);
+  }
 });
 
 // Finds the persisted snapshot filename for one operation id so tests can damage or inspect it.
