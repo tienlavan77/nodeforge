@@ -38,7 +38,7 @@ export function extractPrecedingCommentBlock(content, lineIndex) {
 function commentMode(content) {
   if (/^\s*<\?php\b/.test(content)) return "php";
   if (/^\s*<!--/.test(content)) return "markup";
-  if (/^\s*#(?!\!)/.test(content)) return "php";
+  if (/^\s*#(?!!)/.test(content)) return "php";
   return "javascript";
 }
 
