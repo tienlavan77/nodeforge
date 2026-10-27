@@ -25,7 +25,8 @@ export function indexCheckpoint(database) {
 
 // Builds an attempt-local collector. Only committed results increment indexed/deleted counts;
 // resolve passes and replayed commit identities are excluded while failures remain observable.
-export function createIndexProgress({ attempt = 1, onProgress = () => {} } = {}) {
+export function createIndexProgress({ attempt = 1, onProgress = () => {}, now = () => performance.now() } = {}) {
+  let lastPublishedAt = -Infinity;
   let revision = 0;
   let stage = "preflight";
   let status = "running";
@@ -41,7 +42,18 @@ export function createIndexProgress({ attempt = 1, onProgress = () => {} } = {})
       counters: { ...counters }, failures: failures.map((failure) => ({ ...failure })), checkpoint: checkpoint && { ...checkpoint }, embedding: { ...embedding } };
   }
   // Publishes each state change with an increasing revision inside the current attempt.
-  function publish() { revision += 1; const value = snapshot(); onProgress(value); return value; }
+  function publish(required = true) {
+    revision += 1;
+    const value = snapshot();
+    const timestamp = now();
+    // Routine counters share a 250 ms publication window. Mandatory boundaries flush
+    // the latest counters synchronously, leaving no timers or trailing writes after settlement.
+    if (required || timestamp - lastPublishedAt >= 250) {
+      lastPublishedAt = timestamp;
+      onProgress(value);
+    }
+    return value;
+  }
   return Object.freeze({
     snapshot,
     // Records a required stage failure without converting preserved inventory into success.
@@ -52,10 +64,12 @@ export function createIndexProgress({ attempt = 1, onProgress = () => {} } = {})
       if (stage !== value) stages[stage] = "completed"; stage = value; stages[value] = "running"; return publish(); },
     // Records discovered and filtered files even when they never reach the parser.
     discover(kind) { counters.discovered += 1; if (kind === "eligible") counters.eligible += 1;
-      else if (kind === "ignored" || kind === "unsupported") counters[kind] += 1; return publish(); },
+      else if (kind === "ignored" || kind === "unsupported") counters[kind] += 1; return publish(false); },
     // Accepts only explicit committed index changes and keeps detailed failures retryable.
     result(result) {
       if (result.status === "resolved") return snapshot();
+      const diagnosticChanged = result.status === "failed" || (result.committed === true &&
+        failures.some((failure) => failure.path === result.path && !failure.resolved));
       if (result.committed && ["indexed", "deleted"].includes(result.status)) {
         const key = JSON.stringify([result.path, result.version, result.status]);
         if (commits.has(key)) return snapshot(); commits.add(key); counters[result.status] += 1;
@@ -65,7 +79,7 @@ export function createIndexProgress({ attempt = 1, onProgress = () => {} } = {})
         if (previous) Object.assign(previous, { marker: result.marker, message: result.message, resolved: false });
         else { counters.failed += 1; failures.push({ path: result.path, marker: result.marker, message: result.message, resolved: false }); }
       } else if (result.status === "unchanged") counters.unchanged += 1;
-      return publish();
+      return publish(diagnosticChanged);
     },
     // Reconciles the final attempt against committed inventory, preserving unresolved errors.
     reconcile(database) { checkpoint = indexCheckpoint(database); return publish(); },
