@@ -121,6 +121,24 @@ test("the same failed regex predicate remains preexisting when unrelated generat
   } finally { await f.close(); }
 });
 
+// Uses genuine candidate and baseline processes to prove display truncation and
+// URL redaction cannot turn a known old assertion into an unavailable baseline.
+test("large passing logs and URLs preserve paired baseline evidence and compact PASS responses", async () => {
+  const f = await fixture({ assertion: "console.log('http://127.0.0.1:3100'); console.log('PASS-NOISE-' + 'x'.repeat(90000)); assert.equal(1, 0)" });
+  try {
+    const { job, artifact } = await verify(f);
+    assert.equal(job.status, "passed");
+    assert.deepEqual(job.commands, []);
+    assert(!JSON.stringify(job).includes("PASS-NOISE"));
+    const paired = artifact.commands.find(command => command.baseline);
+    assert.equal(paired.disposition, "preexisting_failure");
+    assert.equal(paired.failure_evidence.complete, true);
+    assert.equal(paired.failure_sha256, paired.baseline.failure_sha256);
+    assert.equal(paired.baseline.environment_sha256, artifact.environment.sha256);
+    assert.equal((await f.service.assertPassedArtifact()).artifact_id, artifact.artifact_id);
+  } finally { await f.close(); }
+});
+
 for (const [name, options, disposition] of [
   ["new regression", { assertion: "assert.equal(value, 1)" }, "introduced_failure"],
   ["different assertion failure", { assertion: "assert.equal(value, 0)" }, "changed_failure"],
@@ -192,7 +210,7 @@ test("repair diagnostics distinguish an existing failure from a later regression
     assert.equal(job.status, "failed");
     const diagnostic = await f.service.getFailureDiagnostic();
     assert.equal(diagnostic.repairable, true);
-    assert.equal(diagnostic.commands.find((command) => command.disposition === "preexisting_failure").blocking, false);
+    assert.equal(diagnostic.commands.some((command) => command.disposition === "preexisting_failure"), false);
     assert.equal(diagnostic.commands.find((command) => command.disposition === "introduced_failure").blocking, true);
     assert.match(diagnostic.repair_guidance, /Do not repair supplemental preexisting_failure/);
   } finally { await f.close(); }

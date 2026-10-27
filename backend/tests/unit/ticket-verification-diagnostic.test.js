@@ -54,3 +54,21 @@ test("truncated diagnostics retain a durable evidence reference", async () => {
   assert.equal(result.commands[0].output_truncated, true);
   assert.match(result.evidence_ref, /ARTIFACT-1.json$/);
 });
+
+// Gives Coder only the blocking assertion while Node keeps successful commands
+// and complete source-bound receipts available to independent verification/review.
+test("repair diagnostics omit passing commands and passing output inside a failed test command", async () => {
+  const passed = { kind: "lint", exit_code: 0, stdout_redacted: "PASS-LOG" };
+  const failed = { ...artifact.commands[0], test_paths: ["test.js"], scope: "ticket", criterion_ids: ["AC-1"],
+    stdout_redacted: [JSON.stringify({ type: "output", text: "PASS-LOG" }),
+      JSON.stringify({ type: "failure", name: "dialog closes", file: "test.js", line: 7, error: { message: "Expected closed", expected: true, actual: false } }),
+      JSON.stringify({ type: "summary", failed: 1, cancelled: 0 })].join("\n") };
+  const stored = { ...artifact, commands: [passed, failed] };
+  const result = await diagnostic({ loadArtifact: async () => stored })();
+  assert.equal(result.commands.length, 1);
+  assert.deepEqual(result.commands[0].test_paths, ["test.js"]);
+  assert.deepEqual(result.commands[0].criterion_ids, ["AC-1"]);
+  assert.match(result.commands[0].stdout_redacted, /Expected closed/);
+  assert(!JSON.stringify(result).includes("PASS-LOG"));
+  assert.equal(stored.commands.length, 2);
+});

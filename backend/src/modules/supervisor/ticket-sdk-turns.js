@@ -29,7 +29,7 @@ export async function runTicketSdkTurns({ executeTurn, readToolEvents, prompt, s
       return { result, toolEvents };
     } catch (error) {
       const sessionId = selected.provider === "codex" ? resumeState.threadId : resumeState.sessionId;
-      if (labMode || selected.role !== "coder" || result.turn_completed !== true || !sessionId
+      if (labMode || selected.role !== "coder" || result.turn_completed !== true || (!sessionId && !Array.isArray(result.history))
         || !["AGENT_REPORT_MISSING", missingCode].includes(error.code)
         || toolEvents.some((event) => ["report_done", "commit_changes"].includes(event.tool ?? event.name) && event.status === "failed")) throw error;
     }

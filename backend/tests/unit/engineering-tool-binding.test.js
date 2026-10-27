@@ -18,6 +18,20 @@ function fixture(projectRoot = process.cwd()) {
   return { calls, context, bound: bindEngineeringTools({ registry, context }) };
 }
 
+// Coder can request a supported environment without passing host paths or
+// changing its issued role, command scope, or service capabilities.
+test("Coder run_check accepts the typed runner request and rejects provisioning arguments", async () => {
+  const { context } = fixture();
+  const calls = [];
+  const binding = bindEngineeringTools({ context, registry: { run_check: { execute: async input => { calls.push(input); return { status: "passed" }; } } } });
+  const input = { type: "test", command: "node --test backend/tests/example.test.js", environment: "filesystem_namespace" };
+  await binding.registry.run_check.execute(input);
+  assert.deepEqual(calls, [input]);
+  for (const patch of [{ environment: "sudo" }, { socket_path: "/host.sock" }, { environment: { command: "mount" } }])
+    await assert.rejects(binding.registry.run_check.execute({ ...input, ...patch }), { code: "TOOL_INPUT_INVALID" });
+  assert.equal(calls.length, 1);
+});
+
 test("caller cannot replace Node identity, capabilities, root, baseline or ticket context", async () => {
   const { bound, calls, context } = fixture();
   context.task_id = "OTHER";

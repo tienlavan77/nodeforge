@@ -133,6 +133,28 @@ test("delivery does not wake SL if source moves while receipt readability is bei
   assert.deepEqual(f.job, original);
 });
 
+// Lets new Node-issued baseline receipts unblock a parked investigation without repeating unchanged research or granting acceptance.
+test("no-progress tooling wait wakes only when the issued receipt inventory changes", async (t) => {
+  const f = await fixture(t);
+  const options = { inspect: async () => ({ workspace: f.workspace }), clock: () => 1 };
+  const refresh = () => createBlockerVerificationDelivery(options)(f.job);
+  assert.equal(await refresh(), true);
+  const parked = { action: "reconciliation_required", summary: "Baseline evidence is still absent.", guidance: "Supply a paired receipt.",
+    reconciliation: { kind: "tooling", prerequisite: "Same-environment baseline comparison." } };
+  f.job.outcome_reason = "technical_reconciliation_no_progress";
+  f.job.resolution = structuredClone(parked);
+  assert.equal(await refresh(), false);
+  await f.save("artifacts", { artifact_id: "ARTIFACT-PAIRED", task_id: "TASK", project_id: "P", source_revision: "OLDER", commit_sha: "COMMIT-OLD",
+    status: "failed", commands: [{ argv: ["node", "--test", "security.test.js"], exit_code: 1,
+      baseline: { commit_sha: "BASE", environment_sha256: "ENV", exit_code: 1, failure_sha256: "FAILURE" } }] });
+  assert.equal(await refresh(), true);
+  assert.equal(f.job.ticket_progress.verification.baseline_evidence.status, "recorded");
+  assert.equal(f.job.resolution, undefined);
+  f.job.resolution = structuredClone(parked);
+  assert.equal(await refresh(), false);
+  assert.equal(f.job.status, "reconciliation_required");
+});
+
 test("delivery never marks receipts above the shared storage budget as readable", async (t) => {
   const f = await fixture(t), original = structuredClone(f.job);
   await f.save("checks", { ...f.old, stdout: "x".repeat(BLOCKER_RECEIPT_MAX_BYTES) });

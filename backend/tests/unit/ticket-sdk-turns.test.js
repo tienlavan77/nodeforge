@@ -91,6 +91,16 @@ test("successful completion returns immediately without phase continuation", asy
   await f.run(); assert.equal(f.calls.length, 1); assert.equal(f.saved.length, 0);
 });
 
+// A retained committed revision needs a report submission, not another source mutation or SDK turn.
+for (const provider of ["claude", "codex"]) test(`${provider} resumed verified report returns without repeating implementation`, async () => {
+  const f = fixture(provider, [{ events: events("report_done") }], { priorTools: ["edit_diff", "run_check", "git_diff"] });
+  f.state.emptyCommitSeen = true;
+  const result = await f.run();
+  assert.equal(f.calls.length, 1); assert.equal(f.saved.length, 0);
+  assert.deepEqual(result.toolEvents, events("report_done"));
+  assert.equal(f.state.turnCount, 26);
+});
+
 // Tool laboratories keep their existing prompt and single-turn completion rules.
 test("laboratory mode does not receive the ticket work progress prompt", async () => {
   const f = fixture("claude", [{ events: events("report_done") }], { labMode: true });

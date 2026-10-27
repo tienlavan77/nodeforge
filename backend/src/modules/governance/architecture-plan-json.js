@@ -81,7 +81,7 @@ export function renderArchitecturePlanMarkdown({ plan, planId, revision, sourceS
   assertPlanSchema(plan);
   if (!/^PLAN-[A-Za-z0-9._-]+$/.test(planId ?? "") || !Number.isSafeInteger(revision) || revision < 1 || !SHA256.test(sourceSha256 ?? "")) throw decisionError("ARCHITECTURE_PLAN_RENDER_INVALID", "Rendering needs the exact Node-owned plan identity and source checksum.");
   const evidence = plan.evidence.map((entry) => `- [Evidence: ${entry.path}${entry.location ? `#${entry.location}` : ""}] ${entry.fact}`).join("\n");
-  const outcomes = plan.outcomes.map((outcome) => `| ${outcome.id} | ${outcome.outcome} | ${outcome.acceptance_criteria.join("; ")} | ${outcome.guardrails.join("; ")} |`).join("\n");
+  const outcomes = plan.outcomes.map((outcome) => `| ${[outcome.id, outcome.outcome, outcome.acceptance_criteria.join("; "), outcome.guardrails.join("; ")].map(escapePlanTableCell).join(" | ")} |`).join("\n");
   const constraintLines = [...plan.constraints.map((item) => `- Constraint: ${item}`), ...plan.risks.map((item) => `- Risk: ${item}`)];
   const sections = [
     `# Plan: ${plan.title}`,
@@ -94,6 +94,21 @@ export function renderArchitecturePlanMarkdown({ plan, planId, revision, sourceS
     `## 7. Evidence and assumptions\n\n${evidence}\n\n${plan.assumptions.map((item) => `- Assumption (unverified): ${item}`).join("\n")}\n\nplan_id: ${planId}; revision: r${revision}; source_sha256: ${sourceSha256}`
   ];
   return `${sections.join("\n\n")}\n`;
+}
+
+// Keeps valid JSON requirements inside one Markdown cell so literal alternatives cannot
+// become extra scope columns. Existing escapes and code delimiters retain their meaning;
+// embedded line breaks render inside the cell rather than starting another table row.
+function escapePlanTableCell(value) {
+  let codeDelimiter = 0;
+  return String(value).replace(/\r\n|\r|\n/g, "<br>").replace(/(`+)|(\\*)\|/g, (match, ticks, slashes) => {
+    if (ticks) {
+      if (!codeDelimiter) codeDelimiter = ticks.length;
+      else if (codeDelimiter === ticks.length) codeDelimiter = 0;
+      return ticks;
+    }
+    return codeDelimiter || slashes.length % 2 ? match : `${slashes}\\|`;
+  });
 }
 
 // Rebuilds one Node session view from an authoritative owner-decision record.

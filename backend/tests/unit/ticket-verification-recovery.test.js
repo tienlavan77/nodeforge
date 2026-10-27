@@ -102,5 +102,6 @@ test("unchanged retry errors carry the existing verification diagnostic", async 
     assertPassedArtifact: async () => { throw Object.assign(new Error("Missing"), { code: "VERIFY_ARTIFACT_MISMATCH" }); },
     startTests: async () => { throw Object.assign(new Error("Unchanged"), { code: "VERIFY_RETRY_UNCHANGED" }); },
     getFailureDiagnostic: async () => diagnostic });
-  await assert.rejects(ensure(), (error) => error.code === "VERIFY_RETRY_UNCHANGED" && error.details.verification_diagnostic === diagnostic && error.message.includes("assertion failed"));
+  await assert.rejects(ensure(), (error) => error.code === "VERIFY_RETRY_UNCHANGED" && error.details.verification_diagnostic === diagnostic
+    && error.message.includes("ARTIFACT-FAIL") && !error.message.includes("assertion failed"));
 });

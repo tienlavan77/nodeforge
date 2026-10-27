@@ -1,7 +1,7 @@
 // Tests compact recovery prompts and exact on-demand context delivery without weakening authority or runtime file protections.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { rm, symlink, readFile } from "node:fs/promises";
+import { rm, symlink, readFile, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 import { createBlockerPromptContext, createBlockerPromptRefresh } from "../../src/modules/supervisor/blocker-prompt-context.js";
@@ -46,6 +46,31 @@ test("SL and AM recover every exact context part, including negations beyond inl
     assert.equal(JSON.parse(exact), x.job.contract_context);
   }
   assert.deepEqual((await x.prepare()).refs, prepared.refs);
+});
+
+// Keeps the exact owner handoff and Sprint authority readable after runtime
+// migration while preserving Node-issued logical paths and checksum grants.
+test("SL reads owner and authority indexes from the grouped runtime layout", async (t) => {
+  const x = await fixture(t);
+  await mkdir(join(x.projectRoot, ".forge/runtime"), { recursive: true });
+  await writeFile(join(x.projectRoot, ".forge/runtime/runtime-layout.json"), JSON.stringify({ version: 1, layout: "grouped", status: "ready" }));
+  x.job.owner_inputs = [{ answer: "manifest path and runner configuration" }];
+  x.job.authority_context = { passages: [{ passage_id: "SPRINT-1", scope: "sprint", text: "Resume the retained checkpoint." }] };
+  const prepared = await x.prepare();
+  const tools = x.tools(prepared);
+  for (const section of ["owner_inputs", "authority_context"]) {
+    const index = prepared.refs.find(ref => ref.section === section && ref.part === 0);
+    const result = await tools.registry.read_file.execute({ path: index.path, offset: 1, limit: 80 });
+    assert.equal(result.sha256, index.sha256);
+    const record = JSON.parse(result.content);
+    let content = "";
+    for (const ref of record.parts) {
+      const part = await tools.registry.read_file.execute({ path: ref.path, offset: 1, limit: 80 });
+      assert.equal(part.sha256, ref.sha256);
+      content += JSON.parse(part.content).content_lines.join("");
+    }
+    assert.deepEqual(JSON.parse(content), x.job[section]);
+  }
 });
 
 /** Ensures clearing current feedback cannot erase the historical rejection

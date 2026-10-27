@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createNodeforgeTaskExecutors } from "../../src/modules/supervisor/nodeforge-task-executors.js";
-import { CODER_TOOL_NAMES, engineeringToolDefinitions } from "../../src/tools/engineering-tool-catalog.js";
+import { CODER_TOOL_NAMES, coderToolDefinitions } from "../../src/tools/engineering-tool-catalog.js";
 import { createRuntimeToolGovernance } from "../../src/modules/governance/runtime-tool-governance.js";
 import { createReadFileTool } from "../../src/tools/agent-lifecycle-tools.js";
 import { checkpointedRegistry, createResumeState } from "../../src/modules/supervisor/ticket-resume.js";
@@ -36,7 +36,7 @@ test("Claude and Codex ticket executors expose the System Engineer catalog with 
   const listTools = requests.claude.options.mcpServers.forge.instance.server._requestHandlers.get("tools/list");
   const exposed = await listTools({ method: "tools/list", params: {} }, {});
   assert.deepEqual(exposed.tools.map(({ name }) => name), CODER_TOOL_NAMES);
-  for (const definition of engineeringToolDefinitions()) assert.deepEqual(requests.codex.options.forgeTools.definitions.find(({ name }) => name === definition.name).input_schema, definition.input_schema);
+  for (const definition of coderToolDefinitions()) assert.deepEqual(requests.codex.options.forgeTools.definitions.find(({ name }) => name === definition.name).input_schema, definition.input_schema);
   assert.equal(requests.claude.options.tools.length, 0);
   assert.equal(requests.codex.options.sandboxMode, "read-only");
   const response = { responses: [{ finding_id: "REV-2", position: "dispute", rationale: "Existing source is already verified", files: [], evidence_refs: ["ARTIFACT-1"] }],

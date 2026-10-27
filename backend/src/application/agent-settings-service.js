@@ -78,7 +78,7 @@ export function createAgentSettingsService({ profiles, configuration, gateway, c
         correlationId: `CONNECTION-${resolvedId}`,
         prompt: "Health check. Respond with OK."
       });
-      return { agent_id: resolvedId, status: "CONNECTED", gateway_url: current.gateway_url };
+      return markConnected(resolvedId, current);
     }
     if (provider === "codex") {
       if (typeof codexSdkGateway?.execute !== "function") throw new ConfigurationError("Codex SDK gateway is unavailable.");
@@ -87,7 +87,7 @@ export function createAgentSettingsService({ profiles, configuration, gateway, c
         correlationId: `CONNECTION-${resolvedId}`,
         prompt: "Health check. Respond with OK."
       });
-      return { agent_id: resolvedId, status: "CONNECTED", gateway_url: current.gateway_url };
+      return markConnected(resolvedId, current);
     }
     if (provider === "ollama") {
       if (typeof ollamaSdkGateway?.execute !== "function") throw new ConfigurationError("Ollama SDK gateway is unavailable.");
@@ -96,7 +96,7 @@ export function createAgentSettingsService({ profiles, configuration, gateway, c
         correlationId: `CONNECTION-${resolvedId}`,
         prompt: "Health check. Respond with OK."
       });
-      return { agent_id: resolvedId, status: "CONNECTED", gateway_url: current.gateway_url };
+      return markConnected(resolvedId, current);
     }
     if (OPENAI_COMPATIBLE_PROVIDERS.has(provider)) {
       if (typeof openaiSdkGateway?.execute !== "function") throw new ConfigurationError("OpenAI-compatible SDK gateway is unavailable.");
@@ -104,14 +104,21 @@ export function createAgentSettingsService({ profiles, configuration, gateway, c
       return { agent_id: resolvedId, status: "CONNECTED", gateway_url: current.gateway_url };
     }
     const result = await gateway.testConnection(resolvedId);
-    return { agent_id: resolvedId, status: result.status, gateway_url: result.gateway_url };
+    return markConnected(resolvedId, current, result);
+  }
+  // Marks a successfully authenticated agent ready so future SDK calls are admitted.
+  function markConnected(agentId, current, result = {}) {
+    const updated = profiles.update({ ...current, status: "ready", updated_at: now() });
+    configuration.sync();
+    return { agent_id: agentId, status: result.status ?? "CONNECTED", gateway_url: result.gateway_url ?? updated.gateway_url };
   }
   function buildProfile(input, current) {
     const role = input?.role ?? current?.role;
     const resolvedRole = normalizeRole(role);
     const resolvedId = current?.agent_id ?? resolveAgentId(input?.agent_id, resolvedRole);
     const enabled = input?.enabled === undefined ? current?.enabled === true : input.enabled === true;
-    const status = normalizeStatus(input?.status ?? current?.status ?? (enabled ? "ready" : "not_connected"));
+    const suppliedCredential = typeof input?.api_key === "string" && input.api_key.length > 0;
+    const status = normalizeStatus(input?.status ?? (enabled && (suppliedCredential || current?.status === "ready") ? "ready" : current?.status ?? "not_connected"));
     const profile = {
       agent_id: resolvedId,
       agent_name: input?.agent_name ?? current?.agent_name ?? resolvedRole,

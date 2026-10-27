@@ -15,12 +15,14 @@ import { bindEngineeringTools } from "../../tools/engineering-tool-binding.js";
 import { CODER_TOOL_NAMES, coderToolDefinitions } from "../../tools/engineering-tool-catalog.js";
 import { coderFailureTriage } from "./coder-recovery-policy.js";
 import { withCoderExchange, coderExchangePrompt } from "./coder-agent-exchange.js";
+import { createFunctionCallingTaskExecutor } from "./function-calling-task-executor.js";
 
 const CODER_FORGE_TOOL_NAMES = new Set(CODER_TOOL_NAMES.map((name) => `mcp__forge__${name}`));
 
 // Creates SDK executors that keep Claude and Claude Code ticket policies aligned.
 export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger, checkpoints }) {
   return Object.freeze({ runOpenAiHello, runOllamaHello,
+    runFunctionCallingTask: createFunctionCallingTaskExecutor({ openaiSdkGateway, ollamaSdkGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger, checkpoints }),
     runToolTicket: withCoderExchange(runToolTicket, { projectRoot, projectLogger }), runCodexTask: withCoderExchange(runCodexTask, { projectRoot, projectLogger }) });
 
   async function runToolTicket(selected, request) {

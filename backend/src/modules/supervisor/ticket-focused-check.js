@@ -5,6 +5,7 @@ import { ConfigurationError } from "../../shared/errors.js";
 import { validateCheckCommand } from "../../tools/owner-engineer-tools.js";
 import { materializeTicketVerification } from "./ticket-verification-materialization.js";
 import { captureVerificationEnvironment, restoreVerificationEnvironment } from "./ticket-verification-environment.js";
+import { assertVerificationRunnerEnvironment } from "./verification-runner-environment.js";
 
 const fail = (code, message) => Object.assign(new ConfigurationError(message), { code });
 const sha = (content) => content === null ? null : `sha256:${createHash("sha256").update(content).digest("hex")}`;
@@ -12,7 +13,9 @@ const sha = (content) => content === null ? null : `sha256:${createHash("sha256"
 // Binds focused verification to the ticket source identity without changing its acceptance state.
 export function createTicketFocusedCheck({ taskId, projectRoot, worktreeFileService, ledger, executionContexts, stateFileService, assertIdentity, assertArchiveSource, runCommand, safeOutput, loadArtifact, materialize = materializeTicketVerification, captureEnvironment = captureVerificationEnvironment, restoreEnvironment = restoreVerificationEnvironment }) {
   // Runs a requested focused check on the recorded commit or pre-commit working ledger without granting final acceptance.
-  return async function runCheck({ type, command, signal } = {}) {
+  return async function runCheck({ type, command, signal, environment: requestedEnvironment } = {}) {
+    assertVerificationRunnerEnvironment(requestedEnvironment);
+    if (requestedEnvironment === "filesystem_namespace" && type !== "test") throw fail("VERIFY_ENVIRONMENT_INVALID", "Filesystem namespace is available for test checks only.");
     if (!["test", "lint", "typecheck", "build"].includes(type)) throw fail("INPUT_INVALID", "Unknown check type.");
     validateCheckCommand(command, type);
     if (/[^A-Za-z0-9_@./:=*?+\s-]|(?:^|[\s/=])\.\.(?:\/|\s|$)/.test(command)) throw fail("INPUT_INVALID", "Focused check arguments must stay inside the project and use unquoted safe tokens.");
@@ -55,7 +58,7 @@ export function createTicketFocusedCheck({ taskId, projectRoot, worktreeFileServ
     const archive = await materialize({ projectRoot, commitSha, ticketPaths: context.manifest_paths, environment, ...(overlayFiles ? { overlayFiles } : {}) });
     try {
       const startedAt = new Date().toISOString();
-      const output = await runCommand({ argv: command.trim().split(/\s+/), cwd: archive.path, tempDir: archive.temp_dir, timeoutMs: 120000, signal });
+      const output = await runCommand({ argv: command.trim().split(/\s+/), cwd: archive.path, tempDir: archive.temp_dir, timeoutMs: 120000, signal, projectRoot, environment: requestedEnvironment });
       if (signal?.aborted) throw signal.reason;
       await assertArchiveSource(archive.path, checksums);
       await archive.assertEnvironment?.();
@@ -63,10 +66,11 @@ export function createTicketFocusedCheck({ taskId, projectRoot, worktreeFileServ
       const latest = await executionContexts.load(taskId);
       if (latest.version !== context.version || latest.source_revision !== context.source_revision || latest.review_commit_sha !== context.review_commit_sha) throw fail("VERIFY_CONTEXT_STALE", "Ticket identity changed while the focused check ran.");
       const receipt = { check_id: `CHECK-${randomUUID()}`, task_id: taskId, source_revision: context.source_revision, commit_sha: preCommit ? null : context.review_commit_sha,
-        pre_commit: preCommit, environment: archive.environment ?? null, type, command, status: output.exit_code === 0 ? "passed" : "failed", exit_code: output.exit_code,
+        pre_commit: preCommit, environment: archive.environment ?? null, ...(output.runtime_environment ? { runtime_environment: output.runtime_environment } : {}), type, command, status: output.exit_code === 0 ? "passed" : "failed", exit_code: output.exit_code,
         stdout: safeOutput(output.stdout), stderr: safeOutput(output.stderr), output_sha256: output.output_sha256,
         started_at: startedAt, completed_at: new Date().toISOString(), changed_paths: context.manifest_paths };
       await stateFileService.atomicWrite({ path: `${statePath()}/ticket-verification/${taskId}/checks/${receipt.check_id}.json`, content: `${JSON.stringify(receipt)}\n`, replace: false });
+      if (requestedEnvironment !== undefined && context.state !== "verified" && context.state !== "reviewing") await executionContexts.update(taskId, context.version, { verification_runner_environment: requestedEnvironment });
       return receipt;
     } finally { await archive.cleanup(); }
   }

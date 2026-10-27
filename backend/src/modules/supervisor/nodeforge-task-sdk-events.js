@@ -48,16 +48,9 @@ export function assertTicketExecutionCompleted(toolEvents, { labMode = false, mi
     }
     throw Object.assign(new ConfigurationError("Agent ended without recording a completion report."), { code: "AGENT_REPORT_MISSING", tool: "report_done" });
   }
-  if (labMode) return;
-  const applied = names.includes("write_diff") || names.includes("edit_diff");
-  const inspected = ["read_file", "read_lines", "search_tree", "list_files", "search_text", "search_code", "Read", "Glob", "Grep"].some((name) => names.includes(name));
-  const emptyCommit = toolEvents.some((event) =>
-    (event.name ?? event.tool) === "commit_changes" && event.status === "failed" && event.error_code === "GIT_EMPTY_COMMIT"
-  );
-  if (applied && emptyCommit) return;
-  if ((!applied || !names.includes("commit_changes")) && !(inspected && emptyCommit)) {
-    throw Object.assign(new ConfigurationError("Agent ended without applying and committing ticket changes."), { code: "AGENT_CHANGES_MISSING", tool: applied ? "commit_changes" : "write_diff" });
-  }
+  // report_done validates the recorded commit, verification and coverage on the server.
+  // A resumed Coder may only submit that report; SDK tool history is not commit provenance.
+  // The completion pipeline revalidates the persisted report/artifact before independent review.
 }
 
 // Collects Claude SDK calls and their matching tool results.
@@ -67,8 +60,8 @@ export function collectToolCalls(messages) {
   const resultsById = new Map(raw.filter((item) => item.type === "tool_result" && item.id).map((item) => [item.id, item]));
   return raw.filter((item) => item.type === "tool_use").map((item) => ({
     ...item,
-    status: failedIds.has(item.id) ? "failed" : "success",
-    error_code: resultsById.get(item.id)?.error_code ?? null,
+    status: failedIds.has(item.id) || item.name === "report_done" && !resultsById.has(item.id) ? "failed" : "success",
+    error_code: resultsById.get(item.id)?.error_code ?? (item.name === "report_done" && !resultsById.has(item.id) ? "REPORT_RESULT_MISSING" : null),
     error: resultsById.get(item.id)?.error ?? null,
     tool: item.name
   }));

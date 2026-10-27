@@ -34,7 +34,11 @@ export function createMarkdownPlanStore({ projectId, database, fileService, cloc
       await sources.retain({ plan_id: planId, revision, source_sha256: summarySha256 }, summary);
       const filePath = `${statePath()}/nf/plans/${planId}/ke-hoach-r${revision}.md`;
       const bytes = `${markdown.trim()}\n`;
-      await fileService.atomicCreate({ path: filePath, content: bytes });
+      try { await fileService.atomicCreate({ path: filePath, content: bytes }); }
+      catch (error) {
+        if (error.code !== "FILE_ALREADY_EXISTS") throw error;
+        if (await fileService.readFile({ path: filePath }) !== bytes) throw fail("PLAN_HASH_MISMATCH", "Unindexed Markdown differs from the recovered revision; existing bytes were preserved.");
+      }
       const digest = sha(bytes);
       const createdAt = clock();
       database.run("INSERT INTO markdown_plan_revisions(plan_id,revision,project_id,file_path,sha256,summary_path,summary_sha256,created_at,conversation_id) VALUES (?,?,?,?,?,?,?,?,?)", [planId, revision, projectId, filePath, digest, summaryPath, summarySha256, createdAt, conversationId]);

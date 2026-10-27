@@ -1,7 +1,7 @@
 // Delivers current and historical verification receipts for attribution without promoting historical results to acceptance.
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
+import { statePath, resolveRuntimePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createFileService } from "../../infrastructure/filesystem/file-service.js";
 import { createRoleFileService } from "../../infrastructure/filesystem/file-service-role-policy.js";
 import { BLOCKER_RECEIPT_MAX_BYTES } from "./blocker-evidence-limits.js";
@@ -23,7 +23,7 @@ export async function readBlockerVerificationHistory({ job, workspace, context, 
   const taskId = context.task_id;
   const prefix = `${statePath()}/ticket-verification/${taskId}`;
   const projectRoot = workspace.projectRoot ?? workspace.path;
-  const root = join(projectRoot, prefix);
+  const root = resolveRuntimePath(projectRoot, prefix);
   const files = createRoleFileService({ projectRoot, role: "system_engineer", fileService: createFileService({ projectRoot, role: "system_engineer" }) });
   const current = [], historical = [], artifacts = [], jobs = [], receipt_index = [];
   const baseline = [];
@@ -89,5 +89,5 @@ export async function readBlockerVerificationHistory({ job, workspace, context, 
       job: retainedJob || null, artifact: retainedArtifact || null } : null,
     baseline_evidence: { status: baseline.length ? "recorded" : "not_recorded", searched: counts,
       receipts: baseline.slice(0, 8), total: baseline.length,
-      notice: "Inventory of retained ticket check/artifact receipts only. Missing baseline evidence does not establish a preexisting failure. SL may coordinate a focused baseline comparison through permitted Coder verification; never wait for an unrecorded historical result or retry a denied mutation." } };
+      notice: "Inventory of retained ticket check/artifact receipts only. Missing baseline evidence does not establish a preexisting failure. When runtime_capabilities.baseline_recovery is installed, Node executes recorded-environment recovery before consultation and delivers its receipt; consume that result instead of requesting an external operator or an unrecorded historical result. Actual tool denials remain enforced." } };
 }

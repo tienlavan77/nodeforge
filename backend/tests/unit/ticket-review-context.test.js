@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { prepareTicketReviewContext } from "../../src/modules/supervisor/ticket-review-context.js";
 import { createNodeforgeTaskIntegration } from "../../src/modules/supervisor/nodeforge-task-integration.js";
+import { reviewPhaseResume } from "../../src/modules/supervisor/review-revision-resume.js";
 
 // Provides fixed passed evidence and rejects any attempted Coder source refresh.
 function fixture() {
@@ -27,6 +28,32 @@ function fixture() {
 test("review context keeps the persisted passed identity without inspecting live Coder source", async () => {
   const f = fixture();
   assert.equal(await prepareTicketReviewContext(f.options), f.context);
+});
+
+test("completed Coder repair resumes review on its new artifact rather than the previous request_changes artifact", async () => {
+  const f = fixture();
+  const coder = { status: "completed", agent_id: "CODER-1", provider: "codex", attempt: 3, execution_context: f.context };
+  const previous = { status: "completed", verdict: "request_changes", attempt: 3, review_attempt: 2, base_commit: "c".repeat(40),
+    verification: { ...f.artifact, artifact_id: "ARTIFACT-OLDER", commit_sha: "d".repeat(40), source_revision: "source-older" } };
+  f.options.resume = reviewPhaseResume(coder, previous);
+  assert.equal(f.options.resume.verification.artifact_id, f.artifact.artifact_id);
+  assert.equal(f.options.resume.base_commit, f.context.base_sha);
+  assert.equal(f.options.resume.review_attempt, 3);
+  assert.equal(await prepareTicketReviewContext(f.options), f.context);
+  const same = reviewPhaseResume(coder, { ...previous, verdict: null, verification: f.artifact, base_commit: f.context.base_sha });
+  assert.equal(same.verification, f.artifact); assert.equal(same.review_attempt, 2);
+});
+
+test("repair completion with a pre-verification checkpoint loads its current artifact from the authoritative store", async () => {
+  const f = fixture();
+  const coder = { status: "completed", agent_id: "CODER-1", provider: "codex", attempt: 3,
+    execution_context: { ...f.context, state: "coding", verification_artifact_id: null, review_commit_sha: null } };
+  const previous = { verdict: "request_changes", attempt: 2, verification: { ...f.artifact, artifact_id: "ARTIFACT-OLDER" }, base_commit: f.context.base_sha };
+  f.options.resume = reviewPhaseResume(coder, previous);
+  assert.equal(f.options.resume.verification, null);
+  assert.equal(await prepareTicketReviewContext(f.options), f.context);
+  f.artifact.status = "failed";
+  await assert.rejects(prepareTicketReviewContext(f.options), { code: "REVIEW_EVIDENCE_MISMATCH" });
 });
 
 test("review context rejects changed ownership, plan, state, artifact, and stale checkpoint evidence", async () => {
