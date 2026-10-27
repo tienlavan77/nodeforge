@@ -49,8 +49,13 @@ const root=createRoot(document.getElementById('root'));window.leave=()=>root.unm
 
 // Start each independent scenario with authoritative two-project membership and a failed tracked operation.
 async function open(page,origin) {
-  await page.goto(origin);await page.locator('[data-project-id="PROJECT-A"]').waitFor();
-  await page.getByRole("link",{name:"Open b"}).waitFor();
+  if (new URL(page.url()).origin !== origin) await page.goto(origin);
+  try {
+    await page.locator('[data-project-id="PROJECT-A"]').waitFor();
+    await page.getByRole("link",{name:"Open b"}).waitFor();
+  } catch (error) {
+    throw new Error(`Initial directory: ${error.message}; ${await page.evaluate(()=>JSON.stringify({calls:window.calls,text:document.body.innerText,loaded:document.readyState,selection:window.api?.getProjectSelection()}))}`, {cause:error});
+  }
 }
 
 // Traverse native keyboard focus order until the target is reached, failing if a control is inaccessible.
