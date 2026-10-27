@@ -1,5 +1,6 @@
 // Routes Forge v1 API requests to domain services with checkpoint decoration.
 import { randomUUID } from "node:crypto";
+import { guardStream } from "./project-stream-admission.js";
 import { ConfigurationError } from "../../shared/errors.js";
 import { createForgeV1ConversationRoutes } from "./forge-v1-conversation-routes.js";
 import { routeTicketReview } from "./forge-v1-ticket-review-routes.js";
@@ -14,18 +15,19 @@ import { routeProjectLifecycle } from "../../modules/projects/project-lifecycle.
 import { resolveProjectRequest, selectProjectRouter } from "./project-request-context.js";
 
 // Creates the Forge v1 HTTP router with checkpoint decoration.
-export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrchestrationService, reviewTicket, ticketHumanReviewService, ticketBlockerDecisionService, ticketBlockerReconcileService, runToolLab, directCodeRequest, projectStream, conversationStream, onWatcherEvent, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, ownerExecutionControl, conversationCrudService, conversationAuditHistoryService, markdownResponseFileService, architectureWorkspaceService, humanDecisionService, agentSettingsService, listResumableCheckpoints, gitService, fileService, expectedProjectId, planStore, markdownPlanStore, sprintRegistry, planOwnerAuth, planRequests, handoffApprovedPlan, projectLifecycle, resolveProjectRouter } = {}) {
+export function createForgeV1Router({ assertAdmission, dispatchTicket, dispatchSprint, sprintOrchestrationService, reviewTicket, ticketHumanReviewService, ticketBlockerDecisionService, ticketBlockerReconcileService, runToolLab, directCodeRequest, projectStream, conversationStream, onWatcherEvent, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, ownerExecutionControl, conversationCrudService, conversationAuditHistoryService, markdownResponseFileService, architectureWorkspaceService, humanDecisionService, agentSettingsService, listResumableCheckpoints, gitService, fileService, expectedProjectId, planStore, markdownPlanStore, sprintRegistry, planOwnerAuth, planRequests, handoffApprovedPlan, projectLifecycle, resolveProjectRouter } = {}) {
   const conversationRoutes = createForgeV1ConversationRoutes({ conversationCrudService, conversationAuditHistoryService, markdownResponseFileService, ownerChatService, ownerExecutionControl, listResumableCheckpoints, planOwnerAuth });
   return Object.freeze({ route, resolveStreams });
 
   // Selects SSE sources through the same admitted-project boundary as JSON operations.
   async function resolveStreams({ method, url, parts }) {
+    assertAdmission?.();
     const projectId = resolveProjectRequest({ method, url, parts });
     if (resolveProjectRouter) {
       const selected = await selectProjectRouter({ projectId, resolveProjectRouter });
       return selected.resolveStreams({ method, url, parts });
     }
-    return { projectStream, conversationStream };
+    return { projectStream: guardStream(projectStream, assertAdmission), conversationStream: guardStream(conversationStream, assertAdmission) };
   }
 
   async function route(method, url, request, services, resolvedBody) {
@@ -36,6 +38,7 @@ export function createForgeV1Router({ dispatchTicket, dispatchSprint, sprintOrch
     const requestId = request.headers?.["x-request-id"] ?? randomUUID();
     const correlationId = request.headers?.["x-correlation-id"] ?? requestId;
     const body = resolvedBody ?? (method === "POST" || method === "PUT" || method === "PATCH" ? await readJson(request) : {});
+    assertAdmission?.();
     const projectId = resolveProjectRequest({ method, url, body, parts });
     const globalRequest = parts[0] === "agents" || (method === "GET" && parts.length === 1 && ["health", "version"].includes(parts[0]));
     if (resolveProjectRouter && (projectId !== undefined || !globalRequest)) {

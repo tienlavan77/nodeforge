@@ -14,7 +14,7 @@ export function createProjectRuntimeDisposal() {
   }
 
   // Removes a runtime from request selection immediately when its first disposal begins.
-  function isAvailable(runtime) { return !releases.has(runtime); }
+  function isAvailable(runtime) { return Boolean(runtime) && !releases.has(runtime) && runtime.status?.().closed !== true && !["failed", "running"].includes(runtime.status?.().progress?.status); }
 
   // Attempts application cleanup before runtime cleanup, aggregating errors and never retrying disposal.
   function releaseRuntime(runtime) {

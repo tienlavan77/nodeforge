@@ -10,6 +10,7 @@ import { createProjectCatalog } from "./project-catalog.js";
 import { startProjectRuntime } from "./project-runtime.js";
 import { startRuntimeWithProgress } from "./project-runtime-progress.js";
 import { createProjectRuntimeDisposal } from "./project-runtime-disposal.js";
+import { createProjectDirectoryState } from "./project-directory-state.js";
 
 // Restores independent project runtimes from global metadata without adding public transport routes.
 export async function createProjectLifecycle({ catalogPath, registry = new ProjectRegistry(), startRuntime = startProjectRuntime, runtimeOptions = {}, logger = console, operationStore } = {}) {
@@ -20,13 +21,14 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
   let tail = Promise.resolve();
   let closed = false;
   let closing;
+  const directoryState = createProjectDirectoryState({ catalog, runtimes, isAvailable, isClosed: () => closed });
   for (const entry of catalog.list()) {
-    try { await activate(entry.root, entry.projectId); } catch (error) {
+    try { await directoryState.run(entry.root, () => activate(entry.root, entry.projectId)); } catch (error) {
       logger.error?.("Unable to restore project runtime.", { root: entry.root, error });
       startupErrors.push({ root: entry.root, error: error.message, ...(error.code ? { code: error.code } : {}) });
     }
   }
-  return Object.freeze({ create, add, remove, list, get, close, registerCleanup, startupErrors: Object.freeze(startupErrors) });
+  return Object.freeze({ create, add, remove, list, directory: directoryState.directory, get, close, registerCleanup, startupErrors: Object.freeze(startupErrors) });
 
   // Fences Create through the durable operation store before exclusive directory creation.
   function create(root, options) {
@@ -105,12 +107,13 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
     await assertRoot(binding);
     await inspectProjectStorage(binding);
     const existing = runtimes.get(canonical);
-    if (existing) return { root: canonical, projectId };
+    if (isAvailable(existing)) return { root: canonical, projectId };
+    if (existing) { await releaseRuntime(existing); runtimes.delete(canonical); }
     progress.stage("membership");
     const entry = { root: canonical, projectId };
     if (!persisted) await catalog.replace([...catalog.list(), entry], { guard: () => assertRoot(binding) });
     await assertRoot(binding);
-    await activate(canonical, projectId, progress);
+    await directoryState.run(canonical, () => activate(canonical, projectId, progress));
     return entry;
   }
 
@@ -239,8 +242,8 @@ export async function routeProjectLifecycle(method, url, request, projectLifecyc
     return {
       status: 200,
       body: {
-        projects: projectLifecycle.list().map((entry) => ({ root: entry.root, project_id: entry.projectId })),
-        startup_errors: (projectLifecycle.startupErrors ?? []).map((entry) => ({
+        projects: (projectLifecycle.directory?.() ?? projectLifecycle.list()).map(({ projectId, ...entry }) => ({ ...entry, project_id: projectId })),
+        startup_errors: (projectLifecycle.directory?.().filter((entry) => entry.diagnostic).map((entry) => ({ root: entry.root, ...entry.diagnostic })) ?? projectLifecycle.startupErrors ?? []).map((entry) => ({
           root: entry.root,
           code: typeof entry.code === "string" && entry.code ? entry.code : "startup_failed",
           message: entry.message ?? entry.error ?? "Project startup failed."
