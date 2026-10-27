@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { ConfigurationError } from "../../shared/errors.js";
 import { runIndexMigrations } from "./index-migrations.js";
+import { runControlMigrations } from "./control-migrations.js";
 
 const DATABASE_FILE = "index.db";
 
@@ -41,19 +42,23 @@ export async function ensureRuntimeDir(projectRoot, runtimeDir) {
 }
 
 // Opens (or creates) the SQLite index database at the runtime dir, applies pragmas and runs pending migrations.
-export async function openIndexDatabase(projectRoot, { busyTimeoutMs = 10000, journalMode = "WAL", runtimeDir: configuredRuntimeDir } = {}) {
+export async function openIndexDatabase(projectRoot, { busyTimeoutMs = 10000, journalMode = "WAL", runtimeDir: configuredRuntimeDir, storageKind = "index" } = {}) {
   const runtimeDir = await ensureRuntimeDir(projectRoot, configuredRuntimeDir);
-  const databasePath = join(runtimeDir, DATABASE_FILE);
+  if (!["index", "control"].includes(storageKind)) throw new ConfigurationError("Invalid database storage kind.");
+  const databasePath = join(runtimeDir, storageKind === "control" ? "control.db" : DATABASE_FILE);
   for (const suffix of ["", "-wal", "-shm", "-journal"]) assertRuntimeTarget(`${databasePath}${suffix}`, false);
   const database = new DatabaseSync(databasePath);
   let closed = false;
 
-  database.exec("PRAGMA foreign_keys = ON");
-  // Multiple Node processes (API + project watcher) share this runtime DB.
-  // WAL plus a busy timeout lets short writes queue instead of crashing streams.
-  database.exec(`PRAGMA journal_mode = ${journalMode}`);
-  database.exec(`PRAGMA busy_timeout = ${Number(busyTimeoutMs)}`);
-  runIndexMigrations(database);
+  try {
+    database.exec("PRAGMA foreign_keys = ON");
+    database.exec(`PRAGMA journal_mode = ${journalMode}`);
+    database.exec(`PRAGMA busy_timeout = ${Number(busyTimeoutMs)}`);
+    (storageKind === "control" ? runControlMigrations : runIndexMigrations)(database);
+  } catch (error) {
+    database.close();
+    throw error;
+  }
 
   return Object.freeze({
     databasePath,
