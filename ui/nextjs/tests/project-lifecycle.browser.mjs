@@ -39,7 +39,10 @@ if(window.mock.lost){window.mock.lost=false;throw new Error('Mutation response l
 return Response.json({version:'1',operation});}
 throw new Error('Unexpected request '+url.pathname);};
 lifecycle.reloadOperation('seed').then(()=>{
-const root=createRoot(document.getElementById('root'));window.leave=()=>root.unmount();root.render(<ProjectDirectory/>);
+let root=createRoot(document.getElementById('root'));window.leave=()=>root.unmount();
+// Remount real components after navigation while preserving the imported lifecycle and directory stores.
+window.returnToDirectory=()=>{root=createRoot(document.getElementById('root'));root.render(<ProjectDirectory/>);};
+root.render(<ProjectDirectory/>);
 });`;
   const compiled=await build({stdin:{contents:source,resolveDir:join(sourceRoot,"ui/nextjs"),loader:"jsx"},bundle:true,write:false,jsx:"automatic",outfile:"fixture.js",
     alias:{react:join(sourceRoot,"ui/nextjs/node_modules/react"),"react-dom":join(sourceRoot,"ui/nextjs/node_modules/react-dom")},
@@ -118,6 +121,16 @@ await card.getByRole("link",{name:"Open a"}).waitFor();
 assert.doesNotMatch(await card.innerText(),/Index failed|External startup failed/);
 assert.equal(await card.getByRole("button",{name:/Retry/}).count(),0);
 assert.equal(await page.evaluate(()=>window.api.getLifecycleSnapshot().operations.seed.status),'failed');
+// Navigation retains the old failed receipt while a different client advances the authoritative attempt.
+await page.evaluate(()=>window.leave());await card.waitFor({state:'hidden'});
+await page.evaluate(()=>{const member=window.mock.members[0];member.readiness='unavailable';member.operation={attempt_id:5,status:'failed',diagnostic:{message:'Current failure after navigation'}};member.diagnostic=member.operation.diagnostic;member.retryable=true;window.returnToDirectory();});
+await card.getByText('Current failure after navigation',{exact:true}).waitFor();
+assert.doesNotMatch(await card.innerText(),/Index failed|External startup failed/);
+assert.equal(await card.getByRole('button',{name:'Retry Add',exact:true}).count(),1);
+assert.equal(await card.getByRole('button',{name:'Retry operation',exact:true}).count(),0);
+assert.equal(await card.getByRole('link').count(),0);
+assert.equal(await page.evaluate(()=>window.api.getLifecycleSnapshot().operations.seed.status),'failed');
+assert.equal((await mutations(page)).length,1);
 },
 "Unknown index totals render indeterminate progress without a fabricated percentage or ETA, and file/function totals render the backend committed counters separately from embedding status.":async({page,origin})=>{
 await open(page,origin);
