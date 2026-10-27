@@ -3,7 +3,14 @@
 // permission probes must never alter source files or authorize a later write on their own.
 // Technical description: directory fingerprints are rechecked at side-effect boundaries,
 // managed storage rejects links, and failures carry actionable effective-principal diagnostics.
-import { access, lstat, mkdir, open, readdir, realpath, unlink } from "node:fs/promises";
+import { access, lstat, mkdir, open, readdir, realpath, stat, unlink } from "node:fs/promises";
+
+// Canonicalizes runtime lookups so path aliases cannot select duplicate project watchers.
+export async function canonicalRoot(root) {
+  const canonical = await realpath(resolve(root));
+  if (!(await stat(canonical)).isDirectory()) throw new Error("Project root must be a directory.");
+  return canonical;
+}
 import { constants } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";

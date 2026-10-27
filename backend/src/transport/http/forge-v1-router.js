@@ -12,6 +12,7 @@ import { routeSprintCrud } from "./forge-v1-sprint-crud-routes.js";
 import { routeForgeV1Git } from "./forge-v1-git-routes.js";
 import { normalizeParts, unavailable, requireProject, readJson, isSafeMarkdownPath } from "./forge-v1-router-utils.js";
 import { routeProjectLifecycle } from "../../modules/projects/project-lifecycle.js";
+import { routeProjectRest } from "./forge-v1-project-routes.js";
 import { resolveProjectRequest, selectProjectRouter } from "./project-request-context.js";
 import { createForgeV1IdeasRoutes } from "./forge-v1-ideas-routes.js";
 
@@ -43,6 +44,8 @@ export function createForgeV1Router({ assertAdmission, dispatchTicket, dispatchS
     if (url.pathname === "/lifecycle" || url.pathname.startsWith("/lifecycle/")) {
       return routeProjectLifecycle(method, url, request, projectLifecycle);
     }
+    const projectResult = await routeProjectRest(method, url, request, projectLifecycle);
+    if (projectResult) return projectResult;
     const parts = normalizeParts(url.pathname);
     const requestId = request.headers?.["x-request-id"] ?? randomUUID();
     const correlationId = request.headers?.["x-correlation-id"] ?? requestId;
