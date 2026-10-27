@@ -4,14 +4,23 @@
 import { randomUUID } from "node:crypto";
 
 /** Creates an error with an HTTP-compatible status for downstream application adapters. */
-function ideaError(message, status) {
-  return Object.assign(new Error(message), { status, statusCode: status });
+function ideaError(message, status, code) {
+  return Object.assign(new Error(message), { status, statusCode: status, ...(code ? { code } : {}) });
 }
 
 /** Binds every notebook operation to one project, including conflict existence probes. */
 export function createIdeasStore({ controlDb, projectId, clock = () => new Date(), createId = () => randomUUID() } = {}) {
   if (!controlDb?.transaction || !controlDb?.run || !controlDb?.all || !projectId) {
     throw new TypeError("A control database and project ID are required for Ideas.");
+  }
+  /**
+   * Resolves only the identifier and owning project metadata for an Idea record without reading or exposing notebook content, allowing upstream authorization boundaries to verify caller project permissions before any data access or mutation occurs.
+   */
+  function locate(id) {
+    if (typeof id !== "string" || !id.trim()) return undefined;
+    const row = controlDb.all("SELECT id, project_id FROM ideas WHERE project_id = ? AND id = ?", [projectId, id])[0]
+      ?? controlDb.all("SELECT id, project_id FROM idea_deletions WHERE project_id = ? AND id = ?", [projectId, id])[0];
+    return row ? Object.freeze({ id: row.id, project_id: row.project_id }) : undefined;
   }
   /** Reads only records belonging to this store's project. */
   function get(id) {
@@ -30,6 +39,8 @@ export function createIdeasStore({ controlDb, projectId, clock = () => new Date(
     throw ideaError(exists ? "Idea version conflict." : "Idea not found.", exists ? 409 : 404);
   }
   return Object.freeze({
+    projectId,
+    locate,
     get,
     /** Lists the project's notebook deterministically, optionally filtering workflow status. */
     list({ status = "all" } = {}) {

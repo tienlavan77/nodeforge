@@ -13,10 +13,19 @@ import { routeForgeV1Git } from "./forge-v1-git-routes.js";
 import { normalizeParts, unavailable, requireProject, readJson, isSafeMarkdownPath } from "./forge-v1-router-utils.js";
 import { routeProjectLifecycle } from "../../modules/projects/project-lifecycle.js";
 import { resolveProjectRequest, selectProjectRouter } from "./project-request-context.js";
+import { createForgeV1IdeasRoutes } from "./forge-v1-ideas-routes.js";
 
 // Creates the Forge v1 HTTP router with checkpoint decoration.
-export function createForgeV1Router({ assertAdmission, dispatchTicket, dispatchSprint, sprintOrchestrationService, reviewTicket, ticketHumanReviewService, ticketBlockerDecisionService, ticketBlockerReconcileService, runToolLab, directCodeRequest, projectStream, conversationStream, onWatcherEvent, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, ownerExecutionControl, conversationCrudService, conversationAuditHistoryService, markdownResponseFileService, architectureWorkspaceService, humanDecisionService, agentSettingsService, listResumableCheckpoints, gitService, fileService, expectedProjectId, planStore, markdownPlanStore, sprintRegistry, planOwnerAuth, planRequests, handoffApprovedPlan, projectLifecycle, resolveProjectRouter } = {}) {
+export function createForgeV1Router({ assertAdmission, dispatchTicket, dispatchSprint, sprintOrchestrationService, reviewTicket, ticketHumanReviewService, ticketBlockerDecisionService, ticketBlockerReconcileService, runToolLab, directCodeRequest, projectStream, conversationStream, onWatcherEvent, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, ownerExecutionControl, conversationCrudService, conversationAuditHistoryService, markdownResponseFileService, architectureWorkspaceService, humanDecisionService, agentSettingsService, listResumableCheckpoints, gitService, fileService, expectedProjectId, planStore, markdownPlanStore, sprintRegistry, planOwnerAuth, ideasAuth, ideasStore, controlDb, database, resolveProjectServices, planRequests, handoffApprovedPlan, projectLifecycle, resolveProjectRouter } = {}) {
   const conversationRoutes = createForgeV1ConversationRoutes({ conversationCrudService, conversationAuditHistoryService, markdownResponseFileService, ownerChatService, ownerExecutionControl, listResumableCheckpoints, planOwnerAuth });
+  const ideasRoutes = createForgeV1IdeasRoutes({
+    ideasAuth,
+    resolveProjectServices,
+    projectLifecycle,
+    expectedProjectId,
+    assertAdmission,
+    defaultServices: { projectId: expectedProjectId, ideas: ideasStore, controlDb: controlDb ?? database, database: database ?? controlDb, assertAdmission }
+  });
   return Object.freeze({ route, resolveStreams });
 
   // Selects SSE sources through the same admitted-project boundary as JSON operations.
@@ -37,7 +46,10 @@ export function createForgeV1Router({ assertAdmission, dispatchTicket, dispatchS
     const parts = normalizeParts(url.pathname);
     const requestId = request.headers?.["x-request-id"] ?? randomUUID();
     const correlationId = request.headers?.["x-correlation-id"] ?? requestId;
-    const body = resolvedBody ?? (method === "POST" || method === "PUT" || method === "PATCH" ? await readJson(request) : {});
+    let body = resolvedBody ?? (method === "POST" || method === "PUT" || method === "PATCH" ? await readJson(request) : {});
+    if (parts[0] === "ideas" && method === "DELETE" && resolvedBody === undefined) body = await readJson(request);
+    const ideasResult = await ideasRoutes.routeIdeas({ method, parts, url, body, headers: request.headers });
+    if (ideasResult) return ideasResult;
     assertAdmission?.();
     const projectId = resolveProjectRequest({ method, url, body, parts });
     const globalRequest = parts[0] === "agents" || (method === "GET" && parts.length === 1 && ["health", "version"].includes(parts[0]));
