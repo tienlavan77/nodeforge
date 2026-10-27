@@ -21,6 +21,9 @@ export function registerApplicationDisposal(application, storage) {
 // Composes project-local application services without borrowing another project's storage or callbacks.
 export function createProjectApplicationRegistry({ projectLifecycle, defaultApplication, defaultRoot, createApplication, createStorage = createControlApiStorage }) {
   const applications = new Map();
+  if (projectLifecycle && defaultApplication?.services && !defaultApplication.services.projectLifecycle) {
+    defaultApplication.services.projectLifecycle = projectLifecycle;
+  }
   const defaultDisposal = registerApplicationDisposal(defaultApplication, defaultApplication.storage);
   const defaultCanonical = realpath(defaultRoot);
   let closed = false;
@@ -78,6 +81,8 @@ export function createProjectApplicationRegistry({ projectLifecycle, defaultAppl
       return undefined;
     }
     record.services ??= { ...application.services,
+      ...(runtime.ideas ? { ideas: runtime.ideas } : {}),
+      ...(runtime.controlDb ? { controlDb: runtime.controlDb } : {}),
       // Rechecks live admission when cached routers or streams use this service bundle.
       assertAdmission() {
         if (closed || record.disposed || runtime.status?.().closed ||
