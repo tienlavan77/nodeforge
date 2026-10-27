@@ -158,7 +158,7 @@ async function runBoundItemOperation({ method, ideaId, located, body, url, conte
     return { status: 200, body: updated };
   }
   const versionParam = url.searchParams.get("expected_version");
-  const version = body?.expected_version !== undefined ? body.expected_version : (versionParam !== null ? Number(versionParam) : 1);
+  const version = body?.expected_version !== undefined ? body.expected_version : (versionParam !== null ? Number(versionParam) : undefined);
   if (!Number.isSafeInteger(version) || version < 1) throw ideaHttpError("Invalid expected_version.", 400, "INVALID_IDEA_VERSION");
   await store.delete(ideaId, { projectId: located.projectId, version });
   return { status: 200, body: { deleted: true, id: ideaId, project_id: located.projectId } };
