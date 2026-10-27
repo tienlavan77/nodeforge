@@ -3,7 +3,7 @@ import { controlApiBase } from "./node-client-url.js";
 import { requestJson } from "./node-client-request.js";
 import { rememberSelectedProject } from "./project-navigation.js";
 
-let snapshot = { projects: [], projectId: null, generation: 0, loaded: false, error: null };
+let snapshot = { projects: [], stale: false, projectId: null, generation: 0, loaded: false, error: null };
 const listeners = new Set();
 const streams = new Set();
 let refreshGeneration = 0;
@@ -44,16 +44,17 @@ export async function refreshProjects({ selectInitial = true } = {}) {
   try {
     const result = await requestJson(`${controlApiBase()}/lifecycle/list`, { cache: "no-store" });
     if (refresh !== refreshGeneration) return;
-    const projects = result.projects ?? [];
+    if (!Array.isArray(result?.projects) || result.projects.some((project) => typeof project.project_id !== "string")) throw new Error("Invalid backend admission response.");
+    const projects = result.projects;
     const missing = snapshot.projectId && !projects.some((project) => project.project_id === snapshot.projectId);
     const projectId = missing ? null : snapshot.projectId ?? (selectInitial && !snapshot.loaded && projects.length === 1 ? projects[0].project_id : null);
-    publish({ projects, projectId, loaded: true, error: missing ? "Selected project is unavailable. Refresh or select an available project." : null });
+    publish({ projects, projectId, loaded: true, stale: false, error: missing ? "Selected project is unavailable. Refresh or select an available project." : null });
   } catch (error) {
     if (refresh === refreshGeneration) {
       // Keep the last admitted directory and project identity during an API restart.
       // Existing workspace clients must continue rendering their last-known page;
       // a failed refresh must not silently revoke admission or close its streams.
-      publish({ loaded: true, error: error.message });
+      publish({ loaded: true, stale: true, error: error.message });
     }
     throw error;
   }

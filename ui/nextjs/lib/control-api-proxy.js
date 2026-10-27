@@ -33,6 +33,15 @@ function unavailableResponse(error, requestId, method) {
 // Streams each API request exactly once and turns restart disconnects into controlled UI recovery.
 export async function proxyControlApi(request, path, { origin = process.env.NODE_CONTROL_API_URL ?? "http://127.0.0.1:3100", timeoutMs = Number(process.env.NODE_CONTROL_API_PROXY_TIMEOUT_MS ?? Number(process.env.NODE_SDK_AGENT_TIMEOUT_MS ?? 3600000) + 60000) } = {}) {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new Error("NODE_CONTROL_API_PROXY_TIMEOUT_MS must be a positive integer in milliseconds.");
+  // Bound new lifecycle forwarding without changing the legacy API surface or replaying requests.
+  if (path[0] === "lifecycle" && !(
+    request.method === "GET" && ["list", "directory"].includes(path[1]) && path.length === 2 ||
+    request.method === "POST" && ["add", "remove"].includes(path[1]) && path.length === 2 ||
+    path[1] === "operations" && path.length === 3 && (
+      request.method === "GET" && path[2] === "status" ||
+      request.method === "POST" && ["create", "add", "retry"].includes(path[2])
+    )
+  )) return Response.json({ error: { code: "LIFECYCLE_ROUTE_NOT_ALLOWED", message: "Unsupported lifecycle route or method.", retryable: false, scope: "scoped" } }, { status: 405 });
   const target = new URL(`${origin.replace(/\/$/, "")}/${path.map((segment) => encodeURIComponent(segment).replace(/%3A/gi, ":")).join("/")}`);
   target.search = new URL(request.url).search;
   const headers = forwardedHeaders(request.headers);
