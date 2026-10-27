@@ -11,6 +11,21 @@ import { createHash } from "node:crypto";
 
 const baseSha = "a".repeat(40);
 
+// An agent's requested runner is durable across API restart and remains a
+// supported enum rather than an arbitrary host provisioning configuration.
+test("runner environment survives restart and rejects unknown provisioning fields", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-runner-context-"));
+  try {
+    const open = () => createTicketExecutionContextStore({ fileService: createFileService({ projectRoot: root }), projectId: "P", projectRoot: root });
+    const store = open(); const context = await store.create({ taskId: "T", supervisorId: "S", baseSha });
+    await store.update("T", context.version, { verification_runner_environment: "filesystem_namespace" });
+    const saved = await open().load("T");
+    assert.equal(saved.verification_runner_environment, "filesystem_namespace"); assert.equal(saved.state, "created");
+    await assert.rejects(store.update("T", saved.version, { verification_runner_environment: "shell" }), { code: "VERIFY_ENVIRONMENT_INVALID" });
+    await assert.rejects(store.update("T", saved.version, { socket_path: "/outside" }), { code: "TICKET_CONTEXT_PATCH_INVALID" });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 // Creates two stores that simulate an API restart over the same project files.
 test("ticket context persists identity and rejects stale transitions after restart", async () => {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-context-"));
@@ -91,8 +106,9 @@ test("ticket verification persists evidence for the exact ledger and commit", as
     const executionContexts = createTicketExecutionContextStore({ fileService: stateFileService, projectId: "PROJECT-TEST", projectRoot: root });
     await executionContexts.create({ taskId: "TICKET-VERIFY", supervisorId: "SUP-VERIFY", baseSha });
     const coding = await executionContexts.syncManifest("TICKET-VERIFY", manifest);
-    await executionContexts.update("TICKET-VERIFY", coding.version, { state: "committed", review_commit_sha: "b".repeat(40) });
-    const inputs = { taskId: "TICKET-VERIFY", projectId: "PROJECT-TEST", projectRoot: root, worktreeRoot, worktreeFileService, stateFileService, gitService: { getHead: async () => "b".repeat(40), getCommitParent: async () => baseSha, getChangedFiles: async () => [path], status: async () => "" }, ledger: { snapshot: async () => manifest }, executionContexts, runCommand: async () => ({ exit_code: 0, stdout: "token=secret123\npass", stderr: "" }) };
+    await executionContexts.update("TICKET-VERIFY", coding.version, { state: "committed", review_commit_sha: "b".repeat(40), verification_runner_environment: "filesystem_namespace" });
+    const commands = [];
+    const inputs = { taskId: "TICKET-VERIFY", projectId: "PROJECT-TEST", projectRoot: root, worktreeRoot, worktreeFileService, stateFileService, gitService: { getHead: async () => "b".repeat(40), getCommitParent: async () => baseSha, getChangedFiles: async () => [path], status: async () => "" }, ledger: { snapshot: async () => manifest }, executionContexts, runCommand: async input => { commands.push(input); return { exit_code: 0, stdout: "token=secret123\npass", stderr: "", ...(input.environment ? { runtime_environment: { type: input.environment, receipt_path: "/receipt.json" } } : {}) }; } };
     const service = createTicketVerificationService(inputs);
     const started = await service.startTests();
     let job;
@@ -102,6 +118,10 @@ test("ticket verification persists evidence for the exact ledger and commit", as
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
     assert.equal(job.status, "passed", JSON.stringify(job));
+    assert.equal(commands.find(command => command.kind === "backend_tests").environment, "filesystem_namespace");
+    assert(commands.filter(command => command.kind !== "backend_tests").every(command => command.environment === undefined));
+    const passed = await service.loadArtifact(job.artifact_id);
+    assert.equal(passed.commands.find(command => command.kind === "backend_tests").runtime_environment.type, "filesystem_namespace");
     const restarted = createTicketVerificationService(inputs);
     assert.equal((await restarted.getTestResult({ jobId: started.job_id })).status, "passed");
     const artifact = await restarted.assertPassedArtifact();

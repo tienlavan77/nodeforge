@@ -9,6 +9,7 @@ import { createTicketRootGit } from "./ticket-root-git.js";
 import { withTicketProjectCommitLock } from "./ticket-project-commit-lock.js";
 import { inspectTicketSource } from "./ticket-source-reconciliation.js";
 import { reconcileRestoredTicketCommit } from "./ticket-restored-commit.js";
+import { reconcileInheritedTicketCommit } from "./ticket-inherited-commit.js";
 
 const fail = (code, message) => Object.assign(new ConfigurationError(message), { code });
 const sha = (value) => value === null ? null : `sha256:${createHash("sha256").update(value).digest("hex")}`;
@@ -24,7 +25,20 @@ export function createTicketRootCommitService({ taskId, projectId, projectRoot, 
   const retryPath = (revision) => `${statePath()}/ticket-root-commits/${key(projectId)}/${key(taskId)}-${revision}-retry.json`;
   return Object.freeze({ rootOnly: true, commit, reconcileNoRefMove, reconcileRestoredCommit, pushCommit: gitService.pushCommit, status: gitService.status, diffWorkingTree: gitService.diffWorkingTree, diffPatchFrom,
     inspectSource: (manifest) => inspectTicketSource({ manifest, taskId, projectId, rootGit, gitService, loadJournal, loadManifest: () => ledger.load(taskId) }),
-    getHead: gitService.getHead, getCommitParent: gitService.getCommitParent, getChangedFiles: gitService.getChangedFiles, getCommitsForTask, assertAncestor: rootGit.assertAncestor });
+    getHead: gitService.getHead, getCommitParent: gitService.getCommitParent, getChangedFiles: gitService.getChangedFiles, getVerificationPaths, getCommitsForTask, assertAncestor: rootGit.assertAncestor });
+
+  // Selects ticket-owned verification paths for an inherited snapshot without attributing its unrelated commit diff to this ticket.
+  async function getVerificationPaths(commitSha) {
+    const manifest = await ledger.load(taskId);
+    const journal = await loadJournal(manifest.revision);
+    if (journal?.reconciliation !== "inherited_source") return null;
+    const paths = Object.keys(manifest.entries).sort();
+    if (manifest.commits[manifest.revision] !== commitSha || journal.commit_sha !== commitSha || journal.manifest_sha !== manifestSha(manifest)
+      || journal.task_id !== taskId || journal.project_id !== projectId || journal.phase !== "receipt_persisted"
+      || JSON.stringify(journal.path_checksums) !== JSON.stringify(Object.fromEntries(paths.map((path) => [path, manifest.entries[path].latest_sha])))) throw fail("TICKET_COMMIT_RECOVERY_CONFLICT", "Inherited verification source differs from its recorded ticket manifest.");
+    await rootGit.assertAncestor(commitSha);
+    return paths;
+  }
 
   // Reports only commits proven by this ticket's durable ledger receipts.
   async function getCommitsForTask(requestedTaskId) {
@@ -34,7 +48,9 @@ export function createTicketRootCommitService({ taskId, projectId, projectRoot, 
     for (const commitSha of [...new Set(Object.values(manifest.commits))]) {
       await rootGit.assertAncestor(commitSha);
       const subject = (await rootGit.run(["show", "-s", "--format=%s", commitSha])).trim();
-      commits.push({ sha: commitSha, subject });
+      const revisions = Object.keys(manifest.commits).filter((revision) => manifest.commits[revision] === commitSha);
+      const inherited = (await loadJournal(Number(revisions.at(-1))))?.reconciliation === "inherited_source";
+      commits.push({ sha: commitSha, subject, ...(inherited ? { source_reference: "inherited" } : {}) });
     }
     return commits;
   }
@@ -44,7 +60,8 @@ export function createTicketRootCommitService({ taskId, projectId, projectRoot, 
     const manifest = await ledger.load(taskId);
     const commitSha = manifest.commits[manifest.revision];
     if (!commitSha || !/^[a-f0-9]{40,64}$/i.test(base ?? "") || !paths.length) throw fail("REVIEW_COMMIT_MISSING", "Committed ticket patch needs its base and manifest paths.");
-    const parent = await gitService.getCommitParent(commitSha);
+    const journal = await loadJournal(manifest.revision);
+    const parent = journal?.reconciliation === "inherited_source" ? base : await gitService.getCommitParent(commitSha);
     await rootGit.assertAncestor(base);
     return rootGit.run(["diff", "--no-ext-diff", "--unified=3", parent, commitSha, "--", ...paths.map((path) => `:(literal)${path}`)]);
   }
@@ -62,7 +79,10 @@ export function createTicketRootCommitService({ taskId, projectId, projectRoot, 
 
   // Shares byte-level restoration validation between report recovery and explicit commit retries.
   async function restoreCommit(manifest, record) {
-    return reconcileRestoredTicketCommit({ taskId, projectId, manifest, record, rootGit, readOptional, loadJournal, saveJournal, manifestSha, projectLogger });
+    const options = { taskId, projectId, manifest, record, rootGit, readOptional, loadJournal, saveJournal, manifestSha, projectLogger };
+    const journal = await loadJournal(manifest.revision);
+    if (journal?.reconciliation === "inherited_source") return reconcileInheritedTicketCommit(options);
+    return await reconcileRestoredTicketCommit(options) ?? reconcileInheritedTicketCommit(options);
   }
 
   // Opens a same-ticket retry only when a pre-tree transaction could not have advanced Git.
@@ -103,6 +123,7 @@ export function createTicketRootCommitService({ taskId, projectId, projectRoot, 
         if (saved) await auditQuarantine(saved, "receipt_journal_mismatch");
         throw fail("TICKET_COMMIT_RECOVERY_CONFLICT", "Ticket commit receipt lacks a matching transaction journal.");
       }
+      if (saved.reconciliation === "inherited_source") return restoreCommit(manifest, record);
       if (saved.phase !== "receipt_persisted") await recover(saved, manifest, record);
       else await rootGit.assertAncestor(existing);
       return { sha: existing, repeated: true };

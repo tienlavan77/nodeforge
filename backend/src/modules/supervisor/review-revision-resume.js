@@ -17,8 +17,18 @@ export async function reviewRevisionResume(queueStore, ticketId, checkpoint) {
 export function reviewPhaseResume(coderCheckpoint, reviewerCheckpoint) {
   if (coderCheckpoint?.status !== "completed" || !coderCheckpoint.agent_id || !coderCheckpoint.provider) return null;
   if (reviewerCheckpoint?.verdict === "approved") return null;
+  const context = coderCheckpoint.execution_context;
+  const identity = context && ["verified", "reviewing"].includes(context.state) && context.verification_artifact_id && context.review_commit_sha
+    && context.source_revision && context.manifest_sha && context.base_sha
+    ? { artifact_id: context.verification_artifact_id, commit_sha: context.review_commit_sha,
+      source_revision: context.source_revision, manifest_sha: context.manifest_sha, base_sha: context.base_sha } : null;
+  const sameRevision = !identity || Object.entries(identity).every(([field, value]) => reviewerCheckpoint?.verification?.[field] === value);
   const previousAttempt = reviewerCheckpoint?.review_attempt ?? 0;
-  const reviewAttempt = reviewerCheckpoint?.verdict === "request_changes" && (coderCheckpoint.attempt ?? 0) > (reviewerCheckpoint.attempt ?? 0)
-    ? previousAttempt + 1 : previousAttempt;
-  return { agent_id: coderCheckpoint.agent_id, provider: coderCheckpoint.provider, changed_paths: coderCheckpoint.changed_paths ?? reviewerCheckpoint?.changed_paths ?? [], review_attempt: reviewAttempt, base_commit: reviewerCheckpoint?.base_commit ?? null, verification: reviewerCheckpoint?.verification ?? null };
+  const completedRepair = reviewerCheckpoint?.verdict === "request_changes" && (!sameRevision || (coderCheckpoint.attempt ?? 0) > (reviewerCheckpoint.attempt ?? 0));
+  const reviewAttempt = completedRepair ? previousAttempt + 1 : previousAttempt;
+  // A completed repair supplies its own verified identity; the previous verdict describes an older source.
+  // prepareTicketReviewContext still checks this hint against the persisted context, artifact and report.
+  return { agent_id: coderCheckpoint.agent_id, provider: coderCheckpoint.provider, changed_paths: coderCheckpoint.changed_paths ?? reviewerCheckpoint?.changed_paths ?? [],
+    review_attempt: reviewAttempt, base_commit: identity?.base_sha ?? reviewerCheckpoint?.base_commit ?? null,
+    verification: !sameRevision || completedRepair && !identity ? identity : reviewerCheckpoint?.verification ?? identity };
 }

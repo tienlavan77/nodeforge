@@ -3,7 +3,7 @@
 // UID/GID 1000 with no capabilities; explicit stop releases the private mounts.
 import { createServer } from "node:net";
 import { spawn } from "node:child_process";
-import { chmodSync, chownSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { chmodSync, chownSync, existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { provisionNamespaceFixtures, namespaceCommand } from "./namespace-fixtures.mjs";
@@ -32,7 +32,8 @@ writeFileSync(join(control, "session.json"), JSON.stringify(identity, null, 2) +
 // any archive permissions or inheriting effective capabilities on Node exec.
 function inspectRequest(request) {
   validateNamespaceRequest(request, repository, realpathSync);
-  return createHash("sha256").update(readFileSync(join(request.cwd, "backend/tests/integration/project-filesystem-environment.test.js"))).digest("hex");
+  const testPath = join(request.cwd, "backend/tests/integration/project-filesystem-environment.test.js");
+  return existsSync(testPath) ? createHash("sha256").update(readFileSync(testPath)).digest("hex") : null;
 }
 
 // Runs only project-local Node commands, preserving the verifier's exact cwd and

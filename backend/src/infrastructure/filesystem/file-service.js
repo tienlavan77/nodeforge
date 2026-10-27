@@ -190,7 +190,7 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
     if (isAbsolute(path) || !rel || rel.startsWith("..") || (!forgeAccess && secretMatch(rel)) || (ignoreMatch(rel) && !dependencyRead && !forgeAccess)) throw new ConfigurationError("Refusing to index unsafe, ignored, or secret project path.");
     if (maxBytes !== undefined && (!Number.isInteger(maxBytes) || maxBytes < 1)) throw new ConfigurationError("FileService read limit is invalid.");
     let content;
-    try { content = await readRegularFile(root, rel, { maxBytes }); } catch (error) { if (error?.code === "ENOENT" || error?.code === "FILE_TOO_LARGE" || error instanceof ConfigurationError) throw error; throw new ConfigurationError(`Unable to read file for indexing: ${rel}.`, { cause: error }); }
+    try { content = await readRegularFile(root, runtimeStoragePath(root, rel), { maxBytes }); } catch (error) { if (error?.code === "ENOENT" || error?.code === "FILE_TOO_LARGE" || error instanceof ConfigurationError) throw error; throw new ConfigurationError(`Unable to read file for indexing: ${rel}.`, { cause: error }); }
     if (content.includes("\u0000")) throw new ConfigurationError(`Refusing to index binary file: ${rel}.`);
     const sha256 = createHash("sha256").update(content).digest("hex");
     return Object.freeze({ path: rel, content, sha256: `sha256:${sha256}`, size_bytes: Buffer.byteLength(content, "utf8"), language: languageForPath(rel) });

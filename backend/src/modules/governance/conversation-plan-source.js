@@ -14,6 +14,7 @@
 import { createHash } from "node:crypto";
 import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { decisionError } from "./architecture-owner-decisions.js";
+import { canonicalizeArchitecturePlanJSON, parseArchitecturePlanJSON } from "./architecture-plan-json.js";
 
 const SAFE_PLAN_ID = /^PLAN-[A-Za-z0-9._-]+$/;
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -22,6 +23,18 @@ const SHA256 = /^[a-f0-9]{64}$/;
 export function conversationPlanSourcePath({ planId, revision }) {
   if (!SAFE_PLAN_ID.test(planId ?? "") || !Number.isSafeInteger(revision) || revision < 1) throw decisionError("PLAN_ID_INVALID", "A canonical plan anchor needs a valid plan ID and positive revision.");
   return `${statePath()}/nf/plans/${planId}/plan-source-r${revision}.json`;
+}
+
+// Recovers a Node-owned candidate after persistence was interrupted, before asking AM
+// to generate different content for the same revision. Only absence permits generation;
+// unreadable, malformed or noncanonical retained bytes remain explicit integrity errors.
+export async function readRetainedConversationPlanSource({ fileService, planId, revision }) {
+  let bytes;
+  try { bytes = await fileService.readFile({ path: conversationPlanSourcePath({ planId, revision }) }); }
+  catch (error) { if (error.code === "ENOENT") return null; throw error; }
+  const plan = parseArchitecturePlanJSON(bytes);
+  if (canonicalizeArchitecturePlanJSON(plan) !== bytes) throw decisionError("PLAN_SOURCE_MISMATCH", "Retained canonical plan source differs from its canonical representation.");
+  return plan;
 }
 
 // Writes the canonical JSON once and returns its path plus exact-byte SHA-256.

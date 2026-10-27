@@ -137,7 +137,7 @@
       }
     },
     "verification_request": {
-      "$comment": "Requests focused Node verification against the already reviewed artifact; models cannot select another environment or supply shell commands.",
+      "$comment": "Requests focused Node verification against the already reviewed artifact; models may request a supported isolated runner while retaining the source snapshot, but cannot supply provisioning or shell commands.",
       "type": "object",
       "additionalProperties": false,
       "required": ["finding_ids", "criterion_ids", "test_paths", "scope", "reason", "artifact_id", "commit_sha", "source_revision"],
@@ -146,6 +146,7 @@
         "criterion_ids": {"type": "array", "minItems": 1, "maxItems": 50, "uniqueItems": true, "items": {"type": "string", "pattern": "^AC-[1-9][0-9]*$"}},
         "test_paths": {"type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": {"type": "string", "maxLength": 300, "pattern": "^(backend/tests|ui/nextjs/tests)/[A-Za-z0-9_./-]+\\.test\\.[cm]?[jt]sx?$"}},
         "scope": {"enum": ["ticket", "regression"]},
+        "environment": {"type": "string", "enum": ["project", "filesystem_namespace"]},
         "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
         "artifact_id": {"type": "string", "minLength": 1},
         "commit_sha": {"type": "string", "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"},

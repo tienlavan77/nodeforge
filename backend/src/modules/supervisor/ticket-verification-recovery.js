@@ -50,7 +50,7 @@ export function createTicketVerificationRecovery({ taskId, executionContexts, as
       if (diagnostic) {
         error.verification_diagnostic = diagnostic;
         error.details = { ...error.details, verification_diagnostic: diagnostic };
-        error.message += ` Verification evidence: ${JSON.stringify(diagnostic)}`;
+        error.message += ` Verification evidence: ${diagnostic.artifact_id ?? diagnostic.job_id ?? "unavailable"}. See details.verification_diagnostic for blocking errors.`;
       }
       await onSettled?.({ status: "failed", error_code: error.code ?? "VERIFY_RECOVERY_FAILED", diagnostic });
       throw error;

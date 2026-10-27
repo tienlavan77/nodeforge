@@ -35,7 +35,8 @@ export function addReviewVerificationEvidence(evidence, receipts) {
     evidence.files.set(path, file);
     return { check_id: receipt.check_id, status: receipt.status, commit_sha: receipt.commit_sha, source_revision: receipt.source_revision,
       artifact_id: receipt.artifact_id, environment: receipt.environment, finding_ids: receipt.finding_ids,
-      commands: receipt.commands.map(({ exit_code, disposition, test_paths }) => ({ exit_code, disposition, test_paths })),
+      commands: receipt.commands.map(({ exit_code, disposition, test_paths, runtime_environment }) => ({ exit_code, disposition, test_paths,
+        ...(runtime_environment ? { runtime_environment } : {}) })),
       path, sha256: file.sha256, total_lines: file.total_lines, view_encoding: viewEncoding };
   });
 }

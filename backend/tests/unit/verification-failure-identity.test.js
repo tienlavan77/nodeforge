@@ -23,6 +23,20 @@ test("matching failed regex predicates ignore dumped prose and temporary archive
   assert.equal(identity(baseline), identity(current, "/tmp/current"));
 });
 
+// Reporter-compacted assertions must compare identically to legacy complete receipts,
+// without treating omitted or invalid predicate coordinates as usable baseline proof.
+test("compact failed predicates preserve identity across reporter versions", () => {
+  const original = failure("long current prompt");
+  const compact = structuredClone(original);
+  delete compact.error.actual;
+  compact.error.actual_type = "string";
+  compact.error.predicate_result = false;
+  compact.error.message = "String did not match the recorded regular expression.";
+  assert.equal(identity(original), identity(compact));
+  compact.error.predicate_result = true;
+  assert.notEqual(identity(original), identity(compact));
+});
+
 test("different assertion contract, location, test identity, value type or failure remains distinct", () => {
   const original = failure();
   const variants = [

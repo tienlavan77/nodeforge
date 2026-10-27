@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { acquireTicketFileLock } from "./ticket-file-lock.js";
 import { verifyTicketBaseline } from "./ticket-baseline-guard.js";
+import { assertVerificationRunnerEnvironment } from "./verification-runner-environment.js";
 
 const ROOT = statePath("ticket-execution-contexts");
 const STATES = new Set(["created", "coding", "committed", "verified", "reviewing", "integrating", "terminal"]);
@@ -63,7 +64,8 @@ export function createTicketExecutionContextStore({ fileService, projectId, proj
       const current = await load(taskId);
       if (!current) throw fail("TICKET_CONTEXT_MISSING", "Ticket context does not exist.");
       if (current.version !== expectedVersion) throw fail("TICKET_CONTEXT_VERSION_CONFLICT", "Ticket context version changed.");
-      if (!patch || typeof patch !== "object" || Object.keys(patch).some((key) => !["state", "source_revision", "manifest_paths", "manifest_sha", "verification_artifact_id", "review_commit_sha", "verification_source"].includes(key))) throw fail("TICKET_CONTEXT_PATCH_INVALID", "Ticket context update contains an unauthorized field.");
+      if (!patch || typeof patch !== "object" || Object.keys(patch).some((key) => !["state", "source_revision", "manifest_paths", "manifest_sha", "verification_artifact_id", "review_commit_sha", "verification_source", "verification_runner_environment"].includes(key))) throw fail("TICKET_CONTEXT_PATCH_INVALID", "Ticket context update contains an unauthorized field.");
+      assertVerificationRunnerEnvironment(patch.verification_runner_environment);
       if (patch.state && !STATES.has(patch.state)) throw fail("TICKET_CONTEXT_STATE_INVALID", "Ticket context state is invalid.");
       if (current.state === "terminal" && patch.state && patch.state !== "terminal") throw fail("TICKET_CONTEXT_TERMINAL", "Terminal ticket context cannot reopen.");
       const next = { ...current, ...patch, version: current.version + 1, updated_at: new Date().toISOString() };

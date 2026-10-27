@@ -34,7 +34,7 @@ export async function buildTicketVerificationPlan(paths, root, { fullBackend = f
     const tests = [...new Set(fullBackend ? allTests : [...changed, ...mapped])].sort();
     if (!tests.length) tests.push(...related);
     if (!tests.length) throw Object.assign(new ConfigurationError("No backend test covers the ticket paths; add or identify a ticket test before verification."), { code: "VERIFY_TEST_SCOPE_EMPTY" });
-    checks.push({ kind: "backend_tests", scope: "ticket", test_paths: tests, criterion_ids: verificationPlan.filter((step) => tests.includes(step.test_path)).flatMap((step) => step.criterion_ids ?? []), argv: [process.execPath, "--test", ...tests] });
+    checks.push({ kind: "backend_tests", scope: "ticket", test_paths: tests, criterion_ids: verificationPlan.filter((step) => tests.includes(step.test_path)).flatMap((step) => step.criterion_ids ?? []), argv: testArgv(tests) });
     for (const path of related.filter((path) => !tests.includes(path))) checks.push(regressionTest(path, paths, "backend_tests"));
   }
   if (paths.some((path) => path.startsWith("ui/nextjs/"))) {
@@ -44,7 +44,7 @@ export async function buildTicketVerificationPlan(paths, root, { fullBackend = f
     const mapped = verificationPlan.filter((step) => step?.kind === "test" && available.includes(step.test_path)).map((step) => step.test_path);
     const primary = [...new Set([...paths.filter((path) => available.includes(path)), ...mapped])];
     if (!primary.length) primary.push(...tests);
-    if (primary.length) checks.push({ kind: "test", scope: "ticket", test_paths: primary, argv: [process.execPath, "--test", ...primary] });
+    if (primary.length) checks.push({ kind: "test", scope: "ticket", test_paths: primary, argv: testArgv(primary) });
     for (const path of tests.filter((path) => !primary.includes(path))) checks.push(regressionTest(path, paths, "test"));
     checks.push({ kind: "build", scope: verificationPlan.some((step) => step?.kind === "build") ? "ticket" : "regression", reason: "UI compilation after ticket UI changes", argv: [process.execPath, "ui/nextjs/node_modules/next/dist/bin/next", "build", "ui/nextjs", "--webpack"] });
   }
@@ -56,7 +56,7 @@ export async function buildTicketVerificationPlan(paths, root, { fullBackend = f
     }
     if (step?.kind !== "test" || typeof step.test_path !== "string" || commandsContainTest(checks, step.test_path)) continue;
     if (!/^(?:backend\/tests|ui\/nextjs\/tests)\/.+\.test\.[cm]?[jt]sx?$/.test(step.test_path)) throw new ConfigurationError(`Verification test path is outside supported test directories: ${step.test_path}`);
-    checks.push({ kind: "test", scope: "ticket", test_paths: [step.test_path], criterion_ids: step.criterion_ids ?? [], argv: [process.execPath, "--test", step.test_path] });
+    checks.push({ kind: "test", scope: "ticket", test_paths: [step.test_path], criterion_ids: step.criterion_ids ?? [], argv: testArgv([step.test_path]) });
   }
   if (!checks.length) checks.push({ kind: "typecheck", argv: [process.execPath, "node_modules/typescript/bin/tsc", "--project", "jsconfig.json"] });
   return [...checks.filter((check) => check.kind === "browser"), ...checks.filter((check) => check.kind !== "browser" && check.scope !== "regression"), ...checks.filter((check) => check.scope === "regression")];
@@ -88,5 +88,11 @@ async function selectRelatedTests(paths, tests, root, sourcePrefix = "backend/sr
 function regressionTest(path, changedPaths, kind) {
   return { kind, scope: "regression", test_paths: [path], related_paths: changedPaths.filter((path) => !path.includes("/tests/")),
     reason: "Test name or direct source import matches a changed ticket file",
-    argv: [process.execPath, "--test", `--test-reporter=${fileURLToPath(new URL("./ticket-verification-reporter.js", import.meta.url))}`, path] };
+    argv: testArgv([path]) };
+}
+
+/** Gives ticket tests and supplemental regressions the same structured failure
+ * protocol so repair responses contain failed assertions instead of PASS logs. */
+function testArgv(paths) {
+  return [process.execPath, "--test", `--test-reporter=${fileURLToPath(new URL("./ticket-verification-reporter.js", import.meta.url))}`, ...paths];
 }

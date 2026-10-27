@@ -1,5 +1,6 @@
 // Selects governed agent profiles and provider SDK paths for ticket execution.
 import { ConfigurationError } from "../../shared/errors.js";
+import { assertTicketCoderAvailable } from "./ticket-agent-availability.js";
 
 // Rejects a missing or occupied agent required by an approved ticket contract.
 function unavailable(role) {
@@ -11,6 +12,7 @@ export async function selectTicketCoder({ resolver, occupancy, ticket, taskId, o
   const targetRole = role ?? ticket?.required_role ?? "coder";
   const pinnedId = payload.direct_code || payload.tool_test ? null : ticket.execution_contract?.coder;
   const resume = payload.review_resume;
+  assertTicketCoderAvailable({ resolver, occupancy, ticket, taskId, ownerId, payload });
   const existing = occupancy && targetRole === "coder" ? occupancy.getByTask(taskId) : null;
   let selected = resume
     ? resolver.list?.("coder")?.find((profile) => profile.agent_id === resume.agent_id && profile.provider === resume.provider && profile.enabled)
@@ -35,6 +37,7 @@ export async function selectTicketCoder({ resolver, occupancy, ticket, taskId, o
       return { selected, claim };
     }
   }
+  assertTicketCoderAvailable({ resolver, occupancy, ticket, taskId, ownerId, payload });
   throw unavailable("Coder");
 }
 
@@ -50,7 +53,7 @@ export function selectTicketReviewer(resolver, ticket, existingClaim) {
 }
 // Selects a ready coder whose SDK implements the governed code execution path.
 export function selectDirectCoder(resolver, checkpoint) {
-  const providers = new Set(["codex", "claude", "anthropic"]);
+  const providers = new Set(["codex", "claude", "anthropic", "ollama", "openai", "xai", "alibaba", "zhipu", "deepseek"]);
   return (resolver.list?.("coder") ?? []).filter((profile) => profile.enabled && profile.status === "ready" && providers.has(profile.provider) && (!checkpoint || profile.agent_id === checkpoint.agent_id && profile.provider === checkpoint.provider))
     .sort((left, right) => String(left.created_at ?? "").localeCompare(String(right.created_at ?? "")) || String(left.agent_id).localeCompare(String(right.agent_id)))[0];
 }
@@ -58,10 +61,10 @@ export function selectDirectCoder(resolver, checkpoint) {
 // Blocks unsupported Coder tool transports before occupancy claim, queue persistence or provider launch.
 export function assertEngineeringProvider(profile) {
   const provider = String(profile?.provider ?? "").toLowerCase();
-  if (!["claude", "anthropic", "codex"].includes(provider)) throw Object.assign(new ConfigurationError(`Coder provider ${provider || "<missing>"} has no governed engineering tool transport.`), { code: "ENGINEERING_PROVIDER_UNSUPPORTED" });
+  if (!["claude", "anthropic", "codex", "ollama", "openai", "xai", "alibaba", "zhipu", "deepseek"].includes(provider)) throw Object.assign(new ConfigurationError(`Coder provider ${provider || "<missing>"} has no governed engineering tool transport.`), { code: "ENGINEERING_PROVIDER_UNSUPPORTED" });
 }
 
-// Selects profiles that use the OpenAI SDK greeting flow.
+// Selects profiles that use governed OpenAI-compatible function calling.
 export function isOpenAiProfile(profile) {
   return ["openai", "xai", "alibaba", "zhipu", "deepseek"].includes(String(profile?.provider ?? "").toLowerCase());
 }
@@ -71,7 +74,7 @@ export function isCodexProfile(profile) {
   return String(profile?.provider ?? "").toLowerCase() === "codex";
 }
 
-// Selects profiles that use the Ollama SDK greeting flow.
+// Selects profiles that use governed Ollama function calling.
 export function isOllamaProfile(profile) {
   return String(profile?.provider ?? "").toLowerCase() === "ollama";
 }

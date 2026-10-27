@@ -38,7 +38,7 @@ export function createBlockerNotification({ inspect, checkDisposition, prepareGo
       options: [{ id: "reconcile_denial", description: `${denialReason || job.last_error || "Inspect the retained tool denial evidence."} Required evidence: ${prerequisite || "Reconcile the original denial through its permitted authorization path or establish a materially safer alternative."} RUN alone does not clear this denial.` }], recommended_option_id: "reconcile_denial" }
       : job.resolution?.proposal ?? { title: "Automatic blocker recovery needs reconciliation",
       options: [{ id: "reconcile", description: `Inspect persisted investigation evidence: ${job.outcome_reason}. ${currentFailure ?? "Do not reset or replay an unknown provider invocation."}` }], recommended_option_id: "reconcile" };
-    if (authority.current.status === "needs_human_review" && !authority.current.details.launch_claim) await checkpoints.save({ ...updatedCheckpoint, status: "blocked", phase: ownerRequired ? "owner_decision" : "blocker_reconciliation_required", blocker_recovery: {
+    if (["needs_human_review", "pending"].includes(authority.current.status) && !authority.current.details.launch_claim) await checkpoints.save({ ...updatedCheckpoint, status: "blocked", phase: ownerRequired ? "owner_decision" : "blocker_reconciliation_required", blocker_recovery: {
       job_id: job.id, status, reason: job.outcome_reason, proposal, escalation: ownerRequired ? job.resolution.escalation : null, history: job.history,
       governance_handoff: updatedCheckpoint.blocker_recovery?.governance_handoff ?? null,
       execution_admission: job.execution_admission ?? null, waiting_for: waitingFor,

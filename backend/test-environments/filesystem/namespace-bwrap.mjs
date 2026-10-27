@@ -22,12 +22,13 @@ function delegatedRange(group = false) {
 
 const uidRange = delegatedRange();
 const gidRange = delegatedRange(true);
+const projectRoot = process.env.NODEFORGE_FILESYSTEM_PROJECT_ROOT || REPOSITORY_ROOT;
 const args = ["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--unshare-user", "--uid", "0", "--gid", "0",
   "--userns-block-fd", "4", "--info-fd", "3", "--die-with-parent", "--new-session", "--cap-drop", "ALL",
   // Linux requires SETFCAP when a nested map includes parent UID zero. This
   // capability belongs only to setup; the verifier drops its entire cap bound.
   ...["SYS_ADMIN", "SETUID", "SETGID", "SETPCAP", "SETFCAP", "CHOWN", "FOWNER"].flatMap(cap => ["--cap-add", `CAP_${cap}`])];
-for (const directory of [join(REPOSITORY_ROOT, ".forge/scratch"), resolveRuntimePath(REPOSITORY_ROOT, ".forge/runtime/ticket-verification/archives")]) {
+for (const directory of [join(projectRoot, ".forge/scratch"), resolveRuntimePath(projectRoot, ".forge/runtime/ticket-verification/archives")]) {
   if (existsSync(directory)) args.push("--bind", directory, directory);
 }
 args.push("--", process.execPath, ...process.argv.slice(2));

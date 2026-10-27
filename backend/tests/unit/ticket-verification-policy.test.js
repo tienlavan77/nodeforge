@@ -23,7 +23,7 @@ test("backend policy selects ticket tests, with full suite reserved for an expli
     await writeFile(join(root, "ui/nextjs/tests/unrelated.test.js"), "// Unrelated UI test.\n");
     const commands = await buildTicketVerificationPlan(["backend/src/sample.js", "backend/tests/unit/first.test.js"], root);
     assert.deepEqual(commands.map(({ kind }) => kind), ["typecheck", "lint", "backend_tests", "schema_validation"]);
-    assert.deepEqual(commands.find((command) => command.kind === "backend_tests").argv.slice(2), ["backend/tests/unit/first.test.js"]);
+    assert.deepEqual(commands.find((command) => command.kind === "backend_tests").argv.slice(3), ["backend/tests/unit/first.test.js"]);
     assert(commands[0].argv.includes("backend/src/sample.js"));
     assert(!commands[0].argv.includes("--project"));
     const deduplicated = await buildTicketVerificationPlan(["backend/src/sample.js", "backend/tests/unit/first.test.js"], root,
@@ -32,14 +32,14 @@ test("backend policy selects ticket tests, with full suite reserved for an expli
     const deleted = await buildTicketVerificationPlan(["backend/src/deleted.js", "backend/tests/unit/first.test.js"], root);
     assert(!deleted.some((command) => ["lint", "typecheck"].includes(command.kind) && command.argv.includes("backend/src/deleted.js")));
     const release = await buildTicketVerificationPlan(["backend/src/sample.js", "backend/tests/unit/first.test.js"], root, { fullBackend: true });
-    assert.deepEqual(release.find((command) => command.kind === "backend_tests").argv.slice(2), ["backend/tests/integration/second.test.js", "backend/tests/unit/first.test.js"]);
+    assert.deepEqual(release.find((command) => command.kind === "backend_tests").argv.slice(3), ["backend/tests/integration/second.test.js", "backend/tests/unit/first.test.js"]);
     await assert.rejects(buildTicketVerificationPlan(["backend/src/uncovered.js"], root), (error) => error.code === "VERIFY_TEST_SCOPE_EMPTY");
     const explicitlyMapped = await buildTicketVerificationPlan(["backend/src/uncovered.js"], root,
       { verificationPlan: [{ criterion_ids: ["AC-1"], kind: "test", test_path: "backend/tests/integration/second.test.js" }] });
-    assert.deepEqual(explicitlyMapped.find((command) => command.kind === "backend_tests").argv.slice(2), ["backend/tests/integration/second.test.js"]);
+    assert.deepEqual(explicitlyMapped.find((command) => command.kind === "backend_tests").argv.slice(3), ["backend/tests/integration/second.test.js"]);
     const apiCommands = await buildTicketVerificationPlan(["ui/nextjs/lib/node-client.js"], root);
     assert.equal(apiCommands.some(({ kind }) => kind === "schema_validation"), true);
-    assert.deepEqual(apiCommands.find(({ kind }) => kind === "test").argv.slice(2), ["ui/nextjs/tests/node-client.test.js"]);
+    assert.deepEqual(apiCommands.find(({ kind }) => kind === "test").argv.slice(3), ["ui/nextjs/tests/node-client.test.js"]);
     const mapped = await buildTicketVerificationPlan(["ui/nextjs/lib/node-client.js"], root, { verificationPlan: [{ criterion_ids: ["AC-1"], kind: "test", test_path: "ui/nextjs/tests/unrelated.test.js" }] });
     assert.equal(mapped.some(({ kind, argv }) => kind === "test" && argv.includes("ui/nextjs/tests/unrelated.test.js")), true);
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -80,7 +80,7 @@ test("unattributed schema failure persists evidence and blocks acceptance withou
     assert.equal(artifact.commands.at(-1).kind, "schema_validation");
     assert.equal(artifact.commands.at(-1).exit_code, 1);
     assert.deepEqual(artifact.changed_paths, [path]);
-    assert.deepEqual(artifact.planned_commands.find(({ kind }) => kind === "backend_tests").argv.slice(2), ["backend/tests/unit/sample.test.js"]);
+    assert.deepEqual(artifact.planned_commands.find(({ kind }) => kind === "backend_tests").argv.slice(3), ["backend/tests/unit/sample.test.js"]);
     await assert.rejects(service.assertPassedArtifact(), (error) => error.code === "VERIFY_ARTIFACT_MISMATCH");
     context.verification_artifact_id = "ARTIFACT-LEGACY";
     const legacy = { ...artifact, artifact_id: context.verification_artifact_id, status: "passed", policy_version: "ticket-verification-v2", commands: [{ kind: "typecheck", argv: ["node", "check"], exit_code: 0, output_sha256: checksum }], planned_commands: [{ kind: "typecheck", argv: ["node", "check"] }] };

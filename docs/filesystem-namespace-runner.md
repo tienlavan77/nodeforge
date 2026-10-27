@@ -4,52 +4,64 @@ Separates implemented commands from execution evidence and readiness claims. -->
 
 # Retained filesystem namespace runner
 
-## Current result
+## Agent-requested runner lifecycle
 
-Latest repair: Bubblewrap setup and its `namespaceProcess` export are restored
-in the current workspace. Verifier launch now uses absolute `/usr/bin/unshare`,
-`/usr/bin/setpriv` and `/usr/bin/env` paths. A real single-UID setup invoking
-the production verifier command with an unusable PATH passed: Node UID/GID
-1000, CapEff=0, and private mode-0700 archive access. This removes PATH lookup
-from the earlier spawn EACCES investigation; it does not prove the original
-EACCES cause or full Bubblewrap acceptance. Fourteen narrow regression tests pass.
-The actual current Bubblewrap probe exits promptly with uid_map write denied
-inside SDK; no fixture has been allocated by this repair.
-The old session below is historical: its socket has disappeared. Status remains
-partial, with no current confirmed live fixture. After these code checks the
-next host-shell operation is `start`, which repeats the actual setup probe.
-Do not run the retired socket path or treat old session metadata as live.
+Coder requests fixtures through the existing focused verification tool:
 
-Status: **partial**. Bubblewrap runner `fs-ns-9qjU3R` is live and its owner-only
-socket responds. Its manifest contains acl, readonly and capacity. The first
-complete suite request failed before Node started: `spawn unshare EACCES`.
-The actual receipt is `verification-157c2914-07f7-4cdc-8074-0298f1f98c2d.json`
-in that session directory. Fixture setup is not acceptance evidence. Keep the
-runner alive while investigating executable access inside Bubblewrap.
-The `diagnose` command now includes `bwrap-verification-executables` to compare
-PATH-based and absolute-path execution of unshare and setpriv in that profile.
+```json
+{"type":"test","command":"node --test backend/tests/integration/project-filesystem-environment.test.js","environment":"filesystem_namespace"}
+```
 
-Earlier direct-unshare investigation follows for context; it does not describe
-the current Bubblewrap runner's startup result. The operator installed uidmap.
-Their latest probe failed with `unshare: unshare failed: Operation not permitted`.
-That command contains separate user and mount namespace operations, so the old
-receipt alone cannot identify the denied stage. Use `diagnose` before another
-startup attempt. SDK diagnostics confirm this execution shell itself has only
-one mapped UID, NoNewPrivs=1 and CapBnd=0: its single-UID mount probe passes,
-but both multi-UID probes fail at the helper's uid_map write. This SDK evidence
-does not establish the independent operator shell's confinement or mount policy.
-The runner now maps the host owner directly to setup UID 0 instead of requesting
-a privileged UID switch after mapping that owner to UID 1000. Verification uses
-a nested user namespace mapping the same host owner to UID/GID 1000, then drops
-capability bounds, inherited and ambient capabilities before exec of Node.
-A real single-outer-UID namespace probe passed: actual Node UID/GID 1000,
-CapEff=0, and access to a private mode-0700 archive with a mode-0600 source.
-This validates identity handling, not the full three-fixture acceptance suite.
-The complete multi-UID path still needs an independent-shell run. Inside the SDK,
-the actual probe is blocked earlier: `newuidmap: write to uid_map failed:
-Operation not permitted`. Reinstalling uidmap is not the next step.
-There is still no passing ACL acceptance receipt.
-The historical EROFS/ENOSPC receipts remain historical.
+Reviewer supplies `"environment":"filesystem_namespace"` in an existing
+`verification_requests` entry alongside its finding, criterion, test paths,
+artifact, commit, and source revision. Node returns the evidence to Reviewer;
+ordinary verification does not require SL or AM dispatch.
+
+The environment enum is shared by Coder and Reviewer. Omission preserves the
+existing compatibility path; explicit `project` uses native project execution.
+An explicit namespace request works with other focused Node test files too.
+Successful setup alone never establishes test acceptance.
+
+Node checks project identity and socket health before reuse, starts a session if
+none is available, and serializes concurrent requests for that project. A Coder
+request is retained in the execution context for final ticket test verification.
+Source archives, dependency snapshots, commits, and finding authority stay bound
+to their existing verification contracts. Receipts include `runtime_environment`
+with the socket, manifest checksum, server PID, and namespace receipt path.
+
+Node-owned sessions stop after five idle minutes or normal API process exit.
+The next request starts another session when necessary. Operator/SE sessions
+are reused without acquiring cleanup ownership. Stop cancels a queued request
+or closes an active request socket, causing the server to stop that verifier.
+Startup failures retain `setup.log`; test receipts survive session cleanup.
+Host prerequisites must already exist; Node never installs packages or changes
+subordinate-ID policy to satisfy an agent request.
+
+The on-demand path was exercised without a configured socket: Node started
+session `fs-ns-mr9lpI`, passed all seven real filesystem tests, and cleaned up
+the owned runner on process exit. The outer receipt is
+`.forge/scratch/filesystem-managed-verification.receipt.json`.
+This verifies the new source path; the running Control API still needs a safe
+reload to expose the new agent schema and lifecycle code.
+
+## Current result (2026-10-26)
+
+Session `fs-ns-OCD75M` is live. All seven real filesystem tests passed through
+its socket, including native ACL EACCES, readonly EROFS, and capacity ENOSPC.
+The Node test process uses UID/GID 1000 and zero effective capabilities.
+See [the current SE handoff](TICKET-NF-CA-FILESYSTEM-se-handoff.md) for exact
+manifest, source identities, receipt, and API reload status. Workspace evidence
+is not final ticket commit-bound acceptance and does not close REV-1.
+
+The original spawn EACCES came from opening `/dev/null`, confirmed by strace.
+The Bubblewrap root binding now adds private `/dev` and `/proc` mounts.
+Nested UID mapping also requires CAP_SETFCAP in setup because its map includes
+parent UID zero. The verifier drops its entire capability bound before Node.
+No host AppArmor policy, sysctl, or project ownership change was needed.
+
+Earlier sessions `fs-ns-9qjU3R` and `fs-ns-RPRldq` are historical evidence;
+do not configure their sockets as the current verifier. The old runbook is
+retained in `.forge/scratch/fs-ns-OCD75M/handoff-backup/`.
 
 The runner uses Linux namespaces through Bubblewrap by default, with explicit
 `NODEFORGE_FILESYSTEM_NAMESPACE_ENGINE=unshare` available. It requires util-linux, acl,
@@ -71,11 +83,10 @@ an administrator can install the helper package:
 sudo apt-get install uidmap
 ```
 
-System installation is outside this SDK session's project-only write scope.
 Do not merely unpack or copy the helper executables into the project: their
 privileged installation and subordinate-ID authorization must work together.
-No subordinate-ID configuration has been read or changed by this task.
-Existing ranges reported by the operator still need an actual successful probe.
+The runner queries existing delegated ranges and validates them with the helpers.
+It does not edit subordinate-ID configuration.
 If helper execution is denied by the SDK sandbox's privilege policy, run these
 commands from an independent operator shell with the same project user.
 If the kernel blocks the mappings or mounts, use an isolated compatible Linux

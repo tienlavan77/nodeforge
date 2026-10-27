@@ -18,7 +18,9 @@ test("non-browser verification does not fingerprint external browser tooling", a
 test("browser runner revision changes for every runner dependency", async () => {
   const paths = [];
   const original = await ticketVerificationRunnerRevision(plan, { readSource: async (url) => { paths.push(url.pathname); return "original"; } });
-  assert.equal(paths.length, 20);
+  assert.equal(paths.length, 24);
+  assert.ok(paths.some((path) => path.endsWith("ticket-baseline-recovery.js")));
+  assert.ok(paths.some((path) => path.endsWith("ticket-verification-output.js")));
   assert.ok(paths.some((path) => path.endsWith("browser-coding-presence-scenarios.js")));
   assert.equal(await ticketVerificationRunnerRevision(plan, { readSource: async () => "original" }), original);
   for (const path of paths) {
@@ -30,4 +32,15 @@ test("browser runner revision changes for every runner dependency", async () => 
 test("browser runner revision propagates missing source errors", async () => {
   const error = Object.assign(new Error("Missing runner"), { code: "ENOENT" });
   await assert.rejects(ticketVerificationRunnerRevision(plan, { readSource: async () => { throw error; } }), error);
+});
+
+// Explicit requests for future tests must fingerprint lifecycle repairs without
+// relying on the historical filesystem test filename.
+test("agent-requested namespace fingerprints provisioning dependencies for any test", async () => {
+  const paths = [];
+  const options = { environment: "filesystem_namespace", readSource: async url => { paths.push(url.pathname); return "original"; } };
+  const original = await ticketVerificationRunnerRevision([], options);
+  const manager = paths.find(path => path.endsWith("filesystem-namespace-runner.js"));
+  assert.ok(manager);
+  assert.notEqual(await ticketVerificationRunnerRevision([], { ...options, readSource: async url => url.pathname === manager ? "repaired" : "original" }), original);
 });

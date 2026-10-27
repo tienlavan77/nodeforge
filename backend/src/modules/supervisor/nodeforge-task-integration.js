@@ -184,10 +184,9 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
   }
   // Dispatches a selected profile through its configured provider SDK for code and revisions.
   async function runSelected(selected, request, ticketExecutors = executors) {
-    return isOpenAiProfile(selected) ? ticketExecutors.runOpenAiHello(selected, request)
+    return isOpenAiProfile(selected) || isOllamaProfile(selected) ? ticketExecutors.runFunctionCallingTask(selected, request)
       : isCodexProfile(selected) ? ticketExecutors.runCodexTask(selected, request)
-        : isOllamaProfile(selected) ? ticketExecutors.runOllamaHello(selected, request)
-          : ticketExecutors.runToolTicket(selected, request);
+        : ticketExecutors.runToolTicket(selected, request);
   }
   // Lists a governed successor only when the project owner's recorded decision names it for this source ticket.
   async function approvedIntegratedSuccessors(taskId) {

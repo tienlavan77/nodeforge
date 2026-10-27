@@ -9,8 +9,10 @@ export function createBlockerVerificationDelivery({ inspect, clock = Date.now, p
   const polls = new Map();
   return async (job) => {
     const work = job.resolution?.reconciliation;
-    if (job.outcome_reason !== "technical_reconciliation_waiting_for_evidence" || !["tooling", "source_revision"].includes(work?.kind)
-      || !work.waiting_for?.length || !work.waiting_for.every((entry) => typeof entry === "string" || entry.owner === "external" && entry.operation !== "execute")) return false;
+    if (!["technical_reconciliation_waiting_for_evidence", "technical_reconciliation_no_progress"].includes(job.outcome_reason)
+      || !["tooling", "source_revision"].includes(work?.kind)) return false;
+    if (work.waiting_for?.length ? !work.waiting_for.every((entry) => typeof entry === "string" || entry.owner === "external" && entry.operation !== "execute")
+      : job.outcome_reason !== "technical_reconciliation_no_progress") return false;
     const now = clock();
     if (polls.has(job.id) && now - polls.get(job.id) < 30_000) return false;
     polls.set(job.id, now);

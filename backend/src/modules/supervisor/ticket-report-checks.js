@@ -21,6 +21,7 @@ function commandFromCheck(receipt, artifact, taskId) {
   const paths = argv.filter((arg) => /^(?:backend\/tests|ui\/nextjs\/tests)\/.+\.test\.[cm]?[jt]sx?$/.test(arg));
   const kind = receipt.type === "test" && paths.length && paths.every((path) => path.startsWith("backend/")) ? "backend_tests" : receipt.type;
   return { kind, scope: "ticket", ...(paths.length ? { test_paths: paths } : {}), argv, exit_code: 0,
+    ...(receipt.runtime_environment ? { runtime_environment: receipt.runtime_environment } : {}),
     check_id: receipt.check_id, output_sha256: receipt.output_sha256, output_digest_scope: "full_stream",
     stdout_redacted: receipt.stdout ?? "", stderr_redacted: receipt.stderr ?? "" };
 }
