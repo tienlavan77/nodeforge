@@ -16,13 +16,13 @@ test("REST preflight classifies existing, empty, absent and unsafe roots without
     await mkdir(join(root, ".git"));
     await writeFile(join(root, ".git", "config"), '[remote "origin"]\n url = https://example.org/source.git\n');
     // Exercises the deployed HTTP boundary and JSON payload, rather than inspecting implementation text.
-    async function preflight(path) {
+    const preflight = async (path) => {
       const result = await fetch(server.baseUrl + "/forge/v1/projects/preflight", {
         method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ root: path })
       });
       assert.equal(result.status, 200);
       return result.json();
-    }
+    };
     const existing = await preflight(root);
     assert.equal(existing.status, "existing");
     assert.deepEqual(existing.suggestions, { name: "source-app", description: "Source", author: "Owner", git_url: "https://example.org/source.git" });

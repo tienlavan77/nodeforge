@@ -47,7 +47,7 @@ async function readProjectSuggestions(root) {
     const gitDirectory = await lstat(join(root, ".git"));
     if (!gitDirectory.isDirectory() || gitDirectory.isSymbolicLink()) return suggestions;
     const git = await readFile(join(root, ".git", "config"), { encoding: "utf8", flag: constants.O_RDONLY | constants.O_NOFOLLOW });
-    const remote = git.match(/\[remote "origin"\]([^\[]*)/);
+    const remote = git.match(/\[remote "origin"\]([^[]*)/);
     const value = remote?.[1].match(/^\s*url\s*=\s*(.+)$/m)?.[1]?.trim();
     if (value && !value.includes("@") && !value.includes("?") && !value.includes("#")) suggestions.git_url = value;
   } catch (error) {

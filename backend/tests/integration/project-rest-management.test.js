@@ -13,12 +13,12 @@ test("REST automatically creates or imports projects and persists complete confi
   const server = await startLifecycleHttpServer(lifecycle);
   try {
     // Sends real collection and item requests while retaining the status for rejection assertions.
-    async function request(method, suffix = "", body) {
+    const request = async (method, suffix = "", body) => {
       const response = await fetch(server.baseUrl + "/forge/v1/projects" + suffix, {
         method, headers: { "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {})
       });
       return { status: response.status, body: await response.json() };
-    }
+    };
     const empty = join(f.directory, "empty");
     await mkdir(empty);
     const roots = [f.roots[0], join(f.directory, "created"), empty];
