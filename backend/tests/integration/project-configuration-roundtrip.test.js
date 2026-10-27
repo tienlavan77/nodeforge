@@ -5,7 +5,7 @@
 // Technical description: creates temporary project roots, exercises ProjectRegistry configuration read/write and schema validation,
 // verifies default comment_language="en", and confirms invalid field shapes are rejected.
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import test from "node:test";
