@@ -27,6 +27,15 @@ test("REST preflight classifies existing, empty, absent and unsafe roots without
     assert.equal(existing.status, "existing");
     assert.deepEqual(existing.suggestions, { name: "source-app", description: "Source", author: "Owner", git_url: "https://example.org/source.git" });
     assert.ok(!(await readdir(root)).includes(".forge"));
+    await writeFile(join(root, "package.json"), "null");
+    const withoutMetadata = await preflight(root);
+    assert.equal(withoutMetadata.status, "existing");
+    assert.deepEqual(withoutMetadata.suggestions, { git_url: "https://example.org/source.git" });
+    const admitted = await fetch(server.baseUrl + "/forge/v1/projects", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ root, name: "Null metadata" })
+    });
+    assert.equal(admitted.status, 201, await admitted.text());
     const empty = join(f.directory, "empty");
     await mkdir(empty);
     assert.equal((await preflight(empty)).status, "new");

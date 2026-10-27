@@ -39,7 +39,9 @@ async function readProjectSuggestions(root) {
   const suggestions = {};
   try {
     const pkg = JSON.parse(await readFile(join(root, "package.json"), { encoding: "utf8", flag: constants.O_RDONLY | constants.O_NOFOLLOW }));
-    for (const key of ["name", "description", "author"]) if (typeof pkg[key] === "string") suggestions[key] = pkg[key];
+    if (pkg && typeof pkg === "object" && !Array.isArray(pkg)) {
+      for (const key of ["name", "description", "author"]) if (typeof pkg[key] === "string") suggestions[key] = pkg[key];
+    }
   } catch (error) {
     if (!["ENOENT", "ELOOP"].includes(error.code) && !(error instanceof SyntaxError)) throw error;
   }
