@@ -154,6 +154,30 @@ export const browserAssertions = {
     await panel.getByRole("button", { name: "Thử lại" }).click();
     await panel.getByRole("alert").waitFor({ state: "hidden" });
     await create(page, "Recovered idea");
+    // Deliver a captured pre-create response after POST succeeds, then verify reconciliation.
+    await open(page, origin);
+    await page.evaluate(() => {
+      const fetch = window.fetch;
+      let held = false;
+      window.fetch = async (url, init) => {
+        const response = await fetch(url, init);
+        if (!held && !init?.method && String(url).includes("/ideas")) {
+          held = true;
+          await new Promise(resolve => { window.releaseSnapshot = resolve; });
+        }
+        return response;
+      };
+    });
+    await show(page);
+    await panel.getByText("Đang tải…", { exact: true }).waitFor();
+    await panel.getByLabel("Ý tưởng mới", { exact: true }).fill("Created before list");
+    await panel.getByRole("button", { name: "Thêm ý tưởng", exact: true }).click();
+    await panel.locator("li").filter({ hasText: "Created before list" }).waitFor();
+    assert.equal(await panel.getByLabel("Ý tưởng mới", { exact: true }).inputValue(), "");
+    await page.evaluate(() => window.releaseSnapshot());
+    await panel.getByText("Đang tải…", { exact: true }).waitFor({ state: "hidden" });
+    assert.equal(await panel.locator("li").count(), 1);
+    assert.equal(await panel.locator("li").filter({ hasText: "Created before list" }).count(), 1);
     await assertOnlyIdeasWrites(page);
   },
   "Unsubmitted content survives closing and reopening the panel and changing conversation or agent.": async ({ page, viewport, origin }) => {
