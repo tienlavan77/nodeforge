@@ -1,6 +1,8 @@
 // Exercises Ideas through actual project runtime ownership, independently of panel or
 // conversation clients. Closing connections and restarting services must preserve the notebook.
 import test from "node:test";
+import "./ideas-storage-migration.test.js";
+import "./ideas-resource-lifecycle.test.js";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
