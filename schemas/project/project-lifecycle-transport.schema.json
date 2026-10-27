@@ -112,7 +112,7 @@
         },
         "project_id": {
           "type": "string",
-          "pattern": "^PROJECT-"
+          "pattern": "^(?:PROJECT-[A-Za-z0-9_-]+|[a-z0-9]+(?:-[a-z0-9]+)*)$"
         },
         "readiness": {
           "enum": [
