@@ -11,6 +11,7 @@ import { startProjectRuntime } from "./project-runtime.js";
 import { startRuntimeWithProgress } from "./project-runtime-progress.js";
 import { createProjectRuntimeDisposal } from "./project-runtime-disposal.js";
 import { createProjectDirectoryState } from "./project-directory-state.js";
+import { createProjectAdmissionQueue } from "./project-admission-queue.js";
 
 // Restores independent project runtimes from global metadata without adding public transport routes.
 export async function createProjectLifecycle({ catalogPath, registry = new ProjectRegistry(), startRuntime = startProjectRuntime, runtimeOptions = {}, logger = console, operationStore } = {}) {
@@ -22,6 +23,8 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
   let closed = false;
   let closing;
   const directoryState = createProjectDirectoryState({ catalog, runtimes, isAvailable, isClosed: () => closed });
+  // Shares pending Add attempts across canonical aliases while preserving admission preflight errors.
+  const add = createProjectAdmissionQueue({ canonicalRoot: async (root) => (await captureAddRoot(root)).root, enqueue, admit });
   for (const entry of catalog.list()) {
     try { await directoryState.run(entry.root, () => activate(entry.root, entry.projectId)); } catch (error) {
       logger.error?.("Unable to restore project runtime.", { root: entry.root, error });
@@ -77,11 +80,6 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
     }
     runtimes.set(canonical, runtime);
     return { root: canonical, projectId };
-  }
-
-  // Adds a fully serving runtime, rolling it back if global membership cannot be persisted.
-  function add(root) {
-    return enqueue(() => admit(root));
   }
 
   // Commits verified project membership before opening any runtime, watcher, or index.
