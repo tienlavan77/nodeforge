@@ -5,6 +5,7 @@ export function createProjectDirectoryLifecycle({ projectLifecycle, projectId, p
   if (projectLifecycle) return projectLifecycle;
   if (!projectId || !projectRoot) return undefined;
   return Object.freeze({
+    legacyAvailable: false,
     list: () => [{ projectId, root: projectRoot }],
     // Reports the active single-project process without inferring readiness from catalog membership.
     directory: () => [{ projectId, root: projectRoot, readiness: "ready", operation: { attempt_id: 1, status: "succeeded", diagnostic: null }, diagnostic: null, retryable: false }],

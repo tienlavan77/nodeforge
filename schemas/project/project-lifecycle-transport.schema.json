@@ -1,0 +1,225 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/project/project-lifecycle-transport.schema.json",
+  "description": "Opt-in backend lifecycle transport version 1. Every route requires x-nodeforge-lifecycle: 1. POST /lifecycle/operations/create and /add accept submit; POST /lifecycle/operations/retry accepts retry. GET /lifecycle/operations/status accepts only request_key query; GET /lifecycle/directory accepts no query. Reads have no body. JSON mutations are limited to 8192 bytes. Receipts are retained indefinitely, independent of membership and process readiness. Identical request keys reconcile without replay; conflicting intent fails. Only explicit retry of a failed operation with matching expected_attempt advances the attempt. Running attempts after restart require backend reconciliation and are never automatically replayed. Stage transitions and leases remain governed by project-operation.schema.json and the operation store. Legacy routes and workspace routes retain their existing contracts.",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/submit"
+    },
+    {
+      "$ref": "#/$defs/retry"
+    },
+    {
+      "$ref": "#/$defs/operationResponse"
+    },
+    {
+      "$ref": "#/$defs/directoryResponse"
+    },
+    {
+      "$ref": "#/$defs/errorResponse"
+    }
+  ],
+  "$defs": {
+    "key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "\\S"
+    },
+    "submit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root",
+        "request_key"
+      ],
+      "properties": {
+        "root": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "request_key": {
+          "$ref": "#/$defs/key"
+        }
+      }
+    },
+    "retry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_key",
+        "expected_attempt"
+      ],
+      "properties": {
+        "request_key": {
+          "$ref": "#/$defs/key"
+        },
+        "expected_attempt": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "operationResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "operation"
+      ],
+      "properties": {
+        "version": {
+          "const": "1"
+        },
+        "operation": {
+          "$ref": "project-operation.schema.json"
+        }
+      }
+    },
+    "directoryResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "projects"
+      ],
+      "properties": {
+        "version": {
+          "const": "1"
+        },
+        "projects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/project"
+          }
+        }
+      }
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root",
+        "project_id",
+        "readiness",
+        "operation",
+        "diagnostic",
+        "retryable"
+      ],
+      "properties": {
+        "root": {
+          "type": "string"
+        },
+        "project_id": {
+          "type": "string",
+          "pattern": "^PROJECT-"
+        },
+        "readiness": {
+          "enum": [
+            "ready",
+            "unavailable"
+          ]
+        },
+        "operation": {
+          "type": "object",
+          "required": [
+            "attempt_id",
+            "status",
+            "diagnostic"
+          ],
+          "properties": {
+            "attempt_id": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "status": {
+              "enum": [
+                "running",
+                "succeeded",
+                "failed",
+                "unavailable"
+              ]
+            },
+            "diagnostic": {
+              "$ref": "#/$defs/diagnostic"
+            }
+          },
+          "additionalProperties": false
+        },
+        "diagnostic": {
+          "$ref": "#/$defs/diagnostic"
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      }
+    },
+    "diagnostic": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "code",
+            "message"
+          ],
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "errorResponse": {
+      "type": "object",
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "message",
+            "retryable",
+            "scope",
+            "requestId"
+          ],
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "scope": {
+              "enum": [
+                "field",
+                "scoped",
+                "global"
+              ]
+            },
+            "requestId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

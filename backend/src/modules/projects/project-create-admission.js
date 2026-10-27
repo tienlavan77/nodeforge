@@ -3,6 +3,7 @@
 // Technical description: register and fence the attempt before an exclusive mkdir, persist a
 // directory ownership checkpoint, then admit membership before starting the runtime. Ambiguous
 // retries require reconciliation and no failure path recursively deletes a project directory.
+import { retryProjectCreate } from "./project-create-retry.js";
 import { mkdir } from "node:fs/promises";
 import { createIndexProgress } from "../index/index-progress.js";
 import { randomUUID } from "node:crypto";
@@ -43,7 +44,8 @@ export async function assertProjectCreateOwnership({ store, catalogPath, binding
 
 // Builds a Create action over the lifecycle's serialized membership admission boundary.
 export function createProjectCreateAdmission({ store, admit }) {
-  return async function create(root, { requestKey = randomUUID() } = {}) {
+  return async function create(root, { requestKey = randomUUID(), retry = false } = {}) {
+    if (retry) return retryProjectCreate({ store, admit, root, requestKey });
     const target = await preflightCreate(root);
     let operation;
     try {
