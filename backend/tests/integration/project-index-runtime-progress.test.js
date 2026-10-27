@@ -126,6 +126,30 @@ test("watcher progress reports failed parsing and a later committed retry restor
   assert.ok(repaired.checkpoint.version > original.version);
 });
 
+// Legacy runtime factories receive real reconciliation rather than fabricated completion.
+test("legacy startup factories settle Create only after actual database reconciliation", async (t) => {
+  const f = await roots(t);
+  const store = await createProjectOperationStore({ directory: join(f.directory, "operations") });
+  let closed = false;
+  const lifecycle = await createProjectLifecycle({ catalogPath: join(f.directory, "global", "projects.json"), operationStore: store, logger: quiet,
+    // Models an existing injected factory which supplies readiness but no indexing protocol.
+    async startRuntime({ projectRoot }) {
+      await writeFile(join(projectRoot, "legacy.js"), "function legacy() {}");
+      return { close: async () => { closed = true; } };
+    }
+  });
+  t.after(() => lifecycle.close());
+  await lifecycle.create(join(f.directory, "legacy"), { requestKey: "legacy-progress" });
+  const saved = await store.loadByRequestKey("legacy-progress");
+  assert.equal(saved.status, "succeeded");
+  assert.equal(saved.progress.counters.indexed, 1);
+  assert.equal(saved.progress.checkpoint.files, 1);
+  assert.equal(saved.progress.checkpoint.functions, 1);
+  assert.equal(saved.progress.status, "succeeded");
+  await lifecycle.close();
+  assert.equal(closed, true);
+});
+
 // Progress publication requires a current attempt token even before any terminal state exists.
 test("operation progress cannot publish without authority or with another attempt identity", async (t) => {
   const f = await roots(t);

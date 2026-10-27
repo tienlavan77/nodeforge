@@ -8,6 +8,7 @@ import { createProjectCreateAdmission, openProjectAdmissionStore, assertProjectC
 import { ProjectRegistry } from "./project-registry.js";
 import { createProjectCatalog } from "./project-catalog.js";
 import { startProjectRuntime } from "./project-runtime.js";
+import { startRuntimeWithProgress } from "./project-runtime-progress.js";
 import { createProjectRuntimeDisposal } from "./project-runtime-disposal.js";
 
 // Restores independent project runtimes from global metadata without adding public transport routes.
@@ -69,7 +70,7 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
     await assertRoot(binding);
     await inspectProjectStorage(binding);
     let runtime;
-    try { runtime = await startRuntime({ ...runtimeOptions, projectRoot: canonical, projectId, logger, ...(progress ? { progress } : {}) }); } catch (error) {
+    try { runtime = await startRuntimeWithProgress(startRuntime, { ...runtimeOptions, projectRoot: canonical, projectId, logger, ...(progress ? { progress } : {}) }); } catch (error) {
       throw filesystemError("startup", "project_startup_failed", canonical, error, "Membership and identity are retained. Correct the startup failure and retry Add.");
     }
     runtimes.set(canonical, runtime);
