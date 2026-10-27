@@ -204,6 +204,8 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
   async function renameFile({ from, to, from_path: fromPath, to_path: toPath } = {}) {
     const source = safePath(from ?? fromPath, { write: true }), destination = safePath(to ?? toPath, { write: true });
     const job = queue.then(async () => {
+      if ((await prepareSafeWriteTarget(root, source)) === null) throw Object.assign(new ConfigurationError(`Source file does not exist: ${source}.`), { code: "ENOENT" });
+      await prepareSafeWriteTarget(root, destination);
       await mkdir(dirname(resolve(root, destination)), { recursive: true });
       await rename(resolve(root, source), resolve(root, destination));
       internalBus?.emit?.("file.renamed", { old_path: source, path: destination });
