@@ -117,8 +117,8 @@ function parseProjectReference({ method, url, body = {}, isCollection }) {
   if (refs.some((v) => typeof v !== "string" || !v.trim())) throw ideaHttpError("project_id is required.", 400, "PROJECT_REQUIRED");
   if (refs.some((v) => v !== refs[0])) throw ideaHttpError("Project context differs between request identifiers.", 409, "PROJECT_CONTEXT_CONFLICT");
   if (isCollection && method === "GET") {
-    if (!(queryProjectId ?? queryProject)) throw ideaHttpError("project_id is required.", 400, "PROJECT_REQUIRED");
-    return queryProjectId ?? queryProject;
+    if (!queryProjectId) throw ideaHttpError("project_id is required.", 400, "PROJECT_REQUIRED");
+    return queryProjectId;
   }
   if (isCollection && method === "POST") {
     if (!body || typeof body !== "object" || Array.isArray(body)) throw ideaHttpError("Invalid payload.", 400, "INVALID_IDEA_PAYLOAD");
@@ -149,6 +149,8 @@ async function runBoundItemOperation({ method, ideaId, located, body, url, conte
       throw ideaHttpError("Invalid PATCH fields.", 400, "INVALID_IDEA_PAYLOAD");
     }
     if (!Number.isSafeInteger(body.expected_version) || body.expected_version < 1) throw ideaHttpError("Invalid expected_version.", 400, "INVALID_IDEA_VERSION");
+    if (body.content !== undefined && (typeof body.content !== "string" || !body.content.trim())) throw ideaHttpError("Idea content must be a non-empty string.", 400, "INVALID_IDEA_CONTENT");
+    if (body.status !== undefined && !["open", "done"].includes(body.status)) throw ideaHttpError("Invalid Idea status.", 400, "INVALID_IDEA_STATUS");
     const updated = await store.update(ideaId, {
       projectId: located.projectId,
       version: body.expected_version,
