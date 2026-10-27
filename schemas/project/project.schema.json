@@ -12,14 +12,31 @@
   ],
   "properties": {
     "project_id": {
-      "$ref": "../core/common.schema.json#/$defs/id"
+      "allOf": [
+        {
+          "$ref": "../core/common.schema.json#/$defs/id"
+        },
+        {
+          "type": "string",
+          "pattern": "^(?:PROJECT-[A-Za-z0-9_-]+|[a-z0-9]+(?:-[a-z0-9]+)*)$"
+        }
+      ]
     },
     "name": {
       "type": "string",
       "minLength": 1
     },
+    "description": {
+      "type": "string"
+    },
+    "author": {
+      "type": "string"
+    },
     "root": {
       "$ref": "../core/common.schema.json#/$defs/path"
+    },
+    "git_url": {
+      "type": "string"
     },
     "forge_dir": {
       "type": "string",
@@ -47,6 +64,46 @@
     "package_manager": {
       "type": "string"
     },
+    "commands": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "test": {
+          "type": "string"
+        },
+        "lint": {
+          "type": "string"
+        },
+        "build": {
+          "type": "string"
+        },
+        "dev": {
+          "type": "string"
+        }
+      }
+    },
+    "comment_language": {
+      "type": "string",
+      "default": "en"
+    },
+    "default_agents": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "architecture_manager": {
+          "type": "string"
+        },
+        "sprint_leader": {
+          "type": "string"
+        },
+        "coder": {
+          "type": "string"
+        },
+        "reviewer": {
+          "type": "string"
+        }
+      }
+    },
     "watch": {
       "type": "object",
       "additionalProperties": false,
@@ -64,6 +121,18 @@
           }
         }
       }
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "homepage_url": {
+      "type": "string"
+    },
+    "docs_url": {
+      "type": "string"
     },
     "metadata": {
       "$ref": "../core/common.schema.json#/$defs/metadata"

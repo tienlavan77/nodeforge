@@ -49,7 +49,7 @@ export function validateOperationSnapshot(snapshot) {
   if (typeof snapshot.request_fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(snapshot.request_fingerprint)) throw failure("request_fingerprint", "must be sha256 hex");
   if (!OPERATION_KINDS.includes(snapshot.kind)) throw failure("kind", "must be create or add");
   if (typeof snapshot.root !== "string" || !snapshot.root) throw failure("root", "must be non-empty");
-  if (snapshot.project_id !== undefined && !/^PROJECT-[A-Za-z0-9_-]+$/.test(snapshot.project_id)) throw failure("project_id", "must be PROJECT-prefixed when present");
+  if (snapshot.project_id !== undefined && !/^(?:PROJECT-[A-Za-z0-9_-]+|[a-z0-9]+(?:-[a-z0-9]+)*)$/.test(snapshot.project_id)) throw failure("project_id", "must be a valid project slug or PROJECT-prefixed when present");
   if (!Number.isSafeInteger(snapshot.attempt) || snapshot.attempt < 0) throw failure("attempt", "must be a non-negative integer");
   if (!Number.isSafeInteger(snapshot.revision) || snapshot.revision < 0) throw failure("revision", "must be a non-negative integer");
   if (!OPERATION_STAGES.includes(snapshot.stage)) throw failure("stage", "must be a known stage");

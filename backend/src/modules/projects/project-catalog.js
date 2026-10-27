@@ -17,7 +17,7 @@ export async function createProjectCatalog({ catalogPath } = {}) {
   }
   if (!Array.isArray(entries) || entries.some((entry) =>
     typeof entry.root !== "string" || resolve(entry.root) !== entry.root ||
-    !/^PROJECT-[A-Za-z0-9-]+$/.test(entry.projectId)) ||
+    !/^(?:PROJECT-[A-Za-z0-9_-]+|[a-z0-9]+(?:-[a-z0-9]+)*)$/.test(entry.projectId)) ||
     new Set(entries.map((entry) => entry.root)).size !== entries.length ||
     new Set(entries.map((entry) => entry.projectId)).size !== entries.length) {
     throw new Error("Invalid global project catalog.");

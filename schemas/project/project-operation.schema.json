@@ -21,7 +21,7 @@
     "root": { "type": "string", "minLength": 1 },
     "project_id": {
       "type": "string",
-      "pattern": "^PROJECT-[A-Za-z0-9_-]+$",
+      "pattern": "^(?:PROJECT-[A-Za-z0-9_-]+|[a-z0-9]+(?:-[a-z0-9]+)*)$",
       "description": "Stable project identity, present only once it has been resolved."
     },
     "attempt": { "type": "integer", "minimum": 0 },
@@ -53,7 +53,7 @@
       "required": ["outcome"],
       "properties": {
         "outcome": { "type": "string", "enum": ["succeeded", "failed", "cancelled"] },
-        "project_id": { "type": "string", "pattern": "^PROJECT-[A-Za-z0-9_-]+$" },
+        "project_id": { "type": "string", "pattern": "^(?:PROJECT-[A-Za-z0-9_-]+|[a-z0-9]+(?:-[a-z0-9]+)*)$" },
         "root": { "type": "string", "minLength": 1 }
       }
     },
