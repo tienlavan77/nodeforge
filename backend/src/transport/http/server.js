@@ -1,5 +1,6 @@
 // Creates the HTTP API server handling SSE streams and JSON routes.
 import { createServer } from "node:http";
+import { lifecycleOptInRoute } from "./project-lifecycle-opt-in.js";
 
 import { ConfigurationError } from "../../shared/errors.js";
 import { formatErrorBody } from "../../shared/error-contract.js";
@@ -22,6 +23,15 @@ export function createHttpApi({ ownerChatService, conversationStream, projectStr
     try {
       const url = new URL(request.url ?? "/", "http://localhost");
       const origin = request.headers?.origin;
+      if (url.pathname.startsWith("/lifecycle/")) {
+        const methods = ["GET", "POST"].filter((method) => lifecycleOptInRoute(method, url.pathname) ||
+          method === "GET" && url.pathname === "/lifecycle/list" || method === "POST" && ["/lifecycle/add", "/lifecycle/remove"].includes(url.pathname));
+        response.lifecycleMethods = methods.length ? [...methods, "OPTIONS"].join(",") : "";
+        if (request.method === "OPTIONS" && (!methods.length || request.headers?.["access-control-request-method"] && !methods.includes(request.headers["access-control-request-method"]))) {
+          writeJson(response, 404, { error: { code: "route_not_found", message: "Route not found.", retryable: false, scope: "scoped", requestId: null } }, origin);
+          return;
+        }
+      }
       if (request.method === "OPTIONS") {
         applyCorsHeaders(response, origin);
         response.writeHead(204);
@@ -39,7 +49,8 @@ export function createHttpApi({ ownerChatService, conversationStream, projectStr
       }
       if (forgeV1Router && (
         (request.method === "POST" && ["/lifecycle/add", "/lifecycle/remove"].includes(url.pathname)) ||
-        (request.method === "GET" && url.pathname === "/lifecycle/list")
+        (request.method === "GET" && url.pathname === "/lifecycle/list") ||
+        lifecycleOptInRoute(request.method, url.pathname)
       )) {
         const result = await forgeV1Router.route(request.method, url, request);
         if (result) {
@@ -200,8 +211,8 @@ function writeJson(response, status, body, origin) {
 function applyCorsHeaders(response, origin, sse = false) {
   const allowedOrigin = origin ?? "*";
   response.setHeader("access-control-allow-origin", allowedOrigin);
-  response.setHeader("access-control-allow-methods", "GET,POST,PUT,DELETE,OPTIONS");
-  response.setHeader("access-control-allow-headers", "content-type,authorization,x-request-id,last-event-id");
+  response.setHeader("access-control-allow-methods", response.lifecycleMethods ?? "GET,POST,PUT,DELETE,OPTIONS");
+  response.setHeader("access-control-allow-headers", response.lifecycleMethods !== undefined ? "content-type,x-nodeforge-lifecycle" : "content-type,authorization,x-request-id,last-event-id");
   response.setHeader("access-control-expose-headers", "content-type,x-request-id");
   response.setHeader("vary", "Origin");
   if (sse) {

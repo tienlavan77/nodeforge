@@ -17,17 +17,17 @@ test("directory reports current safe errors and clears old warnings after retry"
     return { projectId, projectRoot, close() {} };
   } });
   await assert.rejects(lifecycle.add(f.roots[0]));
-  const failed = await routeProjectLifecycle("GET", new URL("http://localhost/lifecycle/list"), Readable.from([]), lifecycle);
+  const failed = await routeProjectLifecycle("GET", new URL("http://localhost/lifecycle/directory"), Object.assign(Readable.from([]), { headers: { "x-nodeforge-lifecycle": "1" } }), lifecycle);
   assert.equal(failed.status, 200);
   assert.equal(failed.body.projects.length, 1);
   assert.equal(failed.body.projects[0].readiness, "unavailable");
-  assert.equal(failed.body.startup_errors.length, 1);
+  assert.equal(failed.body.projects.filter((entry) => entry.diagnostic).length, 1);
   assert.doesNotMatch(JSON.stringify(failed.body), /secret internal diagnostic/);
   fail = false;
   await lifecycle.add(f.roots[0]);
-  const ready = await routeProjectLifecycle("GET", new URL("http://localhost/lifecycle/list"), Readable.from([]), lifecycle);
+  const ready = await routeProjectLifecycle("GET", new URL("http://localhost/lifecycle/directory"), Object.assign(Readable.from([]), { headers: { "x-nodeforge-lifecycle": "1" } }), lifecycle);
   assert.equal(ready.body.projects[0].project_id, failed.body.projects[0].project_id);
-  assert.deepEqual(ready.body.startup_errors, []);
+  assert.deepEqual(ready.body.projects.filter((entry) => entry.diagnostic), []);
   assert.equal(ready.body.projects[0].diagnostic, null);
 });
 
@@ -46,7 +46,7 @@ test("preflight failure produces no member and directory failure does not replay
     Readable.from([JSON.stringify({ root: f.roots[0] })]), stub);
   assert.equal(result.status, 200);
   assert.equal(result.body.project.project_id, "PROJECT-A");
-  await assert.rejects(routeProjectLifecycle("GET", new URL("http://localhost/lifecycle/list"), Readable.from([]), stub), /directory unavailable/);
+  await assert.rejects(routeProjectLifecycle("GET", new URL("http://localhost/lifecycle/directory"), Object.assign(Readable.from([]), { headers: { "x-nodeforge-lifecycle": "1" } }), stub), /directory unavailable/);
   assert.equal(mutations, 1);
 });
 

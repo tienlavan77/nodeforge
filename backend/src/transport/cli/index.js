@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // CLI entry for index rebuild and project file watching.
+import { runLifecycleCli } from "./project-lifecycle.js";
 import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
@@ -15,6 +16,7 @@ import { createOllamaEmbeddingProvider } from "../../modules/index/ollama-embedd
 // Runs the Forge CLI for index rebuild or file watching.
 // Parses and executes thin CLI project lifecycle subcommands (forge project add/remove/list) over the Control API.
 async function runProjectCli(args, { env, fetchImpl, stdout, stderr }) {
+  if (args.includes("--lifecycle-v1")) return runLifecycleCli(args, { env, fetchImpl, stdout, stderr });
   const action = args[1];
   if (action !== "add" && action !== "remove" && action !== "list") return null;
   let serverUrl = env?.NODEFORGE_CONTROL_API_URL ? String(env.NODEFORGE_CONTROL_API_URL).trim() : "";
