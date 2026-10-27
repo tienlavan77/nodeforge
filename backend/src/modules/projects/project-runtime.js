@@ -1,5 +1,7 @@
 // Composes an isolated index, watcher, embedding worker, and activity stream for one project.
 import { EventEmitter } from "node:events";
+import { openIndexDatabase } from "../../infrastructure/sqlite/index-database.js";
+import { createIdeasStore } from "./ideas-store.js";
 import { startProjectWatch } from "../watcher/watch-project.js";
 import { createEmbeddingJobStore } from "../index/embedding-job-store.js";
 import { purposeSummaryInput } from "../index/purpose-summary-input.js";
@@ -14,6 +16,8 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
   const subscriptions = createSubscriptionRegistry({ logger });
   const connections = new Set();
   let database;
+  let controlDb;
+  let ideas;
   let retrieval;
   let worker;
   let embeddingJobs;
@@ -32,6 +36,8 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
     }
   };
   try {
+    controlDb = await openIndexDatabase(projectRoot, { storageKind: "control" });
+    ideas = createIdeasStore({ controlDb, projectId });
     watch = await startProjectWatch({
       projectRoot, projectId, internalBus: bus, reconcile: true, logger, chokidarOptions, watcherFactory,
       // Shares one project database between indexing, semantic retrieval, and its durable worker.
@@ -53,7 +59,7 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
       embeddingError = error.message;
       logger.error?.("Project embedding worker stopped.", { projectId, error });
     });
-    return Object.freeze({ projectRoot, projectId, bus, database, worker, connect, close,
+    return Object.freeze({ projectRoot, projectId, bus, database, controlDb, ideas, worker, connect, close,
       search: retrieval.search, embeddingStore: retrieval.embeddingStore, embeddingProvider,
       // Exposes affected-worker diagnostics without changing public stream schemas.
       status() { return { projectId, projectRoot, embeddingError, closed }; }
@@ -117,6 +123,7 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
       try { connection.close(); } catch (error) { errors.push(error); }
     }
     try { await (watch ? watch.close() : stopEmbedding()); } catch (error) { errors.push(error); }
+    try { await controlDb?.close(); } catch (error) { errors.push(error); }
     bus.removeAllListeners();
     if (errors.length) throw new AggregateError(errors, "Project runtime cleanup failed.");
   }
