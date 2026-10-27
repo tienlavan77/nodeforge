@@ -2,7 +2,8 @@
 // Business purpose: copied metadata and replaced roots must require explicit reconciliation rather
 // than silently admitting another directory as an existing project. Technical description: reject
 // linked managed paths, compare metadata roots, and retain an exclusive device/inode checkpoint.
-import { lstat, open, realpath, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { lstat, open, realpath, rename, unlink, writeFile } from "node:fs/promises";
 import { ensureForgeLayout } from "../../infrastructure/filesystem/forge-layout.js";
 import { constants } from "node:fs";
 import { join } from "node:path";
@@ -76,4 +77,47 @@ export async function readProjectIdentity(path) {
     const stage = ["EACCES", "EPERM"].includes(error.code) ? "runtime" : "identity";
     throw filesystemError(stage, stage === "runtime" ? "runtime_unreadable" : "identity_conflict", path, error);
   } finally { await file?.close(); }
+}
+
+// Atomically replaces a persisted project configuration file through a guarded temporary file so write failures never truncate existing metadata.
+// Business purpose: guarantees that updating extended project configuration preserves the existing `.forge/runtime/project.json` byte-for-byte if disk persistence fails (e.g., ENOSPC or I/O error).
+// Technical description: opens an exclusive temporary file in the same runtime directory, writes and fsyncs the serialized payload, verifies root binding and inode ownership before atomic rename, and unlinks the temporary file on any failure.
+export async function replaceProjectIdentityAtomically(binding, path, content, fileService = null) {
+  await assertRoot(binding);
+  const temporaryPath = `${path}.${randomUUID()}.tmp`;
+  let file;
+  let fingerprint;
+  try {
+    file = await open(temporaryPath, "wx", 0o600);
+    fingerprint = await file.stat();
+    if (typeof fileService?.writeTemporaryContent === "function") {
+      await fileService.writeTemporaryContent({ file, temporaryPath, path, content });
+    } else {
+      await file.writeFile(content, "utf8");
+    }
+    await file.sync();
+    await file.close();
+    file = null;
+    await assertRoot(binding);
+    const current = await lstat(temporaryPath);
+    if (current.dev !== fingerprint.dev || current.ino !== fingerprint.ino) {
+      throw filesystemError("runtime", "runtime_unwritable", path, new Error("Project configuration temporary ownership changed."));
+    }
+    await rename(temporaryPath, path);
+  } catch (error) {
+    try {
+      await file?.close();
+      if (fingerprint) {
+        const current = await lstat(temporaryPath);
+        if (current.dev === fingerprint.dev && current.ino === fingerprint.ino) {
+          await unlink(temporaryPath);
+        }
+      }
+    } catch (cleanupError) {
+      if (cleanupError.code !== "ENOENT") {
+        throw filesystemError("cleanup", "runtime_cleanup_failed", temporaryPath, new AggregateError([error, cleanupError], "Project configuration write and cleanup failed."));
+      }
+    }
+    throw error;
+  }
 }

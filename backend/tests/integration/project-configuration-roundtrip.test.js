@@ -138,3 +138,45 @@ test("applies default comment_language='en' and rejects invalid extended configu
     /Invalid persisted project metadata/
   );
 });
+
+test("preserves existing legacy project.json byte-for-byte when writeConfiguration fails mid-write", async () => {
+  const projectRoot = await mkdtemp(join(os.tmpdir(), "nodeforge-project-config-atomic-"));
+  try {
+    const registry = new ProjectRegistry({ createId: () => "PROJECT-legacy-atomic-test" });
+    const projectId = await registry.getOrCreate(projectRoot);
+    assert.equal(projectId, "PROJECT-legacy-atomic-test");
+
+    const projectFile = join(projectRoot, ".forge", "runtime", "project.json");
+    const originalBytes = await readFile(projectFile, "utf8");
+
+    const failingRegistry = new ProjectRegistry({
+      fileService: {
+        async writeTemporaryContent({ file }) {
+          await file.writeFile("{\"project_id\": \"partial", "utf8");
+          const error = new Error("ENOSPC: no space left on device, write");
+          error.code = "ENOSPC";
+          throw error;
+        }
+      }
+    });
+
+    await assert.rejects(
+      () =>
+        failingRegistry.writeConfiguration(projectRoot, {
+          description: "Should not corrupt existing configuration",
+          comment_language: "vi"
+        }),
+      { code: "ENOSPC" }
+    );
+
+    const afterFailureBytes = await readFile(projectFile, "utf8");
+    assert.equal(afterFailureBytes, originalBytes);
+
+    const reloaded = await readProjectConfiguration(projectRoot);
+    assert.equal(reloaded.project_id, "PROJECT-legacy-atomic-test");
+    assert.equal(reloaded.root, projectRoot);
+    assert.equal(reloaded.comment_language, "en");
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
