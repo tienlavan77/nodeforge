@@ -3,7 +3,7 @@
 // and that updating metadata preserves identity across lifecycle restoration.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, rename } from "node:fs/promises";
 import { join } from "node:path";
 import { fixture, startLifecycleHttpServer } from "./multi-project-lifecycle-support.js";
 
@@ -56,6 +56,28 @@ test("REST automatically creates or imports projects and persists complete confi
     const invalid = await request("POST", "", { root: invalidRoot, name: "Invalid", commands: { test: 42 } });
     assert.equal(invalid.status, 400);
     await assert.rejects(readFile(join(invalidRoot, ".forge", "runtime", "project.json")), { code: "ENOENT" });
+    await lifecycle.close();
+    await rename(roots[0], join(f.directory, "unavailable"));
+    const restored = await f.open();
+    const restoredServer = await startLifecycleHttpServer(restored);
+    try {
+      const result = await fetch(restoredServer.baseUrl + "/forge/v1/projects");
+      assert.equal(result.status, 200);
+      const { projects } = await result.json();
+      assert.equal(projects.length, roots.length);
+      const unavailable = projects.find((entry) => entry.root === roots[0]);
+      assert.ok(unavailable.project_id);
+      assert.equal(unavailable.readiness, "unavailable");
+      assert.equal(unavailable.progress, null);
+      assert.equal(unavailable.diagnostic.code, "ENOENT");
+      assert.match(unavailable.diagnostic.message, /Restore access/);
+      const healthy = projects.find((entry) => entry.root === roots[1]);
+      assert.equal(healthy.readiness, "ready");
+      assert.ok(healthy.progress);
+      assert.equal(healthy.author, "Owner");
+    } finally {
+      await restoredServer.close();
+    }
   } finally {
     await server.close();
     await f.cleanup();

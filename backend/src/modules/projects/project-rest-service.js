@@ -32,9 +32,17 @@ export function createProjectRestService({ registry, catalog, directory, get, en
   // Includes retained catalog entries, their full configuration and live indexing progress.
   async function list() {
     return Promise.all(directory().map(async (entry) => {
-      const configuration = await registry.readConfiguration(entry.root);
-      const runtime = await get(entry.root);
-      return { ...configuration, ...entry, progress: runtime?.status?.().progress ?? null };
+      let configuration = {};
+      try {
+        configuration = await registry.readConfiguration(entry.root);
+        const runtime = await get(entry.root);
+        return { ...configuration, ...entry, progress: runtime?.status?.().progress ?? null };
+      } catch (error) {
+        return { ...configuration, ...entry, project_id: entry.projectId, readiness: "unavailable", progress: null,
+          diagnostic: { code: error.code ?? "project_unavailable",
+            message: "Project configuration or runtime is unavailable. Restore access to the registered root and retry.",
+            ...(error.stage ? { stage: error.stage } : {}), ...(error.guidance ? { guidance: error.guidance } : {}) } };
+      }
     }));
   }
 
