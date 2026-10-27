@@ -43,7 +43,7 @@ export function ProjectWorkspace({ children, projectId }) {
   // refresh fails (API restart or outage); only a first admission that never produced data falls back to a notice.
   const heldProject = admitted && selection.projectId === admitted;
   if (heldProject) {
-    const stale = Boolean(error || selection.error);
+    const stale = Boolean(error || selection.stale);
     return <Fragment key={selection.generation}>
       <p role="status" aria-live="polite" className="project-workspace-stale" hidden={!stale}>Connection to the Node API was lost. Showing the last known state; some information may be out of date.</p>
       {children}
