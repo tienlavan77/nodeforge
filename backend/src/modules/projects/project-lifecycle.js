@@ -1,5 +1,7 @@
 // Owns the in-process multi-project catalog and serializes runtime admission and removal.
 import { realpath, stat } from "node:fs/promises";
+import { createProjectLifecycleOperations } from "./project-lifecycle-operations.js";
+import { routeLifecycleOptIn } from "../../transport/http/project-lifecycle-opt-in.js";
 import { createIndexProgress } from "../index/index-progress.js";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { captureRoot, captureAddRoot, assertRoot, preflightSource, prepareStorage, filesystemError } from "./project-filesystem-safety.js";
@@ -23,6 +25,7 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
   let closed = false;
   let closing;
   const directoryState = createProjectDirectoryState({ catalog, runtimes, isAvailable, isClosed: () => closed });
+  const operations = createProjectLifecycleOperations({ catalogPath, create, add: (root) => add(root), logger });
   // Shares pending Add attempts across canonical aliases while preserving admission preflight errors.
   const add = createProjectAdmissionQueue({ canonicalRoot: async (root) => (await captureAddRoot(root)).root, enqueue, admit });
   for (const entry of catalog.list()) {
@@ -31,7 +34,7 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
       startupErrors.push({ root: entry.root, error: error.message, ...(error.code ? { code: error.code } : {}) });
     }
   }
-  return Object.freeze({ create, add, remove, list, directory: directoryState.directory, get, close, registerCleanup, startupErrors: Object.freeze(startupErrors) });
+  return Object.freeze({ operations, create, add, remove, list, directory: directoryState.directory, get, close, registerCleanup, startupErrors: Object.freeze(startupErrors) });
 
   // Fences Create through the durable operation store before exclusive directory creation.
   function create(root, options) {
@@ -155,6 +158,7 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
 
   // Releases unrelated runtimes even if another project's shutdown reports an error.
   async function shutdown() {
+    await operations.close();
     await tail;
     const results = await Promise.allSettled([...runtimes.values()].map(releaseRuntime));
     runtimes.clear();
@@ -225,11 +229,13 @@ async function readLifecycleBody(request, { allowEmpty = false } = {}) {
 
 // Routes bounded multi-project lifecycle management requests (/lifecycle/add, /lifecycle/remove, /lifecycle/list).
 export async function routeProjectLifecycle(method, url, request, projectLifecycle) {
+  const negotiated = await routeLifecycleOptIn(method, url, request, projectLifecycle);
+  if (negotiated) return negotiated;
   const isList = method === "GET" && url.pathname === "/lifecycle/list";
   const isAdd = method === "POST" && url.pathname === "/lifecycle/add";
   const isRemove = method === "POST" && url.pathname === "/lifecycle/remove";
   if (!isList && !isAdd && !isRemove) return null;
-  if (!projectLifecycle) {
+  if (!projectLifecycle || projectLifecycle.legacyAvailable === false) {
     throw createLifecycleHttpError(503, "lifecycle_unavailable", "Project lifecycle management is not configured.", { retryable: true, scope: "scoped" });
   }
   if (isList) {
@@ -240,12 +246,9 @@ export async function routeProjectLifecycle(method, url, request, projectLifecyc
     return {
       status: 200,
       body: {
-        projects: (projectLifecycle.directory?.() ?? projectLifecycle.list()).map(({ projectId, ...entry }) => ({ ...entry, project_id: projectId })),
-        startup_errors: (projectLifecycle.directory?.().filter((entry) => entry.diagnostic).map((entry) => ({ root: entry.root, ...entry.diagnostic })) ?? projectLifecycle.startupErrors ?? []).map((entry) => ({
-          root: entry.root,
-          code: typeof entry.code === "string" && entry.code ? entry.code : "startup_failed",
-          message: entry.message ?? entry.error ?? "Project startup failed."
-        }))
+        projects: projectLifecycle.list().map(({ projectId, root }) => ({ root, project_id: projectId })),
+        startup_errors: (projectLifecycle.startupErrors ?? []).map(({ root, code, message, error }) =>
+          ({ root, code: code || "startup_failed", message: message ?? error ?? "Project startup failed." }))
       }
     };
   }

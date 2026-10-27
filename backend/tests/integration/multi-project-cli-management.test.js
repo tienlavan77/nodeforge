@@ -11,9 +11,9 @@ import { createHttpApi } from "../../src/transport/http/server.js";
 import { fixture, startLifecycleHttpServer } from "./multi-project-lifecycle-support.js";
 
 // Runs the shipped executable without sharing runtime objects or mocked HTTP with the server.
-async function invokeCli(serverUrl, action, root) {
+async function invokeCli(serverUrl, action, root, options = []) {
   const executable = fileURLToPath(new URL("../../src/transport/cli/index.js", import.meta.url));
-  const args = [executable, "project", action, ...(root ? [root] : []), "--server", serverUrl];
+  const args = [executable, "project", action, ...(root ? [root] : []), ...options, "--server", serverUrl];
   const child = spawn(process.execPath, args, {
     env: { ...process.env, NODEFORGE_CONTROL_API_URL: "http://127.0.0.1:1" },
     stdio: ["ignore", "pipe", "pipe"]
@@ -148,6 +148,32 @@ test("shipped Control API owns lifecycle runtimes and retains legacy startup", {
     try { await serving?.close(); }
     finally { await rm(directory, { recursive: true, force: true }); }
   }
+});
+
+// Proves new CLI receipts survive backend restart while legacy list continues to report serving projects.
+test("opt-in executable reconciles retained request keys across backend restart", async (t) => {
+  const f = await fixture();
+  t.after(f.cleanup);
+  let manager = await f.open();
+  let server = await startLifecycleHttpServer(manager);
+  t.after(() => server.close());
+  const options = ["--lifecycle-v1", "--request-key", "retained-cli"];
+  const accepted = await invokeCli(server.baseUrl, "add", f.roots[0], options);
+  await manager.operations.close();
+  const done = await invokeCli(server.baseUrl, "status", undefined, options);
+  assert.equal(done.operation.status, "succeeded");
+  assert.equal(done.operation.operation_id, accepted.operation.operation_id);
+  assert.deepEqual((await invokeCli(server.baseUrl, "list")).projects,
+    [{ root: f.roots[0], project_id: done.operation.project_id }]);
+  await server.close();
+  await manager.close();
+  manager = await f.open();
+  server = await startLifecycleHttpServer(manager);
+  const retained = await invokeCli(server.baseUrl, "status", undefined, options);
+  assert.equal(retained.operation.operation_id, done.operation.operation_id);
+  assert.equal(retained.operation.attempt, 1);
+  const reconciled = await invokeCli(server.baseUrl, "add", f.roots[0], options);
+  assert.equal(reconciled.operation.attempt, 1);
 });
 
 // Verifies admission, stable identity, duplicate admission, removal, and restart through actual CLI HTTP requests.

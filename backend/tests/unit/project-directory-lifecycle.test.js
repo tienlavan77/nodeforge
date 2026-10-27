@@ -7,9 +7,11 @@ import { routeProjectLifecycle } from "../../src/modules/projects/project-lifecy
 
 test("single-project directory uses the real running identity through the existing lifecycle route", async () => {
   const lifecycle = createProjectDirectoryLifecycle({ projectId: "PROJECT-A", projectRoot: process.cwd() });
-  const response = await routeProjectLifecycle("GET", new URL("http://localhost/lifecycle/list"), Readable.from([]), lifecycle);
-  assert.equal(response.status, 200);
-  assert.deepEqual(response.body, { projects: [{ project_id: "PROJECT-A", root: process.cwd(), readiness: "ready", operation: { attempt_id: 1, status: "succeeded", diagnostic: null }, diagnostic: null, retryable: false }], startup_errors: [] });
+  await assert.rejects(routeProjectLifecycle("GET", new URL("http://localhost/lifecycle/list"), Readable.from([]), lifecycle),
+    { code: "lifecycle_unavailable", statusCode: 503 });
+  const directory = await routeProjectLifecycle("GET", new URL("http://localhost/lifecycle/directory"),
+    Object.assign(Readable.from([]), { headers: { "x-nodeforge-lifecycle": "1" } }), lifecycle);
+  assert.deepEqual(directory.body, { version: "1", projects: [{ project_id: "PROJECT-A", root: process.cwd(), readiness: "ready", operation: { attempt_id: 1, status: "succeeded", diagnostic: null }, diagnostic: null, retryable: false }] });
   for (const operation of ["add", "remove"]) assert.throws(() => lifecycle[operation](process.cwd()), { code: "lifecycle_unavailable", statusCode: 503 });
 });
 

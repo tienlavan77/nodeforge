@@ -33,6 +33,9 @@ test("catalog restore and repeated admission reuse the existing application with
   const runtime = await lifecycle.get(config.projectRoot);
   assert.equal(runtime.status().closed, false);
   assert.deepEqual(await lifecycle.add(config.projectRoot), lifecycle.list()[0]);
+  await lifecycle.operations.submit("add", config.projectRoot, "default-runtime-reuse");
+  await lifecycle.operations.close();
+  assert.equal((await lifecycle.operations.status("default-runtime-reuse")).status, "succeeded");
   assert.deepEqual(await readFile(config.indexPath), original);
   await lifecycle.close();
   assert.equal(runtime.status().closed, true);
