@@ -1,6 +1,6 @@
 // Let owners choose or add an admitted project before opening an Architecture workspace.
 "use client";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { Dialog } from "./Dialog.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
@@ -11,6 +11,10 @@ import { getLifecycleSnapshot, subscribeLifecycle, submitProjectOperation, reloa
 import { ProjectOperationStatus } from "./project-operation-status.jsx";
 
 const initialSelection = { projects: [], loaded: false, error: null };
+// Preserve receipt-to-directory attempt associations for the lifetime of the module-scoped lifecycle cache.
+// Returning to the directory must retain the original association so a newer external failure cannot
+// inherit an obsolete cached receipt merely because both attempts have the same terminal status.
+const directoryAttempts = new Map();
 
 // Render project cards and recoverable directory errors without mounting project-bound chat clients.
 export function ProjectDirectory() {
@@ -25,8 +29,6 @@ export function ProjectDirectory() {
   const [root, setRoot] = useState("");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
-  // Associate each tracked receipt with directory attempts without equating their independent counters.
-  const directoryAttempts = useRef(new Map());
 
   // Refresh the actual runtime directory while keeping a failed request visible and retryable.
   async function load() {
@@ -79,12 +81,12 @@ export function ProjectDirectory() {
   function operationFor(project) {
     const operation = operations.filter((entry) => entry.project_id === project.project_id || entry.root === project.root).at(-1);
     if (!operation) return undefined;
-    const previous = directoryAttempts.current.get(operation.request_key);
+    const previous = directoryAttempts.get(operation.request_key);
     if (!previous || operation.attempt > previous.attempt) {
-      directoryAttempts.current.set(operation.request_key, { attempt: operation.attempt, directoryAttempt: project.operation?.attempt_id,
+      directoryAttempts.set(operation.request_key, { attempt: operation.attempt, directoryAttempt: project.operation?.attempt_id,
         awaitingAttempt: operation.status === "running" && project.operation?.status !== "running" });
     }
-    const associated = directoryAttempts.current.get(operation.request_key);
+    const associated = directoryAttempts.get(operation.request_key);
     if (associated.directoryAttempt !== project.operation?.attempt_id) {
       if (!associated.awaitingAttempt) return undefined;
       associated.directoryAttempt = project.operation?.attempt_id;
