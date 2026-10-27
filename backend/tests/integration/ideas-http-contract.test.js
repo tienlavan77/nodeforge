@@ -137,3 +137,55 @@ test("Ideas HTTP rejects malformed patches and revisions without mutating saved 
   }
   assert.deepEqual(ideas.get(created.id), created);
 });
+
+/**
+ * Protects bodyless DELETE clients by exercising query revision validation,
+ * stale-write rejection and JSON deletion confirmation through the HTTP server.
+ * Every rejected request must leave the complete stored record unchanged.
+ */
+test("Ideas HTTP validates bodyless DELETE query versions and preserves rejected records", async (context) => {
+  const { request, ideas, projectId } = await createIdeasHttpFixture(context);
+  const created = await request("ideas", { method: "POST", status: 201, body: { project_id: projectId, content: "Query deletion" } });
+  const path = `ideas/${created.id}`;
+  for (const query of ["", "?expected_version=", "?expected_version=%20", "?expected_version=invalid",
+    "?expected_version=0", "?expected_version=-1", "?expected_version=1.5",
+    "?expected_version=Infinity", "?expected_version=9007199254740992"]) {
+    await request(path + query, { method: "DELETE", status: 400 });
+    assert.deepEqual(ideas.get(created.id), created);
+    assert.deepEqual(await request(path), created);
+  }
+  const updated = await request(path, { method: "PATCH", body: { content: "New revision", expected_version: 1 } });
+  await request(path + "?expected_version=1", { method: "DELETE", status: 409 });
+  assert.deepEqual(ideas.get(created.id), updated);
+  assert.deepEqual(await request(path), updated);
+  assert.deepEqual(await request(path + "?expected_version=2", { method: "DELETE" }),
+    { deleted: true, id: created.id, project_id: projectId });
+  assert.equal(ideas.get(created.id), undefined);
+  await request(path, { status: 404 });
+});
+
+/**
+ * Keeps the notebook limited to its five approved independent endpoints.
+ * Retired project nesting, action suffixes and PUT must return route errors
+ * without creating records or changing the existing notebook entry.
+ */
+test("Ideas HTTP rejects project nesting, action routes and PUT without side effects", async (context) => {
+  const { request, ideas, projectId } = await createIdeasHttpFixture(context);
+  const created = await request("ideas", { method: "POST", status: 201, body: { project_id: projectId, content: "Endpoint guardrails" } });
+  for (const path of [`projects/${projectId}/ideas`, `projects/${projectId}/ideas/${created.id}`,
+    `ideas/${created.id}/complete`, `ideas/${created.id}/reopen`]) {
+    for (const method of ["GET", "POST", "PATCH", "DELETE", "PUT"]) {
+      await request(path, { method, status: 404, ...(method === "GET" ? {} : {
+        body: { project_id: projectId, content: "Forbidden mutation", status: "done", expected_version: 1 }
+      }) });
+      assert.deepEqual(ideas.list({ status: "all" }), [created]);
+      assert.deepEqual(await request(`ideas/${created.id}`), created);
+    }
+  }
+  for (const path of ["ideas", `ideas/${created.id}`]) {
+    await request(path, { method: "PUT", status: 404,
+      body: { project_id: projectId, content: "Forbidden replacement", status: "done", expected_version: 1 } });
+    assert.deepEqual(ideas.list({ status: "all" }), [created]);
+    assert.deepEqual(await request(`ideas/${created.id}`), created);
+  }
+});
