@@ -6,6 +6,7 @@ import { join } from "node:path";
 import readline from "node:readline";
 import { createRetrievalDependencies } from "../src/modules/index/retrieval-dependencies.js";
 import { purposeSummaryInput } from "../src/modules/index/purpose-summary-input.js";
+import { backfillPurposeSummaries } from "../src/modules/index/purpose-summary-backfill.js";
 
 const args = process.argv.slice(2);
 const limitArg = args.find((a) => a.startsWith("--limit="));
@@ -27,6 +28,13 @@ const database = {
 
 const { embeddingStore: store, embeddingProvider: provider, ollamaConfig } = createRetrievalDependencies({ database, ollamaConfig: { model: MODEL_OVERRIDE, timeoutMs: TIMEOUT_OVERRIDE } });
 const MODEL = ollamaConfig.model;
+
+const conversion = await backfillPurposeSummaries({ database, projectRoot });
+const conversionFailures = new Set(conversion.results.filter((result) => result.status === "failed").map((result) => result.path));
+for (const result of conversion.results.filter((result) => result.status === "failed")) {
+  console.error(`conversion ${result.path}: ${result.marker}: ${result.message}`);
+}
+if (!conversion.succeeded) process.exitCode = 1;
 
 const symbols = database.all(
   `SELECT s.symbol_id, s.name, s.kind, f.path,
@@ -83,6 +91,11 @@ function renderBar(processed) {
 }
 
 for (const sym of queue) {
+  if (conversionFailures.has(sym.path)) {
+    failed += 1;
+    console.error(`skip ${sym.path}#${sym.name}: source conversion failed.`);
+    continue;
+  }
   const input = purposeSummaryInput(sym.summary);
   const checksum = input?.checksum;
   if (!input) {
