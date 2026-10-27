@@ -21,6 +21,8 @@ export function IdeasPanel({ client, projectId, open, onClose, panelId }) {
   const [saved, setSaved] = useState(false);
   const [deleting, setDeleting] = useState(null);
   const input = useRef(null);
+  // A collection snapshot must include every mutation confirmed before it is applied.
+  const mutationRevision = useRef(0);
   // Preserve the stable delete trigger when its temporary confirmation controls disappear.
   const deleteButton = useRef(null);
   const currentDraft = useRef(draft);
@@ -33,7 +35,11 @@ export function IdeasPanel({ client, projectId, open, onClose, panelId }) {
   async function load() {
     setLoading(true); setError(""); setSaved(false);
     try {
-      const result = await client.listIdeas({ projectId });
+      let result, revision;
+      do {
+        revision = mutationRevision.current;
+        result = await client.listIdeas({ projectId });
+      } while (revision !== mutationRevision.current);
       setItems(Array.isArray(result) ? result : result.items ?? []);
       setLoaded(true);
     } catch (failure) { setError(failure.message); }
@@ -44,7 +50,7 @@ export function IdeasPanel({ client, projectId, open, onClose, panelId }) {
   /** Apply only confirmed backend changes and keep the input snapshot intact when a request fails. */
   async function mutate(operation, apply) {
     setSaving(true); setSaved(false); setError("");
-    try { const result = await operation(); apply(result); setSaved(true); }
+    try { const result = await operation(); mutationRevision.current++; apply(result); setSaved(true); }
     catch (failure) { setError(failure.message); }
     finally { setSaving(false); }
   }
