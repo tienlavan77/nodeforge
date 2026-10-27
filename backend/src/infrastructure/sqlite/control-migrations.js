@@ -22,6 +22,15 @@ export function runControlMigrations(database) {
       database.exec("CREATE INDEX ideas_by_project_status ON ideas (project_id, status, created_at, id)");
       database.prepare("INSERT INTO control_schema_migrations (version) VALUES (?)").run(1);
     }
+    if (current < 2) {
+      database.exec(`CREATE TABLE idea_deletions (
+        project_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        version INTEGER NOT NULL CHECK (typeof(version) = 'integer' AND version >= 1),
+        PRIMARY KEY (project_id, id)
+      )`);
+      database.prepare("INSERT INTO control_schema_migrations (version) VALUES (?)").run(2);
+    }
     database.exec("COMMIT");
   } catch (error) {
     database.exec("ROLLBACK");

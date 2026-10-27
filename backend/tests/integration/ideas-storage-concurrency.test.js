@@ -41,6 +41,52 @@ test("independent threads racing the same version produce one winner and one con
   }
 });
 
+// Coordinates already-connected contenders so deletion commits before each stale write.
+// Reopening the database also verifies that conflict history survives backend restarts.
+for (const operation of ["delete", "update"]) {
+  test(`DELETE winning against ${operation} preserves a durable project-scoped conflict`, { timeout: 15000 }, async () => {
+    const root = await mkdtemp(join(tmpdir(), "ideas-delete-race-"));
+    const workers = [];
+    let db;
+    try {
+      db = await openIndexDatabase(root, { storageKind: "control" });
+      const store = createIdeasStore({ controlDb: db, projectId: "a" });
+      const idea = store.create({ content: "delete winner" });
+      const untouched = store.create({ content: "keep" });
+      const ready = [];
+      for (const contender of ["delete", operation]) {
+        const worker = new Worker(new URL("./ideas-storage-worker.js", import.meta.url), {
+          workerData: { root, id: idea.id, operation: contender, content: "stale" }
+        });
+        workers.push(worker);
+        ready.push(once(worker, "message"));
+      }
+      for (const [message] of await Promise.all(ready)) assert.equal(message.ready, true);
+      const winner = once(workers[0], "message");
+      workers[0].postMessage("go");
+      assert.deepEqual((await winner)[0], { status: 200, result: true });
+      const loser = once(workers[1], "message");
+      workers[1].postMessage("go");
+      assert.equal((await loser)[0].status, 409);
+      assert.equal(store.get(idea.id), undefined);
+      assert.deepEqual(store.list(), [untouched]);
+      await db.close();
+      db = await openIndexDatabase(root, { storageKind: "control" });
+      const reopened = createIdeasStore({ controlDb: db, projectId: "a" });
+      assert.throws(() => reopened.update(idea.id, { version: 1, content: "stale" }), { status: 409 });
+      assert.throws(() => reopened.delete(idea.id, { version: 1 }), { status: 409 });
+      assert.throws(() => reopened.delete("never-created", { version: 1 }), { status: 404 });
+      const other = createIdeasStore({ controlDb: db, projectId: "b" });
+      assert.throws(() => other.delete(idea.id, { version: 1 }), { status: 404 });
+      assert.deepEqual(reopened.list(), [untouched]);
+    } finally {
+      await Promise.all(workers.map(worker => worker.terminate()));
+      await db?.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
+
 test("two clients cannot update or delete the same saved revision twice", async () => {
   const root = await mkdtemp(join(tmpdir(), "ideas-race-"));
   let first;
@@ -67,7 +113,7 @@ test("two clients cannot update or delete the same saved revision twice", async 
     assert.equal(other.list().length, 0);
     assert.equal(a.list({ status: "open" }).length, 0);
     assert.equal(b.delete(idea.id, { version: 2 }), true);
-    assert.throws(() => a.delete(idea.id, { version: 2 }), { status: 404 });
+    assert.throws(() => a.delete(idea.id, { version: 2 }), { status: 409 });
     const next = a.create({ content: "delete contender" });
     const mixed = await Promise.allSettled([
       Promise.resolve().then(() => b.update(next.id, { version: 1, content: "changed" })),

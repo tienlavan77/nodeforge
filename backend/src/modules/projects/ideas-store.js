@@ -25,7 +25,8 @@ export function createIdeasStore({ controlDb, projectId, clock = () => new Date(
   }
   /** Classifies a failed conditional write while retaining the writer lock. */
   function missing(id) {
-    const exists = Boolean(get(id));
+    const exists = Boolean(get(id) || controlDb.all(
+      "SELECT version FROM idea_deletions WHERE project_id = ? AND id = ?", [projectId, id])[0]);
     throw ideaError(exists ? "Idea version conflict." : "Idea not found.", exists ? 409 : 404);
   }
   return Object.freeze({
@@ -69,6 +70,8 @@ export function createIdeasStore({ controlDb, projectId, clock = () => new Date(
       return controlDb.transaction(() => {
         const result = controlDb.run("DELETE FROM ideas WHERE project_id = ? AND id = ? AND version = ?", [projectId, id, version]);
         if (!Number(result.changes)) return missing(id);
+        controlDb.run(`INSERT INTO idea_deletions (project_id, id, version) VALUES (?, ?, ?)
+          ON CONFLICT (project_id, id) DO UPDATE SET version = excluded.version`, [projectId, id, version]);
         return true;
       });
     }
