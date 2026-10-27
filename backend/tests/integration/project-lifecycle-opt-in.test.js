@@ -72,6 +72,46 @@ test("negotiated operations reconcile, retain results and require explicit faile
   await assert.rejects(lifecycle.operations.submit("add", f.roots[1], body.request_key));
 });
 
+// Restores persisted membership with one failed runtime to ensure legacy clients see only serving
+// projects and stable recovery diagnostics, never private exception messages or arbitrary error codes.
+test("legacy list redacts catalog restoration failures and keeps serving projects", async (t) => {
+  const f = await fixture();
+  t.after(f.cleanup);
+  // Supplies lightweight serving runtimes so restoration isolation is tested without external services.
+  const startRuntime = async ({ projectId, projectRoot }) => ({
+    projectId, projectRoot,
+    // Matches the runtime cleanup contract without allocating background resources.
+    close() {}
+  });
+  const initial = await f.open({ startRuntime });
+  await initial.add(f.roots[0]);
+  const serving = await initial.add(f.roots[1]);
+  await initial.close();
+  const privateDetail = "private startup configuration: credential=restoration-secret";
+  const privateCode = "PRIVATE_RUNTIME_CONFIGURATION";
+  const restored = await f.open({
+    // Fails only one restored root while preserving the independent serving runtime.
+    startRuntime: async (input) => {
+      if (input.projectRoot === f.roots[0]) {
+        throw Object.assign(new Error(privateDetail), { code: privateCode });
+      }
+      return startRuntime(input);
+    }
+  });
+  const server = await startLifecycleHttpServer(restored);
+  t.after(server.close);
+  const response = await fetch(new URL("/lifecycle/list", server.baseUrl));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.deepEqual(body.projects, [{ root: f.roots[1], project_id: serving.projectId }]);
+  assert.deepEqual(body.startup_errors, [{
+    root: f.roots[0], code: "project_startup_failed",
+    message: "Project startup failed. Correct the project configuration and retry Add."
+  }]);
+  assert.doesNotMatch(JSON.stringify(body), /restoration-secret|private startup configuration|PRIVATE_RUNTIME_CONFIGURATION/);
+  assert.equal(restored.directory().length, 2);
+});
+
 test("Create retry requires original ownership and never adopts an existing target", async (t) => {
   const f = await fixture();
   t.after(f.cleanup);
