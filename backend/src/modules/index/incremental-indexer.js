@@ -2,6 +2,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 
+import { createSummaryConversion } from "./purpose-summary-conversion.js";
 import { createDependencyGraph } from "./dependency-graph.js";
 import { createFileRepository } from "./file-repository.js";
 import { createIndexRecordWriter } from "./index-record-writer.js";
@@ -11,6 +12,7 @@ import { logEvent } from "../../core/project-log-service.js";
 
 // createIncrementalIndexer - handles createIncrementalIndexer operation.
 export function createIncrementalIndexer({ database, projectRoot, registry = extractorRegistry, files = createFileRepository(database), graph = createDependencyGraph({ database, files, projectRoot }), fileService, getContentHash = readContentHash, logger = console, projectLogger = logEvent, embeddingJobs = null, embeddingStore = null, embeddingProvider = null, embeddingModel = "text-embedding-3-small" } = {}) {
+  const conversion = createSummaryConversion(database);
   const recordWriter = createIndexRecordWriter({ database, graph, embeddingJobs, embeddingStore, embeddingProvider, embeddingModel, logger });
   const { writeExtraction, clearContentIndex, indexContent, writeCalls } = recordWriter;
 
@@ -67,6 +69,7 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
       indexContent(fileId, path, snapshot.content);
       graph.replaceForFile(fileId, path, extraction.imports);
       writeCalls(fileId, path, extraction);
+      conversion.complete(fileId, sha256);
       database.run("UPDATE index_metadata SET version = version + 1");
     });
     // Per-symbol embeddings are queued inside indexContent (best-effort, serial).
@@ -82,7 +85,7 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
     const sha256 = snapshot?.sha256;
     const sizeBytes = snapshot?.size_bytes;
     if (!sha256) throw Object.assign(new Error("File content unavailable."), { code: "read_failed" });
-    if (sha256 === file.sha256 && event.phase !== "resolve" && !event.force) return false;
+    if (sha256 === file.sha256 && event.phase !== "resolve" && !event.force && !conversion.needed(file)) return false;
     const extraction = await extract(path, snapshot.content);
     if (!extraction) throw Object.assign(new Error("File extraction failed; prior index retained."), { code: "parse_failed" });
     if (event.phase === "resolve") {
@@ -92,6 +95,17 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
         writeCalls(file.file_id, path, extraction);
       });
       return false;
+    }
+    if (sha256 === file.sha256 && conversion.needed(file)) {
+      // Conversion of an unchanged source uses the accepted summary writer while
+      // retaining all structural identities and graph rows from that same source.
+      withTransaction(() => {
+        clearContentIndex(file.file_id, true);
+        indexContent(file.file_id, path, snapshot.content);
+        conversion.complete(file.file_id, sha256);
+        database.run("UPDATE index_metadata SET version = version + 1");
+      });
+      return true;
     }
     withTransaction(() => {
 
@@ -103,6 +117,7 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
       indexContent(file.file_id, path, snapshot.content);
       graph.replaceForFile(file.file_id, path, extraction.imports);
       writeCalls(file.file_id, path, extraction);
+      conversion.complete(file.file_id, sha256);
       database.run("UPDATE index_metadata SET version = version + 1");
     });
     // Per-symbol embeddings are queued inside indexContent (best-effort, serial).
