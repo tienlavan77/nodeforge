@@ -35,7 +35,7 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     const key = contextKey(taskId, executionId);
     const persisted = loadPersistedBudget(database, taskId, executionId);
     const budgetInput = persisted ?? input.retrieval_budget ?? input.context_budget ?? {};
-    const budget = normalizeBudget(budgetInput);
+    const budget = normalizeBudget(budgetInput, { unlimited: input.agent_identity?.role === "coder" });
     const explorationState = input.exploration_state ?? createExplorationState();
     if (Number.isInteger(input.discovery_budget) && input.discovery_budget > 0) explorationState.discovery_limit = input.discovery_budget;
     if (Number.isInteger(input.discovery_candidate_calls) && input.discovery_candidate_calls > 0) explorationState.candidate_limit = input.discovery_candidate_calls;
@@ -50,7 +50,7 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
       changed_paths: Array.isArray(input.changed_paths) ? [...input.changed_paths] : [],
       capabilities, allowed_resources: input.allowed_resources ?? { allowed_file_paths: input.allowed_file_paths ?? [], allowed_prefixes: input.allowed_prefixes ?? [] },
       context_budget: budget, retrieval_budget: budget, lifecycle: input.lifecycle ?? "RUNNING",
-      exploration_state: explorationState, verify_result: input.verify_result ?? input.verifyResult ?? null,
+      exploration_state: explorationState, exploration_enabled: input.agent_identity?.role !== "coder", verify_result: input.verify_result ?? input.verifyResult ?? null,
       audit_context: input.audit_context ?? {}
     };
     if (fileAccessPolicy && ["coder", "reviewer"].includes(context.agent_identity.role)) {
@@ -91,7 +91,8 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     const bytes = nonNegativeInteger(estimatedBytes, "estimatedBytes");
     return withLock(locks, normalized, async () => {
       const budget = loadBudget(state, normalized);
-      if (budget.used_bytes + budget.reserved_bytes + bytes > budget.max_bytes || distinctCalls(budget, tool) > budget.max_calls) {
+      if (budget.max_bytes !== null && budget.used_bytes + budget.reserved_bytes + bytes > budget.max_bytes
+        || budget.max_calls !== null && distinctCalls(budget, tool) > budget.max_calls) {
         throw governanceError("CONTEXT_BUDGET_EXCEEDED", `${tool} retrieval exceeds the current Context Budget.`);
       }
       budget.reserved_calls += 1;
@@ -110,10 +111,10 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     return withLock(locks, normalized, async () => {
       assertReservation(reservations, normalized, reservation);
       const budget = loadBudget(state, normalized);
-      if (budget.used_bytes + budget.reserved_bytes - (reservation.estimated_bytes ?? 0) + actualBytes > budget.max_bytes) throw governanceError("CONTEXT_BUDGET_EXCEEDED", "Actual retrieval result exceeds the current Context Budget.");
+      if (budget.max_bytes !== null && budget.used_bytes + budget.reserved_bytes - (reservation.estimated_bytes ?? 0) + actualBytes > budget.max_bytes) throw governanceError("CONTEXT_BUDGET_EXCEEDED", "Actual retrieval result exceeds the current Context Budget.");
       budget.reserved_calls = Math.max(0, budget.reserved_calls - 1);
       budget.reserved_bytes = Math.max(0, budget.reserved_bytes - (reservation?.estimated_bytes ?? 0));
-      if (budget.used_bytes + actualBytes > budget.max_bytes) throw governanceError("CONTEXT_BUDGET_EXCEEDED", "Actual retrieval result exceeds the current Context Budget.");
+      if (budget.max_bytes !== null && budget.used_bytes + actualBytes > budget.max_bytes) throw governanceError("CONTEXT_BUDGET_EXCEEDED", "Actual retrieval result exceeds the current Context Budget.");
       budget.used_calls += 1;
       budget.used_bytes += actualBytes;
       const usedKinds = new Set(budget.used_tool_calls ?? []);
