@@ -29,6 +29,7 @@ test("Architecture Manager exposes executable Git reads in normal and planning c
     assert.equal((await registry.git_status.execute({})).stdout, " M backend/a.js\n");
     assert.equal((await registry.git_diff.execute({})).stdout, "diff content");
     for (const name of ["run_check", "commit_changes", "push_commit", "shell"]) assert.equal(registry[name], undefined);
+    assert.ok(registry.lookup_schema);
     for (const name of ["write_diff", "edit_diff", "delete_file"]) {
       assert.equal(Boolean(registry[name]), !planning_input_only);
       if (planning_input_only) await assert.rejects(() => authorizeOwnerTool(name, { path: "workflows/plan.md" }, context, process.cwd()), { code: "TOOL_FORBIDDEN" });
@@ -78,7 +79,7 @@ test("owner exposes the same approved Forge tools to OpenAI, Codex, Claude, Anth
     const sdk = { conversationMode: provider === "codex" ? "thread" : "history", builtinWebSearchAvailable: provider !== "ollama", execute: async (input) => { request = input; return { text: "ok" }; } };
     const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => profile }, sdkGateways: { [provider]: sdk }, fallbackStream: async function* () {}, fileService: fileService(), projectRoot: process.cwd(), projectLogger: () => {} });
     for await (const chunk of stream({ agentId: "architect", payload: { text: "inspect project" }, correlationId: `CORR-${provider}`, conversationId: `CONV-${provider}` })) assert.equal(typeof chunk.text, "string");
-    assert.deepEqual(request.options.forgeTools.definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "read_lines", "write_diff", "edit_diff", "delete_file"]);
+    assert.deepEqual(request.options.forgeTools.definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "read_lines", "write_diff", "edit_diff", "delete_file", "lookup_schema"]);
     assert.deepEqual(request.options.forgeTools.context.allowed_write_prefixes, ["docs/", "Skills/", "workflows/"]);
     assert.match(request.prompt, /ARCHITECTURE\.md, docs\/, Skills\/, or workflows\//);
     assert.match(request.prompt, /workflows\/agents\/architecture\/README\.md/);

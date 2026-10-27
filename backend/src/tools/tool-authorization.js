@@ -19,11 +19,14 @@ export function authorizeTool(toolName, context = {}) {
   return true;
 }
 
-// Blocks Coder documentation writes unless explicitly authorized, while permitting read-only docs discovery.
+const GOVERNANCE_FILES = new Set(["AGENTS.md", "CLAUDE.md", "ARCHITECTURE.md"]);
+
+// Blocks Coder documentation and governance mutations unless explicitly authorized, while permitting read-only discovery.
 export function isCoderBlockedPath(path, context = {}, { operation = "read" } = {}) {
-  if (context.agent_identity?.role !== "coder" || typeof path !== "string") return false;
+  if (context.agent_identity?.role !== "coder" || typeof path !== "string" || operation === "read") return false;
+  if (path === "workflows" || path.startsWith("workflows/") || path === "vocabulary/glossary.md"
+    || path.split("/").some((part) => GOVERNANCE_FILES.has(part) || part === "node_modules")) return true;
   if (!(path === "docs" || path.startsWith("docs/"))) return false;
-  if (operation === "read") return false;
   const files = context.allowed_file_paths ?? context.allowedFilePaths;
   return !(Array.isArray(files) && files.includes(path));
 }

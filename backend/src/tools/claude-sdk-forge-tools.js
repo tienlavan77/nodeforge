@@ -37,6 +37,17 @@ const editDiffInput = {
   occurrence: z.enum(["first", "all"]).optional()
 };
 
+const deleteFileInput = {
+  path: z.string().min(1).regex(/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+/),
+  before_checksum: z.string().regex(/^sha256:[a-fA-F0-9]{64}$/)
+};
+
+const moveFileInput = {
+  from_path: z.string().min(1).regex(/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+/),
+  to_path: z.string().min(1).regex(/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+/),
+  before_checksum: z.string().regex(/^sha256:[a-fA-F0-9]{64}$/)
+};
+
 const runTestInput = {};
 
 const checkTestInput = {
@@ -90,6 +101,8 @@ export function createForgeSdkMcpServer({ registry, context = {}, includeCommit 
     ...(includeClaudeFileTools ? claudeFileDefinitions.map(({ name, description, input_schema }) => [name, description, z.fromJSONSchema(input_schema).shape]) : []),
     ["write_diff", "Write one approved project file after checksum validation. Content is limited to 250 lines. For a new file that does not exist, before_checksum must be the JSON value null (not a string and not omitted).", writeDiffInput],
     ["edit_diff", "Replace an exact anchor string in one approved file after checksum validation. Read the file first and use a unique exact anchor; use occurrence=\"all\" to replace every match.", editDiffInput],
+    ["delete_file", "Delete one role-authorized project file through Node File Service after checking its whole-file sha256. Read the file first.", deleteFileInput],
+    ["move_file", "Move or rename one role-authorized project file through Node File Service after checking its whole-file sha256. Read the source file first.", moveFileInput],
     ["run_test", "Start the Node-owned test suite and return a job_id immediately. You MUST then call check_test with that job_id repeatedly until status is passed or failed before reporting done.", runTestInput],
     ["check_test", "Poll a started test job by job_id until it reports passed or failed.", checkTestInput],
     ["git_status", "Read the project working-tree status through Node Git Service.", {}],
@@ -148,6 +161,8 @@ export const forgeSdkToolNames = Object.freeze([
   "mcp__forge__Grep",
   "mcp__forge__write_diff",
   "mcp__forge__edit_diff",
+  "mcp__forge__delete_file",
+  "mcp__forge__move_file",
   "mcp__forge__run_test",
   "mcp__forge__check_test",
   "mcp__forge__git_status",
@@ -155,5 +170,5 @@ export const forgeSdkToolNames = Object.freeze([
   "mcp__forge__commit_changes",
   "mcp__forge__report_done",
   "mcp__forge__respond_to_review",
-  "mcp__forge__query_review"
+  "mcp__forge__query_review", "mcp__forge__lookup_schema"
 ]);

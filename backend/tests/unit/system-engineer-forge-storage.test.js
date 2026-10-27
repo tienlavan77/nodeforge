@@ -54,6 +54,6 @@ test("SE Forge access includes hidden runtime files but rejects symlinks and ret
     }
     await symlink(outside, join(projectRoot, ".forge/linked"));
     await assert.rejects(() => se.atomicWrite({ path: ".forge/linked/file.json", content: "{}" }), { code: "FILE_ROLE_FORBIDDEN" });
-    await assert.rejects(() => se.deleteFile({ path: "src/example.js" }), { code: "FILE_ROLE_FORBIDDEN" });
+    await assert.rejects(() => se.deleteFile({ path: "AGENTS.md" }), { code: "FILE_ROLE_FORBIDDEN" });
   } finally { await rm(projectRoot, { recursive: true, force: true }); await rm(outside, { recursive: true, force: true }); }
 });

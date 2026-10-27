@@ -10,6 +10,7 @@ import { ConfigurationError } from "../../shared/errors.js";
 import { SECRET_PATTERNS, isProtectedPath } from "./protected-path-policy.js";
 import { projectIndexPath } from "./project-index-path.js";
 import { readRegularFile, writeRegularFile, prepareSafeWriteTarget } from "./safe-object-open.js";
+import { pruneEmptyAncestorDirectories } from "./empty-directory-cleanup.js";
 const DEFAULT_SECRETS = SECRET_PATTERNS; const DEFAULT_IGNORE = [".forge/**", ".node-control/**", "node_modules/**", ".git/**", "dist/**", "coverage/**", ".next/**", ".next.stale-*/**", "**/.DS_Store", "**/._*"];
 const NODE_MODULES_PATH = /^node_modules(?:\/|$)/;
 // Creates a sandboxed FileService scoped to projectRoot with queued writes, secret-path filtering, and atomic/lock operations.
@@ -20,7 +21,7 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
   const secretMatch = picomatch(secretPatterns, { dot: true });
   const ignoreMatch = picomatch(watcherIgnore, { dot: true });
   let queue = Promise.resolve();
-  return Object.freeze({ writeFile, atomicCreate, atomicWrite, atomicWriteSync, appendFile, appendFileSync, createLock, createLockSync, readFile, readFileSync, readFileRangeSync, readForIndex, deleteFile, removeEmptyDirectory, renameFile, listFiles, listDirectories });
+  return Object.freeze({ writeFile, atomicCreate, atomicWrite, atomicWriteSync, appendFile, appendFileSync, createLock, createLockSync, readFile, readFileSync, readFileRangeSync, readForIndex, deleteFile, removeEmptyDirectory, renameFile, moveFile: renameFile, listFiles, listDirectories });
   function writeFile(input) {
     const job = queue.then(() => write(input));
     queue = job.catch((error) => { logCleanup("queued write", error); });
@@ -195,20 +196,18 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
     const sha256 = createHash("sha256").update(content).digest("hex");
     return Object.freeze({ path: rel, content, sha256: `sha256:${sha256}`, size_bytes: Buffer.byteLength(content, "utf8"), language: languageForPath(rel) });
   }
-  async function deleteFile({ path } = {}) { const rel = safePath(path, { write: true }); await unlink(resolve(root, rel)); internalBus?.emit?.("file.deleted", { path: rel }); return { path: rel, deleted: true }; }
+  async function deleteFile({ path } = {}) { const rel = safePath(path, { write: true }); await unlink(resolve(root, rel)); internalBus?.emit?.("file.deleted", { path: rel }); await pruneEmptyAncestorDirectories({ root, filePath: rel, internalBus }); return { path: rel, deleted: true }; }
   async function removeEmptyDirectory({ path } = {}) {
-    const rel = safePath(path, { write: true });
-    await rmdir(resolve(root, rel));
-    internalBus?.emit?.("directory.deleted", { path: rel });
+    const rel = safePath(path, { write: true }); try { await rmdir(resolve(root, rel)); internalBus?.emit?.("directory.deleted", { path: rel }); } catch (error) { if (error?.code !== "ENOENT") throw error; }
     return { path: rel, deleted: true };
   }
-  async function renameFile({ from, to } = {}) {
-    const source = safePath(from, { write: true });
-    const destination = safePath(to, { write: true });
+  async function renameFile({ from, to, from_path: fromPath, to_path: toPath } = {}) {
+    const source = safePath(from ?? fromPath, { write: true }), destination = safePath(to ?? toPath, { write: true });
     const job = queue.then(async () => {
       await mkdir(dirname(resolve(root, destination)), { recursive: true });
       await rename(resolve(root, source), resolve(root, destination));
       internalBus?.emit?.("file.renamed", { old_path: source, path: destination });
+      await pruneEmptyAncestorDirectories({ root, filePath: source, destinationPath: destination, internalBus });
       return { from: source, to: destination, renamed: true };
     });
     queue = job.catch((error) => { logCleanup("queued rename", error); });

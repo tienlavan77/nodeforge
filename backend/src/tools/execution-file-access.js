@@ -45,7 +45,7 @@ export function assertExecutionFileAccess(context) {
 export function executionFileAccessAllowed(path, context, operation = "read") {
   if (context.file_access_version === undefined && context.file_access_policy === undefined) return null;
   assertExecutionFileAccess(context);
-  if (!["read", "write"].includes(operation) || !canonical(path)) return false;
+  if (!["read", "write", "delete", "move"].includes(operation) || !canonical(path)) return false;
   try { assertRoleFileAccess(context.agent_identity.role, "read", path); }
   catch (error) { if (error.code === "FILE_ROLE_FORBIDDEN") return false; throw error; }
   const grant = context.file_access_policy;
