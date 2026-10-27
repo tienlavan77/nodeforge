@@ -98,6 +98,15 @@ test("negative cleanup cases preserve forbidden boundaries and block direct Code
     await assert.rejects(() => coderRoleFiles.deleteFile({ path: "workflows/flow.json" }), { code: "FILE_ROLE_FORBIDDEN" });
     await assert.rejects(() => coderRoleFiles.moveFile({ from_path: "workflows/flow.json", to_path: "src/flow.json" }), { code: "FILE_ROLE_FORBIDDEN" });
 
+    await mkdir(join(root, "src/old"), { recursive: true });
+    await writeFile(join(root, "src/old/AGENTS.md"), "# Nested governance\n");
+    await writeFile(join(root, "src/old/code.js"), "export const code = 1;\n");
+    await assert.rejects(() => seRoleFiles.moveFile({ from_path: "src/old", to_path: "src/new/relocated" }), { code: "FILE_ACCESS_UNSAFE_PATH" });
+    await assert.rejects(() => baseFiles.renameFile({ from: "src/old", to: "src/new/relocated" }), { code: "FILE_ACCESS_UNSAFE_PATH" });
+
+    assert.equal(await pathExists(join(root, "src/new")), false);
+    assert.equal(await pathExists(join(root, "src/old/AGENTS.md")), true);
+    assert.equal(await pathExists(join(root, "src/old/code.js")), true);
     assert.equal(await pathExists(join(root, ".env")), true);
     assert.equal(await pathExists(join(root, ".git/config")), true);
     assert.equal(await pathExists(join(root, "node_modules/pkg/index.js")), true);
