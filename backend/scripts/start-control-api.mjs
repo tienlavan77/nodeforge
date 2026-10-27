@@ -146,10 +146,15 @@ const ticketBlockerDecisionService = createTicketBlockerDecisionService({ projec
 
 // Sprint execution runs one level at a time, gating each ticket on its
 // predecessors' terminal ticket status via the execution event bus.
-const sprintDagRunner = createSprintDagRunner({ ticketStatusStore, sprintRegistry, eventBus: supervisorRuntime.eventBus, dispatchTask: ({ ticket, sprintBasis, dependencyExpectations }) => dispatchTicket({ projectId: ticket.project_id, ticketId: ticket.id, expectedSprintVersion: sprintBasis?.version, dependencyExpectations }), logEvent });
+const sprintDagRunner = createSprintDagRunner({ ticketStatusStore, sprintRegistry, eventBus: supervisorRuntime.eventBus, dispatchTask: async ({ ticket, sprintBasis, dependencyExpectations }) => {
+  const result = await dispatchTicket({ projectId: ticket.project_id, ticketId: ticket.id, expectedSprintVersion: sprintBasis?.version, dependencyExpectations });
+  return result.queued ? dispatchTicket.waitForLaunch(result.wait_id) : result;
+}, logEvent });
 const sprintLeaderIntake = createSprintLeaderIntakeService({ fileService, roadmaps, sprintRegistry, ticketStatusStore, logger: logEvent });
 
-const dispatchTicket = createTicketRunDispatch({ disposition: ticketPipelineDisposition, intake: sprintLeaderIntake, sprintRegistry, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, queueStore: supervisorRuntime.queueStore, protocolStorage, conversationStateStore, dispatchTask, coderRecovery: supervisorRuntime.coderRecovery, blockerRecovery: supervisorRuntime.blockerRecovery, resumeCompletedReview: supervisorRuntime.resumeCompletedReview, reconcileReviewDependencies: supervisorRuntime.reconcileReviewDependencies });
+const dispatchTicket = createTicketRunDispatch({ disposition: ticketPipelineDisposition, intake: sprintLeaderIntake, sprintRegistry, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, queueStore: supervisorRuntime.queueStore, protocolStorage, conversationStateStore, dispatchTask, coderRecovery: supervisorRuntime.coderRecovery, blockerRecovery: supervisorRuntime.blockerRecovery, resumeCompletedReview: supervisorRuntime.resumeCompletedReview, reconcileReviewDependencies: supervisorRuntime.reconcileReviewDependencies, agentResolver: agentRoleResolver, agentOccupancy, projectId, projectLogger: logEvent });
+workers.push(storage.disposal.own({ stop: dispatchTicket.close }, "stop", 10));
+dispatchTicket.start();
 // Reconciles a retained unknown-provider blocker stage so the owner can clear a stuck ticket and a later RUN may re-arm it.
 const ticketBlockerReconcileService = async ({ projectId: requestedProjectId, ticketId, actor } = {}) => {
   if (!supervisorRuntime.blockerRecovery?.reconcileTicket) throw Object.assign(new Error("Blocker reconciliation is unavailable."), { code: "BLOCKER_RECONCILE_UNAVAILABLE", statusCode: 409 });

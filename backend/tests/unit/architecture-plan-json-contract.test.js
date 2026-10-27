@@ -97,6 +97,18 @@ test("the rendered section-5 outcome table is accepted by the unchanged Markdown
   assert.equal(scope[0].guardrails.length, 1);
 });
 
+// Protects schema-valid alternatives in owner requirements from becoming table delimiters.
+test("literal pipes, code alternatives and multiline JSON stay within outcome cells", () => {
+  const candidate = plan();
+  candidate.outcomes[0] = { id: "O1", outcome: "Ideas open|done", acceptance_criteria: ["status=open|done|all", "code `open|done` and ``x|y``", "first line\nsecond line"], guardrails: ["Keep GET|PATCH stable"] };
+  const markdown = renderArchitecturePlanMarkdown({ plan: candidate, planId: "PLAN-A", revision: 1, sourceSha256: SHA });
+  const [scope] = readMarkdownSprintScope(markdown);
+  assert.equal(scope.outcome, "Ideas open|done");
+  assert.deepEqual(scope.acceptance_criteria, ["status=open|done|all", "code open|done and x|y", "first line<br>second line"]);
+  assert.deepEqual(scope.guardrails, ["Keep GET|PATCH stable"]);
+  assert.match(markdown, /status=open\\\|done\\\|all/);
+});
+
 test("RFC 7396 merge updates fields, deletes nested keys with null and replaces arrays wholesale", () => {
   const merged = mergeArchitecturePlanJSON(JSON.stringify(plan()), JSON.stringify({ outcomes: [{ id: "O1", outcome: "Replaced list", acceptance_criteria: ["Replaced"], guardrails: ["Replaced"] }], evidence: [{ path: "backend/src/shared/rfc7396-merge-patch.js", fact: "Merge is shared." }], risks: [] }));
   assert.equal(merged.outcomes[0].outcome, "Replaced list");

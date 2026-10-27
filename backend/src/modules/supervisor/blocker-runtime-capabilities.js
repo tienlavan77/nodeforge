@@ -7,11 +7,15 @@ import { isDeepStrictEqual } from "node:util";
  * their validation contract. Source eligibility is checked when invoked, not
  * inferred from these capability facts or from the agent's narrative. */
 export function blockerRuntimeCapabilities(workspace) {
-  return typeof workspace.gitService?.reconcileRestoredCommit === "function" ? {
+  return { ...(typeof workspace.gitService?.reconcileRestoredCommit === "function" ? {
     restored_ticket_commit: { version: 1, tool: "report_done", retry_tool: "commit_changes", input: "existing tool schemas; no extra recovery fields",
       behavior: "Reassociate the current ledger revision with its recorded same-ticket commit only when every ticket path matches the commit and live bytes. No new Git commit is created.",
       verification: "Current execution-context verification is still required; historical artifacts remain immutable and do not become current evidence automatically." }
-  } : {};
+  } : {}), ...(typeof workspace.testService?.recoverBaseline === "function" ? {
+    baseline_recovery: { version: 1, executor: "node", trigger: "retained VERIFY_BASELINE_UNAVAILABLE before SL/AM consultation",
+      input: "Original artifact, commit, source revision, recorded environment and unresolved verification-plan suffix",
+      behavior: "Node runs candidate and baseline in the recorded environment, preserves passing checks, completes remaining planned checks and returns receipts. No Coder claim, external operator or new Owner approval is needed for this existing runner operation. Missing source/environment remains a technical failure; a receipt never fabricates acceptance." }
+  } : {}) };
 }
 
 /** Returns a parked information request to SL after a real runtime capability

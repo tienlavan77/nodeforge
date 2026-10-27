@@ -8,9 +8,12 @@ import { reviewPhaseResume, reviewRevisionResume } from "../modules/supervisor/r
 import { assertDependencyExpectations, captureDependencyExpectations } from "../modules/supervisor/ticket-dependency-expectations.js";
 import { coderEvidenceResume } from "../modules/supervisor/coder-evidence-resume.js";
 import { approvedTicketDecisions } from "../modules/governance/plan-decision-requests.js";
+import { BLOCKER_RESUME_STATUSES } from "../modules/supervisor/blocker-resume-checkpoint.js";
+import { assertTicketCoderAvailable } from "../modules/supervisor/ticket-agent-availability.js";
+import { createTicketRunAgentWait } from "./ticket-run-agent-wait.js";
 
 // Creates one shared ticket RUN entry point so Sprint execution preserves all ticket gates.
-export function createTicketRunDispatch({ disposition, intake, sprintRegistry, ticketStatusStore, checkpoints, queueStore, protocolStorage, conversationStateStore, dispatchTask, coderRecovery, blockerRecovery, resumeCompletedReview, reconcileReviewDependencies }) {
+export function createTicketRunDispatch({ disposition, intake, sprintRegistry, ticketStatusStore, checkpoints, queueStore, protocolStorage, conversationStateStore, dispatchTask, coderRecovery, blockerRecovery, resumeCompletedReview, reconcileReviewDependencies, agentResolver, agentOccupancy, projectId, projectLogger, clock }) {
   const active = new Map();
   dispatchTicket.stop = ({ projectId, ticketId } = {}) => {
     if (blockerRecovery) return stopRecovery({ projectId, ticketId });
@@ -30,18 +33,23 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
     run.controller.abort(Object.assign(new Error("Ticket stopped by owner."), { code: "TICKET_STOPPED" }));
     return { ticket_id: ticketId, status: "stopping" };
   }
-  return dispatchTicket;
-  async function dispatchTicket({ projectId, ticketId, fresh = false, expectedSprintVersion, dependencyExpectations, commitAuthorization } = {}) {
+  return queueStore?.withLock ? createTicketRunAgentWait({ dispatch: dispatchTicket, queueStore, ticketStatusStore, projectId, projectLogger, clock }) : dispatchTicket;
+  async function dispatchTicket({ projectId, ticketId, fresh = false, expectedSprintVersion, dependencyExpectations, commitAuthorization, expectedExecutionBasis, waitSignal, waitGuard, waitVersion } = {}) {
     if (commitAuthorization && fresh) throw failure("COMMIT_AUTHORIZATION_SCOPE", "Commit consent resumes the retained checkpoint; fresh RUN is not allowed.");
     dependencyExpectations = dependencyExpectations === undefined ? undefined : structuredClone(dependencyExpectations);
     if (active.has(ticketId)) return { ticket_id: ticketId, status: "already_running", pipeline: "supervisor" };
     const controller = new AbortController();
+    // Carries Owner Stop from the durable wait reservation into the ordinary RUN cancellation boundary.
+    const stopWaiting = () => controller.abort(waitSignal.reason);
+    if (waitSignal?.aborted) stopWaiting();
+    waitSignal?.addEventListener("abort", stopWaiting, { once: true });
     active.set(ticketId, { projectId, controller });
     try {
       if ((await disposition.get(ticketId))?.disposition === "cancelled") throw failure("TICKET_CANCELLED", "This historical ticket was cancelled by the project owner and cannot be resumed.");
       const { ticket } = await intake.open({ projectId, ticketId });
       if (!sprintRegistry.get(ticket.sprint_id)) throw failure("SPRINT_PLAN_REQUIRED", "Ticket sprint has no approved plan in the sprint registry.");
       const { sprint: sprintBasis, plan } = await sprintRegistry.assertReady(ticket.sprint_id, { expectedVersion: expectedSprintVersion });
+      if (expectedExecutionBasis && (!sameExecutionPlan(expectedExecutionBasis, sprintBasis) || expectedExecutionBasis.version !== sprintBasis.version)) throw failure("TICKET_EXECUTION_RECONCILIATION_REQUIRED", "Queued RUN no longer matches its approved Sprint revision.");
       assertApprovedTicket(plan, ticket);
       const ownerDecisions = approvedTicketDecisions(plan, ticketId);
       if (ownerDecisions.length) {
@@ -52,6 +60,7 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
       if (sprintBasis && dependencyExpectations === undefined) dependencyExpectations = await captureDependencyExpectations({ projectId, ticket, sprintRegistry, ticketStatusStore });
       assertDependencyExpectations({ projectId, ticket, expectations: dependencyExpectations, sprintRegistry, ticketStatusStore });
       let current = ticketStatusStore.get(ticketId);
+      if (waitVersion !== undefined && current?.version !== waitVersion) throw failure("STATUS_CONFLICT", "Queued RUN ticket state was replaced before dispatch.");
       if (current?.project_id === projectId && await blockerRecovery?.hasPending({ projectId, taskId: ticketId, executionId: current.details?.execution_id })) return { ticket_id: ticketId, status: "already_running", pipeline: "supervisor", reason: "blocker_recovery_pending" };
       if (current?.project_id === projectId && ["running", "reviewing"].includes(current.status) && await coderRecovery?.hasPending({ projectId, taskId: ticketId, executionId: current.details?.execution_id })) return { ticket_id: ticketId, status: "already_running", pipeline: "supervisor", reason: "operational_recovery_pending" };
       if (current?.status === "cancelled") throw failure("TICKET_CANCELLED", "Cancelled tickets cannot run.");
@@ -76,7 +85,7 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
         if (!blockerRecovery?.fulfillOwnerDecision) throw failure("BLOCKER_GOVERNANCE_UNAVAILABLE", "Architecture handoff is required before Coder can resume.");
         return await blockerRecovery.fulfillOwnerDecision({ projectId, ticketId });
       }
-      if (!fresh && storedCheckpoint?.status === "blocked" && ["cancelled", "reconciliation_required"].includes(storedCheckpoint.blocker_recovery?.status) && typeof blockerRecovery?.resumeTicket === "function") {
+      if (!fresh && storedCheckpoint?.status === "blocked" && BLOCKER_RESUME_STATUSES.includes(storedCheckpoint.blocker_recovery?.status) && typeof blockerRecovery?.resumeTicket === "function") {
         return await blockerRecovery.resumeTicket({ projectId, ticketId, ...(commitAuthorization ? { commitAuthorization } : {}) });
       }
       if (commitAuthorization) throw failure("COMMIT_AUTHORIZATION_SCOPE", "Commit consent requires a retained blocker recovery checkpoint.");
@@ -96,11 +105,21 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
       const reviewResume = !fresh && checkpoint?.status === "completed" ? reviewPhaseResume(checkpoint, reviewerCheckpoint) : null;
       if (controller.signal.aborted) throw controller.signal.reason;
       if (reviewResume) await assertAutomaticReviewResume(queueStore, ticketId, current?.details?.execution_id);
+      const ticketRunWait = { expectedSprintVersion: sprintBasis?.version, expectedExecutionBasis: sprintBasis, dependencyExpectations, expectedTicketVersion: current?.version ?? 0 };
+      if (!resume && !reviewResume) {
+        await agentResolver?.refresh?.();
+        try { assertTicketCoderAvailable({ resolver: agentResolver, occupancy: agentOccupancy, ticket, taskId: ticketId, ownerId: `SUP-${ticketId}` }); }
+        catch (error) { error.ticket_run_wait = ticketRunWait; throw error; }
+      }
+      await waitGuard?.();
+      if (controller.signal.aborted) throw controller.signal.reason;
       const retainExecution = Boolean((reviewResume || resume) && ticketStatusStore.resumeReviewExecution && matchesTicketExecution(current, current?.details?.execution_id, sprintBasis));
       const executionId = retainExecution ? current.details.execution_id : sprintBasis && ticketStatusStore.beginExecution ? `RUN-${randomUUID()}` : null;
       if (executionId) {
         await sprintRegistry.assertReady(ticket.sprint_id, { expectedVersion: sprintBasis.version });
         assertDependencyExpectations({ projectId, ticket, expectations: dependencyExpectations, sprintRegistry, ticketStatusStore });
+        await waitGuard?.();
+        if (controller.signal.aborted) throw controller.signal.reason;
         if (retainExecution) ticketStatusStore.resumeReviewExecution(ticketId, { executionId, basis: sprintBasis, expectedVersion: current.version, dependencyExpectations, ...(resume ? { reason: "coder_resume" } : {}),
           validate: () => assertDependencyExpectations({ projectId, ticket, expectations: dependencyExpectations, sprintRegistry, ticketStatusStore }) });
         else ticketStatusStore.beginExecution(ticketId, { executionId, basis: sprintBasis, expectedVersion: current?.version ?? 0, fresh, dependencyExpectations });
@@ -108,12 +127,16 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
       const correlationId = `CORR-UI-RUN-${ticketId}-${Date.now()}`;
       let result;
       try {
+        await waitGuard?.();
+        if (controller.signal.aborted) throw controller.signal.reason;
         if (!resume && !reviewResume) {
           await checkpoints.clear(ticketId);
           await protocolStorage.clearTask(ticketId);
           await conversationStateStore.clear(`CONV-BUILDER-${projectId}-${ticketId}`);
         }
         assertDependencyExpectations({ projectId, ticket, expectations: dependencyExpectations, sprintRegistry, ticketStatusStore });
+        await waitGuard?.();
+        if (controller.signal.aborted) throw controller.signal.reason;
         result = await dispatchTask({ ticket, sprintBasis, executionId, dependencyExpectations, message: { id: `REQ-${ticketId}-${Date.now()}`, correlation_id: correlationId }, abortSignal: controller.signal, ...(resume ? { resume_from: resume } : {}), ...(reviewResume ? { review_resume: reviewResume } : {}) });
         if (controller.signal.aborted) throw controller.signal.reason;
       } catch (error) {
@@ -122,10 +145,13 @@ export function createTicketRunDispatch({ disposition, intake, sprintRegistry, t
           try { ticketStatusStore.updateStatus(ticketId, "failed", { reason: "ticket_dispatch_failed", error: error.message }, executionId ? { expectedVersion: failed.version, expectedExecutionId: executionId } : {}); }
           catch (statusError) { if (statusError.code !== "STATUS_CONFLICT") throw statusError; error.execution_status_conflict = statusError.message; }
         }
+        const parked = ticketStatusStore.get(ticketId);
+        if (!resume && !reviewResume && error.code === "AGENT_BUSY" && !error.execution_status_conflict
+          && (!executionId || matchesTicketExecution(parked, executionId, sprintBasis))) error.ticket_run_wait = { ...ticketRunWait, expectedTicketVersion: parked?.version };
         throw error;
       }
       return { ticket_id: ticketId, ...(executionId ? { execution_id: executionId } : {}), supervisor_id: result.supervisor_id, status: result.status === "completed" ? "completed" : result.status === "already_running" ? "already_running" : result.status === "needs_human_review" ? "needs_human_review" : "accepted", pipeline: "supervisor", ...(resume || reviewResume ? { resumed: true, resumed_from_turn: checkpoint?.last_completed_turn ?? 0 } : {}) };
-    } finally { active.delete(ticketId); }
+    } finally { waitSignal?.removeEventListener("abort", stopWaiting); active.delete(ticketId); }
   }
 }
 

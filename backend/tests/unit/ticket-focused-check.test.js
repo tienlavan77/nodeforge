@@ -106,3 +106,22 @@ test("post-verification focused checks reuse the recorded environment across wor
   await assert.rejects(createTicketFocusedCheck(options)({ type: "test", command: "node --test backend/tests/unit/example.test.js" }), { code: "VERIFY_CHECK_IDENTITY_MISMATCH" });
   assert.equal(calls.length, 2);
 });
+
+// Explicit Coder intent must reach execution and survive for final verification
+// without converting the focused receipt into acceptance or creating a commit.
+test("Coder requests a runner explicitly and persists its environment and receipt", async () => {
+  const { options, context, writes } = fixture();
+  const calls = [];
+  const runtime = { type: "filesystem_namespace", receipt_path: "/receipt", manifest_sha256: "a".repeat(64) };
+  options.executionContexts.update = async (_task, version, patch) => { assert.equal(version, context.version); Object.assign(context, patch); };
+  options.runCommand = async input => { calls.push(input); return { exit_code: 0, stdout: "passed", runtime_environment: runtime }; };
+  const run = createTicketFocusedCheck(options);
+  const result = await run({ type: "test", command: "node --test backend/tests/unit/example.test.js", environment: "filesystem_namespace" });
+  assert.equal(calls[0].environment, "filesystem_namespace"); assert.equal(calls[0].projectRoot, "/repo");
+  assert.deepEqual(result.runtime_environment, runtime);
+  assert.equal(context.verification_runner_environment, "filesystem_namespace"); assert.equal(context.state, "committed");
+  assert.deepEqual(JSON.parse(writes[0].content).runtime_environment, runtime);
+  for (const environment of ["arbitrary", { command: "sudo mount" }]) await assert.rejects(run({ type: "test", command: "node --test backend/tests/unit/example.test.js", environment }), { code: "VERIFY_ENVIRONMENT_INVALID" });
+  await assert.rejects(run({ type: "lint", command: "node eslint.js", environment: "filesystem_namespace" }), { code: "VERIFY_ENVIRONMENT_INVALID" });
+  assert.equal(calls.length, 1);
+});

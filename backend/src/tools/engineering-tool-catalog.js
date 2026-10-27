@@ -5,12 +5,16 @@ import { rgFilesDefinition, rgSearchDefinition, sedLinesDefinition } from "./age
 import { ownerSearchTreeDefinition } from "./owner-search-tree.js";
 import { runCheckDefinition, commitChangesDefinition, pushCommitDefinition } from "./owner-engineer-tools.js";
 
+import { verificationRunnerEnvironmentSchema } from "../modules/supervisor/verification-runner-environment.js";
 import { ENGINEERING_CATALOG_VERSION, ENGINEERING_TOOL_NAMES } from "./engineering-tool-names.js";
 export { ENGINEERING_CATALOG_VERSION, ENGINEERING_TOOL_NAMES, ENGINEERING_ALIASES, CODER_TOOL_NAMES } from "./engineering-tool-names.js";
 
 // Adds ticket completion to the same engineering tools supplied to System Engineer.
 export function coderToolDefinitions() {
-  return [...engineeringToolDefinitions(), reportDoneDefinition, respondToReviewDefinition, queryReviewDefinition];
+  return [...engineeringToolDefinitions().map((tool) => tool.name === "run_check" ? { ...tool,
+    description: tool.description + " Coder may request environment=filesystem_namespace for real filesystem fixtures; Node manages the runner.",
+    input_schema: { ...tool.input_schema, properties: { ...tool.input_schema.properties, environment: verificationRunnerEnvironmentSchema } } } : tool),
+    reportDoneDefinition, respondToReviewDefinition, queryReviewDefinition];
 }
 
 // Returns provider-neutral descriptors without granting repository or ticket permissions.

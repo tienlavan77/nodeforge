@@ -42,13 +42,15 @@ export function createOpenAiSdkGateway({ providerFactory, runner = createTracing
       };
       if (normalized.reasoning.effort !== "none") agentOptions.modelSettings = { reasoning: { effort: normalized.reasoning.effort } };
       const openaiAgent = new AgentClass(agentOptions);
-      const result = await runner(openaiAgent, prompt, { modelProvider: provider, signal: controller.signal, maxTurns: null, tracingDisabled: true });
+      const input = Array.isArray(options.history) ? [...options.history, { role: "user", content: prompt }] : prompt;
+      const result = await runner(openaiAgent, input, { modelProvider: provider, signal: controller.signal, maxTurns: null, tracingDisabled: true });
       return {
         agent_id: normalized.agent_id,
         agent_name: normalized.agent_name,
         role: normalized.role,
         correlation_id: correlationId,
         status: "completed",
+        ...(options.retainHistory ? { turn_completed: true, history: result.history } : {}),
         text: extractText(result?.finalOutput)
       };
     } catch (error) {

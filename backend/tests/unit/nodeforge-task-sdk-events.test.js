@@ -28,6 +28,19 @@ test("a resumed report accepts persisted successful edit and commit turns", () =
   assert.throws(() => assertTicketExecutionCompleted([{ tool: "read_file", status: "success" }], { priorTools: ["edit_diff", "commit_changes", "report_done"] }), (error) => error.code === "AGENT_REPORT_MISSING");
 });
 
+test("a successful governed report does not require duplicate edit or commit tool calls", () => {
+  for (const priorTools of [[], ["edit_diff"], ["edit_diff", "run_check"], ["edit_diff", "report_done"]]) {
+    assert.doesNotThrow(() => assertTicketExecutionCompleted([{ tool: "report_done", status: "success" }], { priorTools }));
+  }
+});
+
+test("Claude report submission requires a matching successful result, not just a tool invocation", () => {
+  const messages = [{ content: [{ type: "tool_use", id: "report", name: "mcp__forge__report_done" }] }];
+  assert.throws(() => assertTicketExecutionCompleted(collectToolCalls(messages)), { code: "REPORT_RESULT_MISSING" });
+  messages.push({ content: [{ type: "tool_result", tool_use_id: "report", content: "Completion report recorded." }] });
+  assert.doesNotThrow(() => assertTicketExecutionCompleted(collectToolCalls(messages)));
+});
+
 test("Claude flattened and MCP text results preserve the original report failure through Supervisor", () => {
   const diagnostic = { error_code: "VERIFY_BROWSER_SCENARIO_REQUIRED", message: "Approved browser assertions have no registered Node-owned scenario." };
   for (const content of [JSON.stringify(diagnostic), [{ type: "text", text: JSON.stringify(diagnostic) }]]) {

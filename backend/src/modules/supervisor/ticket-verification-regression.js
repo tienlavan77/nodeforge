@@ -4,6 +4,7 @@ import { captureVerificationEnvironment } from "./ticket-verification-environmen
 import { materializeTicketVerification } from "./ticket-verification-materialization.js";
 import { browserCommandOutput } from "./browser-verification-evidence.js";
 import { verificationFailureIdentity } from "./verification-failure-identity.js";
+import { collectVerificationFailures } from "./ticket-verification-output.js";
 
 // Binds command output and failure identities to their recorded content.
 const digest = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
@@ -31,8 +32,16 @@ export function regressionFailureIdentity(command, output, cwd) {
   if (/ENOSPC|no space left on device|ETIMEDOUT|ECONNRESET|cpu overloaded|\b503\b/i.test(`${stdout}\n${stderr}`)) return null;
   if (command.test_paths) {
     let events;
-    try { events = stdout.trim().split("\n").map((line) => JSON.parse(line)); }
-    catch (error) { if (error instanceof SyntaxError) return null; throw error; }
+    if (output.failure_evidence) {
+      const evidence = output.failure_evidence;
+      if (evidence.version !== 1 || evidence.complete !== true || evidence.transient_failure || !Array.isArray(evidence.events)
+        || evidence.events.some(event => !event || typeof event !== "object" || !["failure", "summary"].includes(event.type))
+        || evidence.visible_output_sha256 !== digest(JSON.stringify([output.stdout_redacted, output.stderr_redacted]))) return null;
+      events = evidence.events.map(event => JSON.parse(normalize(JSON.stringify(event))));
+    } else {
+      try { events = stdout.trim().split("\n").map((line) => JSON.parse(line)); }
+      catch (error) { if (error instanceof SyntaxError) return null; throw error; }
+    }
     const summary = events.findLast((entry) => entry.type === "summary");
     const failures = events.filter((entry) => entry.type === "failure");
     if (!summary || summary.failed < 1 || summary.cancelled !== 0 || failures.length !== summary.failed || failures.some((entry) => !entry.error?.message)) return null;
@@ -50,10 +59,14 @@ export async function runTicketVerificationCommands({ commands, context, project
   // Records redacted command receipts consistently for ticket and baseline execution.
   async function execute(command, root, tempDir) {
     const started = Date.now();
-    const output = browserCommandOutput(command, await runCommand({ ...command, cwd: root, tempDir, timeoutMs: command.kind === "backend_tests" ? 900_000 : 300_000 }));
+    const output = browserCommandOutput(command, await runCommand({ ...command, projectRoot, cwd: root, tempDir, timeoutMs: command.kind === "backend_tests" ? 900_000 : 300_000 }));
     const stdout = safeOutput(output.stdout);
     const stderr = safeOutput(output.stderr);
+    const evidence = command.test_paths && command.argv.some(arg => arg.includes("ticket-verification-reporter.js"))
+      ? output.failure_evidence ?? collectVerificationFailures(output.stdout, output.stderr) : null;
     return { ...command, cwd: root, exit_code: output.exit_code, duration_ms: Date.now() - started, stdout_redacted: stdout, stderr_redacted: stderr,
+      ...(evidence ? { failure_evidence: { ...evidence, visible_output_sha256: digest(JSON.stringify([stdout, stderr])) } } : {}),
+      ...(output.runtime_environment ? { runtime_environment: output.runtime_environment } : {}),
       ...(output.browser_evidence ? { browser_evidence: output.browser_evidence } : {}),
       output_sha256: output.output_sha256 ?? digest(`${stdout}\0${stderr}`), output_digest_scope: output.output_sha256 ? "full_stream" : "redacted_output" };
   }

@@ -17,8 +17,8 @@
 // classification, never a new intent value. Prompt prefixes keep the existing
 // "Architecture clarification discovery" contract so streaming content types are unchanged.
 import { randomUUID } from "node:crypto";
-import { architectureSessionFromRecord, canonicalizeArchitecturePlanJSON, mergeArchitecturePlanJSON, parseArchitecturePlanJSON, renderArchitecturePlanMarkdown } from "../modules/governance/architecture-plan-json.js";
-import { readConversationPlanSource, retainConversationIntakeSource, retainConversationPlanSource } from "../modules/governance/conversation-plan-source.js";
+import { architectureSessionFromRecord, canonicalArchitecturePlanSha256, canonicalizeArchitecturePlanJSON, mergeArchitecturePlanJSON, parseArchitecturePlanJSON, renderArchitecturePlanMarkdown } from "../modules/governance/architecture-plan-json.js";
+import { readConversationPlanSource, readRetainedConversationPlanSource, retainConversationIntakeSource, retainConversationPlanSource } from "../modules/governance/conversation-plan-source.js";
 import { assertNoMixedPlanningApproval, detectPlanCreateTrigger, detectPlanUpdateTrigger, isConversationPlanMessage } from "../modules/governance/conversation-plan-trigger.js";
 import { appendArchitectureDecisions, architectureSelections, decisionError, readArchitectureDecisions } from "../modules/governance/architecture-owner-decisions.js";
 import { parseArchitectureQuestions } from "../modules/governance/architecture-question-response.js";
@@ -74,9 +74,9 @@ export function createConversationPlanningService({ projectId, fileService, mark
     const baseBytes = await readConversationPlanSource({ fileService, path: target.source_path, sha256: target.source_sha256 });
     const merged = await requestMergedPatch({ text, conversationId, baseBytes, planId: target.plan_id });
     const revision = target.revision + 1;
-    const anchor = await retainFencedPlanSource({ planId: target.plan_id, baseRevision: target.revision, revision, canonicalBytes: canonicalizeArchitecturePlanJSON(merged) });
-    const baseMarkdown = renderArchitecturePlanMarkdown({ plan: merged, planId: target.plan_id, revision, sourceSha256: anchor.sha256 });
+    const baseMarkdown = renderArchitecturePlanMarkdown({ plan: merged, planId: target.plan_id, revision, sourceSha256: canonicalArchitecturePlanSha256(merged) });
     await validateMarkdown(baseMarkdown);
+    const anchor = await retainFencedPlanSource({ planId: target.plan_id, baseRevision: target.revision, revision, canonicalBytes: canonicalizeArchitecturePlanJSON(merged) });
     const previous = await markdownPlanStore.getRevision({ planId: target.plan_id, revision: target.revision });
     const decisionSession = carriedSession(previous.markdown) ?? { session_id: `${target.plan_id}-R${revision}`, source_path: anchor.path, source_sha256: anchor.sha256, owner_id: null, confirmed_at: null, questions: [], selections: {}, notes: {} };
     const stored = await markdownPlanStore.createRevision({ planId: target.plan_id, expectedRevision: target.revision, markdown: appendArchitectureDecisions(baseMarkdown, decisionSession), summaryPath: anchor.path, summarySha256: anchor.sha256, conversationId });
@@ -145,12 +145,12 @@ export function createConversationPlanningService({ projectId, fileService, mark
       await sessions.source(session);
       await save({ status: "generating", process_pid: process.pid, error_code: null });
       const decisions = (session.questions ?? []).map((question) => ({ question: question.title, reason: question.reason, selected: question.options.find((option) => option.id === (session.selections ?? {})[question.id]), owner_note: session.notes?.[question.id] ?? "" }));
-      const raw = String(await requestArchitecture(generationPrompt(sourceText, decisions), session.conversation_id ?? "", { responseContentType: "text/plain" }) ?? "").trim();
-      const plan = parseArchitecturePlanJSON(raw);
+      const retained = await readRetainedConversationPlanSource({ fileService, planId, revision: 1 });
+      const plan = retained ?? parseArchitecturePlanJSON(String(await requestArchitecture(generationPrompt(sourceText, decisions), session.conversation_id ?? "", { responseContentType: "text/plain" }) ?? "").trim());
       await sessions.source(session);
-      const anchor = await retainConversationPlanSource({ fileService, planId, revision: 1, canonicalBytes: canonicalizeArchitecturePlanJSON(plan) });
-      const baseMarkdown = renderArchitecturePlanMarkdown({ plan, planId, revision: 1, sourceSha256: anchor.sha256 });
+      const baseMarkdown = renderArchitecturePlanMarkdown({ plan, planId, revision: 1, sourceSha256: canonicalArchitecturePlanSha256(plan) });
       await validateMarkdown(baseMarkdown);
+      const anchor = await retainConversationPlanSource({ fileService, planId, revision: 1, canonicalBytes: canonicalizeArchitecturePlanJSON(plan) });
       const stored = await markdownPlanStore.createRevision({ planId, expectedRevision: 0, markdown: appendArchitectureDecisions(baseMarkdown, session), summaryPath: anchor.path, summarySha256: anchor.sha256, conversationId: session.conversation_id ?? null });
       const result = createdResult(stored, session);
       await save({ status: "completed", result });

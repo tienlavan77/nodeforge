@@ -11,6 +11,29 @@ import { createCommittedReviewSource } from "../../src/modules/supervisor/review
 import { createAutomaticReviewWorkerResolver } from "../../src/modules/supervisor/automatic-review-source.js";
 import { createExecutionEventBus } from "../../src/modules/supervisor/execution-event-bus.js";
 
+// Reviewer intent must reach Node with the original commit and dependencies;
+// changing runner requirements must not reuse a different environment's receipt.
+test("Reviewer runner request is delivered exactly and separates receipt identities", async () => {
+  const f = await reviewVerificationFixture();
+  try {
+    const commands = [];
+    const service = createReviewVerificationService({ ...f.options, runCommand: async input => {
+      commands.push(input);
+      return { ...await f.options.runCommand(input), runtime_environment: { type: input.environment, receipt_path: "/namespace/receipt.json" } };
+    } });
+    const input = { artifact: f.artifact, executionId: "EXECUTION-1" };
+    const [namespace] = await service({ ...input, requests: [{ ...f.request, environment: "filesystem_namespace" }] });
+    const [ordinary] = await service({ ...input, requests: [{ ...f.request, environment: "project" }] });
+    assert.equal(commands[0].environment, "filesystem_namespace"); assert.equal(commands[0].projectRoot, f.root);
+    assert.equal(commands[1].environment, "project");
+    assert.notEqual(namespace.check_id, ordinary.check_id);
+    assert.equal(namespace.commit_sha, f.artifact.commit_sha); assert.deepEqual(namespace.environment, f.artifact.environment);
+    assert.equal(namespace.commands[0].runtime_environment.type, "filesystem_namespace");
+    await assert.rejects(service({ ...input, requests: [{ ...f.request, environment: "privileged_shell" }] }), { code: "REVIEW_VERDICT_INVALID" });
+    assert.equal(commands.length, 2);
+  } finally { await f.close(); }
+});
+
 test("review checks use the recorded commit/environment and reuse receipts across duplicates and restart", async () => {
   const f = await reviewVerificationFixture();
   try {

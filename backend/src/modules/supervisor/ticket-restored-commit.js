@@ -22,6 +22,7 @@ export async function reconcileRestoredTicketCommit({ taskId, projectId, manifes
   if (!paths.length || !revisions.length || manifest.pending_commit || manifest.state === "closed") return null;
   const revision = revisions[0], commit = manifest.commits[revision];
   const previous = await loadJournal(revision);
+  if (previous?.reconciliation === "inherited_source") return null;
   if (!previous || previous.task_id !== taskId || previous.project_id !== projectId || previous.revision !== revision
     || previous.phase !== "receipt_persisted" || previous.commit_sha !== commit || !previous.path_checksums || !Array.isArray(previous.changed_paths)) throw conflict();
   const checksums = Object.fromEntries(paths.map((path) => [path, manifest.entries[path].latest_sha]));

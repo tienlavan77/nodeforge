@@ -30,7 +30,8 @@ export function createReviewVerificationService({ taskId, projectId, projectRoot
       const identity = { project_id: projectId, task_id: taskId, execution_id: executionId, artifact_id: artifact.artifact_id,
         commit_sha: artifact.commit_sha, source_revision: artifact.source_revision, manifest_sha: artifact.manifest_sha,
         environment_sha256: artifact.environment.sha256, finding_ids: [...request.finding_ids].sort(),
-        criterion_ids: [...request.criterion_ids].sort(), test_paths: [...request.test_paths].sort(), scope: request.scope };
+        criterion_ids: [...request.criterion_ids].sort(), test_paths: [...request.test_paths].sort(), scope: request.scope,
+        ...(request.environment ? { runner_environment: request.environment } : {}) };
       const id = `CHECK-${digest(JSON.stringify(identity))}`;
       if (!active.has(id)) {
         const promise = execute(id, identity, request, artifact, signal, assertActive);
@@ -75,9 +76,9 @@ export function createReviewVerificationService({ taskId, projectId, projectRoot
       await assertSource(archive.path, artifact.file_checksums);
       const context = { base_sha: artifact.base_sha, review_commit_sha: artifact.commit_sha, manifest_paths: Object.keys(artifact.file_checksums) };
       const commands = [{ kind: "backend_tests", scope: request.scope, reason: request.reason, test_paths: identity.test_paths,
-        criterion_ids: identity.criterion_ids, argv: [process.execPath, "--test", `--test-reporter=${fileURLToPath(new URL("./ticket-verification-reporter.js", import.meta.url))}`, ...identity.test_paths] }];
+        criterion_ids: identity.criterion_ids, environment: request.environment, argv: [process.execPath, "--test", `--test-reporter=${fileURLToPath(new URL("./ticket-verification-reporter.js", import.meta.url))}`, ...identity.test_paths] }];
       const results = await runTicketVerificationCommands({ commands, context, projectRoot, sourceRoot: archive.path, archive, environment,
-        runCommand: async (input) => { signal?.throwIfAborted(); await assertActive(); return runCommand({ ...input, signal }); },
+        runCommand: async (input) => { signal?.throwIfAborted(); await assertActive(); return runCommand({ ...input, signal, projectRoot }); },
         safeOutput, projectLogger, taskId });
       signal?.throwIfAborted(); await assertActive();
       await assertSource(archive.path, artifact.file_checksums); await archive.assertEnvironment();

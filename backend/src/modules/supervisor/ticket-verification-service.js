@@ -1,7 +1,6 @@
 // Verifies the exact ticket commit and persists safe evidence across Control API restarts.
 import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { randomUUID, createHash } from "node:crypto";
-import { spawn } from "node:child_process";
 import { readFile, readlink } from "node:fs/promises";
 import { join } from "node:path";
 import { ConfigurationError } from "../../shared/errors.js";
@@ -18,7 +17,10 @@ import { runTicketVerificationCommands, verificationCommandAccepted } from "./ti
 import { createTicketVerificationDiagnostic } from "./ticket-verification-diagnostic.js";
 import { createReviewVerificationService } from "./review-verification-service.js";
 import { createTicketReportChecks } from "./ticket-report-checks.js";
-import { filesystemVerificationCommand } from "./filesystem-verification-command.js";
+import { executeTicketVerificationCommand } from "./ticket-verification-command.js";
+import { redactVerificationText } from "./ticket-verification-output.js";
+import { ticketVerificationResult, ticketFocusedCheckResult } from "./ticket-verification-result.js";
+import { createTicketBaselineRecovery } from "./ticket-baseline-recovery.js";
 
 const ROOT = statePath("ticket-verification");
 const POLICY_VERSION = "ticket-verification-v8";
@@ -27,7 +29,7 @@ const fail = (code, message) => Object.assign(new ConfigurationError(message), {
 const sha = (content) => `sha256:${createHash("sha256").update(content).digest("hex")}`;
 
 // Runs policy-selected checks in a ticket worktree and writes immutable artifact files.
-export function createTicketVerificationService({ taskId, projectId, projectRoot, worktreeRoot, worktreeFileService, stateFileService, gitService, ledger, executionContexts, rootOnly = false, resumeReviewSource, projectLogger = () => {}, runCommand = executeCommand } = {}) {
+export function createTicketVerificationService({ taskId, projectId, projectRoot, worktreeRoot, worktreeFileService, stateFileService, gitService, ledger, executionContexts, rootOnly = false, resumeReviewSource, projectLogger = () => {}, runCommand = executeTicketVerificationCommand } = {}) {
   if (!/^[A-Za-z0-9._:-]+$/.test(taskId ?? "") || !projectId || !worktreeRoot || !worktreeFileService?.readFile || !stateFileService?.atomicWrite || !gitService?.getHead || !ledger?.snapshot || !executionContexts?.load) throw fail("CONFIGURATION_ERROR", "Ticket verification requires worktree, ledger, Git, and context persistence.");
   const jobs = new Map();
   const rootGit = rootOnly ? createTicketRootGit({ projectRoot }) : null;
@@ -42,7 +44,11 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
     loadCheck: (id) => loadJson(checkPath(id)), saveArtifact: saveReportArtifact, assertIdentity });
   const getFailureDiagnostic = createTicketVerificationDiagnostic({ loadContext: () => executionContexts.load(taskId), loadArtifact,
     latestJob: async (context) => latestTicketVerificationAttempt({ projectRoot, taskId, context, policyVersion: POLICY_VERSION, matchRunnerRevision: false, loadJob: (id) => loadJson(jobPath(id)) }) });
-  return Object.freeze({ runCheck, runReviewVerification, startTests, getTestResult, loadArtifact, assertPassedArtifact, ensurePassedArtifact, prepareReportEvidence: reportChecks.prepareReportEvidence, assertCleanWorktree, getFailureDiagnostic });
+  const recoverBaseline = createTicketBaselineRecovery({ taskId, projectId, projectRoot, stateFileService, loadContext: () => executionContexts.load(taskId),
+    updateContext: (version, changes) => executionContexts.update(taskId, version, changes), loadArtifact, saveArtifact: saveReportArtifact, saveJob, assertIdentity,
+    policyVersion: POLICY_VERSION, runCommand, safeOutput, projectLogger,
+    latestJob: (context) => latestTicketVerificationAttempt({ projectRoot, taskId, context, matchRunnerRevision: false, loadJob: (id) => loadJson(jobPath(id)) }) });
+  return Object.freeze({ runCheck, runReviewVerification, recoverBaseline, startTests, getTestResult, loadArtifact, assertPassedArtifact, ensurePassedArtifact, prepareReportEvidence: reportChecks.prepareReportEvidence, assertCleanWorktree, getFailureDiagnostic });
 
   // Starts a durable verification job only after the ticket commit is recorded.
   async function startTests() {
@@ -58,8 +64,9 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
     if (context?.state !== "committed" || !context.review_commit_sha) throw fail("TICKET_COMMIT_REQUIRED", "Commit ticket changes before running final verification.");
     await assertIdentity(context);
     const environment = rootOnly ? await captureVerificationEnvironment({ projectRoot, ticketPaths: context.manifest_paths }) : null;
-    const runner = await ticketVerificationRunnerRevision(context.verification_plan);
-    const runnerRevision = environment ? JSON.stringify([runner, environment.sha256]) : runner;
+    const runner = await ticketVerificationRunnerRevision(context.verification_plan, { environment: context.verification_runner_environment });
+    const revision = environment ? JSON.stringify([runner, environment.sha256]) : runner;
+    const runnerRevision = context.verification_runner_environment ? JSON.stringify([revision, context.verification_runner_environment]) : revision;
     const previous = await latestTicketVerificationAttempt({ projectRoot, taskId, context, policyVersion: POLICY_VERSION, runnerRevision, loadJob: (id) => loadJson(jobPath(id)) });
     if (previous?.status === "failed" && previous.attempt >= MAX_SAME_REVISION_ATTEMPTS) throw fail("VERIFY_RETRY_UNCHANGED", `Verification failed ${MAX_SAME_REVISION_ATTEMPTS} times for this commit, source revision, and runner revision. Last failure: ${previous.error?.code ?? "VERIFY_FAILED"}. Repair the reported cause; unchanged retries are blocked, but project environment or browser runner repairs do not require ticket code changes.`);
     if (previous?.status === "running") {
@@ -87,7 +94,7 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
       const check = await loadJson(checkPath(jobId));
       if (!check) throw fail("TEST_JOB_NOT_FOUND", "Focused check receipt was not found.");
       if (check.task_id && check.task_id !== taskId) throw fail("TEST_JOB_FORBIDDEN", "Focused check receipt belongs to another ticket.");
-      return { ...check, job_id: check.check_id, stdout_redacted: safeOutput(check.stdout), stderr_redacted: safeOutput(check.stderr) };
+      return ticketFocusedCheckResult(check);
     }
     if (!/^VERIFY-[A-Za-z0-9-]+$|^REUSE-ARTIFACT-[A-Za-z0-9-]+$/.test(jobId ?? "")) throw fail("TEST_JOB_NOT_FOUND", "Verification job ID is invalid.");
     let job = await loadJson(jobPath(jobId));
@@ -98,9 +105,9 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
     if (job.status === "running" && !jobs.has(jobId)) { const interrupted = { ...job, status: "failed", error: { code: "VERIFY_INTERRUPTED", message: "Verification was interrupted; run it again." }, finished_at: new Date().toISOString() }; await saveJob(interrupted); return interrupted; }
     if (job.artifact_id) {
       const artifact = await loadJson(artifactPath(job.artifact_id));
-      if (artifact) return { ...job, stdout_redacted: safeOutput(artifact.stdout_redacted), stderr_redacted: safeOutput(artifact.stderr_redacted), commands: (artifact.commands ?? []).map((entry) => ({ kind: entry.kind, exit_code: entry.exit_code, stdout_redacted: safeOutput(entry.stdout_redacted), stderr_redacted: safeOutput(entry.stderr_redacted) })) };
+      if (artifact) return ticketVerificationResult(job, artifact);
     }
-    return job;
+    return ticketVerificationResult(job);
   }
 
   // Loads one immutable artifact by ID for report and review gates.
@@ -116,8 +123,7 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
     if (artifact.environment) await loadVerificationEnvironment(projectRoot, artifact.environment);
     let policyPaths = context.manifest_paths;
     if (artifact.policy_version === POLICY_VERSION) {
-      const parent = await gitService.getCommitParent(context.verification_source?.ticket_commit_sha ?? context.review_commit_sha);
-      const committedPaths = [...new Set(await gitService.getChangedFiles({ baseCommit: parent, headCommit: context.verification_source?.ticket_commit_sha ?? context.review_commit_sha }))].sort();
+      const committedPaths = await committedPathsFor(context);
       if (!committedPaths.length || committedPaths.some((path) => !context.manifest_paths.includes(path)) || JSON.stringify(committedPaths) !== JSON.stringify(artifact.changed_paths)) throw fail("VERIFY_ARTIFACT_MISMATCH", "Verification artifact paths differ from the ticket commit.");
       policyPaths = committedPaths;
     }
@@ -131,6 +137,15 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
   async function assertCleanWorktree() {
     if (rootOnly) return;
     if (await hasSourceChanges(await gitService.status(), worktreeRoot, projectRoot)) throw fail("VERIFY_WORKTREE_DIRTY", "Ticket worktree has uncommitted changes during verification.");
+  }
+
+  // Uses the proven ticket manifest when its bytes were integrated by another commit, preserving ordinary commit scope checks otherwise.
+  async function committedPathsFor(context) {
+    const commit = context.verification_source?.ticket_commit_sha ?? context.review_commit_sha;
+    const inherited = rootOnly ? await gitService.getVerificationPaths?.(commit) : null;
+    if (inherited) return inherited;
+    const parent = await gitService.getCommitParent(commit);
+    return [...new Set(await gitService.getChangedFiles({ baseCommit: parent, headCommit: commit }))].sort();
   }
 
   // Checks ledger, worktree bytes, and Git HEAD against one persisted identity.
@@ -165,11 +180,11 @@ export function createTicketVerificationService({ taskId, projectId, projectRoot
   async function verifyInDirectory(context, job, checksums, archive, environment) {
     const sourceRoot = archive?.path ?? worktreeRoot;
     if (archive) await assertArchiveSource(sourceRoot, checksums);
-    const parent = await gitService.getCommitParent(context.verification_source?.ticket_commit_sha ?? context.review_commit_sha);
-    const changedPaths = [...new Set(await gitService.getChangedFiles({ baseCommit: parent, headCommit: context.verification_source?.ticket_commit_sha ?? context.review_commit_sha }))].sort();
+    const changedPaths = await committedPathsFor(context);
     if (!changedPaths.length || changedPaths.some((path) => !context.manifest_paths.includes(path))) throw fail("VERIFY_COMMIT_SCOPE", "Ticket commit has no changes or contains paths outside the verified manifest.");
     const fullBackend = context.approved_baseline?.verification_plan?.some((step) => /full backend suite|all backend tests/i.test(step)) === true;
     const commands = await buildTicketVerificationPlan(changedPaths, sourceRoot, { fullBackend, verificationPlan: context.verification_plan });
+    for (const command of commands) if (["test", "backend_tests"].includes(command.kind) && context.verification_runner_environment) command.environment = context.verification_runner_environment;
     if (!commands.length) throw fail("VERIFY_PLAN_EMPTY", "Ticket has no required verification checks.");
     if (requiresSchemaVerification(changedPaths) && !commands.some(({ kind }) => kind === "schema_validation")) throw fail("VERIFY_PLAN_INCOMPLETE", "Schema validation is missing from the immutable verification plan.");
     const results = await runTicketVerificationCommands({ commands, context, projectRoot, sourceRoot, archive, environment, runCommand, safeOutput, projectLogger, taskId });
@@ -242,34 +257,7 @@ async function hasSourceChanges(status, worktreeRoot, projectRoot) {
   return false;
 }
 
-// Executes one argument-vector command with bounded output and no shell.
-function executeCommand({ argv, cwd, tempDir, timeoutMs, signal }) {
-  return new Promise((resolve, reject) => {
-    const env = { ...process.env, PWD: cwd, ...(tempDir ? { TMPDIR: tempDir, TMP: tempDir, TEMP: tempDir } : {}) };
-    delete env.NODE_TEST_CONTEXT;
-    const launch = filesystemVerificationCommand(argv, cwd, env);
-    const child = spawn(launch[0], launch.slice(1), { cwd, env, signal, stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    const stdoutHash = createHash("sha256");
-    const stderrHash = createHash("sha256");
-    let timedOut = false;
-    const timer = setTimeout(() => { timedOut = true; child.kill("SIGTERM"); }, timeoutMs);
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => { stdoutHash.update(chunk); stdout = (stdout + chunk).slice(0, 65_536); });
-    child.stderr.on("data", (chunk) => { stderrHash.update(chunk); stderr = (stderr + chunk).slice(0, 65_536); });
-    child.once("error", (error) => { clearTimeout(timer); reject(error); });
-    child.once("close", (code) => { clearTimeout(timer); resolve({ exit_code: timedOut ? null : code, stdout, stderr, output_sha256: sha(`${stdoutHash.digest("hex")}\0${stderrHash.digest("hex")}`) }); });
-  });
-}
-
 // Redacts credentials and process URLs before evidence reaches disk or model prompts.
 function safeOutput(raw) {
-  let output = String(raw ?? "").slice(0, 65_536);
-  output = output.replace(/https?:\/\/[^\s]+/gi, "[REDACTED_URL]");
-  output = output.replace(/(api[_-]?key|secret|token|password|authorization)[=:]\s*[^\s]+/gi, "$1=[REDACTED]");
-  output = output.replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]");
-  for (const [name, value] of Object.entries(process.env)) if (/(?:api.?key|secret|token|password|credential)/i.test(name) && typeof value === "string" && value.length >= 8) output = output.split(value).join("[REDACTED]");
-  return output;
+  return redactVerificationText(String(raw ?? "").slice(0, 65_536));
 }

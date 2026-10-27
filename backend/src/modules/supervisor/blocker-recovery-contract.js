@@ -135,7 +135,9 @@ export async function validateBlockerDisposition(value, { job, plan, architectur
   const requireContractBinding = requiresBlockerContract(job) && !delegated && !retainedDelegation && (job.stage !== "architecture_manager" || scope !== "architecture");
   if (requireContractBinding && verifyContractSource) {
     const refs = ticket.execution_policy?.contract_evidence ?? [];
-    if (!refs.length) throw invalid("A contract requires approved contract evidence; source existence alone is not approval.");
+    if (!refs.length) throw blockerValidationError("/action", "approved_contract_evidence_missing",
+      "A contract requires approved contract evidence; source existence alone is not approval.",
+      { expected: "Use architecture_required for an unresolved contract decision, or reconciliation_required for missing baseline/verification receipts. Resume is not authorized until the prerequisite is evidenced or an authenticated AM contract delegation applies." });
     for (const ref of refs) await assertDeclaredContractEvidence(ref, { plan, ticket, architecture, verifyContractSource });
   }
   await assertSourceEvidence(value.evidence, { fileService, projectRoot, evidenceFiles,
