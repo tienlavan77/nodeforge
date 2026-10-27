@@ -1,5 +1,6 @@
 // Owns the in-process multi-project catalog and serializes runtime admission and removal.
 import { realpath, stat } from "node:fs/promises";
+import { createIndexProgress } from "../index/index-progress.js";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { captureRoot, captureAddRoot, assertRoot, preflightSource, prepareStorage, filesystemError } from "./project-filesystem-safety.js";
 import { inspectProjectStorage } from "./project-identity-safety.js";
@@ -54,7 +55,7 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
   }
 
   // Starts a project using its persisted identity and rejects copied identity collisions.
-  async function activate(root, expectedProjectId) {
+  async function activate(root, expectedProjectId, progress) {
     const canonical = await canonicalRoot(root);
     if (canonical !== root) throw new Error("Stored project root is no longer canonical.");
     const binding = await captureRoot(canonical);
@@ -68,7 +69,7 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
     await assertRoot(binding);
     await inspectProjectStorage(binding);
     let runtime;
-    try { runtime = await startRuntime({ ...runtimeOptions, projectRoot: canonical, projectId, logger }); } catch (error) {
+    try { runtime = await startRuntime({ ...runtimeOptions, projectRoot: canonical, projectId, logger, ...(progress ? { progress } : {}) }); } catch (error) {
       throw filesystemError("startup", "project_startup_failed", canonical, error, "Membership and identity are retained. Correct the startup failure and retry Add.");
     }
     runtimes.set(canonical, runtime);
@@ -81,7 +82,8 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
   }
 
   // Commits verified project membership before opening any runtime, watcher, or index.
-  async function admit(root, ownedBinding) {
+  async function admit(root, ownedBinding, progress = createIndexProgress({ onProgress: runtimeOptions.onProgress })) {
+    progress.stage("preflight");
     const binding = ownedBinding ?? await captureAddRoot(root);
     await assertRoot(binding);
     await preflightSource(binding);
@@ -89,6 +91,7 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
     if (!ownedBinding) await assertProjectCreateOwnership({ store: operationStore, catalogPath, binding });
     const canonical = binding.root;
     const persisted = catalog.list().find((entry) => entry.root === canonical);
+    progress.stage("identity");
     let projectId;
     try { projectId = await registry.getOrCreate(canonical, { expectedProjectId: persisted?.projectId, strictIdentity: true, rootBinding: binding }); } catch (error) {
       if (error.stage) throw error;
@@ -102,10 +105,11 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
     await inspectProjectStorage(binding);
     const existing = runtimes.get(canonical);
     if (existing) return { root: canonical, projectId };
+    progress.stage("membership");
     const entry = { root: canonical, projectId };
     if (!persisted) await catalog.replace([...catalog.list(), entry], { guard: () => assertRoot(binding) });
     await assertRoot(binding);
-    await activate(canonical, projectId);
+    await activate(canonical, projectId, progress);
     return entry;
   }
 

@@ -1,5 +1,6 @@
 // Composes an isolated index, watcher, embedding worker, and activity stream for one project.
 import { EventEmitter } from "node:events";
+import { createIndexProgress } from "../index/index-progress.js";
 import { openIndexDatabase } from "../../infrastructure/sqlite/index-database.js";
 import { createIdeasStore } from "./ideas-store.js";
 import { startProjectWatch } from "../watcher/watch-project.js";
@@ -11,7 +12,7 @@ import { createSubscriptionRegistry } from "../events/subscription-registry.js";
 import { createProjectStream } from "../../transport/sse/project-stream.js";
 
 // Starts every per-project service without introducing an HTTP or CLI management contract.
-export async function startProjectRuntime({ projectRoot, projectId, logger = console, embeddingProvider, ollamaConfig, chokidarOptions, watcherFactory } = {}) {
+export async function startProjectRuntime({ projectRoot, projectId, logger = console, embeddingProvider, ollamaConfig, chokidarOptions, watcherFactory, onProgress = () => {}, progress = createIndexProgress({ onProgress }) } = {}) {
   const bus = new EventEmitter();
   const subscriptions = createSubscriptionRegistry({ logger });
   const connections = new Set();
@@ -31,6 +32,7 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
     // Reports Ollama failure for this project while its watcher and other projects keep running.
     warning(message, detail) {
       embeddingError = detail.error;
+      progress.embedding({ status: "failed", error: String(detail.error) });
       logger.warn?.(message, { ...detail, projectId });
       bus.emit("embedding.failed", { projectId, error: detail.error });
     }
@@ -39,7 +41,7 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
     controlDb = await openIndexDatabase(projectRoot, { storageKind: "control" });
     ideas = createIdeasStore({ controlDb, projectId });
     watch = await startProjectWatch({
-      projectRoot, projectId, internalBus: bus, reconcile: true, logger, chokidarOptions, watcherFactory,
+      projectRoot, projectId, internalBus: bus, reconcile: true, logger, chokidarOptions, watcherFactory, progress,
       // Shares one project database between indexing, semantic retrieval, and its durable worker.
       prepareDatabase(indexDb) {
         database = indexDb;
@@ -57,14 +59,22 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
     workerTask = worker.start();
     workerTask = workerTask.catch((error) => {
       embeddingError = error.message;
+      progress.embedding({ status: "failed", error: error.message });
       logger.error?.("Project embedding worker stopped.", { projectId, error });
     });
     return Object.freeze({ projectRoot, projectId, bus, database, controlDb, ideas, worker, connect, close,
       search: retrieval.search, embeddingStore: retrieval.embeddingStore, embeddingProvider,
       // Exposes affected-worker diagnostics without changing public stream schemas.
-      status() { return { projectId, projectRoot, embeddingError, closed }; }
+      status() {
+        const counts = closed ? null : embeddingJobs.counts();
+        if (counts) progress.embedding({ status: embeddingError ? "failed" : counts.pending || counts.processing || counts.retry_wait ? "running" : "succeeded",
+          pending: (counts.pending ?? 0) + (counts.retry_wait ?? 0), processing: counts.processing ?? 0,
+          succeeded: counts.completed ?? 0, failed: counts.failed ?? 0 });
+        return { projectId, projectRoot, embeddingError, closed, progress: progress.snapshot() };
+      }
     });
   } catch (error) {
+    progress.fail(error);
     try { await close(); } catch (cleanupError) {
       throw new AggregateError([error, cleanupError], "Project runtime startup and rollback failed.");
     }

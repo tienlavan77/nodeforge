@@ -5,6 +5,7 @@
 // (stages, statuses, kinds), request fingerprinting, the validated stage transition table and a
 // dependency-free snapshot validator mirroring schemas/project/project-operation.schema.json.
 import { createHash } from "node:crypto";
+import { validateIndexProgress } from "../index/index-progress-contract.js";
 
 export const OPERATION_ID_PREFIX = "OPRO-";
 export const OPERATION_KINDS = Object.freeze(["create", "add"]);
@@ -57,6 +58,10 @@ export function validateOperationSnapshot(snapshot) {
     throw failure("status", "terminal without result");
   }
   if (snapshot.stage === "settled" && !snapshot.result) throw failure("result", "settled without outcome");
+  if (snapshot.progress !== undefined) {
+    validateIndexProgress(snapshot.progress, snapshot.attempt);
+    if (snapshot.status === "succeeded" && snapshot.progress.status !== "succeeded") throw failure("progress", "has unresolved required work");
+  }
   const counters = snapshot.counters;
   if (!counters || !Number.isSafeInteger(counters.transitions) || counters.transitions < 0 ||
       !Number.isSafeInteger(counters.attempts) || counters.attempts < 0) throw failure("counters", "must be non-negative");

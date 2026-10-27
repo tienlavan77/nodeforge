@@ -15,31 +15,45 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
   const { writeExtraction, clearContentIndex, indexContent, writeCalls } = recordWriter;
 
   return Object.freeze({
+    // Keeps the established boolean API while detailed consumers receive committed outcomes.
     async handle(event) {
-      const path = event.payload?.path;
-      if (!path) return false;
-      writeLog("index.started", "info", "Index operation started.", event, path);
-
-      try {
-        if (event.type === "watcher.file_created") return indexNewFile(path, event);
-        if (event.type === "watcher.file_modified") return reindexFile(path, event);
-        if (event.type === "watcher.file_deleted") return deleteFile(path, event);
-        if (event.type === "watcher.file_renamed") return renameFile(event.payload.old_path, path, event);
-        return false;
-      } catch (error) {
-        writeLog("index.failed", "error", error.message, event, path);
-        throw error;
-      }
-    }
+      const result = await handleDetailed({ ...event, legacy: true });
+      if (result.error && result.marker !== "parse_failed") throw result.error;
+      return result.committed;
+    },
+    handleDetailed
   });
+
+  // Reports one event only after its transaction finishes, retaining failure details for
+  // operation progress without treating preserved database rows as successful parsing.
+  async function handleDetailed(event) {
+    const path = event.payload?.path;
+    if (!path || !event.type?.startsWith("watcher.file_")) return { path, status: "ignored", committed: false };
+    if (!event.legacy && registry.supports && !registry.supports(path) && event.type !== "watcher.file_deleted") {
+      return { path, status: "unsupported", committed: false };
+    }
+    writeLog("index.started", "info", "Index operation started.", event, path);
+    try {
+      let committed = false;
+      if (event.type === "watcher.file_created" || event.type === "watcher.file_modified") committed = await reindexFile(path, event);
+      else if (event.type === "watcher.file_deleted") committed = deleteFile(path, event);
+      else if (event.type === "watcher.file_renamed") committed = renameFile(event.payload.old_path, path, event);
+      const status = event.phase === "resolve" ? "resolved" : committed ? event.type === "watcher.file_deleted" ? "deleted" : "indexed" : "unchanged";
+      return { path, status, committed: Boolean(committed) && event.phase !== "resolve",
+        version: database.all("SELECT version FROM index_metadata")[0]?.version ?? 0 };
+    } catch (error) {
+      writeLog("index.failed", "error", error.message, event, path);
+      return { path, status: "failed", committed: false, marker: error.code === "parse_failed" || error.code === "read_failed" ? error.code : "write_failed", message: error.message, error };
+    }
+  }
 
   async function indexNewFile(path, event) {
     const snapshot = await readSnapshot(path);
     const sha256 = snapshot?.sha256;
     const sizeBytes = snapshot?.size_bytes;
-    if (!sha256) { writeLog("index.skipped", "info", "File content unavailable; index skipped.", event, path); return false; }
+    if (!sha256) throw Object.assign(new Error("File content unavailable."), { code: "read_failed" });
     const extraction = await extract(path, snapshot.content);
-    if (!extraction) { writeLog("index.failed", "error", "File extraction failed.", event, path); return false; }
+    if (!extraction) throw Object.assign(new Error("File extraction failed."), { code: "parse_failed" });
     let fileId;
     withTransaction(() => {
       fileId = files.insert(path, { language: languageForPath(path), sha256, sizeBytes });
@@ -67,12 +81,16 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
     const snapshot = await readSnapshot(path);
     const sha256 = snapshot?.sha256;
     const sizeBytes = snapshot?.size_bytes;
-    if (!sha256) { writeLog("index.skipped", "info", "File content unavailable; index skipped.", event, path); return false; }
+    if (!sha256) throw Object.assign(new Error("File content unavailable."), { code: "read_failed" });
+    if (sha256 === file.sha256 && event.phase !== "resolve" && !event.force) return false;
     const extraction = await extract(path, snapshot.content);
-    if (!extraction) {
-      writeLog("index.failed", "error", "File extraction failed; prior index retained.", event, path);
-      // Keep the index content marked with the latest hash even when parsing fails.
-      files.updateHash(file.file_id, sha256, sizeBytes, languageForPath(path));
+    if (!extraction) throw Object.assign(new Error("File extraction failed; prior index retained."), { code: "parse_failed" });
+    if (event.phase === "resolve") {
+      withTransaction(() => {
+        graph.replaceForFile(file.file_id, path, extraction.imports);
+        database.run("DELETE FROM calls WHERE source_file_id = ?", [file.file_id]);
+        writeCalls(file.file_id, path, extraction);
+      });
       return false;
     }
     withTransaction(() => {
@@ -133,18 +151,20 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
   async function extract(path, content) {
     const absolutePath = resolve(projectRoot, path);
     try {
-      return registry.extract(absolutePath, content ?? await readFile(absolutePath, "utf8"));
+      return await registry.extract(absolutePath, content ?? await readFile(absolutePath, "utf8"));
     } catch (error) {
       logger.warning?.("Index extraction failed; retaining the prior index entry.", { path, error: error.message });
-      return null;
+      throw Object.assign(new Error(error.message, { cause: error }), { code: "parse_failed" });
     }
   }
 
   async function readSnapshot(path) {
-    if (fileService?.readForIndex) return fileService.readForIndex({ path });
-    const absolutePath = resolve(projectRoot, path);
-    const content = await readFile(absolutePath, "utf8");
-    return { content, sha256: await hash(path), size_bytes: await fileSize(path), language: languageForPath(path) };
+    try {
+      if (fileService?.readForIndex) return await fileService.readForIndex({ path });
+      const absolutePath = resolve(projectRoot, path);
+      const content = await readFile(absolutePath, "utf8");
+      return { content, sha256: await hash(path), size_bytes: await fileSize(path), language: languageForPath(path) };
+    } catch (error) { throw Object.assign(new Error(error.message, { cause: error }), { code: "read_failed" }); }
   }
 
   function hash(path) {
