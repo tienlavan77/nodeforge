@@ -91,7 +91,7 @@ async function createAuthorizationFixture(context, { permissionPort, ownerToken 
       ...origDecisions,
       append: (...args) => { governanceSpies.decisions += 1; return origDecisions.append(...args); }
     });
-    built.services.agentGateway = { stream: async function* () { governanceSpies.agents += 1; } };
+    built.services.agentGateway = { stream: async function* () { governanceSpies.agents += 1; yield* []; } };
     built.services.dispatchTicket = async () => { governanceSpies.tickets += 1; };
     built.services.dispatchSprint = async () => { governanceSpies.sprints += 1; };
     return built;
