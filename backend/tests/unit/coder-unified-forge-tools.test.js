@@ -15,7 +15,10 @@ function fixture(governance) {
     runtimeGovernance: governance ?? { createExecutionContext: (context) => context },
     claudeSdkGateway: { execute: async (request) => {
       requests.claude = request;
-      return { messages: [{ type: "assistant", message: { content: ["read_lines", "edit_diff", "commit_changes", "report_done"].map((name) => ({ type: "tool_use", id: name, name: `mcp__forge__${name}` })) } }] };
+      return { messages: [
+        { type: "assistant", message: { content: ["read_lines", "edit_diff", "commit_changes", "report_done"].map((name) => ({ type: "tool_use", id: name, name: `mcp__forge__${name}` })) } },
+        { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "report_done", content: "{}" }] } }
+      ] };
     } },
     codexSdkGateway: { execute: async (request) => {
       requests.codex = request;
