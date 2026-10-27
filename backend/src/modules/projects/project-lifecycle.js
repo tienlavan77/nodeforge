@@ -1,10 +1,11 @@
 // Owns the in-process multi-project catalog and serializes runtime admission and removal.
 import { realpath, stat } from "node:fs/promises";
+import { createProjectRestService } from "./project-rest-service.js";
 import { createProjectLifecycleOperations } from "./project-lifecycle-operations.js";
 import { routeLifecycleOptIn } from "../../transport/http/project-lifecycle-opt-in.js";
 import { createIndexProgress } from "../index/index-progress.js";
 import { dirname, isAbsolute, resolve } from "node:path";
-import { captureRoot, captureAddRoot, assertRoot, preflightSource, prepareStorage, filesystemError } from "./project-filesystem-safety.js";
+import { canonicalRoot, captureRoot, captureAddRoot, assertRoot, preflightSource, prepareStorage, filesystemError } from "./project-filesystem-safety.js";
 import { inspectProjectStorage } from "./project-identity-safety.js";
 import { createProjectCreateAdmission, openProjectAdmissionStore, assertProjectCreateOwnership } from "./project-create-admission.js";
 import { ProjectRegistry } from "./project-registry.js";
@@ -34,7 +35,7 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
       startupErrors.push({ root: entry.root, error: error.message, ...(error.code ? { code: error.code } : {}) });
     }
   }
-  return Object.freeze({ operations, create, add, remove, list, directory: directoryState.directory, get, close, registerCleanup, startupErrors: Object.freeze(startupErrors) });
+  return Object.freeze({ rest: createProjectRestService({ registry, catalog, directory: directoryState.directory, get, enqueue, admit, create, remove }), operations, create, add, remove, list, directory: directoryState.directory, get, close, registerCleanup, startupErrors: Object.freeze(startupErrors) });
 
   // Fences Create through the durable operation store before exclusive directory creation.
   function create(root, options) {
@@ -44,16 +45,10 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
       try { store = operationStore ?? await openProjectAdmissionStore(catalogPath); } catch (error) {
         throw filesystemError("operation_store", "operation_store_unwritable", dirname(catalogPath), error);
       }
-      return createProjectCreateAdmission({ store, admit })(root, options);
+      return createProjectCreateAdmission({ store, admit: (root, binding, progress) => admit(root, binding, progress, options?.config) })(root, options);
     });
   }
 
-  // Canonicalizes roots so symlinks and relative aliases cannot start duplicate watchers.
-  async function canonicalRoot(root) {
-    const canonical = await realpath(resolve(root));
-    if (!(await stat(canonical)).isDirectory()) throw new Error("Project root must be a directory.");
-    return canonical;
-  }
 
   // Serializes lifecycle mutations and preserves the queue after callers observe failures.
   function enqueue(operation) {
@@ -86,7 +81,7 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
   }
 
   // Commits verified project membership before opening any runtime, watcher, or index.
-  async function admit(root, ownedBinding, progress = createIndexProgress({ onProgress: runtimeOptions.onProgress })) {
+  async function admit(root, ownedBinding, progress = createIndexProgress({ onProgress: runtimeOptions.onProgress }), config = {}) {
     progress.stage("preflight");
     const binding = ownedBinding ?? await captureAddRoot(root);
     await assertRoot(binding);
@@ -97,7 +92,7 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
     const persisted = catalog.list().find((entry) => entry.root === canonical);
     progress.stage("identity");
     let projectId;
-    try { projectId = await registry.getOrCreate(canonical, { expectedProjectId: persisted?.projectId, strictIdentity: true, rootBinding: binding }); } catch (error) {
+    try { projectId = await registry.getOrCreate(canonical, { expectedProjectId: persisted?.projectId, strictIdentity: true, rootBinding: binding, config }); } catch (error) {
       if (error.stage) throw error;
       throw filesystemError("identity", "identity_conflict", canonical, error, "Reconcile catalog and per-root metadata; do not rewrite identity.");
     }
@@ -107,6 +102,7 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
     }
     await assertRoot(binding);
     await inspectProjectStorage(binding);
+    if (Object.keys(config).length) await registry.writeConfiguration(canonical, config);
     const existing = runtimes.get(canonical);
     if (isAvailable(existing)) return { root: canonical, projectId };
     if (existing) { await releaseRuntime(existing); runtimes.delete(canonical); }
