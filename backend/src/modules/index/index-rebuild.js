@@ -5,6 +5,7 @@ import { createProjectIgnoreMatcher } from "../../infrastructure/filesystem/watc
 import { ensureForgeLayout } from "../../infrastructure/filesystem/forge-layout.js";
 import { openIndexDatabase } from "../../infrastructure/sqlite/index-database.js";
 import { createIncrementalIndexer } from "./incremental-indexer.js";
+import { createSummaryConversion } from "./purpose-summary-conversion.js";
 import { extractorRegistry } from "./parser/index.js";
 import { createIndexProgress } from "./index-progress.js";
 import { readContentHash } from "../watcher/debounced-watcher.js";
@@ -15,6 +16,7 @@ export async function rebuildIndex({ projectRoot, database, runtimeDir = CODE_IN
   await ensureForgeLayout(projectRoot);
   const ownsDatabase = !database;
   const indexDatabase = database ?? await openIndexDatabase(projectRoot, { runtimeDir });
+  const conversion = createSummaryConversion(indexDatabase);
   const incrementalIndexer = indexer ?? createIncrementalIndexer({ database: indexDatabase, projectRoot, registry, embeddingJobs, embeddingModel });
   // Adapts injected legacy indexers while keeping false distinct from a successful commit.
   async function handle(event) {
@@ -42,10 +44,10 @@ export async function rebuildIndex({ projectRoot, database, runtimeDir = CODE_IN
       if (!registry.supports(path)) { progress.discover("unsupported"); continue; }
       progress.discover("eligible");
       seenPaths.add(path);
-      const existing = indexDatabase.all("SELECT sha256 FROM files WHERE path = ?", [path])[0];
+      const existing = indexDatabase.all("SELECT file_id, sha256 FROM files WHERE path = ?", [path])[0];
       try {
         const currentHash = !force && existing ? await readContentHash(join(projectRoot, path)) : null;
-        if (existing && currentHash && existing.sha256 === currentHash) {
+        if (existing && currentHash && existing.sha256 === currentHash && !conversion.needed(existing)) {
           report({ path, status: "unchanged", committed: false }, "index"); continue;
         }
         const result = await handle({ type: existing ? "watcher.file_modified" : "watcher.file_created", payload: { path }, force });
