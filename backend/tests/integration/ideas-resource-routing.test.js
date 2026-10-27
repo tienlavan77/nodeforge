@@ -184,6 +184,10 @@ test("Ideas item requests resolve and authorize without project context while th
   assert.equal(createdA.version, 1);
   assert.equal(storeB.counters.create, 0);
 
+  const missingVersion = await f.request(`ideas/${createdA.id}`, { method: "DELETE", status: 400 });
+  assert.equal(missingVersion.error.code, "invalid_idea_version");
+  assert.equal(storeA.counters.delete, 0);
+
   const fetched = await f.request(`ideas/${createdA.id}`, { method: "GET" });
   assert.equal(fetched.id, createdA.id);
   assert.equal(fetched.project_id, "PROJECT-A");
@@ -207,10 +211,13 @@ test("Ideas item requests resolve and authorize without project context while th
   const listedAllB = await f.request("ideas?project_id=PROJECT-B&status=all");
   assert.deepEqual(listedAllB, []);
 
+  await f.request(`ideas/${createdA.id}`, { method: "DELETE", status: 409, body: { expected_version: 1 } });
+  assert.equal((await f.request(`ideas/${createdA.id}`)).version, 2);
+
   const deleted = await f.request(`ideas/${createdA.id}`, { method: "DELETE", body: { expected_version: 2 } });
   assert.equal(deleted.deleted, true);
   assert.equal(deleted.project_id, "PROJECT-A");
-  assert.equal(storeA.counters.delete, 1);
+  assert.equal(storeA.counters.delete, 2);
   assert.equal(storeB.counters.delete, 0);
 
   await f.request(`ideas/${createdA.id}`, { method: "GET", status: 404 });
