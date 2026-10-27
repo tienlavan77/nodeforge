@@ -210,11 +210,13 @@ export async function createProjectOperationStore({ directory } = {}) {
       next.stage = patch.stage;
       next.counters.transitions += 1;
     }
+    if (patch.progress && current.progress?.attempt === patch.progress.attempt && patch.progress.revision <= current.progress.revision) throw failure("revision_stale", "Index progress revision must advance.");
+    if (patch.progress) next.progress = structuredClone(patch.progress);
     if (patch.status) next.status = patch.status;
     if (patch.project_id) next.project_id = patch.project_id;
     if (patch.result) next.result = patch.result;
     if (patch.diagnostic) next.diagnostic = { ...patch.diagnostic, recorded_at: now };
-    if (patch.attempt !== undefined) { next.attempt = patch.attempt; next.counters.attempts = patch.attempts; }
+    if (patch.attempt !== undefined) { next.attempt = patch.attempt; next.counters.attempts = patch.attempts; delete next.progress; }
     if (TERMINAL_STATUSES.has(next.status) && !next.result) {
       throw failure("terminal_requires_result", "A terminal status must persist its result in the same snapshot write.");
     }
@@ -234,7 +236,7 @@ export async function createProjectOperationStore({ directory } = {}) {
   // only pass the claim's own status/stage bookkeeping. A metadata-only patch (project_id,
   // diagnostic) may travel without an execution token because it publishes no outcome.
   async function assertTransitionAuthority(current, patch, authority) {
-    const publishes = patch.stage !== undefined || patch.status !== undefined || patch.result !== undefined;
+    const publishes = patch.progress !== undefined || patch.stage !== undefined || patch.status !== undefined || patch.result !== undefined;
     if (!publishes) return;
     if (authority?.recovery === true) return;
     if (authority?.internalClaim !== undefined) {

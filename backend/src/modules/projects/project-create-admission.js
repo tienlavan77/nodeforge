@@ -4,6 +4,7 @@
 // directory ownership checkpoint, then admit membership before starting the runtime. Ambiguous
 // retries require reconciliation and no failure path recursively deletes a project directory.
 import { mkdir } from "node:fs/promises";
+import { createIndexProgress } from "../index/index-progress.js";
 import { randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { assertRoot, captureRoot, filesystemError, preflightCreate, probeStorage } from "./project-filesystem-safety.js";
@@ -57,6 +58,19 @@ export function createProjectCreateAdmission({ store, admit }) {
       throw filesystemError("operation_store", "operation_store_unwritable", root, error);
     }
     const authority = { attempt: operation.attempt };
+    let progressWrites = Promise.resolve();
+    let progressWriteError;
+    let progressOpen = true;
+    const progress = createIndexProgress({ attempt: operation.attempt,
+      // Serializes progress snapshots through the existing revision and attempt fence.
+      onProgress(snapshot) {
+        if (!progressOpen) return;
+        progressWrites = progressWrites.then(async () => {
+          if (progressWriteError) return;
+          operation = await store.transition(operation.operation_id, operation.revision, { progress: snapshot }, authority);
+        }).catch((error) => { progressWriteError = error; });
+      }
+    });
     let entry;
     let failure;
     try {
@@ -76,12 +90,18 @@ export function createProjectCreateAdmission({ store, admit }) {
           "Keep the directory. Reconcile exclusive creation and directory ownership before any retry.");
       }
       await assertRoot(binding);
-      entry = await admit(binding.root, binding);
+      entry = await admit(binding.root, binding, progress);
+      await progressWrites;
+      progressOpen = false;
+      if (progressWriteError) throw progressWriteError;
       operation = await store.transition(operation.operation_id, operation.revision,
         { stage: "committed", project_id: entry.projectId }, authority);
       await store.transition(operation.operation_id, operation.revision,
         { stage: "settled", status: "succeeded", result: { outcome: "succeeded", project_id: entry.projectId } }, authority);
     } catch (error) {
+      progress.fail(error);
+      await progressWrites;
+      progressOpen = false;
       failure = error.stage ? error : filesystemError("operation_store", "create_operation_incomplete", target.root, error,
         "Keep the root and membership. Inspect the operation and retry startup after reconciliation.");
     }
