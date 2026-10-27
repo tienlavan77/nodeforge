@@ -42,21 +42,8 @@ export function bindEngineeringTools({ registry, context }) {
     if (!validate(input)) throw failure("TOOL_INPUT_INVALID", `Invalid ${definition.name} arguments.`, validate.errors);
     if (locked.has(definition.name) || typeof scopedRegistry[definition.name]?.execute !== "function") throw failure("TOOL_LOCKED", locked.get(definition.name) ?? "A compatible execution-scoped service is unavailable.");
     authorizeTool(definition.name, bound);
-    if (["read_file", "read_lines", "write_diff", "edit_diff"].includes(definition.name)) {
-      const isWrite = ["write_diff", "edit_diff"].includes(definition.name);
-      await assertPath(input.path, bound, isWrite ? "write" : "read");
-      if (isWrite) {
-        assertCoderWorkflowReadOnly(bound.agent_identity?.role, "write", input.path);
-        const inCreatePrefix = Array.isArray(createPrefixes) && createPrefixes.some((prefix) => {
-          const clean = String(prefix).replace(/\/+$/, "");
-          return clean && (input.path === clean || input.path.startsWith(`${clean}/`));
-        });
-        if (mutablePaths && !mutablePaths.has(input.path) && !inCreatePrefix) throw failure("PATH_FORBIDDEN", "Write path is outside the immutable approved manifest.");
-        if (Number.isInteger(mutableFileBudget) && mutableFileBudget > 0) {
-          const tracked = new Set([...(mutablePaths ?? []), ...(bound.changed_paths ?? []), input.path]);
-          if (tracked.size > mutableFileBudget) throw failure("PATH_FORBIDDEN", "Write path exceeds the ticket mutable file budget.");
-        }
-      }
+    if (["read_file", "read_lines", "write_diff", "edit_diff", "delete_file", "move_file"].includes(definition.name)) {
+      await assertMutationOrRead(definition.name, input, bound, { mutablePaths, createPrefixes, mutableFileBudget });
     }
     const result = await scopedRegistry[definition.name].execute(input, bound);
     assertExecutionFileAccess(bound);
@@ -65,10 +52,38 @@ export function bindEngineeringTools({ registry, context }) {
   return { definitions, registry: implementations, context: bound, readiness };
 }
 
+// Validates read and mutation target paths, manifest membership, and mutable file budget before executing a Coder tool.
+async function assertMutationOrRead(toolName, input, bound, { mutablePaths, createPrefixes, mutableFileBudget }) {
+  if (["read_file", "read_lines"].includes(toolName)) {
+    await assertPath(input.path, bound, "read");
+    return;
+  }
+  const role = bound.agent_identity?.role;
+  const targets = toolName === "move_file"
+    ? [{ path: input.from_path, op: "delete", allowCreatePrefix: false }, { path: input.to_path, op: "write", allowCreatePrefix: true }]
+    : [{ path: input.path, op: toolName === "delete_file" ? "delete" : "write", allowCreatePrefix: toolName !== "delete_file" }];
+  if (toolName === "move_file" && input.from_path === input.to_path) throw failure("TOOL_INPUT_INVALID", "move_file requires distinct from_path and to_path.");
+  for (const target of targets) {
+    assertCoderWorkflowReadOnly(role, target.op, target.path);
+    await assertPath(target.path, bound, target.op);
+    const inCreatePrefix = target.allowCreatePrefix && Array.isArray(createPrefixes) && createPrefixes.some((prefix) => {
+      const clean = String(prefix).replace(/\/+$/, "");
+      return clean && (target.path === clean || target.path.startsWith(`${clean}/`));
+    });
+    if (mutablePaths && !mutablePaths.has(target.path) && !inCreatePrefix) {
+      throw failure("PATH_FORBIDDEN", "Write path is outside the immutable approved manifest.");
+    }
+  }
+  if (Number.isInteger(mutableFileBudget) && mutableFileBudget > 0) {
+    const tracked = new Set([...(mutablePaths ?? []), ...(bound.changed_paths ?? []), ...targets.map((target) => target.path)]);
+    if (tracked.size > mutableFileBudget) throw failure("PATH_FORBIDDEN", "Write path exceeds the ticket mutable file budget.");
+  }
+}
+
 // Rejects private, out-of-scope and symlinked file paths before ticket reads or mutations.
 async function assertPath(path, context, operation = "read") {
   assertRoleFileAccess(context.agent_identity?.role, "read", path);
-  const effectiveContext = operation === "write" && Array.isArray(context.authorized_create_prefixes) && context.authorized_create_prefixes.length
+  const effectiveContext = (operation === "write" || operation === "move") && Array.isArray(context.authorized_create_prefixes) && context.authorized_create_prefixes.length
     ? { ...context, allowed_prefixes: [...(context.allowed_prefixes ?? []), ...context.authorized_create_prefixes] }
     : context;
   if (!isAgentPathAllowed(path, effectiveContext, { operation })) throw failure("PATH_FORBIDDEN", "Path is outside the execution scope.");

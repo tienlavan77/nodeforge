@@ -20,17 +20,28 @@ export function assertCoderWorkflowReadOnly(role, operation, path) {
   throw Object.assign(new ConfigurationError(`Coder cannot ${operation} workflow files: ${path}.`), { code: "FILE_ROLE_FORBIDDEN" });
 }
 
+const GOVERNANCE_FILES = new Set(["AGENTS.md", "CLAUDE.md", "ARCHITECTURE.md", "vocabulary/glossary.md"]);
+
 // Checks role permissions before File Service reads, writes, or deletes a path.
 export function assertRoleFileAccess(role, operation, path) {
   const forgeAccess = role === "system_engineer" && typeof path === "string" && (path === ".forge" || path.startsWith(".forge/"));
   const dependencyRead = operation === "read" && isDependencyPath(path);
+  const governanceProtected = operation !== "read" && !(role === "architecture_manager" && operation === "write" && path === "ARCHITECTURE.md")
+    && (GOVERNANCE_FILES.has(path) || typeof path === "string" && path.split("/").some((part) => part === "AGENTS.md" || part === "CLAUDE.md" || part === "ARCHITECTURE.md"));
   const safe = typeof path === "string" && path.length > 0 && !path.startsWith("/") && !path.includes("\\") && !path.includes("\0")
     && path.split("/").every((part) => part && part !== "." && part !== ".." && (forgeAccess || dependencyRead || role === "system_engineer" && operation === "read" || !part.startsWith(".")))
     && !isProtectedPath(path, { operation: operation === "read" ? "read" : "write", role })
+    && !governanceProtected
     && (forgeAccess || dependencyRead || !NODE_MODULES_PATH.test(path))
     && (forgeAccess || dependencyRead && !/(^|\/)(?:secrets?|credentials?|private)(?:[._/-]|$)/i.test(path) || !FORBIDDEN_READ_PATH.test(path));
   const writeArea = role === "architecture_manager" && (path === "ARCHITECTURE.md" || ARCHITECTURE_WRITE_PREFIXES.some((prefix) => path?.startsWith(prefix)));
-  const allowed = safe && (forgeAccess || operation === "read" || (operation === "write" && (writeArea || role === "system_engineer")) || (operation === "delete" && role === "architecture_manager" && path.startsWith("workflows/")));
+  const allowed = safe && (
+    (forgeAccess && ["read", "write", "delete", "move"].includes(operation))
+    || operation === "read"
+    || (operation === "write" && (writeArea || role === "system_engineer"))
+    || (operation === "delete" && (role === "system_engineer" || role === "architecture_manager" && path.startsWith("workflows/")))
+    || (operation === "move" && role === "system_engineer")
+  );
   if (!allowed) throw Object.assign(new ConfigurationError(`File access is not permitted for role ${role}: ${operation} ${path ?? "<missing>"}.`), { code: "FILE_ROLE_FORBIDDEN" });
 }
 
@@ -66,6 +77,35 @@ export function createRoleFileService({ fileService, role, projectRoot }) {
     },
     atomicWrite: async (input) => { await checkPath("write", input?.path); return serviceFor(input?.path).atomicWrite(input); },
     deleteFile: async (input) => { await checkPath("delete", input?.path); return serviceFor(input?.path).deleteFile(input); },
+    renameFile: async (input) => {
+      const from = input?.from ?? input?.from_path;
+      const to = input?.to ?? input?.to_path;
+      await checkPath("move", from);
+      await checkPath("delete", from);
+      await checkPath("move", to);
+      await checkPath("write", to);
+      const service = serviceFor(from) === forgeFiles || serviceFor(to) === forgeFiles ? forgeFiles : fileService;
+      if (typeof service.renameFile === "function") return service.renameFile({ from, to });
+      const content = await serviceFor(from).readFile({ path: from });
+      await serviceFor(to).atomicWrite({ path: to, content, replace: true });
+      await serviceFor(from).deleteFile({ path: from });
+      return { from, to, renamed: true };
+    },
+    moveFile: async (input) => {
+      const from = input?.from_path ?? input?.from;
+      const to = input?.to_path ?? input?.to;
+      await checkPath("move", from);
+      await checkPath("delete", from);
+      await checkPath("move", to);
+      await checkPath("write", to);
+      const service = serviceFor(from) === forgeFiles || serviceFor(to) === forgeFiles ? forgeFiles : fileService;
+      if (typeof service.moveFile === "function") return service.moveFile({ from_path: from, to_path: to, from, to });
+      if (typeof service.renameFile === "function") return service.renameFile({ from, to });
+      const content = await serviceFor(from).readFile({ path: from });
+      await serviceFor(to).atomicWrite({ path: to, content, replace: true });
+      await serviceFor(from).deleteFile({ path: from });
+      return { from, to, from_path: from, to_path: to, renamed: true, moved: true };
+    },
     listFiles: async (input) => filterListed("read", await list("listFiles", input)),
     listDirectories: async (input) => filterListed("read", await list("listDirectories", input))
   });
