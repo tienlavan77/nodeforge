@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, dirname, basename } from "node:path";
+import { tmpdir } from "node:os";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { createHttpApi } from "../../src/transport/http/server.js";
@@ -66,14 +67,30 @@ async function startServingControlApi(projectRoot, catalogPath) {
   const port = reservation.address().port;
   await new Promise((resolve, reject) => reservation.close((error) => error ? reject(error) : resolve()));
   const executable = fileURLToPath(new URL("../../scripts/start-control-api.mjs", import.meta.url));
-  const child = spawn(process.execPath, [executable], {
+  // Mount the managed temporary catalog outside .forge so production path validation remains intact.
+  const sandboxCatalog = catalogPath?.split("/").includes(".forge");
+  const catalogMount = "/tmp/nodeforge-lifecycle-catalog";
+  const child = spawn(sandboxCatalog ? "/usr/bin/bwrap" : process.execPath, sandboxCatalog ? [
+    "--unshare-user", "--uid", "0", "--gid", "0", "--ro-bind", "/", "/",
+    "--bind", dirname(projectRoot), dirname(projectRoot), "--tmpfs", "/tmp",
+    "--bind", dirname(catalogPath), catalogMount, "--die-with-parent", "--new-session", "--info-fd", "3",
+    "--", process.execPath, executable
+  ] : [executable], {
     env: { ...process.env, NODE_CONTROL_PROJECT_ROOT: projectRoot,
       NODE_CONTROL_DATA_DIR: join(projectRoot, ".forge", "runtime", "nf"),
       NODE_CONTROL_PORT: String(port), NODE_CONTROL_HOST: "127.0.0.1",
-      NODEFORGE_PROJECT_CATALOG_PATH: catalogPath ?? "" },
-    stdio: ["ignore", "pipe", "pipe"]
+      NODEFORGE_PROJECT_CATALOG_PATH: sandboxCatalog ? join(catalogMount, basename(catalogPath)) : catalogPath ?? "" },
+    stdio: sandboxCatalog ? ["ignore", "pipe", "pipe", "pipe"] : ["ignore", "pipe", "pipe"]
   });
   let output = "";
+  let servingPid;
+  if (sandboxCatalog) {
+    let info = "";
+    child.stdio[3].on("data", (chunk) => { info += chunk; });
+    child.stdio[3].once("end", () => {
+      try { servingPid = JSON.parse(info)["child-pid"]; } catch (error) { output += "Namespace PID: " + error.message; }
+    });
+  }
   child.stdout.on("data", (chunk) => { output += chunk; });
   child.stderr.on("data", (chunk) => { output += chunk; });
   const exited = new Promise((resolve, reject) => {
@@ -84,7 +101,12 @@ async function startServingControlApi(projectRoot, catalogPath) {
   async function close() {
     const timeout = setTimeout(() => child.kill("SIGKILL"), 15000);
     try {
-      if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+      if (child.exitCode === null && child.signalCode === null) {
+        if (sandboxCatalog) {
+          assert.ok(Number.isSafeInteger(servingPid), "Namespace must report the actual serving PID");
+          process.kill(servingPid, "SIGTERM");
+        } else child.kill("SIGTERM");
+      }
       const result = await exited;
       assert.equal(result.code, 0, `Control API shutdown failed: ${output}`);
     } finally { clearTimeout(timeout); }
@@ -113,7 +135,7 @@ async function startServingControlApi(projectRoot, catalogPath) {
 
 // Proves shipped bootstrap compatibility and thin-client management across actual process restarts.
 test("shipped Control API owns lifecycle runtimes and retains legacy startup", { timeout: 120000 }, async () => {
-  const directory = await mkdtemp("/tmp/nodeforge-serving-");
+  const directory = await mkdtemp(join(tmpdir(), "nodeforge-serving-"));
   const original = join(directory, "original");
   const roots = [join(directory, "first"), join(directory, "second")];
   const catalogPath = join(directory, "projects.json");
