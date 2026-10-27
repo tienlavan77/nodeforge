@@ -247,8 +247,8 @@ export async function routeProjectLifecycle(method, url, request, projectLifecyc
       status: 200,
       body: {
         projects: projectLifecycle.list().map(({ projectId, root }) => ({ root, project_id: projectId })),
-        startup_errors: (projectLifecycle.startupErrors ?? []).map(({ root, code, message, error }) =>
-          ({ root, code: code || "startup_failed", message: message ?? error ?? "Project startup failed." }))
+        startup_errors: (projectLifecycle.startupErrors ?? []).map(({ root }) =>
+          ({ root, code: "project_startup_failed", message: "Project startup failed. Correct the project configuration and retry Add." }))
       }
     };
   }
