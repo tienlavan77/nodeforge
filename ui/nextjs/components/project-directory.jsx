@@ -1,6 +1,6 @@
 // Let owners choose or add an admitted project before opening an Architecture workspace.
 "use client";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { Dialog } from "./Dialog.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
@@ -25,6 +25,8 @@ export function ProjectDirectory() {
   const [root, setRoot] = useState("");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
+  // Associate each tracked receipt with directory attempts without equating their independent counters.
+  const directoryAttempts = useRef(new Map());
 
   // Refresh the actual runtime directory while keeping a failed request visible and retryable.
   async function load() {
@@ -75,8 +77,21 @@ export function ProjectDirectory() {
   const operations = Object.values(lifecycle.operations);
   // Resolve tracked operations by backend identity or submitted root without inventing directory membership.
   function operationFor(project) {
-    return operations.filter((operation) => operation.project_id === project.project_id || operation.root === project.root)
-      .at(-1);
+    const operation = operations.filter((entry) => entry.project_id === project.project_id || entry.root === project.root).at(-1);
+    if (!operation) return undefined;
+    const previous = directoryAttempts.current.get(operation.request_key);
+    if (!previous || operation.attempt > previous.attempt) {
+      directoryAttempts.current.set(operation.request_key, { attempt: operation.attempt, directoryAttempt: project.operation?.attempt_id,
+        awaitingAttempt: operation.status === "running" && project.operation?.status !== "running" });
+    }
+    const associated = directoryAttempts.current.get(operation.request_key);
+    if (associated.directoryAttempt !== project.operation?.attempt_id) {
+      if (!associated.awaitingAttempt) return undefined;
+      associated.directoryAttempt = project.operation?.attempt_id;
+      associated.awaitingAttempt = false;
+    }
+    if (["failed", "succeeded"].includes(operation.status) && project.operation?.status !== operation.status) return undefined;
+    return operation;
   }
   // Recover a membership-only startup failure through the backend's documented explicit Add path.
   async function retryAdd(path) {
