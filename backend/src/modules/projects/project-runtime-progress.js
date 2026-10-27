@@ -11,8 +11,12 @@ import { rebuildIndex } from "../index/index-rebuild.js";
 export async function startRuntimeWithProgress(startRuntime, options) {
   const runtime = await startRuntime(options);
   const progress = options.progress;
-  if (!progress || progress.snapshot().checkpoint) return runtime;
   try {
+    if (!progress) return runtime;
+    if (progress.snapshot().checkpoint) {
+      if (progress.snapshot().status !== "succeeded") throw Object.assign(new Error("Required indexing work failed."), { code: "index_failed" });
+      return runtime;
+    }
     const config = loadConfig({ cwd: options.projectRoot });
     const result = await rebuildIndex({ projectRoot: options.projectRoot, ignore: config.watcherIgnore, progress });
     if (!result.succeeded) throw Object.assign(new Error("Required indexing work failed."), { code: "index_failed" });

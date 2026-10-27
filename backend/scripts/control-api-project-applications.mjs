@@ -53,7 +53,7 @@ export function createProjectApplicationRegistry({ projectLifecycle, defaultAppl
     const entry = projectLifecycle?.list().find((item) => item.projectId === projectId);
     if (!entry) return undefined;
     const runtime = await projectLifecycle.get(entry.root);
-    if (!runtime || runtime.projectId !== projectId || runtime.status?.().closed) return undefined;
+    if (!runtime || runtime.projectId !== projectId || runtime.status?.().closed || ["failed", "running"].includes(runtime.status?.().progress?.status)) return undefined;
     const defaultMatches = defaultApplication.services.projectId === projectId && await defaultCanonical === entry.root;
     if (closed || !projectLifecycle.list().some((item) => item.root === entry.root && item.projectId === projectId)) return undefined;
     let record = applications.get(runtime);
@@ -72,8 +72,23 @@ export function createProjectApplicationRegistry({ projectLifecycle, defaultAppl
       if (!projectLifecycle.registerCleanup(runtime, record.close)) await record.close();
     }
     const { application } = await record.pending;
-    if (closed || record.disposed || !projectLifecycle.list().some((item) => item.root === entry.root && item.projectId === projectId)) return undefined;
-    return application.services;
+    if (closed || record.disposed || await projectLifecycle.get(entry.root) !== runtime || runtime.status?.().closed || ["failed", "running"].includes(runtime.status?.().progress?.status) ||
+        !projectLifecycle.list().some((item) => item.root === entry.root && item.projectId === projectId)) {
+      await record.close();
+      return undefined;
+    }
+    record.services ??= { ...application.services,
+      // Rechecks live admission when cached routers or streams use this service bundle.
+      assertAdmission() {
+        if (closed || record.disposed || runtime.status?.().closed ||
+            ["failed", "running"].includes(runtime.status?.().progress?.status) ||
+            !projectLifecycle.list().some((item) => item.root === entry.root && item.projectId === projectId)) {
+          throw Object.assign(new Error("Project is unavailable."), { statusCode: 404, code: "PROJECT_NOT_FOUND" });
+        }
+      }
+    };
+    record.services.assertAdmission();
+    return record.services;
   }
 
   // Drains catalog bundles and the never-resolved default stack through their shared disposal operations.
