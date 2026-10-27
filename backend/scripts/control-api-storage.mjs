@@ -16,6 +16,23 @@ export async function createControlApiStorage({ config, onWrite, configureLogs =
   try {
     const processLock = disposal.own(acquireProcessLock(config.dataDir, "control", { fileService, projectRoot: config.cwd }), "release", 60);
     const controlDb = disposal.own(await createDatabaseService({ dataDir: config.dataDir, runtimeDir: "." }), "close", 50);
+    controlDb.run(`CREATE TABLE IF NOT EXISTS ideas (
+      id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'done')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      version INTEGER NOT NULL DEFAULT 1 CHECK (typeof(version) = 'integer' AND version >= 1),
+      PRIMARY KEY (project_id, id)
+    )`);
+    controlDb.run("CREATE INDEX IF NOT EXISTS ideas_by_project_status ON ideas (project_id, status, created_at, id)");
+    controlDb.run(`CREATE TABLE IF NOT EXISTS idea_deletions (
+      project_id TEXT NOT NULL,
+      id TEXT NOT NULL,
+      version INTEGER NOT NULL CHECK (typeof(version) = 'integer' AND version >= 1),
+      PRIMARY KEY (project_id, id)
+    )`);
     const indexDb = disposal.own(await createDatabaseService({ dataDir: config.cwd, runtimeDir: join(".forge", "runtime", "wc") }), "close", 40);
     return { fileService, protocolStorage, conversationStateStore, processLock, controlDb, indexDb, disposal };
   } catch (error) {
