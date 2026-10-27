@@ -56,7 +56,7 @@ test("readiness distinguishes missing grants from missing compatible services", 
 test("canonical discovery names consume the same governed discovery budget categories", async () => {
   for (const [name, kind] of [["search_tree", "search"], ["list_files", "search"], ["search_text", "search"], ["read_lines", "read"]]) assert.equal(discoveryKind(name), kind);
   const governance = createRuntimeToolGovernance();
-  const context = governance.createExecutionContext({ task_id: "BUDGET", execution_id: "BUDGET-EXEC", agent_identity: { agent_id: "CODER", role: "coder" }, capabilities: ["search_tree"], allowed_prefixes: ["backend/"], context_budget: { max_calls: 5, max_bytes: 10000 }, discovery_search_calls: 1, discovery_budget: 1, allow_discovery_escalation: false, lifecycle: "RUNNING" });
+  const context = governance.createExecutionContext({ task_id: "BUDGET", execution_id: "BUDGET-EXEC", agent_identity: { agent_id: "REVIEWER", role: "reviewer" }, capabilities: ["search_tree"], allowed_prefixes: ["backend/"], context_budget: { max_calls: 5, max_bytes: 10000 }, discovery_search_calls: 1, discovery_budget: 1, allow_discovery_escalation: false, lifecycle: "RUNNING" });
   let calls = 0;
   await governance.dispatch("search_tree", {}, context, async () => { calls += 1; return { entries: [] }; });
   await assert.rejects(governance.dispatch("search_tree", {}, context, async () => { calls += 1; return {}; }));
