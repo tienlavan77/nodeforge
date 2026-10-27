@@ -59,6 +59,62 @@ test("progress schema and runtime validation enforce attempt and function defini
   assert.throws(() => validateIndexProgress({ ...value, function_kinds: { css: ["selector"] } }), /Invalid/);
 });
 
+// Bounds durable snapshot work during large scans while preserving exact in-memory counters.
+// A controlled monotonic clock verifies the publication interval without timing-dependent sleeps.
+test("routine progress bursts publish at most once per 250 ms and flush on completion", () => {
+  let timestamp = 0;
+  const snapshots = [];
+  const progress = createIndexProgress({ now: () => timestamp, onProgress: (value) => snapshots.push(value) });
+  progress.stage("scan/index");
+  for (let i = 0; i < 1000; i += 1) {
+    progress.discover("eligible");
+    progress.result({ path: `file-${i}.js`, status: "unchanged" });
+  }
+  assert.equal(snapshots.length, 1);
+  assert.equal(progress.snapshot().counters.unchanged, 1000);
+  timestamp = 249;
+  progress.discover("unsupported");
+  assert.equal(snapshots.length, 1);
+  timestamp = 250;
+  progress.discover("ignored");
+  assert.equal(snapshots.length, 2);
+  assert.equal(snapshots[1].counters.discovered, 1002);
+  progress.result({ path: "empty.js", version: 1, status: "indexed", committed: true });
+  assert.equal(snapshots.length, 2);
+  const final = progress.finish();
+  assert.equal(snapshots.length, 3);
+  assert.deepEqual(snapshots.at(-1), final);
+  assert.equal(final.counters.indexed, 1);
+  assert.equal(final.counters.unchanged, 1000);
+  assert.equal(final.status, "succeeded");
+  assert.ok(snapshots.every((value, i) => i === 0 || value.revision > snapshots[i - 1].revision));
+});
+
+// Preserves diagnostic changes, stage boundaries and reconciled inventory inside a throttled
+// burst so settlement never depends on a delayed timer to persist required operation evidence.
+test("mandatory progress snapshots bypass routine throttling", () => {
+  const snapshots = [];
+  const progress = createIndexProgress({ now: () => 0, onProgress: (value) => snapshots.push(value) });
+  progress.stage("scan/index");
+  progress.discover("eligible");
+  progress.result({ path: "a.js", status: "failed", marker: "parse_failed", message: "Invalid syntax" });
+  assert.equal(snapshots.at(-1).failures[0].resolved, false);
+  progress.result({ path: "a.js", status: "indexed", committed: true, version: 1 });
+  assert.equal(snapshots.at(-1).failures[0].resolved, true);
+  progress.stage("resolve");
+  assert.equal(snapshots.at(-1).stage, "resolve");
+  progress.reconcile({ all: (sql) => sql.includes("index_metadata") ? [{ version: 1 }] : [] });
+  assert.deepEqual(snapshots.at(-1).checkpoint, { version: 1, files: 0, functions: 0 });
+  progress.embedding({ status: "failed", failed: 1 });
+  assert.equal(snapshots.at(-1).embedding.failed, 1);
+  progress.stage("startup/readiness");
+  progress.fail(new Error("Startup failed"));
+  assert.equal(snapshots.at(-1).status, "failed");
+  progress.finish();
+  assert.equal(snapshots.at(-1).status, "failed");
+  assert.equal(snapshots.length, 9);
+});
+
 // A failed attempt is never allowed to settle successfully merely because old rows still exist.
 test("failed results preserve diagnostics and fail the final progress outcome", () => {
   const progress = createIndexProgress();
