@@ -11,8 +11,9 @@ import {createRoot} from 'react-dom/client';
 import {ProjectDirectory} from './components/project-directory.jsx';
 import * as selection from './lib/project-selection.js';
 import * as lifecycle from './lib/project-lifecycle-client.js';
+import * as directory from './lib/project-directory-client.js';
 import './app/globals.css';
-window.api={...selection,...lifecycle};window.calls=[];
+window.api={...selection,...lifecycle,...directory};window.calls=[];
 window.mock={outage:false,directoryFailure:false,lost:false,nextStatus:'running',operations:{},members:[
 {project_id:'PROJECT-A',root:'/server/a',readiness:'unavailable',operation:{attempt_id:1,status:'failed',diagnostic:null},diagnostic:{message:'Startup failed'},retryable:true},
 {project_id:'PROJECT-B',root:'/server/b',readiness:'ready',operation:{attempt_id:1,status:'succeeded',diagnostic:null},diagnostic:null,retryable:false}]};
@@ -100,11 +101,23 @@ await open(page,origin);const card=page.locator('[data-project-id="PROJECT-A"]')
 await card.getByRole("button",{name:"Retry operation"}).click();
 await page.waitForFunction(()=>document.querySelector('[data-project-id="PROJECT-A"]').textContent.includes('attempt 2'));
 assert.doesNotMatch(await card.innerText(),/Index failed/);
-await page.evaluate(()=>{window.mock.operations.seed=window.makeOperation('seed',{attempt:2,revision:4,status:'succeeded',diagnostic:undefined});window.mock.members[0].readiness='ready';});
+await page.evaluate(()=>{window.mock.operations.seed=window.makeOperation('seed',{attempt:2,revision:4,status:'succeeded',diagnostic:undefined});window.mock.members[0].readiness='ready';window.mock.members[0].operation={attempt_id:2,status:'succeeded',diagnostic:null};window.mock.members[0].diagnostic=null;});
 await card.getByRole("button",{name:"Reload status"}).click();
 await page.evaluate(async()=>{window.mock.operations.seed=window.makeOperation('seed',{attempt:1,revision:99});await window.api.reloadOperation('seed');});
 assert.match(await card.innerText(),/succeeded; attempt 2/);assert.doesNotMatch(await card.innerText(),/Index failed/);
 assert.equal(await card.getByRole("link",{name:"Open a"}).count(),1);
+// A later backend attempt must replace cached success without reloading that old request key.
+await page.evaluate(async()=>{const member=window.mock.members[0];member.readiness='unavailable';member.operation={attempt_id:3,status:'failed',diagnostic:{message:'External startup failed'}};member.diagnostic=member.operation.diagnostic;member.retryable=true;await window.api.refreshProjectDirectory();await window.api.refreshProjects();});
+await card.getByText('External startup failed',{exact:true}).waitFor();
+assert.equal(await card.getByRole("button",{name:"Retry Add",exact:true}).count(),1);
+assert.equal(await card.getByRole("link").count(),0);assert.doesNotMatch(await card.innerText(),/Operation succeeded/);
+assert.equal(await page.evaluate(()=>window.api.getLifecycleSnapshot().operations.seed.status),'succeeded');
+// Preserve an older cached failure while another client's successful attempt clears the current card.
+await page.evaluate(async()=>{window.mock.operations.seed=window.makeOperation('seed',{attempt:2,revision:5});await window.api.reloadOperation('seed');const member=window.mock.members[0];member.readiness='ready';member.operation={attempt_id:4,status:'succeeded',diagnostic:null};member.diagnostic=null;member.retryable=false;await window.api.refreshProjectDirectory();await window.api.refreshProjects();});
+await card.getByRole("link",{name:"Open a"}).waitFor();
+assert.doesNotMatch(await card.innerText(),/Index failed|External startup failed/);
+assert.equal(await card.getByRole("button",{name:/Retry/}).count(),0);
+assert.equal(await page.evaluate(()=>window.api.getLifecycleSnapshot().operations.seed.status),'failed');
 },
 "Unknown index totals render indeterminate progress without a fabricated percentage or ETA, and file/function totals render the backend committed counters separately from embedding status.":async({page,origin})=>{
 await open(page,origin);
