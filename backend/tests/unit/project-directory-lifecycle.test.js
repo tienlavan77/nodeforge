@@ -9,7 +9,7 @@ test("single-project directory uses the real running identity through the existi
   const lifecycle = createProjectDirectoryLifecycle({ projectId: "PROJECT-A", projectRoot: process.cwd() });
   const response = await routeProjectLifecycle("GET", new URL("http://localhost/lifecycle/list"), Readable.from([]), lifecycle);
   assert.equal(response.status, 200);
-  assert.deepEqual(response.body, { projects: [{ project_id: "PROJECT-A", root: process.cwd() }], startup_errors: [] });
+  assert.deepEqual(response.body, { projects: [{ project_id: "PROJECT-A", root: process.cwd(), readiness: "ready", operation: { attempt_id: 1, status: "succeeded", diagnostic: null }, diagnostic: null, retryable: false }], startup_errors: [] });
   for (const operation of ["add", "remove"]) assert.throws(() => lifecycle[operation](process.cwd()), { code: "lifecycle_unavailable", statusCode: 503 });
 });
 
