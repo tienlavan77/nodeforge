@@ -106,6 +106,36 @@ test("all failed writes require a read before another explicit write and never r
   }
 });
 
+/** Keep ambiguous create identity visible when other records succeed or also lose responses. */
+test("unresolved create survives reconciliation and unrelated mutation outcomes", async () => {
+  const session = createSession("A"), { client, item, calls } = fixture();
+  session.changeDraft({ content: "unresolved create", edit: null });
+  client.createIdea = async () => { calls.push(["POST"]); throw new Error("response lost"); };
+  await session.mutate(client, "create");
+  await session.load(client);
+  const uncertain = session.getSnapshot().uncertain;
+  assert.equal(uncertain.kind, "create");
+  assert.equal(uncertain.checked, true);
+  assert.equal(await session.mutate(client, "toggle", item), true);
+  assert.equal(session.getSnapshot().uncertain, uncertain);
+  assert.equal(session.getSnapshot().saved, false);
+  client.deleteIdea = async () => { calls.push(["DELETE"]); throw new Error("delete response lost"); };
+  await session.mutate(client, "delete", item);
+  assert.equal(session.getSnapshot().uncertain.kind, "create");
+  assert.equal(session.getSnapshot().uncertain.checked, false);
+  assert.deepEqual(session.getSnapshot().uncertain.pending, [{ kind: "delete", id: item.id }]);
+  const writes = calls.filter(([method]) => ["POST", "PATCH", "DELETE"].includes(method)).length;
+  await session.mutate(client, "toggle", item);
+  assert.equal(calls.filter(([method]) => ["POST", "PATCH", "DELETE"].includes(method)).length, writes);
+  assert.equal(session.getSnapshot().uncertain.checked, true);
+  await session.mutate(client, "toggle", item);
+  assert.equal(session.getSnapshot().uncertain.kind, "create");
+  assert.equal(session.getSnapshot().uncertain.pending[0].id, item.id);
+  assert.equal(session.getSnapshot().draft.content, "unresolved create");
+  assert.equal(session.getSnapshot().saved, false);
+  assert.equal(calls.filter(([method]) => method === "POST").length, 1);
+});
+
 test("failed reconciliation and absent records preserve uncertain input without writes", async () => {
   const session = createSession("A"), { client, item } = fixture();
   session.changeDraft({ content: "unresolved create", edit: item });

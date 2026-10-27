@@ -88,13 +88,19 @@ export function createSession(projectId) {
       const items = kind === "create" ? [...state.items, result] : kind === "delete"
         ? state.items.filter(entry => entry.id !== item.id)
         : state.items.map(entry => entry.id === result.id ? result : entry);
-      publish({ items, draft: nextDraft, saved: true, uncertain: null });
+      // An unrelated acknowledgement cannot resolve a previously lost response.
+      publish({ items, draft: nextDraft, saved: !state.uncertain });
       return true;
     } catch (failure) {
       if (failure.status === 409) publish({ conflict: { id: item?.id, kind },
         error: "Xung đột phiên bản. Bản nháp được giữ nguyên; tải bản server để đối chiếu." });
       else {
-        publish({ uncertain: { kind, id: item?.id, checked: false },
+        // Retain the oldest unresolved identity and every later uncertain operation.
+        // A fresh failure invalidates reconciliation; the next attempt must read again.
+        publish({ uncertain: state.uncertain
+          ? { ...state.uncertain, checked: false,
+            pending: [...(state.uncertain.pending ?? []), { kind, id: item?.id }] }
+          : { kind, id: item?.id, checked: false },
           error: "Chưa xác nhận lưu. Bản nháp được giữ nguyên. " + failure.message });
       }
       return false;
