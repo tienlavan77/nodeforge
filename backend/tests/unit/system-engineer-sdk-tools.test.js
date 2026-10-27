@@ -50,7 +50,7 @@ function memoryStateStore() {
 }
 
 test("System Engineer exposes the same Forge discovery and engineering tools across all SDK providers", async () => {
-  const expected = ["search_tree", "list_files", "search_text", "read_file", "read_lines", "write_diff", "edit_diff", "git_status", "git_diff", "run_check", "commit_changes", "push_commit", "delete_file"];
+  const expected = ["search_tree", "list_files", "search_text", "read_file", "read_lines", "write_diff", "edit_diff", "delete_file", "move_file", "git_status", "git_diff", "run_check", "commit_changes", "push_commit", "lookup_schema"];
   for (const provider of ["openai", "codex", "claude", "anthropic", "ollama"]) {
     let request;
     const profile = { agent_id: "engineer", agent_name: "Engineer", role: "system_engineer", provider };
@@ -82,7 +82,7 @@ test("System Engineer translates the request to English and is instructed to sea
   const activities = [];
   const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => profile }, sdkGateways: { codex: sdk }, fallbackStream: async function* () {}, fileService: fileService(), conversationStateStore, testService, gitService, projectRoot: "/project", projectLogger: (event) => logs.push(event) });
   for await (const chunk of stream({ agentId: "engineer", payload: { text: "inspect and fix the project" }, correlationId: "CORR-SYSTEM-ENGINEER", conversationId: "CONV-SYSTEM-ENGINEER", eventSink: (event) => activities.push(event) })) assert.equal(typeof chunk.text, "string");
-  assert.deepEqual(request.options.forgeTools.definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "read_lines", "write_diff", "edit_diff", "git_status", "git_diff", "run_check", "commit_changes", "push_commit", "delete_file"]);
+  assert.deepEqual(request.options.forgeTools.definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "read_lines", "write_diff", "edit_diff", "delete_file", "move_file", "git_status", "git_diff", "run_check", "commit_changes", "push_commit", "lookup_schema"]);
   assert.equal(request.options.sandboxMode, "read-only");
   assert.equal(request.options.networkAccessEnabled, true);
   assert.equal(request.options.webSearchMode, "live");
@@ -161,7 +161,7 @@ test("System Engineer Forge read_lines reads project files without a ticket mani
   } finally { await rm(projectRoot, { recursive: true, force: true }); }
 });
 
-test("Anthropic owner Forge calls announce start and completion in the API terminal", async () => {
+test("Anthropic owner Forge calls print only completion while retaining start events", async () => {
   const lines = [];
   const events = [];
   const logger = createRuntimeLogger({ logEvent: (event) => events.push(event), output: { write: (line) => lines.push(line) } });
@@ -171,7 +171,8 @@ test("Anthropic owner Forge calls announce start and completion in the API termi
   for await (const chunk of stream({ agentId: "architect", payload: { text: "list project" }, correlationId: "CORR-ANTHROPIC-TOOLS", conversationId: "CONV-ANTHROPIC-TOOLS" })) assert.equal(chunk.text, "ok");
   await request.options.forgeTools.registry.search_tree.execute({ path: ".", max_depth: 1 }, request.options.forgeTools.context);
   assert.deepEqual(events.filter((event) => event.event_name === "owner.tool_call").map((event) => event.status), ["started", "success"]);
-  assert.ok(lines.some((line) => line.includes("[Architect] (anthropic) search_tree START")));
-  assert.ok(lines.some((line) => line.includes("[Architect] (anthropic) search_tree PASS")));
+  assert.equal(lines.filter((line) => line.includes("search_tree")).length, 1);
+  assert.ok(lines.some((line) => /\[AM\/Architect\] search_tree.* - OK/.test(line)));
+  assert.ok(lines.every((line) => !line.includes(" START")));
 });
 

@@ -8,7 +8,7 @@ import { assertReservation, buildToolContext, cloneBudget, cloneContext, context
 
 const TERMINAL_LIFECYCLES = new Set(["COMPLETED", "CANCELLED", "EXPIRED", "FAILED", "NEEDS_HUMAN_REVIEW"]);
 const DISCOVERY_TOOLS = new Set(["select_code_graph_candidates", "search_code", "search_tree", "list_files", "search_text", "read_lines", "rg_files", "rg_search", "read_file", "sed_lines", "read_code", "Read", "Glob", "Grep"]);
-const EDIT_TOOLS = new Set(["write_diff", "edit_diff"]);
+const EDIT_TOOLS = new Set(["write_diff", "edit_diff", "delete_file", "move_file"]);
 
 // Creates runtime guards for tool authorization, budgeting, and auditing.
 export function createRuntimeToolGovernance({ database, eventStore, clock = () => new Date(), fileAccessPolicy } = {}) {
@@ -154,9 +154,9 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
   async function dispatch(toolName, input, context, execute) {
     if (typeof execute !== "function") throw new ConfigurationError("Tool dispatch requires an executor.");
     const normalized = resolveContext(context);
-    const resource = ["Read", "Glob", "Grep"].includes(toolName) ? undefined : input?.path ?? input?.resource ?? input?.file_paths;
+    const resource = ["Read", "Glob", "Grep"].includes(toolName) ? undefined : toolName === "move_file" ? [input?.from_path, input?.to_path].filter(Boolean) : input?.path ?? input?.resource ?? input?.file_paths;
     authorize(toolName, normalized, resource);
-    if (toolName === "commit_changes" || toolName === "push_commit" || toolName === "report_done" || toolName === "respond_to_review") return execute(input, buildToolContext(context, normalized, contexts));
+    if (toolName === "commit_changes" || toolName === "push_commit" || toolName === "report_done" || toolName === "respond_to_review" || toolName === "lookup_schema") return execute(input, buildToolContext(context, normalized, contexts));
     const reservation = await reserveRetrieval(normalized, { tool: toolName, resource, estimatedBytes: input?.max_chars ?? input?.maxChars ?? 0 });
     try {
       if (DISCOVERY_TOOLS.has(toolName)) assertDiscoveryBudget(normalized, discoveryKind(toolName), input);
