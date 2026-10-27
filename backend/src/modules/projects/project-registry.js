@@ -7,7 +7,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 
 import { captureRoot, assertRoot, prepareStorage } from "./project-filesystem-safety.js";
-import { verifyProjectIdentity, inspectProjectStorage, readProjectIdentity, prepareProjectLayout } from "./project-identity-safety.js";
+import { verifyProjectIdentity, inspectProjectStorage, readProjectIdentity, prepareProjectLayout, replaceProjectIdentityAtomically } from "./project-identity-safety.js";
 import {
   PROJECT_SLUG_PATTERN,
   LEGACY_PROJECT_ID_PATTERN,
@@ -16,7 +16,9 @@ import {
   isReservedProjectRoute,
   isValidProjectId,
   normalizeNameToSlug,
-  generateProjectSlug
+  generateProjectSlug,
+  isProjectSlugTaken,
+  releaseProjectSlugReservation
 } from "./project-slug.js";
 import { ConfigurationError } from "../../shared/errors.js";
 
@@ -100,10 +102,12 @@ export function buildProjectConfiguration(input = {}, { schemaVersion = "1.2.0" 
 export class ProjectRegistry {
   #createId;
   #schemaVersion;
+  #slugScope;
 
   constructor({ createId = createProjectId, schemaVersion = "1.2.0", fileService } = {}) {
     this.#createId = createId;
     this.#schemaVersion = schemaVersion;
+    this.#slugScope = [];
     this.fileService = fileService;
   }
 
@@ -127,44 +131,63 @@ export class ProjectRegistry {
 
     if (expectedProjectId) throw new ConfigurationError("Catalog identity is missing from the project root.");
     const desiredName = typeof config?.name === "string" && config.name.trim().length > 0 ? config.name : basename(root);
-    const generatedId = this.#createId === createProjectId
-      ? (config?.project_id ?? (config?.name || existingIds || catalog || onReserved
-        ? generateProjectSlug(desiredName, { existingIds, catalog, onReserved })
+    const useSlugAllocation = this.#createId === createProjectId && !config?.project_id && Boolean(config?.name || existingIds || catalog || onReserved);
+    const activeCatalog = catalog ?? (useSlugAllocation ? this.#slugScope : null);
+    let generatedId = this.#createId === createProjectId
+      ? (config?.project_id ?? (useSlugAllocation
+        ? generateProjectSlug(desiredName, { existingIds, catalog: activeCatalog, onReserved, root, reserve: true })
         : this.#createId()))
-      : this.#createId(desiredName, { existingIds, catalog, onReserved, root });
-    const project = {
-      project_id: generatedId,
-      name: desiredName,
-      root,
-      forge_dir: config?.forge_dir ?? ".forge",
-      schema_version: config?.schema_version ?? this.#schemaVersion,
-      ...(config?.comment_language !== undefined ? { comment_language: config.comment_language } : {})
-    };
-    for (const key of EXTENDED_PROJECT_CONFIG_KEYS) {
-      if (key === "comment_language") continue;
-      if (config?.[key] !== undefined) {
-        project[key] = config[key];
-      }
-    }
-    validateProject(project);
+      : this.#createId(desiredName, { existingIds, catalog: activeCatalog, onReserved, root });
+
     await assertRoot(binding);
     await prepareStorage(binding);
     await inspectProjectStorage(binding);
 
-    try {
-      if (this.fileService?.atomicCreate) await this.fileService.atomicCreate({ path: projectFile.slice(root.length + 1), content: `${JSON.stringify(project, null, 2)}\n` });
-      else await writeFile(projectFile, `${JSON.stringify(project, null, 2)}\n`, { flag: "wx" });
-      if (strictIdentity) await verifyProjectIdentity(binding, project);
-      await prepareProjectLayout(binding);
-      return project.project_id;
-    } catch (error) {
-      if (error.code !== "EEXIST" && error.code !== "FILE_ALREADY_EXISTS") throw error;
-      const existing = await readProject(projectFile);
-      validateProject(existing);
-      if (strictIdentity) await verifyProjectIdentity(binding, existing);
-      await prepareProjectLayout(binding);
-      return existing.project_id;
+    const rejectedIds = new Set();
+    for (let attempt = 0; attempt < 32; attempt += 1) {
+      if (useSlugAllocation && isProjectSlugTaken(generatedId, { catalog: activeCatalog, existingIds, root })) {
+        rejectedIds.add(generatedId);
+        releaseProjectSlugReservation(activeCatalog, generatedId, root);
+        generatedId = generateProjectSlug(desiredName, {
+          existingIds: [...(existingIds ? [...existingIds] : []), ...rejectedIds],
+          catalog: activeCatalog,
+          onReserved,
+          root,
+          reserve: true
+        });
+      }
+      const project = {
+        project_id: generatedId,
+        name: desiredName,
+        root,
+        forge_dir: config?.forge_dir ?? ".forge",
+        schema_version: config?.schema_version ?? this.#schemaVersion,
+        ...(config?.comment_language !== undefined ? { comment_language: config.comment_language } : {})
+      };
+      for (const key of EXTENDED_PROJECT_CONFIG_KEYS) {
+        if (key === "comment_language") continue;
+        if (config?.[key] !== undefined) project[key] = config[key];
+      }
+      validateProject(project);
+
+      try {
+        const serialized = `${JSON.stringify(project, null, 2)}\n`;
+        if (this.fileService?.atomicCreate) await this.fileService.atomicCreate({ path: projectFile.slice(root.length + 1), content: serialized });
+        else await writeFile(projectFile, serialized, { flag: "wx", mode: 0o600 });
+        if (strictIdentity) await verifyProjectIdentity(binding, project);
+        await prepareProjectLayout(binding);
+        return project.project_id;
+      } catch (error) {
+        releaseProjectSlugReservation(activeCatalog, generatedId, root);
+        if (error.code !== "EEXIST" && error.code !== "FILE_ALREADY_EXISTS") throw error;
+        const existing = await readProject(projectFile);
+        validateProject(existing);
+        if (strictIdentity) await verifyProjectIdentity(binding, existing);
+        await prepareProjectLayout(binding);
+        return existing.project_id;
+      }
     }
+    throw new ConfigurationError("Unable to allocate a unique project slug after repeated collisions.");
   }
 
   // Reads and validates the persisted `.forge/runtime/project.json` configuration for a project root, applying schema defaults.
@@ -184,7 +207,7 @@ export class ProjectRegistry {
 
   // Updates extended configuration fields in `.forge/runtime/project.json` without recreating or mutating `project_id` or `root`.
   // Business purpose: supports saving extended project metadata (commands, default_agents, watch, urls, tags, etc.) while guaranteeing existing project identity stability.
-  // Technical description: reads the existing `project.json`, rejects attempts to alter `project_id` or `root`, merges allowed fields with default `comment_language: "en"`, validates via Ajv, and writes back to disk.
+  // Technical description: reads the existing `project.json`, rejects attempts to alter `project_id` or `root`, merges allowed fields with default `comment_language: "en"`, validates via Ajv, and persists through a guarded atomic temporary file replacement.
   async writeConfiguration(projectRoot, updates = {}) {
     const root = resolveProjectRoot(projectRoot);
     const binding = await captureRoot(root);
@@ -206,13 +229,12 @@ export class ProjectRegistry {
     };
     for (const key of EXTENDED_PROJECT_CONFIG_KEYS) {
       if (key === "comment_language") continue;
-      if (updates[key] !== undefined) {
-        next[key] = updates[key];
-      }
+      if (updates[key] !== undefined) next[key] = updates[key];
     }
     validateProject(next);
     await assertRoot(binding);
-    await writeFile(projectFile, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
+    await inspectProjectStorage(binding);
+    await replaceProjectIdentityAtomically(binding, projectFile, `${JSON.stringify(next, null, 2)}\n`, this.fileService);
     return next;
   }
 }

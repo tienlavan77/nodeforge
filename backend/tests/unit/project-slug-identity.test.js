@@ -4,11 +4,15 @@
 // Technical description: exercises generateProjectSlug, createProjectId, normalizeNameToSlug, and isReservedProjectRoute
 // across diacritic inputs, duplicate catalog entries, and all 10 reserved route identifiers.
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import os from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import {
   PROJECT_SLUG_PATTERN,
   RESERVED_SYSTEM_ROUTES,
+  ProjectRegistry,
   generateProjectSlug,
   normalizeNameToSlug,
   isReservedProjectRoute,
@@ -79,4 +83,45 @@ test("deduplicates suffixed reserved route when -project already exists in catal
   });
   assert.equal(slug, "system-project-2");
   assert.match(slug, PROJECT_SLUG_PATTERN);
+});
+
+test("coordinates concurrent getOrCreate registrations for distinct roots with the same name and catalog", async () => {
+  const parent = await mkdtemp(join(os.tmpdir(), "nodeforge-concurrent-slug-"));
+  try {
+    const firstRoot = join(parent, "root-one");
+    const secondRoot = join(parent, "root-two");
+    const thirdRoot = join(parent, "root-three");
+    await mkdir(firstRoot, { recursive: true });
+    await mkdir(secondRoot, { recursive: true });
+    await mkdir(thirdRoot, { recursive: true });
+
+    const catalogEntries = [];
+    const sharedCatalog = { list: () => catalogEntries };
+    const registryOne = new ProjectRegistry();
+    const registryTwo = new ProjectRegistry();
+    const registryThree = new ProjectRegistry();
+
+    const [idOne, idTwo, idThree] = await Promise.all([
+      registryOne.getOrCreate(firstRoot, { config: { name: "Dự Án Bán Hàng" }, catalog: sharedCatalog }),
+      registryTwo.getOrCreate(secondRoot, { config: { name: "Dự Án Bán Hàng" }, catalog: sharedCatalog }),
+      registryThree.getOrCreate(thirdRoot, { config: { name: "Dự Án Bán Hàng" }, catalog: sharedCatalog })
+    ]);
+
+    const allocated = new Set([idOne, idTwo, idThree]);
+    assert.equal(allocated.size, 3);
+    assert.deepEqual(
+      [...allocated].sort(),
+      ["du-an-ban-hang", "du-an-ban-hang-2", "du-an-ban-hang-3"]
+    );
+
+    const persistedOne = JSON.parse(await readFile(join(firstRoot, ".forge", "runtime", "project.json"), "utf8"));
+    const persistedTwo = JSON.parse(await readFile(join(secondRoot, ".forge", "runtime", "project.json"), "utf8"));
+    const persistedThree = JSON.parse(await readFile(join(thirdRoot, ".forge", "runtime", "project.json"), "utf8"));
+    assert.equal(persistedOne.project_id, idOne);
+    assert.equal(persistedTwo.project_id, idTwo);
+    assert.equal(persistedThree.project_id, idThree);
+    assert.equal(new Set([persistedOne.project_id, persistedTwo.project_id, persistedThree.project_id]).size, 3);
+  } finally {
+    await rm(parent, { recursive: true, force: true });
+  }
 });
