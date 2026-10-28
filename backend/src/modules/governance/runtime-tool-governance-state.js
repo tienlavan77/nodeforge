@@ -13,11 +13,11 @@ export function ensureTables(database) {
 }
 
 // Normalizes raw budget values with defaults and validation.
-export function normalizeBudget(value = {}) {
+export function normalizeBudget(value = {}, { unlimited = false } = {}) {
   if (!value || typeof value !== "object") throw governanceError("CONTEXT_BUDGET_INVALID", "Runtime retrieval budget is invalid.");
-  const maxBytes = value.max_bytes ?? value.max_chars ?? DEFAULT_MAX_BYTES;
-  const maxCalls = value.max_calls ?? DEFAULT_MAX_CALLS;
-  for (const [name, number] of [["max_bytes", maxBytes], ["max_calls", maxCalls]]) if (!Number.isInteger(number) || number < 0) throw governanceError("CONTEXT_BUDGET_INVALID", `${name} must be a non-negative integer.`);
+  const maxBytes = unlimited ? null : value.max_bytes ?? value.max_chars ?? DEFAULT_MAX_BYTES;
+  const maxCalls = unlimited ? null : value.max_calls ?? DEFAULT_MAX_CALLS;
+  for (const [name, number] of [["max_bytes", maxBytes], ["max_calls", maxCalls]]) if (!unlimited && (!Number.isInteger(number) || number < 0)) throw governanceError("CONTEXT_BUDGET_INVALID", `${name} must be a non-negative integer.`);
   const usedBytes = value.used_bytes ?? 0; const usedCalls = value.used_calls ?? 0; const reservedBytes = value.reserved_bytes ?? 0; const reservedCalls = value.reserved_calls ?? 0;
   for (const [name, number] of [["used_bytes", usedBytes], ["used_calls", usedCalls], ["reserved_bytes", reservedBytes], ["reserved_calls", reservedCalls]]) if (!Number.isInteger(number) || number < 0) throw governanceError("CONTEXT_BUDGET_INVALID", `${name} must be a non-negative integer.`);
   const usedToolKinds = Array.isArray(value.used_tool_calls) ? value.used_tool_calls.filter((kind) => typeof kind === "string") : [];
@@ -67,13 +67,14 @@ export function loadPersistedBudget(database, taskId, executionId) {
 // Loads the current budget from memory or persisted storage.
 export function loadBudget({ database, contexts }, context) {
   const key = contextKey(context.task_id, context.execution_id);
+  const policy = { unlimited: context.agent_identity?.role === "coder" };
   const knownBudget = contexts.get(key)?.context_budget;
-  if (knownBudget) return normalizeBudget(knownBudget);
+  if (knownBudget) return normalizeBudget(knownBudget, policy);
   if (database) {
     const row = database.all("SELECT budget_json FROM runtime_tool_budget WHERE task_id = ? AND execution_id = ?", [context.task_id, context.execution_id])[0];
-    if (row) return normalizeBudget(JSON.parse(row.budget_json));
+    if (row) return normalizeBudget(JSON.parse(row.budget_json), policy);
   }
-  return normalizeBudget(context.context_budget ?? context.retrieval_budget);
+  return normalizeBudget(context.context_budget ?? context.retrieval_budget, policy);
 }
 
 // Persists the current execution budget.
@@ -114,7 +115,12 @@ export function cloneContext(value) { return { ...value, context_budget: cloneBu
 export function normalizeScope(scope, taskId, executionId) { const result = { ...(scope ?? {}) }; if (result.task_id !== undefined && result.task_id !== taskId) throw governanceError("TOOL_SCOPE_INVALID", "execution_scope.task_id does not match task_id."); if (result.execution_id !== undefined && result.execution_id !== executionId) throw governanceError("TOOL_SCOPE_INVALID", "execution_scope.execution_id does not match execution_id."); result.task_id = taskId; result.execution_id = executionId; return result; }
 
 // Normalizes a resource argument into an array.
-export function resourceList(resource) { return resource === undefined ? [] : Array.isArray(resource) ? resource : [resource]; }
+export function resourceList(resource) {
+  if (resource === undefined || resource === null) return [];
+  if (Array.isArray(resource)) return resource;
+  if (typeof resource === "object") return [resource.from_path, resource.to_path, resource.path, ...(Array.isArray(resource.file_paths) ? resource.file_paths : [])].filter((item) => item !== undefined);
+  return [resource];
+}
 
 // Checks whether a resource is inside the allowed paths or prefixes.
 export function resourceAllowed(resource, allowed = {}, { operation = "read", role = null } = {}) {

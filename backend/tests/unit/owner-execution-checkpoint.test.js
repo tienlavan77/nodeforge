@@ -209,3 +209,37 @@ test("restart opens a new provider thread with inherited checkpoint context", as
   for await (const chunk of stream({ agentId: "engineer", payload: { text: "inspect", message_id: "M6", resume_of: "E6" }, correlationId: "E7", conversationId: "C6" })) assert.equal(chunk.text, "done");
   assert.equal((await checkpoint.load("C6", "E7")).completed_tool_calls.length, 1);
 });
+
+test("System Engineer conversation tools and checkpoints record move_file and delete_file mutations, update owner_changed_paths, and block planning_input_only", async (context) => {
+  const { createOwnerConversationTools } = await import("../../src/tools/owner-conversation-tools.js");
+  const fixture = await projectFixture();
+  context.after(() => rm(fixture.root, { recursive: true, force: true }));
+  await fixture.files.atomicWrite({ path: "src/old.js", content: "const x = 1;\n", replace: true });
+  await fixture.files.atomicWrite({ path: "src/del.js", content: "const y = 2;\n", replace: true });
+  const oldSha = `sha256:${createHash("sha256").update("const x = 1;\n").digest("hex")}`;
+  const delSha = `sha256:${createHash("sha256").update("const y = 2;\n").digest("hex")}`;
+  const stateMap = new Map([["C-MUT", { owner_changed_paths: [] }]]);
+  const conversationStateStore = { get: async (id) => stateMap.get(id), update: async (id, fields) => { stateMap.set(id, { ...stateMap.get(id), ...fields }); return stateMap.get(id); } };
+  const store = createOwnerExecutionCheckpoint({ role: "system_engineer", fileService: fixture.files });
+  await store.start({ conversationId: "C-MUT", executionId: "E-MUT", messageId: "M-MUT", provider: "codex", promptHash: executionDigest("mutate") });
+  const seContext = { task_id: "E-MUT", execution_id: "E-MUT", conversation_id: "C-MUT", project_root: fixture.root, project_wide_access: true, capabilities: ["move_file", "delete_file", "read_file"], agent_identity: { agent_id: "engineer", role: "system_engineer", provider: "codex" }, changed_paths: [] };
+  const { registry } = createOwnerConversationTools({ role: "system_engineer", projectRoot: fixture.root, fileService: fixture.files, conversationStateStore, conversationId: "C-MUT", context: seContext });
+  const tools = checkpointOwnerTools({ registry, checkpoint: store, conversationId: "C-MUT", executionId: "E-MUT", signal: new AbortController().signal, toolContext: seContext });
+  await tools.move_file.execute({ from_path: "src/old.js", to_path: "src/new.js", before_checksum: oldSha }, seContext);
+  assert.deepEqual(stateMap.get("C-MUT").owner_changed_paths, ["src/old.js", "src/new.js"]);
+  const afterMove = await store.load("C-MUT", "E-MUT");
+  assert.deepEqual(afterMove.changed_paths, ["src/old.js", "src/new.js"]);
+  assert.equal(afterMove.completed_tool_calls[0].from_path, "src/old.js");
+  assert.equal(afterMove.completed_tool_calls[0].to_path, "src/new.js");
+  await store.patch("C-MUT", "E-MUT", { status: "interrupted" });
+  await store.markStopped("C-MUT", "E-MUT");
+  assert.equal(await store.reconcile(await store.load("C-MUT", "E-MUT")), true);
+  await store.start({ conversationId: "C-MUT", executionId: "E-MUT", provider: "codex", promptHash: executionDigest("mutate"), continueAttempt: true });
+  await tools.delete_file.execute({ path: "src/del.js", before_checksum: delSha }, seContext);
+  assert.deepEqual(stateMap.get("C-MUT").owner_changed_paths, ["src/old.js", "src/new.js", "src/del.js"]);
+  assert.deepEqual((await store.load("C-MUT", "E-MUT")).changed_paths, ["src/old.js", "src/new.js", "src/del.js"]);
+  const planningCtx = { ...seContext, planning_input_only: true };
+  const planningTools = createOwnerConversationTools({ role: "system_engineer", projectRoot: fixture.root, fileService: fixture.files, context: planningCtx });
+  assert.equal(planningTools.registry.delete_file, undefined);
+  assert.equal(planningTools.registry.move_file, undefined);
+});

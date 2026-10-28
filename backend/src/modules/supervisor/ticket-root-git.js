@@ -8,7 +8,9 @@ import { promisify } from "node:util";
 import { ConfigurationError } from "../../shared/errors.js";
 
 const execFile = promisify(callback);
+// Defines sha function behavior for ticket-root-git.js.
 const sha = (value) => value === null ? null : `sha256:${createHash("sha256").update(value).digest("hex")}`;
+// Defines fail function behavior for ticket-root-git.js.
 const fail = (code, message) => Object.assign(new ConfigurationError(message), { code });
 
 // Provides bounded Git commands with an optional transaction-private index.
@@ -87,7 +89,7 @@ export function createTicketRootGit({ projectRoot } = {}) {
     for (const path of paths) await assertSafePath(path);
     await run(["read-tree", parent], { indexFile });
     await run(["add", "-A", "--", ...paths.map((path) => `:(literal)${path}`)], { indexFile });
-    const changed = (await run(["diff", "--cached", "--name-only", parent, "--"], { indexFile })).split("\n").filter(Boolean).sort();
+    const changed = (await run(["diff", "--cached", "--no-renames", "--name-only", parent, "--"], { indexFile })).split("\n").filter(Boolean).sort();
     if (JSON.stringify(changed) !== JSON.stringify([...paths].sort())) throw fail("TICKET_PATH_CONFLICT", "Candidate tree paths differ from the frozen ticket manifest.");
     return (await run(["write-tree"], { indexFile })).trim();
   }

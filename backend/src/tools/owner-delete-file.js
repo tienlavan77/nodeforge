@@ -31,7 +31,7 @@ export function createOwnerDeleteFileTool({ fileService, codeCache }) {
     if (!Array.isArray(context.changed_paths)) context.changed_paths = [];
     if (!context.changed_paths.includes(input.path)) context.changed_paths.push(input.path);
     codeCache?.invalidate({ path: input.path });
-    return result;
+    return { path: input.path, deleted: true, before_sha256: current, sha256: null, ...(result && typeof result === "object" ? result : {}) };
   } });
 }
 

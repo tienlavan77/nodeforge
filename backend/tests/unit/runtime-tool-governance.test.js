@@ -218,3 +218,58 @@ test("restores persisted budget when a governance service is recreated", async (
   const resumed = restored.createExecutionContext(context({ retrieval_budget: { max_bytes: 999, max_calls: 999 } }));
   assert.deepEqual(restored.getBudget(resumed), { max_bytes: 20, max_calls: 2, used_bytes: 7, used_calls: 1, reserved_bytes: 0, reserved_calls: 0, used_tool_calls: ["read_code"] });
 });
+
+test("delete_file and move_file act as EDIT_TOOLS, enforce write access on both move endpoints, and unlock discovery after success", async () => {
+  const governance = createRuntimeToolGovernance();
+  const current = governance.createExecutionContext(context({
+    capabilities: ["search_code", "read_file", "delete_file", "move_file"],
+    allowed_resources: { allowed_file_paths: ["src/a.js", "src/b.js"], allowed_prefixes: ["src/relocated"] },
+    retrieval_budget: { max_bytes: 1000000, max_calls: 20 },
+    discovery_budget: 2,
+    allow_discovery_escalation: false
+  }));
+  await governance.dispatch("search_code", { query: "q0" }, current, async () => ({ matches: [] }));
+  await governance.dispatch("search_code", { query: "q1" }, current, async () => ({ matches: [] }));
+  await assert.rejects(() => governance.dispatch("read_file", { path: "src/a.js" }, current, async () => ({ content: "a" })), { code: "EXPLORATION_BUDGET_EXHAUSTED" });
+
+  // move_file checks both from_path and to_path against the execution allowlist.
+  await assert.rejects(() => governance.dispatch("move_file", { from_path: "src/outside.js", to_path: "src/relocated/a.js" }, current, async () => ({ moved: true })), { code: "TOOL_RESOURCE_FORBIDDEN" });
+  await assert.rejects(() => governance.dispatch("move_file", { from_path: "src/a.js", to_path: "src/forbidden/a.js" }, current, async () => ({ moved: true })), { code: "TOOL_RESOURCE_FORBIDDEN" });
+  await assert.rejects(() => governance.dispatch("delete_file", { path: "src/outside.js" }, current, async () => ({ deleted: true })), { code: "TOOL_RESOURCE_FORBIDDEN" });
+
+  // Failed move_file does not mark edit started.
+  await assert.rejects(() => governance.dispatch("move_file", { from_path: "src/a.js", to_path: "src/relocated/a.js" }, current, async () => { throw Object.assign(new Error("mismatch"), { code: "CHECKSUM_MISMATCH" }); }), { code: "CHECKSUM_MISMATCH" });
+  await assert.rejects(() => governance.dispatch("read_file", { path: "src/a.js" }, current, async () => ({ content: "a" })), { code: "EXPLORATION_BUDGET_EXHAUSTED" });
+
+  // Successful delete_file unlocks discovery via markEditStarted.
+  await governance.dispatch("delete_file", { path: "src/b.js" }, current, async () => ({ deleted: true }));
+  const readAfterDelete = await governance.dispatch("read_file", { path: "src/a.js" }, current, async (_input, toolContext) => ({ edit_started: toolContext.exploration_state.edit_started }));
+  assert.equal(readAfterDelete.edit_started, true);
+
+  // Successful move_file on a fresh discovery-exhausted execution also unlocks discovery.
+  const second = governance.createExecutionContext(context({
+    execution_id: "EXEC-MOVE",
+    capabilities: ["search_code", "read_file", "move_file"],
+    allowed_resources: { allowed_file_paths: ["src/a.js"], allowed_prefixes: ["src/relocated"] },
+    retrieval_budget: { max_bytes: 1000000, max_calls: 20 },
+    discovery_budget: 1,
+    allow_discovery_escalation: false
+  }));
+  await governance.dispatch("search_code", { query: "q0" }, second, async () => ({ matches: [] }));
+  await assert.rejects(() => governance.dispatch("read_file", { path: "src/a.js" }, second, async () => ({ content: "a" })), { code: "EXPLORATION_BUDGET_EXHAUSTED" });
+  await governance.dispatch("move_file", { from_path: "src/a.js", to_path: "src/relocated/a.js" }, second, async () => ({ moved: true }));
+  const readAfterMove = await governance.dispatch("read_file", { path: "src/relocated/a.js" }, second, async (_input, toolContext) => ({ edit_started: toolContext.exploration_state.edit_started }));
+  assert.equal(readAfterMove.edit_started, true);
+
+  // Read-only roles (reviewer, sprint_leader) without delete_file or move_file capabilities are rejected.
+  for (const role of ["reviewer", "sprint_leader"]) {
+    const readOnly = governance.createExecutionContext(context({
+      execution_id: `EXEC-${role}`,
+      agent_identity: { agent_id: `${role}-1`, role },
+      capabilities: ["read_file", "search_text"],
+      allowed_resources: { allowed_file_paths: ["src/a.js", "src/b.js"] }
+    }));
+    await assert.rejects(() => governance.dispatch("delete_file", { path: "src/a.js" }, readOnly, async () => ({})), { code: "TOOL_FORBIDDEN" });
+    await assert.rejects(() => governance.dispatch("move_file", { from_path: "src/a.js", to_path: "src/b.js" }, readOnly, async () => ({})), { code: "TOOL_FORBIDDEN" });
+  }
+});
