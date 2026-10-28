@@ -8,7 +8,7 @@ export const FUNCTION_KINDS = Object.freeze({
   css: Object.freeze([])
 });
 // Names work stages independently from durable lifecycle membership transitions.
-export const INDEX_STAGES = Object.freeze(["preflight", "identity", "membership", "scan/index", "resolve", "startup/readiness"]);
+export const INDEX_STAGES = Object.freeze(["preflight", "identity", "membership", "comment_normalization", "scan/index", "resolve", "embedding", "startup/readiness"]);
 
 // Reads a consistent database checkpoint so consumers can reconcile attempt outcomes with
 // committed inventory at a named index version rather than equating processed events to files.
@@ -86,6 +86,9 @@ export function createIndexProgress({ attempt = 1, onProgress = () => {}, now = 
     // Separates embedding diagnostics from workspace readiness and index outcome.
     embedding(value) { embedding = { ...embedding, ...value }; return publish(); },
     // Marks readiness only after the caller has completed its startup boundary.
-    finish() { status = failures.some((failure) => !failure.resolved) ? "failed" : "succeeded"; stages[stage] = status === "failed" ? "failed" : "completed"; return publish(); }
+    finish() { status = failures.some((failure) => !failure.resolved) ? "failed" : "succeeded";
+      if (status === "succeeded" && stage === "startup/readiness") { for (const name of INDEX_STAGES) if (stages[name] !== "failed") stages[name] = "completed"; }
+      else stages[stage] = status === "failed" ? "failed" : "completed";
+      return publish(); }
   });
 }

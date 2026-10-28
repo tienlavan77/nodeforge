@@ -11,7 +11,7 @@ import { createProjectCreateAdmission, openProjectAdmissionStore, assertProjectC
 import { ProjectRegistry } from "./project-registry.js";
 import { createProjectCatalog } from "./project-catalog.js";
 import { startProjectRuntime } from "./project-runtime.js";
-import { startRuntimeWithProgress } from "./project-runtime-progress.js";
+import { startRuntimeWithProgress, createLifecycleStreamResolver } from "./project-runtime-progress.js";
 import { createProjectRuntimeDisposal } from "./project-runtime-disposal.js";
 import { createProjectDirectoryState } from "./project-directory-state.js";
 import { createProjectAdmissionQueue } from "./project-admission-queue.js";
@@ -35,7 +35,7 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
       startupErrors.push({ root: entry.root, error: error.message, ...(error.code ? { code: error.code } : {}) });
     }
   }
-  return Object.freeze({ rest: createProjectRestService({ registry, catalog, directory: directoryState.directory, get, enqueue, admit, create, remove }), operations, create, add, remove, list, directory: directoryState.directory, get, close, registerCleanup, startupErrors: Object.freeze(startupErrors) });
+  return Object.freeze({ rest: createProjectRestService({ registry, catalog, directory: directoryState.directory, get, getRuntime: (root) => !closed ? runtimes.get(root) : undefined, enqueue, admit, create, remove }), operations, create, add, remove, list, directory: directoryState.directory, get, getStream: createLifecycleStreamResolver({ catalog, runtimes, isAvailable, isClosed: () => closed }), close, registerCleanup, startupErrors: Object.freeze(startupErrors) });
 
   // Fences Create through the durable operation store before exclusive directory creation.
   function create(root, options) {
@@ -73,8 +73,8 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
     await assertRoot(binding);
     await inspectProjectStorage(binding);
     let runtime;
-    try { runtime = await startRuntimeWithProgress(startRuntime, { ...runtimeOptions, projectRoot: canonical, projectId, logger, ...(progress ? { progress } : {}) }); } catch (error) {
-      throw filesystemError("startup", "project_startup_failed", canonical, error, "Membership and identity are retained. Correct the startup failure and retry Add.");
+    try { runtime = await startRuntimeWithProgress(startRuntime, { ...runtimeOptions, projectRoot: canonical, projectId, logger, ...(progress ? { progress } : {}), onRuntimeCreated: (running) => runtimes.set(canonical, running) }); } catch (error) {
+      runtimes.delete(canonical); throw filesystemError("startup", "project_startup_failed", canonical, error, "Membership and identity are retained. Correct the startup failure and retry Add.");
     }
     runtimes.set(canonical, runtime);
     return { root: canonical, projectId };

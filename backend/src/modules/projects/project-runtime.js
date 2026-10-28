@@ -12,7 +12,7 @@ import { createSubscriptionRegistry } from "../events/subscription-registry.js";
 import { createProjectStream } from "../../transport/sse/project-stream.js";
 
 // Starts every per-project service without introducing an HTTP or CLI management contract.
-export async function startProjectRuntime({ projectRoot, projectId, logger = console, embeddingProvider, ollamaConfig, chokidarOptions, watcherFactory, onProgress = () => {}, progress = createIndexProgress({ onProgress }) } = {}) {
+export async function startProjectRuntime({ projectRoot, projectId, logger = console, embeddingProvider, ollamaConfig, chokidarOptions, watcherFactory, onProgress = () => {}, progress = createIndexProgress({ onProgress }), normalizeComments = true, coderNormalizer = null, rejectOnViolation = true, fallbackOnViolation = false, onRuntimeCreated = null } = {}) {
   const bus = new EventEmitter();
   const subscriptions = createSubscriptionRegistry({ logger });
   const connections = new Set();
@@ -24,24 +24,86 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
   let embeddingJobs;
   let workerTask;
   let watch;
-  let stream;
   let closing;
   let closed = false;
   let embeddingError = null;
+  const baseProgress = progress;
+  const trackedProgress = Object.freeze({
+    ...baseProgress,
+    // Broadcasts real-time stage transitions onto the project stream while indexing is running.
+    stage(value) {
+      const snap = baseProgress.stage(value);
+      bus.emit("agent.activity", {
+        event_type: "agent.activity", project_id: projectId, timestamp: new Date().toISOString(),
+        payload: { agent_id: "coder", activity_type: "progress", status: "working", summary: `Stage ${value}: running` }
+      });
+      return snap;
+    },
+    // Broadcasts terminal indexing readiness onto the project stream when all stages settle.
+    finish() {
+      const snap = baseProgress.finish();
+      bus.emit("agent.activity", {
+        event_type: "agent.activity", project_id: projectId, timestamp: new Date().toISOString(),
+        payload: {
+          agent_id: "coder",
+          activity_type: snap.status === "failed" ? "failed" : "completed",
+          status: snap.status === "failed" ? "failed" : "success",
+          summary: `Stage ${snap.stage}: ${snap.status}`
+        }
+      });
+      return snap;
+    }
+  });
+  const stream = createProjectStream({
+    projectId,
+    indexDb: { all: (...args) => database ? database.all(...args) : [] },
+    runtimeSnapshot: () => {
+      const snap = trackedProgress.snapshot();
+      return { readiness: closed || snap.status === "failed" ? "unavailable" : snap.status === "succeeded" ? "ready" : "running", stage: snap.stage, status: snap.status, progress: snap };
+    },
+    subscriptions,
+    eventBus: bus
+  });
+  // Synchronizes durable embedding job counts into the index progress collector.
+  function syncEmbeddingProgress() {
+    const counts = closed || !embeddingJobs ? null : embeddingJobs.counts();
+    if (counts) {
+      trackedProgress.embedding({
+        status: embeddingError ? "failed" : counts.pending || counts.processing || counts.retry_wait ? "running" : "succeeded",
+        ...(embeddingError ? { error: String(embeddingError) } : {}),
+        pending: (counts.pending ?? 0) + (counts.retry_wait ?? 0),
+        processing: counts.processing ?? 0,
+        succeeded: counts.completed ?? 0,
+        failed: counts.failed ?? 0
+      });
+    }
+  }
+  // Exposes affected-worker diagnostics and Option B readiness without changing public stream schemas.
+  function status() {
+    syncEmbeddingProgress();
+    const snap = trackedProgress.snapshot();
+    return {
+      projectId, projectRoot, embeddingError, closed,
+      readiness: closed || snap.status === "failed" ? "unavailable" : snap.status === "succeeded" ? "ready" : "running",
+      progress: snap
+    };
+  }
   const workerLogger = {
     // Reports Ollama failure for this project while its watcher and other projects keep running.
     warning(message, detail) {
       embeddingError = detail.error;
-      progress.embedding({ status: "failed", error: String(detail.error) });
+      trackedProgress.embedding({ status: "failed", error: String(detail.error) });
       logger.warn?.(message, { ...detail, projectId });
       bus.emit("embedding.failed", { projectId, error: detail.error });
     }
   };
   try {
+    onRuntimeCreated?.(Object.freeze({ projectRoot, projectId, bus, connect, close, status }));
     controlDb = await openIndexDatabase(projectRoot, { storageKind: "control" });
     ideas = createIdeasStore({ controlDb, projectId });
     watch = await startProjectWatch({
-      projectRoot, projectId, internalBus: bus, reconcile: true, logger, chokidarOptions, watcherFactory, progress,
+      projectRoot, projectId, internalBus: bus, reconcile: true, logger, chokidarOptions, watcherFactory, progress: trackedProgress,
+      normalizeComments, coderNormalizer, rejectOnViolation, fallbackOnViolation,
       // Shares one project database between indexing, semantic retrieval, and its durable worker.
       prepareDatabase(indexDb) {
         database = indexDb;
@@ -51,27 +113,30 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
         embeddingJobs = jobs;
         jobs.recoverProcessing();
         worker = createEmbeddingWorker({ database, jobs, embeddingStore: retrieval.embeddingStore, embeddingProvider, model: retrieval.ollamaConfig.model, logger: workerLogger });
-        return { indexOptions: { embeddingJobs: jobs, embeddingModel: retrieval.ollamaConfig.model }, close: stopEmbedding };
+        return {
+          indexOptions: { embeddingJobs: jobs, embeddingModel: retrieval.ollamaConfig.model },
+          // Drains initial symbol embeddings during the embedding stage before marking the project ready.
+          async runInitialEmbeddings() {
+            await new Promise((resolve) => setImmediate(resolve));
+            queueMissingEmbeddings();
+            syncEmbeddingProgress();
+            while (!closed && !embeddingError && await worker.runOnce()) {
+              syncEmbeddingProgress();
+            }
+            syncEmbeddingProgress();
+          },
+          close: stopEmbedding
+        };
       }
     });
-    stream = createProjectStream({ projectId, indexDb: database, subscriptions, eventBus: bus });
-    queueMissingEmbeddings();
     workerTask = worker.start();
     workerTask = workerTask.catch((error) => {
       embeddingError = error.message;
-      progress.embedding({ status: "failed", error: error.message });
+      trackedProgress.embedding({ status: "failed", error: error.message });
       logger.error?.("Project embedding worker stopped.", { projectId, error });
     });
     return Object.freeze({ projectRoot, projectId, bus, database, controlDb, ideas, worker, connect, close,
-      search: retrieval.search, embeddingStore: retrieval.embeddingStore, embeddingProvider,
-      // Exposes affected-worker diagnostics without changing public stream schemas.
-      status() {
-        const counts = closed ? null : embeddingJobs.counts();
-        if (counts) progress.embedding({ status: embeddingError ? "failed" : counts.pending || counts.processing || counts.retry_wait ? "running" : "succeeded",
-          pending: (counts.pending ?? 0) + (counts.retry_wait ?? 0), processing: counts.processing ?? 0,
-          succeeded: counts.completed ?? 0, failed: counts.failed ?? 0 });
-        return { projectId, projectRoot, embeddingError, closed, progress: progress.snapshot() };
-      }
+      search: retrieval.search, embeddingStore: retrieval.embeddingStore, embeddingProvider, status
     });
   } catch (error) {
     progress.fail(error);

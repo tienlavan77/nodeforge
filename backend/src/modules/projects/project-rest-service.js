@@ -5,13 +5,13 @@ import { buildProjectConfiguration } from "./project-registry.js";
 import { preflightProject } from "./project-rest-preflight.js";
 
 // Binds REST operations to the catalog and existing serialized lifecycle safety boundaries.
-export function createProjectRestService({ registry, catalog, directory, get, enqueue, admit, create, remove }) {
+export function createProjectRestService({ registry, catalog, directory, get, getRuntime, enqueue, admit, create, remove }) {
   return Object.freeze({ preflight: preflightProject, intake, list, update, remove: removeById });
 
   // Selects admission from actual host filesystem state, validating settings before membership changes.
   async function intake(input) {
     if (!input || typeof input !== "object" || Array.isArray(input)) throw invalid("Project configuration must be an object.");
-    const config = { ...input };
+    const config = { ...input, comment_language: input.comment_language ?? "en" };
     delete config.root;
     const state = await preflightProject(input.root);
     if (state.status === "invalid") throw Object.assign(new Error(state.message), state, { statusCode: 400 });
@@ -35,7 +35,7 @@ export function createProjectRestService({ registry, catalog, directory, get, en
       let configuration = {};
       try {
         configuration = await registry.readConfiguration(entry.root);
-        const runtime = await get(entry.root);
+        const runtime = (typeof getRuntime === "function" ? getRuntime(entry.root) : undefined) ?? await get(entry.root);
         return { ...configuration, ...entry, progress: runtime?.status?.().progress ?? null };
       } catch (error) {
         return { ...configuration, ...entry, project_id: entry.projectId, readiness: "unavailable", progress: null,
