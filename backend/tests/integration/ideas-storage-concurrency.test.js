@@ -41,6 +41,46 @@ test("independent threads racing the same version produce one winner and one con
   }
 });
 
+// Releases both worker contenders simultaneously after their independent SQLite connections are ready.
+// Verifies that concurrent PATCH/DELETE and DELETE/DELETE races yield one winner and one 409 conflict.
+for (const operation of ["delete", "update"]) {
+  test(`independent threads racing DELETE and ${operation} produce one winner and one conflict`, { timeout: 15000 }, async () => {
+    const root = await mkdtemp(join(tmpdir(), "ideas-concurrent-delete-"));
+    const workers = [];
+    let db;
+    try {
+      db = await openIndexDatabase(root, { storageKind: "control" });
+      const store = createIdeasStore({ controlDb: db, projectId: "a" });
+      const idea = store.create({ content: "initial" });
+      const ready = [];
+      for (const contender of ["delete", operation]) {
+        const worker = new Worker(new URL("./ideas-storage-worker.js", import.meta.url), {
+          workerData: { root, id: idea.id, operation: contender, content: "updated" }
+        });
+        workers.push(worker);
+        ready.push(once(worker, "message"));
+      }
+      for (const [message] of await Promise.all(ready)) assert.equal(message.ready, true);
+      const completed = workers.map(worker => once(worker, "message"));
+      for (const worker of workers) worker.postMessage("go");
+      const results = (await Promise.all(completed)).map(([message]) => message);
+      assert.deepEqual(results.map(result => result.status).sort(), [200, 409]);
+      const winner = results.find(result => result.status === 200).result;
+      if (winner === true) {
+        assert.equal(store.get(idea.id), undefined);
+      } else {
+        assert.equal(winner.version, 2);
+        assert.equal(winner.content, "updated");
+        assert.deepEqual(store.get(idea.id), winner);
+      }
+    } finally {
+      await Promise.all(workers.map(worker => worker.terminate()));
+      await db?.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
+
 // Coordinates already-connected contenders so deletion commits before each stale write.
 // Reopening the database also verifies that conflict history survives backend restarts.
 for (const operation of ["delete", "update"]) {
