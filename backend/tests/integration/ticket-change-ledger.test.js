@@ -230,20 +230,28 @@ test("ledger move, delete, rollback, post-unlink recovery, and failed destinatio
     await assert.rejects(files.readFile({ path: destPath }), { code: "ENOENT" });
     assert.deepEqual(await files.listDirectories({ glob: "backend/src/modern/**" }), []);
 
-    // Pre-unlink source failure + failed destination compensation retains pending entries/claims so recreated ledger recovers and rolls back:
-    const failedCompLedger = createTicketChangeLedger({ projectId: "PROJECT-TEST", fileService: { ...files, deleteFile: async (input) => {
-      if (input.path === sourcePath || input.path === destPath) throw Object.assign(new Error("Simulated unlink failure"), { code: "EIO" });
-      return files.deleteFile(input);
-    } } });
-    await assert.rejects(failedCompLedger.move({ taskId: "TICKET-COMP-FAIL", fromPath: sourcePath, toPath: destPath, before: sourceContent }), { code: "EIO" });
-    assert.equal(await files.readFile({ path: sourcePath }), sourceContent);
-    assert.equal(await files.readFile({ path: destPath }), sourceContent);
-    const pendingComp = await ledger.load("TICKET-COMP-FAIL");
-    assert.ok(pendingComp.entries[sourcePath]?.pending && pendingComp.entries[destPath]?.pending);
-    const recreatedCompLedger = createTicketChangeLedger({ fileService: createFileService({ projectRoot: root }), projectId: "PROJECT-TEST" });
-    await recreatedCompLedger.rollback("TICKET-COMP-FAIL", { close: true });
-    assert.equal(await files.readFile({ path: sourcePath }), sourceContent);
-    await assert.rejects(files.readFile({ path: destPath }), { code: "ENOENT" });
-    assert.deepEqual(await files.listDirectories({ glob: "backend/src/modern/**" }), []);
+    // Pre-unlink source failure + failed destination compensation (including post-unlink dir cleanup + pruning failure) retains pending entries/claims so recreated ledger recovers and removes empty destination ancestors:
+    for (const [taskId, unlinkDest] of [["TICKET-COMP-FAIL", false], ["TICKET-COMP-PRUNE-FAIL", true]]) {
+      const failedCompLedger = createTicketChangeLedger({ projectId: "PROJECT-TEST", fileService: { ...files, deleteFile: async (input) => {
+        if (input.path === sourcePath) throw Object.assign(new Error("Simulated source unlink failure"), { code: "EIO" });
+        if (input.path === destPath) {
+          if (unlinkDest) await rm(join(root, destPath));
+          throw Object.assign(new Error("Simulated destination cleanup failure"), { code: "EACCES" });
+        }
+        return files.deleteFile(input);
+      }, removeEmptyDirectory: async () => { throw Object.assign(new Error("Simulated persistent pruning failure"), { code: "EACCES" }); } } });
+      await assert.rejects(failedCompLedger.move({ taskId, fromPath: sourcePath, toPath: destPath, before: sourceContent }), { code: "EIO" });
+      assert.equal(await files.readFile({ path: sourcePath }), sourceContent);
+      if (unlinkDest) await assert.rejects(files.readFile({ path: destPath }), { code: "ENOENT" });
+      else assert.equal(await files.readFile({ path: destPath }), sourceContent);
+      assert.ok((await files.listDirectories({ glob: "backend/src/modern/**" })).length > 0);
+      const pendingComp = await ledger.load(taskId);
+      assert.ok(pendingComp.entries[sourcePath]?.pending && pendingComp.entries[destPath]?.pending);
+      const recreatedCompLedger = createTicketChangeLedger({ fileService: createFileService({ projectRoot: root }), projectId: "PROJECT-TEST" });
+      await recreatedCompLedger.rollback(taskId, { close: true });
+      assert.equal(await files.readFile({ path: sourcePath }), sourceContent);
+      await assert.rejects(files.readFile({ path: destPath }), { code: "ENOENT" });
+      assert.deepEqual(await files.listDirectories({ glob: "backend/src/modern/**" }), []);
+    }
   } finally { await rm(root, { recursive: true, force: true }); }
 });
