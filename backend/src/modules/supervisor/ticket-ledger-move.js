@@ -7,7 +7,34 @@ import { randomUUID } from "node:crypto";
 // Enforces BOTH_PATHS_COUNTED by recording distinct source and destination ledger entries while
 // restoring or completing interrupted dual-endpoint moves deterministically on recovery.
 export function createTicketLedgerMove({ locked, load, save, claim, claimPath, readOptional, fileService, reconcile, sha, key, failure, projectLogger, recoverSingle }) {
-  return Object.freeze({ recover, move });
+  return Object.freeze({ recover, move, pruneAfterDelete });
+
+  // Cleans up empty ancestor directories left behind when a file deletion or move unlink succeeded before directory cleanup threw an error.
+  // Walks upward from the deleted file path through FileService.removeEmptyDirectory while protecting destination ancestors and repository root boundaries.
+  async function pruneAfterDelete(filePath, destinationPath = null) {
+    if (typeof fileService.removeEmptyDirectory !== "function" || typeof filePath !== "string" || !filePath) return;
+    const stopDirs = new Set(["", ".", ".git", ".forge"]);
+    const protectedAncestors = new Set();
+    if (typeof destinationPath === "string" && destinationPath) {
+      const parts = destinationPath.split("/").slice(0, -1);
+      while (parts.length > 0) {
+        protectedAncestors.add(parts.join("/"));
+        parts.pop();
+      }
+    }
+    const dirParts = filePath.split("/").slice(0, -1);
+    while (dirParts.length > 0) {
+      const currentRel = dirParts.join("/");
+      if (stopDirs.has(currentRel) || protectedAncestors.has(currentRel) || currentRel.startsWith(".git/")) break;
+      try {
+        await fileService.removeEmptyDirectory({ path: currentRel });
+      } catch (error) {
+        if (error?.code === "ENOTEMPTY" || error?.code === "ENOENT" || error?.code === "EEXIST" || error?.code === "EBUSY") break;
+        throw error;
+      }
+      dirParts.pop();
+    }
+  }
 
   // Orders two project-relative paths deterministically to prevent lock-acquisition deadlocks during moves.
   async function withOrderedPathLocks(firstPath, secondPath, action) {
@@ -53,17 +80,23 @@ export function createTicketLedgerMove({ locked, load, save, claim, claimPath, r
     const expectedFromBefore = fromPending.recovery_before_sha ?? fromPending.before_sha;
     const expectedToBefore = toPending.recovery_before_sha ?? toPending.before_sha;
     if (fromSha === null && toSha === toPending.after_sha) {
+      await pruneAfterDelete(fromPath, toPath);
       completeMoveEntries(manifest, fromEntry, toEntry, fromPending, toPending);
       await save(taskId, manifest);
       return manifest;
     }
     if (fromSha === expectedFromBefore && toSha === toPending.after_sha) {
-      await fileService.deleteFile({ path: fromPath });
+      try { await fileService.deleteFile({ path: fromPath }); }
+      catch (error) {
+        if (sha(await readOptional(fromPath)) !== null) throw error;
+        await pruneAfterDelete(fromPath, toPath);
+      }
       completeMoveEntries(manifest, fromEntry, toEntry, fromPending, toPending);
       await save(taskId, manifest);
       return manifest;
     }
     if (fromSha === expectedFromBefore && toSha === expectedToBefore) {
+      if (toSha === null) await pruneAfterDelete(toPath, fromPath);
       await revertAbortedMove(taskId, manifest, fromPath, toPath);
       await save(taskId, manifest);
       return manifest;
@@ -165,18 +198,31 @@ export function createTicketLedgerMove({ locked, load, save, claim, claimPath, r
       manifest.entries[fromPath] = fromEntry;
       manifest.entries[toPath] = toEntry;
       await save(taskId, manifest);
-      let wroteDestination = false;
       try {
         await fileService.atomicWrite({ path: toPath, content: before, replace: false });
-        wroteDestination = true;
         await fileService.deleteFile({ path: fromPath });
       } catch (error) {
-        if (wroteDestination) {
-          try { await fileService.deleteFile({ path: toPath }); }
-          catch (cleanupError) { if (cleanupError.code !== "ENOENT") projectLogger({ event_name: "ticket.change_move_rollback_failed", level: "error", status: "failed", message: "Ticket move destination rollback failed.", task_id: taskId, source: "ticket-change-ledger", error_code: cleanupError.code ?? "FILE_DELETE_FAILED", payload: { from_path: fromPath, to_path: toPath } }); }
+        const afterFrom = await readOptional(fromPath);
+        const afterTo = await readOptional(toPath);
+        if (sha(afterFrom) === sha(before)) {
+          if (afterTo !== null) {
+            try { await fileService.deleteFile({ path: toPath }); }
+            catch (cleanupError) {
+              if (cleanupError.code !== "ENOENT") projectLogger({ event_name: "ticket.change_move_rollback_failed", level: "error", status: "failed", message: "Ticket move destination rollback failed.", task_id: taskId, source: "ticket-change-ledger", error_code: cleanupError.code ?? "FILE_DELETE_FAILED", payload: { from_path: fromPath, to_path: toPath } });
+              if ((await readOptional(toPath)) === null) {
+                // eslint-disable-next-line no-silent-catch -- Best-effort directory pruning when destination unlink succeeded before cleanup threw.
+                try { await pruneAfterDelete(toPath, fromPath); } catch { /* retains clean destination state */ }
+              }
+            }
+          }
+          if ((await readOptional(toPath)) === null) {
+            await revertAbortedMove(taskId, manifest, fromPath, toPath);
+            await save(taskId, manifest);
+          }
+        } else if (sha(afterFrom) === null && sha(afterTo) === sha(before)) {
+          // eslint-disable-next-line no-silent-catch -- Reconciles pending move state when source unlink succeeded before directory cleanup threw.
+          try { await recoverMoveLocked(taskId, fromPath, manifest); } catch { /* retains pending state on reconciliation failure */ }
         }
-        await revertAbortedMove(taskId, manifest, fromPath, toPath);
-        await save(taskId, manifest);
         projectLogger({ event_name: "ticket.change_write_failed", level: "error", status: "failed", message: "Ticket root move failed.", task_id: taskId, source: "ticket-change-ledger", error_code: error.code ?? "FILE_MOVE_FAILED", payload: { from_path: fromPath, to_path: toPath } });
         throw error;
       }
