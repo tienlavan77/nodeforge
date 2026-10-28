@@ -179,6 +179,44 @@ test("coder must read workflow rules before editing, including after Resume", as
   await resumed.edit_diff.execute({ path: "src/a.js" }, context);
 });
 
+test("delete_file and move_file require coder rules, invalidate readCache on both endpoints, record changed_paths, and enforce commit_changes before report_done", async () => {
+  const store = memoryStore();
+  let reads = 0;
+  const registry = {
+    read_file: { execute: async (input) => { reads += 1; return { path: input.path, content: `body-${reads}`, sha256: `sha256:abc${reads}`, total_lines: 5 }; } },
+    delete_file: { execute: async (input, ctx) => { if (!ctx.changed_paths.includes(input.path)) ctx.changed_paths.push(input.path); return { path: input.path, deleted: true }; } },
+    move_file: { execute: async (input, ctx) => { for (const p of [input.from_path, input.to_path]) if (!ctx.changed_paths.includes(p)) ctx.changed_paths.push(p); return { from_path: input.from_path, to_path: input.to_path, moved: true }; } },
+    commit_changes: { execute: async () => ({ sha: "commit-sha" }) },
+    report_done: { execute: async () => ({ ok: true }) }
+  };
+  const ctx = { changed_paths: [] };
+  const state = createResumeState(null);
+  const wrapped = checkpointedRegistry({ store, registry, taskId: "T-MUT-RESUME", selected: { role: "coder" }, resumeState: state });
+
+  await assert.rejects(() => wrapped.delete_file.execute({ path: "src/del.js" }, ctx), { code: "CODER_RULES_REQUIRED" });
+  await assert.rejects(() => wrapped.move_file.execute({ from_path: "src/from.js", to_path: "src/to.js" }, ctx), { code: "CODER_RULES_REQUIRED" });
+
+  await wrapped.read_file.execute({ path: "workflows/agents/coder/README.md" }, ctx);
+  await wrapped.read_file.execute({ path: "src/del.js" }, ctx);
+  await wrapped.read_file.execute({ path: "src/from.js" }, ctx);
+  await wrapped.read_file.execute({ path: "src/to.js" }, ctx);
+  await assert.rejects(() => wrapped.read_file.execute({ path: "src/from.js" }, ctx), { code: "READ_REPEATED" });
+
+  await wrapped.delete_file.execute({ path: "src/del.js" }, ctx);
+  await wrapped.read_file.execute({ path: "src/del.js" }, ctx);
+  await assert.rejects(() => wrapped.report_done.execute({ summary: "after delete" }, ctx), { code: "COMMIT_MISSING" });
+  await wrapped.commit_changes.execute({ message: "commit delete" }, ctx);
+
+  await wrapped.move_file.execute({ from_path: "src/from.js", to_path: "src/to.js" }, ctx);
+  assert.equal(state.turnHistory.at(-1).target, "src/from.js -> src/to.js");
+  assert.deepEqual(state.changedPaths, ["src/del.js", "src/from.js", "src/to.js"]);
+  await wrapped.read_file.execute({ path: "src/from.js" }, ctx);
+  await wrapped.read_file.execute({ path: "src/to.js" }, ctx);
+  await assert.rejects(() => wrapped.report_done.execute({ summary: "after move" }, ctx), { code: "COMMIT_MISSING" });
+  await wrapped.commit_changes.execute({ message: "commit move" }, ctx);
+  await wrapped.report_done.execute({ summary: "done" }, ctx);
+});
+
 test("codex gateway saves a thread ID emitted after the session starts", async () => {
   const savedThreads = [];
   const gateway = createCodexSdkGateway({
