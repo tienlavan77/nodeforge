@@ -6,12 +6,21 @@ import { join } from "node:path";
 
 // Bundle real application components and expose controlled external responses for O4 project lifecycle and route-scoped workspace checks.
 export async function createBrowserFixture({ sourceRoot, build }) {
+  const navStub = [
+    "import {createContext,useContext} from 'react';",
+    "export const NavContext=createContext({pathname:'/',params:{},router:{push(){},replace(){}}});",
+    "export const usePathname=()=>useContext(NavContext).pathname;",
+    "export const useParams=()=>useContext(NavContext).params;",
+    "export const useRouter=()=>useContext(NavContext).router;",
+    "export const redirect=p=>{window.navigateTo?.(p);};"
+  ].join("\n");
   const source = [
-    "import React,{useEffect,useState} from 'react';import {createRoot} from 'react-dom/client';",
-    "import {ProjectDirectory} from './components/project-directory.jsx';import ArchitectureWorkspace from './components/architecture-workspace.jsx';",
-    "import CodingPage from './app/coding/page.jsx';import SystemPage from './app/system/page.jsx';",
+    "import React,{useEffect,useMemo,useState} from 'react';import {createRoot} from 'react-dom/client';",
+    "import {NavContext} from 'next/navigation';",
+    "import HomePage from './app/page.jsx';import ProjectPage from './app/[projectId]/page.jsx';",
+    "import ProjectCodingPage from './app/[projectId]/coding/page.jsx';import ProjectSystemPage from './app/[projectId]/system/page.jsx';",
     "import * as selection from './lib/project-selection.js';import * as lifecycle from './lib/project-lifecycle-client.js';import * as directory from './lib/project-directory-client.js';",
-    "import {projectIdFromPath} from './lib/project-navigation.js';import './app/globals.css';",
+    "import './app/globals.css';",
     "window.api={...selection,...lifecycle,...directory};window.calls=[];window.sources=[];window.navigated=[];window.fixtureErrors=[];",
     "window.addEventListener('error',e=>window.fixtureErrors.push(e.error?.stack??e.message));",
     "window.addEventListener('unhandledrejection',e=>window.fixtureErrors.push(String(e.reason?.stack??e.reason)));",
@@ -52,15 +61,15 @@ export async function createBrowserFixture({ sourceRoot, build }) {
     "window.EventSource=class{constructor(url){this.url=String(url);this.project=new URL(url,location.origin).searchParams.get('project');this.handlers={};this.readyState=1;this.closed=false;window.sources.push(this);queueMicrotask(()=>this.onopen?.({}));}addEventListener(t,h){(this.handlers[t]??=[]).push(h);}close(){this.closed=true;this.readyState=2;}emit(t,d){if(!this.closed)for(const h of this.handlers[t]??[])h({data:JSON.stringify(d),lastEventId:d.event_id});}};",
     "window.emitProjectSse=(projectId,eventType,payload)=>{const ev={event_id:'EVT-'+Date.now()+'-'+Math.random().toString(36).slice(2,7),event_type:eventType,schema_version:1,project_id:projectId,timestamp:new Date().toISOString(),payload};for(const s of window.sources)if(!s.closed&&s.project===projectId)s.emit(eventType,ev);};",
     "function FixtureRouterApp(){const[pathname,setPathname]=useState(()=>window.location.pathname||'/');useEffect(()=>{const onPop=()=>setPathname(window.location.pathname||'/');window.addEventListener('popstate',onPop);window.navigateTo=p=>{window.history.pushState({},'',p);window.navigated.push(p);setPathname(p);};return()=>window.removeEventListener('popstate',onPop);},[]);",
-    "if(pathname==='/'||!pathname)return <ProjectDirectory onNavigate={p=>window.navigateTo(p)}/>;",
-    "const pid=projectIdFromPath(pathname);if(pathname.endsWith('/coding')&&pid)return <CodingPage key={'coding:'+pid} projectId={pid}/>;",
-    "if(pathname.endsWith('/system')&&pid)return <SystemPage key={'system:'+pid} projectId={pid}/>;",
-    "return pid?<ArchitectureWorkspace key={'arch:'+pid} projectId={pid}/>:<ProjectDirectory onNavigate={p=>window.navigateTo(p)}/>;}",
+    "const segs=pathname.split('/').filter(Boolean);const nav=useMemo(()=>({pathname,params:segs[0]?{projectId:decodeURIComponent(segs[0])}:{},router:{push:p=>window.navigateTo(p),replace:p=>window.navigateTo(p)}}),[pathname]);",
+    "let view=<HomePage/>;if(segs.length===1)view=<ProjectPage/>;else if(segs.length===2&&segs[1]==='coding')view=<ProjectCodingPage/>;else if(segs.length===2&&segs[1]==='system')view=<ProjectSystemPage/>;",
+    "return <NavContext.Provider value={nav}>{view}</NavContext.Provider>;}",
     "createRoot(document.getElementById('root')).render(<FixtureRouterApp/>);"
   ].join("\n");
   const compiled = await build({
     stdin: { contents: source, resolveDir: join(sourceRoot, "ui/nextjs"), loader: "jsx" },
     bundle: true, write: false, jsx: "automatic", outfile: "fixture.js",
+    plugins: [{ name: "next-nav", setup(b) { b.onResolve({ filter: /^next\/navigation$/ }, () => ({ path: "next-nav", namespace: "ns" })); b.onLoad({ filter: /.*/, namespace: "ns" }, () => ({ contents: navStub, resolveDir: join(sourceRoot, "ui/nextjs"), loader: "js" })); } }],
     alias: { react: join(sourceRoot, "ui/nextjs/node_modules/react"), "react-dom": join(sourceRoot, "ui/nextjs/node_modules/react-dom") },
     define: { "process.env.NODE_ENV": '"production"', "process.env.NEXT_PUBLIC_NODE_CONTROL_API_URL": '""', "process.env": "{}" }
   });
@@ -93,10 +102,11 @@ export const browserAssertions = {
     assert.deepEqual(counts, { gets: 1, polls: 0, sse: true });
     const alphaCard = page.locator('[data-project-id="alpha-running"]');
     assert.equal(await alphaCard.getAttribute("data-readiness"), "running");
-    await page.evaluate(() => window.emitProjectSse("alpha-running", "agent.activity", { agent_id: "coder", activity_type: "progress", status: "working", summary: "Stage scan/index: running", percent: 72 }));
-    await page.waitForFunction(() => document.querySelector('[data-project-id="alpha-running"]')?.textContent?.includes("72%"));
-    assert.match(await alphaCard.innerText(), /scan\/index[\s\S]*72%/);
-    await page.evaluate(() => window.emitProjectSse("alpha-running", "agent.activity", { agent_id: "coder", activity_type: "completed", status: "success", summary: "Stage startup/readiness: succeeded", percent: 100 }));
+    assert.match(await alphaCard.innerText(), /45%/);
+    await page.evaluate(() => window.emitProjectSse("alpha-running", "agent.activity", { agent_id: "coder", activity_type: "progress", status: "working", summary: "Stage scan/index: running" }));
+    await page.waitForFunction(() => document.querySelector('[data-project-id="alpha-running"]')?.textContent?.includes("65%"));
+    assert.match(await alphaCard.innerText(), /scan\/index[\s\S]*65%/);
+    await page.evaluate(() => window.emitProjectSse("alpha-running", "agent.activity", { agent_id: "coder", activity_type: "completed", status: "success", summary: "Stage startup/readiness: succeeded" }));
     await page.waitForFunction(() => document.querySelector('[data-project-id="alpha-running"]')?.getAttribute("data-readiness") === "ready");
     assert.equal(await alphaCard.getByRole("link", { name: "Open Alpha Running" }).count(), 1);
   },
@@ -125,9 +135,10 @@ export const browserAssertions = {
     await dialog.waitFor({ state: "hidden" });
     const newCard = page.locator('[data-project-id="suggested-app"]'); await newCard.waitFor();
     assert.equal(await newCard.getAttribute("data-readiness"), "running");
-    await page.evaluate(() => window.emitProjectSse("suggested-app", "agent.activity", { agent_id: "coder", activity_type: "progress", status: "working", summary: "Stage embedding: running", percent: 88 }));
-    await page.waitForFunction(() => document.querySelector('[data-project-id="suggested-app"]')?.textContent?.includes("88%"));
-    assert.match(await newCard.innerText(), /88%/);
+    assert.match(await newCard.innerText(), /10%/);
+    await page.evaluate(() => window.emitProjectSse("suggested-app", "agent.activity", { agent_id: "coder", activity_type: "progress", status: "working", summary: "Stage embedding: running" }));
+    await page.waitForFunction(() => document.querySelector('[data-project-id="suggested-app"]')?.textContent?.includes("90%"));
+    assert.match(await newCard.innerText(), /90%/);
   },
 
   "A ready card navigates from its non-button area to the matching project URL; running cards do not open a workspace; Edit and Delete controls do not trigger card navigation.": async ({ page, origin }) => {
