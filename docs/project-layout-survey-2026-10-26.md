@@ -46,7 +46,7 @@ Kết luận có căn cứ: `STRUCTURE.md` là tài liệu cũ, mô tả bố c�
 
 | Path | Vấn đề | Evidence |
 | --- | --- | --- |
-| `docs/conversation-content-analysis-architecture-plan.md` vs `workflows/conversation-content-analysis-architecture-plan.md` | **Giống hệt nhau từng byte** (cùng sha256 `19778e0000…`, 14652 bytes) | Hai lần `read_file` |
+| `docs/conversation-content-analysis-architecture-plan.md` vs `workflows/conversation-content-analysis-architecture-plan.md` | **Giống hệt nhau từng byte** (cùng sha256 `19778e0000…`, 14652 bytes; đã hợp nhất về `docs/archive/conversation-content-analysis-architecture-plan.md`) | Hai lần `read_file` |
 | `x` (gốc) | File rỗng 0 bytes | sha256 `e3b0c442…` (empty), size 0 |
 | `backend/x` | File rỗng 0 bytes | sha256 `e3b0c442…`, size 0 |
 | `backend/tool-lab-target.txt` | 76 bytes, tên dạng target thử nghiệm tool | sha256 `f62f6775…` |
