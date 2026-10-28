@@ -14,7 +14,7 @@ function fixture(projectRoot = process.cwd()) {
     capabilities: [...ENGINEERING_TOOL_NAMES, "run_test", "check_test", "report_done", "respond_to_review"],
     allowed_file_paths: ["backend/allowed.js", "backend/other.js", "docs/guide.md", "workflows/agents/coder/README.md"], allowed_prefixes: [], changed_paths: [],
     execution_context: { approved_baseline: { file_checksums: { "backend/allowed.js": null } } } };
-  const registry = Object.fromEntries(["read_file", "read_lines", "write_diff", "edit_diff", "run_test", "check_test", "report_done", "respond_to_review", "commit_changes", "push_commit"].map((name) => [name, { execute: async (input, issued) => { calls.push({ name, input, issued }); return { task_id: issued.task_id }; } }]));
+  const registry = Object.fromEntries(["read_file", "read_lines", "write_diff", "edit_diff", "delete_file", "move_file", "run_test", "check_test", "report_done", "respond_to_review", "commit_changes", "push_commit"].map((name) => [name, { execute: async (input, issued) => { calls.push({ name, input, issued }); return { task_id: issued.task_id }; } }]));
   return { calls, context, bound: bindEngineeringTools({ registry, context }) };
 }
 
@@ -107,4 +107,97 @@ test("Coder receives the common engineering catalog plus completion with no reti
   for (const name of ["search_code", "rg_files", "rg_search", "sed_lines", "run_test", "check_test"]) {
     assert.equal(bound.registry[name], undefined);
   }
+});
+
+test("delete_file and move_file enforce BOTH_PATHS_COUNTED endpoint permissions and mutable_file_budget before dispatch", async () => {
+  const validSha = `sha256:${"a".repeat(64)}`;
+  const dispatched = [];
+  const registry = {
+    delete_file: { execute: async (input, ctx) => { dispatched.push(["delete_file", input]); ctx.changed_paths.push(input.path); return { deleted: true }; } },
+    move_file: { execute: async (input, ctx) => { dispatched.push(["move_file", input]); ctx.changed_paths.push(input.from_path, input.to_path); return { moved: true }; } },
+    write_diff: { execute: async (input, ctx) => { dispatched.push(["write_diff", input]); ctx.changed_paths.push(input.path); return { written: true }; } }
+  };
+
+  // Case 1: from_path must belong to mutablePaths (create prefix alone cannot be a delete/move source).
+  const baseCtx = {
+    task_id: "T-MOVE",
+    execution_id: "EXEC-MOVE",
+    project_root: process.cwd(),
+    agent_identity: { agent_id: "CODER", role: "coder", provider: "claude" },
+    capabilities: [...CODER_TOOL_NAMES],
+    allowed_file_paths: ["backend/src/source.js", "backend/src/target.js", "backend/src/read-only.js"],
+    allowed_prefixes: ["backend/src/created"],
+    authorized_create_prefixes: ["backend/src/created"],
+    changed_paths: [],
+    execution_context: {
+      manifest_paths: [],
+      approved_baseline: {
+        file_checksums: { "backend/src/source.js": validSha, "backend/src/target.js": validSha },
+        authorized_create_prefixes: ["backend/src/created"],
+        mutable_file_budget: 2
+      }
+    }
+  };
+  const bound = bindEngineeringTools({ registry, context: baseCtx });
+
+  // Unapproved source rejected before touching service:
+  await assert.rejects(
+    bound.registry.move_file.execute({ from_path: "backend/src/read-only.js", to_path: "backend/src/created/dest.js", before_checksum: validSha }),
+    { code: "PATH_FORBIDDEN" }
+  );
+  // Source inside authorized_create_prefixes but not in mutablePaths cannot be used as move source or delete_file target:
+  await assert.rejects(
+    bound.registry.delete_file.execute({ path: "backend/src/created/new.js", before_checksum: validSha }),
+    { code: "PATH_FORBIDDEN" }
+  );
+  await assert.rejects(
+    bound.registry.move_file.execute({ from_path: "backend/src/created/new.js", to_path: "backend/src/target.js", before_checksum: validSha }),
+    { code: "PATH_FORBIDDEN" }
+  );
+  // Destination outside both mutablePaths and authorized_create_prefixes rejected:
+  await assert.rejects(
+    bound.registry.move_file.execute({ from_path: "backend/src/source.js", to_path: "backend/src/read-only.js", before_checksum: validSha }),
+    { code: "PATH_FORBIDDEN" }
+  );
+  // Identical from_path and to_path rejected:
+  await assert.rejects(
+    bound.registry.move_file.execute({ from_path: "backend/src/source.js", to_path: "backend/src/source.js", before_checksum: validSha }),
+    { code: "TOOL_INPUT_INVALID" }
+  );
+  assert.equal(dispatched.length, 0);
+
+  // Valid move from mutablePaths to authorized_create_prefixes consumes 2 budget entries (source + destination):
+  await bound.registry.move_file.execute({ from_path: "backend/src/source.js", to_path: "backend/src/created/moved.js", before_checksum: validSha });
+  assert.equal(dispatched.length, 1);
+
+  // Any 3rd distinct path exceeds mutable_file_budget (2) and is rejected before dispatch:
+  await assert.rejects(
+    bound.registry.delete_file.execute({ path: "backend/src/target.js", before_checksum: validSha }),
+    { code: "PATH_FORBIDDEN" }
+  );
+  await assert.rejects(
+    bound.registry.write_diff.execute({ path: "backend/src/target.js", before_checksum: validSha, content: "// x" }),
+    { code: "PATH_FORBIDDEN" }
+  );
+  assert.equal(dispatched.length, 1);
+
+  // Case 2: If budget is 1, a move_file touching 2 distinct paths is rejected before touching disk:
+  const tightCtx = {
+    ...baseCtx,
+    changed_paths: [],
+    execution_context: {
+      manifest_paths: [],
+      approved_baseline: {
+        file_checksums: { "backend/src/source.js": validSha },
+        authorized_create_prefixes: ["backend/src/created"],
+        mutable_file_budget: 1
+      }
+    }
+  };
+  const tightBound = bindEngineeringTools({ registry, context: tightCtx });
+  await assert.rejects(
+    tightBound.registry.move_file.execute({ from_path: "backend/src/source.js", to_path: "backend/src/created/moved.js", before_checksum: validSha }),
+    { code: "PATH_FORBIDDEN" }
+  );
+  assert.equal(dispatched.length, 1);
 });

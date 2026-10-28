@@ -195,3 +195,83 @@ test("resume rejects successors that forked elsewhere, lack receipts, or are amb
     assert.equal((await ledger.load("TICKET-SOURCE")).entries[path].latest_sha, sha("foundation v2"));
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("ledger move, delete, rollback, and injected write failure preserve BOTH_PATHS_COUNTED and clean parent directories", async () => {
+  const sha = (content) => content === null ? null : `sha256:${createHash("sha256").update(content).digest("hex")}`;
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-ticket-move-rollback-"));
+  try {
+    const files = createFileService({ projectRoot: root });
+    const ledger = createTicketChangeLedger({ fileService: files, projectId: "PROJECT-TEST" });
+    const sourcePath = "backend/src/legacy/nested/module.js";
+    const destPath = "backend/src/modern/relocated/module.js";
+    const deletePath = "backend/src/obsolete/deep/remove-me.js";
+    const sourceContent = "// legacy module\nexport const val = 42;\n";
+    const deleteContent = "// obsolete\nexport const gone = true;\n";
+    await files.atomicWrite({ path: sourcePath, content: sourceContent, replace: true });
+    await files.atomicWrite({ path: deletePath, content: deleteContent, replace: true });
+
+    // 1. Delete records after: null, unlinks file, and prunes empty parent directory:
+    await ledger.write({ taskId: "TICKET-MOVE", path: deletePath, before: deleteContent, after: null });
+    await assert.rejects(files.readFile({ path: deletePath }), { code: "ENOENT" });
+    assert.deepEqual(await files.listDirectories({ glob: "backend/src/obsolete/**" }), []);
+
+    // 2. Move records both fromPath (after: null) and toPath (before: null, after: sourceContent):
+    const moveRes = await ledger.move({ taskId: "TICKET-MOVE", fromPath: sourcePath, toPath: destPath, before: sourceContent });
+    assert.equal(moveRes.moved, true);
+    assert.equal(moveRes.sha256, sha(sourceContent));
+    await assert.rejects(files.readFile({ path: sourcePath }), { code: "ENOENT" });
+    assert.equal(await files.readFile({ path: destPath }), sourceContent);
+    assert.deepEqual(await files.listDirectories({ glob: "backend/src/legacy/**" }), []);
+
+    const snap = await ledger.snapshot("TICKET-MOVE");
+    assert.deepEqual(Object.keys(snap.entries).sort(), [deletePath, destPath, sourcePath].sort());
+    assert.equal(snap.entries[sourcePath].initial_sha, sha(sourceContent));
+    assert.equal(snap.entries[sourcePath].latest_sha, null);
+    assert.equal(snap.entries[sourcePath].operations.at(-1).after, null);
+    assert.equal(snap.entries[destPath].initial_sha, null);
+    assert.equal(snap.entries[destPath].latest_sha, sha(sourceContent));
+    assert.equal(snap.entries[destPath].operations.at(-1).before, null);
+    assert.equal(snap.entries[destPath].operations.at(-1).after, sourceContent);
+
+    // 3. Rollback restores deleted and moved source files, removes destination file, and prunes empty created directories:
+    await ledger.rollback("TICKET-MOVE", { close: false });
+    assert.equal(await files.readFile({ path: sourcePath }), sourceContent);
+    assert.equal(await files.readFile({ path: deletePath }), deleteContent);
+    await assert.rejects(files.readFile({ path: destPath }), { code: "ENOENT" });
+    assert.deepEqual(await files.listDirectories({ glob: "backend/src/modern/**" }), []);
+
+    // 4. Precondition rejections (claim conflict, occupied destination, checksum mismatch) and injected delete failure:
+    await ledger.write({ taskId: "TICKET-OTHER", path: deletePath, before: deleteContent, after: "// claimed\n" });
+    await assert.rejects(
+      ledger.move({ taskId: "TICKET-MOVE", fromPath: sourcePath, toPath: deletePath, before: sourceContent }),
+      { code: "FILE_CLAIM_CONFLICT" }
+    );
+    await ledger.rollback("TICKET-OTHER", { close: true });
+
+    await assert.rejects(
+      ledger.move({ taskId: "TICKET-MOVE", fromPath: sourcePath, toPath: deletePath, before: sourceContent }),
+      { code: "FILE_ALREADY_EXISTS" }
+    );
+    await assert.rejects(
+      ledger.move({ taskId: "TICKET-MOVE", fromPath: sourcePath, toPath: destPath, before: "// wrong checksum\n" }),
+      { code: "CHECKSUM_MISMATCH" }
+    );
+
+    // Injected failure during source unlink rolls back destination file and ledger entries:
+    const failingFiles = {
+      ...files,
+      deleteFile: async (input) => {
+        if (input.path === sourcePath) throw Object.assign(new Error("Simulated unlink failure"), { code: "EIO" });
+        return files.deleteFile(input);
+      }
+    };
+    const failingLedger = createTicketChangeLedger({ fileService: failingFiles, projectId: "PROJECT-TEST" });
+    await assert.rejects(
+      failingLedger.move({ taskId: "TICKET-MOVE", fromPath: sourcePath, toPath: destPath, before: sourceContent }),
+      { code: "EIO" }
+    );
+    assert.equal(await files.readFile({ path: sourcePath }), sourceContent);
+    await assert.rejects(files.readFile({ path: destPath }), { code: "ENOENT" });
+    assert.deepEqual(Object.keys((await ledger.snapshot("TICKET-MOVE")).entries), []);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
