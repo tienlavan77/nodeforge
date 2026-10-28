@@ -75,7 +75,12 @@ async function assertMutationOrRead(toolName, input, bound, { mutablePaths, crea
     }
   }
   if (Number.isInteger(mutableFileBudget) && mutableFileBudget > 0) {
-    const tracked = new Set([...(mutablePaths ?? []), ...(bound.changed_paths ?? []), ...targets.map((target) => target.path)]);
+    const ledgerPaths = Array.isArray(bound.execution_context?.manifest_paths) ? bound.execution_context.manifest_paths : null;
+    const changedPaths = Array.isArray(bound.changed_paths) ? bound.changed_paths : [];
+    const baseTracked = ledgerPaths !== null
+      ? [...ledgerPaths, ...changedPaths]
+      : [...(mutablePaths ?? []), ...changedPaths];
+    const tracked = new Set([...baseTracked, ...targets.map((target) => target.path)]);
     if (tracked.size > mutableFileBudget) throw failure("PATH_FORBIDDEN", "Write path exceeds the ticket mutable file budget.");
   }
 }

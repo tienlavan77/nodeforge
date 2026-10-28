@@ -28,14 +28,21 @@ export function createTicketExecutionContextStore({ fileService, projectId, proj
     catch (error) { if (error.code === "ENOENT") return null; throw error; }
   }
 
-  // Rejects writes outside the approved source scope or authorized create prefixes before the root ledger changes a file.
-  async function assertApprovedPath(taskId, path) {
+  // Rejects writes, deletes, or moves outside the approved source scope or authorized create prefixes before the root ledger changes a file.
+  async function assertApprovedPath(taskId, path, options = {}) {
     const current = await load(taskId);
     if (!current) throw fail("TICKET_CONTEXT_MISSING", "Ticket context does not exist.");
-    if (!isBaselinePathAuthorized(current, path)) throw fail("TICKET_BASELINE_SCOPE", "Ticket write path is outside the approved baseline manifest.");
+    const targets = Array.isArray(path)
+      ? path.map((entry) => typeof entry === "string" ? { path: entry, allowCreatePrefix: true } : entry)
+      : [{ path, allowCreatePrefix: options.operation !== "delete" }];
+    for (const target of targets) {
+      if (!isBaselinePathAuthorized(current, target.path, { allowCreatePrefix: target.allowCreatePrefix !== false })) {
+        throw fail("TICKET_BASELINE_SCOPE", "Ticket write path is outside the approved baseline manifest.");
+      }
+    }
     const budget = current.mutable_file_budget ?? current.approved_baseline?.mutable_file_budget ?? null;
     if (Number.isInteger(budget) && budget > 0) {
-      const tracked = new Set([...(current.manifest_paths ?? []), path]);
+      const tracked = new Set([...(current.manifest_paths ?? []), ...targets.map((target) => target.path)]);
       if (tracked.size > budget) throw fail("TICKET_FILE_BUDGET_EXCEEDED", "Ticket write path exceeds the mutable file budget.");
     }
   }
@@ -94,10 +101,10 @@ export function createTicketExecutionContextStore({ fileService, projectId, proj
   }
 
   // Checks whether a path is in the baseline manifest or within an authorized create prefix.
-  function isBaselinePathAuthorized(current, path) {
+  function isBaselinePathAuthorized(current, path, { allowCreatePrefix = true } = {}) {
     if (typeof path !== "string" || !path || path.startsWith("/") || path.includes("\\") || path.split("/").some((part) => !part || part === "." || part === "..")) return false;
     const prefixes = current.authorized_create_prefixes ?? current.approved_baseline?.authorized_create_prefixes ?? [];
-    const inPrefix = Array.isArray(prefixes) && prefixes.some((prefix) => {
+    const inPrefix = allowCreatePrefix && Array.isArray(prefixes) && prefixes.some((prefix) => {
       const clean = String(prefix).replace(/\/+$/, "");
       return clean && (path === clean || path.startsWith(`${clean}/`));
     });
