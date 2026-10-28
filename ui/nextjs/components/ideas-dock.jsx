@@ -16,8 +16,9 @@ const initialSelection = { projectId: null, generation: 0 };
 /** Toggle the project notebook from the existing dock and restore keyboard focus when closing it. */
 export function IdeasDock({ projectId: propProjectId } = {}) {
   const selection = useSyncExternalStore(subscribeProjectSelection, getProjectSelection, () => initialSelection);
-  const activeProjectId = propProjectId || selection.projectId;
-  const client = useMemo(() => createNodeClient(activeProjectId), [activeProjectId, selection.generation]);
+  const explicitProjectId = propProjectId && propProjectId !== selection.projectId ? propProjectId : undefined;
+  const activeProjectId = explicitProjectId || selection.projectId;
+  const client = useMemo(() => createNodeClient(explicitProjectId), [explicitProjectId, selection.projectId, selection.generation]);
   const [open, setOpen] = useState(false);
   const button = useRef(null);
   const panelId = useId();
