@@ -88,8 +88,13 @@ export function createSession(projectId) {
       const items = kind === "create" ? [...state.items, result] : kind === "delete"
         ? state.items.filter(entry => entry.id !== item.id)
         : state.items.map(entry => entry.id === result.id ? result : entry);
+      const queue = state.uncertain ? [state.uncertain, ...(state.uncertain.pending ?? [])] : [];
+      const remaining = queue.filter(entry => entry.kind !== kind || entry.id !== item?.id);
+      const uncertain = remaining.length === queue.length ? state.uncertain : remaining[0]
+        ? { kind: remaining[0].kind, id: remaining[0].id, checked: state.uncertain.checked,
+          ...(remaining.length > 1 ? { pending: remaining.slice(1) } : {}) } : null;
       // An unrelated acknowledgement cannot resolve a previously lost response.
-      publish({ items, draft: nextDraft, saved: !state.uncertain });
+      publish({ items, draft: nextDraft, uncertain, saved: !uncertain });
       return true;
     } catch (failure) {
       if (failure.status === 409) publish({ conflict: { id: item?.id, kind },

@@ -9,10 +9,18 @@ export { createBrowserFixture } from "./ideas-browser-fixture.mjs";
 
 /** Open a clean fixture document so storage shared between assertions cannot hide regressions. */
 async function open(page, origin, query = "") {
-  await page.goto(origin);
-  await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
-  await page.goto(origin + (query ? "#" + query : ""));
-  if (query) await page.reload();
+  const dirty = await page.evaluate((wantNoAgent) => {
+    const changed = Boolean(sessionStorage.getItem("ideas-fixture-records"))
+      || Boolean(window.calls?.some(call => call.method !== "GET" || call.path.includes("/ideas")))
+      || Boolean(window.fixtureNoAgent) !== wantNoAgent;
+    if (changed) {
+      localStorage.clear();
+      sessionStorage.clear();
+      if (wantNoAgent) sessionStorage.setItem("ideas-fixture-no-agent", "1");
+    }
+    return changed;
+  }, query.includes("noAgent"));
+  if (dirty) await page.goto(origin);
   await page.getByRole("button", { name: "Ý tưởng", exact: true }).waitFor();
   if (!query.includes("noAgent")) await page.getByRole("heading", { name: "First conversation", exact: true }).waitFor();
   return page.getByRole("region", { name: "Ý tưởng", exact: true });
@@ -20,15 +28,11 @@ async function open(page, origin, query = "") {
 
 /** Toggle the actual dock control and await the notebook region's visible state. */
 async function show(page) {
-  try { await page.getByRole("button", { name: "Ý tưởng", exact: true }).click(); }
-  catch (error) {
-    throw new Error(error.message + "; fixture: " + await page.evaluate(() => JSON.stringify({ errors: window.fixtureErrors, text: document.body.innerText, calls: window.calls, url: location.href })), { cause: error });
-  }
+  const trigger = page.getByRole("button", { name: "Ý tưởng", exact: true });
+  await trigger.waitFor();
+  if (await trigger.getAttribute("aria-pressed") !== "true") await trigger.click();
   const panel = page.getByRole("region", { name: "Ý tưởng", exact: true });
-  try { await panel.waitFor(); }
-  catch (error) {
-    throw new Error(error.message + "; fixture: " + await page.evaluate(() => JSON.stringify({ errors: window.fixtureErrors, text: document.body.innerText, calls: window.calls, dock: document.querySelector("[aria-controls]")?.outerHTML, panel: document.querySelector(".ideas-panel")?.outerHTML })), { cause: error });
-  }
+  await panel.waitFor();
   return panel;
 }
 
