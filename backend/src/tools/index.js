@@ -7,7 +7,7 @@ import { authorizeTool } from "./tool-authorization.js";
 import { createSelectCodeGraphCandidatesTool } from "./select-code-graph-candidates.js";
 import { createSearchCodeTool } from "./search-code.js";
 import { createReadCodeTool } from "./read-code.js";
-import { createCheckTestTool, createReadFileTool, createWriteDiffTool, createEditDiffTool, createRunTestTool, createCommitChangesTool } from "./agent-lifecycle-tools.js";
+import { createCheckTestTool, createReadFileTool, createWriteDiffTool, createEditDiffTool, createDeleteFileTool, createMoveFileTool, createRunTestTool, createCommitChangesTool } from "./agent-lifecycle-tools.js";
 import { createReportDoneTool } from "./agent-report-tool.js";
 import { createTicketReportCommit } from "./ticket-report-commit.js";
 import { createRespondToReviewTool, respondToReviewInputSchema } from "./respond-to-review-tool.js";
@@ -74,6 +74,10 @@ export function createForgeToolRegistry({ protocolStorage, fileService, projectR
   if (fileService?.readFile && fileService?.atomicWrite) {
     lifecycle.write_diff = wrap(createWriteDiffTool({ fileService, codeCache, changeLedger, maxChars }), "write_diff");
     lifecycle.edit_diff = wrap(createEditDiffTool({ fileService, codeCache, changeLedger, maxChars }), "edit_diff");
+    if (fileService?.deleteFile && changeLedger) {
+      lifecycle.delete_file = wrap(createDeleteFileTool({ fileService, codeCache, changeLedger }), "delete_file");
+      lifecycle.move_file = wrap(createMoveFileTool({ fileService, codeCache, changeLedger }), "move_file");
+    }
   }
   if (testService?.startTests) lifecycle.run_test = wrap(createRunTestTool({ testService }), "run_test");
   if (testService?.getTestResult) lifecycle.check_test = wrap(createCheckTestTool({ testService }), "check_test");

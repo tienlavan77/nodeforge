@@ -5,6 +5,7 @@ import { ConfigurationError } from "../../shared/errors.js";
 import { acquireTicketFileLock } from "./ticket-file-lock.js";
 
 import { createTicketLegacyImport } from "./ticket-legacy-import.js";
+import { createTicketLedgerMove } from "./ticket-ledger-move.js";
 import { createTicketSourceMerge } from "./ticket-source-merge.js";
 import { createTicketSourceObservation } from "./ticket-source-observation.js";
 import { createTicketSourceResume } from "./ticket-source-resume.js";
@@ -30,6 +31,7 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
 
   const importLegacy = createTicketLegacyImport({ locked, load, failure, claim, sha, readOptional, fileService, claimPath, save, key, projectLogger });
   const reconcile = createTicketSourceMerge({ locked, load, save, recover, claim, readOptional, fileService, sha, key, failure, projectLogger });
+  const ledgerMove = createTicketLedgerMove({ locked, load, save, claim, claimPath, readOptional, fileService, reconcile, sha, key, failure, projectLogger, recoverSingle });
   const observe = createTicketSourceObservation({ locked, load, save, recover, readOptional, sha, projectLogger });
   const resume = createTicketSourceResume({ observe, locked, load, claim, recover, readOptional, sha, key, failure, save, projectLogger, fileService, claimPath, projectId });
 
@@ -73,8 +75,13 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
     catch (error) { if (error.code !== "ENOENT") throw error; return null; }
   }
 
-  // Finishes a prepared write after restart if the root already has its expected content.
+  // Finishes a prepared write or move after restart if the root already has its expected content.
   async function recover(taskId, path, manifest) {
+    return ledgerMove.recover(taskId, path, manifest);
+  }
+
+  // Finishes a prepared single-file write after restart if the root already has its expected content.
+  async function recoverSingle(taskId, path, manifest) {
     const pending = manifest.entries[path]?.pending;
     if (!pending) return manifest;
     const live = await readOptional(path);
@@ -88,6 +95,13 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
     }
     if (sha(live) !== (pending.recovery_before_sha ?? pending.before_sha)) throw failure("TICKET_WRITE_RECOVERY_CONFLICT", `Root source changed while recovering ${path}.`);
     manifest.entries[path].pending = null;
+    if (!manifest.entries[path].operations.length) {
+      delete manifest.entries[path];
+      if ((await claim(path))?.task_id === taskId) {
+        try { await fileService.deleteFile({ path: claimPath(path) }); }
+        catch (error) { if (error.code !== "ENOENT") throw error; }
+      }
+    }
     await save(taskId, manifest);
     return manifest;
   }
@@ -127,7 +141,19 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
       manifest.entries[path] = entry;
       await save(taskId, manifest);
       try { if (after === null) await fileService.deleteFile({ path }); else await fileService.atomicWrite({ path, content: after, replace: true }); }
-      catch (error) { projectLogger({ event_name: "ticket.change_write_failed", level: "error", status: "failed", message: "Ticket root write failed.", task_id: taskId, source: "ticket-change-ledger", error_code: error.code ?? "FILE_WRITE_FAILED", payload: { path } }); throw error; }
+      catch (error) {
+        entry.pending = null;
+        if (!entry.operations.length) {
+          delete manifest.entries[path];
+          if (!owned) {
+            // eslint-disable-next-line no-silent-catch -- Best-effort claim cleanup when a root write fails before completion.
+            try { await fileService.deleteFile({ path: claimPath(path) }); } catch { /* best-effort claim cleanup */ }
+          }
+        }
+        await save(taskId, manifest);
+        projectLogger({ event_name: "ticket.change_write_failed", level: "error", status: "failed", message: "Ticket root write failed.", task_id: taskId, source: "ticket-change-ledger", error_code: error.code ?? "FILE_WRITE_FAILED", payload: { path } });
+        throw error;
+      }
       entry.operations.push({ ...operation, revision: manifest.revision + 1, status: "completed" });
       entry.pending = null;
       entry.latest_sha = sha(after);
@@ -219,5 +245,5 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
   }
   // Persists the ticket manifest after an ownership or revision transition.
   async function save(taskId, manifest) { await fileService.atomicWrite({ path: manifestPath(taskId), content: JSON.stringify(manifest), replace: true }); }
-  return Object.freeze({ load, observe, reconcile: reconcile.run, write, snapshot, prepareCommit, recordCommit, importLegacy, release, rollback, resume, withCommitTransaction });
+  return Object.freeze({ load, observe, reconcile: reconcile.run, write, move: ledgerMove.move, snapshot, prepareCommit, recordCommit, importLegacy, release, rollback, resume, withCommitTransaction });
 }

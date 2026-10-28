@@ -99,7 +99,7 @@ export function checkpointedRegistry({ store, registry, taskId, targetPath, allo
       async execute(input, context) {
         let result;
         try {
-          if (selected?.role === "coder" && !labMode && (name === "write_diff" || name === "edit_diff") && !state.coderRulesRead) {
+          if (selected?.role === "coder" && !labMode && ["write_diff", "edit_diff", "delete_file", "move_file"].includes(name) && !state.coderRulesRead) {
             throw Object.assign(new ConfigurationError("Read workflows/agents/coder/README.md with a Forge file tool before editing code."), { code: "CODER_RULES_REQUIRED" });
           }
           if (name === "report_done" && input?.status !== "blocked") await assertCommitBeforeReport(state, context, labMode, tool);
@@ -109,7 +109,11 @@ export function checkpointedRegistry({ store, registry, taskId, targetPath, allo
             : await tool.execute(input, context);
           if (selected?.role === "coder" && ["read_file", "read_lines", "Read", "sed_lines"].includes(name) && (input?.path === "workflows/agents/coder/README.md" || input?.file_path === "workflows/agents/coder/README.md" || input?.file_path?.endsWith("/workflows/agents/coder/README.md")) && (name === "sed_lines" || name === "read_lines" ? result?.exit_code === 0 : typeof result?.content === "string")) state.coderRulesRead = true;
           if (name === "read_file") rememberRead(state.readCache, input, result);
-          if (name === "write_diff" || name === "edit_diff") { forgetRead(state.readCache, input); state.emptyCommitSeen = false; }
+          if (["write_diff", "edit_diff", "delete_file", "move_file"].includes(name)) {
+            if (name === "move_file") { forgetRead(state.readCache, { path: input?.from_path }); forgetRead(state.readCache, { path: input?.to_path }); }
+            else forgetRead(state.readCache, input);
+            state.emptyCommitSeen = false;
+          }
         } catch (error) {
           if (name === "commit_changes" && error?.code === "GIT_EMPTY_COMMIT") state.emptyCommitSeen = true;
           throw error;
@@ -153,7 +157,7 @@ async function assertCommitBeforeReport(state, context, labMode, tool) {
   if (state.emptyCommitSeen) return;
   if (state.changedPaths.length === 0) return;
   const tools = state.completedTools;
-  const lastEdit = Math.max(tools.lastIndexOf("write_diff"), tools.lastIndexOf("edit_diff"));
+  const lastEdit = Math.max(tools.lastIndexOf("write_diff"), tools.lastIndexOf("edit_diff"), tools.lastIndexOf("delete_file"), tools.lastIndexOf("move_file"));
   const lastCommit = tools.lastIndexOf("commit_changes");
   if (lastCommit === -1 || (lastEdit !== -1 && lastEdit > lastCommit)) {
     if (await tool.reconcileCommit?.(context)) return;
@@ -179,6 +183,7 @@ export function buildResumePrompt(prompt, state, meta = {}) {
     `RESUMED RUN: a previous execution stopped after completing turn ${state.turnCount}.`,
     "The current tool catalog replaces legacy rg_files/rg_search/sed_lines with list_files/search_text/read_lines. Historical search_code, run_test and check_test entries are receipts only; they are not available in the current Coder catalog. Use search_text for source discovery and run_check for focused checks. Do not repeat completed mutations.",
     state.sessionId ? "Provider session resumed; earlier assistant context may be available, but the worktree is the source of truth." : "No provider session survived; the worktree below is the source of truth.",
+    ...(state.resume.dependency_repair ? [`SPRINT DEPENDENCY REPAIR: ${JSON.stringify(state.resume.dependency_repair)}. SL has assigned this ticket's own Coder to implement the requested repair within its approved scope. Preserve completed work and continue from this checkpoint. The missing repair commit and passing verification/review are outputs to produce, not prerequisites for starting. Run focused checks, commit ticket changes and submit report_done; Node verifies and runs independent Reviewer. Do not ask AM to repeat the settled design or claim SL instructions are a Reviewer verdict.`] : []),
     ...(state.verificationWait ? [`Node retained verification/report checkpoint: ${JSON.stringify(state.verificationWait)}. Continue from this report draft. Call report_done once to reattach to Node verification; Node waits internally and returns terminal evidence. Do not recreate edits, recommit unchanged source or poll tools.`] : []),
     "Completed turns (do NOT repeat these tool calls with the same inputs):",
     ...(recovery?.status === "resolved" && recovery.disposition?.guidance ? [`Automatic blocker investigation resolved an issue within existing approved scope. This is guidance, not new contract/permission approval: ${recovery.disposition.guidance}`] : []),
@@ -207,6 +212,7 @@ export function buildResumePrompt(prompt, state, meta = {}) {
 // summarizeTarget - picks the stable address (path/symbol/query) of a tool call.
 function summarizeTarget(name, input) {
   if (!input || typeof input !== "object") return "";
+  if (name === "move_file" && input.from_path && input.to_path) return `${input.from_path} -> ${input.to_path}`.slice(0, 160);
   const raw = input.path ?? input.query ?? input.symbol ?? input.message ?? input.job_id ?? "";
   const text = String(raw ?? "").slice(0, 160);
   if (name === "search_code" && input.query) return `"${text}"`;

@@ -163,6 +163,7 @@ export function createEditDiffTool({ fileService, codeCache, changeLedger, maxCh
   }});
 }
 
+export { createDeleteFileTool, createMoveFileTool } from "./agent-file-mutation-tools.js";
 export { createRunTestTool, createCheckTestTool, createCommitChangesTool } from "./agent-verification-tools.js";
 export { createReportDoneTool } from "./agent-report-tool.js";
 
