@@ -94,4 +94,15 @@ test("createNodeClient exposes the production Ideas operations through project b
   await client.getIdea({ id: "idea-1" });
   assert.deepEqual(JSON.parse(calls[0].init.body), { project_id: "A", content: "Integrated" });
   assert.ok(calls[1].url.endsWith("/forge/v1/ideas/idea-1"));
+  let release;
+  globalThis.fetch = () => new Promise((resolve) => { release = () => resolve(Response.json([])); });
+  const delayedRead = client.listIdeas({});
+  const explicit = createNodeClient("B");
+  selectProject("B");
+  release();
+  await assert.rejects(delayedRead, { code: "STALE_PROJECT_SELECTION" });
+  assert.throws(() => client.createIdea({ content: "Stale" }), { code: "STALE_PROJECT_SELECTION" });
+  globalThis.fetch = async (url, init) => { calls.push({ url, init }); return Response.json({ id: "idea-2", version: 1 }); };
+  await explicit.createIdea({ content: "Explicit B" });
+  assert.deepEqual(JSON.parse(calls.at(-1).init.body), { project_id: "B", content: "Explicit B" });
 });
