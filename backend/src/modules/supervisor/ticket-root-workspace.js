@@ -21,7 +21,9 @@ import { createCoderReportRecovery } from "./coder-report-recovery.js";
 import { acquireTicketFileLock } from "./ticket-file-lock.js";
 import { createTerminalReceiptWriter } from "./terminal-receipt-writer.js";
 
+// Defines fail function behavior for ticket-root-workspace.js.
 const fail = (code, message) => Object.assign(new ConfigurationError(message), { code });
+// Defines key function behavior for ticket-root-workspace.js.
 const key = (value) => createHash("sha256").update(value).digest("hex");
 
 // Creates root-bound ticket services while retaining legacy worktrees as historical evidence.
@@ -31,6 +33,7 @@ export function createTicketRootWorkspace({ projectRoot, projectId, protocolStor
   const git = createGitService({ projectRoot });
   const rootGit = createTicketRootGit({ projectRoot });
   const receipts = receiptWriter ?? createTerminalReceiptWriter({ fileService: stateFileService, projectLogger });
+  // Defines workspaceStatePath function behavior for ticket-root-workspace.js.
   const workspaceStatePath = (taskId) => `${statePath()}/ticket-root-workspaces/${key(projectId)}/${key(taskId)}.json`;
   const opened = new Map();
   const opening = new Map();
