@@ -57,7 +57,7 @@ test("AC-1 & AC-5: intake scans eligible source files and normalizes English com
           return [1, 0, 0];
         }
       },
-      coderNormalizer: async ({ path, content }) => {
+      coderNormalizer: async ({ path }) => {
         coderCalls.push(path);
         const result = await normalizeProjectComments({ projectRoot, force: true });
         assert.ok(result.succeeded);

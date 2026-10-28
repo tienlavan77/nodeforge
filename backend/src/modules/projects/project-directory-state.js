@@ -38,38 +38,4 @@ export function createProjectDirectoryState({ catalog, runtimes, isAvailable, is
     });
   }
 
-  // Retrieves the active or running runtime for progress inspection without bypassing workspace readiness gates.
-  function getRuntime(root) {
-    if (isClosed()) return undefined;
-    return runtimes.get(root);
-  }
-
-  // Resolves the project SSE stream when a project is in either `running` or `ready` state while rejecting `unavailable` projects.
-  function getStream(projectId) {
-    if (isClosed() || typeof projectId !== "string" || !projectId.trim()) return undefined;
-    const entry = catalog.list().find((candidate) => candidate.projectId === projectId);
-    const runtime = entry ? runtimes.get(entry.root) : [...runtimes.values()].find((candidate) => candidate?.projectId === projectId);
-    if (!runtime || typeof runtime.connect !== "function") return undefined;
-    const operation = entry ? attempts.get(entry.root) : undefined;
-    const isRunningOrReady = () => {
-      const current = entry ? runtimes.get(entry.root) : runtime;
-      if (isClosed() || !current || typeof current.connect !== "function") return false;
-      if (isAvailable(current)) return true;
-      const status = current.status?.();
-      if (status?.closed === true || status?.progress?.status === "failed") return false;
-      const currentOp = entry ? attempts.get(entry.root) : operation;
-      return currentOp?.status === "running" || status?.progress?.status === "running";
-    };
-    if (!isRunningOrReady()) return undefined;
-    return Object.freeze({
-      // Connects SSE subscribers while the project remains in `running` or `ready` state.
-      connect(input) {
-        const current = entry ? runtimes.get(entry.root) : runtime;
-        if (!isRunningOrReady()) {
-          throw Object.assign(new Error("Project is unavailable."), { statusCode: 404, code: "PROJECT_NOT_FOUND" });
-        }
-        return current.connect(input);
-      }
-    });
-  }
 }
