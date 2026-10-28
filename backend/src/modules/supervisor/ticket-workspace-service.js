@@ -90,6 +90,7 @@ export function createTicketWorkspaceService({ projectRoot, projectId, protocolS
     finally { pending.delete(taskId); }
   }
 
+  // Defines create function behavior for ticket-workspace-service.js.
   async function create(taskId) {
     const worktree = await ensure(taskId);
     await linkDependencies(worktree.path);
@@ -159,14 +160,14 @@ export function createTicketWorkspaceService({ projectRoot, projectId, protocolS
 
   // Keeps the review baseline stable when the Control API restarts or the main branch advances.
   async function baseCommit(taskId, path) {
-    const statePath = `${statePath()}/ticket-workspaces/${taskId}.json`;
+    const workspaceFile = `${statePath()}/ticket-workspaces/${taskId}.json`;
     try {
-      const state = JSON.parse(await stateFileService.readFile({ path: statePath }));
+      const state = JSON.parse(await stateFileService.readFile({ path: workspaceFile }));
       if (state.path !== path || !/^[a-f0-9]{40,64}$/i.test(state.base_commit)) throw workspaceError("WORKTREE_STATE_INVALID", "Ticket workspace state does not match its worktree.");
       return state.base_commit;
     } catch (error) { if (error.code !== "ENOENT") throw error; }
     const base = (await git(["-C", path, "merge-base", "HEAD", (await git(["-C", root, "rev-parse", "HEAD"])).trim()])).trim();
-    await stateFileService.atomicWrite({ path: statePath, content: `${JSON.stringify({ task_id: taskId, path, base_commit: base })}\n`, replace: true });
+    await stateFileService.atomicWrite({ path: workspaceFile, content: `${JSON.stringify({ task_id: taskId, path, base_commit: base })}\n`, replace: true });
     return base;
   }
 

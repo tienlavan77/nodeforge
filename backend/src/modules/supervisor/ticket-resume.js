@@ -96,6 +96,7 @@ export function checkpointedRegistry({ store, registry, taskId, targetPath, allo
     if (typeof tool?.execute !== "function") { wrapped[name] = tool; continue; }
     wrapped[name] = Object.freeze({
       ...tool,
+      // Defines execute method behavior for ticket-resume.js.
       async execute(input, context) {
         let result;
         try {

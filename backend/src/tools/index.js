@@ -97,18 +97,18 @@ export function createForgeToolRegistry({ protocolStorage, fileService, projectR
     lifecycle.report_done = Object.freeze({ ...lifecycle.report_done, reconcileCommit: createTicketReportCommit({ gitService, changeLedger, executionContexts }) });
   if (reviewFindings?.recordResponse && testService?.assertPassedArtifact) lifecycle.respond_to_review = wrap(createRespondToReviewTool({ reviewFindings, verificationService: testService }), "respond_to_review");
   if (reviewFindings?.load) lifecycle.query_review = wrap(createQueryReviewTool({ load: reviewFindings.loadQuery ?? reviewFindings.load, queryRecords: reviewFindings.queryRecords }), "query_review");
-  function wrap(tool, name, preauthorize = true) { return Object.freeze({ ...tool, async execute(input, context = {}) { const scoped = withDefaultBudget(context); if (preauthorize) authorizeTool(name, scoped); return dispatch(name, tool, input, scoped); } }); }
+  function wrap(tool, name, preauthorize = true) { return Object.freeze({ ...tool, async execute(input, context = {}) { const scoped = withDefaultBudget(context); if (preauthorize) authorizeTool(name, scoped); return dispatch(name, tool, input, scoped, context); } }); }
   const registry = {
-    read_transcript_blocks: Object.freeze({ ...transcriptTool, async execute(input, context = {}) { const scoped = withDefaultBudget(context); authorizeTool("read_transcript_blocks", scoped); return dispatch("read_transcript_blocks", transcriptTool, input, scoped); } }),
-    select_code_graph_candidates: Object.freeze({ ...graphTool, async execute(input, context = {}) { const scoped = withDefaultBudget(context); authorizeTool("select_code_graph_candidates", scoped); return dispatch("select_code_graph_candidates", graphTool, input, scoped); } })
+    read_transcript_blocks: Object.freeze({ ...transcriptTool, async execute(input, context = {}) { const scoped = withDefaultBudget(context); authorizeTool("read_transcript_blocks", scoped); return dispatch("read_transcript_blocks", transcriptTool, input, scoped, context); } }),
+    select_code_graph_candidates: Object.freeze({ ...graphTool, async execute(input, context = {}) { const scoped = withDefaultBudget(context); authorizeTool("select_code_graph_candidates", scoped); return dispatch("select_code_graph_candidates", graphTool, input, scoped, context); } })
   };
   if (codeSearch?.search) {
     const searchTool = createSearchCodeTool({ codeSearch, codeCache, projectLogger });
-    registry.search_code = Object.freeze({ ...searchTool, async execute(input, context = {}) { const scoped = withDefaultBudget(context); authorizeTool("search_code", scoped); return dispatch("search_code", searchTool, input, scoped); } });
+    registry.search_code = Object.freeze({ ...searchTool, async execute(input, context = {}) { const scoped = withDefaultBudget(context); authorizeTool("search_code", scoped); return dispatch("search_code", searchTool, input, scoped, context); } });
   }
   if (enableReadCode) {
     const readCodeTool = createReadCodeTool({ fileService, codeCache, maxChars });
-    registry.read_code = Object.freeze({ ...readCodeTool, async execute(input, context = {}) { const scoped = withDefaultBudget(context); authorizeTool("read_code", scoped); return dispatch("read_code", readCodeTool, input, scoped); } });
+    registry.read_code = Object.freeze({ ...readCodeTool, async execute(input, context = {}) { const scoped = withDefaultBudget(context); authorizeTool("read_code", scoped); return dispatch("read_code", readCodeTool, input, scoped, context); } });
   }
   function withDefaultBudget(context = {}) { if (governance) return context;
     if (context.context_budget || context.retrieval_budget || context.consume_retrieval || context.consumeRetrieval) return context;
@@ -118,7 +118,7 @@ export function createForgeToolRegistry({ protocolStorage, fileService, projectR
     if (!budget) { budget = { max_bytes: 200000, max_calls: 20, used_bytes: 0, used_calls: 0 }; retrievalBudgets.set(taskId, budget); }
     return { ...context, context_budget: budget };
   }
-  function dispatch(name, tool, input, context) {
+  function dispatch(name, tool, input, context, callerContext = context) {
     const started = Date.now();
     logToolEvent("started", name, input, context);
     const execute = async () => governance?.dispatch ? governance.dispatch(name, input, context, (toolInput, toolContext) => tool.execute(toolInput, toolContext)) : tool.execute(input, context);
@@ -127,10 +127,14 @@ export function createForgeToolRegistry({ protocolStorage, fileService, projectR
         const result = await execute();
         if (executionContexts && changeLedger && ["write_diff", "edit_diff", "delete_file", "move_file", "commit_changes"].includes(name)) {
           const taskId = context.task_id ?? context.taskId;
-          const manifest = await changeLedger.snapshot();
+          const manifest = await changeLedger.snapshot(taskId);
           let current = await executionContexts.syncManifest(taskId, manifest);
           if (name === "commit_changes" && !(result.repeated && current.verification_source?.ticket_commit_sha === result.sha) && (current.state !== "verified" || current.review_commit_sha !== result.sha)) current = await executionContexts.update(taskId, current.version, { state: "committed", review_commit_sha: result.sha, verification_artifact_id: null, verification_source: null });
           context.execution_context = current;
+          if (callerContext && typeof callerContext === "object") {
+            callerContext.execution_context = current;
+            if (Array.isArray(context.changed_paths)) callerContext.changed_paths = context.changed_paths;
+          }
         }
         const checkFailed = ["run_check", "check_test"].includes(name) && result?.status === "failed";
         logToolEvent(checkFailed ? "failed" : "success", name, input, context, { duration_ms: Date.now() - started, result,
