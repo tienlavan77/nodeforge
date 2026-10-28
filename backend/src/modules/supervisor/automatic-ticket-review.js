@@ -12,8 +12,10 @@ import { isCompletedReviewReopened } from "./completed-review-resume.js";
 import { reviewOperationalFailure } from "./review-operational-failure.js";
 import { beginAutomaticReview } from "./automatic-review-stage.js";
 import { reconcileReviewRepairAuthority, reviewRepairScopeConflict } from "./review-repair-authority.js";
+import { isAutomaticReviewCompleted } from "./ticket-recovery-state.js";
 
 const QUEUE = "agent.request";
+// Defines fail function behavior for automatic-ticket-review.js.
 const fail = (code, message) => Object.assign(new ConfigurationError(message), { code });
 // Stores one logical review per complete identity and never treats infrastructure outcomes as approval.
 export function createAutomaticTicketReview({ queueStore, queue, eventBus, fileService, resolveTicketWorkspace, resolveWorker, ticketStatusStore, checkpoints, agentOccupancy, resumeRepair, operationalRetry = true, retryClock, retryWait, projectLogger = () => {} }) {
@@ -84,6 +86,7 @@ export function createAutomaticTicketReview({ queueStore, queue, eventBus, fileS
   // Writes the complete outcome and event intent before event publication or queue acknowledgement.
   async function processOnce(job) {
     let current = await reconcileRepairAuthority(await load(job.id));
+    if (isCompletedReviewReopened(current, ticketStatusStore)) throw fail("REVIEW_SOURCE_SUPERSEDED", "This historical review belongs to a cycle superseded by an explicit repair.");
     assertReviewRequestOwnership(current, ticketStatusStore);
     if (current.review_result) { assertCachedReviewResult(current); if (!operationalRetry || !current.review_result.payload.error?.retryable) await publish(current); return current.review_result; }
     let result;
@@ -97,6 +100,7 @@ export function createAutomaticTicketReview({ queueStore, queue, eventBus, fileS
       const worker = await resolveWorker(current);
       if (!worker) throw fail("REVIEW_WORKER_UNAVAILABLE", "Reviewer worker is unavailable.");
       const payload = await worker.review(current);
+      if (isCompletedReviewReopened(current, ticketStatusStore)) throw fail("REVIEW_SOURCE_SUPERSEDED", "Review source was superseded while the provider was working.");
       assertReviewRequestOwnership(current, ticketStatusStore);
       if (!["approved", "request_changes"].includes(payload?.verdict) || !payload.reviewer_id || payload.reviewer_id === current.agent_id || payload.source_revision !== current.decision_identity.source_revision || !Array.isArray(payload.findings)
         || !Array.isArray(payload.adjudications ?? []) || payload.verdict === "request_changes" && !payload.findings.length && !(payload.adjudications ?? []).some((decision) => ["retain", "refine", "reopen"].includes(decision.decision))) throw fail("REVIEW_VERDICT_INVALID", "Reviewer verdict does not match the independent source revision or finding contract.");
@@ -112,9 +116,9 @@ export function createAutomaticTicketReview({ queueStore, queue, eventBus, fileS
         });
         throw error;
       }
-      const unavailable = ["REVIEWER_NOT_AVAILABLE", "REVIEW_WORKER_UNAVAILABLE", "REVIEWER_PROVIDER_UNAVAILABLE"].includes(error.code);
+      const unavailable = ["REVIEWER_BUSY", "REVIEWER_NOT_AVAILABLE", "REVIEW_WORKER_UNAVAILABLE", "REVIEWER_PROVIDER_UNAVAILABLE"].includes(error.code);
       result = { type: unavailable ? "review.unavailable" : "review.failed", payload: { outcome_label: unavailable ? "review_unavailable" : "review_failed", error: reviewOperationalFailure(error) ?? { code: error.code ?? "REVIEW_FAILED", message: error.message } } };
-      projectLogger({ event_name: "review.automatic_failed", level: "error", status: "failed", message: error.message, task_id: current.task_id, source: "automatic-review", error_code: result.payload.error.code });
+      if (!result.payload.error.agent_wait) projectLogger({ event_name: "review.automatic_failed", level: "error", status: "failed", message: error.message, task_id: current.task_id, source: "automatic-review", error_code: result.payload.error.code });
     }
     current = await locked(async () => {
       const fresh = await load(job.id);
@@ -136,6 +140,7 @@ export function createAutomaticTicketReview({ queueStore, queue, eventBus, fileS
 
   // Replays a stable review event and materializes deduplicated follow-up tickets without changing the completed ticket.
   async function publish(job) {
+    if (isCompletedReviewReopened(job, ticketStatusStore)) return;
     job = await reconcileRepairAuthority(job);
     assertReviewRequestOwnership(job, ticketStatusStore);
     assertCachedReviewResult(job);
@@ -205,6 +210,7 @@ export function createAutomaticTicketReview({ queueStore, queue, eventBus, fileS
   async function recover() {
     for (let job of await queueStore.list(QUEUE)) {
       if (!job.automatic_review || isCompletedReviewReopened(job, ticketStatusStore)) continue;
+      if (isAutomaticReviewCompleted(job, ticketStatusStore, { operationalRetry }) && !agentOccupancy?.getByTask?.(job.task_id)) continue;
       try {
         assertReviewRequestOwnership(job, ticketStatusStore);
         assertCachedReviewResult(job);

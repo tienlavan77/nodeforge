@@ -1,8 +1,11 @@
+// Provides module declarations and business logic for javascript.js.
+
 import { parse } from "@babel/parser";
 
 import { emptyExtraction } from "./contract.js";
 import { createJsxUiWalker } from "./jsx-ui.js";
 
+// Defines extractJavaScript function behavior for javascript.js.
 export function extractJavaScript(source, options = {}) {
   const extraction = emptyExtraction();
   const ast = parse(source, {
@@ -17,6 +20,7 @@ export function extractJavaScript(source, options = {}) {
   return extraction;
 }
 
+// Defines walk function behavior for javascript.js.
 function walk(node, extraction, callerSymbol = null) {
   if (!node || typeof node !== "object") return;
 
@@ -37,6 +41,7 @@ function walk(node, extraction, callerSymbol = null) {
   }
 }
 
+// Defines symbolFor function behavior for javascript.js.
 function symbolFor(node) {
   if (node.type === "FunctionDeclaration" && node.id) return createSymbol(node.id.name, "function", node);
   if (node.type === "ClassDeclaration" && node.id) return createSymbol(node.id.name, "class", node);
@@ -50,6 +55,7 @@ function symbolFor(node) {
   return null;
 }
 
+// Defines addImport function behavior for javascript.js.
 function addImport(node, imports) {
   if (node.type !== "ImportDeclaration") return;
 
@@ -68,6 +74,7 @@ function addImport(node, imports) {
   }
 }
 
+// Defines addExport function behavior for javascript.js.
 function addExport(node, exports) {
   if (node.type === "ExportDefaultDeclaration") {
     exports.push({ name: declarationName(node.declaration) ?? "default", kind: "default", source: null });
@@ -83,15 +90,18 @@ function addExport(node, exports) {
   }
 }
 
+// Defines addCall function behavior for javascript.js.
 function addCall(node, calls, callerSymbol) {
   if (node.type !== "CallExpression" || node.callee.type !== "Identifier") return;
   calls.push({ callee_name: node.callee.name, line: node.loc.start.line, caller_symbol: callerSymbol });
 }
 
+// Defines createSymbol function behavior for javascript.js.
 function createSymbol(name, kind, node) {
   return { name, kind, start_line: node.loc.start.line, end_line: node.loc.end.line };
 }
 
+// Defines declarationNames function behavior for javascript.js.
 function declarationNames(node) {
   if (!node) return [];
   if (node.type === "VariableDeclaration") return node.declarations.map((declaration) => declarationName(declaration)).filter(Boolean);
@@ -99,21 +109,25 @@ function declarationNames(node) {
   return name ? [name] : [];
 }
 
+// Defines declarationName function behavior for javascript.js.
 function declarationName(node) {
   if (node?.id?.type === "Identifier") return node.id.name;
   return null;
 }
 
+// Defines propertyName function behavior for javascript.js.
 function propertyName(node) {
   if (node?.type === "Identifier") return node.name;
   if (node?.type === "StringLiteral" || node?.type === "NumericLiteral") return String(node.value);
   return null;
 }
 
+// Defines isFunction function behavior for javascript.js.
 function isFunction(node) {
   return node?.type === "ArrowFunctionExpression" || node?.type === "FunctionExpression";
 }
 
+// Defines isExternalSource function behavior for javascript.js.
 function isExternalSource(source) {
   return !source.startsWith(".") && !source.startsWith("/");
 }

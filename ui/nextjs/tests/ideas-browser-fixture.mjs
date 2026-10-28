@@ -74,7 +74,7 @@ createRoot(document.getElementById("root")).render(<ProjectWorkspace projectId="
         builder.onLoad({ filter: /.*/, namespace: "fixture" }, (args) => ({
           contents: args.path.endsWith("link")
             ? 'import React from "react";export default function Link({children,...props}){return React.createElement("a",props,children)}'
-            : 'export const usePathname=()=>"/PROJECT-A";export const useRouter=()=>({push:()=>{},replace:()=>{},refresh:()=>{}});',
+            : 'export const useParams=()=>({projectId:"PROJECT-A"});export const usePathname=()=>"/PROJECT-A";export const useRouter=()=>({push:()=>{},replace:()=>{},refresh:()=>{}});',
           loader: "js"
         }));
       }

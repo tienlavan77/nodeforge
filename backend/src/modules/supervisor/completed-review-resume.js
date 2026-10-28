@@ -9,6 +9,9 @@ import { acquireTicketFileLock } from "./ticket-file-lock.js";
 export function isCompletedReviewReopened(job, store) {
   const row = store?.get?.(job.task_id);
   const binding = row?.details?.review_reopen;
+  const dependency = row?.details?.dependency_repair;
+  if (!binding && dependency && row.details.execution_id === job.payload?.execution_id
+    && job.payload?.review_cycle_id !== dependency.id) return true;
   return binding?.job_id === job.id && (row.details.execution_id === job.payload?.execution_id
     || Boolean(binding.repair_cycle_id && binding.commit === job.payload?.verification?.commit_sha && binding.artifact_id === job.payload?.verification?.artifact_id));
 }

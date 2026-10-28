@@ -4,6 +4,7 @@ import { createReviewDependencyReconciliation } from "./review-dependency-reconc
 import { ConfigurationError } from "../../shared/errors.js";
 import { createDurableQueue } from "./durable-queue.js";
 import { retainUnreconciledLaunch } from "./ticket-launch-recovery.js";
+import { recoverTicketSdkTimeout } from "./ticket-sdk-timeout.js";
 import { createExecutionEventBus } from "./execution-event-bus.js";
 import { createSupervisorManager } from "./supervisor-manager.js";
 import { createNodeforgeTaskIntegration } from "./nodeforge-task-integration.js";
@@ -38,7 +39,7 @@ const QUEUE_NAMES = ["agent.request", "sender.handoff", "collector.request", "ve
 const RESUMABLE_STATES = ["CREATED", "READY", "RUNNING", "REPAIRING"];
 
 /** Creates the production wiring for supervisor runtime including stores, buses, managers, and workers. */
-export function createProductionSupervisorRuntime({ fileService, projectId, projectRoot = process.cwd(), root = FORGE_STATE_DIR, eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, agentRoleResolver, agentOccupancy, ticketStatusStore, sprintRegistry, architecturePlans, plans, planFileService, replanFoundation, logger = console, projectLogger = () => {}, checkpointSaved, preparation = {}, attemptBuilderFactory, conversationStateStore, protocolStorage, autoStartWorkers = true, toolGovernance, governanceDatabase, codeSearch, codeCache, relevantTreeSelector, freshnessChecker, enableReadCode = false, testService, gitService, reportService, ticketWorkspaceService, shadowComparison, onEvalCase, coderRecovery, coderRetryPolicy, ticketDisposition } = {}) {
+export function createProductionSupervisorRuntime({ fileService, projectId, projectRoot = process.cwd(), root = FORGE_STATE_DIR, eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, agentRoleResolver, agentOccupancy, ticketStatusStore, sprintRegistry, architecturePlans, plans, planFileService, replanFoundation, logger = console, projectLogger = () => {}, checkpointSaved, preparation = {}, attemptBuilderFactory, conversationStateStore, protocolStorage, autoStartWorkers = true, toolGovernance, governanceDatabase, codeSearch, codeCache, relevantTreeSelector, freshnessChecker, enableReadCode = false, testService, gitService, reportService, ticketWorkspaceService, shadowComparison, onEvalCase, coderRecovery, coderRetryPolicy, ticketDisposition, dispatchDependency } = {}) {
   const hasPreparation = Object.keys(preparation ?? {}).length > 0;
   const queueStore = createFileQueueStore({ fileService, root: `${root}/queues` });
   const stateStore = createSupervisorStateStore({ fileService, root: `${root}/supervisors` });
@@ -65,7 +66,7 @@ export function createProductionSupervisorRuntime({ fileService, projectId, proj
   coderRecovery ??= createCoderRecoveryRuntime({ store: queueStore, ticketStatusStore, sprintRegistry, resolveTicketWorkspace, checkpoints: agentCheckpoints,
     eventBus, submitTicket: (input) => baseIntegration.submitTicket(input), disposition: ticketDisposition, agentOccupancy, policy: coderRetryPolicy, projectLogger, logger });
   const blockerRecovery = createProductionBlockerRecovery({ store: queueStore, fileService, projectId, ticketStatusStore, sprintRegistry, resolveTicketWorkspace, checkpoints: agentCheckpoints,
-    eventBus, agentResolver: agentRoleResolver, agentOccupancy, gateways: { claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway }, submitTicket: (input) => integration.submitTicket(input), stopExecution: (input) => coderRecovery.stopTicket(input), disposition: ticketDisposition, architecturePlans, plans, planFileService, replanFoundation, projectLogger, logger, limits: blockerRecoveryPolicy() });
+    eventBus, agentResolver: agentRoleResolver, agentOccupancy, gateways: { claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway }, submitTicket: (input) => integration.submitTicket(input), dispatchDependency, stopExecution: (input) => coderRecovery.stopTicket(input), disposition: ticketDisposition, architecturePlans, plans, planFileService, replanFoundation, projectLogger, logger, limits: blockerRecoveryPolicy() });
   const supervisorManager = createSupervisorManager({ eventBus, stateStore, preparation, onCreate: (runtime) => {
     const executionContextProvider = createExecutionContextProvider(runtime, runtimeGovernance, toolRegistry);
     const loop = createSupervisorLoop({ runtime, senderQueue: queues["agent.request"], collectorQueue: queues["collector.request"], verificationQueue: queues["verification.request"], sourceRequest: async (taskId, requestId) => (await queueStore.list("agent.request")).find((job) => job.task_id === taskId && (!requestId || job.request_id === requestId) && job.operation !== "review" && job.ticket), eventBus, requestStore: processedRequestStore, agentResolver: agentRoleResolver, agentOccupancy, integrateTicket, automaticReview, coderRecovery, ticketStatusStore, resolveTicketWorkspace, attemptBuilder: typeof attemptBuilderFactory === "function" ? attemptBuilderFactory(runtime, { conversationStateStore, protocolStorage, toolRegistry, governance: runtimeGovernance, executionContextProvider }) : undefined });
@@ -94,6 +95,7 @@ export function createProductionSupervisorRuntime({ fileService, projectId, proj
     startingTasks.set(request.task_id, startup);
     try { return await startup; } finally { startingTasks.delete(request.task_id); }
   }};
+  // Defines startTaskExclusive function behavior for production-runtime.js.
   async function startTaskExclusive(request) {
     const result = await baseIntegration.startTask(request);
     // An active task already owns a running loop. Repeated Run clicks must
@@ -120,6 +122,7 @@ export function createProductionSupervisorRuntime({ fileService, projectId, proj
   if (agentGateway?.request) {
     for (const profile of agentRoleResolver?.list?.() ?? []) {
       if (profile.enabled !== true || !["ready", "working"].includes(profile.status)) continue;
+      // Defines send function behavior for production-runtime.js.
       const send = async (input) => {
         const response = await agentGateway.request(input);
         const responseId = response?.payload?.response_id ?? response?.response_id ?? null;
@@ -139,12 +142,14 @@ export function createProductionSupervisorRuntime({ fileService, projectId, proj
   }
   const reviewWorker = agentRoleResolver && fileService?.readForIndex ? createReviewWorker({ agentResolver: agentRoleResolver, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, fileService, gitService, codeSearch, codeCache, projectRoot, checkpoints: agentCheckpoints, projectLogger }) : null;
   const resolveReviewWorker = resolveTicketWorkspace ? async (job) => { const workspace = await resolveTicketWorkspace(job.task_id); const reviewCache = createCodeCacheService({ projectId: `${workspace.base_commit}:${workspace.branch}`, fileService: workspace.worktreeFileService, logger: projectLogger }); return createReviewWorker({ agentResolver: agentRoleResolver, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, fileService: workspace.worktreeFileService, rulesFileService: fileService, gitService: workspace.gitService, codeSearch: workspace.codeSearch ?? codeSearch, codeCache: reviewCache, projectRoot: workspace.path, executionContexts: workspace.executionContexts, verificationService: workspace.testService, reviewFindings: workspace.reviewFindings, checkpoints: agentCheckpoints, projectLogger }); } : null;
+  // Defines reviewHandler function behavior for production-runtime.js.
   const legacyReviewHandler = createReviewRequestHandler({ reviewWorker, resolveReviewWorker, resolveReviewFindings: resolveTicketWorkspace ? async (job) => (await resolveTicketWorkspace(job.task_id)).reviewFindings : null, checkpointStore: agentCheckpoints, queueStore, queue: queues["agent.request"], eventBus, projectLogger, ticketStatusStore, validateReviewEvidence: resolveTicketWorkspace ? (job) => validateRecoveredReviewEvidence(job, resolveTicketWorkspace) : null }); const reviewHandler = (job) => job.automatic_review ? automaticReview.process(job) : legacyReviewHandler(job);
   const senderWorker = createSenderWorker({ queue: queues["agent.request"], agentRegistry, agentResolver: agentRoleResolver, eventBus, processedStore: processedRequestStore, statusBus, signalBus, projectLogger, protocolStorage, conversationStateStore, toolRegistry, resolveToolRegistry: resolveTicketWorkspace ? async (job) => { const workspace = await resolveTicketWorkspace(job.task_id); job.execution_context = await prepareTicketExecutionContext({ workspace, taskId: job.task_id, supervisorId: job.supervisor_id ?? `SUP-${job.task_id}`, ticket: job.ticket }); return workspace.toolRegistry; } : null, runtimeGovernance, reviewHandler });
   const collectorWorker = createCollectorWorker({ fileService, gitService });
   const verificationWorker = createVerificationWorker();
   const collectorWorkerLoop = createQueuePoller(queues["collector.request"], "collector-1", signalBus, async (job) => { projectLogger({ event_name: "collector.request_started", level: "info", status: "info", message: "Collector Worker started job.", task_id: job.task_id, correlation_id: job.correlation_id, source: "collector-worker", payload: { request_id: job.request_id, job_id: job.id } }); const workspace = resolveTicketWorkspace ? await resolveTicketWorkspace(job.task_id) : null; const collector = workspace ? createCollectorWorker({ fileService: workspace.fileService, gitService: workspace.gitService, changeLedger: workspace.changeLedger, executionContexts: workspace.executionContexts }) : collectorWorker; const result = await collector.collect(job); await eventBus.publish({ type: "changeset.collected", task_id: job.task_id, supervisor_id: job.supervisor_id, request_id: job.request_id, correlation_id: job.correlation_id, attempt: job.attempt ?? 1, payload: { changed_paths: result.changed_paths, checksums: result.checksums, execution_context: result.execution_context, empty: result.empty } }); projectLogger({ event_name: "collector.request_completed", level: "info", status: "success", message: "Collector Worker completed job.", task_id: job.task_id, correlation_id: job.correlation_id, source: "collector-worker", payload: { request_id: job.request_id, job_id: job.id, changed_count: result.changed_paths.length, empty: result.empty } }); await queues["collector.request"].ack(job.id); });
   const verificationWorkerLoop = createQueuePoller(queues["verification.request"], "verification-1", signalBus, async (job) => { projectLogger({ event_name: "verification.request_started", level: "info", status: "info", message: "Verification Worker started job.", task_id: job.task_id, correlation_id: job.correlation_id, source: "verification-worker", payload: { request_id: job.request_id, job_id: job.id } }); const workspace = resolveTicketWorkspace ? await resolveTicketWorkspace(job.task_id) : null; const result = await verifyTicketChangeset({ workspace, job, legacyWorker: verificationWorker }); await queueStore.save("verification.request", { ...job, verification_result: { basis: reviewRequestBasis(job), payload: result } }); await eventBus.publish({ type: result.status === "passed" ? "verification.passed" : "verification.failed", task_id: job.task_id, supervisor_id: job.supervisor_id, request_id: job.request_id, correlation_id: job.correlation_id, attempt: job.attempt ?? 1, payload: result }); projectLogger({ event_name: "verification.request_completed", level: "info", status: result.status === "passed" ? "success" : "failed", message: "Verification Worker completed job.", task_id: job.task_id, correlation_id: job.correlation_id, source: "verification-worker", payload: { request_id: job.request_id, job_id: job.id, status: result.status } }); await queues["verification.request"].ack(job.id); });
+  // Defines startWorkers function behavior for production-runtime.js.
   async function startWorkers() {
     senderWorker.start(); collectorWorkerLoop.start(); verificationWorkerLoop.start(); await coderRecovery?.start?.(); await blockerRecovery?.start();
     for (const name of QUEUE_NAMES) for (const job of await queueStore.list(name)) {
@@ -154,6 +159,7 @@ export function createProductionSupervisorRuntime({ fileService, projectId, proj
   if (autoStartWorkers) void startWorkers();
   return Object.freeze({ reconcileReviewDependencies, governance: runtimeGovernance, queues, queueStore, stateStore, processedRequestStore, eventBus, signalBus, resultBus, statusBus, supervisorManager, integration, agentRegistry, senderWorker, collectorWorkerLoop, verificationWorkerLoop, startWorkers, recover, agentCheckpoints, coderRecovery, blockerRecovery, resumeCompletedReview: automaticReview?.resumeCompleted });
 
+  // Defines recover function behavior for production-runtime.js.
   async function recover() {
     logger.debug?.("Supervisor recovery: queue scan started");
     // Prune long-finished plain jobs first so the megabyte-scale queue files shrink before every
@@ -172,6 +178,8 @@ export function createProductionSupervisorRuntime({ fileService, projectId, proj
     logger.debug?.("Supervisor recovery: manager loaded", { supervisors });
     for (const claim of agentOccupancy?.listActive?.() ?? []) {
       if (projectId != null && claim.project_id != null && claim.project_id !== projectId) continue;
+      if (await recoverTicketSdkTimeout({ taskId: claim.task_id, ticketStatusStore, checkpoints: agentCheckpoints, codexSdkGateway, claudeSdkGateway, queueStore,
+        handoffQueue: queues["sender.handoff"], resolveTicketWorkspace, agentOccupancy, eventBus, projectLogger })) continue;
       if (retainUnreconciledLaunch({ taskId: claim.task_id, ticketStatusStore, projectLogger })) continue;
       const currentExecution = ticketStatusStore?.get?.(claim.task_id);
       const checkpoint = await agentCheckpoints.load(claim.task_id);
@@ -193,9 +201,15 @@ export function createProductionSupervisorRuntime({ fileService, projectId, proj
       projectLogger({ event_name: "agent.occupancy_reconciled", level: "info", status: "success", message: "Terminal Supervisor claim released during recovery.", task_id: claim.task_id, project_id: claim.project_id ?? null, source: "production-runtime", payload: { project_id: claim.project_id ?? null, claim_id: claim.claim_id, supervisor_id: claim.supervisor_id, terminal_state: snapshot.state } });
     }
     for (const state of await stateStore.list({ scope: "pending" })) {
+      if (await recoverTicketSdkTimeout({ taskId: state.task_id, ticketStatusStore, checkpoints: agentCheckpoints, codexSdkGateway, claudeSdkGateway, queueStore,
+        handoffQueue: queues["sender.handoff"], resolveTicketWorkspace, agentOccupancy, eventBus, projectLogger })) continue;
       if (retainUnreconciledLaunch({ taskId: state.task_id, ticketStatusStore, projectLogger })) continue;
       const currentExecution = ticketStatusStore?.get?.(state.task_id);
       if (currentExecution?.details?.execution_id && ["done", "failed", "cancelled"].includes(currentExecution.status)) continue;
+      if (currentExecution?.status === "pending") {
+        const paused = await agentCheckpoints.load(state.task_id);
+        if (paused?.status === "failed" && paused.phase === "sdk_timeout") continue;
+      }
       if (currentExecution && await coderRecovery?.hasPending({ projectId: currentExecution.project_id, taskId: state.task_id, executionId: currentExecution.details?.execution_id })) continue;
       if (currentExecution && await blockerRecovery?.hasPending({ projectId: currentExecution.project_id, taskId: state.task_id, executionId: currentExecution.details?.execution_id })) continue;
       const owner = supervisorManager.getByTask(state.task_id);
@@ -231,6 +245,7 @@ export function createProductionSupervisorRuntime({ fileService, projectId, proj
   }
 }
 
+// Defines createExecutionContextProvider function behavior for production-runtime.js.
 function createExecutionContextProvider(runtime, governance) {
   return ({ source = {}, round = 1, type } = {}) => {
     const existing = source.execution_context ?? source.executionContext;
@@ -251,6 +266,7 @@ function createExecutionContextProvider(runtime, governance) {
   };
 }
 
+// Defines capabilitiesForRound function behavior for production-runtime.js.
 function capabilitiesForRound(round, type, role) {
   const candidate = role === "coder" ? [] : ["select_code_graph_candidates"];
   if (round === 1) return type === "task" ? candidate : candidate;
@@ -258,6 +274,7 @@ function capabilitiesForRound(round, type, role) {
   if (round === 3) return ["read_transcript_blocks", "read_code", "read_file", "write_diff", "edit_diff", "run_test", "commit_changes", "report_done"];
   return ["read_transcript_blocks", "read_code", "read_file", "write_diff", "edit_diff", "run_test", "commit_changes", "report_done"];
 }
+// Defines validateEvent function behavior for production-runtime.js.
 function validateEvent(event) {
   return Boolean(event && typeof event.task_id === "string" && typeof event.supervisor_id === "string" && typeof event.request_id === "string" && typeof event.correlation_id === "string" && Number.isInteger(event.attempt) && event.attempt > 0 && typeof event.timestamp === "string" && event.payload && typeof event.payload === "object");
 }

@@ -13,7 +13,7 @@ test("Coding opts into collapsed Sprints while shared dashboard preserves its pr
   assert.match(panel, /defaultCollapsed = false/);
   assert.match(panel, /\[sprint\.id\]: !\(state\[sprint\.id\] \?\? defaultCollapsed\)/);
   assert.match(panel, /aria-expanded=\{!\(collapsedSprints\[sprint\.id\] \?\? defaultCollapsed\)\}/);
-  assert.match(panel, /!\(collapsedSprints\[sprint\.id\] \?\? defaultCollapsed\) && <InlineAddTicketForm/);
+  assert.doesNotMatch(panel, /InlineAddTicketForm|inline-add-ticket/);
   assert.match(panel, /!\(collapsedSprints\[sprint\.id\] \?\? defaultCollapsed\) && <div className="sprint-ticket-list"/);
 });
 

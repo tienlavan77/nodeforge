@@ -133,12 +133,21 @@
 
 :root[data-theme='light'] .provider-openai img,
 :root[data-theme='light'] .provider-codex img,
-:root[data-theme='light'] .provider-ollama img { filter: invert(1); }
+:root[data-theme='light'] .provider-ollama img,
+:root[data-theme='light'] .provider-xai img,
+:root[data-theme='light'] .provider-alibaba img,
+:root[data-theme='light'] .provider-zhipu img,
+:root[data-theme='light'] .provider-deepseek img { filter: invert(1); }
 
 .provider-logo.provider-openai,
 .provider-logo.provider-codex,
 .provider-logo.provider-ollama,
-.provider-logo.provider-anthropic { background: transparent !important; border: 0 !important; }
+.provider-logo.provider-anthropic,
+.provider-logo.provider-claude,
+.provider-logo.provider-xai,
+.provider-logo.provider-alibaba,
+.provider-logo.provider-zhipu,
+.provider-logo.provider-deepseek { background: transparent !important; border: 0 !important; }
 
 :root[data-theme='light'] .agent-switch { background: #dce7ec; border-color: #b5cbd3; }
 :root[data-theme='light'] .agent-switch i { background: #7b919d; }

@@ -4,6 +4,7 @@ import { createAgentExchange, bindAgentExchangeResponse, agentExchangeError } fr
 import { compactBlockerPromptValue } from "./blocker-prompt-context.js";
 import { blockerHandoffCorrection } from "./blocker-handoff-policy.js";
 import { blockerReviewerExchange } from "./blocker-reviewer-evidence.js";
+import { AGENT_DECISION_OUTCOMES } from "../governance/agent-decision-schema.js";
 
 /** Builds a focused consultation from SL's question rather than assigning AM
  * every unfinished implementation and verification responsibility in the ticket. */
@@ -26,6 +27,11 @@ export function blockerExchangeRequest(job, profile, resolver) {
     ? { objective: job.coder_exchange?.request?.questions?.join("\n") || question,
       criterion_ids: job.coder_exchange?.request?.criterion_ids ?? [], decision_refs: known,
       remaining_work: job.coder_exchange?.request?.questions ?? [question], expected_outputs: ["Read-only candidate proposal; no implementation, commit or approval."] }
+    : job.stage === "sprint_leader" && job.dependency_result && !job.dependency_result_consumed ? {
+      question: `Consume the dependency repair result: ${JSON.stringify(job.dependency_result)}.`,
+      decision_needed: job.dependency_result.status === "completed" ? "Use the newly verified and independently reviewed dependency evidence to coordinate the retained parent Coder." : "Use the returned operational cause to choose a changed executable repair request or a focused unresolved decision.",
+      known_decision_refs: [...known, { section: "dependency_result", request_id: job.dependency_result.request_id }],
+      impact: "Continue from the parent checkpoint; do not repeat unchanged dependency execution or settled AM research." }
     : job.stage === "architecture_manager" && job.consultation_request ? job.consultation_request
       : correction?.expected_action === "resolved" ? { question: correction.instruction,
         decision_needed: "Submit the corrected Sprint disposition with the settled AM decision and remaining Coder steps.",
@@ -93,9 +99,7 @@ function legacyContent(value, request) {
 /** Maps the existing explicit disposition enum to shared result semantics;
  * unsupported actions remain errors instead of silently resuming implementation. */
 function outcome(action) {
-  if (["resolved", "sprint_required"].includes(action)) return "answered";
-  if (["reconciliation_required", "coder_requested"].includes(action)) return "needs_evidence";
-  if (["architecture_required", "owner_required", "governance_required"].includes(action)) return "needs_higher_authority";
+  if (Object.hasOwn(AGENT_DECISION_OUTCOMES, action)) return AGENT_DECISION_OUTCOMES[action];
   throw agentExchangeError("/payload/decision/action", "action_invalid", "Return a supported explicit recovery action.");
 }
 
@@ -112,5 +116,5 @@ export function blockerFormatCorrection(job) {
     ["json_invalid", "structured_output_missing", "schema_invalid", "required", "additionalProperties", "type", "enum", "unexpected_field", "response_kind_mismatch", "binding_mismatch",
       "identity_mismatch", "identity_shape_invalid", "authority_not_grounded", "reference_invalid", "reference_unknown", "reference_scope_mismatch",
       "boundary_not_preserved", "assessment_invalid", "boundary_inflation_forbidden", "delegated_to_architecture", "escalation_boundary_mismatch",
-      "technical_result_incomplete", "role_not_authorized", "role_action_mismatch"].includes(entry.reason)));
+      "dependency_target_invalid", "dependency_repair_no_progress", "technical_result_incomplete", "role_not_authorized", "role_action_mismatch", "action_mismatch", "owner_request_invalid", "const", "if"].includes(entry.reason)));
 }

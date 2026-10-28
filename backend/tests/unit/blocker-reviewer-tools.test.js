@@ -21,7 +21,17 @@ test("Reviewer tools read and search pinned source despite workspace changes and
     const saved = [];
     const tools = await createBlockerReviewerTools({ projectRoot: f.projectRoot, fileService: f.base.fileService, job,
       profile: { role: "reviewer", agent_id: "RV" }, onDiscoveryCheckpoint: async (value) => saved.push(value) });
-    assert.deepEqual(tools.definitions.map((entry) => entry.name).sort(), ["git_diff", "git_status", "list_files", "read_file", "read_lines", "search_text", "search_tree"]);
+    assert.deepEqual(tools.definitions.map((entry) => entry.name).sort(), ["git_diff", "git_status", "list_files", "lookup_schema", "read_file", "read_lines", "search_text", "search_tree"]);
+    assert.equal((await tools.registry.lookup_schema.execute({})).role, "reviewer");
+    assert.equal(saved.length, 0);
+    let result = await tools.registry.lookup_schema.execute({ schema_id: "reviewer.evidence_result.v1" });
+    let text = result.json_fragment ?? "";
+    while (!result.complete) {
+      result = await tools.registry.lookup_schema.execute({ schema_id: "reviewer.evidence_result.v1", cursor: result.next_cursor });
+      text += result.json_fragment;
+    }
+    const doc = text ? JSON.parse(text) : result;
+    assert.deepEqual(doc.example.payload.subject, f.subject);
     const source = await tools.registry.read_file.execute({ path: f.evidence.path, offset: 1, limit: 80 });
     assert.equal(source.sha256, `sha256:${f.evidence.sha256}`);
     assert.match(source.content, /approvedHandler/);

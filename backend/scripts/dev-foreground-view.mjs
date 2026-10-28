@@ -4,8 +4,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import { DatabaseSync } from "node:sqlite";
+import { formatForegroundLine } from "./dev-foreground-line.mjs";
 
-const serviceColors = { api: "36", watcher: "35", ui: "32", SYSTEM: "33" };
 let gitCache = { at: 0, text: "git --" };
 let embeddingCache = { at: 0, text: "" };
 
@@ -40,9 +40,7 @@ function render(state) {
     const entry = visible[row - 1];
     output.write("\x1b[2K");
     if (entry) {
-      const color = serviceColors[entry.name.toUpperCase()] ?? serviceColors[entry.name] ?? "37";
-      const label = `[${entry.name.toUpperCase()}]`;
-      output.write(`\x1b[${color}m${label}\x1b[0m ${entry.line.slice(0, width - label.length - 1)}\n`);
+      output.write(`${formatForegroundLine(entry, { width })}\n`);
     } else output.write("\n");
   }
   if (back > 0) output.write(`\x1b[${logCapacity};${Math.max(1, width - 22)}H\x1b[30;48;5;255m ▲ ${back} lines (scroll down) \x1b[0m`);

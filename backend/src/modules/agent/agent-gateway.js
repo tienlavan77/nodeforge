@@ -18,6 +18,7 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
 
   return Object.freeze({ request, stream, testConnection });
 
+  // Defines request function behavior for agent-gateway.js.
   async function request({ agentId, payload, correlationId, tools } = {}) {
     const config = getEnabledConfig(agentId);
     assertCorrelation(correlationId);
@@ -41,6 +42,7 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
     } finally { clearTimeout(timeout); }
   }
 
+  // Defines stream function behavior for agent-gateway.js.
   async function* stream({ agentId, payload, correlationId, eventSink, tools } = {}) {
     const config = getEnabledConfig(agentId);
     assertCorrelation(correlationId);
@@ -94,6 +96,7 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
     return { ...structuredClone(payload), tools: tools ?? payload.tools ?? [agentToolDefinition] };
   }
 
+  // Defines testConnection function behavior for agent-gateway.js.
   async function testConnection(agentId) {
     const config = getEnabledConfig(agentId);
     const credential = await resolveCredential(config.credential_ref);
@@ -126,12 +129,14 @@ export function createAgentGateway({ configuration, credentialResolver, transpor
     return { ...config, gateway_url: normalizeGatewayUrl(config.gateway_url) };
   }
 
+  // Defines resolveCredential function behavior for agent-gateway.js.
   async function resolveCredential(reference) {
     const value = await credentialResolver(reference);
     if (typeof value !== "string" || value.length === 0) throw new ConfigurationError("Agent Gateway credential is unavailable.");
     return value;
   }
 
+  // Defines callTransport function behavior for agent-gateway.js.
   async function callTransport({ config, credential, payload, correlationId, operation }) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -177,6 +182,7 @@ function assertCorrelation(value) {
   if (typeof value !== "string" || value.length === 0) throw new ConfigurationError("Agent Gateway correlation_id is required.");
 }
 
+// Defines defaultTransport function behavior for agent-gateway.js.
 async function defaultTransport({ url, credential, payload, correlation_id: correlationId, signal }) {
   const isResponses = url.replace(/\/$/, "").endsWith("/responses");
   const requestBody = isResponses
@@ -198,6 +204,7 @@ function extractResponseText(body) {
   return text;
 }
 
+// Defines defaultStreamTransport function behavior for agent-gateway.js.
 async function* defaultStreamTransport({ url, credential, payload, correlation_id: correlationId, signal }) {
   if (!url.replace(/\/$/, "").endsWith("/responses")) throw new ConfigurationError("Agent Gateway streaming requires a Responses API endpoint.");
   const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${credential}`, "x-correlation-id": correlationId }, body: JSON.stringify({ model: process.env.NODE_AGENT_MODEL ?? "gpt-5.6-terra", input: payload.text ?? JSON.stringify(payload), stream: true }), signal });

@@ -23,6 +23,7 @@ import { createOnWriteVerifier } from "./control-api-file-verification.mjs";
 import { createControlApiAgent } from "./control-api-agent.mjs";
 import { createControlApiPlatform } from "./control-api-platform.mjs";
 import { createControlApiStorage } from "./control-api-storage.mjs";
+import { registerSupervisorWorkers } from "./control-api-application-disposal.mjs";
 import { createControlApiHttp } from "./control-api-http.mjs";
 import { createProjectApplicationRegistry } from "./control-api-project-applications.mjs";
 import { createProductionSupervisorRuntime } from "../src/modules/supervisor/production-runtime.js";
@@ -119,7 +120,7 @@ let resolveDispatchFoundation;
 const dispatchFoundationReady = new Promise((resolve) => { resolveDispatchFoundation = resolve; });
 const dispatchFoundation = (input) => dispatchFoundationReady.then(() => dispatchTicket({ projectId: input.ticket.project_id, ticketId: input.ticket.id,
   expectedSprintVersion: input.sprintBasis.version, dependencyExpectations: input.dependencyExpectations }));
-const supervisorRuntime = createProductionSupervisorRuntime({ projectRoot: config.cwd, fileService, root: ".forge/runtime", eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, agentRoleResolver, agentOccupancy, ticketStatusStore, sprintRegistry, architecturePlans: markdownPlanStore, plans: planStore, planFileService, replanFoundation: createAutomaticFoundationReplan({ plans: planStore, markdownPlans: markdownPlanStore, sprintRegistry, ticketStatusStore, projectId, dispatch: (input) => dispatchFoundation?.(input) }), codeSearch, codeCache, relevantTreeSelector, freshnessChecker, logger: runtimeLogger, projectLogger: runtimeLogger.emit, projectId,
+const supervisorRuntime = createProductionSupervisorRuntime({ dispatchDependency: (input) => dispatchFoundationReady.then(() => dispatchTicket(input)), projectRoot: config.cwd, fileService, root: ".forge/runtime", eventStore, agentGateway, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, agentRoleResolver, agentOccupancy, ticketStatusStore, sprintRegistry, architecturePlans: markdownPlanStore, plans: planStore, planFileService, replanFoundation: createAutomaticFoundationReplan({ plans: planStore, markdownPlans: markdownPlanStore, sprintRegistry, ticketStatusStore, projectId, dispatch: (input) => dispatchFoundation?.(input) }), codeSearch, codeCache, relevantTreeSelector, freshnessChecker, logger: runtimeLogger, projectLogger: runtimeLogger.emit, projectId,
   checkpointSaved: async (checkpoint) => {
     if (!checkpoint.task_id?.startsWith("CODE-")) return;
     try {
@@ -140,7 +141,7 @@ createTerminalBridge({
   taskSummaries, projectMemory,
   logger: runtimeLogger.emit
 });
-const workers = [supervisorRuntime.senderWorker, supervisorRuntime.collectorWorkerLoop, supervisorRuntime.verificationWorkerLoop].filter(Boolean).map((worker) => storage.disposal.own(worker, "stop", 10));
+const workers = registerSupervisorWorkers(supervisorRuntime, storage.disposal);
 await supervisorRuntime.recover();
 await supervisorRuntime.startWorkers();
 const dispatchTask = createApprovedTicketDispatch({ projectId, sprintRegistry, ticketStatusStore, integration: supervisorRuntime.integration });
@@ -156,7 +157,7 @@ const sprintDagRunner = createSprintDagRunner({ ticketStatusStore, sprintRegistr
 }, logEvent });
 const sprintLeaderIntake = createSprintLeaderIntakeService({ fileService, roadmaps, sprintRegistry, ticketStatusStore, logger: logEvent });
 
-const dispatchTicket = createTicketRunDispatch({ disposition: ticketPipelineDisposition, intake: sprintLeaderIntake, sprintRegistry, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, queueStore: supervisorRuntime.queueStore, protocolStorage, conversationStateStore, dispatchTask, coderRecovery: supervisorRuntime.coderRecovery, blockerRecovery: supervisorRuntime.blockerRecovery, resumeCompletedReview: supervisorRuntime.resumeCompletedReview, reconcileReviewDependencies: supervisorRuntime.reconcileReviewDependencies, agentResolver: agentRoleResolver, agentOccupancy, projectId, projectLogger: logEvent });
+const dispatchTicket = createTicketRunDispatch({ disposition: ticketPipelineDisposition, intake: sprintLeaderIntake, sprintRegistry, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, queueStore: supervisorRuntime.queueStore, protocolStorage, conversationStateStore, dispatchTask, coderRecovery: supervisorRuntime.coderRecovery, blockerRecovery: supervisorRuntime.blockerRecovery, resumeCompletedReview: supervisorRuntime.resumeCompletedReview, reconcileReviewDependencies: supervisorRuntime.reconcileReviewDependencies, agentResolver: agentRoleResolver, agentOccupancy, projectId, projectLogger: runtimeLogger.emit });
 workers.push(storage.disposal.own({ stop: dispatchTicket.close }, "stop", 10));
 dispatchTicket.start();
 // Reconciles a retained unknown-provider blocker stage so the owner can clear a stuck ticket and a later RUN may re-arm it.

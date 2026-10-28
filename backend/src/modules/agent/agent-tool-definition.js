@@ -1,3 +1,5 @@
+// Provides module declarations and business logic for agent-tool-definition.js.
+
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);

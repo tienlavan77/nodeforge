@@ -175,6 +175,7 @@ test("an approved passage and paraphrase cannot manufacture the existing-contrac
     await fixture.recovery.tick(); await fixture.recovery.tick();
     assert.equal(fixture.base.invocations, 1);
     assert.equal(fixture.base.integrations, 0);
+    await fixture.recovery.tick();
     assert.equal((await fixture.ledger()).jobs[0].status, "reconciliation_required");
     assert.match((await fixture.ledger()).jobs[0].last_error, /approved contract evidence/);
   } finally { await fixture.close(); }

@@ -25,6 +25,7 @@ export function createOwnerAgentStream({ bus, agentStream, onAgentCompleted, exe
     const contextRefs = new Map();
     const requestInfoFingerprints = new Set();
     const contextResults = new Map();
+    // Defines flush function behavior for owner-agent-stream.js.
     const flush = () => {
       if (!batchText) return;
       const payload = { text: batchText, accumulated_text: text, content_type: contentType, chunk_index: index++, batch_start: batchStart, batch_end: index - 1 };

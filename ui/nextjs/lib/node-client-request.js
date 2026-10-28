@@ -4,16 +4,18 @@ import { formatNotification } from "./notification-formatter.js";
 
 export async function requestJson(url, { fallbackError, ...init } = {}) {
   let response;
+  let text;
   try {
     response = await fetch(url, init);
+    text = response.status === 204 ? "" : await response.text();
   } catch (error) {
-    const n = normalizeBackendError({ body: null, status: null, fallbackError: fallbackError ?? "Node is unavailable. Check that the Node service is running.", requestId: null });
+    const retryable = ["GET", "HEAD", "OPTIONS"].includes(String(init.method ?? "GET").toUpperCase());
+    const n = normalizeBackendError({ body: { error: { code: "network_error", retryable, scope: "scoped" } }, status: null, fallbackError: fallbackError ?? "Node is unavailable. Check that the Node service is running.", requestId: null });
     const notification = formatNotification({ notification: { message: n.message, code: n.code }, status: null }, n.message);
     const err = new Error(notification.message || n.message);
     Object.assign(err, n, { status: null, notification, cause: error });
     throw err;
   }
-  const text = response.status === 204 ? "" : await response.text();
   let body = null;
   if (text.trim()) {
     try {

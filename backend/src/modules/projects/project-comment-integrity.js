@@ -128,6 +128,7 @@ function verifyJavaScriptIntegrity(beforeSource, afterSource) {
   } catch (error) {
     return { valid: false, code: "PARSE_ERROR", message: `Normalized source failed to parse: ${error.message}` };
   }
+  // Defines isCodeToken function behavior for project-comment-integrity.js.
   const isCodeToken = (token) => token.type !== "CommentLine" && token.type !== "CommentBlock" && token.type?.label !== "eof";
   const beforeTokens = (beforeAst.tokens ?? []).filter(isCodeToken).map((t) => `${t.type?.label ?? t.type}:${beforeSource.slice(t.start, t.end)}`);
   const afterTokens = (afterAst.tokens ?? []).filter(isCodeToken).map((t) => `${t.type?.label ?? t.type}:${afterSource.slice(t.start, t.end)}`);

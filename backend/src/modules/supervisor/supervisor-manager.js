@@ -8,6 +8,7 @@ export function createSupervisorManager({ eventBus, stateStore, idFactory = () =
   if (typeof eventBus?.subscribe !== "function") throw new ConfigurationError("Supervisor manager requires an event bus.");
   const byTask = new Map(); const bySupervisor = new Map();
   return Object.freeze({ admitTask, startTask, recover, getByTask, getBySupervisor, stopTask });
+  // Defines admitTask function behavior for supervisor-manager.js.
   function admitTask({ task_id: taskId, supervisor_id: requestedId, ticket, ...context } = {}) {
     if (!taskId) throw new ConfigurationError("task.started requires task_id.");
     if (typeof ticketValidator === "function") { const valid = ticketValidator(ticket ?? { id: taskId, ...context }); if (valid === false || valid?.valid === false) throw new ConfigurationError("Task ticket failed admission validation."); }
@@ -32,6 +33,7 @@ export function createSupervisorManager({ eventBus, stateStore, idFactory = () =
     }
     return { task_id: taskId, supervisor_id: requestedId ?? null, context: { ticket, ...context } };
   }
+  // Defines startTask function behavior for supervisor-manager.js.
   async function startTask({ task_id: taskId, supervisor_id: requestedId, ticket, restart = false, ...context } = {}) {
     admitTask({ task_id: taskId, supervisor_id: requestedId, ticket, ...context });
     const local = byTask.get(taskId);
@@ -58,19 +60,24 @@ export function createSupervisorManager({ eventBus, stateStore, idFactory = () =
     onCreate(runtime);
     return runtime;
   }
+  // Defines recover function behavior for supervisor-manager.js.
   async function recover() {
     const states = await stateStore?.list?.({ scope: "pending" }) ?? [];
     for (const state of states) if (state.task_id && state.supervisor_id && !byTask.has(state.task_id)) { const runtime = createSupervisorRuntime({ taskId: state.task_id, supervisorId: state.supervisor_id, eventBus, stateStore, preparation, initialState: migrateLegacyState(state.state) }); byTask.set(state.task_id, runtime); bySupervisor.set(state.supervisor_id, runtime); onCreate(runtime); }
     return states.length;
   }
+  // Defines getByTask function behavior for supervisor-manager.js.
   function getByTask(taskId) { return byTask.get(taskId) ?? null; }
+  // Defines getBySupervisor function behavior for supervisor-manager.js.
   function getBySupervisor(supervisorId) { return bySupervisor.get(supervisorId) ?? null; }
+  // Defines stopTask function behavior for supervisor-manager.js.
   function stopTask(taskId) {
     const runtime = byTask.get(taskId); if (!runtime) return false;
     byTask.delete(taskId); bySupervisor.delete(runtime.supervisorId); return true;
   }
 }
 
+// Defines defaultAdmissionGuard function behavior for supervisor-manager.js.
 function defaultAdmissionGuard({ task_id: taskId, dependencies = [], paths = [] } = {}) {
   if (typeof taskId !== "string" || !taskId.trim()) throw new ConfigurationError("Task admission requires task_id.");
   if (!Array.isArray(dependencies)) throw new ConfigurationError("Task dependencies must be an array.");

@@ -1,0 +1,25 @@
+{
+  "operation_id": "OPRO-3983427c-f467-422e-b209-2640c7d173e5",
+  "request_key": "project-82c57b36430433c34f253e264748a107",
+  "request_fingerprint": "abe80a43ebdcea9f5d7846b16b636bca5f9fd7520123b6a33990214463f1b836",
+  "kind": "add",
+  "root": "/home/data/sites/sitesdev/blog/wp-content/plugins/document",
+  "attempt": 1,
+  "revision": 3,
+  "stage": "settled",
+  "status": "succeeded",
+  "counters": {
+    "transitions": 3,
+    "attempts": 1
+  },
+  "timestamps": {
+    "created_at": "2026-10-27T11:31:11.839Z",
+    "updated_at": "2026-10-27T11:34:56.410Z",
+    "settled_at": "2026-10-27T11:34:56.410Z"
+  },
+  "project_id": "PROJECT-a9568e6d-f01c-49a2-83d2-72daf40fbad6",
+  "result": {
+    "outcome": "succeeded",
+    "project_id": "PROJECT-a9568e6d-f01c-49a2-83d2-72daf40fbad6"
+  }
+}

@@ -7,7 +7,9 @@ import { blockerValidationError } from "./blocker-validation.js";
 import { blockerHandoffPrompt } from "./blocker-handoff-policy.js";
 
 const STORE = "blocker.recovery";
+// Defines hash function behavior for blocker-execution-admission.js.
 const hash = (value) => createHash("sha256").update(value).digest("hex");
+// Defines digest function behavior for blocker-execution-admission.js.
 const digest = (value) => hash(JSON.stringify(value));
 
 // Returns explicit admission failures without treating an agent's technical opinion as permission.

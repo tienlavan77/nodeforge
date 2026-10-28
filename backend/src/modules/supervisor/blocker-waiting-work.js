@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { transitionCoderCandidate } from "./blocker-coder-candidate.js";
 
 const OWNERS = ["coder", "architecture_manager", "reviewer", "external"];
+// Defines text function behavior for blocker-waiting-work.js.
 const text = (value) => typeof value === "string" && value.trim().length > 0 && value.length <= 8000;
 
 // Validates explicit evidence ownership while retaining legacy string inputs from parked checkpoints.

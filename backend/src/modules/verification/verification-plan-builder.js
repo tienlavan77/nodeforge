@@ -1,3 +1,5 @@
+// Provides module declarations and business logic for verification-plan-builder.js.
+
 import { ConfigurationError } from "../../shared/errors.js";
 
 const UI_PREFIXES = ["ui/nextjs/", "ui/src/", "web/src/", "frontend/src/"];

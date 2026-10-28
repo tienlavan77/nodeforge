@@ -9,13 +9,15 @@ import { createReadFileTool } from "../../tools/agent-lifecycle-tools.js";
 import { createGitReadTools } from "../../tools/git-read-tools.js";
 import { createGitService } from "../../infrastructure/git/git-service.js";
 import { engineeringToolDefinitions } from "../../tools/engineering-tool-catalog.js";
+import { createLookupSchemaTool } from "../../tools/lookup-schema-tool.js";
+import { terminalAuditLogger } from "../../core/terminal-log-format.js";
 
 /** Builds role-scoped snapshot tools and bounded receipt windows. Every receipt
  * read rechecks its assigned hash, even when immutable source uses the cache. */
 export async function createBlockerReviewerTools({ job, profile, projectRoot, fileService, projectLogger = () => {}, onDiscoveryCheckpoint, clock, deadline, abortSignal }) {
   const { source, artifact } = await createBlockerReviewerSource({ job, projectRoot });
   const base = createReviewerForgeTools({ fileService: source, projectRoot, reviewer: profile,
-    job: { task_id: job.request.task_id, request_id: job.id, payload: { changed_paths: artifact.changed_paths ?? [] } }, projectLogger });
+    job: { task_id: job.request.task_id, request_id: job.id, payload: { changed_paths: artifact.changed_paths ?? [] } }, projectLogger: terminalAuditLogger(projectLogger) });
   const { files, isEvidencePath } = createBlockerEvidenceFiles({ files: fileService, projectRoot, profile, taskId: job.request.task_id, job });
   // Displays receipt JSON as paged fields while retaining the original stored
   // checksum for citations; source-file physical line coordinates stay intact.
@@ -27,18 +29,21 @@ export async function createBlockerReviewerTools({ job, profile, projectRoot, fi
   const paths = new Set(progress.snapshot().paths ?? []);
   const git = createGitService({ projectRoot });
   const gitTools = createGitReadTools({ gitService: { status: (input) => git.status(input),
-    diffWorkingTree: (input) => source.diffPatchFrom(artifact.base_sha, input) }, logger: { emit: projectLogger } });
-  const definitions = [...base.definitions.filter(({ name }) => ["read_file", "read_lines", "search_tree", "list_files", "search_text"].includes(name)),
+    diffWorkingTree: (input) => source.diffPatchFrom(artifact.base_sha, input) }, logger: { emit: terminalAuditLogger(projectLogger) } });
+  const lookup = createLookupSchemaTool({ role: "reviewer", subject: job.reviewer_evidence.request.subject });
+  const definitions = [...base.definitions.filter(({ name }) => ["read_file", "read_lines", "search_tree", "list_files", "search_text", "lookup_schema"].includes(name)),
     ...engineeringToolDefinitions().filter(({ name }) => ["git_status", "git_diff"].includes(name))];
   const context = { ...base.context, capabilities: definitions.map(({ name }) => name) };
   const registry = Object.fromEntries(definitions.map(({ name }) => [name, { execute: async (input = {}) => {
+    const started = Date.now();
     projectLogger({ event_name: "supervisor.blocker_tool_call", status: "started", task_id: job.request.task_id,
       message: `Independent Reviewer ${name} started.`, payload: { agent_id: profile.agent_id, role: "reviewer", tool: name } });
     try {
       progress.assertActive();
       const receipt = ["read_file", "read_lines"].includes(name) && isEvidencePath(input.path);
       let result;
-      if (receipt) {
+      if (name === "lookup_schema") result = await lookup.execute(input, context);
+      else if (receipt) {
         const offset = input.offset ?? input.start_line ?? 1;
         const limit = input.limit ?? (input.end_line === undefined ? 80 : input.end_line - offset + 1);
         if (!Number.isSafeInteger(offset) || offset < 1 || !Number.isSafeInteger(limit) || limit < 1 || limit > 80)
@@ -51,13 +56,13 @@ export async function createBlockerReviewerTools({ job, profile, projectRoot, fi
         ...(name === "git_diff" ? { source_commit_sha: source.reviewCommit } : { scope: "workspace_observation_only" }) };
       else result = await base.registry[name].execute(input);
       if (input.path) paths.add(input.path);
-      await progress.complete(name, input, result, paths);
+      if (name !== "lookup_schema") await progress.complete(name, input, result, paths);
       projectLogger({ event_name: "supervisor.blocker_tool_call", status: "success", task_id: job.request.task_id,
-        message: `Independent Reviewer ${name} success.`, payload: { agent_id: profile.agent_id, role: "reviewer", tool: name } });
+        message: `Independent Reviewer ${name} success.`, payload: { agent_id: profile.agent_id, agent_name: profile.agent_name, role: "reviewer", tool: name, duration_ms: Date.now() - started } });
       return result;
     } catch (error) {
       projectLogger({ event_name: "supervisor.blocker_tool_call", level: "error", status: "failed", task_id: job.request.task_id, error_code: error.code,
-        message: `Independent Reviewer ${name} failed.`, payload: { agent_id: profile.agent_id, role: "reviewer", tool: name, error: error.message } });
+        message: `Independent Reviewer ${name} failed.`, payload: { agent_id: profile.agent_id, agent_name: profile.agent_name, role: "reviewer", tool: name, duration_ms: Date.now() - started, error: error.message } });
       throw error;
     }
   } }]));

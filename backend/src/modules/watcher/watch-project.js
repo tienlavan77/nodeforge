@@ -17,6 +17,7 @@ import { createDebouncedWatcher } from "./debounced-watcher.js";
 const INDEX_RUNTIME_DIR = join(".forge", "runtime", "wc");
 const INDEX_DATABASE_PATH = [".forge", "runtime", "wc", "index.db"];
 
+// Defines startProjectWatch function behavior for watch-project.js.
 export async function startProjectWatch({ projectRoot, loggerOptions, chokidarOptions, projectId, projectRegistry = new ProjectRegistry(), logger = console, internalBus, prepareDatabase, reconcile = false, onProgress = () => {}, progress = createIndexProgress({ onProgress }), watcherFactory = createFilesystemWatcher, normalizeComments = false, coderNormalizer = null, rejectOnViolation = true, fallbackOnViolation = false } = {}) {
   const root = resolve(projectRoot ?? process.cwd());
   const config = loadConfig({ cwd: root });
@@ -75,6 +76,7 @@ export async function startProjectWatch({ projectRoot, loggerOptions, chokidarOp
     const baseline = baselineRebuilt
       ? await rebuildIndex({
         projectRoot: root, database, ignore: config.watcherIgnore, ...resources?.indexOptions, progress,
+        // Defines onFile method behavior for watch-project.js.
         onFile(entry) {
           resources?.indexOptions?.onFile?.(entry);
           if (internalBus?.emit && entry.phase === "index" && entry.indexed) {
@@ -151,6 +153,7 @@ export async function startProjectWatch({ projectRoot, loggerOptions, chokidarOp
   }
 }
 
+// Defines indexDatabaseExists function behavior for watch-project.js.
 async function indexDatabaseExists(projectRoot) {
   try {
     await access(join(projectRoot, ...INDEX_DATABASE_PATH));
@@ -161,6 +164,7 @@ async function indexDatabaseExists(projectRoot) {
   }
 }
 
+// Defines once function behavior for watch-project.js.
 function once(emitter, event) {
   let cleanup;
   const ready = new Promise((resolveEvent, rejectEvent) => {

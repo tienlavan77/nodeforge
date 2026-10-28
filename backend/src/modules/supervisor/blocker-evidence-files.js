@@ -30,6 +30,7 @@ export function createBlockerEvidenceFiles({ files, projectRoot, profile, taskId
   }
   // Distinguishes exact Node-issued receipt reads from ordinary source discovery.
   const contextGrant = (path) => blockerPromptContextGrant(job, taskId, profile, path);
+  // Defines isEvidencePath function behavior for blocker-evidence-files.js.
   const isEvidencePath = (path) => grants.has(path) || Boolean(contextGrant(path));
   if (!grants.size && !job?.prompt_context_refs?.length) return { files, isEvidencePath };
   const internalFiles = createRoleFileService({ projectRoot, role: "system_engineer",

@@ -1,7 +1,7 @@
 // Verify project URLs preserve identity and global navigation restores only the current browser tab's selection.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { projectArchitecturePath, projectSystemPath, projectCodingPath, projectIdFromPath, readSelectedProject, rememberSelectedProject } from "../lib/project-navigation.js";
+import { isProjectIndependentPath, projectArchitecturePath, projectSystemPath, projectCodingPath, projectIdFromPath, readSelectedProject, rememberSelectedProject } from "../lib/project-navigation.js";
 
 test("project Architecture routes encode identities and distinguish the public directory and global pages", () => {
   assert.equal(projectArchitecturePath("PROJECT-NODEFORGE"), "/PROJECT-NODEFORGE");
@@ -10,6 +10,11 @@ test("project Architecture routes encode identities and distinguish the public d
   assert.equal(projectIdFromPath("/project%20with%20space"), "project with space");
   for (const path of ["/", "/agents", "/system", "/coding", "/code", "/control-api/forge/v1"]) assert.equal(projectIdFromPath(path), null);
   assert.equal(projectArchitecturePath(null), "/");
+});
+
+test("Agents route is treated as project-independent by the route boundary without calling /lifecycle/list", () => {
+  for (const path of ["/", "/agents", "/agents/profile"]) assert.equal(isProjectIndependentPath(path), true);
+  for (const path of ["/PROJECT-NODEFORGE", "/PROJECT-NODEFORGE/system", "/PROJECT-NODEFORGE/coding", "/system", "/coding"]) assert.equal(isProjectIndependentPath(path), false);
 });
 
 test("System and Coding deep links preserve the explicit project identity", () => {

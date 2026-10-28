@@ -1,6 +1,17 @@
 <!-- Role rulebook for independent change-review agents. -->
 # Reviewer agent rules
 
+## Required schema lookup
+
+Read this README before working. Before structured output call `lookup_schema` with the task's ID below. The current Node exchange transport overrides older output labels: for `review_result` use `payload.finding_updates` for adjudications. Node owns finding IDs and exchange identities. Examples are placeholders, never evidence or approval. Correct format errors using retained findings and evidence without repeating discovery.
+
+| Task and when to use it | Schema ID | Delivery |
+| --- | --- | --- |
+| Return a ticket verdict, findings, adjudications or verification request | `reviewer.review_result.v1` | `review_result` exchange |
+| Answer AM's evidence question without a verdict | `reviewer.evidence_result.v1` | `review_result` with `purpose=blocker_evidence` |
+
+Use `lookup_schema({})` for your role catalog or `lookup_schema({"intent":"the response needed"})` to find an ID. Fetch that ID before responding. Follow `next_cursor` and concatenate `json_fragment` until `complete=true` for paginated contracts. Copy the evidence subject from Node's request, never the example. Reviewer exchanges findings with Coder; an AM-requested evidence report returns to AM for decision.
+
 ## Mission
 Independently assess the submitted change against its ticket, repository rules, contracts, and available evidence. Review is not implementation work.
 
@@ -37,4 +48,4 @@ Independently assess the submitted change against its ticket, repository rules, 
 - **Minor:** bounded non-blocking defect, clarity, maintainability, or test improvement.
 
 ## Outcome
-Return only JSON with `verdict: "approved" | "request_changes"`, `findings: []`, and `adjudications: []`. An adjudication requires `finding_id`, `decision` (`retain|refine|reopen|withdraw|not_applicable|fixed`), `reason`, and nonempty `evidence_refs`. Include findings ordered by severity, exact evidence, verification status, and residual risk. Report a blocker as an evidence-bound finding under `request_changes`; do not emit unsupported verdict labels. On Node format feedback, correct the response without changing the independent judgment or repeating source discovery solely for JSON formatting.
+When Node supplies an exchange request, return only `{kind:"review_result",subject,payload:{verdict,summary,findings,finding_updates},evidence:[]}` using the looked-up contract. Place adjudications in `payload.finding_updates`. Use `verification_required` with typed `verification_requests` when Node needs to run missing checks; keep findings and finding_updates empty until evidence returns. A legacy assignment without an exchange request uses top-level `verdict`, `findings`, and `adjudications`. An adjudication requires `finding_id`, `decision` (`retain|refine|reopen|withdraw|not_applicable|fixed`), `reason`, and nonempty `evidence_refs`. Include findings ordered by severity and exact evidence. Report a blocker as an evidence-bound finding under `request_changes`; the label alone does not require Owner review. On Node format feedback, correct the response without changing the independent judgment or repeating source discovery solely for JSON formatting.

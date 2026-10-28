@@ -105,11 +105,12 @@ function captureLogger(events) {
   return createRuntimeLogger({ logEvent: (event) => events.push(event), output: { write() {} } });
 }
 
-test("runtime cache logs include path and freshness details", () => {
+test("runtime cache metadata stays in audit logs without terminal noise", () => {
   let line = "";
-  const logger = createRuntimeLogger({ logEvent: () => {}, output: { write: (value) => { line += value; } } });
+  const events = [], logger = createRuntimeLogger({ logEvent: (event) => events.push(event), output: { write: (value) => { line += value; } } });
   logger.emit({ event_name: "code_cache.read", status: "success", message: "Code Cache read.", task_id: "CACHE-PROJECT-NODEFORGE", payload: { path: "ui/app/page.jsx", cache_status: "hit", index_status: "fresh", size_bytes: 1234 } });
-  assert.match(line, /Code Cache read\. \{path=ui\/app\/page\.jsx cache=hit index=fresh size=1234B\}/);
+  assert.equal(line, "");
+  assert.deepEqual(events[0].payload, { path: "ui/app/page.jsx", cache_status: "hit", index_status: "fresh", size_bytes: 1234 });
 });
 
 // Matches source text with line numbers and verifies exact native output.

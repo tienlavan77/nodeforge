@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { createTicketRootGit } from "../../src/modules/supervisor/ticket-root-git.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
+import { buildLegacyRegressionPlan } from "../fixtures/legacy-verification-plan.js";
 import { createTicketVerificationService } from "../../src/modules/supervisor/ticket-verification-service.js";
 import { coversVerificationPolicy } from "../../src/modules/supervisor/ticket-verification-policy.js";
 import { completeNodeReportEvidence } from "../../src/tools/node-report-evidence.js";
@@ -46,7 +47,7 @@ async function fixture({ assertion = "assert.equal(1, 0)", mappedRegression = fa
   const calls = [];
   const files = createFileService({ projectRoot: root });
   const service = createTicketVerificationService({ taskId: context.task_id, projectId: "P", projectRoot: root, worktreeRoot: root, rootOnly,
-    worktreeFileService: files, stateFileService: files,
+    worktreeFileService: files, stateFileService: files, buildPlan: buildLegacyRegressionPlan,
     gitService: { getHead: async () => commit, status: async () => "", getCommitParent: async () => base, getChangedFiles: async () => paths },
     ledger: { load: async () => ({ entries }), snapshot: async () => ({ entries }) },
     executionContexts: { load: async () => context, manifestIdentity: () => ({ source_revision: "REV", manifest_sha: "MANIFEST", manifest_paths: paths }),

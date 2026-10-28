@@ -13,7 +13,7 @@ test("idle SDK streams stay silent while retry events redact secrets", (t) => {
   t.mock.timers.tick(300000);
   assert.equal(lines.length, startedCount);
   log.event({ type: "error", message: "Reconnecting 2/5 secret-key https://gateway.test/private" });
-  assert.match(lines.join(""), /RETRY\/ERROR Reconnecting 2\/5 \[REDACTED\] \[URL\]/);
+  assert.match(lines.join(""), /sdk.transport Reconnecting 2\/5 \[REDACTED\] \[URL\].* - WARN/);
   log.event({ type: "item.completed", item: { type: "agent_message", text: "private source text" } });
   log.close();
   const count = lines.length;
@@ -21,7 +21,9 @@ test("idle SDK streams stay silent while retry events redact secrets", (t) => {
   assert.equal(lines.length, count);
   assert.doesNotMatch(lines.join(""), /secret-key|gateway.test|private source text/);
   assert.doesNotMatch(lines.join(""), /WAIT no SDK events|Runner alive/);
-  assert.match(lines.join(""), /DONE/);
+  assert.match(lines.join(""), /sdk.completed.* - SUCCESS/);
+  assert.equal(lines.length, 2, "one transport warning and one session result");
+  assert.doesNotMatch(lines.join(""), /START|DONE|item\.completed/);
 });
 
 test("an open verification MCP call emits no periodic wait logs and completes normally", (t) => {
@@ -34,8 +36,9 @@ test("an open verification MCP call emits no periodic wait logs and completes no
   assert.equal(lines.length, count);
   log.event({ type: "item.completed", item: { type: "mcp_tool_call", tool: "report_done" } });
   log.close();
-  assert.match(lines.join(""), /item.completed:mcp_tool_call/);
-  assert.match(lines.join(""), /DONE/);
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /sdk.completed.* - SUCCESS/);
+  assert.doesNotMatch(lines[0], /item\.completed|START|DONE/);
 });
 
 test("logs tool boundaries and failure without logging command contents", () => {
@@ -45,7 +48,8 @@ test("logs tool boundaries and failure without logging command contents", () => 
     log.event({ type: "item.started", item: { type: "command_execution", command: "sensitive-command" } });
     log.event({ type: "turn.failed", error: { message: "upstream unavailable" } });
   } finally { log.close(new Error("upstream unavailable")); }
-  assert.match(lines.join(""), /item.started:command_execution/);
-  assert.match(lines.join(""), /FAIL upstream unavailable/);
+  assert.equal(lines.length, 1);
+  assert.match(lines.join(""), /upstream unavailable.* - FAIL/);
+  assert.doesNotMatch(lines.join(""), /item\.started|START/);
   assert.doesNotMatch(lines.join(""), /sensitive-command/);
 });

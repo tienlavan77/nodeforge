@@ -7,10 +7,12 @@ export function createCodeIndexSummaryBuilder({ fileService, indexDb } = {}) {
   if (!fileService || typeof fileService.readFile !== "function") throw new ConfigurationError("Summary builder requires File Service.");
   if (!indexDb || typeof indexDb.all !== "function") throw new ConfigurationError("Summary builder requires Code Index database.");
   return Object.freeze({ build });
+  // Defines build function behavior for code-index-summary-builder.js.
   async function build(paths = [], { summary = true } = {}) {
     if (!Array.isArray(paths)) throw new ConfigurationError("Summary builder paths must be an array.");
     return Promise.all([...new Set(paths.filter((path) => typeof path === "string" && path))].map((path) => buildFile(path, summary)));
   }
+  // Defines buildFile function behavior for code-index-summary-builder.js.
   async function buildFile(path, summary) {
     let content;
     try {
@@ -47,7 +49,11 @@ export function summarizeFile({ path, language = inferLanguage(path), content = 
   return { type: fileType(language, path), role: fileRole(path), exports, imports, components, functions, routes, jsx_elements: jsxElements, css_variables: cssVariables, dependencies, relationships, modification_points: modificationPoints };
 }
 
+// Defines unique function behavior for code-index-summary-builder.js.
 function unique(values) { return [...new Set(values.filter((value) => typeof value === "string" && value.length > 0))]; }
+// Defines inferLanguage function behavior for code-index-summary-builder.js.
 export function inferLanguage(path) { const extension = path.split(".").pop()?.toLowerCase(); return extension === "js" || extension === "jsx" ? "javascript" : extension ?? "text"; }
+// Defines fileType function behavior for code-index-summary-builder.js.
 function fileType(language, path) { if (/css|scss|less/i.test(language) || /\.(?:css|scss|less)$/.test(path)) return "Stylesheet"; if (/json/i.test(language) || path.endsWith("package.json")) return "JSON manifest"; if (/javascript|typescript|jsx|tsx/i.test(language)) return "JavaScript/React source"; return "Source file"; }
+// Defines fileRole function behavior for code-index-summary-builder.js.
 function fileRole(path) { if (path.endsWith("package.json")) return "Package manifest"; if (/\/(?:page|layout)\./.test(path)) return "Application route/layout"; if (path.includes("/components/")) return "Reusable component"; if (/\.(?:css|scss|less)$/.test(path)) return "Global stylesheet"; return "Repository source"; }

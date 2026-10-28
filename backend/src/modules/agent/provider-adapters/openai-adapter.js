@@ -11,6 +11,7 @@ export function createOpenAIAdapter({ storage, requestFn = codex.request } = {})
   const resolver = storage ? createOpenAITranscriptResolver({ storage }) : null;
   return Object.freeze({ call });
 
+  // Defines call function behavior for openai-adapter.js.
   async function call({ payload, url, credential, model, correlationId, signal } = {}) {
     const genericPayload = payload ?? {};
     if (genericPayload.transcript_blocks?.length && !resolver) throw new ConfigurationError("OpenAI adapter requires Protocol Storage for transcript blocks.");
@@ -81,5 +82,6 @@ function providerStatusError(code, status, response, detail) {
   return error;
 }
 
+// Defines call function behavior for openai-adapter.js.
 export const call = (options) => createOpenAIAdapter(options).call(options);
 export * from "./codex-adapter.js";

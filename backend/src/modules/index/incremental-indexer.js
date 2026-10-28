@@ -49,6 +49,7 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
     }
   }
 
+  // Defines indexNewFile function behavior for incremental-indexer.js.
   async function indexNewFile(path, event) {
     const snapshot = await readSnapshot(path);
     const sha256 = snapshot?.sha256;
@@ -77,6 +78,7 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
     return true;
   }
 
+  // Defines reindexFile function behavior for incremental-indexer.js.
   async function reindexFile(path, event) {
     const file = files.findByPath(path);
     if (!file) return indexNewFile(path, event);
@@ -144,6 +146,7 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
     return removed;
   }
 
+  // Defines renameFile function behavior for incremental-indexer.js.
   function renameFile(oldPath, newPath, event) {
     if (!oldPath) return false;
     const file = files.findByPath(oldPath);
@@ -153,16 +156,19 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
     return renamed;
   }
 
+  // Defines writeLog function behavior for incremental-indexer.js.
   function writeLog(eventName, level, message, event, path, status = level === "error" ? "failed" : "info") {
     try { projectLogger({ timestamp: new Date().toISOString(), event_name: eventName, level, status, message, task_id: event?.task_id ?? event?.payload?.task_id ?? `INDEX-${path}`, ticket_id: event?.ticket_id ?? event?.payload?.ticket_id, conversation_id: event?.conversation_id ?? event?.payload?.conversation_id, source: "incremental-indexer" }); } catch (error) { logger.warning?.("Project log write failed.", { error: error.message, path }); }
   }
 
+  // Defines withTransaction function behavior for incremental-indexer.js.
   function withTransaction(operation) {
     if (typeof database.transaction === "function") return database.transaction(operation);
     database.run("BEGIN");
     try { const result = operation(); database.run("COMMIT"); return result; } catch (error) { database.run("ROLLBACK"); throw error; }
   }
 
+  // Defines extract function behavior for incremental-indexer.js.
   async function extract(path, content) {
     const absolutePath = resolve(projectRoot, path);
     try {
@@ -173,6 +179,7 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
     }
   }
 
+  // Defines readSnapshot function behavior for incremental-indexer.js.
   async function readSnapshot(path) {
     try {
       if (fileService?.readForIndex) return await fileService.readForIndex({ path });
@@ -182,10 +189,12 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
     } catch (error) { throw Object.assign(new Error(error.message, { cause: error }), { code: "read_failed" }); }
   }
 
+  // Defines hash function behavior for incremental-indexer.js.
   function hash(path) {
     return getContentHash(resolve(projectRoot, path));
   }
 
+  // Defines fileSize function behavior for incremental-indexer.js.
   async function fileSize(path) {
     // eslint-disable-next-line no-silent-catch -- Stat probe: missing file means unknown size, handled by callers.
     try { return (await stat(resolve(projectRoot, path))).size; } catch { return null; }

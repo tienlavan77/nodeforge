@@ -26,10 +26,13 @@ export function createConcurrentModificationDetector({ database, internalBus, pr
     if (!agent?.on || !agent?.off || !sessionLink?.on || !sessionLink?.off) {
       throw new ConfigurationError("Each concurrent modification participant requires an agent and session link.");
     }
+    // Defines onStarted function behavior for concurrent-modification-detector.js.
     const onStarted = (session) => {
       for (const agentId of session.agents ?? []) sessionByAgentId.set(agentId, session.id);
     };
+    // Defines onStopped function behavior for concurrent-modification-detector.js.
     const onStopped = (session) => removeSession(session.id);
+    // Defines onMessage function behavior for concurrent-modification-detector.js.
     const onMessage = (envelope) => {
       if (envelope.message?.type !== "agents.report_touch") return;
       reportTouch(sessionByAgentId.get(envelope.sender.id), envelope.message.payload?.path);
@@ -97,6 +100,7 @@ export function createConcurrentModificationDetector({ database, internalBus, pr
   }
 
   return Object.freeze({
+    // Defines close method behavior for concurrent-modification-detector.js.
     close() {
       for (const { agent, sessionLink, onStarted, onStopped, onMessage } of bindings) {
         agent.off("message", onMessage);

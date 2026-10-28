@@ -9,10 +9,12 @@ export function bridgeAgentStream({ agent, internalBus, redact = redactSensitive
   }
 
   let agentId;
+  // Defines onMessage function behavior for agent-stream-bridge.js.
   const onMessage = (envelope) => {
     agentId = envelope.sender.id;
     internalBus.emit("agent.stream", Object.freeze({ source: "agent.stdout", agent_id: agentId, message: envelope }));
   };
+  // Defines onStderr function behavior for agent-stream-bridge.js.
   const onStderr = (text) => {
     internalBus.emit("agent.stream", Object.freeze({ source: "agent.stderr", agent_id: agentId, text: redact(text) }));
   };

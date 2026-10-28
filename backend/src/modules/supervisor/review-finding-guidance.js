@@ -1,6 +1,27 @@
 // Rejects Reviewer findings that cannot guide an evidence-bound Coder repair.
 import { ConfigurationError } from "../../shared/errors.js";
 
+const findingFields = ["failure", "acceptance_criterion", "minimum_change_scope"];
+const findingDecisions = ["retain", "refine", "reopen", "withdraw", "not_applicable", "fixed"];
+const nonemptyText = { type: "string", minLength: 1 };
+const evidenceRefs = { type: "array", minItems: 1, items: nonemptyText };
+
+/** Describes the actionable finding fields enforced below for both SDK output
+ * and schema lookup. New findings omit identity; persisted IDs remain live-bound. */
+export const REVIEW_FINDING_SCHEMA = { type: "object", required: [...findingFields, "evidence_refs"], properties: {
+  ...Object.fromEntries(findingFields.map((field) => [field, nonemptyText])), evidence_refs: evidenceRefs,
+  finding_id: { type: "string", pattern: "^REV-[1-9][0-9]*$" }, files: { type: "array", items: nonemptyText },
+  per_file_necessity: { type: "array", items: { type: "object", required: ["path", "role"], properties: { path: nonemptyText, role: nonemptyText } } },
+  severity: nonemptyText, defer_to_backlog: { type: "boolean" }
+} };
+
+/** Keeps finding decisions discoverable using the same enum as the live
+ * validator; known identities and evidence are checked in the active review. */
+export const REVIEW_FINDING_UPDATE_SCHEMA = { type: "object", required: ["finding_id", "decision", "reason", "evidence_refs"], properties: {
+  finding_id: { type: "string", pattern: "^REV-[1-9][0-9]*$" }, decision: { enum: findingDecisions },
+  reason: nonemptyText, evidence_refs: evidenceRefs, response_id: nonemptyText
+} };
+
 // Enforces canonical guidance in legacy and strict reviews without inventing evidence for legacy strings.
 export function assertReviewFindingGuidance(value, { strict = false, paths, artifactId, findingIds, pendingResponses = [] } = {}) {
   value.findings.forEach((finding, index) => assertFinding(finding, index));
@@ -28,7 +49,7 @@ export function assertReviewFindingGuidance(value, { strict = false, paths, arti
       if (findingIds && !findingIds.includes(item.finding_id)) invalid(`${location}.finding_id is unknown; use one of ${JSON.stringify(findingIds)}.`);
       if (seen.has(item.finding_id)) invalid(`${location}.finding_id duplicates another adjudication.`);
       seen.add(item.finding_id);
-      if (!["retain", "refine", "reopen", "withdraw", "not_applicable", "fixed"].includes(item.decision)) invalid(`${location}.decision must be retain|refine|reopen|withdraw|not_applicable|fixed.`);
+      if (!findingDecisions.includes(item.decision)) invalid(`${location}.decision must be retain|refine|reopen|withdraw|not_applicable|fixed.`);
       if (!text(item.reason)) invalid(`${location}.reason must be a non-empty string.`);
       if (!references(item.evidence_refs)) invalid(`${location}.evidence_refs must be a non-empty array of evidence locations.`);
     });
@@ -41,7 +62,7 @@ export function assertReviewFindingGuidance(value, { strict = false, paths, arti
 function assertFinding(finding, index) {
   const location = `findings[${index}]`;
   if (!finding || typeof finding !== "object" || Array.isArray(finding)) invalid(`${location} must be a structured finding object; legacy strings require re-review.`);
-  for (const field of ["failure", "acceptance_criterion", "minimum_change_scope"]) {
+  for (const field of findingFields) {
     if (!text(finding[field])) invalid(`${location}.${field} must be a non-empty string.`);
   }
   if (!references(finding.evidence_refs)) invalid(`${location}.evidence_refs must be a non-empty array of evidence locations.`);

@@ -9,6 +9,7 @@ const failure = (message) => Object.assign(new ConfigurationError(message), { co
 
 // Imports only committed and mirrored dirty source, preserving the ticket worktree.
 export async function migrateLegacyTicket({ taskId, worktree, baseCommit, rootFileService, worktreeFileService, ledger, projectLogger = () => {} }) {
+  // Defines git function behavior for ticket-legacy-migration.js.
   const git = async (args) => (await execFile("git", ["-C", worktree, ...args], { encoding: "buffer", maxBuffer: 8 * 1024 * 1024 })).stdout;
   const headCommit = (await git(["rev-parse", "HEAD"])).toString().trim();
   const ancestor = await execFile("git", ["-C", worktree, "merge-base", baseCommit, headCommit]);

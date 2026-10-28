@@ -68,6 +68,28 @@ test("human evidence is diagnosed as a missing capability rather than an automat
   });
 });
 
+test("aggregate backend criteria reuse their own scoped receipts while retaining missing exact tests", () => {
+  const paths = ["backend/tests/unit/one.test.js", "backend/tests/unit/two.test.js"];
+  const ticket = { acceptance_criteria: ["One behavior works", "Two behavior works"], verification_plan: [
+    ...paths.map((test_path, index) => ({ kind: "test", test_path, criterion_ids: [`AC-${index + 1}`] })),
+    { kind: "backend_tests", criterion_ids: ["AC-1", "AC-2"] }
+  ] };
+  const commands = paths.map((path, index) => ({ kind: "backend_tests", scope: "ticket", criterion_ids: [`AC-${index + 1}`],
+    test_paths: [path], argv: ["node", "--test", path], exit_code: 0 }));
+  const result = completeNodeReportEvidence({}, ticket, { commands }).acceptance_coverage;
+  assert.deepEqual(result.map((entry) => entry.status), ["verified", "verified"]);
+  assert.doesNotThrow(() => assertCoderCoverage(result));
+  const pending = completeNodeReportEvidence({}, ticket, { commands: commands.slice(0, 1) }).acceptance_coverage;
+  assert.equal(pending[0].status, "verified");
+  assert.equal(pending[1].status, "evidence_pending");
+  const mismatched = [{ ...commands[0], test_paths: [paths[0], paths[1]], argv: ["node", "--test", ...paths] }];
+  assert.equal(completeNodeReportEvidence({}, ticket, { commands: mismatched }).acceptance_coverage[1].status, "evidence_pending");
+  const missingPath = { ...ticket, verification_plan: [...ticket.verification_plan,
+    { kind: "test", test_path: "backend/tests/unit/missing.test.js", criterion_ids: ["AC-1"] }] };
+  assert.deepEqual(completeNodeReportEvidence({}, missingPath, { commands }).acceptance_coverage[0].missing_checks,
+    [{ kind: "test", test_path: "backend/tests/unit/missing.test.js" }]);
+});
+
 test("report_done cannot accept a Coder claim or passing build in place of approved browser evidence", async () => {
   let saved = false;
   const tool = createReportDoneTool({ verificationService: { assertPassedArtifact: async () => artifact }, reportService: { buildFinalReport: async () => ({}), saveReport: async () => { saved = true; }, writeReportFile: async () => {} } });

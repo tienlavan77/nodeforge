@@ -27,6 +27,13 @@ export async function handleTicketExecutionFailure({ error, failedRequest, selec
   projectLogger({ event_name: "supervisor.tool_ticket_failed", level: "error", status: "failed", message: "Ticket execution failed.", task_id: failedRequest.task_id, correlation_id: failedRequest.correlation_id, source: "nodeforge-task-integration", error_code: error.code ?? "TOOL_TICKET_FAILED", payload: { request_id: failedRequest.request_id, agent_id: selected?.agent_id, agent_name: selected?.agent_name, ...(error.tool ? { tool: error.tool } : {}), error: error.message } });
   if (!claim) return;
   const checkpoint = await checkpoints?.load?.(taskId);
+  if (error.code === "SDK_REQUEST_TIMEOUT" && error.resume_allowed === true) {
+    await checkpoints?.save?.({ ...(checkpoint ?? { task_id: taskId }), status: "failed", phase: "sdk_timeout", failure_request_id: failedRequest.request_id,
+      failure: { code: error.code, message: error.message, at: checkpoint?.failure?.at ?? new Date().toISOString(), resume_allowed: true } });
+    await agentOccupancy.release({ claimId: claim.claim_id, taskId, supervisorId: ownerId, reason: "sdk_timeout" });
+    await publishTicketOutcome("task.failed", failedRequest, ownerId, { reason: error.code, retryable: true, error: { code: error.code, message: error.message } });
+    return;
+  }
   if (error.code === "COMMIT_APPROVAL_REJECTED") {
     await checkpoints?.save?.({ ...(checkpoint ?? { task_id: taskId }), status: "failed", phase: "commit_approval", failure: { code: error.code, message: error.message, at: new Date().toISOString() } });
     await agentOccupancy.release({ claimId: claim.claim_id, taskId, supervisorId: ownerId, reason: "commit_approval_rejected" });

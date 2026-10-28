@@ -1,11 +1,15 @@
+// Provides module declarations and business logic for consistency-checker.js.
+
 import { randomUUID } from "node:crypto";
 import { access, constants } from "node:fs/promises";
 import { join } from "node:path";
 
 import { rebuildIndex } from "./index-rebuild.js";
 
+// Defines createIndexConsistencyChecker function behavior for consistency-checker.js.
 export function createIndexConsistencyChecker({ projectRoot, projectId, database, ignore = [], emit = () => {}, rebuild = rebuildIndex } = {}) {
   return Object.freeze({
+    // Defines check method behavior for consistency-checker.js.
     async check() {
       const missingPaths = [];
       for (const { path } of database.all("SELECT path FROM files")) {

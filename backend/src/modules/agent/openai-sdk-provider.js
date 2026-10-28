@@ -39,6 +39,7 @@ export function createOpenAiSdkProviderFactory({ credentialResolver, ProviderCla
     });
   }
 
+  // Defines createForAgent function behavior for openai-sdk-provider.js.
   async function createForAgent(profile) {
     const normalized = normalizeProfile(profile);
     const apiKey = await credentialResolver(normalized.credential_ref);

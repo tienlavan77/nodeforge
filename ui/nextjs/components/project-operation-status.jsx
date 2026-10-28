@@ -18,20 +18,22 @@ export function ProjectOperationStatus({ operation, intent, connectionError, ret
     catch (failure) { setError(failure.message); }
     finally { setBusy(false); }
   }
-  return <section aria-label="Operation status" aria-live="polite" aria-busy={busy}>
-    <p>{operation ? `${operation.kind} — ${operation.status}; attempt ${operation.attempt}; stage ${progress?.stage || operation.stage}` : "Outcome unknown. Reload status using the original request key."}</p>
-    <p>Request key: <code>{key}</code></p>
-    {operation?.status === "succeeded" && <p>Operation succeeded.</p>}
-    {operation?.status === "failed" && <p role="alert" data-error="project">{operation.diagnostic?.message || "Project operation failed."}</p>}
-    {operation?.status === "running" && <progress aria-label="Index progress" />}
+  return <section className="project-operation-status" aria-label="Operation status" aria-live="polite" aria-busy={busy}>
+    <p className="project-operation-summary">{operation ? `${operation.kind} — ${operation.status}; attempt ${operation.attempt}; stage ${progress?.stage || operation.stage}` : "Outcome unknown. Reload status using the original request key."}</p>
+    <p className="project-operation-key">Request key: <code>{key}</code></p>
+    {operation?.status === "succeeded" && <p className="project-operation-success">Operation succeeded.</p>}
+    {operation?.status === "failed" && <p className="project-operation-error" role="alert" data-error="project">{operation.diagnostic?.message || "Project operation failed."}</p>}
+    {operation?.status === "running" && <progress className="project-operation-progress" aria-label="Index progress" />}
     {progress && <>
-      <ul aria-label="Backend stages">{Object.entries(progress.stages || {}).map(([stage, status]) => <li key={stage}>{stage}: {status}</li>)}</ul>
-      <dl aria-label="Committed index counters">{Object.entries(progress.counters || {}).map(([name, count]) => <div key={name}><dt>{name}</dt><dd>{count}</dd></div>)}</dl>
-      {progress.checkpoint && <p>Committed files: {progress.checkpoint.files}; functions: {progress.checkpoint.functions}; index version: {progress.checkpoint.version}</p>}
-      <p>Embedding: {progress.embedding?.status}; pending: {progress.embedding?.pending}; processing: {progress.embedding?.processing}; succeeded: {progress.embedding?.succeeded}; failed: {progress.embedding?.failed}</p>
+      <ul className="project-operation-stages" aria-label="Backend stages">{Object.entries(progress.stages || {}).map(([stage, status]) => <li key={stage}>{stage}: {status}</li>)}</ul>
+      <dl className="project-operation-counters" aria-label="Committed index counters">{Object.entries(progress.counters || {}).map(([name, count]) => <div key={name}><dt>{name}</dt><dd>{count}</dd></div>)}</dl>
+      {progress.checkpoint && <p className="project-operation-meta">Committed files: {progress.checkpoint.files}; functions: {progress.checkpoint.functions}; index version: {progress.checkpoint.version}</p>}
+      <p className="project-operation-meta">Embedding: {progress.embedding?.status}; pending: {progress.embedding?.pending}; processing: {progress.embedding?.processing}; succeeded: {progress.embedding?.succeeded}; failed: {progress.embedding?.failed}</p>
     </>}
-    {(connectionError || error) && <p role="alert" data-error="connection">Connection/status error: {error || connectionError}</p>}
-    <button type="button" disabled={busy} onClick={() => act(false)}>Reload status</button>
-    {operation?.status === "failed" && retryable && <button type="button" disabled={busy} onClick={() => act(true)}>Retry operation</button>}
+    {(connectionError || error) && <p className="project-operation-error" role="alert" data-error="connection">Connection/status error: {error || connectionError}</p>}
+    <div className="project-operation-actions">
+      <button className="history-button" type="button" disabled={busy} onClick={() => act(false)}>Reload status</button>
+      {operation?.status === "failed" && retryable && <button className="history-button agent-submit-button" type="button" disabled={busy} onClick={() => act(true)}>Retry operation</button>}
+    </div>
   </section>;
 }

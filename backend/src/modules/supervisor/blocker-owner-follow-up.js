@@ -1,4 +1,6 @@
 // Re-arms Architecture once per durable owner choice without relaunching Coder or fabricating contract approval.
+
+// Defines createBlockerOwnerFollowUp function behavior for blocker-owner-follow-up.js.
 export function createBlockerOwnerFollowUp({ store, clock, deadlineMs }) {
   return followOwnerDecision;
 

@@ -12,7 +12,9 @@ import { runTicketVerificationCommands, verificationCommandAccepted } from "./ti
 import { assertReviewVerificationRequests } from "./review-verification-contract.js";
 import { acquireTicketFileLock } from "./ticket-file-lock.js";
 
+// Defines digest function behavior for review-verification-service.js.
 const digest = (value) => createHash("sha256").update(value).digest("hex");
+// Defines fail function behavior for review-verification-service.js.
 const fail = (code, message) => Object.assign(new Error(message), { code });
 
 /** Uses existing materialization, command execution, baseline attribution and File

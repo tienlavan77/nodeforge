@@ -39,7 +39,7 @@ test("role prompts distinguish a consulted AM contract from SL's own Sprint deci
   assert.match(sl, /Never copy AM's architecture authority_scope/);
   assert.match(sl, /Select a scope=sprint/);
   assert.match(sl, /Continue the missing implementation from the Coder checkpoint/);
-  assert.match(sl, /specific unresolved Architecture decision/);
+  assert.match(sl, /name the exact question, the decision AM must return/);
   assert.match(sl, /ARCHITECTURE ANSWER RETURNED TO SL/);
   assert.match(blockerRolePrompt({ stage: "architecture_manager" }), /authority_scope\?: sprint\|architecture/);
   assert.match(blockerRolePrompt({ stage: "coder" }), /cannot decide Sprint or Architecture authority/);

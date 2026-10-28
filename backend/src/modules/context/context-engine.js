@@ -15,7 +15,9 @@ const require = createRequire(import.meta.url);
 const commonSchema = require("../../../../schemas/core/common.schema.json");
 const contextSchema = require("../../../../schemas/context/context.schema.json");
 
+// Defines ContextStaleError class behavior for context-engine.js.
 export class ContextStaleError extends ConfigurationError {
+  // Defines constructor method behavior for context-engine.js.
   constructor(message = "The Code Index changed while the Context Pack was being generated.") {
     super(message);
     this.name = "ContextStaleError";
@@ -85,6 +87,7 @@ export function createContextEngine({ database, projectRoot, projectId, clock = 
     const symbols = [];
     const dependencies = [];
     const rangesByPath = new Map();
+    // Defines addFile function behavior for context-engine.js.
     const addFile = (file, reason, range) => {
       if (!file) return;
       if (isSecretPath(file.path)) return;

@@ -17,6 +17,15 @@ export function projectCodingPath(projectId) {
   return projectId ? `${projectArchitecturePath(projectId)}/coding` : "/";
 }
 
+// Business purpose: keeps the global Agents management page and the public project directory
+// independent from project workspace admission so opening /agents never calls /lifecycle/list
+// or blocks the page when no project is selected.
+// Technical description: returns true for the root directory ("/") and any "/agents" route
+// so ProjectRouteBoundary renders their children directly without mounting ProjectWorkspace.
+export function isProjectIndependentPath(pathname) {
+  return pathname === "/" || pathname === "/agents" || String(pathname ?? "").startsWith("/agents/");
+}
+
 // Resolve explicit project routes before restoring any remembered browser selection.
 export function projectIdFromPath(pathname) {
   const segments = pathname.split("/").filter(Boolean);

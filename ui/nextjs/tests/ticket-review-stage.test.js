@@ -29,3 +29,15 @@ test("a parked review offers enabled Resume and identifies Reviewer", () => {
   assert.match(html, /<button[^>]*is-resume[^>]*>Resume<\/button>/);
   assert.doesNotMatch(html, /disabled=""[^>]*>Resume<\/button>/);
 });
+
+test("a timed-out Coder shows why it stopped and enables Resume without Human Approve", () => {
+  const html = renderToStaticMarkup(createElement(component.exports.TicketCard, { projectId: "P", client: {}, ticket: {
+    id: "T", status: "failed", title: "Resume timed-out work", checkpoint: { phase: "sdk_timeout", active_stage: "coder", resumable: true,
+      last_completed_turn: 125, failure: { code: "SDK_REQUEST_TIMEOUT", message: "Codex SDK request timed out for CODER.", resume_allowed: true } } } }));
+  assert.match(html, /role="alert"/);
+  assert.match(html, /SDK_REQUEST_TIMEOUT/);
+  assert.match(html, /Bấm Resume để tiếp tục từ checkpoint/);
+  assert.match(html, /turn 125/);
+  assert.match(html, /is-resume[^>]*>Resume<\/button>/);
+  assert.doesNotMatch(html, /disabled=""[^>]*>Resume<\/button>|Human Approve|>Stop<\/button>/);
+});

@@ -5,7 +5,9 @@ import { extractExplicitPaths } from "./ticket-scope.js";
 
 // Creates the synchronous relevance selector and its graph-scoring helpers.
 export function createRelevantTreeScoring({ search, fileGraph, logger, maxFiles, defaultDepth, ignoredPaths }) {
+  // Defines isIgnored function behavior for relevant-tree-scoring.js.
   const isIgnored = (path) => ignoredPaths.some((prefix) => path === prefix || path.startsWith(prefix));
+  // Defines select function behavior for relevant-tree-scoring.js.
   function select({ title = "", objective = "", acceptanceCriteria = [], acceptance_criteria = [], style, depth = defaultDepth, limit = maxFiles, scope = "all", allowed_prefixes, allowedPrefixes, priorFiles = [], prior_files = [], dependencyFiles = [], dependency_files = [] } = {}) {
     const criteria = acceptanceCriteria.length ? acceptanceCriteria : acceptance_criteria;
     const text = [title, objective, ...(Array.isArray(criteria) ? criteria : [])].filter((value) => typeof value === "string" && value.trim()).join(" ");
@@ -19,6 +21,7 @@ export function createRelevantTreeScoring({ search, fileGraph, logger, maxFiles,
     if (Array.isArray(style) && style.length > 1 && effectiveLimit <= 4) effectiveLimit = Math.min(8, maxFiles);
     const seeds = new Map();
     const shortlist = new Map();
+    // Defines shortlistAdd function behavior for relevant-tree-scoring.js.
     const shortlistAdd = (entry, why) => {
       const path = entry?.node?.path ?? entry?.path;
       if (!path || isIgnored(path) || path.includes(".test.") || (normalizedAllowedPrefixes && !normalizedAllowedPrefixes.some((prefix) => path.startsWith(prefix)))) return;
@@ -29,6 +32,7 @@ export function createRelevantTreeScoring({ search, fileGraph, logger, maxFiles,
       if (!current.node?.id && entry.node?.id) current.node = entry.node;
       shortlist.set(path, current);
     };
+    // Defines add function behavior for relevant-tree-scoring.js.
     const add = (entry, score, reason, relation = null) => {
       const path = entry?.node?.path ?? entry?.path;
       if (!path || isIgnored(path) || path.includes(".test.") || (normalizedAllowedPrefixes && !normalizedAllowedPrefixes.some((prefix) => path.startsWith(prefix)))) return;
@@ -39,6 +43,7 @@ export function createRelevantTreeScoring({ search, fileGraph, logger, maxFiles,
       if (!current.node?.id && entry.node?.id) current.node = entry.node;
       seeds.set(path, current);
     };
+    // Defines neighborsOf function behavior for relevant-tree-scoring.js.
     const neighborsOf = (path) => {
       try { return [...fileGraph.getDependencies(path, 1).edges, ...fileGraph.getDependents(path, 1).edges]; }
       catch (error) { log("debug", "Relevant tree graph lookup fallback returned no neighbors.", error, { path }); return []; }
@@ -84,7 +89,9 @@ export function createRelevantTreeScoring({ search, fileGraph, logger, maxFiles,
     const matches = [...seeds.values()].sort((a, b) => b.score - a.score || b.t1 - a.t1 || (a.hop ?? 0) - (b.hop ?? 0) || (a.relations.length === 0 ? 0 : 1) - (b.relations.length === 0 ? 0 : 1) || a.path.localeCompare(b.path)).slice(0, effectiveLimit).map((item) => ({ path: item.path, score: Number(item.score.toFixed(4)), reason: [...item.reasons], relations: item.relations, node: item.node, confidence: "static" }));
     return Object.freeze({ query: text, scope: normalizedScope, allowed_prefixes: normalizedAllowedPrefixes ?? undefined, tree: Object.freeze(matches), index_version: matches[0]?.node?.index_version ?? undefined, limits: { max_files: effectiveLimit, depth } });
 
+    // Defines safeSearch function behavior for relevant-tree-scoring.js.
     function safeSearch(query, kind, searchLimit) { try { return search.search({ query, kind, limit: searchLimit }).matches ?? []; } catch (error) { log("debug", "Relevant tree search fallback returned no matches.", error, { query, kind }); return []; } }
+    // Defines addTermMatchesDeduped function behavior for relevant-tree-scoring.js.
     function addTermMatchesDeduped(term, matches, expand) {
       const best = new Map();
       for (const match of matches) {
@@ -105,6 +112,7 @@ export function createRelevantTreeScoring({ search, fileGraph, logger, maxFiles,
         }
       }
     }
+    // Defines log function behavior for relevant-tree-scoring.js.
     function log(level, message, error, context = {}) { try { logger?.[level]?.(message, { error: error?.message, ...context }); } catch (loggingError) { void loggingError; } }
   }
   return select;
@@ -112,6 +120,7 @@ export function createRelevantTreeScoring({ search, fileGraph, logger, maxFiles,
   // Expands scoped and lexical seeds through bounded graph relations.
   function expandGraph(seeds, depth, add, neighborsOf) {
     const reached = new Map();
+    // Defines addLink function behavior for relevant-tree-scoring.js.
     const addLink = (linked, relation, points, reason, hop) => {
       if (!linked) return;
       const count = (reached.get(linked) ?? 0) + 1;
@@ -141,16 +150,22 @@ export function createRelevantTreeScoring({ search, fileGraph, logger, maxFiles,
   }
 }
 
+// Defines resolveScopedPaths function behavior for relevant-tree-scoring.js.
 function resolveScopedPaths({ title, objective, criteria, priorFiles = [], dependencyFiles = [], isIgnored }) {
   const out = [];
   const seen = new Set();
+  // Defines push function behavior for relevant-tree-scoring.js.
   const push = (path, score, reason) => { if (typeof path !== "string" || !path.includes("/") || seen.has(path) || isIgnored(path) || path.includes(".test.")) return; seen.add(path); out.push({ path, score, reason }); };
   for (const path of extractExplicitPaths({ title, objective, acceptance_criteria: Array.isArray(criteria) ? criteria : [] })) push(path, 6, "tier0:explicit");
   for (const path of asPathList(priorFiles)) push(path, 3, "tier0:prior");
   for (const path of asPathList(dependencyFiles)) push(path, 4, "tier0:dependency");
   return out;
 }
+// Defines asPathList function behavior for relevant-tree-scoring.js.
 function asPathList(value) { return Array.isArray(value) ? value.map((entry) => typeof entry === "string" ? entry : entry?.path).filter((path) => typeof path === "string" && path) : []; }
+// Defines buildContentQueries function behavior for relevant-tree-scoring.js.
 function buildContentQueries({ title, objective }) { const queries = []; if (typeof title === "string" && title.trim()) queries.push(title.trim()); if (typeof objective === "string" && objective.trim() && objective.trim() !== title?.trim()) queries.push(objective.trim().slice(0, 400)); return queries.slice(0, 2); }
+// Defines styleToPrefixes function behavior for relevant-tree-scoring.js.
 function styleToPrefixes(style) { if (!style) return undefined; const prefixes = []; for (const value of Array.isArray(style) ? style : [style]) { if (value === "frontend") prefixes.push("ui/", "web/src/"); else if (value === "backend") prefixes.push("backend/", "schemas/"); else if (value === "security") prefixes.push("backend/src/modules/agent/", "backend/src/infrastructure/", "schemas/"); else if (value === "infra") prefixes.push("backend/src/infrastructure/", ".forge/"); else if (value === "docs") prefixes.push("docs/", "schemas/"); } return prefixes.length ? prefixes : undefined; }
+// Defines normalizePrefixes function behavior for relevant-tree-scoring.js.
 function normalizePrefixes(value) { if (value === undefined) return null; if (!Array.isArray(value) || value.length === 0 || value.some((prefix) => typeof prefix !== "string" || !prefix.trim())) throw new ConfigurationError("Relevant Tree allowed_prefixes must be a non-empty string array."); return Object.freeze(value.map((prefix) => { const normalized = prefix.trim(); return normalized.endsWith("/") ? normalized : `${normalized}/`; })); }

@@ -61,6 +61,7 @@ export function createCoderRecoveryRuntime({ store, ticketStatusStore, sprintReg
     if (!input.payload?.execution_id) return submitTicket(input);
     if (active.has(taskId)) throw failure("TICKET_ALREADY_RUNNING", "Ticket already owns a local provider invocation.");
     const controller = new AbortController();
+    // Defines abort function behavior for coder-recovery-runtime.js.
     const abort = () => controller.abort(input.abortSignal.reason);
     input.abortSignal?.addEventListener("abort", abort, { once: true });
     if (input.abortSignal?.aborted) abort();

@@ -36,7 +36,7 @@ export function createBlockerResume({ inspect, classifyFailure, checkpoints, spr
             expectations: job.request.payload.dependency_expectations, sprintRegistry, ticketStatusStore }) });
       });
       return await submitTicket({ ...job.request, required_role: job.request.required_role ?? job.request.ticket?.required_role ?? "coder", request_id: `BLOCKER-RESUME-${job.id}`,
-        payload: { ...job.request.payload, retry_source_identity: job.request.execution_context, resume_from: resumed } });
+        payload: { ...job.request.payload, retry_source_identity: job.request.execution_context, review_cycle_id: authority.checkpoint.review_cycle_id ?? job.request.payload.review_cycle_id, resume_from: resumed } });
     } catch (error) {
       const latest = ticketStatusStore.get(job.request.task_id);
       const saved = await checkpoints.load(job.request.task_id);

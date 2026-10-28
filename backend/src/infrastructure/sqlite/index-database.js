@@ -62,15 +62,18 @@ export async function openIndexDatabase(projectRoot, { busyTimeoutMs = 10000, jo
 
   return Object.freeze({
     databasePath,
+    // Defines all method behavior for index-database.js.
     all(sql, parameters = []) {
       if (closed) throw new ConfigurationError("Cannot query a closed index database.");
       const statement = database.prepare(sql);
       return statement.all(...parameters).map((row) => ({ ...row }));
     },
+    // Defines run method behavior for index-database.js.
     run(sql, parameters = []) {
       if (closed) throw new ConfigurationError("Cannot write to a closed index database.");
       return database.prepare(sql).run(...parameters);
     },
+    // Defines transaction method behavior for index-database.js.
     transaction(callback) {
       if (closed) throw new ConfigurationError("Cannot transact on a closed index database.");
       database.exec("BEGIN IMMEDIATE");
@@ -83,6 +86,7 @@ export async function openIndexDatabase(projectRoot, { busyTimeoutMs = 10000, jo
         throw error;
       }
     },
+    // Defines close method behavior for index-database.js.
     async close() {
       if (closed) return;
       database.close();

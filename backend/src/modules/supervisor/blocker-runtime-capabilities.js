@@ -21,15 +21,20 @@ export function blockerRuntimeCapabilities(workspace) {
 /** Returns a parked information request to SL after a real runtime capability
  * change. Execution inspection, typed question ownership and persisted facts
  * prevent Stop, unknown provider outcomes and unchanged polls from replaying. */
-export async function refreshBlockerRuntimeCapabilities(job, { inspect, clock, projectLogger }) {
+export async function refreshBlockerRuntimeCapabilities(job, { inspect, clock, projectLogger, runtimeCapabilities = {} }) {
   const work = job.resolution?.reconciliation;
+  const dependency = work?.kind === "dependency" && runtimeCapabilities.dependency_repair?.supported === true
+    && job.architecture_response?.execution_id === job.request.payload?.execution_id
+    && !job.dependency_request_id
+    && !isDeepStrictEqual(runtimeCapabilities.dependency_repair, job.ticket_progress?.runtime_capabilities?.dependency_repair);
+  const tooling = work?.kind === "tooling" && work.owner_request?.kind === "information"
+    && work.waiting_for?.some((entry) => entry?.owner === "external");
   if (job.status !== "reconciliation_required" || job.stage !== "sprint_leader"
     || job.outcome_reason !== "technical_reconciliation_waiting_for_evidence"
-    || work?.kind !== "tooling" || work.owner_request?.kind !== "information"
-    || !work.waiting_for?.some((entry) => entry?.owner === "external")) return false;
+    || (!dependency && !tooling)) return false;
   const authority = await inspect(job);
   if (!authority) return false;
-  const capabilities = blockerRuntimeCapabilities(authority.workspace);
+  const capabilities = { ...blockerRuntimeCapabilities(authority.workspace), ...runtimeCapabilities };
   if (!Object.keys(capabilities).length || isDeepStrictEqual(capabilities, job.ticket_progress?.runtime_capabilities)) return false;
   job.history.push({ stage: "sprint_leader", event: "runtime_capabilities_refreshed", completed_at: clock(),
     previous_resolution: job.resolution, previous_runtime_capabilities: job.ticket_progress?.runtime_capabilities ?? null });
@@ -37,6 +42,6 @@ export async function refreshBlockerRuntimeCapabilities(job, { inspect, clock, p
   delete job.resolution;
   delete job.validation_feedback;
   projectLogger({ event_name: "supervisor.blocker_runtime_capabilities_refreshed", level: "info", status: "pending", task_id: job.request.task_id,
-    message: "Installed runtime operations delivered to Sprint Leader; reassess the tooling question at the retained checkpoint.", payload: { job_id: job.id, runtime_capabilities: capabilities } });
+    message: "Installed runtime operations delivered to Sprint Leader; reassess the retained prerequisite.", payload: { job_id: job.id, runtime_capabilities: capabilities } });
   return true;
 }

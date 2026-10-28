@@ -10,6 +10,7 @@ export function ticketCandidateScope(ticket) {
     && !isLegacyBackfillCandidate(entry)
   );
   if (!real.length) return null;
+  // Defines rank function behavior for nodeforge-task-scope.js.
   const rank = (role) => role === "PATCH" ? 0 : 1;
   const ordered = [...real].sort((a, b) => rank(a.role) - rank(b.role));
   const targetPath = ordered[0]?.path ?? null;

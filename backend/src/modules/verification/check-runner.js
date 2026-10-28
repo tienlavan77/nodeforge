@@ -42,6 +42,7 @@ export function createCheckRunner({ projectRoot, projectId, spawnProcess, create
   const execute = createProjectCommandExecutor({ projectRoot, spawnProcess });
 
   return Object.freeze({
+    // Defines run method behavior for check-runner.js.
     async run(plan, { taskId, ticketId = taskId, conversationId = taskId ? `CONV-${taskId}` : undefined, sessionId, timeoutMs, eventSink, signal } = {}) {
       validatePlan(plan);
       const results = [];

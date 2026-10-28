@@ -12,17 +12,20 @@ export function createQueuePoller(queue, workerId, signalBus, handler) {
     try { const job = await queue.claim(workerId); if (job) await handler(job); }
     finally { running = false; }
   };
+  // Defines start method behavior for production-runtime-queues.js.
   return { start() {
     if (active) return;
     active = true;
     unsubscribe = signalBus?.onWakeup?.((message) => { if (message.queue === (queue.name ?? "")) void processOnce(); });
     void processOnce();
+  // Defines stop method behavior for production-runtime-queues.js.
   }, stop() { unsubscribe?.(); unsubscribe = undefined; active = false; } };
 }
 
 // Serializes Supervisor control operations by task without swallowing prior operation errors.
 export function createProcessMutex() {
   const tails = new Map();
+  // Defines run method behavior for production-runtime-queues.js.
   return { run(key, operation) {
     const previous = tails.get(key) ?? Promise.resolve();
     const current = previous.then(operation, operation);

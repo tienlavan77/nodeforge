@@ -24,7 +24,7 @@ function browserRequest(path = "/forge/v1/health", options = {}) {
 
 test("all API rewrites use the controlled route rather than Next's throwing external proxy", async () => {
   const routes = (await nextConfig.rewrites()).afterFiles;
-  assert.equal(routes.length, 5);
+  assert.equal(routes.length, 6);
   assert.ok(routes.every((route) => route.destination.startsWith("/control-api/")));
   assert.equal(routes.find((route) => route.source === "/api/:path*").destination, "/control-api/:path*");
   assert.equal(GET, POST);
@@ -42,7 +42,7 @@ test("API downtime returns structured 503 and the next request succeeds after re
   assert.equal(error.code, "CONTROL_API_UNAVAILABLE");
   assert.equal(error.requestId, "RESTART-1");
   assert.equal(error.retryable, true);
-  assert.deepEqual(diagnostics, ["[UI] Control API unavailable: ECONNREFUSED"]);
+  assert.deepEqual(diagnostics, ["Control API request failed: GET /forge/v1/health; code=ECONNREFUSED; reused_socket=false - WAIT"]);
   await new Promise((resolve) => server.listen(port, "127.0.0.1", resolve));
   const recovered = await proxyControlApi(browserRequest(), ["forge", "v1", "health"], { origin });
   assert.equal(recovered.status, 200);
@@ -148,4 +148,73 @@ test("HEAD and empty responses preserve status without constructing an invalid b
   const result = await proxyControlApi(browserRequest(undefined, { method: "HEAD" }), ["forge", "v1", "health"], { origin });
   assert.equal(result.status, 204);
   assert.equal(result.body, null);
+});
+
+// Warm the production proxy's keep-alive pool before simulating a reset on that socket.
+async function warmConnection(origin) {
+  const response = await proxyControlApi(browserRequest(undefined, { headers: { "x-probe": "warm" } }), ["forge", "v1", "health"], { origin });
+  await response.text();
+  await new Promise((resolve) => setImmediate(resolve));
+}
+
+for (const method of ["GET", "HEAD", "OPTIONS"]) {
+  test(`${method} recovers a reset reused socket while the same API stays running`, async (context) => {
+    const sockets = new WeakSet();
+    let calls = 0;
+    const { origin, server, diagnostics } = await fixture(context, (request, response) => {
+      if (request.headers["x-probe"] === "warm") { sockets.add(request.socket); response.end("warm"); return; }
+      calls++;
+      if (sockets.has(request.socket)) { request.socket.destroy(); return; }
+      response.end("ready");
+    });
+    await warmConnection(origin);
+    const result = await proxyControlApi(browserRequest(undefined, { method }), ["forge", "v1", "health"], { origin });
+    assert.equal(result.status, 200);
+    assert.equal(await result.text(), method === "HEAD" ? "" : "ready");
+    assert.equal(calls, 2);
+    assert.equal(server.listening, true);
+    assert.deepEqual(diagnostics, []);
+  });
+}
+
+for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+  test(`${method} on a reset reused socket is never replayed`, async (context) => {
+    const sockets = new WeakSet();
+    let calls = 0;
+    const { origin, diagnostics } = await fixture(context, (request, response) => {
+      if (request.headers["x-probe"] === "warm") { sockets.add(request.socket); response.end("warm"); return; }
+      assert.equal(sockets.has(request.socket), true);
+      calls++;
+      request.socket.destroy();
+    });
+    await warmConnection(origin);
+    const result = await proxyControlApi(browserRequest(undefined, { method, body: "{}" }), ["forge", "v1", "health"], { origin });
+    assert.equal(result.status, 503);
+    assert.equal((await result.json()).error.retryable, false);
+    assert.equal(calls, 1);
+    assert.match(diagnostics[0], new RegExp(`${method} /forge/v1/health; code=ECONNRESET; reused_socket=true`));
+  });
+}
+
+test("a reset on a fresh socket is reported without another automatic retry", async (context) => {
+  let calls = 0;
+  const { origin, diagnostics } = await fixture(context, (request) => { calls++; request.socket.destroy(); });
+  const result = await proxyControlApi(browserRequest("/forge/v1/health?token=private"), ["forge", "v1", "health"], { origin });
+  assert.equal(result.status, 503);
+  assert.equal(calls, 1);
+  assert.match(diagnostics[0], /GET \/forge\/v1\/health; code=ECONNRESET; reused_socket=false/);
+  assert.doesNotMatch(diagnostics[0], /private|token=|\[UI\]/);
+});
+
+test("a read retries at most once if the fresh connection also resets", async (context) => {
+  let calls = 0;
+  const { origin } = await fixture(context, (request, response) => {
+    if (request.headers["x-probe"] === "warm") { response.end("warm"); return; }
+    calls++;
+    request.socket.destroy();
+  });
+  await warmConnection(origin);
+  const result = await proxyControlApi(browserRequest(), ["forge", "v1", "health"], { origin });
+  assert.equal(result.status, 503);
+  assert.equal(calls, 2);
 });

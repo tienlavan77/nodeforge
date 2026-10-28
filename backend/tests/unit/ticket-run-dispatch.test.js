@@ -101,6 +101,37 @@ test("shared RUN does not bypass unresolved blocker recovery after Stop", async 
   } finally { await f.close(); }
 });
 
+// Returns repairable verification and report failures to the same Coder progress instead of treating a blocked projection as an Owner decision.
+test("shared RUN resumes repairable blocked checkpoints with their original diagnostics and progress", async () => {
+  for (const code of ["VERIFY_COMMAND_FAILED", "CODER_EVIDENCE_PENDING", "CODER_COMPLETION_REQUIRED"]) {
+    const f = await fixture();
+    try {
+      f.state.coder = { status: "blocked", phase: "verification_report_required", failure: { code, message: "Repair the focused ticket check." },
+        last_completed_turn: 91, changed_paths: ["backend/example.js"], verification_wait: { status: "failed", job_id: "VERIFY-1" } };
+      const result = await f.dispatch({ projectId: "PROJECT-A", ticketId: "TICKET-A" });
+      assert.equal(result.resumed, true);
+      assert.equal(f.calls[0].resume_from.status, "failed");
+      assert.equal(f.calls[0].resume_from.last_completed_turn, 91);
+      assert.deepEqual(f.calls[0].resume_from.failure, f.state.coder.failure);
+      assert.deepEqual(f.calls[0].resume_from.verification_wait, f.state.coder.verification_wait);
+      assert.deepEqual(f.checkpointActions, []);
+    } finally { await f.close(); }
+  }
+});
+
+// Keeps unresolved decisions and uncertain provider launches fenced even when their last visible failure resembles a repairable check.
+test("repair classification cannot bypass an unresolved Owner decision or unknown provider outcome", async () => {
+  for (const extra of [{ blocker_recovery: { status: "owner_required" } }, { failure: { code: "VERIFY_COMMAND_FAILED", provider_outcome: "unknown" } }]) {
+    const f = await fixture();
+    try {
+      f.state.coder = { status: "blocked", failure: { code: "VERIFY_COMMAND_FAILED" }, ...extra };
+      await assert.rejects(f.dispatch({ projectId: "PROJECT-A", ticketId: "TICKET-A" }), { code: "TICKET_APPROVAL_REQUIRED" });
+      assert.equal(f.calls.length, 0);
+      assert.deepEqual(f.checkpointActions, []);
+    } finally { await f.close(); }
+  }
+});
+
 // Resumes independent review without clearing completed Coder evidence.
 test("shared RUN forwards completed Coder checkpoint to Reviewer resume", async () => {
   const f = await fixture();
@@ -110,6 +141,19 @@ test("shared RUN forwards completed Coder checkpoint to Reviewer resume", async 
     const result = await f.dispatch({ projectId: "PROJECT-A", ticketId: "TICKET-A" });
     assert.equal(f.calls[0].review_resume.agent_id, "CODER");
     assert.equal(result.resumed, true);
+    assert.deepEqual(f.checkpointActions, []);
+  } finally { await f.close(); }
+});
+
+// Keeps historical check failures from reopening a Coder whose completed checkpoint is already ready for independent review.
+test("completed Coder evidence resumes review even when a historical verification failure remains", async () => {
+  const f = await fixture();
+  try {
+    f.state.coder = { status: "completed", agent_id: "CODER", provider: "codex", last_completed_turn: 95, failure: { code: "VERIFY_COMMAND_FAILED" } };
+    f.state.review = { status: "failed", review_attempt: 1, base_commit: "base" };
+    await f.dispatch({ projectId: "PROJECT-A", ticketId: "TICKET-A" });
+    assert.equal(f.calls[0].review_resume.agent_id, "CODER");
+    assert.equal(f.calls[0].resume_from, undefined);
     assert.deepEqual(f.checkpointActions, []);
   } finally { await f.close(); }
 });

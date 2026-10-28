@@ -1,3 +1,5 @@
+// Provides module declarations and business logic for orchestrator.js.
+
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 
@@ -14,6 +16,7 @@ const commonSchema = require("../../../../schemas/core/common.schema.json");
 const CHECK_TYPES = ["test", "build", "lint", "typecheck"];
 const RESULT_KEYS = { test: "tests", build: "build", lint: "lint", typecheck: "typecheck" };
 
+// Defines createVerificationResultValidator function behavior for orchestrator.js.
 export function createVerificationResultValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);
@@ -32,6 +35,7 @@ export function createVerificationResultValidator() {
   };
 }
 
+// Defines createVerificationOrchestrator function behavior for orchestrator.js.
 export function createVerificationOrchestrator({
   testRunner,
   checkRunner,
@@ -56,6 +60,7 @@ export function createVerificationOrchestrator({
   }
 
   return Object.freeze({
+    // Defines run method behavior for orchestrator.js.
     async run(plan, options = {}) {
       validatePlan(plan);
       const runId = options.runId ?? createRunId();
@@ -92,6 +97,7 @@ export function createVerificationOrchestrator({
   });
 }
 
+// Defines gateStatus function behavior for orchestrator.js.
 function gateStatus(results) {
   if (results.length === 0) return "not_applicable";
   if (results.some(({ status }) => status === "failed")) return "failed";
@@ -101,6 +107,7 @@ function gateStatus(results) {
   return "failed";
 }
 
+// Defines overallStatus function behavior for orchestrator.js.
 function overallStatus(results) {
   if (results.length === 0) return "not_applicable";
   const statuses = results.map(({ status }) => status);

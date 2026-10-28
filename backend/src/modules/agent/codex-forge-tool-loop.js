@@ -9,6 +9,7 @@ export function createCodexForgeToolLoop({ agentGateway, projectLogger } = {}) {
   if (typeof agentGateway?.request !== "function") throw new ConfigurationError("Codex Forge tool loop requires an Agent Gateway.");
   return Object.freeze({ run });
 
+  // Defines run function behavior for codex-forge-tool-loop.js.
   async function run({ agentId, correlationId, prompt, definitions, registry, context, maxRounds = DEFAULT_MAX_ROUNDS, onToolEvent } = {}) {
     if (typeof prompt !== "string" || !prompt) throw new ConfigurationError("Codex Forge tool loop requires a prompt.");
     if (!Array.isArray(definitions) || definitions.length === 0) throw new ConfigurationError("Codex Forge tool loop requires tool definitions.");
@@ -26,6 +27,7 @@ export function createCodexForgeToolLoop({ agentGateway, projectLogger } = {}) {
     const cacheConfig = context?.gateway_payload?.cache_config ?? defaultCacheConfig(context);
     let previousResponseId = context?.gateway_payload?.previous_response_id ?? (cacheConfig ? "store_only" : undefined);
     const usageByRound = [];
+    // Defines recordUsage function behavior for codex-forge-tool-loop.js.
     const recordUsage = (response) => {
       const usage = response?.payload?.usage ?? response?.usage;
       if (!usage || typeof usage !== "object") return;
@@ -132,6 +134,7 @@ function normalizeToolUse(toolUse) {
   return { id: toolUse.id ?? toolUse.call_id ?? null, name: toolUse.name, input };
 }
 
+// Defines emit function behavior for codex-forge-tool-loop.js.
 async function emit(onToolEvent, event) {
   if (typeof onToolEvent === "function") await onToolEvent(event);
 }

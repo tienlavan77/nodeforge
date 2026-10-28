@@ -29,9 +29,11 @@ export async function startFilesystemNamespace({ projectRoot, signal, timeoutMs 
   let stopped = false;
   child.on("error", error => { spawnError = error; });
   child.unref();
+  // Defines stopOnExit function behavior for filesystem-namespace-process.js.
   const stopOnExit = () => stopChild();
   process.once("exit", stopOnExit);
   child.once("close", () => { stopped = true; process.removeListener("exit", stopOnExit); });
+  // Defines abort function behavior for filesystem-namespace-process.js.
   const abort = () => stopChild();
   signal?.addEventListener("abort", abort, { once: true });
   const socketPath = join(control, "runner.sock");

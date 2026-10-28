@@ -15,7 +15,7 @@ export const BASIS = { project_id: "P", sprint_id: "SPRINT", plan_id: "PLAN", pl
 export const TICKET = { id: "TASK", project_id: "P", sprint_id: "SPRINT", execution_policy: { review_gate: "off" }, required_role: "coder", title: "Fix handler", objective: "Fix handler", dependencies: [], acceptance_criteria: ["Handler works"] };
 
 // Creates process-reconstructible recovery services backed by real locked JSON and checkpoint files.
-export async function coderProductionRecoveryFixture({ behavior, ticket = TICKET } = {}) {
+export async function coderProductionRecoveryFixture({ behavior, ticket = TICKET, assertSessionStopped, provider = "codex" } = {}) {
   const base = resolve(".forge/test-tmp");
   await mkdir(base, { recursive: true });
   const root = await mkdtemp(join(base, "production-retry-"));
@@ -81,10 +81,10 @@ export async function coderProductionRecoveryFixture({ behavior, ticket = TICKET
       logger: { warn: () => {}, error: console.error }, ...options });
     integration = createNodeforgeTaskIntegration({ projectRoot: root, supervisorManager: { startTask: async () => ({}) },
       eventBus, ticketStatusStore: statusStore, sprintRegistry: registry, agentOccupancy: occupancy,
-      agentResolver: { resolveAvailable: () => ({ agent_id: "CODER", role: "coder", provider: "codex" }) },
+      agentResolver: { resolveAvailable: () => ({ agent_id: "CODER", role: "coder", provider }) },
       handoffQueue: createDurableQueue({ name: "sender.handoff", store }), resolveTicketWorkspace: async () => workspace,
       checkpointStore: checkpoints, automaticReview: options.automaticReview, runtimeGovernance: { createExecutionContext: (input) => input }, coderRecovery: service, blockerRecovery: options.blockerRecovery,
-      codexSdkGateway: { execute: async (input) => {
+      [provider === "codex" ? "codexSdkGateway" : "claudeSdkGateway"]: { assertSessionStopped, execute: async (input) => {
         invocations += 1;
         if (behavior) return behavior(input, invocations);
         throw sdkFailureEvidence(new ConfigurationError("Service rejected request"), { status: 503 });
@@ -97,7 +97,7 @@ export async function coderProductionRecoveryFixture({ behavior, ticket = TICKET
     advance: (delta) => { now += delta; }, staleSource: () => { context.source_revision = "NEW"; },
     cancelDisposition: () => { cancelled = true; }, revokePlan: () => { ready = false; },
     replaceExecution: () => { current.details.execution_id = "REPLACEMENT"; },
-    run: () => service.runTicket({ ticket, task_id: "TASK", project_id: "P", request_id: "REQ", correlation_id: "CORR",
-      payload: { execution_id: "EXEC", sprint_basis: BASIS, dependency_expectations: [] } }),
+    run: (resume_from) => service.runTicket({ ticket, task_id: "TASK", project_id: "P", request_id: "REQ", correlation_id: "CORR",
+      payload: { execution_id: "EXEC", sprint_basis: BASIS, dependency_expectations: [], ...(resume_from ? { resume_from } : {}) } }),
     close: async () => { service.stop(); await rm(root, { recursive: true, force: true }); } };
 }

@@ -8,6 +8,7 @@ export async function createCodexForgeMcpSession({ registry, context = {}, defin
   const token = randomBytes(24).toString("hex");
   const tools = definitions.filter((definition) => typeof registry?.[definition.name]?.execute === "function").map((definition) => ({ name: definition.name, description: definition.description, inputSchema: definition.input_schema }));
   const inputAdapter = createCodexToolInputAdapter(tools);
+  const pending = new Set();
   const server = createServer(async (request, response) => {
     if (request.method !== "POST" || request.url !== "/mcp") return writeJson(response, 404, { error: "not_found" });
     if (request.headers.authorization !== `Bearer ${token}`) return writeJson(response, 401, { error: "unauthorized" });
@@ -29,8 +30,12 @@ export async function createCodexForgeMcpSession({ registry, context = {}, defin
   // interfaces so the child can reach it in both host and sandbox modes.
   await new Promise((resolve) => server.listen(0, "0.0.0.0", resolve));
   const address = server.address();
-  return Object.freeze({ url: `http://127.0.0.1:${address.port}/mcp`, token, tools, close: () => new Promise((resolve) => server.close(() => resolve())) });
+  return Object.freeze({ url: `http://127.0.0.1:${address.port}/mcp`, token, tools, close: async () => {
+    await new Promise((resolve) => server.close(() => resolve()));
+    await Promise.allSettled([...pending]);
+  } });
 
+  // Defines handleMessage function behavior for codex-forge-mcp-session.js.
   async function handleMessage(message) {
     if (message.method === "initialize") return { protocolVersion: "2024-11-05", capabilities: { tools: { listChanged: false } }, serverInfo: { name: "nodeforge", version: "1.0.0" } };
     if (message.method === "notifications/initialized") return {};
@@ -41,7 +46,10 @@ export async function createCodexForgeMcpSession({ registry, context = {}, defin
       if (!tool || typeof tool.execute !== "function") throw new Error(`Unknown Forge tool: ${name}`);
       try {
         const argumentsInput = inputAdapter.normalize(name, message.params?.arguments ?? {});
-        const result = await tool.execute(argumentsInput, context);
+        const execution = Promise.resolve().then(() => tool.execute(argumentsInput, context));
+        pending.add(execution);
+        let result;
+        try { result = await execution; } finally { pending.delete(execution); }
         return { content: [{ type: "text", text: JSON.stringify(result ?? null) }] };
       } catch (error) {
         return { isError: true, content: [{ type: "text", text: JSON.stringify({ error_code: error.code ?? "TOOL_EXECUTION_FAILED", message: error.message, ...(error.details ? { details: error.details } : {}) }) }] };
