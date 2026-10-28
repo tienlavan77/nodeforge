@@ -47,6 +47,7 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
         if (owner?.task_id !== taskId || (manifest.entries[path].claim_id && owner.claim_id !== manifest.entries[path].claim_id)) throw failure("FILE_CLAIM_CONFLICT", `Ticket no longer owns ${path}.`);
         if (sha(await readOptional(path)) !== manifest.entries[path].latest_sha) throw failure("TICKET_SOURCE_DRIFT", `Root source changed outside ticket ${taskId}: ${path}.`);
       }
+      // Defines record function behavior for ticket-change-ledger.js.
       const record = async (revision, commitSha) => {
         if (manifest.revision !== revision) throw failure("TICKET_REVISION_CHANGED", "Ticket changed during root commit.");
         manifest.commits[revision] = commitSha;

@@ -9,13 +9,16 @@ import { assertVerificationRunnerEnvironment } from "./verification-runner-envir
 const ROOT = statePath("ticket-execution-contexts");
 const STATES = new Set(["created", "coding", "committed", "verified", "reviewing", "integrating", "terminal"]);
 const SAFE_ID = /^[A-Za-z0-9._:-]+$/;
+// Defines digest function behavior for ticket-execution-context.js.
 const digest = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
+// Defines fail function behavior for ticket-execution-context.js.
 const fail = (code, message) => Object.assign(new ConfigurationError(message), { code });
 
 // Stores one versioned ticket context through Forge File Service and a cross-process lock.
 export function createTicketExecutionContextStore({ fileService, projectId, projectRoot, projectLogger = () => {} } = {}) {
   if (!fileService?.readFile || !fileService?.atomicWrite || !fileService?.createLock || !projectId || !projectRoot) throw fail("CONFIGURATION_ERROR", "Ticket execution context requires File Service, project ID, and root.");
   const directory = `${ROOT}/${digest(projectId).slice(7)}`;
+  // Defines pathFor function behavior for ticket-execution-context.js.
   const pathFor = (taskId) => {
     if (!SAFE_ID.test(taskId ?? "")) throw fail("TICKET_CONTEXT_ID_INVALID", "Ticket context task ID is unsafe.");
     return `${directory}/${taskId}.json`;

@@ -73,8 +73,12 @@ export function createTicketLedgerMove({ locked, load, save, claim, claimPath, r
 
   // Finalizes both source and destination ledger operations when a move completes or recovers forward.
   function completeMoveEntries(manifest, fromEntry, toEntry, fromPending, toPending) {
-    const { move_partner: _fp, move_role: _fr, ...cleanFrom } = fromPending;
-    const { move_partner: _tp, move_role: _tr, ...cleanTo } = toPending;
+    const cleanFrom = { ...fromPending };
+    delete cleanFrom.move_partner;
+    delete cleanFrom.move_role;
+    const cleanTo = { ...toPending };
+    delete cleanTo.move_partner;
+    delete cleanTo.move_role;
     fromEntry.operations.push({ ...cleanFrom, revision: manifest.revision + 1, status: "completed" });
     fromEntry.latest_sha = cleanFrom.after_sha;
     fromEntry.pending = null;
