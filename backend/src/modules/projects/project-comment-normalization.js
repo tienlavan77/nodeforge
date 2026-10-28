@@ -1,8 +1,8 @@
 // Orchestrates Agent Coder English comment normalization and rollback safety during project intake.
 // Business purpose: scans imported source files for missing or non-English header and symbol comments, coordinates Agent Coder to add English descriptions (`comment_language: "en"`) prior to AST/summary/embedding indexing, and rolls back any attempt to split files or alter executable code.
 // Technical description: walks non-ignored supported project files, synthesizes or delegates English purpose comments, enforces `validateCommentOnlyMutation` and file-tree invariants, and emits real-time progress onto the project event bus.
-import { readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { basename, join, relative } from "node:path";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { basename, dirname, join, relative } from "node:path";
 import { createProjectIgnoreMatcher } from "../../infrastructure/filesystem/watcher.js";
 import { extractorRegistry } from "../index/parser/index.js";
 import { purposeComments, purposeCommentBefore } from "../index/parser/purpose-comments.js";
@@ -153,8 +153,22 @@ export async function normalizeProjectComments({
   const initialFileSet = new Set(initialFiles);
   const snapshots = new Map();
   for (const relPath of initialFiles) {
-    if (registry.supports(relPath)) snapshots.set(relPath, await readFile(join(projectRoot, relPath), "utf8"));
+    snapshots.set(relPath, await readFile(join(projectRoot, relPath)));
   }
+  // Restores the project file tree to its exact pre-mutation snapshot when an unsafe normalizer edit or exception occurs.
+  // Business purpose: guarantees that rejected or failed normalization attempts never leave deleted, modified, or extra files behind in the imported project.
+  // Technical description: removes any unindexed extra files created during the attempt and writes back the exact byte buffer of every initial file.
+  const restoreProjectState = async () => {
+    const currentFiles = await collectProjectFiles(projectRoot, isIgnored);
+    for (const extra of currentFiles.filter((candidate) => !initialFileSet.has(candidate))) {
+      await rm(join(projectRoot, extra), { force: true });
+    }
+    for (const [candidate, snap] of snapshots.entries()) {
+      const targetPath = join(projectRoot, candidate);
+      await mkdir(dirname(targetPath), { recursive: true });
+      await writeFile(targetPath, snap);
+    }
+  };
   const results = [];
   const violations = [];
 
@@ -169,7 +183,7 @@ export async function normalizeProjectComments({
         continue;
       }
     }
-    const beforeSource = snapshots.get(relPath) ?? await readFile(absolutePath, "utf8");
+    const beforeSource = snapshots.get(relPath)?.toString("utf8") ?? await readFile(absolutePath, "utf8");
     await writeFile(absolutePath, beforeSource, "utf8");
     const inspection = inspectFileCommentNeeds(relPath, beforeSource, { commentLanguage, registry });
     if (inspection.parseError || !inspection.needsNormalization) {
@@ -193,7 +207,7 @@ export async function normalizeProjectComments({
         proposedContent = generateEnglishCommentsForFile(relPath, beforeSource, { commentLanguage: "en", registry });
       }
     } catch (error) {
-      await writeFile(absolutePath, beforeSource, "utf8");
+      await restoreProjectState();
       emitCoderActivity(internalBus, projectId, "failed", "failed", `Comment normalization failed for ${relPath}`);
       throw error;
     }
@@ -201,16 +215,22 @@ export async function normalizeProjectComments({
     const afterFiles = await collectProjectFiles(projectRoot, isIgnored);
     const extraFiles = afterFiles.filter((candidate) => !initialFileSet.has(candidate));
     const missingFiles = initialFiles.filter((candidate) => !afterFiles.includes(candidate));
-    if (extraFiles.length > 0 || missingFiles.length > 0) {
-      splitAttempted = true;
-      for (const extra of extraFiles) await rm(join(projectRoot, extra), { force: true });
+    for (const candidate of initialFiles) {
+      if (candidate === relPath || missingFiles.includes(candidate)) continue;
+      const currentBuf = await readFile(join(projectRoot, candidate));
+      if (!snapshots.get(candidate).equals(currentBuf)) {
+        if (registry.supports(candidate) && validateCommentOnlyMutation(snapshots.get(candidate).toString("utf8"), currentBuf.toString("utf8"), { filePath: candidate, commentLanguage: "en", registry }).valid) {
+          await writeFile(join(projectRoot, candidate), snapshots.get(candidate));
+        } else splitAttempted = true;
+      }
     }
+    if (extraFiles.length > 0 || missingFiles.length > 0) splitAttempted = true;
     const validation = splitAttempted
       ? { valid: false, code: "FILE_SPLIT_FORBIDDEN", message: `File splitting or structure modification is forbidden for ${relPath}.` }
       : validateCommentOnlyMutation(beforeSource, proposedContent, { filePath: relPath, commentLanguage: "en", registry });
 
     if (!validation.valid) {
-      await writeFile(absolutePath, beforeSource, "utf8");
+      await restoreProjectState();
       const violation = { path: relPath, code: validation.code, message: validation.message, rolledBack: true };
       violations.push(violation);
       emitCoderActivity(internalBus, projectId, "failed", "failed", `Rolled back unsafe mutation on ${relPath}: ${validation.code}`);
@@ -218,6 +238,7 @@ export async function normalizeProjectComments({
         const safeContent = generateEnglishCommentsForFile(relPath, beforeSource, { commentLanguage: "en", registry });
         if (validateCommentOnlyMutation(beforeSource, safeContent, { filePath: relPath, commentLanguage: "en", registry }).valid) {
           await writeFile(absolutePath, safeContent, "utf8");
+          snapshots.set(relPath, Buffer.from(safeContent, "utf8"));
           results.push({ path: relPath, status: "normalized", normalized: true, rolledBackUnsafeAttempt: true });
           continue;
         }
@@ -229,6 +250,7 @@ export async function normalizeProjectComments({
       continue;
     }
     if (proposedContent !== beforeSource) await writeFile(absolutePath, proposedContent, "utf8");
+    snapshots.set(relPath, Buffer.from(proposedContent, "utf8"));
     emitCoderActivity(internalBus, projectId, "step_completed", "success", `Normalized English comments for ${relPath}`);
     results.push({ path: relPath, status: "normalized", normalized: true });
   }

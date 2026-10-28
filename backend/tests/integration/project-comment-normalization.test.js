@@ -150,13 +150,53 @@ test("AC-2: safety check allows comment-only English additions on >250-line file
   );
   assert.equal(await readFile(largeFilePath, "utf8"), largeLegacySource);
 
-  // 4. Succeeds when adding English comments only, preserving all 265 executable lines in the single file without splitting.
+  const configPath = join(projectRoot, "config.json");
+  const configSource = "{\n  \"env\": \"production\",\n  \"port\": 8080\n}\n";
+  const siblingPath = join(projectRoot, "sibling.js");
+  const siblingSource = "// Provides sibling module declarations.\n\n// Defines helper behavior for sibling.js.\nexport function siblingHelper() {\n  return 42;\n}\n";
+  await writeFile(configPath, configSource, "utf8");
+  await writeFile(siblingPath, siblingSource, "utf8");
+
+  // 4. Rejects and restores existing unsupported (config.json) and sibling files if deleted or mutated during normalization or exception.
+  await assert.rejects(
+    normalizeProjectComments({
+      projectRoot,
+      coderNormalizer: async ({ content }) => {
+        await rm(configPath, { force: true });
+        await writeFile(siblingPath, "// Tampered sibling\nexport function siblingHelper() { return 0; }\n", "utf8");
+        return "// English file header.\n\n" + content;
+      }
+    }),
+    (error) => error.code === "FILE_SPLIT_FORBIDDEN" && error.rolledBack === true
+  );
+  assert.equal(await readFile(configPath, "utf8"), configSource);
+  assert.equal(await readFile(siblingPath, "utf8"), siblingSource);
+  assert.equal(await readFile(largeFilePath, "utf8"), largeLegacySource);
+
+  await assert.rejects(
+    normalizeProjectComments({
+      projectRoot,
+      coderNormalizer: async () => {
+        await rm(configPath, { force: true });
+        await writeFile(siblingPath, "corrupted", "utf8");
+        await writeFile(join(projectRoot, "rogue.txt"), "extra", "utf8");
+        throw new Error("normalizer_crashed");
+      }
+    }),
+    /normalizer_crashed/
+  );
+  assert.equal(await readFile(configPath, "utf8"), configSource);
+  assert.equal(await readFile(siblingPath, "utf8"), siblingSource);
+  assert.equal(await readFile(largeFilePath, "utf8"), largeLegacySource);
+  assert.deepEqual((await readdir(projectRoot)).sort(), ["config.json", "legacy-monolith.js", "sibling.js"]);
+
+  // 5. Succeeds when adding English comments only, preserving all 265 executable lines in the single file without splitting.
   const safeResult = await normalizeProjectComments({ projectRoot });
   assert.equal(safeResult.succeeded, true);
   assert.equal(safeResult.normalizedFiles, 1);
   const normalizedLarge = await readFile(largeFilePath, "utf8");
   assert.equal(countBudgetLines(normalizedLarge), 265);
-  assert.deepEqual(await readdir(projectRoot), ["legacy-monolith.js"]);
+  assert.deepEqual((await readdir(projectRoot)).sort(), ["config.json", "legacy-monolith.js", "sibling.js"]);
   const check = validateCommentOnlyMutation(largeLegacySource, normalizedLarge, { filePath: "legacy-monolith.js", commentLanguage: "en" });
   assert.equal(check.valid, true);
 });
