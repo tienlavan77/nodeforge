@@ -159,18 +159,25 @@ export function createTicketRunAgentWait({ dispatch, queueStore: store, ticketSt
 
   // Publishes compact wait/retry evidence through the existing project log and UI stream.
   function publish(entry, event, message, error) {
-    projectLogger({ event_name: event, level: error ? "error" : "info", status: error ? "failed" : "pending",
-      project_id: entry.request.projectId, task_id: entry.request.ticketId, message,
-      ...(error ? { error_code: error.code } : {}), payload: { job_id: entry.id, agent_wait: entry.agent_wait } });
+    try {
+      const logged = projectLogger({ timestamp: new Date(clock()).toISOString(), source: "ticket-run-agent-wait",
+        event_name: event, level: error ? "error" : "info", status: error ? "failed" : "info",
+        project_id: entry.request.projectId, task_id: entry.request.ticketId, message,
+        ...(error ? { error_code: error.code } : {}), payload: { job_id: entry.id, agent_wait: entry.agent_wait } });
+      logged?.catch?.(logFailure);
+    } catch (logError) { logFailure(logError); }
   }
+
+  // Keeps diagnostic sink failures observable without rejecting an already saved RUN or a detached poll callback.
+  function logFailure(error) { console.error("Ticket RUN wait log failed.", { code: error.code, error: error.message }); }
 
   // Starts a project-owned poller; persisted due times enforce the thirty-second retry interval.
   function start() {
     if (started) return;
     started = true;
     closed = false;
-    timer = setInterval(() => { void tick().catch((error) => projectLogger({ event_name: "ticket.run_wait_poll_failed",
-      level: "error", message: error.message, error_code: error.code, project_id: projectId })); }, 1000);
+    timer = setInterval(() => { void tick().catch((error) => publish({ request: { projectId, ticketId: "RUNTIME-ticket.run_wait" } },
+      "ticket.run_wait_poll_failed", error.message, error)); }, 1000);
     timer.unref?.();
   }
 

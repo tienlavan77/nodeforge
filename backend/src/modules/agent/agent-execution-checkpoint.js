@@ -8,6 +8,7 @@ export function createAgentExecutionCheckpointStore({ fileService, root = stateP
   if (typeof fileService?.readFile !== "function" || typeof fileService?.atomicWrite !== "function") throw new ConfigurationError("Agent execution checkpoint store requires File Service persistence.");
   return Object.freeze({ save, load, complete, clear, listPending, saveReview, loadReview, completeReview, clearReview, listReviewPending });
 
+  // Defines save function behavior for agent-execution-checkpoint.js.
   async function save(checkpoint) {
     if (!checkpoint?.task_id) throw new ConfigurationError("Agent execution checkpoint requires task_id.");
     const record = { ...checkpoint, updated_at: new Date().toISOString() };
@@ -16,21 +17,25 @@ export function createAgentExecutionCheckpointStore({ fileService, root = stateP
     return record;
   }
 
+  // Defines load function behavior for agent-execution-checkpoint.js.
   async function load(taskId) {
     try { return JSON.parse(await fileService.readFile({ path: pathFor(taskId) })); }
     catch (error) { if (error?.code === "ENOENT") return null; throw error; }
   }
 
+  // Defines complete function behavior for agent-execution-checkpoint.js.
   async function complete(taskId, details = {}) {
     const current = await load(taskId);
     const record = { ...(current ?? { task_id: taskId }), ...details, task_id: taskId, status: "completed", completed_at: new Date().toISOString() };
     return save(record);
   }
+  // Defines clear function behavior for agent-execution-checkpoint.js.
   async function clear(taskId) {
     await fileService.deleteFile?.({ path: pathFor(taskId) }).catch((error) => { if (error?.code !== "ENOENT") throw error; });
     return true;
   }
 
+  // Defines listPending function behavior for agent-execution-checkpoint.js.
   async function listPending() {
     const out = [];
     if (typeof fileService.listFiles !== "function") return out;
@@ -50,7 +55,13 @@ export function createAgentExecutionCheckpointStore({ fileService, root = stateP
     const lock = fileService.createLock ? await acquireTicketFileLock(fileService, `${path}.lock`) : null;
     try {
       const current = await loadReview(checkpoint.task_id);
-      if (current?.status === "completed" && current.verdict === "approved") return current;
+      const cycle = checkpoint.execution_context?.review_repair_cycle_id;
+      const coder = cycle ? await load(checkpoint.task_id) : null;
+      if (cycle && coder?.review_cycle_id !== cycle) return current;
+      const nextCycle = cycle && current?.execution_context?.review_repair_cycle_id !== cycle
+        && coder?.review_cycle_id === cycle && checkpoint.request_id && checkpoint.request_id !== current?.request_id;
+      if (current?.status === "completed" && current.verdict === "approved" && !nextCycle) return current;
+      if (current?.execution_context?.review_repair_cycle_id && !cycle) return current;
       const sameAttempt = current && (!checkpoint.request_id || !current.request_id || current.request_id === checkpoint.request_id);
       const merged = sameAttempt ? { ...current, ...checkpoint } : checkpoint;
       const saved = await saveAt(merged, reviewRoot);
@@ -58,8 +69,11 @@ export function createAgentExecutionCheckpointStore({ fileService, root = stateP
       return saved;
     } finally { await lock?.release(); }
   }
+  // Defines loadReview function behavior for agent-execution-checkpoint.js.
   async function loadReview(taskId) { return loadAt(taskId, reviewRoot); }
+  // Defines completeReview function behavior for agent-execution-checkpoint.js.
   async function completeReview(taskId, details = {}) { return saveReview({ ...(await loadReview(taskId) ?? { task_id: taskId }), ...details, task_id: taskId, status: "completed", completed_at: new Date().toISOString() }); }
+  // Defines clearReview function behavior for agent-execution-checkpoint.js.
   async function clearReview(taskId) { return clearAt(taskId, reviewRoot); }
 
   // Mirrors Reviewer stage progress into the single ticket checkpoint once Coder work is completed.
@@ -91,6 +105,7 @@ export function createAgentExecutionCheckpointStore({ fileService, root = stateP
     return pending;
   }
 
+  // Defines saveAt function behavior for agent-execution-checkpoint.js.
   async function saveAt(checkpoint, baseRoot) {
     if (!checkpoint?.task_id) throw new ConfigurationError("Agent execution checkpoint requires task_id.");
     const record = { ...checkpoint, updated_at: new Date().toISOString() };
@@ -98,10 +113,12 @@ export function createAgentExecutionCheckpointStore({ fileService, root = stateP
     await onSaved?.(record);
     return record;
   }
+  // Defines loadAt function behavior for agent-execution-checkpoint.js.
   async function loadAt(taskId, baseRoot) {
     try { return JSON.parse(await fileService.readFile({ path: pathFor(taskId, baseRoot) })); }
     catch (error) { if (error?.code === "ENOENT") return null; throw error; }
   }
+  // Defines clearAt function behavior for agent-execution-checkpoint.js.
   async function clearAt(taskId, baseRoot) {
     await fileService.deleteFile?.({ path: pathFor(taskId, baseRoot) }).catch((error) => { if (error?.code !== "ENOENT") throw error; });
     return true;

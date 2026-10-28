@@ -1,3 +1,5 @@
+// Provides module declarations and business logic for code-search.js.
+
 import { ConfigurationError } from "../../shared/errors.js";
 import { createFileNode, createSymbolNode } from "./code-graph-contract.js";
 import { tokenizeSearchText } from "./search-vocabulary.js";
@@ -16,11 +18,13 @@ export function createCodeSearch({ database } = {}) {
     return { path: node.path, language: node.language ?? null, sha256: node.sha256 ?? null, size_bytes: node.size_bytes ?? null, summary: node.summary, symbols: node.symbols, graph: node.graph, index_version: version };
   }
 
+  // Defines symbolsForFile function behavior for code-search.js.
   function symbolsForFile(path) {
     if (typeof path !== "string" || !path.trim()) throw new ConfigurationError("Code Search symbolsForFile requires a path.");
     return database.all("SELECT s.name, s.kind, s.start_line, s.end_line, s.summary FROM symbols s JOIN files f ON f.file_id = s.file_id WHERE f.path = ? ORDER BY s.start_line, s.name", [path]).map((row) => ({ name: row.name, kind: row.kind, start_line: row.start_line, end_line: row.end_line, summary: row.summary ?? null }));
   }
 
+  // Defines search function behavior for code-search.js.
   function search({ query, kind = "all", limit = 20, projection = "minimal" } = {}) {
     if (typeof query !== "string" || !query.trim()) throw new ConfigurationError("Code Search query is required.");
     if (!["all", "file", "symbol", "content"].includes(kind)) throw new ConfigurationError(`Unsupported Code Search kind: ${kind}.`);
@@ -48,6 +52,7 @@ export function createCodeSearch({ database } = {}) {
     return Object.freeze({ query: query.trim(), matches: Object.freeze(matches.slice(0, limit)), index_version: version });
   }
 
+  // Defines contentMatches function behavior for code-search.js.
   function contentMatches(query, limit, version, projection = "minimal") {
     const expression = ftsQuery(query);
     if (!expression) return [];
@@ -61,6 +66,7 @@ export function createCodeSearch({ database } = {}) {
     return [...symbolMatches, ...fileMatches].slice(0, limit);
   }
 
+  // Defines projectFileNode function behavior for code-search.js.
   function projectFileNode(node, mode, version) {
     if (mode === "minimal") return node;
     const symbols = database.all("SELECT name, kind, start_line, end_line, summary FROM symbols WHERE file_id = ? ORDER BY start_line, name", [node.id]).map((row) => ({ name: row.name, kind: row.kind, start_line: row.start_line, end_line: row.end_line, summary: row.summary ?? null }));
@@ -70,6 +76,7 @@ export function createCodeSearch({ database } = {}) {
     return projected;
   }
 
+  // Defines projectSymbolNode function behavior for code-search.js.
   function projectSymbolNode(node, row, mode) {
     if (mode === "minimal") return node;
     const file = database.all("SELECT language, sha256, size_bytes FROM files WHERE file_id = ?", [row.file_id])[0] ?? {};
@@ -77,6 +84,7 @@ export function createCodeSearch({ database } = {}) {
     return { ...node, summary, language: file.language ?? null, sha256: file.sha256 ?? null, size_bytes: Number.isInteger(file.size_bytes) ? file.size_bytes : null };
   }
 
+  // Defines fileGraph function behavior for code-search.js.
   function fileGraph(fileId, version) {
     const links = database.all(`SELECT target.path, rel.name, rel.kind, rel.is_broken
       FROM imports_exports rel LEFT JOIN files target ON target.file_id = rel.related_file_id
@@ -97,10 +105,15 @@ export function createCodeSearch({ database } = {}) {
     return { imports: links, imported_by: importedBy, calls, index_version: version };
   }
 
+  // Defines scoreFile function behavior for code-search.js.
   function scoreFile(row, terms) { return terms.reduce((score, term) => score + (row.path.toLowerCase() === term ? 1 : row.path.toLowerCase().includes(term) ? 0.6 : (row.language ?? "").toLowerCase() === term ? 0.35 : 0), 0); }
+  // Defines scoreSymbol function behavior for code-search.js.
   function scoreSymbol(row, terms) { return terms.reduce((score, term) => score + (row.name.toLowerCase() === term ? 1 : row.name.toLowerCase().includes(term) ? 0.7 : row.kind.toLowerCase() === term ? 0.25 : row.path.toLowerCase().includes(term) ? 0.2 : 0), 0); }
+  // Defines reasonsFile function behavior for code-search.js.
   function reasonsFile(row, terms) { return terms.flatMap((term) => row.path.toLowerCase() === term ? [`path_exact:${term}`] : row.path.toLowerCase().includes(term) ? [`path_match:${term}`] : (row.language ?? "").toLowerCase() === term ? [`language_match:${term}`] : []); }
+  // Defines reasonsSymbol function behavior for code-search.js.
   function reasonsSymbol(row, terms) { return terms.flatMap((term) => row.name.toLowerCase() === term ? [`symbol_exact:${term}`] : row.name.toLowerCase().includes(term) ? [`symbol_match:${term}`] : row.kind.toLowerCase() === term ? [`kind_match:${term}`] : row.path.toLowerCase().includes(term) ? [`path_match:${term}`] : []); }
+  // Defines ftsQuery function behavior for code-search.js.
   function ftsQuery(value) {
     const terms = tokenizeSearchText(value);
     if (terms.length <= 1) return terms.map((term) => `"${term.replaceAll('"', '""')}"`).join("");
@@ -112,9 +125,12 @@ export function createCodeSearch({ database } = {}) {
     // matches containing more terms, so precision comes from ordering not AND.
     return terms.map((term) => `"${term.replaceAll('"', '""')}"`).join(" OR ");
   }
+  // Defines isTestPath function behavior for code-search.js.
   function isTestPath(path) {
     return typeof path === "string" && (/(^|\/)tests?(\/|$)/.test(path) || path.includes(".test.") || path.includes("__tests__"));
   }
+  // Defines symbolLanguage function behavior for code-search.js.
   function symbolLanguage(path) { const extension = path.slice(path.lastIndexOf(".")).toLowerCase(); return { ".js": "javascript", ".jsx": "javascript", ".ts": "typescript", ".tsx": "typescript", ".php": "php", ".css": "css" }[extension] ?? null; }
+  // Defines indexVersion function behavior for code-search.js.
   function indexVersion() { return `IDX-${database.all("SELECT version FROM index_metadata LIMIT 1")[0]?.version ?? 0}`; }
 }

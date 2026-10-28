@@ -6,6 +6,8 @@ import { prependNodeBin } from "./node-bin-path.js";
 import { claudeCacheEnvironment, claudeCacheUsage } from "./anthropic-prompt-cache.js";
 import { sdkFailureEvidence } from "./sdk-failure-evidence.js";
 import { claudeSdkResult } from "./claude-sdk-result.js";
+import { createSdkTerminalLog } from "./sdk-terminal-log.js";
+import { assertClaudeSessionStopped } from "./claude-session-process.js";
 
 const SAFE_URL = /^https:\/\//;
 const USAGE_FIELDS = new Set(["input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "inputTokens", "outputTokens", "cacheCreationInputTokens", "cacheReadInputTokens"]);
@@ -28,14 +30,17 @@ export function createClaudeSdkGateway({
   if (typeof queryFn !== "function") throw new ConfigurationError("Claude SDK Gateway requires a query function.");
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1) throw new ConfigurationError("Claude SDK Gateway timeout must be a positive integer.");
 
-  return Object.freeze({ execute, provider: "claude", conversationMode: "history" });
+  const active = new Set();
+  return Object.freeze({ execute, assertSessionStopped: ({ agentId, sessionId, endedAt }) => assertClaudeSessionStopped(agentId, active.has(agentId), "/proc", sessionId, endedAt), provider: "claude", conversationMode: "history" });
 
+  // Defines execute function behavior for claude-sdk-gateway.js.
   async function execute({ agentId, prompt, correlationId, cwd, additionalDirectories = [], options = {}, resumeSessionId, onSessionReady, onEvent, abortSignal } = {}) {
     const config = getEnabledConfig(agentId);
     assertString(prompt, "Claude SDK prompt");
     assertString(correlationId, "Claude SDK correlation_id");
     const credential = await resolveCredential(config.credential_ref);
     const controller = new AbortController();
+    // Defines stop function behavior for claude-sdk-gateway.js.
     const stop = () => controller.abort(abortSignal.reason);
     abortSignal?.addEventListener("abort", stop, { once: true });
     if (abortSignal?.aborted) stop();
@@ -66,7 +71,9 @@ export function createClaudeSdkGateway({
     let sessionId = resumeSessionId ?? null;
     let notified = false;
     const builtinSearchCalls = new Map();
-    writeTerminal(`START ${config.agent_name ?? config.agent_id} (${config.provider ?? "claude"}) model=${config.model ?? options.model ?? "default"} effort=${effort ?? "default"} correlation=${correlationId}`);
+    let terminalFailure;
+    const terminal = createSdkTerminalLog({ profile: { ...config, provider: config.provider ?? "anthropic", model: options.model ?? config.model }, context: options.forgeTools?.context, correlationId, credential, output: terminalOutput });
+    // Defines notify function behavior for claude-sdk-gateway.js.
     const notify = (id) => {
       if (notified || !id || typeof onSessionReady !== "function") return;
       notified = true;
@@ -74,6 +81,7 @@ export function createClaudeSdkGateway({
       try { onSessionReady(id); } catch { /* best-effort */ }
     };
     try {
+      active.add(agentId);
       session = queryFn({ prompt, options: queryOptions });
       for await (const message of session) {
         const clean = sanitize(message, credential);
@@ -87,9 +95,7 @@ export function createClaudeSdkGateway({
       }
       if (sessionId) notify(sessionId);
       const response = claudeSdkResult(messages, { structured: options.outputFormat?.type === "json_schema" });
-      writeTerminal(`DONE ${config.agent_name ?? config.agent_id} messages=${messages.length} correlation=${correlationId}`);
       const usage = claudeCacheUsage(messages);
-      if (usage) writeTerminal(`USAGE ${config.agent_name ?? config.agent_id} input=${usage.input_tokens ?? 0} output=${usage.output_tokens ?? 0} cache_read=${usage.cache_read_input_tokens ?? 0} cache_write=${usage.cache_creation_input_tokens ?? 0} correlation=${correlationId}`);
       return {
         usage,
         agent_id: config.agent_id,
@@ -103,28 +109,27 @@ export function createClaudeSdkGateway({
         ...response
       };
     } catch (error) {
+      terminalFailure = error;
       if (abortSignal?.aborted) throw abortSignal.reason;
       if (error?.name === "AbortError" || controller.signal.aborted) {
-        throw sdkFailureEvidence(new ConfigurationError(`Claude SDK request timed out for ${config.agent_id}.`, { cause: error }), error, { aborted: true });
+        const failure = new ConfigurationError(`Claude SDK request timed out for ${config.agent_id}.`, { cause: error });
+        failure.code = "SDK_REQUEST_TIMEOUT";
+        throw sdkFailureEvidence(failure, error, { aborted: true });
       }
       const message = typeof error?.message === "string" && error.message
         ? error.message.replace(credential, "[REDACTED]")
         : "unknown SDK error";
-      writeTerminal(`FAIL ${config.agent_name ?? config.agent_id} ${message.slice(0, 240)} correlation=${correlationId}`);
       const failure = new ConfigurationError(`Claude SDK request failed for ${config.agent_id}: ${message}`, { cause: error });
       if (error.code?.startsWith("CLAUDE_SDK_")) Object.assign(failure, { code: error.code, provider_outcome: error.provider_outcome, retry_safe: false, sdk_subtype: error.sdk_subtype });
       throw sdkFailureEvidence(failure, error, { ended: error.provider_outcome === "failed" });
     } finally {
+      terminal.close(abortSignal?.aborted ? { code: "TICKET_STOPPED", message: "SDK session stopped." } : controller.signal.aborted ? { code: "SDK_REQUEST_TIMEOUT", message: "SDK request timed out." } : terminalFailure);
       abortSignal?.removeEventListener("abort", stop);
       clearTimeout(timeout);
       if (typeof session?.close === "function") session.close();
+      if (typeof session?.return === "function") await session.return();
+      active.delete(agentId);
     }
-  }
-
-  // Writes bounded Claude lifecycle lines to the API terminal without exposing prompt or credential data.
-  function writeTerminal(message) {
-    if (!terminalOutput || typeof terminalOutput.write !== "function") return;
-    terminalOutput.write(`[Claude SDK] ${new Date().toISOString()} ${message}\n`);
   }
 
   // Reports Claude native search starts and bounded completion metadata without source output.
@@ -143,6 +148,7 @@ export function createClaudeSdkGateway({
     }
   }
 
+  // Defines createGatewayEnvironment function behavior for claude-sdk-gateway.js.
   function createGatewayEnvironment({ config, credential, optionsEnv }) {
     const baseUrl = config.gateway_url || gatewayBaseUrl;
     if (typeof baseUrl !== "string" || !SAFE_URL.test(baseUrl)) {
@@ -158,10 +164,12 @@ export function createClaudeSdkGateway({
       ...claudeCacheEnvironment(),
       ANTHROPIC_BASE_URL: baseUrl,
       ANTHROPIC_AUTH_TOKEN: credential,
+      FORGE_CLAUDE_AGENT_ID: config.agent_id,
       ANTHROPIC_API_KEY: ""
     };
   }
 
+  // Defines getEnabledConfig function behavior for claude-sdk-gateway.js.
   function getEnabledConfig(agentId) {
     assertString(agentId, "Claude SDK agent_id");
     const config = configuration.getById(agentId);
@@ -173,6 +181,7 @@ export function createClaudeSdkGateway({
   }
 
 
+  // Defines resolveCredential function behavior for claude-sdk-gateway.js.
   async function resolveCredential(reference) {
     const value = await credentialResolver(reference);
     if (typeof value !== "string" || value.length === 0) throw new ConfigurationError("Claude SDK credential is unavailable.");

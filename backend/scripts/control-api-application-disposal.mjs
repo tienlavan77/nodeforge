@@ -1,6 +1,13 @@
 // Coordinates exactly-once resource disposal across project removal and legacy Control API shutdown.
 const resources = new WeakMap();
 
+// Registers every background Supervisor worker before startup so application rollback,
+// project removal and API shutdown stop recovery polling before closing its databases.
+export function registerSupervisorWorkers(runtime, disposal) {
+  return [runtime.senderWorker, runtime.collectorWorkerLoop, runtime.verificationWorkerLoop,
+    runtime.coderRecovery, runtime.blockerRecovery].filter(Boolean).map((worker) => disposal.own(worker, "stop", 10));
+}
+
 // Gives each acquired application resource a shared cleanup operation without changing its normal methods.
 export function createApplicationDisposal() {
   const entries = new Map();

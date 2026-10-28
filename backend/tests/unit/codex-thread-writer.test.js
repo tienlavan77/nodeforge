@@ -36,6 +36,14 @@ test("does not block a different agent home or another session", (t) => {
   assert.doesNotThrow(() => assertCodexThreadAvailable("/other-home", "thread-2", root));
 });
 
+test("timeout reconciliation requires the entire agent runner to be idle, including a new unbound thread", (t) => {
+  const root = fixture(t, ["exec", "--experimental-json"]);
+  assert.throws(() => assertCodexThreadAvailable("/agent-home", "thread-1", root, { requireIdle: true }), { code: "EXECUTION_SESSION_BUSY" });
+  assert.throws(() => assertCodexThreadAvailable("/agent-home", null, root, { requireIdle: true }), { code: "EXECUTION_SESSION_BUSY" });
+  rmSync(join(root, "42"), { recursive: true });
+  assert.doesNotThrow(() => assertCodexThreadAvailable("/agent-home", "thread-1", root, { requireIdle: true }));
+});
+
 test("maps the SDK writer race to a recoverable conflict without silently starting a new thread", async (t) => {
   const home = mkdtempSync(join(tmpdir(), "codex-writer-gateway-"));
   t.after(() => rmSync(home, { recursive: true, force: true }));

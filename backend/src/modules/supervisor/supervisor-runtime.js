@@ -10,6 +10,7 @@ const LEGACY_STATE_MAP = Object.freeze({
   WAITING_REPAIR: "REPAIRING"
 });
 
+// Defines migrateLegacyState function behavior for supervisor-runtime.js.
 export function migrateLegacyState(state) {
   return LEGACY_STATE_MAP[state] ?? state;
 }
@@ -19,7 +20,9 @@ export function createSupervisorRuntime({ taskId, supervisorId, eventBus, initia
   if (!taskId || !supervisorId || typeof eventBus?.publish !== "function") throw new ConfigurationError("Supervisor runtime requires task_id, supervisor_id and event bus.");
   let state = initialState;
   let wasReset = false;
+  // Defines wasReset method behavior for supervisor-runtime.js.
   return Object.freeze({ taskId, supervisorId, ownershipCreated, get wasReset() { return wasReset; }, getState: () => state, transition, reset, command, prepare });
+  // Defines reset function behavior for supervisor-runtime.js.
   async function reset(context = {}) {
     if (!["COMPLETED", "FAILED", "NEEDS_HUMAN_REVIEW"].includes(state)) return state;
     const previous = state; state = "CREATED"; wasReset = true;
@@ -27,6 +30,7 @@ export function createSupervisorRuntime({ taskId, supervisorId, eventBus, initia
     await eventBus.publish({ type: "supervisor.state_changed", task_id: taskId, supervisor_id: supervisorId, request_id: context.request_id ?? `RESET-${taskId}`, correlation_id: context.correlation_id ?? `CORR-${taskId}`, attempt: context.attempt ?? 1, payload: { from: previous, to: state, reset: true } });
     return state;
   }
+  // Defines transition function behavior for supervisor-runtime.js.
   async function transition(next, context = {}) {
     if (!SUPERVISOR_STATES.includes(next)) throw new ConfigurationError(`Unknown Supervisor state: ${next}`);
     if (next === state) return state;
@@ -36,9 +40,11 @@ export function createSupervisorRuntime({ taskId, supervisorId, eventBus, initia
     await eventBus.publish({ type: "supervisor.state_changed", task_id: taskId, supervisor_id: supervisorId, request_id: context.request_id ?? `STATE-${taskId}-${next}`, correlation_id: context.correlation_id ?? `CORR-${taskId}`, attempt: context.attempt ?? 1, payload: { from: previous, to: next } });
     return state;
   }
+  // Defines command function behavior for supervisor-runtime.js.
   async function command(type, payload, context = {}) {
     return eventBus.publish({ type, task_id: taskId, supervisor_id: supervisorId, request_id: context.request_id, correlation_id: context.correlation_id, attempt: context.attempt ?? 1, payload });
   }
+  // Defines prepare function behavior for supervisor-runtime.js.
   async function prepare(context = {}) {
     if (["READY", "RUNNING", "VERIFYING", "REVIEWING", "REPAIRING", "COMPLETED"].includes(state)) return { state, reused: true };
     await transition("PREPARING", context);
@@ -65,6 +71,7 @@ const ALLOWED_TRANSITIONS = Object.freeze({
   COMPLETED: [], FAILED: [], NEEDS_HUMAN_REVIEW: []
 });
 
+// Defines compactContext function behavior for supervisor-runtime.js.
 function compactContext(context = {}, taskId) {
   const ticket = context.ticket ?? context.payload?.ticket ?? context.payload?.task;
   return { task_id: taskId, request_id: context.request_id, correlation_id: context.correlation_id, attempt: context.attempt ?? 1, project_id: context.project_id ?? ticket?.project_id, ticket_id: ticket?.id ?? taskId, ...(ticket ? { ticket } : {}), ...(context.review_base_commit ? { review_base_commit: context.review_base_commit } : {}), ...(context.agent_id ? { agent_id: context.agent_id, selected_agent_role: context.selected_agent_role } : {}), ...(ticket && context.payload ? { payload: context.payload } : {}), round: context.payload?.step_id ?? context.step_id, queue_job_id: context.job_id };

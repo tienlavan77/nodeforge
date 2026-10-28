@@ -6,12 +6,16 @@ import { readTranscriptBlocksDefinition, selectCodeGraphCandidatesDefinition, se
 /** Creates the sender worker that dispatches agent requests and publishes response events. */
 export function createSenderWorker({ queue, agentRegistry, agentResolver, eventBus, processedStore, protocolStorage, conversationStateStore, conversationIdResolver = (job) => `CONV-BUILDER-${job.task_id}`, workerId = "sender-1", statusBus, signalBus, projectLogger = () => {}, toolRegistry, resolveToolRegistry, reviewHandler } = {}) {
   if (typeof queue?.claim !== "function" || typeof agentRegistry?.resolve !== "function" || typeof eventBus?.publish !== "function") throw new ConfigurationError("Sender Worker requires queue, agent registry and event bus.");
+  // Defines defaultAgentId function behavior for sender-worker.js.
   const defaultAgentId = () => agentResolver?.resolve?.("coder") ?? "builder";
   const processed = new Map();
   let timer; let heartbeat; let unsubscribe;
   return Object.freeze({ processOnce, start, stop });
+  // Defines start function behavior for sender-worker.js.
   function start() { if (timer) return; statusBus?.publish({ worker_id: workerId, worker_type: "sender", status: "ready", sequence: Date.now() }); heartbeat = setInterval(() => statusBus?.publish({ worker_id: workerId, worker_type: "sender", status: "ready", sequence: Date.now() }), 15000); heartbeat.unref?.(); unsubscribe = signalBus?.onWakeup?.((message) => { if (message.target === "agent.request" || message.queue === "agent.request") void processOnce(); }); }
+  // Defines stop function behavior for sender-worker.js.
   function stop() { if (timer) clearInterval(timer); if (heartbeat) clearInterval(heartbeat); unsubscribe?.(); unsubscribe = undefined; timer = undefined; heartbeat = undefined; statusBus?.publish({ worker_id: workerId, worker_type: "sender", status: "stopped", sequence: Date.now() }); }
+  // Defines processOnce function behavior for sender-worker.js.
   async function processOnce() {
     const job = await queue.claim(workerId); if (!job) return null;
     if (job.operation === "review") {
@@ -31,6 +35,7 @@ export function createSenderWorker({ queue, agentRegistry, agentResolver, eventB
       await eventBus.publish(event); projectLogger({ event_name: "sender.response_failed", level: "error", status: "failed", message: "Sender Worker published agent failure.", task_id: job.task_id, correlation_id: job.correlation_id, source: "sender-worker", error_code: error.code ?? "AGENT_REQUEST_FAILED", payload: { request_id: job.request_id, worker_id: workerId, error: error.message } }); await queue.ack(job.id); return event;
     }
   }
+  // Defines toolsForRequest function behavior for sender-worker.js.
   function toolsForRequest(job) {
     const payload = job.payload ?? {};
     // Capabilities advertised in execution_context only authorize Forge tools;
@@ -57,6 +62,7 @@ export function createSenderWorker({ queue, agentRegistry, agentResolver, eventB
     return retrievalTools;
   }
 
+  // Defines runAgentTurns function behavior for sender-worker.js.
   async function runAgentTurns(adapter, adapterConfig, job) {
     const requestToolRegistry = resolveToolRegistry ? await resolveToolRegistry(job) : toolRegistry;
     let payload = job.payload;
@@ -112,6 +118,7 @@ export function createSenderWorker({ queue, agentRegistry, agentResolver, eventB
       : Promise.resolve(payload);
   }
 
+  // Defines appendToolExchange function behavior for sender-worker.js.
   function appendToolExchange(payload, response, results) {
     const provider = payload.provider ?? payload.provider_name ?? payload.agent_provider ?? "openai";
     const providerFamily = provider === "devquote" || provider === "claude" || provider === "anthropic" ? "anthropic" : provider;
@@ -124,9 +131,13 @@ export function createSenderWorker({ queue, agentRegistry, agentResolver, eventB
       : results.map((item) => ({ type: "function_call_output", call_id: item.tool_call_id, output: JSON.stringify(item.result) }));
     return { ...payload, messages: [...(payload.messages ?? []), exchange, outputs], tool_results: [...(payload.tool_results ?? []), ...results] };
   }
+  // Defines summarizeToolInput function behavior for sender-worker.js.
   function summarizeToolInput(input = {}) { return { query: input.query, context: input.context, limit: input.limit, path: input.path, symbol: input.symbol, files_requested: input.files_requested }; }
+  // Defines summarizeTaskContext function behavior for sender-worker.js.
   function summarizeTaskContext(context = {}) { return { title: context.title, objective: context.objective, acceptance_criteria: context.acceptance_criteria }; }
+  // Defines summarizeToolResult function behavior for sender-worker.js.
   function summarizeToolResult(result = {}) { return { task_id: result.task_id, query: result.query, index_version: result.index_version, selected_count: Array.isArray(result.selected) ? result.selected.length : undefined, match_count: Array.isArray(result.matches) ? result.matches.length : undefined, path: result.path }; }
+  // Defines extractToolCalls function behavior for sender-worker.js.
   function extractToolCalls(response) {
     const calls = response?.tool_calls ?? response?.payload?.tool_calls ?? response?.output?.filter?.((item) => item?.type === "function_call");
     if (Array.isArray(calls)) return calls.map((call) => ({ id: call.id ?? call.call_id, name: call.name ?? call.function?.name, input: call.input ?? parseArguments(call.function?.arguments ?? call.arguments) })).filter((call) => call.name && call.input && typeof call.input === "object");
@@ -137,6 +148,7 @@ export function createSenderWorker({ queue, agentRegistry, agentResolver, eventB
   // eslint-disable-next-line no-silent-catch -- Arguments probe: non-JSON input defaults to null by design.
   function parseArguments(value) { if (typeof value !== "string") return value; try { return JSON.parse(value); } catch { return null; } }
 
+  // Defines persistResponse function behavior for sender-worker.js.
   async function persistResponse(job, response) {
     const round = Number(job.payload?.step_id ?? (job.payload?.type === "planning" ? 2 : job.payload?.type === "code_provide" ? 3 : 1));
     await persistAgentResponse({ protocolStorage, taskId: job.task_id, round, response });
@@ -151,4 +163,5 @@ export function createSenderWorker({ queue, agentRegistry, agentResolver, eventB
     }
   }
 }
+// Defines identityEvent function behavior for sender-worker.js.
 function identityEvent(job, type, payload) { return { type, task_id: job.task_id, supervisor_id: job.supervisor_id, request_id: job.request_id, correlation_id: job.correlation_id, attempt: job.attempt ?? 1, payload }; }

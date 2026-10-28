@@ -10,6 +10,7 @@ export function createWatcherSnapshotService({ indexDb, maxFiles = MAX_RECENT_FI
 
   return Object.freeze({ recentFiles, recentEvents, snapshot });
 
+  // Defines recentFiles function behavior for watcher-snapshot-service.js.
   function recentFiles() {
     return indexDb.all(
       `SELECT path, language, size_bytes, sha256, indexed_at
@@ -20,10 +21,12 @@ export function createWatcherSnapshotService({ indexDb, maxFiles = MAX_RECENT_FI
     ).slice(0, maxFiles).map(normalizeFile);
   }
 
+  // Defines snapshot function behavior for watcher-snapshot-service.js.
   function snapshot() {
     return Object.freeze({ watcher: Object.freeze({ recent_events: recentEvents() }) });
   }
 
+  // Defines recentEvents function behavior for watcher-snapshot-service.js.
   function recentEvents() {
     return recentFiles().map((file) => ({
       event_id: `SNAPSHOT-${file.path}-${file.indexed_at}`,
@@ -38,6 +41,7 @@ export function createWatcherSnapshotService({ indexDb, maxFiles = MAX_RECENT_FI
   }
 }
 
+// Defines activityFor function behavior for watcher-snapshot-service.js.
 function activityFor(eventType, path) {
   return [
     `Filesystem change: ${path}`,
@@ -46,6 +50,7 @@ function activityFor(eventType, path) {
   ];
 }
 
+// Defines normalizeFile function behavior for watcher-snapshot-service.js.
 function normalizeFile(file = {}) {
   return Object.freeze({
     path: file.path,

@@ -9,19 +9,23 @@ export async function createDatabaseService({ dataDir, runtimeDir, busyTimeoutMs
   let closed = false;
   let writing = false;
 
+  // Defines write function behavior for database-service.js.
   function write(sql, params = []) {
     return transaction(() => database.run(sql, params));
   }
+  // Defines read function behavior for database-service.js.
   function read(sql, params = []) {
     if (closed) throw new Error("Database service is closed.");
     return database.all(sql, params);
   }
+  // Defines transaction function behavior for database-service.js.
   function transaction(callback) {
     if (closed) throw new Error("Database service is closed.");
     if (writing) return callback();
     writing = true;
     try { return database.transaction(callback); } finally { writing = false; }
   }
+  // Defines close function behavior for database-service.js.
   async function close() { closed = true; await database.close(); }
 
   return Object.freeze({ databasePath: database.databasePath, write, read, transaction, close, run: write, all: read });

@@ -6,6 +6,7 @@ import { isDependencyPath } from "../../infrastructure/filesystem/dependency-rea
 
 // Pins read-only review evidence to Node-selected revisions, never mutable HEAD or model input.
 export function createCommittedReviewSource({ projectRoot, commit, baseCommit, git = createTicketRootGit({ projectRoot }) }) {
+  // Defines fail function behavior for reviewer-committed-source.js.
   const fail = (code, message) => Object.assign(new Error(message), { code });
   // Rejects revision expressions and unsafe committed file types before reading any blob.
   async function check(path, revision, optional = false) {

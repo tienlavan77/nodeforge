@@ -15,6 +15,11 @@ import { createBlockerEvidenceFiles } from "./blocker-evidence-files.js";
 import { reviewerEvidenceRequest } from "./blocker-reviewer-evidence.js";
 import { readReviewerEvidenceArtifact } from "./blocker-reviewer-source.js";
 import { createBlockerContractFiles } from "./blocker-contract-files.js";
+import { isDependencyPath, readDependencyFile } from "../../infrastructure/filesystem/dependency-read.js";
+import { agentDecisionEvidenceError } from "../governance/agent-decision-schema.js";
+import { assertBlockerHandoffProgress } from "./blocker-resume-outcome.js";
+import { validateDependencyRequest } from "./dependency-repair-contract.js";
+import { assertDelegationEvidence } from "./blocker-delegation-evidence.js";
 
 export const BLOCKER_REASONS = ["SCOPE_CONFLICT", "CONTRACT_DECISION_REQUIRED", "ACCEPTANCE_AMBIGUOUS", "ACCESS_REQUIRED", "SECURITY_RISK"];
 
@@ -37,14 +42,21 @@ export async function assertDeclaredContractEvidence(ref, { plan, ticket, archit
 export async function validateBlockerDisposition(value, { job, plan, architecture, fileService, projectRoot, verifyContractSource, contractDelegation, contractReceipts, contractFileService }) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw blockerValidationError("/", "object_required", "Return one disposition object.");
   value = Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== null && entry !== undefined));
-  const unknown = Object.keys(value).find((key) => !["action", "summary", "guidance", "authority_quote", "authority_reference", "evidence", "proposal", "authority_scope", "architecture_basis", "boundary_assessment", "escalation", "contract_draft", "reconciliation", "technical_result", "coder_request", "candidate", "candidate_review", "criterion_updates"].includes(key));
+  const unknown = Object.keys(value).find((key) => !["action", "summary", "guidance", "authority_quote", "authority_reference", "evidence", "proposal", "authority_scope", "architecture_basis", "boundary_assessment", "escalation", "contract_draft", "reconciliation", "technical_result", "coder_request", "dependency_request", "candidate", "candidate_review", "criterion_updates"].includes(key));
   if (unknown !== undefined) throw blockerValidationError("/", "additional_property", `Remove unsupported disposition property: ${unknown}.`);
-  if (!["resolved", "architecture_required", "owner_required", "governance_required", "reconciliation_required", "coder_requested", "candidate_prepared", "sprint_required"].includes(value.action)) throw blockerValidationError("/action", "action_invalid", "Use resolved, architecture_required, owner_required, governance_required, reconciliation_required, coder_requested, candidate_prepared or sprint_required.");
+  if (!["resolved", "architecture_required", "owner_required", "governance_required", "reconciliation_required", "coder_requested", "dependency_requested", "candidate_prepared", "sprint_required"].includes(value.action)) throw blockerValidationError("/action", "action_invalid", "Use an action from the active blocker_decision schema.");
   if (!text(value.summary) || value.summary.length > 8000) throw blockerValidationError("/summary", "summary_invalid", "Provide a nonempty summary within 8000 characters.");
-  const { files } = createBlockerEvidenceFiles({ projectRoot, profile: { role: job?.stage }, taskId: job?.request?.task_id, job,
-    files: { assertReadPath: (path) => assertReviewerReadPath(projectRoot, path), readFile: (input) => fileService.readFile(input) } });
-  const evidenceFiles = createBlockerContractFiles({ files, stateFiles: contractFileService, receipts: contractReceipts, job });
+  const evidenceFiles = blockerEvidenceFiles({ job, fileService, projectRoot, contractReceipts, contractFileService });
   validateCriterionUpdates(value, job);
+  validateDependencyRequest(value, job);
+  if (value.action === "dependency_requested") {
+    if (value.authority_scope !== "sprint" || !text(value.guidance)) throw blockerValidationError("/authority_scope", "dependency_authority_invalid", "SL coordinates dependency repair within approved Sprint authority with concrete guidance.");
+    if (["architecture_basis", "boundary_assessment", "escalation", "proposal", "contract_draft", "reconciliation", "technical_result", "coder_request", "candidate", "candidate_review"].some((key) => value[key] !== undefined))
+      throw blockerValidationError("/dependency_request", "dependency_action_mismatch", "Return only Sprint authority and dependency repair instructions for dependency_requested.");
+    const authorityQuote = resolveBlockerAuthority(value, { plan, ticket: job.request.ticket, architecture });
+    if (value.evidence !== undefined) await assertSourceEvidence(value.evidence, { fileService, projectRoot, evidenceFiles, required: false });
+    return { ...value, authority_quote: authorityQuote };
+  }
   if (job?.stage === "coder" || value.action === "candidate_prepared") return validateCoderCandidate(value, { job, fileService, projectRoot });
   if (value.candidate !== undefined || value.coder_request !== undefined && value.action !== "coder_requested") throw blockerValidationError("/", "candidate_action_mismatch", "Candidate data belongs to candidate_prepared and requests to coder_requested.");
   if (value.action === "sprint_required") {
@@ -59,7 +71,7 @@ export async function validateBlockerDisposition(value, { job, plan, architectur
   }
   if (value.action === "coder_requested") {
     validateCoderRequest(value, job);
-    if (value.evidence !== undefined) await assertSourceEvidence(value.evidence, { fileService, projectRoot, evidenceFiles });
+    if (value.evidence !== undefined) await assertSourceEvidence(value.evidence, { fileService, projectRoot, evidenceFiles, required: false });
     return value;
   }
   if (job?.stage === "sprint_leader" && job.coder_exchange?.candidate && value.action === "resolved") {
@@ -72,18 +84,19 @@ export async function validateBlockerDisposition(value, { job, plan, architectur
       "No evidenced access decision requires admission here. Use tooling or source_revision reconciliation for missing receipts or technical failures; after a settled AM answer, return concrete SL guidance instead of requesting another Node admission step. Actual tool authorization remains enforced.");
   }
   validateTechnicalReconciliation(value, job);
+  assertBlockerHandoffProgress(value, job);
   if (reviewerEvidenceRequest(value)) await readReviewerEvidenceArtifact({ job, projectRoot, subject: reviewerEvidenceRequest(value).subject });
   if (value.action === "governance_required") return validateBlockerContractDraft(value, { job, fileService, projectRoot });
   if (value.contract_draft) throw blockerValidationError("/contract_draft", "action_mismatch", "A contract draft requires governance_required; it is not execution authority.");
   if (value.action === "reconciliation_required") {
     assertVerificationWait(value, job);
     if (!text(value.guidance) || value.guidance.length > 8000) throw blockerValidationError("/guidance", "guidance_invalid", "Identify the unresolved technical prerequisite and the required reconciliation without authorizing Coder resume.");
-    if (value.evidence !== undefined) await assertSourceEvidence(value.evidence, { fileService, projectRoot, evidenceFiles });
+    if (value.evidence !== undefined) await assertSourceEvidence(value.evidence, { fileService, projectRoot, evidenceFiles, required: false });
     return value;
   }
   if (value.action === "architecture_required") {
     if (job?.stage === "architecture_manager") throw blockerValidationError("/action", "architecture_stage_terminal", "AM must resolve the blocker, report reconciliation_required or return owner_required with a bounded escalation; it cannot delegate the decision back to Architecture.");
-    if (value.evidence !== undefined) await assertSourceEvidence(value.evidence, { fileService, projectRoot, evidenceFiles });
+    if (value.evidence !== undefined) await assertSourceEvidence(value.evidence, { fileService, projectRoot, evidenceFiles, required: false });
     return value;
   }
   if (value.action === "owner_required") {
@@ -109,19 +122,20 @@ export async function validateBlockerDisposition(value, { job, plan, architectur
   const scope = value.authority_scope ?? "sprint";
   if (!["sprint", "architecture"].includes(scope)) throw blockerValidationError("/authority_scope", "scope_invalid", "Use sprint or architecture authority scope.");
   const delegated = job.stage === "sprint_leader" && job.sprint_delegation;
-  if (delegated) {
-    assertArchitectureDisposition(job.sprint_delegation, { job: { ...job, stage: "architecture_manager" }, architecture });
-    await assertSourceEvidence(job.sprint_delegation.evidence, { fileService, projectRoot, evidenceFiles });
-  }
+  if (delegated) await assertCurrentBlockerDelegation({ job, architecture, fileService, projectRoot, evidenceFiles });
   const retainedDelegation = job.stage === "sprint_leader" && contractDelegation;
   if (retainedDelegation) assertArchitectureDisposition(contractDelegation, { job: { ...job, stage: "architecture_manager" }, architecture });
-  const accessDecision = delegated ? job.sprint_delegation : retainedDelegation;
+  // AM's current answer is technical authority returned to SL, not a tool grant.
+  // Validate its Architecture binding and source below; missing historical
+  // diagnostics must not discard it before those checks can run.
+  const accessDecision = job.stage === "architecture_manager" && scope === "architecture" ? value
+    : delegated ? job.sprint_delegation : retainedDelegation;
   const accessAnswer = accessDecision?.action === "resolved" && accessDecision.technical_result?.admission?.status === "within_existing_permissions";
-  // Node cannot classify the failure without complete original receipts. Route that gap to concrete evidence
-  // reconciliation, not a policy/AM admission escalation and not an agent self-certified resolved handoff.
+  // SL cannot resolve a diagnostic gap alone. A bounded AM answer supplies the
+  // technical decision; its authority and evidence still pass the checks below.
   if (requiresEvidenceReconciliation(job) && value.action === "resolved" && !accessAnswer) {
     throw blockerValidationError("/action", "failure_evidence_incomplete",
-      "Node's original failure receipts are incomplete or unrecognized, so the blocker cannot be cleared as resolved yet. Re-inspect the cited sources and report the precise missing receipt as reconciliation_required; this is a technical evidence gap, not an approval denial or a new Owner policy question.", { retryable: true });
+      "Node cannot classify the original failure from its retained receipts. SL must consult AM about the concrete prerequisite. AM may resolve it with authenticated Architecture authority, current source evidence and a complete technical_result within existing permissions; missing diagnostics alone do not invalidate that answer. Identify only a specific remaining prerequisite; do not repeat unrelated discovery or invent an approval denial.", { retryable: true });
   }
   if (requiresBlockerAdmission(job) && !accessAnswer && !(job?.stage === "architecture_manager" && scope === "architecture")) {
     throw blockerValidationError("/action", "access_or_security_authority_required",
@@ -146,12 +160,29 @@ export async function validateBlockerDisposition(value, { job, plan, architectur
   return { ...value, authority_quote: authorityQuote };
 }
 
-// Verifies 1-16 real source file checksums and enforces pre-approved contract bindings for non-AM stages.
-async function assertSourceEvidence(evidenceList, { fileService, projectRoot, evidenceFiles, requireContractBinding = false, contractEvidence = [], authorityQuote, verifyContractSource } = {}) {
-  if (!Array.isArray(evidenceList) || !evidenceList.length || evidenceList.length > 16) throw blockerValidationError("/evidence", "evidence_invalid", "Provide one to sixteen verifiable source references.");
+// Revalidates retained AM authority and citations separately from SL's newly submitted disposition, preserving their diagnostic ownership.
+export async function assertCurrentBlockerDelegation({ job, architecture, fileService, projectRoot, evidenceFiles, contractReceipts, contractFileService }) {
+  if (job.stage !== "sprint_leader" || !job.sprint_delegation) return;
+  assertArchitectureDisposition(job.sprint_delegation, { job: { ...job, stage: "architecture_manager" }, architecture });
+  evidenceFiles ??= blockerEvidenceFiles({ job, fileService, projectRoot, contractReceipts, contractFileService });
+  const shapeError = agentDecisionEvidenceError(job.sprint_delegation.evidence);
+  if (shapeError) throw blockerValidationError(`/sprint_delegation${shapeError.path}`, shapeError.reason, shapeError.message);
+  await assertDelegationEvidence(job.sprint_delegation.evidence,
+    (evidence) => assertSourceEvidence(evidence, { fileService, projectRoot, evidenceFiles }));
+}
+
+// Uses the same exact source and receipt grants for live disposition checks and recovery of a parked delegation.
+function blockerEvidenceFiles({ job, fileService, projectRoot, contractReceipts, contractFileService }) {
+  const { files } = createBlockerEvidenceFiles({ projectRoot, profile: { role: job?.stage }, taskId: job?.request?.task_id, job,
+    files: { assertReadPath: (path) => assertReviewerReadPath(projectRoot, path), readFile: (input) => fileService.readFile(input) } });
+  return createBlockerContractFiles({ files, stateFiles: contractFileService, receipts: contractReceipts, job });
+}
+
+// Checks schema-defined source references and enforces pre-approved contract bindings for non-AM stages.
+async function assertSourceEvidence(evidenceList, { fileService, projectRoot, evidenceFiles, required = true, requireContractBinding = false, contractEvidence = [], authorityQuote, verifyContractSource } = {}) {
+  const shapeError = agentDecisionEvidenceError(evidenceList, { required });
+  if (shapeError) throw blockerValidationError(shapeError.path, shapeError.reason, shapeError.message, { expected: shapeError.expected });
   for (const [index, evidence] of evidenceList.entries()) {
-    if (!evidence || !text(evidence.path)) throw blockerValidationError(`/evidence/${index}/path`, "path_required", "Evidence requires a source path.");
-    if (!/^[a-f0-9]{64}$/.test(evidence.sha256 ?? "")) throw blockerValidationError(`/evidence/${index}/sha256`, "checksum_invalid", "Provide the full SHA-256 of the inspected source file.");
     if (requireContractBinding && verifyContractSource) {
       const ref = contractEvidence.find((entry) => entry.path === evidence.path);
       if (ref) {
@@ -171,12 +202,19 @@ async function assertSourceEvidence(evidenceList, { fileService, projectRoot, ev
       throw blockerValidationError(`/evidence/${index}/path`, "evidence_not_source", "Blocker evidence must cite inspected original project source files or Node-granted verification receipts, never READ-ONLY FULL CONTEXT INDEX delivery copies. Re-read the original source with read_file and cite its path with the current full-file sha256.");
     }
     let content;
-    try { content = await (evidenceFiles ?? fileService).readFile({ path: evidence.path }); }
+    try {
+      // Validate package evidence with the same bounded, read-only pnpm resolver used by agent tools.
+      // Ordinary source and authenticated runtime receipts retain their existing readers and permissions.
+      content = isDependencyPath(evidence.path)
+        ? (await readDependencyFile({ projectRoot, path: evidence.path })).content
+        : await (evidenceFiles ?? fileService).readFile({ path: evidence.path });
+    }
     catch (error) {
       if (!["ENOENT", "FILE_NOT_FOUND"].includes(error.code)) throw error;
       throw blockerValidationError(`/evidence/${index}/path`, "evidence_missing", "The cited source file does not exist. Remove its invented source checksum; cite inspected existing source and report the absent proposed file as a diagnostic. No mutation or retry permission is granted.");
     }
-    if (createHash("sha256").update(content).digest("hex") !== evidence.sha256) throw blockerValidationError(`/evidence/${index}/sha256`, "evidence_stale", "Blocker evidence is stale. Re-read the source; do not invent a checksum.");
+    const currentSha256 = createHash("sha256").update(content).digest("hex");
+    if (currentSha256 !== evidence.sha256) throw blockerValidationError(`/evidence/${index}/sha256`, "evidence_stale", "Blocker evidence is stale. Re-read the source; do not invent a checksum.", { expected: currentSha256, received: evidence.sha256 });
     if (requireContractBinding && !verifyContractSource && !contractEvidence.some((ref) => ref.path === evidence.path && ref.sha256 === evidence.sha256 && ref.authority_quote === authorityQuote))
       throw invalid("A contract requires an exact approved contract evidence binding; source existence alone is not approval.");
   }

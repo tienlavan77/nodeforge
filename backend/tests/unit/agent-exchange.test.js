@@ -67,6 +67,23 @@ test("missing evidence requires its concrete purpose and unknown payload fields 
     (error) => error.validation_errors[0].path === "/payload/missing_evidence/0/needed_for");
 });
 
+test("response correction identifies the role schema and all invalid fields without reinterpreting history", () => {
+  const input = request();
+  assert.throws(() => bindAgentExchangeResponse({ ...reply, payload: { ...reply.payload, answer: 3, next_steps: 7 } }, input),
+    (error) => error.schema_id === "architecture_manager.blocker_decision.v1"
+      && error.validation_errors.some((item) => item.path === "/payload/answer")
+      && error.validation_errors.some((item) => item.path === "/payload/next_steps"));
+  assert.throws(() => bindAgentExchangeResponse({ ...reply, dispatch: true }, input),
+    (error) => error.schema_id === "architecture_manager.blocker_decision.v1" && error.validation_errors[0].reason === "unexpected_field");
+  const sl = request("coder", "sprint_leader");
+  const historical = createAgentExchange({ context, sender: sl.recipient, recipient: sl.sender, kind: reply.kind, subject: reply.subject,
+    payload: { ...reply.payload, decision: { action: "sprint_required", summary: "Historical response.",
+      evidence: [{ path: "backend/source.js", sha256: "a".repeat(64) }] } }, inReplyTo: sl.message_id });
+  assert.doesNotThrow(() => assertAgentExchange(historical));
+  assert.throws(() => bindAgentExchangeResponse(historical, sl),
+    (error) => error.schema_id === "sprint_leader.blocker_decision.v1" && error.validation_errors[0].reason === "role_action_mismatch");
+});
+
 test("storage survives restart, deduplicates retries and rejects cross-execution reads", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-exchange-"));
   try {

@@ -6,7 +6,7 @@ import { currentReviewFindings } from "./review-query-records.js";
 export async function reviewRevisionResume(queueStore, ticketId, checkpoint) {
   if (!checkpoint || ["completed", "blocked"].includes(checkpoint.status) || typeof queueStore?.list !== "function") return checkpoint;
   if (checkpoint.review_repair_key && ["finding_repair_preparing", "finding_repair_ready"].includes(checkpoint.phase)) return checkpoint;
-  const jobs = (await queueStore.list("sender.handoff")).filter((job) => job.task_id === ticketId && Array.isArray(job.payload?.review_findings) && job.payload.review_findings.length);
+  const jobs = (await queueStore.list("sender.handoff")).filter((job) => job.task_id === ticketId && (!checkpoint.review_cycle_id || job.payload?.review_cycle_id === checkpoint.review_cycle_id) && Array.isArray(job.payload?.review_findings) && job.payload.review_findings.length);
   const revision = jobs.sort((a, b) => (a.attempt ?? 0) - (b.attempt ?? 0) || String(a.created_at ?? "").localeCompare(String(b.created_at ?? ""))).at(-1);
   if (!revision) return checkpoint;
   if ((checkpoint.last_completed_turn ?? 0) > 0 && Array.isArray(checkpoint.review_findings) && JSON.stringify(currentReviewFindings(checkpoint.review_findings)) === JSON.stringify(currentReviewFindings(revision.payload.review_findings))) return checkpoint;

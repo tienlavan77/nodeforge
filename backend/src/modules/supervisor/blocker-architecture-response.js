@@ -3,6 +3,7 @@ import { completeAuthorityConsultation } from "./blocker-authority-consultation.
 import { scheduleTechnicalReconciliation } from "./blocker-technical-reconciliation.js";
 import { waitingAssignments } from "./blocker-waiting-work.js";
 import { completeBlockerAdmissionWait } from "./blocker-handoff-policy.js";
+import { isDeepStrictEqual } from "node:util";
 
 // Preserves the AM conclusion as SL input, retaining the original Coder request and checkpoint.
 export function returnArchitectureResponse(job, value, now) {
@@ -11,6 +12,9 @@ export function returnArchitectureResponse(job, value, now) {
   if (!["resolved", "sprint_required", "reconciliation_required"].includes(value.action)) return false;
   job.architecture_response = { disposition: value, answered_at: now, execution_id: job.request.payload?.execution_id,
     actor: job.history.at(-1)?.actor ?? null };
+  if (job.delegation_evidence_review?.status === "assigned") Object.assign(job.delegation_evidence_review,
+    { status: ["resolved", "sprint_required"].includes(value.action) && value.authority_scope === "architecture" ? "answered" : "unresolved",
+      handoff_reusable: sameArchitectureConclusion(job.sprint_delegation, value), answered_at: now });
   if (["resolved", "sprint_required"].includes(value.action) && value.authority_scope === "architecture") job.sprint_delegation = value;
   else delete job.sprint_delegation;
   if (job.coder_exchange) job.coder_exchange.review_role = "sprint_leader";
@@ -31,4 +35,11 @@ export function returnArchitectureResponse(job, value, now) {
   }
   delete job.outcome_reason;
   return true;
+}
+
+// Reuses SL's old proposal only when AM renewed citations without changing any decision fields; changed guidance must return to SL for a new coordination decision.
+function sameArchitectureConclusion(previous, current) {
+  // Compares all structured decision fields while allowing source citations to be renewed independently.
+  const decisionFields = (value) => Object.fromEntries(Object.entries(value ?? {}).filter(([key]) => key !== "evidence"));
+  return isDeepStrictEqual(decisionFields(previous), decisionFields(current));
 }

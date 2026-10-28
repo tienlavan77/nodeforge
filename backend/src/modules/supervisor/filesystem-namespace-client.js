@@ -11,6 +11,7 @@ export function requestFilesystemNamespace(socketPath, request, { signal, timeou
     let pending = "";
     let finished = false;
     const timer = setTimeout(() => finish(Object.assign(new Error("Filesystem runner request timed out."), { code: "VERIFY_RUNNER_TIMEOUT" })), timeoutMs);
+    // Defines abort function behavior for filesystem-namespace-client.js.
     const abort = () => finish(signal.reason);
     // Releases socket and cancellation resources exactly once for each request.
     function finish(error, result) {

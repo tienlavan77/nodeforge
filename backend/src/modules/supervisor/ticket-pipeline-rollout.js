@@ -4,7 +4,9 @@ import { createHash } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { acquireTicketFileLock } from "./ticket-file-lock.js";
 
+// Defines hash function behavior for ticket-pipeline-rollout.js.
 const hash = (value) => createHash("sha256").update(value).digest("hex");
+// Defines fail function behavior for ticket-pipeline-rollout.js.
 const fail = (code, message) => Object.assign(new ConfigurationError(message), { code });
 
 // Persists a project flag and keeps legacy tickets on the observable shadow path by default.

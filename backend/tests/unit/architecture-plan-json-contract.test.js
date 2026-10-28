@@ -45,6 +45,11 @@ test("schema-invalid, ambiguous, null-bearing and prose-only responses are rejec
   const rejected = ["", "   ", "I recommend we build this incrementally and review later.", "{", "[1,2]", '{"title":null}', JSON.stringify({ ...plan(), objective: null }), JSON.stringify({ ...plan(), scope: [] }), JSON.stringify({ ...plan(), assumptions: [""] }), JSON.stringify({ ...plan(), extra: 7 }), JSON.stringify({ ...plan(), outcomes: [{ id: "X1", outcome: "x", acceptance_criteria: ["y"], guardrails: ["z"] }] }), JSON.stringify({ ...plan(), evidence: [{ path: "/etc/passwd", fact: "x" }] }), JSON.stringify({ ...plan(), evidence: [{ path: "backend/src/a.js", location: "nope", fact: "x" }] })];
   for (const raw of rejected) assert.throws(() => parseArchitecturePlanJSON(raw), (error) => error.code === "ARCHITECTURE_PLAN_JSON_INVALID" && error.statusCode === 409, `must reject: ${String(raw).slice(0, 40)}`);
   assert.deepEqual(parseArchitecturePlanJSON(JSON.stringify(plan())), JSON.parse(JSON.stringify(plan())), "a valid plan round-trips");
+  assert.deepEqual(parseArchitecturePlanJSON(`\`\`\`json\n${JSON.stringify(plan())}\n\`\`\``), JSON.parse(JSON.stringify(plan())), "a single fenced JSON plan round-trips");
+  assert.equal(mergeArchitecturePlanJSON(JSON.stringify(plan()), "```json\n{\"title\":\"Updated via fenced patch\"}\n```").title, "Updated via fenced patch");
+  for (const ambiguousFence of [`\`\`\`md\n${JSON.stringify(plan())}\n\`\`\``, `\`\`\`json\n${JSON.stringify(plan())}\n\`\`\`\ntrailing prose`]) {
+    assert.throws(() => parseArchitecturePlanJSON(ambiguousFence), { code: "ARCHITECTURE_PLAN_JSON_INVALID" });
+  }
 });
 
 test("canonical rendering is identical regardless of object-key insertion order", () => {
@@ -107,6 +112,22 @@ test("literal pipes, code alternatives and multiline JSON stay within outcome ce
   assert.deepEqual(scope.acceptance_criteria, ["status=open|done|all", "code open|done and x|y", "first line<br>second line"]);
   assert.deepEqual(scope.guardrails, ["Keep GET|PATCH stable"]);
   assert.match(markdown, /status=open\\\|done\\\|all/);
+});
+
+// Reproduces the project lifecycle plan rejection without changing the JSON or
+// rendered revision bytes: symbolic IDs and route parameters are concrete syntax.
+test("JSON project identifiers and route parameters survive rendering and scope admission", () => {
+  const candidate = plan();
+  candidate.outcomes[0] = { id: "O1", outcome: "Preserve PROJECT-<uuid> identifiers", acceptance_criteria: ["Accept PROJECT-<uuid> and PROJECT-NODEFORGE", "GET /forge/v1/projects/<projectId> returns Promise<Result>"], guardrails: ["Keep /forge/v1/stream?project=<project_id> available"] };
+  const parsed = parseArchitecturePlanJSON(JSON.stringify(candidate));
+  const canonicalBytes = canonicalizeArchitecturePlanJSON(parsed);
+  const sourceSha256 = canonicalArchitecturePlanSha256(parsed);
+  const markdown = renderArchitecturePlanMarkdown({ plan: parsed, planId: "PLAN-A", revision: 1, sourceSha256 });
+  const [scope] = readMarkdownSprintScope(markdown);
+  assert.equal(scope.outcome, candidate.outcomes[0].outcome);
+  assert.deepEqual(scope.acceptance_criteria, candidate.outcomes[0].acceptance_criteria);
+  assert.deepEqual(scope.guardrails, candidate.outcomes[0].guardrails);
+  assert.deepEqual(reconstructPlanFromCanonicalSource({ canonicalBytes, sourceSha256, markdown, planId: "PLAN-A", revision: 1 }), parsed);
 });
 
 test("RFC 7396 merge updates fields, deletes nested keys with null and replaces arrays wholesale", () => {

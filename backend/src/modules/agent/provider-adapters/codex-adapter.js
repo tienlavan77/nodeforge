@@ -113,6 +113,7 @@ function extractToolUse(body) {
   return { id: item.call_id ?? item.id, name: item.name, input };
 }
 
+// Defines pollUntilTerminal function behavior for codex-adapter.js.
 async function pollUntilTerminal({ url, credential, correlationId, signal, response, body }) {
   const pending = new Set(["queued", "in_progress"]);
   if (!pending.has(body?.status) || !body?.id) return { response, body };
@@ -137,6 +138,7 @@ async function pollUntilTerminal({ url, credential, correlationId, signal, respo
   return { response, body };
 }
 
+// Defines gatewayError function behavior for codex-adapter.js.
 async function gatewayError(response, label) {
   let body = "";
   // eslint-disable-next-line no-silent-catch -- Error body placeholder; status code is preserved in the thrown error.
@@ -147,6 +149,7 @@ async function gatewayError(response, label) {
   return error;
 }
 
+// Defines fetchWithRetry function behavior for codex-adapter.js.
 async function fetchWithRetry(url, options, label, { maxRetries = 2, baseDelayMs = 100 } = {}) {
   for (let attempt = 0; ; attempt += 1) {
     const response = await fetch(url, options);

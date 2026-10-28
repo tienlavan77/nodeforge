@@ -47,7 +47,8 @@ test("repaired browser runner admits unchanged ticket and retains bounded failur
       }
       assert.equal(result.status, "failed");
       assert.equal(result.error.code, "VERIFY_STORAGE_EXHAUSTED");
-      assert.match(result.runner_revision, /^sha256:/);
+      const persisted = JSON.parse(await files.readFile({ path: `.forge/runtime/ticket-verification/${taskId}/jobs/${started.job_id}.json` }));
+      assert.match(persisted.runner_revision, /^sha256:/);
     }
     await assert.rejects(createTicketVerificationService(options).startTests(), { code: "VERIFY_RETRY_UNCHANGED" });
     assert.equal(runs, 2);

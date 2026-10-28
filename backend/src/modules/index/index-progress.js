@@ -13,6 +13,7 @@ export const INDEX_STAGES = Object.freeze(["preflight", "identity", "membership"
 // Reads a consistent database checkpoint so consumers can reconcile attempt outcomes with
 // committed inventory at a named index version rather than equating processed events to files.
 export function indexCheckpoint(database) {
+  // Defines read function behavior for index-progress.js.
   const read = () => {
     const files = database.all("SELECT file_id, language FROM files");
     const languages = new Map(files.map((file) => [file.file_id, file.language]));

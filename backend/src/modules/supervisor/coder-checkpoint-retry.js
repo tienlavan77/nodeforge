@@ -25,6 +25,7 @@ export async function resumeCoderCheckpointRetry({ projectId, ticketId, ticket, 
   const payload = { execution_id: current.details.execution_id, sprint_basis: basis, dependency_expectations: current.details.dependency_expectations,
     resume_from: { ...checkpoint, status: "in_progress", failure: null },
     ...(current.details.review_reopen?.repair_cycle_id ? { review_cycle_id: current.details.review_reopen.repair_cycle_id } : {}) };
+  // Defines validate function behavior for coder-checkpoint-retry.js.
   const validate = () => assertDependencyExpectations({ projectId, ticket, expectations: payload.dependency_expectations, sprintRegistry, ticketStatusStore });
   validate();
   if (current.status !== "running") ticketStatusStore.resumeBlockedExecution(ticketId, { executionId: payload.execution_id, basis, expectedVersion: current.version,

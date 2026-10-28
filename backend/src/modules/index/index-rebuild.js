@@ -1,3 +1,5 @@
+// Provides module declarations and business logic for index-rebuild.js.
+
 import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
@@ -12,6 +14,7 @@ import { readContentHash } from "../watcher/debounced-watcher.js";
 
 const CODE_INDEX_RUNTIME_DIR = statePath("wc");
 
+// Defines rebuildIndex function behavior for index-rebuild.js.
 export async function rebuildIndex({ projectRoot, database, runtimeDir = CODE_INDEX_RUNTIME_DIR, ignore = [], registry = extractorRegistry, indexer, embeddingJobs = null, embeddingModel = "embeddinggemma", onFile = () => {}, onProgress = () => {}, progress = createIndexProgress({ onProgress }), force = false } = {}) {
   await ensureForgeLayout(projectRoot);
   const ownsDatabase = !database;
@@ -74,12 +77,14 @@ export async function rebuildIndex({ projectRoot, database, runtimeDir = CODE_IN
   }
 }
 
+// Defines clearIndex function behavior for index-rebuild.js.
 export function clearIndex(database) {
   for (const table of ["calls", "references", "tests_map", "imports_exports", "dependency_edges", "symbol_content_fts", "file_content_fts", "symbol_embeddings", "symbols", "files"]) {
     database.run(`DELETE FROM "${table}"`);
   }
 }
 
+// Defines scanProject function behavior for index-rebuild.js.
 async function* scanProject(projectRoot, isIgnored, directory = projectRoot) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const absolutePath = join(directory, entry.name);

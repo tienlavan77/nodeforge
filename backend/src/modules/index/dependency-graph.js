@@ -1,9 +1,11 @@
 // Summary: Maintains dependency_edges for the Code Index by resolving imports to file IDs and marking broken targets.
 import { isAbsolute, posix, relative } from "node:path";
 
+// Defines createDependencyGraph function behavior for dependency-graph.js.
 export function createDependencyGraph({ database, files, projectRoot } = {}) {
   return Object.freeze({
     resolve: resolveImport,
+    // Defines replaceForFile method behavior for dependency-graph.js.
     replaceForFile(fileId, sourcePath, imports) {
       database.run("DELETE FROM dependency_edges WHERE source_file_id = ?", [fileId]);
       for (const item of imports) {
@@ -15,11 +17,13 @@ export function createDependencyGraph({ database, files, projectRoot } = {}) {
         );
       }
     },
+    // Defines markTargetBroken method behavior for dependency-graph.js.
     markTargetBroken(fileId) {
       database.run("UPDATE dependency_edges SET is_broken = 1 WHERE target_file_id = ?", [fileId]);
     }
   });
 
+  // Defines resolveImport function behavior for dependency-graph.js.
   function resolveImport(sourcePath, source, external) {
     if (!source || external) return null;
     const targetPath = isAbsolute(source)

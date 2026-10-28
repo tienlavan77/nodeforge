@@ -108,7 +108,8 @@ test("AM validator correction retains the request, disables discovery and persis
     const worker = createBlockerRecoveryAgent({ agentResolver: { resolveAvailable: () => profile },
       agentOccupancy: { claim: async () => ({ claim_id: "C" }), release: async () => {} }, resolveTicketWorkspace: async () => f.base.workspace,
       gateways: { codexSdkGateway: { execute: async ({ prompt, options }) => {
-        assert.deepEqual(options.forgeTools.definitions, []);
+        assert.deepEqual(options.forgeTools.definitions.map(({ name }) => name), ["lookup_schema"]);
+        assert.equal((await options.forgeTools.registry.lookup_schema.execute({})).role, "architecture_manager");
         assert.equal(options.webSearchMode, "disabled");
         assert.match(prompt, /RESPONSE CORRECTION ONLY/);
         assert.match(prompt, /The existing contract applies/);
@@ -136,9 +137,9 @@ test("AM authority corrections use Node-supplied identity and passage references
     const worker = createBlockerRecoveryAgent({ agentResolver: { resolveAvailable: () => profile },
       agentOccupancy: { claim: async () => ({ claim_id: "C" }), release: async () => {} }, resolveTicketWorkspace: async () => f.base.workspace,
       gateways: { codexSdkGateway: { execute: async ({ prompt, options }) => {
-        assert.deepEqual(options.forgeTools.definitions, []);
-        assert.match(prompt, /NODE-VERIFIED ARCHITECTURE IDENTITY:.*ARCH-P/);
-        assert.match(prompt, /NODE-ISSUED AUTHORITY PASSAGES:.*PASSAGE-1/);
+        assert.deepEqual(options.forgeTools.definitions.map(({ name }) => name), ["lookup_schema"]);
+        assert.match(prompt, /NODE-ISSUED AUTHORITY CONTEXT:.*ARCH-P.*PASSAGE-1/);
+        assert.equal(prompt.split('"passage_id":"PASSAGE-1"').length - 1, 1);
         assert.match(prompt, /RESPONSE CORRECTION ONLY/);
         assert.match(prompt, /action=sprint_required.*authority_scope=architecture/s);
         assert.match(prompt, /For action=reconciliation_required.*omit technical_result/);
@@ -189,8 +190,8 @@ for (const provider of ["codex", "claude"]) test(`${provider} SL corrects an AM-
         if (calls.length === 2) {
           assert.match(prompt, /RESPONSE CORRECTION ONLY/);
           assert.match(prompt, /role_action_mismatch/);
-          if (provider === "codex") assert.deepEqual(options.forgeTools.definitions, []);
-          else assert.deepEqual(options.allowedTools, []);
+          if (provider === "codex") assert.deepEqual(options.forgeTools.definitions.map(({ name }) => name), ["lookup_schema"]);
+          else assert.deepEqual(options.allowedTools, ["mcp__forge__lookup_schema"]);
         }
         return { text: JSON.stringify(response({ ...f.resolution, authority_scope: "sprint",
           action: calls.length === 1 ? "sprint_required" : "resolved" })) };

@@ -1,4 +1,6 @@
 // Summary: Verifies indexed candidates against live file content before they reach agents.
+
+// Defines NORMALIZE function behavior for index-freshness.js.
 const NORMALIZE = (value) => String(value ?? "").replace(/^sha256:/, "");
 
 // Compares stored index hashes with fresh disk reads. Pure decision helper:
@@ -20,6 +22,7 @@ export function createIndexFreshnessChecker({ database, fileService } = {}) {
   if (!fileService || typeof fileService.readForIndex !== "function") return null;
   return Object.freeze({ checkPaths });
 
+  // Defines checkPaths function behavior for index-freshness.js.
   async function checkPaths(paths) {
     const results = [];
     for (const path of [...new Set(paths)].filter((p) => typeof p === "string" && p)) {
@@ -28,6 +31,7 @@ export function createIndexFreshnessChecker({ database, fileService } = {}) {
     return results;
   }
 
+  // Defines checkOne function behavior for index-freshness.js.
   async function checkOne(path) {
     const indexed = database.all("SELECT path, sha256, size_bytes, indexed_at FROM files WHERE path = ?", [path])[0] ?? null;
     if (!indexed) return { path, status: "missing" };

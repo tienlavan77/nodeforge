@@ -9,8 +9,10 @@ export function createCompletionReportService({ protocolStorage, fileService, gi
   const service = Object.freeze({ buildFinalReport, saveReport, writeReportFile, completeAcceptedReport, assertCoderReport, completeCoderReport, getCommitsForTask });
   return service;
 
+  // Defines getCommitsForTask function behavior for completion-report-service.js.
   async function getCommitsForTask(taskId) { return typeof gitService?.getCommitsForTask === "function" ? gitService.getCommitsForTask(taskId) : []; }
 
+  // Defines buildFinalReport function behavior for completion-report-service.js.
   async function buildFinalReport({ ticket, status, verifyResult = null, filesChanged = [], reason = null, error = null } = {}) {
     if (!ticket?.id) throw new ConfigurationError("Final report requires ticket.");
     let agentReport = null;
@@ -21,6 +23,7 @@ export function createCompletionReportService({ protocolStorage, fileService, gi
     return { ticket: { id: ticket.id, title: ticket.title, objective: ticket.objective }, status: status ?? null, reason, error, agent_report: agentReport, verify_result: verifyResult, files_changed: filesChanged, commits, criteria_check: verified, generated_at: new Date().toISOString() };
   }
 
+  // Defines saveReport function behavior for completion-report-service.js.
   async function saveReport(taskId, report) {
     const name = recoverCoderReport && !["submitted_for_review", "completed"].includes(report.status) ? "operational_report" : "final_report";
     return protocolStorage.save(`task/${taskId}/${name}`, report, { schemaId: "https://forge.local/schemas/agent/final-report.schema.json", replace: true });
@@ -54,6 +57,7 @@ export function createCompletionReportService({ protocolStorage, fileService, gi
     await writeReportFile(taskId, completed);
     return completed;
   }
+  // Defines writeReportFile function behavior for completion-report-service.js.
   async function writeReportFile(taskId, report) {
     const markdown = renderMarkdown(report);
     const suffix = recoverCoderReport && !["submitted_for_review", "completed"].includes(report.status) ? ".operational" : "";
@@ -76,6 +80,7 @@ export function assertCoderCoverage(coverage) {
   }
 }
 
+// Defines renderMarkdown function behavior for completion-report-service.js.
 function renderMarkdown(report) {
   const lines = [`# ${report.ticket.id}: ${report.ticket.title}`, "", `- Status: ${report.status ?? "unknown"}`, `- Generated: ${report.generated_at}`];
   if (report.reason) lines.push(`- Reason: ${report.reason}`);

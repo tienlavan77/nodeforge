@@ -19,6 +19,7 @@ function extractTicketId(text) {
 
 /** Routes one owner request to role-specific streams without sharing conversation state. */
 export class DirectChatStreamService {
+  // Defines constructor method behavior for direct-chat-stream-service.js.
   constructor({ roadmapStore, agentGateway, agentTool, roles = ROLE_NAMES, now = Date } = {}) {
     if (!roadmapStore || typeof roadmapStore.getByTicketId !== 'function') throw new TypeError('roadmapStore.getByTicketId is required');
     if (!agentGateway || typeof agentGateway.stream !== 'function') throw new TypeError('agentGateway.stream is required');
@@ -29,6 +30,7 @@ export class DirectChatStreamService {
     this.now = now;
   }
 
+  // Defines dispatch method behavior for direct-chat-stream-service.js.
   async dispatch({ projectId, text, messageId }) {
     const ticketId = extractTicketId(text);
     if (!ticketId) throw new Error('A ticket id such as NF-SVC-T01 is required');

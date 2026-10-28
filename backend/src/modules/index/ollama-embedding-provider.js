@@ -19,6 +19,7 @@ export function createOllamaEmbeddingProvider({ baseUrl = "http://192.168.1.180:
     await tail;
   }
 
+  // Defines embed function behavior for ollama-embedding-provider.js.
   function embed(text) {
     const job = tail.then(() => requestOnce(text));
     // Keep the queue alive even if one job rejects; callers still see their error.
@@ -27,6 +28,7 @@ export function createOllamaEmbeddingProvider({ baseUrl = "http://192.168.1.180:
     return job;
   }
 
+  // Defines requestOnce function behavior for ollama-embedding-provider.js.
   async function requestOnce(text) {
     if (closed) throw new ConfigurationError("Project embedding provider is closed.");
     if (typeof text !== "string" || !text.trim()) throw new ConfigurationError("Embedding text is required.");

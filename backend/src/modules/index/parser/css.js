@@ -10,6 +10,7 @@ const ELEMENT_ONLY_SELECTOR = /^(?:\*|html|body|div|span|p|a|ul|ol|li|table|thea
 
 const KIND = Object.freeze({ class: "css_class", id: "css_id", keyframes: "css_keyframes", at_rule: "css_at_rule", variable: "css_variable" });
 
+// Defines extractCss function behavior for css.js.
 export function extractCss(source) {
   const extraction = { symbols: [], imports: [], exports: [], calls: [] };
   if (typeof source !== "string" || !source.trim()) return extraction;
@@ -58,6 +59,7 @@ export function extractCss(source) {
   return extraction;
 }
 
+// Defines pushSelectorSymbols function behavior for css.js.
 function pushSelectorSymbols(symbols, selectorText, startLine, endLine) {
   const emitted = new Set();
   for (const rawPart of selectorText.split(",")) {
@@ -72,6 +74,7 @@ function pushSelectorSymbols(symbols, selectorText, startLine, endLine) {
   }
 }
 
+// Defines findBlockEndLine function behavior for css.js.
 function findBlockEndLine(lines, startIndex) {
   let depth = 0;
   for (let index = startIndex; index < lines.length; index += 1) {
@@ -83,14 +86,17 @@ function findBlockEndLine(lines, startIndex) {
   return startIndex + 1;
 }
 
+// Defines count function behavior for css.js.
 function count(text, token) {
   return text.split(token).length - 1;
 }
 
+// Defines stripBlockComments function behavior for css.js.
 function stripBlockComments(source) {
   return source.replace(BLOCK_COMMENT_PATTERN, (match) => match.replace(/[^\n]/g, " "));
 }
 
+// Defines symbol function behavior for css.js.
 function symbol(name, kind, startLine, endLine) {
   return { name, kind, start_line: startLine, end_line: endLine };
 }

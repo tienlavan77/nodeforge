@@ -1,3 +1,5 @@
+// Provides module declarations and business logic for payload-schema-registry.js.
+
 import { createRequire } from "node:module";
 
 import { ConfigurationError } from "../../shared/errors.js";
@@ -27,6 +29,7 @@ const schemas = Object.freeze({
 
 export const payloadSchemaRegistry = schemas;
 
+// Defines getPayloadSchema function behavior for payload-schema-registry.js.
 export function getPayloadSchema(role, type) {
   const key = `${role}:${type}`;
   const schema = schemas[key];
@@ -34,6 +37,7 @@ export function getPayloadSchema(role, type) {
   return schema;
 }
 
+// Defines hasPayloadSchema function behavior for payload-schema-registry.js.
 export function hasPayloadSchema(role, type) {
   return Boolean(schemas[`${role}:${type}`]);
 }

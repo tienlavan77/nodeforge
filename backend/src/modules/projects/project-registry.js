@@ -1,3 +1,5 @@
+// Provides module declarations and business logic for project-registry.js.
+
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
@@ -99,11 +101,13 @@ export function buildProjectConfiguration(input = {}, { schemaVersion = "1.2.0" 
   return project;
 }
 
+// Defines ProjectRegistry class behavior for project-registry.js.
 export class ProjectRegistry {
   #createId;
   #schemaVersion;
   #slugScope;
 
+  // Defines constructor method behavior for project-registry.js.
   constructor({ createId = createProjectId, schemaVersion = "1.2.0", fileService } = {}) {
     this.#createId = createId;
     this.#schemaVersion = schemaVersion;
@@ -111,6 +115,7 @@ export class ProjectRegistry {
     this.fileService = fileService;
   }
 
+  // Defines getOrCreate method behavior for project-registry.js.
   async getOrCreate(projectRoot, { expectedProjectId, strictIdentity = false, rootBinding, config = {}, existingIds, catalog, onReserved } = {}) {
     const root = resolveProjectRoot(projectRoot);
     const binding = rootBinding ?? await captureRoot(root);
@@ -239,6 +244,7 @@ export class ProjectRegistry {
   }
 }
 
+// Defines getProjectId function behavior for project-registry.js.
 export async function getProjectId(projectRoot, options) {
   return new ProjectRegistry(options).getOrCreate(projectRoot);
 }
@@ -257,6 +263,7 @@ export async function writeProjectConfiguration(projectRoot, updates, options) {
   return new ProjectRegistry(options).writeConfiguration(projectRoot, updates);
 }
 
+// Defines readProject function behavior for project-registry.js.
 async function readProject(projectFile) {
   return readProjectIdentity(projectFile);
 }
@@ -275,6 +282,7 @@ export function validateProject(project) {
   return project;
 }
 
+// Defines resolveProjectRoot function behavior for project-registry.js.
 function resolveProjectRoot(projectRoot) {
   if (typeof projectRoot !== "string" || projectRoot.length === 0) {
     throw new ConfigurationError("A project root is required.");

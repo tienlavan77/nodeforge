@@ -101,7 +101,6 @@ export function SprintPlanDashboard({ dashboard, client, onRefresh, onTicketDele
       <div className="sprint-row"><div><strong>{sprint.id}</strong>{highlightSprint === sprint.id && <span className="sprint-new-badge">NEW</span>}</div><button className="sprint-collapse-button" onClick={() => setCollapsedSprints((state) => ({ ...state, [sprint.id]: !(state[sprint.id] ?? defaultCollapsed) }))} aria-label="Toggle sprint tasks" aria-expanded={!(collapsedSprints[sprint.id] ?? defaultCollapsed)}>{(collapsedSprints[sprint.id] ?? defaultCollapsed) ? "+" : "−"}</button></div>
       <p>{sprint.objective ?? "No sprint objective provided."}</p>
       <small>{sprint.tasks?.filter((task) => task.status === "done").length ?? 0}/{sprint.tasks?.length ?? 0} tasks completed · {sprint.status ?? "planned"}</small>
-      {!(collapsedSprints[sprint.id] ?? defaultCollapsed) && <InlineAddTicketForm sprint={sprint} projectId={dashboard.project_id ?? PROJECT_ID} client={client} />}
       {!(collapsedSprints[sprint.id] ?? defaultCollapsed) && <div className="sprint-ticket-list" aria-label={`Tasks in ${sprint.id}`}>
         {sprint.tasks?.length ? sortSprintTickets(sprint.tasks).map((ticket) => <TicketCard key={ticket.id} ticket={{ ...ticket, sprint_id: sprint.id }} client={client} projectId={dashboard.project_id} onRefresh={onRefresh} onDeleted={onTicketDeleted} />) : <p className="dashboard-state">No tasks in this sprint.</p>}
       </div>}
@@ -114,54 +113,6 @@ export function SprintPlanDashboard({ dashboard, client, onRefresh, onTicketDele
     {runEvents.length > 0 && <div className="sprint-run-events" role="log" aria-label="Sprint run events">{runEvents.map((event, index) => <div key={`${index}-${event}`}><strong>Run</strong> {event}</div>)}</div>}
     {deleteMessage && <p className="sprint-run-message" role="status">{deleteMessage}</p>}
   </section>;
-}
-
-// Sends a sprint dashboard request directly to the Supervisor's selected coder.
-function InlineAddTicketForm({ sprint, projectId, client }) {
-  const [content, setContent] = useState("");
-  const [error, setError] = useState("");
-  const [state, setState] = useState("");
-  const [result, setResult] = useState("");
-  const [checkpoint, setCheckpoint] = useState(null);
-  useEffect(() => {
-    let active = true;
-    // Reload durable checkpoints after reconnect so missed events cannot hide Resume.
-    const refreshCheckpoint = () => client.listCodeCheckpoints(projectId, sprint.id).then((response) => { if (active) { setCheckpoint(response.checkpoints?.[0] ?? null); setError(""); } }).catch((failure) => { if (active) setError(failure.message); });
-    void refreshCheckpoint();
-    const stream = client.connectProjectStream({ projectId, onEvent: (event) => {
-      if (event.event_type !== "agent.checkpoint.updated" || event.payload?.sprint_id !== sprint.id) return;
-      const update = event.payload;
-      setCheckpoint((current) => update.status === "completed" ? current?.task_id === update.task_id ? null : current : !current || current.task_id === update.task_id || String(update.updated_at) >= String(current.updated_at) ? update : current);
-    }, onOpen: () => { if (active) void refreshCheckpoint(); }, onError: (failure) => { if (active && failure.code !== "STREAM_RECONNECTING") { console.error("Code checkpoint stream failed", failure); setError("Live checkpoint updates are unavailable. Retry the page to reconnect."); } } });
-    return () => { active = false; stream.close(); };
-  }, [client, projectId, sprint.id]);
-  async function submit(event) {
-    event.preventDefault();
-    if (!content.trim() || state) return;
-    setError("");
-    setResult("");
-    setState("Coding…");
-    try { const response = await client.runCode(projectId, sprint.id, content); setContent(""); setResult(`${response.agent_id}: ${response.response ?? "Code completed."}`); }
-    catch (failure) { setError(failure.message); }
-    finally { setState(""); }
-  }
-  // Restarts the unfinished task with its saved input and Claude or Codex session.
-  async function resume() {
-    if (!checkpoint || checkpoint.status === "running" || state) return;
-    setError(""); setResult(""); setState("Resuming…");
-    try { const response = await client.resumeCode(projectId, checkpoint.task_id); setCheckpoint(null); setResult(`${response.agent_id}: ${response.response ?? "Code completed."}`); }
-    catch (failure) { setError(failure.message); }
-    finally { setState(""); }
-  }
-  return <form className="inline-add-ticket" onSubmit={submit}>
-    <label htmlFor={`add-ticket-${sprint.id}`}>Describe code work for this sprint</label>
-    <div className="inline-add-ticket-row">
-      <textarea id={`add-ticket-${sprint.id}`} value={content} onChange={(event) => { setContent(event.target.value); setError(""); }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} rows="2" placeholder="Describe what the coder should change… (Shift+Enter for a new line)" aria-label={`Code request for ${sprint.id}`} />
-      <div className="inline-add-ticket-actions"><button type="button" disabled title="Temporarily unavailable">Add ticket</button><button type="submit" disabled={!content.trim() || Boolean(state)}>{state === "Coding…" ? state : "Code"}</button><button type="button" onClick={resume} disabled={!checkpoint || checkpoint.status === "running" || Boolean(state)} title={checkpoint ? `Continue ${checkpoint.task_id} from turn ${checkpoint.last_completed_turn}` : "No unfinished coding session"}>{state === "Resuming…" ? state : "Resume"}</button></div>
-    </div>
-    {error && <p className="inline-add-ticket-error" role="alert">{error}</p>}
-    {result && <p className="inline-add-ticket-result" role="status">{result}</p>}
-  </form>;
 }
 
 // Panel rendering the project and sprint dashboard.

@@ -4,7 +4,7 @@
   "$id": "https://forge.local/schemas/governance/agent-exchange-decision.schema.json",
   "type": "object", "additionalProperties": false, "required": ["action", "summary"],
   "properties": {
-    "action": { "enum": ["resolved", "sprint_required", "architecture_required", "reconciliation_required", "coder_requested", "owner_required", "governance_required"] },
+    "action": { "enum": ["resolved", "sprint_required", "architecture_required", "reconciliation_required", "coder_requested", "dependency_requested", "owner_required", "governance_required"] },
     "summary": { "$ref": "#/$defs/text" }, "guidance": { "$ref": "#/$defs/text" },
     "authority_scope": { "enum": ["sprint", "architecture"] },
     "authority_quote": { "$ref": "#/$defs/text" },
@@ -22,7 +22,7 @@
         "changes_data_semantics": { "type": "boolean" }, "overrides_guardrails": { "type": "boolean" }, "changes_ticket_contract": { "type": "boolean" }
       }
     },
-    "evidence": { "$ref": "#/$defs/evidence" },
+    "evidence": { "$ref": "#/$defs/source_evidence" },
     "technical_result": {
       "type": "object", "additionalProperties": false, "required": ["findings", "implementation_steps", "verification_steps", "admission"],
       "properties": {
@@ -55,6 +55,16 @@
       "type": "object", "additionalProperties": false, "required": ["questions", "constraints"],
       "properties": { "questions": { "$ref": "#/$defs/texts" }, "constraints": { "$ref": "#/$defs/texts" }, "criterion_ids": { "$ref": "#/$defs/texts" } }
     },
+    "dependency_request": {
+      "description": "SL requests execution of a repair in an approved upstream ticket of this Sprint. Node retains the waiting ticket checkpoint and runs the target's own Coder, verification and independent review.",
+      "type": "object", "additionalProperties": false,
+      "required": ["ticket_id", "reason", "instructions", "expected_results", "evidence_refs"],
+      "properties": {
+        "ticket_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$", "maxLength": 200 },
+        "reason": { "$ref": "#/$defs/dependency_text" }, "instructions": { "$ref": "#/$defs/dependency_text" },
+        "expected_results": { "$ref": "#/$defs/dependency_texts" }, "evidence_refs": { "$ref": "#/$defs/dependency_texts" }
+      }
+    },
     "candidate_review": { "type": "object", "additionalProperties": false, "required": ["candidate_sha256", "verdict", "comments"],
       "properties": { "candidate_sha256": { "$ref": "#/$defs/hash" }, "verdict": { "enum": ["approved", "changes_requested"] }, "comments": { "$ref": "#/$defs/texts" } } },
     "criterion_updates": { "type": "array", "items": {
@@ -74,9 +84,22 @@
         "options": { "type": "array", "minItems": 2, "maxItems": 4, "items": { "type": "object", "required": ["id", "description"], "properties": { "id": { "$ref": "#/$defs/text" }, "description": { "$ref": "#/$defs/text" } } } } }
     },
     "contract_draft": { "type": "object", "additionalProperties": false, "required": ["title", "markdown", "evidence"],
-      "properties": { "title": { "$ref": "#/$defs/text" }, "markdown": { "$ref": "#/$defs/text" }, "evidence": { "$ref": "#/$defs/evidence" } } }
+      "properties": { "title": { "$ref": "#/$defs/text" }, "markdown": { "$ref": "#/$defs/text" }, "evidence": { "$ref": "#/$defs/required_source_evidence" } } }
   },
+  "allOf": [{
+    "if": { "required": ["action"], "properties": { "action": { "enum": ["resolved", "sprint_required", "owner_required"] } } },
+    "then": { "required": ["evidence"], "properties": { "evidence": { "$ref": "#/$defs/required_source_evidence" } } }
+  }, {
+    "if": { "required": ["dependency_request"] }, "then": { "properties": { "action": { "const": "dependency_requested" } } }
+  }, {
+    "if": { "required": ["action"], "properties": { "action": { "const": "dependency_requested" } } },
+    "then": { "required": ["dependency_request", "guidance", "authority_scope", "authority_reference"], "properties": {
+      "authority_scope": { "const": "sprint" }, "architecture_basis": false, "boundary_assessment": false, "escalation": false,
+      "proposal": false, "contract_draft": false, "reconciliation": false, "technical_result": false, "coder_request": false, "candidate_review": false } }
+  }],
   "$defs": {
+    "dependency_text": { "type": "string", "minLength": 1, "maxLength": 8000, "pattern": "\\S" },
+    "dependency_texts": { "type": "array", "minItems": 1, "maxItems": 16, "items": { "$ref": "#/$defs/dependency_text" } },
     "review_subject": {
       "$comment": "Pins independent blocker evidence to a retained ticket commit and artifact without granting verification acceptance.",
       "type": "object", "additionalProperties": false, "required": ["commit_sha", "artifact_id"],
@@ -87,6 +110,10 @@
     "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "authority": { "type": "object", "additionalProperties": false, "required": ["passage_id", "rationale"],
       "properties": { "passage_id": { "$ref": "#/$defs/text" }, "rationale": { "$ref": "#/$defs/text" } } },
+    "source_evidence": { "type": "array", "maxItems": 16, "items": { "$ref": "#/$defs/evidence/items" },
+      "description": "Inspected source paths and bare full-file SHA-256 values. May be omitted or empty for a consultation or missing-evidence request; never fabricate source evidence to ask another role a question." },
+    "required_source_evidence": { "type": "array", "minItems": 1, "maxItems": 16, "items": { "$ref": "#/$defs/evidence/items" },
+      "description": "A completed decision or Owner escalation requires 1-16 inspected source references; reads are evidence, never approval." },
     "evidence": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["path", "sha256"],
       "properties": { "path": { "$ref": "#/$defs/text" }, "sha256": { "$ref": "#/$defs/hash" } } } }
   }

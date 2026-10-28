@@ -27,6 +27,7 @@ function answer() {
   return { kind: "consultation_response", subject: "Retained question answered.", evidence: [], payload: {
     outcome: "answered", answer: "Continue the approved scope.", rationale: "Existing approved authority applies.", authority_refs: [], next_steps: ["Return to SL."],
     decision: { action: "resolved", summary: "The retained question is answered.", guidance: "Continue within existing scope.", authority_scope: "architecture",
+      evidence: [{ path: "backend/src/handler.js", sha256: "a".repeat(64) }],
       technical_result: { findings: ["Existing evidence resolves the question."], implementation_steps: ["Continue the existing handler."],
         verification_steps: ["Run the handler test."], admission: { status: "within_existing_permissions", rationale: "No new permission is required." } } } } };
 }
@@ -37,7 +38,7 @@ test("native schemas are self-contained, strict, and normalize only unused optio
   const validate = new Ajv2020({ strict: false }).compile(output.schema);
   assert.equal(validate(native), true, JSON.stringify(validate.errors));
   assert.equal(native.payload.consultation, null);
-  assert.equal(native.payload.decision.reconciliation, null);
+  assert.equal(native.payload.decision.reconciliation, undefined);
   assert.deepEqual(output.normalize(native), response);
   assertAgentExchangePayload(response.kind, output.normalize(native).payload);
   assert.deepEqual(Object.keys(output.schema.properties).sort(), ["evidence", "kind", "payload", "subject"]);
@@ -55,7 +56,7 @@ test("the generated schema rejects invented reconciliation enums and transport i
   const output = createAgentExchangeOutput({ kind: "consultation_request", recipient: { role: "architecture_manager" } });
   const validate = new Ajv2020({ strict: false }).compile(output.schema);
   const value = answer();
-  value.payload.decision = { action: "reconciliation_required", summary: "Need one source fact.", reconciliation: {
+  value.payload.decision = { action: "reconciliation_required", summary: "Need one source fact.", guidance: "Inspect the exact source fact.", reconciliation: {
     kind: "verification", prerequisite: "One source fact.", completed_checks: ["Read the report."], next_check: "Inspect exact evidence.", waiting_for: [] } };
   assert.equal(validate(slots(value, output.schema)), false);
   value.payload.decision.reconciliation.kind = "source_revision";
@@ -109,7 +110,11 @@ test("native resolved decisions require the complete technical handoff before re
   value.payload.decision.technical_result = null;
   assert.equal(validate(value), false);
   value.payload.decision.action = "reconciliation_required";
-  assert.equal(validate(value), true, JSON.stringify(validate.errors));
+  assert.equal(validate(value), false);
+  const unresolved = answer();
+  unresolved.payload.decision = { action: "reconciliation_required", summary: "Need the current source hash.", guidance: "Inspect the current source.",
+    reconciliation: { kind: "source_revision", prerequisite: "Current source hash.", completed_checks: [], next_check: "Read the assigned source.", waiting_for: [] } };
+  assert.equal(validate(slots(unresolved, output.schema)), true, JSON.stringify(validate.errors));
 });
 
 test("SL can retain typed criterion attribution and meaningful reference identities", () => {
@@ -140,5 +145,19 @@ test("native Reviewer output preserves a typed verification request and normaliz
   assert.deepEqual(output.normalize(native), value);
   assertAgentExchangePayload(value.kind, output.normalize(native).payload);
   native.payload.verification_requests[0].command = "node --test";
+  assert.equal(validate(native), false);
+});
+
+test("native Reviewer findings retain actionable fields and exact persisted adjudication identity", () => {
+  const output = createAgentExchangeOutput({ kind: "review_request", recipient: { role: "reviewer" }, payload: {} });
+  const finding = { failure: "Missing isolation regression.", acceptance_criterion: "AC-1", minimum_change_scope: "Add a focused regression.",
+    evidence_refs: ["backend/src/handler.js:17"], files: ["backend/tests/unit/handler.test.js"] };
+  const value = { kind: "review_result", subject: "One regression is missing.", evidence: [], payload: {
+    verdict: "request_changes", summary: "The changed behavior requires regression coverage.", findings: [finding],
+    finding_updates: [{ finding_id: "REV-1", decision: "retain", reason: "Coverage remains absent.", evidence_refs: finding.evidence_refs }] } };
+  const native = slots(value, output.schema), validate = new Ajv2020({ strict: false }).compile(output.schema);
+  assert.equal(validate(native), true, JSON.stringify(validate.errors));
+  assert.deepEqual(output.normalize(native), value);
+  native.payload.findings[0].minimum_change_scope = null;
   assert.equal(validate(native), false);
 });

@@ -89,6 +89,7 @@ export function createConversationStateStore({ fileService, root = statePath("pr
     return update(conversationId, { archived: true, status: "archived" });
   }
 
+  // Defines persist function behavior for conversation-state-store.js.
   async function persist(state) { await fileService.atomicWrite({ path: `${root}/${safe(state.conversation_id)}/state.json`, content: `${JSON.stringify(state)}\n`, replace: true }); }
 }
 

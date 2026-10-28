@@ -20,6 +20,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
   const messages = new Map();
   const conversationRounds = new Map();
   const lockedConversations = new Map();
+  // Defines statusListener function behavior for owner-chat-service.js.
   const statusListener = (event) => {
     const conversationId = event?.payload?.conversation_id ?? event?.metadata?.conversation_id;
     const status = event?.payload?.to ?? event?.payload?.status;
@@ -35,7 +36,9 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
 
   // Replays an interrupted owner turn through the existing response stream without duplicating the owner message.
   return Object.freeze({ submit, planningSessions: commandService?.planningSessions, replay: (message, agentId) => streamAgent(message, agentId) });
+  // Defines safeLog function behavior for owner-chat-service.js.
   function safeLog(logger, entry) { try { logger?.({ timestamp: new Date().toISOString(), ...entry }); } catch (error) { debug({ event: "project-log.error", error: error.message }); } }
+  // Defines submit function behavior for owner-chat-service.js.
   function submit(input) {
     assertMessage(input);
     const agentId = input.agent_id ?? architectureManagerId;
@@ -157,6 +160,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     }
   }
 
+  // Defines requestRealAgent function behavior for owner-chat-service.js.
   async function requestRealAgent(message, agentId) {
     try {
       const result = await agentRequest({ agentId, payload: { text: await enrichAgentText(message, agentId), response_content_type: message.payload.response_content_type, ...(message.payload.task ? { task: message.payload.task } : {}) }, correlationId: message.correlation_id });
@@ -169,6 +173,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       bus.send(responseMessage(message, streamEventType(agentId, "error"), { error: normalizeErrorContract({ error, requestId: message.correlation_id }), agent_status: "FAILED" }));
     }
   }
+  // Defines persistProtocolMessage function behavior for owner-chat-service.js.
   function persistProtocolMessage(message, round, direction) {
     if (!protocolStorage?.save || !message?.conversation_id) return;
     const taskId = message.payload?.task?.id ?? message.payload?.ticket?.id ?? message.id.replace(/[^A-Za-z0-9._-]/g, "-");
@@ -176,6 +181,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     Promise.resolve(protocolStorage.save(ref, message, { schemaId: direction === "request" ? "forge-envelope" : "forge-response" }))
       .catch((error) => debug({ event: "protocol-storage.persist.error", ref, error: error.message }));
   }
+  // Defines responseMessage function behavior for owner-chat-service.js.
   function responseMessage(message, type, payload, suffix = type === "architecture.error" ? "ERROR" : "REAL") {
     return { id: `MSG-ARCHITECTURE-${suffix}-${message.id}`, project_id: message.project_id,
       sender: { id: message.recipient.id, role: message.recipient.role }, recipient: { id: "NODE", role: "node" }, message_type: type,

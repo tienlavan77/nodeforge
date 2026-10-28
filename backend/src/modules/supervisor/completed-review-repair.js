@@ -22,6 +22,8 @@ export async function dispatchCompletedReviewRepair({ job, prior, workspace, cur
   const resume = coder.review_cycle_id === cycleId ? coder : { ...coder, status: "in_progress", phase: "review_repair", review_findings: references, review_cycle_id: cycleId,
     failure: null, failure_request_id: null, triage: null, blocker_recovery: null, completed_at: null, review_stage: null,
     attempt: (prior.attempt ?? 1) + 1, session_id: null, thread_id: null, changed_paths: [], completed_tools: [], read_cache: {}, coder_rules_read: false };
+  delete resume.review_repair_key;
+  delete resume.repair_implementation_required;
   await checkpoints.save(resume);
   const latest = ticketStatusStore.get(job.task_id);
   const updated = ticketStatusStore.updateStatus(job.task_id, "running", { ...latest.details, reason: "review_request_changes",

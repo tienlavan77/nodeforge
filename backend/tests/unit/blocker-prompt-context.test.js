@@ -129,9 +129,12 @@ test("SDK receives compact context while exact denied-operation evidence remains
       const line = prompt.split("\n").find((value) => value.startsWith("READ-ONLY FULL CONTEXT INDEX: "));
       const indexes = JSON.parse(line.slice("READ-ONLY FULL CONTEXT INDEX: ".length));
       let exact = "";
-      for (const index of indexes.filter((entry) => entry.section === "failure_evidence")) {
-        const body = JSON.parse((await options.forgeTools.registry.read_file.execute({ path: index.path, offset: 1, limit: 80 })).content);
-        for (const ref of body.parts) exact += JSON.parse((await options.forgeTools.registry.read_file.execute({ path: ref.path, offset: 1, limit: 80 })).content).content_lines.join("");
+      for (let index of indexes.filter((entry) => entry.section === "failure_evidence")) {
+        while (index) {
+          const body = JSON.parse((await options.forgeTools.registry.read_file.execute({ path: index.path, offset: 1, limit: 80 })).content);
+          for (const ref of body.parts) exact += JSON.parse((await options.forgeTools.registry.read_file.execute({ path: ref.path, offset: 1, limit: 80 })).content).content_lines.join("");
+          index = body.next_index;
+        }
       }
       assert.equal(JSON.parse(exact).receipts[0].error.message, denial);
       return { text: JSON.stringify(x.f.resolution) };

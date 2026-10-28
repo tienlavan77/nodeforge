@@ -1,3 +1,5 @@
+// Provides module declarations and business logic for project-dashboard-service.js.
+
 import { ConfigurationError } from "../shared/errors.js";
 import { getRegistryDashboard } from "./registry-dashboard.js";
 import { registryTicketStatus } from "./registry-ticket-status.js";
@@ -13,6 +15,7 @@ export function createProjectDashboardService({ roadmaps, sprintPlans, provenanc
   }
 
   return Object.freeze({ getDashboard, getTicket, getTicketGraph });
+  // Defines findTicket function behavior for project-dashboard-service.js.
   async function findTicket(projectId, ticketId) {
     assertProjectId(projectId);
     if (typeof ticketId !== "string" || !ticketId) throw httpError(400, "A ticket id is required.");
@@ -32,6 +35,7 @@ export function createProjectDashboardService({ roadmaps, sprintPlans, provenanc
     if (!ticket) throw httpError(404, `Ticket not found: ${ticketId}.`);
     return ticket;
   }
+  // Defines getTicket function behavior for project-dashboard-service.js.
   async function getTicket(projectId, ticketId) {
     const ticket = await findTicket(projectId, ticketId);
     const metadata = ticketFileStore?.getMetadata?.(ticketId);
@@ -42,11 +46,13 @@ export function createProjectDashboardService({ roadmaps, sprintPlans, provenanc
       context: metadata?.project_id === projectId ? metadata.context : ""
     });
   }
+  // Defines getTicketGraph function behavior for project-dashboard-service.js.
   async function getTicketGraph(projectId, ticketId) {
     if (!relevantTreeSelector?.select) throw new ConfigurationError("Ticket Code Graph API is not configured.");
     const ticket = await findTicket(projectId, ticketId);
     return structuredClone({ project_id: projectId, ticket: ticketView(ticket), graph: relevantTreeSelector.select({ title: ticket.title, objective: ticket.objective, acceptance_criteria: ticket.acceptance_criteria ?? [], scope: "ui", allowed_prefixes: ["ui/nextjs/"] }) });
   }
+  // Defines getDashboard function behavior for project-dashboard-service.js.
   function getDashboard(projectId) {
     assertProjectId(projectId);
     const roadmap = roadmaps.getCurrent();
@@ -78,6 +84,7 @@ export function createProjectDashboardService({ roadmaps, sprintPlans, provenanc
       });
       return { id: sprintId, objective: sprint?.objective ?? null, order: record?.position !== undefined ? record.position + 1 : index + 1, status: record?.status ?? status.status ?? "planned", tasks };
     });
+    // Defines build function behavior for project-dashboard-service.js.
     const build = (tasksBySprint = new Map()) => structuredClone({
       project_id: projectId,
       roadmap: { id: roadmap?.id ?? null, version: roadmap?.version ?? null, sprints: sprintEntries.map((sprint) => ({ ...sprint, tasks: (tasksBySprint.get(sprint.id) ?? sprint.tasks).map(taskViewSummary) })) }
@@ -98,6 +105,7 @@ export function createProjectDashboardService({ roadmaps, sprintPlans, provenanc
       return build(grouped);
     });
   }
+  // Defines ticketView function behavior for project-dashboard-service.js.
   function ticketView(ticket) {
     let chain;
     try {

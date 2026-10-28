@@ -1,6 +1,7 @@
 /** Records live source drift as implementation context for the assigned agent.
  * Observation never edits project files, adopts external changes as ticket work,
  * grants approval, or decides whether concurrent edits are semantically valid. */
+// Defines createTicketSourceObservation function behavior for ticket-source-observation.js.
 export function createTicketSourceObservation({ locked, load, save, recover, readOptional, sha, projectLogger }) {
   /** Reads tracked paths under journal locks so Coder can resume on current source
    * while commit and write services retain their independent consistency checks. */

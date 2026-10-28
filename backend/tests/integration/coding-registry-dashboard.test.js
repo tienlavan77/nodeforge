@@ -14,6 +14,7 @@ import { createProjectDashboardService } from "../../src/application/project-das
 import { createForgeV1Router } from "../../src/transport/http/forge-v1-router.js";
 import { createHttpApi } from "../../src/transport/http/server.js";
 import { createNodeClient } from "../../../ui/nextjs/lib/node-client.js";
+import { requestJson } from "../../../ui/nextjs/lib/node-client-request.js";
 import { createCodingDashboardLoader } from "../../../ui/nextjs/lib/coding-dashboard-loader.js";
 import { CodingSprintDashboardState } from "../../../ui/nextjs/components/coding-sprint-dashboard-state.js";
 
@@ -155,6 +156,54 @@ test("Coding state distinguishes loading, empty, retryable outage and conflict w
   assert.match(render({ status: "error", error }), /authorized operator/);
   assert.doesNotMatch(render({ status: "error", error }), /Retry|unsafe|No sprints registered|<button/);
   assert.match(render({ status: "error", error: { code: "timeout", retryable: true, message: "Unavailable" } }), /Retry dashboard load/);
+  const denied = render({ status: "error", error: { code: "FORBIDDEN", retryable: false, message: "Access denied" } });
+  assert.match(denied, /Access denied|Error code/);
+  assert.doesNotMatch(denied, /authorized operator|immutable plan bindings/);
+});
+
+/** Exercises the real client/loader/render boundary so a lost connection or
+ * interrupted response body cannot freeze Coding behind plan-repair guidance. */
+test("Coding recovers from transport failures without demanding plan reconciliation", async () => {
+  const original = globalThis.fetch;
+  try {
+    for (const phase of ["fetch", "body"]) {
+      const states = [], urls = [];
+      globalThis.fetch = async url => {
+        urls.push(String(url));
+        if (urls.length === 1) {
+          if (phase === "fetch") throw new TypeError("Failed to fetch");
+          return { status: 200, text: async () => { throw new TypeError("Connection terminated"); } };
+        }
+        return new Response(JSON.stringify({ project_id: PROJECT, roadmap: null }), { status: 200 });
+      };
+      const loader = createCodingDashboardLoader({ client: createNodeClient(PROJECT), projectId: PROJECT, onState: state => states.push(state), logger: () => {} });
+      await loader.load();
+      const failed = states.at(-1);
+      assert.equal(failed.error.code, "network_error");
+      assert.equal(failed.error.retryable, true);
+      assert.equal(failed.error.scope, "scoped");
+      const html = render(failed);
+      assert.match(html, /Retry dashboard load/);
+      assert.match(html, /Error code:.*network_error/);
+      assert.doesNotMatch(html, /authorized operator|immutable plan bindings|Affected IDs/);
+      await loader.load();
+      assert.equal(states.at(-1).status, "ready");
+      assert.equal(urls.length, 2);
+      assert(urls.every(url => url.endsWith(`/forge/v1/projects/${PROJECT}/dashboard`)));
+    }
+  } finally { globalThis.fetch = original; }
+});
+
+/** Keeps ambiguous mutation outcomes from being replayed while read failures
+ * gain Retry; an interrupted POST may already have executed on the server. */
+test("network failures do not replay or advertise read-style retry for a mutation", async () => {
+  const original = globalThis.fetch;
+  let calls = 0;
+  try {
+    globalThis.fetch = async () => { calls += 1; throw new TypeError("Connection lost"); };
+    await assert.rejects(requestJson("/unused", { method: "POST" }), { code: "network_error", retryable: false });
+    assert.equal(calls, 1);
+  } finally { globalThis.fetch = original; }
 });
 
 test("Coding loader ignores stale reads and prevents cross-project response disclosure", async () => {

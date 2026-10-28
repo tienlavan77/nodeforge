@@ -21,6 +21,7 @@ import { createFileService } from "../../src/infrastructure/filesystem/file-serv
 import { createHumanPlanStore } from "../../src/modules/governance/human-plan-store.js";
 import { createMarkdownPlanStore } from "../../src/modules/governance/markdown-plan-store.js";
 import { createOwnerChatCommandService } from "../../src/application/owner-chat-command-service.js";
+import { readMarkdownSprintScope } from "../../src/modules/governance/markdown-sprint-scope.js";
 import { assertNoMixedPlanningApproval, detectPlanApproveTrigger, detectPlanCreateTrigger, detectPlanUpdateTrigger, isConversationPlanMessage } from "../../src/modules/governance/conversation-plan-trigger.js";
 
 const PLAN_JSON = JSON.stringify({
@@ -78,6 +79,22 @@ test("a standalone create trigger generates r1 with Node's sha256 and a per-revi
     assert.deepEqual(anchor, JSON.parse(PLAN_JSON), "the retained anchor holds the canonical plan JSON base");
     const stored = await f.service.execute({ text: "Create the architecture plan", conversationId: "CONV-A", project_id: "PROJECT-A", requestArchitecture: p.requestArchitecture });
     assert.notEqual(stored.plan_id, result.plan_id, "each conversation create request produces its own locked revision");
+  } finally { await f.close(); }
+});
+
+// Covers the real JSON-to-persisted-plan boundary that rejected valid lifecycle
+// requirements before the revision existed, preserving source bytes for handoff.
+test("conversation planning persists symbolic project IDs and route parameters unchanged", async () => {
+  const f = await fixture();
+  try {
+    const plan = JSON.parse(PLAN_JSON);
+    plan.outcomes[0].acceptance_criteria = ["Support PROJECT-<uuid> and PROJECT-NODEFORGE", "GET /forge/v1/projects/<projectId> returns the project"];
+    const result = await f.service.execute({ text: "Create the architecture plan", conversationId: "CONV-PROJECT", requestArchitecture: provider(JSON.stringify(plan)).requestArchitecture });
+    assert.equal(result.status, "awaiting_human_approval");
+    assert.equal(result.revision, 1);
+    assert.equal(result.run_started, false);
+    assert.deepEqual(readMarkdownSprintScope(result.markdown)[0].acceptance_criteria, plan.outcomes[0].acceptance_criteria);
+    assert.deepEqual(JSON.parse(await f.fileService.readFile({ path: result.source_summary_path })), plan);
   } finally { await f.close(); }
 });
 

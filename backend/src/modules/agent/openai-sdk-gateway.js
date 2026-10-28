@@ -2,9 +2,10 @@
 import { Agent, Runner, shellTool, tool, webSearchTool } from "@openai/agents";
 import { ConfigurationError } from "../../shared/errors.js";
 import { sdkFailureEvidence } from "./sdk-failure-evidence.js";
+import { createSdkTerminalLog } from "./sdk-terminal-log.js";
 
 // Creates a gateway that runs an Agent via the OpenAI Agents SDK.
-export function createOpenAiSdkGateway({ providerFactory, runner = createTracingDisabledRunner(), AgentClass = Agent, timeoutMs = 3600000 } = {}) {
+export function createOpenAiSdkGateway({ providerFactory, runner = createTracingDisabledRunner(), AgentClass = Agent, timeoutMs = 3600000, terminalOutput = process.stdout } = {}) {
   if (typeof providerFactory?.createForAgent !== "function") throw new ConfigurationError("OpenAI SDK Gateway requires a provider factory.");
   if (typeof runner !== "function") throw new ConfigurationError("OpenAI SDK Gateway requires an Agent runner.");
   if (typeof AgentClass !== "function") throw new ConfigurationError("OpenAI SDK Gateway requires an Agent constructor.");
@@ -12,6 +13,7 @@ export function createOpenAiSdkGateway({ providerFactory, runner = createTracing
 
   return Object.freeze({ execute, provider: "openai", conversationMode: "history", builtinWebSearchAvailable: supportsBuiltinWebSearch });
 
+  // Defines execute function behavior for openai-sdk-gateway.js.
   async function execute({ agent, agentId, prompt, correlationId, options = {}, abortSignal } = {}) {
     const profile = agent ?? { agent_id: agentId };
     if (typeof prompt !== "string" || !prompt.trim()) throw new ConfigurationError("OpenAI SDK prompt is required.");
@@ -19,10 +21,13 @@ export function createOpenAiSdkGateway({ providerFactory, runner = createTracing
     const { provider, profile: normalized } = await providerFactory.createForAgent(profile);
     const useBuiltinWebSearch = options.builtinWebSearch && supportsBuiltinWebSearch({ ...normalized, provider: profile.provider });
     const controller = new AbortController();
+    // Defines abort function behavior for openai-sdk-gateway.js.
     const abort = () => controller.abort(abortSignal.reason);
     abortSignal?.addEventListener("abort", abort, { once: true });
     if (abortSignal?.aborted) abort();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let terminalFailure;
+    const terminal = createSdkTerminalLog({ profile: normalized, correlationId, context: options.forgeTools?.context, output: terminalOutput });
     try {
       const agentOptions = {
         name: normalized.agent_name,
@@ -54,11 +59,13 @@ export function createOpenAiSdkGateway({ providerFactory, runner = createTracing
         text: extractText(result?.finalOutput)
       };
     } catch (error) {
+      terminalFailure = error;
       if (abortSignal?.aborted) throw abortSignal.reason ?? error;
       if (error?.name === "AbortError" || controller.signal.aborted) throw sdkFailureEvidence(new ConfigurationError(`OpenAI SDK request timed out for ${normalized.agent_id}.`, { cause: error }), error, { aborted: true });
       if (error instanceof ConfigurationError) throw error;
       throw sdkFailureEvidence(new ConfigurationError(`OpenAI SDK request failed for ${normalized.agent_id}: ${error?.message ?? "unknown SDK error"}`, { cause: error }), error);
     } finally {
+      terminal.close(abortSignal?.aborted ? { code: "TICKET_STOPPED", message: "SDK session stopped." } : controller.signal.aborted ? { code: "SDK_REQUEST_TIMEOUT", message: "SDK request timed out." } : terminalFailure);
       abortSignal?.removeEventListener("abort", abort);
       clearTimeout(timer);
       await provider.close?.();

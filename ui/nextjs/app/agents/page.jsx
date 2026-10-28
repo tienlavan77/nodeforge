@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { NodeForgeHeader } from "../../components/NodeForgeHeader.jsx";
 import { AddAgentModal } from "../../components/AddAgentModal.jsx";
 import { Dialog } from "../../components/Dialog.jsx";
-import { createNodeClient } from "../../lib/node-client.js";
+import { createProjectStreamClient } from "../../lib/project-stream-client.js";
 import { forgeV1 } from "../../lib/node-client-url.js";
 import { createAgentDirectoryLoader, mergeAgentProfiles } from "../../lib/agent-directory-loader.js";
 import { getModelOptions, useModelCatalog } from "../../lib/model-catalog.js";
@@ -71,7 +71,7 @@ function applyAgentStatusEvent(current, event) {
 
 // Agent management page with CRUD and connection testing.
 export default function AgentsPage() {
-  const client = useMemo(() => createNodeClient(), []);
+  const connectProjectStream = useMemo(() => createProjectStreamClient(forgeV1), []);
   const modelCatalog = useModelCatalog();
   const streamRef = useRef(null);
   const [agents, setAgents] = useState([]);
@@ -196,7 +196,7 @@ export default function AgentsPage() {
   useEffect(() => {
     if (streamRef.current) return undefined;
     let active = true;
-    const stream = client.connectProjectStream({
+    const stream = connectProjectStream({
       projectId: PROJECT_ID,
       onOpen: () => { if (active) { setStreamState("connected"); void directory.load(); } },
       onEvent: (event) => { if (active) setAgents((current) => applyAgentStatusEvent(current, event)); },
@@ -204,10 +204,10 @@ export default function AgentsPage() {
     });
     streamRef.current = stream;
     return () => { active = false; streamRef.current = null; stream.close(); };
-  }, [client, directory]);
+  }, [connectProjectStream, directory]);
 
   return <div className="app-shell app-shell-control-room agent-profile-shell agents-directory-shell">
-    <NodeForgeHeader title="NODEFORGE" subtitle="Supervisor Control Room" status={<><span className="live-dot" /> node online</>} actions={<Link className="history-button" href="/">Control room</Link>} />
+    <NodeForgeHeader title="NODEFORGE" subtitle="Supervisor Control Room" project={null} status={<><span className="live-dot" /> node online</>} actions={<Link className="history-button" href="/">Control room</Link>} />
     <main className="agents-directory" aria-label="Agents directory">
       <div className="agents-directory-heading"><div><p className="eyebrow">NODEFORGE RUNTIME</p><h1>Agents</h1></div><div className="agents-heading-actions"><span>{state === "ready" ? `${agents.length} agents` : state === "loading" ? "Loading" : "Unavailable"}</span><span title={streamState === "error" ? "Project stream failed; showing last known statuses." : `Project stream ${streamState}.`}>{streamState === "connected" ? "live" : streamState === "error" ? "stream offline" : "connecting…"}</span></div></div>
       {state === "loading" && <p className="agents-directory-state">Loading agents from `/forge/v1/agents`…</p>}

@@ -3,11 +3,14 @@ import { splitMarkdownTableRow } from "./markdown-table-row.js";
 import { ConfigurationError } from "../../shared/errors.js";
 import { assertTicketVerificationContract } from "./ticket-verification-contract.js";
 
+// Defines fail function behavior for markdown-sprint-scope.js.
 function fail(message) { return Object.assign(new ConfigurationError(message), { code: "SPRINT_MARKDOWN_SCOPE", statusCode: 422 }); }
+// Defines normalized function behavior for markdown-sprint-scope.js.
 function normalized(value) { return String(value ?? "").replace(/\s+/g, " ").trim().replace(/[.!?]+$/, "").toLocaleLowerCase("en"); }
 // Reject unfinished plan template fields while preserving Markdown formatting and literal source examples.
 function hasUnfilledPlaceholder(value) {
-  const text = String(value ?? "").replace(/\bSUMMARY-<uuid>/g, "")
+  const text = String(value ?? "")
+    .replace(/(?:\b[A-Za-z_][A-Za-z0-9_.:/?=&%-]*|\/)<(?!(?:TBD|TODO|FIXME)>)[A-Za-z_][A-Za-z0-9_]*>/gi, "")
     .replace(/(`+)([\s\S]*?)\1/g, (span, delimiter, code) => /^\s*<[^>]+>\s*$/.test(code) && !/\/\s*>\s*$|=/.test(code) ? code : "")
     .replace(/<!--[\s\S]*?-->/g, "")
     .replace(/<\/?(?:br|p|div|span|strong|em|b|i|code|pre|ul|ol|li|a|img|details|summary|hr|sup|sub)(?:\s[^<>]*?)?\s*\/?\s*>/gi, "")
@@ -190,6 +193,7 @@ function assertOutcomeSprintScope(outcomes, sprint) {
 function hasDependencyCycle(edges) {
   const visiting = new Set();
   const visited = new Set();
+  // Defines visit function behavior for markdown-sprint-scope.js.
   function visit(id) {
     if (visiting.has(id)) return true;
     if (visited.has(id)) return false;

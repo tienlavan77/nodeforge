@@ -4,8 +4,10 @@ import { createHash } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { acquireTicketFileLock } from "./ticket-file-lock.js";
 
+// Defines hash function behavior for ticket-pipeline-disposition.js.
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const SAFE_ID = /^[A-Za-z0-9._:-]+$/;
+// Defines fail function behavior for ticket-pipeline-disposition.js.
 const fail = (code, message) => Object.assign(new ConfigurationError(message), { code });
 
 // Binds a disposition to the exact inventory evidence reviewed by its owner.

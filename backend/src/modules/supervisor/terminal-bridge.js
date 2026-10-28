@@ -20,6 +20,7 @@ export function createTerminalBridge({ eventBus, ticketStatusStore, roadmaps, pr
   const unsubscribe = eventBus.subscribe("*", (event) => handle(event).catch((error) => logger({ event_name: "terminal_bridge.failed", level: "error", status: "failed", message: "Terminal Bridge handling failed.", task_id: event?.task_id, source: "terminal-bridge", error_code: error.code ?? "TERMINAL_BRIDGE_FAILED", payload: { event_type: event?.type, request_id: event?.request_id, correlation_id: event?.correlation_id, error: error.message } })));
   return Object.freeze({ close: () => unsubscribe() });
 
+  // Defines handle function behavior for terminal-bridge.js.
   async function handle(event) {
     const ticketStatus = TERMINAL_MAP[event.type];
     if (!ticketStatus) return;
@@ -46,6 +47,7 @@ export function createTerminalBridge({ eventBus, ticketStatusStore, roadmaps, pr
     if (event.type === "task.completed") recordMemory(event);
   }
 
+  // Defines syncStatus function behavior for terminal-bridge.js.
   function syncStatus(taskId, current, to, details) {
     const from = current.status;
     const executionId = current.details?.execution_id;
@@ -65,6 +67,7 @@ export function createTerminalBridge({ eventBus, ticketStatusStore, roadmaps, pr
     }
   }
 
+  // Defines recordMemory function behavior for terminal-bridge.js.
   function recordMemory(event) {
     try {
       const facts = longTermFacts(event.payload?.summary);
@@ -77,6 +80,7 @@ export function createTerminalBridge({ eventBus, ticketStatusStore, roadmaps, pr
   }
 }
 
+// Defines longTermFacts function behavior for terminal-bridge.js.
 function longTermFacts(summary) {
   if (typeof summary !== "string" || !summary.trim()) return [];
   return summary.split(/\n+/).map((line) => line.replace(/^[-*]\s*/, "").trim()).filter((line) => line && LONG_TERM_FACT.test(line));

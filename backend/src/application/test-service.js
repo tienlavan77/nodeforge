@@ -44,6 +44,7 @@ export function createTestService({ verificationOrchestrator, fileService, timeo
   return Object.freeze({ runTests, runCheck, runLint, runTypecheck, runSchemaValidation, startTests, getTestResult, cancelTest });
   // Runs schema validation so immutable archive verification covers API contracts without a checkout.
   async function runSchemaValidation({ commitId, taskId, sessionId } = {}) { return run({ commitId, levels: ["schema_validation"], taskId, sessionId }); }
+  // Defines runTests function behavior for test-service.js.
   async function runTests({ commitId, levels = ["unit_test"], taskId, sessionId, command } = {}) {
     const verificationLevels = Array.isArray(levels) && levels.length > 0 ? levels : ["unit_test"];
     return run({ commitId, levels: verificationLevels, taskId, sessionId, command });
@@ -53,7 +54,9 @@ export function createTestService({ verificationOrchestrator, fileService, timeo
     const level = type === "test" ? "unit_test" : type;
     return run({ commitId, levels: [level], taskId, sessionId, command, deadlineMs: jobTimeoutMs, signal });
   }
+  // Defines runLint function behavior for test-service.js.
   async function runLint({ commitId, taskId, sessionId } = {}) { return run({ commitId, levels: ["lint"], taskId, sessionId }); }
+  // Defines runTypecheck function behavior for test-service.js.
   async function runTypecheck({ commitId, taskId, sessionId } = {}) { return run({ commitId, levels: ["typecheck"], taskId, sessionId }); }
 
   // Async job store: run_test starts a job and returns immediately so long suites
@@ -78,6 +81,7 @@ export function createTestService({ verificationOrchestrator, fileService, timeo
     });
     return { job_id: jobId, status: "running", started_at: job.started_at };
   }
+  // Defines getTestResult function behavior for test-service.js.
   function getTestResult({ jobId, taskId } = {}) {
     if (typeof jobId !== "string" || !jobId.trim()) { const error = new ConfigurationError("getTestResult requires jobId."); error.code = "INPUT_INVALID"; throw error; }
     const job = jobs.get(jobId.trim());
@@ -101,14 +105,17 @@ export function createTestService({ verificationOrchestrator, fileService, timeo
     job.controller.abort(new ConfigurationError("Project check cancelled by System Engineer."));
     return { job_id: job.job_id, status: "cancellation_requested", cancelled: true };
   }
+  // Defines pruneJobs function behavior for test-service.js.
   function pruneJobs() {
     if (jobs.size < 50) return;
     for (const [id, entry] of jobs) { if (entry.status !== "running") jobs.delete(id); if (jobs.size < 50) break; }
   }
+  // Defines run function behavior for test-service.js.
   async function run({ commitId = `WORKTREE-${Date.now()}`, levels, taskId, sessionId, command, deadlineMs = timeoutMs, signal }) {
     const plan = { commit_id: commitId, levels: ["focused"], checks: levels.map((type) => ({ type: type === "unit_test" ? "test" : type, command: command ?? commandFor(type, taskId), timeout_ms: deadlineMs })) };
     publish("verification.test_started", { commit_id: commitId, task_id: taskId, session_id: sessionId, levels });
     const controller = new AbortController();
+    // Defines forwardAbort function behavior for test-service.js.
     const forwardAbort = () => controller.abort(signal.reason);
     if (signal?.aborted) forwardAbort();
     else signal?.addEventListener("abort", forwardAbort, { once: true });
@@ -125,11 +132,14 @@ export function createTestService({ verificationOrchestrator, fileService, timeo
       throw failure;
     } finally { clearTimeout(timer); signal?.removeEventListener("abort", forwardAbort); }
   }
+  // Defines commandFor function behavior for test-service.js.
   function commandFor(type, taskId) {
     if (type === "unit_test" && typeof taskId === "string" && /^(tests|test)\//.test(taskId)) return `node --test ${taskId}`;
     return { lint: "pnpm lint", schema_validation: "pnpm validate:schemas", typecheck: "pnpm typecheck", unit_test: "pnpm test", build: "pnpm --dir ui/nextjs build" }[type] ?? "pnpm test";
   }
+  // Defines publish function behavior for test-service.js.
   function publish(type, payload) { const event = { type, project_root: projectRoot, payload }; publisher?.publish?.({ event_id: `EVT-${Date.now()}`, type, project_id: payload.project_id ?? "PROJECT-NODEFORGE", timestamp: new Date().toISOString(), payload, metadata: { source: "test-service", task_id: payload.task_id, session_id: payload.session_id } }); internalBus?.emit?.(type, event); }
+  // Defines logJobCompleted function behavior for test-service.js.
   function logJobCompleted(job, { taskId, sessionId } = {}) {
     if (!taskId) return;
     const duration_ms = Date.parse(job.finished_at) - Date.parse(job.started_at);

@@ -17,6 +17,7 @@ export function createContextReadHandler({ agent, database, projectId, projectRo
     throw new ConfigurationError("A project_id and project root are required for context reads.");
   }
 
+  // Defines onMessage function behavior for context-read-handler.js.
   const onMessage = (envelope) => {
     if (envelope.message?.type !== "context.read_file") return;
     void handle(envelope).catch((error) => events.emit("protocol_error", error));
@@ -25,6 +26,7 @@ export function createContextReadHandler({ agent, database, projectId, projectRo
   const isSecretPath = createSecretPathMatcher(config.secretsPatterns);
   agent.on("message", onMessage);
 
+  // Defines handle function behavior for context-read-handler.js.
   async function handle(envelope) {
     const command = envelope.message;
     if (command.project_id !== projectId) {
@@ -74,14 +76,17 @@ export function createContextReadHandler({ agent, database, projectId, projectRo
   }
 
   return Object.freeze({
+    // Defines on method behavior for context-read-handler.js.
     on(event, listener) {
       events.on(event, listener);
       return this;
     },
+    // Defines off method behavior for context-read-handler.js.
     off(event, listener) {
       events.off(event, listener);
       return this;
     },
+    // Defines close method behavior for context-read-handler.js.
     close() {
       agent.off("message", onMessage);
     }

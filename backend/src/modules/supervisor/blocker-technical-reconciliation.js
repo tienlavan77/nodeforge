@@ -8,7 +8,9 @@ import { validateBlockerOwnerRequest, blockerOwnerRequest } from "./blocker-owne
 import { validateReviewerEvidenceRequest } from "./blocker-reviewer-evidence.js";
 
 const KINDS = ["technical_design", "source_revision", "execution_admission", "dependency", "file_claim", "tooling"];
+// Defines text function behavior for blocker-technical-reconciliation.js.
 const text = (value) => typeof value === "string" && value.trim().length > 0 && value.length <= 8000;
+// Defines list function behavior for blocker-technical-reconciliation.js.
 const list = (value) => Array.isArray(value) && value.length > 0 && value.length <= 16 && value.every(text);
 
 // Validates actionable investigation work and prevents an unresolved admission from authorizing Coder.

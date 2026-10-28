@@ -8,6 +8,7 @@ import { verifyArchitectureDecisionSource } from "./sprint-architecture-decision
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const DECISIONS = new Set(["approved", "rejected", "changes_requested"]);
+// Defines sha function behavior for markdown-plan-store.js.
 const sha = (value) => createHash("sha256").update(value).digest("hex");
 
 // Gives readable plan integrity failures stable governance codes.

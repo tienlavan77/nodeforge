@@ -17,6 +17,7 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
     throw new ConfigurationError("Prose ticket service requires a roadmap store.");
   }
   const validate = createValidator();
+  // Defines regenerateEnglish function behavior for prose-ticket-service.js.
   async function regenerateEnglish(ticketId, { vietnameseContext, projectId, sprintLeader, ticketFileWriter, ticketStore } = {}) {
     if (!ticketId) throw new ConfigurationError("Ticket id is required for English regeneration.");
     const current = roadmapStore.getCurrent();
@@ -61,6 +62,7 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
     }
     return { ticket: regenerated, roadmap: savedRoadmap };
   }
+  // Defines findTicket function behavior for prose-ticket-service.js.
   function findTicket(roadmap, ticketId) {
     for (const sprint of roadmap.sprints ?? []) {
       for (const ticket of sprint.tickets ?? []) {
@@ -69,6 +71,7 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
     }
     return null;
   }
+  // Defines updateTicketInRoadmap function behavior for prose-ticket-service.js.
   function updateTicketInRoadmap(roadmap, updatedTicket, updatedAt) {
     return {
       ...roadmap,
@@ -79,6 +82,7 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
   }
 
   return Object.freeze({ parse, createFromObject, regenerateEnglish });
+  // Defines createFromObject function behavior for prose-ticket-service.js.
   function createFromObject(ticket) {
     if (!ticket || typeof ticket !== "object" || Array.isArray(ticket)) return { create_ticket: true, status: "needs_input", error_code: "invalid_ticket_json", question: "Ticket JSON không hợp lệ." };
     if (ticket.style !== undefined) return { create_ticket: true, status: "needs_input", question: "style is obsolete; use implementation_type." };
@@ -118,6 +122,7 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
     if (!validate(ticket)) return validationResponse(validate.errors, ticket);
     return persist(ticket);
   }
+  // Defines persist function behavior for prose-ticket-service.js.
   function persist(ticket) {
     const current = roadmapStore.getCurrent();
     const next = current
@@ -126,6 +131,7 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
     const roadmap = roadmapStore.save(next);
     return { create_ticket: true, status: "created", ticket, roadmap };
   }
+  // Defines appendToSprint function behavior for prose-ticket-service.js.
   function appendToSprint(sprints, ticket) {
     let found = false;
     const updated = sprints.map((sprint) => {
@@ -136,9 +142,11 @@ export function createProseTicketService({ roadmapStore, clock = () => new Date(
     if (!found) throw new ConfigurationError(`Sprint does not exist in roadmap: ${ticket.sprint_id}.`);
     return updated;
   }
+  // Defines invalidStructured function behavior for prose-ticket-service.js.
   function invalidStructured(errors = [], value) {
     return validationResponse(errors, value);
   }
+  // Defines validationResponse function behavior for prose-ticket-service.js.
   function validationResponse(errors = [], value) {
     const missing = [...new Set(errors.filter((error) => error.keyword === "required").map((error) => error.params.missingProperty))];
     const invalid_fields = errors.filter((error) => error.keyword !== "required").map((error) => ({
@@ -210,6 +218,7 @@ function leadingJsonValue(value) {
 
 // Extracts ticket fields from prose text via regex.
 function extract(text) {
+  // Defines value function behavior for prose-ticket-service.js.
   const value = (label) => text.match(new RegExp(`(?:^|\\n)\\s*(?:${label})\\s*:\\s*(.+)`, "i"))?.[1]?.trim();
   const criteria = text.match(/(?:^|\n)\s*(?:acceptance[_ ]criteria|criteria|tiêu chí)\s*:\s*([\s\S]+?)(?=\n\s*[a-z_ ]+\s*:|$)/i)?.[1]
     ?.split(/\n|;|\s*\|\s*/).map((item) => item.replace(/^[-*]\s*/, "").trim()).filter(Boolean);

@@ -9,6 +9,7 @@ import { sprintArchitectureDecisions } from "./sprint-architecture-decisions.js"
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const PLAN_ROOT = statePath("nf/plans");
 const DECISIONS = new Set(["approved", "rejected", "changes_requested"]);
+// Defines hash function behavior for human-plan-store.js.
 const hash = (text) => createHash("sha256").update(text).digest("hex");
 
 // Gives plan integrity and approval failures stable codes for execution gates.

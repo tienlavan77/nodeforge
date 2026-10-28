@@ -7,7 +7,9 @@ export function createSupervisorLoop({ runtime, senderQueue, collectorQueue, ver
   if (!runtime || typeof eventBus?.publish !== "function") throw new ConfigurationError("Supervisor loop requires runtime and event bus.");
   let started = false;
   return Object.freeze({ start, reset, onEvent });
+  // Defines reset function behavior for supervisor-loop.js.
   async function reset() { started = false; }
+  // Defines start function behavior for supervisor-loop.js.
   async function start(request, { resume = false } = {}) {
     if (started && !resume) return request;
     agentResolver?.refresh?.();
@@ -21,6 +23,7 @@ export function createSupervisorLoop({ runtime, senderQueue, collectorQueue, ver
     started = true;
     return selected;
   }
+  // Defines selectAgent function behavior for supervisor-loop.js.
   function selectAgent(request, { fallback = request } = {}) {
     if (request?.agent_id) return request;
     const claimed = agentOccupancy?.getByTask(runtime.taskId);
@@ -42,6 +45,7 @@ export function createSupervisorLoop({ runtime, senderQueue, collectorQueue, ver
     }
     throw Object.assign(new ConfigurationError("No unclaimed READY Coder is available."), { code: "AGENT_NOT_AVAILABLE" });
   }
+  // Defines onEvent function behavior for supervisor-loop.js.
   async function onEvent(event) {
     if (event.supervisor_id !== runtime.supervisorId) return false;
     if (event.payload?.automatic_review && (event.payload.review_gate === "off" || event.payload.inline_review)) return true;
@@ -151,6 +155,7 @@ export function createSupervisorLoop({ runtime, senderQueue, collectorQueue, ver
     await senderQueue.enqueue(request);
     return request;
   }
+  // Defines terminal function behavior for supervisor-loop.js.
   async function terminal(type, event, payload = {}) { await eventBus.publish({ type, task_id: runtime.taskId, supervisor_id: runtime.supervisorId, request_id: event.request_id, correlation_id: event.correlation_id, attempt: event.attempt ?? 1, payload: { ...payload, ...(event.payload?.execution_id ? { execution_id: event.payload.execution_id, execution_basis: event.payload.execution_basis } : {}) } }); }
   // Parks review failures without failing the Coder ticket or bypassing an unresolved finding.
   async function parkReview(event, reason) {

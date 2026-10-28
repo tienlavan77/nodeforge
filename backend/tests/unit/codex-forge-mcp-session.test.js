@@ -21,3 +21,26 @@ test("Codex MCP session advertises inputSchema and normalizes tool-call input", 
     await session.close();
   }
 });
+
+test("closing an aborted MCP connection waits for its outstanding Forge operation", async () => {
+  let start; let finish;
+  const started = new Promise((resolve) => { start = resolve; });
+  const finished = new Promise((resolve) => { finish = resolve; });
+  const session = await createCodexForgeMcpSession({ registry: { run_check: { execute: async () => { start(); await finished; return { status: "passed" }; } } },
+    definitions: [{ name: "run_check", description: "Run a focused check", input_schema: { type: "object", properties: {} } }] });
+  const controller = new AbortController();
+  const request = fetch(session.url, { signal: controller.signal, method: "POST",
+    headers: { authorization: `Bearer ${session.token}`, "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "run_check", arguments: {} } }) });
+  const aborted = assert.rejects(request, { name: "AbortError" });
+  let closed = false; let closing;
+  try {
+    await started;
+    controller.abort(); await aborted;
+    closing = session.close().then(() => { closed = true; });
+    await new Promise(setImmediate);
+    assert.equal(closed, false, "A disconnected client cannot relinquish an unfinished write or verification");
+    finish(); await closing;
+    assert.equal(closed, true);
+  } finally { finish(); await (closing ?? session.close()); }
+});

@@ -18,7 +18,7 @@ const digest = (value) => createHash("sha256").update(JSON.stringify(value)).dig
 export async function buildBlockerTicketProgress({ job, checkpoint, workspace, reviewCheckpoint, sprintRegistry, ticketStatusStore }) {
   const ticket = job.request.ticket;
   const context = await workspace.executionContexts.load(job.request.task_id);
-  const dependencies = blockerDependencyProgress({ request: job.request, sprintRegistry, ticketStatusStore });
+  const dependencies = blockerDependencyProgress({ request: job.request, job, sprintRegistry, ticketStatusStore });
   const review_access = await inspectBlockerReviewAccess({ job, workspace, checkpoint, reviewCheckpoint, context });
   const retained_review_source = await workspace.inspectFindingReviewSource?.() ?? null;
   const review_response_delivery = await inspectReviewResponseReadiness(workspace, job.request.task_id);

@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { createTicketRootGit } from "./ticket-root-git.js";
 
+// Defines fail function behavior for ticket-commit-file-service.js.
 const fail = (code, message) => Object.assign(new ConfigurationError(message), { code });
 
 // Creates a read-only File Service view of the ticket's persisted review commit.

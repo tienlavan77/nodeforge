@@ -26,6 +26,7 @@ export function verificationCommandAccepted(command) {
 // Identifies reproducible assertion failures, refusing truncated, cancelled, or transient infrastructure results.
 export function regressionFailureIdentity(command, output, cwd) {
   if (!Number.isInteger(output.exit_code) || output.exit_code <= 0) return null;
+  // Defines normalize function behavior for ticket-verification-regression.js.
   const normalize = (value) => cwd ? String(value ?? "").split(cwd).join("<verification-root>") : String(value ?? "");
   const stdout = normalize(output.stdout_redacted);
   const stderr = normalize(output.stderr_redacted);
@@ -51,7 +52,7 @@ export function regressionFailureIdentity(command, output, cwd) {
 }
 
 // Runs ticket checks first and compares only failing supplemental checks against the pre-ticket source.
-export async function runTicketVerificationCommands({ commands, context, projectRoot, sourceRoot, archive, environment, runCommand, safeOutput, projectLogger, taskId }) {
+export async function runTicketVerificationCommands({ commands, context, projectRoot, sourceRoot, archive, environment, runCommand, safeOutput, projectLogger, taskId, commandReceipts }) {
   const results = [];
   let baseline;
   let baselineError;
@@ -72,7 +73,8 @@ export async function runTicketVerificationCommands({ commands, context, project
   }
   try {
     for (const command of commands) {
-      const result = await execute(command, sourceRoot, archive?.temp_dir);
+      const result = await commandReceipts?.load(command) ?? await execute(command, sourceRoot, archive?.temp_dir);
+      if (result.exit_code === 0 && !result.reused_from) await commandReceipts?.save(command, result);
       results.push(result);
       if (command.scope === "regression" && result.exit_code !== 0) {
         result.disposition = "unattributed_failure";

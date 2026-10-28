@@ -1,7 +1,10 @@
+// Provides module declarations and business logic for command-executor.js.
+
 import { spawn } from "node:child_process";
 
 import { ConfigurationError } from "../../shared/errors.js";
 
+// Defines createProjectCommandExecutor function behavior for command-executor.js.
 export function createProjectCommandExecutor({ projectRoot, spawnProcess = spawn } = {}) {
   if (typeof projectRoot !== "string" || projectRoot.length === 0 || typeof spawnProcess !== "function") {
     throw new ConfigurationError("A project root and spawn function are required for verification commands.");
@@ -25,6 +28,7 @@ export function createProjectCommandExecutor({ projectRoot, spawnProcess = spawn
     let cancelled = false;
     let settled = false;
     let stopFailure;
+    // Defines stop function behavior for command-executor.js.
     const stop = (reason) => {
       if (settled) return;
       cancelled ||= reason === "cancelled";
@@ -39,6 +43,7 @@ export function createProjectCommandExecutor({ projectRoot, spawnProcess = spawn
     };
     let forceStopTimer;
     const timer = Number.isFinite(timeoutMs) && timeoutMs > 0 ? setTimeout(() => stop("timeout"), timeoutMs) : undefined;
+    // Defines onAbort function behavior for command-executor.js.
     const onAbort = () => stop("cancelled");
     signal?.addEventListener("abort", onAbort, { once: true });
     child.stdout.setEncoding("utf8");

@@ -23,7 +23,7 @@ export async function executeReportVerificationWait({ tool, input, context, stat
     // Stores real terminal evidence without marking report_done or the ticket as complete prematurely.
     onVerificationSettled: async (outcome) => {
       await persist(outcome);
-      projectLogger({ event_name: "ticket.verification_wait_finished", level: outcome.status === "failed" ? "warn" : "info", status: "info",
+      projectLogger({ event_name: "ticket.verification_wait_finished", level: outcome.status === "failed" ? "warn" : "info", status: outcome.status === "failed" ? "failed" : "info",
         message: outcome.status === "stopped" ? "Node verification continuation stopped by owner."
           : `Node verification ${outcome.status}; returning evidence to Coder to ${outcome.status === "passed" ? "finish the report" : "repair the reported cause"}.`,
         task_id: taskId, correlation_id: correlationId, source: "ticket-report-verification-wait",

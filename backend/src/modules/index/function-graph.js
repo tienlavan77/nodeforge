@@ -7,12 +7,14 @@ export function createFunctionGraph({ database } = {}) {
   if (!database || typeof database.all !== "function") throw new ConfigurationError("Function Graph requires an index database.");
   return Object.freeze({ getFunctions, getCallers, getCallees });
 
+  // Defines getFunctions function behavior for function-graph.js.
   function getFunctions(path) {
     const file = requireFile(path);
     const rows = database.all("SELECT symbol_id, file_id, name, kind, start_line, end_line FROM symbols WHERE file_id = ? ORDER BY start_line, name", [file.file_id]);
     return createGraphQueryResult({ nodes: rows.map((row) => symbolNode(row, file)), edges: [], indexVersion: indexVersion(), confidence: "static" });
   }
 
+  // Defines getCallers function behavior for function-graph.js.
   function getCallers(path, functionName) {
     const target = requireSymbol(path, functionName);
     const rows = database.all(
@@ -30,6 +32,7 @@ export function createFunctionGraph({ database } = {}) {
     return createFunctionUsageResult({ symbol: symbolNode(target, target.file), calledBy, indexVersion: indexVersion(), calls: edges });
   }
 
+  // Defines getCallees function behavior for function-graph.js.
   function getCallees(path, functionName) {
     const source = requireSymbol(path, functionName);
     const rows = database.all(
@@ -47,6 +50,7 @@ export function createFunctionGraph({ database } = {}) {
     return createFunctionUsageResult({ symbol: symbolNode(source, source.file), calls, calledBy: edges, indexVersion: indexVersion() });
   }
 
+  // Defines requireFile function behavior for function-graph.js.
   function requireFile(path) {
     if (typeof path !== "string" || !path) throw new ConfigurationError("Function Graph path is required.");
     const file = database.all("SELECT file_id, path, language, sha256, size_bytes FROM files WHERE path = ?", [path])[0];
@@ -54,6 +58,7 @@ export function createFunctionGraph({ database } = {}) {
     return file;
   }
 
+  // Defines requireSymbol function behavior for function-graph.js.
   function requireSymbol(path, name) {
     const file = requireFile(path);
     if (typeof name !== "string" || !name) throw new ConfigurationError("Function Graph function name is required.");
@@ -62,7 +67,10 @@ export function createFunctionGraph({ database } = {}) {
     return { ...symbol, file };
   }
 
+  // Defines symbolNode function behavior for function-graph.js.
   function symbolNode(row, file) { return createSymbolNode({ symbolId: row.symbol_id, fileId: row.file_id, path: file.path, name: row.name, symbolKind: row.kind, startLine: row.start_line, endLine: row.end_line, indexVersion: indexVersion() }); }
+  // Defines callerId function behavior for function-graph.js.
   function callerId(row) { return `${row.source_path}#${row.caller_name ?? "<module>"}`; }
+  // Defines indexVersion function behavior for function-graph.js.
   function indexVersion() { return `IDX-${database.all("SELECT version FROM index_metadata LIMIT 1")[0]?.version ?? 0}`; }
 }

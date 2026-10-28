@@ -3,7 +3,7 @@ import { createAutomaticTicketReview } from "../../src/modules/supervisor/automa
 import { completeCoderTicket } from "../../src/modules/supervisor/ticket-coder-completion.js";
 
 // Builds an isolated ticket pipeline with restartable stores and explicit integration witnesses.
-export function automaticReviewFixture({ gate = "on", limit = 2, review, publicationFailure, ticketStatusStore, operationalRetry = false, retryClock, retryWait } = {}) {
+export function automaticReviewFixture({ gate = "on", limit = 2, review, publicationFailure, ticketStatusStore, checkpoints, projectLogger, operationalRetry = false, retryClock, retryWait } = {}) {
   const records = new Map();
   const events = [];
   const order = [];
@@ -50,7 +50,7 @@ export function automaticReviewFixture({ gate = "on", limit = 2, review, publica
     }
   };
   const fileService = { readForIndex: async () => ({ content: rules }) };
-  const options = { operationalRetry, retryClock, retryWait, ticketStatusStore, queueStore, queue, eventBus, fileService, resolveTicketWorkspace: async () => workspace,
+  const options = { operationalRetry, retryClock, retryWait, ticketStatusStore, checkpoints, projectLogger, queueStore, queue, eventBus, fileService, resolveTicketWorkspace: async () => workspace,
     resolveWorker: async () => ({ review: async (job) => {
       calls += 1; order.push("review");
       const result = review ? await review(job, calls) : { verdict: "approved", findings: [], adjudications: [] };

@@ -6,6 +6,8 @@ const RETRYABLE_CODES = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI
 
 // Classifies observed infrastructure errors while preserving real approval denials and unknown outcomes.
 export function reviewOperationalFailure(error) {
+  if (error?.code === "REVIEWER_BUSY" && error.not_started === true && error.agent_wait?.agent_id)
+    return { code: error.code, message: error.message, retryable: true, not_started: true, agent_wait: error.agent_wait };
   if (!error || /(?:DENIED|FORBIDDEN|REJECTED|OUTCOME_UNKNOWN|PROVIDER_UNKNOWN|RECONCILIATION)/.test(error.code ?? '')
     || /rejected due to unacceptable risk|approval denied/i.test(error.message ?? '')) return null;
   const status = Number(error.statusCode ?? error.status ?? error.response?.status);

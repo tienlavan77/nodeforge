@@ -27,6 +27,7 @@ export function createEmbeddingJobStore({ database, clock = () => new Date() } =
       throw error;
     }
 
+    // Defines insert function behavior for embedding-job-store.js.
     function insert() {
       const existing = database.all(
         `SELECT * FROM embedding_jobs WHERE symbol_id = ? AND model = ? AND content_checksum = ? AND status IN (${ACTIVE_STATUSES.map(() => "?").join(",")}) ORDER BY created_at DESC LIMIT 1`,
@@ -60,6 +61,7 @@ export function createEmbeddingJobStore({ database, clock = () => new Date() } =
 
   // Claims the oldest ready job atomically for one worker.
   function claimNext({ now = clock().toISOString() } = {}) {
+    // Defines claim function behavior for embedding-job-store.js.
     const claim = () => {
       const job = database.all(
         `SELECT * FROM embedding_jobs WHERE status IN ('pending', 'retry_wait') AND (next_retry_at IS NULL OR next_retry_at <= ?) ORDER BY priority ASC, created_at ASC LIMIT 1`,
@@ -110,6 +112,7 @@ export function createEmbeddingJobStore({ database, clock = () => new Date() } =
     return Object.fromEntries(database.all("SELECT status, COUNT(*) AS count FROM embedding_jobs GROUP BY status").map((row) => [row.status, Number(row.count)]));
   }
 
+  // Defines updateStatus function behavior for embedding-job-store.js.
   function updateStatus(jobId, status, lastError, nextRetryAt) {
     if (typeof jobId !== "string" || !jobId) throw new ConfigurationError("Embedding job id is required.");
     const now = clock().toISOString();
@@ -125,12 +128,14 @@ export function checksumEmbeddingText(value) {
   return `djb2:${hash.toString(16)}`;
 }
 
+// Defines assertJobInput function behavior for embedding-job-store.js.
 function assertJobInput({ symbolId, contentChecksum, model }) {
   if (typeof symbolId !== "string" || !symbolId) throw new ConfigurationError("Embedding job symbol_id is required.");
   if (typeof contentChecksum !== "string" || !contentChecksum) throw new ConfigurationError("Embedding job content_checksum is required.");
   if (typeof model !== "string" || !model) throw new ConfigurationError("Embedding job model is required.");
 }
 
+// Defines errorMessage function behavior for embedding-job-store.js.
 function errorMessage(error) {
   return typeof error?.message === "string" && error.message ? error.message.slice(0, 2000) : String(error ?? "Unknown embedding error");
 }

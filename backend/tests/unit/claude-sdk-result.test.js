@@ -68,8 +68,8 @@ test("known structured-output failure never falls back to prose or JSON-looking 
       assert.doesNotMatch(error.message, /private-test-credential/);
       return true;
     });
-    assert.match(f.terminal, /FAIL Architecture/);
-    assert.doesNotMatch(f.terminal, /DONE Architecture/);
+    assert.match(f.terminal, /\[AM\/Architecture\] sdk.completed.* - FAIL/);
+    assert.doesNotMatch(f.terminal, /START| - OK| - DONE/);
     assert.equal(f.closed, true);
   }
 });

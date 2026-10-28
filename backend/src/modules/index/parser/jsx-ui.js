@@ -11,15 +11,18 @@ const ATTRIBUTE_KINDS = Object.freeze({
   "data-testid": "jsx_data"
 });
 
+// Defines createJsxUiWalker function behavior for jsx-ui.js.
 export function createJsxUiWalker() {
   return Object.freeze({ collectUiSymbols });
 
+  // Defines collectUiSymbols function behavior for jsx-ui.js.
   function collectUiSymbols(ast) {
     const symbols = [];
     walkNode(ast.program, null, symbols);
     return symbols;
   }
 
+  // Defines walkNode function behavior for jsx-ui.js.
   function walkNode(node, tagName, symbols) {
     if (!node || typeof node !== "object") return;
 
@@ -37,6 +40,7 @@ export function createJsxUiWalker() {
     }
   }
 
+  // Defines collectAttributes function behavior for jsx-ui.js.
   function collectAttributes(attributes, tagName, symbols) {
     for (const attribute of attributes) {
       if (attribute.type !== "JSXAttribute" || typeof attribute.name?.name !== "string") continue;
@@ -49,12 +53,14 @@ export function createJsxUiWalker() {
   }
 }
 
+// Defines elementTagName function behavior for jsx-ui.js.
 function elementTagName(openingElement) {
   const name = openingElement?.name;
   if (name?.type === "JSXIdentifier") return name.name;
   return null;
 }
 
+// Defines staticAttributeValue function behavior for jsx-ui.js.
 function staticAttributeValue(value) {
   if (value?.type === "StringLiteral") return value.value.trim() || null;
   // Template literals and expressions stay out: only provably static values

@@ -4,6 +4,7 @@ import { ConfigurationError } from "../../shared/errors.js";
 
 const DIRECTORY = statePath("ticket-integrations");
 const SAFE_TASK = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+// Defines fail function behavior for terminal-receipt-writer.js.
 const fail = (code, message) => Object.assign(new ConfigurationError(message), { code });
 
 // Give all workspace modes the same durable prepared and completed receipt contract.

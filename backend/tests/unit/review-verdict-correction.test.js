@@ -45,8 +45,8 @@ test("same independent Reviewer corrects malformed IDs without losing substantiv
     assert.deepEqual(result.adjudications, valid.adjudications);
     assert.equal(result.verdict, "request_changes");
     assert.match(calls[1].prompt, /adjudications\[0\]\.finding_id/);
-    if (provider === "claude") { assert.equal(calls[1].resumeSessionId, "SESSION-REVIEW"); assert.deepEqual(calls[1].options.allowedTools, []); }
-    else { assert.deepEqual(calls[1].options.forgeTools.definitions, []); if (provider === "codex") assert.equal(calls[1].resumeThreadId, "SESSION-REVIEW"); }
+    if (provider === "claude") { assert.equal(calls[1].resumeSessionId, "SESSION-REVIEW"); assert.deepEqual(calls[1].options.allowedTools, ["mcp__forge__lookup_schema"]); }
+    else { assert.deepEqual(calls[1].options.forgeTools.definitions.map(({ name }) => name), ["lookup_schema"]); if (provider === "codex") assert.equal(calls[1].resumeThreadId, "SESSION-REVIEW"); }
     assert.equal(saved.at(-1).verdict_attempts.length, 2);
     assert.equal(saved.at(-1).verdict_attempts[0].status, "invalid");
     assert.equal(logs.filter((log) => log.event_name === "review.verdict_correction").length, 1);

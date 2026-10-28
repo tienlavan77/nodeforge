@@ -6,6 +6,7 @@ import { acquireTicketFileLock } from "./ticket-file-lock.js";
 
 const EVENT_TYPES = new Set(["verification.passed", "review.approved", "task.completed"]);
 const SAFE_ID = /^[A-Za-z0-9._:-]+$/;
+// Defines hash function behavior for ticket-pipeline-shadow.js.
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 
 // Creates a read-only shadow comparator with durable, idempotent event receipts.

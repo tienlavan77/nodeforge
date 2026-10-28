@@ -111,6 +111,7 @@ export function createFilesystemNamespaceRunner({ projectRoot, start = startFile
     tail = new Promise(resolve => { release = resolve; });
     try {
       if (signal) await new Promise((resolve, reject) => {
+        // Defines abort function behavior for filesystem-namespace-runner.js.
         const abort = () => { signal.removeEventListener("abort", abort); reject(signal.reason); };
         signal.addEventListener("abort", abort, { once: true });
         if (signal.aborted) abort();

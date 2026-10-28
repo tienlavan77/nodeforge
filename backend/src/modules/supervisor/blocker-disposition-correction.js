@@ -1,6 +1,7 @@
 // Reuses retained recovery responses and stops unchanged validation failures without imposing an agent call quota.
 import { createHash } from "node:crypto";
 import { discoveryAssignment } from "./blocker-discovery-checkpoint.js";
+import { agentDecisionEvidenceError } from "../governance/agent-decision-schema.js";
 
 // Reads a retained JSON disposition, including a single fenced response, without treating surrounding text as authority.
 function retainedDisposition(text) {
@@ -33,7 +34,31 @@ export function blockerCorrectionPrompt(job) {
     + "For a resolved technical handoff include technical_result={findings:[completed facts],implementation_steps:[remaining Coder steps],verification_steps:[focused checks],admission:{status:within_existing_permissions|denied|unresolved,rationale:actual permission basis}}. "
     + "All three lists must be nonempty; resolved requires within_existing_permissions without overriding any tool denial. Updating evidence must not remove technical_result. "
     + "A schema failure is a response correction for the assigned role, not a new Owner question or tool denial. Consume recorded Owner inputs. "
+    + evidenceCorrection(job)
     + (result ? `PREVIOUS AGENT-AUTHORED TECHNICAL RESULT (not validated authority; retain only facts that still apply): ${JSON.stringify(result)}` : "");
+}
+
+/** Returns exact read receipts to the same assignment for an evidence-format
+ * correction. Node supplies observations only; the agent chooses the relevant
+ * citations and the live validator still checks file access and current hashes. */
+function evidenceCorrection(job) {
+  if (!job.validation_feedback.some((entry) => /\/evidence(?:\/|$)/.test(entry.path))) return "";
+  const checkpoint = job.discovery_checkpoints?.[job.stage];
+  const references = new Map();
+  if (checkpoint?.assignment_id === discoveryAssignment(job)) {
+    for (const receipt of checkpoint.receipts ?? []) {
+      if (!["read_file", "read_lines"].includes(receipt.tool)) continue;
+      const path = receipt.input?.path, sha256 = receipt.source_sha256?.replace(/^sha256:/, "");
+      if (typeof path !== "string" || path.length > 512 || path.includes("/blocker-context/")) continue;
+      const reference = { path, sha256 };
+      if (!agentDecisionEvidenceError([reference])) references.set(path, reference);
+    }
+  }
+  return "SOURCE EVIDENCE CORRECTION: Look up your blocker_decision schema with the current action. "
+    + "For resolved, sprint_required and owner_required supply 1-16 relevant inspected path/full-file SHA-256 pairs in payload.decision.evidence. "
+    + "For architecture_required, reconciliation_required or coder_requested, evidence may be omitted or [] when unavailable; name the exact missing fact instead of fabricating proof. "
+    + "The envelope evidence uses its separate transport schema. Do not confuse it with decision.evidence. Reuse applicable completed reads without restarting discovery; context delivery copies are not implementation evidence. "
+    + `RETAINED READ REFERENCES (historical observations, not approval; select only relevant citations): ${JSON.stringify([...references.values()].slice(-16))}. `;
 }
 
 // Revalidates same-assignment evidence after a validator fix before making another provider request.
@@ -42,17 +67,23 @@ export async function salvagePersistedDisposition({ work, job, update, checkDisp
   // only its revalidated report bound to the unchanged nested AM assignment.
   const retainedReviewer = job.stage === "reviewer" && job.reviewer_evidence?.retained_response?.request_id === job.reviewer_evidence?.id
     ? job.reviewer_evidence?.retained_response?.sha256 : null;
+  const retainedHandoff = job.stage === "sprint_leader" && job.delegation_evidence_review?.status === "answered" && job.delegation_evidence_review.handoff_reusable
+    ? job.delegation_evidence_review.handoff?.response_sha256 : null;
+  if (job.stage === "sprint_leader" && ["answered", "unresolved"].includes(job.delegation_evidence_review?.status) && !retainedHandoff) return null;
   const prior = (job.disposition_attempts ?? []).findLast((attempt) => attempt.stage === job.stage && (!attempt.assignment_id || attempt.assignment_id === discoveryAssignment(job)
-    || retainedReviewer && attempt.response?.sha256 === retainedReviewer)
-    && attempt.status === "rejected" && attempt.response?.text);
+    || retainedReviewer && attempt.response?.sha256 === retainedReviewer || retainedHandoff && attempt.response?.sha256 === retainedHandoff)
+    && (attempt.status === "rejected" || retainedHandoff && attempt.response?.sha256 === retainedHandoff && attempt.status === "accepted") && attempt.response?.text);
   if (!prior?.response?.text) return null;
   let verified;
   try { verified = await checkDisposition(retainedDisposition(prior.response.text), job, { retained: true }); }
   catch (error) { return error && null; }
   const saved = await update(work, (current, ledger) => {
     ledger.calls = Math.max(0, ledger.calls - 1);
-    const target = (current.disposition_attempts ?? []).findLast((attempt) => attempt.stage === current.stage && attempt.status === "rejected");
-    if (target) { target.status = "received"; delete target.validation_errors; }
+    const target = (current.disposition_attempts ?? []).findLast((attempt) => attempt.stage === current.stage && attempt.response?.sha256 === prior.response.sha256);
+    if (target && target === current.disposition_attempts.at(-1)) { target.status = "received"; delete target.validation_errors; }
+    else if (target) current.disposition_attempts.push({ stage: current.stage, assignment_id: discoveryAssignment(current), status: "received",
+      response: target.response, reused_assignment_id: target.assignment_id, received_at: current.delegation_evidence_review?.answered_at ?? target.received_at });
+    if (retainedHandoff) current.delegation_evidence_review.status = "consumed";
   });
   return saved ? verified : null;
 }

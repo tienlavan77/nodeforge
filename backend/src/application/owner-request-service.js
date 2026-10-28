@@ -9,6 +9,7 @@ export function createOwnerRequestService({ governanceOrchestrator } = {}) {
   const byCorrelation = new Map();
 
   return Object.freeze({ submit, getById, getByCorrelationId });
+  // Defines submit function behavior for owner-request-service.js.
   function submit(request) {
     validateRequest(request);
     if (byId.has(request.request_id)) throw new ConfigurationError(`Owner Request already exists: ${request.request_id}.`);
@@ -31,14 +32,17 @@ export function createOwnerRequestService({ governanceOrchestrator } = {}) {
     );
     return clone(stored);
   }
+  // Defines getById function behavior for owner-request-service.js.
   function getById(requestId) {
     assertId(requestId, "request");
     return clone(byId.get(requestId));
   }
+  // Defines getByCorrelationId function behavior for owner-request-service.js.
   function getByCorrelationId(correlationId) {
     assertId(correlationId, "correlation");
     return clone(byCorrelation.get(correlationId));
   }
+  // Defines updateStatus function behavior for owner-request-service.js.
   function updateStatus(requestId, status) {
     const current = byId.get(requestId);
     if (!current) return;

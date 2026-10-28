@@ -8,6 +8,7 @@ function deny(code, statusCode) { return Object.assign(new ConfigurationError("P
 // Binds approval identity to a server-side owner and compares tokens in constant time.
 export function createPlanOwnerAuth({ token, ownerId } = {}) {
   return Object.freeze({
+    // Defines verify method behavior for plan-owner-auth.js.
     verify(headers = {}) {
       if (!token || !ownerId) throw deny("PLAN_OWNER_AUTH_UNCONFIGURED", 503);
       const value = headers.authorization ?? headers.Authorization;

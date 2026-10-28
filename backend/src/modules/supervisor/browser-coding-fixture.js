@@ -29,6 +29,7 @@ function record(name, args, result) {
 
 const client = {
   listPlans: async () => [], listPlanRequests: async () => [], listCodeCheckpoints: async () => ({ checkpoints: [] }),
+  // Defines close method behavior for browser-coding-fixture.js.
   connectProjectStream: ({ onEvent }) => { streamEvent = onEvent; return { close() {} }; },
   getSprintPlan: (...args) => record("getSprintPlan", args, sprint),
   runSprintPlan: (...args) => record("runSprintPlan", args, { sprint_id: sprint.id, levels: [] }),

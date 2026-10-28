@@ -47,7 +47,7 @@ export function createFunctionCallingTaskExecutor({ openaiSdkGateway, ollamaSdkG
       project_root: projectRoot, execution_context: request.execution_context, resume_checkpoint: Boolean(request.payload?.resume_from),
       agent_identity: { agent_id: selected.agent_id, agent_name: selected.agent_name, role: selected.role, provider: selected.provider },
       capabilities: [...CODER_TOOL_NAMES], allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes,
-      changed_paths: [...resumeState.changedPaths], context_budget: { max_bytes: 1000000, max_calls: 12 },
+      changed_paths: [...resumeState.changedPaths],
       discovery_budget: complexity.discovery_budget, allow_discovery_escalation: true,
       lifecycle: "RUNNING", audit_context: { correlation_id: request.correlation_id } });
     const toolContext = { ...context, project_id: request.project_id, project_root: projectRoot,

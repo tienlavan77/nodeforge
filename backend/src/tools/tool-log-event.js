@@ -1,5 +1,6 @@
 // Formats bounded Forge tool telemetry for project logs and terminal hints.
 import { resultCount } from "./tool-result-count.js";
+import { terminalToolResult } from "../core/terminal-log-format.js";
 
 // Selects paths from bounded discovery results for audit metadata.
 function selectedPaths(items) {
@@ -36,11 +37,17 @@ export function formatToolLogEvent(status, tool, input, context, extra) {
     tool,
     ...(executionId ? { execution_id: executionId } : {}),
     ...(context.agent_identity?.agent_id ? { agent_id: context.agent_identity.agent_id } : {}),
+    ...(context.agent_identity?.agent_name ? { agent_name: context.agent_identity.agent_name } : {}),
+    ...(context.agent_identity?.role ? { agent_role: context.agent_identity.role } : {}),
+    ...(context.agent_identity?.provider ? { provider: context.agent_identity.provider } : {}),
+    ...(typeof input?.path === "string" ? { path: input.path } : {}),
     ...(context.session_id ? { session_id: context.session_id } : {}),
     ...(extra.duration_ms !== undefined ? { duration_ms: extra.duration_ms } : {})
   };
+  if (extra.result !== undefined) payload.result = terminalToolResult(tool, extra.result);
   if (status === "failed") {
     payload.error_code = extra.error?.code ?? "TOOL_EXECUTION_FAILED";
+    if (extra.error?.message) payload.error_message = String(extra.error.message).slice(0, 240);
     if (extra.error?.details && typeof extra.error.details === "object") {
       Object.assign(payload, extra.error.details);
     }
@@ -66,6 +73,7 @@ export function formatToolLogEvent(status, tool, input, context, extra) {
     message,
     task_id: taskId,
     ...(context.ticket?.id ? { ticket_id: context.ticket.id } : {}),
+    ...(context.project_id ? { project_id: context.project_id } : {}),
     ...(context.correlation_id ? { correlation_id: context.correlation_id } : {}),
     source: "forge-tool-registry",
     ...(status === "failed" ? { error_code: payload.error_code } : {}),

@@ -41,18 +41,22 @@ export function createAgentSettingsService({ profiles, configuration, gateway, c
   if (typeof configuration?.sync !== "function") throw new ConfigurationError("Agent Settings requires Node Agent Configuration.");
   if (typeof gateway?.testConnection !== "function") throw new ConfigurationError("Agent Settings requires an Agent Gateway.");
   return Object.freeze({ list, get, create, save, remove, testConnection });
+  // Defines list function behavior for agent-settings-service.js.
   function list() { return profiles.getAll().map(sanitize); }
+  // Defines get function behavior for agent-settings-service.js.
   function get(agentId) {
     const profile = profiles.getById(agentId);
     if (!profile) throw new ConfigurationError(`Unknown Agent Profile: ${agentId}.`);
     return sanitize(profile);
   }
+  // Defines create function behavior for agent-settings-service.js.
   function create(input) {
     const profile = buildProfile(input, null);
     const stored = profiles.create(profile);
     configuration.sync();
     return sanitize(stored);
   }
+  // Defines save function behavior for agent-settings-service.js.
   function save(input) {
     const current = profiles.getById(input?.agent_id);
     const profile = buildProfile(input, current ?? null);
@@ -60,6 +64,7 @@ export function createAgentSettingsService({ profiles, configuration, gateway, c
     configuration.sync();
     return sanitize(stored);
   }
+  // Defines remove function behavior for agent-settings-service.js.
   function remove(agentId) {
     const current = profiles.getById(agentId);
     if (!current) throw new ConfigurationError(`Unknown Agent Profile: ${agentId}.`);
@@ -67,6 +72,7 @@ export function createAgentSettingsService({ profiles, configuration, gateway, c
     configuration.sync();
     return sanitize(removed ?? current);
   }
+  // Defines testConnection function behavior for agent-settings-service.js.
   async function testConnection(agentId) {
     const current = profiles.getById(agentId);
     const resolvedId = current?.agent_id ?? agentId;
@@ -112,6 +118,7 @@ export function createAgentSettingsService({ profiles, configuration, gateway, c
     configuration.sync();
     return { agent_id: agentId, status: result.status ?? "CONNECTED", gateway_url: result.gateway_url ?? updated.gateway_url };
   }
+  // Defines buildProfile function behavior for agent-settings-service.js.
   function buildProfile(input, current) {
     const role = input?.role ?? current?.role;
     const resolvedRole = normalizeRole(role);

@@ -13,6 +13,7 @@ export function createTicketReviewRepair({ workspace, taskId, ownerId, ticket, s
     const references = currentReviewFindings(findings, exchange);
     const request = { ...previous, attempt: (previous.attempt ?? 1) + 1, request_id: `${previous.request_id}-REPAIR-${previous.attempt ?? 1}`,
       payload: { ...previous.payload, review_findings: references, review_resume: null } };
+    // Defines validate function behavior for ticket-review-repair.js.
     const validate = () => assertDependencySubmission({ projectId: request.project_id, ticket, payload: request.payload, sprintRegistry, ticketStatusStore });
     validate();
     if (abortSignal?.aborted) throw abortSignal.reason;

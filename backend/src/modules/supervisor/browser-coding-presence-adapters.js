@@ -13,6 +13,7 @@ export function createNodeClient() {
       ? new Promise((resolve) => { window.presenceFixture.releaseDirectory = () => resolve(profiles); }) : Promise.resolve(profiles),
     getProjectDashboard: async () => ({ project_id: PROJECT_ID, roadmap: { sprints: [] } }),
     listPlans: async () => [], listPlanRequests: async () => [], listCodeCheckpoints: async () => ({ checkpoints: [] }),
+    // Defines close method behavior for browser-coding-presence-adapters.js.
     connectProjectStream: () => ({ close() {} })
   };
 }

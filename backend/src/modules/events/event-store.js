@@ -2,7 +2,9 @@
 import { ConfigurationError } from "../../shared/errors.js";
 import { createPersistentEventStore } from "./persistent-event-store.js";
 
+// Defines EventIdConflictError class behavior for event-store.js.
 export class EventIdConflictError extends ConfigurationError {
+  // Defines constructor method behavior for event-store.js.
   constructor(eventId) {
     super(`Event ID conflict: ${eventId} already belongs to different event content.`);
     this.name = "EventIdConflictError";

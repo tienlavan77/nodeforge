@@ -35,6 +35,7 @@ export function createTaskStore({ database, projectId, createId = createTaskId }
   }
 
   return Object.freeze({
+    // Defines create method behavior for task-store.js.
     create({ id = createId(), ...attributes } = {}) {
       const task = { id, project_id: projectId, team: attributes.team ?? "unassigned", ...attributes };
       validateTask(task);
@@ -42,6 +43,7 @@ export function createTaskStore({ database, projectId, createId = createTaskId }
       return Object.freeze({ ...task });
     },
     get,
+    // Defines update method behavior for task-store.js.
     update(taskId, attributes = {}) {
       const current = get(taskId);
       if (!current) return undefined;

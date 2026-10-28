@@ -5,6 +5,7 @@ import { ConfigurationError } from "../../shared/errors.js";
 export function createSupervisorStateStore({ fileService, root = statePath("supervisors") } = {}) {
   if (typeof fileService?.readFile !== "function" || typeof fileService?.atomicWrite !== "function" || typeof fileService?.createLock !== "function") throw new ConfigurationError("Supervisor state store requires File Service persistence and locking.");
   return Object.freeze({ save, get, list, claimTask });
+  // Defines save function behavior for supervisor-state-store.js.
   async function save(state) {
     if (!state?.supervisor_id) throw new ConfigurationError("Supervisor state requires supervisor_id.");
     return withLock(`${root}/state.lock`, async () => {
@@ -28,7 +29,9 @@ export function createSupervisorStateStore({ fileService, root = statePath("supe
       return state;
     });
   }
+  // Defines get function behavior for supervisor-state-store.js.
   async function get(id) { for (const bucket of ["pending", "complete"]) { try { return JSON.parse(await fileService.readFile({ path: `${root}/${bucket}/${safe(id)}.json` })); } catch (error) { if (error?.code !== "ENOENT") throw error; } } try { return JSON.parse(await fileService.readFile({ path: `${root}/${safe(id)}.json` })); } catch (error) { if (error?.code === "ENOENT") return null; throw error; } }
+  // Defines list function behavior for supervisor-state-store.js.
   async function list({ scope = "all" } = {}) {
     const buckets = scope === "pending" ? ["pending"] : scope === "complete" ? ["complete"] : ["pending", "complete"];
     const out = [];
@@ -42,7 +45,9 @@ export function createSupervisorStateStore({ fileService, root = statePath("supe
     }
     return out;
   }
+  // Defines readPaths function behavior for supervisor-state-store.js.
   async function readPaths(glob, out) { if (typeof fileService.listFiles !== "function") return; const paths = await fileService.listFiles({ glob }); for (const path of paths) { try { out.push(JSON.parse(await fileService.readFile({ path }))); } catch (error) { if (error?.code !== "ENOENT") throw error; } } }
+  // Defines claimTask function behavior for supervisor-state-store.js.
   async function claimTask(taskId, { supervisor_id, state = "CREATED", pending_request = {} } = {}) {
     if (typeof taskId !== "string" || !taskId.trim()) throw new ConfigurationError("Task ownership requires task_id.");
     return withLock(`${root}/ownership.lock`, async () => {
@@ -54,9 +59,12 @@ export function createSupervisorStateStore({ fileService, root = statePath("supe
       return { created: true, ...record };
     });
   }
+  // Defines removeIfPresent function behavior for supervisor-state-store.js.
   async function removeIfPresent(path) { if (typeof fileService.deleteFile !== "function") return; try { await fileService.deleteFile({ path }); } catch (error) { if (error?.code !== "ENOENT") throw error; } }
+  // Defines withLock function behavior for supervisor-state-store.js.
   async function withLock(path, callback) {
     for (;;) { try { const lock = await fileService.createLock({ path }); try { return await callback(); } finally { await lock.release(); } } catch (error) { if (error?.code !== "FILE_LOCK_EXISTS") throw error; await new Promise((resolve) => setTimeout(resolve, 10)); } }
   }
 }
+// Defines safe function behavior for supervisor-state-store.js.
 function safe(value) { if (typeof value !== "string" || !/^[A-Za-z0-9._:-]+$/.test(value)) throw new ConfigurationError("Supervisor ID contains unsafe characters."); return value; }

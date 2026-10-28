@@ -10,11 +10,13 @@ export function createConversationCrudService({ database, clock = () => new Date
   if (typeof database?.all !== "function" || typeof database?.run !== "function") throw new ConfigurationError("Conversation CRUD requires a database.");
   ensureTable(database);
   return Object.freeze({ list, create, get, update, remove, ensure, pin, unpin });
+  // Defines ensure function behavior for conversation-crud-service.js.
   function ensure({ id, project_id: projectId, agent_id: agentId, title } = {}) {
     const existing = get(id);
     if (existing) return existing;
     return create({ id, project_id: projectId, agent_id: agentId, title });
   }
+  // Defines list function behavior for conversation-crud-service.js.
   function list({ projectId, agentId } = {}) {
     const where = []; const params = [];
     if (projectId !== undefined) { requireId(projectId, "project_id"); where.push("project_id = ?"); params.push(projectId); }
@@ -22,6 +24,7 @@ export function createConversationCrudService({ database, clock = () => new Date
     const rows = database.all(`SELECT id, project_id, agent_id, title, status, pinned, created_at, updated_at FROM conversations${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY pinned DESC, updated_at DESC, id ASC`, params);
     return rows.map(toConversationRow);
   }
+  // Defines create function behavior for conversation-crud-service.js.
   function create(input = {}) {
     const projectId = requireId(input.project_id, "project_id");
     const agentId = requireId(input.agent_id, "agent_id");
@@ -44,7 +47,9 @@ export function createConversationCrudService({ database, clock = () => new Date
     catch (error) { if (String(error.message).includes("UNIQUE")) throw Object.assign(new ConfigurationError(`Conversation already exists: ${conversation.id}.`), { statusCode: 409 }); throw error; }
     return { ...conversation, pinned };
   }
+  // Defines get function behavior for conversation-crud-service.js.
   function get(id) { const normalized = requireId(id, "conversation_id"); const row = database.all("SELECT id, project_id, agent_id, title, status, pinned, created_at, updated_at FROM conversations WHERE id = ?", [normalized])[0] ?? null; return row ? toConversationRow(row) : null; }
+  // Defines update function behavior for conversation-crud-service.js.
   function update(id, patch = {}) {
     const current = get(id); if (!current) throw Object.assign(new ConfigurationError(`Conversation not found: ${id}.`), { statusCode: 404 });
     const changes = Object.fromEntries(Object.entries(patch).filter(([key, value]) => UPDATABLE.has(key) && value !== undefined));

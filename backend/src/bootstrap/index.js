@@ -19,12 +19,15 @@ export function createBootstrap({ configOptions, logger: providedLogger, loggerO
   let state = "created";
 
   return Object.freeze({
+    // Defines config method behavior for index.js.
     get config() {
       return config;
     },
+    // Defines state method behavior for index.js.
     get state() {
       return state;
     },
+    // Defines start method behavior for index.js.
     async start() {
       if (state === "running") return this;
       if (state !== "created" && state !== "stopped") {
@@ -39,6 +42,7 @@ export function createBootstrap({ configOptions, logger: providedLogger, loggerO
       logger.info("Nodeforge bootstrap started", { data_dir: config.dataDir });
       return this;
     },
+    // Defines stop method behavior for index.js.
     async stop() {
       if (state === "stopped" || state === "created") {
         state = "stopped";

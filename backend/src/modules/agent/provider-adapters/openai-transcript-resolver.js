@@ -6,6 +6,7 @@ export function createOpenAITranscriptResolver({ storage } = {}) {
   if (typeof storage?.get !== "function") throw new ConfigurationError("OpenAI transcript resolver requires Protocol Storage.");
   return Object.freeze({ resolveTranscript });
 
+  // Defines resolveTranscript function behavior for openai-transcript-resolver.js.
   async function resolveTranscript(payload = {}) {
     if (!Array.isArray(payload.transcript_blocks)) throw transcriptError("TRANSCRIPT_INVALID", "transcript_blocks must be an array.");
     if (payload.conversation_mode === "hybrid" && (!Number.isInteger(payload.hybrid_window) || payload.hybrid_window < 1)) {
@@ -15,6 +16,7 @@ export function createOpenAITranscriptResolver({ storage } = {}) {
     return Promise.all(ordered.map(resolveBlock));
   }
 
+  // Defines resolveBlock function behavior for openai-transcript-resolver.js.
   async function resolveBlock(block) {
     assertBlock(block);
     if (!block.in_window) {

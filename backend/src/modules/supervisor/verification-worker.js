@@ -4,6 +4,7 @@
 /** Creates a verification worker that runs the verify function on collected change-sets and returns pass/fail. */
 export function createVerificationWorker({ verify = async () => ({ passed: true }) } = {}) {
   return Object.freeze({ verifyChangeset, verifyPatches });
+  // Defines verifyChangeset function behavior for verification-worker.js.
   async function verifyChangeset(input = {}) {
     const changedPaths = input.changed_paths ?? [];
     const results = [];

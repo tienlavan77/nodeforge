@@ -6,10 +6,12 @@ import { extractJavaScript } from "./javascript.js";
 import { extractPhp } from "./php.js";
 import { extractCss } from "./css.js";
 
+// Defines createExtractorRegistry function behavior for index.js.
 export function createExtractorRegistry() {
   const extractors = new Map();
 
   return Object.freeze({
+    // Defines register method behavior for index.js.
     register(extensions, extractor) {
       if (!Array.isArray(extensions) || extensions.length === 0 || typeof extractor !== "function") {
         throw new TypeError("An extractor requires one or more extensions and an extract function.");
@@ -17,12 +19,14 @@ export function createExtractorRegistry() {
       for (const extension of extensions) extractors.set(normalizeExtension(extension), extractor);
       return this;
     },
+    // Defines extract method behavior for index.js.
     extract(filePath, source) {
       const extension = extname(filePath);
       if (!extension) return emptyExtraction();
       const extractor = extractors.get(normalizeExtension(extension));
       return extractor ? normalizeExtraction(extractor(source, filePath)) : emptyExtraction();
     },
+    // Defines supports method behavior for index.js.
     supports(filePath) {
       const extension = extname(filePath);
       return Boolean(extension) && extractors.has(normalizeExtension(extension));
@@ -36,6 +40,7 @@ extractorRegistry.register([".php"], extractPhp);
 extractorRegistry.register([".css"], extractCss);
 extractorRegistry.register([".jsx", ".tsx"], (source) => extractJavaScript(source, { jsxUi: true }));
 
+// Defines normalizeExtension function behavior for index.js.
 function normalizeExtension(extension) {
   if (typeof extension !== "string" || extension.length === 0) {
     throw new TypeError("An extractor extension must be a non-empty string.");

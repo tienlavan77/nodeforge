@@ -1,5 +1,6 @@
 // Transactional ticket status store with versioned transitions, history, and dependency checks.
 import { createReviewDependencyStatus } from "./ticket-review-dependency-status.js";
+import { createDependencyRepairStatus } from "./dependency-repair-status.js";
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { ConfigurationError } from "../../shared/errors.js";
@@ -13,8 +14,9 @@ export function createTicketStatusStore({ database, projectId, clock = () => new
   if (typeof clock !== "function" || typeof createId !== "function" || typeof onEvent !== "function" || (publisher !== undefined && typeof publisher.publish !== "function")) throw new ConfigurationError("Invalid Ticket Status Store options.");
   ensureTables();
   const reconcileReviewDependencies = createReviewDependencyStatus({ database, get, transition: transitionWithoutGuard, emit });
+  const prepareDependencyRepair = createDependencyRepairStatus({ database, get, transition: transitionWithoutGuard, emit });
 
-  return Object.freeze({ create, get, getStatus, reconcileReviewDependencies, updateStatus, reopenReview, beginExecution, resumeReviewExecution, resumeBlockedExecution, claimExecutionLaunch, reconcileExecutionLaunch, completeByHumanReview, listByStatus, getHistory, dependenciesReady, retry, resetDoneForRetry, reconcileTerminalStatus });
+  return Object.freeze({ create, get, getStatus, reconcileReviewDependencies, prepareDependencyRepair, updateStatus, reopenReview, beginExecution, resumeReviewExecution, resumeBlockedExecution, claimExecutionLaunch, reconcileExecutionLaunch, completeByHumanReview, listByStatus, getHistory, dependenciesReady, retry, resetDoneForRetry, reconcileTerminalStatus });
 
   // Creates a pending status entry for a ticket.
   function create(ticketId, details = {}) {
@@ -41,13 +43,14 @@ export function createTicketStatusStore({ database, projectId, clock = () => new
     if (!current) throw statusError("STATUS_NOT_FOUND", `Ticket status not found: ${ticketId}.`);
     if (expectedCurrentStatus !== undefined && current.status !== expectedCurrentStatus) throw statusError("STATUS_CONFLICT", `Ticket status changed from expected ${expectedCurrentStatus}; current is ${current.status}.`);
     if (expectedVersion !== undefined && current.version !== expectedVersion || expectedExecutionId !== undefined && current.details.execution_id !== expectedExecutionId) throw statusError("STATUS_CONFLICT", `Ticket execution changed: ${ticketId}.`);
-    details = { ...(current.details?.review_reopen ? { review_reopen: current.details.review_reopen } : {}), ...details, ...retainedExecutionDetails(current.details) };
+    details = { ...(current.details?.dependency_repair ? { dependency_repair: current.details.dependency_repair } : {}), ...(current.details?.review_reopen ? { review_reopen: current.details.review_reopen } : {}), ...details, ...retainedExecutionDetails(current.details) };
     assertTicketStatusTransition(current.status, nextStatus);
     const now = nowIso();
     const version = current.version + 1;
     const reason = details?.reason ?? null;
     const error = details?.error ?? null;
     const detailsJson = JSON.stringify(details ?? {});
+    // Defines apply function behavior for ticket-status-store.js.
     const apply = () => {
       const result = database.run("UPDATE ticket_status SET status=?,version=?,error=?,details_json=?,updated_at=? WHERE project_id=? AND ticket_id=? AND status=? AND version=?", [nextStatus, version, error, detailsJson, now, projectId, ticketId, current.status, current.version]);
       if (result.changes !== 1) throw statusError("STATUS_CONFLICT", `Concurrent update detected for ticket: ${ticketId}.`);
@@ -172,6 +175,7 @@ export function createTicketStatusStore({ database, projectId, clock = () => new
   function transitionWithoutGuard(ticketId, current, nextStatus, details) {
     details = { ...retainedExecutionDetails(current.details), ...details };
     const now = nowIso(); const version = current.version + 1; const detailsJson = JSON.stringify(details ?? {});
+    // Defines apply function behavior for ticket-status-store.js.
     const apply = () => {
       if (nextStatus === "running" && details.execution_basis?.sprint_id && database.all("SELECT name FROM sqlite_master WHERE type='table' AND name='sprint_registry_archives'").length
         && database.all("SELECT sprint_id FROM sprint_registry_archives WHERE project_id=? AND sprint_id=?", [projectId, details.execution_basis.sprint_id]).length) throw Object.assign(statusError("SPRINT_ARCHIVED", "Archived Sprint cannot receive a new execution."), { statusCode: 409, retryable: false, scope: "scoped" });

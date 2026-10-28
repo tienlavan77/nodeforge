@@ -18,7 +18,8 @@ test("non-browser verification does not fingerprint external browser tooling", a
 test("browser runner revision changes for every runner dependency", async () => {
   const paths = [];
   const original = await ticketVerificationRunnerRevision(plan, { readSource: async (url) => { paths.push(url.pathname); return "original"; } });
-  assert.equal(paths.length, 24);
+  assert.equal(paths.length, 25);
+  assert.ok(paths.some((path) => path.endsWith("ticket-verification-command-receipts.js")));
   assert.ok(paths.some((path) => path.endsWith("ticket-baseline-recovery.js")));
   assert.ok(paths.some((path) => path.endsWith("ticket-verification-output.js")));
   assert.ok(paths.some((path) => path.endsWith("browser-coding-presence-scenarios.js")));

@@ -16,6 +16,7 @@ export function createSessionCommandDispatcher({ executeCommand, getSessionId = 
   const processedBySession = new Map();
 
   return Object.freeze({
+    // Defines handle method behavior for command-idempotency.js.
     async handle(envelope) {
       const command = envelope?.message;
       if (typeof command?.request_id !== "string" || command.request_id.length === 0) {
@@ -45,9 +46,11 @@ export function createSessionCommandDispatcher({ executeCommand, getSessionId = 
         throw error;
       }
     },
+    // Defines hasProcessed method behavior for command-idempotency.js.
     hasProcessed(sessionId, requestId) {
       return processedBySession.get(sessionId)?.has(requestId) ?? false;
     },
+    // Defines clearSession method behavior for command-idempotency.js.
     clearSession(sessionId) {
       processedBySession.delete(sessionId);
     }
@@ -61,6 +64,7 @@ export function bindAgentCommandDispatcher({ agent, dispatcher } = {}) {
   }
 
   const events = new EventEmitter();
+  // Defines onMessage function behavior for command-idempotency.js.
   const onMessage = async (envelope) => {
     if (typeof envelope.message?.request_id !== "string") return;
     try {
@@ -73,22 +77,27 @@ export function bindAgentCommandDispatcher({ agent, dispatcher } = {}) {
   agent.on("message", onMessage);
 
   return Object.freeze({
+    // Defines on method behavior for command-idempotency.js.
     on(event, listener) {
       events.on(event, listener);
       return this;
     },
+    // Defines off method behavior for command-idempotency.js.
     off(event, listener) {
       events.off(event, listener);
       return this;
     },
+    // Defines once method behavior for command-idempotency.js.
     once(event, listener) {
       events.once(event, listener);
       return this;
     },
+    // Defines removeListener method behavior for command-idempotency.js.
     removeListener(event, listener) {
       events.removeListener(event, listener);
       return this;
     },
+    // Defines close method behavior for command-idempotency.js.
     close() {
       agent.off("message", onMessage);
     }

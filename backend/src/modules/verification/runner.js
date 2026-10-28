@@ -58,6 +58,7 @@ export function createTestRunner({ projectRoot, projectId, spawnProcess, createI
   const execute = createProjectCommandExecutor({ projectRoot, spawnProcess });
 
   return Object.freeze({
+    // Defines run method behavior for runner.js.
     async run(plan, { taskId, ticketId = taskId, conversationId = taskId ? `CONV-${taskId}` : undefined, sessionId, scope = scopeFor(plan), timeoutMs, eventSink, signal } = {}) {
       validatePlan(plan);
       if (!isScope(scope)) throw new ConfigurationError("Test result scope must be targeted, integration, full, or custom.");

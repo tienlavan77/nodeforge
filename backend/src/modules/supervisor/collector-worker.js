@@ -1,3 +1,5 @@
+// Provides module declarations and business logic for collector-worker.js.
+
 import { createHash } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 
@@ -9,6 +11,7 @@ export function createCollectorWorker({ fileService, gitService, changeLedger, e
   if (typeof gitService?.status !== "function") throw new ConfigurationError("Collector Worker requires a Git Service.");
   if (typeof fileService?.readFile !== "function") throw new ConfigurationError("Collector Worker requires File Service.");
   return Object.freeze({ collect });
+  // Defines collect function behavior for collector-worker.js.
   async function collect(input = {}) {
     const manifest = changeLedger ? await changeLedger.snapshot() : null;
     const changedPaths = manifest ? Object.keys(manifest.entries) : parsePorcelain(await gitService.status());
@@ -29,6 +32,7 @@ export function createCollectorWorker({ fileService, gitService, changeLedger, e
       empty: changedPaths.length === 0
     };
   }
+  // Defines checksumFor function behavior for collector-worker.js.
   async function checksumFor(path) {
     try {
       const content = await fileService.readFile({ path });
@@ -40,6 +44,7 @@ export function createCollectorWorker({ fileService, gitService, changeLedger, e
   }
 }
 
+// Defines parsePorcelain function behavior for collector-worker.js.
 function parsePorcelain(output) {
   return String(output ?? "")
     .split(/\r?\n/)

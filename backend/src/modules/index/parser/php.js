@@ -1,3 +1,5 @@
+// Provides module declarations and business logic for php.js.
+
 import parser from "php-parser";
 import { dirname, resolve } from "node:path";
 
@@ -5,6 +7,7 @@ import { emptyExtraction } from "./contract.js";
 
 const engine = new parser.Engine({ parser: { php7: true }, ast: { withPositions: true } });
 
+// Defines extractPhp function behavior for php.js.
 export function extractPhp(source, filePath) {
   const extraction = emptyExtraction();
   const ast = engine.parseCode(source, filePath);
@@ -13,6 +16,7 @@ export function extractPhp(source, filePath) {
   return extraction;
 }
 
+// Defines walk function behavior for php.js.
 function walk(node, extraction, filePath, callerSymbol = null) {
   if (!node || typeof node !== "object") return;
 
@@ -33,6 +37,7 @@ function walk(node, extraction, filePath, callerSymbol = null) {
   }
 }
 
+// Defines symbolFor function behavior for php.js.
 function symbolFor(node) {
   const kinds = new Map([
     ["function", "function"],
@@ -47,6 +52,7 @@ function symbolFor(node) {
   return { name, kind, start_line: node.loc.start.line, end_line: node.loc.end.line };
 }
 
+// Defines addUseImport function behavior for php.js.
 function addUseImport(node, imports) {
   if (node.kind !== "usegroup") return;
 
@@ -57,6 +63,7 @@ function addUseImport(node, imports) {
   }
 }
 
+// Defines addIncludeImport function behavior for php.js.
 function addIncludeImport(node, imports, filePath) {
   if (node.kind !== "include") return;
 
@@ -72,11 +79,13 @@ function addIncludeImport(node, imports, filePath) {
   });
 }
 
+// Defines addCall function behavior for php.js.
 function addCall(node, calls, callerSymbol) {
   if (node.kind !== "call" || node.what?.kind !== "name") return;
   calls.push({ callee_name: node.what.name, line: node.loc.start.line, caller_symbol: callerSymbol });
 }
 
+// Defines staticIncludePath function behavior for php.js.
 function staticIncludePath(node) {
   if (node?.kind === "string") return node.value;
   if (node?.kind !== "bin" || node.type !== ".") return null;

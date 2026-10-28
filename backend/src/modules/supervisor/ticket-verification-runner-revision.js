@@ -14,7 +14,7 @@ const RUNNER_FILES = [
   "./browser-coding-bundle.js", "./browser-coding-presence-fixture.js",
   "./browser-coding-presence-adapters.js", "./browser-coding-presence-scenarios.js"
 ];
-const VERIFICATION_FILES = ["./ticket-verification-plan.js", "./ticket-verification-policy.js", "./ticket-verification-regression.js", "./ticket-verification-reporter.js", "./ticket-verification-output.js", "./verification-failure-identity.js", "./ticket-archive-materialization.js", "./ticket-verification-command.js", "./verification-runner-environment.js", "./ticket-baseline-recovery.js"];
+const VERIFICATION_FILES = ["./ticket-verification-command-receipts.js", "./ticket-verification-plan.js", "./ticket-verification-policy.js", "./ticket-verification-regression.js", "./ticket-verification-reporter.js", "./ticket-verification-output.js", "./verification-failure-identity.js", "./ticket-archive-materialization.js", "./ticket-verification-command.js", "./verification-runner-environment.js", "./ticket-baseline-recovery.js"];
 // Includes fixture infrastructure in retry identity only for checks that need
 // real filesystem denials, so infrastructure repair can unlock a bounded retry.
 const FILESYSTEM_RUNNER_FILES = ["./filesystem-verification-command.js", "./filesystem-namespace-runner.js", "./filesystem-namespace-client.js", "./filesystem-namespace-process.js", "../../../scripts/verify-filesystem-environment.mjs",

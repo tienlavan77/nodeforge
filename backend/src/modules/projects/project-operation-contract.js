@@ -42,6 +42,7 @@ export function assertStageTransition(fromStage, toStage) {
 // Validates one persisted snapshot against the operation schema without AJV so the store can
 // refuse corrupt files during restart reconciliation instead of trusting them.
 export function validateOperationSnapshot(snapshot) {
+  // Defines failure function behavior for project-operation-contract.js.
   const failure = (field, reason) => Object.assign(new Error(`Invalid operation snapshot: ${field} ${reason}.`), { code: "snapshot_invalid" });
   if (!snapshot || typeof snapshot !== "object") throw failure("record", "is not an object");
   if (typeof snapshot.operation_id !== "string" || !/^OPRO-[A-Za-z0-9][A-Za-z0-9_-]*$/.test(snapshot.operation_id)) throw failure("operation_id", "must be OPRO-prefixed");

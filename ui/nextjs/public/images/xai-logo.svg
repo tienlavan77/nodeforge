@@ -1,0 +1,7 @@
+<!--
+Business purpose: Provides the official vector brand icon for the xAI model provider so the Agents directory and provider badges identify xAI profiles visually across dark and light workspace themes.
+Technical description: Defines a scalable 500x566.666238 SVG path using white fill so the Next.js static asset at /images/xai-logo.svg renders crisply inside the 76x76 provider logo container and inverts cleanly in light mode.
+-->
+<svg id="Layer_1" data-name="Layer 1" fill="#ffffff" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 566.666238">
+  <path d="M.142958,200.298741l251.057107,366.367496h111.5946L111.70821,200.298741H.142958ZM111.622431,403.780626L0,566.666238h111.679617l55.768203-81.42738-55.825389-81.458232ZM388.320383,0l-192.945461,281.550707,55.825144,81.486604L500,0h-111.679617ZM408.529793,174.217415v392.448822h91.470207V40.743302l-91.470207,133.474113Z"/>
+</svg>

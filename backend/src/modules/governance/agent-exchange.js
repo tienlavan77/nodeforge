@@ -4,6 +4,8 @@ import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import Ajv2020 from "ajv/dist/2020.js";
+import { AGENT_DECISION_ACTIONS, agentDecisionSchema } from "./agent-decision-schema.js";
+import { agentResponseSchemaId } from "./agent-schema-catalog.js";
 
 const require = createRequire(import.meta.url);
 const envelope = require("../../../../schemas/governance/agent-exchange.schema.json");
@@ -13,6 +15,10 @@ const ajv = new Ajv2020({ allErrors: true, strict: false });
 ajv.addSchema(envelope); ajv.addSchema(decisionSchema); ajv.addSchema(payloads);
 const validateEnvelope = ajv.getSchema(envelope.$id);
 const validators = new Map(envelope.properties.kind.enum.map((kind) => [kind, ajv.compile({ $ref: `${payloads.$id}#/$defs/${kind}` })]));
+const decisionValidators = new Map(Object.keys(AGENT_DECISION_ACTIONS).map((role) => {
+  const schema = agentDecisionSchema(role); delete schema.$id;
+  return [role, ajv.compile(schema)];
+}));
 const higher = { coder: "sprint_leader", sprint_leader: "architecture_manager", architecture_manager: "project_owner" };
 const requiredReply = { consultation_request: "consultation_response", work_request: "work_result", review_request: "review_result" };
 const owned = ["schema_version", "message_id", "in_reply_to", "context", "sender", "recipient", "continuation"];
@@ -78,8 +84,19 @@ export function createAgentExchange({ context, sender, recipient, kind, subject,
  * and binds the response to the exact pending request before routing. */
 export function bindAgentExchangeResponse(content, request) {
   assertAgentExchange(request);
+  const kind = request.kind === "work_request" && content?.kind === "work_progress" ? "work_progress" : requiredReply[request.kind];
+  try { return bindResponseContent(content, request, kind); }
+  catch (error) {
+    if (error.code === "AGENT_EXCHANGE_INVALID") error.schema_id = agentResponseSchemaId(request.recipient.role, kind, request.payload.purpose);
+    throw error;
+  }
+}
+
+/** Binds all response fields under one diagnostic boundary so schema lookup is
+ * available for syntax, role and transport corrections without losing errors. */
+function bindResponseContent(content, request, kind) {
   if (!content || typeof content !== "object" || Array.isArray(content)) throw agentExchangeError("/", "type", "Return one structured response object.");
-  const kind = request.kind === "work_request" && content.kind === "work_progress" ? "work_progress" : requiredReply[request.kind];
+  if (kind === "consultation_response") assertAgentDecision(request.recipient.role, content.payload?.decision);
   const response = createAgentExchange({ context: request.context, sender: request.recipient, recipient: request.sender,
     kind: content.kind, subject: content.subject, payload: content.payload, evidence: content.evidence,
     continuation: request.continuation, inReplyTo: request.message_id });
@@ -96,15 +113,26 @@ export function bindAgentExchangeResponse(content, request) {
   return response;
 }
 
+/** Checks current role contracts only on newly submitted responses, preserving
+ * readable immutable history and checkpoints produced before role narrowing. */
+function assertAgentDecision(role, decision) {
+  const validate = decisionValidators.get(role);
+  if (!validate || !decision) return;
+  if (!AGENT_DECISION_ACTIONS[role].includes(decision.action)) throw agentExchangeError("/action", "role_action_mismatch", `Allowed ${role} actions: ${AGENT_DECISION_ACTIONS[role].join("|")}.`);
+  if (!validate(decision)) throw schemaError(validate.errors, "/payload/decision");
+}
+
 /** Translates JSON Schema paths into the same actionable correction format used
  * by the existing ticket recovery and independent review validators. */
 function schemaError(errors, prefix = "") {
-  const first = errors?.[0];
-  const property = first?.params?.missingProperty ?? first?.params?.additionalProperty;
-  const suffix = property ? `/${property.replace(/~/g, "~0").replace(/\//g, "~1")}` : "";
-  const allowed = first?.params?.allowedValues;
-  const expected = Array.isArray(allowed) ? ` Allowed values: ${JSON.stringify(allowed)}.` : "";
-  return agentExchangeError(`${prefix}${first?.instancePath ?? ""}${suffix}`, first?.keyword ?? "schema_invalid", `${prefix || "Envelope"} ${first?.message ?? "is invalid"}.${expected}`);
+  const feedback = (errors ?? []).map((error) => {
+    const property = error.params?.missingProperty ?? error.params?.additionalProperty;
+    const suffix = property ? `/${property.replace(/~/g, "~0").replace(/\//g, "~1")}` : "";
+    const expected = Array.isArray(error.params?.allowedValues) ? ` Allowed values: ${JSON.stringify(error.params.allowedValues)}.` : "";
+    return { path: `${prefix}${error.instancePath ?? ""}${suffix}`, reason: error.keyword ?? "schema_invalid", message: `${prefix || "Envelope"} ${error.message ?? "is invalid"}.${expected}` };
+  });
+  const first = feedback[0] ?? { path: prefix, reason: "schema_invalid", message: "Invalid response schema." };
+  return Object.assign(agentExchangeError(first.path, first.reason, first.message), { validation_errors: feedback.length ? feedback : [first] });
 }
 
 /** Hashes canonical semantic content so retries share an identity independent of

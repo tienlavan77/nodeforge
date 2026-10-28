@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { readFile } from "node:fs/promises";
+import { webcrypto } from "node:crypto";
 import { lifecycleOptInRoute, routeLifecycleOptIn } from "../../../backend/src/transport/http/project-lifecycle-opt-in.js";
 import { proxyControlApi } from "../lib/control-api-proxy.js";
 import { submitProjectOperation, reloadOperation, retryProjectOperation, getLifecycleSnapshot, acceptOperation } from "../lib/project-lifecycle-client.js";
@@ -15,6 +16,47 @@ function operation(key, update = {}) {
   return { operation_id: "OPRO-contract", request_key: key, request_fingerprint: "a".repeat(64), kind: "add", root: "/server/project",
     attempt: 1, revision: 1, stage: "attempted", status: "running", counters: { transitions: 1, attempts: 1 },
     timestamps: { created_at: "2026-10-27T00:00:00Z", updated_at: "2026-10-27T00:00:00Z" }, ...update };
+}
+
+for (const [mode, cryptoApi] of [
+  ["HTTPS", webcrypto],
+  ["HTTP without randomUUID", { getRandomValues: webcrypto.getRandomValues.bind(webcrypto) }],
+  ["browser without crypto", undefined]
+]) {
+  test(`project submission generates recovery keys on ${mode}`, async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+    const originalFetch = globalThis.fetch;
+    const requests = [];
+    const root = `/server/${mode.replaceAll(" ", "-")}`;
+    Object.defineProperty(globalThis, "crypto", { configurable: true, value: cryptoApi });
+    globalThis.fetch = async (url, init) => {
+      requests.push({ url, ...init });
+      if (requests.length === 1) throw new Error("response lost");
+      const key = init.method === "POST" ? JSON.parse(init.body).request_key : new URL(url).searchParams.get("request_key");
+      return Response.json({ version: "1", operation: operation(key, { root, status: "succeeded" }) });
+    };
+    try {
+      let requestKey;
+      await assert.rejects(submitProjectOperation("add", root), (error) => {
+        requestKey = error.requestKey;
+        assert.equal(typeof requestKey, "string");
+        assert.ok(requestKey.length > 0 && requestKey.length <= 256);
+        assert.equal(JSON.parse(requests[0].body).request_key, requestKey);
+        return true;
+      });
+      assert.equal(getLifecycleSnapshot().pending[requestKey].root, root);
+      await assert.rejects(submitProjectOperation("add", root), /Reload status/);
+      assert.equal(requests.length, 1);
+      assert.equal((await reloadOperation(requestKey)).request_key, requestKey);
+      const next = await submitProjectOperation("create", root);
+      assert.notEqual(next.request_key, requestKey);
+      assert.equal(requests.length, 3);
+    } finally {
+      if (descriptor) Object.defineProperty(globalThis, "crypto", descriptor);
+      else delete globalThis.crypto;
+      globalThis.fetch = originalFetch;
+    }
+  });
 }
 
 test("accepted backend schema and dispatcher require negotiation and exact methods", async () => {

@@ -11,6 +11,7 @@ export function createEmbeddingStore({ database, logger = console } = {}) {
   if (!database || typeof database.all !== "function" || typeof database.run !== "function") throw new ConfigurationError("Embedding store requires an index database.");
   return Object.freeze({ upsert, remove, removeByFile, search });
 
+  // Defines upsert function behavior for embedding-store.js.
   function upsert({ symbolId, vector, model, checksum }) {
     if (!symbolId || !Array.isArray(vector) || !vector.length) throw new ConfigurationError("Embedding upsert requires symbolId and vector.");
     if (typeof model !== "string" || !model) throw new ConfigurationError("Embedding upsert requires a model tag.");
@@ -21,16 +22,19 @@ export function createEmbeddingStore({ database, logger = console } = {}) {
     );
   }
 
+  // Defines remove function behavior for embedding-store.js.
   function remove(symbolId) {
     if (!symbolId) return;
     database.run("DELETE FROM symbol_embeddings WHERE symbol_id = ?", [symbolId]);
   }
 
+  // Defines removeByFile function behavior for embedding-store.js.
   function removeByFile(fileId) {
     if (!fileId) return;
     database.run("DELETE FROM symbol_embeddings WHERE symbol_id IN (SELECT symbol_id FROM symbols WHERE file_id = ?)", [fileId]);
   }
 
+  // Defines search function behavior for embedding-store.js.
   function search(queryVector, { limit = 8, allowedPrefixes, model } = {}) {
     if (!Array.isArray(queryVector) || !queryVector.length) return [];
     const rows = model
@@ -51,6 +55,7 @@ export function createEmbeddingStore({ database, logger = console } = {}) {
   }
 }
 
+// Defines decode function behavior for embedding-store.js.
 function decode(blob, logger = console, symbolId = null, checksum = null) {
   try {
     const buf = Buffer.from(String(blob), "base64");
@@ -62,6 +67,7 @@ function decode(blob, logger = console, symbolId = null, checksum = null) {
   }
 }
 
+// Defines cosine function behavior for embedding-store.js.
 function cosine(a, b) {
   let dot = 0;
   let na = 0;

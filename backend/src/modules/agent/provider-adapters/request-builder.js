@@ -1,5 +1,6 @@
 // Builds provider-specific message arrays and tool-choice hints for Anthropic and OpenAI.
 import { anthropicCacheControl } from "../anthropic-prompt-cache.js";
+// Defines buildMessages function behavior for request-builder.js.
 export function buildMessages(payload = {}, provider = payload.provider ?? payload.provider_name ?? payload.agent_provider ?? "openai") {
   if (Array.isArray(payload.messages) && payload.messages.length) return payload.messages;
   if (isAnthropicProvider(provider)) return buildAnthropicMessages(payload);

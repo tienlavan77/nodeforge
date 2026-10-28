@@ -22,21 +22,25 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
   const ignoreMatch = picomatch(watcherIgnore, { dot: true });
   let queue = Promise.resolve();
   return Object.freeze({ writeFile, atomicCreate, atomicWrite, atomicWriteSync, appendFile, appendFileSync, createLock, createLockSync, readFile, readFileSync, readFileRangeSync, readForIndex, deleteFile, removeEmptyDirectory, renameFile, moveFile: renameFile, listFiles, listDirectories });
+  // Defines writeFile function behavior for file-service.js.
   function writeFile(input) {
     const job = queue.then(() => write(input));
     queue = job.catch((error) => { logCleanup("queued write", error); });
     return job;
   }
+  // Defines atomicCreate function behavior for file-service.js.
   function atomicCreate(input) {
     const job = queue.then(() => atomicWriteJob(input, { replace: false }));
     queue = job.catch((error) => { if (error?.code !== "FILE_ALREADY_EXISTS") logCleanup("queued atomic create", error); });
     return job;
   }
+  // Defines atomicWrite function behavior for file-service.js.
   function atomicWrite(input) {
     const job = queue.then(() => atomicWriteJob(input, { replace: input?.replace === true }));
     queue = job.catch((error) => { logCleanup("queued atomic write", error); });
     return job;
   }
+  // Defines atomicWriteJob function behavior for file-service.js.
   async function atomicWriteJob(input = {}, { replace }) {
     const { path, content } = input;
     const rel = safePath(path, { write: true });
@@ -65,6 +69,7 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
     internalBus?.emit?.("file.written", { path: rel, bytes: result.bytes, atomic: true });
     return result;
   }
+  // Defines atomicWriteSync function behavior for file-service.js.
   function atomicWriteSync(input = {}) {
     const { path, content } = input;
     const rel = safePath(path, { write: true });
@@ -81,11 +86,13 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
     }
     return Object.freeze({ path: rel, bytes: Buffer.byteLength(content), atomic: true, replaced: true });
   }
+  // Defines appendFile function behavior for file-service.js.
   function appendFile(input) {
     const job = queue.then(() => appendFileJob(input));
     queue = job.catch((error) => { logCleanup("queued append", error); });
     return job;
   }
+  // Defines appendFileJob function behavior for file-service.js.
   async function appendFileJob(input = {}) {
     const { path, content } = input;
     const rel = safePath(path, { write: true });
@@ -103,6 +110,7 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
       await handle.close();
     }
   }
+  // Defines appendFileSync function behavior for file-service.js.
   function appendFileSync(input = {}) {
     const { path, content } = input;
     const rel = safePath(path, { write: true });
@@ -116,6 +124,7 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
     internalBus?.emit?.("file.appended", { path: rel, byte_offset: before, byte_length: bytes });
     return Object.freeze({ path: rel, byte_offset: before, byte_length: bytes, bytes });
   }
+  // Defines createLock function behavior for file-service.js.
   async function createLock({ path, content = `${process.pid}\n` } = {}) {
     const rel = safePath(path, { write: true });
     if (typeof content !== "string") throw new ConfigurationError("FileService lock content must be a string.");
@@ -137,6 +146,7 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
       throw error;
     }
   }
+  // Defines createLockSync function behavior for file-service.js.
   function createLockSync({ path, content = `${process.pid}\n` } = {}) {
     const rel = safePath(path, { write: true });
     if (typeof content !== "string") throw new ConfigurationError("FileService lock content must be a string.");
@@ -154,6 +164,7 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
       throw error;
     }
   }
+  // Defines write function behavior for file-service.js.
   async function write(input = {}) {
     const { path, content } = input;
     const rel = safePath(path, { write: true });
@@ -174,8 +185,11 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
     }
     return Object.freeze({ path: rel, bytes: Buffer.byteLength(content) });
   }
+  // Defines readFile function behavior for file-service.js.
   async function readFile({ path } = {}) { const rel = safePath(path); return readRegularFile(root, rel); }
+  // Defines readFileSync function behavior for file-service.js.
   function readFileSync({ path } = {}) { const rel = safePath(path); return fsReadFileSync(resolve(root, rel), "utf8"); }
+  // Defines readFileRangeSync function behavior for file-service.js.
   function readFileRangeSync({ path, offset = 0, length } = {}) {
     const rel = safePath(path);
     if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(length) || length < 0) throw new ConfigurationError("FileService read range is invalid.");
@@ -184,6 +198,7 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
     try { readSync(descriptor, buffer, 0, length, offset); } finally { closeSync(descriptor); }
     return buffer.toString("utf8");
   }
+  // Defines readForIndex function behavior for file-service.js.
   async function readForIndex({ path, maxBytes, allowNodeModules = false } = {}) {
     if (typeof path !== "string" || !path) throw new ConfigurationError("FileService indexing path is required.");
     const rel = relative(root, resolve(root, path)).split(sep).join("/");
@@ -196,11 +211,14 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
     const sha256 = createHash("sha256").update(content).digest("hex");
     return Object.freeze({ path: rel, content, sha256: `sha256:${sha256}`, size_bytes: Buffer.byteLength(content, "utf8"), language: languageForPath(rel) });
   }
+  // Defines deleteFile function behavior for file-service.js.
   async function deleteFile({ path } = {}) { const rel = safePath(path, { write: true }); await unlink(resolve(root, rel)); internalBus?.emit?.("file.deleted", { path: rel }); await pruneEmptyAncestorDirectories({ root, filePath: rel, internalBus }); return { path: rel, deleted: true }; }
+  // Defines removeEmptyDirectory function behavior for file-service.js.
   async function removeEmptyDirectory({ path } = {}) {
     const rel = safePath(path, { write: true }); try { await rmdir(resolve(root, rel)); internalBus?.emit?.("directory.deleted", { path: rel }); } catch (error) { if (error?.code !== "ENOENT") throw error; }
     return { path: rel, deleted: true };
   }
+  // Defines renameFile function behavior for file-service.js.
   async function renameFile({ from, to, from_path: fromPath, to_path: toPath } = {}) {
     const source = safePath(from ?? fromPath, { write: true }), destination = safePath(to ?? toPath, { write: true });
     const job = queue.then(async () => {
@@ -215,12 +233,17 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
     queue = job.catch((error) => { logCleanup("queued rename", error); });
     return job;
   }
+  // Defines listFiles function behavior for file-service.js.
   async function listFiles({ glob = "**/*" } = {}) { assertRuntimeAvailable(root); const files = []; const runtimeListing = glob === FORGE_STATE_DIR || glob.startsWith(STATE_DIR_PREFIX) || role === "system_engineer" && glob.startsWith(".forge"); const wildcard = glob.search(/[!*?[]/); const base = wildcard < 0 ? glob : glob.slice(0, wildcard).replace(/\/+$/, ""); const start = base ? resolve(root, runtimeStoragePath(root, base)) : root; const startPrefix = base ? base : ""; try { await scan(start, startPrefix); } catch (error) { if (error?.code !== "ENOENT") throw error; } const match = picomatch(glob, { dot: true }); return [...new Set(files.map((path) => runtimeListingPath(path, glob)))].filter((path) => match(path));
+    // Defines scan function behavior for file-service.js.
     async function scan(directory, prefix) { for (const entry of await readdir(directory, { withFileTypes: true })) { const rel = prefix ? `${prefix}/${entry.name}` : entry.name; const runtimeAncestor = runtimeListing && (rel === ".forge" || rel === FORGE_STATE_DIR || rel.startsWith(STATE_DIR_PREFIX) || role === "system_engineer" && rel.startsWith(".forge/")); if (ignoreMatch(rel) && !runtimeAncestor) continue; if (entry.isDirectory()) await scan(resolve(directory, entry.name), rel); else files.push(rel); } }
   }
+  // Defines listDirectories function behavior for file-service.js.
   async function listDirectories({ glob = "**/*" } = {}) { assertRuntimeAvailable(root); const directories = []; const runtimeListing = glob === FORGE_STATE_DIR || glob.startsWith(STATE_DIR_PREFIX) || role === "system_engineer" && glob.startsWith(".forge"); const start = glob.startsWith(FORGE_STATE_DIR) ? resolve(root, FORGE_STATE_DIR) : root; const startPrefix = glob.startsWith(FORGE_STATE_DIR) ? FORGE_STATE_DIR : ""; const match = picomatch(glob, { dot: true }); try { await scan(start, startPrefix); } catch (error) { if (error?.code !== "ENOENT") throw error; } return [...new Set(directories.map((path) => runtimeListingPath(path, glob)))].filter((path) => match(path));
+    // Defines scan function behavior for file-service.js.
     async function scan(directory, prefix) { for (const entry of await readdir(directory, { withFileTypes: true })) { if (!entry.isDirectory()) continue; const rel = prefix ? `${prefix}/${entry.name}` : entry.name; const runtimeAncestor = runtimeListing && (rel === ".forge" || rel === FORGE_STATE_DIR || rel.startsWith(STATE_DIR_PREFIX) || role === "system_engineer" && rel.startsWith(".forge/")); if (ignoreMatch(rel) && !runtimeAncestor) continue; await scan(resolve(directory, entry.name), rel); directories.push(rel); } }
   }
+  // Defines safePath function behavior for file-service.js.
   function safePath(path, { write = false } = {}) {
     if (typeof path !== "string" || !path) throw new ConfigurationError("FileService path is required.");
     const absolute = resolve(root, path);
@@ -238,6 +261,7 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
   }
   // eslint-disable-next-line no-silent-catch -- Cleanup logging must not change file behavior.
   function logCleanup(operation, error) { if (error?.code === "ENOENT") return; try { logger.error?.("FileService cleanup failed.", { operation, error: error?.message, code: error?.code }); } catch { /* cleanup logging must not change file behavior */ } }
+  // Defines validateCommitTarget function behavior for file-service.js.
   function validateCommitTarget(commit, rel) {
     if (!commit || commit.target_path !== rel) throw new ConfigurationError("File write path does not match commit.target_path.");
     const expectedDir = dirname(rel).split(sep).join("/");

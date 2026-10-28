@@ -37,6 +37,7 @@ function approvalContent(value) {
 // Compares executable ticket identity and acceptance scope while ignoring retrieval and live workflow metadata.
 function ticketMigrationContent(value) {
   const content = approvalContent(value);
+  // Defines stripWorkflow function behavior for sprint-registry-migration-preview.js.
   const stripWorkflow = (entry) => {
     if (Array.isArray(entry)) return entry.map(stripWorkflow);
     if (!entry || typeof entry !== "object") return entry;

@@ -7,6 +7,7 @@ export function createAgentExecutionActivity({ projectId, eventBus, logger = con
   if (!projectId || typeof eventBus?.emit !== "function") throw new ConfigurationError("Agent execution activity requires a project and event bus.");
   const active = new Map();
   const recent = new Map();
+  // Defines publish function behavior for agent-execution-activity.js.
   const publish = ({ agentId, correlationId, phase, summary, toolName, project_id }) => {
     if (project_id !== undefined && project_id !== projectId) return;
     if (typeof agentId !== "string" || !agentId || typeof correlationId !== "string" || !correlationId || !["started", "completed", "failed", "tool_started", "tool_completed", "tool_failed"].includes(phase)) return;

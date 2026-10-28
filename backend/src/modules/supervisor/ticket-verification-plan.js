@@ -1,6 +1,6 @@
 // Selects the complete immutable checks required to accept a ticket commit.
-import { readFile, readdir, stat } from "node:fs/promises";
-import { basename, dirname, join, relative } from "node:path";
+import { readdir, stat } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { ConfigurationError } from "../../shared/errors.js";
 import { fileURLToPath } from "node:url";
 import { assertCodingBrowserStep } from "./browser-coding-contract.js";
@@ -28,24 +28,22 @@ export async function buildTicketVerificationPlan(paths, root, { fullBackend = f
   if (backend) {
     const allTests = (await readdir(join(root, "backend/tests"), { recursive: true }))
       .filter((path) => /\.test\.[cm]?js$/.test(path)).sort().map((path) => `backend/tests/${path}`);
-    const related = fullBackend ? allTests : await selectRelatedTests(paths, allTests, root);
+    const related = selectNamedTests(paths, allTests);
     const mapped = verificationPlan.filter((step) => step?.kind === "test" && allTests.includes(step.test_path)).map((step) => step.test_path);
     const changed = paths.filter((path) => allTests.includes(path));
     const tests = [...new Set(fullBackend ? allTests : [...changed, ...mapped])].sort();
     if (!tests.length) tests.push(...related);
     if (!tests.length) throw Object.assign(new ConfigurationError("No backend test covers the ticket paths; add or identify a ticket test before verification."), { code: "VERIFY_TEST_SCOPE_EMPTY" });
     checks.push({ kind: "backend_tests", scope: "ticket", test_paths: tests, criterion_ids: verificationPlan.filter((step) => tests.includes(step.test_path)).flatMap((step) => step.criterion_ids ?? []), argv: testArgv(tests) });
-    for (const path of related.filter((path) => !tests.includes(path))) checks.push(regressionTest(path, paths, "backend_tests"));
   }
   if (paths.some((path) => path.startsWith("ui/nextjs/"))) {
     const entries = await readdir(join(root, "ui/nextjs/tests"), { withFileTypes: true });
-    const available = entries.filter((entry) => entry.isFile() && entry.name.endsWith(".test.js")).map((entry) => `ui/nextjs/tests/${entry.name}`);
-    const tests = await selectRelatedTests(paths, available, root, "ui/nextjs/");
+    const available = entries.filter((entry) => entry.isFile() && /\.test\.[cm]?js$/.test(entry.name)).map((entry) => `ui/nextjs/tests/${entry.name}`);
+    const tests = selectNamedTests(paths, available, "ui/nextjs/");
     const mapped = verificationPlan.filter((step) => step?.kind === "test" && available.includes(step.test_path)).map((step) => step.test_path);
     const primary = [...new Set([...paths.filter((path) => available.includes(path)), ...mapped])];
     if (!primary.length) primary.push(...tests);
     if (primary.length) checks.push({ kind: "test", scope: "ticket", test_paths: primary, argv: testArgv(primary) });
-    for (const path of tests.filter((path) => !primary.includes(path))) checks.push(regressionTest(path, paths, "test"));
     checks.push({ kind: "build", scope: verificationPlan.some((step) => step?.kind === "build") ? "ticket" : "regression", reason: "UI compilation after ticket UI changes", argv: [process.execPath, "ui/nextjs/node_modules/next/dist/bin/next", "build", "ui/nextjs", "--webpack"] });
   }
   for (const step of verificationPlan) {
@@ -65,30 +63,11 @@ export async function buildTicketVerificationPlan(paths, root, { fullBackend = f
 // Avoids running a focused test twice when source-based selection already chose it.
 function commandsContainTest(checks, path) { return checks.some((check) => ["test", "backend_tests"].includes(check.kind) && check.argv?.includes(path)); }
 
-// Selects ticket tests and direct source importers so unrelated backend suites do not delay review.
-async function selectRelatedTests(paths, tests, root, sourcePrefix = "backend/src/") {
-  const changedTests = new Set(paths.filter((path) => tests.includes(path)));
-  const sourcePaths = paths.filter((path) => path.startsWith(sourcePrefix) && !path.includes("/tests/") && /\.(?:[cm]?js|jsx|[cm]?ts|tsx)$/.test(path));
-  if (!sourcePaths.length) return [...changedTests].sort();
-  for (const test of tests) {
-    if (changedTests.has(test)) continue;
-    const name = basename(test).replace(/\.test\.[cm]?js$/, "");
-    if (sourcePaths.some((path) => basename(path).replace(/\.(?:[cm]?js|jsx|[cm]?ts|tsx)$/, "") === name)) { changedTests.add(test); continue; }
-    const imports = sourcePaths.map((path) => {
-      const value = relative(dirname(join(root, test)), join(root, path));
-      return value.startsWith(".") ? value : `./${value}`;
-    });
-    const content = await readFile(join(root, test), "utf8");
-    if (imports.some((value) => content.includes(`"${value}"`) || content.includes(`'${value}'`))) changedTests.add(test);
-  }
-  return [...changedTests].sort();
-}
-
-// Records why an additional test is relevant without making it an approved ticket criterion.
-function regressionTest(path, changedPaths, kind) {
-  return { kind, scope: "regression", test_paths: [path], related_paths: changedPaths.filter((path) => !path.includes("/tests/")),
-    reason: "Test name or direct source import matches a changed ticket file",
-    argv: testArgv([path]) };
+/** Supports older tickets without a mapped plan using exact test names only.
+ * Shared imports do not establish acceptance coverage and never expand the plan. */
+function selectNamedTests(paths, tests, sourcePrefix = "backend/src/") {
+  const names = new Set(paths.filter(path => path.startsWith(sourcePrefix)).map(path => basename(path).replace(/\.(?:[cm]?js|jsx|[cm]?ts|tsx)$/, "")));
+  return tests.filter(path => paths.includes(path) || names.has(basename(path).replace(/\.test\.[cm]?js$/, ""))).sort();
 }
 
 /** Gives ticket tests and supplemental regressions the same structured failure

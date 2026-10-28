@@ -29,6 +29,7 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
   if (!Number.isInteger(streamBatchMs) || streamBatchMs < 1) throw new ConfigurationError("Sprint Orchestration stream batch interval must be positive.");
   const validateSprintPlan = createSprintPlanValidator();
   return Object.freeze({ run, isRunning: (sprintId) => running.has(sprintId), ingestAgentCompletion });
+  // Defines run function behavior for sprint-orchestration-service.js.
   async function run({ projectId, sprintId } = {}) {
     const sprint = sprintRegistry ? await sprintRegistry.getDetail(sprintId) : sprintPlans.getSprintById(sprintId);
     if (!sprint || sprint.project_id !== projectId) throw new ConfigurationError(`Unknown Sprint Plan: ${sprintId}.`);
@@ -42,6 +43,7 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
     void runRealAgents({ projectId, sprint, sessionId }).finally(() => running.delete(sprintId));
     return { sprint_id: sprintId, session_id: sessionId, state: "RUNNING" };
   }
+  // Defines ingestAgentCompletion function behavior for sprint-orchestration-service.js.
   async function ingestAgentCompletion({ message, agentId, text } = {}) {
     const profile = agentRoleResolver?.resolveProfile?.("sprint_leader");
     if (agentId !== (profile?.agent_id ?? "sprint-leader")) return { ingested: false };
@@ -58,6 +60,7 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
       return { ingested: false, error: error.message };
     }
   }
+  // Defines runRealAgents function behavior for sprint-orchestration-service.js.
   async function runRealAgents({ projectId, sprint, sessionId }) {
     const tickets = sprint.tickets ?? [];
     for (const role of agentRoles.filter((entry) => entry === "sprint-leader")) {
@@ -77,6 +80,7 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
       let pending = "";
       let chunkIndex = 0;
       let timer;
+      // Defines flush function behavior for sprint-orchestration-service.js.
       const flush = () => {
         if (!pending) return;
         const text = pending;
@@ -155,9 +159,11 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
     for (const ticket of tickets) for (const dependency of ticket.dependencies ?? []) if (!ids.has(dependency)) throw Object.assign(new ConfigurationError(`Ticket ${ticket.id} has an unknown dependency: ${dependency}.`), { code: "SPRINT_TICKET_DEPENDENCY_INVALID", statusCode: 422 });
     return { ...plan, tickets };
   }
+  // Defines conversationRole function behavior for sprint-orchestration-service.js.
   function conversationRole(role) {
     return { "architecture-manager": "AM", "sprint-leader": "SL", builder: "BU", reviewer: "RV" }[role] ?? role.toUpperCase();
   }
+  // Defines persistSprintPlan function behavior for sprint-orchestration-service.js.
   async function persistSprintPlan(plan, trace = {}) {
     if (!sprintRegistry && typeof sprintPlanStore?.save !== "function") throw new ConfigurationError("Sprint persistence is unavailable.");
     if (typeof draftPlan !== "function") throw new ConfigurationError("Sprint Leader requires immutable plan drafting before publishing a sprint.");
@@ -178,6 +184,7 @@ export function createSprintOrchestrationService({ sprintPlans, sprintPlanStore,
     }
     publish("governance.sprint_plan.created", plan.project_id, plan.id, null, "sprint-leader", trace.correlationId ?? null, trace.conversationId ?? null, { sprint_plan: plan, plan_id: draft.plan_id, revision: draft.revision, sha256: draft.sha256, status: draft.status ?? "awaiting_human_approval" });
   }
+  // Defines publish function behavior for sprint-orchestration-service.js.
   function publish(type, projectId, taskId, sessionId, agentId, correlationId, conversationId, payload) {
     publisher.publish({ event_id: `EVT-${randomUUID()}`, type, project_id: projectId, task_id: taskId, timestamp: new Date().toISOString(), payload, metadata: { source: "real-agent-orchestration", session_id: sessionId, agent_id: agentId, correlation_id: correlationId, conversation_id: conversationId } });
   }

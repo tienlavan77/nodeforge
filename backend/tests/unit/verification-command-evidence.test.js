@@ -1,7 +1,7 @@
 // Regresses grouped backend verification reaching report_done without duplicate tests or fabricated acceptance.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -39,22 +39,36 @@ test("compound coverage retains missing checks and ignores agent-provided passin
   ]);
 });
 
+test("aggregate test evidence requires executed ticket paths and Node criterion bindings", () => {
+  const aggregate = { kind: "backend_tests", criterion_ids: ["AC-1"] };
+  const receipt = { kind: "backend_tests", scope: "ticket", criterion_ids: ["AC-1"],
+    test_paths: [path], argv: ["node", "--test", path], exit_code: 0 };
+  assert.equal(findPassingVerificationCommand(aggregate, [receipt]), receipt);
+  for (const changes of [
+    { exit_code: 1 }, { exit_code: null }, { scope: "regression" }, { scope: undefined },
+    { criterion_ids: [] }, { criterion_ids: ["AC-2"] }, { test_paths: [] },
+    { test_paths: ["backend/tests/unexecuted.test.js"] }, { argv: ["node", "scripts/run-backend-tests.mjs"] }
+  ]) assert.equal(findPassingVerificationCommand(aggregate, [{ ...receipt, ...changes }]), undefined);
+  assert.equal(findPassingVerificationCommand({ kind: "backend_tests" }, [receipt]), undefined);
+});
+
 test("real planner groups and runs the mapped test once and report_done accepts its immutable receipt", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "nf-command-evidence-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(join(root, "backend/tests/integration"), { recursive: true });
   await mkdir(join(root, "backend/src"), { recursive: true });
   await writeFile(join(root, "backend/src/routing.js"), "// Supplies project routing.\nexport const routed = true;\n");
-  await writeFile(join(root, path), "// Checks project routing.\nrequire('node:test')('routing', () => require('node:assert/strict').equal(1, 1));\n");
-  const ticket = { id: "T-ROUTING", acceptance_criteria: ["Selected project is routed", "Project state is isolated"], verification_plan: [step] };
+  await writeFile(join(root, path), "// Checks project routing and records actual test execution.\nrequire('node:test')('routing', () => { require('node:assert/strict').equal(1, 1); require('node:fs').writeFileSync('routing-executed', 'yes'); });\n");
+  const ticket = { id: "T-ROUTING", acceptance_criteria: ["Selected project is routed", "Project state is isolated"],
+    verification_plan: [step, { kind: "backend_tests", criterion_ids: ["AC-1", "AC-2"] }] };
   const plan = await buildTicketVerificationPlan(["backend/src/routing.js"], root, { verificationPlan: ticket.verification_plan });
   const tests = plan.filter((command) => ["test", "backend_tests"].includes(command.kind));
   assert.equal(tests.length, 1);
   assert.equal(tests[0].kind, "backend_tests");
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== "NODE_TEST_CONTEXT"));
   const stdout = execFileSync(tests[0].argv[0], tests[0].argv.slice(1), { cwd: root, encoding: "utf8", env });
-  assert.match(stdout, /(?:tests 1|# tests 1)/);
-  assert.match(stdout, /(?:pass 1|# pass 1)/);
+  assert.deepEqual(JSON.parse(stdout.trim()), { type: "summary", failed: 0, cancelled: 0 });
+  assert.equal(await readFile(join(root, "routing-executed"), "utf8"), "yes");
   const artifact = { status: "passed", artifact_id: "ARTIFACT-GROUPED", commit_sha: "a".repeat(40),
     file_checksums: { "backend/src/routing.js": "sha256:source" }, commands: [{ ...tests[0], exit_code: 0, stdout_redacted: stdout }] };
   const original = JSON.stringify({ artifact, ticket });

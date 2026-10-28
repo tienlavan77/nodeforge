@@ -3,6 +3,8 @@
  * Optional values use nullable slots for strict SDK schemas; decoding removes
  * only those omitted slots before the original Forge validators run. */
 import { createRequire } from "node:module";
+import { agentDecisionSchema, agentDecisionBranches } from "./agent-decision-schema.js";
+import { REVIEW_FINDING_SCHEMA, REVIEW_FINDING_UPDATE_SCHEMA } from "../supervisor/review-finding-guidance.js";
 const require = createRequire(import.meta.url);
 const envelope = require("../../../../schemas/governance/agent-exchange.schema.json");
 const payloads = require("../../../../schemas/governance/agent-exchange-payload.schema.json");
@@ -99,21 +101,22 @@ function candidateSchema() {
 /** Selects one request-bound response kind and subject for Claude/Codex native
  * generation. Native shape constraints supplement, never replace, live approval,
  * evidence, role and execution checks in the common exchange adapter. */
-export function createAgentExchangeOutput(request) {
+export function agentExchangeResponseSchema(request) {
   const kind = { consultation_request: "consultation_response", work_request: "work_result", review_request: "review_result" }[request.kind];
   if (!kind) throw new Error("Agent exchange structured output requires a request kind.");
   const payload = inline(payloads.$defs[kind], payloads);
   if (kind === "consultation_response") {
     payload.required.push("decision");
-    const decision = inline(decisions, decisions);
-    const omitted = request.recipient.role === "architecture_manager" ? ["coder_request", "candidate_review", "criterion_updates"]
-      : ["architecture_basis", "boundary_assessment", "escalation", "proposal", "contract_draft"];
-    for (const key of omitted) delete decision.properties[key];
+    const decision = inline(agentDecisionSchema(request.recipient.role), decisions);
     for (const key of ["findings", "implementation_steps", "verification_steps"]) decision.properties.technical_result.properties[key].minItems = 1;
     decision.properties.technical_result.description = "Provide completed findings, remaining Coder implementation steps, focused verification steps and admission for every resolved technical handoff.";
     payload.properties.decision = decision;
   }
   if (kind === "work_result") payload.properties.candidate = candidateSchema();
+  if (kind === "review_result") {
+    payload.properties.findings.items = structuredClone(REVIEW_FINDING_SCHEMA);
+    payload.properties.finding_updates.items = structuredClone(REVIEW_FINDING_UPDATE_SCHEMA);
+  }
   if (kind === "review_result" && request.payload.purpose === "blocker_evidence") {
     delete payload.properties.verdict;
     delete payload.properties.verification_requests;
@@ -122,17 +125,24 @@ export function createAgentExchangeOutput(request) {
       properties: { commit_sha: { const: request.payload.subject.commit_sha }, artifact_id: { const: request.payload.subject.artifact_id } } };
     payload.properties.findings.maxItems = 0; payload.properties.finding_updates.maxItems = 0;
     payload.properties.observations.minItems = 1; payload.properties.observations.maxItems = 16;
+  } else if (kind === "review_result") {
+    payload.required.push("verdict");
+    for (const field of ["purpose", "subject", "outcome", "observations", "missing_evidence"]) delete payload.properties[field];
   }
   const canonical = { type: "object", additionalProperties: false, required: ["kind", "subject", "payload", "evidence"], properties: {
     kind: { const: kind }, subject: { type: "string", minLength: 1 }, payload, evidence: inline(envelope.properties.evidence, envelope) } };
+  return canonical;
+}
+
+/** Projects the same response schema exposed by lookup_schema into the native
+ * provider subset while retaining canonical normalization and action branches. */
+export function createAgentExchangeOutput(request) {
+  const canonical = agentExchangeResponseSchema(request);
+  const kind = canonical.properties.kind.const;
   const schema = project(canonical, {});
   if (kind === "consultation_response") {
-    const decision = payload.properties.decision;
-    const resolved = { ...decision, required: [...decision.required, "technical_result"],
-      properties: { ...decision.properties, action: { enum: ["resolved"] } } };
-    const other = { ...decision, properties: { ...decision.properties,
-      action: { enum: decision.properties.action.enum.filter((action) => action !== "resolved") } } };
-    schema.properties.payload.properties.decision = { anyOf: [project(resolved, {}), project(other, {})] };
+    const decision = canonical.properties.payload.properties.decision;
+    schema.properties.payload.properties.decision = { anyOf: agentDecisionBranches(decision).map((branch) => project(branch, {})) };
   }
   return { schema, normalize: (value) => normalize(value, canonical, {}) };
 }

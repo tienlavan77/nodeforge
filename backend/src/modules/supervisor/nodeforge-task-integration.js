@@ -18,6 +18,8 @@ import { createTicketReviewRepair } from "./ticket-review-repair.js";
 import { automaticReviewPolicy, bindAutomaticReviewCycle } from "./automatic-review-identity.js";
 import { ticketSourceChanges } from "./ticket-source-observation.js";
 import { assertTicketRetrySource } from "./ticket-retry-source.js";
+import { confirmTicketSdkTimeout } from "./ticket-sdk-timeout.js";
+import { prepareFindingRepairCheckpoint } from "./finding-repair-checkpoint.js";
 export { ticketCandidateScope } from "./nodeforge-task-scope.js";
 // createNodeforgeTaskIntegration - handles createNodeforgeTaskIntegration operation.
 export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, agentResolver, agentOccupancy, ticketStatusStore, sprintRegistry, handoffQueue, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger = () => {}, fileService, gitService, checkpointStore, codeSearch, codeCache, relevantTreeSelector, protocolStorage, resolveTicketWorkspace, shadowComparison, automaticReview, coderRecovery, blockerRecovery } = {}) {
@@ -37,6 +39,7 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
   const reviewOnly = (input) => runReviewOnly(input, { reviewer, ticketStatusStore, resolveTicketWorkspace, gitService, fileService, agentResolver,
     claudeSdkGateway, openaiSdkGateway, codexSdkGateway, codeSearch, checkpoints, projectLogger, agentOccupancy, publishTicketOutcome });
   return Object.freeze({ startTask, submitTicket, reviewOnly });
+  // Defines submitTicket function behavior for nodeforge-task-integration.js.
   async function submitTicket({ ticket, task_id, project_id, request_id, correlation_id, attempt = 1, payload = {}, required_role, abortSignal } = {}) {
     if (!ticket || typeof ticket !== "object") throw new ConfigurationError("Node Supervisor ticket is required.");
     ticket = { ...ticket };
@@ -60,9 +63,7 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
     const reviewResume = payload.review_resume ?? null;
     const baseCommit = standalone ? null : reviewResume ? reviewResume.base_commit ?? workspace?.base_commit ?? null : workspace?.base_commit ?? payload.review_base_commit ?? await gitService?.getHead?.() ?? null;
     const ownerId = supervisorManager.getByTask?.(taskId)?.supervisorId ?? `SUP-${taskId}`;
-    if (!reviewResume && payload.resume_from?.review_repair_key && workspace?.beginFindingRepair) {
-      await workspace.beginFindingRepair(payload.resume_from.review_repair_key);
-    }
+    payload = await prepareFindingRepairCheckpoint({ taskId, projectId: project_id ?? ticket.project_id, payload, workspace, fileService, checkpoints });
     // An owner-approved governed successor (automatic foundation split) may have integrated content
     // that legitimately replaces this ticket's recorded baseline; rebase before any ledger snapshot.
     const integratedSuccessors = workspace?.root_only && !standalone && !reviewResume ? await approvedIntegratedSuccessors(taskId) : [];
@@ -147,6 +148,9 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
           projectLogger({ event_name: "supervisor.handoff_reconciliation_failed", level: "error", status: "failed", message: "Handoff disposition could not be persisted; do not redispatch this execution.", task_id: taskId, source: "nodeforge-task-integration", payload: { request_id: request.request_id, job_id: queued.id, error: reconciliationError.message } });
         }
       }
+      if (launchReceipt && !error.reconciliation_error && (error.code === "SDK_REQUEST_TIMEOUT"
+        || error.code === "CONFIGURATION_ERROR" && ["Codex", "Claude"].some((provider) => error.message === `${provider} SDK request timed out for ${selected.agent_id}.`)))
+        await confirmTicketSdkTimeout({ error, checkpoint: await checkpoints?.load?.(taskId), checkpoints, requestId: request.request_id, selected, gateway: ["claude", "anthropic"].includes(selected.provider) ? claudeSdkGateway : codexSdkGateway, projectLogger });
       if (launchReceipt && (error.code === "PROVIDER_UNKNOWN" || error.provider_outcome === "unknown" || error.reconciliation_error)) {
         projectLogger({ event_name: "supervisor.agent_outcome_unknown", level: "error", status: "blocked", message: "Claimed execution failed without reconciled provider disposition; retain ownership and do not retry or replace.", task_id: taskId, source: "nodeforge-task-integration", payload: { request_id: request.request_id, execution_id: launchReceipt.execution_id, job_id: queued?.id, cause_code: error.code ?? "PROVIDER_OUTCOME_UNKNOWN" } });
         throw Object.assign(new ConfigurationError("Provider outcome for the claimed execution requires reconciliation before retry or replacement."), { code: "TICKET_EXECUTION_RECONCILIATION_REQUIRED", statusCode: 409, retryable: false, scope: "scoped", identifiers: [taskId], cause: error });
@@ -154,8 +158,15 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
       if (launchReceipt) ticketStatusStore.reconcileExecutionLaunch(taskId, { executionId: launchReceipt.execution_id, requestId: request.request_id, jobId: queued.id, disposition: "executor_failed" });
       if (coderRecovery && workspace) request.execution_context = await workspace.executionContexts.load(taskId);
       await releaseTicketAttempt({ workspace, agentOccupancy, claim, taskId, ownerId, reason: "ticket_execution_failed" });
+      const terminal = ticketStatusStore?.get?.(taskId);
+      if (error.code === "TICKET_STOPPED" && [terminal?.details?.reason, terminal?.details?.last_failure?.details?.reason].includes("TICKET_STOPPED")) {
+        const saved = await checkpoints?.load?.(taskId);
+        if (saved) await checkpoints.save({ ...saved, status: "failed" });
+        return { task_id: taskId, supervisor_id: ownerId, status: "failed", reason: error.code };
+      }
       const recovery = await handleExecutionFailure(error, request, { selected, claim, taskId, ownerId });
       if (recovery?.handled) return { task_id: taskId, supervisor_id: ownerId, status: "recovery_pending", recovery: recovery.outcome };
+      if (error.code === "SDK_REQUEST_TIMEOUT" && error.resume_allowed) return { task_id: taskId, supervisor_id: ownerId, status: "failed", reason: error.code };
       throw error;
     }
     try {
@@ -212,6 +223,7 @@ export function createNodeforgeTaskIntegration({ supervisorManager, eventBus, ag
     if (!shadowComparison?.compare) return;
     await shadowComparison.compare({ event_id: `SHADOW-${type}-${taskId}-${request.request_id ?? "request"}`, type, task_id: taskId, supervisor_id: request.supervisor_id ?? `SUP-${taskId}`, request_id: request.request_id, correlation_id: request.correlation_id, payload });
   }
+  // Defines startTask function behavior for nodeforge-task-integration.js.
   async function startTask({ task_id, project_id, request_id, correlation_id, attempt = 1, request = {}, payload, ticket, relevantTree = [], restart = false } = {}) {
     const runtime = await supervisorManager.startTask({ task_id, project_id, request_id, correlation_id, attempt, payload, ticket, relevantTree, restart });
     if (runtime.ownershipCreated && !publishedOwners.has(runtime.supervisorId)) {

@@ -52,18 +52,22 @@ export function createFilesystemWatcher({ root, ignore = [], chokidarOptions = {
 
   return Object.freeze({
     ignored: Object.freeze(ignored),
+    // Defines on method behavior for watcher.js.
     on(event, listener) {
       events.on(event, listener);
       return this;
     },
+    // Defines once method behavior for watcher.js.
     once(event, listener) {
       events.once(event, listener);
       return this;
     },
+    // Defines off method behavior for watcher.js.
     off(event, listener) {
       events.off(event, listener);
       return this;
     },
+    // Defines close method behavior for watcher.js.
     close() {
       return watcher.close();
     }

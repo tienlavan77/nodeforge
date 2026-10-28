@@ -29,6 +29,7 @@ export function createProtocolStorage({ projectRoot = process.cwd(), fileService
   const saveLocks = new Map();
   return Object.freeze({ save, get, exists, list, clearTask, root: storageRoot, normalizeRef, serialize, checksum, createMetadata });
 
+  // Defines save function behavior for protocol-storage.js.
   async function save(ref, data, { schemaId, replace = false } = {}) {
     const normalizedRef = normalizeRef(ref);
     const previous = saveLocks.get(normalizedRef) || Promise.resolve();
@@ -44,6 +45,7 @@ export function createProtocolStorage({ projectRoot = process.cwd(), fileService
     }
   }
 
+  // Defines saveUnlocked function behavior for protocol-storage.js.
   async function saveUnlocked(normalizedRef, data, schemaId, replace = false) {
     const serialized = serialize(data);
     const metadata = createMetadata(normalizedRef, serialized, schemaId);
@@ -72,6 +74,7 @@ export function createProtocolStorage({ projectRoot = process.cwd(), fileService
     return { ref: normalizedRef, data: structuredClone(data), metadata };
   }
 
+  // Defines get function behavior for protocol-storage.js.
   async function get(ref) {
     const normalizedRef = normalizeRef(ref);
     const dataPath = storagePath(normalizedRef, ".json");
@@ -87,6 +90,7 @@ export function createProtocolStorage({ projectRoot = process.cwd(), fileService
     return { ref: normalizedRef, data: existing.data, metadata: existing.metadata };
   }
 
+  // Defines exists function behavior for protocol-storage.js.
   async function exists(ref) {
     const normalizedRef = normalizeRef(ref);
     const dataPath = storagePath(normalizedRef, ".json");
@@ -99,6 +103,7 @@ export function createProtocolStorage({ projectRoot = process.cwd(), fileService
     return dataExists && metadataExists;
   }
 
+  // Defines clearTask function behavior for protocol-storage.js.
   async function clearTask(taskId) {
     const normalizedTaskId = normalizeTaskId(taskId);
     if (typeof fileService.listFiles !== "function" || typeof fileService.deleteFile !== "function") throw storageError("STORAGE_CLEAR_UNAVAILABLE", "Protocol Storage File Service cannot clear task records.");
@@ -108,6 +113,7 @@ export function createProtocolStorage({ projectRoot = process.cwd(), fileService
     return { task_id: normalizedTaskId, deleted: files.length };
   }
 
+  // Defines list function behavior for protocol-storage.js.
   async function list(taskId) {
     const normalizedTaskId = normalizeTaskId(taskId);
     if (typeof fileService.listFiles !== "function") throw storageError("STORAGE_LIST_UNAVAILABLE", "Protocol Storage File Service cannot list files.");
@@ -123,6 +129,7 @@ export function createProtocolStorage({ projectRoot = process.cwd(), fileService
     return refs;
   }
 
+  // Defines normalizeRef function behavior for protocol-storage.js.
   function normalizeRef(ref) {
     if (typeof ref !== "string" || !ref) throw protocolError("STORAGE_INVALID_REF", "Storage ref is required.");
     if (ref.includes("\0") || ref.includes("\\") || ref.startsWith("/") || ref.endsWith("/") || ref.split("/").some((part) => part === ".." || part === "." || part === "")) {
@@ -134,6 +141,7 @@ export function createProtocolStorage({ projectRoot = process.cwd(), fileService
     return ref;
   }
 
+  // Defines normalizeTaskId function behavior for protocol-storage.js.
   function normalizeTaskId(taskId) {
     if (typeof taskId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(taskId)) {
       throw protocolError("STORAGE_INVALID_TASK_ID", "Storage task_id must be a safe path segment.");
@@ -141,6 +149,7 @@ export function createProtocolStorage({ projectRoot = process.cwd(), fileService
     return taskId;
   }
 
+  // Defines serialize function behavior for protocol-storage.js.
   function serialize(value) {
     try {
       const normalized = sortValue(value, new WeakSet());
@@ -154,11 +163,13 @@ export function createProtocolStorage({ projectRoot = process.cwd(), fileService
     }
   }
 
+  // Defines checksum function behavior for protocol-storage.js.
   function checksum(serialized) {
     if (typeof serialized !== "string") throw protocolError("STORAGE_CHECKSUM_ERROR", "Checksum input must be serialized text.");
     return createHash("sha256").update(Buffer.from(serialized, "utf8")).digest("hex");
   }
 
+  // Defines createMetadata function behavior for protocol-storage.js.
   function createMetadata(ref, serialized, schemaId) {
     const normalizedRef = normalizeRef(ref);
     if (typeof serialized !== "string") throw protocolError("STORAGE_SERIALIZATION_ERROR", "Metadata requires serialized text.");
@@ -173,8 +184,10 @@ export function createProtocolStorage({ projectRoot = process.cwd(), fileService
     return Object.freeze(metadata);
   }
 
+  // Defines storagePath function behavior for protocol-storage.js.
   function storagePath(ref, suffix) { return `${storageRootRelative}/${ref}${suffix}`; }
 
+  // Defines readExisting function behavior for protocol-storage.js.
   async function readExisting(ref, dataPath, metadataPath) {
     let serialized;
     try { serialized = await fileService.readFile({ path: dataPath }); }
@@ -193,6 +206,7 @@ export function createProtocolStorage({ projectRoot = process.cwd(), fileService
     return { ref, data, metadata, serialized };
   }
 
+  // Defines fileExists function behavior for protocol-storage.js.
   async function fileExists(path) {
     try {
       await fileService.readFile({ path });

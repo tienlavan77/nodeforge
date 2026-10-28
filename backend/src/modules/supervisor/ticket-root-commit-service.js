@@ -11,17 +11,24 @@ import { inspectTicketSource } from "./ticket-source-reconciliation.js";
 import { reconcileRestoredTicketCommit } from "./ticket-restored-commit.js";
 import { reconcileInheritedTicketCommit } from "./ticket-inherited-commit.js";
 
+// Defines fail function behavior for ticket-root-commit-service.js.
 const fail = (code, message) => Object.assign(new ConfigurationError(message), { code });
+// Defines sha function behavior for ticket-root-commit-service.js.
 const sha = (value) => value === null ? null : `sha256:${createHash("sha256").update(value).digest("hex")}`;
+// Defines key function behavior for ticket-root-commit-service.js.
 const key = (value) => createHash("sha256").update(value).digest("hex");
+// Defines manifestSha function behavior for ticket-root-commit-service.js.
 const manifestSha = (manifest) => sha(JSON.stringify(Object.keys(manifest.entries).sort().map((path) => ({ path, before_sha: manifest.entries[path].initial_sha ?? null, after_sha: manifest.entries[path].latest_sha ?? null }))));
 
 // Creates one root commit tool with private staging and a durable transaction journal.
 export function createTicketRootCommitService({ taskId, projectId, projectRoot, fileService, ledger, gitService, expectedBranch, projectLogger = () => {} } = {}) {
   if (!taskId || !projectId || !projectRoot || !fileService?.atomicWrite || !ledger?.withCommitTransaction || !gitService?.getHead) throw fail("CONFIGURATION_ERROR", "Root commit service needs ticket, File Service, ledger, and Git.");
   const rootGit = createTicketRootGit({ projectRoot });
+  // Defines journalPath function behavior for ticket-root-commit-service.js.
   const journalPath = (revision) => `${statePath()}/ticket-root-commits/${key(projectId)}/${key(taskId)}-${revision}.json`;
+  // Defines dispositionPath function behavior for ticket-root-commit-service.js.
   const dispositionPath = (revision) => `${statePath()}/ticket-root-commits/${key(projectId)}/${key(taskId)}-${revision}-disposition.json`;
+  // Defines retryPath function behavior for ticket-root-commit-service.js.
   const retryPath = (revision) => `${statePath()}/ticket-root-commits/${key(projectId)}/${key(taskId)}-${revision}-retry.json`;
   return Object.freeze({ rootOnly: true, commit, reconcileNoRefMove, reconcileRestoredCommit, pushCommit: gitService.pushCommit, status: gitService.status, diffWorkingTree: gitService.diffWorkingTree, diffPatchFrom,
     inspectSource: (manifest) => inspectTicketSource({ manifest, taskId, projectId, rootGit, gitService, loadJournal, loadManifest: () => ledger.load(taskId) }),

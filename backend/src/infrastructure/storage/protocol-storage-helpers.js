@@ -7,39 +7,47 @@ import { ConfigurationError } from "../../shared/errors.js";
 const require = createRequire(import.meta.url);
 const metadataSchema = require("../../../../schemas/agent/protocol-storage-metadata.schema.json");
 
+// Defines createMetadataValidator function behavior for protocol-storage-helpers.js.
 export function createMetadataValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);
   return ajv.compile(metadataSchema);
 }
 
+// Defines protocolError function behavior for protocol-storage-helpers.js.
 export function protocolError(code, message) {
   const error = new ConfigurationError(message);
   error.code = code;
   return error;
 }
 
+// Defines storageError function behavior for protocol-storage-helpers.js.
 export function storageError(code, message) {
   const error = new ConfigurationError(message);
   error.code = code;
   return error;
 }
 
+// Defines storageConflict function behavior for protocol-storage-helpers.js.
 export function storageConflict(ref) {
   return storageError("STORAGE_CONFLICT", `Storage ref already contains different data: ${ref}.`);
 }
 
+// Defines metadataValidationError function behavior for protocol-storage-helpers.js.
 export function metadataValidationError(errors, ref = "metadata") {
   const detail = errors?.length ? errors.map((error) => `${error.instancePath || "data"} ${error.message}`).join("; ") : "schema validation failed";
   return storageError("STORAGE_METADATA_INVALID", `Metadata is invalid for ${ref}: ${detail}.`);
 }
 
+// Defines compareRefs function behavior for protocol-storage-helpers.js.
 export function compareRefs(left, right) {
+  // Defines round function behavior for protocol-storage-helpers.js.
   const round = (ref) => Number(ref.match(/\/round_(\d+)\//)?.[1] ?? 0);
   const roundDifference = round(left) - round(right);
   return roundDifference || left.localeCompare(right);
 }
 
+// Defines sortValue function behavior for protocol-storage-helpers.js.
 export function sortValue(value, seen) {
   if (value === null || typeof value !== "object") {
     if (typeof value === "bigint" || typeof value === "function" || typeof value === "symbol" || value === undefined) throw new Error("unsupported JSON value");

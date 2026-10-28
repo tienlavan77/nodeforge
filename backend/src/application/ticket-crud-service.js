@@ -18,6 +18,7 @@ export function createTicketCrudService({ roadmaps, sprintRegistry, proseTicketS
   if (ticketFileStore !== undefined && typeof ticketFileStore?.create !== "function") throw new ConfigurationError("Ticket CRUD requires a valid Ticket File Store.");
 
   return Object.freeze({ listTickets, createTicket, updateTicket, regenerateTicketEnglish });
+  // Defines listTickets function behavior for ticket-crud-service.js.
   function listTickets({ projectId } = {}) {
     requireProject(projectId);
     if (sprintRegistry) return sprintRegistry.listDetails().then((sprints) => structuredClone(sprints.filter((sprint) => sprint.project_id === projectId).flatMap((sprint) => sprint.tickets ?? [])));
@@ -25,6 +26,7 @@ export function createTicketCrudService({ roadmaps, sprintRegistry, proseTicketS
     if (!current || current.project_id !== projectId) return [];
     return structuredClone((current.sprints ?? []).flatMap((sprint) => sprint.tickets ?? []));
   }
+  // Defines createTicket function behavior for ticket-crud-service.js.
   async function createTicket({ projectId, ticket, content, context, sprintId } = {}) {
     requireProject(projectId);
     assertLegacyTicketMutation(sprintRegistry);
@@ -72,6 +74,7 @@ export function createTicketCrudService({ roadmaps, sprintRegistry, proseTicketS
     }
     throw Object.assign(new ConfigurationError(`Sprint leader returned an invalid ticket: ${retry.question ?? "unknown validation failure"}`), { statusCode: 422, code: "INVALID_TICKET", ...(retry.missing?.length ? { missing: retry.missing } : {}) });
   }
+  // Defines tryCreate function behavior for ticket-crud-service.js.
   function tryCreate({ projectId, ticket, content, sprintId, now }) {
     const current = roadmaps.getCurrent();
     let candidateInput = ticket;
@@ -105,6 +108,7 @@ export function createTicketCrudService({ roadmaps, sprintRegistry, proseTicketS
     publish("ticket.created", projectId, { ticket_id: id, ticket: result.ticket, roadmap_version: result.roadmap.version });
     return { created: true, ticket: result.ticket, roadmap_version: result.roadmap.version };
   }
+  // Defines persistCanonical function behavior for ticket-crud-service.js.
   function persistCanonical(ticket, context) {
     if (!ticketFileStore) return;
     ticketFileStore.create({ ticket, context });
@@ -125,6 +129,7 @@ export function createTicketCrudService({ roadmaps, sprintRegistry, proseTicketS
     if (Array.isArray(normalized.acceptance_criteria) && normalized.acceptance_criteria.length) assertTicketVerificationContract(normalized);
     return normalized;
   }
+  // Defines requestSprintLeaderTicket function behavior for ticket-crud-service.js.
   async function requestSprintLeaderTicket({ projectId, agentId, content, ticket, feedback }) {
     if (typeof sprintLeader?.requestTicket === "function") {
       return sprintLeader.requestTicket({ projectId, agentId, content, ticket, feedback, correlationId: `CORR-TICKET-CREATE-${randomUUID()}` });
@@ -148,6 +153,7 @@ export function createTicketCrudService({ roadmaps, sprintRegistry, proseTicketS
     }
     return extractTicketJson(output);
   }
+  // Defines regenerateTicketEnglish function behavior for ticket-crud-service.js.
   async function regenerateTicketEnglish({ projectId, ticketId, context, sprintId } = {}) {
     requireProject(projectId);
     assertLegacyTicketMutation(sprintRegistry);
@@ -180,6 +186,7 @@ export function createTicketCrudService({ roadmaps, sprintRegistry, proseTicketS
     publish("ticket.updated", projectId, { ticket_id: ticketId, ticket: updated, reason: "english_regeneration" });
     return { updated: true, ticket: updated, english_content: ticketEnglishContent(updated), source_context: context };
   }
+  // Defines updateTicket function behavior for ticket-crud-service.js.
   function updateTicket({ projectId, ticketId, patch } = {}) {
     requireProject(projectId);
     assertLegacyTicketMutation(sprintRegistry);
@@ -193,9 +200,11 @@ export function createTicketCrudService({ roadmaps, sprintRegistry, proseTicketS
     publish("ticket.updated", projectId, { ticket_id: ticketId, ticket: updated, roadmap_version: saved.version, patch: filtered });
     return { updated: true, ticket: updated, roadmap_version: saved.version };
   }
+  // Defines attemptError function behavior for ticket-crud-service.js.
   function attemptError(attempt) {
     return Object.assign(new ConfigurationError(attempt.question ?? "Ticket is invalid."), { statusCode: 422, code: "INVALID_TICKET", ...(attempt.invalid_fields?.length ? { invalid_fields: attempt.invalid_fields } : {}), ...(attempt.missing?.length ? { missing: attempt.missing } : {}) });
   }
+  // Defines publish function behavior for ticket-crud-service.js.
   function publish(type, projectId, payload) {
     try { publisher?.publish?.({ event_id: `EVT-${Date.now()}-${type}`, type, project_id: projectId, timestamp: new Date().toISOString(), payload, metadata: { source: "ticket-crud-service" } }); } catch (error) { logger.error?.("Ticket event publisher failed after mutation.", { entity_id: payload?.ticket_id ?? payload?.ticket?.id, event_name: type, error: error.message }); /* stream notification must not undo mutation */ }
   }

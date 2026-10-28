@@ -6,11 +6,12 @@ const COMPLETED_RETAIN_MS = 24 * 60 * 60 * 1000;
 // repair evidence stays, because those records are durable witnesses that recovery paths still read.
 function isPrunableTerminal(entry, now) {
   if (!entry || entry.status !== "completed" || entry.reconciliation_required === true) return false;
-  if (entry.review_result || entry.verification_result || entry.completion_intent || entry.repair_consumed) return false;
+  if (entry.review_result || entry.verification_result || entry.completion_intent || entry.repair_consumed || entry.dependency_repair) return false;
   const completedAt = Date.parse(entry.completed_at ?? "");
   if (Number.isFinite(completedAt) && now - completedAt < COMPLETED_RETAIN_MS) return false;
   return true;
 }
+// Defines createFileQueueStore function behavior for file-queue-store.js.
 export function createFileQueueStore({ fileService, root = statePath("supervisor-queues") } = {}) {
   if (typeof fileService?.readFile !== "function" || typeof fileService?.atomicWrite !== "function") throw new ConfigurationError("File queue store requires File Service.");
   // A single parsed copy of each queue file is reused across repeated list() reads within one process,
@@ -20,7 +21,9 @@ export function createFileQueueStore({ fileService, root = statePath("supervisor
   // must treat list() results as read-only; every consumer here already rebuilds entries by spreading.
   const cache = new Map();
   return Object.freeze({ list, save, pruneTerminal, withLock });
+  // Defines readFresh function behavior for file-queue-store.js.
   async function readFresh(name) { try { return JSON.parse(await fileService.readFile({ path: `${root}/${safe(name)}.json` })); } catch (error) { if (error?.code === "ENOENT") return []; throw error; } }
+  // Defines list function behavior for file-queue-store.js.
   async function list(name) {
     const key = safe(name);
     if (cache.has(key)) return cache.get(key);
@@ -28,9 +31,11 @@ export function createFileQueueStore({ fileService, root = statePath("supervisor
     cache.set(key, entries);
     return entries;
   }
+  // Defines withLock function behavior for file-queue-store.js.
   async function withLock(name, callback, operationName = "mutation") {
     const lockPath = `${root}/lock-${safe(name)}.lock`;
     const debug = process.env.NODE_DEBUG_QUEUE_LOCKS === "1";
+    // Defines trace function behavior for file-queue-store.js.
     const trace = (event) => { if (debug) process.stderr.write(`[queue-lock] ${event} queue=${name} op=${operationName} pid=${process.pid}\n`); };
     for (;;) {
       let lock;
@@ -63,6 +68,7 @@ export function createFileQueueStore({ fileService, root = statePath("supervisor
       } finally { await lock.release().catch(() => {}); trace("released"); } // eslint-disable-next-line no-silent-catch -- Lock release is best-effort; callback result already decided.
     }
   }
+  // Defines save function behavior for file-queue-store.js.
   async function save(name, item) { const key = safe(name); const entries = await readFresh(key); const index = entries.findIndex((entry) => entry.id === item.id); if (index < 0) entries.push(structuredClone(item)); else entries[index] = structuredClone(item); await fileService.atomicWrite({ path: `${root}/${key}.json`, content: `${JSON.stringify(entries)}\n`, replace: true }); cache.set(key, entries); return item; }
   // Rewrites one queue file without its finished jobs while holding the queue's cross-process lock so a
   // concurrent claim/ack cannot lose an update; a rewritten file shrinks every later list() read/parse.
@@ -82,4 +88,5 @@ export function createFileQueueStore({ fileService, root = statePath("supervisor
     }, "prune_terminal");
   }
 }
+// Defines safe function behavior for file-queue-store.js.
 function safe(value) { if (typeof value !== "string" || !/^[A-Za-z0-9._-]+$/.test(value)) throw new ConfigurationError("Queue name contains unsafe characters."); return value; }

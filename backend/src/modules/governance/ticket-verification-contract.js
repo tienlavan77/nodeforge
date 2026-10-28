@@ -36,5 +36,7 @@ export function assertTicketVerificationContract(ticket) {
   return true;
 }
 
+// Defines nonBlank function behavior for ticket-verification-contract.js.
 function nonBlank(value) { return typeof value === "string" && value.trim().length > 0; }
+// Defines failure function behavior for ticket-verification-contract.js.
 function failure(message) { return Object.assign(new ConfigurationError(message), { code: "TICKET_VERIFICATION_PLAN_INVALID", statusCode: 422 }); }

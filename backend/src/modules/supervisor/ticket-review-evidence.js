@@ -4,7 +4,9 @@ import { ConfigurationError } from "../../shared/errors.js";
 import { assertReviewerReadPath } from "./reviewer-forge-tools.js";
 import { createTicketRootGit } from "./ticket-root-git.js";
 
+// Defines sha function behavior for ticket-review-evidence.js.
 const sha = (content) => `sha256:${createHash("sha256").update(content).digest("hex")}`;
+// Defines fail function behavior for ticket-review-evidence.js.
 const fail = (code, message) => Object.assign(new ConfigurationError(message), { code });
 
 // Rejects any drift between the persisted context, artifact, and worktree commit.
