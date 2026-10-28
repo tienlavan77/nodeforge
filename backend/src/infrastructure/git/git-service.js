@@ -32,6 +32,7 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
     return { state: changedFiles ? "dirty" : ahead || behind ? "ahead-behind" : "clean", changed_files: changedFiles, branch, ahead, behind };
   }
 
+  // Defines status function behavior for git-service.js.
   async function status({ paths = [], nulTerminated = false } = {}) {
     const safePaths = validatePaths(paths);
     const statusArgs = nulTerminated ? ["status", "--porcelain", "-z", "--untracked-files=all"] : ["status", "--porcelain"];
@@ -61,6 +62,7 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
     return result.stdout;
   }
 
+  // Defines getHead function behavior for git-service.js.
   async function getHead() {
     return (await execute(["rev-parse", "HEAD"], "GIT_HEAD_FAILED")).stdout.trim();
   }
@@ -75,22 +77,26 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
     return commits[1];
   }
 
+  // Defines getBranchHead function behavior for git-service.js.
   async function getBranchHead(name) {
     validateBranch(name);
     return (await execute(["rev-parse", `refs/heads/${name}`], "GIT_BRANCH_HEAD_FAILED")).stdout.trim();
   }
 
+  // Defines currentBranch function behavior for git-service.js.
   async function currentBranch() {
     const result = await execute(["branch", "--show-current"], "GIT_BRANCH_FAILED");
     return result.stdout.trim();
   }
 
+  // Defines branchExists function behavior for git-service.js.
   async function branchExists(name) {
     validateBranch(name);
     const result = await runGit(["show-ref", "--verify", "--quiet", `refs/heads/${name}`], { cwd: projectRoot, timeout: timeoutMs });
     return result.exitCode === 0;
   }
 
+  // Defines createBranch function behavior for git-service.js.
   async function createBranch(name) {
     validateBranch(name);
     if (await branchExists(name)) throw gitError("GIT_BRANCH_EXISTS", `Git branch already exists: ${name}.`);
@@ -100,12 +106,14 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
     return { name, base_commit: base };
   }
 
+  // Defines commit function behavior for git-service.js.
   async function commit(message, { paths = [] } = {}) {
     if (typeof message !== "string" || !message.trim()) throw new ConfigurationError("Git commit message is required.");
     const safePaths = validatePaths(paths);
     if (!safePaths.length) throw new ConfigurationError("Git commit requires explicit paths.");
     const pathspecs = safePaths.map((path) => `:(literal)${path}`);
-    const add = await execute(["add", "--", ...pathspecs], "GIT_ADD_FAILED");
+    const addArgs = safePaths.some((path) => path === ".forge" || path.startsWith(".forge/")) ? ["add", "-f", "--", ...pathspecs] : ["add", "--", ...pathspecs];
+    const add = await execute(addArgs, "GIT_ADD_FAILED");
     if (add.exitCode !== 0) throw gitError("GIT_ADD_FAILED", `Git add failed: ${add.stderr ?? "unknown Git error"}`);
     emit("git.add", { paths: safePaths });
     // NUL-delimited names keep paths with spaces or non-ASCII characters unquoted so they match the requested raw paths.
@@ -138,6 +146,7 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
     return { sha: commitSha, remote: "origin", branch, output: result.stdout };
   }
 
+  // Defines merge function behavior for git-service.js.
   async function merge(branch, { target, noFastForward = true } = {}) {
     validateBranch(branch);
     if (target !== undefined) validateBranch(target);
@@ -150,36 +159,42 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
     return { branch, target: destination, output: result.stdout };
   }
 
+  // Defines abortMerge function behavior for git-service.js.
   async function abortMerge() {
     const result = await execute(["merge", "--abort"], "GIT_MERGE_ABORT_FAILED");
     emit("git.merge", { action: "abort" });
     return { aborted: true, output: result.stdout };
   }
 
+  // Defines hasConflicts function behavior for git-service.js.
   async function hasConflicts() {
     const result = await execute(["status", "--porcelain"], "GIT_STATUS_FAILED");
     const paths = result.stdout.split(/\r?\n/).filter((line) => /^(UU|AA|DD|AU|UA|DU|UD)\s/.test(line)).map((line) => line.slice(3).trim());
     return { has_conflicts: paths.length > 0, paths };
   }
 
+  // Defines diffBetween function behavior for git-service.js.
   async function diffBetween(base, head = "HEAD") {
     validateRevision(base); validateRevision(head);
     const result = await execute(["diff", "--name-status", base, head], "GIT_DIFF_FAILED");
     return result.stdout;
   }
 
+  // Defines getChangedFiles function behavior for git-service.js.
   async function getChangedFiles({ baseCommit, headCommit = "HEAD" } = {}) {
     validateRevision(baseCommit); validateRevision(headCommit);
     const result = await execute(["diff", "--name-only", baseCommit, headCommit], "GIT_DIFF_FAILED");
     return result.stdout.split(/\r?\n/).map((path) => path.trim()).filter(Boolean);
   }
 
+  // Defines getCommitsForTask function behavior for git-service.js.
   async function getCommitsForTask(taskId) {
     if (typeof taskId !== "string" || !taskId) throw new ConfigurationError("Task id is required.");
     const result = await execute(["log", "main", "--all", "--format=%H%x09%s%x09%aI", "--grep", `[${taskId}]`], "GIT_LOG_FAILED");
     return result.stdout.split(/\r?\n/).filter(Boolean).map((line) => { const [sha, subject, timestamp] = line.split("\t"); return { sha, subject, timestamp }; });
   }
 
+  // Defines deleteMergedBranch function behavior for git-service.js.
   async function deleteMergedBranch(name) {
     validateBranch(name);
     if (PROTECTED_BRANCHES.has(name)) throw gitError("GIT_PROTECTED_BRANCH", `Cannot delete protected branch: ${name}.`);
@@ -190,6 +205,7 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
     return { name, deleted: true };
   }
 
+  // Defines resetTo function behavior for git-service.js.
   async function resetTo(commit, { hard = false } = {}) {
     validateRevision(commit);
     const result = await execute(["reset", ...(hard ? ["--hard"] : ["--mixed"]), commit], "GIT_RESET_FAILED");
@@ -197,6 +213,7 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
     return { commit, hard, output: result.stdout };
   }
 
+  // Defines discardBranch function behavior for git-service.js.
   async function discardBranch(name) {
     validateBranch(name);
     if (PROTECTED_BRANCHES.has(name)) throw gitError("GIT_PROTECTED_BRANCH", `Cannot discard protected branch: ${name}.`);
@@ -207,11 +224,13 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
     return { name, discarded: true };
   }
 
+  // Defines execute function behavior for git-service.js.
   async function execute(args, code) {
     try { return await runGit(args, { cwd: projectRoot, timeout: timeoutMs }); }
     catch (error) { const failure = gitError(code, `Git command failed: git ${args.join(" ")}.`); failure.cause = error; throw failure; }
   }
 
+  // Defines emit function behavior for git-service.js.
   function emit(type, payload) {
     try { onEvent({ type, timestamp: new Date().toISOString(), ...payload }); } catch (error) { logger.warn?.("Git audit hook failed.", { event_name: type, error: error.message }); /* audit hooks must not break Git operations */ }
   }

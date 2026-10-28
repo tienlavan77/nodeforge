@@ -166,6 +166,7 @@ test("AC-3: Coder delete_file and move_file through TicketChangeLedger and Ticke
 test("AC-3 & AC-4: System Engineer delete_file and move_file record owner_changed_paths and commit_changes stages both deleted and moved paths via GitService", async () => {
   const dropContent = "// Summary: Drop me.\nexport const drop = 1;\n";
   const moveContent = "// Summary: Move me.\nexport const move = 2;\n";
+  const forgeMoveContent = "{\"policy\":\"tracked-forge-state\"}\n";
   const keepContent = "// Summary: Keep me.\nexport const keep = 3;\n";
   const fixture = await createGitMutationFixture({
     "src/drop.js": dropContent,
@@ -174,6 +175,10 @@ test("AC-3 & AC-4: System Engineer delete_file and move_file record owner_change
   });
   try {
     const { root, fileService, gitService } = fixture;
+    await mkdir(join(root, ".forge/legacy"), { recursive: true });
+    await writeFile(join(root, ".forge/legacy/state.json"), forgeMoveContent, "utf8");
+    await git(root, "add", "-f", ".forge/legacy/state.json");
+    await git(root, "commit", "-qm", "track forge source");
     const state = new Map([["CONV-SE-COMMIT", { owner_changed_paths: [] }]]);
     const conversationStateStore = {
       get: async (id) => state.get(id),
@@ -199,29 +204,42 @@ test("AC-3 & AC-4: System Engineer delete_file and move_file record owner_change
       context: seContext
     });
 
+    await writeFile(join(root, "src/keep.js"), "// dirty unrelated keep edit\n", "utf8");
+    await mkdir(join(root, ".forge/untracked"), { recursive: true });
+    await writeFile(join(root, ".forge/untracked/ignore-me.json"), "{\"unrelated\":true}\n", "utf8");
     await seTools.registry.delete_file.execute({ path: "src/drop.js", before_checksum: sha256(dropContent) }, seContext);
     await seTools.registry.move_file.execute({
       from_path: "src/legacy/item.js",
       to_path: "src/modern/item.js",
       before_checksum: sha256(moveContent)
     }, seContext);
+    await seTools.registry.move_file.execute({
+      from_path: ".forge/legacy/state.json",
+      to_path: ".forge/modern/state.json",
+      before_checksum: sha256(forgeMoveContent)
+    }, seContext);
 
-    assert.deepEqual(state.get("CONV-SE-COMMIT").owner_changed_paths.sort(), ["src/drop.js", "src/legacy/item.js", "src/modern/item.js"]);
+    const expectedPaths = [".forge/legacy/state.json", ".forge/modern/state.json", "src/drop.js", "src/legacy/item.js", "src/modern/item.js"];
+    assert.deepEqual(state.get("CONV-SE-COMMIT").owner_changed_paths.sort(), expectedPaths);
     assert.equal(await pathExists(join(root, "src/drop.js")), false);
     assert.equal(await pathExists(join(root, "src/legacy/item.js")), false);
     assert.equal(await pathExists(join(root, "src/modern/item.js")), true);
+    assert.equal(await pathExists(join(root, ".forge/legacy/state.json")), false);
+    assert.equal(await pathExists(join(root, ".forge/modern/state.json")), true);
 
     const committed = await seTools.registry.commit_changes.execute({ message: "se delete and move" }, seContext);
     assert.match(committed.sha, /^[a-f0-9]{40,64}$/);
-    assert.deepEqual(committed.paths, ["src/drop.js", "src/legacy/item.js", "src/modern/item.js"]);
+    assert.deepEqual(committed.paths, expectedPaths);
     assert.deepEqual(state.get("CONV-SE-COMMIT").owner_changed_paths, []);
     assert.equal(state.get("CONV-SE-COMMIT").owner_last_commit_sha, committed.sha);
 
     const headFiles = (await git(root, "ls-tree", "-r", "--name-only", "HEAD")).split("\n").filter(Boolean).sort();
-    assert.deepEqual(headFiles, [".gitignore", "src/keep.js", "src/modern/item.js"]);
-    assert.equal(await git(root, "status", "--porcelain"), "");
+    assert.deepEqual(headFiles, [".forge/modern/state.json", ".gitignore", "src/keep.js", "src/modern/item.js"]);
+    assert.equal(await git(root, "show", `${committed.sha}:.forge/modern/state.json`), forgeMoveContent.trimEnd());
+    assert.equal(await git(root, "show", `${committed.sha}:src/keep.js`), keepContent.trimEnd());
+    assert.equal(await readFile(join(root, "src/keep.js"), "utf8"), "// dirty unrelated keep edit\n");
 
-    // Direct createCommitChangesTool without ledger also commits deleted paths cleanly.
+    await writeFile(join(root, "src/keep.js"), keepContent, "utf8");
     await fileService.deleteFile({ path: "src/keep.js" });
     const directTool = createCommitChangesTool({ gitService, logger: { emit: () => {} } });
     const directRes = await directTool.execute({ message: "delete keep" }, {
@@ -232,7 +250,7 @@ test("AC-3 & AC-4: System Engineer delete_file and move_file record owner_change
     });
     assert.match(directRes.sha, /^[a-f0-9]{40,64}$/);
     const finalFiles = (await git(root, "ls-tree", "-r", "--name-only", "HEAD")).split("\n").filter(Boolean).sort();
-    assert.deepEqual(finalFiles, [".gitignore", "src/modern/item.js"]);
+    assert.deepEqual(finalFiles, [".forge/modern/state.json", ".gitignore", "src/modern/item.js"]);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
