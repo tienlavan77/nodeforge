@@ -14,18 +14,19 @@ import { IdeasPanel } from "./ideas-panel.jsx";
 const initialSelection = { projectId: null, generation: 0 };
 
 /** Toggle the project notebook from the existing dock and restore keyboard focus when closing it. */
-export function IdeasDock() {
+export function IdeasDock({ projectId: propProjectId } = {}) {
   const selection = useSyncExternalStore(subscribeProjectSelection, getProjectSelection, () => initialSelection);
-  const client = useMemo(() => createNodeClient(), [selection.projectId, selection.generation]);
+  const activeProjectId = propProjectId || selection.projectId;
+  const client = useMemo(() => createNodeClient(activeProjectId), [activeProjectId, selection.generation]);
   const [open, setOpen] = useState(false);
   const button = useRef(null);
   const panelId = useId();
   /** Close only the notebook; do not affect conversation navigation or stream subscriptions. */
   function close() { setOpen(false); button.current?.focus(); }
-  if (!selection.projectId) return null;
+  if (!activeProjectId) return null;
   return <>
     <button ref={button} type="button" aria-label="Ý tưởng" aria-pressed={open} aria-expanded={open}
       aria-controls={panelId} onClick={() => setOpen((previous) => !previous)}>Ý tưởng</button>
-    <IdeasPanel key={selection.projectId} client={client} projectId={selection.projectId} open={open} onClose={close} panelId={panelId} />
+    <IdeasPanel key={activeProjectId} client={client} projectId={activeProjectId} open={open} onClose={close} panelId={panelId} />
   </>;
 }

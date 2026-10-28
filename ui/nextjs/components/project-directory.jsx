@@ -1,80 +1,192 @@
 // Let owners choose or add an admitted project before opening an Architecture workspace.
 "use client";
-import { useEffect, useState, useSyncExternalStore } from "react";
-// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
-import { Dialog } from "./Dialog.jsx";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { ProjectCard } from "./project-card.jsx";
-import { getProjectSelection, refreshProjects, subscribeProjectSelection } from "../lib/project-selection.js";
-import { getProjectDirectory, refreshProjectDirectory, subscribeProjectDirectory } from "../lib/project-directory-client.js";
-import { getLifecycleSnapshot, subscribeLifecycle, submitProjectOperation, reloadOperation } from "../lib/project-lifecycle-client.js";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+import { ProjectAddModal, ProjectDeleteModal, ProjectEditModal } from "./project-modals.jsx";
+import { getProjectSelection, subscribeProjectSelection } from "../lib/project-selection.js";
+import {
+  applyProjectDirectoryStreamEvent,
+  getProjectDirectory,
+  refreshProjectDirectory,
+  removeDirectoryProject,
+  subscribeProjectDirectory,
+  upsertDirectoryProject
+} from "../lib/project-directory-client.js";
+import {
+  deleteManagedProject,
+  formatProjectBackendError,
+  getLifecycleSnapshot,
+  intakeProject,
+  submitProjectOperation,
+  subscribeLifecycle,
+  updateProjectConfiguration
+} from "../lib/project-lifecycle-client.js";
+import { createProjectStreamClient } from "../lib/project-stream-client.js";
+import { forgeV1 } from "../lib/node-client-url.js";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { ProjectOperationStatus } from "./project-operation-status.jsx";
 
 const initialSelection = { projects: [], loaded: false, error: null };
-// Preserve receipt-to-directory attempt associations for the lifetime of the module-scoped lifecycle cache.
-// Returning to the directory must retain the original association so a newer external failure cannot
-// inherit an obsolete cached receipt merely because both attempts have the same terminal status.
 const directoryAttempts = new Map();
 
 // Render project cards and recoverable directory errors without mounting project-bound chat clients.
-export function ProjectDirectory() {
+export function ProjectDirectory({ onNavigate }) {
+  let router = null;
+  try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks -- useRouter is safe in Next App Router and guarded for standalone browser test bundles.
+    router = useRouter();
+  } catch (error) {
+    router = null;
+  }
   const selection = useSyncExternalStore(subscribeProjectSelection, getProjectSelection, () => initialSelection);
   const directory = useSyncExternalStore(subscribeProjectDirectory, getProjectDirectory, () => initialSelection);
   const lifecycle = useSyncExternalStore(subscribeLifecycle, getLifecycleSnapshot, getLifecycleSnapshot);
-  const [kind, setKind] = useState("add");
+  const connectProjectStream = useMemo(() => createProjectStreamClient(forgeV1), []);
+  const streamsRef = useRef(new Map());
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [adding, setAdding] = useState(false);
-  const [root, setRoot] = useState("");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
+  const [editingProject, setEditingProject] = useState(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState("");
+  const [deletingProject, setDeletingProject] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
-  // Refresh the actual runtime directory while keeping a failed request visible and retryable.
+  // Refresh the actual runtime directory once on mount or explicit retry while keeping a failed request visible and retryable.
   async function load() {
     setLoading(true); setError("");
-    const results = await Promise.allSettled([refreshProjectDirectory(), refreshProjects({ selectInitial: false })]);
-    const failure = results.find((result) => result.status === "rejected");
-    if (failure) setError(failure.reason.message);
-    setLoading(false);
-    return !failure;
-  }
-  useEffect(() => {
-    let active = true;
-    let timer;
-    // Poll only while the directory is mounted; observation never sends cancellation or retries.
-    async function observe() {
-      await load();
-      if (!active) return;
-      const current = getLifecycleSnapshot();
-      await Promise.allSettled(Object.keys(current.pending).filter((key) =>
-        !current.operations[key] || ["pending", "running"].includes(current.operations[key].status)
-      ).map((key) => reloadOperation(key)));
-      if (active) timer = setTimeout(observe, 1500);
+    try {
+      await refreshProjectDirectory();
+      setLoading(false);
+      return true;
+    } catch (failure) {
+      setError(formatProjectBackendError(failure, failure.message));
+      setLoading(false);
+      return false;
     }
-    void observe();
-    return () => { active = false; clearTimeout(timer); };
+  }
+
+  // Call GET /forge/v1/projects exactly once when opening the page without any setTimeout polling loop.
+  useEffect(() => {
+    void load();
   }, []);
 
-  // Add a root through the existing governed lifecycle operation, then show its project card.
-  async function submit(event) {
-    event.preventDefault(); setSaving(true); setFormError("");
-    if (!root.trim().startsWith("/")) { setFormError("Enter an absolute server path."); event.currentTarget.elements.namedItem("root").focus(); setSaving(false); return; }
+  // Connect to /forge/v1/stream?project=<projectId> for every running project so progress and readiness update live via SSE.
+  const runningIdsKey = directory.projects
+    .filter((project) => project.readiness === "running")
+    .map((project) => project.project_id)
+    .sort()
+    .join("\0");
+
+  useEffect(() => {
+    const runningIds = new Set(runningIdsKey ? runningIdsKey.split("\0") : []);
+    const activeStreams = streamsRef.current;
+    for (const [id, stream] of activeStreams.entries()) {
+      if (!runningIds.has(id)) {
+        stream.close();
+        activeStreams.delete(id);
+      }
+    }
+    for (const projectId of runningIds) {
+      if (activeStreams.has(projectId)) continue;
+      try {
+        const stream = connectProjectStream({
+          projectId,
+          onEvent: (event) => applyProjectDirectoryStreamEvent(projectId, event),
+          onError: (streamError) => {
+            if (streamError?.code && streamError.code !== "STREAM_RECONNECTING") {
+              console.warn("Project SSE stream error", streamError);
+            }
+          }
+        });
+        activeStreams.set(projectId, stream);
+      } catch (streamInitError) {
+        console.warn("Unable to open project SSE stream", streamInitError);
+      }
+    }
+  }, [runningIdsKey, connectProjectStream]);
+
+  useEffect(() => () => {
+    for (const stream of streamsRef.current.values()) stream.close();
+    streamsRef.current.clear();
+  }, []);
+
+  // Business purpose: submits a validated new/imported project to `POST /forge/v1/projects`, immediately closes the Add modal on acceptance, and renders the new running card with live SSE progress.
+  // Technical description: invokes `intakeProject(payload)`, upserts the returned project into the directory store with `running` or `ready` status, closes the modal, and surfaces any backend error inside the modal without hiding failure.
+  async function handleAddSubmit(payload) {
+    setSaving(true); setFormError("");
     try {
-      await submitProjectOperation(kind, root.trim());
-      setAdding(false); setRoot("");
-      const fresh = await load();
-      setNotice(fresh ? "Operation accepted. Tracking backend status." : "Operation accepted; directory data has not reloaded. Reload directory.");
+      const created = await intakeProject(payload);
+      const projectRecord = {
+        ...payload,
+        ...created,
+        project_id: created?.project_id ?? created?.projectId,
+        readiness: created?.readiness ?? (created?.progress?.status === "succeeded" ? "ready" : "running")
+      };
+      upsertDirectoryProject(projectRecord);
+      setAdding(false);
+      setNotice("Project added.");
+    } catch (failure) {
+      setFormError(formatProjectBackendError(failure, "Could not add project."));
+    } finally {
+      setSaving(false);
     }
-    catch (failure) {
-      setFormError(failure.message);
-      if (failure.requestKey) { setAdding(false); setNotice("Outcome unknown. Reload status with the original request key."); }
-    }
-    finally { setSaving(false); }
   }
 
-  // Keep the directory mounted while loading, retrying, or disconnected. A loaded empty
-  // directory is still a real page, and a failed refresh must not replace it with a notice.
+  // Business purpose: saves updated project configuration fields via `PUT /forge/v1/projects/<projectId>` and updates the corresponding card or keeps the Edit modal open with the exact backend error.
+  // Technical description: calls `updateProjectConfiguration`, merges the returned configuration into the directory store, and closes the Edit modal on success.
+  async function handleEditSave(projectId, updates) {
+    setEditSaving(true); setEditError("");
+    try {
+      const updated = await updateProjectConfiguration(projectId, updates);
+      upsertDirectoryProject({ ...editingProject, ...updates, ...updated, project_id: projectId });
+      setEditingProject(null);
+    } catch (failure) {
+      setEditError(formatProjectBackendError(failure, "Could not update project configuration."));
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  // Business purpose: confirms removal of a project from NodeForge's managed list via `DELETE /forge/v1/projects/<projectId>` while preserving files on disk and surfacing any backend error.
+  // Technical description: invokes `deleteManagedProject(project.project_id)`, removes only the confirmed card on success, and displays backend error details if deletion fails.
+  async function handleDeleteConfirm(project) {
+    setDeleting(true); setDeleteError("");
+    try {
+      await deleteManagedProject(project.project_id);
+      removeDirectoryProject(project.project_id);
+      setDeletingProject(null);
+    } catch (failure) {
+      setDeleteError(formatProjectBackendError(failure, "Could not remove project."));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  // Business purpose: navigates to `/<projectId>` when a `ready` project card is activated.
+  // Technical description: delegates to `onNavigate`, Next router, or browser history pushState.
+  function handleCardNavigate(targetPath, projectId) {
+    if (onNavigate) {
+      onNavigate(targetPath, projectId);
+      return;
+    }
+    if (router?.push) {
+      router.push(targetPath);
+      return;
+    }
+    if (typeof window !== "undefined" && window.history?.pushState) {
+      window.history.pushState({}, "", targetPath);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    }
+  }
+
   const loadingStatus = loading && !directory.loaded;
   const operations = Object.values(lifecycle.operations);
   // Resolve tracked operations by backend identity or submitted root without inventing directory membership.
@@ -98,15 +210,15 @@ export function ProjectDirectory() {
   // Recover a membership-only startup failure through the backend's documented explicit Add path.
   async function retryAdd(path) {
     try { await submitProjectOperation("add", path); await load(); }
-    catch (failure) { setError(failure.message); }
+    catch (failure) { setError(formatProjectBackendError(failure, failure.message)); }
   }
   const statusMessage = error || (loadingStatus ? "Loading projects…" : "");
 
   return <div className="app-shell app-shell-control-room projects-directory-shell">
     <p role={error ? "alert" : "status"} aria-live="polite" className="project-workspace-stale" hidden={!statusMessage}>
-      {error ? <>Connection to the Node API was lost. Showing the last known project list; some information may be out of date. <button className="history-button" type="button" onClick={load} disabled={loading}>{loading ? "Connecting…" : "Reload directory"}</button></> : statusMessage}
+      {error ? <span role="alert">Connection to the Node API was lost. Showing the last known project list; some information may be out of date. <span className="project-directory-error-detail">{error}</span> <button className="history-button" type="button" onClick={load} disabled={loading}>{loading ? "Connecting…" : "Reload directory"}</button></span> : statusMessage}
     </p>
-    <p role="status" aria-live="polite">{notice}</p>
+    <p role="status" aria-live="polite" className="project-workspace-stale" hidden={!notice}>{notice}</p>
     <main className="projects-directory" aria-label="Projects directory">
       <section className="projects-stage" aria-labelledby="projects-brand-title">
         <div className="projects-hero">
@@ -123,8 +235,12 @@ export function ProjectDirectory() {
           <div className="agents-card-grid projects-card-grid">
             {directory.projects.map((project) => {
               const operation = operationFor(project);
-              return <ProjectCard key={project.project_id} project={project} admitted={selection.projects.some((entry) => entry.project_id === project.project_id)}
-                operation={operation} onRetry={retryAdd}>
+              const isAdmitted = project.readiness === "ready" || selection.projects.some((entry) => entry.project_id === project.project_id);
+              return <ProjectCard key={project.project_id} project={project} admitted={isAdmitted}
+                operation={operation} onRetry={retryAdd}
+                onEdit={(target) => { setEditError(""); setEditingProject(target); }}
+                onDelete={(target) => { setDeleteError(""); setDeletingProject(target); }}
+                onNavigate={handleCardNavigate}>
                 {operation && <ProjectOperationStatus operation={operation} connectionError={lifecycle.errors[operation.request_key]} retryable={project.retryable} onChange={load} />}
               </ProjectCard>;
             })}
@@ -145,21 +261,12 @@ export function ProjectDirectory() {
         </div>
       </section>
     </main>
-    <section aria-label="Tracked operations">
+    <section className="projects-tracked-operations" aria-label="Tracked operations">
       {Object.values(lifecycle.pending).filter((intent) => !directory.projects.some((project) => project.root === intent.root)).map((intent) =>
         <ProjectOperationStatus key={intent.request_key} intent={intent} operation={lifecycle.operations[intent.request_key]} connectionError={lifecycle.errors[intent.request_key]} onChange={load} />)}
     </section>
-    <Dialog open={adding} onClose={() => { if (!saving) setAdding(false); }} labelledBy="project-add-title" panelStyle={{ width: "min(520px, calc(100vw - 32px))", borderRadius: 0, background: "var(--app-panel)" }}>
-      <div className="agent-modal project-add-modal">
-        <header><div><p className="eyebrow">WORKSPACE</p><h2 id="project-add-title">Create or Add project</h2></div><button className="agent-modal-close" type="button" aria-label="Close" onClick={() => setAdding(false)} disabled={saving}>×</button></header>
-        <form onSubmit={submit}>
-          <label>Action<select value={kind} onChange={(event) => setKind(event.target.value)}><option value="create">Create</option><option value="add">Add</option></select></label>
-          <label>Absolute server path<input name="root" required aria-invalid={Boolean(formError)} aria-describedby="project-path-help project-field-error" placeholder="/home/data/sites/my-project" value={root} onChange={(event) => { setRoot(event.target.value); setFormError(""); }} /></label>
-          <p id="project-path-help">This path is on the Node server.</p>
-          {formError && <p id="project-field-error" className="agent-form-error" role="alert" data-error="field">{formError}</p>}
-          <div className="agent-modal-actions"><button className="history-button" type="button" onClick={() => setAdding(false)} disabled={saving}>Cancel</button><button className="history-button agent-submit-button" type="submit" disabled={saving}>{saving ? "Submitting…" : kind === "create" ? "Create project" : "Add project"}</button></div>
-        </form>
-      </div>
-    </Dialog>
+    <ProjectAddModal open={adding} saving={saving} error={formError} onClose={() => { if (!saving) setAdding(false); }} onSubmit={handleAddSubmit} />
+    <ProjectEditModal project={editingProject} saving={editSaving} error={editError} onClose={() => { if (!editSaving) setEditingProject(null); }} onSave={handleEditSave} />
+    <ProjectDeleteModal project={deletingProject} deleting={deleting} error={deleteError} onClose={() => { if (!deleting) setDeletingProject(null); }} onConfirm={handleDeleteConfirm} />
   </div>;
 }

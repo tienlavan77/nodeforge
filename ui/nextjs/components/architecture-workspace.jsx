@@ -3,6 +3,7 @@
 
 import { applyOwnerExecutionDecision } from "../lib/owner-execution-decision.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useParams, usePathname } from "next/navigation";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { ConversationSidebar } from "../components/conversation-sidebar.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
@@ -31,7 +32,7 @@ import { MarkdownPreviewPanel } from "../components/markdown-preview-panel.jsx";
 import { WorkspaceMonitorPanels } from "../components/WorkspaceMonitorPanels.jsx";
 import { createNodeClient, MESSAGE_INTENTS } from "../lib/node-client.js";
 import { architectureManagerSelection, writeArchitectureManagerAgent } from "../lib/architecture-manager-selection.js";
-import { PROJECT_ID, CHAT_STATE_KEY } from "../lib/home-page-constants.js";
+import { resolveActiveProjectId } from "../lib/home-page-constants.js";
 import { readChatState, writeChatState } from "../lib/home-page-conversation-state.js";
 import { displayMessageTime, agentDisplayName } from "../lib/home-page-watcher-events.js";
 import { useProjectEventStream } from "../lib/home-page-event-stream.js";
@@ -43,9 +44,22 @@ import { ArchitectureClarifications } from "../components/architecture-clarifica
 import { createCodingPlanEvents } from "../lib/coding-plan-events.js";
 
 // Renders the desktop conversation surface with the existing history, streaming, retry, and approval components.
-export default function ArchitectureWorkspace() {
-  const client = useMemo(() => createNodeClient(), []);
-  const planEvents = useMemo(() => createCodingPlanEvents(PROJECT_ID), []);
+export default function ArchitectureWorkspace({ projectId: propProjectId } = {}) {
+  let params = null;
+  let pathname = null;
+  try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks -- Safe in Next App Router and guarded for standalone browser bundles.
+    params = useParams();
+    // eslint-disable-next-line react-hooks/rules-of-hooks -- Safe in Next App Router and guarded for standalone browser bundles.
+    pathname = usePathname();
+  } catch (error) {
+    params = null; pathname = null;
+  }
+  const routeProjectId = Array.isArray(params?.projectId) ? params.projectId[0] : params?.projectId;
+  const PROJECT_ID = resolveActiveProjectId({ explicitProjectId: propProjectId, routeProjectId, pathname });
+  const CHAT_STATE_KEY = `nodeforge:chat:last:${PROJECT_ID}`;
+  const client = useMemo(() => createNodeClient(PROJECT_ID), [PROJECT_ID]);
+  const planEvents = useMemo(() => createCodingPlanEvents(PROJECT_ID), [PROJECT_ID]);
   const chatMessagesRef = useRef(null);
   const [agentDirectory, setAgentDirectory] = useState([]);
   const [selectedArchitectureManagerId, setSelectedArchitectureManagerId] = useState("");
@@ -53,7 +67,7 @@ export default function ArchitectureWorkspace() {
   const [openSidebar, setOpenSidebar] = useState(false);
   const [conversationRevision, setConversationRevision] = useState(0);
   const [markdownPreviewPath, setMarkdownPreviewPath] = useState("");
-  const projects = [{ id: PROJECT_ID, name: "NodeForge" }];
+  const projects = [{ id: PROJECT_ID, name: PROJECT_ID }];
   const [watcherEvents, setWatcherEvents] = useState([]);
   const [watcherState, setWatcherState] = useState("connecting");
   const [, setWatcherPulseId] = useState(0);
@@ -89,6 +103,22 @@ export default function ArchitectureWorkspace() {
   });
 
   useEffect(() => {
+    setConversations([]);
+    setActiveConversationId(null);
+    activeConversationIdRef.current = null;
+    setMessages([]);
+    setWatcherEvents([]);
+    setAgentActivities([]);
+    setAgentProcess(null);
+    setAgentTyping(false);
+    setChatState("");
+    setGlobalError(null);
+    setMarkdownPreviewPath("");
+    lastSentRef.current = null;
+    sendingRef.current = false;
+  }, [PROJECT_ID, setMessages]);
+
+  useEffect(() => {
     let active = true;
     client.getAgents("architecture_manager").then((payload) => {
       if (!active) return;
@@ -100,7 +130,7 @@ export default function ArchitectureWorkspace() {
       setSelectedArchitectureManagerId(selected?.agent_id ?? selected?.id ?? "");
     }).catch(() => { if (active) setAgentDirectory([]); });
     return () => { active = false; };
-  }, [client]);
+  }, [client, PROJECT_ID]);
 
   useEffect(() => {
     if (!selectedArchitectureManager?.id) return undefined;
@@ -120,6 +150,9 @@ export default function ArchitectureWorkspace() {
         if (conversationId) {
           writeChatState(CHAT_STATE_KEY, selectedArchitectureManager.id, conversationId);
           void loadConversationMessages(conversationId);
+        } else {
+          setMessages([]);
+          setMessagesLoading(false);
         }
       } catch (rawError) {
         if (!active) return;
@@ -130,7 +163,7 @@ export default function ArchitectureWorkspace() {
     }
     void loadConversations();
     return () => { active = false; };
-  }, [client, selectedArchitectureManager?.id]);
+  }, [client, PROJECT_ID, CHAT_STATE_KEY, selectedArchitectureManager?.id]);
 
   useProjectEventStream({
     client, projectId: PROJECT_ID, activeConversationIdRef, agentDirectoryRef,
@@ -189,13 +222,13 @@ export default function ArchitectureWorkspace() {
     });
   };
   const { pendingMessages, submitMessage, cancelPendingMessage } = usePendingConversationQueue({
-    agentId: selectedArchitectureManager?.id, scopeKey: conversationRevision, isWorking: agentTyping, onSend: sendQueuedMessage
+    agentId: selectedArchitectureManager?.id, scopeKey: `${PROJECT_ID}:${conversationRevision}`, isWorking: agentTyping, onSend: sendQueuedMessage
   });
   const globalToastError = globalError ?? (chatState && !chatState.includes("successfully") ? chatState : null);
   const activeConversation = conversations.find((conversation) => String(conversation?.id ?? conversation?.conversation_id ?? conversation?.conversationId) === String(activeConversationId));
   const activeConversationTitle = activeConversation?.title ?? activeConversation?.name ?? "New conversation";
 
-  return <div className={`claude-home-shell${markdownPreviewPath ? " has-markdown-preview" : ""}`}>
+  return <div className={`claude-home-shell${markdownPreviewPath ? " has-markdown-preview" : ""}`} data-project-id={PROJECT_ID}>
     <ConversationSidebar open={openSidebar} onOpen={() => setOpenSidebar(true)} onClose={() => setOpenSidebar(false)} architectureLabel={selectedArchitectureManager?.label} projects={projects} selectedProjectId={PROJECT_ID} onProjectChange={() => {}} onNewConversation={handleNewConversation} architectureControl={<div className="claude-architecture-list" role="listbox" aria-label="Architecture Manager agents">
       {architectureManagers.map((agent) => <button type="button" role="option" aria-selected={agent.id === selectedArchitectureManagerId} key={agent.id} onClick={() => { setSelectedArchitectureManagerId(agent.id); writeArchitectureManagerAgent(PROJECT_ID, agent.id); }}><span className="claude-agent-option-avatar" aria-hidden="true">{agent.label.trim().slice(0, 1).toUpperCase()}</span><span>{agent.label}</span>{agent.id === selectedArchitectureManagerId && <span className="claude-agent-option-check" aria-label="Selected architecture">✓</span>}</button>)}
     </div>}>
@@ -222,9 +255,9 @@ export default function ArchitectureWorkspace() {
             <ConversationProjectGit client={client} projectId={PROJECT_ID} />
             <ArchitectureExecutionControls onDecision={(decision) => applyOwnerExecutionDecision({ ...decision, setAgentTyping, setMessages, setChatState, lastSentRef })} client={client} projectId={PROJECT_ID} conversationId={activeConversationId} executionId={lastSentRef.current?.conversationId === activeConversationId ? lastSentRef.current.correlationId : messages.findLast((message) => message.from === "owner" && message.correlation_id)?.correlation_id} agentTyping={agentTyping} interruptionSignal={architectureInterruption} />
           </div>
-          <ArchitectureClarifications key={streamConversationId ?? "no-conversation"} client={client} projectId={PROJECT_ID} conversationId={streamConversationId} agentId={selectedArchitectureManager?.id} planEvents={planEvents} onPlanCreated={(result) => loadConversationMessages(result.conversation_id, { preserve: true })} />
-          <HomeChatComposer key={conversationRevision} projectId={PROJECT_ID} agentId={selectedArchitectureManager?.id} onSend={submitMessage} />
-          <SystemToolMode key={selectedArchitectureManager?.id} agent={selectedArchitectureManager} client={client} projectId={PROJECT_ID} busy={agentTyping} onSaved={(saved) => setAgentDirectory((current) => current.map((agent) => (agent.agent_id ?? agent.id) === saved.agent_id ? { ...agent, ...saved } : agent))} />
+          <ArchitectureClarifications key={`${PROJECT_ID}:${streamConversationId ?? "no-conversation"}`} client={client} projectId={PROJECT_ID} conversationId={streamConversationId} agentId={selectedArchitectureManager?.id} planEvents={planEvents} onPlanCreated={(result) => loadConversationMessages(result.conversation_id, { preserve: true })} />
+          <HomeChatComposer key={`${PROJECT_ID}:${conversationRevision}`} projectId={PROJECT_ID} agentId={selectedArchitectureManager?.id} onSend={submitMessage} />
+          <SystemToolMode key={`${PROJECT_ID}:${selectedArchitectureManager?.id}`} agent={selectedArchitectureManager} client={client} projectId={PROJECT_ID} busy={agentTyping} onSaved={(saved) => setAgentDirectory((current) => current.map((agent) => (agent.agent_id ?? agent.id) === saved.agent_id ? { ...agent, ...saved } : agent))} />
         </div>
       </section>
     </main>

@@ -28,9 +28,10 @@ function SidebarNavigationIcon({ name }) {
 // Present a persistent desktop sidebar and a keyboard-accessible mobile navigation rail.
 export function ConversationSidebar({ open, onOpen, onClose, agentSectionTitle = "Architecture", architectureLabel, architectureControl, projects = [], selectedProjectId, onProjectChange, onNewConversation, showConversationControls = true, children }) {
   const selection = useSyncExternalStore(subscribeProjectSelection, getProjectSelection, getProjectSelection);
+  const activeRouteProjectId = selectedProjectId || selection.projectId;
   if (selection.loaded) {
-    projects = selection.projects.map((project) => ({ id: project.project_id, name: project.root }));
-    selectedProjectId = selection.projectId;
+    projects = selection.projects.map((project) => ({ id: project.project_id, name: project.name || project.root || project.project_id }));
+    selectedProjectId = activeRouteProjectId;
     onProjectChange = selectProject;
   }
   const [collapsed, setCollapsed] = useState(false);
@@ -93,10 +94,10 @@ export function ConversationSidebar({ open, onOpen, onClose, agentSectionTitle =
               {projects.map((project) => <Link href={projectArchitecturePath(project.id)} className={`claude-sidebar-project-link${project.id === selectedProjectId ? " is-selected" : ""}`} key={project.id} onClick={() => onProjectChange?.(project.id)} aria-current={project.id === selectedProjectId ? "page" : undefined}><span>{project.name}</span>{project.id === selectedProjectId && <i aria-label="Selected project">✓</i>}</Link>)}
             </div>
           </details>
-          <Link href={projectArchitecturePath(selection.projectId ?? selectedProjectId)} title="Architecture" aria-current={!['System', 'Code'].includes(agentSectionTitle) ? "page" : undefined}><SidebarNavigationIcon name="architecture" /><span>Architecture</span></Link>
+          <Link href={projectArchitecturePath(activeRouteProjectId)} title="Architecture" aria-current={!['System', 'Code'].includes(agentSectionTitle) ? "page" : undefined}><SidebarNavigationIcon name="architecture" /><span>Architecture</span></Link>
           <Link href="/agents" title="Agents"><SidebarNavigationIcon name="agents" /><span>Agents</span></Link>
-          <Link href={projectSystemPath(selection.projectId ?? selectedProjectId)} title="System" aria-current={agentSectionTitle === "System" ? "page" : undefined}><SidebarNavigationIcon name="coding" /><span>System</span></Link>
-          <Link href={projectCodingPath(selection.projectId ?? selectedProjectId)} title="Code" aria-current={agentSectionTitle === "Code" ? "page" : undefined}><SidebarNavigationIcon name="coding" /><span>Code</span></Link>
+          <Link href={projectSystemPath(activeRouteProjectId)} title="System" aria-current={agentSectionTitle === "System" ? "page" : undefined}><SidebarNavigationIcon name="coding" /><span>System</span></Link>
+          <Link href={projectCodingPath(activeRouteProjectId)} title="Code" aria-current={agentSectionTitle === "Code" ? "page" : undefined}><SidebarNavigationIcon name="coding" /><span>Code</span></Link>
         </nav>
         {children}
       </section>
