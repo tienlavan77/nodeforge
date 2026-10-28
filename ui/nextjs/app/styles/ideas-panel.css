@@ -24,7 +24,7 @@
 .ideas-panel .ideas-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .ideas-panel button { max-width: 100%; white-space: normal; }
 .ideas-panel :focus-visible { outline: 2px solid #629dff; outline-offset: 3px; }
-.workspace-monitor-dock { flex-wrap: wrap; max-width: calc(100vw - 32px); }
+.workspace-monitor-dock { flex-wrap: wrap; max-width: calc(100vw - 32px); z-index: 91; }
 @media (max-width: 480px) {
   .ideas-panel { right: 8px; width: calc(100vw - 16px); padding: 12px; bottom: 76px; max-height: calc(100dvh - 92px); }
 }

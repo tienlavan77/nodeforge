@@ -17,9 +17,10 @@ import "./app/globals.css";
 window.calls=[]; window.sources=[]; window.streamCloseCount=0;
 window.fixtureErrors=[];window.addEventListener("error",event=>window.fixtureErrors.push(event.message));
 window.control={failList:false,failMutation:false,holdList:false,holdMutation:false};
-window.records=JSON.parse(localStorage.getItem("ideas-fixture-records")||"[]");
-window.persist=()=>localStorage.setItem("ideas-fixture-records",JSON.stringify(window.records));
-const noAgent=location.hash.includes("noAgent");window.fixtureNoAgent=noAgent;
+localStorage.clear();
+window.records=JSON.parse(sessionStorage.getItem("ideas-fixture-records")||"[]");
+window.persist=()=>sessionStorage.setItem("ideas-fixture-records",JSON.stringify(window.records));
+const noAgent=location.hash.includes("noAgent")||sessionStorage.getItem("ideas-fixture-no-agent")==="1";window.fixtureNoAgent=noAgent;
 window.fetch=async(input,init={})=>{
  const url=new URL(input,location.origin),method=init.method||"GET",body=init.body?JSON.parse(init.body):null;
  window.calls.push({path:url.pathname,method,body,query:Object.fromEntries(url.searchParams)});
