@@ -80,6 +80,7 @@ export function generateEnglishCommentsForFile(filePath, source, { commentLangua
   }
 
   let extraction;
+  // eslint-disable-next-line no-silent-catch -- Invalid syntax is left unchanged and reported by the indexer's parse_failed diagnostic.
   try { extraction = registry.extract(filePath, current); } catch { return current; }
 
   const lines = current.split("\n");
@@ -170,7 +171,7 @@ export async function normalizeProjectComments({
     }
     const beforeSource = snapshots.get(relPath) ?? await readFile(absolutePath, "utf8");
     await writeFile(absolutePath, beforeSource, "utf8");
-    const inspection = inspectFileCommentNeeds(relPath, beforeSource, { commentLanguage: "en", registry });
+    const inspection = inspectFileCommentNeeds(relPath, beforeSource, { commentLanguage, registry });
     if (inspection.parseError || !inspection.needsNormalization) {
       results.push({ path: relPath, status: "unchanged", normalized: false });
       continue;
