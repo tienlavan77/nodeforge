@@ -44,11 +44,13 @@ export function createCommitChangesTool({ gitService, changeLedger, logger = cre
     try {
       authorizeTool("commit_changes", context);
       if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => !["message", "paths"].includes(key)) || typeof input.message !== "string" || !input.message.trim() || input.message.length > 200 || input.message.includes("\0")) throw error("INPUT_INVALID", "commit_changes requires a message of 1–200 characters.");
+      const createPrefixes = context?.execution_context?.approved_baseline?.authorized_create_prefixes ?? context?.authorized_create_prefixes ?? [];
+      const commitContext = Array.isArray(createPrefixes) && createPrefixes.length ? { ...context, allowed_prefixes: [...(context.allowed_prefixes ?? []), ...createPrefixes] } : context;
       const suppliedPaths = input.paths === undefined ? null : normalizeCommitPaths(input.paths);
-      paths = changeLedger ? Object.keys((await changeLedger.snapshot()).entries) : resolveCommitPaths(context);
+      paths = changeLedger ? Object.keys((await changeLedger.snapshot()).entries) : resolveCommitPaths(commitContext);
       if (suppliedPaths && !samePaths(suppliedPaths, paths)) throw error("SCOPE_INVALID", "The commit paths must exactly match the paths recorded by the ticket ledger.", { expected_paths: paths, supplied_paths: suppliedPaths });
-      if (paths.some((path) => !isAgentPathAllowed(path, context, { operation: "write" }))) throw error("SCOPE_INVALID", "Ticket ledger contains a path outside the approved scope.");
-      if (!paths.length) throw error("SCOPE_INVALID", "No changed files to commit; write_diff/edit_diff must run first.");
+      if (paths.some((path) => !isAgentPathAllowed(path, commitContext, { operation: "write" }))) throw error("SCOPE_INVALID", "Ticket ledger contains a path outside the approved scope.");
+      if (!paths.length) throw error("SCOPE_INVALID", "No changed files to commit; write_diff/edit_diff/delete_file/move_file must run first.");
     } catch (cause) {
       emit("rejected", context, { error_code: cause.code ?? "COMMIT_INPUT_INVALID", error: cause.message, duration_ms: Date.now() - started });
       throw cause;

@@ -48,7 +48,7 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
       task_id: taskId, execution_id: executionId, execution_scope: normalizeScope(scope, taskId, executionId),
       agent_identity: input.agent_identity,
       changed_paths: Array.isArray(input.changed_paths) ? [...input.changed_paths] : [],
-      capabilities, allowed_resources: input.allowed_resources ?? { allowed_file_paths: input.allowed_file_paths ?? [], allowed_prefixes: input.allowed_prefixes ?? [] },
+      capabilities, allowed_resources: input.allowed_resources ?? { allowed_file_paths: input.allowed_file_paths ?? [], allowed_prefixes: [...(input.allowed_prefixes ?? []), ...(input.execution_context?.approved_baseline?.authorized_create_prefixes ?? input.authorized_create_prefixes ?? [])] },
       context_budget: budget, retrieval_budget: budget, lifecycle: input.lifecycle ?? "RUNNING",
       exploration_state: explorationState, exploration_enabled: input.agent_identity?.role !== "coder", verify_result: input.verify_result ?? input.verifyResult ?? null,
       audit_context: input.audit_context ?? {}
@@ -155,7 +155,7 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
   async function dispatch(toolName, input, context, execute) {
     if (typeof execute !== "function") throw new ConfigurationError("Tool dispatch requires an executor.");
     const normalized = resolveContext(context);
-    const resource = ["Read", "Glob", "Grep"].includes(toolName) ? undefined : toolName === "move_file" ? [input?.from_path, input?.to_path].filter(Boolean) : input?.path ?? input?.resource ?? input?.file_paths;
+    const resource = ["Read", "Glob", "Grep"].includes(toolName) ? undefined : toolName === "move_file" ? [input?.from_path, input?.to_path] : input?.path ?? input?.resource ?? input?.file_paths;
     authorize(toolName, normalized, resource);
     if (toolName === "commit_changes" || toolName === "push_commit" || toolName === "report_done" || toolName === "respond_to_review" || toolName === "lookup_schema") return execute(input, buildToolContext(context, normalized, contexts));
     const reservation = await reserveRetrieval(normalized, { tool: toolName, resource, estimatedBytes: input?.max_chars ?? input?.maxChars ?? 0 });

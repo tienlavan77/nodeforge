@@ -9,7 +9,7 @@ import { assertOwnerExecutionRecord, assertOwnerExecutionIdentity } from "./owne
 const LEASE_MS = 30_000;
 const MAX_STEPS = 80;
 const TERMINAL = new Set(["completed", "discarded", "restarted"]);
-const MUTATING = new Set(["write_diff", "edit_diff", "delete_file", "run_check", "commit_changes", "push_commit"]);
+const MUTATING = new Set(["write_diff", "edit_diff", "delete_file", "move_file", "run_check", "commit_changes", "push_commit"]);
 
 // Hashes a prompt or tool input without storing sensitive source material in the checkpoint.
 export function executionDigest(value) {
@@ -124,7 +124,8 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, role, 
       if (ownerExecutionRolePolicy(current.role).architectureMutations && MUTATING.has(name) && !["write_diff", "edit_diff", "delete_file"].includes(name)) throw Object.assign(new ConfigurationError("Architecture recovery cannot execute System Engineer mutations."), { code: "TOOL_FORBIDDEN" });
       if ((current.resume_count || current.resume_of) && current.completed_tool_calls.some((receipt) => receipt.tool_name === name && (["commit_changes", "push_commit"].includes(name) || (MUTATING.has(name) && receipt.input_hash === executionDigest(input))))) throw Object.assign(new ConfigurationError("Side effect already completed; cannot replay after recovery."), { code: "EXECUTION_RECONCILIATION_REQUIRED" });
       const evidence = ownerExecutionRolePolicy(current.role).architectureMutations && MUTATING.has(name) ? await prepareArchitectureMutation(fileService, name, input) : {};
-      step = { sequence: current.next_sequence, tool_name: name, input_hash: executionDigest(input), mutating: MUTATING.has(name), ...(typeof input?.path === "string" ? { path: input.path } : {}), ...(typeof input?.before_checksum === "string" ? { before_checksum: input.before_checksum } : {}), ...evidence, started_at: new Date().toISOString() };
+      const pathMeta = name === "move_file" ? { ...(typeof input?.from_path === "string" ? { from_path: input.from_path } : {}), ...(typeof input?.to_path === "string" ? { to_path: input.to_path, path: input.to_path } : {}) } : typeof input?.path === "string" ? { path: input.path } : {};
+      step = { sequence: current.next_sequence, tool_name: name, input_hash: executionDigest(input), mutating: MUTATING.has(name), ...pathMeta, ...(typeof input?.before_checksum === "string" ? { before_checksum: input.before_checksum } : {}), ...evidence, started_at: new Date().toISOString() };
       return { ...current, next_sequence: current.next_sequence + 1, active_mutations: (current.active_mutations ?? 0) + (ownerExecutionRolePolicy(current.role).architectureMutations && step.mutating ? 1 : 0), pending_tool_calls: [...current.pending_tool_calls, step], heartbeat_at: new Date().toISOString() };
     });
     return step;
@@ -132,11 +133,12 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, role, 
 
   // Stores a bounded receipt after a Forge tool returns successfully.
   async function afterTool(conversationId, executionId, step, result, changedPaths = []) {
-    const receipt = { ...step, completed_at: new Date().toISOString(), result_hash: executionDigest(result), ...(typeof result?.sha256 === "string" ? { after_checksum: result.sha256 } : {}), ...(checksumFromResult(step, result) ? { after_checksum: checksumFromResult(step, result) } : {}), ...(step.tool_name === "commit_changes" && typeof result?.sha === "string" ? { commit_sha: result.sha } : {}) };
+    const stepPaths = [step.from_path, step.to_path, step.path, ...(Array.isArray(changedPaths) ? changedPaths : [])].filter((item) => typeof item === "string" && item);
+    const receipt = { ...step, completed_at: new Date().toISOString(), result_hash: executionDigest(result), ...(step.tool_name === "delete_file" ? { after_checksum: null } : {}), ...(typeof result?.sha256 === "string" ? { after_checksum: result.sha256 } : {}), ...(checksumFromResult(step, result) ? { after_checksum: checksumFromResult(step, result) } : {}), ...(step.tool_name === "commit_changes" && typeof result?.sha === "string" ? { commit_sha: result.sha } : {}) };
     return update(conversationId, executionId, (current) => {
       if (current?.owner_instance_id !== ownerInstanceId || current.status !== "running") throw Object.assign(new ConfigurationError("Execution lease has ended."), { code: "EXECUTION_INTERRUPTED" });
       const previous = current.completed_tool_calls ?? [];
-      return { ...current, active_mutations: Math.max(0, (current.active_mutations ?? 0) - (ownerExecutionRolePolicy(current.role).architectureMutations && step.mutating ? 1 : 0)), pending_tool_calls: current.pending_tool_calls.filter((pending) => pending.sequence !== step.sequence), completed_tool_calls: [...previous, receipt].slice(-MAX_STEPS), receipts_truncated: current.receipts_truncated || previous.length >= MAX_STEPS, last_completed_step: Math.max(current.last_completed_step ?? 0, receipt.sequence), changed_paths: [...new Set([...current.changed_paths, ...changedPaths])].slice(-MAX_STEPS), heartbeat_at: new Date().toISOString() };
+      return { ...current, active_mutations: Math.max(0, (current.active_mutations ?? 0) - (ownerExecutionRolePolicy(current.role).architectureMutations && step.mutating ? 1 : 0)), pending_tool_calls: current.pending_tool_calls.filter((pending) => pending.sequence !== step.sequence), completed_tool_calls: [...previous, receipt].slice(-MAX_STEPS), receipts_truncated: current.receipts_truncated || previous.length >= MAX_STEPS, last_completed_step: Math.max(current.last_completed_step ?? 0, receipt.sequence), changed_paths: [...new Set([...current.changed_paths, ...stepPaths])].slice(-MAX_STEPS), heartbeat_at: new Date().toISOString() };
     });
   }
 
@@ -180,6 +182,13 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, role, 
     if (committed && (!committed.commit_sha || typeof gitService?.getHead !== "function" || (await gitService.getHead()).toLowerCase() !== committed.commit_sha.toLowerCase())) return false;
     const verifiedPaths = new Set();
     for (const step of [...(record.completed_tool_calls ?? [])].reverse()) {
+      if (step.tool_name === "move_file") {
+        const fromPath = step.from_path; const toPath = step.to_path ?? step.path;
+        if (!fromPath || !toPath || fromPath === toPath || !step.after_checksum) return false;
+        if (!verifiedPaths.has(toPath)) { verifiedPaths.add(toPath); try { if (`sha256:${createHash("sha256").update(await fileService.readFile({ path: toPath })).digest("hex")}` !== step.after_checksum) return false; } catch (error) { if (error.code === "ENOENT") return false; throw error; } }
+        if (!verifiedPaths.has(fromPath)) { verifiedPaths.add(fromPath); try { await fileService.readFile({ path: fromPath }); return false; } catch (error) { if (error.code !== "ENOENT") throw error; } }
+        continue;
+      }
       if (!["write_diff", "edit_diff", "delete_file"].includes(step.tool_name) || verifiedPaths.has(step.path)) continue;
       if (!step.path || (step.tool_name !== "delete_file" && !step.after_checksum)) return false;
       verifiedPaths.add(step.path);

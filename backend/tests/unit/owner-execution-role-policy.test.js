@@ -111,12 +111,14 @@ test("restart cannot seed lineage from the other root", async (context) => {
 });
 
 // Preserves Architecture's mutation restrictions and prevents System Engineer run-check settlement from leaking across roles.
-test("Architecture policy denies SE mutations and never settles legacy run_check boundaries", async (context) => {
-  const { files, stores } = await fixture(context);
+test("Architecture policy denies SE mutations and never settles legacy run_check boundaries, while Reviewer, Sprint Leader, and planning_input_only stay read-only", async (context) => {
+  const { createOwnerConversationTools } = await import("../../src/tools/owner-conversation-tools.js");
+  const { authorizeOwnerTool } = await import("../../src/tools/owner-role-tool-policy.js");
+  const { files, stores, root } = await fixture(context);
   const architecture = stores.architecture_manager;
   await start(architecture);
-  for (const name of ["run_check", "commit_changes", "push_commit"]) {
-    await assert.rejects(architecture.beforeTool("conversation", "execution", name, {}), { code: "TOOL_FORBIDDEN" });
+  for (const name of ["move_file", "run_check", "commit_changes", "push_commit"]) {
+    await assert.rejects(architecture.beforeTool("conversation", "execution", name, { from_path: "workflows/a.md", to_path: "workflows/b.md" }), { code: "TOOL_FORBIDDEN" });
   }
   const record = await architecture.load("conversation", "execution");
   const pending = { sequence: 1, tool_name: "run_check", mutating: true };
@@ -126,6 +128,16 @@ test("Architecture policy denies SE mutations and never settles legacy run_check
   assert.deepEqual(inspected.pending_tool_calls, [pending]);
   assert.equal(inspected.settled_tool_calls, undefined);
   await assert.rejects(architecture.beforeTool("conversation", "execution", "read_file", {}), { code: "EXECUTION_BUSY" });
+
+  for (const role of ["reviewer", "sprint_leader"]) {
+    const tools = createOwnerConversationTools({ role, projectRoot: root, fileService: files, context: { task_id: "T", agent_identity: { role } } });
+    assert.equal(tools.registry.delete_file, undefined);
+    assert.equal(tools.registry.move_file, undefined);
+    await assert.rejects(() => authorizeOwnerTool("delete_file", { path: "src/a.js" }, { task_id: "T", capabilities: ["delete_file"], agent_identity: { role } }, root), { code: "TOOL_FORBIDDEN" });
+    await assert.rejects(() => authorizeOwnerTool("move_file", { from_path: "src/a.js", to_path: "src/b.js" }, { task_id: "T", capabilities: ["move_file"], agent_identity: { role } }, root), { code: "TOOL_FORBIDDEN" });
+  }
+  await assert.rejects(() => authorizeOwnerTool("delete_file", { path: "src/a.js" }, { task_id: "T", planning_input_only: true, capabilities: ["delete_file"], agent_identity: { role: "system_engineer" } }, root), { code: "TOOL_FORBIDDEN" });
+  await assert.rejects(() => authorizeOwnerTool("move_file", { from_path: "src/a.js", to_path: "src/b.js" }, { task_id: "T", planning_input_only: true, capabilities: ["move_file"], agent_identity: { role: "system_engineer" } }, root), { code: "TOOL_FORBIDDEN" });
 });
 
 // Keeps execution controls scoped to the message recipient and exposes role-aware recovery labels.
