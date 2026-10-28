@@ -43,7 +43,7 @@ export function normalizeDirectoryProject(raw = {}) {
 }
 
 // Business purpose: computes an accurate 0–100 progress percentage for a project card from backend SSE or catalog progress payloads so operators can track running initialization and indexing stages.
-// Technical description: checks explicit numeric `percent`/`percentage` fields on the project or progress object first, then derives progress from completed stages or stage weights, returning 100 when `ready`.
+// Technical description: checks explicit numeric `percent`/`percentage` fields on the project or progress object first, then derives progress from completed stages and current stage weights, returning 100 when `ready`.
 export function computeProjectProgressPercent(project = {}) {
   const explicit = project.percent ?? project.percentage ?? project.progress?.percent ?? project.progress?.percentage ?? project.progress?.progress?.percent;
   if (typeof explicit === "number" && Number.isFinite(explicit)) {
@@ -52,15 +52,15 @@ export function computeProjectProgressPercent(project = {}) {
   if (project.readiness === "ready" || project.progress?.status === "succeeded") return 100;
   const progress = project.progress;
   if (!progress || typeof progress !== "object") return project.readiness === "running" ? 5 : null;
+  const stageWeight = typeof progress.stage === "string" && STAGE_WEIGHTS[progress.stage] ? STAGE_WEIGHTS[progress.stage] : 0;
   if (progress.stages && typeof progress.stages === "object") {
     const completed = STAGE_ORDER.filter((stage) => progress.stages[stage] === "completed").length;
     const running = STAGE_ORDER.some((stage) => progress.stages[stage] === "running") ? 0.5 : 0;
     const derived = Math.round(((completed + running) / STAGE_ORDER.length) * 100);
-    if (derived > 0) return Math.min(99, derived);
+    const best = Math.max(derived, stageWeight);
+    if (best > 0) return Math.min(99, best);
   }
-  if (typeof progress.stage === "string" && STAGE_WEIGHTS[progress.stage]) {
-    return STAGE_WEIGHTS[progress.stage];
-  }
+  if (stageWeight > 0) return stageWeight;
   return project.readiness === "running" ? 10 : null;
 }
 
@@ -200,8 +200,9 @@ export function applyProjectDirectoryStreamEvent(projectId, event) {
       diagnostic = null;
     }
   }
+  const { percent: _previousPercent, percentage: _previousPercentage, ...currentBase } = current;
   const updated = normalizeDirectoryProject({
-    ...current,
+    ...currentBase,
     readiness,
     progress,
     diagnostic,

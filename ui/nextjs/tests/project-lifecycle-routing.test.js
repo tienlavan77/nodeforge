@@ -76,13 +76,25 @@ test("AC-2 & AC-6: SSE stream events update running project percentage, stage, r
     schema_version: 1,
     project_id: "stream-app",
     timestamp: "2026-10-28T00:00:01Z",
-    payload: { agent_id: "coder", activity_type: "progress", status: "working", summary: "Stage scan/index: running", percent: 65 }
+    payload: { agent_id: "coder", activity_type: "progress", status: "working", summary: "Stage scan/index: running" }
   });
   const mid = getProjectDirectory().projects.find((p) => p.project_id === "stream-app");
   assert.equal(mid.readiness, "running");
   assert.equal(mid.percent, 65);
   assert.ok(mid.percent > initialPercent);
   assert.equal(mid.progress.stage, "scan/index");
+
+  applyProjectDirectoryStreamEvent("stream-app", {
+    event_id: "EVT-1B",
+    event_type: "agent.activity",
+    schema_version: 1,
+    project_id: "stream-app",
+    timestamp: "2026-10-28T00:00:01Z",
+    payload: { agent_id: "coder", activity_type: "progress", status: "working", summary: "Stage embedding: running" }
+  });
+  const embeddingStage = getProjectDirectory().projects.find((p) => p.project_id === "stream-app");
+  assert.equal(embeddingStage.percent, 90);
+  assert.ok(embeddingStage.percent > mid.percent);
 
   // Foreign project events are ignored.
   applyProjectDirectoryStreamEvent("stream-app", {
@@ -193,9 +205,13 @@ test("AC-4 & AC-12: dynamic route projectId scopes ArchitectureWorkspace and /[p
   }
 });
 
-test("AC-1..12: browser scenario module exports createBrowserFixture and all 6 approved assertions", async () => {
+test("AC-1..12: browser scenario module exports createBrowserFixture, bundles /[projectId] route adapters, and defines all 6 approved assertions", async () => {
+  const { build } = await import("esbuild");
   const { createBrowserFixture, browserAssertions } = await import("./project-lifecycle.browser.mjs");
   assert.equal(typeof createBrowserFixture, "function");
   assert.equal(Object.keys(browserAssertions).length, 6);
+  const fixture = await createBrowserFixture({ sourceRoot: process.cwd(), build });
+  assert.ok(fixture.html.includes("/fixture.js"));
+  assert.ok(fixture.assets["/fixture.js"].includes("resolveActiveProjectId"));
   assert.equal(computeProjectProgressPercent({ readiness: "ready" }), 100);
 });
