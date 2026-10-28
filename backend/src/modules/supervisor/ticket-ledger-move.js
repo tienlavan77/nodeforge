@@ -205,17 +205,20 @@ export function createTicketLedgerMove({ locked, load, save, claim, claimPath, r
         const afterFrom = await readOptional(fromPath);
         const afterTo = await readOptional(toPath);
         if (sha(afterFrom) === sha(before)) {
+          let destCleaned = afterTo === null;
           if (afterTo !== null) {
-            try { await fileService.deleteFile({ path: toPath }); }
-            catch (cleanupError) {
+            try {
+              await fileService.deleteFile({ path: toPath });
+              destCleaned = true;
+            } catch (cleanupError) {
               if (cleanupError.code !== "ENOENT") projectLogger({ event_name: "ticket.change_move_rollback_failed", level: "error", status: "failed", message: "Ticket move destination rollback failed.", task_id: taskId, source: "ticket-change-ledger", error_code: cleanupError.code ?? "FILE_DELETE_FAILED", payload: { from_path: fromPath, to_path: toPath } });
               if ((await readOptional(toPath)) === null) {
-                // eslint-disable-next-line no-silent-catch -- Best-effort directory pruning when destination unlink succeeded before cleanup threw.
-                try { await pruneAfterDelete(toPath, fromPath); } catch { /* retains clean destination state */ }
+                // eslint-disable-next-line no-silent-catch -- Retains pending move state when destination directory pruning fails after compensation unlink.
+                try { await pruneAfterDelete(toPath, fromPath); destCleaned = true; } catch { destCleaned = false; }
               }
             }
           }
-          if ((await readOptional(toPath)) === null) {
+          if (destCleaned && (await readOptional(toPath)) === null) {
             await revertAbortedMove(taskId, manifest, fromPath, toPath);
             await save(taskId, manifest);
           }
