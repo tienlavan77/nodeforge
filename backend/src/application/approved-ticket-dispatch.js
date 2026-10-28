@@ -21,6 +21,8 @@ export function createApprovedTicketDispatch({ projectId, sprintRegistry, ticket
     if (abortSignal?.aborted) throw abortSignal.reason;
     const admittedBasis = Object.fromEntries(fields.map((field) => [field, sprint[field]]));
     assertDependencySubmission({ projectId, ticket, payload: { execution_id: executionId, sprint_basis: admittedBasis, dependency_expectations: dependencyExpectations }, sprintRegistry, ticketStatusStore });
+    const status = ticketStatusStore?.get(ticket.id);
+    const reviewCycle = resume_from?.review_cycle_id ?? status?.details?.review_reopen?.repair_cycle_id ?? status?.details?.dependency_repair?.id;
     return integration.submitTicket({
       ticket, task_id: ticket.id, project_id: ticket.project_id, request_id: message?.id, correlation_id: message?.correlation_id,
       required_role: required_role ?? ticket.required_role ?? "coder", abortSignal,
@@ -28,7 +30,7 @@ export function createApprovedTicketDispatch({ projectId, sprintRegistry, ticket
         text: `Ticket ${ticket.id}: ${ticket.title ?? ""}\nObjective: ${ticket.objective ?? ""}\nAcceptance: ${(ticket.acceptance_criteria ?? []).join("; ")}`,
         task: { id: ticket.id, title: ticket.title, objective: ticket.objective, dependencies: ticket.dependencies ?? [], acceptance_criteria: ticket.acceptance_criteria ?? [] },
         ticket, sprint_basis: admittedBasis, ...(executionId ? { execution_id: executionId } : {}), ...(dependencyExpectations !== undefined ? { dependency_expectations: dependencyExpectations } : {}),
-        ...(ticketStatusStore?.get(ticket.id)?.details?.review_reopen?.repair_cycle_id ? { review_cycle_id: ticketStatusStore.get(ticket.id).details.review_reopen.repair_cycle_id } : {}),
+        ...(reviewCycle ? { review_cycle_id: reviewCycle } : {}),
         ...(resume_from ? { resume_from } : {}),
         ...(review_resume ? { review_resume, review_base_commit: review_resume.base_commit } : {})
       }

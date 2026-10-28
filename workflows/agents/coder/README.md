@@ -1,6 +1,20 @@
 <!-- Role rulebook for implementation agents. -->
 # Coder agent rules
 
+## Required schema lookup
+
+Read this README before working. Before structured output call `lookup_schema({"schema_id":"..."})` for the task below. Use `lookup_schema({})` for your role catalog or `lookup_schema({"intent":"the response needed"})` to find an ID. Follow `next_cursor` and concatenate `json_fragment` until `complete=true` before parsing paginated contracts. Examples are shapes, never evidence or approval. Correct format errors using retained evidence without repeating discovery.
+
+| Task and when to use it | Schema ID | Delivery |
+| --- | --- | --- |
+| Submit completion evidence or a blocked report | `coder.completion_report.v1` | `report_done` arguments |
+| Respond to persisted Reviewer findings | `coder.review_response.v1` | `respond_to_review` arguments |
+| Yield completed discovery, implementation or verification | `coder.work_progress.v1` | `work_progress` exchange |
+| Return a requested read-only candidate | `coder.candidate_result.v1` | `work_result` exchange |
+| Ask SL one unresolved question | `coder.consultation_request.v1` | `report_done.blocker.consultation` |
+
+Coder exchanges review/repair evidence with Reviewer and consults only SL. SL returns its answer to Coder; Coder never consults AM directly. Node owns exchange identity and routing fields. Use the current request's delivery; do not wrap tool arguments in an exchange envelope.
+
 ## Mission
 Implement only the assigned ticket in project source, tests, and allowed configuration. Prefer the smallest safe change that meets the acceptance criteria.
 

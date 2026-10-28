@@ -7,6 +7,7 @@ import { matchesAutomaticReviewContext } from "./automatic-review-identity.js";
 export async function retryOperationalReview({ job, attempt, retry, load, save, locked, ticketStatusStore, resolveTicketWorkspace,
   checkpoints, eventBus, projectLogger, clock = Date.now, wait = (ms, signal) => sleep(ms, undefined, { signal }) }) {
   const controller = new AbortController();
+  let waitingAgent;
   const unsubscribe = eventBus?.subscribe?.("*", event => {
     if (event.task_id === job.task_id && event.project_id === job.project_id && event.type === "task.failed"
       && event.payload?.reason === "TICKET_STOPPED" && event.payload?.execution_id === job.payload?.execution_id) controller.abort();
@@ -29,11 +30,21 @@ export async function retryOperationalReview({ job, attempt, retry, load, save, 
         return next;
       });
       const retryState = current.operational_retry;
-      projectLogger({ event_name: "review.retry_scheduled", level: "warn", status: "pending", task_id: job.task_id,
-        correlation_id: job.correlation_id, message: "Reviewer gặp lỗi kết nối tạm thời. Node sẽ retry sau 30 giây trên cùng commit/artifact; nhấn Stop để tạm dừng.",
-        error_code: retryState.error.code, payload: { retry_after_ms: Math.max(0, retryState.available_at - clock()), available_at: retryState.available_at, job_key: job.job_key } });
+      const agentWait = retryState.error.agent_wait;
+      const message = agentWait
+        ? "Reviewer đang bận ticket khác. Node giữ report/commit/artifact và tự kiểm tra lại sau 30 giây; nhấn Stop để tạm dừng."
+        : "Reviewer gặp lỗi kết nối tạm thời. Node sẽ retry sau 30 giây trên cùng commit/artifact; nhấn Stop để tạm dừng.";
+      if (!agentWait || waitingAgent !== agentWait.agent_id) {
+        projectLogger({ event_name: agentWait ? "review.agent_wait_scheduled" : "review.retry_scheduled", level: agentWait ? "info" : "warn", status: "pending", task_id: job.task_id,
+          correlation_id: job.correlation_id, message, error_code: retryState.error.code,
+          payload: { retry_after_ms: Math.max(0, retryState.available_at - clock()), available_at: retryState.available_at, job_key: job.job_key, ...(agentWait ? { agent_wait: agentWait } : {}) } });
+        if (agentWait) await eventBus?.publish?.({ type: "ticket.updated", task_id: job.task_id, project_id: job.project_id, supervisor_id: job.supervisor_id,
+          request_id: job.source_request?.request_id ?? job.request_id, correlation_id: job.correlation_id, attempt: job.attempt ?? 1,
+          payload: { ticket_id: job.task_id, reason: "REVIEWER_BUSY", message, agent_wait: agentWait, execution_id: job.payload?.execution_id, execution_basis: job.payload?.sprint_basis } });
+      }
+      waitingAgent = agentWait?.agent_id;
       const prior = await checkpoints?.loadReview?.(job.task_id);
-      if (prior) await checkpoints.saveReview({ ...prior, status: "failed", operational_retry: retryState });
+      if (prior) await checkpoints.saveReview({ ...prior, status: agentWait ? "in_progress" : "failed", operational_retry: retryState });
       try { await wait(Math.max(0, retryState.available_at - clock()), controller.signal); }
       catch (error) { if (!controller.signal.aborted) throw error; }
       if (!await valid()) return cancel();

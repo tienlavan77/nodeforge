@@ -108,6 +108,12 @@ export function assertDiscoveryBudget(context, kind = null) {
 // different discovery angle rather than the runtime throwing. The only hard
 // stop remains the total budget (see assertDiscoveryBudget).
 export function discoveryNotice(context) {
+  // Sessions exempt from discovery quotas do not receive edit-phase or repeated-read gates.
+  if (context?.exploration_enabled === false) return {
+    used: 0, limit: null, remaining: null, edit_started: false, by_type: null,
+    edit_must_start_by: null, target_read: false, suggested_next_action: null,
+    message: "Discovery has no session quota for this tool session."
+  };
   const discovery = discoveryCount(context);
   const state = context?.exploration_state;
   const by_type = state ? {
@@ -199,6 +205,7 @@ function countUnproductive(state) {
 
 function explorationState(context) {
   if (!context || typeof context !== "object") return undefined;
+  if (context.exploration_enabled === false) return undefined;
   if (!context.exploration_state || typeof context.exploration_state !== "object") context.exploration_state = createExplorationState();
   return context.exploration_state;
 }

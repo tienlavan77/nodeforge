@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createBlockerReconciliationRefresh } from "../../src/modules/supervisor/blocker-reconciliation-refresh.js";
-import { blockerRuntimeCapabilities } from "../../src/modules/supervisor/blocker-runtime-capabilities.js";
+import { blockerRuntimeCapabilities, refreshBlockerRuntimeCapabilities } from "../../src/modules/supervisor/blocker-runtime-capabilities.js";
 
 /** Models a typed external tooling question after AM has already answered;
  * arbitrary narrative is deliberately irrelevant to the recovery decision. */
@@ -57,4 +57,51 @@ test("a replaced execution or runtime without the installed operation retains it
     const refresh = createBlockerReconciliationRefresh({ inspect: async () => authority });
     assert.equal(await refresh(job), false); assert.deepEqual(job, original);
   }
+});
+
+test("new dependency dispatcher returns a settled dependency wait to SL once without dispatching Coder", async () => {
+  const job = parked();
+  job.resolution.reconciliation = { kind: "dependency", waiting_for: [
+    { owner: "coder", operation: "execute", question: "Repair the approved upstream ticket first." }
+  ] };
+  const original = structuredClone(job);
+  const runtimeCapabilities = { dependency_repair: { supported: true, action: "dependency_requested",
+    owner: "sprint_leader", boundary: "approved_upstream_same_project_sprint" } };
+  const events = [];
+  const refresh = createBlockerReconciliationRefresh({ inspect: async () => ({ workspace: {} }), runtimeCapabilities,
+    clock: () => 123, projectLogger: (event) => events.push(event) });
+  assert.equal(await refresh(job), true);
+  assert.equal(job.stage, "sprint_leader"); assert.equal(job.resolution, undefined);
+  assert.equal(job.dependency_request_id, undefined);
+  assert.deepEqual(job.architecture_response, original.architecture_response);
+  assert.deepEqual(job.request, original.request);
+  assert.deepEqual(job.ticket_progress.runtime_capabilities, runtimeCapabilities);
+  assert.deepEqual(job.history[0].previous_resolution, original.resolution);
+  const restarted = structuredClone(job);
+  restarted.resolution = original.resolution;
+  assert.equal(await refreshBlockerRuntimeCapabilities(restarted, { inspect: async () => ({ workspace: {} }),
+    runtimeCapabilities, clock: () => 124, projectLogger: (event) => events.push(event) }), false);
+  assert.equal(events.length, 1);
+});
+
+test("dependency capability refresh preserves Stop, active repairs and unresolved authority", async () => {
+  for (const change of [
+    (job) => { job.status = "cancelled"; },
+    (job) => { job.outcome_reason = "provider_outcome_unknown"; },
+    (job) => { job.architecture_response = null; },
+    (job) => { job.architecture_response.execution_id = "OLD"; },
+    (job) => { job.dependency_request_id = "ACTIVE"; },
+    (job) => { job.stage = "architecture_manager"; }
+  ]) {
+    const job = parked(); job.resolution.reconciliation.kind = "dependency"; change(job);
+    const original = structuredClone(job);
+    assert.equal(await refreshBlockerRuntimeCapabilities(job, { inspect: async () => ({ workspace: {} }),
+      runtimeCapabilities: { dependency_repair: { supported: true } } }), false);
+    assert.deepEqual(job, original);
+  }
+  const job = parked(); job.resolution.reconciliation.kind = "dependency";
+  assert.equal(await refreshBlockerRuntimeCapabilities(job, { inspect: async () => ({ workspace: {} }),
+    runtimeCapabilities: { dependency_repair: { supported: false } } }), false);
+  assert.equal(await refreshBlockerRuntimeCapabilities(job, { inspect: async () => null,
+    runtimeCapabilities: { dependency_repair: { supported: true } } }), false);
 });

@@ -3,6 +3,7 @@ import { ConfigurationError } from "../../shared/errors.js";
 import { assertNoSprintPolicyRequests } from "./sprint-architecture-decisions.js";
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+// Defines text function behavior for plan-decision-requests.js.
 const text = (value) => typeof value === "string" && value.trim().length > 0;
 
 // Returns actionable approval failures without granting implicit policy authority.

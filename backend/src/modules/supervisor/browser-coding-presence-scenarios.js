@@ -98,9 +98,11 @@ async function verifyStorageFailures(page) {
       const originalError = console.error;
       console.error = (...args) => { window.storageDiagnostics.push(String(args[0])); originalError(...args); };
       window.originalStorageDescriptor = Object.getOwnPropertyDescriptor(window, "localStorage");
+      // Defines get method behavior for browser-coding-presence-scenarios.js.
       if (failureMode === "read") Object.defineProperty(window, "localStorage", { configurable: true, get() { throw new Error("Controlled storage read denial"); } });
       if (failureMode === "write") {
         const storage = window.localStorage;
+        // Defines setItem method behavior for browser-coding-presence-scenarios.js.
         Object.defineProperty(window, "localStorage", { configurable: true, value: { getItem: (key) => storage.getItem(key), setItem() { throw new Error("Controlled storage write denial"); } } });
       }
       if (failureMode === "malformed") localStorage.setItem("nodeforge:coding:panel-state:PROJECT-BROWSER", "{not-json");

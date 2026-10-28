@@ -9,6 +9,7 @@ export async function buildCodingBrowserFixture({ build, sourceRoot, presence = 
   return build({ entryPoints: [fileURLToPath(moduleUrl)], bundle: true, write: false, outdir: "browser-fixture", platform: "browser", jsx: "automatic",
     alias: { "@ticket/ui": resolve(sourceRoot, "ui/nextjs"), react: resolve(sourceRoot, "ui/nextjs/node_modules/react"), "react-dom": resolve(sourceRoot, "ui/nextjs/node_modules/react-dom") },
     define: { "process.env.NODE_ENV": '"production"' }, logLevel: "silent",
+    // Defines setup method behavior for browser-coding-bundle.js.
     plugins: presence ? [{ name: "controlled-coding-io", setup(builder) {
       builder.onResolve({ filter: /\/(?:node-client|home-page-event-stream|home-page-constants|conversation-sidebar)\.[jt]sx?$/ }, (args) => {
         if (!args.importer.startsWith(resolve(sourceRoot, "ui/nextjs") + "/")) return null;

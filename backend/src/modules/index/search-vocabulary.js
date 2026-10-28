@@ -1,3 +1,5 @@
+// Provides module declarations and business logic for search-vocabulary.js.
+
 const TOKEN_PATTERN = /[\p{L}\p{M}\p{N}_$.-]+/gu;
 
 export const SEARCH_STOP_WORDS = Object.freeze({

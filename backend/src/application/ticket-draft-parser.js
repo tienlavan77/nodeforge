@@ -1,4 +1,6 @@
 // Parses a governance ticket draft from sprint-leader text output.
+
+// Defines extractTicketJson function behavior for ticket-draft-parser.js.
 export function extractTicketJson(text) {
   const value = String(text ?? "");
   const candidates = [];

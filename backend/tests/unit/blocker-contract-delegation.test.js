@@ -92,7 +92,8 @@ test("retained contract does not clear a new access denial or supply absent sour
   const options = { job, plan, architecture, fileService: f.base.fileService, projectRoot: f.base.workspace.projectRoot, contractDelegation: decision,
     verifyContractSource: async () => { throw Error("No invented contract source binding"); } };
   await assert.rejects(validateBlockerDisposition(f.resolution, { ...options, job: { ...job, reason_code: "ACCESS_REQUIRED" } }), /Sprint scope cannot resolve access/);
-  await assert.rejects(validateBlockerDisposition({ ...f.resolution, evidence: [] }, options), /one to sixteen/);
+  await assert.rejects(validateBlockerDisposition({ ...f.resolution, evidence: [] }, options),
+    (error) => error.code === "BLOCKER_DISPOSITION_INVALID" && error.validation_errors[0].reason === "evidence_invalid");
   await assert.rejects(validateBlockerDisposition(f.resolution, { ...options, contractDelegation: undefined }), /approved contract evidence/);
 });
 

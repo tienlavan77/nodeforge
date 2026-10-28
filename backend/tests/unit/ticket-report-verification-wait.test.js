@@ -68,6 +68,7 @@ test("failed verification returns artifact and command evidence without a comple
   assert.equal(f.records.at(-1).verification_wait.status, "failed");
   assert.equal(f.records.at(-1).status, "in_progress");
   assert.equal(f.state.turnCount, 12);
+  assert.equal(f.events.at(-1).status, "failed");
 });
 
 test("Stop leaves the draft resumable without writing a successful report", async () => {

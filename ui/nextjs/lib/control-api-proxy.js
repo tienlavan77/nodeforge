@@ -19,18 +19,18 @@ function forwardedHeaders(input) {
 }
 
 // Returns actionable downtime errors without retrying commands that may already have executed.
-function unavailableResponse(error, requestId, method) {
+function unavailableResponse(error, requestId, method, pathname, reusedSocket) {
   if (error.code === "ABORT_ERR") return new Response(null, { status: 499 });
   const timeout = error.code === "ETIMEDOUT";
-  console.warn(`[UI] Control API ${timeout ? "timeout" : "unavailable"}: ${error.code ?? error.name ?? "UNKNOWN"}`);
+  console.warn(`Control API request failed: ${method} ${pathname}; code=${error.code ?? error.name ?? "UNKNOWN"}; reused_socket=${Boolean(reusedSocket)} - WAIT`);
   return Response.json({ error: {
     code: timeout ? "CONTROL_API_TIMEOUT" : "CONTROL_API_UNAVAILABLE",
-    message: timeout ? "Node did not respond before the proxy deadline." : "Node is temporarily unavailable or restarting. Please reconnect when the service is ready.",
+    message: timeout ? "Node did not respond before the proxy deadline." : error.code === "ECONNRESET" ? "The connection to Node was interrupted before response headers arrived." : "Node is temporarily unavailable or restarting. Please reconnect when the service is ready.",
     retryable: ["GET", "HEAD", "OPTIONS"].includes(method), scope: "global", requestId
   } }, { status: timeout ? 504 : 503, headers: { "cache-control": "no-store", "retry-after": "1", ...(requestId ? { "x-request-id": requestId } : {}) } });
 }
 
-// Streams each API request exactly once and turns restart disconnects into controlled UI recovery.
+// Forwards mutations once and recovers reads interrupted by a reused keep-alive socket.
 export async function proxyControlApi(request, path, { origin = process.env.NODE_CONTROL_API_URL ?? "http://127.0.0.1:3100", timeoutMs = Number(process.env.NODE_CONTROL_API_PROXY_TIMEOUT_MS ?? Number(process.env.NODE_SDK_AGENT_TIMEOUT_MS ?? 3600000) + 60000) } = {}) {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new Error("NODE_CONTROL_API_PROXY_TIMEOUT_MS must be a positive integer in milliseconds.");
   // Bound new lifecycle forwarding without changing the legacy API surface or replaying requests.
@@ -47,50 +47,63 @@ export async function proxyControlApi(request, path, { origin = process.env.NODE
   const headers = forwardedHeaders(request.headers);
   headers.delete("host");
   const send = target.protocol === "https:" ? httpsRequest : httpRequest;
-  return new Promise((resolve) => {
-    let upload;
-    let upstream;
-    // Releases client cancellation listeners once a response or disconnected stream is finished.
-    const cleanup = () => request.signal.removeEventListener("abort", abort);
-    // Cancels upstream work when the browser disconnects instead of leaving orphan proxy sockets.
-    const abort = () => { outgoing.destroy(Object.assign(new Error("Browser disconnected."), { code: "ABORT_ERR" })); upstream?.destroy(); upload?.destroy(); };
-    const outgoing = send(target, { method: request.method, headers: Object.fromEntries(headers) }, (response) => {
-      upstream = response;
-      const responseHeaders = forwardedHeaders(response.headers);
-      if ([204, 205, 304].includes(response.statusCode) || request.method === "HEAD") {
-        response.resume();
-        response.once("end", cleanup);
-        resolve(new Response(null, { status: response.statusCode, headers: responseHeaders }));
-        return;
-      }
-      const reader = Readable.toWeb(response).getReader();
-      const body = new ReadableStream({
-        // Streams live events immediately and closes cleanly when an API restart interrupts the connection.
-        async pull(controller) {
-          try {
-            const chunk = await reader.read();
-            if (chunk.done) { cleanup(); controller.close(); }
-            else controller.enqueue(chunk.value);
-          } catch (error) {
-            cleanup();
-            if (!request.signal.aborted) console.warn(`[UI] Control API stream disconnected: ${error.code ?? error.name}`);
-            controller.close();
-          }
-        },
-        // Stops the backend stream as soon as the browser no longer consumes it.
-        cancel() { cleanup(); abort(); return reader.cancel(); }
+  return forward();
+  // Recover a read interrupted by a reused connection once on a fresh socket.
+  // Mutations and responses already started remain owned by their original request.
+  function forward(freshSocket = false) {
+    return new Promise((resolve) => {
+      let upload;
+      let upstream;
+      // Releases client cancellation listeners once a response or disconnected stream is finished.
+      const cleanup = () => request.signal.removeEventListener("abort", abort);
+      // Cancels upstream work when the browser disconnects instead of leaving orphan proxy sockets.
+      const abort = () => { outgoing.destroy(Object.assign(new Error("Browser disconnected."), { code: "ABORT_ERR" })); upstream?.destroy(); upload?.destroy(); };
+      const outgoing = send(target, { method: request.method, headers: Object.fromEntries(headers), ...(freshSocket ? { agent: false } : {}) }, (response) => {
+        upstream = response;
+        const responseHeaders = forwardedHeaders(response.headers);
+        if ([204, 205, 304].includes(response.statusCode) || request.method === "HEAD") {
+          response.resume();
+          response.once("end", cleanup);
+          resolve(new Response(null, { status: response.statusCode, headers: responseHeaders }));
+          return;
+        }
+        const reader = Readable.toWeb(response).getReader();
+        const body = new ReadableStream({
+          // Streams live events immediately and closes cleanly when an API restart interrupts the connection.
+          async pull(controller) {
+            try {
+              const chunk = await reader.read();
+              if (chunk.done) { cleanup(); controller.close(); }
+              else controller.enqueue(chunk.value);
+            } catch (error) {
+              cleanup();
+              if (!request.signal.aborted) console.warn(`Control API stream disconnected: ${request.method} ${target.pathname}; code=${error.code ?? error.name} - WAIT`);
+              controller.close();
+            }
+          },
+          // Stops the backend stream as soon as the browser no longer consumes it.
+          cancel() { cleanup(); abort(); return reader.cancel(); }
+        });
+        resolve(new Response(body, { status: response.statusCode, headers: responseHeaders }));
       });
-      resolve(new Response(body, { status: response.statusCode, headers: responseHeaders }));
+      outgoing.setTimeout(timeoutMs, () => outgoing.destroy(Object.assign(new Error("Control API proxy timed out."), { code: "ETIMEDOUT" })));
+      outgoing.once("error", (error) => {
+        cleanup(); upload?.destroy();
+        if (!freshSocket && !upstream && outgoing.reusedSocket && error.code === "ECONNRESET"
+          && ["GET", "HEAD", "OPTIONS"].includes(request.method) && !request.body && !request.signal.aborted) {
+          resolve(forward(true));
+          return;
+        }
+        resolve(unavailableResponse(error, request.headers.get("x-request-id"), request.method, target.pathname, outgoing.reusedSocket));
+      });
+      outgoing.once("close", () => { if (!upstream) cleanup(); });
+      request.signal.addEventListener("abort", abort, { once: true });
+      if (request.signal.aborted) abort();
+      else if (request.body) {
+        upload = Readable.fromWeb(request.body);
+        upload.once("error", (error) => outgoing.destroy(error));
+        upload.pipe(outgoing);
+      } else outgoing.end();
     });
-    outgoing.setTimeout(timeoutMs, () => outgoing.destroy(Object.assign(new Error("Control API proxy timed out."), { code: "ETIMEDOUT" })));
-    outgoing.once("error", (error) => { cleanup(); upload?.destroy(); resolve(unavailableResponse(error, request.headers.get("x-request-id"), request.method)); });
-    outgoing.once("close", () => { if (!upstream) cleanup(); });
-    request.signal.addEventListener("abort", abort, { once: true });
-    if (request.signal.aborted) abort();
-    else if (request.body) {
-      upload = Readable.fromWeb(request.body);
-      upload.once("error", (error) => outgoing.destroy(error));
-      upload.pipe(outgoing);
-    } else outgoing.end();
-  });
+  }
 }

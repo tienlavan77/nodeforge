@@ -1,3 +1,5 @@
+// Provides module declarations and business logic for codex-sdk-gateway.js.
+
 import { Codex as DefaultCodex } from "@openai/codex-sdk";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -13,6 +15,7 @@ import { sdkFailureEvidence } from "./sdk-failure-evidence.js";
 
 const SAFE_URL = /^https:\/\//;
 
+// Defines createCodexSdkGateway function behavior for codex-sdk-gateway.js.
 export function createCodexSdkGateway({
   configuration,
   credentialResolver,
@@ -28,8 +31,17 @@ export function createCodexSdkGateway({
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1) throw new ConfigurationError("Codex SDK Gateway timeout must be a positive integer.");
   if (typeof codexHomeRoot !== "string" || !codexHomeRoot) throw new ConfigurationError("Codex SDK Gateway home root is required.");
 
-  return Object.freeze({ execute, provider: "codex", conversationMode: "thread" });
+  const active = new Map();
+  return Object.freeze({ execute, assertSessionStopped, provider: "codex", conversationMode: "thread" });
 
+  // Confirms a timed-out local runner has stopped before a ticket may offer checkpoint Resume.
+  // Both in-process invocations and surviving CLI processes retain exclusive ownership until idle.
+  function assertSessionStopped({ agentId, threadId }) {
+    if ([...active.values()].includes(agentId)) throw Object.assign(new Error("Codex invocation is still stopping."), { code: "EXECUTION_SESSION_BUSY" });
+    assertCodexThreadAvailable(join(codexHomeRoot, agentId), threadId, "/proc", { requireIdle: true });
+  }
+
+  // Defines execute function behavior for codex-sdk-gateway.js.
   async function execute({ agentId, agent, prompt, correlationId, cwd, options = {}, resumeThreadId, onEvent, onSessionReady, abortSignal } = {}) {
     const profile = getEnabledConfig(agentId ?? agent?.agent_id);
     assertString(prompt, "Codex SDK prompt");
@@ -39,6 +51,7 @@ export function createCodexSdkGateway({
     mkdirSync(codexHome, { recursive: true, mode: 0o700 });
     assertCodexThreadAvailable(codexHome, resumeThreadId);
     const controller = new AbortController();
+    // Defines stop function behavior for codex-sdk-gateway.js.
     const stop = () => controller.abort(abortSignal.reason);
     abortSignal?.addEventListener("abort", stop, { once: true });
     if (abortSignal?.aborted) stop();
@@ -49,7 +62,8 @@ export function createCodexSdkGateway({
     let terminalFailure;
     let ended = false; let structuredFailure;
     let turnCompleted = false;
-    const terminal = createCodexSdkLog({ profile: { ...profile, model: options.model ?? profile.model }, correlationId, credential, output: terminalOutput });
+    const terminal = createCodexSdkLog({ profile: { ...profile, model: options.model ?? profile.model }, context: options.forgeTools?.context, correlationId, credential, output: terminalOutput });
+    active.set(controller, profile.agent_id);
     try {
       mcpSession = options.forgeTools ? await createCodexForgeMcpSession(options.forgeTools) : null;
       const bridgePath = fileURLToPath(new URL("../../../scripts/codex-forge-mcp-bridge.mjs", import.meta.url));
@@ -172,7 +186,7 @@ export function createCodexSdkGateway({
       terminalFailure = error;
       if (abortSignal?.aborted) throw abortSignal.reason;
       if (/thread(?:-store conflict:|\/resume:)[\s\S]*already has an active writer/i.test(String(error?.message ?? ""))) throw codexThreadBusyError(resumeThreadId, error);
-      if (error?.name === "AbortError" || controller.signal.aborted) throw sdkFailureEvidence(new ConfigurationError(`Codex SDK request timed out for ${profile.agent_id}.`, { cause: error }), error, { aborted: true });
+      if (error?.name === "AbortError" || controller.signal.aborted) throw sdkFailureEvidence(Object.assign(new ConfigurationError(`Codex SDK request timed out for ${profile.agent_id}.`, { cause: error }), { code: "SDK_REQUEST_TIMEOUT" }), error, { aborted: true });
       if (turnFailure) throw sdkFailureEvidence(new ConfigurationError(`Codex SDK turn failed for ${profile.agent_id}: ${turnFailure}`, { cause: error }), structuredFailure, { ended });
       if (streamError) throw new ConfigurationError(`Codex SDK request failed for ${profile.agent_id}: ${streamError}`, { cause: error });
       if (/No available channel for model/i.test(String(error?.message ?? ""))) {
@@ -185,13 +199,14 @@ export function createCodexSdkGateway({
       const message = rawMessage.replace(/Reading prompt from stdin\.{3}\s*/g, "").replace(/\s*\r?\n\s*/g, " ");
       throw sdkFailureEvidence(new ConfigurationError(`Codex SDK request failed for ${profile.agent_id}: ${message}`, { cause: error }), error);
     } finally {
-      terminal.close(terminalFailure);
+      terminal.close(abortSignal?.aborted ? { code: "TICKET_STOPPED", message: "SDK session stopped." } : controller.signal.aborted ? { code: "SDK_REQUEST_TIMEOUT", message: "SDK request timed out." } : terminalFailure);
       abortSignal?.removeEventListener("abort", stop);
       clearTimeout(timeout);
-      await mcpSession?.close?.();
+      try { await mcpSession?.close?.(); } finally { active.delete(controller); }
     }
   }
 
+  // Defines getEnabledConfig function behavior for codex-sdk-gateway.js.
   function getEnabledConfig(id) {
     assertString(id, "Codex SDK agent_id");
     const config = configuration.getById(id);
@@ -202,6 +217,7 @@ export function createCodexSdkGateway({
     return structuredClone(config);
   }
 
+  // Defines resolveCredential function behavior for codex-sdk-gateway.js.
   async function resolveCredential(reference) {
     const value = await credentialResolver(reference);
     if (typeof value !== "string" || value.length === 0) throw new ConfigurationError("Codex SDK credential is unavailable.");
@@ -209,21 +225,25 @@ export function createCodexSdkGateway({
   }
 }
 
+// Defines normalizeBaseUrl function behavior for codex-sdk-gateway.js.
 export function normalizeBaseUrl(value) {
   if (typeof value !== "string" || !SAFE_URL.test(value)) throw new ConfigurationError("Codex SDK gateway URL must use HTTPS.");
   const normalized = value.trim().replace(/\/+$/, "").replace(/\/responses?$/, "");
   return /\/v\d+$/.test(normalized) ? normalized : `${normalized}/v1`;
 }
 
+// Defines normalizeReasoningEffort function behavior for codex-sdk-gateway.js.
 function normalizeReasoningEffort(value) {
   if (!value || value === "none") return undefined;
   return value;
 }
 
+// Defines assertString function behavior for codex-sdk-gateway.js.
 function assertString(value, label) {
   if (typeof value !== "string" || value.trim().length === 0) throw new ConfigurationError(`${label} is required.`);
 }
 
+// Defines sanitizeItems function behavior for codex-sdk-gateway.js.
 function sanitizeItems(value, credential) {
   if (Array.isArray(value)) return value.map((item) => sanitizeItems(item, credential));
   if (typeof value === "string") return value.replaceAll(credential, "[REDACTED]");
@@ -231,6 +251,7 @@ function sanitizeItems(value, credential) {
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, sanitizeItems(item, credential)]));
 }
 
+// Defines buildCodexChildEnvironment function behavior for codex-sdk-gateway.js.
 function buildCodexChildEnvironment(baseEnvironment, overrides) {
   const env = { ...(baseEnvironment && typeof baseEnvironment === "object" ? baseEnvironment : process.env) };
   // A Control API can itself be launched from a Codex terminal.  Passing the

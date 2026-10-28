@@ -16,6 +16,7 @@ const coreEventSchema = require("../../../../schemas/core/event.schema.json");
 const nodeEventSchema = require("../../../../schemas/node/node-event.schema.json");
 const RAW_EVENT_TYPES = Object.freeze({ add: "watcher.file_created", change: "watcher.file_modified", unlink: "watcher.file_deleted" });
 
+// Defines createNodeEventValidator function behavior for debounced-watcher.js.
 export function createNodeEventValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormats(ajv);
@@ -28,6 +29,7 @@ export function createNodeEventValidator() {
   };
 }
 
+// Defines createDebouncedWatcher function behavior for debounced-watcher.js.
 export function createDebouncedWatcher({ rawWatcher, projectId, root, debounceMs = 200, renameWindowMs = 500, createEventId = defaultEventId, clock = () => new Date(), getContentHash = readContentHash, validateEvent = createNodeEventValidator() } = {}) {
   if (!rawWatcher?.on || typeof projectId !== "string" || projectId.length === 0 || typeof root !== "string" || root.length === 0) {
     throw new ConfigurationError("A raw watcher, project ID, and project root are required.");
@@ -52,6 +54,7 @@ export function createDebouncedWatcher({ rawWatcher, projectId, root, debounceMs
   listeners.push(["error", reportError]);
   for (const [rawType, listener] of listeners) rawWatcher.on(rawType, listener);
 
+  // Defines schedule function behavior for debounced-watcher.js.
   function schedule(rawType, path) {
     const projectPath = relative(resolve(root), resolve(root, path));
     if (projectPath === ".." || projectPath.startsWith(`..${sep}`) || isAbsolute(projectPath)) {
@@ -71,6 +74,7 @@ export function createDebouncedWatcher({ rawWatcher, projectId, root, debounceMs
     pending.set(path, { rawType: effectiveType, timer });
   }
 
+  // Defines handleStableEvent function behavior for debounced-watcher.js.
   async function handleStableEvent(rawType, path) {
     if (rawType === "unlink" && rejectedPaths.has(path)) return;
     let indexPath;
@@ -122,6 +126,7 @@ export function createDebouncedWatcher({ rawWatcher, projectId, root, debounceMs
     emit(RAW_EVENT_TYPES[rawType], path, rawType);
   }
 
+  // Defines holdDeleteForRename function behavior for debounced-watcher.js.
   function holdDeleteForRename(path, hash) {
     if (!hash) {
       emit("watcher.file_deleted", path, "unlink");
@@ -135,6 +140,7 @@ export function createDebouncedWatcher({ rawWatcher, projectId, root, debounceMs
     pendingDeletes.set(path, { hash, timer });
   }
 
+  // Defines holdAddForRename function behavior for debounced-watcher.js.
   function holdAddForRename(path, hash) {
     if (!hash) {
       emit("watcher.file_created", path, "add");
@@ -147,6 +153,7 @@ export function createDebouncedWatcher({ rawWatcher, projectId, root, debounceMs
     pendingAdds.set(path, { hash, timer });
   }
 
+  // Defines findPendingDelete function behavior for debounced-watcher.js.
   function findPendingDelete(hash) {
     for (const [path, pendingDelete] of pendingDeletes) {
       if (pendingDelete.hash === hash) return path;
@@ -154,6 +161,7 @@ export function createDebouncedWatcher({ rawWatcher, projectId, root, debounceMs
     return null;
   }
 
+  // Defines findPendingAdd function behavior for debounced-watcher.js.
   function findPendingAdd(hash) {
     for (const [path, pendingAdd] of pendingAdds) {
       if (pendingAdd.hash === hash) return path;
@@ -161,6 +169,7 @@ export function createDebouncedWatcher({ rawWatcher, projectId, root, debounceMs
     return null;
   }
 
+  // Defines emit function behavior for debounced-watcher.js.
   function emit(type, path, operation, oldPath) {
     const payload = { path: relativePath(path), operation };
     if (oldPath) payload.old_path = relativePath(oldPath);
@@ -175,19 +184,23 @@ export function createDebouncedWatcher({ rawWatcher, projectId, root, debounceMs
     else console.error("Project watcher event failed.", error);
   }
 
+  // Defines relativePath function behavior for debounced-watcher.js.
   function relativePath(path) {
     return relative(root, path).split(sep).join("/");
   }
 
   return Object.freeze({
+    // Defines on method behavior for debounced-watcher.js.
     on(event, listener) {
       events.on(event, listener);
       return this;
     },
+    // Defines off method behavior for debounced-watcher.js.
     off(event, listener) {
       events.off(event, listener);
       return this;
     },
+    // Defines close method behavior for debounced-watcher.js.
     close() {
       if (closing) return closing;
       closed = true;
@@ -207,6 +220,7 @@ export function createDebouncedWatcher({ rawWatcher, projectId, root, debounceMs
   });
 }
 
+// Defines readContentHash function behavior for debounced-watcher.js.
 export async function readContentHash(path) {
   try {
     return createHash("sha256").update(await readFile(path)).digest("hex");
@@ -216,6 +230,7 @@ export async function readContentHash(path) {
   }
 }
 
+// Defines defaultEventId function behavior for debounced-watcher.js.
 function defaultEventId() {
   return `EVT-${randomUUID()}`;
 }

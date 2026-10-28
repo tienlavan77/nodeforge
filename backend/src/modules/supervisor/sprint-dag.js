@@ -2,6 +2,7 @@
 import { ConfigurationError } from "../../shared/errors.js";
 import { runFencedSprintLevels } from "./sprint-execution-wait.js";
 
+// Defines topologicalTicketLevels function behavior for sprint-dag.js.
 export function topologicalTicketLevels(tickets = []) {
   const byId = new Map(tickets.map((ticket) => [ticket.id, ticket]));
   const remaining = new Map(tickets.map((ticket) => [ticket.id, new Set((ticket.dependencies ?? []).filter((dependency) => byId.has(dependency)))]));
@@ -23,12 +24,14 @@ export function topologicalTicketLevels(tickets = []) {
   return levels;
 }
 
+// Defines createSprintDagRunner function behavior for sprint-dag.js.
 export function createSprintDagRunner({ ticketStatusStore, eventBus, dispatchTask, sprintRegistry, logEvent = () => {} } = {}) {
   if (typeof ticketStatusStore?.dependenciesReady !== "function" || typeof ticketStatusStore?.getStatus !== "function") throw new ConfigurationError("Sprint DAG requires a Ticket Status Store.");
   if (typeof eventBus?.subscribe !== "function") throw new ConfigurationError("Sprint DAG requires an execution event bus.");
   if (typeof dispatchTask !== "function") throw new ConfigurationError("Sprint DAG requires a dispatch function.");
   return Object.freeze({ runSprintLevels });
 
+  // Defines runSprintLevels function behavior for sprint-dag.js.
   async function runSprintLevels({ projectId, sprintId, levels, sprintBasis }) {
     if (sprintBasis && typeof ticketStatusStore.beginExecution === "function") return runFencedSprintLevels({ projectId, levels, sprintBasis, ticketStatusStore, eventBus, dispatchTask, sprintRegistry });
     const results = [];
@@ -53,6 +56,7 @@ export function createSprintDagRunner({ ticketStatusStore, eventBus, dispatchTas
     return results;
   }
 
+  // Defines waitForDependencies function behavior for sprint-dag.js.
   async function waitForDependencies({ ticketId, dependencies, sprintId, projectId }) {
     const readiness = ticketStatusStore.dependenciesReady(ticketId, dependencies);
     if (readiness.ready) return;
@@ -64,6 +68,7 @@ export function createSprintDagRunner({ ticketStatusStore, eventBus, dispatchTas
     if (!after.ready) { error.message = `Ticket ${ticketId} dependencies did not complete successfully.`; error.code = "SPRINT_DEPENDENCY_FAILED"; throw error; }
   }
 
+  // Defines waitForTerminalEvent function behavior for sprint-dag.js.
   function waitForTerminalEvent(ticketId) {
     const current = ticketStatusStore.getStatus(ticketId);
     if (current === "done") return Promise.resolve();
@@ -72,6 +77,7 @@ export function createSprintDagRunner({ ticketStatusStore, eventBus, dispatchTas
     }
     return new Promise((resolve, reject) => {
       let unsubscribe;
+      // Defines finish function behavior for sprint-dag.js.
       const finish = (error) => { unsubscribe?.(); if (error) reject(error); else resolve(); };
       unsubscribe = eventBus.subscribe("*", (event) => {
         if (event?.task_id !== ticketId || !["task.completed", "task.failed", "task.needs_human_review"].includes(event.type)) return;

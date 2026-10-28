@@ -89,3 +89,19 @@ test("legacy work groups accept code and HTML but reject unfinished fields", () 
   assert.equal(readMarkdownSprintScope(plan).length, 2);
   assert.throws(() => readMarkdownSprintScope(markdown.replace("Return errors", "<objective cần điền>")), { code: "SPRINT_MARKDOWN_SCOPE" });
 });
+
+// Treats parameterized identifiers as literal contract evidence for any domain,
+// while retaining template completeness checks for missing fields and TODO text.
+test("symbolic IDs and path parameters are accepted across outcome and legacy tables", () => {
+  for (const syntax of ["PROJECT-<uuid>", "TICKET-<ticket_id>", "/<projectId>", "/forge/v1/projects/<project_id>", "GET /api/items/<itemId>/events/<eventId>", "stream?project=<projectId>", "Promise<Result>"]) {
+    for (const row of [`| O1 | Keep ${syntax} | Verify ${syntax} | Preserve ${syntax} |`, `| O1 | Keep ${syntax} | Verify ${syntax} | Preserve ${syntax} | none |`]) {
+      const [outcome] = readMarkdownSprintScope(`## 5. Outcomes\n${row}\n## 6. Risks`);
+      assert.equal(outcome.outcome, `Keep ${syntax}`);
+      assert.deepEqual(outcome.acceptance_criteria, [`Verify ${syntax}`]);
+    }
+    assert.equal(readMarkdownSprintScope(markdown.replace("Return errors", `Return ${syntax}`))[0].objective, `Return ${syntax}`);
+  }
+  for (const missing of ["<guardrail>", "<TBD>", "<TODO>", "PROJECT-<TBD>", "/api/<TODO>", "<guardrail cần điền>", ""]) {
+    assert.throws(() => readMarkdownSprintScope(`## 5. Outcomes\n| O1 | Keep IDs | Check behavior | ${missing} |\n## 6. Risks`), { code: "SPRINT_MARKDOWN_SCOPE" });
+  }
+});

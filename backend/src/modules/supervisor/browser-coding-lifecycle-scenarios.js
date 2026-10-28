@@ -46,6 +46,7 @@ export async function verifyCodingLifecycleAssertion(index, page) {
     }
     assert.equal(await page.locator('.coding-agent-monitor[data-project-id="FOREIGN"]').count(), 0);
   } else if (index === 11) {
+    // Defines close function behavior for browser-coding-lifecycle-scenarios.js.
     const close = () => page.getByRole("button", { name: "Close agent panel coder-1 in project PROJECT-BROWSER", exact: true });
     await close().focus();
     assert.equal(await close().evaluate((element) => element === document.activeElement), true);

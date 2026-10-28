@@ -14,8 +14,8 @@ export function startControlApi({ api, port, host, indexDb, controlDb, processLo
     for (const [signal, handler] of signalHandlers) process.off(signal, handler);
     for (const cleanup of [
       closeServer,
-      () => projectLifecycle?.close(),
       ...workers.map((worker) => () => worker?.stop?.()),
+      () => projectLifecycle?.close(),
       () => codeCache?.close?.(),
       () => ticketWorkspaceService?.close?.(),
       () => indexDb.close(),

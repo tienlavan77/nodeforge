@@ -1,32 +1,30 @@
 // Coordinates durable SL-to-Architecture blocker jobs with call auditing, restart fencing and terminal audit.
-import { createDiscoveryCheckpointWriter, discoveryAssignment } from "./blocker-discovery-checkpoint.js";
+import { applyBlockerDisposition } from "./blocker-disposition-transition.js";
+import { discoveryAssignment } from "./blocker-discovery-checkpoint.js";
+import { createBlockerInvestigation } from "./blocker-investigation.js";
 import { blockerDigest, BLOCKER_REASONS } from "./blocker-recovery-contract.js";
-import { transitionCoderCandidate } from "./blocker-coder-candidate.js";
-import { scheduleTechnicalReconciliation } from "./blocker-technical-reconciliation.js";
-import { returnArchitectureResponse } from "./blocker-architecture-response.js";
 import { restoreSprintRecovery } from "./blocker-sprint-handoff.js";
-import { completeWaitingWork } from "./blocker-waiting-work.js";
-import { recordCriterionUpdates } from "./blocker-ticket-progress.js";
-import { blockerResponseEvidence } from "./blocker-validation.js";
 import { createBlockerOwnerFollowUp } from "./blocker-owner-follow-up.js";
 import { scheduleApprovalRetry } from "./blocker-approval-retry.js";
 import { repeatedDispositionCorrection, salvagePersistedDisposition } from "./blocker-disposition-correction.js";
 import { isBlockerSourceRetry } from "./blocker-source-retry.js";
 import { createBlockerWaitingRefresh } from "./blocker-recovery-errors.js";
-import { assignReviewerEvidence, returnReviewerEvidence } from "./blocker-reviewer-evidence.js";
+import { assignDelegationEvidenceReview } from "./blocker-delegation-evidence.js";
 
 import { restoreBlockerAgentWait, scheduleBlockerAgentWait } from "./blocker-agent-wait.js";
+import { completeBlockedResume, previousBlockedHandoff, restoreBlockedHandoff } from "./blocker-resume-outcome.js";
 
 import { createBlockerRecoveryPoller, observeBlockerRecoveryWork } from "./blocker-recovery-poller.js";
 
 const STORE = "blocker.recovery", SALVAGED = Symbol("salvaged");
-const PENDING = ["pending", "invoking", "resume_pending", "dispatching", "notification_pending", "notifying", "approval_retry_pending"];
+const PENDING = ["pending", "invoking", "resume_pending", "dispatching", "notification_pending", "notifying", "approval_retry_pending", "dependency_request_pending", "dependency_wait"];
 // Creates execution-wide coordination with deadlines and resume auditing; unknown provider launches are never reclaimed or replayed.
 export function createBlockerRecovery({ store, validate, investigate, checkDisposition, resume, notify, clock = Date.now, logger = console,
-  deadlineMs = 600_000, notifyAgentWait = async () => {}, refreshWaiting = async () => false } = {}) {
+  deadlineMs = 600_000, requestDependency, notifyAgentWait = async () => {}, refreshWaiting = async () => false, isComplete = () => false } = {}) {
   if (!store?.withLock || ![validate, investigate, checkDisposition, resume, notify].every((callback) => typeof callback === "function")
     || !Number.isSafeInteger(deadlineMs) || deadlineMs < 1000 || deadlineMs > 3_600_000) throw new Error("Blocker recovery requires fenced callbacks and a finite deadline.");
   const inFlight = new Set();
+  const investigateAndRecord = createBlockerInvestigation({ store, validate, investigate, update, clock, deadlineMs });
   const polling = createBlockerRecoveryPoller({ tick: () => tick({ background: true }), logger });
   const followOwnerDecision = createBlockerOwnerFollowUp({ store, clock, deadlineMs });
   const refresh = createBlockerWaitingRefresh({ refreshWaiting, logger, clock });
@@ -45,7 +43,8 @@ export function createBlockerRecovery({ store, validate, investigate, checkDispo
       const existing = ledger.jobs.find((job) => job.id === jobId);
       if (ledger.cancelled) return existing ?? null;
       if (existing) { if (scheduleApprovalRetry(existing, input.approval_retry, clock())) await store.save(STORE, ledger); return existing; }
-      const job = { ...structuredClone(input), id: jobId, stage: "sprint_leader", status: "pending", created_at: clock(), history: [] };
+      const job = { ...structuredClone(input), id: jobId, stage: "sprint_leader", status: "pending", created_at: clock(), history: [],
+        previous_handoff: previousBlockedHandoff(ledger, input) };
       ledger.deadline_at = job.created_at + deadlineMs;
       delete job.approval_retry; scheduleApprovalRetry(job, input.approval_retry, clock());
       ledger.jobs.push(job);
@@ -56,7 +55,7 @@ export function createBlockerRecovery({ store, validate, investigate, checkDispo
   // Exposes pending recovery to explicit RUN so it cannot replace an execution being investigated.
   async function hasPending({ projectId, taskId, executionId }) {
     return (await store.list(STORE)).some((ledger) => ledger.project_id === projectId && ledger.task_id === taskId
-      && ledger.execution_id === executionId && !ledger.cancelled && ledger.jobs.some((job) => PENDING.includes(job.status)));
+      && ledger.execution_id === executionId && !ledger.cancelled && !isComplete(ledger) && ledger.jobs.some((job) => PENDING.includes(job.status)));
   }
   // Cancels future work without pretending a running or unknown provider invocation has ended.
   async function cancel({ projectId, taskId, executionId }) {
@@ -89,12 +88,14 @@ export function createBlockerRecovery({ store, validate, investigate, checkDispo
       const job = jobId ? ledger?.jobs.find((entry) => entry.id === jobId) : ledger?.jobs.at(-1);
       if (!ledger || !job || !["cancelled", "reconciliation_required"].includes(job.status)
         || ["provider_outcome_unknown", "BLOCKER_PROVIDER_UNKNOWN"].includes(job.outcome_reason)) return null;
+      restoreBlockedHandoff(job, ledger, clock());
       const resolved = job.resolution?.action === "resolved";
-      if (!job.approval_retry && !resolved) restoreSprintRecovery(job, clock());
+      const dependency = job.resolution?.action === "dependency_requested";
+      if (!job.approval_retry && !resolved && !dependency) restoreSprintRecovery(job, clock());
       ledger.cancelled = false;
       ledger.deadline_at = clock() + deadlineMs;
       if (job.technical_reconciliation) job.technical_reconciliation.max_rounds = null;
-      job.status = job.approval_retry ? "approval_retry_pending" : resolved ? "resume_pending" : "pending";
+      job.status = job.approval_retry ? "approval_retry_pending" : resolved ? "resume_pending" : dependency ? "dependency_request_pending" : "pending";
       if (job.approval_retry) job.approval_retry.available_at = clock() + job.approval_retry.interval_ms;
       delete job.outcome_reason;
       delete job.last_error;
@@ -107,12 +108,12 @@ export function createBlockerRecovery({ store, validate, investigate, checkDispo
   async function tick({ background = false } = {}) {
     const work = await store.withLock(STORE, async () => {
       for (const ledger of await store.list(STORE)) for (const job of ledger.jobs) {
-        if (inFlight.has(ledger.id)) continue;
+        if (inFlight.has(ledger.id) || isComplete(ledger)) continue;
         if (!ledger.cancelled && restoreBlockerAgentWait(job)) ledger.deadline_at = clock() + deadlineMs;
-        const refreshed = !ledger.cancelled && (job.status === "reconciliation_required" || isBlockerSourceRetry(job)) ? await refresh(job) : false;
-        if (refreshed === null) continue;
+        const refreshed = !ledger.cancelled && (["reconciliation_required", "dependency_wait"].includes(job.status) || isBlockerSourceRetry(job)) ? await refresh(job) : false;
+        if (refreshed === null || job.status === "dependency_wait" && !refreshed) continue;
         if (refreshed) {
-          job.stage = job.stage === "reviewer" ? "reviewer" : job.resolution?.action === "architecture_required" ? "architecture_manager" : "sprint_leader";
+          if (job.history.at(-1)?.event !== "prompt_context_recovery_scheduled") job.stage = job.stage === "reviewer" ? "reviewer" : job.resolution?.action === "architecture_required" ? "architecture_manager" : "sprint_leader";
           job.history.push({ stage: job.stage, event: job.stage === "architecture_manager" ? "authority_wait_assigned" : job.outcome_reason === "EXECUTION_ADMISSION_EVIDENCE_REQUIRED" ? "admission_wait_corrected" : "verification_wait_completed", completed_at: clock() });
           job.status = job.resolution?.action === "resolved" ? "resume_pending" : "pending"; ledger.deadline_at = clock() + deadlineMs;
           delete job.outcome_reason; delete job.last_error;
@@ -171,6 +172,11 @@ export function createBlockerRecovery({ store, validate, investigate, checkDispo
   async function complete(work) {
     const { job, operation } = work;
     try {
+      if (operation === "dependency_request_pending") {
+        if (typeof requestDependency !== "function") throw new Error("Dependency RUN coordinator is unavailable.");
+        const id = await requestDependency(job, job.resolution);
+        return await update(work, (current) => { current.status = "dependency_wait"; current.dependency_request_id = id; });
+      }
       if (operation === "agent_wait_notification") {
         await notifyAgentWait(job);
         return await update(work, (current) => { current.agent_wait.notified = true; });
@@ -188,28 +194,13 @@ export function createBlockerRecovery({ store, validate, investigate, checkDispo
       const response = retained ? { [SALVAGED]: retained } : await investigateAndRecord(work, job);
       if (!response) return null;
       const value = response[SALVAGED] ?? await checkDisposition(response, job);
-      return await update(work, (current) => {
-        current.disposition_attempts.at(-1).status = "accepted";
-        if (current.stage === "sprint_leader" && value.action === "architecture_required") current.consultation_request = current.communication?.consultation ?? null;
-        delete current.validation_feedback;
-        delete current.last_error;
-        current.history.push({ stage: current.stage, disposition: value, completed_at: clock(), actor: current.invocation_actor ?? null });
-        recordCriterionUpdates(current, value);
-        completeWaitingWork(current, value, clock());
-        if (assignReviewerEvidence(current, value, clock()) || returnReviewerEvidence(current, value, clock())) return;
-        if (returnArchitectureResponse(current, value, clock())) return;
-        if (transitionCoderCandidate(current, value, clock())) return;
-        if (value.action === "resolved") { current.resolution = value; current.status = "resume_pending"; }
-        else if (value.action === "reconciliation_required") {
-          scheduleTechnicalReconciliation(current, value, clock());
-        }
-        else if (current.stage === "sprint_leader") { current.resolution = value; current.stage = "architecture_manager"; current.status = "pending"; }
-        else if (["owner_required", "governance_required"].includes(value.action)) { current.resolution = value; current.status = "notification_pending"; current.outcome_reason = value.action === "governance_required" ? "contract_revision_required" : "authority_required"; }
-        else { current.status = "notification_pending"; current.outcome_reason = "unresolved_after_architecture"; }
-      });
+      return await update(work, (current) => applyBlockerDisposition(current, value, clock()));
     } catch (error) {
       if (operation === "agent_wait_notification") { logger.error?.("Coder wait notification failed; delivery will retry.", { task_id: job.request.task_id, error: error.message }); return null; }
-      if (!error.not_started) logger.error?.("Blocker recovery stage failed.", { task_id: job.request.task_id, stage: job.stage, code: error.code, error: error.message, validation_errors: error.validation_errors });
+      if (["resume_pending", "approval_retry_pending"].includes(operation) && error.code === "CODER_BLOCKED") {
+        return await update(work, (current) => { completeBlockedResume(current, error, operation, clock()); });
+      }
+      if (!error.not_started && !error.delegation_evidence_changed) logger.error?.("Blocker recovery stage failed.", { task_id: job.request.task_id, stage: job.stage, code: error.code, error: error.message, validation_errors: error.validation_errors });
       return await update(work, (current, ledger) => {
         if (scheduleBlockerAgentWait(current, error, operation, clock())) return;
         delete current.agent_wait;
@@ -226,6 +217,11 @@ export function createBlockerRecovery({ store, validate, investigate, checkDispo
             const attempt = current.disposition_attempts.at(-1);
             if (attempt?.status === "received") Object.assign(attempt, { status: "rejected", validation_errors: feedback });
           }
+          if (assignDelegationEvidenceReview(current, error, clock())) {
+            ledger.deadline_at = clock() + deadlineMs;
+            logger.info?.("Changed Architecture citations assigned to AM; Sprint handoff and Coder checkpoint preserved.", { task_id: job.request.task_id, code: error.code, validation_errors: feedback });
+            return;
+          }
           const correctable = operation === "pending" && error.code === "BLOCKER_DISPOSITION_INVALID" && error.retryable_disposition === true;
           const repeated = correctable && repeatedDispositionCorrection(current, feedback);
           const repairable = correctable && !repeated && clock() < ledger.deadline_at;
@@ -238,20 +234,6 @@ export function createBlockerRecovery({ store, validate, investigate, checkDispo
         }
       });
     } finally { inFlight.delete(work.ledgerId); }
-  }
-
-  // Invokes the stage provider and records its raw response evidence before disposition validation.
-  async function investigateAndRecord(work, job) {
-    const response = await investigate(job, { deadline: work.deadline, onDiscoveryCheckpoint: createDiscoveryCheckpointWriter({ store, ledgerId: work.ledgerId, job, validate }),
-      onNodeVerificationCompleted: async () => { if (!await update(work, (_current, ledger) => { ledger.deadline_at = clock() + deadlineMs; })) throw new Error("Baseline recovery reservation changed."); return clock() + deadlineMs; },
-      onAgentSelected: async (actor) => { job.invocation_actor = actor; if (!await update(work, (current) => { current.invocation_actor = actor; })) throw new Error("Investigation ownership changed before provider dispatch."); },
-      onCommunication: async (communication) => { if (!await update(work, (current) => { current.communication = { ...current.communication, ...communication }; })) throw new Error("Communication no longer owns the recovery assignment."); },
-      onTicketProgress: async (progress) => { if (!await update(work, (current) => { current.ticket_progress = progress; })) throw new Error("Ticket progress reservation changed; do not invoke provider."); } });
-    const saved = await update(work, (current) => {
-      current.disposition_attempts ??= [];
-      current.disposition_attempts.push({ stage: current.stage, assignment_id: discoveryAssignment(job), status: "received", received_at: clock(), response: blockerResponseEvidence(response) });
-    });
-    return saved ? response : null;
   }
 
   // Writes results only for the stage that still owns the persisted invocation reservation.

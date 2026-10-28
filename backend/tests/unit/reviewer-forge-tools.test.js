@@ -19,7 +19,7 @@ function files(overrides = {}) {
 test("review read tools return bounded source and hide protected paths", async () => {
   const events = [];
   const tools = createReviewerForgeTools({ fileService: files(), projectRoot: "/project", job, reviewer: { agent_id: "reviewer-1", provider: "openai" }, projectLogger: (event) => events.push(event) });
-  assert.deepEqual(tools.definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "read_lines"]);
+  assert.deepEqual(tools.definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "read_lines", "lookup_schema"]);
   const read = await tools.registry.read_file.execute({ path: "src/a.js", symbol: "sample" });
   assert.match(read.content, /function sample/);
   const window = await tools.registry.read_file.execute({ path: "src/a.js", offset: 2, limit: 2 });
@@ -38,7 +38,7 @@ test("verified reviews retain only existing tools for Codex, OpenAI and Claude",
   const ticketEvidence = { files: [source], artifact: { file_checksums: { [source.path]: source.sha256 } }, context: { review_commit_sha: "a".repeat(40) } };
   for (const provider of ["codex", "openai", "claude"]) {
     const tools = createReviewerForgeTools({ fileService: files(), projectRoot: "/project", job, reviewer: { agent_id: "reviewer-1", provider }, codeCache: { read: async () => source }, ticketEvidence });
-    assert.deepEqual(tools.definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "read_lines"]);
+    assert.deepEqual(tools.definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "read_lines", "lookup_schema"]);
     assert.equal(tools.registry.review_source, undefined);
     assert.equal(tools.registry.review_diff, undefined);
     assert.deepEqual(tools.context.capabilities, tools.definitions.map(({ name }) => name));
@@ -76,7 +76,7 @@ test("Supervisor passes the same read-only allowlist to every Reviewer provider"
     const gateway = { execute: async (input) => { request = input; return { text: JSON.stringify({ verdict: "request_changes", findings: [{ failure: "Missing test", acceptance_criterion: "Focused verification", evidence_refs: ["src/a.js:1"], minimum_change_scope: "Add a focused test" }] }) }; } };
     const worker = createReviewWorker({ agentResolver: { resolveAvailable: () => ({ agent_id: "reviewer-1", role: "reviewer", provider }) }, claudeSdkGateway: gateway, openaiSdkGateway: gateway, codexSdkGateway: gateway, fileService: files(), projectRoot: "/project" });
     await worker.review(job);
-    const names = ["search_tree", "list_files", "search_text", "read_file", "read_lines", "query_review"];
+    const names = ["search_tree", "list_files", "search_text", "read_file", "read_lines", "lookup_schema", "query_review"];
     if (provider === "claude" || provider === "anthropic") {
       assert.deepEqual(request.options.allowedTools, names.map((name) => `mcp__forge__${name}`));
       assert.deepEqual(request.options.tools, []);

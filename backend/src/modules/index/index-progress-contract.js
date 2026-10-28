@@ -6,6 +6,7 @@ import { FUNCTION_KINDS, INDEX_STAGES } from "./index-progress.js";
 // Checks the bounded progress vocabulary and reconciliation invariants on every persisted
 // snapshot, keeping store reads fail closed when progress evidence is corrupt or stale.
 export function validateIndexProgress(progress, attempt) {
+  // Defines invalid function behavior for index-progress-contract.js.
   const invalid = () => { throw Object.assign(new Error("Invalid index progress snapshot."), { code: "snapshot_invalid" }); };
   if (!progress || !INDEX_STAGES.includes(progress.stage) || !["running", "succeeded", "failed"].includes(progress.status)) invalid();
   if (!Number.isSafeInteger(progress.attempt) || progress.attempt < 1 || (attempt !== undefined && progress.attempt !== attempt)) invalid();

@@ -5,6 +5,7 @@ import { isAbsolute, resolve } from "node:path";
 import { ConfigurationError } from "../../shared/errors.js";
 import { assertRoleFileAccess } from "../../infrastructure/filesystem/file-service-role-policy.js";
 import { createReadFileTool } from "../../tools/agent-lifecycle-tools.js";
+import { terminalAuditLogger } from "../../core/terminal-log-format.js";
 import { createRgSearchTool } from "../../tools/rg-search.js";
 import { createGitReadTools } from "../../tools/git-read-tools.js";
 import { createOwnerSearchTreeTool } from "../../tools/owner-search-tree.js";
@@ -18,6 +19,7 @@ import { createVerificationReviewSource } from "./ticket-verification-review-sou
 import { dependencyReadPath, isDependencyPath, readDependencyFile } from "../../infrastructure/filesystem/dependency-read.js";
 import { listAgentFileTree } from "../../infrastructure/filesystem/agent-file-tree.js";
 import { createReviewerCodeCache } from "./reviewer-code-cache.js";
+import { createLookupSchemaTool } from "../../tools/lookup-schema-tool.js";
 
 const BASE_OUTPUT_BYTES = 128_000;
 const PER_FILE_OUTPUT_BYTES = 16_000;
@@ -76,7 +78,7 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
       code_index: { ...(cached?.code_index ?? {}), path, symbols }, code_graph: cached?.sha256 === file.sha256 ? cached.code_graph ?? {} : {} };
   } } : snapshot ? { read: (input) => scopedFiles.readForIndex(input) } : codeCache;
   // Review discovery covers project source and instructions; the delta is not a read permission boundary.
-  const toolContext = { task_id: job.task_id, correlation_id: job.correlation_id, request_id: job.request_id, agent_identity: { agent_id: reviewer.agent_id, role: "reviewer", provider: reviewer.provider }, capabilities: ["search_tree", "list_files", "search_text", "read_file", "read_lines", "git_status", "git_diff", "review_diff", "run_review_check"], project_root: projectRoot };
+  const toolContext = { task_id: job.task_id, correlation_id: job.correlation_id, request_id: job.request_id, agent_identity: { agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, role: "reviewer", provider: reviewer.provider }, capabilities: ["search_tree", "list_files", "search_text", "read_file", "read_lines", "git_status", "git_diff", "review_diff", "run_review_check"], project_root: projectRoot };
   // Keeps text search under the same project, protected-path and symlink rules as direct reads.
   const searchCache = { read: async ({ path }) => {
     await assertReviewerReadPath(projectRoot, path);
@@ -85,10 +87,11 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
     return file;
   } };
   const implementations = {
+    lookup_schema: createLookupSchemaTool({ role: "reviewer" }),
     read_file: createReadFileTool({ fileService: scopedFiles, codeCache: reviewCache, projectRoot, ...(snapshot ? { dependencyReader: (input) => scopedFiles.readForIndex(input) } : {}), maxChars: MAX_RESULT_BYTES }),
-    search_text: createRgSearchTool({ projectRoot, codeCache: searchCache, toolName: "search_text", logger: { emit: projectLogger } }),
-    ...(!snapshot && gitService?.status && gitService?.diffWorkingTree ? createGitReadTools({ gitService, logger: { emit: projectLogger } }) : {}),
-    list_files: createRgFilesTool({ projectRoot, toolName: "list_files", logger: { emit: projectLogger } }),
+    search_text: createRgSearchTool({ projectRoot, codeCache: searchCache, toolName: "search_text", logger: { emit: terminalAuditLogger(projectLogger) } }),
+    ...(!snapshot && gitService?.status && gitService?.diffWorkingTree ? createGitReadTools({ gitService, logger: { emit: terminalAuditLogger(projectLogger) } }) : {}),
+    list_files: createRgFilesTool({ projectRoot, toolName: "list_files", logger: { emit: terminalAuditLogger(projectLogger) } }),
     read_lines: createCommittedReviewWindow(snapshot || !codeCache?.read ? scopedFiles : { readForIndex: searchCache.read }, "read_lines"),
     ...(ticketEvidence?.context?.review_commit_sha && ticketEvidence?.context?.base_sha ? {
       review_diff: createReviewDiffTool({ projectRoot, ticketEvidence, job }),
@@ -128,8 +131,8 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
       const verifiedResult = snapshot ? { ...verified, review_source: { commit_sha: fileService.reviewCommit,
         ...(ticketEvidence?.artifact.environment ? { environment: ticketEvidence.artifact.environment } : {}) } } : verified;
       const bytes = Buffer.byteLength(JSON.stringify(verifiedResult), "utf8");
-      if (bytes > MAX_RESULT_BYTES || outputBytes + bytes > maxOutputBytes) throw toolError("REVIEW_TOOL_BUDGET", "Reviewer read output budget exceeded.");
-      outputBytes += bytes;
+      if (bytes > MAX_RESULT_BYTES || name !== "lookup_schema" && outputBytes + bytes > maxOutputBytes) throw toolError("REVIEW_TOOL_BUDGET", "Reviewer read output budget exceeded.");
+      if (name !== "lookup_schema") outputBytes += bytes;
       audit(name, "success", { duration_ms: Date.now() - started, output_bytes: bytes, ...(verifiedResult.review_evidence ? { review_evidence: verifiedResult.review_evidence } : {}) });
       return verifiedResult;
     } catch (error) {
@@ -153,7 +156,7 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
 
   // Records Reviewer tool use without saving input paths, queries, or source text.
   function audit(tool, status, payload) {
-    projectLogger({ event_name: "review.tool_call", level: status === "failed" ? "error" : "info", status, message: `Reviewer Forge tool ${tool} ${status}.`, task_id: job.task_id, correlation_id: job.correlation_id, source: "reviewer-forge-tools", payload: { request_id: job.request_id, agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, reviewer_id: reviewer.agent_id, tool, ...payload } });
+    projectLogger({ event_name: "review.tool_call", level: status === "failed" ? "error" : "info", status, message: `Reviewer Forge tool ${tool} ${status}.`, task_id: job.task_id, correlation_id: job.correlation_id, source: "reviewer-forge-tools", payload: { request_id: job.request_id, agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, agent_role: "reviewer", reviewer_id: reviewer.agent_id, tool, ...payload } });
   }
 }
 
@@ -185,6 +188,7 @@ async function verifiedReviewFile(file, evidence, fileService, projectRoot) {
   let live;
   try { live = await fileService.readForIndex({ path: file.path, maxBytes: MAX_FILE_BYTES }); }
   catch (error) { throw Object.assign(toolError("REVIEW_SOURCE_MISMATCH", `Reviewer source could not be verified: ${file.path}.`), { cause: error }); }
+  // Defines hash function behavior for reviewer-forge-tools.js.
   const hash = (content) => typeof content === "string" ? `sha256:${createHash("sha256").update(content, "utf8").digest("hex")}` : null;
   if (hash(live?.content) !== file.sha256 || hash(file.content) !== file.sha256 || evidence.artifact.file_checksums[file.path] !== file.sha256) throw toolError("REVIEW_SOURCE_MISMATCH", `Reviewer source differs from verified commit: ${file.path}.`);
   return live;

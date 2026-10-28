@@ -7,7 +7,9 @@ import { materializeTicketVerification } from "./ticket-verification-materializa
 import { captureVerificationEnvironment, restoreVerificationEnvironment } from "./ticket-verification-environment.js";
 import { assertVerificationRunnerEnvironment } from "./verification-runner-environment.js";
 
+// Defines fail function behavior for ticket-focused-check.js.
 const fail = (code, message) => Object.assign(new ConfigurationError(message), { code });
+// Defines sha function behavior for ticket-focused-check.js.
 const sha = (content) => content === null ? null : `sha256:${createHash("sha256").update(content).digest("hex")}`;
 
 // Binds focused verification to the ticket source identity without changing its acceptance state.

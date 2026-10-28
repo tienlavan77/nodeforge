@@ -46,6 +46,7 @@ test("native file hooks deny traversal and symlink escapes and require sandboxed
     assert.ok(options.sandbox.filesystem.allowRead.includes(root));
     assert.deepEqual(options.mcpServers, {});
     const hook = options.hooks.PreToolUse[0].hooks[0];
+    assert.equal((await hook({ tool_name: "mcp__forge__lookup_schema", tool_input: {} })).hookSpecificOutput.permissionDecision, "allow");
     for (const input of [{ tool_name: "Read", tool_input: { file_path: "/etc/passwd" } }, { tool_name: "Bash", tool_input: { dangerouslyDisableSandbox: true } }, { tool_name: "Bash", tool_input: { run_in_background: true } }, { tool_name: "mcp__forge__edit_diff" }]) {
       assert.equal((await hook(input)).hookSpecificOutput.permissionDecision, "deny");
     }
@@ -66,7 +67,7 @@ test("native file hooks deny traversal and symlink escapes and require sandboxed
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("Codex native execution omits Forge, streams activity and saves session mode", async () => {
+test("Codex native execution exposes only schema lookup from Forge, streams activity and saves session mode", async () => {
   let request;
   let state = {};
   const activities = [];
@@ -85,7 +86,7 @@ test("Codex native execution omits Forge, streams activity and saves session mod
   });
   const chunks = [];
   for await (const chunk of stream({ agentId: "SE", payload: { text: "Implement UI" }, correlationId: "C", conversationId: "CONV", eventSink: (value) => activities.push(value) })) chunks.push(chunk);
-  assert.equal(request.options.forgeTools, undefined);
+  assert.deepEqual(request.options.forgeTools.definitions.map(({ name }) => name), ["lookup_schema"]);
   assert.equal(request.options.usePermissionProfile, true);
   assert.deepEqual(chunks, [{ text: "Done" }]);
   assert.equal(state.sdk_tool_mode, "builtin");
@@ -131,7 +132,7 @@ test("native Continue keeps its SDK session and mode after the profile switches 
       executionCheckpoint: checkpoint, projectRoot: root, fallbackStream: async function* () {} });
     for await (const chunk of stream({ agentId: "SE", payload: { text: "Fix", continue_execution: true }, correlationId: "E", conversationId: "C" })) assert.equal(chunk.text, "Continued");
     assert.equal(request.resumeThreadId, "THREAD");
-    assert.equal(request.options.forgeTools, undefined);
+    assert.deepEqual(request.options.forgeTools.definitions.map(({ name }) => name), ["lookup_schema"]);
     const record = await checkpoint.load("C", "E");
     assert.equal(record.tool_mode, "builtin");
     assert.equal(record.checkpoint_kind, "sdk_session");
@@ -140,7 +141,7 @@ test("native Continue keeps its SDK session and mode after the profile switches 
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("Claude and Anthropic native streams omit Forge and publish partial text and activity", async () => {
+test("Claude and Anthropic native streams expose only schema lookup from Forge and publish partial text and activity", async () => {
   for (const provider of ["claude", "anthropic"]) {
     let request;
     const activity = [];
@@ -153,8 +154,8 @@ test("Claude and Anthropic native streams omit Forge and publish partial text an
       } } }, projectRoot: process.cwd(), fallbackStream: async function* () {} });
     const chunks = [];
     for await (const chunk of stream({ agentId: "SE", payload: { text: "Fix" }, correlationId: "E", conversationId: "C", eventSink: (event) => activity.push(event) })) chunks.push(chunk);
-    assert.equal(request.options.forgeTools, undefined);
-    assert.deepEqual(request.options.mcpServers, {});
+    assert.deepEqual(request.options.forgeTools.definitions.map(({ name }) => name), ["lookup_schema"]);
+    assert.deepEqual(Object.keys(request.options.mcpServers), ["forge"]);
     assert.ok(request.options.tools.includes("Bash"));
     assert.ok(request.options.tools.includes("Agent"));
     assert.deepEqual(request.options.agents.explorer.tools, ["Read", "Glob", "Grep"]);
@@ -176,4 +177,23 @@ test("native Stop aborts the SDK runner without requiring Forge receipts", async
   assert.equal(stream.pause("C"), true);
   await assert.rejects(running, { code: "EXECUTION_PAUSED" });
   assert.equal(stream.isActive("C"), false);
+});
+
+test("role README is retained only in the same delivered SDK session and reloaded for Restart", async () => {
+  const requests = [];
+  let state = {};
+  const stream = createOwnerSdkStream({
+    agentConfiguration: { getById: () => ({ agent_id: "SE", role: "system_engineer", provider: "codex", tool_mode: "builtin" }) },
+    sdkGateways: { codex: { conversationMode: "thread", execute: async (input) => { requests.push(input); return { text: "Done", thread_id: "THREAD" }; } } },
+    conversationStateStore: { create: async () => state, update: async (id, patch) => { state = { ...state, ...patch }; } },
+    projectRoot: process.cwd(), fallbackStream: async function* () {}
+  });
+  for (const [index, payload] of [{ text: "Inspect the request." }, { text: "Continue." }, { text: "Restart.", resume_of: "E-0" }].entries()) {
+    for await (const chunk of stream({ agentId: "SE", payload, correlationId: `E-${index}`, conversationId: "C" })) assert.equal(chunk.text, "Done");
+  }
+  assert.match(requests[0].prompt, /NODE-LOADED ROLE README:.*sha256=[a-f0-9]{64}/);
+  assert.equal(requests[1].resumeThreadId, "THREAD");
+  assert.doesNotMatch(requests[1].prompt, /NODE-LOADED ROLE README/);
+  assert.equal(requests[2].resumeThreadId, undefined);
+  assert.match(requests[2].prompt, /NODE-LOADED ROLE README/);
 });

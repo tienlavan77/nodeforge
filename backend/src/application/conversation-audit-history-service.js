@@ -1,3 +1,5 @@
+// Provides module declarations and business logic for conversation-audit-history-service.js.
+
 import { ConfigurationError } from "../shared/errors.js";
 import { resolveConversationMessageRole } from "../agents/agent-contract.js";
 import { redactSystemEngineerEvent } from "../shared/system-engineer-event-redaction.js";
@@ -12,6 +14,7 @@ export function createConversationAuditHistoryService({ communications, eventSto
   if (history !== undefined && typeof history?.getByProject !== "function") throw new ConfigurationError("Conversation Audit History Store must provide getByProject().");
 
   return Object.freeze({ query });
+  // Defines query function behavior for conversation-audit-history-service.js.
   function query({ projectId, agentId, conversationId, correlationId, type, cursor, limit = 25, order = "asc", chatOnly = false } = {}) {
     if (projectId !== undefined) assertId(projectId, "project");
     else if (conversationId === undefined && agentId === undefined && correlationId === undefined) assertId(projectId, "project");

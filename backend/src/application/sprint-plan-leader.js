@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { invalidSprintTicketPriorities, repairSprintTicketPriorities, TICKET_PRIORITY_VALUES } from "../modules/governance/sprint-ticket-priority.js";
 import { normalizeSprintVerificationNotes, SPRINT_VERIFICATION_STEP_FIELDS } from "../modules/governance/sprint-verification-notes.js";
 import { repairSprintContractEvidence } from "../modules/governance/sprint-contract-evidence.js";
+import { schemaLookupInstructions } from "../modules/governance/agent-role-guidance.js";
 
 const RULES_PATH = "workflows/agents/sprint-leader/README.md";
 
@@ -80,10 +81,11 @@ function stripLegacyCandidateFields(plan) {
 function buildPlanPrompt({ projectId, brief, feedback, rules }) {
   return [
     "Draft exactly one governance sprint plan for the sprint brief below.",
+    schemaLookupInstructions("sprint_leader", "sprint_plan"),
     PLANNING_AUTONOMY_PROMPT,
     "Review-cycle policy: there is no fixed limit on Coder revision/Reviewer cycles. Never introduce a numeric review-cycle cap, max_review_revisions, or an exhausted-revisions stop rule into Sprint plans or tickets. Older repository documents prescribing such caps are superseded by this current policy. Continue from retained checkpoints until required findings are resolved and independent review and verification pass; escalate concrete scope, authority, access, or evidenced lack of progress, not the review count. Operational timeouts and provider retry scheduling belong to Node and do not impose a review-cycle cap.",
     `Read and follow the Sprint Leader role rules from ${RULES_PATH} below. The current approved Markdown scope and implementation_type schema take precedence over older terminology in this role file.\n\n${rules}`,
-    "Investigate the project with the supplied read-only Forge search_tree, list_files, search_text, read_file, and read_lines tools before drafting tickets. Search for relevant components and, when possible, identify existing related files. read_file accepts offset and limit for bounded source windows; limit MUST be an integer from 1 through 250. Cite actual observations; if discovery is unavailable, state the uncertainty. Do not use built-in shell, file, or write tools.",
+    "Investigate the project with the supplied read-only Forge lookup_schema, search_tree, list_files, search_text, read_file, and read_lines tools before drafting tickets (call lookup_schema({\"schema_id\":\"sprint_leader.sprint_plan.v1\"}) to inspect the Sprint Plan JSON contract). Search for relevant components and, when possible, identify existing related files. read_file accepts offset and limit for bounded source windows; limit MUST be an integer from 1 through 250. Cite actual observations; if discovery is unavailable, state the uncertainty. Do not use built-in shell, file, or write tools.",
     SPRINT_LEADER_WEB_SEARCH_PROMPT,
     "Write newly authored prose in English. Approved acceptance criteria and coverage references MUST retain their exact original wording and language, including Vietnamese; never replace them with translations. During verification repair, preserve the supplied frozen draft and acceptance_criteria order exactly and change ONLY verification_plan. Number AC IDs against that final unchanged array.",
     "Every ticket MUST include implementation_type as a one-item array: frontend|backend|security. Do not return the legacy style field. File references are discovery hints, not an immutable edit manifest; the Coder verifies actual change scope.",

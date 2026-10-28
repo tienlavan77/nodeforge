@@ -3,7 +3,7 @@ import { matchesTicketExecution } from "../projects/ticket-execution-identity.js
 
 // Includes queued projections that may outlive their job reservation after cancellation or authority validation failure.
 export const BLOCKER_RESUME_STATUSES = Object.freeze(["cancelled", "reconciliation_required", "pending", "invoking", "resume_pending",
-  "dispatching", "notification_pending", "notifying", "approval_retry_pending"]);
+  "dispatching", "notification_pending", "notifying", "approval_retry_pending", "dependency_request_pending", "dependency_wait"]);
 
 // Repairs only the status projection of the same unlaunched execution and failure; it grants no decision, source waiver or provider replay.
 export async function reconcileBlockerResumeCheckpoint({ store, checkpoints, ticketStatusStore, projectId, ticketId }) {

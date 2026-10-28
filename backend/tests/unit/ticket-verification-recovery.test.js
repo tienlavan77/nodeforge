@@ -24,26 +24,46 @@ test("Node rebuilds stale artifact once for concurrent reports", async () => {
   assert.equal(checks >= 3, true);
 });
 
-// A failed command is retried by Node on the same commit without another Coder call.
-test("Node automatically uses the second verification attempt and then stops", async () => {
-  const context = { version: 1, state: "committed", review_commit_sha: "COMMIT", verification_artifact_id: null };
+// Returns terminal command failures to Coder before any new verification job can hide the repair evidence.
+test("Node returns the first failed verification to Coder without rerunning the commit", async () => {
   let starts = 0;
-  const ensure = createTicketVerificationRecovery({ taskId: "TICKET-R", pollMs: 1, executionContexts: { load: async () => context, update: async () => {} }, assertIdentity: async () => {},
-    assertPassedArtifact: async () => {
-      if (starts < 2) throw Object.assign(new Error("missing"), { code: "VERIFY_ARTIFACT_MISMATCH" });
-      return { artifact_id: "ARTIFACT-2" };
-    },
-    startTests: async () => ({ job_id: `VERIFY-${++starts}`, attempt: starts, status: "running" }),
-    getTestResult: async ({ jobId }) => ({ job_id: jobId, attempt: Number(jobId.slice(-1)), status: jobId === "VERIFY-1" ? "failed" : "passed" }) });
-  assert.deepEqual(await ensure(), { artifact_id: "ARTIFACT-2" });
-  assert.equal(starts, 2);
+  const diagnostic = { artifact_id: "ARTIFACT-FAIL", commands: [{ kind: "backend_tests", exit_code: 1,
+    scope: "regression", disposition: "introduced_failure", baseline: { exit_code: 0 } }] };
+  const ensure = createTicketVerificationRecovery({ taskId: "TICKET-R", pollMs: 1,
+    executionContexts: { load: async () => ({ state: "committed", review_commit_sha: "COMMIT" }) },
+    assertIdentity: async () => {},
+    assertPassedArtifact: async () => { throw Object.assign(new Error("Missing"), { code: "VERIFY_ARTIFACT_MISMATCH" }); },
+    startTests: async () => ({ job_id: `VERIFY-${++starts}`, attempt: 1, status: "running" }),
+    getTestResult: async () => ({ status: "failed", attempt: 1,
+      error: { code: "VERIFY_COMMAND_FAILED", message: "36 passed, 1 failed" } }),
+    getFailureDiagnostic: async () => diagnostic });
+  await assert.rejects(ensure(), (error) => error.code === "VERIFY_COMMAND_FAILED"
+    && error.message.includes("36 passed, 1 failed") && error.details.verification_diagnostic === diagnostic);
+  assert.equal(starts, 1);
+});
 
-  let failedStarts = 0;
-  const blocked = createTicketVerificationRecovery({ taskId: "TICKET-B", pollMs: 1, executionContexts: { load: async () => context, update: async () => {} }, assertIdentity: async () => {}, assertPassedArtifact: async () => { throw Object.assign(new Error("missing"), { code: "VERIFY_ARTIFACT_MISMATCH" }); },
-    startTests: async () => ({ job_id: `VERIFY-${++failedStarts}`, attempt: failedStarts, status: "running" }),
-    getTestResult: async ({ jobId }) => ({ job_id: jobId, attempt: Number(jobId.slice(-1)), status: "failed", error: { code: "TEST_FAILED", message: "Test failed." } }) });
-  await assert.rejects(blocked(), { code: "TEST_FAILED" });
-  assert.equal(failedStarts, 2);
+// Caps one suspended report request even when workspace changes reset each durable runner attempt to one.
+test("runner revision changes cannot hide a failed verification behind another automatic attempt", async () => {
+  let starts = 0;
+  const outcomes = [];
+  const diagnostic = { artifact_id: "ARTIFACT-LAST", commands: [{ kind: "backend_tests", exit_code: 1 }] };
+  const ensure = createTicketVerificationRecovery({ taskId: "TICKET-CHANGING", pollMs: 1,
+    executionContexts: { load: async () => ({ state: "committed", review_commit_sha: "COMMIT" }) },
+    assertIdentity: async () => {},
+    assertPassedArtifact: async () => { throw Object.assign(new Error("Missing"), { code: "VERIFY_ARTIFACT_MISMATCH" }); },
+    startTests: async () => {
+      starts += 1;
+      assert.equal(starts, 1, "Return the failed checks before launching another runner revision");
+      return { job_id: `VERIFY-${starts}`, runner_revision: `RUNNER-${starts}`, attempt: 1, status: "running" };
+    },
+    getTestResult: async ({ jobId }) => ({ job_id: jobId, attempt: 1, status: "failed",
+      error: { code: "VERIFY_COMMAND_FAILED", message: "backend_tests exited 1." } }),
+    getFailureDiagnostic: async () => diagnostic });
+  await assert.rejects(ensure({ onSettled: async (outcome) => outcomes.push(outcome) }),
+    (error) => error.code === "VERIFY_COMMAND_FAILED" && error.details.verification_diagnostic === diagnostic);
+  assert.equal(starts, 1);
+  assert.equal(outcomes.length, 1);
+  assert.equal(outcomes[0].status, "failed");
 });
 
 // Preserves command evidence in the SDK error and never burns unchanged retries on a full disk.

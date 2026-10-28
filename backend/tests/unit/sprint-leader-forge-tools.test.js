@@ -1,4 +1,4 @@
-// Verifies the five-tool planning surface, search provenance, and independent output budgets on real project files.
+// Verifies read-only planning, search provenance, and continued tool access beyond former session quotas.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
@@ -21,12 +21,12 @@ async function fixture(run) {
 }
 
 // Proves direct searches alone populate provenance, without an indexed-search dependency or prior tree reads.
-test("Sprint Leader exposes exactly five readers and records search_text paths", async () => fixture(async ({ dependencies, profile }) => {
+test("Sprint Leader exposes readers and schema lookup and records search_text paths", async () => fixture(async ({ dependencies, profile }) => {
   const discoveredPaths = new Set();
   const readReceipts = new Map();
   const events = [];
   const tools = createSprintLeaderForgeTools({ ...dependencies, profile, discoveredPaths, readReceipts, projectLogger: (entry) => events.push(entry) });
-  const names = ["search_tree", "list_files", "search_text", "read_file", "read_lines"];
+  const names = ["search_tree", "list_files", "search_text", "read_file", "read_lines", "lookup_schema"];
   assert.deepEqual(tools.definitions.map(({ name }) => name), names);
   assert.deepEqual(Object.keys(tools.registry), names);
   assert.deepEqual(tools.context.capabilities, names);
@@ -63,10 +63,10 @@ test("Sprint Leader exposes exactly five readers and records search_text paths",
 }));
 
 // Ensures SDK adapters cannot reintroduce the retired sixth planning tool.
-test("Sprint Leader SDK options preserve the five-tool surface for every provider", async () => fixture(async ({ dependencies, profile }) => {
+test("Sprint Leader SDK options preserve the read-only surface for every provider", async () => fixture(async ({ dependencies, profile }) => {
   for (const provider of ["claude", "anthropic", "codex", "openai"]) {
     const options = createSprintLeaderToolOptions({ ...dependencies, profile: { ...profile, provider } });
-    const names = ["search_tree", "list_files", "search_text", "read_file", "read_lines"];
+    const names = ["search_tree", "list_files", "search_text", "read_file", "read_lines", "lookup_schema"];
     if (["claude", "anthropic"].includes(provider)) {
       assert.deepEqual(options.tools, ["WebSearch"]);
       assert.deepEqual(options.allowedTools, [...names.map((name) => `mcp__forge__${name}`), "WebSearch"]);
@@ -80,15 +80,36 @@ test("Sprint Leader SDK options preserve the five-tool surface for every provide
   }
 }));
 
-// Keeps planning context bounded even though individual source windows now allow 250 lines.
-test("Sprint Leader rejects individual and aggregate output overflow", async () => fixture(async ({ root, dependencies, profile }) => {
+// Allows planning to continue across large evidence and repeated reads while retaining receipts and audit events.
+test("Sprint Leader continues beyond former call and output quotas", async () => fixture(async ({ root, dependencies, profile }) => {
   await writeFile(join(root, "backend/src/large.js"), "x".repeat(21_000));
+  const readReceipts = new Map();
+  const events = [];
+  const tools = createSprintLeaderForgeTools({ ...dependencies, profile, readReceipts, projectLogger: (entry) => events.push(entry) });
+  assert.equal(tools.context.context_budget, undefined);
+  for (let count = 0; count < 25; count += 1) {
+    const result = await tools.registry.read_file.execute({ path: "backend/src/large.js", offset: 1, limit: 1 });
+    assert.match(result.content, new RegExp("x{21000}"));
+    assert.equal(result.discovery_budget.limit, null);
+    assert.equal(result.discovery_budget.suggested_next_action, null);
+    assert.deepEqual(readReceipts.get(result.path), { path: result.path, sha256: result.sha256 });
+  }
+  const reads = events.filter((entry) => entry.event_name === "sprint_leader.tool_call" && entry.status === "success");
+  assert.equal(reads.length, 25);
+  assert.ok(reads.every((entry) => entry.payload.output_bytes > 20_000));
+  assert.ok(reads.reduce((total, entry) => total + entry.payload.output_bytes, 0) > 120_000);
+  assert.equal(tools.context.exploration_state, undefined);
+}));
+
+// Lets Sprint Leader request the shared tree tool's supported depth and page size without an additional planning clamp.
+test("Sprint Leader preserves requested tree depth and entry limit", async () => fixture(async ({ root, dependencies, profile }) => {
+  await mkdir(join(root, "backend/src/nested/deeper"), { recursive: true });
+  await writeFile(join(root, "backend/src/nested/deeper/evidence.js"), "// Deep source evidence\n");
+  for (let count = 0; count < 85; count += 1) await writeFile(join(root, `backend/src/file-${count}.js`), "// Planning source evidence\n");
   const tools = createSprintLeaderForgeTools({ ...dependencies, profile });
-  await assert.rejects(tools.registry.read_lines.execute({ path: "backend/src/large.js", start_line: 1, end_line: 1 }), { code: "SPRINT_LEADER_TOOL_BUDGET" });
-  await writeFile(join(root, "backend/src/medium.js"), Array(8).fill("x".repeat(15_000)).join("\n"));
-  const aggregate = createSprintLeaderForgeTools({ ...dependencies, profile });
-  for (let count = 1; count <= 7; count += 1) await aggregate.registry.read_lines.execute({ path: "backend/src/medium.js", start_line: count, end_line: count });
-  await assert.rejects(aggregate.registry.read_lines.execute({ path: "backend/src/medium.js", start_line: 8, end_line: 8 }), { code: "SPRINT_LEADER_TOOL_BUDGET" });
+  const result = await tools.registry.search_tree.execute({ path: "backend", max_depth: 5, limit: 100 });
+  assert.ok(result.entries.length > 80);
+  assert.ok(result.entries.some((entry) => entry.path === "backend/src/nested/deeper/evidence.js"));
 }));
 
 // Checks prompt contracts without depending on formatting or exact whitespace.

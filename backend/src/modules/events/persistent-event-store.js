@@ -146,6 +146,7 @@ function cloneRecord(event) {
 
 // Compares two records ignoring sequence.
 function sameRecord(left, right) {
+  // Defines comparable function behavior for persistent-event-store.js.
   const comparable = (record) => Object.fromEntries(Object.entries(record).filter(([key]) => key !== "sequence"));
   return JSON.stringify(comparable(left)) === JSON.stringify(comparable(right));
 }

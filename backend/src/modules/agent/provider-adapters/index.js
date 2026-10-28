@@ -1,3 +1,5 @@
+// Provides module declarations and business logic for index.js.
+
 import * as codex from "./codex-adapter.js";
 import * as anthropic from "./anthropic-adapter.js";
 import * as custom from "./custom-adapter.js";
@@ -6,6 +8,7 @@ import * as devquote from "./devquote-adapter.js";
 import * as claude from "./claude-adapter.js";
 import * as ollama from "./ollama-adapter.js";
 
+// Defines getAdapter function behavior for index.js.
 export function getAdapter(provider) {
   if (provider === "claude") return claude;
   if (provider === "anthropic") return anthropic;

@@ -1,6 +1,7 @@
 /** Dispatches Node-owned baseline work before consulting read-only recovery roles.
  * Queue ownership, Stop and ticket identity fence both command execution and later
  * evidence publication; no Coder claim or additional agent permission is needed. */
+// Defines createBlockerBaselineRecovery function behavior for blocker-baseline-recovery.js.
 export function createBlockerBaselineRecovery({ store, inspect, logger = console }) {
   return async (job) => {
     if (job.status !== "invoking" || !["sprint_leader", "architecture_manager"].includes(job.stage)) return null;

@@ -166,6 +166,7 @@ export function generateProjectSlug(input, options = {}) {
   }
 
   const customReserved = reservedRoutes ? new Set(Array.from(reservedRoutes, (r) => String(r).toLowerCase())) : null;
+  // Defines isReserved function behavior for project-slug.js.
   const isReserved = (candidate, raw) => {
     if (customReserved) {
       if (customReserved.has(candidate) || (raw && customReserved.has(raw))) return true;

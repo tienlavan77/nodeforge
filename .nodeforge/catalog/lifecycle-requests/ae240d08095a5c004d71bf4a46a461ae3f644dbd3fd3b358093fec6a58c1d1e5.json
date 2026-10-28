@@ -1,0 +1,27 @@
+{
+  "operation_id": "OPRO-cdbcf488-730c-4090-a8f2-de6bfec1c15a",
+  "request_key": "project-f1747280b27a1533f83340a7fe5ed447",
+  "request_fingerprint": "659bfbbd878bbbcedf0798ce52c1ce5e4433d61c1b5dfe05a33bbec0993f0d25",
+  "kind": "create",
+  "root": "/home/data/sites/webrtc",
+  "attempt": 1,
+  "revision": 2,
+  "stage": "attempted",
+  "status": "failed",
+  "counters": {
+    "transitions": 1,
+    "attempts": 1
+  },
+  "timestamps": {
+    "created_at": "2026-10-27T11:51:52.640Z",
+    "updated_at": "2026-10-27T11:51:52.815Z"
+  },
+  "result": {
+    "outcome": "failed"
+  },
+  "diagnostic": {
+    "code": "project_admission_failed",
+    "message": "Admission failed. Inspect backend diagnostics before explicit retry.",
+    "recorded_at": "2026-10-27T11:51:52.815Z"
+  }
+}

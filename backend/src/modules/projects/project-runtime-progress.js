@@ -49,7 +49,9 @@ export async function startRuntimeWithProgress(startRuntime, options) {
 export const createLifecycleStreamResolver = ({ catalog, runtimes, isAvailable, isClosed }) => (projectId) => {
   if (isClosed() || typeof projectId !== "string" || !projectId.trim()) return undefined;
   const entry = catalog.list().find((item) => item.projectId === projectId);
+  // Defines findRuntime function behavior for project-runtime-progress.js.
   const findRuntime = () => entry ? runtimes.get(entry.root) : [...runtimes.values()].find((item) => item?.projectId === projectId);
+  // Defines canStream function behavior for project-runtime-progress.js.
   const canStream = () => {
     const current = findRuntime();
     if (isClosed() || !current || typeof current.connect !== "function") return false;
@@ -59,6 +61,7 @@ export const createLifecycleStreamResolver = ({ catalog, runtimes, isAvailable, 
   };
   if (!canStream()) return undefined;
   return Object.freeze({
+    // Defines connect method behavior for project-runtime-progress.js.
     connect(input) {
       if (!canStream()) throw Object.assign(new Error("Project is unavailable."), { statusCode: 404, code: "PROJECT_NOT_FOUND" });
       return findRuntime().connect(input);

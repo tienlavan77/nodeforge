@@ -1,3 +1,5 @@
+// Provides module declarations and business logic for ticket-file-store.js.
+
 import { join } from "node:path";
 
 import { ConfigurationError } from "../shared/errors.js";
@@ -11,6 +13,7 @@ export function createTicketFileStore({ database, fileService, clock = () => new
   if (typeof fileService?.appendFileSync !== "function" || typeof fileService?.readFileSync !== "function") throw new ConfigurationError("Ticket File Store requires FileService persistence.");
 
   return Object.freeze({ create, update, getMetadata, listMetadata, readLatest });
+  // Defines create function behavior for ticket-file-store.js.
   function create({ ticket, context } = {}) {
     assertTicket(ticket);
     const now = ticket.provenance?.created_at ?? clock().toISOString();
@@ -23,6 +26,7 @@ export function createTicketFileStore({ database, fileService, clock = () => new
     ]);
     return getMetadata(ticket.id);
   }
+  // Defines update function behavior for ticket-file-store.js.
   function update({ ticket, context } = {}) {
     assertTicket(ticket);
     const existing = getMetadata(ticket.id);
@@ -34,15 +38,18 @@ export function createTicketFileStore({ database, fileService, clock = () => new
     database.run("UPDATE tickets SET context = ?, status = ?, updated_at = ? WHERE id = ?", [nextContext, ticket.status ?? existing.status, now, ticket.id]);
     return getMetadata(ticket.id);
   }
+  // Defines getMetadata function behavior for ticket-file-store.js.
   function getMetadata(ticketId) {
     if (typeof ticketId !== "string" || !ticketId) throw new ConfigurationError("A ticket id is required.");
     return database.all("SELECT id, project_id, roadmap_id, sprint_id, context, status, ticket_file, created_at, updated_at FROM tickets WHERE id = ?", [ticketId])[0];
   }
+  // Defines listMetadata function behavior for ticket-file-store.js.
   function listMetadata({ projectId, sprintId } = {}) {
     if (typeof projectId !== "string" || !projectId) throw new ConfigurationError("A project id is required.");
     const where = sprintId ? "WHERE project_id = ? AND sprint_id = ?" : "WHERE project_id = ?";
     return database.all(`SELECT id, project_id, roadmap_id, sprint_id, context, status, ticket_file, created_at, updated_at FROM tickets ${where} ORDER BY updated_at`, sprintId ? [projectId, sprintId] : [projectId]);
   }
+  // Defines readLatest function behavior for ticket-file-store.js.
   function readLatest(ticketId) {
     const metadata = getMetadata(ticketId);
     if (!metadata) return undefined;
@@ -53,6 +60,7 @@ export function createTicketFileStore({ database, fileService, clock = () => new
     }
     return undefined;
   }
+  // Defines append function behavior for ticket-file-store.js.
   function append(ticketFile, record) {
     fileService.appendFileSync({ path: ticketFile, content: `${JSON.stringify(record)}\n` });
   }

@@ -1,3 +1,6 @@
+// Provides module declarations and business logic for task-schema-migration.js.
+
+// Defines migrateTaskTeam function behavior for task-schema-migration.js.
 export function migrateTaskTeam(database) {
   const columns = database.all("PRAGMA table_info(project_tasks)");
   if (!columns.some((column) => column.name === "team")) {

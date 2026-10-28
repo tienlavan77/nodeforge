@@ -17,30 +17,65 @@ import { applyRfc7396MergePatch } from "../../shared/rfc7396-merge-patch.js";
 import { appendArchitectureDecisions, decisionError, readArchitectureDecisions } from "./architecture-owner-decisions.js";
 
 const SHA256 = /^[a-f0-9]{64}$/;
+/** Shares source and outcome identity rules with the discoverable plan contract. */
+const OUTCOME_ID = /^O[1-9][0-9]*$/;
+/** Restricts evidence to project source areas accepted by canonical plan validation. */
+const SOURCE_EVIDENCE_PATH = /^(?:backend|schemas|ui|web|docs|workflows)\/[A-Za-z0-9._/-]+$/;
 
 // Architecture Plan JSON schema: the only shape AM plan answers may take.
 export const ARCHITECTURE_PLAN_JSON_SCHEMA = Object.freeze({
   $id: "https://nodeforge.local/schemas/architecture-plan.schema.json",
   schema_version: 1,
+  additionalProperties: false,
   required: ["title", "objective", "background", "scope", "outcomes", "evidence", "assumptions", "constraints", "risks", "verification"],
   fields: {
-    title: { type: "string", max: 200 },
-    objective: { type: "string", max: 4000 },
-    background: { type: "string", max: 8000 },
-    scope: { type: "string-list", min: 1, max: 40, itemMax: 1000 },
-    outcomes: { type: "outcome-list", min: 1, max: 20 },
-    evidence: { type: "evidence-list", min: 1, max: 60 },
-    assumptions: { type: "string-list", min: 1, max: 40, itemMax: 1000 },
-    constraints: { type: "string-list", min: 0, max: 40, itemMax: 1000 },
-    risks: { type: "string-list", min: 0, max: 40, itemMax: 1000 },
-    verification: { type: "string", max: 4000 }
+    title: { type: "string", max: 200, description: "Short outcome-oriented plan title without line breaks." },
+    objective: { type: "string", max: 4000, description: "Problem solved, observable target result and business value." },
+    background: { type: "string", max: 8000, description: "Current system context, root cause and reason for the change." },
+    scope: { type: "string-list", min: 1, max: 40, itemMax: 1000, description: "Explicit In scope: and Out of scope: boundaries (at least 1 non-empty item)." },
+    outcomes: { type: "outcome-list", min: 1, max: 20, item: {
+      id: { type: "string", pattern: OUTCOME_ID.source, unique: true, description: "Unique outcome identifier O1, O2, ..." },
+      outcome: { type: "nonempty-string", description: "Required architecture-level deliverable result." },
+      acceptance_criteria: { type: "nonempty-string-list", min: 1, description: "Observable behavior, contract or verification criteria proving the outcome." },
+      guardrails: { type: "nonempty-string-list", min: 1, description: "Mandatory boundaries and prerequisite outcome IDs (include 'O1' as a separate item when depending on O1)." } } },
+    evidence: { type: "evidence-list", min: 1, max: 60, item: {
+      path: { type: "string", pattern: SOURCE_EVIDENCE_PATH.source, description: "Relative source path under backend/, schemas/, ui/, web/, docs/ or workflows/." },
+      fact: { type: "nonempty-string", description: "Concrete technical fact verified by reading the source file." },
+      location: { optional: true, type: "string", max: 1000, pattern: "^L[1-9][0-9]*(?:[-–—]L?[1-9][0-9]*)?(?:;\\s*L[1-9][0-9]*(?:[-–—]L?[1-9][0-9]*)?)*$", description: "Positive ascending source line ranges, e.g. L17-L75; L98–106. Never prose." } } },
+    assumptions: { type: "string-list", min: 1, max: 40, itemMax: 1000, description: "Explicit unverified assumptions or delegated Sprint Leader boundaries (at least 1 non-empty item)." },
+    constraints: { type: "string-list", min: 0, max: 40, itemMax: 1000, description: "Global contract, data, security or compatibility constraints and optional delivery guidance." },
+    risks: { type: "string-list", min: 0, max: 40, itemMax: 1000, description: "Identified risks with severity, impact and mitigation or decision owner." },
+    verification: { type: "string", max: 4000, description: "Plan-level verification strategy that Sprint Leader tickets must cover." }
+  },
+  update_patch_contract: {
+    format: "RFC 7396 JSON Merge Patch",
+    description: "When updating an existing plan revision, return a JSON object containing only changed fields; omit unchanged fields, never set any required root field to null, and replace modified arrays in full."
   }
 });
 
+// Extracts a single JSON payload from either raw JSON text or one final fenced JSON block.
+// Business purpose: allows the Architecture Manager to return a single clean ```json ... ```
+// code fence (matching phase-1 clarification discovery) without failing closed on valid JSON,
+// while still rejecting prose-only answers, multiple fences or trailing text after the fence.
+// Technical description: inspects markdown fence boundaries; if exactly one unlabeled or json
+// fence ends the response, returns its inner text; otherwise returns the trimmed raw string.
+function extractJsonObjectPayload(raw, emptyMessage) {
+  const text = String(raw ?? "").trim();
+  if (!text) throw planJsonError(emptyMessage, null);
+  const fences = [...text.matchAll(/^```([^\r\n]*)\r?\n([\s\S]*?)^```[ \t]*(?:\r?\n|$)/gm)];
+  if (!fences.length) return text;
+  const [fence] = fences;
+  if (fences.length !== 1 || !["", "json"].includes(fence[1].trim().toLowerCase()) || text.slice(fence.index + fence[0].length).trim()) {
+    throw planJsonError("Architecture must return one unambiguous JSON object.", null);
+  }
+  const payload = fence[2].trim();
+  if (!payload) throw planJsonError(emptyMessage, null);
+  return payload;
+}
+
 // Parses one AM response into a validated Architecture Plan JSON object or fails without partial state.
 export function parseArchitecturePlanJSON(raw) {
-  const text = String(raw ?? "").trim();
-  if (!text) throw planJsonError("Architecture returned no plan JSON.", null);
+  const text = extractJsonObjectPayload(raw, "Architecture returned no plan JSON.");
   let value;
   try { value = JSON.parse(text); }
   catch (error) { throw planJsonError(`Architecture plan JSON is malformed: ${error.name}.`, error); }
@@ -52,8 +87,7 @@ export function parseArchitecturePlanJSON(raw) {
 // Merges one RFC 7396 patch into the retained canonical base and revalidates the full result.
 export function mergeArchitecturePlanJSON(baseJson, patchJson) {
   const base = parseArchitecturePlanJSON(baseJson);
-  const trimmed = String(patchJson ?? "").trim();
-  if (!trimmed) throw planJsonError("A plan patch must not be empty.", null);
+  const trimmed = extractJsonObjectPayload(patchJson, "A plan patch must not be empty.");
   let patch;
   try { patch = JSON.parse(trimmed); }
   catch (error) { throw planJsonError("Architecture plan patch JSON is malformed.", error); }
@@ -174,7 +208,7 @@ function validatePlanField(plan, field) {
 function validateOutcomes(outcomes) {
   const ids = new Set();
   for (const outcome of outcomes) {
-    if (!outcome || Array.isArray(outcome) || typeof outcome !== "object" || !/^O[1-9][0-9]*$/.test(outcome.id ?? "") || ids.has(outcome.id)
+    if (!outcome || Array.isArray(outcome) || typeof outcome !== "object" || !OUTCOME_ID.test(outcome.id ?? "") || ids.has(outcome.id)
       || typeof outcome.outcome !== "string" || !outcome.outcome.trim()
       || !Array.isArray(outcome.acceptance_criteria) || !outcome.acceptance_criteria.length || outcome.acceptance_criteria.some((item) => typeof item !== "string" || !item.trim())
       || !Array.isArray(outcome.guardrails) || !outcome.guardrails.length || outcome.guardrails.some((item) => typeof item !== "string" || !item.trim())) throw decisionError("ARCHITECTURE_PLAN_JSON_INVALID", "Each plan outcome needs a unique O-id, a result, acceptance criteria and guardrails. No revision was created.");
@@ -185,7 +219,7 @@ function validateOutcomes(outcomes) {
 // Requires each evidence entry to name a real project area path and a concrete fact.
 function validateEvidence(evidence) {
   for (const [index, entry] of evidence.entries()) {
-    if (!entry || Array.isArray(entry) || typeof entry !== "object" || !/^(?:backend|schemas|ui|web|docs|workflows)\/[A-Za-z0-9._/-]+$/.test(entry.path ?? "")
+    if (!entry || Array.isArray(entry) || typeof entry !== "object" || !SOURCE_EVIDENCE_PATH.test(entry.path ?? "")
       || typeof entry.fact !== "string" || !entry.fact.trim()) throw decisionError("ARCHITECTURE_PLAN_JSON_INVALID", `Plan evidence[${index}] needs a project source path and a concrete fact. No revision was created.`);
     if (entry.location !== undefined && !validEvidenceLocation(entry.location)) throw decisionError("ARCHITECTURE_PLAN_JSON_INVALID", `Plan evidence[${index}].location must identify source lines, for example L17-L75 or L17–75; L98–106. No revision was created.`);
   }

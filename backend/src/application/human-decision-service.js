@@ -1,3 +1,5 @@
+// Provides module declarations and business logic for human-decision-service.js.
+
 import { ConfigurationError } from "../shared/errors.js";
 
 // Node intake: the existing Architecture Decision Store remains the sole authority.
@@ -6,6 +8,7 @@ export function createHumanDecisionService({ decisions, bus } = {}) {
   if (typeof bus?.send !== "function") throw new ConfigurationError("Human Decision Service requires the Communication Bus.");
   const accepted = new Map();
   return Object.freeze({ submit });
+  // Defines submit function behavior for human-decision-service.js.
   function submit(input) {
     const decision = normalize(input);
     if (accepted.has(decision.decision_id) || decisions.getById(decision.decision_id)) throw conflict(`Human Decision already exists: ${decision.decision_id}.`);

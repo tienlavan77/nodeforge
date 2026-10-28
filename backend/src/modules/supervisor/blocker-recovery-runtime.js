@@ -1,7 +1,7 @@
 // Wires automatic blocker investigation to parked ticket authority, checkpoint resume and owner-decision audit.
 import { createBlockerRecovery } from "./blocker-recovery.js";
 import { createBlockerRecoveryAgent } from "./blocker-recovery-agent.js";
-import { blockerDigest, validateBlockerDisposition } from "./blocker-recovery-contract.js";
+import { assertCurrentBlockerDelegation, blockerDigest, validateBlockerDisposition } from "./blocker-recovery-contract.js";
 import { matchesTicketExecution } from "../projects/ticket-execution-identity.js";
 import { assertApprovedTicket } from "../governance/sprint-plan-draft.js";
 import { blockerOwnerDecisions } from "./blocker-owner-decisions.js";
@@ -28,16 +28,18 @@ import { blockerContractPrompt } from "./blocker-contract-evidence.js";
 import { recordBlockerCommitAuthorization } from "./blocker-commit-authorization.js";
 import { readBlockerContractDelegation } from "./blocker-contract-delegation.js";
 import { matchesTicketRetrySource } from "./ticket-retry-source.js";
+import { isTicketRecoveryCompleted } from "./ticket-recovery-state.js";
 import { createBlockerOwnerInput } from "./blocker-owner-input.js";
 import { validateBlockerReviewerEvidence } from "./blocker-reviewer-source.js";
 import { createBlockerResume } from "./blocker-resume.js";
 import { createBlockerAgentWait } from "./blocker-agent-wait.js";
 import { reconcileBlockerResumeCheckpoint } from "./blocker-resume-checkpoint.js";
 import { createBlockerBaselineRecovery } from "./blocker-baseline-recovery.js";
+import { createDependencyRepairCoordinator } from "./dependency-repair-coordinator.js";
 // Enables automatic SL/Architecture coordination only for Registry-bound ticket workspaces; `limits` defaults to the deploy-time policy.
 export function createProductionBlockerRecovery({ store, fileService, projectId, ticketStatusStore, sprintRegistry, resolveTicketWorkspace, checkpoints,
   eventBus, agentResolver, agentOccupancy, gateways, submitTicket, disposition, projectLogger = () => {}, logger = console,
-  investigate, readFailureEvidence, stopExecution, architecturePlans, replanFoundation, plans, planFileService, clock = Date.now, limits = blockerRecoveryPolicy() } = {}) {
+  investigate, readFailureEvidence, stopExecution, dispatchDependency, architecturePlans, replanFoundation, plans, planFileService, clock = Date.now, limits = blockerRecoveryPolicy() } = {}) {
   if (!ticketStatusStore?.listByStatus || !sprintRegistry || !resolveTicketWorkspace || !agentOccupancy) return null;
   const worker = investigate ?? createBlockerRecoveryAgent({ agentResolver, agentOccupancy, gateways, resolveTicketWorkspace, projectLogger, clock });
   const classifyFailure = createBlockerFailureClassification({ readFailureEvidence });
@@ -47,7 +49,12 @@ export function createProductionBlockerRecovery({ store, fileService, projectId,
   const notify = createBlockerNotification({ inspect, checkDisposition, prepareGovernance: (...args) => prepareGovernance(...args), checkpoints, eventBus, projectLogger, replanFoundation, logger, clock });
   const resume = createBlockerResume({ inspect, classifyFailure, checkpoints, sprintRegistry, ticketStatusStore, agentResolver, agentOccupancy, store, fileService, submitTicket, logger, clock });
   const notifyAgentWait = createBlockerAgentWait({ store, inspect, checkpoints, ticketStatusStore, eventBus, projectLogger });
-  const recovery = createBlockerRecovery({ store, validate, investigate: investigateStage, checkDisposition, resume, notify, notifyAgentWait, clock, logger, ...limits, refreshWaiting: createBlockerReconciliationRefresh({ inspect, fileService, clock, projectLogger, readFailureEvidence, sprintRegistry, ticketStatusStore, refreshOwnerInput: ownerInput.refreshOwnerInput }) });
+  const dependencies = createDependencyRepairCoordinator({ store, fileService, ticketStatusStore, sprintRegistry, checkpoints, resolveTicketWorkspace,
+    dispatchTicket: dispatchDependency, disposition, projectId, projectLogger, logger, clock });
+  const runtimeCapabilities = { dependency_repair: { supported: typeof dispatchDependency === "function", action: "dependency_requested", owner: "sprint_leader", boundary: "approved_upstream_same_project_sprint" } };
+  const refreshReconciliation = createBlockerReconciliationRefresh({ inspect, checkDelegation, fileService, clock, projectLogger, readFailureEvidence, sprintRegistry, ticketStatusStore, refreshOwnerInput: ownerInput.refreshOwnerInput, runtimeCapabilities });
+  const recovery = createBlockerRecovery({ store, validate, investigate: investigateStage, checkDisposition, resume, notify, notifyAgentWait, requestDependency: dependencies.request, clock, logger, ...limits,
+    isComplete: (ledger) => isTicketRecoveryCompleted(ledger, ticketStatusStore), refreshWaiting: (job) => job.status === "dependency_wait" ? dependencies.refresh(job) : refreshReconciliation(job) });
   const approvalRetry = createBlockerApprovalRetry({ inspect, checkpoints, eventBus, projectLogger, clock, readFailureEvidence });
   const capture = createBlockerCapture({ ticketStatusStore, checkpoints, sprintRegistry, architecturePlans, resolveTicketWorkspace, recovery, store, fileService, prepareRetry: approvalRetry.prepare, notifyRetry: approvalRetry.notify, logger, clock });
   const fulfillOwnerDecision = createBlockerOwnerHandoff({ store, recovery, checkpoints, ticketStatusStore, inspect, projectLogger });
@@ -55,7 +62,7 @@ export function createProductionBlockerRecovery({ store, fileService, projectId,
   eventBus.subscribe("*", async (event) => {
     if (event.type === "task.needs_human_review" && event.payload?.reason === "CODER_BLOCKED") await captureSafely(event.task_id, event);
   });
-  return Object.freeze({ ...recovery, ...ownerInput, recover, stopTicket, resumeTicket, reconcileTicket, fulfillOwnerDecision, executionAdmission: admission.access, preflight: (request) => preflightBlockerContract(request,
+  return Object.freeze({ ...recovery, ...ownerInput, start: () => { dependencies.start(); return recovery.start(); }, stop: () => { dependencies.stop(); return recovery.stop(); }, recover, stopTicket, resumeTicket, reconcileTicket, fulfillOwnerDecision, executionAdmission: admission.access, preflight: (request) => preflightBlockerContract(request,
     { sprintRegistry, architecturePlans, resolveTicketWorkspace, checkpoints, fileService, eventBus, projectLogger, agentOccupancy }) });
   // Recovers existing structured Coder blockers so an owner need not copy logs or reset tickets after deployment.
   async function recover() {
@@ -90,7 +97,7 @@ export function createProductionBlockerRecovery({ store, fileService, projectId,
     approvedTicketDecisions(plan, request.task_id);
     const architecture = await approvedBlockerArchitecture(plan, request.project_id, architecturePlans);
     if (JSON.stringify(architecture?.basis ?? null) !== JSON.stringify(job.architecture_basis ?? null)) return null;
-    assertDependencyExpectations({ projectId: request.project_id, ticket: request.ticket,
+    if (job.status !== "dependency_wait" && job.dependency_result?.status !== "failed") assertDependencyExpectations({ projectId: request.project_id, ticket: request.ticket,
       expectations: request.payload.dependency_expectations, sprintRegistry, ticketStatusStore });
     const workspace = await resolveTicketWorkspace(request.task_id);
     const context = await workspace.executionContexts.load(request.task_id);
@@ -105,6 +112,7 @@ export function createProductionBlockerRecovery({ store, fileService, projectId,
     const baseline = await prepareBaseline(job);
     if (baseline) options.deadline = await options.onNodeVerificationCompleted?.() ?? options.deadline;
     const ticket_progress = await buildBlockerTicketProgress({ job, ...authority, sprintRegistry, ticketStatusStore, reviewCheckpoint: await checkpoints.loadReview?.(job.request.task_id) });
+    Object.assign(ticket_progress.runtime_capabilities, runtimeCapabilities);
     if (baseline) ticket_progress.verification.baseline_recovery = baseline;
     const { contracts, delegation } = await readBlockerContractDelegation({ job, checkpoint: authority.checkpoint, fileService, architecture: authority.architecture });
     ticket_progress.architecture_decision ??= delegation;
@@ -144,6 +152,15 @@ export function createProductionBlockerRecovery({ store, fileService, projectId,
     try { return Boolean(await inspect(job)); }
     catch (error) { logger.warn?.("Blocker authority could not be revalidated.", { task_id: job.request.task_id, code: error.code, error: error.message }); return false; }
   }
+  // Rechecks only AM's retained evidence after an old dispatcher attributed its source drift to SL, using the normal execution and receipt fences.
+  async function checkDelegation(job) {
+    const authority = await inspect(job);
+    if (!authority) return;
+    const { contracts } = await readBlockerContractDelegation({ job, checkpoint: authority.checkpoint, fileService, architecture: authority.architecture });
+    await assertCurrentBlockerDelegation({ job, architecture: authority.architecture, contractReceipts: contracts, contractFileService: fileService,
+      fileService: (authority.workspace.root_only ? authority.workspace.fileService : authority.workspace.worktreeFileService ?? authority.workspace.fileService) ?? fileService,
+      projectRoot: authority.workspace.path ?? authority.workspace.projectRoot });
+  }
   // Verifies cached or fresh disposition evidence against the current approved plan and live source.
   async function checkDisposition(value, job, { retained = false } = {}) {
     const authority = await inspect(job);
@@ -161,6 +178,7 @@ export function createProductionBlockerRecovery({ store, fileService, projectId,
       contractDelegation, contractReceipts: contracts, contractFileService: fileService,
       fileService: (authority.workspace.root_only ? authority.workspace.fileService : authority.workspace.worktreeFileService ?? authority.workspace.fileService) ?? fileService,
       projectRoot: authority.workspace.path ?? authority.workspace.projectRoot, verifyContractSource: createTicketContractSource({ request: job.request, workspace: authority.workspace }) });
+    if (verified.action === "dependency_requested") await dependencies.validate(job, verified);
     if (["coder_requested", "candidate_prepared", "sprint_required"].includes(verified.action) || job.stage === "architecture_manager" && verified.action === "resolved") projectLogger({ event_name: "supervisor.blocker_candidate_handoff", level: "info", status: "success", task_id: job.request.task_id,
       message: job.stage === "architecture_manager" && verified.action === "resolved" ? "Architecture answer is ready for Sprint Leader; no Coder dispatch or execution approval." : verified.action === "sprint_required" ? "Architecture delegated implementation coordination to Sprint Leader; execution remains parked." : verified.action === "coder_requested" ? `${job.stage} requested a read-only Coder candidate; original execution remains parked.` : "Coder candidate is ready for its coordinating role; execution is not yet resumed.",
       payload: { job_id: job.id, action: verified.action, candidate_sha256: verified.candidate?.sha256 ?? null } });

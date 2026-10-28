@@ -1,3 +1,5 @@
+// Provides module declarations and business logic for project.js.
+
 line-1
 line-2
 line-3

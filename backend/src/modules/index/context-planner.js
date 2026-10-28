@@ -7,6 +7,7 @@ export function createContextPlanner({ fileService, database, maxFiles = 30, max
   if (!database || typeof database.all !== "function") throw new ConfigurationError("Context Planner requires an index database.");
   return Object.freeze({ plan });
 
+  // Defines plan function behavior for context-planner.js.
   async function plan({ relevantTree = [], files = relevantTree, limit = maxFiles, tokenBudget = maxTokens } = {}) {
     if (!Array.isArray(files) || files.length === 0) throw new ConfigurationError("Context Planner requires a relevant tree.");
     if (!Number.isInteger(limit) || limit < 1 || limit > maxFiles) throw new ConfigurationError(`Context Planner limit must be between 1 and ${maxFiles}.`);
@@ -37,6 +38,8 @@ export function createContextPlanner({ fileService, database, maxFiles = 30, max
     return Object.freeze({ files: Object.freeze(contextFiles), index_version: indexVersion(), budget: { max_tokens: tokenBudget, estimated_tokens: estimatedTokens, max_files: limit }, source: "file-service" });
   }
 
+  // Defines normalizeHash function behavior for context-planner.js.
   function normalizeHash(value) { return String(value).replace(/^sha256:/, ""); }
+  // Defines indexVersion function behavior for context-planner.js.
   function indexVersion() { return `IDX-${database.all("SELECT version FROM index_metadata LIMIT 1")[0]?.version ?? 0}`; }
 }

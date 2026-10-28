@@ -9,8 +9,9 @@ import { createGitReadTools } from "../../tools/git-read-tools.js";
 import { engineeringToolDefinitions } from "../../tools/engineering-tool-catalog.js";
 import { createBlockerEvidenceFiles } from "./blocker-evidence-files.js";
 import { createCodeCacheService } from "../context/code-cache-service.js";
+import { createLookupSchemaTool } from "../../tools/lookup-schema-tool.js";
 
-const READ_TOOLS = ["search_tree", "list_files", "search_text", "read_file", "read_lines", "git_status", "git_diff"];
+const READ_TOOLS = ["search_tree", "list_files", "search_text", "read_file", "read_lines", "git_status", "git_diff", "lookup_schema"];
 
 // Builds a bounded recovery registry from the same implementations and schemas used by other Forge agents.
 export function blockerRecoveryTools({ fileService, codeCache, projectRoot, profile, task_id, correlation_id, job, gitService = createGitService({ projectRoot }), projectLogger = () => {}, onDiscoveryCheckpoint, clock, deadline, abortSignal }) {
@@ -44,6 +45,7 @@ export function blockerRecoveryTools({ fileService, codeCache, projectRoot, prof
     }
   };
   const implementations = {
+    lookup_schema: createLookupSchemaTool({ role: profile.role, subject: job?.reviewer_evidence?.request?.subject }),
     ...createAgentCommandTools({ projectRoot, fileService: files, codeCache: cache, projectLogger: () => {}, wrap: (tool) => tool }),
     search_tree: createOwnerSearchTreeTool({ fileService: files, role: profile.role }),
     read_file: createReadFileTool({ fileService: files, codeCache: cache, projectRoot }),
@@ -52,6 +54,7 @@ export function blockerRecoveryTools({ fileService, codeCache, projectRoot, prof
   const definitions = engineeringToolDefinitions().filter(({ name }) => READ_TOOLS.includes(name)).map((definition) => definition.name === "git_diff"
     ? { ...definition, description: "Read the patch from Node's fixed ticket baseline to current tracked source for inspected or declared files. Includes staged and committed changes. Accepts no arguments; current untracked source must be read with read_file/read_lines." } : definition);
   const registry = Object.fromEntries(definitions.map(({ name }) => [name, { execute: async (input = {}) => {
+    const started = Date.now();
     audit(name, "started");
     try {
       progress.assertActive();
@@ -77,14 +80,14 @@ export function blockerRecoveryTools({ fileService, codeCache, projectRoot, prof
       }
       if (["read_file", "read_lines"].includes(name)) paths.add(input.path);
       if (name === "git_diff") result = { ...result, baseline_commit: baseline };
-      await progress.complete(name, input, result, paths);
-      audit(name, "success");
+      if (name !== "lookup_schema") await progress.complete(name, input, result, paths);
+      audit(name, "success", { duration_ms: Date.now() - started });
       return result;
     } catch (error) {
       const path = input?.path;
       const logPath = ["read_file", "read_lines"].includes(name) && typeof path === "string" && path.length <= 512
         && /^[A-Za-z0-9._:/-]+$/.test(path) && !path.startsWith("/") && path.split("/").every((part) => part && part !== "." && part !== "..");
-      audit(name, "failed", { error_code: error.code ?? "BLOCKER_TOOL_FAILED", ...(logPath ? { path } : {}) });
+      audit(name, "failed", { duration_ms: Date.now() - started, error_code: error.code ?? "BLOCKER_TOOL_FAILED", error_message: error.message, ...(logPath ? { path } : {}) });
       throw error;
     }
   } }]));
@@ -94,6 +97,6 @@ export function blockerRecoveryTools({ fileService, codeCache, projectRoot, prof
   function audit(tool, status, extra = {}) {
     projectLogger({ event_name: "supervisor.blocker_tool_call", level: status === "failed" ? "error" : "info", status,
       message: `Blocker discovery ${tool} ${status}.`, task_id, correlation_id, source: "blocker-recovery-tools",
-      payload: { agent_id: profile.agent_id, role: profile.role, tool, ...extra } });
+      payload: { agent_id: profile.agent_id, agent_name: profile.agent_name, role: profile.role, tool, ...extra } });
   }
 }

@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createTicketRootGit } from "../../src/modules/supervisor/ticket-root-git.js";
+import { buildLegacyRegressionPlan } from "../fixtures/legacy-verification-plan.js";
 import { createTicketVerificationService } from "../../src/modules/supervisor/ticket-verification-service.js";
 
 /** Creates an isolated verification service whose source and environment outlive a simulated runner restart. */
@@ -42,7 +43,7 @@ test('legacy regression',()=>{${introduced ? "assert.equal(value,1)" : "assert.e
   let malformed = true;
   const execute = promisify(execFile);
   const options = { taskId: context.task_id, projectId: "P", projectRoot: root, worktreeRoot: root, rootOnly: true,
-    worktreeFileService: files, stateFileService: files, projectLogger: event => logs.push(event),
+    worktreeFileService: files, stateFileService: files, buildPlan: buildLegacyRegressionPlan, projectLogger: event => logs.push(event),
     gitService: { getHead: async () => commit, status: async () => "", getCommitParent: async () => base, getChangedFiles: async () => paths },
     ledger: { load: async () => ({ entries }), snapshot: async () => ({ entries }) },
     executionContexts: { load: async () => ({ ...context }), manifestIdentity: () => ({ source_revision: "REV", manifest_sha: "MANIFEST", manifest_paths: paths }),

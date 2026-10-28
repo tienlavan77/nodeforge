@@ -12,24 +12,24 @@ export function observeBlockerRecoveryWork(completion, logger, job) {
 export function createBlockerRecoveryPoller({ tick, logger }) {
   let active = false;
   let timer;
-  let scanning = false;
+  let scanning;
   return Object.freeze({ start, stop });
 
   // Starts dispatch without waiting for a previously launched agent to return its report.
   async function start() { if (active) return; active = true; void poll(); }
 
   // Stops new scans while existing result collectors retain responsibility for their already dispatched work.
-  function stop() { active = false; clearTimeout(timer); }
+  function stop() { active = false; clearTimeout(timer); return scanning; }
 
   // Contains scan failures and prevents overlapping scans during slow storage access or a local stop/start cycle.
-  async function poll() {
+  function poll() {
     if (!active || scanning) return;
-    scanning = true;
-    try { await tick(); }
-    catch (error) { logger.error?.(`Blocker recovery poll failed: ${error.message}`, blockerRecoveryError(error)); }
-    finally {
-      scanning = false;
+    scanning = Promise.resolve().then(tick).catch((error) => {
+      logger.error?.(`Blocker recovery poll failed: ${error.message}`, blockerRecoveryError(error));
+    }).finally(() => {
+      scanning = undefined;
       if (active) { timer = setTimeout(poll, 1000); timer.unref?.(); }
-    }
+    });
+    return scanning;
   }
 }

@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { normalizeErrorContract } from "../../shared/error-contract.js";
 
+// Defines digest function behavior for conversation-error-migration.js.
 const digest = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 
 // Writes a separate canonical projection and switches indexed rows in one database transaction.

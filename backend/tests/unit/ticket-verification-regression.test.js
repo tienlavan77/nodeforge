@@ -22,7 +22,7 @@ test("only complete deterministic test failure evidence can identify a pre-exist
   ]) assert.equal(regressionFailureIdentity(command, incomplete, "/tmp/candidate"), null);
 });
 
-test("ticket plan remains primary while only related extra tests become supplemental", async () => {
+test("ticket plan never expands through shared imports and retains explicit release suites", async () => {
   const root = await mkdtemp(join(tmpdir(), "nf-verification-scope-"));
   try {
     for (const path of ["backend/src", "backend/tests/unit", "ui/nextjs/tests"]) await mkdir(join(root, path), { recursive: true });
@@ -35,9 +35,10 @@ test("ticket plan remains primary while only related extra tests become suppleme
     const primary = commands.find((command) => command.kind === "backend_tests" && command.scope === "ticket");
     assert.deepEqual(primary.test_paths, [plan[0].test_path]);
     assert.deepEqual(primary.criterion_ids, ["AC-1"]);
-    const extra = commands.find((command) => command.kind === "backend_tests" && command.scope === "regression");
-    assert.deepEqual(extra.test_paths, ["backend/tests/unit/related.test.js"]);
-    assert(extra.reason); assert(extra.related_paths.includes("backend/src/shared.js"));
+    assert(!commands.some(command => command.argv.includes("backend/tests/unit/related.test.js")));
+    await assert.rejects(buildTicketVerificationPlan(["backend/src/shared.js"], root), { code: "VERIFY_TEST_SCOPE_EMPTY" });
+    const changed = await buildTicketVerificationPlan(["backend/src/shared.js", "backend/tests/unit/related.test.js"], root, { verificationPlan: plan });
+    assert.deepEqual(changed.find(command => command.kind === "backend_tests").test_paths, ["backend/tests/unit/related.test.js", plan[0].test_path]);
     assert(!commands.some((command) => command.argv.includes("backend/tests/unit/unrelated.test.js")));
     const mandatory = await buildTicketVerificationPlan(["backend/src/shared.js"], root, { verificationPlan: [...plan, { kind: "schema_validation", criterion_ids: ["AC-2"] }] });
     assert.equal(mandatory.find((command) => command.kind === "schema_validation").scope, "ticket");
@@ -45,8 +46,10 @@ test("ticket plan remains primary while only related extra tests become suppleme
     assert(!release.some((command) => command.kind === "backend_tests" && command.scope === "regression"));
     assert(release.find((command) => command.kind === "backend_tests").test_paths.includes("backend/tests/unit/unrelated.test.js"));
     await writeFile(join(root, "ui/nextjs/tests/ticket.test.js"), "// UI test");
-    const ui = await buildTicketVerificationPlan(["ui/nextjs/component.jsx"], root, { verificationPlan: [{ kind: "test", test_path: "ui/nextjs/tests/ticket.test.js", criterion_ids: ["AC-1"] }, { kind: "build", criterion_ids: ["AC-2"] }] });
-    assert.equal(ui.find((command) => command.kind === "test").scope, "ticket");
+    await writeFile(join(root, "ui/nextjs/tests/shared.test.js"), "import '../component.jsx';");
+    await writeFile(join(root, "ui/nextjs/tests/changed.test.mjs"), "// Changed ticket test");
+    const ui = await buildTicketVerificationPlan(["ui/nextjs/component.jsx", "ui/nextjs/tests/changed.test.mjs"], root, { verificationPlan: [{ kind: "test", test_path: "ui/nextjs/tests/ticket.test.js", criterion_ids: ["AC-1"] }, { kind: "build", criterion_ids: ["AC-2"] }] });
+    assert.deepEqual(ui.find((command) => command.kind === "test").test_paths, ["ui/nextjs/tests/changed.test.mjs", "ui/nextjs/tests/ticket.test.js"]);
     assert.equal(ui.find((command) => command.kind === "build").scope, "ticket");
   } finally { await rm(root, { recursive: true, force: true }); }
 });

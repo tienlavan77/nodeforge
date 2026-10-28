@@ -11,6 +11,7 @@ export function blockerCoordinationEvidence(job, work) {
   const review = job.ticket_progress?.review_status;
   return { policy: "explicit-waiting-owner-v1", waiting_input_status: "owner_unspecified",
     read_only_preparation_roles: ["coder", "architecture_manager", "reviewer"], independent_reviewer_preparation: "supported",
+    dependency_repair: job.ticket_progress?.runtime_capabilities?.dependency_repair ?? { supported: false },
     formal_review: { status: review?.status ?? "unknown", report_status: review?.report_status ?? "unknown",
       cycle_id: review?.cycle_id ?? null },
     completed_assignments: (job.waiting_work_history ?? []).filter((entry) => entry.status === "answered")

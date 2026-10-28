@@ -15,6 +15,7 @@ export function createExplorePrepass({ relevantTreeSelector, protocolStorage } =
   if (typeof relevantTreeSelector?.select !== "function") throw new ConfigurationError("Explore pre-pass requires Relevant Tree selector.");
   return Object.freeze({ run });
 
+  // Defines run function behavior for explore-pre-pass.js.
   async function run({ ticket, limit = 4 } = {}) {
     if (!ticket || typeof ticket !== "object") throw new ConfigurationError("Explore pre-pass requires a ticket.");
     const started = Date.now();
@@ -54,6 +55,7 @@ export function createExplorePrepass({ relevantTreeSelector, protocolStorage } =
     }
   }
 
+  // Defines pickTargetPath function behavior for explore-pre-pass.js.
   function pickTargetPath(files, ticket) {
     if (!files.length) return null;
     // Prefer an explicit path named in the ticket text.

@@ -12,9 +12,10 @@ import { createBlockerHandoffRefresh } from "./blocker-handoff-policy.js";
 import { currentBlockerCoordination, refreshBlockerCoordination } from "./blocker-coordination-evidence.js";
 import { refreshBlockerReviewerEvidence } from "./blocker-reviewer-source.js";
 import { refreshBlockerRuntimeCapabilities } from "./blocker-runtime-capabilities.js";
+import { refreshDelegationEvidence } from "./blocker-delegation-evidence.js";
 
 // Returns ordinary verification refresh plus a source-bound recovery for obsolete missing-denial errors.
-export function createBlockerReconciliationRefresh({ inspect, fileService, clock = Date.now, projectLogger = () => {}, readFailureEvidence, sprintRegistry, ticketStatusStore, refreshOwnerInput }) {
+export function createBlockerReconciliationRefresh({ inspect, checkDelegation, fileService, clock = Date.now, projectLogger = () => {}, readFailureEvidence, sprintRegistry, ticketStatusStore, refreshOwnerInput, runtimeCapabilities }) {
   const refreshContract = createBlockerContractRefresh({ inspect, fileService, clock, projectLogger });
   const refreshPrompt = createBlockerPromptRefresh({ inspect, clock, projectLogger });
   const refreshDelivery = createBlockerVerificationDelivery({ inspect, clock, projectLogger });
@@ -23,8 +24,9 @@ export function createBlockerReconciliationRefresh({ inspect, fileService, clock
   const classify = createBlockerFailureClassification({ readFailureEvidence });
   const refreshHandoff = createBlockerHandoffRefresh({ inspect, fileService, clock, projectLogger });
   return async (job) => {
+    if (await refreshDelegationEvidence(job, { checkDelegation, clock, projectLogger })) return true;
     if (await refreshOwnerInput?.(job)) return true;
-    if (await refreshBlockerRuntimeCapabilities(job, { inspect, clock, projectLogger })) return true;
+    if (await refreshBlockerRuntimeCapabilities(job, { inspect, clock, projectLogger, runtimeCapabilities })) return true;
     if (job.stage === "reviewer") {
       const authority = await inspect(job);
       if (authority && await refreshBlockerReviewerEvidence(job, authority.workspace.projectRoot ?? authority.workspace.path, clock())) {

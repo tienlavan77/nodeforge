@@ -95,6 +95,7 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
     if (retained) Object.assign(reviewState, { sessionId: previousReview.session_id, threadId: previousReview.thread_id,
       turnCount: previousReview.last_completed_turn ?? 0, lastTool: previousReview.last_tool, completedTools: previousReview.completed_tools ?? [], turnHistory: previousReview.turn_history ?? [] });
     const verdictAttempts = retained ? [...previousReview.verdict_attempts] : [];
+    // Defines saveReviewProgress function behavior for review-worker.js.
     const saveReviewProgress = (extra = {}) => {
       if (Object.hasOwn(extra, "review_verification")) reviewVerification = extra.review_verification;
       if (!checkpoints?.saveReview || !job?.task_id) return Promise.resolve(null);
@@ -130,7 +131,8 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
     }
     if (ticketEvidence && !forgeTools?.definitions.some((item) => item.name === "read_lines")) throw reviewError("REVIEW_TOOLS_UNAVAILABLE", "Ticket review requires a Forge source-window read tool.");
     const options = ["codex", "openai", "xai", "alibaba", "zhipu", "deepseek"].includes(reviewer.provider) ? { ...(forgeTools ? { forgeTools } : {}) } : claudeTools ? createClaudeForgeOptions(claudeTools) : { tools: [] };
-    const correctionTools = { definitions: [], registry: {}, context: forgeTools?.context ?? {} };
+    const correctionTools = { definitions: forgeTools?.definitions.filter(({ name }) => name === "lookup_schema") ?? [],
+      registry: forgeTools?.registry.lookup_schema ? { lookup_schema: forgeTools.registry.lookup_schema } : {}, context: forgeTools?.context ?? {} };
     const correctionOptions = ["claude", "anthropic"].includes(reviewer.provider)
       ? createClaudeForgeOptions(createOwnerClaudeMcpTools(correctionTools)) : { forgeTools: correctionTools };
     const toolInstruction = forgeTools ? `Forge review tools: ${forgeTools.definitions.map((item) => item.name).join(", ")}. Use search_tree and list_files to discover files, search_text to search content, read_file for metadata or source, and read_lines(path,start_line,end_line) for source windows of at most 80 lines. Each tool response must fit 16,000 bytes, with 128,000 bytes total per review; use smaller read_lines windows for large files rather than repeatedly requesting full read_file output. Use query_review for exact historical findings and reports; follow its cursor until complete rather than reading evidence JSON files. In ticket snapshot reviews, discovery and source reads, including callers outside the manifest, use the pinned review commit or recorded verification environment; source windows carry review_evidence and reads fail if evidence differs. Live git_status and git_diff are unavailable for snapshot reviews; legacy Git reads are not verified commit evidence. run_review_check currently returns REVIEW_CHECK_ISOLATION_UNSUPPORTED, never PASS. For missing focused committed test evidence, return verification_required with typed verification_requests; Node runs checks and returns receipts to you. Do not substitute native shell or live dependencies. Never use built-in shell, file, write, network, or ticket tools.` : "Forge review tools are unavailable. Decide only from the supplied bounded evidence; request changes when evidence is insufficient.";
@@ -178,7 +180,7 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
       await saveReviewProgress({ status: "failed", last_error: { code: error.code ?? "REVIEW_FAILED", message: error.message } });
       throw error;
     }
-    projectLogger({ event_name: "review.verdict", level: "info", status: verdict.verdict, message: "Independent Reviewer returned a ticket verdict.", task_id: job.task_id, correlation_id: job.correlation_id, source: "review-worker", payload: { agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, reviewer_id: reviewer.agent_id, coder_id: job.agent_id, request_id: job.request_id, findings_count: verdict.findings.length, changed_paths: paths } });
+    projectLogger({ event_name: "review.verdict", level: "info", status: verdict.verdict, message: "Independent Reviewer returned a ticket verdict.", task_id: job.task_id, correlation_id: job.correlation_id, source: "review-worker", payload: { agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, agent_role: "reviewer", verdict: verdict.verdict, reviewer_id: reviewer.agent_id, coder_id: job.agent_id, request_id: job.request_id, findings_count: verdict.findings.length, changed_paths: paths } });
     return { ...verdict, communication: await saveReviewExchange(communication, verdict), reviewer_id: reviewer.agent_id, reviewer_name: reviewer.agent_name ?? null, provider: reviewer.provider ?? null, coder_id: job.agent_id, changed_paths: paths, source_revision: ticketEvidence?.context.source_revision ?? null, session_id: reviewState.sessionId, thread_id: reviewState.threadId, last_completed_turn: reviewState.turnCount, last_tool: reviewState.lastTool, completed_tools: [...reviewState.completedTools], turn_history: [...reviewState.turnHistory] };
   }
 

@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { ConfigurationError } from "../../shared/errors.js";
 
+// Defines hash function behavior for ticket-pipeline-inventory.js.
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const SAFE_TASK = /^[A-Za-z0-9._:-]+$/;
 const execFile = promisify(execFileCallback);
@@ -23,6 +24,7 @@ export function createTicketPipelineInventory({ projectRoot, projectId, fileServ
   // Classifies legacy evidence without attaching an artifact or claiming a file.
   async function inspect() {
     const records = new Map();
+    // Defines entry function behavior for ticket-pipeline-inventory.js.
     const entry = (taskId) => {
       if (!SAFE_TASK.test(taskId ?? "")) throw new ConfigurationError("Ticket inventory encountered an unsafe task ID.");
       if (!records.has(taskId)) records.set(taskId, { task_id: taskId, worktree: false, checkpoint: false, reviewer_checkpoint: false, ledger: false, context: false, cached_job: false, review_only: false, classification: null, reasons: [] });

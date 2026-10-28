@@ -5,6 +5,7 @@ import process from "node:process";
 import { createKeyParser } from "./dev-foreground-keys.mjs";
 import { createForegroundView } from "./dev-foreground-view.mjs";
 import { alive, findMatchingPids } from "./dev-foreground-process.mjs";
+import { createForegroundLogReceiver, formatForegroundLine } from "./dev-foreground-line.mjs";
 
 process.chdir(new URL("../..", import.meta.url).pathname);
 
@@ -28,8 +29,9 @@ const { render } = createForegroundView({ children, serviceState, logLines, sugg
 if (!interactive) {
   for (const name of Object.keys(definitions)) {
     const definition = definitions[name];
-    const child = spawn(definition.command, definition.args, { stdio: ["ignore", "inherit", "inherit"] });
+    const child = spawn(definition.command, definition.args, { stdio: ["ignore", "pipe", "pipe"] });
     children.set(name, child);
+    attachServiceOutput(child, name);
   }
   process.once("SIGINT", () => process.exit(0));
   process.once("SIGTERM", () => process.exit(0));
@@ -145,7 +147,7 @@ function runInteractive() {
   // Summary: Redraws plain log text without positioning so selection works.
   function renderCopyScreen() {
     process.stdout.write("\x1b[?25l\x1b[2J\x1b[H");
-    for (const entry of logLines.slice(-200)) process.stdout.write(`[${entry.name.toUpperCase()}] ${entry.line}\n`);
+    for (const entry of logLines.slice(-200)) process.stdout.write(`${formatForegroundLine(entry, { color: false })}\n`);
     process.stdout.write("\n\x1b[30;48;5;255m COPY MODE — select with mouse, then press any key to return \x1b[0m\n");
   }
 
@@ -158,7 +160,7 @@ function runInteractive() {
   // Summary: Dumps buffered logs to a file for later copying.
   function saveLogs(path) {
     try {
-      const content = logLines.map((entry) => `[${entry.name.toUpperCase()}] ${entry.line}`).join("\n");
+      const content = logLines.map((entry) => formatForegroundLine(entry, { color: false })).join("\n");
       writeFileSync(path, `${content}\n`);
       log("SYSTEM", `Saved ${logLines.length} lines to ${path}`);
     } catch (error) {
@@ -177,8 +179,7 @@ function start(name) {
   });
   children.set(name, child);
   serviceState.set(name, "running");
-  child.stdout.on("data", (chunk) => log(name, chunk));
-  child.stderr.on("data", (chunk) => log(name, chunk));
+  attachServiceOutput(child, name);
   child.once("exit", (code, signal) => {
     if (children.get(name) !== child) return;
     children.delete(name);
@@ -211,9 +212,22 @@ async function stop(name) {
 function log(name, value) {
   const plain = String(value).replace(ansiPattern, "").replace(oscPattern, "");
   for (const line of plain.replace(/\r/g, "").split("\n")) {
-    if (line) logLines.push({ name, line });
+    if (line) {
+      logLines.push({ name, line });
+      if (!interactive) process.stdout.write(`${formatForegroundLine({ name, line }, { color: false })}\n`);
+    }
   }
   while (logLines.length > 2000) logLines.shift();
+}
+
+/** Gives each service stream its own UTF-8 line buffer so concurrent stdout
+ * and stderr never share partial messages or duplicate source prefixes. */
+function attachServiceOutput(child, name) {
+  for (const stream of [child.stdout, child.stderr]) {
+    const receive = createForegroundLogReceiver((line) => log(name, line));
+    stream.on("data", receive);
+    stream.once("end", receive.finish);
+  }
 }
 
 async function shutdown() {

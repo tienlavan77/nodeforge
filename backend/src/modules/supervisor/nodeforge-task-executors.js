@@ -25,6 +25,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
     runFunctionCallingTask: createFunctionCallingTaskExecutor({ openaiSdkGateway, ollamaSdkGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger, checkpoints }),
     runToolTicket: withCoderExchange(runToolTicket, { projectRoot, projectLogger }), runCodexTask: withCoderExchange(runCodexTask, { projectRoot, projectLogger }) });
 
+  // Defines runToolTicket function behavior for nodeforge-task-executors.js.
   async function runToolTicket(selected, request) {
     if (typeof claudeSdkGateway?.execute !== "function") throw new ConfigurationError("NodeForge integration requires a Claude SDK gateway.");
     if (!toolRegistry || typeof runtimeGovernance?.createExecutionContext !== "function") throw new ConfigurationError("NodeForge integration requires governed Forge tools.");
@@ -49,7 +50,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
       agent_identity: { agent_id: selected.agent_id, agent_name: selected.agent_name, role: selected.role, provider: selected.provider ?? null },
       capabilities: selected.role === "coder" && !labMode ? [...CODER_TOOL_NAMES] : [...(candidateDiscoveryEnabled ? ["select_code_graph_candidates"] : []), "search_code", "read_file", "Read", "Glob", "Grep", "write_diff", "edit_diff", "run_test", "check_test", "git_status", "git_diff", "commit_changes", "report_done"],
       allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, changed_paths: [...resumeState.changedPaths],
-      context_budget: { max_bytes: 1000000, max_calls: 12 }, discovery_budget: complexity.discovery_budget,
+      context_budget: selected.role === "coder" ? undefined : { max_bytes: 1000000, max_calls: 12 }, discovery_budget: complexity.discovery_budget,
       discovery_candidate_calls: selected.role === "coder" && !labMode ? undefined : complexity.candidate_calls,
       discovery_search_calls: selected.role === "coder" && !labMode ? undefined : complexity.search_calls,
       discovery_read_calls: selected.role === "coder" && !labMode ? undefined : complexity.read_calls,
@@ -123,7 +124,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
       agent_identity: { agent_id: selected.agent_id, agent_name: selected.agent_name, role: selected.role, provider: selected.provider ?? null },
       capabilities: selected.role === "coder" && !labMode ? [...CODER_TOOL_NAMES] : [...(candidateDiscoveryEnabled ? ["select_code_graph_candidates"] : []), "search_code", "read_file", "rg_files", "rg_search", "sed_lines", "write_diff", "edit_diff", "run_test", "check_test", "git_status", "git_diff", "commit_changes", "report_done"],
       allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, changed_paths: [...resumeState.changedPaths],
-      context_budget: { max_bytes: 1000000, max_calls: 12 }, discovery_budget: complexity.discovery_budget,
+      context_budget: selected.role === "coder" ? undefined : { max_bytes: 1000000, max_calls: 12 }, discovery_budget: complexity.discovery_budget,
       discovery_candidate_calls: selected.role === "coder" && !labMode ? undefined : complexity.candidate_calls,
       discovery_search_calls: selected.role === "coder" && !labMode ? undefined : complexity.search_calls,
       discovery_read_calls: selected.role === "coder" && !labMode ? undefined : complexity.read_calls,

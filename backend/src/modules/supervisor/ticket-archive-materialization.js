@@ -5,6 +5,7 @@ import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink } from "node:fs/p
 import { dirname, join } from "node:path";
 import { ConfigurationError } from "../../shared/errors.js";
 
+// Defines fail function behavior for ticket-archive-materialization.js.
 const fail = (code, message) => Object.assign(new ConfigurationError(message), { code });
 
 // Creates a disposable archive and exposes a cleanup callback to the verification job.
@@ -46,6 +47,7 @@ function unpack(projectRoot, commitSha, destination) {
     let archiveCode;
     let tarCode;
     let settled = false;
+    // Defines finish function behavior for ticket-archive-materialization.js.
     const finish = () => {
       if (settled || archiveCode === undefined || tarCode === undefined) return;
       settled = true;

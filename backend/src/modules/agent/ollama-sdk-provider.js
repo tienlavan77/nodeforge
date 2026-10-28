@@ -31,6 +31,7 @@ export function createOllamaSdkProviderFactory({ credentialResolver } = {}) {
     });
   }
 
+  // Defines createForAgent function behavior for ollama-sdk-provider.js.
   async function createForAgent(profile) {
     const normalized = normalizeProfile(profile);
     const apiKey = await credentialResolver(normalized.credential_ref);

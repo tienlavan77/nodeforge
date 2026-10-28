@@ -148,6 +148,8 @@ export function createForgeV1ConversationRoutes({ conversationCrudService, conve
       active_stage_status: lastStage?.status ?? checkpoint.status ?? "in_progress", stage_progress: checkpoint.stage_progress ?? [],
       approval_retry: blockedStatus === "approval_retry_pending" ? { available_at: checkpoint.blocker_recovery.approval_retry.available_at, interval_ms: checkpoint.blocker_recovery.approval_retry.interval_ms } : null,
       last_completed_turn: checkpoint.last_completed_turn ?? 0, last_tool: checkpoint.last_tool ?? null, updated_at: checkpoint.updated_at ?? null,
+      failure: ["failed", "blocked"].includes(checkpoint.status) && checkpoint.failure ? { code: checkpoint.failure.code, message: String(checkpoint.failure.message ?? "").slice(0, 500),
+        at: checkpoint.failure.at ?? null, resume_allowed: checkpoint.failure.resume_allowed === true } : null,
       blocker_owner_input: blockedStatus === "reconciliation_required" && !checkpoint.blocker_recovery?.owner_response
         && checkpoint.blocker_recovery?.waiting_for?.some((entry) => entry?.owner === "external") === true,
       blocker_owner_decision: blockedStatus === "owner_required" && !checkpoint.blocker_recovery?.owner_decision };

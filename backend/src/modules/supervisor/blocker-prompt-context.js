@@ -63,7 +63,8 @@ function evidenceDelivery(job) {
       job_status: retained.job?.status ?? null, job_ref: retained.job?.evidence_ref ?? null, error: retained.job?.error,
       commit_sha: retained.job?.commit_sha ?? null, source_revision: retained.job?.source_revision ?? null,
       artifact_id: retained.artifact?.artifact_id ?? null, artifact_ref: retained.artifact?.evidence_ref ?? null,
-      commands: retained.artifact?.commands } : null,
+      commands: retained.artifact?.commands?.slice(0, 16).map(({ kind, exit_code }) => ({ kind, exit_code })),
+      command_count: retained.artifact?.commands?.length ?? 0 } : null,
     receipt_count: verification?.receipt_index?.length ?? 0, receipt_index_section: "verification_receipts",
     review_status: progress.review_status ?? null, runtime_capabilities: progress.runtime_capabilities ?? {},
     notice: "Current-source verification may be missing while retained diagnostics exist. Read issued receipts before requesting them again. Review phase is independent of technical recovery: preserve existing findings/cycle during finding_repair; unknown is not not_started. Only an evidenced not_started review has no report to retrieve. Historical receipts do not grant acceptance or authorize a denied operation." };
@@ -84,7 +85,8 @@ export async function createBlockerPromptContext({ job, failureEvidence, project
     owner_decisions: job.owner_decisions, owner_inputs: job.owner_inputs, coder_exchange: job.coder_exchange, execution_admission: job.execution_admission,
     message: job.message, evidence: job.evidence, validation_feedback: job.validation_feedback, coder_checkpoint: job.coder_checkpoint,
     coordination_feedback: job.coordination_feedback, waiting_assignments: job.waiting_assignments, waiting_work_history: job.waiting_work_history,
-    consultation_request: job.consultation_request, reviewer_evidence: job.reviewer_evidence, verification_receipts: job.ticket_progress?.verification?.receipt_index };
+    dependency_result: job.dependency_result, consultation_request: job.consultation_request, previous_handoff: job.previous_handoff,
+    reviewer_evidence: job.reviewer_evidence, verification_receipts: job.ticket_progress?.verification?.receipt_index };
   const refs = [], indexes = [];
   for (const [section, value] of Object.entries(sections)) {
     if (value === undefined || value === null) continue;
@@ -97,12 +99,17 @@ export async function createBlockerPromptContext({ job, failureEvidence, project
       refs.push(await persistContextPart(files, record));
     }
     const sectionRefs = refs.filter((entry) => entry.section === section);
-    for (let offset = 0; offset < sectionRefs.length; offset += 8) {
+    // Link index pages backwards so the inline directory has one entry per
+    // section even when a retained receipt or history spans thousands of parts.
+    let nextIndex;
+    for (let offset = Math.floor((sectionRefs.length - 1) / 8) * 8; offset >= 0; offset -= 8) {
       const record = { project_id: projectId, task_id: taskId, job_id: job.id, execution_id: job.request.payload?.execution_id ?? null,
         source_revision: job.request.execution_context?.source_revision ?? null, section, part: 0, total_parts: parts.length,
-        index_page: offset / 8 + 1, total_pages: Math.ceil(parts.length / 8), parts: sectionRefs.slice(offset, offset + 8) };
+        index_page: offset / 8 + 1, total_pages: Math.ceil(parts.length / 8), parts: sectionRefs.slice(offset, offset + 8),
+        ...(nextIndex ? { next_index: nextIndex } : {}) };
       const ref = await persistContextPart(files, record);
-      refs.push(ref); indexes.push({ ...ref, index_page: record.index_page, total_pages: record.total_pages });
+      refs.push(ref); nextIndex = ref;
+      if (offset === 0) indexes.push({ ...ref, index_page: record.index_page, total_pages: record.total_pages });
     }
   }
   const view = { ...job, ticket_progress: progressView(job),
@@ -122,6 +129,7 @@ export async function createBlockerPromptContext({ job, failureEvidence, project
       review_status: job.ticket_progress?.review_status, full_definition_section: "ticket_progress" },
     contract_context: "Read the contract_context section for exact retained AM decisions before resolving a contract question.",
     architecture_response: undefined, history: [], owner_decisions: [{ full_definition_section: "owner_decisions" }],
+    previous_handoff: job.previous_handoff ? { job_id: job.previous_handoff.job_id, reason_code: job.previous_handoff.reason_code, full_definition_section: "previous_handoff" } : undefined,
     owner_inputs: job.owner_inputs?.length ? [{ full_definition_section: "owner_inputs" }] : [],
     coder_exchange: job.coder_exchange ? { request_id: job.coder_exchange.request_id, full_definition_section: "coder_exchange" } : undefined,
     execution_admission: job.execution_admission ? { sha256: job.execution_admission.sha256, status: job.execution_admission.status,
@@ -131,7 +139,7 @@ export async function createBlockerPromptContext({ job, failureEvidence, project
     waiting_work_history: [], waiting_assignments: [{ full_definition_section: "waiting_assignments" }], coordination_feedback: "Read coordination_feedback section.",
     message: "Read message and failure_evidence sections for the original failure, including any denied operation.", evidence: [] };
   return { job: view, minimalJob, failureEvidence: compactBlockerPromptValue(failureEvidence), refs,
-    summary: `NODE EVIDENCE DELIVERY: ${JSON.stringify(compactBlockerPromptValue(evidenceDelivery(job)))}\nREAD-ONLY FULL CONTEXT INDEX: ${JSON.stringify(indexes)}\nDisplay excerpts are incomplete and grant no authority. Before deciding an unclear contract, denial or acceptance requirement, use read_file/read_lines on its section index, then read the listed parts. Join content_lines within each part and parts in order to recover the original JSON/text. Part hashes and assignment identities are enforced by Node. Context copies are delivery references, not implementation evidence: cite original source/check receipts and Node-issued authority passage IDs in dispositions. Criteria and verification definitions occur once in request.ticket; progress uses their positional IDs/indexes. Full test output stays at verification evidence_ref: read it in bounded windows of at most 80 lines and 8 KB, stop at whichever limit is reached first, and continue from the returned offset. Do not request a missing document that this index or an issued receipt already supplies.` };
+    summary: `NODE EVIDENCE DELIVERY: ${JSON.stringify(compactBlockerPromptValue(evidenceDelivery(job)))}\nREAD-ONLY FULL CONTEXT INDEX: ${JSON.stringify(indexes)}\nDisplay excerpts are incomplete and grant no authority. Before deciding an unclear contract, denial or acceptance requirement, use read_file/read_lines on its section index, then read the listed parts. Each section starts at index_page=1; follow next_index when the required part is on a later page. Join content_lines within each part and parts in order to recover the original JSON/text. Part hashes and assignment identities are enforced by Node. Context copies are delivery references, not implementation evidence: cite original source/check receipts and Node-issued authority passage IDs in dispositions. Criteria and verification definitions occur once in request.ticket; progress uses their positional IDs/indexes. Full test output stays at verification evidence_ref: read it in bounded windows of at most 80 lines and 8 KB, stop at whichever limit is reached first, and continue from the returned offset. Do not request a missing document that this index or an issued receipt already supplies.` };
 }
 
 // Reuses identical immutable snapshots quietly and rejects a conflicting existing object before granting any read reference.
@@ -176,11 +184,13 @@ export function assertBlockerPromptContext(file, job, ref) {
 // Re-arms a known terminal context failure once after the smaller prompt format is deployed, retaining the current consultation and Coder checkpoint.
 export function createBlockerPromptRefresh({ inspect, clock = Date.now, projectLogger = () => {} }) {
   return async (job) => {
-    if (job.outcome_reason !== "CONFIGURATION_ERROR" || !["sprint_leader", "architecture_manager"].includes(job.stage)
-      || !/Claude Code returned an error result: Prompt is too long/.test(job.last_error ?? "")
-      || job.prompt_context_version === 1 || job.stage === "architecture_manager" && job.resolution?.action !== "architecture_required") return false;
+    const localOverflow = job.outcome_reason === "BLOCKER_PROMPT_TOO_LARGE";
+    const providerOverflow = job.outcome_reason === "CONFIGURATION_ERROR"
+      && /Claude Code returned an error result: Prompt is too long/.test(job.last_error ?? "");
+    if ((!localOverflow && !providerOverflow) || !["sprint_leader", "architecture_manager"].includes(job.stage)
+      || job.prompt_context_version >= 2 || !localOverflow && job.stage === "architecture_manager" && job.resolution?.action !== "architecture_required") return false;
     if (!await inspect(job)) return false;
-    job.prompt_context_version = 1;
+    job.prompt_context_version = 2;
     job.history.push({ stage: job.stage, event: "prompt_context_recovery_scheduled", completed_at: clock(), previous_error: job.last_error });
     delete job.validation_feedback;
     projectLogger({ event_name: "supervisor.blocker_prompt_context_recovery", level: "info", status: "pending", task_id: job.request.task_id,

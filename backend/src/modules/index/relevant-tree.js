@@ -26,6 +26,7 @@ export function createRelevantTreeSelector({ search, fileGraph, embeddingStore =
   async function selectWithEmbeddings(args = {}) {
     const requestedLimit = Number.isInteger(args.limit) ? args.limit : maxFiles;
     const base = select({ ...args, limit: maxFiles });
+    // Defines limitedBase function behavior for relevant-tree.js.
     const limitedBase = () => Object.freeze({ ...base, tree: Object.freeze(base.tree.slice(0, requestedLimit)), limits: { ...base.limits, max_files: requestedLimit } });
     if (!embeddingStore || !embeddingProvider) return limitedBase();
     try {
@@ -43,6 +44,7 @@ export function createRelevantTreeSelector({ search, fileGraph, embeddingStore =
       const semanticValues = hits.map((entry) => Number(entry.score) || 0);
       const semanticMin = Math.min(...semanticValues, 0);
       const semanticMax = Math.max(...semanticValues, 1);
+      // Defines normalize function behavior for relevant-tree.js.
       const normalize = (value, min, max) => max > min ? (value - min) / (max - min) : 0;
       const merged = new Map(base.tree.map((entry) => [entry.path, { ...entry, score: normalize(Number(entry.score) || 0, lexicalMin, lexicalMax), reasons: [...(entry.reasons ?? entry.reason ?? [])] }]));
       for (const hit of hits) {
@@ -70,6 +72,7 @@ export function createRelevantTreeSelector({ search, fileGraph, embeddingStore =
     catch (error) { log("warn", "Relevant tree semantic freshness check failed; returning base selection.", error); return base; }
   }
 
+  // Defines applyFreshness function behavior for relevant-tree.js.
   function applyFreshness(base, paths, verdicts) {
     const byPath = new Map(verdicts.map((verdict) => [verdict.path, verdict.status]));
     const fresh = [];
@@ -85,7 +88,9 @@ export function createRelevantTreeSelector({ search, fileGraph, embeddingStore =
     const counts = { checked: paths.length, fresh: fresh.length, stale: stale.filter((entry) => entry.reason.some((reason) => reason.includes("index-stale"))).length, missing: verdicts.filter((verdict) => verdict.status === "missing").length, unreadable: verdicts.filter((verdict) => verdict.status === "unreadable").length };
     return Object.freeze({ ...base, tree, freshness: Object.freeze(counts), stale_paths: Object.freeze(stale.map((entry) => entry.path)) });
   }
+  // Defines log function behavior for relevant-tree.js.
   function log(level, message, error) { try { logger?.[level]?.(message, { error: error?.message }); } catch (loggingError) { void loggingError; } }
 }
 
+// Defines readWeight function behavior for relevant-tree.js.
 function readWeight(value, fallback) { const parsed = Number(value); return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : fallback; }

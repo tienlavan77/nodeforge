@@ -5,6 +5,7 @@ import { createReviewRecordStorage } from "./review-record-storage.js";
 import { acquireTicketFileLock } from "./ticket-file-lock.js";
 
 const ROOT = statePath("ticket-review-findings");
+// Defines fail function behavior for ticket-review-findings.js.
 const fail = (code, message) => Object.assign(new ConfigurationError(message), { code });
 
 // Tracks required findings with stable IDs and verified resolution references.

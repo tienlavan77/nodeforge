@@ -1,3 +1,5 @@
+// Provides module declarations and business logic for architecture-workspace-service.js.
+
 import { ConfigurationError } from "../shared/errors.js";
 
 // Application boundary for the read-only Architecture Workspace projection.
@@ -7,6 +9,7 @@ export function createArchitectureWorkspaceService({ knowledge } = {}) {
     throw new ConfigurationError("Architecture Workspace Service requires an Architecture Knowledge Model.");
   }
   return Object.freeze({ getWorkspace });
+  // Defines getWorkspace function behavior for architecture-workspace-service.js.
   function getWorkspace(projectId) {
     assertProjectId(projectId);
     const decisions = knowledge.getDecisions().filter((decision) => decision.project_id === projectId);
@@ -20,6 +23,7 @@ export function createArchitectureWorkspaceService({ knowledge } = {}) {
       decisions
     });
   }
+  // Defines scoped function behavior for architecture-workspace-service.js.
   function scoped(items, projectId) { return items.filter((item) => item.project_id === undefined || item.project_id === projectId); }
 }
 

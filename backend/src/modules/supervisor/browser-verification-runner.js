@@ -31,6 +31,7 @@ export async function runBrowserVerification({ step, sourceRoot, projectRoot, to
   if (sourcePath !== projectPath && !sourcePath.startsWith(`${projectPath}${sep}`)) throw new Error("Browser source must remain inside the project root.");
   if (step.scenario_path) return runProjectBrowserScenario({ step, sourceRoot, tools });
   const assets = new Map();
+  // Defines fixtureFor function behavior for browser-verification-runner.js.
   const fixtureFor = (index) => index >= 17 ? "layout" : index >= 13 ? "presence" : "fixture";
   for (const fixture of new Set(step.assertions.map((assertion) => fixtureFor(CODING_BROWSER_ASSERTIONS.indexOf(assertion))))) {
     const bundle = await buildCodingBrowserFixture({ build: tools.build, sourceRoot, presence: fixture === "presence", layout: fixture === "layout" });
