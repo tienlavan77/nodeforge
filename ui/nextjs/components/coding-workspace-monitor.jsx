@@ -55,7 +55,7 @@ export function CodingWorkspaceMonitor({ planEvents, projectId, dashboard, dashb
       </div>
     </section>
     <div className="workspace-monitor-dock" role="group" aria-label="Coding agent monitors">
-      <IdeasDock />
+      <IdeasDock projectId={projectId} />
       {workingAgents.map(({ agentId }) => {
         const profile = codingAgentProfile(agentDirectory, agentId, projectId);
         const key = codingAgentPanelKey(projectId, agentId);

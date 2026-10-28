@@ -38,14 +38,37 @@ export function selectProject(projectId) {
 // Return to the global directory without retaining an active project's clients or stream subscriptions.
 export function clearProjectSelection() { publish({ projectId: null, error: null }); }
 
+// Business purpose: synchronizes the global selectable project list from `/forge/v1/projects` catalog updates or SSE readiness changes so `ProjectDirectory` only needs a single initial catalog GET without a redundant `/lifecycle/list` call.
+// Technical description: filters catalog projects to those with `readiness === "ready"` (or no explicit non-ready readiness), updates `snapshot.projects`, and revokes active selection if the selected project is no longer ready.
+export function syncProjectsToSelection(catalogProjects = [], { selectInitial = false } = {}) {
+  if (!Array.isArray(catalogProjects)) return;
+  const projects = catalogProjects
+    .filter((project) => !project.readiness || project.readiness === "ready")
+    .map((project) => ({ ...project, project_id: project.project_id ?? project.projectId }));
+  const missing = snapshot.projectId && !projects.some((project) => project.project_id === snapshot.projectId);
+  const projectId = missing ? null : snapshot.projectId ?? (selectInitial && !snapshot.loaded && projects.length === 1 ? projects[0].project_id : null);
+  publish({ projects, projectId, loaded: true, stale: false, error: missing ? "Selected project is unavailable. Refresh or select an available project." : null });
+}
+
 // Refresh admitted identities and automatically use only the initial single-project configuration.
 export async function refreshProjects({ selectInitial = true } = {}) {
   const refresh = ++refreshGeneration;
   try {
-    const result = await requestJson(`${controlApiBase()}/lifecycle/list`, { cache: "no-store" });
+    let result;
+    try {
+      result = await requestJson(`${controlApiBase()}/lifecycle/list`, { cache: "no-store" });
+    } catch (primaryError) {
+      if (primaryError?.status === 404 || primaryError?.status === 405) {
+        result = await requestJson(`${controlApiBase()}/forge/v1/projects`, { cache: "no-store" });
+      } else {
+        throw primaryError;
+      }
+    }
     if (refresh !== refreshGeneration) return;
-    if (!Array.isArray(result?.projects) || result.projects.some((project) => typeof project.project_id !== "string")) throw new Error("Invalid backend admission response.");
-    const projects = result.projects;
+    if (!Array.isArray(result?.projects) || result.projects.some((project) => typeof (project.project_id ?? project.projectId) !== "string")) throw new Error("Invalid backend admission response.");
+    const projects = result.projects
+      .filter((project) => !project.readiness || project.readiness === "ready")
+      .map((project) => ({ ...project, project_id: project.project_id ?? project.projectId }));
     const missing = snapshot.projectId && !projects.some((project) => project.project_id === snapshot.projectId);
     const projectId = missing ? null : snapshot.projectId ?? (selectInitial && !snapshot.loaded && projects.length === 1 ? projects[0].project_id : null);
     publish({ projects, projectId, loaded: true, stale: false, error: missing ? "Selected project is unavailable. Refresh or select an available project." : null });
@@ -89,23 +112,24 @@ const globalOperations = new Set(["getAgents", "getAgent", "createAgent", "saveA
 const objectOperations = new Set(["listIdeas", "createIdea", "getIdea", "updateIdea", "deleteIdea", "createConversation", "listConversations", "postHumanDecision", "getConversationAuditHistory", "postOwnerMessage", "getConversationMessages", "saveConversationMarkdown", "connectConversationStream", "sendOwnerMessage", "connectProjectStream"]);
 
 // Bind existing operation-specific request shapes and callbacks to one immutable selection generation.
-export function bindProjectClient(client) {
+export function bindProjectClient(client, explicitProjectId) {
   const selection = snapshot;
-  if (!selection.loaded) return client;
+  const targetProjectId = (typeof explicitProjectId === "string" && explicitProjectId.trim()) ? explicitProjectId.trim() : selection.projectId;
+  if (!selection.loaded && !targetProjectId) return client;
   const bound = Object.fromEntries(Object.entries(client).map(([name, operation]) => [name, typeof operation !== "function" ? operation : (...args) => {
-    assertCurrent(selection);
+    if (selection.loaded && !explicitProjectId) assertCurrent(selection);
     if (!globalOperations.has(name)) {
-      if (!selection.projectId) throw new Error("Select an available project before continuing.");
+      if (!targetProjectId) throw new Error("Select an available project before continuing.");
       if (objectOperations.has(name) || (args[0] && typeof args[0] === "object" && "projectId" in args[0])) {
-        const options = { ...args[0], projectId: selection.projectId };
+        const options = { ...args[0], projectId: targetProjectId };
         for (const key of Object.keys(options)) {
           if (typeof options[key] === "function") {
             const callback = options[key];
-            options[key] = (...values) => { if (selection.generation === snapshot.generation) callback(...values); };
+            options[key] = (...values) => { if (!selection.loaded || selection.generation === snapshot.generation || explicitProjectId) callback(...values); };
           }
         }
         args[0] = options;
-      } else args[0] = selection.projectId;
+      } else args[0] = targetProjectId;
     }
     const result = operation.apply(bound, args);
     if (result?.close) {
@@ -114,8 +138,8 @@ export function bindProjectClient(client) {
       return stream;
     }
     if (!result?.then) return result;
-    return result.then((value) => { assertCurrent(selection); return value; }, (error) => {
-      assertCurrent(selection);
+    return result.then((value) => { if (selection.loaded && !explicitProjectId) assertCurrent(selection); return value; }, (error) => {
+      if (selection.loaded && !explicitProjectId) assertCurrent(selection);
       if (["PROJECT_NOT_FOUND", "PROJECT_UNAVAILABLE", "PROJECT_NOT_ADMITTED"].includes(String(error.code).toUpperCase())) {
         publish({ projectId: null, error: "Selected project is unavailable. Refresh or select an available project." });
       }

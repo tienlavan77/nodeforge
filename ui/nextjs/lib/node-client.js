@@ -15,7 +15,7 @@ import { createIdeasClient } from "./ideas-client.js";
 export { detectMessageIntent, MESSAGE_INTENTS, normalizeTicketInput };
 
 // Creates the Node control API client.
-export function createNodeClient() {
+export function createNodeClient(explicitProjectId) {
   const connectProjectStream = createProjectStreamClient(forgeV1);
   return bindProjectClient(Object.freeze({
     ...createIdeasClient(),
@@ -239,7 +239,7 @@ export function createNodeClient() {
       return { id: `local-${Date.now()}`, agentId, text, timestamp: new Date().toISOString() };
     },
     stream: null
-  }));
+  }), explicitProjectId);
 }
 
 // Returns a normalized error-like object for UI toast and inline display.
