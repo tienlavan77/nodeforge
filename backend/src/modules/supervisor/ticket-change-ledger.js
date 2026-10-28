@@ -87,6 +87,7 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
     if (!pending) return manifest;
     const live = await readOptional(path);
     if (sha(live) === pending.after_sha) {
+      if (pending.after_sha === null) await ledgerMove.pruneAfterDelete(path);
       manifest.entries[path].operations.push({ ...pending, revision: manifest.revision + 1, status: "completed" });
       manifest.entries[path].latest_sha = pending.after_sha;
       manifest.entries[path].pending = null;
@@ -143,15 +144,8 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
       await save(taskId, manifest);
       try { if (after === null) await fileService.deleteFile({ path }); else await fileService.atomicWrite({ path, content: after, replace: true }); }
       catch (error) {
-        entry.pending = null;
-        if (!entry.operations.length) {
-          delete manifest.entries[path];
-          if (!owned) {
-            // eslint-disable-next-line no-silent-catch -- Best-effort claim cleanup when a root write fails before completion.
-            try { await fileService.deleteFile({ path: claimPath(path) }); } catch { /* best-effort claim cleanup */ }
-          }
-        }
-        await save(taskId, manifest);
+        // eslint-disable-next-line no-silent-catch -- Reconciles pending write state when File Service throws before or after mutating disk.
+        try { await recoverSingle(taskId, path, manifest); } catch { /* retains pending state on reconciliation failure */ }
         projectLogger({ event_name: "ticket.change_write_failed", level: "error", status: "failed", message: "Ticket root write failed.", task_id: taskId, source: "ticket-change-ledger", error_code: error.code ?? "FILE_WRITE_FAILED", payload: { path } });
         throw error;
       }
@@ -220,8 +214,11 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
   // Reverts ticket-owned edits to their initial baseline and unlinks newly created files (initial_sha === null).
   async function rollback(taskId, { close = true } = {}) {
     return locked(`ticket:${taskId}`, async () => {
-      const manifest = await load(taskId);
+      let manifest = await load(taskId);
       if (manifest.state === "closed") return Object.keys(manifest.entries);
+      for (const path of Object.keys(manifest.entries)) {
+        if (manifest.entries[path]?.pending) manifest = await locked(`path:${path}`, () => recover(taskId, path, manifest));
+      }
       const paths = Object.keys(manifest.entries);
       for (const path of paths) await locked(`path:${path}`, async () => {
         const entry = manifest.entries[path];
