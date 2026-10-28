@@ -7,6 +7,17 @@ const SCOPE_BY_CODE = Object.freeze({ validation_failed: "field", invalid_ticket
 // Converts an error code to the same token used by the Control API.
 function token(value) { return String(value ?? "").trim().toLowerCase().replace(/[\s.-]+/g, "_"); }
 
+// Business purpose: preserves structured backend diagnostic context (stage, guidance, principal, ownership, path) so project management modals and cards can present actionable troubleshooting details alongside the primary error code and message.
+// Technical description: copies non-null diagnostic properties from the raw error payload into a plain object that is merged into the normalized UI error record.
+function extractDiagnostic(body) {
+  const extra = {};
+  for (const key of ["stage", "guidance", "principal", "ownership", "path", "rawCode"]) {
+    if (body?.[key] !== undefined && body[key] !== null) extra[key] = body[key];
+  }
+  if (typeof body?.code === "string" && body.code.trim()) extra.rawCode = body.code.trim();
+  return extra;
+}
+
 // Hides credentials and stack traces before an error reaches a component.
 export function safeMessage(raw, fallback) {
   if (typeof raw !== "string" || !raw.trim()) return fallback;
@@ -36,7 +47,7 @@ export function normalizeUiError(input, { requestId, fallback = "Request failed.
   const scope = ["field", "scoped", "global"].includes(rawScope) ? rawScope : SCOPE_BY_CODE[code] ?? (retryable ? "scoped" : "global");
   const id = String(requestId ?? body.requestId ?? "").trim() || null;
   const identifiers = safeIdentifiers(body.identifiers);
-  return { code, message, retryable, scope, requestId: id, ...(identifiers.length ? { identifiers } : {}) };
+  return { code, message, retryable, scope, requestId: id, ...extractDiagnostic(body), ...(identifiers.length ? { identifiers } : {}) };
 }
 
 // Exposes the canonical retry decision to UI controls.

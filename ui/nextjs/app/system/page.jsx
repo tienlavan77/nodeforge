@@ -36,8 +36,9 @@ import { ConversationProjectGit } from "../../components/conversation-project-gi
 import { SystemToolMode } from "../../components/system-tool-mode.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { createNodeClient, MESSAGE_INTENTS } from "../../lib/node-client.js";
+import { useParams, usePathname } from "next/navigation";
 import { architectureManagerSelection, writeArchitectureManagerAgent } from "../../lib/architecture-manager-selection.js";
-import { PROJECT_ID } from "../../lib/home-page-constants.js";
+import { resolveActiveProjectId } from "../../lib/home-page-constants.js";
 import { readChatState, writeChatState } from "../../lib/home-page-conversation-state.js";
 import { displayMessageTime, agentDisplayName } from "../../lib/home-page-watcher-events.js";
 import { useProjectEventStream } from "../../lib/home-page-event-stream.js";
@@ -46,10 +47,22 @@ import { useConversationMessageHistory } from "../../lib/use-conversation-messag
 import { normalizeUiError } from "../../lib/ui-error.js";
 
 // Opens and restores a conversation with a configured System Engineer agent in the System workspace.
-export default function SystemPage({ sectionTitle = "System" } = {}) {
+export default function SystemPage({ sectionTitle = "System", projectId: propProjectId } = {}) {
+  let params = null;
+  let pathname = null;
+  try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks -- Safe in Next App Router and guarded for standalone browser bundles.
+    params = useParams();
+    // eslint-disable-next-line react-hooks/rules-of-hooks -- Safe in Next App Router and guarded for standalone browser bundles.
+    pathname = usePathname();
+  } catch (error) {
+    params = null; pathname = null;
+  }
+  const routeProjectId = Array.isArray(params?.projectId) ? params.projectId[0] : params?.projectId;
+  const PROJECT_ID = resolveActiveProjectId({ explicitProjectId: propProjectId, routeProjectId, pathname });
   const CODING_AGENT_SELECTION_KEY = `${PROJECT_ID}:coding`;
   const CODING_CHAT_STATE_KEY = `nodeforge:coding:last:${PROJECT_ID}`;
-  const client = useMemo(() => createNodeClient(), []);
+  const client = useMemo(() => createNodeClient(PROJECT_ID), [PROJECT_ID]);
   const chatMessagesRef = useRef(null);
   const [agentDirectory, setAgentDirectory] = useState([]);
   const [selectedAgentId, setSelectedAgentId] = useState("");
@@ -89,6 +102,13 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
   });
 
   useEffect(() => {
+    setConversations([]); setActiveConversationId(null); activeConversationIdRef.current = null;
+    setMessages([]); setWatcherEvents([]); setAgentActivities([]); setAgentProcess(null);
+    setAgentTyping(false); setChatState(""); setGlobalError(null); setMarkdownPreviewPath("");
+    lastSentRef.current = null; sendingRef.current = false;
+  }, [PROJECT_ID, setMessages]);
+
+  useEffect(() => {
     let active = true;
     client.getAgents("system_engineer").then((payload) => {
       if (!active) return;
@@ -100,7 +120,7 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
       setSelectedAgentId(selected?.agent_id ?? selected?.id ?? "");
     }).catch((error) => { console.error("Unable to load system agents", error); if (active) setGlobalError(normalizeUiError(error, { fallback: "Could not load system agents." })); });
     return () => { active = false; };
-  }, [client]);
+  }, [client, CODING_AGENT_SELECTION_KEY]);
 
   useEffect(() => {
     if (!selectedAgent?.id) { setConversations([]); setActiveConversationId(null); setMessages([]); setMessagesLoading(false); return undefined; }
@@ -119,7 +139,7 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
         const conversationId = selected?.id ?? selected?.conversation_id ?? null;
         setActiveConversationId(conversationId);
         if (conversationId) { writeChatState(CODING_CHAT_STATE_KEY, selectedAgent.id, conversationId); void loadConversationMessages(conversationId); }
-        else setMessagesLoading(false);
+        else { setMessages([]); setMessagesLoading(false); }
       } catch (error) {
         if (!active) return;
         setConversations([]); setMessagesLoading(false);
@@ -128,7 +148,7 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
     }
     void loadConversations();
     return () => { active = false; };
-  }, [client, selectedAgent?.id]);
+  }, [client, PROJECT_ID, CODING_CHAT_STATE_KEY, selectedAgent?.id]);
 
   useProjectEventStream({
     client, projectId: PROJECT_ID, activeConversationIdRef, agentDirectoryRef, setMessages, setAgentTyping,
@@ -179,15 +199,15 @@ export default function SystemPage({ sectionTitle = "System" } = {}) {
     });
   };
   const { pendingMessages, submitMessage, cancelPendingMessage } = usePendingConversationQueue({
-    agentId: selectedAgent?.id, scopeKey: conversationRevision, isWorking: agentTyping, onSend: sendQueuedMessage
+    agentId: selectedAgent?.id, scopeKey: `${PROJECT_ID}:${conversationRevision}`, isWorking: agentTyping, onSend: sendQueuedMessage
   });
   const globalToastError = globalError ?? (chatState && !chatState.includes("successfully") ? chatState : null);
   const activeConversation = conversations.find((conversation) => String(conversation?.id ?? conversation?.conversation_id ?? conversation?.conversationId) === String(activeConversationId));
   const activeConversationTitle = activeConversation?.title ?? activeConversation?.name ?? "New system conversation";
   const displayMessages = groupAgentTurnMessages(messages);
 
-  return <div className={`claude-home-shell system-workspace${markdownPreviewPath ? " has-markdown-preview" : ""}`}>
-    <ConversationSidebar open={openSidebar} onOpen={() => setOpenSidebar(true)} onClose={() => setOpenSidebar(false)} agentSectionTitle={sectionTitle} architectureLabel={selectedAgent?.label} projects={[{ id: PROJECT_ID, name: "NodeForge" }]} selectedProjectId={PROJECT_ID} onProjectChange={() => {}} onNewConversation={handleNewConversation} architectureControl={<div className="claude-architecture-list" role="listbox" aria-label={`${sectionTitle} agents`}>
+  return <div className={`claude-home-shell system-workspace${markdownPreviewPath ? " has-markdown-preview" : ""}`} data-project-id={PROJECT_ID}>
+    <ConversationSidebar open={openSidebar} onOpen={() => setOpenSidebar(true)} onClose={() => setOpenSidebar(false)} agentSectionTitle={sectionTitle} architectureLabel={selectedAgent?.label} projects={[{ id: PROJECT_ID, name: PROJECT_ID }]} selectedProjectId={PROJECT_ID} onProjectChange={() => {}} onNewConversation={handleNewConversation} architectureControl={<div className="claude-architecture-list" role="listbox" aria-label={`${sectionTitle} agents`}>
       {systemAgents.map((agent) => <button type="button" role="option" aria-selected={agent.id === selectedAgentId} key={agent.id} onClick={() => { setSelectedAgentId(agent.id); writeArchitectureManagerAgent(CODING_AGENT_SELECTION_KEY, agent.id); }}><span className="claude-agent-option-avatar" aria-hidden="true">{agent.label.trim().slice(0, 1).toUpperCase()}</span><span>{agent.label}</span>{agent.id === selectedAgentId && <span className="claude-agent-option-check" aria-label="Selected agent">✓</span>}</button>)}
       {systemAgents.length === 0 && <p className="claude-coding-empty">No enabled System Engineer agent is available.</p>}
     </div>}>
