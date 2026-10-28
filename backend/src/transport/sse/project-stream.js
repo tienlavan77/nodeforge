@@ -9,7 +9,7 @@ const INDEX_EVENT_TYPES = new Set(["indexer.indexed", "watcher.indexed", "watche
 const PROJECT_EVENT_TYPES = new Set([...INDEX_EVENT_TYPES, "plan.request.generating", "plan.request.awaiting_owner_decisions", "plan.request.persisted", "plan.request.failed", "ticket.created", "ticket.updated", "ticket.status_change", "ticket.status_changed", "ticket.deleted", "ticket.creation", "sprint.created", "sprint.updated", "sprint.deleted", "conversation.message.delta", "conversation.message.received", "conversation.message.owner", "conversation.message.created", "conversation.message.completed", "conversation.message.failed", "conversation.agent.status_changed", "agent.status_changed", "agent.checkpoint.updated", "agent.started", "agent.step.started", "agent.step.completed", "agent.completed", "agent.failed", "agent.text_stream", "agent.message.delta", "agent.message.received", "agent.activity"]);
 
 /** Project-scoped SSE projection for the initial stream contract. */
-export function createProjectStream({ projectId, indexDb, watcherSnapshot, subscriptions, eventBus, bus, agentActivitySnapshot, heartbeatMs = 15000, clock = () => new Date().toISOString() } = {}) {
+export function createProjectStream({ projectId, indexDb, watcherSnapshot, runtimeSnapshot, subscriptions, eventBus, bus, agentActivitySnapshot, heartbeatMs = 15000, clock = () => new Date().toISOString() } = {}) {
   if (typeof projectId !== "string" || !projectId) throw new ConfigurationError("Project SSE requires a project id.");
   if (typeof indexDb?.all !== "function" && typeof watcherSnapshot?.snapshot !== "function") throw new ConfigurationError("Project SSE requires the Code Index database or Watcher Snapshot service.");
   if (typeof subscriptions?.subscribe !== "function" || typeof subscriptions?.unsubscribe !== "function") throw new ConfigurationError("Project SSE requires a Subscription Registry.");
@@ -77,6 +77,10 @@ export function createProjectStream({ projectId, indexDb, watcherSnapshot, subsc
     if (snapshot.watcher?.recent_events) {
       snapshot = { ...snapshot, watcher: { ...snapshot.watcher, recent_events: snapshot.watcher.recent_events
         .filter((event) => (event.project_id === undefined || event.project_id === projectId) && (event.metadata?.project_id === undefined || event.metadata.project_id === projectId)) } };
+    }
+    const runtimeState = typeof runtimeSnapshot === "function" ? runtimeSnapshot({ projectId }) : undefined;
+    if (runtimeState && typeof runtimeState === "object") {
+      snapshot = { ...snapshot, runtime: runtimeState };
     }
     write(envelope("stream.snapshot", snapshot));
 

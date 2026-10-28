@@ -31,8 +31,14 @@ export function createForgeV1Router({ assertAdmission, dispatchTicket, dispatchS
 
   // Selects SSE sources through the same admitted-project boundary as JSON operations.
   async function resolveStreams({ method, url, parts }) {
-    assertAdmission?.();
     const projectId = resolveProjectRequest({ method, url, parts });
+    if (method === "GET" && parts?.length === 1 && parts[0] === "stream" && typeof projectLifecycle?.getStream === "function") {
+      if (typeof projectId !== "string" || !projectId.trim()) throw Object.assign(new ConfigurationError("project is required."), { statusCode: 400, code: "PROJECT_REQUIRED" });
+      const lifecycleStream = await projectLifecycle.getStream(projectId);
+      if (lifecycleStream) return { projectStream: lifecycleStream, conversationStream: guardStream(conversationStream, assertAdmission) };
+      if (!resolveProjectRouter && !projectStream) throw Object.assign(new ConfigurationError("Project is unavailable."), { statusCode: 404, code: "PROJECT_NOT_FOUND" });
+    }
+    assertAdmission?.();
     if (resolveProjectRouter) {
       const selected = await selectProjectRouter({ projectId, resolveProjectRouter });
       return selected.resolveStreams({ method, url, parts });

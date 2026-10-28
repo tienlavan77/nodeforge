@@ -11,12 +11,13 @@ import { createIncrementalIndexer } from "../index/incremental-indexer.js";
 import { rebuildIndex } from "../index/index-rebuild.js";
 import { createIndexProgress } from "../index/index-progress.js";
 import { ProjectRegistry } from "../projects/project-registry.js";
+import { normalizeProjectComments } from "../projects/project-comment-normalization.js";
 import { createDebouncedWatcher } from "./debounced-watcher.js";
 
 const INDEX_RUNTIME_DIR = join(".forge", "runtime", "wc");
 const INDEX_DATABASE_PATH = [".forge", "runtime", "wc", "index.db"];
 
-export async function startProjectWatch({ projectRoot, loggerOptions, chokidarOptions, projectId, projectRegistry = new ProjectRegistry(), logger = console, internalBus, prepareDatabase, reconcile = false, onProgress = () => {}, progress = createIndexProgress({ onProgress }), watcherFactory = createFilesystemWatcher } = {}) {
+export async function startProjectWatch({ projectRoot, loggerOptions, chokidarOptions, projectId, projectRegistry = new ProjectRegistry(), logger = console, internalBus, prepareDatabase, reconcile = false, onProgress = () => {}, progress = createIndexProgress({ onProgress }), watcherFactory = createFilesystemWatcher, normalizeComments = false, coderNormalizer = null, rejectOnViolation = true, fallbackOnViolation = false } = {}) {
   const root = resolve(projectRoot ?? process.cwd());
   const config = loadConfig({ cwd: root });
   const resolvedProjectId = projectId ?? await projectRegistry.getOrCreate(root);
@@ -61,11 +62,38 @@ export async function startProjectWatch({ projectRoot, loggerOptions, chokidarOp
     resources = await prepareDatabase?.(database);
     const existingFiles = database.all("SELECT COUNT(*) AS count FROM files")[0].count;
     const baselineRebuilt = reconcile || !databaseExisted || existingFiles === 0;
+    if (baselineRebuilt) {
+      progress.stage("comment_normalization");
+      if (normalizeComments || typeof coderNormalizer === "function") {
+        await normalizeProjectComments({
+          projectRoot: root, projectId: resolvedProjectId, database, ignore: config.watcherIgnore,
+          coderNormalizer, rejectOnViolation, fallbackOnViolation, force: typeof coderNormalizer === "function",
+          internalBus, progress
+        });
+      }
+    }
     const baseline = baselineRebuilt
-      ? await rebuildIndex({ projectRoot: root, database, ignore: config.watcherIgnore, ...resources?.indexOptions, progress })
+      ? await rebuildIndex({
+        projectRoot: root, database, ignore: config.watcherIgnore, ...resources?.indexOptions, progress,
+        onFile(entry) {
+          resources?.indexOptions?.onFile?.(entry);
+          if (internalBus?.emit && entry.phase === "index" && entry.indexed) {
+            internalBus.emit("watcher.indexed", {
+              project_id: resolvedProjectId, type: "indexer.indexed", indexed: true,
+              timestamp: new Date().toISOString(), payload: { path: entry.path }
+            });
+          }
+        }
+      })
       : { indexedFiles: 0, succeeded: true };
     const baselineIndexedFiles = baseline.indexedFiles;
     if (!baseline.succeeded) throw Object.assign(new Error("Required indexing work failed."), { code: "index_failed", progress: baseline.progress });
+    if (typeof resources?.runInitialEmbeddings === "function") {
+      progress.stage("embedding");
+      await resources.runInitialEmbeddings();
+    } else if (baselineRebuilt) {
+      progress.stage("embedding");
+    }
     progress.stage("startup/readiness");
 
     const fileService = createFileService({ projectRoot: root, watcherIgnore: config.watcherIgnore });
