@@ -55,6 +55,22 @@ async function dragHeader(page, header, offsetX, targetX, targetY) {
 }
 
 /**
+ * Exercise the user-visible native resize grip at the bottom-right corner of the Ideas floating
+ * monitor so browser verification proves real pointer resizing rather than inline style assignment.
+ * Computes the panel bounding box, positions the pointer inside the native CSS resize handle,
+ * and drags by the requested horizontal and vertical deltas across multiple pointer move steps.
+ */
+async function dragResizeHandle(page, panel, deltaX, deltaY) {
+  const box = await panel.boundingBox();
+  const startX = Math.round(box.x + box.width - 4);
+  const startY = Math.round(box.y + box.height - 4);
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + deltaX, startY + deltaY, { steps: 6 });
+  await page.mouse.up();
+}
+
+/**
  * Open the conversation drawer on narrow mobile viewports and close overlapping system monitors.
  */
 async function openNavigationDrawerIfNeeded(page, viewport) {
@@ -134,7 +150,7 @@ export const browserAssertions = {
     assert.equal(await dockBtn.getAttribute("aria-pressed"), "false");
   },
 
-  "The expanded Ideas window supports native resize in both directions, and changed x, y, width, height, visible, and minimized values survive reload under the AM layout key.": async ({ page, viewport, origin }) => {
+  "The expanded Ideas window supports native resize in both directions, and changed x, y, width, height, visible, and minimized values survive reload under the AM layout key.": async ({ page, origin }) => {
     await resetWorkspace(page, origin);
     const { dockBtn, panel } = await openIdeasMonitor(page);
     assert.equal(await panel.evaluate((el) => getComputedStyle(el).resize), "both");
@@ -143,17 +159,21 @@ export const browserAssertions = {
     await dragHeader(page, header, 120, 2, 2);
     await dragHeader(page, header, 20, 38, 49);
 
-    const targetWidth = Math.min(320, viewport - 40);
-    const targetHeight = 310;
-    await panel.evaluate((el, size) => {
-      el.style.width = `${size.width}px`;
-      el.style.height = `${size.height}px`;
-    }, { width: targetWidth, height: targetHeight });
+    const initialBox = await panel.boundingBox();
+    const initialW = Math.round(initialBox.width);
+    const initialH = Math.round(initialBox.height);
+    await dragResizeHandle(page, panel, -55, -70);
+
+    const resizedBox = await panel.boundingBox();
+    const resizedW = Math.round(resizedBox.width);
+    const resizedH = Math.round(resizedBox.height);
+    assert.ok(resizedW !== initialW && resizedW < initialW);
+    assert.ok(resizedH !== initialH && resizedH < initialH);
 
     await page.waitForFunction(({ key, w, h }) => {
       const saved = JSON.parse(window.localStorage.getItem(key) || "null");
       return saved?.ideas && saved.ideas.width === w && saved.ideas.height === h && saved.ideas.visible === true;
-    }, { key: LAYOUT_KEY, w: targetWidth, h: targetHeight });
+    }, { key: LAYOUT_KEY, w: resizedW, h: resizedH });
 
     await header.getByRole("button", { name: /Thu gọn Ý tưởng|Mở rộng Ý tưởng/ }).click();
     assert.equal(await panel.evaluate((el) => getComputedStyle(el).resize), "none");
@@ -165,8 +185,8 @@ export const browserAssertions = {
     const beforeReload = await page.evaluate((key) => JSON.parse(window.localStorage.getItem(key)).ideas, LAYOUT_KEY);
     assert.equal(beforeReload.visible, true);
     assert.equal(beforeReload.minimized, true);
-    assert.equal(beforeReload.width, targetWidth);
-    assert.equal(beforeReload.height, targetHeight);
+    assert.equal(beforeReload.width, resizedW);
+    assert.equal(beforeReload.height, resizedH);
 
     await page.reload();
     await dockBtn.waitFor();
@@ -177,8 +197,8 @@ export const browserAssertions = {
     const afterBox = await panel.boundingBox();
     assert.equal(Math.round(afterBox.x), beforeReload.x);
     assert.equal(Math.round(afterBox.y), beforeReload.y);
-    assert.equal(Math.round(afterBox.width), targetWidth);
-    assert.equal(Math.round(afterBox.height), targetHeight);
+    assert.equal(Math.round(afterBox.width), resizedW);
+    assert.equal(Math.round(afterBox.height), resizedH);
   },
 
   "An unfinished Ideas draft survives minimize, close and reopen, and real AM conversation and agent changes during the same session.": async ({ page, viewport, origin }) => {
@@ -261,7 +281,7 @@ export const browserAssertions = {
 
     const header = panel.locator(".workspace-monitor-header");
     await dragHeader(page, header, 80, 30, 80);
-    await panel.evaluate((el) => { el.style.width = "300px"; el.style.height = "280px"; });
+    await dragResizeHandle(page, panel, -40, -50);
     await header.getByRole("button", { name: /Thu gọn Ý tưởng|Mở rộng Ý tưởng/ }).click();
     await header.getByRole("button", { name: /Thu gọn Ý tưởng|Mở rộng Ý tưởng/ }).click();
     await header.getByRole("button", { name: "Đóng Ý tưởng", exact: true }).click();
