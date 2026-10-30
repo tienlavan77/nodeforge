@@ -112,7 +112,7 @@ export function WorkspaceMonitorPanels({ watcherEvents = [], watcherState = "con
 
   return <>
     <div className="workspace-monitor-dock" role="group" aria-label="System monitors">
-      <IdeasDock />
+      {layoutScope === "home" && <IdeasDock />}
       {Object.entries(panels).map(([name, panel]) => <button key={name} type="button" aria-pressed={panel.visible && !panel.minimized} onClick={() => updatePanel(name, { visible: !panel.visible || panel.minimized, minimized: false })}><span className={`workspace-monitor-light${(name === "watcher" ? watcherActive : agentActive) ? " is-active" : name === "watcher" && watcherState !== "connected" ? " is-offline" : ""}`} aria-hidden="true" />{name === "watcher" ? "Watcher" : "Agent activity"}</button>)}
     </div>
     <div className="workspace-monitor-layer" onPointerMove={movePanel} onPointerUp={() => setDragging(null)}>
