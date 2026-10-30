@@ -6,10 +6,10 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
-import { executeTicketVerificationCommand } from "../../src/modules/supervisor/ticket-verification-command.js";
-import { collectVerificationFailures, redactVerificationText, createVerificationFailureCollector } from "../../src/modules/supervisor/ticket-verification-output.js";
-import { regressionFailureIdentity } from "../../src/modules/supervisor/ticket-verification-regression.js";
-import { verificationFailureCommands } from "../../src/modules/supervisor/ticket-verification-result.js";
+import { executeTicketVerificationCommand } from "../../src/modules/supervisor/ticket/ticket-verification-command.js";
+import { collectVerificationFailures, redactVerificationText, createVerificationFailureCollector } from "../../src/modules/supervisor/ticket/ticket-verification-output.js";
+import { regressionFailureIdentity } from "../../src/modules/supervisor/ticket/ticket-verification-regression.js";
+import { verificationFailureCommands } from "../../src/modules/supervisor/ticket/ticket-verification-result.js";
 
 test("URL redaction preserves JSON delimiters and masks credentials", () => {
   const line = JSON.stringify({ type: "output", text: "Listening http://127.0.0.1:3100\ntoken=example-password" });
@@ -24,7 +24,7 @@ test("full-stream failures survive 64KB logging without sending PASS output to t
   t.after(() => rm(root, { recursive: true, force: true }));
   const path = join(root, "noisy.test.cjs");
   await writeFile(path, "const test=require('node:test');const assert=require('node:assert/strict');\nconsole.log('PASS-NOISE-'+ 'x'.repeat(90000));console.log('Listening http://127.0.0.1:3100');\ntest('success',()=>{});test('repair me',()=>assert.equal(1,2));\n");
-  const reporter = new URL("../../src/modules/supervisor/ticket-verification-reporter.js", import.meta.url).pathname;
+  const reporter = new URL("../../src/modules/supervisor/ticket/ticket-verification-reporter.js", import.meta.url).pathname;
   const command = { kind: "backend_tests", scope: "ticket", test_paths: [path], argv: [process.execPath, "--test", `--test-reporter=${reporter}`, path] };
   const output = await executeTicketVerificationCommand({ ...command, cwd: root, environment: "project", timeoutMs: 10000 });
   assert.equal(output.exit_code, 1);

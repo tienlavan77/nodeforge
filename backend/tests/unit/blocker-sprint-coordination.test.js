@@ -2,9 +2,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker-recovery-contract.js";
-import { scheduleTechnicalReconciliation } from "../../src/modules/supervisor/blocker-technical-reconciliation.js";
-import { restoreSprintRecovery, delegateSprintRecovery } from "../../src/modules/supervisor/blocker-sprint-handoff.js";
+import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker/blocker-recovery-contract.js";
+import { scheduleTechnicalReconciliation } from "../../src/modules/supervisor/blocker/blocker-technical-reconciliation.js";
+import { restoreSprintRecovery, delegateSprintRecovery } from "../../src/modules/supervisor/blocker/blocker-sprint-handoff.js";
 
 const request = { action: "coder_requested", summary: "Prepare the in-scope handler change.", guidance: "Keep the approved handler contract unchanged.",
   coder_request: { questions: ["Propose the handler patch and focused test."], constraints: ["Preserve existing approval denials and immutable criteria."] } };

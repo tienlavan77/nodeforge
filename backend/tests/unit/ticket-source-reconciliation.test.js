@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { inspectTicketSource } from "../../src/modules/supervisor/ticket-source-reconciliation.js";
+import { inspectTicketSource } from "../../src/modules/supervisor/ticket/ticket-source-reconciliation.js";
 
 // Supplies read-only services and a journal whose contents must never reach the model.
 function fixture() {

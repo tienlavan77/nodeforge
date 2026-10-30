@@ -251,7 +251,7 @@ export const browserAssertions = {
 if (process.argv[1]?.endsWith("project-lifecycle.browser.mjs")) {
   setImmediate(async () => {
     try {
-      const { runBrowserVerification } = await import("../../../backend/src/modules/supervisor/browser-verification-runner.js");
+      const { runBrowserVerification } = await import("../../../backend/src/modules/supervisor/browser/browser-verification-runner.js");
       const receipt = await runBrowserVerification({ projectRoot: process.cwd(), sourceRoot: process.cwd(),
         step: { kind: "browser", scenario_path: "ui/nextjs/tests/project-lifecycle.browser.mjs", criterion_ids: ["AC-1"],
           viewports: [375, 768, 1440], assertions: Object.keys(browserAssertions) } });

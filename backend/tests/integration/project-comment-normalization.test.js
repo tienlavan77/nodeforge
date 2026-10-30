@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { createProjectLifecycle } from "../../src/modules/projects/project-lifecycle.js";
 import { startProjectRuntime } from "../../src/modules/projects/project-runtime.js";
 import { purposeSummaryInput } from "../../src/modules/index/purpose-summary-input.js";
-import { countBudgetLines } from "../../src/tools/agent-code-conventions.js";
+import { countBudgetLines } from "../../src/tools/governance/agent-code-conventions.js";
 import {
   inspectFileCommentNeeds,
   isEnglishComment,

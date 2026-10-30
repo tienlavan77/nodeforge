@@ -44,7 +44,8 @@ export function createClaudeSdkGateway({
     const stop = () => controller.abort(abortSignal.reason);
     abortSignal?.addEventListener("abort", stop, { once: true });
     if (abortSignal?.aborted) stop();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    // System Engineer sessions run until completion or explicit Stop, regardless of gateway duration.
+    const timeout = config.role === "system_engineer" ? null : setTimeout(() => controller.abort(), timeoutMs);
     const { canUseTool, onBuiltinToolEvent, onTextDelta, hooks, ...cloneableOptions } = options;
     delete cloneableOptions.mcpServers;
     delete cloneableOptions.forgeTools;

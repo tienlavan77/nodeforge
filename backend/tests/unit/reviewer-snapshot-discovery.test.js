@@ -3,8 +3,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { createReviewerForgeTools } from "../../src/modules/supervisor/reviewer-forge-tools.js";
-import { createCommittedReviewSource } from "../../src/modules/supervisor/reviewer-committed-source.js";
+import { createReviewerForgeTools } from "../../src/modules/supervisor/review/reviewer-forge-tools.js";
+import { createCommittedReviewSource } from "../../src/modules/supervisor/review/reviewer-committed-source.js";
 
 // Pins synthetic reviewed source independently of the real repository's mutable HEAD.
 const commit = "a".repeat(40);

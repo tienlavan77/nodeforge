@@ -3,13 +3,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { dependencyRepairFixture, waitForDependency } from "../fixtures/dependency-repair-fixture.js";
-import { createDependencyRepairCoordinator } from "../../src/modules/supervisor/dependency-repair-coordinator.js";
+import { createDependencyRepairCoordinator } from "../../src/modules/supervisor/coder/dependency-repair-coordinator.js";
 import { createTicketRunDispatch } from "../../src/application/ticket-run-dispatch.js";
 import { createApprovedTicketDispatch } from "../../src/application/approved-ticket-dispatch.js";
-import { createBlockerRecovery } from "../../src/modules/supervisor/blocker-recovery.js";
-import { automaticReviewPolicy } from "../../src/modules/supervisor/automatic-review-identity.js";
-import { beginAutomaticReview } from "../../src/modules/supervisor/automatic-review-stage.js";
-import { reviewRevisionResume } from "../../src/modules/supervisor/review-revision-resume.js";
+import { createBlockerRecovery } from "../../src/modules/supervisor/blocker/blocker-recovery.js";
+import { automaticReviewPolicy } from "../../src/modules/supervisor/review/automatic-review-identity.js";
+import { beginAutomaticReview } from "../../src/modules/supervisor/review/automatic-review-stage.js";
+import { reviewRevisionResume } from "../../src/modules/supervisor/review/review-revision-resume.js";
 
 // Connects real normal RUN and approved dispatch, controlling only Coder availability and SDK completion.
 function dispatcher(f) {
@@ -163,7 +163,7 @@ test("historical review completion cannot replay across a dependency repair rese
   const f = await dependencyRepairFixture(t);
   const id = await f.request(); await f.coordinator.tick();
   await waitForDependency(f, (entry) => entry?.dispatch_result);
-  const { isCompletedReviewReopened } = await import("../../src/modules/supervisor/completed-review-resume.js");
+  const { isCompletedReviewReopened } = await import("../../src/modules/supervisor/review/completed-review-resume.js");
   const old = { id: "OLD-REVIEW", task_id: "UP", payload: { execution_id: "RUN-UP" } };
   assert.equal(isCompletedReviewReopened(old, f.statuses), true);
   assert.equal(isCompletedReviewReopened({ ...old, id: "NEW-REVIEW", payload: { ...old.payload, review_cycle_id: id } }, f.statuses), false);

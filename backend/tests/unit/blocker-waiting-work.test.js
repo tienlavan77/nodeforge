@@ -1,13 +1,13 @@
 // Verifies missing evidence is assigned durably through SL while real external boundaries remain blocked.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assignWaitingWork, completeWaitingWork, validWaitingInput } from "../../src/modules/supervisor/blocker-waiting-work.js";
-import { scheduleTechnicalReconciliation, validateTechnicalReconciliation } from "../../src/modules/supervisor/blocker-technical-reconciliation.js";
-import { restoreSprintRecovery } from "../../src/modules/supervisor/blocker-sprint-handoff.js";
-import { returnArchitectureResponse } from "../../src/modules/supervisor/blocker-architecture-response.js";
-import { transitionCoderCandidate } from "../../src/modules/supervisor/blocker-coder-candidate.js";
+import { assignWaitingWork, completeWaitingWork, validWaitingInput } from "../../src/modules/supervisor/blocker/blocker-waiting-work.js";
+import { scheduleTechnicalReconciliation, validateTechnicalReconciliation } from "../../src/modules/supervisor/blocker/blocker-technical-reconciliation.js";
+import { restoreSprintRecovery } from "../../src/modules/supervisor/blocker/blocker-sprint-handoff.js";
+import { returnArchitectureResponse } from "../../src/modules/supervisor/blocker/blocker-architecture-response.js";
+import { transitionCoderCandidate } from "../../src/modules/supervisor/blocker/blocker-coder-candidate.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { completeAuthorityConsultation } from "../../src/modules/supervisor/blocker-authority-consultation.js";
+import { completeAuthorityConsultation } from "../../src/modules/supervisor/blocker/blocker-authority-consultation.js";
 
 // Supplies identity-bound source evidence without asserting the source journal conflict has been resolved.
 function jobFixture() {

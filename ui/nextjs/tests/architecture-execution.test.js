@@ -86,7 +86,7 @@ test("stream failures revalidate interrupted recovery controls on both chat page
     assert.match(page, /payload\?\.conversation_id === activeConversationIdRef\.current/);
     assert.match(page, /interruptionSignal=\{(architecture|system)Interruption\}/);
     assert.match(controls, /interruptionSignal = 0/);
-    assert.match(controls, /\[client, projectId, conversationId, interruptionSignal\]/);
+    assert.match(controls, /\[client, projectId, conversationId, executionId, agentTyping, interruptionSignal\]/);
     assert.doesNotMatch(controls, /refreshSignal|executionSignal/);
   }
 });

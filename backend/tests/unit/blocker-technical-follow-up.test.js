@@ -2,9 +2,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker-recovery-contract.js";
-import { buildResumePrompt, createResumeState } from "../../src/modules/supervisor/ticket-resume.js";
-import { technicalReconciliationPrompt } from "../../src/modules/supervisor/blocker-technical-reconciliation.js";
+import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker/blocker-recovery-contract.js";
+import { buildResumePrompt, createResumeState } from "../../src/modules/supervisor/ticket/ticket-resume.js";
+import { technicalReconciliationPrompt } from "../../src/modules/supervisor/blocker/blocker-technical-reconciliation.js";
 
 const technical = { action: "reconciliation_required", summary: "The approved contract needs a baseline comparison.",
   guidance: "Compare the retained execution baseline and current source, then complete the existing design.",

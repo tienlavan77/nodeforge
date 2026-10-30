@@ -6,9 +6,9 @@ import { promisify } from "node:util";
 import { mkdtemp, mkdir, readFile, writeFile, rm, symlink, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createTicketRootGit } from "../../src/modules/supervisor/ticket-root-git.js";
-import { captureVerificationEnvironment, loadVerificationEnvironment, readVerificationEnvironmentFile, persistVerificationEnvironment } from "../../src/modules/supervisor/ticket-verification-environment.js";
-import { materializeTicketVerification } from "../../src/modules/supervisor/ticket-verification-materialization.js";
+import { createTicketRootGit } from "../../src/modules/supervisor/ticket/ticket-root-git.js";
+import { captureVerificationEnvironment, loadVerificationEnvironment, readVerificationEnvironmentFile, persistVerificationEnvironment } from "../../src/modules/supervisor/ticket/ticket-verification-environment.js";
+import { materializeTicketVerification } from "../../src/modules/supervisor/ticket/ticket-verification-materialization.js";
 
 const execute = promisify(execFile);
 

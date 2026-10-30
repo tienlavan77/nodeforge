@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { readBlockerContracts, retainBlockerContract } from "../../src/modules/supervisor/blocker-contract-evidence.js";
-import { createReviewWorker } from "../../src/modules/supervisor/review-worker.js";
+import { readBlockerContracts, retainBlockerContract } from "../../src/modules/supervisor/blocker/blocker-contract-evidence.js";
+import { createReviewWorker } from "../../src/modules/supervisor/review/review-worker.js";
 
 // Stores two exact plan revisions and an original AM receipt to exercise real checksum-bound inheritance.
 async function fixture(t, alter = () => {}) {

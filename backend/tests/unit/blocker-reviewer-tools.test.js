@@ -3,10 +3,10 @@
  * output and no write, test, approval or formal review capabilities. */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createBlockerReviewerTools } from "../../src/modules/supervisor/blocker-reviewer-tools.js";
-import { createBlockerRecoveryAgent } from "../../src/modules/supervisor/blocker-recovery-agent.js";
-import { blockerExchangePrompt } from "../../src/modules/supervisor/blocker-exchange-prompt.js";
-import { blockerReviewerExchange } from "../../src/modules/supervisor/blocker-reviewer-evidence.js";
+import { createBlockerReviewerTools } from "../../src/modules/supervisor/blocker/blocker-reviewer-tools.js";
+import { createBlockerRecoveryAgent } from "../../src/modules/supervisor/blocker/blocker-recovery-agent.js";
+import { blockerExchangePrompt } from "../../src/modules/supervisor/blocker/blocker-exchange-prompt.js";
+import { blockerReviewerExchange } from "../../src/modules/supervisor/blocker/blocker-reviewer-evidence.js";
 import { blockerReviewerEvidenceFixture } from "../fixtures/blocker-reviewer-evidence-fixture.js";
 import { createAgentExchangeOutput } from "../../src/modules/governance/agent-exchange-output.js";
 

@@ -1,7 +1,7 @@
 // Preserves the observed Sprint execution basis through the production ticket submission boundary.
 import { assertApprovedTicket } from "../modules/governance/sprint-plan-draft.js";
 import { matchesTicketExecution } from "../modules/projects/ticket-execution-identity.js";
-import { assertDependencySubmission } from "../modules/supervisor/ticket-dependency-expectations.js";
+import { assertDependencySubmission } from "../modules/supervisor/ticket/ticket-dependency-expectations.js";
 
 // Rejects obsolete RUN intent instead of silently submitting against a newly bound Sprint revision.
 export function createApprovedTicketDispatch({ projectId, sprintRegistry, ticketStatusStore, integration }) {

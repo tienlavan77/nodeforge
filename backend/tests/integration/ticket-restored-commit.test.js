@@ -5,8 +5,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ticketRestoredCommitFixture } from "../fixtures/ticket-restored-commit-fixture.js";
 import { createForgeToolRegistry } from "../../src/tools/index.js";
-import { createTicketReportCommit } from "../../src/tools/ticket-report-commit.js";
-import { checkpointedRegistry, createResumeState } from "../../src/modules/supervisor/ticket-resume.js";
+import { createTicketReportCommit } from "../../src/tools/reporting/ticket-report-commit.js";
+import { checkpointedRegistry, createResumeState } from "../../src/modules/supervisor/ticket/ticket-resume.js";
 
 test("restored ticket reuses its commit after restart and unrelated HEAD changes, preserving original receipts", async (t) => {
   const f = await ticketRestoredCommitFixture(t);

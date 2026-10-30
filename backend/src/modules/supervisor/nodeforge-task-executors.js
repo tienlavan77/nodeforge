@@ -1,20 +1,20 @@
 // Runs Claude, Codex, OpenAI, and Ollama SDK flows for governed ticket work.
 import { ConfigurationError } from "../../shared/errors.js";
-import { createForgeSdkMcpServer, forgeSdkToolNames } from "../../tools/claude-sdk-forge-tools.js";
-import { createClaudeForgeOptions } from "../../tools/claude-forge-options.js";
-import { classifyTicketComplexity } from "../../tools/ticket-complexity.js";
+import { createForgeSdkMcpServer, forgeSdkToolNames } from "../../tools/roles/claude-sdk-forge-tools.js";
+import { createClaudeForgeOptions } from "../../tools/roles/claude-forge-options.js";
+import { classifyTicketComplexity } from "../../tools/governance/ticket-complexity.js";
 import { selectCodeGraphCandidatesDefinition, searchCodeDefinition, readFileDefinition, rgFilesDefinition, rgSearchDefinition, sedLinesDefinition, writeDiffDefinition, editDiffDefinition, runTestDefinition, checkTestDefinition, commitChangesDefinition, reportDoneDefinition, gitStatusDefinition, gitDiffDefinition } from "../../tools/index.js";
-import { saveProgressCheckpoint } from "./ticket-checkpoint-writer.js";
-import { buildResumePrompt, checkpointedRegistry, createResumeState, failureDetail } from "./ticket-resume.js";
+import { saveProgressCheckpoint } from "./ticket/ticket-checkpoint-writer.js";
+import { buildResumePrompt, checkpointedRegistry, createResumeState, failureDetail } from "./ticket/ticket-resume.js";
 import { isProtectedPath } from "../../infrastructure/filesystem/protected-path-policy.js";
 import { ticketAllowedPrefixes } from "./nodeforge-task-scope.js";
 import { COMPLEXITY_FALLBACK, buildCodexTicketPrompt, buildCodexToolTestPrompt, buildToolTicketPrompt, buildToolTestPrompt } from "./nodeforge-task-prompts.js";
 import { collectToolCalls, extractFinalAgentReport, sdkToolEvent } from "./nodeforge-task-sdk-events.js";
-import { runTicketSdkTurns } from "./ticket-sdk-turns.js";
+import { runTicketSdkTurns } from "./ticket/ticket-sdk-turns.js";
 import { bindEngineeringTools } from "../../tools/engineering-tool-binding.js";
 import { CODER_TOOL_NAMES, coderToolDefinitions } from "../../tools/engineering-tool-catalog.js";
-import { coderFailureTriage } from "./coder-recovery-policy.js";
-import { withCoderExchange, coderExchangePrompt } from "./coder-agent-exchange.js";
+import { coderFailureTriage } from "./coder/coder-recovery-policy.js";
+import { withCoderExchange, coderExchangePrompt } from "./coder/coder-agent-exchange.js";
 import { createFunctionCallingTaskExecutor } from "./function-calling-task-executor.js";
 
 const CODER_FORGE_TOOL_NAMES = new Set(CODER_TOOL_NAMES.map((name) => `mcp__forge__${name}`));

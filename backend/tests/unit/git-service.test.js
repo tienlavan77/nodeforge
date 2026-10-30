@@ -32,7 +32,7 @@ test("Git Service commits only explicitly staged paths and returns SHA", async (
   const git = createGitService({ projectRoot: "/repo", runGit: fake.run });
   const result = await git.commit("feat: add example", { paths: ["src/example.js"] });
   assert.equal(result.sha, "a".repeat(40));
-  assert.deepEqual(fake.calls.find((args) => args[0] === "add"), ["add", "--", ":(literal)src/example.js"]);
+  assert.deepEqual(fake.calls.find((args) => args[0] === "add"), ["add", "-f", "--", ":(literal)src/example.js"]);
   assert.deepEqual(fake.calls.find((args) => args[0] === "commit"), ["commit", "--only", "-m", "feat: add example", "--", ":(literal)src/example.js"]);
 });
 
@@ -141,4 +141,41 @@ test("Git Service reads the unstaged patch and rejects Git command failures", as
 test("Git Service refuses discard of a missing branch", async () => {
   const git = createGitService({ projectRoot: "/repo", runGit: fakeGit().run });
   await assert.rejects(() => git.discardBranch("task/MISSING"), (error) => error.code === "GIT_BRANCH_NOT_FOUND");
+});
+
+// Ensures already-staged deletions (such as git rm or git mv old paths) do not abort git add during commit.
+test("Git Service commits paths when some requested paths are already staged deletions in the index", async () => {
+  const calls = [];
+  const git = createGitService({
+    projectRoot: "/repo",
+    runGit: async (args) => {
+      calls.push(args);
+      if (args[0] === "add" && args.includes(":(literal)backend/src/domain/.gitkeep")) {
+        return { stdout: "", stderr: "fatal: pathspec ':(literal)backend/src/domain/.gitkeep' did not match any files\n", exitCode: 128 };
+      }
+      if (args[0] === "diff" && args.includes("--diff-filter=D")) {
+        return { stdout: "backend/src/domain/.gitkeep\0", exitCode: 0 };
+      }
+      if (args[0] === "diff" && args.includes("--cached")) {
+        return { stdout: "backend/src/domain/.gitkeep\0src/example.js\0", exitCode: 0 };
+      }
+      if (args[0] === "rev-parse") return { stdout: `${"a".repeat(40)}\n`, exitCode: 0 };
+      return { stdout: "ok\n", exitCode: 0 };
+    }
+  });
+  const result = await git.commit("chore: remove gitkeep and update example", {
+    paths: ["backend/src/domain/.gitkeep", "src/example.js"]
+  });
+  assert.equal(result.sha, "a".repeat(40));
+  assert.deepEqual(
+    calls.filter((args) => args[0] === "add"),
+    [
+      ["add", "-f", "--", ":(literal)backend/src/domain/.gitkeep", ":(literal)src/example.js"],
+      ["add", "-f", "--", ":(literal)src/example.js"]
+    ]
+  );
+  assert.deepEqual(
+    calls.find((args) => args[0] === "commit"),
+    ["commit", "--only", "-m", "chore: remove gitkeep and update example", "--", ":(literal)backend/src/domain/.gitkeep", ":(literal)src/example.js"]
+  );
 });

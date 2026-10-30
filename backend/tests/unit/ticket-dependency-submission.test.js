@@ -15,7 +15,7 @@ import { createNodeforgeTaskIntegration } from "../../src/modules/supervisor/nod
 import { createDurableQueue } from "../../src/modules/supervisor/durable-queue.js";
 import { createFileQueueStore } from "../../src/modules/supervisor/file-queue-store.js";
 import { runFencedSprintLevels } from "../../src/modules/supervisor/sprint-execution-wait.js";
-import { assertDependencyExpectations, assertDependencySubmission } from "../../src/modules/supervisor/ticket-dependency-expectations.js";
+import { assertDependencyExpectations, assertDependencySubmission } from "../../src/modules/supervisor/ticket/ticket-dependency-expectations.js";
 import { createForgeToolRegistry } from "../../src/tools/index.js";
 import { createRuntimeToolGovernance } from "../../src/modules/governance/runtime-tool-governance.js";
 

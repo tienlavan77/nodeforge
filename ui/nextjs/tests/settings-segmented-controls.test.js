@@ -47,7 +47,12 @@ test("both chat pages mount the segmented settings control on the selected agent
   const system = await readFile("ui/nextjs/app/system/page.jsx", "utf8");
   for (const [name, page] of [["architecture", architecture], ["system", system]]) {
     assert.match(page, /import \{ SystemToolMode \} from/, `${name} page must mount SystemToolMode`);
-    assert.match(page, /<SystemToolMode key=\{[^}]*\.id\} agent=\{/, `${name} page must key the control by agent`);
+    const agent = name === "architecture" ? "selectedArchitectureManager" : "selectedAgent";
+    const key = page.match(/<SystemToolMode key=\{([^\n]+?)\} agent=/)[1];
+    const { runInNewContext } = await import("node:vm");
+    for (const id of ["agent-a", "agent-b"]) {
+      assert.equal(runInNewContext(key, { PROJECT_ID: "PROJECT-A", [agent]: { id } }), name === "architecture" ? `PROJECT-A:${id}` : id);
+    }
   }
 });
 

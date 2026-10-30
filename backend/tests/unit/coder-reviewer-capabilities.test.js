@@ -6,17 +6,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { isAgentPathAllowed } from "../../src/tools/tool-authorization.js";
-import { assertDiscoveryBudget, cloneExplorationState, discoveryNotice, recordRead } from "../../src/tools/exploration-state.js";
-import { createReportDoneTool } from "../../src/tools/agent-report-tool.js";
-import { createCheckTestTool } from "../../src/tools/agent-verification-tools.js";
-import { createTicketFocusedCheck } from "../../src/modules/supervisor/ticket-focused-check.js";
-import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket-change-ledger.js";
-import { createTicketExecutionContextStore } from "../../src/modules/supervisor/ticket-execution-context.js";
-import { createReviewerForgeTools } from "../../src/modules/supervisor/reviewer-forge-tools.js";
-import { createTicketReviewFindingsStore } from "../../src/modules/supervisor/ticket-review-findings.js";
-import { parseReviewVerdict } from "../../src/modules/supervisor/review-verdict-contract.js";
-import { publishAutomaticReviewOutcome } from "../../src/modules/supervisor/automatic-review-audit.js";
+import { isAgentPathAllowed } from "../../src/tools/governance/tool-authorization.js";
+import { assertDiscoveryBudget, cloneExplorationState, discoveryNotice, recordRead } from "../../src/tools/discovery/exploration-state.js";
+import { createReportDoneTool } from "../../src/tools/reporting/agent-report-tool.js";
+import { createCheckTestTool } from "../../src/tools/governance/agent-verification-tools.js";
+import { createTicketFocusedCheck } from "../../src/modules/supervisor/ticket/ticket-focused-check.js";
+import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket/ticket-change-ledger.js";
+import { createTicketExecutionContextStore } from "../../src/modules/supervisor/ticket/ticket-execution-context.js";
+import { createReviewerForgeTools } from "../../src/modules/supervisor/review/reviewer-forge-tools.js";
+import { createTicketReviewFindingsStore } from "../../src/modules/supervisor/ticket/ticket-review-findings.js";
+import { parseReviewVerdict } from "../../src/modules/supervisor/review/review-verdict-contract.js";
+import { publishAutomaticReviewOutcome } from "../../src/modules/supervisor/review/automatic-review-audit.js";
 
 const sha = (content) => `sha256:${createHash("sha256").update(content).digest("hex")}`;
 

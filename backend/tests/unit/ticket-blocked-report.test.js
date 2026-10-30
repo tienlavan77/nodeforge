@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 import Ajv2020 from "ajv/dist/2020.js";
-import { createReportDoneTool } from "../../src/tools/agent-report-tool.js";
+import { createReportDoneTool } from "../../src/tools/reporting/agent-report-tool.js";
 import { assertTicketExecutionCompleted, collectToolCalls, sdkToolEvent } from "../../src/modules/supervisor/nodeforge-task-sdk-events.js";
-import { handleTicketExecutionFailure } from "../../src/modules/supervisor/ticket-execution-failure.js";
-import { coderFailureTriage } from "../../src/modules/supervisor/coder-recovery-policy.js";
+import { handleTicketExecutionFailure } from "../../src/modules/supervisor/ticket/ticket-execution-failure.js";
+import { coderFailureTriage } from "../../src/modules/supervisor/coder/coder-recovery-policy.js";
 
 const ticket = { id: "TICKET-LIFECYCLE", acceptance_criteria: ["Implement approved project management contract"] };
 const input = {

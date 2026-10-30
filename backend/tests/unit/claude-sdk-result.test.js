@@ -5,8 +5,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { claudeSdkResult } from "../../src/modules/agent/claude-sdk-result.js";
 import { createClaudeSdkGateway } from "../../src/modules/agent/claude-sdk-gateway.js";
-import { classifyCoderFailure } from "../../src/modules/supervisor/coder-failure-routing.js";
-import { reviewOperationalFailure } from "../../src/modules/supervisor/review-operational-failure.js";
+import { classifyCoderFailure } from "../../src/modules/supervisor/coder/coder-failure-routing.js";
+import { reviewOperationalFailure } from "../../src/modules/supervisor/review/review-operational-failure.js";
 import { sdkFailureEvidence } from "../../src/modules/agent/sdk-failure-evidence.js";
 
 /** Constructs an isolated gateway with SDK messages supplied by the test, using

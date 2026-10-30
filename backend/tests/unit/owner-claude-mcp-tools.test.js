@@ -1,7 +1,7 @@
 // Verifies Claude tool declarations remain gateway compatible without changing Forge path protection.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { claudeToolInputSchema } from "../../src/tools/owner-claude-mcp-tools.js";
+import { claudeToolInputSchema } from "../../src/tools/roles/owner-claude-mcp-tools.js";
 import { readFileDefinition, writeDiffDefinition, editDiffDefinition } from "../../src/tools/index.js";
 
 test("Claude tool declarations omit unsupported path lookaheads without mutating Forge schemas", () => {

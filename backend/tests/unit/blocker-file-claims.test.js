@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { inspectBlockerFileClaims } from "../../src/modules/supervisor/blocker-file-claims.js";
+import { inspectBlockerFileClaims } from "../../src/modules/supervisor/blocker/blocker-file-claims.js";
 
 test("SL and AM receive refreshed Node claim observations across an ownership reconciliation", async () => {
   const snapshots = [];

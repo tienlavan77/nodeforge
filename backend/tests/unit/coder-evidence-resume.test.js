@@ -1,10 +1,10 @@
 // Verifies incomplete legacy reports resume Coder evidence collection instead of replaying completion.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { coderEvidenceResume } from "../../src/modules/supervisor/coder-evidence-resume.js";
+import { coderEvidenceResume } from "../../src/modules/supervisor/coder/coder-evidence-resume.js";
 import { createTicketRunDispatch } from "../../src/application/ticket-run-dispatch.js";
-import { buildResumePrompt, createResumeState } from "../../src/modules/supervisor/ticket-resume.js";
-import { createTicketReviewFindingsStore } from "../../src/modules/supervisor/ticket-review-findings.js";
+import { buildResumePrompt, createResumeState } from "../../src/modules/supervisor/ticket/ticket-resume.js";
+import { createTicketReviewFindingsStore } from "../../src/modules/supervisor/ticket/ticket-review-findings.js";
 
 const checkpoint = { task_id: "TICKET-1", status: "completed", phase: "coder_reported", completed_at: "2026-10-13", agent_id: "CODER-1", provider: "codex", thread_id: "THREAD-1", last_completed_turn: 4, changed_paths: ["ui/page.jsx"], completed_tools: ["edit_diff", "commit_changes", "run_check", "report_done"], turn_history: [{ tool: "commit_changes" }, { tool: "report_done" }] };
 const pendingReport = { status: "submitted_for_review", criteria_check: [{ criterion_id: "AC-10", status: "evidence_pending" }] };

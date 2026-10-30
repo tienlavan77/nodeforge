@@ -1,7 +1,7 @@
 /** Renders the same structured request contract for every provider, keeping
  * agent responses concise and separating investigation from formatting repair. */
 import { createRequire } from "node:module";
-import { reviewVerificationInstructions } from "../supervisor/review-verification-contract.js";
+import { reviewVerificationInstructions } from "../supervisor/review/review-verification-contract.js";
 import { agentDecisionSchema } from "./agent-decision-schema.js";
 import { schemaLookupInstructions } from "./agent-role-guidance.js";
 const require = createRequire(import.meta.url);

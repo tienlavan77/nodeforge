@@ -2,8 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { hasFileHeaderComment, hasPrecedingComment, extractPrecedingCommentBlock, validateCommentLanguage } from "../../src/tools/agent-code-conventions.js";
-import { createWriteDiffTool, createEditDiffTool } from "../../src/tools/agent-lifecycle-tools.js";
+import { hasFileHeaderComment, hasPrecedingComment, extractPrecedingCommentBlock, validateCommentLanguage } from "../../src/tools/governance/agent-code-conventions.js";
+import { createWriteDiffTool, createEditDiffTool } from "../../src/tools/governance/agent-lifecycle-tools.js";
 
 // Supplies observable in-memory writes for convention enforcement without changing project files.
 function fixture(initial = "const existing = 1;") {

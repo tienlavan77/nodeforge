@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { automaticReviewFixture } from "../fixtures/automatic-review-fixture.js";
-import { bindAutomaticReviewCycle } from "../../src/modules/supervisor/automatic-review-identity.js";
+import { bindAutomaticReviewCycle } from "../../src/modules/supervisor/review/automatic-review-identity.js";
 
 // Records a Node-owned repair cycle while retaining the original ticket's historical review policy.
 async function bindRepair(fixture, cycle = "REPAIR-CYCLE") {

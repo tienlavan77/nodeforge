@@ -1,7 +1,7 @@
 // Verifies that Node chooses checks relevant to a Coder's changed files.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createRunTestTool } from "../../src/tools/agent-verification-tools.js";
+import { createRunTestTool } from "../../src/tools/governance/agent-verification-tools.js";
 
 test("run_test checks changed UI tests and frontend build", async () => {
   const requests = [];

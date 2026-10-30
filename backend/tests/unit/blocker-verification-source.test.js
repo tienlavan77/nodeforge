@@ -4,8 +4,8 @@ import test from "node:test";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createTicketRootGit } from "../../src/modules/supervisor/ticket-root-git.js";
-import { inspectVerificationSource } from "../../src/modules/supervisor/blocker-verification-source.js";
+import { createTicketRootGit } from "../../src/modules/supervisor/ticket/ticket-root-git.js";
+import { inspectVerificationSource } from "../../src/modules/supervisor/blocker/blocker-verification-source.js";
 
 // Creates the source-composition fault where an importer is committed but its module is workspace-only.
 async function fixture() {

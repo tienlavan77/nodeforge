@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { createWriteDiffTool } from "../../src/tools/agent-lifecycle-tools.js";
+import { createWriteDiffTool } from "../../src/tools/governance/agent-lifecycle-tools.js";
 
 // Keeps source cached when an atomic write fails after checksum validation.
 test("write failure does not invalidate a previously cached entry", async () => {

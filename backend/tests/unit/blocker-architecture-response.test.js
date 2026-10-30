@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker-recovery-contract.js";
+import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker/blocker-recovery-contract.js";
 
 const request = { action: "coder_requested", summary: "Prepare the approved handler change.", guidance: "Use the AM answer and preserve existing gates.",
   coder_request: { questions: ["Propose the handler patch."], constraints: ["Preserve initialization and denied-operation boundaries."] } };

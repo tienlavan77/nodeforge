@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { dependencyRepairFixture, waitForDependency } from "../fixtures/dependency-repair-fixture.js";
 import { prepareFindingReviewRepair } from "../../src/modules/supervisor/finding-review-repair-workspace.js";
-import { createDependencyRepairCoordinator } from "../../src/modules/supervisor/dependency-repair-coordinator.js";
+import { createDependencyRepairCoordinator } from "../../src/modules/supervisor/coder/dependency-repair-coordinator.js";
 
 const QUEUE = "ticket.dependency-repair";
 const REVIEW_KEY = `sha256:${"d".repeat(64)}`;

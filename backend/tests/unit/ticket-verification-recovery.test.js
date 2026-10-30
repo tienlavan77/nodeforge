@@ -1,7 +1,7 @@
 // Verifies Node refreshes stale ticket evidence once without asking the Coder to rerun tests.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createTicketVerificationRecovery } from "../../src/modules/supervisor/ticket-verification-recovery.js";
+import { createTicketVerificationRecovery } from "../../src/modules/supervisor/ticket/ticket-verification-recovery.js";
 
 // Confirms concurrent report requests share one verification recovery and preserve artifact identity.
 test("Node rebuilds stale artifact once for concurrent reports", async () => {

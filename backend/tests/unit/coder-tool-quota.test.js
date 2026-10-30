@@ -9,9 +9,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { createRuntimeToolGovernance } from "../../src/modules/governance/runtime-tool-governance.js";
-import { createEditDiffTool } from "../../src/tools/agent-lifecycle-tools.js";
+import { createEditDiffTool } from "../../src/tools/governance/agent-lifecycle-tools.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { discoveryNotice, recordRead } from "../../src/tools/exploration-state.js";
+import { discoveryNotice, recordRead } from "../../src/tools/discovery/exploration-state.js";
 
 // Builds a deliberately exhausted historical Coder context to exercise the
 // production policy independently of provider-specific prompts and SDK traffic.

@@ -5,7 +5,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket-change-ledger.js";
+import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket/ticket-change-ledger.js";
 import { createHash } from "node:crypto";
 
 // Ledger digest helper shared by the foundation-successor rebase cases below.

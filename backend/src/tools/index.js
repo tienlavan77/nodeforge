@@ -1,25 +1,25 @@
 // Summary: Exposes Forge-owned agent tools through one provider-neutral registry.
-import { createQueryReviewTool } from "./query-review-tool.js";
+import { createQueryReviewTool } from "./reporting/query-review-tool.js";
 
 import { createRequire } from "node:module";
-import { createReadTranscriptBlocksTool } from "./read-transcript-blocks.js";
-import { authorizeTool } from "./tool-authorization.js";
-import { createSelectCodeGraphCandidatesTool } from "./select-code-graph-candidates.js";
-import { createSearchCodeTool } from "./search-code.js";
-import { createReadCodeTool } from "./read-code.js";
-import { createCheckTestTool, createReadFileTool, createWriteDiffTool, createEditDiffTool, createDeleteFileTool, createMoveFileTool, createRunTestTool, createCommitChangesTool } from "./agent-lifecycle-tools.js";
-import { createReportDoneTool } from "./agent-report-tool.js";
-import { createTicketReportCommit } from "./ticket-report-commit.js";
-import { createRespondToReviewTool, respondToReviewInputSchema } from "./respond-to-review-tool.js";
-import { createGitReadTools } from "./git-read-tools.js";
-import { createAgentCommandTools } from "./agent-command-tools.js";
-import { createTicketPushTool } from "./ticket-push-tool.js";
+import { createReadTranscriptBlocksTool } from "./discovery/read-transcript-blocks.js";
+import { authorizeTool } from "./governance/tool-authorization.js";
+import { createSelectCodeGraphCandidatesTool } from "./discovery/select-code-graph-candidates.js";
+import { createSearchCodeTool } from "./discovery/search-code.js";
+import { createReadCodeTool } from "./discovery/read-code.js";
+import { createCheckTestTool, createReadFileTool, createWriteDiffTool, createEditDiffTool, createDeleteFileTool, createMoveFileTool, createRunTestTool, createCommitChangesTool } from "./governance/agent-lifecycle-tools.js";
+import { createReportDoneTool } from "./reporting/agent-report-tool.js";
+import { createTicketReportCommit } from "./reporting/ticket-report-commit.js";
+import { createRespondToReviewTool, respondToReviewInputSchema } from "./reporting/respond-to-review-tool.js";
+import { createGitReadTools } from "./discovery/git-read-tools.js";
+import { createAgentCommandTools } from "./governance/agent-command-tools.js";
+import { createTicketPushTool } from "./reporting/ticket-push-tool.js";
 import { engineeringToolImplementations } from "./engineering-tool-implementations.js";
-import { createClaudeFileTools } from "./claude-file-tools.js";
+import { createClaudeFileTools } from "./discovery/claude-file-tools.js";
 import { createRoleFileService } from "../infrastructure/filesystem/file-service-role-policy.js";
-import { formatToolLogEvent } from "./tool-log-event.js";
+import { formatToolLogEvent } from "./reporting/tool-log-event.js";
 import { terminalAuditLogger } from "../core/terminal-log-format.js";
-export { rgFilesDefinition, rgSearchDefinition, sedLinesDefinition } from "./agent-command-tools.js";
+export { rgFilesDefinition, rgSearchDefinition, sedLinesDefinition } from "./governance/agent-command-tools.js";
 
 const require = createRequire(import.meta.url);
 const readTranscriptInputSchema = require("../../../schemas/agent/tools/read-transcript-blocks.schema.json");
@@ -54,11 +54,12 @@ export const checkTestDefinition = Object.freeze({ name: "check_test", descripti
 export const commitChangesDefinition = Object.freeze({ name: "commit_changes", description: "Ask Node to commit ticket ledger paths; supply a message, not file paths.", input_schema: commitChangesInputSchema });
 export const reportDoneDefinition = Object.freeze({ name: "report_done", description: "Submit a completion summary for Node verification, or status blocked with blocker reason_code, owner_action and source evidence to request a decision without claiming completion.", input_schema: reportDoneInputSchema });
 export const respondToReviewDefinition = Object.freeze({ name: "respond_to_review", description: "Submit a Coder response to open Reviewer findings without closing them. For missing committed test evidence, include typed verification_requests; Node runs them and returns receipts to Reviewer.", input_schema: respondToReviewInputSchema });
-export { ownerDeleteFileDefinition as deleteFileDefinition, ownerMoveFileDefinition as moveFileDefinition } from "./owner-delete-file.js";
+export { ownerDeleteFileDefinition as deleteFileDefinition, ownerMoveFileDefinition as moveFileDefinition } from "./roles/owner-delete-file.js";
 export const gitStatusDefinition = Object.freeze({ name: "git_status", description: "Read project Git status in porcelain format through Node Git Service.", input_schema: gitStatusInputSchema });
 export const gitDiffDefinition = Object.freeze({ name: "git_diff", description: "Read the unstaged working-tree patch through Node Git Service.", input_schema: gitDiffInputSchema });
 
 export function createForgeToolRegistry({ protocolStorage, fileService, projectRoot, maxChars, codeSearch, codeCache, relevantTreeSelector, freshnessChecker, enableReadCode = false, testService, gitService, changeLedger, executionContexts, reviewFindings, reportService, onEvalCase, governance, projectLogger = () => {} } = {}) {
+  fileService = fileService?.forRole?.("coder") ?? fileService;
   const transcriptTool = createReadTranscriptBlocksTool({ protocolStorage, fileService, maxChars });
   const graphTool = createSelectCodeGraphCandidatesTool({ relevantTreeSelector, freshnessChecker });
   const retrievalBudgets = new Map();

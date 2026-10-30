@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { createDatabaseService } from "../../src/infrastructure/sqlite/database-service.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createTicketStatusStore } from "../../src/modules/projects/ticket-status-store.js";
-import { captureDependencyExpectations } from "../../src/modules/supervisor/ticket-dependency-expectations.js";
-import { createReviewDependencyReconciliation } from "../../src/modules/supervisor/review-dependency-reconciliation.js";
+import { captureDependencyExpectations } from "../../src/modules/supervisor/ticket/ticket-dependency-expectations.js";
+import { createReviewDependencyReconciliation } from "../../src/modules/supervisor/review/review-dependency-reconciliation.js";
 
 // Retains immutable evidence and parked repair identity without running providers or touching production runtime.
 export async function reviewDependencyFixture() {

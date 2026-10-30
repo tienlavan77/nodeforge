@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { PURPOSE_COMMENT_GUIDANCE } from "../../src/shared/purpose-comment-guidance.js";
 import { buildCodexTicketPrompt, buildToolTicketPrompt, COMPLEXITY_FALLBACK } from "../../src/modules/supervisor/nodeforge-task-prompts.js";
-import { reviewVerdictInstructions } from "../../src/modules/supervisor/review-verdict-request.js";
+import { reviewVerdictInstructions } from "../../src/modules/supervisor/review/review-verdict-request.js";
 
 /** Checks mandatory editorial content while allowing Markdown and whitespace changes. */
 function assertGuidance(content) {

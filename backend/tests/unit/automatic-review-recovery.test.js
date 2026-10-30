@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { automaticReviewFixture } from "../fixtures/automatic-review-fixture.js";
-import { assertReviewFindingGuidance } from "../../src/modules/supervisor/review-finding-guidance.js";
+import { assertReviewFindingGuidance } from "../../src/modules/supervisor/review/review-finding-guidance.js";
 
 test("soft review format failure retries Reviewer with the same evidence and preserves completed integration", async () => {
   const finding = { failure: "Missing query isolation evidence", acceptance_criterion: "Queries return only the selected project's data", evidence_refs: ["backend/src/sample.js:1"], minimum_change_scope: "Add query isolation verification" };

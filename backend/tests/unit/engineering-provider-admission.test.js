@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createNodeforgeTaskIntegration } from "../../src/modules/supervisor/nodeforge-task-integration.js";
-import { assertEngineeringProvider, selectTicketCoder, selectDirectCoder } from "../../src/modules/supervisor/ticket-agent-provider-routing.js";
+import { assertEngineeringProvider, selectTicketCoder, selectDirectCoder } from "../../src/modules/supervisor/ticket/ticket-agent-provider-routing.js";
 
 // Tracks the real submission boundaries without launching an SDK or writing a production queue.
 function integrationFixture(provider) {

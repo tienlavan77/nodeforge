@@ -5,11 +5,11 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { createHash } from "node:crypto";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket-change-ledger.js";
-import { createTicketPipelineDisposition } from "../../src/modules/supervisor/ticket-pipeline-disposition.js";
-import { createCancelledTicketClaimReconciliation } from "../../src/modules/supervisor/ticket-cancelled-claims.js";
-import { inspectBlockerFileClaims } from "../../src/modules/supervisor/blocker-file-claims.js";
-import { releaseInactiveTicketClaims } from "../../src/modules/supervisor/ticket-inactive-claims.js";
+import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket/ticket-change-ledger.js";
+import { createTicketPipelineDisposition } from "../../src/modules/supervisor/ticket/ticket-pipeline-disposition.js";
+import { createCancelledTicketClaimReconciliation } from "../../src/modules/supervisor/ticket/ticket-cancelled-claims.js";
+import { inspectBlockerFileClaims } from "../../src/modules/supervisor/blocker/blocker-file-claims.js";
+import { releaseInactiveTicketClaims } from "../../src/modules/supervisor/ticket/ticket-inactive-claims.js";
 
 const projectId = "PROJECT-TEST";
 const taskId = "TICKET-OLD";

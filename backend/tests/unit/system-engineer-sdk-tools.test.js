@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createOwnerSdkStream } from "../../src/application/owner-sdk-stream.js";
 import { createClaudeSdkGateway } from "../../src/modules/agent/claude-sdk-gateway.js";
-import { createOwnerConversationTools } from "../../src/tools/owner-conversation-tools.js";
+import { existsSync } from "node:fs";
+// Runs identical SDK assertions against each archive's actual implementation path.
+// Selecting by file existence preserves historical source without masking import failures.
+const { createOwnerConversationTools } = await import(existsSync(new URL("../../src/tools/roles/owner-conversation-tools.js", import.meta.url))
+  ? "../../src/tools/roles/owner-conversation-tools.js" : "../../src/tools/owner-conversation-tools.js");
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createRuntimeLogger } from "../../src/core/runtime-logger.js";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -172,7 +176,7 @@ test("Anthropic owner Forge calls print only completion while retaining start ev
   await request.options.forgeTools.registry.search_tree.execute({ path: ".", max_depth: 1 }, request.options.forgeTools.context);
   assert.deepEqual(events.filter((event) => event.event_name === "owner.tool_call").map((event) => event.status), ["started", "success"]);
   assert.equal(lines.filter((line) => line.includes("search_tree")).length, 1);
-  assert.ok(lines.some((line) => /\[AM\/Architect\] search_tree.* - OK/.test(line)));
+  assert.ok(lines.some((line) => /\[AM\/Architect\] search_tree.* - SUCCESS\n?$/.test(line)));
   assert.ok(lines.every((line) => !line.includes(" START")));
 });
 

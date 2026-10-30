@@ -2,11 +2,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ENGINEERING_TOOL_NAMES, CODER_TOOL_NAMES, ENGINEERING_ALIASES, engineeringToolDefinitions, coderToolDefinitions, engineeringToolReadiness } from "../../src/tools/engineering-tool-catalog.js";
-import { createOwnerConversationTools } from "../../src/tools/owner-conversation-tools.js";
-import { createForgeSdkMcpServer, forgeSdkToolNames } from "../../src/tools/claude-sdk-forge-tools.js";
-import { rgFilesDefinition, rgSearchDefinition, sedLinesDefinition } from "../../src/tools/agent-command-tools.js";
+import { createOwnerConversationTools } from "../../src/tools/roles/owner-conversation-tools.js";
+import { createForgeSdkMcpServer, forgeSdkToolNames } from "../../src/tools/roles/claude-sdk-forge-tools.js";
+import { rgFilesDefinition, rgSearchDefinition, sedLinesDefinition } from "../../src/tools/governance/agent-command-tools.js";
 import { engineeringToolImplementations } from "../../src/tools/engineering-tool-implementations.js";
-import { discoveryKind } from "../../src/tools/exploration-state-factory.js";
+import { discoveryKind } from "../../src/tools/discovery/exploration-state-factory.js";
 import { createRuntimeToolGovernance } from "../../src/modules/governance/runtime-tool-governance.js";
 
 // Supplies Node services without exercising provider SDKs or production repository mutation.
@@ -63,12 +63,12 @@ test("canonical discovery names consume the same governed discovery budget categ
   assert.equal(calls, 1);
 });
 
-test("ticket tree exposes approved files and ancestors, not unrelated project areas", async () => {
+test("Reviewer tree exposes approved files and ancestors, not unrelated project areas", async () => {
   const tools = engineeringToolImplementations({ registry: {}, wrap: (tool) => tool, fileService: {
     listFiles: async () => ["backend/src/allowed.js", "backend/src/unrelated.js", "ui/private.js", ".forge/secret"],
     listDirectories: async () => ["backend", "backend/src", "ui", ".forge"]
   } });
-  const result = await tools.search_tree.execute({}, { agent_identity: { role: "coder" }, allowed_file_paths: ["backend/src/allowed.js"], allowed_prefixes: [] });
+  const result = await tools.search_tree.execute({}, { agent_identity: { role: "reviewer" }, allowed_file_paths: ["backend/src/allowed.js"], allowed_prefixes: [] });
   assert.deepEqual(result.entries.map(({ path }) => path), ["backend", "backend/src", "backend/src/allowed.js"]);
 });
 

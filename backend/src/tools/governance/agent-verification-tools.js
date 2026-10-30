@@ -1,0 +1,104 @@
+// Provides verification and commit tools for governed agent ticket work.
+import { ConfigurationError } from "../../shared/errors.js";
+import { logEvent } from "../../core/project-log-service.js";
+import { createRuntimeLogger } from "../../core/runtime-logger.js";
+import { authorizeTool, isAgentPathAllowed } from "./tool-authorization.js";
+
+const error = (code, message, details = {}) => Object.assign(new ConfigurationError(message), { code, details });
+
+// Starts Node-owned verification for the current agent execution.
+export function createRunTestTool({ testService } = {}) {
+  if (typeof testService?.startTests !== "function") throw new ConfigurationError("run_test requires Test Service startTests.");
+  return Object.freeze({ name: "run_test", async execute(input = {}, context = {}) {
+    if (Object.keys(input).length) throw error("INPUT_INVALID", "run_test accepts no arguments.");
+    const started = await testService.startTests({ commitId: context.commit_id ?? `WORKTREE-${context.task_id ?? Date.now()}`, taskId: context.task_id, sessionId: context.session_id, command: verificationCommand(context) });
+    return { ...started, message: "Test job started. Poll check_test with this job_id until status is passed or failed." };
+  }});
+}
+
+// Selects Node-owned checks for changed UI files so review receives relevant verification evidence.
+function verificationCommand(context) {
+  const changed = Array.isArray(context.changed_paths) ? context.changed_paths : [];
+  if (!changed.some((path) => typeof path === "string" && path.startsWith("ui/nextjs/"))) return "node --test backend/tests/tools/*.test.js";
+  const tests = [...new Set(changed.filter((path) => typeof path === "string" && /^ui\/nextjs\/tests\/[A-Za-z0-9_.-]+\.test\.js$/.test(path)))];
+  return `${tests.length ? `node --test ${tests.join(" ")} && ` : ""}pnpm --dir ui/nextjs build`;
+}
+
+// Returns Node-owned verification results to the current agent execution.
+export function createCheckTestTool({ testService } = {}) {
+  if (typeof testService?.getTestResult !== "function") throw new ConfigurationError("check_test requires Test Service getTestResult.");
+  return Object.freeze({ name: "check_test", async execute(input = {}, context = {}) {
+    if (typeof input?.job_id !== "string" || !input.job_id.trim()) throw error("INPUT_INVALID", "check_test requires a job_id string returned by run_test.");
+    const result = await testService.getTestResult({ jobId: input.job_id.trim(), taskId: context.task_id });
+    if (result && typeof result === "object") context.verify_result = result;
+    return result;
+  }});
+}
+
+// Commits only paths changed during the current agent execution.
+export function createCommitChangesTool({ gitService, changeLedger, logger = createRuntimeLogger({ logEvent }) } = {}) {
+  if (typeof gitService?.commit !== "function") throw new ConfigurationError("commit_changes requires Git Service.");
+  return Object.freeze({ name: "commit_changes", async execute(input = {}, context = {}) {
+    const started = Date.now();
+    let paths;
+    try {
+      authorizeTool("commit_changes", context);
+      if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => !["message", "paths"].includes(key)) || typeof input.message !== "string" || !input.message.trim() || input.message.length > 200 || input.message.includes("\0")) throw error("INPUT_INVALID", "commit_changes requires a message of 1–200 characters.");
+      const createPrefixes = context?.execution_context?.approved_baseline?.authorized_create_prefixes ?? context?.authorized_create_prefixes ?? [];
+      const commitContext = Array.isArray(createPrefixes) && createPrefixes.length ? { ...context, allowed_prefixes: [...(context.allowed_prefixes ?? []), ...createPrefixes] } : context;
+      const suppliedPaths = input.paths === undefined ? null : normalizeCommitPaths(input.paths);
+      paths = changeLedger ? Object.keys((await changeLedger.snapshot()).entries) : resolveCommitPaths(commitContext);
+      if (suppliedPaths && !samePaths(suppliedPaths, paths)) throw error("SCOPE_INVALID", "The commit paths must exactly match the paths recorded by the ticket ledger.", { expected_paths: paths, supplied_paths: suppliedPaths });
+      if (paths.some((path) => !isAgentPathAllowed(path, commitContext, { operation: "write" }))) throw error("SCOPE_INVALID", "Ticket ledger contains a path outside the approved scope.");
+      if (!paths.length) throw error("SCOPE_INVALID", "No changed files to commit; write_diff/edit_diff/delete_file/move_file must run first.");
+    } catch (cause) {
+      emit("rejected", context, { error_code: cause.code ?? "COMMIT_INPUT_INVALID", error: cause.message, duration_ms: Date.now() - started });
+      throw cause;
+    }
+    emit("started", context, { paths });
+    try {
+      const result = await gitService.commit(input.message.trim(), { paths });
+      if (typeof result?.sha !== "string" || !result.sha) throw error("COMMIT_RESULT_INVALID", "Git Service did not return a commit SHA.");
+      emit("completed", context, { paths, sha: result.sha, duration_ms: Date.now() - started });
+      return result;
+    } catch (cause) {
+      emit("failed", context, { paths, error_code: cause.code ?? "COMMIT_FAILED", error: cause.message, duration_ms: Date.now() - started });
+      throw cause;
+    }
+  }});
+
+  // Records commit status without persisting the agent's commit message.
+  function emit(phase, context, payload) {
+    const status = phase === "completed" ? "success" : phase === "started" ? "started" : "failed";
+    logger.emit({ event_name: `forge.commit_changes_${phase}`, level: status === "failed" ? "error" : "info", status,
+      message: `commit_changes ${status}.`, task_id: context?.task_id ?? context?.taskId ?? "COMMIT-UNSCOPED",
+      correlation_id: context?.correlation_id, source: "commit-changes-tool",
+      ...(payload.error_code ? { error_code: payload.error_code } : {}),
+      payload: { agent_id: context?.agent_identity?.agent_id, execution_id: context?.execution_id, ...payload }
+    });
+  }
+}
+
+// Normalizes explicit commit paths while preserving path identity for the approval boundary.
+function normalizeCommitPaths(paths) {
+  if (!Array.isArray(paths) || !paths.length || paths.some((path) => typeof path !== "string" || !path.trim())) throw error("INPUT_INVALID", "commit_changes requires a non-empty paths array.");
+  return [...new Set(paths)].sort();
+}
+
+// Compares the agent-declared paths with Node's durable ticket scope.
+function samePaths(left, right) {
+  const normalized = [...new Set((right ?? []).filter((path) => typeof path === "string"))].sort();
+  return left.length === normalized.length && left.every((path, index) => path === normalized[index]);
+}
+
+// Resolves the exact paths approved for the current commit operation.
+function resolveCommitPaths(context) {
+  const changed = Array.isArray(context.changed_paths) ? context.changed_paths : [];
+  if (changed.some((path) => typeof path !== "string" || !path || path.startsWith("/") || path.includes("\\") || path.split("/").some((part) => !part || part === "." || part === ".."))) throw error("SCOPE_INVALID", "Changed paths contain an unsafe project path.");
+  const paths = [...new Set(changed)];
+  const allowed = context.allowed_file_paths ?? context.allowedFilePaths;
+  const prefixes = context.allowed_prefixes ?? context.allowedPrefixes;
+  if (paths.length && !Array.isArray(allowed) && !Array.isArray(prefixes)) throw error("SCOPE_INVALID", "Node-approved file scope is missing.");
+  if (paths.some((path) => !isAgentPathAllowed(path, context, { operation: "write" }))) throw error("SCOPE_INVALID", "Changed path is outside the Node-approved file scope.");
+  return paths;
+}

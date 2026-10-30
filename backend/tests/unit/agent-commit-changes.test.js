@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createGitService } from "../../src/infrastructure/git/git-service.js";
-import { createCommitChangesTool } from "../../src/tools/agent-verification-tools.js";
+import { createCommitChangesTool } from "../../src/tools/governance/agent-verification-tools.js";
 
 const run = promisify(execFile);
 
@@ -54,6 +54,21 @@ test("commit_changes includes a new approved file without committing staged neig
   await tool.execute({ message: "add task file" }, { task_id: "T-NEW", capabilities: ["commit_changes"], changed_paths: ["new[1].txt"], allowed_file_paths: ["new[1].txt"] });
   assert.equal(await git("show", "--pretty=format:", "--name-only", "HEAD"), "new[1].txt");
   assert.equal(await git("diff", "--cached", "--name-only"), "other.txt");
+});
+
+// Verifies real Git commits succeed when a requested path is already staged as deleted or renamed in the index.
+test("commit_changes commits pre-staged deletions and renames without pathspec failure", async (t) => {
+  const { root, git } = await repo();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await git("rm", "-q", "--", "task.txt");
+  await git("mv", "other.txt", "renamed.txt");
+  const gitService = createGitService({ projectRoot: root });
+  const result = await gitService.commit("commit staged deletion and rename", {
+    paths: ["task.txt", "other.txt", "renamed.txt"]
+  });
+  assert.match(result.sha, /^[a-f0-9]{40,64}$/);
+  assert.equal(await git("ls-tree", "-r", "--name-only", "HEAD"), "renamed.txt");
+  assert.equal(await git("status", "--porcelain"), "");
 });
 
 test("commit_changes rejects unapproved paths and records the rejection", async () => {

@@ -1,0 +1,155 @@
+{
+  "purpose": "Retains original workflow hashes before archival so regression checks can prove preserved bytes and removal of obsolete source locations.",
+  "documents": [
+    {
+      "source": "workflows/approve-plan-ui.md",
+      "target": "workflows/archive/plans/approve-plan-ui.md",
+      "sha256": "sha256:a168225ccb114cc8422c84e931f974ee9b0b2443aab09c51b008f7e913f96e8e"
+    },
+    {
+      "source": "workflows/audit-approve-plan-ui.md",
+      "target": "workflows/archive/discussions/audit-approve-plan-ui.md",
+      "sha256": "sha256:90254540ba34bdafa4ad6f9786a87cbe62627b334805f9784b8701fa8e6093ba"
+    },
+    {
+      "source": "workflows/audit-plan-coding-workspace-monitor-dfb362ac.md",
+      "target": "workflows/archive/discussions/audit-plan-coding-workspace-monitor-dfb362ac.md",
+      "sha256": "sha256:c46be243c98ef58c8781aa0f27ab4023cd0bd79d9a6015f37c4f52ac7b74f6f1"
+    },
+    {
+      "source": "workflows/discussion-coder-reviewer-capabilities-feedback.md",
+      "target": "workflows/archive/discussions/discussion-coder-reviewer-capabilities-feedback.md",
+      "sha256": "sha256:358f5c6beeca44f5dd049e80f9094e45cfe64e8e5a14b7801d903f28b908dbfe"
+    },
+    {
+      "source": "workflows/discussion-coder-reviewer-capabilities.md",
+      "target": "workflows/archive/discussions/discussion-coder-reviewer-capabilities.md",
+      "sha256": "sha256:56b7be6a58cd8de4fcffeb4ca92a5bd3905abbafd1ef65cf02128de333a77937"
+    },
+    {
+      "source": "workflows/discussion-owner-agent-capabilities-feedback.md",
+      "target": "workflows/archive/discussions/discussion-owner-agent-capabilities-feedback.md",
+      "sha256": "sha256:564c039731d190af8f9224df2934372bbc9753a78c684dea221545208ca16c00"
+    },
+    {
+      "source": "workflows/discussion-owner-agent-capabilities.md",
+      "target": "workflows/archive/discussions/discussion-owner-agent-capabilities.md",
+      "sha256": "sha256:36bedcd584f19a4357b6964468455b28c82f9f75acbdd2ede63509aa413f5e76"
+    },
+    {
+      "source": "workflows/feedback-coder-autonomy-plan-system-engineer.md",
+      "target": "workflows/archive/discussions/feedback-coder-autonomy-plan-system-engineer.md",
+      "sha256": "sha256:d04c1aa648ee3609f0c5076817f65f1ed07250021b208a3c2dc692354f88f4c3"
+    },
+    {
+      "source": "workflows/human-approve.md",
+      "target": "workflows/archive/discussions/human-approve.md",
+      "sha256": "sha256:ad107b8ec4c24d06aebcc2ca0f86ec1e704abf55a0286aec264661445cd42d2a"
+    },
+    {
+      "source": "workflows/human-plan.md",
+      "target": "workflows/archive/plans/human-plan.md",
+      "sha256": "sha256:dd009f023489135bffc1a3191a693f77ff96722b33b798d43d8cdedd8934b066"
+    },
+    {
+      "source": "workflows/immutable-ticket-acceptance-record.md",
+      "target": "workflows/archive/discussions/immutable-ticket-acceptance-record.md",
+      "sha256": "sha256:93d00aaf2947c1bcb7945f637b114d63591156d8d02c7d4a11771ed6c0d4d9dc"
+    },
+    {
+      "source": "workflows/nf-pipe-verify-baseline-001-remediation.md",
+      "target": "workflows/archive/discussions/nf-pipe-verify-baseline-001-remediation.md",
+      "sha256": "sha256:b6a7399ce11174da963e6298b72db87aa62cef2d2792978dac584f12a4ec7d1b"
+    },
+    {
+      "source": "workflows/plan-agent-occupancy-ticket-supervisor.md",
+      "target": "workflows/archive/plans/plan-agent-occupancy-ticket-supervisor.md",
+      "sha256": "sha256:3146d3d11fe0aed5cb1ad4717bd794e8f257ed3d58eb9f0d5dadab2f52546913"
+    },
+    {
+      "source": "workflows/plan-code-cache-read-file.md",
+      "target": "workflows/archive/plans/plan-code-cache-read-file.md",
+      "sha256": "sha256:7b36fe7f8b83f61ffe43bb8964e74f8bed498c5ba36b281746ace9305300ade0"
+    },
+    {
+      "source": "workflows/plan-coder-autonomy-behavior-verification.md",
+      "target": "workflows/archive/plans/plan-coder-autonomy-behavior-verification.md",
+      "sha256": "sha256:f34a5e18172d4799bdc54ebf0336a689e3e8085bb4c24ebb1e7bb880cc1232b4"
+    },
+    {
+      "source": "workflows/plan-coder-explanation-review-dispute.md",
+      "target": "workflows/archive/plans/plan-coder-explanation-review-dispute.md",
+      "sha256": "sha256:be576cfbfc5463e6f55191ce1641c75f0e6cc6aaa6b7b6607ad7d92b60762da8"
+    },
+    {
+      "source": "workflows/plan-coder-reviewer-file-access-policy-continuation.md",
+      "target": "workflows/archive/plans/plan-coder-reviewer-file-access-policy-continuation.md",
+      "sha256": "sha256:aa4faae73da320418b75fcb122eb2ee7f4947cc01af8008c572e7b71a2a4459f"
+    },
+    {
+      "source": "workflows/plan-coder-reviewer-file-access-policy-feedback.md",
+      "target": "workflows/archive/plans/plan-coder-reviewer-file-access-policy-feedback.md",
+      "sha256": "sha256:d3e0007d6426cb7eda1db7446c642087ec44040b968ba3b6e7351fe135f33463"
+    },
+    {
+      "source": "workflows/plan-coder-reviewer-file-access-policy-remediation.md",
+      "target": "workflows/archive/plans/plan-coder-reviewer-file-access-policy-remediation.md",
+      "sha256": "sha256:724b3220ef7b4661cac5b7627c6ef4cdda1921832bf5e9490a52a16cf03ebd74"
+    },
+    {
+      "source": "workflows/plan-coder-reviewer-file-access-policy.md",
+      "target": "workflows/archive/plans/plan-coder-reviewer-file-access-policy.md",
+      "sha256": "sha256:d0fcc50cc6a7bd3af23638b58ab875187f8e0662c4e0fdfc8264499e343a1d3b"
+    },
+    {
+      "source": "workflows/plan-coder-unified-forge-tools.md",
+      "target": "workflows/archive/plans/plan-coder-unified-forge-tools.md",
+      "sha256": "sha256:502ca68a4dda14ccd928ed09c602fa515f5d918516f3b275da3a2312b04d1502"
+    },
+    {
+      "source": "workflows/plan-coding-page.md",
+      "target": "workflows/archive/plans/plan-coding-page.md",
+      "sha256": "sha256:e4aa1746869deed1f529e2749e09bd318b5e404783dde8816fa14f81815b01ea"
+    },
+    {
+      "source": "workflows/plan-coding-workspace-observability.md",
+      "target": "workflows/archive/plans/plan-coding-workspace-observability.md",
+      "sha256": "sha256:430f9770641982773948242e628f7877096e90da6528ccc6b07c1c16746fbc07"
+    },
+    {
+      "source": "workflows/plan-comment-language-and-line-budget-feedback.md",
+      "target": "workflows/archive/plans/plan-comment-language-and-line-budget-feedback.md",
+      "sha256": "sha256:b6951eebabf77b8adcab1a15ab9d323b63c985f1f58242858cf6687cfb275864"
+    },
+    {
+      "source": "workflows/plan-comment-language-and-line-budget.md",
+      "target": "workflows/archive/plans/plan-comment-language-and-line-budget.md",
+      "sha256": "sha256:bd8481e4c8cc9ce4e2c48535a1eaac607d637bf823f44816e50a973c171b60a3"
+    },
+    {
+      "source": "workflows/plan-conversation-agent-copy-share-pending-queue.md",
+      "target": "workflows/archive/plans/plan-conversation-agent-copy-share-pending-queue.md",
+      "sha256": "sha256:39f70a3b0f97ee0279a4d43b15a4f85d28b2006bcd42432cf18b5a94630ecffd"
+    },
+    {
+      "source": "workflows/plan-conversation-memory.md",
+      "target": "workflows/archive/plans/plan-conversation-memory.md",
+      "sha256": "sha256:b85b17b7dd023578bdd071d7b47c9847ba45c1c9e9cc211000a7803736485de3"
+    },
+    {
+      "source": "workflows/plan-gate-architecture-json-first-revision.md",
+      "target": "workflows/archive/plans/plan-gate-architecture-json-first-revision.md",
+      "sha256": "sha256:64abeec0f3aaadd429c449ca4646df0aa206052a007fa85ee423c97991036e37"
+    },
+    {
+      "source": "workflows/plan-gate-architecture-json-first.md",
+      "target": "workflows/archive/plans/plan-gate-architecture-json-first.md",
+      "sha256": "sha256:d97211f84762cfedb9ab749896632f79ebc40a0e42e1b357d8f37ede0165acc8"
+    },
+    {
+      "source": "workflows/plan-immutable-ticket-pipeline.md",
+      "target": "workflows/archive/plans/plan-immutable-ticket-pipeline.md",
+      "sha256": "sha256:235727cc0db024f92cb9fd85d3d62de9dd31c32d621a4d77c35087bd4daeeee1"
+    }
+  ]
+}

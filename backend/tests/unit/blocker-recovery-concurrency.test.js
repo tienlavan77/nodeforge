@@ -7,7 +7,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createFileQueueStore } from "../../src/modules/supervisor/file-queue-store.js";
-import { createBlockerRecovery } from "../../src/modules/supervisor/blocker-recovery.js";
+import { createBlockerRecovery } from "../../src/modules/supervisor/blocker/blocker-recovery.js";
 
 // Holds a provider result under test control without preventing a second ticket from reaching dispatch.
 function deferred() {

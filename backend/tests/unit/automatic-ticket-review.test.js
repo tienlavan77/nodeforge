@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { automaticReviewFixture } from "../fixtures/automatic-review-fixture.js";
-import { automaticReviewIdentity, automaticReviewPolicy, reviewDigest } from "../../src/modules/supervisor/automatic-review-identity.js";
+import { automaticReviewIdentity, automaticReviewPolicy, reviewDigest } from "../../src/modules/supervisor/review/automatic-review-identity.js";
 
 test("a Reviewer reopening adjudication without duplicated finding prose reaches the repair event", async () => {
   const fixture = automaticReviewFixture({ review: async () => ({ verdict: "request_changes", findings: [], adjudications: [{ finding_id: "REV-1", decision: "reopen", reason: "Current evidence shows a remaining case", evidence_refs: ["backend/src/sample.js:1"] }] }) });

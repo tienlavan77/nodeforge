@@ -7,12 +7,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket-change-ledger.js";
-import { createTicketExecutionContextStore, prepareTicketExecutionContext } from "../../src/modules/supervisor/ticket-execution-context.js";
-import { ticketSourceChanges } from "../../src/modules/supervisor/ticket-source-observation.js";
-import { coderExchangePrompt } from "../../src/modules/supervisor/coder-agent-exchange.js";
+import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket/ticket-change-ledger.js";
+import { createTicketExecutionContextStore, prepareTicketExecutionContext } from "../../src/modules/supervisor/ticket/ticket-execution-context.js";
+import { ticketSourceChanges } from "../../src/modules/supervisor/ticket/ticket-source-observation.js";
+import { coderExchangePrompt } from "../../src/modules/supervisor/coder/coder-agent-exchange.js";
 import { createNodeforgeTaskIntegration } from "../../src/modules/supervisor/nodeforge-task-integration.js";
-import { createReadFileTool, createEditDiffTool } from "../../src/tools/agent-lifecycle-tools.js";
+import { createReadFileTool, createEditDiffTool } from "../../src/tools/governance/agent-lifecycle-tools.js";
 
 /** Creates real source and retained ticket context without launching an SDK or
  * modifying the developer workspace; cleanup removes all fixture-only storage. */

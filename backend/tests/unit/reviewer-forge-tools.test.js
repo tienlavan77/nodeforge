@@ -5,8 +5,8 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createReviewerForgeTools } from "../../src/modules/supervisor/reviewer-forge-tools.js";
-import { createReviewWorker } from "../../src/modules/supervisor/review-worker.js";
+import { createReviewerForgeTools } from "../../src/modules/supervisor/review/reviewer-forge-tools.js";
+import { createReviewWorker } from "../../src/modules/supervisor/review/review-worker.js";
 
 const job = { task_id: "T-REVIEW", request_id: "R-1", correlation_id: "C-1", agent_id: "coder-1", payload: { ticket: { id: "T-REVIEW" }, changed_paths: ["src/a.js"] } };
 const source = { path: "src/a.js", content: "function sample() {\n  return 1;\n}\nconst value = sample();", sha256: "sha256:abc", size_bytes: 56 };

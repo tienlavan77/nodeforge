@@ -1,9 +1,9 @@
 // Verifies unavailable approval services retry checkpoint work every 30 seconds until recovery or owner Stop.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { approvalServiceUnavailable, scheduleApprovalRetry } from "../../src/modules/supervisor/blocker-approval-retry.js";
+import { approvalServiceUnavailable, scheduleApprovalRetry } from "../../src/modules/supervisor/blocker/blocker-approval-retry.js";
 import { assertTicketExecutionCompleted } from "../../src/modules/supervisor/nodeforge-task-sdk-events.js";
-import { buildResumePrompt, createResumeState } from "../../src/modules/supervisor/ticket-resume.js";
+import { buildResumePrompt, createResumeState } from "../../src/modules/supervisor/ticket/ticket-resume.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 import { createForgeV1ConversationRoutes } from "../../src/transport/http/forge-v1-conversation-routes.js";
 

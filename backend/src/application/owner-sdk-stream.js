@@ -1,13 +1,13 @@
 // Streams owner conversations through the SDK selected by the agent profile.
 import { ownerToolMode, ownerBuiltinOptions, emitOwnerBuiltinActivity, codexBuiltinActivity } from "./owner-builtin-tools.js";
-import { createLookupSchemaTool, lookupSchemaDefinition } from "../tools/lookup-schema-tool.js";
+import { createLookupSchemaTool, lookupSchemaDefinition } from "../tools/discovery/lookup-schema-tool.js";
 import { agentRoleGuidance } from "../modules/governance/agent-role-guidance.js";
 import { statePath } from "../infrastructure/filesystem/forge-paths.js";
 import { ConfigurationError } from "../shared/errors.js";
-import { createOwnerConversationTools } from "../tools/owner-conversation-tools.js";
-import { ownerWritePaths, ownerWritePrefixes } from "../tools/owner-role-tool-policy.js";
-import { createOwnerClaudeMcpTools } from "../tools/owner-claude-mcp-tools.js";
-import { createClaudeForgeOptions } from "../tools/claude-forge-options.js";
+import { createOwnerConversationTools } from "../tools/roles/owner-conversation-tools.js";
+import { ownerWritePaths, ownerWritePrefixes } from "../tools/roles/owner-role-tool-policy.js";
+import { createOwnerClaudeMcpTools } from "../tools/roles/owner-claude-mcp-tools.js";
+import { createClaudeForgeOptions } from "../tools/roles/claude-forge-options.js";
 import { executionDigest } from "./owner-execution-checkpoint.js";
 import { checkpointOwnerTools } from "./owner-execution-tools.js";
 import { withSystemEngineerEvents } from "./system-engineer-sdk-events.js";

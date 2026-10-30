@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompletionReportService } from "../../src/modules/supervisor/completion-report-service.js";
-import { completeCoderTicket, finalizeCoderWorkspace } from "../../src/modules/supervisor/ticket-coder-completion.js";
+import { completeCoderTicket, finalizeCoderWorkspace } from "../../src/modules/supervisor/ticket/ticket-coder-completion.js";
 import { automaticReviewFixture } from "../fixtures/automatic-review-fixture.js";
 
 // Builds a workspace with a persisted report and tracks irreversible transitions.

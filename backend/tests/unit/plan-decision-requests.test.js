@@ -4,7 +4,7 @@ import test from "node:test";
 import { createRequire } from "node:module";
 import Ajv2020 from "ajv/dist/2020.js";
 import { planDecisionRequests, validatePlanDecisionSelections, assertPlanOwnerDecisions, approvedTicketDecisions, hasOwnerDecisionEvidence } from "../../src/modules/governance/plan-decision-requests.js";
-import { completeNodeReportEvidence } from "../../src/tools/node-report-evidence.js";
+import { completeNodeReportEvidence } from "../../src/tools/reporting/node-report-evidence.js";
 import { buildCodexTicketPrompt } from "../../src/modules/supervisor/nodeforge-task-prompts.js";
 import { createTicketRunDispatch } from "../../src/application/ticket-run-dispatch.js";
 import { sprintPlanDraftContent } from "../../src/modules/governance/sprint-plan-draft.js";

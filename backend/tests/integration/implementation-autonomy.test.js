@@ -10,10 +10,10 @@ import { createFileService } from "../../src/infrastructure/filesystem/file-serv
 import { openIndexDatabase } from "../../src/infrastructure/sqlite/index-database.js";
 import { createCodeSearch } from "../../src/modules/index/code-search.js";
 import { createFileGraph } from "../../src/modules/index/file-graph.js";
-import { createTicketWorkspaceService } from "../../src/modules/supervisor/ticket-workspace-service.js";
-import { prepareTicketExecutionContext } from "../../src/modules/supervisor/ticket-execution-context.js";
-import { createReportDoneTool } from "../../src/tools/agent-report-tool.js";
-import { createReviewWorker } from "../../src/modules/supervisor/review-worker.js";
+import { createTicketWorkspaceService } from "../../src/modules/supervisor/ticket/ticket-workspace-service.js";
+import { prepareTicketExecutionContext } from "../../src/modules/supervisor/ticket/ticket-execution-context.js";
+import { createReportDoneTool } from "../../src/tools/reporting/agent-report-tool.js";
+import { createReviewWorker } from "../../src/modules/supervisor/review/review-worker.js";
 import { REVIEW_AUTONOMY_PROMPT } from "../../src/shared/implementation-autonomy.js";
 
 const execFile = promisify(execFileCallback);

@@ -4,7 +4,7 @@ import test from "node:test";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import { readBlockerVerificationEvidence } from "../../src/modules/supervisor/blocker-verification-evidence.js";
+import { readBlockerVerificationEvidence } from "../../src/modules/supervisor/blocker/blocker-verification-evidence.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 
 // Creates immutable evidence fixtures for independent source and project isolation checks.

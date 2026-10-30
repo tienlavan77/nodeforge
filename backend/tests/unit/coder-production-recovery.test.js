@@ -2,9 +2,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { coderProductionRecoveryFixture, TICKET } from "../fixtures/coder-production-recovery-fixture.js";
-import { coderRecoveryPolicy, coderFailureTriage } from "../../src/modules/supervisor/coder-recovery-policy.js";
+import { coderRecoveryPolicy, coderFailureTriage } from "../../src/modules/supervisor/coder/coder-recovery-policy.js";
 import { sdkFailureEvidence } from "../../src/modules/agent/sdk-failure-evidence.js";
-import { classifyCoderFailure } from "../../src/modules/supervisor/coder-failure-routing.js";
+import { classifyCoderFailure } from "../../src/modules/supervisor/coder/coder-failure-routing.js";
 import { createProductionSupervisorRuntime } from "../../src/modules/supervisor/production-runtime.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createTicketRunDispatch } from "../../src/application/ticket-run-dispatch.js";

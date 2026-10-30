@@ -3,8 +3,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { automaticReviewFixture } from "../fixtures/automatic-review-fixture.js";
-import { createTicketVerificationRecovery } from "../../src/modules/supervisor/ticket-verification-recovery.js";
-import { createReportDoneTool } from "../../src/tools/agent-report-tool.js";
+import { createTicketVerificationRecovery } from "../../src/modules/supervisor/ticket/ticket-verification-recovery.js";
+import { createReportDoneTool } from "../../src/tools/reporting/agent-report-tool.js";
 
 test("Node verification PASS saves the pending Coder report and invokes Reviewer directly", async () => {
   const f = automaticReviewFixture();

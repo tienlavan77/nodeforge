@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createRoleFileService } from "../../src/infrastructure/filesystem/file-service-role-policy.js";
-import { createClaudeFileTools } from "../../src/tools/claude-file-tools.js";
+import { createClaudeFileTools } from "../../src/tools/discovery/claude-file-tools.js";
 import { createForgeToolRegistry } from "../../src/tools/index.js";
 import { createRuntimeToolGovernance } from "../../src/modules/governance/runtime-tool-governance.js";
 

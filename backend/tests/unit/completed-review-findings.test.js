@@ -5,9 +5,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createTicketReviewFindingsStore } from "../../src/modules/supervisor/ticket-review-findings.js";
-import { recordAutomaticReviewFindings } from "../../src/modules/supervisor/automatic-review-findings.js";
-import { restoreCompletedReviewFindings } from "../../src/modules/supervisor/completed-review-findings.js";
+import { createTicketReviewFindingsStore } from "../../src/modules/supervisor/ticket/ticket-review-findings.js";
+import { recordAutomaticReviewFindings } from "../../src/modules/supervisor/review/automatic-review-findings.js";
+import { restoreCompletedReviewFindings } from "../../src/modules/supervisor/review/completed-review-findings.js";
 
 // Creates a completed, exact-revision review with missing durable findings using the production finding store.
 async function fixture() {

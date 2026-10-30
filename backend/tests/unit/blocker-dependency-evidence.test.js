@@ -8,9 +8,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createRoleFileService } from "../../src/infrastructure/filesystem/file-service-role-policy.js";
-import { createReadFileTool, createWriteDiffTool, createEditDiffTool } from "../../src/tools/agent-lifecycle-tools.js";
-import { createOwnerDeleteFileTool } from "../../src/tools/owner-delete-file.js";
-import { validateBlockerDisposition, assertDeclaredContractEvidence } from "../../src/modules/supervisor/blocker-recovery-contract.js";
+import { createReadFileTool, createWriteDiffTool, createEditDiffTool } from "../../src/tools/governance/agent-lifecycle-tools.js";
+import { createOwnerDeleteFileTool } from "../../src/tools/roles/owner-delete-file.js";
+import { validateBlockerDisposition, assertDeclaredContractEvidence } from "../../src/modules/supervisor/blocker/blocker-recovery-contract.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 
 // Installs a small guide through the same workspace-to-shared-store link shape used by pnpm.

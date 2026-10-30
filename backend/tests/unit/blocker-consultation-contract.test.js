@@ -2,8 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { validateTechnicalReconciliation } from "../../src/modules/supervisor/blocker-technical-reconciliation.js";
-import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker-recovery-contract.js";
+import { validateTechnicalReconciliation } from "../../src/modules/supervisor/blocker/blocker-technical-reconciliation.js";
+import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker/blocker-recovery-contract.js";
 
 const reconciliation = { kind: "technical_design", prerequisite: "Clarify the existing handler contract.",
   completed_checks: ["Located the approved handler."], next_check: "AM answers the specific compatibility question.",

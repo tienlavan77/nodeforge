@@ -4,9 +4,9 @@
  * compact prompts without changing acceptance, permissions or review records. */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { blockerReviewStatus } from "../../src/modules/supervisor/blocker-review-status.js";
-import { buildBlockerTicketProgress } from "../../src/modules/supervisor/blocker-ticket-progress.js";
-import { createBlockerPromptContext } from "../../src/modules/supervisor/blocker-prompt-context.js";
+import { blockerReviewStatus } from "../../src/modules/supervisor/blocker/blocker-review-status.js";
+import { buildBlockerTicketProgress } from "../../src/modules/supervisor/blocker/blocker-ticket-progress.js";
+import { createBlockerPromptContext } from "../../src/modules/supervisor/blocker/blocker-prompt-context.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 
 /** Supplies explicitly loaded empty review stores and an existing Coder

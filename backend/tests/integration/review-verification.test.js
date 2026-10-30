@@ -5,10 +5,10 @@ import test from "node:test";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { reviewVerificationFixture } from "../fixtures/review-verification-fixture.js";
-import { createReviewVerificationService } from "../../src/modules/supervisor/review-verification-service.js";
-import { createReviewWorker } from "../../src/modules/supervisor/review-worker.js";
-import { createCommittedReviewSource } from "../../src/modules/supervisor/reviewer-committed-source.js";
-import { createAutomaticReviewWorkerResolver } from "../../src/modules/supervisor/automatic-review-source.js";
+import { createReviewVerificationService } from "../../src/modules/supervisor/review/review-verification-service.js";
+import { createReviewWorker } from "../../src/modules/supervisor/review/review-worker.js";
+import { createCommittedReviewSource } from "../../src/modules/supervisor/review/reviewer-committed-source.js";
+import { createAutomaticReviewWorkerResolver } from "../../src/modules/supervisor/review/automatic-review-source.js";
 import { createExecutionEventBus } from "../../src/modules/supervisor/execution-event-bus.js";
 
 // Reviewer intent must reach Node with the original commit and dependencies;

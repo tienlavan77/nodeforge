@@ -1,9 +1,9 @@
 // Verifies malformed Reviewer guidance stays a review fault instead of becoming a Coder repair.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assertReviewFindingGuidance } from "../../src/modules/supervisor/review-finding-guidance.js";
-import { createReviewWorker } from "../../src/modules/supervisor/review-worker.js";
-import { createReviewRequestHandler } from "../../src/modules/supervisor/review-request-handler.js";
+import { assertReviewFindingGuidance } from "../../src/modules/supervisor/review/review-finding-guidance.js";
+import { createReviewWorker } from "../../src/modules/supervisor/review/review-worker.js";
+import { createReviewRequestHandler } from "../../src/modules/supervisor/review/review-request-handler.js";
 import { assertCachedReviewResult } from "../../src/modules/supervisor/recovery-evidence.js";
 
 const finding = { failure: "Click does not close the dialog", acceptance_criterion: "Dialog closes on click",

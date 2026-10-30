@@ -5,7 +5,7 @@ import { loadConfig } from "./config.js";
 import { ConfigurationError, LifecycleError } from "../shared/errors.js";
 import { createLogger } from "../shared/logger.js";
 import { createNodeEventValidator } from "../modules/watcher/debounced-watcher.js";
-import { bridgeAgentStream } from "../modules/agents/agent-stream-bridge.js";
+import { bridgeAgentStream } from "../modules/agent/agent-stream-bridge.js";
 
 // Creates a lifecycle controller that loads config, wires the watcher-to-indexer pipeline and manages start/stop state.
 export function createBootstrap({ configOptions, logger: providedLogger, loggerOptions, watcher, indexer, agentProcesses = [], internalBus = new EventEmitter(), validateEvent = createNodeEventValidator() } = {}) {

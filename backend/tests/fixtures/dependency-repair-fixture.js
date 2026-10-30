@@ -9,10 +9,10 @@ import { createFileService } from "../../src/infrastructure/filesystem/file-serv
 import { createTicketStatusStore } from "../../src/modules/projects/ticket-status-store.js";
 import { createAgentExecutionCheckpointStore } from "../../src/modules/agent/agent-execution-checkpoint.js";
 import { createFileQueueStore } from "../../src/modules/supervisor/file-queue-store.js";
-import { createTicketExecutionContextStore } from "../../src/modules/supervisor/ticket-execution-context.js";
-import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket-change-ledger.js";
-import { prepareCompletedReviewRepair } from "../../src/modules/supervisor/completed-review-repair-workspace.js";
-import { createDependencyRepairCoordinator } from "../../src/modules/supervisor/dependency-repair-coordinator.js";
+import { createTicketExecutionContextStore } from "../../src/modules/supervisor/ticket/ticket-execution-context.js";
+import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket/ticket-change-ledger.js";
+import { prepareCompletedReviewRepair } from "../../src/modules/supervisor/review/completed-review-repair-workspace.js";
+import { createDependencyRepairCoordinator } from "../../src/modules/supervisor/coder/dependency-repair-coordinator.js";
 
 // Preserves actual launch identity and original source while exposing deterministic repair outcomes and time.
 export async function dependencyRepairFixture(t, options = {}) {

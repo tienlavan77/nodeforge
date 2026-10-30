@@ -1,7 +1,7 @@
 // Protects regression attribution from prompt dumps while keeping distinct predicates and incomplete receipts blocking.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { regressionFailureIdentity } from "../../src/modules/supervisor/ticket-verification-regression.js";
+import { regressionFailureIdentity } from "../../src/modules/supervisor/ticket/ticket-verification-regression.js";
 
 // Builds the structured receipt emitted by the actual Node test reporter for a failed regex contract check.
 function failure(actual = "unrelated prompt text") {

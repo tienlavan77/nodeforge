@@ -8,8 +8,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createCodeCacheService } from "../../src/modules/context/code-cache-service.js";
-import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket-change-ledger.js";
-import { createTicketExecutionContextStore } from "../../src/modules/supervisor/ticket-execution-context.js";
+import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket/ticket-change-ledger.js";
+import { createTicketExecutionContextStore } from "../../src/modules/supervisor/ticket/ticket-execution-context.js";
 import { bindEngineeringTools } from "../../src/tools/engineering-tool-binding.js";
 import { CODER_TOOL_NAMES } from "../../src/tools/engineering-tool-catalog.js";
 import { issueExecutionFileAccess } from "../../src/tools/execution-file-access.js";
@@ -75,7 +75,7 @@ async function createCoderMutationFixture({ taskId = "TICKET-MUT-1", projectId =
   return { root, baseFileService, fileService, codeCache, ledger, changeLedger, executionContexts, bound, context };
 }
 
-test("AC-1 & AC-4: Coder delete_file validates manifest scope and checksum, journals after: null, prunes empty parents, invalidates cache, syncs context, and rolls back cleanly", async () => {
+test("AC-1 & AC-4: Coder delete_file validates project containment and checksum, journals after: null, prunes empty parents, invalidates cache, syncs context, and rolls back cleanly", async () => {
   const initialContent = "// Summary: Obsolete leaf module.\nexport const legacyFlag = true;\n";
   const siblingContent = "// Summary: Active module.\nexport const activeFlag = 1;\n";
   const fixture = await createCoderMutationFixture({
@@ -88,7 +88,7 @@ test("AC-1 & AC-4: Coder delete_file validates manifest scope and checksum, jour
     const targetPath = "src/feature/obsolete/deep/leaf.js";
     assert.equal((await codeCache.read({ path: targetPath })).content, initialContent);
 
-    await assert.rejects(bound.registry.delete_file.execute({ path: "src/unapproved.js", before_checksum: sha256("// unapproved\n") }), { code: "PATH_FORBIDDEN" });
+    await assert.rejects(bound.registry.delete_file.execute({ path: "../unapproved.js", before_checksum: sha256("// unapproved\n") }), { code: "TOOL_INPUT_INVALID" });
     assert.equal(await pathExists(join(root, "src/unapproved.js")), true);
 
     await assert.rejects(bound.registry.delete_file.execute({ path: targetPath, before_checksum: sha256("wrong content") }), { code: "CHECKSUM_MISMATCH" });
@@ -169,7 +169,7 @@ test("AC-2, AC-4, AC-6, AC-7: Coder move_file moves >250 code_lines without summ
   }
 });
 
-test("AC-3, AC-5, AC-8, AC-9: budget overflow, unauthorized endpoints, claim conflicts, and injected write failures leave disk and ledger unchanged", async () => {
+test("AC-3, AC-5, AC-8, AC-9: claim conflicts and injected write failures preserve source while file budgets do not restrict later repairs", async () => {
   const sourceContent = "// Summary: Source module.\nexport const s = 1;\n";
   let failDeleteSource = false;
   const fixture = await createCoderMutationFixture({
@@ -203,9 +203,10 @@ test("AC-3, AC-5, AC-8, AC-9: budget overflow, unauthorized endpoints, claim con
     await bound.registry.move_file.execute({ from_path: "src/a.js", to_path: "src/new/moved-a.js", before_checksum: sha256(sourceContent) });
     assert.deepEqual((await executionContexts.load("TICKET-MUT-1")).manifest_paths, ["src/a.js", "src/new/moved-a.js"]);
 
-    await assert.rejects(bound.registry.delete_file.execute({ path: "src/b.js", before_checksum: sha256(sourceContent) }), { code: "PATH_FORBIDDEN" });
-    await assert.rejects(executionContexts.assertApprovedPath("TICKET-MUT-1", "src/b.js", { operation: "delete" }), { code: "TICKET_FILE_BUDGET_EXCEEDED" });
-    assert.equal(await readFile(join(root, "src/b.js"), "utf8"), sourceContent);
+    await executionContexts.assertApprovedPath("TICKET-MUT-1", "src/b.js", { operation: "delete" });
+    await bound.registry.delete_file.execute({ path: "src/b.js", before_checksum: sha256(sourceContent) });
+    assert.equal(await pathExists(join(root, "src/b.js")), false);
+    assert.equal((await executionContexts.load("TICKET-MUT-1")).manifest_paths.length, 3);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

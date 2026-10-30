@@ -1,7 +1,7 @@
 // Verifies ended ticket attempts free both resource types without discarding their resumable journal.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { releaseTicketAttempt } from "../../src/modules/supervisor/ticket-attempt-release.js";
+import { releaseTicketAttempt } from "../../src/modules/supervisor/ticket/ticket-attempt-release.js";
 
 // Preserves Coder source history and releases the exact agent claim before making retry available.
 test("settled attempt releases files reversibly and only its owned agent claim", async () => {

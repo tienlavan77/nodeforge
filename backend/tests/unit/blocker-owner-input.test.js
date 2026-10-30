@@ -3,10 +3,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { validateTechnicalReconciliation } from "../../src/modules/supervisor/blocker-technical-reconciliation.js";
-import { blockerOwnerRequest } from "../../src/modules/supervisor/blocker-owner-request.js";
+import { validateTechnicalReconciliation } from "../../src/modules/supervisor/blocker/blocker-technical-reconciliation.js";
+import { blockerOwnerRequest } from "../../src/modules/supervisor/blocker/blocker-owner-request.js";
 import { routeTicketReview } from "../../src/transport/http/forge-v1-ticket-review-routes.js";
-import { blockerExchangeRequest, blockerExchangeResponse } from "../../src/modules/supervisor/blocker-agent-exchange.js";
+import { blockerExchangeRequest, blockerExchangeResponse } from "../../src/modules/supervisor/blocker/blocker-agent-exchange.js";
 import { createForgeV1ConversationRoutes } from "../../src/transport/http/forge-v1-conversation-routes.js";
 import { createExecutionEventBus } from "../../src/modules/supervisor/execution-event-bus.js";
 

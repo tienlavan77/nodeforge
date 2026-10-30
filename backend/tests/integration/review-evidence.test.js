@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 import test from "node:test";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createGitService } from "../../src/infrastructure/git/git-service.js";
-import { createReviewWorker } from "../../src/modules/supervisor/review-worker.js";
+import { createReviewWorker } from "../../src/modules/supervisor/review/review-worker.js";
 
 const runFile = promisify(execFile);
 

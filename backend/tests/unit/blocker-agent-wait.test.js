@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { selectTicketCoder } from "../../src/modules/supervisor/ticket-agent-provider-routing.js";
+import { selectTicketCoder } from "../../src/modules/supervisor/ticket/ticket-agent-provider-routing.js";
 
 // Retains the exact Coder identity while another ticket owns its durable occupancy claim.
 async function waitingFixture() {

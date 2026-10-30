@@ -4,8 +4,8 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { regressionFailureIdentity } from "../../src/modules/supervisor/ticket-verification-regression.js";
-import { buildTicketVerificationPlan } from "../../src/modules/supervisor/ticket-verification-plan.js";
+import { regressionFailureIdentity } from "../../src/modules/supervisor/ticket/ticket-verification-regression.js";
+import { buildTicketVerificationPlan } from "../../src/modules/supervisor/ticket/ticket-verification-plan.js";
 
 test("only complete deterministic test failure evidence can identify a pre-existing regression", () => {
   const command = { test_paths: ["sample.test.js"] };

@@ -1,8 +1,8 @@
 // Covers complete review-history delivery through existing tools without granting general runtime access.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createReviewExchangeEvidence, attachReviewExchangeTools } from "../../src/modules/supervisor/review-exchange-evidence.js";
-import { createReviewerForgeTools } from "../../src/modules/supervisor/reviewer-forge-tools.js";
+import { createReviewExchangeEvidence, attachReviewExchangeTools } from "../../src/modules/supervisor/review/review-exchange-evidence.js";
+import { createReviewerForgeTools } from "../../src/modules/supervisor/review/reviewer-forge-tools.js";
 
 // Creates genuine Reviewer tools with a source service that must never serve virtual history.
 function fixture(exchange) {

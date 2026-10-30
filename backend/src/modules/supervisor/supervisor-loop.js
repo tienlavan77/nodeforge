@@ -1,6 +1,6 @@
 // Summary: Supervisor state machine that dispatches agent requests and routes agent/collector/verification events to transitions.
 import { ConfigurationError } from "../../shared/errors.js";
-import { automaticReviewPolicy } from "./automatic-review-identity.js";
+import { automaticReviewPolicy } from "./review/automatic-review-identity.js";
 import { matchesTicketExecution } from "../projects/ticket-execution-identity.js";
 /** Creates the supervisor loop that starts tasks and routes execution events to runtime transitions. */
 export function createSupervisorLoop({ runtime, senderQueue, collectorQueue, verificationQueue, sourceRequest, eventBus, attemptBuilder, requestStore, agentResolver, agentOccupancy, integrateTicket, automaticReview, resolveTicketWorkspace, coderRecovery, ticketStatusStore } = {}) {

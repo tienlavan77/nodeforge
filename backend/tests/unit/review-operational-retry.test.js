@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { automaticReviewFixture } from "../fixtures/automatic-review-fixture.js";
-import { retryOperationalReview, recoverOperationalReview } from "../../src/modules/supervisor/review-operational-retry.js";
+import { retryOperationalReview, recoverOperationalReview } from "../../src/modules/supervisor/review/review-operational-retry.js";
 import { sdkFailureEvidence } from "../../src/modules/agent/sdk-failure-evidence.js";
 
 // Repeated transport failures must keep one review identity and never consume a Coder repair or auto-approve.

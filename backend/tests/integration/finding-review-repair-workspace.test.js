@@ -8,9 +8,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createTicketRootWorkspace } from "../../src/modules/supervisor/ticket-root-workspace.js";
-import { prepareTicketExecutionContext } from "../../src/modules/supervisor/ticket-execution-context.js";
-import { captureVerificationEnvironment, persistVerificationEnvironment } from "../../src/modules/supervisor/ticket-verification-environment.js";
+import { createTicketRootWorkspace } from "../../src/modules/supervisor/ticket/ticket-root-workspace.js";
+import { prepareTicketExecutionContext } from "../../src/modules/supervisor/ticket/ticket-execution-context.js";
+import { captureVerificationEnvironment, persistVerificationEnvironment } from "../../src/modules/supervisor/ticket/ticket-verification-environment.js";
 
 const execFile = promisify(callback);
 // Runs one source-history operation in the isolated witness repository.

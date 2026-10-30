@@ -2,12 +2,12 @@
 // Recovery must deliver actual tool decisions to AM without reopening Coder or fabricating Owner approval.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isBlockerApprovalDenial } from "../../src/modules/supervisor/blocker-approval-denial.js";
-import { createBlockerAdmission } from "../../src/modules/supervisor/blocker-execution-admission.js";
-import { createBlockerAdmissionRefresh } from "../../src/modules/supervisor/blocker-admission-refresh.js";
-import { createBlockerReconciliationRefresh } from "../../src/modules/supervisor/blocker-reconciliation-refresh.js";
-import { returnArchitectureResponse } from "../../src/modules/supervisor/blocker-architecture-response.js";
-import { blockerExchangePrompt } from "../../src/modules/supervisor/blocker-exchange-prompt.js";
+import { isBlockerApprovalDenial } from "../../src/modules/supervisor/blocker/blocker-approval-denial.js";
+import { createBlockerAdmission } from "../../src/modules/supervisor/blocker/blocker-execution-admission.js";
+import { createBlockerAdmissionRefresh } from "../../src/modules/supervisor/blocker/blocker-admission-refresh.js";
+import { createBlockerReconciliationRefresh } from "../../src/modules/supervisor/blocker/blocker-reconciliation-refresh.js";
+import { returnArchitectureResponse } from "../../src/modules/supervisor/blocker/blocker-architecture-response.js";
+import { blockerExchangePrompt } from "../../src/modules/supervisor/blocker/blocker-exchange-prompt.js";
 
 const report = { event_id: "REPORT", tool: "report_done", arguments: { status: "blocked" }, error: { code: "CODER_BLOCKED",
   message: "SECURITY_RISK: Preserve the retained approval denial; Coder cannot remove the denied gate." } };

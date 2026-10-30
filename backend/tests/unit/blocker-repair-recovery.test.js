@@ -1,7 +1,7 @@
 // Checks legacy review-blocker intake uses exact execution receipts and retains AM terms without guessing approval.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { restoreRepairBlocker, retainPriorBlockerContracts } from "../../src/modules/supervisor/blocker-repair-recovery.js";
+import { restoreRepairBlocker, retainPriorBlockerContracts } from "../../src/modules/supervisor/blocker/blocker-repair-recovery.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 
 test("legacy blocked repair restores structured triage only for the current retained invocation", async () => {

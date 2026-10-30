@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker-recovery-contract.js";
-import { blockerResponseEvidence } from "../../src/modules/supervisor/blocker-validation.js";
-import { discoveryAssignment } from "../../src/modules/supervisor/blocker-discovery-checkpoint.js";
+import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker/blocker-recovery-contract.js";
+import { blockerResponseEvidence } from "../../src/modules/supervisor/blocker/blocker-validation.js";
+import { discoveryAssignment } from "../../src/modules/supervisor/blocker/blocker-discovery-checkpoint.js";
 
 const quote = "Keep project-local data and the existing public contract; implement compatible internal adapters.";
 const basis = { plan_id: "ARCH", revision: 1, sha256: "a".repeat(64) };

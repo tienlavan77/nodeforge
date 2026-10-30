@@ -2,7 +2,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { ConfigurationError } from "../../shared/errors.js";
 import { matchesTicketExecution } from "../projects/ticket-execution-identity.js";
-import { assertTicketReviewEvidence } from "./ticket-review-evidence.js";
+import { assertTicketReviewEvidence } from "./ticket/ticket-review-evidence.js";
 
 // Captures the immutable request evidence that a persisted Reviewer verdict actually evaluated.
 export function reviewRequestBasis(job) {

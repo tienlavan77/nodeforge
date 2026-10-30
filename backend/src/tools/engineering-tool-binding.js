@@ -3,16 +3,15 @@ import Ajv2020 from "ajv/dist/2020.js";
 import { lstat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { ConfigurationError } from "../shared/errors.js";
-import { authorizeTool, isAgentPathAllowed } from "./tool-authorization.js";
+import { authorizeTool, isAgentPathAllowed } from "./governance/tool-authorization.js";
 import { assertExecutionFileAccess } from "./execution-file-access.js";
-import { assertCoderWorkflowReadOnly, assertRoleFileAccess } from "../infrastructure/filesystem/file-service-role-policy.js";
+import { assertRoleFileAccess } from "../infrastructure/filesystem/file-service-role-policy.js";
 import { ENGINEERING_CATALOG_VERSION, coderToolDefinitions, engineeringToolDefinitions, engineeringToolReadiness } from "./engineering-tool-catalog.js";
 
 // Advertises locked tools explicitly and validates every call against the same schema before scoped dispatch.
 export function bindEngineeringTools({ registry, context }) {
   if (!registry || !context?.task_id || !context?.execution_id || !context?.project_root || !context?.agent_identity?.agent_id || context.agent_identity.role !== "coder") throw failure("TOOL_SCOPE_INVALID", "Engineering binding requires a Node-issued Coder execution context.");
   if (!Array.isArray(context.allowed_file_paths) && !Array.isArray(context.allowed_prefixes)) throw failure("TOOL_SCOPE_INVALID", "Engineering binding requires an explicit file or prefix scope.");
-  if (context.project_wide_access === true) throw failure("TOOL_SCOPE_INVALID", "Coder engineering binding cannot enable project-wide access.");
   assertExecutionFileAccess(context);
   if (context.file_access_version === 2 && context.agent_identity.provider === "codex") throw failure("FILE_ACCESS_PROVIDER_UNSUPPORTED", "Versioned ticket file access requires disabling native filesystem tools; Codex CLI ticket execution is not admitted.");
   const bound = { ...context, engineering_catalog_version: ENGINEERING_CATALOG_VERSION };
@@ -21,14 +20,6 @@ export function bindEngineeringTools({ registry, context }) {
     Object.defineProperty(bound, key, { value: value && typeof value === "object" ? Object.freeze(structuredClone(value)) : value, enumerable: true, configurable: false, writable: false });
   }
   for (const key of ["file_access_policy", "file_access_version"]) Object.defineProperty(bound, key, { value: context[key], enumerable: true, writable: false, configurable: false });
-  const manifest = structuredClone(context.execution_context?.approved_baseline?.file_checksums);
-  const mutablePaths = manifest ? new Set(Object.keys(manifest)) : null;
-  const createPrefixes = structuredClone(context.execution_context?.approved_baseline?.authorized_create_prefixes
-    ?? context.authorized_create_prefixes
-    ?? []);
-  const mutableFileBudget = context.execution_context?.approved_baseline?.mutable_file_budget
-    ?? context.mutable_file_budget
-    ?? null;
   const definitions = coderToolDefinitions();
   const scopedRegistry = { ...registry };
   for (const definition of engineeringToolDefinitions()) if (typeof scopedRegistry[definition.name]?.execute !== "function") scopedRegistry[definition.name] = lockedTool(definition.name, "A compatible scoped Node service is unavailable for this execution.");
@@ -43,7 +34,7 @@ export function bindEngineeringTools({ registry, context }) {
     if (locked.has(definition.name) || typeof scopedRegistry[definition.name]?.execute !== "function") throw failure("TOOL_LOCKED", locked.get(definition.name) ?? "A compatible execution-scoped service is unavailable.");
     authorizeTool(definition.name, bound);
     if (["read_file", "read_lines", "write_diff", "edit_diff", "delete_file", "move_file"].includes(definition.name)) {
-      await assertMutationOrRead(definition.name, input, bound, { mutablePaths, createPrefixes, mutableFileBudget });
+      await assertMutationOrRead(definition.name, input, bound);
     }
     const result = await scopedRegistry[definition.name].execute(input, bound);
     assertExecutionFileAccess(bound);
@@ -52,37 +43,17 @@ export function bindEngineeringTools({ registry, context }) {
   return { definitions, registry: implementations, context: bound, readiness };
 }
 
-// Validates read and mutation target paths, manifest membership, and mutable file budget before executing a Coder tool.
-async function assertMutationOrRead(toolName, input, bound, { mutablePaths, createPrefixes, mutableFileBudget }) {
+// Validates both move endpoints against the project boundary before dispatch.
+async function assertMutationOrRead(toolName, input, bound) {
   if (["read_file", "read_lines"].includes(toolName)) {
     await assertPath(input.path, bound, "read");
     return;
   }
-  const role = bound.agent_identity?.role;
   const targets = toolName === "move_file"
-    ? [{ path: input.from_path, op: "delete", allowCreatePrefix: false }, { path: input.to_path, op: "write", allowCreatePrefix: true }]
-    : [{ path: input.path, op: toolName === "delete_file" ? "delete" : "write", allowCreatePrefix: toolName !== "delete_file" }];
+    ? [{ path: input.from_path, op: "delete" }, { path: input.to_path, op: "write" }]
+    : [{ path: input.path, op: toolName === "delete_file" ? "delete" : "write" }];
   if (toolName === "move_file" && input.from_path === input.to_path) throw failure("TOOL_INPUT_INVALID", "move_file requires distinct from_path and to_path.");
-  for (const target of targets) {
-    assertCoderWorkflowReadOnly(role, target.op, target.path);
-    await assertPath(target.path, bound, target.op);
-    const inCreatePrefix = target.allowCreatePrefix && Array.isArray(createPrefixes) && createPrefixes.some((prefix) => {
-      const clean = String(prefix).replace(/\/+$/, "");
-      return clean && (target.path === clean || target.path.startsWith(`${clean}/`));
-    });
-    if (mutablePaths && !mutablePaths.has(target.path) && !inCreatePrefix) {
-      throw failure("PATH_FORBIDDEN", "Write path is outside the immutable approved manifest.");
-    }
-  }
-  if (Number.isInteger(mutableFileBudget) && mutableFileBudget > 0) {
-    const ledgerPaths = Array.isArray(bound.execution_context?.manifest_paths) ? bound.execution_context.manifest_paths : null;
-    const changedPaths = Array.isArray(bound.changed_paths) ? bound.changed_paths : [];
-    const baseTracked = ledgerPaths !== null
-      ? [...ledgerPaths, ...changedPaths]
-      : [...(mutablePaths ?? []), ...changedPaths];
-    const tracked = new Set([...baseTracked, ...targets.map((target) => target.path)]);
-    if (tracked.size > mutableFileBudget) throw failure("PATH_FORBIDDEN", "Write path exceeds the ticket mutable file budget.");
-  }
+  for (const target of targets) await assertPath(target.path, bound, target.op);
 }
 
 // Rejects private, out-of-scope and symlinked file paths before ticket reads or mutations.

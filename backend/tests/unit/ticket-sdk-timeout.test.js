@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { coderProductionRecoveryFixture, TICKET } from "../fixtures/coder-production-recovery-fixture.js";
-import { confirmTicketSdkTimeout } from "../../src/modules/supervisor/ticket-sdk-timeout.js";
+import { confirmTicketSdkTimeout } from "../../src/modules/supervisor/ticket/ticket-sdk-timeout.js";
 import { createTicketRunDispatch } from "../../src/application/ticket-run-dispatch.js";
 
 // Creates the typed gateway failure without relying on an agent's narrative response.

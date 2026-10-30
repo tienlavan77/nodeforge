@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createTicketPipelineShadow } from "../../src/modules/supervisor/ticket-pipeline-shadow.js";
+import { createTicketPipelineShadow } from "../../src/modules/supervisor/ticket/ticket-pipeline-shadow.js";
 
 // Writes compact persisted identity fixtures through File Service.
 async function save(files, path, value) { await files.atomicWrite({ path, content: `${JSON.stringify(value)}\n`, replace: true }); }

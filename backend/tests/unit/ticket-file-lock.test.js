@@ -5,7 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { acquireTicketFileLock } from "../../src/modules/supervisor/ticket-file-lock.js";
+import { acquireTicketFileLock } from "../../src/modules/supervisor/ticket/ticket-file-lock.js";
 
 test("ticket lock recovers a dead owner and rejects a live owner", async () => {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-ticket-lock-"));

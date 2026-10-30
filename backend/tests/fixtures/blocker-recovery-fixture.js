@@ -1,7 +1,7 @@
 // Exercises automatic blocker recovery through actual SDK ticket integration and locked file/checkpoint stores.
 import { createHash } from "node:crypto";
 import { coderProductionRecoveryFixture, TICKET } from "./coder-production-recovery-fixture.js";
-import { createProductionBlockerRecovery } from "../../src/modules/supervisor/blocker-recovery-runtime.js";
+import { createProductionBlockerRecovery } from "../../src/modules/supervisor/blocker/blocker-recovery-runtime.js";
 
 // Creates a source-bound blocked ticket whose second Coder invocation can complete without an owner reset.
 export async function blockerRecoveryFixture({ reason = "SCOPE_CONFLICT", investigate, ticket: overrides = {}, repeatBlock = false, limits, recoveryOptions = {}, consultation } = {}) {

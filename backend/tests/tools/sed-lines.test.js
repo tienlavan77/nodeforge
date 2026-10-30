@@ -7,7 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createRuntimeLogger } from "../../src/core/runtime-logger.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createSedLinesTool } from "../../src/tools/sed-lines.js";
+import { createSedLinesTool } from "../../src/tools/discovery/sed-lines.js";
 import { createRoleFileService } from "../../src/infrastructure/filesystem/file-service-role-policy.js";
 
 const context = { task_id: "SED-1", capabilities: ["sed_lines"], correlation_id: "C-SED" };

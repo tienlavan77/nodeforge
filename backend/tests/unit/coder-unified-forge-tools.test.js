@@ -4,8 +4,8 @@ import test from "node:test";
 import { createNodeforgeTaskExecutors } from "../../src/modules/supervisor/nodeforge-task-executors.js";
 import { CODER_TOOL_NAMES, coderToolDefinitions } from "../../src/tools/engineering-tool-catalog.js";
 import { createRuntimeToolGovernance } from "../../src/modules/governance/runtime-tool-governance.js";
-import { createReadFileTool } from "../../src/tools/agent-lifecycle-tools.js";
-import { checkpointedRegistry, createResumeState } from "../../src/modules/supervisor/ticket-resume.js";
+import { createReadFileTool } from "../../src/tools/governance/agent-lifecycle-tools.js";
+import { checkpointedRegistry, createResumeState } from "../../src/modules/supervisor/ticket/ticket-resume.js";
 
 // Creates a provider boundary fixture without launching models or mutating a live ticket.
 function fixture(governance) {

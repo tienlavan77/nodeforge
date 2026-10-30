@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createRoleFileService } from "../../src/infrastructure/filesystem/file-service-role-policy.js";
-import { createReadFileTool, createWriteDiffTool } from "../../src/tools/agent-lifecycle-tools.js";
-import { createOwnerDeleteFileTool } from "../../src/tools/owner-delete-file.js";
+import { createReadFileTool, createWriteDiffTool } from "../../src/tools/governance/agent-lifecycle-tools.js";
+import { createOwnerDeleteFileTool } from "../../src/tools/roles/owner-delete-file.js";
 
 test("FileService guards paths and serializes writes", async () => {
   const root = await mkdtemp(join(tmpdir(), "forge-files-"));
@@ -34,12 +34,12 @@ test("Architecture Manager reads, writes, and deletes workflows through role-sco
     const current = await read.execute({ path }, {});
     assert.match(current.sha256, /^sha256:/);
     await assert.rejects(() => remove.execute({ path, before_checksum: "sha256:stale" }), (error) => error.code === "CHECKSUM_MISMATCH");
-    await assert.rejects(() => coderFiles.atomicWrite({ path, content: "{}", replace: true }), (error) => error.code === "FILE_ROLE_FORBIDDEN");
-    await assert.rejects(() => coderFiles.deleteFile({ path }), (error) => error.code === "FILE_ROLE_FORBIDDEN");
+    await coderFiles.atomicWrite({ path: "workflows/coder.md", content: "Coder workflow", replace: false });
+    await coderFiles.deleteFile({ path: "workflows/coder.md" });
     await assert.rejects(() => architectureFiles.deleteFile({ path: "docs/decision.md" }), (error) => error.code === "FILE_ROLE_FORBIDDEN");
     await symlink(join(root, ".."), join(root, "workflows", "outside"));
     await assert.rejects(() => architectureFiles.atomicWrite({ path: "workflows/outside/escape.json", content: "{}", replace: true }), (error) => error.code === "FILE_ROLE_FORBIDDEN");
-    assert.deepEqual(await remove.execute({ path, before_checksum: current.sha256 }), { path, deleted: true });
+    assert.deepEqual(await remove.execute({ path, before_checksum: current.sha256 }), { path, deleted: true, before_sha256: current.sha256, sha256: null });
     await assert.rejects(() => files.readFile({ path }), (error) => error.code === "ENOENT");
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -57,7 +57,7 @@ test("System Engineer can read project node_modules without gaining access outsi
 
     const dependency = await engineerFiles.readForIndex({ path: "node_modules/example/index.js" });
     assert.equal(dependency.content, "export const answer = 42;\n");
-    await assert.rejects(() => architectureFiles.readForIndex({ path: "node_modules/example/index.js" }), (error) => error.code === "FILE_ROLE_FORBIDDEN");
+    assert.equal((await architectureFiles.readForIndex({ path: "node_modules/example/index.js" })).content, dependency.content);
     await assert.rejects(() => engineerFiles.readForIndex({ path: "node_modules/example/.env" }), (error) => error.code === "FILE_ROLE_FORBIDDEN");
     await assert.rejects(() => engineerFiles.readForIndex({ path: "../outside.js" }), (error) => error.code === "FILE_ROLE_FORBIDDEN");
   } finally {

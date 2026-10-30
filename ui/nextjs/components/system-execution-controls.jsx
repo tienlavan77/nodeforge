@@ -36,16 +36,16 @@ export function SystemExecutionControls({ client, projectId, conversationId, exe
     };
     void refresh();
     return () => { mounted = false; };
-  }, [client, projectId, conversationId, interruptionSignal]);
+  }, [client, projectId, conversationId, executionId, agentTyping, interruptionSignal]);
 
   const awaitingStop = awaitingOwnerExecutionRecovery(current);
   useEffect(() => {
-    if (!conversationId || !awaitingStop) return undefined;
+    if (!conversationId || !awaitingStop || busy) return undefined;
     const requestRevision = revision.current;
     return watchOwnerExecutionRecovery({ client, projectId, conversationId, executionId: currentId,
       onUpdate: (items) => { if (requestRevision === revision.current) { setExecutions(items); setError(""); } },
       onError: (message) => { if (requestRevision === revision.current) setError(message); } });
-  }, [client, projectId, conversationId, currentId, awaitingStop]);
+  }, [client, projectId, conversationId, currentId, awaitingStop, busy]);
 
   useEffect(() => {
     if (currentStatus !== "running" && (current || !agentTyping)) return undefined;
@@ -82,16 +82,25 @@ export function SystemExecutionControls({ client, projectId, conversationId, exe
         return previous.some((entry) => entry.execution_id === record.execution_id) ? previous.map((entry) => entry.execution_id === record.execution_id ? { ...entry, ...result, status } : entry) : [...previous, { ...record, ...result, status }];
       });
       onDecision?.({ action, executionId: record.execution_id, nextExecutionId: result?.execution_id });
-    } catch (reason) { setError(reason.message ?? "Unable to update execution."); }
+    } catch (reason) {
+      const message = reason.message ?? "Unable to update execution.";
+      setError(message);
+      const requestRevision = revision.current;
+      try {
+        const response = await client.listOwnerExecutions(projectId, conversationId);
+        if (requestRevision === revision.current) setExecutions(response.items ?? []);
+      } catch (refreshError) { setError(`${message} ${refreshError.message ?? "Unable to refresh execution status."}`); }
+    }
     finally { inFlight.current = false; setBusy(false); }
   }
 
   if (!current && !agentTyping && !error) return null;
-  return <div className="claude-chat-status" role="status" aria-live="polite">
+  return <div className="claude-chat-status" role="status" aria-live="polite" aria-busy={busy}>
+    {busy && <span>Updating execution…</span>}
     {currentStatus === "pausing" && <span>Stopping current action…</span>}
     {currentStatus === "interrupted" && <span>One action interrupted</span>}
     {currentStatus === "manual_required" && <span>Workspace needs manual verification before recovery.</span>}
-    {error && <span>{error} </span>}
+    {error && <span role="alert">{error} </span>}
     {["pausing", "interrupted"].includes(currentStatus) && ["continue", "restart", "discard"].map((action) => <button key={action} type="button" className="claude-retry" disabled={busy || currentStatus === "pausing" || !current?.[`can_${action}`]} onClick={() => void decide(action)} aria-label={action === "continue" ? "Continue interrupted action" : action === "restart" ? "Restart interrupted action" : "Discard interrupted action"}>{action === "continue" ? "Continue" : action === "restart" ? "Restart" : "Discard"}</button>)}
     {currentStatus === "manual_required" && current?.can_discard && <button type="button" className="claude-retry" disabled={busy} onClick={() => void decide("discard")}>Discard</button>}
   </div>;

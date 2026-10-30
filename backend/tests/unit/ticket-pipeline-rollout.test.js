@@ -5,7 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createTicketPipelineRollout } from "../../src/modules/supervisor/ticket-pipeline-rollout.js";
+import { createTicketPipelineRollout } from "../../src/modules/supervisor/ticket/ticket-pipeline-rollout.js";
 
 // Persists the project flag through Forge File Service and refuses stale CAS or legacy bypass.
 test("rollout remains shadow until legacy tickets are resolved", async () => {

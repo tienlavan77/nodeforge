@@ -9,11 +9,11 @@ import { initializeDispatchStorage, openDispatchStorage, PROJECT, TICKET } from 
 import { createProductionSupervisorRuntime } from "../../src/modules/supervisor/production-runtime.js";
 import { createNodeforgeTaskIntegration } from "../../src/modules/supervisor/nodeforge-task-integration.js";
 import { createTicketRunDispatch } from "../../src/application/ticket-run-dispatch.js";
-import { assertDependencySubmission, captureDependencyExpectations } from "../../src/modules/supervisor/ticket-dependency-expectations.js";
+import { assertDependencySubmission, captureDependencyExpectations } from "../../src/modules/supervisor/ticket/ticket-dependency-expectations.js";
 
 const SOURCE_PATHS = [
-  "modules/supervisor/production-runtime.js", "modules/supervisor/ticket-launch-recovery.js",
-  "modules/supervisor/durable-queue.js", "modules/supervisor/ticket-dependency-expectations.js", "application/ticket-run-dispatch.js"
+  "modules/supervisor/production-runtime.js", "modules/supervisor/ticket/ticket-launch-recovery.js",
+  "modules/supervisor/durable-queue.js", "modules/supervisor/ticket/ticket-dependency-expectations.js", "application/ticket-run-dispatch.js"
 ];
 let sourceIdentities;
 

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { findIntegratedTicketSource } from "../../src/modules/supervisor/ticket-integrated-source.js";
+import { findIntegratedTicketSource } from "../../src/modules/supervisor/ticket/ticket-integrated-source.js";
 
 // Supplies a completed integration whose source is pinned to the current project and exact commit.
 function fixture() {

@@ -3,8 +3,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createOwnerSdkStream } from "../../src/application/owner-sdk-stream.js";
-import { ownerRoleTools } from "../../src/tools/owner-role-tool-policy.js";
-import { blockerRecoveryTools } from "../../src/modules/supervisor/blocker-recovery-tools.js";
+import { ownerRoleTools } from "../../src/tools/roles/owner-role-tool-policy.js";
+import { blockerRecoveryTools } from "../../src/modules/supervisor/blocker/blocker-recovery-tools.js";
 
 // Supplies inert persistence and Git readers for registry construction without
 // reading project data or making any mutation during role-authority assertions.

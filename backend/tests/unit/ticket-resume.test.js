@@ -9,7 +9,7 @@ import {
   failureDetail,
   normalizeResume,
   recordTurn
-} from "../../src/modules/supervisor/ticket-resume.js";
+} from "../../src/modules/supervisor/ticket/ticket-resume.js";
 import { createTestCodexSdkGateway as createCodexSdkGateway } from "../fixtures/codex-sdk-fixture.js";
 
 function memoryStore() {

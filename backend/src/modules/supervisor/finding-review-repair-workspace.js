@@ -2,8 +2,8 @@
 import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { acquireTicketFileLock } from "./ticket-file-lock.js";
-import { withTicketProjectCommitLock } from "./ticket-project-commit-lock.js";
+import { acquireTicketFileLock } from "./ticket/ticket-file-lock.js";
+import { withTicketProjectCommitLock } from "./ticket/ticket-project-commit-lock.js";
 
 // Maps durable project and ticket records to their existing private runtime paths.
 const key = (value) => createHash("sha256").update(value).digest("hex");

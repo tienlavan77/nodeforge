@@ -1,7 +1,7 @@
 // Verifies owner policy choices survive repeated blockers and remain context rather than fabricated contract authority.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { blockerOwnerDecisions } from "../../src/modules/supervisor/blocker-owner-decisions.js";
+import { blockerOwnerDecisions } from "../../src/modules/supervisor/blocker/blocker-owner-decisions.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 
 const decision = { decision_id: "BLOCKER-DECISION-HTTP", option_id: "http_management_route", option_description: "Use fixed-path HTTP; AM designs the exact contract", actor: "owner", job_id: "OLD-JOB", decided_at: "2026-10-17T06:00:00Z" };

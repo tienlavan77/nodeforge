@@ -6,10 +6,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket-change-ledger.js";
-import { createTicketExecutionContextStore } from "../../src/modules/supervisor/ticket-execution-context.js";
+import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket/ticket-change-ledger.js";
+import { createTicketExecutionContextStore } from "../../src/modules/supervisor/ticket/ticket-execution-context.js";
 import { prepareFindingReviewRepair } from "../../src/modules/supervisor/finding-review-repair-workspace.js";
-import { resumeFindingReviewSource, inspectFindingReviewSource } from "../../src/modules/supervisor/finding-review-source-resume.js";
+import { resumeFindingReviewSource, inspectFindingReviewSource } from "../../src/modules/supervisor/review/finding-review-source-resume.js";
 
 // Seeds a genuinely archived verified repair with independent dirty workspace content.
 async function fixture(t) {

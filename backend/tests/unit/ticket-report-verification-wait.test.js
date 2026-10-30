@@ -1,9 +1,9 @@
 // Verifies durable report waits keep Coder sessions, source and Stop semantics while Node owns verification polling.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { checkpointedRegistry, createResumeState, buildResumePrompt } from "../../src/modules/supervisor/ticket-resume.js";
-import { createReportDoneTool } from "../../src/tools/agent-report-tool.js";
-import { createTicketVerificationRecovery } from "../../src/modules/supervisor/ticket-verification-recovery.js";
+import { checkpointedRegistry, createResumeState, buildResumePrompt } from "../../src/modules/supervisor/ticket/ticket-resume.js";
+import { createReportDoneTool } from "../../src/tools/reporting/agent-report-tool.js";
+import { createTicketVerificationRecovery } from "../../src/modules/supervisor/ticket/ticket-verification-recovery.js";
 
 // Builds the actual report/checkpoint/recovery chain with controllable terminal verification evidence.
 function fixture(provider, retained = null, failed = false) {

@@ -6,9 +6,9 @@ import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createTicketExecutionContextStore } from "../../src/modules/supervisor/ticket-execution-context.js";
-import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket-change-ledger.js";
-import { loadCompletedReviewSource, prepareCompletedReviewRepair } from "../../src/modules/supervisor/completed-review-repair-workspace.js";
+import { createTicketExecutionContextStore } from "../../src/modules/supervisor/ticket/ticket-execution-context.js";
+import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket/ticket-change-ledger.js";
+import { loadCompletedReviewSource, prepareCompletedReviewRepair } from "../../src/modules/supervisor/review/completed-review-repair-workspace.js";
 import { automaticReviewFixture } from "../fixtures/automatic-review-fixture.js";
 
 // Seeds an integrated root ticket while leaving unrelated dirty source untouched.

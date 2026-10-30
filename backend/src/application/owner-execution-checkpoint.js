@@ -1,7 +1,7 @@
 // Persists role-scoped owner execution checkpoints so interrupted work can be resumed safely.
 import { createHash, randomUUID } from "node:crypto";
 import { ConfigurationError } from "../shared/errors.js";
-import { acquireTicketFileLock } from "../modules/supervisor/ticket-file-lock.js";
+import { acquireTicketFileLock } from "../modules/supervisor/ticket/ticket-file-lock.js";
 import { prepareArchitectureMutation, verifyArchitectureMutation } from "./architecture-reconciliation.js";
 import { ownerExecutionRolePolicy } from "./owner-execution-role-policy.js";
 import { assertOwnerExecutionRecord, assertOwnerExecutionIdentity } from "./owner-execution-record-guards.js";

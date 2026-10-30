@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { baselineFixture, failedBaseline } from "./ticket-baseline-recovery-fixture.js";
-import { createTicketVerificationService } from "../../src/modules/supervisor/ticket-verification-service.js";
+import { createTicketVerificationService } from "../../src/modules/supervisor/ticket/ticket-verification-service.js";
 
 test("a restarted verification service reuses validated PASS checks and reruns the failed suffix", async () => {
   const f = await baselineFixture();

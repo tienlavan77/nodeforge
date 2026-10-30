@@ -5,9 +5,9 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { prepareReviewExchange, saveReviewExchange, prepareRepairExchange } from "../../src/modules/supervisor/review-agent-exchange.js";
-import { parseReviewVerdict } from "../../src/modules/supervisor/review-verdict-contract.js";
-import { requestReviewVerdict } from "../../src/modules/supervisor/review-verdict-request.js";
+import { prepareReviewExchange, saveReviewExchange, prepareRepairExchange } from "../../src/modules/supervisor/review/review-agent-exchange.js";
+import { parseReviewVerdict } from "../../src/modules/supervisor/review/review-verdict-contract.js";
+import { requestReviewVerdict } from "../../src/modules/supervisor/review/review-verdict-request.js";
 
 const job = { id: "J", request_id: "R", project_id: "P", task_id: "T", agent_id: "C", payload: { execution_id: "E", ticket: { acceptance_criteria: ["Works"] } } };
 const reviewer = { agent_id: "R", role: "reviewer" };

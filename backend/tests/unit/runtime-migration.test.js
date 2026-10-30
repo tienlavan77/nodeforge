@@ -11,10 +11,10 @@ import { RUNTIME_GROUPS, RUNTIME_LAYOUT_FILE, RUNTIME_LAYOUT_LOCK, groupedRuntim
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { classify } from "../../bin/forge-runtime-clean.mjs";
 import { acquireProcessLock } from "../../scripts/nodeforge-process-lock.mjs";
-import { persistVerificationEnvironment, loadVerificationEnvironment, readVerificationEnvironmentFile } from "../../src/modules/supervisor/ticket-verification-environment.js";
-import { latestTicketVerificationAttempt } from "../../src/modules/supervisor/ticket-verification-attempts.js";
+import { persistVerificationEnvironment, loadVerificationEnvironment, readVerificationEnvironmentFile } from "../../src/modules/supervisor/ticket/ticket-verification-environment.js";
+import { latestTicketVerificationAttempt } from "../../src/modules/supervisor/ticket/ticket-verification-attempts.js";
 import { createAgentExecutionCheckpointStore } from "../../src/modules/agent/agent-execution-checkpoint.js";
-import { createReviewRecordStorage } from "../../src/modules/supervisor/review-record-storage.js";
+import { createReviewRecordStorage } from "../../src/modules/supervisor/review/review-record-storage.js";
 
 /** Creates thirty legacy stores plus untouched state, with cleanup bound to the test lifetime. */
 async function fixture(context) {

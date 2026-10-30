@@ -4,9 +4,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { automaticReviewFixture } from "../fixtures/automatic-review-fixture.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { createAutomaticTicketReview } from "../../src/modules/supervisor/automatic-ticket-review.js";
-import { createBlockerRecovery } from "../../src/modules/supervisor/blocker-recovery.js";
-import { isTicketRecoveryCompleted, isAutomaticReviewCompleted } from "../../src/modules/supervisor/ticket-recovery-state.js";
+import { createAutomaticTicketReview } from "../../src/modules/supervisor/review/automatic-ticket-review.js";
+import { createBlockerRecovery } from "../../src/modules/supervisor/blocker/blocker-recovery.js";
+import { isTicketRecoveryCompleted, isAutomaticReviewCompleted } from "../../src/modules/supervisor/ticket/ticket-recovery-state.js";
 
 // Reconstructs production review recovery around retained evidence while observing every expensive or mutating operation.
 function restartReview(fixture, row, { forbidWork = false } = {}) {

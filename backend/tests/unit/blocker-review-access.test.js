@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import { inspectBlockerReviewAccess } from "../../src/modules/supervisor/blocker-review-access.js";
+import { inspectBlockerReviewAccess } from "../../src/modules/supervisor/blocker/blocker-review-access.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 
 // Supplies real immutable Git objects and current role rules while allowing unrelated dirty workspace changes.

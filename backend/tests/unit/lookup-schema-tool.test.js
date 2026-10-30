@@ -4,18 +4,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import Ajv2020 from "ajv/dist/2020.js";
 import { readFileSync } from "node:fs";
-import { createLookupSchemaTool } from "../../src/tools/lookup-schema-tool.js";
+import { createLookupSchemaTool } from "../../src/tools/discovery/lookup-schema-tool.js";
 import { AGENT_SCHEMA_CATALOG, agentSchemaEntries } from "../../src/modules/governance/agent-schema-catalog.js";
 import { AGENT_DECISION_ACTIONS } from "../../src/modules/governance/agent-decision-schema.js";
 import { agentSchemaDocument } from "../../src/modules/governance/agent-schema-document.js";
 import { AGENT_ROLE_READMES, agentRoleGuidance } from "../../src/modules/governance/agent-role-guidance.js";
 import { parseArchitecturePlanJSON } from "../../src/modules/governance/architecture-plan-json.js";
-import { createOwnerConversationTools } from "../../src/tools/owner-conversation-tools.js";
-import { createSprintLeaderForgeTools } from "../../src/tools/sprint-leader-forge-tools.js";
-import { createReviewerForgeTools } from "../../src/modules/supervisor/reviewer-forge-tools.js";
+import { createOwnerConversationTools } from "../../src/tools/roles/owner-conversation-tools.js";
+import { createSprintLeaderForgeTools } from "../../src/tools/roles/sprint-leader-forge-tools.js";
+import { createReviewerForgeTools } from "../../src/modules/supervisor/review/reviewer-forge-tools.js";
 import { engineeringToolImplementations } from "../../src/tools/engineering-tool-implementations.js";
 import { createRuntimeToolGovernance } from "../../src/modules/governance/runtime-tool-governance.js";
-import { parseTicketWorkProgress } from "../../src/modules/supervisor/ticket-work-progress.js";
+import { parseTicketWorkProgress } from "../../src/modules/supervisor/ticket/ticket-work-progress.js";
 
 /** Supplies only Node-issued task identity and the metadata capability; reading
  * a contract must not require access to a project source directory. */

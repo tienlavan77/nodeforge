@@ -3,9 +3,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { createBlockerRecoveryAgent } from "../../src/modules/supervisor/blocker-recovery-agent.js";
-import { blockerExchangeRequest, blockerExchangeResponse } from "../../src/modules/supervisor/blocker-agent-exchange.js";
-import { blockerExchangePrompt } from "../../src/modules/supervisor/blocker-exchange-prompt.js";
+import { createBlockerRecoveryAgent } from "../../src/modules/supervisor/blocker/blocker-recovery-agent.js";
+import { blockerExchangeRequest, blockerExchangeResponse } from "../../src/modules/supervisor/blocker/blocker-agent-exchange.js";
+import { blockerExchangePrompt } from "../../src/modules/supervisor/blocker/blocker-exchange-prompt.js";
 import { createAgentExchangeStorage } from "../../src/modules/governance/agent-exchange-storage.js";
 import { createClaudeSdkGateway } from "../../src/modules/agent/claude-sdk-gateway.js";
 

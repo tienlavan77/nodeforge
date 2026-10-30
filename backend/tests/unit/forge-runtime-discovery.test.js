@@ -7,9 +7,9 @@ import test from "node:test";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createRoleFileService } from "../../src/infrastructure/filesystem/file-service-role-policy.js";
 import { listAgentFileTree } from "../../src/infrastructure/filesystem/agent-file-tree.js";
-import { createOwnerSearchTreeTool } from "../../src/tools/owner-search-tree.js";
-import { createRgSearchTool } from "../../src/tools/rg-search.js";
-import { runProjectRipgrep } from "../../src/tools/project-ripgrep-runner.js";
+import { createOwnerSearchTreeTool } from "../../src/tools/roles/owner-search-tree.js";
+import { createRgSearchTool } from "../../src/tools/discovery/rg-search.js";
+import { runProjectRipgrep } from "../../src/tools/discovery/project-ripgrep-runner.js";
 
 // Creates an isolated runtime fixture without touching the live API or agent execution.
 async function fixture(context) {

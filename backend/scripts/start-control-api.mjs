@@ -3,7 +3,7 @@ import { createTaskSessionPreparation } from "../src/modules/projects/session-st
 import { resolve } from "node:path";
 import { loadNodeforgeEnv } from "./nodeforge-env.mjs";
 
-process.chdir(resolve(process.env.NODE_CONTROL_PROJECT_ROOT ?? new URL("../..", import.meta.url).pathname));
+process.chdir(resolve(process.env.NODE_CONTROL_PROJECT_ROOT ?? new URL("../../", import.meta.url).pathname));
 loadNodeforgeEnv();
 
 import { createArchitectureWorkspaceService } from "../src/application/architecture-workspace-service.js";
@@ -34,18 +34,18 @@ import { createSprintDagRunner } from "../src/modules/supervisor/sprint-dag.js";
 import { createSprintRunDispatch } from "../src/application/sprint-run-dispatch.js";
 import { createCompletionReportService } from "../src/modules/supervisor/completion-report-service.js";
 import { createEvalCaseRecorder } from "../src/modules/eval/eval-case-store.js";
-import { createAutomaticFoundationReplan } from "../src/modules/supervisor/automatic-foundation-replan.js";
+import { createAutomaticFoundationReplan } from "../src/modules/supervisor/review/automatic-foundation-replan.js";
 import { createTicketCrudService } from "../src/application/ticket-crud-service.js";
 import { createDirectCodeRequest } from "../src/application/direct-code-request.js";
 import { createAgentOccupancyStore } from "../src/modules/agent/agent-occupancy-store.js";
 import { createAgentOccupancyNotifications } from "../src/modules/agent/agent-occupancy-notifications.js";
-import { createTicketWorkspaceService } from "../src/modules/supervisor/ticket-workspace-service.js";
-import { withTicketProjectCommitLock } from "../src/modules/supervisor/ticket-project-commit-lock.js";
-import { createTicketPipelineInventory } from "../src/modules/supervisor/ticket-pipeline-inventory.js";
-import { createTicketPipelineRollout } from "../src/modules/supervisor/ticket-pipeline-rollout.js";
-import { createTicketPipelineShadow } from "../src/modules/supervisor/ticket-pipeline-shadow.js";
-import { createTicketPipelineDisposition } from "../src/modules/supervisor/ticket-pipeline-disposition.js";
-import { createCancelledTicketClaimReconciliation } from "../src/modules/supervisor/ticket-cancelled-claims.js";
+import { createTicketWorkspaceService } from "../src/modules/supervisor/ticket/ticket-workspace-service.js";
+import { withTicketProjectCommitLock } from "../src/modules/supervisor/ticket/ticket-project-commit-lock.js";
+import { createTicketPipelineInventory } from "../src/modules/supervisor/ticket/ticket-pipeline-inventory.js";
+import { createTicketPipelineRollout } from "../src/modules/supervisor/ticket/ticket-pipeline-rollout.js";
+import { createTicketPipelineShadow } from "../src/modules/supervisor/ticket/ticket-pipeline-shadow.js";
+import { createTicketPipelineDisposition } from "../src/modules/supervisor/ticket/ticket-pipeline-disposition.js";
+import { createCancelledTicketClaimReconciliation } from "../src/modules/supervisor/ticket/ticket-cancelled-claims.js";
 import { createHumanPlanStore } from "../src/modules/governance/human-plan-store.js";
 import { createMarkdownPlanStore } from "../src/modules/governance/markdown-plan-store.js";
 import { createSprintRegistry } from "../src/modules/governance/sprint-registry.js";
@@ -58,7 +58,7 @@ import { createSprintLeaderIntakeService } from "../src/application/sprint-leade
 import { createTicketHumanReviewService } from "../src/application/ticket-human-review-service.js";
 import { createTicketBlockerDecisionService } from "../src/application/ticket-blocker-decision-service.js";
 import { createTicketRunDispatch } from "../src/application/ticket-run-dispatch.js";
-import { reviewPhaseResume } from "../src/modules/supervisor/review-revision-resume.js";
+import { reviewPhaseResume } from "../src/modules/supervisor/review/review-revision-resume.js";
 import { createIdeasStore } from "../src/modules/projects/ideas-store.js";
 import { createIdeasProjectAuth } from "../src/modules/governance/ideas-project-auth.js";
 

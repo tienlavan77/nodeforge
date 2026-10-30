@@ -1,8 +1,8 @@
 // Verifies that a rejected review resumes the Coder with findings in a fresh provider session.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { reviewPhaseResume, reviewRevisionResume } from "../../src/modules/supervisor/review-revision-resume.js";
-import { buildResumePrompt, createResumeState } from "../../src/modules/supervisor/ticket-resume.js";
+import { reviewPhaseResume, reviewRevisionResume } from "../../src/modules/supervisor/review/review-revision-resume.js";
+import { buildResumePrompt, createResumeState } from "../../src/modules/supervisor/ticket/ticket-resume.js";
 
 test("review revision recovery keeps findings and drops a completed Claude session", async () => {
   const checkpoint = { task_id: "T-1", status: "in_progress", agent_id: "coder-1", provider: "claude", session_id: "old-session", last_completed_turn: 41, changed_paths: ["ui/Dialog.jsx"] };

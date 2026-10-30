@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { filesystemVerificationCommand, FILESYSTEM_ENVIRONMENT_TEST } from "../../src/modules/supervisor/filesystem-verification-command.js";
-import { ticketVerificationRunnerRevision } from "../../src/modules/supervisor/ticket-verification-runner-revision.js";
+import { ticketVerificationRunnerRevision } from "../../src/modules/supervisor/ticket/ticket-verification-runner-revision.js";
 
 test("filesystem acceptance uses the container with the exact Node arguments and archive cwd", () => {
   const argv = [process.execPath, "--test", "--test-reporter=tap", FILESYSTEM_ENVIRONMENT_TEST];

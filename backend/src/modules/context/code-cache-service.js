@@ -9,6 +9,7 @@ const MAX_PREWARM_FILES = 8;
 // Creates a project-scoped FIFO cache for source reads and bounded graph metadata.
 export function createCodeCacheService({ projectId, fileService, codeSearch, clock = () => Date.now(), maxBytes = DEFAULT_MAX_BYTES, ttlMs = DEFAULT_TTL_MS, logger = () => {} } = {}) {
   if (!projectId || typeof fileService?.readForIndex !== "function") throw new ConfigurationError("Code Cache requires project id and File Service.");
+  fileService = fileService.forRole?.("coder") ?? fileService;
   const entries = new Map();
   let usedBytes = 0;
   let sequence = 0;

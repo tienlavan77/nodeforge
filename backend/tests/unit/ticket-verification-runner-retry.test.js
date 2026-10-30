@@ -6,9 +6,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createTicketExecutionContextStore } from "../../src/modules/supervisor/ticket-execution-context.js";
-import { createTicketVerificationService } from "../../src/modules/supervisor/ticket-verification-service.js";
-import { CODING_BROWSER_ASSERTIONS } from "../../src/modules/supervisor/browser-coding-contract.js";
+import { createTicketExecutionContextStore } from "../../src/modules/supervisor/ticket/ticket-execution-context.js";
+import { createTicketVerificationService } from "../../src/modules/supervisor/ticket/ticket-verification-service.js";
+import { CODING_BROWSER_ASSERTIONS } from "../../src/modules/supervisor/browser/browser-coding-contract.js";
 
 // Preserves previous failed receipts, runs real admission, and enforces two attempts for the repaired runner after restart.
 test("repaired browser runner admits unchanged ticket and retains bounded failure retries", async () => {

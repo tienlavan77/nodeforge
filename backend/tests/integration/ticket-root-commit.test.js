@@ -9,12 +9,12 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createGitService } from "../../src/infrastructure/git/git-service.js";
-import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket-change-ledger.js";
-import { createTicketRootCommitService } from "../../src/modules/supervisor/ticket-root-commit-service.js";
-import { createTicketExecutionContextStore } from "../../src/modules/supervisor/ticket-execution-context.js";
-import { createTicketVerificationService } from "../../src/modules/supervisor/ticket-verification-service.js";
-import { createTicketCommitFileService } from "../../src/modules/supervisor/ticket-commit-file-service.js";
-import { assertTicketReviewEvidence } from "../../src/modules/supervisor/ticket-review-evidence.js";
+import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket/ticket-change-ledger.js";
+import { createTicketRootCommitService } from "../../src/modules/supervisor/ticket/ticket-root-commit-service.js";
+import { createTicketExecutionContextStore } from "../../src/modules/supervisor/ticket/ticket-execution-context.js";
+import { createTicketVerificationService } from "../../src/modules/supervisor/ticket/ticket-verification-service.js";
+import { createTicketCommitFileService } from "../../src/modules/supervisor/ticket/ticket-commit-file-service.js";
+import { assertTicketReviewEvidence } from "../../src/modules/supervisor/ticket/ticket-review-evidence.js";
 
 const execFile = promisify(callback);
 

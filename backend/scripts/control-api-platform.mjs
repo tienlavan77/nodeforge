@@ -31,7 +31,7 @@ import { createConversationCrudService } from "../src/application/conversation-c
 import { createTicketSprintLeader } from "../src/application/ticket-sprint-leader.js";
 import { createSprintPlanLeader } from "../src/application/sprint-plan-leader.js";
 import { createTicketFileStore } from "../src/application/ticket-file-store.js";
-import { createSprintLeaderToolOptions, createSprintLeaderForgeTools } from "../src/tools/sprint-leader-forge-tools.js";
+import { createSprintLeaderToolOptions, createSprintLeaderForgeTools } from "../src/tools/roles/sprint-leader-forge-tools.js";
 import { ConfigurationError } from "../src/shared/errors.js";
 import { createAgentExecutionActivity, createAgentActivityLogger } from "../src/application/agent-execution-activity.js";
 

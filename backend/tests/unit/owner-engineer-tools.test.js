@@ -6,9 +6,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createRuntimeLogger } from "../../src/core/runtime-logger.js";
-import { createOwnerConversationTools } from "../../src/tools/owner-conversation-tools.js";
+import { createOwnerConversationTools } from "../../src/tools/roles/owner-conversation-tools.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createOwnerEngineerTools } from "../../src/tools/owner-engineer-tools.js";
+import { createOwnerEngineerTools } from "../../src/tools/roles/owner-engineer-tools.js";
 
 test("System Engineer uses Node services for edit, checks, exact-path commit, push, and terminal logs", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "nodeforge-owner-engineer-"));

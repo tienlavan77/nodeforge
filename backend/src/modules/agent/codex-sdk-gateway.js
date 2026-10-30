@@ -55,7 +55,8 @@ export function createCodexSdkGateway({
     const stop = () => controller.abort(abortSignal.reason);
     abortSignal?.addEventListener("abort", stop, { once: true });
     if (abortSignal?.aborted) stop();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    // System Engineer sessions run until completion or explicit Stop, regardless of gateway duration.
+    const timeout = profile.role === "system_engineer" ? null : setTimeout(() => controller.abort(), timeoutMs);
     let mcpSession;
     let turnFailure = null;
     let streamError = null;
@@ -93,7 +94,10 @@ export function createCodexSdkGateway({
               NODEFORGE_CODEX_MCP_DEBUG_LOG: options.mcpDebugLog ?? join(process.cwd(), statePath("nf/logs/codex-mcp.log"))
             },
             startup_timeout_sec: 10,
-            tool_timeout_sec: mcpSession.tools.some((tool) => tool.name === "report_done") ? Math.ceil(timeoutMs / 1000) : 120,
+            // Verification has a ten-minute service deadline; allow one minute for final receipt delivery.
+            // The session deadline remains the upper bound for synchronous engineering checks.
+            tool_timeout_sec: mcpSession.tools.some((tool) => tool.name === "report_done") ? Math.ceil(timeoutMs / 1000)
+              : mcpSession.tools.some((tool) => tool.name === "run_check") ? Math.ceil(Math.min(timeoutMs, 660_000) / 1000) : 120,
             // Codex 0.154 defers all MCP tools behind `tool_search` when the
             // model family supports it (e.g. gpt-5.5), so the tool names never
             // appear in the initial request and the model gives up. Omitting

@@ -4,11 +4,10 @@
 import { ConfigurationError } from "../shared/errors.js";
 import { isAbsolute } from "node:path";
 import { assertRoleFileAccess } from "../infrastructure/filesystem/file-service-role-policy.js";
+import { isCoderProjectPath } from "../infrastructure/filesystem/coder-project-access.js";
 
 // Retains private Node provenance without serializing executable authority into resumable agent data.
 const issued = new WeakMap();
-// Reserves standard instruction files for governance even when a ticket lists them as mutable paths.
-const GOVERNANCE_FILES = new Set(["AGENTS.md", "CLAUDE.md", "ARCHITECTURE.md"]);
 
 // Issues an execution-local grant from trusted Node configuration, not ticket text or checkpoints.
 // Serialized copies intentionally lose provenance and must be reconciled by Node before execution.
@@ -40,25 +39,18 @@ export function assertExecutionFileAccess(context) {
   if (record.authorizeCurrent({ task_id: record.task_id, execution_id: record.execution_id, agent_id: record.agent_id, role: record.role, policy: grant.policy }) !== true) throw failure("File access authority is unavailable, revoked or requires reconciliation.");
 }
 
-// Applies role protection before the independent read/write allowlists; null delegates only to legacy policy.
-// Documentation writes require Node classification in addition to an exact write grant.
+// Applies project-wide Coder access or Reviewer read grants only after validating live Node authority.
+// Unversioned callers retain their role policy through the null result.
 export function executionFileAccessAllowed(path, context, operation = "read") {
   if (context.file_access_version === undefined && context.file_access_policy === undefined) return null;
   assertExecutionFileAccess(context);
+  if (context.agent_identity.role === "coder" && operation === "read" && path === ".") return true;
   if (!["read", "write", "delete", "move"].includes(operation) || !canonical(path)) return false;
+  if (context.agent_identity.role === "coder") return isCoderProjectPath(path);
   try { assertRoleFileAccess(context.agent_identity.role, "read", path); }
   catch (error) { if (error.code === "FILE_ROLE_FORBIDDEN") return false; throw error; }
   const grant = context.file_access_policy;
-  if (operation === "read") return contains(path, grant.read_paths, grant.read_prefixes);
-  if (context.agent_identity.role !== "coder" || path.startsWith("workflows/") || path === "workflows"
-    || path === "vocabulary/glossary.md" || path.split("/").some((part) => GOVERNANCE_FILES.has(part))
-    || path.split("/").includes("node_modules")) return false;
-  if (path === "docs" || path.startsWith("docs/")) {
-    const classifier = issued.get(grant).authorizeDocsWrite;
-    if (!grant.write_paths.includes(path) || typeof classifier !== "function"
-      || classifier({ path, policy: grant.policy, task_id: context.task_id, execution_id: context.execution_id }) !== true) return false;
-  }
-  return contains(path, grant.write_paths, grant.write_prefixes);
+  return operation === "read" && contains(path, grant.read_paths, grant.read_prefixes);
 }
 
 // Exposes only validated discovery scopes so tree/index consumers cannot borrow mutation prefixes.

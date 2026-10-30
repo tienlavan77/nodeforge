@@ -5,7 +5,7 @@ import { parse } from "@babel/parser";
 import { extname } from "node:path";
 import { extractorRegistry } from "../index/parser/index.js";
 import { purposeComments, purposeCommentBefore, normalizePurposeComment } from "../index/parser/purpose-comments.js";
-import { countBudgetLines, validateCommentLanguage } from "../../tools/agent-code-conventions.js";
+import { countBudgetLines, validateCommentLanguage } from "../../tools/governance/agent-code-conventions.js";
 
 const VIETNAMESE_DIACRITICS = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i;
 const DOCUMENTED_SYMBOL_KINDS = new Set(["function", "method", "hook", "component", "class", "interface", "trait"]);

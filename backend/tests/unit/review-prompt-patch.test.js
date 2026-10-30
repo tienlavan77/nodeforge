@@ -2,7 +2,7 @@
  * with empty diffs or hiding genuine source and Git failures. */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readReviewPromptPatch } from "../../src/modules/supervisor/review-prompt-patch.js";
+import { readReviewPromptPatch } from "../../src/modules/supervisor/review/review-prompt-patch.js";
 
 test("large patches are named for tool reads while small later patches remain visible", async () => {
   const calls = [];

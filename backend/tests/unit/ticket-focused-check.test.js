@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { createTicketFocusedCheck } from "../../src/modules/supervisor/ticket-focused-check.js";
+import { createTicketFocusedCheck } from "../../src/modules/supervisor/ticket/ticket-focused-check.js";
 
 // Models Node services while capturing identity, source selection and immutable receipt writes.
 function fixture() {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createReadCodeTool } from "../../src/tools/read-code.js";
+import { createReadCodeTool } from "../../src/tools/discovery/read-code.js";
 import { createForgeToolRegistry } from "../../src/tools/index.js";
 import { readFile } from "node:fs/promises";
 import Ajv2020 from "ajv/dist/2020.js";

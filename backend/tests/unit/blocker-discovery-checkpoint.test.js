@@ -2,8 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { createBlockerRecoveryAgent } from "../../src/modules/supervisor/blocker-recovery-agent.js";
-import { createDiscoveryProgress, discoveryAssignment, createDiscoveryCheckpointWriter } from "../../src/modules/supervisor/blocker-discovery-checkpoint.js";
+import { createBlockerRecoveryAgent } from "../../src/modules/supervisor/blocker/blocker-recovery-agent.js";
+import { createDiscoveryProgress, discoveryAssignment, createDiscoveryCheckpointWriter } from "../../src/modules/supervisor/blocker/blocker-discovery-checkpoint.js";
 
 for (const provider of ["openai", "codex", "claude"]) {
   test(`${provider} renews calls/output at saved checkpoints without restarting SDK or changing roles`, async () => {

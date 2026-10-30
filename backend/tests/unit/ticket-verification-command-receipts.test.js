@@ -5,8 +5,8 @@ import test from "node:test";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createTicketCommandReceipts } from "../../src/modules/supervisor/ticket-verification-command-receipts.js";
-import { runTicketVerificationCommands } from "../../src/modules/supervisor/ticket-verification-regression.js";
+import { createTicketCommandReceipts } from "../../src/modules/supervisor/ticket/ticket-verification-command-receipts.js";
+import { runTicketVerificationCommands } from "../../src/modules/supervisor/ticket/ticket-verification-regression.js";
 
 /** Gives each test an isolated persistence adapter and a complete input identity. */
 async function fixture() {

@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
 import { createCodeCacheService } from "../../src/modules/context/code-cache-service.js";
-import { createReadFileTool } from "../../src/tools/agent-lifecycle-tools.js";
-import { createSearchCodeTool } from "../../src/tools/search-code.js";
-import { createClaudeFileTools } from "../../src/tools/claude-file-tools.js";
-import { createSedLinesTool } from "../../src/tools/sed-lines.js";
+import { createReadFileTool } from "../../src/tools/governance/agent-lifecycle-tools.js";
+import { createSearchCodeTool } from "../../src/tools/discovery/search-code.js";
+import { createClaudeFileTools } from "../../src/tools/discovery/claude-file-tools.js";
+import { createSedLinesTool } from "../../src/tools/discovery/sed-lines.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -117,7 +117,7 @@ test("search prewarm serves metadata and both coder source readers from one cach
   try {
     await mkdir(join(root, "backend"));
     await writeFile(join(root, path), content);
-    const files = createFileService({ projectRoot: root });
+    const files = createFileService({ projectRoot: root, role: "coder" });
     let reads = 0;
     const fileService = { ...files, readForIndex: async (input) => { reads += 1; return files.readForIndex(input); } };
     const codeSearch = {
@@ -156,15 +156,16 @@ test("refresh invalidates instead of caching content that changes during the ref
   assert.equal(cache.stats().entries, 0);
 });
 
-test("File Service policy prevents protected and binary files from entering cache", async () => {
+test("Coder cache supports hidden project files but excludes Git metadata and binary content", async () => {
   const root = await mkdtemp(join(tmpdir(), "forge-cache-policy-"));
   try {
     await writeFile(join(root, ".env"), "TOKEN=secret\n");
     await writeFile(join(root, "binary.bin"), Buffer.from([0, 1, 2]));
     const fileService = createFileService({ projectRoot: root });
     const cache = createCodeCacheService({ projectId: "P", fileService });
-    await assert.rejects(cache.read({ path: ".env" }));
+    assert.equal((await cache.read({ path: ".env" })).content, "TOKEN=secret\n");
+    await assert.rejects(cache.read({ path: ".git/config" }));
     await assert.rejects(cache.read({ path: "binary.bin" }), /binary|invalid/i);
-    assert.equal(cache.stats().entries, 0);
+    assert.equal(cache.stats().entries, 1);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

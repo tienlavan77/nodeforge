@@ -7,11 +7,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createTicketVerificationService } from "../../src/modules/supervisor/ticket-verification-service.js";
-import { persistVerificationEnvironment } from "../../src/modules/supervisor/ticket-verification-environment.js";
-import { createTicketReportChecks } from "../../src/modules/supervisor/ticket-report-checks.js";
-import { createReportDoneTool } from "../../src/tools/agent-report-tool.js";
-import { coversVerificationPolicy } from "../../src/modules/supervisor/ticket-verification-policy.js";
+import { createTicketVerificationService } from "../../src/modules/supervisor/ticket/ticket-verification-service.js";
+import { persistVerificationEnvironment } from "../../src/modules/supervisor/ticket/ticket-verification-environment.js";
+import { createTicketReportChecks } from "../../src/modules/supervisor/ticket/ticket-report-checks.js";
+import { createReportDoneTool } from "../../src/tools/reporting/agent-report-tool.js";
+import { coversVerificationPolicy } from "../../src/modules/supervisor/ticket/ticket-verification-policy.js";
 
 /** Models durable Node evidence without a provider, database or mutable project
  * checkout, allowing process restart and interrupted publication to be tested. */

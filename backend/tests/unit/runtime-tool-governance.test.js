@@ -131,7 +131,7 @@ test("discovery budget never escalates for an unproductive agent", async () => {
 // Exercises advisory discovery markers through the governed dispatch boundary,
 // while proving the same boundary still refuses exhausted and forbidden calls.
 test("advisory discovery markers preserve total-budget and resource enforcement", async () => {
-  const { discoveryNotice } = await import("../../src/tools/exploration-state.js");
+  const { discoveryNotice } = await import("../../src/tools/discovery/exploration-state.js");
   const governance = createRuntimeToolGovernance();
   const current = governance.createExecutionContext(context({
     capabilities: ["select_code_graph_candidates", "search_code", "read_file"],

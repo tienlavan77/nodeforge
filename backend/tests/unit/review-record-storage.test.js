@@ -5,9 +5,9 @@ import { mkdtemp, rm, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createReviewRecordStorage } from "../../src/modules/supervisor/review-record-storage.js";
-import { createQueryReviewTool } from "../../src/tools/query-review-tool.js";
-import { createTicketReviewFindingsStore } from "../../src/modules/supervisor/ticket-review-findings.js";
+import { createReviewRecordStorage } from "../../src/modules/supervisor/review/review-record-storage.js";
+import { createQueryReviewTool } from "../../src/tools/reporting/query-review-tool.js";
+import { createTicketReviewFindingsStore } from "../../src/modules/supervisor/ticket/ticket-review-findings.js";
 
 // Supplies isolated, real File Service persistence for restart and lock checks.
 async function fixture(t) {

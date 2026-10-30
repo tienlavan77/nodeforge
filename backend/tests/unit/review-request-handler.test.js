@@ -1,7 +1,7 @@
 // Verifies Reviewer jobs share agent.request and retry without another SDK verdict.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createReviewRequestHandler } from "../../src/modules/supervisor/review-request-handler.js";
+import { createReviewRequestHandler } from "../../src/modules/supervisor/review/review-request-handler.js";
 import { createSenderWorker } from "../../src/modules/supervisor/sender-worker.js";
 
 test("review job persists one verdict in agent.request before publishing and acknowledging", async () => {

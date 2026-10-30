@@ -1,10 +1,10 @@
 // Verifies finding repairs retain AM evidence and send structured blockers to the normal recovery handler.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { currentReviewFindings } from "../../src/modules/supervisor/review-query-records.js";
-import { createTicketReviewRepair } from "../../src/modules/supervisor/ticket-review-repair.js";
-import { completeCoderTicket } from "../../src/modules/supervisor/ticket-coder-completion.js";
-import { handleTicketExecutionFailure } from "../../src/modules/supervisor/ticket-execution-failure.js";
+import { currentReviewFindings } from "../../src/modules/supervisor/review/review-query-records.js";
+import { createTicketReviewRepair } from "../../src/modules/supervisor/ticket/ticket-review-repair.js";
+import { completeCoderTicket } from "../../src/modules/supervisor/ticket/ticket-coder-completion.js";
+import { handleTicketExecutionFailure } from "../../src/modules/supervisor/ticket/ticket-execution-failure.js";
 
 // Keeps the Coder's latest session and completed edits when Node corrects an acknowledgement-only repair.
 test("implementation correction continues the current Coder checkpoint without rotating its journal again", async () => {

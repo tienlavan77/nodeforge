@@ -2,10 +2,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { fixture } from "../fixtures/ticket-contract-source-fixture.js";
-import { retainBlockerContract } from "../../src/modules/supervisor/blocker-contract-evidence.js";
-import { preflightBlockerContract } from "../../src/modules/supervisor/blocker-contract-preflight.js";
+import { retainBlockerContract } from "../../src/modules/supervisor/blocker/blocker-contract-evidence.js";
+import { preflightBlockerContract } from "../../src/modules/supervisor/blocker/blocker-contract-preflight.js";
 import { coderProductionRecoveryFixture, TICKET } from "../fixtures/coder-production-recovery-fixture.js";
-import { createProductionBlockerRecovery } from "../../src/modules/supervisor/blocker-recovery-runtime.js";
+import { createProductionBlockerRecovery } from "../../src/modules/supervisor/blocker/blocker-recovery-runtime.js";
 import { createHash } from "node:crypto";
 
 const basis = { plan_id: "ARCH", revision: 1, sha256: "a".repeat(64) };

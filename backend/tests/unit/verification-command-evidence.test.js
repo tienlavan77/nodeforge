@@ -5,10 +5,10 @@ import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { buildTicketVerificationPlan } from "../../src/modules/supervisor/ticket-verification-plan.js";
-import { completeNodeReportEvidence } from "../../src/tools/node-report-evidence.js";
-import { findPassingVerificationCommand } from "../../src/tools/verification-command-evidence.js";
-import { createReportDoneTool } from "../../src/tools/agent-report-tool.js";
+import { buildTicketVerificationPlan } from "../../src/modules/supervisor/ticket/ticket-verification-plan.js";
+import { completeNodeReportEvidence } from "../../src/tools/reporting/node-report-evidence.js";
+import { findPassingVerificationCommand } from "../../src/tools/reporting/verification-command-evidence.js";
+import { createReportDoneTool } from "../../src/tools/reporting/agent-report-tool.js";
 
 const path = "backend/tests/integration/routing.test.js";
 const step = { kind: "test", test_path: path, criterion_ids: ["AC-1", "AC-2"] };

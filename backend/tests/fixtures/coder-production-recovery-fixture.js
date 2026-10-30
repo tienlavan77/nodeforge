@@ -7,7 +7,7 @@ import { createFileQueueStore } from "../../src/modules/supervisor/file-queue-st
 import { createDurableQueue } from "../../src/modules/supervisor/durable-queue.js";
 import { createAgentExecutionCheckpointStore } from "../../src/modules/agent/agent-execution-checkpoint.js";
 import { createNodeforgeTaskIntegration } from "../../src/modules/supervisor/nodeforge-task-integration.js";
-import { createCoderRecoveryRuntime } from "../../src/modules/supervisor/coder-recovery-runtime.js";
+import { createCoderRecoveryRuntime } from "../../src/modules/supervisor/coder/coder-recovery-runtime.js";
 import { sdkFailureEvidence } from "../../src/modules/agent/sdk-failure-evidence.js";
 import { ConfigurationError } from "../../src/shared/errors.js";
 

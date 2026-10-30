@@ -7,8 +7,8 @@ import { createDatabaseService } from "../../src/infrastructure/sqlite/database-
 import { createHumanPlanStore } from "../../src/modules/governance/human-plan-store.js";
 import { createTicketBlockerDecisionService } from "../../src/application/ticket-blocker-decision-service.js";
 import { createTicketRunDispatch } from "../../src/application/ticket-run-dispatch.js";
-import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker-recovery-contract.js";
-import { createBlockerGovernanceHandoff } from "../../src/modules/supervisor/blocker-governance-handoff.js";
+import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker/blocker-recovery-contract.js";
+import { createBlockerGovernanceHandoff } from "../../src/modules/supervisor/blocker/blocker-governance-handoff.js";
 
 const proposal = { action: "owner_required", summary: "A transport change needs owner direction.",
   boundary_assessment: { rationale: "A new transport changes the approved contract.",

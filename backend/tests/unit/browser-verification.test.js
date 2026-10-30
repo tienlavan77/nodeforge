@@ -6,15 +6,15 @@ import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import Ajv2020 from "ajv/dist/2020.js";
-import { CODING_BROWSER_ASSERTIONS } from "../../src/modules/supervisor/browser-coding-contract.js";
-import { browserStepSha, browserCommandOutput, matchesBrowserEvidence } from "../../src/modules/supervisor/browser-verification-evidence.js";
-import { buildTicketVerificationPlan } from "../../src/modules/supervisor/ticket-verification-plan.js";
-import { coversVerificationPolicy } from "../../src/modules/supervisor/ticket-verification-policy.js";
-import { completeNodeReportEvidence } from "../../src/tools/node-report-evidence.js";
-import { createReportDoneTool } from "../../src/tools/agent-report-tool.js";
-import { createTicketVerificationService } from "../../src/modules/supervisor/ticket-verification-service.js";
+import { CODING_BROWSER_ASSERTIONS } from "../../src/modules/supervisor/browser/browser-coding-contract.js";
+import { browserStepSha, browserCommandOutput, matchesBrowserEvidence } from "../../src/modules/supervisor/browser/browser-verification-evidence.js";
+import { buildTicketVerificationPlan } from "../../src/modules/supervisor/ticket/ticket-verification-plan.js";
+import { coversVerificationPolicy } from "../../src/modules/supervisor/ticket/ticket-verification-policy.js";
+import { completeNodeReportEvidence } from "../../src/tools/reporting/node-report-evidence.js";
+import { createReportDoneTool } from "../../src/tools/reporting/agent-report-tool.js";
+import { createTicketVerificationService } from "../../src/modules/supervisor/ticket/ticket-verification-service.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { loadBrowserTools } from "../../src/modules/supervisor/browser-verification-runner.js";
+import { loadBrowserTools } from "../../src/modules/supervisor/browser/browser-verification-runner.js";
 
 const step = { kind: "browser", criterion_ids: ["AC-1"], viewports: [1440, 800], assertions: [CODING_BROWSER_ASSERTIONS[9]] };
 
@@ -126,7 +126,7 @@ test("report input schema permits browser evidence type without accepting arbitr
 
 test("browser runner and fixture exist separately from the committed ticket sources", async () => {
   assert.match(await readFile(new URL("../../scripts/verify-ticket-browser.mjs", import.meta.url), "utf8"), /runBrowserVerification/);
-  assert.match(await readFile(new URL("../../src/modules/supervisor/browser-coding-fixture.js", import.meta.url), "utf8"), /@ticket\/ui\/components\/coding-workspace-monitor/);
+  assert.match(await readFile(new URL("../../src/modules/supervisor/browser/browser-coding-fixture.js", import.meta.url), "utf8"), /@ticket\/ui\/components\/coding-workspace-monitor/);
 });
 
 // Verifies service integration with deterministic command outputs, not a substitute for real Chromium acceptance.

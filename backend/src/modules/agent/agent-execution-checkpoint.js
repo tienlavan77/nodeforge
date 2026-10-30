@@ -1,7 +1,7 @@
 // Persists resumable agent execution checkpoints to the file service under .forge/runtime.
 import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { ConfigurationError } from "../../shared/errors.js";
-import { acquireTicketFileLock } from "../supervisor/ticket-file-lock.js";
+import { acquireTicketFileLock } from "../supervisor/ticket/ticket-file-lock.js";
 
 // Creates a checkpoint store backed by File Service for save/load/complete lifecycle.
 export function createAgentExecutionCheckpointStore({ fileService, root = statePath("agent-checkpoints"), reviewRoot = statePath("reviewer-checkpoints"), onSaved } = {}) {

@@ -1,8 +1,8 @@
 // Verifies source-bound command diagnostics survive failure dispatch without inventing file-level defects.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createTicketVerificationDiagnostic } from "../../src/modules/supervisor/ticket-verification-diagnostic.js";
-import { verifyTicketChangeset } from "../../src/modules/supervisor/ticket-verification-gate.js";
+import { createTicketVerificationDiagnostic } from "../../src/modules/supervisor/ticket/ticket-verification-diagnostic.js";
+import { verifyTicketChangeset } from "../../src/modules/supervisor/ticket/ticket-verification-gate.js";
 import { createSupervisorLoop } from "../../src/modules/supervisor/supervisor-loop.js";
 
 const context = { task_id: "TASK", project_id: "PROJECT", version: 2, review_commit_sha: "COMMIT", source_revision: "REV", base_sha: "BASE", manifest_sha: "MANIFEST" };

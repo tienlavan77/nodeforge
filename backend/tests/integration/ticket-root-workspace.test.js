@@ -8,9 +8,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createTicketWorkspaceService } from "../../src/modules/supervisor/ticket-workspace-service.js";
-import { captureVerificationEnvironment, persistVerificationEnvironment } from "../../src/modules/supervisor/ticket-verification-environment.js";
-import { prepareTicketExecutionContext } from "../../src/modules/supervisor/ticket-execution-context.js";
+import { createTicketWorkspaceService } from "../../src/modules/supervisor/ticket/ticket-workspace-service.js";
+import { captureVerificationEnvironment, persistVerificationEnvironment } from "../../src/modules/supervisor/ticket/ticket-verification-environment.js";
+import { prepareTicketExecutionContext } from "../../src/modules/supervisor/ticket/ticket-execution-context.js";
 
 const execFile = promisify(callback);
 
@@ -42,7 +42,7 @@ test("root-only workspace uses the project source and leaves historical worktree
     const artifact = { artifact_id: "ARTIFACT-ROOT", status: "passed", commit_sha: result.sha, source_revision: committed.source_revision,
       manifest_sha: committed.manifest_sha, base_sha: committed.base_sha, tree_sha: await git(root, "rev-parse", `${result.sha}^{tree}`),
       changed_paths: ["source.js"], environment: await persistVerificationEnvironment(root, await captureVerificationEnvironment({ projectRoot: root, ticketPaths: ["source.js"] })),
-      policy_version: "ticket-verification-v7", planned_commands: [command], commands: [{ ...command, exit_code: 0, output_sha256: `sha256:${createHash("sha256").update("").digest("hex")}` }] };
+      policy_version: "ticket-verification-v8", planned_commands: [command], commands: [{ ...command, exit_code: 0, output_sha256: `sha256:${createHash("sha256").update("").digest("hex")}` }] };
     await fileService.atomicWrite({ path: ".forge/runtime/ticket-verification/TICKET-ROOT/artifacts/ARTIFACT-ROOT.json", content: JSON.stringify(artifact), replace: false });
     await workspace.executionContexts.update("TICKET-ROOT", committed.version, { state: "verified", verification_artifact_id: artifact.artifact_id });
     const competingIntegrations = await Promise.all([workspace.integrate(), workspace.integrate()]);
@@ -91,8 +91,8 @@ test("root-only preparation refuses an old Coder checkpoint without migrating it
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-// Keeps an out-of-scope Coder edit out of both the project source and ticket ledger.
-test("root-only workspace checks the approved path before writing source", async () => {
+// Tracks Coder edits beyond baseline hints while rejecting project escapes.
+test("root-only workspace tracks project-wide writes beyond the evidence baseline", async () => {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-root-scope-"));
   try {
     await git(root, "init", "-q");
@@ -106,9 +106,10 @@ test("root-only workspace checks the approved path before writing source", async
     const service = createTicketWorkspaceService({ projectRoot: root, projectId: "P-ROOT-SCOPE", protocolStorage: { save: async () => {}, get: async () => ({ data: {} }) }, stateFileService: fileService, indexDatabase: { all: () => [] }, codeSearch: { search: async () => [] }, fileGraph: { getDependencies: () => [], getDependents: () => [] }, rootOnly: true });
     const workspace = await service.open("TICKET-SCOPE");
     await workspace.executionContexts.create({ taskId: "TICKET-SCOPE", supervisorId: "SUP-SCOPE", baseSha: workspace.base_commit, baseline: { file_checksums: { "inside.js": "sha256:approved" } } });
-    await assert.rejects(workspace.changeLedger.write({ path: "outside.js", before: "const value = 1;\n", after: "const value = 2;\n" }), { code: "TICKET_BASELINE_SCOPE" });
-    assert.equal(await readFile(join(root, "outside.js"), "utf8"), "const value = 1;\n");
-    assert.deepEqual((await workspace.changeLedger.snapshot()).entries, {});
+    await workspace.changeLedger.write({ path: "outside.js", before: "const value = 1;\n", after: "const value = 2;\n" });
+    assert.equal(await readFile(join(root, "outside.js"), "utf8"), "const value = 2;\n");
+    assert.deepEqual(Object.keys((await workspace.changeLedger.snapshot()).entries), ["outside.js"]);
+    await assert.rejects(workspace.changeLedger.write({ path: "../escape.js", before: null, after: "escape" }), { code: "TICKET_BASELINE_SCOPE" });
     await service.close();
   } finally { await rm(root, { recursive: true, force: true }); }
 });

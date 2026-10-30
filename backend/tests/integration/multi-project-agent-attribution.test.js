@@ -11,7 +11,7 @@ import { createAgentProfileStore } from "../../src/modules/agent/agent-profile-s
 import { createAgentOccupancyStore } from "../../src/modules/agent/agent-occupancy-store.js";
 import { createAgentOccupancyNotifications } from "../../src/modules/agent/agent-occupancy-notifications.js";
 import { createProductionSupervisorRuntime } from "../../src/modules/supervisor/production-runtime.js";
-import { createBlockerRecoveryAgent } from "../../src/modules/supervisor/blocker-recovery-agent.js";
+import { createBlockerRecoveryAgent } from "../../src/modules/supervisor/blocker/blocker-recovery-agent.js";
 import { createProjectLogService } from "../../src/core/project-log-service.js";
 import { createRuntimeLogger } from "../../src/core/runtime-logger.js";
 import { createEventPublisher } from "../../src/modules/events/event-publisher.js";

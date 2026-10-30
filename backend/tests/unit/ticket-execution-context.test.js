@@ -5,8 +5,8 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createTicketExecutionContextStore, prepareTicketExecutionContext } from "../../src/modules/supervisor/ticket-execution-context.js";
-import { createTicketVerificationService } from "../../src/modules/supervisor/ticket-verification-service.js";
+import { createTicketExecutionContextStore, prepareTicketExecutionContext } from "../../src/modules/supervisor/ticket/ticket-execution-context.js";
+import { createTicketVerificationService } from "../../src/modules/supervisor/ticket/ticket-verification-service.js";
 import { createHash } from "node:crypto";
 
 const baseSha = "a".repeat(40);

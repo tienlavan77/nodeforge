@@ -1,0 +1,41 @@
+{
+  "purpose": "Captures protected guidance hashes before the historical docs archive batch; this is not a reconstruction of earlier turn baselines.",
+  "files": [
+    {
+      "path": "workflows/agents/architecture/README.md",
+      "sha256": "sha256:c52d66d49791da386613ee7c290ab1ecd40e42c91d6b25ae9b96fb0d7b10a23b"
+    },
+    {
+      "path": "workflows/agents/coder/README.md",
+      "sha256": "sha256:b87e54d0c643ab96d0229f870065e5c465b09a350807d78ae7caff4be1e8326d"
+    },
+    {
+      "path": "workflows/agents/linguist/README.md",
+      "sha256": "sha256:842318b2efdca041a4c5c64be715a3d837bcebbdcde46050424284381f8ba242"
+    },
+    {
+      "path": "workflows/agents/reviewer/README.md",
+      "sha256": "sha256:9bf14295035d3d82eadf93806ea21f76e2a01e085582520dcfc1e5c30ed69e06"
+    },
+    {
+      "path": "workflows/agents/sprint-leader/README.md",
+      "sha256": "sha256:a1e276cb2209a032dfb3a43594a83479bf2e703baa79020e3bafecd5e9f67c18"
+    },
+    {
+      "path": "workflows/agents/supervisor.md",
+      "sha256": "sha256:55e5ce2f81751f08cf8953c2e4d711cb4535c2d684600d5b653eaa034c90375c"
+    },
+    {
+      "path": "workflows/agents/system-engineer/README.md",
+      "sha256": "sha256:ed8a57ed4f0c05ddb704e2b9af8c52f62b67527a24f8d05e7edea376b5348def"
+    },
+    {
+      "path": "workflows/README.md",
+      "sha256": "sha256:ab533094ba94e5d56664c6844e63286255cd33050fd386283196fe3a9da4ede4"
+    },
+    {
+      "path": "workflows/architecture-plan-json-first-guide.md",
+      "sha256": "sha256:afc1c8c5e3196dc74ee51435041ba4b2844a4070a988ddaf50aed43ffaa2b154"
+    }
+  ]
+}

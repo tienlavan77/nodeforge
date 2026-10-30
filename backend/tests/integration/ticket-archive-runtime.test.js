@@ -4,8 +4,8 @@ import { mkdtemp, mkdir, writeFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createTicketRootGit } from "../../src/modules/supervisor/ticket-root-git.js";
-import { materializeTicketArchive } from "../../src/modules/supervisor/ticket-archive-materialization.js";
+import { createTicketRootGit } from "../../src/modules/supervisor/ticket/ticket-root-git.js";
+import { materializeTicketArchive } from "../../src/modules/supervisor/ticket/ticket-archive-materialization.js";
 
 test("archive supports cwd-relative isolated runtime fixtures and cleans them up without copying live data", async () => {
   const root = await mkdtemp(join(tmpdir(), "archive-runtime-"));

@@ -5,8 +5,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket-change-ledger.js";
-import { planTicketSourceMerge } from "../../src/modules/supervisor/ticket-source-merge-plan.js";
+import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket/ticket-change-ledger.js";
+import { planTicketSourceMerge } from "../../src/modules/supervisor/ticket/ticket-source-merge-plan.js";
 
 // Creates isolated project services and registers cleanup so each test uses production journal and ownership behavior.
 async function fixture(t, base = "one\ntwo\nthree\n") {

@@ -1,7 +1,7 @@
 // Verifies automatic foundation replanning creates one approved successor and never changes the blocked transport ticket.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createAutomaticFoundationReplan } from "../../src/modules/supervisor/automatic-foundation-replan.js";
+import { createAutomaticFoundationReplan } from "../../src/modules/supervisor/review/automatic-foundation-replan.js";
 
 const source = { plan_id: "ARCH", revision: 1, sha256: "a".repeat(64) };
 const ticket = { id: "TICKET-MULTIPROJECT-A-R1-LIFECYCLE", project_id: "P", sprint_id: "SPRINT-A", title: "Multi-project lifecycle",

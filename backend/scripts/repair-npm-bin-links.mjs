@@ -2,7 +2,7 @@ import { chmod, lstat, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const binDirectory = join(projectRoot, "node_modules", ".bin");
 const nodeModulesRoot = resolve(projectRoot, "node_modules");
 let repaired = 0;

@@ -4,7 +4,7 @@
  * only those omitted slots before the original Forge validators run. */
 import { createRequire } from "node:module";
 import { agentDecisionSchema, agentDecisionBranches } from "./agent-decision-schema.js";
-import { REVIEW_FINDING_SCHEMA, REVIEW_FINDING_UPDATE_SCHEMA } from "../supervisor/review-finding-guidance.js";
+import { REVIEW_FINDING_SCHEMA, REVIEW_FINDING_UPDATE_SCHEMA } from "../supervisor/review/review-finding-guidance.js";
 const require = createRequire(import.meta.url);
 const envelope = require("../../../../schemas/governance/agent-exchange.schema.json");
 const payloads = require("../../../../schemas/governance/agent-exchange-payload.schema.json");

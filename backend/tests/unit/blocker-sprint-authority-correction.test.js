@@ -2,8 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { blockerRolePrompt } from "../../src/modules/supervisor/blocker-role-prompt.js";
-import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker-recovery-contract.js";
+import { blockerRolePrompt } from "../../src/modules/supervisor/blocker/blocker-role-prompt.js";
+import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker/blocker-recovery-contract.js";
 
 const quote = "Keep project-local data and the existing public contract; implement compatible internal adapters.";
 const basis = { plan_id: "ARCH", revision: 1, sha256: "a".repeat(64) };

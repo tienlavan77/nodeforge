@@ -4,9 +4,9 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createTicketRootGit } from "../../src/modules/supervisor/ticket-root-git.js";
-import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket-change-ledger.js";
-import { createTicketContractSource } from "../../src/modules/supervisor/ticket-contract-source.js";
+import { createTicketRootGit } from "../../src/modules/supervisor/ticket/ticket-root-git.js";
+import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket/ticket-change-ledger.js";
+import { createTicketContractSource } from "../../src/modules/supervisor/ticket/ticket-contract-source.js";
 
 // Hashes exact source bytes for approval and ledger comparisons.
 const hash = (content) => createHash("sha256").update(content).digest("hex");

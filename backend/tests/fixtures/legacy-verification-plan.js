@@ -4,7 +4,7 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTicketVerificationPlan } from "../../src/modules/supervisor/ticket-verification-plan.js";
+import { buildTicketVerificationPlan } from "../../src/modules/supervisor/ticket/ticket-verification-plan.js";
 
 /** Adds the explicitly prepared legacy regression fixtures to the current AC
  * checks, preserving the command order of plans created before scope narrowing. */
@@ -16,7 +16,7 @@ export async function buildLegacyRegressionPlan(paths, root, options) {
     if (commands.some(command => command.argv.includes(path))) continue;
     commands.push({ kind: "backend_tests", scope: "regression", test_paths: [path], related_paths: ["backend/src/shared.js"],
       reason: "Recorded legacy regression fixture for shared value behavior",
-      argv: [process.execPath, "--test", `--test-reporter=${fileURLToPath(new URL("../../src/modules/supervisor/ticket-verification-reporter.js", import.meta.url))}`, path] });
+      argv: [process.execPath, "--test", `--test-reporter=${fileURLToPath(new URL("../../src/modules/supervisor/ticket/ticket-verification-reporter.js", import.meta.url))}`, path] });
   }
   return commands;
 }

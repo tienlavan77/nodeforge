@@ -8,14 +8,14 @@ import { spawn } from "node:child_process";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import report from "../../src/modules/supervisor/ticket-verification-reporter.js";
-import { regressionFailureIdentity } from "../../src/modules/supervisor/ticket-verification-regression.js";
+import report from "../../src/modules/supervisor/ticket/ticket-verification-reporter.js";
+import { regressionFailureIdentity } from "../../src/modules/supervisor/ticket/ticket-verification-regression.js";
 
 // Runs the actual Node test reporter against several oversized prompt assertions,
 // applying the same visible-output limit used by the verification command executor.
 async function runPromptChecks(prefix) {
   const script = `const test=require('node:test');const assert=require('node:assert/strict');for(let n=0;n<4;n++)test('prompt '+n,()=>assert.match(${JSON.stringify(prefix)}+'x'.repeat(90000),/80 physical lines/i));`;
-  const reporter = new URL("../../src/modules/supervisor/ticket-verification-reporter.js", import.meta.url).pathname;
+  const reporter = new URL("../../src/modules/supervisor/ticket/ticket-verification-reporter.js", import.meta.url).pathname;
   const root = await mkdtemp(join(tmpdir(), "verification-reporter-"));
   const path = join(root, "prompt.test.cjs");
   await writeFile(path, script);

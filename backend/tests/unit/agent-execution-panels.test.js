@@ -4,7 +4,7 @@ import test from "node:test";
 import { EventEmitter } from "node:events";
 import { createAgentExecutionActivity, createAgentActivityLogger } from "../../src/application/agent-execution-activity.js";
 import { createRuntimeLogger } from "../../src/core/runtime-logger.js";
-import { formatToolLogEvent } from "../../src/tools/tool-log-event.js";
+import { formatToolLogEvent } from "../../src/tools/reporting/tool-log-event.js";
 import { createRoleSdkGateway } from "../../scripts/control-api-platform.mjs";
 import { createProjectStream } from "../../src/transport/sse/project-stream.js";
 import { createProjectStreamClient } from "../../../ui/nextjs/lib/project-stream-client.js";

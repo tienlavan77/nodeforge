@@ -11,8 +11,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createTicketVerificationService } from "../../src/modules/supervisor/ticket-verification-service.js";
-import { captureVerificationEnvironment, persistVerificationEnvironment } from "../../src/modules/supervisor/ticket-verification-environment.js";
+import { createTicketVerificationService } from "../../src/modules/supervisor/ticket/ticket-verification-service.js";
+import { captureVerificationEnvironment, persistVerificationEnvironment } from "../../src/modules/supervisor/ticket/ticket-verification-environment.js";
 
 /** Runs an actual focused test against recorded dependency bytes, then proves
  * corrupt snapshot evidence fails rather than falling back to live files. */

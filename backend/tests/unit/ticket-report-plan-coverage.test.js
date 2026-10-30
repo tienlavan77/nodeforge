@@ -6,9 +6,9 @@ import test from "node:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createReportDoneTool } from "../../src/tools/agent-report-tool.js";
+import { createReportDoneTool } from "../../src/tools/reporting/agent-report-tool.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createTicketReviewFindingsStore } from "../../src/modules/supervisor/ticket-review-findings.js";
+import { createTicketReviewFindingsStore } from "../../src/modules/supervisor/ticket/ticket-review-findings.js";
 
 const testPath = "backend/tests/integration/operation-contract.test.js";
 const schemaStep = { kind: "schema_validation", criterion_ids: ["AC-1"] };

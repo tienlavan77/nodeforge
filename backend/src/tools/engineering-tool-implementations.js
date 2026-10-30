@@ -1,7 +1,7 @@
 // Supplies scoped tree discovery alongside the canonical Node-owned engineering services.
-import { createOwnerSearchTreeTool } from "./owner-search-tree.js";
-import { createLookupSchemaTool } from "./lookup-schema-tool.js";
-import { isAgentPathAllowed } from "./tool-authorization.js";
+import { createOwnerSearchTreeTool } from "./roles/owner-search-tree.js";
+import { createLookupSchemaTool } from "./discovery/lookup-schema-tool.js";
+import { isAgentPathAllowed } from "./governance/tool-authorization.js";
 import { isDependencyPath } from "../infrastructure/filesystem/dependency-read.js";
 import { createRoleFileService } from "../infrastructure/filesystem/file-service-role-policy.js";
 import { executionReadScope } from "./execution-file-access.js";
@@ -12,9 +12,9 @@ export function engineeringToolImplementations({ fileService, projectRoot, wrap 
   const tools = { lookup_schema: wrap(createLookupSchemaTool(), "lookup_schema") };
   if (fileService?.listFiles && fileService?.listDirectories) {
     tools.search_tree = wrap({ execute: async (input, context) => {
-      if (projectRoot && isDependencyPath(input?.path)) {
+      if (projectRoot && (context.agent_identity?.role === "coder" || isDependencyPath(input?.path))) {
         if (!isAgentPathAllowed(input.path, context)) throw new Error("Dependency tree is outside the approved project scope.");
-        return createOwnerSearchTreeTool({ fileService: createRoleFileService({ fileService, projectRoot, role: context.agent_identity?.role }) }).execute(input, context);
+        return createOwnerSearchTreeTool({ fileService: createRoleFileService({ fileService, projectRoot, role: context.agent_identity?.role }), role: context.agent_identity?.role }).execute(input, context);
       }
       const readScope = executionReadScope(context);
       const scope = [...readScope.paths, ...readScope.prefixes, ...(context.file_access_version === undefined && context.agent_identity?.role === "coder" ? ["docs"] : [])];

@@ -2,7 +2,7 @@
  * starve other tickets, erase retained checkpoints or spin on every timer tick. */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createBlockerRecovery } from "../../src/modules/supervisor/blocker-recovery.js";
+import { createBlockerRecovery } from "../../src/modules/supervisor/blocker/blocker-recovery.js";
 import { createRuntimeLogger } from "../../src/core/runtime-logger.js";
 
 test("a failing parked job retains its state while the same poll handles another ticket and retries after 30s", async () => {

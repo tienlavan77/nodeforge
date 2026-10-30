@@ -1,9 +1,9 @@
 // Verifies Reviewer resume preserves passed evidence without restarting mutable Coder preparation.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { prepareTicketReviewContext } from "../../src/modules/supervisor/ticket-review-context.js";
+import { prepareTicketReviewContext } from "../../src/modules/supervisor/ticket/ticket-review-context.js";
 import { createNodeforgeTaskIntegration } from "../../src/modules/supervisor/nodeforge-task-integration.js";
-import { reviewPhaseResume } from "../../src/modules/supervisor/review-revision-resume.js";
+import { reviewPhaseResume } from "../../src/modules/supervisor/review/review-revision-resume.js";
 
 // Provides fixed passed evidence and rejects any attempted Coder source refresh.
 function fixture() {

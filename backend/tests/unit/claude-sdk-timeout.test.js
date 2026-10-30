@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { createClaudeSdkGateway } from "../../src/modules/agent/claude-sdk-gateway.js";
 import { assertClaudeSessionStopped } from "../../src/modules/agent/claude-session-process.js";
-import { confirmTicketSdkTimeout } from "../../src/modules/supervisor/ticket-sdk-timeout.js";
+import { confirmTicketSdkTimeout } from "../../src/modules/supervisor/ticket/ticket-sdk-timeout.js";
 import { coderProductionRecoveryFixture } from "../fixtures/coder-production-recovery-fixture.js";
 
 test("Claude executor timeout releases its launch and keeps the unfinished verification checkpoint", async () => {

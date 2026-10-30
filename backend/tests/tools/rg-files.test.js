@@ -7,7 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { rgPath } from "@vscode/ripgrep";
 import { createRuntimeLogger } from "../../src/core/runtime-logger.js";
-import { createRgFilesTool } from "../../src/tools/rg-files.js";
+import { createRgFilesTool } from "../../src/tools/discovery/rg-files.js";
 
 const context = { task_id: "T-1", capabilities: ["rg_files"], correlation_id: "C-1" };
 
@@ -130,14 +130,14 @@ test("rg_files keeps hidden and ignored directories out of agent results", async
 });
 
 // Hides documentation from coder discovery while retaining schemas and workflow instructions.
-test("rg_files applies coder path scope to listed files", async () => {
+test("rg_files includes project documents for Coder independently of path hints", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "nodeforge-rg-coder-"));
   try {
     for (const dir of ["docs", "schemas", "workflows"]) await mkdir(join(projectRoot, dir));
     for (const path of ["docs/secret.md", "schemas/contract.json", "workflows/coder.md"]) await writeFile(join(projectRoot, path), "visible\n");
     const tool = createRgFilesTool({ projectRoot, logger: captureLogger([]) });
     const result = await tool.execute({}, { ...context, agent_identity: { role: "coder" }, allowed_prefixes: ["docs/", "schemas/", "workflows/"] });
-    assert.doesNotMatch(result.stdout, /docs\//);
+    assert.match(result.stdout, /docs\/secret.md/);
     assert.match(result.stdout, /schemas\/contract\.json/);
     assert.match(result.stdout, /workflows\/coder\.md/);
   } finally { await rm(projectRoot, { recursive: true, force: true }); }

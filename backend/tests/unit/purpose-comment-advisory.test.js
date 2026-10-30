@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
 import { countPurposeCommentWords, PURPOSE_COMMENT_GUIDANCE } from "../../src/shared/purpose-comment-guidance.js";
-import { createWriteDiffTool, createEditDiffTool } from "../../src/tools/agent-lifecycle-tools.js";
+import { createWriteDiffTool, createEditDiffTool } from "../../src/tools/governance/agent-lifecycle-tools.js";
 
 test("word counts exclude wrappers, decorative prefixes and empty whitespace units", () => {
   for (const raw of ["// One two\n// three", "# One two\n# three", "/* One two\n * three\n */", "/** One\t two\r\n * three */", "<!-- One two\n three -->"]) {

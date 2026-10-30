@@ -1,7 +1,7 @@
 // Keeps new ticket blockers actionable after long Coder work without extending duplicate failures or replaying providers.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createBlockerRecovery } from "../../src/modules/supervisor/blocker-recovery.js";
+import { createBlockerRecovery } from "../../src/modules/supervisor/blocker/blocker-recovery.js";
 
 // Builds a durable recovery clock and ledger so deadline behavior can be verified without SDK delays.
 function fixture() {
