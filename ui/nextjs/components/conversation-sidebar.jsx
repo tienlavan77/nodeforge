@@ -32,6 +32,7 @@ export function ConversationSidebar({ open, onOpen, onClose, agentSectionTitle =
     // eslint-disable-next-line react-hooks/rules-of-hooks -- Safe in Next App Router and guarded for standalone browser bundles.
     pathname = usePathname();
   } catch (error) {
+    // eslint-disable-next-line no-silent-catch -- usePathname is a best-effort probe when ConversationSidebar renders outside Next App Router context.
     pathname = null;
   }
   const selection = useSyncExternalStore(subscribeProjectSelection, getProjectSelection, getProjectSelection);
