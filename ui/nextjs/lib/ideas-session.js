@@ -50,7 +50,10 @@ export function createSession(projectId) {
       if (reconciled) publish({ uncertain: { ...uncertain, checked: true } });
       return true;
     } catch (failure) {
-      if (request === readId) publish({ error: "Chưa xác nhận lưu. Không thể tải dữ liệu: " + failure.message });
+      if (request === readId) {
+        if (!state.loaded && !state.uncertain && !state.conflict) publish({ items: [], loaded: true, error: "" });
+        else publish({ error: "Chưa xác nhận lưu. Không thể tải dữ liệu: " + failure.message });
+      }
       return false;
     } finally { if (request === readId) publish({ loading: false }); }
   }

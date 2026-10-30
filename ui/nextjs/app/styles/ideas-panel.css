@@ -39,6 +39,8 @@
 .ideas-panel li { padding: 12px 0; border-top: 1px solid var(--app-border, #777); }
 .ideas-panel p { overflow-wrap: anywhere; white-space: pre-wrap; margin: 0 0 8px; }
 .ideas-panel .ideas-project { overflow-wrap: anywhere; }
+.ideas-panel .ideas-entry-form button[type="submit"],
+.ideas-panel .ideas-entry-submit { align-self: flex-end; width: fit-content; }
 .ideas-panel .ideas-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .ideas-panel button { max-width: 100%; white-space: normal; }
 .ideas-panel :focus-visible { outline: 2px solid #629dff; outline-offset: 3px; }

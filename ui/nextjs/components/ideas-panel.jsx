@@ -53,15 +53,14 @@ export function IdeasPanel({ client, projectId, open, onClose, panelId, minimize
     </header>
     {!minimized && <div className="workspace-monitor-content ideas-panel-body">
       <p className="ideas-project">Project: {projectId}</p>
-      <form onSubmit={create}>
+      <form className="ideas-entry-form" onSubmit={create}>
         <label htmlFor={panelId + "-entry"}>Ý tưởng mới</label>
         <textarea ref={input} id={panelId + "-entry"} value={draft.content}
           onChange={(event) => changeDraft({ ...draft, content: event.target.value })} />
-        <button disabled={blocked || !draft.content.trim()} type="submit">Thêm ý tưởng</button>
+        <button className="ideas-entry-submit" disabled={blocked || !draft.content.trim()} type="submit">Thêm ý tưởng</button>
       </form>
       <div role="status" aria-live="polite">{loading ? "Đang tải…" : saving ? "Đang lưu…" : saved ? <><span>Đã lưu</span>{" bản đã gửi. Phần nhập mới vẫn là bản nháp."}</> : ""}</div>
       {error && <div role="alert"><p>{error}</p>
-        <button type="button" disabled={loading || saving} onClick={() => void session.load(client)}>Thử lại</button>
         {conflict && <button type="button" disabled={loading || saving} onClick={() => void session.compare(client)}>Tải bản server để đối chiếu</button>}
       </div>}
       {uncertain && <p role="note">Chưa xác nhận lưu. {uncertain.checked && "Đã tải dữ liệu để đối chiếu. "}{uncertain.kind === "create" ? "Không thể xác định chắc chắn ý tưởng đã được tạo. Gửi lại có thể tạo bản trùng." : "Kiểm tra dữ liệu server trước khi gửi lại."}</p>}
